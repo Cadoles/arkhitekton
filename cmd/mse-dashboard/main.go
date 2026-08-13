@@ -116,6 +116,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(authHandler, middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
+		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
+		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
+		// déclarerait prêt puis répondrait 500 sur chaque table absente.
+		dashhttp.ReadinessCheck{Name: "schema", Check: db.CheckSchema},
 		dashhttp.ReadinessCheck{Name: "minio", Check: storage.Ping})
 
 	return server.Run(ctx)
