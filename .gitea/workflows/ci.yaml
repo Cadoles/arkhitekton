@@ -22,7 +22,11 @@ env:
   KUBE_LINTER_VERSION: "0.8.3"
   KUBE_LINTER_SHA256: "1a6d8419b11971372971fdbc22682b684ebfb7cf1c39591662d1b6ca736c41df"
   REGISTRY: reg.cadoles.com
-  IMAGE_NAMESPACE: cnous-mse
+  # Namespace personnel tant que le projet n'est pas livrable : une image publiée
+  # dans `cnous-mse` est un signal de disponibilité pour le reste de l'équipe, et
+  # l'émettre avant que le dashboard fasse quoi que ce soit serait trompeur.
+  # Bascule sur `cnous-mse` à la première version destinée à être déployée.
+  IMAGE_NAMESPACE: vcarroy
   IMAGE_NAME: mse-dashboard
 
 jobs:

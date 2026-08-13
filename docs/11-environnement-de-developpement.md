@@ -316,6 +316,14 @@ transformation — un patch qui ne s'applique pas, une référence de ConfigMap 
 résolue. Le job installe donc kustomize et kube-linter, empreintes vérifiées, et
 appelle la même cible `make manifests` que le poste de développement.
 
+### Où l'image est publiée
+
+`reg.cadoles.com/vcarroy/mse-dashboard`, et non `cnous-mse`. Une image dans le
+projet partagé est un signal de disponibilité pour le reste de l'équipe ;
+l'émettre avant que le dashboard fasse quoi que ce soit serait trompeur. La
+bascule est une ligne — `IMAGE_NAMESPACE` — à la première version destinée à être
+déployée.
+
 ### Secrets attendus
 
 `REGISTRY_USERNAME` et `REGISTRY_TOKEN`, mêmes noms que dans `mse-tekton`, requis
