@@ -1,0 +1,44 @@
+# Observation d'un environnement applicatif — ici `mse-dev`, qui tient lieu de
+# tous les environnements en local (doc 11 §11.7).
+#
+# Une Role par namespace applicatif, en lecture stricte. Elle vit dans l'overlay
+# et non dans la base parce que la liste des namespaces observés est propre à
+# chaque installation : en production il y en a un par environnement, et la
+# production elle-même est dans un cluster indépendant, donc absente.
+#
+# Aucun droit d'écriture. Si un redémarrage contrôlé après re-tag s'avérait
+# nécessaire (B7), il passerait par un pipeline Tekton dédié utilisant le compte
+# `tekton-kubectl` existant, et non par un élargissement de ces droits.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mse-dashboard-observer
+  namespace: mse-dev
+rules:
+  # Lire les images et les digests réellement en cours d'exécution (B8).
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # PortalData est la seule source issue de l'application en exécution, et la
+  # seule à dire si les migrations ont abouti. Une image déployée dont les
+  # migrations ont échoué n'est pas une version livrée, et rien d'autre ne le dit.
+  - apiGroups: ["mse.cnous.fr"]
+    resources: ["portaldata"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mse-dashboard-observer
+  namespace: mse-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mse-dashboard-observer
+subjects:
+  - kind: ServiceAccount
+    name: mse-dashboard
+    namespace: mse-dashboard

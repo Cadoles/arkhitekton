@@ -1,0 +1,47 @@
+# Lecture des objets Flux.
+#
+# Le dashboard ne pilote pas Flux : il le lit. La promotion se limite à pousser un
+# tag sur le registre, et c'est Flux qui décide ensuite quoi déployer. Donner ici
+# le moindre verbe d'écriture donnerait au dashboard un second chemin pour agir sur
+# les environnements, à côté de celui qui est tracé.
+#
+# Deux usages distincts :
+#
+#   - au démarrage, la validation de la table `environments` contre les
+#     `ImagePolicy` réelles — `promotion_suffix` contre `filterTags`,
+#     `accepts_prerelease` contre la plage SemVer. C'est le garde-fou contre la
+#     promotion silencieusement sans effet (B7) ;
+#   - en fonctionnement, l'état de rapprochement des `Kustomization`, qui alimente
+#     `flux_state` (B8).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mse-dashboard-flux
+  namespace: flux-system
+rules:
+  - apiGroups: ["image.toolkit.fluxcd.io"]
+    resources: ["imagepolicies", "imagerepositories", "imageupdateautomations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch"]
+  # La `GitRepository` porte l'URL et la branche que Flux réécrit : c'est elle qui
+  # dit où lire les commits de promotion, la seule source disponible pour la
+  # production, dont le cluster est hors de portée.
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mse-dashboard-flux
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mse-dashboard-flux
+subjects:
+  - kind: ServiceAccount
+    name: mse-dashboard
+    namespace: mse-dashboard

@@ -1,0 +1,9 @@
+# Même nom qu'en production : les objets Flux y vivent, et le dashboard les y
+# cherche. Un namespace différent en local ferait passer la recherche par une
+# variable de configuration qui n'existe que pour le développement.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flux-system
+  labels:
+    app.kubernetes.io/part-of: flux

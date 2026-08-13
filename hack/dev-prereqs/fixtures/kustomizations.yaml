@@ -1,0 +1,103 @@
+# Source Git et rapprochements par environnement.
+#
+# Le dashboard n'observe pas le déploiement, il le **déduit** (B7). Deux des trois
+# sources croisées passent par ces objets :
+#
+#   - la `GitRepository` et les commits que l'image-automation-controller y écrit
+#     alimentent `environment_observations.git_*` ;
+#   - la `Kustomization` — `Reconciling`, puis `Ready` avec `lastAppliedRevision` —
+#     alimente `flux_state`.
+#
+# La troisième est le CRD `PortalData`, écrit par l'application elle-même.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: mse-kustom
+  namespace: flux-system
+spec:
+  interval: 5m
+  url: https://forge.cadoles.com/cnous-mse/mse-kustom
+  ref:
+    branch: unstable
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: portal-unstable
+  namespace: flux-system
+spec:
+  interval: 10m
+  sourceRef:
+    kind: GitRepository
+    name: mse-kustom
+  path: ./overlays/unstable
+  prune: true
+  targetNamespace: mse-dev
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: portal-testing
+  namespace: flux-system
+spec:
+  interval: 10m
+  sourceRef:
+    kind: GitRepository
+    name: mse-kustom
+  path: ./overlays/testing
+  prune: true
+  targetNamespace: mse-dev
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: portal-preprod
+  namespace: flux-system
+spec:
+  interval: 10m
+  sourceRef:
+    kind: GitRepository
+    name: mse-kustom
+  path: ./overlays/preprod
+  prune: true
+  targetNamespace: mse-dev
+---
+# La production tourne dans un cluster indépendant, hors de portée du dashboard
+# (B8). Cette entrée existe pour que l'interface puisse être exercée sur le cas
+# « non observable », distinct de « bloqué » — le seul moyen de vérifier qu'elle
+# les distingue sans disposer d'un second cluster.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: portal-prod
+  namespace: flux-system
+spec:
+  interval: 10m
+  sourceRef:
+    kind: GitRepository
+    name: mse-kustom
+  path: ./overlays/prod
+  prune: true
+  targetNamespace: mse-dev
+---
+# Écrit dans `mse-kustom` le tag retenu par chaque `ImagePolicy`. C'est cette
+# réécriture qui rend la production partiellement observable sans accès à son
+# cluster : `mse-kustom` est sur Gitea, déjà intégré, et se lit de l'extérieur.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageUpdateAutomation
+metadata:
+  name: portal
+  namespace: flux-system
+spec:
+  interval: 5m
+  sourceRef:
+    kind: GitRepository
+    name: mse-kustom
+  git:
+    commit:
+      author:
+        name: fluxcdbot
+        email: fluxcdbot@cadoles.com
+      messageTemplate: "chore(image): mise à jour automatique"
+    push:
+      branch: unstable

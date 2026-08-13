@@ -8,6 +8,8 @@ resources:
   - resources/postgres.yaml
   - resources/minio.yaml
   - resources/minio-bucket.yaml
+  # Observation de l'environnement applicatif local.
+  - resources/rbac-observer.yaml
 
 patches:
   - path: patches/ingress-host.yaml

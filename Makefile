@@ -24,7 +24,7 @@ MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := mse-dashboard-test
 
 .PHONY: help build test test-integration test-ci lint fmt fmt-check vet vuln clean check \
-        image image-push kind-load manifests deploy undeploy logs
+        dev-prereqs image image-push kind-load manifests deploy undeploy logs
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | expand -t24
@@ -94,6 +94,14 @@ check: lint test ## Ce que la CI vérifie
 
 clean: ## Supprime les artefacts de build
 	rm -rf bin/
+
+# --- Environnement de développement -------------------------------------------
+
+# CRD Flux et objets de développement, sans aucun contrôleur. Le CRD PortalData
+# appartient au dépôt `mse` et n'est pas copié ici : la cible échoue en indiquant
+# comment l'installer plutôt que d'en embarquer une copie qui divergerait.
+dev-prereqs: ## Installe les CRD Flux et les objets Flux de développement
+	./hack/dev-prereqs/install-crds.sh
 
 # --- Image et déploiement -----------------------------------------------------
 
