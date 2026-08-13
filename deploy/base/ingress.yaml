@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mse-dashboard
+  namespace: mse-dashboard
+  labels:
+    app.kubernetes.io/name: mse-dashboard
+  annotations:
+    # Le suivi d'un run passe par SSE. Avec la mise en tampon active — le défaut
+    # de nginx — les événements sont accumulés puis délivrés en bloc : l'interface
+    # affiche un run figé pendant plusieurs secondes, puis saute à l'état final.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # Un flux SSE reste ouvert aussi longtemps que le run. Le défaut de 60 s le
+    # couperait au milieu de chaque pipeline, et le navigateur reconnecterait en
+    # boucle.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    # Hôte volontairement inutilisable : chaque overlay doit poser le sien. Un
+    # nom plausible ici serait pire — il produirait un Ingress accepté par le
+    # contrôleur et joignable par personne.
+    - host: dashboard.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mse-dashboard-api
+                port:
+                  name: http

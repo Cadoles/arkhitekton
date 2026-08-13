@@ -1,0 +1,19 @@
+# Le contexte de build ne contient que ce qui entre dans le binaire.
+#
+# `deploy/` et `docs/` en sont exclus explicitement : sans cela, éditer un
+# manifeste invaliderait le cache de la couche `COPY . .` et relancerait une
+# compilation complète pour un changement qui ne touche pas une ligne de Go.
+.git/
+.gitignore
+bin/
+dist/
+deploy/
+docs/
+hack/
+apps/web/node_modules/
+apps/web/dist/
+Dockerfile
+.dockerignore
+*.test
+.env
+.env.local

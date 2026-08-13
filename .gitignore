@@ -5,3 +5,7 @@
 .env.local
 apps/web/node_modules/
 apps/web/dist/
+
+# Fichiers d'environnement des overlays : identifiants de base, de stockage objet
+# et d'OIDC. Seuls les *.example sont versionnés.
+deploy/overlays/*/secrets/*.env

@@ -24,6 +24,16 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
+// Renseignés à la compilation via -ldflags (voir Dockerfile et Makefile).
+//
+// La version est journalisée à chaque démarrage : diagnostiquer un comportement
+// inattendu commence par savoir quel binaire tourne, information qu'un tag
+// d'image ne donne pas de façon fiable — un tag peut être republié.
+var (
+	version  = "dev"
+	revision = "inconnue"
+)
+
 const usage = `mse-dashboard: pilotage des releases MSE
 
 Usage:
@@ -46,7 +56,8 @@ func run() error {
 	}
 
 	role := config.Role(os.Args[1])
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})).
+		With("version", version, "revision", revision)
 
 	cfg, err := config.Load(role)
 	if err != nil {

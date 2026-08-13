@@ -1,0 +1,59 @@
+# Droits du dashboard dans le namespace des pipelines.
+#
+# La liste suit doc 07 §7.3. Ce qui en est absent l'est volontairement :
+#
+#   - `secrets` : le dashboard n'a aucune raison de lire les secrets de Tekton,
+#     et ce namespace en contient (registre, clé SSH de déploiement, MinIO).
+#   - `pods/exec` : la collecte de logs passe par `pods/log`, jamais par une
+#     exécution dans un conteneur.
+#   - toute écriture sur `pipelines` et `tasks` : elles appartiennent à
+#     `mse-tekton`. Le dashboard crée des PipelineRun qui les référencent, il ne
+#     les modifie pas.
+#
+# Ce fichier porte un namespace en dur, différent de celui du reste du dépôt.
+# C'est la raison pour laquelle aucun transformateur `namespace:` n'est déclaré
+# dans les kustomization : il déplacerait cette Role vers `mse-dashboard`, où elle
+# n'accorderait rien, sans le moindre message d'erreur.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mse-dashboard-tekton
+  namespace: mse-tekton-pipelines
+rules:
+  # Lecture des définitions : le catalogue de pipelines du dashboard est validé au
+  # démarrage contre ce qui existe réellement dans le cluster.
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelines", "tasks"]
+    verbs: ["get", "list", "watch"]
+  # Pilotage des exécutions. `patch` sert uniquement à poser
+  # `spec.status: Cancelled` ; `delete` au nettoyage des runs créés par le
+  # dashboard.
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: ["tekton.dev"]
+    resources: ["taskruns"]
+    verbs: ["get", "list", "watch"]
+  # Collecte des logs.
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Diagnostic d'un run qui ne démarre pas : PVC non lié, image non tirée, quota
+  # atteint. Sans les events, l'interface ne peut afficher que « en attente ».
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mse-dashboard-tekton
+  namespace: mse-tekton-pipelines
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mse-dashboard-tekton
+subjects:
+  - kind: ServiceAccount
+    name: mse-dashboard
+    namespace: mse-dashboard

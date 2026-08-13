@@ -1,0 +1,23 @@
+# L'hôte de la base est `dashboard.invalid`, inutilisable par construction.
+# Celui-ci suit la convention déjà en place sur kind (`*.mse.local`), résolue vers
+# l'adresse que MetalLB attribue au contrôleur ingress.
+#
+# `rules` n'a pas de clé de fusion : la liste est remplacée en bloc, pas
+# fusionnée. La règle doit donc être redonnée entière.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mse-dashboard
+  namespace: mse-dashboard
+spec:
+  rules:
+    - host: dashboard.mse.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mse-dashboard-api
+                port:
+                  name: http

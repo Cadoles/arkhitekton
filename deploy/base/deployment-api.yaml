@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mse-dashboard-api
+  namespace: mse-dashboard
+  labels:
+    app.kubernetes.io/name: mse-dashboard
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mse-dashboard
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mse-dashboard
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: mse-dashboard
+      # Le rôle `api` ne parle jamais à l'API Kubernetes : la création des
+      # PipelineRun appartient au `worker`, l'api ne fait qu'inscrire une demande
+      # en base. Monter un jeton lui donnerait une capacité qu'il n'exerce pas.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          # `preferred` et non `required` : deux répliques sur des nœuds distincts
+          # est ce qu'on veut en production, mais l'exiger rendrait la seconde
+          # réplique éternellement Pending sur un cluster kind mononœud — c'est
+          # l'environnement où le manifeste est éprouvé le plus souvent.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: mse-dashboard
+                    app.kubernetes.io/component: api
+      containers:
+        - name: api
+          image: reg.cadoles.com/cnous-mse/mse-dashboard:latest
+          args: ["api"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: mse-dashboard-config
+            - secretRef:
+                name: mse-dashboard-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # /healthz est sans dépendance : une sonde de vivacité qui échoue parce
+          # que PostgreSQL est tombé ferait redémarrer un processus sain et
+          # transformerait une panne de base en boucle de crash.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          # /readyz vérifie les dépendances, dont la version du schéma : un pod
+          # démarré avant la fin du Job de migration reste hors du Service au lieu
+          # de répondre 500 sur chaque table absente.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          # La découverte OIDC et la vérification du bucket ont lieu au démarrage :
+          # le premier /healthz peut donc tarder. Sans startupProbe, la sonde de
+          # vivacité tuerait le processus au milieu de cette initialisation.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            # Le système de fichiers racine est en lecture seule : la génération
+            # de rapports PDF et les tampons de la bibliothèque HTTP ont besoin
+            # d'un /tmp inscriptible, et de rien d'autre.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

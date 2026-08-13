@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mse-dashboard-worker
+  namespace: mse-dashboard
+  labels:
+    app.kubernetes.io/name: mse-dashboard
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  # Recreate, et non RollingUpdate : l'ancien pod est arrêté avant que le nouveau
+  # démarre. Le Lease couvre déjà le chevauchement, mais l'éviter coûte moins
+  # qu'une élection à chaque déploiement, et le worker n'encaisse aucun trafic —
+  # il n'y a donc rien à maintenir disponible pendant la bascule.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mse-dashboard
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mse-dashboard
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: mse-dashboard
+      # Le worker, lui, parle à l'API Kubernetes : création de PipelineRun,
+      # informer, collecte de logs, élection de leader.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: reg.cadoles.com/cnous-mse/mse-dashboard:latest
+          args: ["worker"]
+          envFrom:
+            - configMapRef:
+                name: mse-dashboard-config
+            - secretRef:
+                name: mse-dashboard-secrets
+          env:
+            # Le nom du pod identifie le détenteur du Lease. Sans lui, le journal
+            # dit qu'un leader existe sans dire lequel, ce qui est précisément
+            # l'information utile quand deux pods se disputent la place.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Aucune sonde HTTP : le worker n'ouvre pas de port. Il vit ou il sort,
+          # et le Deployment le relance. Une sonde d'exécution serait un serveur
+          # HTTP ajouté pour l'unique bénéfice de la sonde.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            # Plus large que pour l'api : le worker rapatrie les logs de pipeline
+            # avant de les pousser sur MinIO, et un run d'intégration en produit
+            # des dizaines de mégaoctets.
+            sizeLimit: 1Gi

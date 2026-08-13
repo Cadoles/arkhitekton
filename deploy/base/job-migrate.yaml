@@ -1,0 +1,75 @@
+# Migration du schéma, hors du cycle de vie des pods applicatifs.
+#
+# Pourquoi un Job et non un initContainer : un initContainer s'exécuterait une
+# fois par réplique, donc deux fois en parallèle sur l'`api`, et goose ne pose pas
+# de verrou de session par défaut. Deux `goose up` concurrents sur une base vierge
+# se marchent dessus.
+#
+# La contrepartie est connue : `spec.template` d'un Job est immuable. Réappliquer
+# ce manifeste après un changement d'image échoue avec « field is immutable ».
+# `make deploy` supprime donc le Job avant d'appliquer — c'est le prix d'un
+# artefact unique pour les trois rôles, et il se paie une fois par déploiement.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mse-dashboard-migrate
+  namespace: mse-dashboard
+  labels:
+    app.kubernetes.io/name: mse-dashboard
+    app.kubernetes.io/component: migrate
+spec:
+  # Les migrations sont idempotentes : goose reprend là où il s'est arrêté. Une
+  # base pas encore joignable au premier essai est le cas courant sur un cluster
+  # qui démarre, et il ne justifie pas d'échouer le déploiement.
+  backoffLimit: 3
+  # Le Job disparaît une heure après sa réussite. Sans cela, les Jobs terminés
+  # s'accumulent et masquent celui qui vient d'échouer.
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mse-dashboard
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: mse-dashboard
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: reg.cadoles.com/cnous-mse/mse-dashboard:latest
+          args: ["migrate"]
+          # Le rôle `migrate` ne valide ni OIDC ni MinIO : il lui suffit de
+          # DATABASE_URL. Le ConfigMap et le Secret complets sont montés quand
+          # même — un jeu de variables identique pour les trois rôles évite qu'une
+          # variable renommée soit corrigée dans deux endroits sur trois.
+          envFrom:
+            - configMapRef:
+                name: mse-dashboard-config
+            - secretRef:
+                name: mse-dashboard-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

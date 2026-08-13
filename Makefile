@@ -1,6 +1,20 @@
 BINARY := bin/mse-dashboard
 GO     ?= go
 
+# Registre personnel pendant les développements : les images du dashboard ne
+# vont pas dans `cnous-mse` tant que le projet n'est pas livrable.
+IMAGE_REPO ?= reg.cadoles.com/vcarroy/mse-dashboard
+# Le tag reprend le commit : republier sous le même tag ne suffirait pas à faire
+# reprendre l'image par le cluster, les pods n'imposant pas d'`imagePullPolicy`.
+IMAGE_TAG  ?= dev-$(shell git rev-parse --short HEAD 2>/dev/null || echo inconnue)
+IMAGE      := $(IMAGE_REPO):$(IMAGE_TAG)
+
+# Tag consommé par l'overlay local. Distinct de IMAGE_TAG : en local l'image est
+# injectée directement dans les nœuds kind, sans passer par un registre.
+LOCAL_IMAGE := $(IMAGE_REPO):dev
+KIND_CLUSTER ?= mse
+OVERLAY ?= deploy/overlays/local
+
 PG_TEST_NAME := pg-mse-dashboard-test
 PG_TEST_PORT := 15432
 PG_TEST_DSN  := postgres://postgres:t3st@127.0.0.1:$(PG_TEST_PORT)/mse?sslmode=disable
@@ -9,7 +23,8 @@ MINIO_TEST_NAME   := minio-mse-dashboard-test
 MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := mse-dashboard-test
 
-.PHONY: help build test test-integration lint fmt vet vuln clean check
+.PHONY: help build test test-integration lint fmt vet vuln clean check \
+        image image-push kind-load manifests deploy undeploy logs
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | expand -t24
@@ -60,3 +75,42 @@ check: lint test ## Ce que la CI vérifie
 
 clean: ## Supprime les artefacts de build
 	rm -rf bin/
+
+# --- Image et déploiement -----------------------------------------------------
+
+image: ## Construit l'image, taguée par le commit et `dev`
+	docker build \
+		--build-arg VERSION=$(IMAGE_TAG) \
+		--build-arg REVISION=$$(git rev-parse HEAD 2>/dev/null || echo inconnue) \
+		-t $(IMAGE) -t $(LOCAL_IMAGE) .
+
+image-push: image ## Pousse l'image sur le registre
+	docker push $(IMAGE)
+
+# Injection directe dans les nœuds kind : évite l'aller-retour par le registre,
+# qui domine largement le temps d'une itération locale.
+kind-load: image ## Charge l'image dans le cluster kind
+	kind load docker-image $(LOCAL_IMAGE) --name $(KIND_CLUSTER)
+
+manifests: ## Rend et analyse les manifests de l'overlay
+	@kustomize build $(OVERLAY) > /dev/null
+	@kustomize build $(OVERLAY) | kube-linter lint -
+
+# Les Job sont supprimés avant d'appliquer : `spec.template` d'un Job est
+# immuable, et un simple `apply` échouerait sur « field is immutable » dès que
+# le tag d'image ou une variable de configuration change.
+deploy: kind-load manifests ## Déploie sur kind (overlay local)
+	kubectl delete job -n mse-dashboard mse-dashboard-migrate mse-dashboard-minio-bucket --ignore-not-found
+	kustomize build $(OVERLAY) | kubectl apply -f -
+	kubectl wait --for=condition=complete --timeout=180s -n mse-dashboard job/mse-dashboard-migrate
+	@# Le tag `dev` ne change pas d'un build à l'autre : sans redémarrage forcé,
+	@# les pods garderaient l'image déjà présente sur le nœud.
+	kubectl rollout restart -n mse-dashboard deployment/mse-dashboard-api deployment/mse-dashboard-worker
+	kubectl rollout status  -n mse-dashboard deployment/mse-dashboard-api --timeout=180s
+	kubectl rollout status  -n mse-dashboard deployment/mse-dashboard-worker --timeout=180s
+
+undeploy: ## Supprime le déploiement (le namespace emporte les PVC)
+	kustomize build $(OVERLAY) | kubectl delete --ignore-not-found -f -
+
+logs: ## Suit les journaux de l'api
+	kubectl logs -n mse-dashboard -l app.kubernetes.io/component=api --tail=100 -f

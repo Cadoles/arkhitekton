@@ -1,0 +1,29 @@
+# Droits du dashboard dans son propre namespace.
+#
+# Un seul besoin : l'élection de leader du `worker`. Le Deployment tourne en
+# `replicas: 1`, ce qui ne suffit pas — pendant un rolling update deux pods
+# coexistent brièvement, et c'est exactement l'instant où un ordonnanceur dupliqué
+# lancerait deux fois le même pipeline. Le Lease ferme cette fenêtre.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mse-dashboard-leader
+  namespace: mse-dashboard
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mse-dashboard-leader
+  namespace: mse-dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mse-dashboard-leader
+subjects:
+  - kind: ServiceAccount
+    name: mse-dashboard
+    namespace: mse-dashboard

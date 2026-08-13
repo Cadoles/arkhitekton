@@ -8,7 +8,7 @@ Tout tourne dans un cluster **kind** unique.
 |---|---|---|
 | Tekton | namespace `mse-tekton-pipelines` | identique |
 | Application MSE | namespace **`mse-dev`** | `unstable`, `qualif`, `preprod` — et `prod`, cluster séparé |
-| Dashboard | namespace `mse-dashboard` | identique |
+| Dashboard | namespace `mse-dashboard` — procédure en [§11.9](#119-déployer-le-dashboard-sur-kind) | identique |
 | PostgreSQL, MinIO | dans le cluster | CloudNativePG, `nuo-s3.nuonet.fr` |
 | Registre | **`reg.cadoles.com/vcarroy`** | `reg.cadoles.com/cnous-mse` |
 | Flux | **simulé** — voir §11.3 | image-automation + kustomize controllers |
@@ -196,3 +196,75 @@ vert :
 | Volume et débit des logs | runs de développement courts | mesure sur les runs réels dès le lot 2 |
 | Tests de charge | pas de runner externe | [B16](02-blocages-et-decisions.md#b16) |
 | Contention de la file sous charge réelle | peu de runs concurrents | recette |
+
+## 11.9 Déployer le dashboard sur kind
+
+### Mise en route
+
+```bash
+cp deploy/overlays/local/secrets/dashboard.env.example \
+   deploy/overlays/local/secrets/dashboard.env   # non versionné, à compléter
+make deploy
+```
+
+Puis, une fois l'Ingress créé et son adresse attribuée par MetalLB :
+
+```bash
+echo "$(kubectl get ingress -n mse-dashboard mse-dashboard \
+        -o jsonpath='{.status.loadBalancer.ingress[0].ip}') dashboard.mse.local" | sudo tee -a /etc/hosts
+```
+
+`dashboard.mse.local` n'est pas couvert par les entrées `*.mse.local` déjà
+présentes : elles sont énumérées une à une, pas génériques.
+
+`make deploy` construit l'image, l'injecte dans les nœuds kind (`kind load`, sans
+aller-retour par le registre), applique l'overlay et attend la fin des migrations.
+
+L'overlay local apporte son propre PostgreSQL et son propre MinIO, dans le
+namespace `mse-dashboard`. L'instance MinIO de `mse-dev` n'est **pas** réutilisée :
+le bucket `mse-dashboard` doit rester distinct de `mse-pipeline` pour que rétention
+et droits soient indépendants, et partager l'instance rendrait un `mc rb`
+malencontreux capable d'emporter les deux.
+
+### Ce que le déploiement vérifie réellement
+
+| Point | Ce que le local prouve |
+|---|---|
+| RBAC | `kubectl auth can-i --as=system:serviceaccount:mse-dashboard:mse-dashboard` confirme les droits accordés **et** les refus voulus (`secrets`, `pods/exec`, écriture sur `pipelines`) |
+| Découverte OIDC | joignabilité de l'issuer depuis un pod, pas la validité du client |
+| Sonde `/readyz` | distingue les trois dépendances : `postgres`, `schema`, `minio` |
+| Amorçage des rôles | `granted: 1` au premier pod, `0` au second — l'opération est idempotente et n'écrase rien |
+
+### Quatre pièges rencontrés en montant ces manifests
+
+**Un générateur sans `namespace` casse silencieusement les références.** Un
+`configMapGenerator` qui n'indique pas son namespace produit un objet dans
+`default`, et surtout kustomize cesse de reconnaître les `configMapRef` faits
+depuis les Deployments : ils gardent le nom **sans** suffixe de hachage. Le
+`kustomize build` reste vert et le déploiement échoue en
+`CreateContainerConfigError`.
+
+**Aucun transformateur `namespace:` n'est déclaré**, ni dans la base ni dans les
+overlays. La `Role` `mse-dashboard-tekton` vit dans `mse-tekton-pipelines` ; un
+transformateur global la déplacerait vers `mse-dashboard`, où elle n'accorderait
+plus rien — sans erreur, et avec pour seul symptôme un `forbidden` à la première
+création de `PipelineRun`. Chaque ressource porte donc son namespace.
+
+**`spec.template` d'un Job est immuable.** Réappliquer l'overlay après un
+changement d'image ou de configuration échoue sur `field is immutable`.
+`make deploy` supprime donc les deux Jobs — migration et création de bucket —
+avant d'appliquer.
+
+**Le schéma doit entrer dans la sonde de préparation.** PostgreSQL répond au ping
+bien avant que le Job de migration ait tourné : sans le contrôle `schema`, un pod
+`api` se déclarerait prêt puis répondrait 500 sur chaque table absente. Observé au
+premier déploiement, où le Job a échoué deux fois — PostgreSQL n'acceptait pas
+encore de connexion — avant de réussir au troisième essai.
+
+### Ce qui n'est pas encore couvert
+
+| Sujet | État |
+|---|---|
+| Overlay `preprod` / `prod` | absent. Il portera l'`ExternalSecret` prévu en [07 §7.4](07-securite-et-permissions.md#74-gestion-des-secrets) ; l'écrire sans connaître les chemins Vault produirait un manifeste non vérifiable |
+| `NetworkPolicy` | absente. À écrire avec la liste complète des flux sortants (PostgreSQL, MinIO, API Kubernetes, Redmine, Gitea, registre) : une politique partielle coupe un flux sans que la cause soit lisible |
+| Frontend | l'`api` sert l'API seule ; la SPA sera embarquée via `embed.FS` |

@@ -1,0 +1,130 @@
+# PostgreSQL de développement — jamais déployé ailleurs.
+#
+# En production, la base est une instance CloudNativePG avec sauvegardes
+# planifiées (doc 03 §3.5). Reproduire CNPG en local n'apporterait rien : ce que
+# le dashboard exerce est du SQL, identique dans les deux cas, et l'opérateur
+# ajouterait un secret généré dont le mot de passe devrait être extrait avant de
+# pouvoir construire un DSN.
+#
+# Ici le mot de passe vient du même fichier d'environnement que DATABASE_URL, ce
+# qui rend les deux cohérents par construction.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mse-dashboard-postgres
+  namespace: mse-dashboard
+spec:
+  accessModes: ["ReadWriteOnce"]
+  # kind fournit `standard` (local-path), et non `local-path` comme la production.
+  # Sans incidence : le dashboard ne lit aucun volume.
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mse-dashboard-postgres
+  namespace: mse-dashboard
+  labels:
+    app.kubernetes.io/name: mse-dashboard
+    app.kubernetes.io/component: postgres
+  annotations:
+    # Exclusion assumée et locale : l'image PostgreSQL écrit hors de ses volumes
+    # (socket de domaine, fichiers de verrou). La rendre compatible demanderait
+    # un montage par chemin concerné, pour une base qui n'existe qu'en
+    # développement. Les pods du dashboard, eux, restent en lecture seule.
+    ignore-check.kube-linter.io/no-read-only-root-fs: "base de développement, non déployée ailleurs"
+spec:
+  replicas: 1
+  # Recreate : deux postgres sur le même PVC ReadWriteOnce ne démarreraient pas,
+  # et un RollingUpdate essaierait exactement cela à chaque mise à jour.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mse-dashboard
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mse-dashboard
+        app.kubernetes.io/component: postgres
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # 70 = `postgres` dans l'image Alpine. Le namespace applique le profil
+        # `restricted` : sans UID explicite, l'entrypoint démarrerait en root et
+        # l'admission refuserait le pod.
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - name: POSTGRES_USER
+              value: dashboard
+            - name: POSTGRES_DB
+              value: dashboard
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mse-dashboard-secrets
+                  key: POSTGRES_PASSWORD
+            # Sous-répertoire imposé : la racine d'un PVC contient `lost+found`,
+            # et initdb refuse un répertoire non vide.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # Contrairement au dashboard, l'image PostgreSQL écrit hors de ses
+            # volumes — socket de domaine dans /var/run/postgresql, fichiers de
+            # verrou. Un FS racine en lecture seule demanderait un montage par
+            # chemin concerné, pour une base de développement.
+            readOnlyRootFilesystem: false
+          readinessProbe:
+            exec:
+              # pg_isready se déclare prêt sur le serveur temporaire d'initdb,
+              # avant que le serveur définitif n'accepte les connexions TCP.
+              # Une vraie requête sur la base cible est le seul signal fiable.
+              command: ["psql", "-U", "dashboard", "-d", "dashboard", "-c", "select 1"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mse-dashboard-postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mse-dashboard-postgres
+  namespace: mse-dashboard
+spec:
+  selector:
+    app.kubernetes.io/name: mse-dashboard
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

@@ -1,0 +1,67 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Aucun transformateur `namespace:` n'est déclaré, ici ni dans les overlays.
+#
+# La raison est dans rbac-tekton.yaml : cette Role vit dans
+# `mse-tekton-pipelines`. Un transformateur global la déplacerait vers
+# `mse-dashboard`, où elle n'accorderait plus rien — sans erreur, sans avertissement,
+# et le symptôme serait un « forbidden » à la première création de PipelineRun.
+# Chaque ressource porte donc son namespace explicitement.
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - rbac-dashboard.yaml
+  - rbac-tekton.yaml
+  - job-migrate.yaml
+  - deployment-api.yaml
+  - deployment-worker.yaml
+  - service.yaml
+  - ingress.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: mse-dashboard
+      app.kubernetes.io/managed-by: kustomize
+
+configMapGenerator:
+  # Seules les valeurs identiques partout figurent ici. Tout ce qui dépend de
+  # l'environnement — URL publique, fournisseur OIDC, endpoint MinIO, liste des
+  # administrateurs d'amorçage — est ajouté par l'overlay en `behavior: merge`.
+  #
+  # Le suffixe de hachage est conservé (pas de `disableNameSuffixHash`) : changer
+  # une valeur produit un nouveau nom de ConfigMap, donc un nouveau podTemplate,
+  # donc un redémarrage. Sans lui, une modification de configuration serait
+  # appliquée à l'objet sans que le moindre pod la relise.
+  #
+  # `namespace` est obligatoire ici, et son absence est un piège silencieux : un
+  # objet généré sans namespace atterrit dans `default`, et surtout kustomize
+  # cesse de reconnaître les références faites depuis les Deployments — les
+  # `configMapRef` gardent le nom sans suffixe de hachage. Le build reste vert,
+  # le déploiement échoue en CreateContainerConfigError.
+  - name: mse-dashboard-config
+    namespace: mse-dashboard
+    literals:
+      - HTTP_ADDR=:8080
+      - HTTP_READ_TIMEOUT=15s
+      - HTTP_WRITE_TIMEOUT=60s
+      - HTTP_SHUTDOWN_TIMEOUT=20s
+      - DATABASE_MAX_CONNS=10
+      - DATABASE_CONN_MAX_LIFETIME=1h
+      - MINIO_BUCKET=mse-dashboard
+      # Doit couvrir le pipeline le plus long — 90 min pour `security-audit` —
+      # sans excéder ce qui est raisonnable pour une capacité d'écriture. Le
+      # binaire refuse de démarrer en dessous de 90m.
+      - MINIO_PRESIGN_TTL=2h
+      - OIDC_SCOPES=openid,profile,email
+      - SESSION_TTL=12h
+      - TEKTON_NAMESPACE=mse-tekton-pipelines
+
+images:
+  # Substituée par chaque overlay. `latest` est délibérément faux : un overlay
+  # qui oublierait de fixer le tag déploierait une image non déterministe, et il
+  # vaut mieux que cela se voie.
+  - name: reg.cadoles.com/cnous-mse/mse-dashboard
+    newTag: latest

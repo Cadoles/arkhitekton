@@ -1,0 +1,54 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  # PostgreSQL et MinIO en cluster : développement uniquement. En production, ce
+  # sont CloudNativePG et `nuo-s3.nuonet.fr`, qui ne sont pas décrits ici.
+  - resources/postgres.yaml
+  - resources/minio.yaml
+  - resources/minio-bucket.yaml
+
+patches:
+  - path: patches/ingress-host.yaml
+
+configMapGenerator:
+  - name: mse-dashboard-config
+    namespace: mse-dashboard
+    behavior: merge
+    literals:
+      - PUBLIC_URL=http://dashboard.mse.local
+      - OIDC_REDIRECT_URL=http://dashboard.mse.local/api/v1/auth/callback
+      - MINIO_ENDPOINT=mse-dashboard-minio:9000
+      - MINIO_USE_SSL=false
+      # `NUO-Region` est la région de l'instance de production. En local, MinIO
+      # accepte n'importe quelle région pourvu que le client signe avec la même ;
+      # garder `us-east-1` ici rend visible que la valeur de production n'est pas
+      # exercée, plutôt que de laisser croire le contraire.
+      - MINIO_REGION=us-east-1
+
+secretGenerator:
+  # Fichier non versionné (voir .gitignore), modèle dans dashboard.env.example.
+  #
+  # Il porte aussi deux valeurs qui ne sont pas des secrets — OIDC_CLIENT_ID et
+  # BOOTSTRAP_ADMINS — parce qu'elles sont propres à chaque développeur. Les
+  # mettre dans le ConfigMap versionné obligerait chacun à modifier un fichier
+  # suivi par git pour y inscrire son propre identifiant, ce qui finit toujours
+  # par être commité par accident.
+  #
+  # L'ordre des `envFrom` dans les Deployments met le Secret après le ConfigMap :
+  # ce fichier peut donc redéfinir n'importe quelle variable ci-dessus.
+  - name: mse-dashboard-secrets
+    namespace: mse-dashboard
+    envs:
+      - secrets/dashboard.env
+
+images:
+  - name: reg.cadoles.com/cnous-mse/mse-dashboard
+    newName: reg.cadoles.com/vcarroy/mse-dashboard
+    # Le tag reprend le commit dont l'image est issue. Republier sous le même tag
+    # ne suffirait pas à faire reprendre l'image par le cluster : les pods ne
+    # posent pas d'`imagePullPolicy`, donc `IfNotPresent` s'applique dès que le
+    # tag n'est pas `latest`. Pour itérer sans commiter, épingler `digest` à la
+    # place de `newTag`.
+    newTag: dev
