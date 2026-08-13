@@ -54,6 +54,40 @@ Avec des CRD réelles et des `ImagePolicy` déclarées, le code de validation, l
 et le câblage des watches tournent sans aucune branche conditionnelle propre au
 développement.
 
+### En place depuis le 13/08/2026
+
+```bash
+make dev-prereqs
+```
+
+Installe quatre jeux de CRD Flux, versions figées et empreintes vérifiées, puis applique
+les objets de développement de `hack/dev-prereqs/fixtures/` :
+
+| CRD | Version | Apporte |
+|---|---|---|
+| `image-reflector-controller` | v1.2.4 | `ImageRepository`, `ImagePolicy` |
+| `image-automation-controller` | v1.2.4 | `ImageUpdateAutomation` |
+| `kustomize-controller` | v1.9.4 | `Kustomization` |
+| `source-controller` | v1.9.4 | `GitRepository`, et les autres sources |
+
+**Le groupe des images est servi en `v1`, non en `v1beta2`.** Flux a fait graduer ces API.
+À confirmer contre la version de Flux réellement déployée en production : le client Go du
+lot 5 doit viser la même, et une `ImagePolicy` lue dans la mauvaise version ne remonte
+pas les mêmes champs.
+
+Le CRD `PortalData` **n'est pas copié dans ce dépôt**. Il appartient à `mse`
+(`misc/k8s/kustomization/base/crds/portaldata-crd.yaml`) ; une copie ici divergerait en
+silence, et le dashboard lirait un schéma que l'application n'écrit plus. La cible vérifie
+sa présence et indique comment l'installer si elle manque.
+
+Les objets déclarés reproduisent [B7](02-blocages-et-decisions.md#b7) : une
+`ImageRepository`, quatre `ImagePolicy` — dont celle de qualif nommée **`portal-testing`**,
+le suffixe Flux — une `GitRepository` sur `mse-kustom`, quatre `Kustomization` et une
+`ImageUpdateAutomation`. Tous acceptés par les schémas réels.
+
+La RBAC correspondante est dans les manifests : `mse-dashboard-flux` en lecture seule sur
+`flux-system`, `mse-dashboard-observer` sur le namespace applicatif, `PortalData` compris.
+
 ### Ce que le simulateur doit reproduire
 
 Un composant de développement (`hack/fluxsim`, jamais déployé ailleurs) qui joue la
@@ -94,10 +128,25 @@ de release, et il ne se produit jamais spontanément en développement.
 Le simulateur reproduit la *forme* des objets Flux, pas son comportement de sélection.
 Un `filterTags` mal écrit ou une plage SemVer mal formée ne sera pas détecté par lui.
 
-**Il faut donc, au moins une fois, installer Flux pour de vrai** sur kind et valider les
-motifs sur le registre de test — en particulier que `>=0.0.0-0` sélectionne bien les RC
-et que `>=0.0.0` les exclut. C'est une validation ponctuelle, pas un environnement à
-maintenir.
+**Validé autrement, le 13/08/2026.** Plutôt que d'installer Flux, le chemin de sélection
+a été rejoué à l'identique — même version du contrôleur (v1.2.4), mêmes bibliothèques
+(`Masterminds/semver/v3`, `fluxcd/pkg/version`), même enchaînement `filterTags` puis
+plage :
+
+| Tag | `unstable` (`>=0.0.0-0`) | `prod` (`>=0.0.0`) |
+|---|:--:|:--:|
+| `1.8.0-rc1_<env>` | retenu | **ignoré** |
+| `3.1.0_<env>` | retenu | retenu |
+| `2026.5.5-k8sunstable.948.…_prod` | — | **ignoré** |
+
+Les deux pièges de [B7](02-blocages-et-decisions.md#b7) sont confirmés, et un troisième
+apparaît : l'ancien schéma de tag est une pré-release au sens SemVer, et prime sur toute
+version SemVer sur les environnements qui acceptent les pré-releases. Détail et
+conséquences en [B7 §transition](02-blocages-et-decisions.md#b7-transition).
+
+Installer Flux pour de vrai reste utile pour ce que cette méthode ne couvre pas : le
+comportement du contrôleur autour de la sélection — cadence de scan du registre,
+authentification au registre, réécriture Git effective.
 
 ## 11.4 Registre de test
 
@@ -191,7 +240,10 @@ vert :
 | Sujet | Pourquoi | Où le valider |
 |---|---|---|
 | ~~SigV4 sur `nuo-s3.nuonet.fr`~~ | *vérifié le 13/08/2026* | — |
-| Motifs `filterTags` et plages SemVer réels | Flux simulé | installation Flux ponctuelle, §11.3 |
+| ~~Sémantique des plages SemVer~~ | *vérifiée le 13/08/2026 en rejouant le code de Flux* | — |
+| `filterTags` réellement configurés en production | non lisibles d'ici | à relever sur le cluster de production, cf. [B7 §transition](02-blocages-et-decisions.md#b7-transition) |
+| Version d'API Flux en production | CRD locales servies en `v1` | à confirmer avant le client Go du lot 5 |
+| Comportement du contrôleur autour de la sélection | contrôleurs absents | installation Flux ponctuelle, §11.3 |
 | Séparation du cluster de production | un seul cluster | pas avant un accès prod |
 | Volume et débit des logs | runs de développement courts | mesure sur les runs réels dès le lot 2 |
 | Tests de charge | pas de runner externe | [B16](02-blocages-et-decisions.md#b16) |

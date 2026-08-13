@@ -328,6 +328,57 @@ avant `preprod`.
 **La promotion est déjà en service.** Les `ImagePolicy` existent : le dashboard les lit,
 il n'y a rien à mettre en place. Le lot 5 n'est plus suspendu à un préalable côté Flux.
 
+Le schéma de tag décrit plus haut est en revanche l'état **cible**, pas l'état courant —
+voir la section suivante, qui en mesure l'écart.
+
+### La transition SemVer n'est pas commencée, et elle n'est pas neutre {#b7-transition}
+
+**Relevé sur `reg.cadoles.com/cnous-mse/portal` le 13/08/2026 : 415 tags, dont zéro au
+format `<version>_<environnement>`.** L'environnement est aujourd'hui porté par le canal
+mktools, à l'intérieur du tag :
+
+| Canal | Tags | Exemple |
+|---|--:|---|
+| `k8sunstable` | 87 | `2026.7.15-k8sunstable.1128.83399b37f` |
+| `k8spreprod` | 77 | |
+| `k8stesting` | 76 | |
+| `k8sprod` | 42 | |
+
+Les `ImagePolicy` de production filtrent donc nécessairement sur ce canal, et non sur un
+suffixe. **Un tag `3.1.0_unstable` poussé contre les politiques actuelles ne
+correspondrait à rien** : le changement de schéma de tag et la réécriture des
+`ImagePolicy` doivent être simultanés, sans quoi la promotion devient un no-op — le mode
+de défaillance que [B7](#b7) cherche précisément à éliminer.
+
+Deux effets ont été **vérifiés en exécutant le code de sélection de Flux**
+(image-reflector-controller v1.2.4, `Masterminds/semver/v3` + `fluxcd/pkg/version`) :
+
+**1. L'ancien schéma est une pré-release au sens SemVer.** `2026.7.15-k8sunstable.1128.…`
+se parse comme la version `2026.7.15` assortie de la pré-release
+`k8sunstable.1128.…`. Conséquence directe : la plage `>=0.0.0` de la production
+**exclut tous les tags actuels**, exactement comme elle exclut les RC.
+
+**2. Pendant la coexistence des deux schémas, l'ancien gagne toujours.** Sur une plage
+`>=0.0.0-0` — `unstable`, `qualif`, `preprod` — la comparaison SemVer place `2026.7.15`
+au-dessus de `3.1.0` : le numéro majeur est une année. Vérifié :
+
+```
+2026.5.5-k8sunstable.948.92c5160       accepté
+2026.7.15-k8sunstable.1128.83399b37f   accepté
+1.8.0-rc1                              accepté
+3.1.0                                  accepté
+→ Latest() retient 2026.7.15-k8sunstable.1128.83399b37f
+```
+
+Tant qu'un tag de l'ancien schéma reste éligible à une politique, **aucune version
+SemVer ne sera jamais sélectionnée**, et rien ne le signalera.
+
+Ce que cela impose au basculement : les `ImagePolicy` doivent cesser d'accepter l'ancien
+schéma au moment même où elles commencent à accepter le nouveau. Le filtre par suffixe
+`_<environnement>` le fait naturellement — un tag mktools ne porte pas ce suffixe et
+sort du filtre — **à condition qu'aucun tag suffixé de l'ancien schéma n'existe**. Le
+relevé ci-dessus confirme que c'est le cas aujourd'hui : la fenêtre est propre.
+
 **Promouvoir ne touche pas `mse-kustom`** — l'opération se limite à pousser un tag sur le
 registre. **Flux, en revanche, y réécrit le tag retenu** : l'image-automation-controller
 commite dans `mse-kustom` la valeur sélectionnée par l'`ImagePolicy` de chaque
@@ -387,12 +438,56 @@ finale ([B17](#b17)) fait qu'un digest peut porter plusieurs identités.
 
 ### Le CRD `PortalData`
 
-Une PR en cours de validation sur `mse-kustom` l'introduit. Il porte la version
-applicative et le statut des migrations, alimenté par le job de migration de
-l'application à partir du `version.txt` baké dans l'image au build.
+**Vérifié sur le cluster le 13/08/2026.** Le CRD est déployé et alimenté : une
+instance `portal` existe dans `mse-dev`, en phase `Ready`.
+
+Correction de ce qui était écrit ici : il n'est **pas** introduit par une PR sur
+`mse-kustom`. Il appartient au dépôt **`mse`**
+(`misc/k8s/kustomization/base/crds/portaldata-crd.yaml`), et c'est le job de bootstrap
+de l'application qui en écrit le `status`.
+
+Le contrat réel, relevé sur le CRD installé :
+
+| Champ | Contenu |
+|---|---|
+| `status.phase` | `Bootstrapping`, `Ready` ou `Failed` |
+| `status.dataVersion` | version de l'image ayant réalisé le dernier bootstrap réussi |
+| `status.dataVersionKey` | forme normalisée triable de `dataVersion` (`YYYY.MM.DD.HHMM`) |
+| `status.schemaVersion` | dernière migration Doctrine appliquée (informatif) |
+| `status.bootstrapCompletedAt`, `status.fixturesLoadedAt` | horodatages |
+| `status.conditions` | dont `DataAheadOfCode` lors d'une rétrogradation |
 
 Son apport propre est l'état des migrations : **une image déployée dont les migrations
 ont échoué n'est pas une version livrée**, et aucune autre source ne le dit.
+
+Deux conséquences pour le dashboard :
+
+- **`schemaVersion` n'est pas une version de release** : c'est un nom de classe
+  Doctrine (`Application\Migrations\Version20260622083402`). L'identité de la version
+  se lit dans `dataVersion`, jamais là ;
+- **`dataVersionKey` sera vide après le passage à SemVer.** Sa construction est
+  détaillée ci-dessous, et elle ne concerne pas que le dashboard.
+
+### `dataVersionKey` ne survit pas au passage à SemVer {#b8-versionkey}
+
+`App\Health\VersionKey::fromVersion` du dépôt `mse` n'accepte qu'un tag mktools :
+
+```php
+preg_match('/^(\d{4})\.(\d{1,2})\.(\d{1,2})-[^.]+\.(\d{1,4})\./', $version)
+```
+
+`1.8.0` et `1.8.0-rc1` n'y correspondent pas : la méthode renvoie `null`. Or ce `null`
+est traité comme « version non exploitable », cas prévu pour les builds locaux
+`latest`, et **les deux garde-fous qui en dépendent deviennent alors sans effet** :
+
+| Emplacement | Ce qui disparaît |
+|---|---|
+| `HealthChecker::dataReady()` | l'attente que les données soient au moins à la version de l'image. Un pod démarre alors avant que le bootstrap ait migré |
+| `BootstrapCommand` | le refus de rétrograder quand les données sont plus récentes que le code |
+
+Aucun des deux n'échoue bruyamment : ils passent en mode dégradé silencieux. C'est un
+**prérequis de la transition SemVer**, à traiter dans `mse` et non dans le dashboard,
+mais il conditionne la fiabilité de la source que le lot 5 exploite.
 
 Il rapporte la version de **l'image**, pas de la release. Une release finale réutilisant
 l'image de sa RC ([B17](#b17)), `PortalData` annoncera `1.8.0-rc3` là où `1.8.0` est
