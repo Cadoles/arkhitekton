@@ -1,0 +1,140 @@
+// Package auth porte l'authentification OIDC et l'autorisation du dashboard.
+package auth
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
+
+// Role décrit ce qu'un utilisateur peut faire. Les rôles sont ordonnés : chacun
+// inclut les permissions du précédent.
+type Role string
+
+const (
+	RoleViewer   Role = "viewer"
+	RoleOperator Role = "operator"
+	RoleReleaser Role = "releaser"
+	RoleAdmin    Role = "admin"
+)
+
+// AllRoles est ordonné du moins au plus permissif.
+var AllRoles = []Role{RoleViewer, RoleOperator, RoleReleaser, RoleAdmin}
+
+func (r Role) Valid() bool { return slices.Contains(AllRoles, r) }
+
+// rank permet de comparer deux rôles. Un rôle inconnu vaut -1 : il ne satisfait
+// donc aucune exigence, pas même celle du rôle le plus faible.
+func (r Role) rank() int { return slices.Index(AllRoles, r) }
+
+// Permission nomme une capacité. Le déploiement est indexé par environnement
+// (`deploy:prod`) : ajouter un environnement ne doit pas demander de modifier le
+// modèle de permissions.
+type Permission string
+
+const (
+	PermRead           Permission = "read"
+	PermPipelineRun    Permission = "pipeline:run"
+	PermPipelineCancel Permission = "pipeline:cancel"
+	PermReleaseCreate  Permission = "release:create"
+	PermReleaseFinal   Permission = "release:create:final"
+	PermReleaseEdit    Permission = "release:edit"
+	PermReleaseExport  Permission = "release:export"
+	PermAdmin          Permission = "admin"
+)
+
+const deployPrefix = "deploy:"
+
+// PermDeploy construit la permission de déploiement d'un environnement.
+func PermDeploy(environment string) Permission {
+	return Permission(deployPrefix + environment)
+}
+
+// rolePermissions associe à chaque rôle ce qu'il ajoute au précédent.
+//
+// Le découpage en quatre rôles anticipe une distinction qui apparaît toujours à
+// l'usage : lancer une campagne de tests sur `unstable` et promouvoir en
+// production ne sont pas le même geste, et ne concernent pas les mêmes personnes.
+// Si le client n'en veut que deux, `operator` et `releaser` se confondent par
+// configuration, sans changement de code.
+var rolePermissions = map[Role][]Permission{
+	RoleViewer: {PermRead, PermReleaseExport},
+	RoleOperator: {
+		PermPipelineRun, PermPipelineCancel,
+		PermReleaseCreate, PermReleaseEdit,
+	},
+	RoleReleaser: {PermReleaseFinal},
+	RoleAdmin:    {PermAdmin},
+}
+
+// Identity est l'utilisateur authentifié, tel que le middleware le pose dans le
+// contexte de la requête.
+type Identity struct {
+	Subject  string
+	Username string
+	Email    string
+	Role     Role
+}
+
+// EnvironmentPolicy décrit les exigences de promotion d'un environnement.
+type EnvironmentPolicy struct {
+	// Sensitive impose le rôle `releaser`. Vaut pour la pré-production et la
+	// production, qui reçoivent ce qui part chez l'utilisateur final.
+	Sensitive bool
+}
+
+// Authorizer décide si une identité peut exercer une permission.
+type Authorizer struct {
+	environments map[string]EnvironmentPolicy
+}
+
+// NewAuthorizer construit l'autorisateur à partir des environnements déclarés.
+//
+// Un environnement absent de cette table est traité comme sensible : un
+// environnement nouvellement créé et oublié dans la configuration doit être plus
+// difficile à atteindre, jamais plus facile. Se tromper dans ce sens fait perdre
+// du temps ; se tromper dans l'autre laisse promouvoir en production.
+func NewAuthorizer(environments map[string]EnvironmentPolicy) *Authorizer {
+	return &Authorizer{environments: environments}
+}
+
+// Can indique si l'identité dispose de la permission demandée.
+func (a *Authorizer) Can(identity Identity, permission Permission) bool {
+	if !identity.Role.Valid() {
+		return false
+	}
+
+	if environment, isDeploy := strings.CutPrefix(string(permission), deployPrefix); isDeploy {
+		return identity.Role.rank() >= a.minRoleForDeploy(environment).rank()
+	}
+
+	for _, role := range AllRoles {
+		if role.rank() > identity.Role.rank() {
+			break
+		}
+		if slices.Contains(rolePermissions[role], permission) {
+			return true
+		}
+	}
+	return false
+}
+
+// minRoleForDeploy rend le rôle minimal requis pour promouvoir sur un
+// environnement. Inconnu ou sensible : `releaser`. Connu et non sensible :
+// `operator`.
+func (a *Authorizer) minRoleForDeploy(environment string) Role {
+	policy, known := a.environments[environment]
+	if !known || policy.Sensitive {
+		return RoleReleaser
+	}
+	return RoleOperator
+}
+
+// ParseRole valide un rôle venu de la base ou d'une saisie d'administration.
+func ParseRole(value string) (Role, error) {
+	role := Role(strings.TrimSpace(strings.ToLower(value)))
+	if !role.Valid() {
+		return "", fmt.Errorf("rôle inconnu %q (attendu: viewer, operator, releaser, admin)", value)
+	}
+	return role, nil
+}
