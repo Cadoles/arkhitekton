@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/web"
 )
 
 // ReadinessCheck renvoie une erreur quand la dépendance n'est pas exploitable.
@@ -39,6 +40,16 @@ func NewServer(cfg config.HTTPConfig, logger *slog.Logger, api http.Handler, che
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	if api != nil {
 		mux.Handle("/api/v1/", http.StripPrefix("/api/v1", api))
+	}
+
+	// L'interface est montée en dernier, sur la racine. Le motif "/" du
+	// ServeMux est le moins spécifique : les sondes et l'API gardent la main sur
+	// leurs préfixes, et tout le reste — y compris les routes du navigateur —
+	// arrive ici.
+	if ui, err := web.Handler(logger); err != nil {
+		logger.Error("interface non montée", "error", err)
+	} else {
+		mux.Handle("/", ui)
 	}
 
 	s.http = &http.Server{

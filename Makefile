@@ -24,7 +24,7 @@ MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := mse-dashboard-test
 
 .PHONY: help build test test-integration test-ci lint fmt fmt-check vet vuln clean check \
-        dev-prereqs image image-push kind-load manifests deploy undeploy logs
+        web web-install web-dev web-check dev-prereqs image image-push kind-load manifests deploy undeploy logs
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | expand -t24
@@ -94,6 +94,25 @@ check: lint test ## Ce que la CI vérifie
 
 clean: ## Supprime les artefacts de build
 	rm -rf bin/
+
+# --- Interface ----------------------------------------------------------------
+
+WEB := apps/web
+
+web-install: ## Installe les dépendances de l'interface
+	npm --prefix $(WEB) ci --no-audit --no-fund
+
+# Vite écrit directement dans internal/web/dist, d'où `//go:embed` le lit : il
+# n'y a pas d'étape de copie, donc pas de moyen de l'oublier.
+web: ## Construit l'interface dans internal/web/dist
+	npm --prefix $(WEB) run build
+
+web-dev: ## Sert l'interface en développement, API relayée vers :8080
+	npm --prefix $(WEB) run dev
+
+web-check: ## Formatage, typage et analyse statique de l'interface
+	npm --prefix $(WEB) run typecheck
+	npm --prefix $(WEB) run lint
 
 # --- Environnement de développement -------------------------------------------
 

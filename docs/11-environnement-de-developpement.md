@@ -380,3 +380,86 @@ déployée.
 
 `REGISTRY_USERNAME` et `REGISTRY_TOKEN`, mêmes noms que dans `mse-tekton`, requis
 par le seul job `publish`.
+
+## 11.11 Interface
+
+`apps/web` — React 19, TypeScript, Vite, Tailwind v4, React Router, TanStack Query.
+
+```bash
+make web-install     # une fois
+make web-dev         # Vite sur :5173, API relayée vers :8080
+make web             # construit dans internal/web/dist
+make web-check       # typage et analyse statique
+```
+
+Le lot 0 livre la coquille, pas les écrans : toutes les routes de
+[08 §8.3](08-frontend.md) existent et affichent ce qu'elles porteront, avec leur lot.
+Une route déclarée mais vide se lit comme une panne ; une route qui annonce son
+contenu se lit comme un chantier.
+
+### Ce qui est repris de la maquette, et comment
+
+| Élément | Reprise |
+|---|---|
+| Palette `healthy` / `warn` / `critical` | valeurs exactes, thèmes clair et sombre |
+| Six tables de libellés — santé, pipeline, bench, sign-off, sécurité, anomalie | recopiées ; ce sont des décisions métier, pas du framework |
+| Seuils `healthy ≥ 85`, `warn ≥ 70` et verdict de bench | recopiés |
+| Vingt icônes | mêmes tracés, en composant React |
+| Barre supérieure, carte, bascule de thème | mêmes classes |
+| Script anti-flash | repris, avec la conséquence traitée ci-dessous |
+
+**Le thème sombre n'utilise aucune variante `dark:`.** La maquette inverse l'échelle
+zinc et échange blanc et noir au niveau des variables CSS ; un composant écrit
+`bg-white text-zinc-900` et fonctionne dans les deux thèmes. Un `dark:` ajouté
+quelque part s'appliquerait *en plus* de l'inversion, donc à l'envers.
+
+### CSP sans `unsafe-inline`, malgré un script en ligne
+
+Le script anti-flash doit être en ligne : le déporter dans un fichier le ferait
+s'exécuter après le premier rendu, et l'aplat blanc d'une frame qu'il existe pour
+éviter réapparaîtrait.
+
+Un script en ligne exige normalement `script-src 'unsafe-inline'`, qui vide la
+politique de sa substance — elle autoriserait alors aussi le script qu'une injection
+placerait dans la page. Le handler Go calcule donc l'**empreinte SHA-256 du script
+réellement embarqué** et l'inscrit dans la politique :
+
+```
+script-src 'self' 'sha256-O66p47b7Zq/r1zM2xtKrRKjostwq1c0Xr3/QzfAEU1Q='
+```
+
+Le calcul part du fichier embarqué : modifier le script déplace l'empreinte sans
+intervention. Un test vérifie les deux propriétés — l'empreinte suit le contenu, et
+un `<script src>` reste couvert par `'self'` plutôt que de recevoir l'empreinte d'un
+corps vide, qui autoriserait tout script vide de la page.
+
+### L'interface est embarquée dans le binaire
+
+Vite écrit dans `internal/web/dist`, d'où `//go:embed` la lit : il n'y a pas d'étape
+de copie, donc pas de moyen de l'oublier. Le binaire et l'interface qu'il sert sont
+le même artefact — une interface déployée en avance sur son API appelle des routes
+qui n'existent pas, et le symptôme, des 404 sur une page qui s'affiche, ne désigne
+pas sa cause.
+
+Deux conséquences pratiques :
+
+- **Le répertoire `internal/web/dist` doit exister pour que le paquet compile**, même
+  sans build frontend. Un `.gitkeep` y est versionné, le reste est ignoré. Sans
+  interface embarquée, le serveur répond 503 avec un message qui dit quoi faire,
+  plutôt que de refuser de démarrer : l'API, elle, fonctionne.
+- **Toute route inconnue rend `index.html`.** `/releases/1.8.0` est une route du
+  navigateur, pas un fichier. Sans ce repli, la navigation interne fonctionnerait et
+  un rechargement ou un lien partagé donnerait un 404 — panne déroutante, parce
+  qu'elle ne se produit jamais en cliquant.
+
+### Vérifié sur kind, le 13/08/2026
+
+| Point | Constat |
+|---|---|
+| Page servie par le binaire | `200`, `Cache-Control: no-cache` sur index.html |
+| Fichiers empreintés | `Cache-Control: public, max-age=31536000, immutable` |
+| Route profonde en chargement complet | `/releases/1.8.0/tests/unit` rend l'écran, paramètres `tag` et `family` liés |
+| CSP | appliquée, aucune violation en console |
+| Sans session | écran « Connexion requise », `/api/v1/me` en `401` |
+| Avec session | barre, navigation, rôle affiché ; arbre d'accessibilité correct |
+| Bascule de thème | `aria-checked` suivi, inversion effective, choix persisté |

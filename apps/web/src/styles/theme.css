@@ -1,0 +1,91 @@
+/*
+ * Thème repris de la maquette, token pour token (B9 : la maquette sert de
+ * référence design).
+ *
+ * Le point à comprendre avant d'y toucher : le thème sombre n'est pas obtenu par
+ * des variantes `dark:` disséminées dans les composants, mais en **inversant
+ * l'échelle zinc** et en échangeant blanc et noir au niveau des variables. Un
+ * composant écrit `bg-white text-zinc-900` et fonctionne dans les deux thèmes.
+ *
+ * La conséquence est qu'un `dark:` ajouté quelque part serait presque toujours
+ * une erreur : il s'appliquerait *en plus* de l'inversion, donc à l'envers.
+ */
+
+@import "tailwindcss";
+
+/* Polices auto-hébergées : la CSP de production interdit les hôtes externes
+ * (doc 07 §7.5). Seul le sous-ensemble latin est importé — la maquette embarque
+ * cyrillique et grec, jamais utilisés par une interface en français. */
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+
+/* Le thème sombre est piloté par une classe sur <html>, posée avant le premier
+ * rendu par le script anti-flash de index.html. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Trois familles de statut, une par verdict. Jamais employées seules : chaque
+   * statut porte aussi une icône, pour que l'information ne repose pas sur la
+   * couleur (doc 08 §8.5). */
+  --color-healthy-50: #f0fdf4;
+  --color-healthy-500: #22c55e;
+  --color-healthy-600: #16a34a;
+  --color-healthy-700: #15803d;
+
+  --color-warn-50: #fff7ed;
+  --color-warn-500: #f97316;
+  --color-warn-700: #c2410c;
+
+  --color-critical-50: #fef2f2;
+  --color-critical-500: #ef4444;
+  --color-critical-600: #dc2626;
+  --color-critical-700: #b91c1c;
+}
+
+/* Inversion. Les valeurs sont celles de la maquette, y compris les teintes de
+ * statut assombries : un `#f0fdf4` sur fond sombre serait un aplat lumineux. */
+.dark {
+  color-scheme: dark;
+
+  --color-white: #18181b;
+  --color-zinc-50: #0a0a0b;
+  --color-zinc-100: #26262a;
+  --color-zinc-200: #2f2f35;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #5c5c63;
+  --color-zinc-500: #8b8b93;
+  --color-zinc-600: #a1a1aa;
+  --color-zinc-700: #c4c4cc;
+  --color-zinc-800: #d4d4d8;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-950: #fafafa;
+
+  --color-healthy-50: #0c2a18;
+  --color-healthy-700: #5be08c;
+  --color-warn-50: #2e1606;
+  --color-warn-700: #fb9a4b;
+  --color-critical-50: #2c1010;
+  --color-critical-700: #f6776f;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+  }
+
+  body {
+    @apply bg-zinc-50 text-zinc-900;
+  }
+
+  /* Anneau de focus visible partout : la navigation au clavier doit rester
+   * praticable de bout en bout (doc 08 §8.5). */
+  :focus-visible {
+    @apply outline-none ring-2 ring-zinc-400 ring-offset-1;
+  }
+}

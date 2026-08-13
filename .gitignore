@@ -4,7 +4,13 @@
 .env
 .env.local
 apps/web/node_modules/
-apps/web/dist/
+apps/web/node_modules/.tmp/
+
+# Produit de build du frontend. Vite écrit directement là où `//go:embed` le
+# lit ; le répertoire doit donc exister dans le dépôt pour que le paquet
+# compile même sans build frontend, d'où le .gitkeep conservé.
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
 
 # Fichiers d'environnement des overlays : identifiants de base, de stockage objet
 # et d'OIDC. Seuls les *.example sont versionnés.

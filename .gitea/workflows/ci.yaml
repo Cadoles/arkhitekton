@@ -124,6 +124,33 @@ jobs:
       - name: govulncheck
         run: make vuln
 
+  web:
+    name: Interface
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupération des sources
+        uses: actions/checkout@v4
+
+      - name: Installation de Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Installation des dépendances
+        run: npm --prefix apps/web ci --no-audit --no-fund
+
+      - name: Typage et analyse statique
+        run: make web-check
+
+      # La construction est vérifiée ici, mais son résultat n'est pas conservé :
+      # l'image reconstruit l'interface dans son propre étage. Transporter un
+      # `dist/` d'un job à l'autre ouvrirait la porte à une image dont
+      # l'interface et l'API ne viennent pas du même commit.
+      - name: Construction
+        run: make web
+
   manifests:
     name: Rendu et analyse des manifests
     runs-on: ubuntu-latest
@@ -200,7 +227,7 @@ jobs:
     # une version doit être un objet nommé, pas un état de branche à un instant
     # donné.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-    needs: [go, vuln, manifests]
+    needs: [go, vuln, web, manifests]
     runs-on: ubuntu-latest
     steps:
       - name: Récupération des sources

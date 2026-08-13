@@ -5,6 +5,23 @@
 # images distinctes autoriseraient un décalage, et ce décalage se manifesterait en
 # erreur SQL au premier appel plutôt qu'au déploiement.
 
+# L'interface est construite dans l'image, et non sur le poste : le binaire
+# embarque la SPA, et un `dist/` périmé traîné depuis un arbre de travail
+# produirait une image dont l'interface et l'API ne correspondent pas.
+FROM node:22-alpine AS web
+
+# L'arborescence du dépôt est reproduite : la sortie de Vite est configurée en
+# relatif (`../../internal/web/dist`), et un WORKDIR à plat la ferait atterrir
+# hors de tout chemin prévisible.
+WORKDIR /src/apps/web
+
+# Les dépendances d'abord, pour la même raison que côté Go.
+COPY apps/web/package.json apps/web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY apps/web/ ./
+RUN npm run build
+
 FROM golang:1.26-alpine AS build
 
 WORKDIR /src
@@ -16,6 +33,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+
+# Après le COPY, sans quoi le contexte écraserait le résultat du build frontend.
+COPY --from=web /src/internal/web/dist ./internal/web/dist
 
 ARG VERSION=dev
 ARG REVISION=inconnue

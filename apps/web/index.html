@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard de livraisons — MSE</title>
+    <script>
+      // Anti-flash : applique le thème avant le premier rendu. Repris de la
+      // maquette, et pour la même raison — laisser React poser la classe
+      // produirait un aplat blanc d'une frame à chaque chargement en thème
+      // sombre. C'est la seule raison pour laquelle ce script est en ligne.
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('dashboard-theme')
+          var dark = stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+          if (dark) document.documentElement.classList.add('dark')
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
