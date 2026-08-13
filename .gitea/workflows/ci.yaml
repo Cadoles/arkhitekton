@@ -1,0 +1,256 @@
+name: Intégration continue
+
+# Vérifications et publication vivent dans le même fichier pour une seule raison :
+# la publication doit pouvoir dépendre des vérifications. Deux workflows séparés
+# ne peuvent pas s'attendre l'un l'autre, et un tag poserait alors une image sur
+# le registre sans qu'aucun test ait tourné — précisément le défaut de chaîne de
+# livraison que ce dashboard existe pour rendre visible.
+#
+# Le déclenchement suit la convention de `mse-tekton` : les branches
+# d'intégration et les demandes de fusion, pas toute branche poussée. Couvrir
+# `**` doublerait chaque exécution dès qu'une PR est ouverte, pour un signal que
+# la PR donne déjà.
+on:
+  push:
+    branches: [main, master, develop]
+    tags: ["v*"]
+  pull_request:
+
+env:
+  KUSTOMIZE_VERSION: "5.8.1"
+  KUSTOMIZE_SHA256: "029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d"
+  KUBE_LINTER_VERSION: "0.8.3"
+  KUBE_LINTER_SHA256: "1a6d8419b11971372971fdbc22682b684ebfb7cf1c39591662d1b6ca736c41df"
+  REGISTRY: reg.cadoles.com
+  IMAGE_NAMESPACE: cnous-mse
+  IMAGE_NAME: mse-dashboard
+
+jobs:
+  go:
+    name: Formatage, analyse statique et tests
+    runs-on: ubuntu-latest
+
+    # PostgreSQL et MinIO sont réels : ce que les tests vérifient — application
+    # d'un schéma, signature SigV4, lecture par plage — ne se simule pas
+    # utilement, et c'est précisément l'exécution contre le vrai serveur qui a
+    # valeur de preuve.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: t3st
+          POSTGRES_DB: mse
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d mse"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+      minio:
+        # `edge-cicd` et non `latest` : c'est la variante dont la commande par
+        # défaut est `minio server /data`. L'image ordinaire attend ces arguments
+        # sur la ligne de commande, que la syntaxe `services` ne permet pas de
+        # fournir — elle démarrerait donc sur un usage et le service ne serait
+        # jamais joignable.
+        #
+        # Épinglée par empreinte : `edge-cicd` est un tag mouvant, et une CI dont
+        # les dépendances changent sans commit produit des échecs qu'aucune
+        # bissection ne retrouve.
+        image: minio/minio@sha256:29e8e51691d11e779468f275002779b221fd3902518d103e35c8a8bb2ef0f3ea
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+
+    steps:
+      - name: Récupération des sources
+        uses: actions/checkout@v4
+
+      - name: Installation de Go
+        uses: actions/setup-go@v5
+        with:
+          # La version vient de go.mod : une seule source de vérité, et la CI
+          # suit automatiquement une montée de version du module.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Formatage et analyse statique
+        run: make lint
+
+      # MinIO n'expose pas de sonde exécutable dans son image : l'attente est donc
+      # côté job. `services` garantit que le conteneur tourne, pas que le serveur
+      # accepte des requêtes.
+      - name: Attente de MinIO
+        run: |
+          set -eu
+          for _ in $(seq 1 60); do
+            if curl -sf http://minio:9000/minio/health/live > /dev/null; then
+              echo "MinIO prêt"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MinIO n'a pas répondu en 60 s" >&2
+          exit 1
+
+      - name: Tests
+        env:
+          TEST_DATABASE_URL: postgres://postgres:t3st@postgres:5432/mse?sslmode=disable
+          TEST_MINIO_ENDPOINT: minio:9000
+          TEST_MINIO_BUCKET: mse-dashboard-test
+          # Le bucket est créé par le harnais lui-même ; aucune étape préalable
+          # n'est nécessaire.
+        run: make test-ci
+
+  vuln:
+    name: Vulnérabilités des dépendances
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupération des sources
+        uses: actions/checkout@v4
+
+      - name: Installation de Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Bloquant à dessein (doc 07 §7.5). govulncheck ne signale que les
+      # vulnérabilités effectivement atteignables depuis le code appelé, ce qui
+      # rend le bruit assez faible pour que l'échec reste un signal.
+      - name: govulncheck
+        run: make vuln
+
+  manifests:
+    name: Rendu et analyse des manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupération des sources
+        uses: actions/checkout@v4
+
+      - name: Installation de kustomize et kube-linter
+        run: |
+          set -eu
+          cd /tmp
+
+          curl -sSLo kustomize.tgz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          echo "${KUSTOMIZE_SHA256}  kustomize.tgz" | sha256sum -c -
+          tar xzf kustomize.tgz kustomize
+
+          curl -sSLo kube-linter.tgz \
+            "https://github.com/stackrox/kube-linter/releases/download/v${KUBE_LINTER_VERSION}/kube-linter-linux.tar.gz"
+          echo "${KUBE_LINTER_SHA256}  kube-linter.tgz" | sha256sum -c -
+          tar xzf kube-linter.tgz kube-linter
+
+          # Installation dans le PATH du job plutôt que dans /usr/local/bin :
+          # `sudo` n'est pas garanti selon l'image du runner, et un job qui
+          # échoue sur l'absence de sudo n'apprend rien sur les manifests.
+          mkdir -p "${HOME}/.local/bin"
+          install -m 0755 kustomize kube-linter "${HOME}/.local/bin/"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      # L'overlay local lit un fichier d'environnement non versionné. Le modèle
+      # suffit ici : ce job rend et analyse des manifests, il n'en déploie aucun,
+      # et les valeurs n'entrent dans aucune des règles vérifiées.
+      - name: Fichier d'environnement de rendu
+        run: |
+          cp deploy/overlays/local/secrets/dashboard.env.example \
+             deploy/overlays/local/secrets/dashboard.env
+
+      # `make manifests` et non une action dédiée : l'analyse porte sur la sortie
+      # de kustomize, pas sur les fichiers du dépôt. Les analyser tels quels
+      # laisserait passer précisément ce qui se joue à la transformation — un
+      # patch qui ne s'applique pas, une référence de ConfigMap non résolue.
+      - name: Rendu et analyse
+        run: make manifests
+
+  image:
+    name: Construction de l'image
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupération des sources
+        uses: actions/checkout@v4
+
+      - name: Configuration de Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:v0.23.2
+
+      # Construite sans être poussée : hors tag, l'intérêt est de constater qu'un
+      # Dockerfile cassé l'est, plutôt qu'au moment de livrer. Sur un tag, c'est
+      # le job `publish` qui construit — inutile de le faire deux fois.
+      - name: Construction sans publication
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            REVISION=${{ github.sha }}
+
+  publish:
+    name: Publication de l'image
+    # Sur tag uniquement, et seulement après les vérifications. Publier depuis une
+    # branche produirait des images dont rien ne dit à quoi elles correspondent :
+    # une version doit être un objet nommé, pas un état de branche à un instant
+    # donné.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: [go, vuln, manifests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupération des sources
+        uses: actions/checkout@v4
+
+      - name: Authentification au registre
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Configuration de Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:v0.23.2
+
+      - name: Dérivation des tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_NAME }}"
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE}:${VERSION}"
+
+            # Les tags glissants ne sont posés que pour une version finale. Une
+            # pré-release devenue `latest` ferait exactement ce que le dashboard
+            # existe pour empêcher : livrer un candidat là où une version stable
+            # était attendue.
+            if [[ "${VERSION}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "${IMAGE}:v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+              echo "${IMAGE}:v${BASH_REMATCH[1]}"
+              echo "${IMAGE}:latest"
+            fi
+
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Construction et publication
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          # VERSION est compilée dans le binaire et journalisée à chaque
+          # démarrage : savoir quel binaire tourne ne doit pas dépendre du tag
+          # d'image, qui peut être republié.
+          build-args: |
+            VERSION=${{ steps.tags.outputs.version }}
+            REVISION=${{ github.sha }}

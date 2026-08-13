@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
 )
 
@@ -45,11 +48,50 @@ func envOr(key, fallback string) string {
 func testClient(t *testing.T) *Client {
 	t.Helper()
 
-	client, err := Open(context.Background(), testStorage(t))
+	cfg := testStorage(t)
+	ensureBucket(t, cfg)
+
+	client, err := Open(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("ouverture: %v (le bucket existe-t-il ?)", err)
+		t.Fatalf("ouverture: %v", err)
 	}
 	return client
+}
+
+// ensureBucket crée le bucket de test s'il manque.
+//
+// Le harnais fabrique lui-même ses fixtures : sans cela, chaque environnement
+// d'exécution — poste, conteneur jetable, intégration continue — devrait le créer
+// par un moyen qui lui est propre, et l'oubli se manifesterait par un échec
+// difficile à distinguer d'une vraie régression.
+//
+// TestOpenRejectsMissingBucket n'en est pas affecté : il vise un nom qui n'existe
+// dans aucun cas.
+func ensureBucket(t *testing.T, cfg config.StorageConfig) {
+	t.Helper()
+
+	client, err := minio.New(cfg.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Region: cfg.Region,
+		Secure: cfg.UseSSL,
+	})
+	if err != nil {
+		t.Fatalf("client MinIO: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	exists, err := client.BucketExists(ctx, cfg.Bucket)
+	if err != nil {
+		t.Fatalf("accès à %q sur %q: %v", cfg.Bucket, cfg.Endpoint, err)
+	}
+	if exists {
+		return
+	}
+	if err := client.MakeBucket(ctx, cfg.Bucket, minio.MakeBucketOptions{Region: cfg.Region}); err != nil {
+		t.Fatalf("création du bucket %q: %v", cfg.Bucket, err)
+	}
 }
 
 // Un bucket absent doit faire échouer le démarrage. Sans cette vérification, le

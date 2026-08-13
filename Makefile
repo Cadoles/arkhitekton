@@ -23,7 +23,7 @@ MINIO_TEST_NAME   := minio-mse-dashboard-test
 MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := mse-dashboard-test
 
-.PHONY: help build test test-integration lint fmt vet vuln clean check \
+.PHONY: help build test test-integration test-ci lint fmt fmt-check vet vuln clean check \
         image image-push kind-load manifests deploy undeploy logs
 
 help: ## Affiche cette aide
@@ -45,9 +45,9 @@ test-integration: ## Tests avec un PostgreSQL et un MinIO jetables
 	@docker run -d --name $(MINIO_TEST_NAME) -p $(MINIO_TEST_PORT):9000 \
 		-e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
 		quay.io/minio/minio:latest server /data >/dev/null
+	@# Le bucket est créé par le harnais de test lui-même : le faire ici
+	@# obligerait chaque environnement d'exécution à le refaire à sa façon.
 	@until curl -sf http://127.0.0.1:$(MINIO_TEST_PORT)/minio/health/live >/dev/null 2>&1; do sleep 0.5; done
-	@docker exec $(MINIO_TEST_NAME) mc alias set t http://127.0.0.1:9000 minioadmin minioadmin >/dev/null 2>&1 || true
-	@docker exec $(MINIO_TEST_NAME) mc mb --ignore-existing t/$(MINIO_TEST_BUCKET) >/dev/null 2>&1 || true
 	@# pg_isready répond « prêt » sur le serveur temporaire d'initdb, avant que le
 	@# serveur définitif n'accepte les connexions TCP. Attendre une vraie requête
 	@# sur la base cible est le seul signal fiable.
@@ -58,19 +58,38 @@ test-integration: ## Tests avec un PostgreSQL et un MinIO jetables
 		$(GO) test -p 1 -count=1 ./... ; status=$$? ; \
 		docker rm -f $(PG_TEST_NAME) $(MINIO_TEST_NAME) >/dev/null 2>&1 ; exit $$status
 
-fmt: ## Formate le code
+# Variante pour un environnement qui fournit déjà PostgreSQL et MinIO — services
+# de l'intégration continue, ou conteneurs démarrés à la main. Les drapeaux sont
+# ainsi définis à un seul endroit : la CI et le poste exécutent la même chose.
+test-ci: ## Tests d'intégration contre des services déjà démarrés
+	$(GO) test -p 1 -count=1 ./...
+
+fmt: ## Reformate le code
 	$(GO) fmt ./...
+
+# `go fmt` réécrit les fichiers, donc réussit toujours : l'employer en intégration
+# continue laisserait passer du code mal formaté après l'avoir corrigé dans un
+# arbre de travail jeté à la fin du job. La vérification doit constater, pas
+# corriger.
+fmt-check: ## Échoue si un fichier n'est pas formaté
+	@unformatted=$$(gofmt -l .) ; \
+	if [ -n "$$unformatted" ] ; then \
+		echo "fichiers non formatés (lancer 'make fmt') :" ; \
+		echo "$$unformatted" ; \
+		exit 1 ; \
+	fi
 
 vet: ## Analyse statique du toolchain
 	$(GO) vet ./...
 
-lint: fmt vet ## Formatage + analyse statique
+lint: fmt-check vet ## Vérification du formatage + analyse statique
 
 vuln: ## Recherche de vulnérabilités dans les dépendances
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 # Cible unique reproduisant ce que la CI vérifie : un développeur doit pouvoir
-# constater localement l'échec qu'il obtiendrait en intégration.
+# constater localement l'échec qu'il obtiendrait en intégration. La promesse ne
+# tient que si aucune des cibles appelées ne modifie l'arbre de travail.
 check: lint test ## Ce que la CI vérifie
 
 clean: ## Supprime les artefacts de build

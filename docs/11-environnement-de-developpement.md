@@ -268,3 +268,55 @@ encore de connexion — avant de réussir au troisième essai.
 | Overlay `preprod` / `prod` | absent. Il portera l'`ExternalSecret` prévu en [07 §7.4](07-securite-et-permissions.md#74-gestion-des-secrets) ; l'écrire sans connaître les chemins Vault produirait un manifeste non vérifiable |
 | `NetworkPolicy` | absente. À écrire avec la liste complète des flux sortants (PostgreSQL, MinIO, API Kubernetes, Redmine, Gitea, registre) : une politique partielle coupe un flux sans que la cause soit lisible |
 | Frontend | l'`api` sert l'API seule ; la SPA sera embarquée via `embed.FS` |
+
+## 11.10 Intégration continue
+
+Un seul workflow Gitea Actions, `.gitea/workflows/ci.yaml`, sur les branches
+d'intégration, les demandes de fusion et les tags `v*`.
+
+| Job | Vérifie | Bloquant |
+|---|---|---|
+| `go` | formatage, `go vet`, tests contre un PostgreSQL et un MinIO réels | ● |
+| `vuln` | `govulncheck` | ● |
+| `manifests` | rendu kustomize + kube-linter | ● |
+| `image` | l'image se construit (hors tag, sans publication) | ● |
+| `publish` | publie l'image — **uniquement sur tag, après les trois premiers** | — |
+
+### Pourquoi un seul fichier
+
+Deux workflows séparés ne peuvent pas s'attendre l'un l'autre. Avec un fichier
+`build.yaml` distinct, un tag poserait une image sur le registre sans qu'aucun
+test ait tourné — le défaut de chaîne de livraison que ce dashboard existe
+précisément pour rendre visible. Le `needs: [go, vuln, manifests]` du job
+`publish` n'est possible qu'à l'intérieur d'un même workflow.
+
+### Quatre points qui ne vont pas de soi
+
+**`go fmt` ne peut pas servir de vérification.** Il réécrit les fichiers, donc
+réussit toujours : en intégration continue il corrige le code dans un arbre de
+travail jeté à la fin du job, et le dépôt reste mal formaté. `make lint` appelle
+donc `fmt-check`, qui constate sans corriger. C'est ce qui rend vraie la promesse
+de `make check` — reproduire localement ce que la CI vérifie.
+
+**L'image MinIO ordinaire ne fonctionne pas en `services`.** Son entrypoint
+attend `server /data` sur la ligne de commande, que la syntaxe `services` ne
+permet pas de fournir : le conteneur démarrerait sur un message d'usage et le
+service ne serait jamais joignable. La variante `edge-cicd` porte ces arguments
+dans son `CMD`. Elle est épinglée par empreinte — un tag mouvant en CI produit
+des échecs qu'aucune bissection ne retrouve.
+
+**Le bucket de test est créé par le harnais.** Auparavant le `Makefile` s'en
+chargeait avec `mc` ; chaque nouvel environnement d'exécution aurait dû le refaire
+à sa façon. `ensureBucket` le fait dans le code de test, où il est le même partout.
+
+**kube-linter analyse la sortie de kustomize, pas les fichiers du dépôt.**
+L'action `stackrox/kube-linter-action` employée par `mse-tekton` prend un
+répertoire ; l'appliquer ici laisserait passer précisément ce qui se joue à la
+transformation — un patch qui ne s'applique pas, une référence de ConfigMap non
+résolue. Le job installe donc kustomize et kube-linter, empreintes vérifiées, et
+appelle la même cible `make manifests` que le poste de développement.
+
+### Secrets attendus
+
+`REGISTRY_USERNAME` et `REGISTRY_TOKEN`, mêmes noms que dans `mse-tekton`, requis
+par le seul job `publish`.
