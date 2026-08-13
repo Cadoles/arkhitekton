@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -80,6 +81,15 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 	defer db.Close()
 
+	// L'accès au stockage est vérifié au démarrage : sans cela, un identifiant
+	// erroné ne se manifesterait qu'à la première publication d'artefact,
+	// c'est-à-dire à la fin d'un pipeline.
+	storage, err := blob.Open(ctx, cfg.Storage)
+	if err != nil {
+		return err
+	}
+	logger.Info("stockage objet", "bucket", storage.Bucket(), "region", cfg.Storage.Region)
+
 	sessions := auth.NewSessionStore(db.Pool(), cfg.OIDC.SessionTTL)
 
 	// L'amorçage a lieu avant l'ouverture du port : démarrer sans administrateur
@@ -103,10 +113,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL), cfg.OIDC.SessionTTL)
 	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger)
 
-	// TODO(lot 0): ajouter la sonde MinIO une fois le client écrit.
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(authHandler, middleware),
-		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping})
+		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
+		dashhttp.ReadinessCheck{Name: "minio", Check: storage.Ping})
 
 	return server.Run(ctx)
 }
@@ -134,6 +144,13 @@ func secureCookies(publicURL string) bool {
 
 func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.Info("démarrage", "role", cfg.Role, "namespace", cfg.Tekton.Namespace)
+
+	storage, err := blob.Open(ctx, cfg.Storage)
+	if err != nil {
+		return err
+	}
+	logger.Info("stockage objet", "bucket", storage.Bucket())
+
 	// TODO(lot 2/3): élection de leader, informer Tekton, collecteur de logs,
 	// ordonnanceur de file.
 	<-ctx.Done()
