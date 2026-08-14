@@ -9,7 +9,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/minio/minio-go/v7 v7.2.1
 	github.com/pressly/goose/v3 v3.27.3
-	github.com/tektoncd/pipeline v1.10.0
+	github.com/tektoncd/pipeline v1.11.1
 	golang.org/x/oauth2 v0.36.0
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
