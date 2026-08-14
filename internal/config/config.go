@@ -28,6 +28,21 @@ type Config struct {
 	OIDC     OIDCConfig
 	Tekton   TektonConfig
 	Flux     FluxConfig
+	Registry RegistryConfig
+}
+
+// RegistryConfig porte l'accès en lecture au registre d'images.
+//
+// Lecture seule : le dashboard ne pousse jamais d'image. Le re-tag de promotion
+// est fait par la Task `promote-image`, avec ses propres identifiants — donner
+// l'écriture ici ferait porter au dashboard un pouvoir qu'il n'exerce pas.
+type RegistryConfig struct {
+	URL      string
+	Username string
+	// Password ne doit apparaître ni dans un log, ni dans un message d'erreur.
+	Password string
+	// Project est le préfixe des dépôts (`cnous-mse`, ou `vcarroy` en local).
+	Project string
 }
 
 // FluxConfig borne la lecture des objets Flux.
@@ -151,6 +166,12 @@ func Load(role Role) (Config, error) {
 		Flux: FluxConfig{
 			Namespace: envOr("FLUX_NAMESPACE", "flux-system"),
 		},
+		Registry: RegistryConfig{
+			URL:      envOr("REGISTRY_URL", "https://reg.cadoles.com"),
+			Username: os.Getenv("REGISTRY_USERNAME"),
+			Password: os.Getenv("REGISTRY_PASSWORD"),
+			Project:  envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
+		},
 	}
 
 	return cfg, cfg.validate()
@@ -263,6 +284,7 @@ func (c Config) Redacted() Config {
 	out.Database.DSN = redactDSN(c.Database.DSN)
 	out.Storage.SecretKey = redact(c.Storage.SecretKey)
 	out.OIDC.ClientSecret = redact(c.OIDC.ClientSecret)
+	out.Registry.Password = redact(c.Registry.Password)
 	return out
 }
 

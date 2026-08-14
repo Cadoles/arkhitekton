@@ -501,6 +501,23 @@ toute release finale.
 2. **Le registre** — résolution digest → tags via l'API OCI. Une promotion ajoutant un
    tag suffixé sur le digest déjà construit ([B7](#b7)), la liste des tags d'un digest
    retrace les environnements atteints.
+
+   **Vérifié sur `reg.cadoles.com/cnous-mse/portal` le 14/08/2026**, avec un compte
+   personnel en attendant le compte de service. Sur les vingt derniers tags des 416
+   que porte le dépôt, deux digests en portent plusieurs :
+
+   ```
+   sha256:… → 2026.8.3-k8stesting.1249.520c9a020
+              2026.8.3-k8sunstable.1249.520c9a020
+              2026.8.3-migrationsymfony.1249
+              2026.8.3-migrationsymfony.1249.520c9a020
+   ```
+
+   Une même image promue sur `unstable` **et** sur `testing`. Le mécanisme sur lequel
+   repose cette source d'observation fonctionne donc **déjà**, avec le schéma de tag
+   actuel : l'environnement y est porté par le canal mktools plutôt que par un suffixe,
+   mais la relation digest → environnements atteints se lit de la même façon. Elle ne
+   dépend pas de la transition SemVer.
 3. **Flux** — `Kustomization` pour le rapprochement, `ImagePolicy` pour la sélection.
 
 Le croisement donne les états affichables : `à jour`, `déploiement en cours`,
