@@ -29,6 +29,7 @@ const (
 	AuditJobEnqueue       = "job.enqueue"
 	AuditJobCancel        = "job.cancel"
 	AuditArtifactGenerate = "artifact.generate"
+	AuditBaselinePin      = "bench.baseline.pin"
 )
 
 // Audit consigne une action.

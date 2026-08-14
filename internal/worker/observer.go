@@ -10,6 +10,7 @@ package worker
 
 import (
 	"context"
+	"strings"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -21,17 +22,33 @@ import (
 // L'adaptateur existe pour que `store` ignore Tekton et que `tekton` ignore
 // PostgreSQL. La traduction est mécanique, et elle se paie une fois ici plutôt
 // qu'en dépendance croisée entre deux paquets qui n'ont pas à se connaître.
-type runSink struct{ db *store.DB }
+type runSink struct {
+	db *store.DB
+	// load ingère les campagnes de charge d'un run terminé. Nil quand le stockage
+	// n'est pas disponible : le reste de l'observation continue sans lui.
+	load *LoadIngester
+}
 
 // NewRunSink rend l'adaptateur consommé par l'observateur Tekton.
 func NewRunSink(db *store.DB) *runSink { return &runSink{db: db} }
+
+// WithLoadIngester branche l'ingestion des campagnes de charge.
+//
+// Déclenchée par la fin du run et non par une notification du runner : celui-ci
+// vit hors du cluster, publie sur MinIO avec une URL pré-signée et n'a aucun
+// chemin de retour vers le dashboard (B16). Le seul signal fiable est celui que
+// le dashboard possède déjà.
+func (s *runSink) WithLoadIngester(ingester *LoadIngester) *runSink {
+	s.load = ingester
+	return s
+}
 
 func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 	if err := s.finishJob(ctx, run); err != nil {
 		return err
 	}
 
-	_, err := s.db.UpsertRun(ctx, store.RunRecord{
+	id, err := s.db.UpsertRun(ctx, store.RunRecord{
 		Name:        run.Name,
 		Namespace:   run.Namespace,
 		Pipeline:    run.Pipeline,
@@ -43,7 +60,45 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 		JobID:       run.JobID,
 		Observed:    run.Observed,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+
+	return s.ingestLoad(ctx, id, run)
+}
+
+// ingestLoad enregistre les campagnes de charge d'un run de charge terminé.
+//
+// L'échec de l'ingestion n'est pas rendu à l'observateur : il ferait retenter la
+// projection du run entier, alors que le run est correctement enregistré. Un
+// résumé illisible est un problème de résultat, pas d'observation, et la
+// prochaine visite du run le rejouera de toute façon — l'ingestion est
+// idempotente.
+func (s *runSink) ingestLoad(ctx context.Context, runID int64, run tekton.Run) error {
+	if s.load == nil || !run.Status.Terminal() || !isLoadRun(run) {
+		return nil
+	}
+
+	var duration int64
+	if run.StartedAt != nil && run.CompletedAt != nil {
+		duration = run.CompletedAt.Sub(*run.StartedAt).Milliseconds()
+	}
+
+	err := s.load.Ingest(ctx, LoadRun{
+		ID: runID, Name: run.Name, JobID: run.JobID, DurationMS: duration,
+	})
+	if err != nil {
+		s.load.logger.Error("ingestion des campagnes de charge", "run", run.Name, "error", err)
+	}
+	return nil
+}
+
+// isLoadRun reconnaît un run de charge à son pipeline.
+//
+// Sur le nom du pipeline et non sur celui du job : un run déclenché hors
+// dashboard n'a pas de job, et ses résultats valent autant que les autres.
+func isLoadRun(run tekton.Run) bool {
+	return strings.Contains(run.Pipeline, "load-test")
 }
 
 // finishJob conclut le job d'un run terminé.

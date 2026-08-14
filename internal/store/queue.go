@@ -63,6 +63,11 @@ type Job struct {
 	// ReleaseID rattache le job à une release. Renseigné pour les promotions et
 	// les exports, dont l'exécution part de la release et non de paramètres.
 	ReleaseID *int64
+	// ConcurrentAtStart est le nombre de runs constatés au moment de la
+	// réservation. Renseigné par `ClaimNext` seule : c'est le seul instant où
+	// l'information existe, et c'est elle qui décide si une mesure de charge est
+	// comparable à sa baseline (B16).
+	ConcurrentAtStart int
 }
 
 // ErrJobNotFound signale un job absent.
@@ -141,7 +146,12 @@ func (db *DB) ClaimNext(ctx context.Context, maxConcurrent int, runName func(kin
 		    select exists(select 1 from head where queue_class = $2) as leading
 		)
 		select j.id, j.kind, j.queue_class, j.priority, j.params, j.requested_by,
-		       j.requested_at, j.attempt, j.release_id
+		       j.requested_at, j.attempt, j.release_id,
+		       -- Constat des conditions de démarrage, relevé **ici** et pas plus
+		       -- tard : minutes après, plus rien ne dit ce qui tournait au moment
+		       -- de la mesure. La CTE running est calculée avant la réservation,
+		       -- donc ce compte exclut le job réservé (B16).
+		       capacity.total
 		from jobs j, capacity, barrier
 		where j.state = 'queued'
 		  and capacity.total < $1
@@ -163,7 +173,8 @@ func (db *DB) ClaimNext(ctx context.Context, maxConcurrent int, runName func(kin
 	var params []byte
 	err = transaction.QueryRow(ctx, query, maxConcurrent, ClassBarrier).Scan(
 		&job.ID, &job.Kind, &job.QueueClass, &job.Priority, &params,
-		&job.RequestedBy, &job.RequestedAt, &job.Attempt, &job.ReleaseID)
+		&job.RequestedBy, &job.RequestedAt, &job.Attempt, &job.ReleaseID,
+		&job.ConcurrentAtStart)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return job, ErrJobNotFound
@@ -186,8 +197,12 @@ func (db *DB) ClaimNext(ctx context.Context, maxConcurrent int, runName func(kin
 	_, err = transaction.Exec(ctx,
 		`update jobs
 		 set state = 'running', started_at = now(), queue_reason = null,
+		     -- Conditions constatées, figées dans la même transaction que la
+		     -- réservation : c'est le seul instant où elles existent.
+		     exclusive_at_start = ($3 = queue_class),
+		     concurrent_at_start = $4,
 		     run_name = $2, updated_at = now()
-		 where id = $1`, job.ID, job.RunName)
+		 where id = $1`, job.ID, job.RunName, ClassBarrier, job.ConcurrentAtStart)
 	if err != nil {
 		return job, fmt.Errorf("réservation du job %d: %w", job.ID, err)
 	}

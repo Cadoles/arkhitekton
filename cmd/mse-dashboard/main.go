@@ -163,8 +163,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	releasesHandler := dashhttp.NewReleasesHandler(db, pipelines, authorizer, images, storage, cfg.Registry.Image)
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
-		dashhttp.NewAPIRouter(
-			authHandler, runsHandler, logsHandler, queueHandler, releasesHandler, middleware),
+		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
+			releasesHandler, dashhttp.NewBenchHandler(db), middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
@@ -293,7 +293,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			collector := logs.New(tekton.NewPodLogs(cluster), storage, db, nil, logger)
 			defer collector.Stop()
 
-			sink := worker.NewRunSink(db)
+			// L'ingestion des campagnes de charge est branchée sur la fin des
+			// runs : le runner k6 vit hors du cluster et n'a aucun chemin de
+			// retour vers le dashboard (B16).
+			sink := worker.NewRunSink(db).WithLoadIngester(
+				worker.NewLoadIngester(db, worker.NewObjectStore(storage), logger))
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
 			scheduler := worker.NewSchedulerFromCatalog(db, cluster, pipelines, schedulerConfig(cfg), logger)

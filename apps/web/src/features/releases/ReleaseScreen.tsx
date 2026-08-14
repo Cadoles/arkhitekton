@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
+import { BenchPanel } from './BenchPanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
@@ -48,6 +49,7 @@ export function ReleaseScreen() {
           <Identity release={data} />
           <Images release={data} />
           <Deployment release={data} />
+          <BenchPanel tag={data.tag} />
           <Executions release={data} />
           <ManualActionsPanel release={data} />
           <Exports release={data} />
