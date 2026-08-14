@@ -90,6 +90,11 @@ type TektonConfig struct {
 	Namespace      string
 	KubeconfigPath string
 	CatalogPath    string
+	// LeaseNamespace porte le Lease d'élection de leader. Distinct de Namespace :
+	// le bail vit dans le namespace du dashboard, où le compte de service a le
+	// droit de l'écrire, et non dans celui des pipelines, où il n'a que la
+	// lecture (doc 07 §7.3).
+	LeaseNamespace string
 }
 
 // Load lit la configuration depuis l'environnement et la valide pour le rôle
@@ -133,6 +138,7 @@ func Load(role Role) (Config, error) {
 			Namespace:      envOr("TEKTON_NAMESPACE", "mse-tekton-pipelines"),
 			KubeconfigPath: os.Getenv("KUBECONFIG"),
 			CatalogPath:    envOr("PIPELINE_CATALOG_PATH", "/etc/mse-dashboard/catalog.yaml"),
+			LeaseNamespace: envOr("POD_NAMESPACE", "mse-dashboard"),
 		},
 	}
 
@@ -163,6 +169,9 @@ func (c Config) validate() error {
 		problems = append(problems, c.validateStorage()...)
 		if strings.TrimSpace(c.Tekton.Namespace) == "" {
 			problems = append(problems, errors.New("TEKTON_NAMESPACE est requis"))
+		}
+		if strings.TrimSpace(c.Tekton.LeaseNamespace) == "" {
+			problems = append(problems, errors.New("POD_NAMESPACE est requis (namespace du bail de leader)"))
 		}
 	default:
 		problems = append(problems, fmt.Errorf("rôle inconnu %q (attendu: api, worker, migrate)", c.Role))

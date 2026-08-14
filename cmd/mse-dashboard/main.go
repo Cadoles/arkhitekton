@@ -22,6 +22,8 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
 )
 
 // Renseignés à la compilation via -ldflags (voir Dockerfile et Makefile).
@@ -123,9 +125,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	authHandler := dashhttp.NewAuthHandler(
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL), cfg.OIDC.SessionTTL)
 	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger)
+	runsHandler := dashhttp.NewRunsHandler(db)
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
-		dashhttp.NewAPIRouter(authHandler, middleware),
+		dashhttp.NewAPIRouter(authHandler, runsHandler, middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
@@ -160,17 +163,42 @@ func secureCookies(publicURL string) bool {
 func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.Info("démarrage", "role", cfg.Role, "namespace", cfg.Tekton.Namespace)
 
+	db, err := store.Open(ctx, cfg.Database)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
 	storage, err := blob.Open(ctx, cfg.Storage)
 	if err != nil {
 		return err
 	}
 	logger.Info("stockage objet", "bucket", storage.Bucket())
 
-	// TODO(lot 2/3): élection de leader, informer Tekton, collecteur de logs,
-	// ordonnanceur de file.
-	<-ctx.Done()
-	logger.Info("arrêt du worker")
-	return nil
+	// L'accès au cluster est vérifié au démarrage, comme la base et le stockage :
+	// un worker qui démarre sans pouvoir lire les PipelineRun n'observe rien et
+	// ne le dit pas.
+	cluster, err := tekton.Open(cfg.Tekton)
+	if err != nil {
+		return err
+	}
+
+	identity := worker.LeaderIdentity()
+	logger.Info("candidature au bail", "identity", identity, "lease_namespace", cfg.Tekton.LeaseNamespace)
+
+	// Tout ce qui suit ne tourne qu'en un exemplaire. Le `replicas: 1` du
+	// Deployment n'y suffit pas : pendant un rolling update deux pods coexistent,
+	// et c'est l'instant où un ordonnanceur dupliqué lancerait deux fois le même
+	// pipeline.
+	return worker.RunAsLeader(ctx, cluster.Kube,
+		worker.LeaderConfig{Namespace: cfg.Tekton.LeaseNamespace, Identity: identity},
+		logger,
+		func(leadingCtx context.Context) error {
+			observer := tekton.NewObserver(cluster, worker.NewRunSink(db), worker.NewRunSink(db), logger)
+
+			// TODO(lot 2): collecteur de logs. TODO(lot 3): ordonnanceur de file.
+			return observer.Run(leadingCtx)
+		})
 }
 
 func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) error {

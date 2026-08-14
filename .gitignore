@@ -1,6 +1,9 @@
 /bin/
 /dist/
 *.test
+
+# Vidages mémoire déposés dans l'arbre de travail par un outil externe.
+core.[0-9]*
 .env
 .env.local
 apps/web/node_modules/

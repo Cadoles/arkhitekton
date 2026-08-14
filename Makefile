@@ -1,6 +1,15 @@
 BINARY := bin/mse-dashboard
 GO     ?= go
 
+# Les cibles Go visent nos paquets explicitement, et non `./...`.
+#
+# `apps/web/node_modules` contient au moins un fichier Go — une dépendance npm
+# qui embarque un portage Go de son algorithme. `./...` le compile, `go vet`
+# l'analyse et `gofmt -l` le signalerait : l'intégration continue échouerait sur
+# le code d'un tiers, pour une raison impossible à deviner depuis le message.
+GO_PKGS := ./cmd/... ./internal/...
+GO_DIRS := cmd internal
+
 # Registre personnel pendant les développements : les images du dashboard ne
 # vont pas dans `cnous-mse` tant que le projet n'est pas livrable.
 IMAGE_REPO ?= reg.cadoles.com/vcarroy/mse-dashboard
@@ -33,7 +42,7 @@ build: ## Compile le binaire
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o $(BINARY) ./cmd/mse-dashboard
 
 test: ## Exécute les tests (les tests d'intégration sont ignorés sans TEST_DATABASE_URL)
-	$(GO) test ./...
+	$(GO) test $(GO_PKGS)
 
 # -p 1 sérialise les paquets : les tests de `store` réinitialisent le schéma, et
 # rien ne garantirait l'ordre avec ceux qui en dépendent.
@@ -55,24 +64,24 @@ test-integration: ## Tests avec un PostgreSQL et un MinIO jetables
 	@TEST_DATABASE_URL=$(PG_TEST_DSN) \
 		TEST_MINIO_ENDPOINT=127.0.0.1:$(MINIO_TEST_PORT) \
 		TEST_MINIO_BUCKET=$(MINIO_TEST_BUCKET) \
-		$(GO) test -p 1 -count=1 ./... ; status=$$? ; \
+		$(GO) test -p 1 -count=1 $(GO_PKGS) ; status=$$? ; \
 		docker rm -f $(PG_TEST_NAME) $(MINIO_TEST_NAME) >/dev/null 2>&1 ; exit $$status
 
 # Variante pour un environnement qui fournit déjà PostgreSQL et MinIO — services
 # de l'intégration continue, ou conteneurs démarrés à la main. Les drapeaux sont
 # ainsi définis à un seul endroit : la CI et le poste exécutent la même chose.
 test-ci: ## Tests d'intégration contre des services déjà démarrés
-	$(GO) test -p 1 -count=1 ./...
+	$(GO) test -p 1 -count=1 $(GO_PKGS)
 
 fmt: ## Reformate le code
-	$(GO) fmt ./...
+	$(GO) fmt $(GO_PKGS)
 
 # `go fmt` réécrit les fichiers, donc réussit toujours : l'employer en intégration
 # continue laisserait passer du code mal formaté après l'avoir corrigé dans un
 # arbre de travail jeté à la fin du job. La vérification doit constater, pas
 # corriger.
 fmt-check: ## Échoue si un fichier n'est pas formaté
-	@unformatted=$$(gofmt -l .) ; \
+	@unformatted=$$(gofmt -l $(GO_DIRS)) ; \
 	if [ -n "$$unformatted" ] ; then \
 		echo "fichiers non formatés (lancer 'make fmt') :" ; \
 		echo "$$unformatted" ; \
@@ -80,12 +89,12 @@ fmt-check: ## Échoue si un fichier n'est pas formaté
 	fi
 
 vet: ## Analyse statique du toolchain
-	$(GO) vet ./...
+	$(GO) vet $(GO_PKGS)
 
 lint: fmt-check vet ## Vérification du formatage + analyse statique
 
 vuln: ## Recherche de vulnérabilités dans les dépendances
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest $(GO_PKGS)
 
 # Cible unique reproduisant ce que la CI vérifie : un développeur doit pouvoir
 # constater localement l'échec qu'il obtiendrait en intégration. La promesse ne

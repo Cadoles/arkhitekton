@@ -52,6 +52,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # Namespace du Lease. Il doit être celui du dashboard et non celui
+            # des pipelines : le compte de service n'a le droit d'écrire un Lease
+            # que dans le premier.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
