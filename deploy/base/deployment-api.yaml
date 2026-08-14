@@ -101,7 +101,13 @@ spec:
             # d'un /tmp inscriptible, et de rien d'autre.
             - name: tmp
               mountPath: /tmp
+            - name: catalog
+              mountPath: /etc/mse-dashboard
+              readOnly: true
       volumes:
+        - name: catalog
+          configMap:
+            name: mse-dashboard-catalog
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi

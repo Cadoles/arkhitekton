@@ -17,6 +17,8 @@ type PipelineSpec struct {
 	Name string
 	// Params indique, par nom, si le paramètre a une valeur par défaut.
 	Params map[string]bool
+	// Workspaces indique, par nom, si le workspace est optionnel.
+	Workspaces map[string]bool
 }
 
 // Cluster fournit les Pipeline réellement déployés.
@@ -37,8 +39,13 @@ type Cluster interface {
 //  3. **Paramètre requis non couvert** — le Pipeline attend un paramètre sans
 //     valeur par défaut que le catalogue ne fournit pas. Le run échoue en
 //     `ParameterMissing`, motif qui a déjà piégé un outil de suivi de ce projet.
+//  4. **Workspace non lié** — le Pipeline déclare un workspace non optionnel que
+//     le catalogue ne fournit pas. Le run échoue en `InvalidWorkspaceBindings`,
+//     constaté sur ce cluster : une première version du catalogue ne vérifiait
+//     que les paramètres, passait le démarrage, et produisait des runs morts à la
+//     seconde. C'est exactement ce que cette validation existe pour empêcher.
 //
-// Les trois sont détectables au démarrage. Les laisser passer revient à les
+// Les quatre sont détectables au démarrage. Les laisser passer revient à les
 // découvrir au premier lancement, c'est-à-dire au pire moment.
 func (c *Catalog) ValidateAgainst(ctx context.Context, cluster Cluster) error {
 	deployed, err := cluster.Pipelines(ctx)
@@ -56,6 +63,7 @@ func (c *Catalog) ValidateAgainst(ctx context.Context, cluster Cluster) error {
 			continue
 		}
 		problems = append(problems, entry.validateParams(spec)...)
+		problems = append(problems, entry.validateWorkspaces(spec)...)
 	}
 
 	return errors.Join(problems...)
@@ -84,6 +92,40 @@ func (p Pipeline) validateParams(spec PipelineSpec) []error {
 	}
 
 	return problems
+}
+
+func (p Pipeline) validateWorkspaces(spec PipelineSpec) []error {
+	var problems []error
+
+	bound := make(map[string]bool, len(p.Workspaces))
+	for _, workspace := range p.Workspaces {
+		bound[workspace.Name] = true
+		if _, declared := spec.Workspaces[workspace.Name]; !declared {
+			problems = append(problems, fmt.Errorf(
+				"kind %q: le Pipeline %q ne déclare pas le workspace %q (attendus: %s)",
+				p.Kind, spec.Name, workspace.Name, strings.Join(workspaceNames(spec), ", ")))
+		}
+	}
+
+	for name, optional := range spec.Workspaces {
+		if optional || bound[name] {
+			continue
+		}
+		problems = append(problems, fmt.Errorf(
+			"kind %q: le Pipeline %q exige le workspace %q, que le catalogue ne lie pas",
+			p.Kind, spec.Name, name))
+	}
+
+	return problems
+}
+
+func workspaceNames(spec PipelineSpec) []string {
+	list := make([]string, 0, len(spec.Workspaces))
+	for name := range spec.Workspaces {
+		list = append(list, name)
+	}
+	sort.Strings(list)
+	return list
 }
 
 func names(deployed map[string]PipelineSpec) []string {

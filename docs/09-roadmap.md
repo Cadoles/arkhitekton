@@ -254,3 +254,19 @@ précisément le genre d'écart qui coûte cher s'il est découvert au jalon 4.
 | Registre non interrogeable par digest | version déployée non résolue | l'interface affiche le digest et un état « non résolue » ; dégradation acceptable, pas un blocage |
 | Format du bon de livraison contesté en fin de projet | reprise du lot 7 | faire valider une maquette du document pendant le lot 5, pas au lot 7 |
 | Volume de logs sous-estimé | coût de stockage, lenteur de l'interface | mesurer sur les runs réels dès le lot 2, avant d'écrire la visionneuse |
+
+## 9.5 Avancement — *14/08/2026*
+
+| Lot | État | Ce qui est vérifié sur kind |
+|---|---|---|
+| 0 — Fondations | **fait**, sauf overlay de production | déploiement, OIDC, RBAC, CI, CRD Flux, coquille React |
+| 2 — Observation Tekton | **fait** | 28/28 PipelineRun projetés, journaux captés et scellés, SSE, écrans `/runs` |
+| 3 — File et lancement | **fait** | catalogue validé contre les Pipeline réels, exclusion et barrière, lancement et annulation de bout en bout |
+
+Le chemin critique passe au **lot 5** (promotion et environnements), qui reste
+suspendu à deux relevés sur le cluster de production : les `filterTags` réellement
+configurés et la version d'API du groupe `image.toolkit.fluxcd.io`
+([11 §11.3](11-environnement-de-developpement.md)).
+
+Reste hors chemin critique : le lot 1 (Redmine), parallélisable dès qu'un accès à
+une instance de recette est disponible, et la fin du lot 10 côté `mse-tekton`.

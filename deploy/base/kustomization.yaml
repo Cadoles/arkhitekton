@@ -28,6 +28,14 @@ labels:
       app.kubernetes.io/managed-by: kustomize
 
 configMapGenerator:
+  # Catalogue des pipelines, monté en fichier. Le `worker` le valide au démarrage
+  # contre les Pipeline déployés ; l'`api` s'en sert pour dire ce qui est
+  # lançable et quels paramètres sont requis.
+  - name: mse-dashboard-catalog
+    namespace: mse-dashboard
+    files:
+      - catalog.yaml=config/catalog.yaml
+
   # Seules les valeurs identiques partout figurent ici. Tout ce qui dépend de
   # l'environnement — URL publique, fournisseur OIDC, endpoint MinIO, liste des
   # administrateurs d'amorçage — est ajouté par l'overlay en `behavior: merge`.

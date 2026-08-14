@@ -386,3 +386,42 @@ func value(pointer *string) string {
 	}
 	return *pointer
 }
+
+// RequestCancel inscrit une demande d'annulation sur un job en cours.
+//
+// L'api ne parle pas à Kubernetes — son compte de service ne monte même pas de
+// jeton (doc 07 §7.3). L'annulation d'un run en cours est donc enregistrée comme
+// une intention, que l'ordonnanceur exécute au tour suivant. Le détour coûte deux
+// secondes et évite de donner à l'`api` un accès au cluster pour une opération
+// qu'elle fait rarement.
+func (db *DB) RequestCancel(ctx context.Context, id int64, reason string) (bool, error) {
+	tag, err := db.pool.Exec(ctx,
+		`update jobs set cancel_reason = $2, updated_at = now()
+		 where id = $1 and state = 'running' and cancel_reason is null`, id, reason)
+	if err != nil {
+		return false, fmt.Errorf("demande d'annulation du job %d: %w", id, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// PendingCancellations liste les runs dont l'arrêt a été demandé.
+func (db *DB) PendingCancellations(ctx context.Context) ([]RunningJob, error) {
+	rows, err := db.pool.Query(ctx,
+		`select id, kind, run_name from jobs
+		 where state = 'running' and cancel_reason is not null and run_name is not null
+		 order by id`)
+	if err != nil {
+		return nil, fmt.Errorf("lecture des annulations demandées: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []RunningJob
+	for rows.Next() {
+		var job RunningJob
+		if err := rows.Scan(&job.ID, &job.Kind, &job.RunName); err != nil {
+			return nil, fmt.Errorf("lecture des annulations demandées: %w", err)
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}

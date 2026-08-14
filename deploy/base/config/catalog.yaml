@@ -1,0 +1,118 @@
+# Catalogue des pipelines lançables depuis le dashboard.
+#
+# Ce fichier vit hors du binaire, en ConfigMap, et il est validé au démarrage du
+# `worker` contre les Pipeline réellement déployés : Pipeline absent, paramètre
+# qu'il n'accepte pas, paramètre requis non couvert, workspace non lié — chacun
+# empêche le démarrage avec un message qui le nomme (doc 06 §6.2). Y ajouter un
+# pipeline ne demande aucune modification du code.
+#
+# Les valeurs sont relevées sur des PipelineRun réels du cluster, et non
+# inventées : le catalogue doit reproduire ce que faisaient les TriggerTemplate
+# de `mse-tekton`.
+
+# Plafond global. Les pipelines demandent des PVC et des pods de build, et rien
+# n'empêche mécaniquement d'en lancer vingt.
+maxConcurrentRuns: 4
+
+pipelines:
+  # L'audit de sécurité n'exige aucun paramètre : le pipeline porte ses propres
+  # valeurs par défaut. C'est le kind le plus simple, et le seul lançable sans
+  # rien saisir.
+  - kind: security-audit
+    pipelineRef: security-audit
+    label: Audit de sécurité
+    # Aucune contention : un audit peut tourner pendant des tests E2E.
+    queueClass: parallel
+    timeout: 90m
+    # Les noms diffèrent de ceux des autres pipelines — `shared` et
+    # `docker-config`, non `shared-data` et `dockerconfig`. Rien ne le devinerait :
+    # c'est la validation contre le cluster qui les impose.
+    workspaces:
+      - name: git-credentials
+        secret: { secretName: git-credentials }
+      - name: docker-config
+        secret: { secretName: regcred }
+      - name: shared
+        volumeClaimTemplate:
+          accessModes: [ReadWriteOnce]
+          storageClassName: standard
+          storage: 2Gi
+
+  - kind: static-tests
+    pipelineRef: php-static-tests
+    label: Tests statiques
+    queueClass: parallel
+    params:
+      repo-url:     { source: config, key: forge.mse.repoUrl }
+      minio-host:   { source: config, key: minio.host }
+      minio-bucket: { source: config, key: minio.pipelineBucket }
+      revision:     { source: input, required: true }
+      # Le commit sert au retour de statut vers Gitea : sans lui, la PR ne voit
+      # jamais le résultat.
+      commit:       { source: input, required: true }
+    workspaces:
+      - name: git-credentials
+        secret: { secretName: git-credentials }
+      - name: shared-data
+        volumeClaimTemplate:
+          accessModes: [ReadWriteOnce]
+          storageClassName: standard
+          storage: 1Gi
+
+  - kind: e2e-tests
+    pipelineRef: e2e-test
+    label: Tests E2E
+    # Une campagne E2E s'exécute contre un environnement partagé : deux
+    # exécutions simultanées se fausseraient mutuellement.
+    queueClass: exclusive-e2e
+    timeout: 60m
+    params:
+      repo-url:     { source: config, key: forge.e2e.repoUrl }
+      minio-host:   { source: config, key: minio.host }
+      minio-bucket: { source: config, key: minio.pipelineBucket }
+      revision:     { source: input, required: true }
+      environment:  { source: input, required: true }
+    workspaces:
+      - name: git-credentials
+        secret: { secretName: git-credentials }
+      - name: shared-data
+        volumeClaimTemplate:
+          accessModes: [ReadWriteOnce]
+          storageClassName: standard
+          storage: 1Gi
+
+  - kind: integration-tests
+    pipelineRef: php-integration-test
+    label: Tests d'intégration
+    # Le pipeline déploie dans un namespace applicatif : deux exécutions
+    # simultanées partageraient la même cible.
+    queueClass: exclusive-mse-pipeline
+    serviceAccountName: tekton-kubectl
+    timeout: 45m
+    params:
+      mse-repo:            { source: config, key: forge.mse.repoUrl }
+      mse-kustom-repo:     { source: config, key: forge.mseKustom.repoUrl }
+      overlay-location:    { source: config, key: mse.overlayLocation }
+      reg-project:         { source: config, key: registry.project }
+      dockerfile:          { source: config, key: mse.dockerfile }
+      context:             { source: literal, value: "./" }
+      tag-name:            { source: config, key: mse.pipelineTag }
+      minio-host:          { source: config, key: minio.host }
+      minio-bucket:        { source: config, key: minio.pipelineBucket }
+      mse-revision:        { source: input, required: true }
+      mse-kustom-revision: { source: input, required: true }
+    workspaces:
+      - name: git-credentials
+        secret: { secretName: git-credentials }
+      - name: dockerconfig
+        secret: { secretName: regcred }
+      - name: mse
+        volumeClaimTemplate:
+          accessModes: [ReadWriteOnce]
+          storageClassName: standard
+          storage: 1Gi
+      - name: kustomization
+        volumeClaimTemplate:
+          accessModes: [ReadWriteOnce]
+          storageClassName: standard
+          storage: 1Gi

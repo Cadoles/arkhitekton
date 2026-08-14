@@ -11,7 +11,10 @@ import (
 // L'autorisation est décidée ici, route par route, et jamais dans un handler :
 // un contrôle dispersé finit toujours par manquer sur une route ajoutée plus
 // tard. Le tableau ci-dessous est donc la référence de ce qui est protégé.
-func NewAPIRouter(handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, middleware *Middleware) http.Handler {
+func NewAPIRouter(
+	handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, queue *QueueHandler,
+	middleware *Middleware,
+) http.Handler {
 	mux := http.NewServeMux()
 
 	// Routes publiques : elles servent précisément à obtenir une session.
@@ -43,6 +46,19 @@ func NewAPIRouter(handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, mi
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 	mux.Handle("GET /runs/{run}/tasks/{task}/log/stream", Chain(http.HandlerFunc(logs.Stream),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
+
+	// La file est en lecture pour tous : comprendre pourquoi une exécution
+	// attend ne demande aucun privilège, et c'est justement ce qui évite les
+	// relances inutiles.
+	mux.Handle("GET /queue", Chain(http.HandlerFunc(queue.List),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
+
+	// Lancer et annuler modifient l'état : contrôle CSRF en plus de la
+	// permission, et `pipeline:run` plutôt que `read`.
+	mux.Handle("POST /queue", Chain(http.HandlerFunc(queue.Launch),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermPipelineRun)))
+	mux.Handle("POST /queue/{id}/cancel", Chain(http.HandlerFunc(queue.Cancel),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermPipelineCancel)))
 
 	return mux
 }

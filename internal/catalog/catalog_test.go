@@ -264,3 +264,78 @@ func TestValidateAgainstReportsClusterFailure(t *testing.T) {
 		t.Error("une erreur de lecture du cluster doit remonter")
 	}
 }
+
+// Le cas constaté sur le cluster : le catalogue passait la validation des
+// paramètres, démarrait, puis produisait des runs morts en
+// `InvalidWorkspaceBindings` à la seconde. La validation doit donc couvrir les
+// workspaces comme les paramètres.
+func TestValidateAgainstDetectsUnboundWorkspace(t *testing.T) {
+	catalog, _ := Parse([]byte(minimal))
+	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
+		"php-static-tests": {
+			Name:   "php-static-tests",
+			Params: map[string]bool{"revision": false, "repo-url": false},
+			Workspaces: map[string]bool{
+				"shared-data":     false,
+				"git-credentials": false,
+			},
+		},
+	}}
+
+	err := catalog.ValidateAgainst(context.Background(), cluster)
+	if err == nil {
+		t.Fatal("un workspace non lié doit être détecté")
+	}
+	for _, name := range []string{"shared-data", "git-credentials"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("le message ne nomme pas le workspace %q: %v", name, err)
+		}
+	}
+}
+
+// Un workspace lié sous un nom que le Pipeline ne connaît pas est tout aussi
+// fatal, et le message doit lister les noms attendus : `security-audit` emploie
+// `shared` et `docker-config` là où les autres pipelines emploient `shared-data`
+// et `dockerconfig`, et rien ne le devine.
+func TestValidateAgainstDetectsMisnamedWorkspace(t *testing.T) {
+	catalog, err := Parse([]byte(`
+pipelines:
+  - kind: audit
+    pipelineRef: security-audit
+    queueClass: parallel
+    workspaces:
+      - name: shared-data
+        emptyDir: true
+`))
+	if err != nil {
+		t.Fatalf("analyse: %v", err)
+	}
+
+	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
+		"security-audit": {
+			Name:       "security-audit",
+			Workspaces: map[string]bool{"shared": false},
+		},
+	}}
+
+	err = catalog.ValidateAgainst(context.Background(), cluster)
+	if err == nil || !strings.Contains(err.Error(), "shared") {
+		t.Errorf("un workspace mal nommé doit être détecté: %v", err)
+	}
+}
+
+// Un workspace optionnel n'a pas à être lié.
+func TestValidateAgainstIgnoresOptionalWorkspaces(t *testing.T) {
+	catalog, _ := Parse([]byte(minimal))
+	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
+		"php-static-tests": {
+			Name:       "php-static-tests",
+			Params:     map[string]bool{"revision": false, "repo-url": false},
+			Workspaces: map[string]bool{"facultatif": true},
+		},
+	}}
+
+	if err := catalog.ValidateAgainst(context.Background(), cluster); err != nil {
+		t.Errorf("un workspace optionnel a été exigé: %v", err)
+	}
+}

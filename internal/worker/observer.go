@@ -27,6 +27,10 @@ type runSink struct{ db *store.DB }
 func NewRunSink(db *store.DB) *runSink { return &runSink{db: db} }
 
 func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
+	if err := s.finishJob(ctx, run); err != nil {
+		return err
+	}
+
 	_, err := s.db.UpsertRun(ctx, store.RunRecord{
 		Name:        run.Name,
 		Namespace:   run.Namespace,
@@ -40,6 +44,31 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 		Observed:    run.Observed,
 	})
 	return err
+}
+
+// finishJob conclut le job d'un run terminé.
+//
+// La file n'apprend la fin d'un run que par l'observateur : Tekton ne prévient
+// personne, et sans cette conclusion la classe d'exclusion resterait occupée
+// indéfiniment — le job suivant n'obtiendrait jamais son tour.
+//
+// La conclusion précède l'enregistrement du run : si elle échouait après, la
+// transaction suivante verrait un run terminé et un job en cours, état qu'aucune
+// boucle ne rattrape.
+func (s *runSink) finishJob(ctx context.Context, run tekton.Run) error {
+	if run.JobID == 0 || !run.Status.Terminal() {
+		return nil
+	}
+
+	state := store.JobFailed
+	switch run.Status {
+	case tekton.StatusSucceeded:
+		state = store.JobSucceeded
+	case tekton.StatusCancelled:
+		state = store.JobCancelled
+	}
+
+	return s.db.FinishJob(ctx, run.JobID, state, run.Reason)
 }
 
 func (s *runSink) SaveTaskRun(ctx context.Context, taskRun tekton.TaskRunProjection) error {

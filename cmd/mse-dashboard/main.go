@@ -19,6 +19,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
@@ -132,8 +133,18 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// rencontre que MinIO et PostgreSQL.
 	logsHandler := dashhttp.NewLogsHandler(logs.NewReader(storage))
 
+	// Le catalogue est chargé par l'`api` aussi : c'est lui qui dit ce qui est
+	// lançable et quels paramètres sont requis. Il n'est pas validé contre le
+	// cluster ici — l'api n'y a pas accès, et le `worker` le fait au démarrage.
+	pipelines, err := catalog.Load(cfg.Tekton.CatalogPath)
+	if err != nil {
+		return err
+	}
+	logger.Info("catalogue chargé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
+	queueHandler := dashhttp.NewQueueHandler(db, pipelines)
+
 	server := dashhttp.NewServer(cfg.HTTP, logger,
-		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, middleware),
+		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler, middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
@@ -188,6 +199,23 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
+	pipelines, err := catalog.Load(cfg.Tekton.CatalogPath)
+	if err != nil {
+		return err
+	}
+
+	// La validation contre le cluster a lieu ici et pas ailleurs : c'est le
+	// `worker` qui crée les PipelineRun, et un catalogue en désaccord avec les
+	// Pipeline déployés produirait des runs invalides à la première utilisation
+	// plutôt qu'une erreur au démarrage (doc 06 §6.2).
+	validateCtx, cancelValidate := context.WithTimeout(ctx, 30*time.Second)
+	err = pipelines.ValidateAgainst(validateCtx, cluster)
+	cancelValidate()
+	if err != nil {
+		return fmt.Errorf("catalogue incompatible avec le cluster:\n%w", err)
+	}
+	logger.Info("catalogue validé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
+
 	identity := worker.LeaderIdentity()
 	logger.Info("candidature au bail", "identity", identity, "lease_namespace", cfg.Tekton.LeaseNamespace)
 
@@ -208,9 +236,51 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			sink := worker.NewRunSink(db)
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
-			// TODO(lot 3): ordonnanceur de file.
-			return observer.Run(leadingCtx)
+			scheduler := worker.NewSchedulerFromCatalog(db, cluster, pipelines, schedulerConfig(cfg), logger)
+
+			// L'observation et l'ordonnancement tournent en parallèle : la
+			// seconde dépend de la première pour apprendre qu'un run est fini,
+			// et les sérialiser bloquerait la file derrière la synchronisation
+			// du cache.
+			errs := make(chan error, 2)
+			go func() { errs <- observer.Run(leadingCtx) }()
+			go func() { errs <- scheduler.Run(leadingCtx) }()
+
+			// La première erreur l'emporte : une boucle morte doit faire perdre
+			// le bail plutôt que de laisser l'autre tourner à moitié.
+			return <-errs
 		})
+}
+
+// schedulerConfig expose à l'ordonnanceur les valeurs que le catalogue référence
+// par clé.
+//
+// La table est explicite plutôt que dérivée par réflexion : ce qu'un catalogue
+// peut injecter dans un PipelineRun doit être une liste qu'on peut lire, pas
+// l'ensemble de la configuration du dashboard.
+func schedulerConfig(cfg config.Config) map[string]string {
+	envOr := func(key, fallback string) string {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
+		return fallback
+	}
+
+	return map[string]string{
+		"tekton.namespace":        cfg.Tekton.Namespace,
+		"forge.mse.repoUrl":       envOr("FORGE_MSE_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse.git"),
+		"forge.mseKustom.repoUrl": envOr("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
+		"forge.e2e.repoUrl":       envOr("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
+		"registry.project":        envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
+		"mse.overlayLocation":     envOr("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
+		"mse.dockerfile":          envOr("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
+		"mse.pipelineTag":         envOr("MSE_PIPELINE_TAG", "pipeline"),
+		// Le bucket des pipelines n'est pas celui du dashboard : `mse-pipeline`
+		// porte les artefacts que les Tasks publient, `mse-dashboard` ce que le
+		// dashboard écrit lui-même (doc 03 §3.5).
+		"minio.host":           envOr("PIPELINE_MINIO_HOST", "https://nuo-s3.nuonet.fr"),
+		"minio.pipelineBucket": envOr("PIPELINE_MINIO_BUCKET", "mse-pipeline"),
+	}
 }
 
 func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) error {

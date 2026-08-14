@@ -4,6 +4,7 @@ import { Placeholder } from './components/Placeholder'
 import { NotFound } from './components/NotFound'
 import { RunsScreen } from './features/runs/RunsScreen'
 import { RunScreen } from './features/runs/RunScreen'
+import { QueueScreen } from './features/queue/QueueScreen'
 
 /*
  * Arborescence de la doc 08 §8.3, posée en entier dès le lot 0.
@@ -139,16 +140,7 @@ export const routes: RouteObject[] = [
       { path: 'runs', element: <RunsScreen /> },
       { path: 'runs/:name', element: <RunScreen /> },
 
-      {
-        path: 'queue',
-        element: (
-          <Placeholder
-            lot="lot 3"
-            title="File d'attente"
-            summary="Jobs en cours groupés par classe d'exclusion, jobs en attente dans l'ordre réel, avec la raison de l'attente."
-          />
-        ),
-      },
+      { path: 'queue', element: <QueueScreen /> },
 
       {
         path: 'admin',
