@@ -260,3 +260,52 @@ func nullString(value string) any {
 	}
 	return value
 }
+
+// SealTaskLog enregistre l'objet de journal d'une task et la marque scellée.
+//
+// Appelé après l'écriture de l'objet, jamais avant : l'ordre inverse annoncerait
+// un journal lisible que personne ne pourrait ouvrir.
+func (db *DB) SealTaskLog(ctx context.Context, runName, taskName, object string) error {
+	_, err := db.pool.Exec(ctx,
+		`update task_runs t
+		 set log_object = $3, log_sealed = true, updated_at = now()
+		 from runs r
+		 where r.id = t.run_id and r.pipelinerun_name = $1 and t.name = $2`,
+		runName, taskName, object)
+	if err != nil {
+		return fmt.Errorf("scellement du journal de %q: %w", taskName, err)
+	}
+	return nil
+}
+
+// TaskLogLocation décrit où lire le journal d'une task.
+type TaskLogLocation struct {
+	RunName  string
+	TaskName string
+	PodName  string
+	Object   string
+	Sealed   bool
+}
+
+// TaskLog rend l'emplacement du journal d'une task.
+func (db *DB) TaskLog(ctx context.Context, runName, taskName string) (TaskLogLocation, error) {
+	location := TaskLogLocation{RunName: runName, TaskName: taskName}
+
+	var podName, object *string
+	err := db.pool.QueryRow(ctx,
+		`select t.pod_name, t.log_object, t.log_sealed
+		 from task_runs t join runs r on r.id = t.run_id
+		 where r.pipelinerun_name = $1 and t.name = $2`, runName, taskName).
+		Scan(&podName, &object, &location.Sealed)
+	if err != nil {
+		return location, fmt.Errorf("emplacement du journal de %q: %w", taskName, err)
+	}
+
+	if podName != nil {
+		location.PodName = *podName
+	}
+	if object != nil {
+		location.Object = *object
+	}
+	return location, nil
+}

@@ -87,6 +87,81 @@ func (Keys) TaskLog(runName, taskName, step string) (string, error) {
 	return join(prefixLogs, runName, taskName, step+".log")
 }
 
+// TaskLogObject désigne le log scellé d'une task : la concaténation de ses étapes
+// dans l'ordre d'exécution.
+//
+// Un seul objet par task, et non un par étape, parce que c'est ce qu'on lit :
+// « le log de cette task ». Les étapes d'un TaskRun s'exécutent séquentiellement,
+// leur concaténation est donc chronologique.
+func (Keys) TaskLogObject(runName, taskName string) (string, error) {
+	key, err := join(prefixLogs, runName, taskName)
+	if err != nil {
+		return "", err
+	}
+	return key + ".log", nil
+}
+
+// TaskLogChunk désigne une tranche de log, écrite pendant l'exécution.
+//
+// Les tranches existent parce que les logs Tekton disparaissent avec les pods : il
+// faut les rendre durables au fil de l'eau, sans attendre la fin de la task. Un
+// objet par tranche, et non un envoi multipart : les parties d'un envoi multipart
+// S3 doivent peser au moins 5 Mio, ce qui interdit une granularité de flush
+// utile — un incident perdrait jusqu'à 5 Mio de journal.
+//
+// Deux numéros sont zéro-paddés, et c'est ce qui fait tout l'intérêt de ce
+// layout : **l'ordre lexicographique des clés est l'ordre chronologique du
+// journal**, sans rien connaître du pipeline.
+//
+//   - `index` est le rang de l'étape dans la task. Sans lui, l'ordre serait
+//     alphabétique par nom de conteneur : une task qui exécute `run-tests` puis
+//     `publish-results` verrait sa publication classée avant ses tests, puisque
+//     `step-publish-results` précède `step-run-tests` dans l'alphabet.
+//   - `sequence` est le rang de la tranche dans l'étape, sans quoi la tranche 10
+//     précéderait la tranche 2.
+//
+// La conséquence pratique est qu'un simple listing trié suffit à lire un journal
+// en cours, avant tout scellement.
+func (Keys) TaskLogChunk(runName, taskName, step string, index, sequence int) (string, error) {
+	if index < 0 || sequence < 0 {
+		return "", ErrUnsafeSegment{
+			Segment: fmt.Sprintf("%d/%d", index, sequence),
+			Reason:  "rang d'étape ou numéro de tranche négatif",
+		}
+	}
+	prefix, err := taskLogChunkPrefix(runName, taskName, step, index)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s%08d.log", prefix, sequence), nil
+}
+
+// TaskLogChunkPrefix rend le préfixe des tranches d'une étape, pour les lister au
+// redémarrage ou les purger après scellement.
+func (Keys) TaskLogChunkPrefix(runName, taskName, step string, index int) (string, error) {
+	return taskLogChunkPrefix(runName, taskName, step, index)
+}
+
+func taskLogChunkPrefix(runName, taskName, step string, index int) (string, error) {
+	if index < 0 {
+		return "", ErrUnsafeSegment{Segment: fmt.Sprint(index), Reason: "rang d'étape négatif"}
+	}
+	key, err := join(prefixLogs, runName, taskName, "parts", fmt.Sprintf("%03d-%s", index, step))
+	if err != nil {
+		return "", err
+	}
+	return key + "/", nil
+}
+
+// TaskLogPartsPrefix rend le préfixe de toutes les tranches d'une task.
+func (Keys) TaskLogPartsPrefix(runName, taskName string) (string, error) {
+	key, err := join(prefixLogs, runName, taskName, "parts")
+	if err != nil {
+		return "", err
+	}
+	return key + "/", nil
+}
+
 // ReleaseArtifact désigne un livrable attaché à une release — bon de livraison,
 // rapport de tests. Ces objets doivent survivre à la purge des artefacts bruts.
 func (Keys) ReleaseArtifact(releaseTag, name string) (string, error) {

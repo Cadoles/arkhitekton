@@ -21,6 +21,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
@@ -194,9 +195,16 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		worker.LeaderConfig{Namespace: cfg.Tekton.LeaseNamespace, Identity: identity},
 		logger,
 		func(leadingCtx context.Context) error {
-			observer := tekton.NewObserver(cluster, worker.NewRunSink(db), worker.NewRunSink(db), logger)
+			// Le collecteur est arrêté avant que la fonction rende la main : les
+			// captures en cours doivent cesser d'écrire avant qu'un autre worker
+			// prenne le bail, sinon deux processus écrivent les mêmes tranches.
+			collector := logs.New(tekton.NewPodLogs(cluster), storage, db, nil, logger)
+			defer collector.Stop()
 
-			// TODO(lot 2): collecteur de logs. TODO(lot 3): ordonnanceur de file.
+			sink := worker.NewRunSink(db)
+			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
+
+			// TODO(lot 3): ordonnanceur de file.
 			return observer.Run(leadingCtx)
 		})
 }

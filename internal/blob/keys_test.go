@@ -1,6 +1,7 @@
 package blob
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
@@ -106,5 +107,102 @@ func TestUnsafeSegmentErrorNamesTheOffendingValue(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "../evasion") {
 		t.Errorf("le message ne désigne pas la valeur fautive: %v", err)
+	}
+}
+
+func TestLogChunkKeysSortChronologically(t *testing.T) {
+	var k Keys
+
+	keys := make([]string, 0, 3)
+	for _, sequence := range []int{2, 10, 1} {
+		key, err := k.TaskLogChunk("run-abc", "unit-test", "step-phpunit", 1, sequence)
+		if err != nil {
+			t.Fatalf("tranche %d: %v", sequence, err)
+		}
+		keys = append(keys, key)
+	}
+
+	// L'ordre lexicographique doit être l'ordre chronologique : le listing MinIO
+	// ne trie pas autrement, et une tranche 10 placée avant la tranche 2
+	// produirait un journal mélangé.
+	sorted := append([]string(nil), keys...)
+	sort.Strings(sorted)
+
+	expected := []string{
+		"logs/run-abc/unit-test/parts/001-step-phpunit/00000001.log",
+		"logs/run-abc/unit-test/parts/001-step-phpunit/00000002.log",
+		"logs/run-abc/unit-test/parts/001-step-phpunit/00000010.log",
+	}
+	for i := range expected {
+		if sorted[i] != expected[i] {
+			t.Errorf("position %d = %q, attendu %q", i, sorted[i], expected[i])
+		}
+	}
+}
+
+func TestSealedTaskLogAndPrefixes(t *testing.T) {
+	var k Keys
+
+	sealed, err := k.TaskLogObject("run-abc", "unit-test")
+	if err != nil {
+		t.Fatalf("objet scellé: %v", err)
+	}
+	if sealed != "logs/run-abc/unit-test.log" {
+		t.Errorf("objet scellé = %q", sealed)
+	}
+
+	// Le préfixe des tranches ne doit pas englober l'objet scellé, sans quoi la
+	// purge des tranches emporterait le journal qu'on vient de constituer.
+	prefix, err := k.TaskLogPartsPrefix("run-abc", "unit-test")
+	if err != nil {
+		t.Fatalf("préfixe: %v", err)
+	}
+	if strings.HasPrefix(sealed, prefix) {
+		t.Errorf("l'objet scellé %q tombe sous le préfixe des tranches %q", sealed, prefix)
+	}
+}
+
+func TestLogChunkRejectsHostileSegments(t *testing.T) {
+	var k Keys
+
+	if _, err := k.TaskLogChunk("../evasion", "task", "step", 0, 1); err == nil {
+		t.Error("nom de run hostile accepté")
+	}
+	if _, err := k.TaskLogChunk("run", "task", "step", 0, -1); err == nil {
+		t.Error("numéro de tranche négatif accepté")
+	}
+	if _, err := k.TaskLogChunk("run", "task", "step", -1, 1); err == nil {
+		t.Error("rang d'étape négatif accepté")
+	}
+}
+
+// Le rang de l'étape dans la clé est ce qui rend l'ordre lexicographique
+// chronologique.
+//
+// Le couple choisi n'est pas arbitraire : `publish-results` précède `run-tests`
+// dans l'alphabet, alors qu'il s'exécute après. Sans le rang, le journal
+// montrerait la publication avant les tests qui la produisent.
+func TestStepRankOrdersChunksBeforeContainerName(t *testing.T) {
+	var k Keys
+
+	tests, err := k.TaskLogChunk("run-abc", "integration", "step-run-tests", 1, 1)
+	if err != nil {
+		t.Fatalf("run-tests: %v", err)
+	}
+	publish, err := k.TaskLogChunk("run-abc", "integration", "step-publish-results", 2, 1)
+	if err != nil {
+		t.Fatalf("publish-results: %v", err)
+	}
+
+	if tests >= publish {
+		t.Errorf("ordre inversé:\n  %s\n  %s", tests, publish)
+	}
+
+	// Contre-épreuve : à rangs égaux, l'ordre redevient alphabétique, donc faux.
+	// Sans cette assertion, le test passerait même si le rang ne servait à rien.
+	sameTests, _ := k.TaskLogChunk("run-abc", "integration", "step-run-tests", 0, 1)
+	samePublish, _ := k.TaskLogChunk("run-abc", "integration", "step-publish-results", 0, 1)
+	if samePublish >= sameTests {
+		t.Error("le test ne démontre rien: l'ordre alphabétique est déjà le bon pour ce couple")
 	}
 }

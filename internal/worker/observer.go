@@ -11,6 +11,7 @@ package worker
 import (
 	"context"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 )
@@ -70,4 +71,46 @@ func (s *runSink) UnfinishedRunNames(ctx context.Context, namespace string) (map
 
 func (s *runSink) ConcludeVanishedRun(ctx context.Context, id int64, reason string) error {
 	return s.db.MarkRunVanished(ctx, id, reason)
+}
+
+// logAdapter traduit les notifications de l'observateur vers le collecteur.
+//
+// Même motif que runSink : ni `tekton` ni `logs` ne dépend de l'autre, et la
+// traduction se paie une fois ici.
+type logAdapter struct{ collector *logs.Collector }
+
+// NewLogAdapter branche le collecteur sur l'observateur Tekton.
+func NewLogAdapter(collector *logs.Collector) *logAdapter {
+	return &logAdapter{collector: collector}
+}
+
+func (a *logAdapter) StartTaskLogs(
+	ctx context.Context, runName, taskName, podName string, steps []tekton.Step,
+) {
+	a.collector.Start(ctx, logs.Target{
+		RunName:  runName,
+		TaskName: taskName,
+		PodName:  podName,
+		Steps:    toLogSteps(steps),
+	})
+}
+
+func (a *logAdapter) FinishTaskLogs(
+	ctx context.Context, runName, taskName string, steps []tekton.Step,
+) error {
+	return a.collector.Finish(ctx, logs.Target{
+		RunName:  runName,
+		TaskName: taskName,
+		Steps:    toLogSteps(steps),
+	})
+}
+
+// toLogSteps conserve l'ordre déclaré : c'est lui qui rétablit la chronologie au
+// scellement, les étapes d'un TaskRun s'exécutant en série.
+func toLogSteps(steps []tekton.Step) []logs.Step {
+	converted := make([]logs.Step, 0, len(steps))
+	for _, step := range steps {
+		converted = append(converted, logs.Step{Name: step.Name, Container: step.Container})
+	}
+	return converted
 }

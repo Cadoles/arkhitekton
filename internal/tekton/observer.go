@@ -20,6 +20,17 @@ type Sink interface {
 	SaveTaskRun(ctx context.Context, taskRun TaskRunProjection) error
 }
 
+// LogCollector est prévenu du cycle de vie des tasks, pour capter leurs journaux
+// avant que les pods disparaissent.
+//
+// L'interface est décrite ici avec les types de ce paquet plutôt qu'avec ceux du
+// collecteur : ni `tekton` ni `logs` n'a de raison de dépendre de l'autre, et
+// l'adaptation se fait une fois dans le worker.
+type LogCollector interface {
+	StartTaskLogs(ctx context.Context, runName, taskName, podName string, steps []Step)
+	FinishTaskLogs(ctx context.Context, runName, taskName string, steps []Step) error
+}
+
 // Store décrit ce que l'observateur attend de la base pour réconcilier.
 type Store interface {
 	UnfinishedRunNames(ctx context.Context, namespace string) (map[string]int64, error)
@@ -47,12 +58,14 @@ type Observer struct {
 	client  *Client
 	sink    Sink
 	store   Store
+	logs    LogCollector
 	logger  *slog.Logger
 	factory informers.SharedInformerFactory
 }
 
-// NewObserver assemble les informers.
-func NewObserver(client *Client, sink Sink, store Store, logger *slog.Logger) *Observer {
+// NewObserver assemble les informers. `collector` peut être nil : l'observation
+// fonctionne alors sans capture de journaux.
+func NewObserver(client *Client, sink Sink, store Store, collector LogCollector, logger *slog.Logger) *Observer {
 	factory := informers.NewSharedInformerFactoryWithOptions(
 		client.Tekton, resyncPeriod,
 		// Borné au namespace : le compte de service n'a qu'une Role, et un
@@ -61,7 +74,7 @@ func NewObserver(client *Client, sink Sink, store Store, logger *slog.Logger) *O
 		informers.WithNamespace(client.Namespace),
 	)
 
-	return &Observer{client: client, sink: sink, store: store, logger: logger, factory: factory}
+	return &Observer{client: client, sink: sink, store: store, logs: collector, logger: logger, factory: factory}
 }
 
 // Run réconcilie, puis suit les changements jusqu'à annulation du contexte.
@@ -156,6 +169,52 @@ func (o *Observer) projectTaskRun(obj any) {
 	if err := o.sink.SaveTaskRun(ctx, projection); err != nil {
 		o.logger.Error("projection d'un TaskRun", "taskrun", projection.Name, "error", err)
 	}
+
+	o.followLogs(ctx, projection)
+}
+
+// followLogs déclenche ou conclut la capture du journal d'une task.
+//
+// L'ordre des deux branches compte : une task devenue terminale doit être conclue
+// même si le même événement porte encore un pod. La conclusion attend la fin des
+// goroutines de capture, puis scelle.
+func (o *Observer) followLogs(ctx context.Context, projection TaskRunProjection) {
+	if o.logs == nil {
+		return
+	}
+
+	steps := make([]Step, 0, len(projection.Steps))
+	for _, step := range projection.Steps {
+		if step.Container != "" {
+			steps = append(steps, step)
+		}
+	}
+	if len(steps) == 0 {
+		// Tekton n'a pas encore renseigné les conteneurs : rien à lire, et
+		// l'événement suivant les apportera.
+		return
+	}
+
+	if projection.Status.Terminal() {
+		// Contexte propre et généreux : le scellement relit toutes les tranches
+		// et écrit un objet, ce qui peut prendre plusieurs secondes sur un
+		// journal de plusieurs dizaines de mégaoctets.
+		sealCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+		defer cancel()
+
+		if err := o.logs.FinishTaskLogs(sealCtx, projection.RunName, projection.Name, steps); err != nil {
+			o.logger.Error("scellement du journal",
+				"run", projection.RunName, "task", projection.Name, "error", err)
+		}
+		return
+	}
+
+	if projection.PodName == "" {
+		return
+	}
+	// Le contexte de fond, et non celui de l'événement : la capture doit survivre
+	// au traitement de l'événement qui l'a déclenchée.
+	o.logs.StartTaskLogs(context.WithoutCancel(ctx), projection.RunName, projection.Name, projection.PodName, steps)
 }
 
 // reconcile confronte ce que la base croit en cours à ce que le cluster détient.
