@@ -94,7 +94,12 @@ vet: ## Analyse statique du toolchain
 lint: fmt-check vet ## Vérification du formatage + analyse statique
 
 vuln: ## Recherche de vulnérabilités dans les dépendances
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest $(GO_PKGS)
+	# Passe par un script plutôt que d'appeler govulncheck directement : celui-ci
+	# n'offre aucun mécanisme d'exclusion, et une vulnérabilité sans correctif
+	# amont rendrait le job rouge pour toujours. Les exceptions sont déclarées et
+	# justifiées dans le script, réaffichées à chaque exécution, et une exception
+	# devenue inutile y fait échouer la vérification.
+	./scripts/vulncheck.sh $(GO_PKGS)
 
 # Cible unique reproduisant ce que la CI vérifie : un développeur doit pouvoir
 # constater localement l'échec qu'il obtiendrait en intégration. La promesse ne
