@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,10 @@ type fakeReleaseStore struct {
 	environments []store.Environment
 	jobs         []store.JobRequest
 	promotions   []store.Promotion
+	history      []store.EnvironmentHistory
+	audit        []string
+	actions      map[string]string
+	registry     Images
 }
 
 func (f *fakeReleaseStore) EnsureVersion(context.Context, string) (int64, error) { return 1, nil }
@@ -72,6 +77,31 @@ func (f *fakeReleaseStore) LatestPromotions(context.Context) (map[string]store.E
 	return nil, nil
 }
 
+func (f *fakeReleaseStore) SetManualActions(_ context.Context, tag, markdown, author string) error {
+	release, found := f.releases[tag]
+	if !found {
+		return store.ErrReleaseNotFound
+	}
+	release.ManualActions = markdown
+	release.ManualActionsUpdatedBy = author
+	f.releases[tag] = release
+	f.actions[tag] = markdown
+	return nil
+}
+
+func (f *fakeReleaseStore) ListReleaseJobs(context.Context, int64) ([]store.ReleaseJob, error) {
+	return nil, nil
+}
+
+func (f *fakeReleaseStore) ListEnvironmentHistory(context.Context, string, int) ([]store.EnvironmentHistory, error) {
+	return f.history, nil
+}
+
+func (f *fakeReleaseStore) Audit(_ context.Context, _, action, target string, _ map[string]any) error {
+	f.audit = append(f.audit, action+":"+target)
+	return nil
+}
+
 func (f *fakeReleaseStore) Enqueue(_ context.Context, request store.JobRequest) (int64, error) {
 	f.jobs = append(f.jobs, request)
 	return int64(len(f.jobs)), nil
@@ -80,6 +110,7 @@ func (f *fakeReleaseStore) Enqueue(_ context.Context, request store.JobRequest) 
 func newFakeStore() *fakeReleaseStore {
 	return &fakeReleaseStore{
 		releases: map[string]store.Release{},
+		actions:  map[string]string{},
 		environments: []store.Environment{
 			{ID: "qualif", Label: "Qualification", PromotionSuffix: "testing",
 				AcceptsPrerelease: true, Rank: 2, Observable: true, Visible: true},
@@ -97,7 +128,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	})
-	return NewReleasesHandler(store, pipelines, authorizer, "portal")
+	return NewReleasesHandler(store, pipelines, authorizer, store.registry, "portal")
 }
 
 func asRole(request *http.Request, role auth.Role) *http.Request {
@@ -330,5 +361,200 @@ func TestGetExplainsWhyATargetIsRefused(t *testing.T) {
 	}
 	if prod := targets["prod"]; prod.Allowed || prod.Reason == "" {
 		t.Errorf("prod = %+v, attendu refusée avec un motif", prod)
+	}
+}
+
+// fakeRegistry rend un digest par tag connu, et échoue sur les autres — un tag
+// de promotion mis en file n'existe pas encore dans le registre.
+type fakeRegistry map[string]string
+
+func (f fakeRegistry) Digest(_ context.Context, _, tag string) (string, error) {
+	digest, found := f[tag]
+	if !found {
+		return "", errors.New("manifeste absent")
+	}
+	return digest, nil
+}
+
+// Le digest est ce qui prouve qu'une promotion n'a pas reconstruit : le tag
+// suffixé et le tag d'origine portent le même.
+func TestGetResolvesDigestsForEveryTag(t *testing.T) {
+	fake := newFakeStore()
+	fake.registry = fakeRegistry{"1.8.0-rc3": "sha256:aaa", "1.8.0": "sha256:aaa"}
+	fake.releases["1.8.0"] = store.Release{
+		ID: 8, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
+	}
+	fake.promotions = []store.Promotion{
+		{ReleaseID: 8, EnvironmentID: "prod", ImageName: "portal", Tag: "1.8.0_prod"},
+	}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0", nil)
+	request.SetPathValue("tag", "1.8.0")
+	recorder := httptest.NewRecorder()
+	handler.Get(recorder, asRole(request, auth.RoleReleaser))
+
+	var payload releasePayload
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("décodage: %v", err)
+	}
+
+	digests := map[string]string{}
+	for _, image := range payload.Images {
+		digests[image.Tag] = image.Digest
+	}
+	if digests["1.8.0-rc3"] != digests["1.8.0"] || digests["1.8.0"] == "" {
+		t.Errorf("digests = %v, attendu identiques entre la RC et la finale", digests)
+	}
+	// Le tag de promotion n'est pas encore poussé : digest vide, et ce n'est pas
+	// une erreur de lecture.
+	if digests["1.8.0_prod"] != "" {
+		t.Errorf("tag de promotion = %q, attendu sans digest", digests["1.8.0_prod"])
+	}
+	if payload.ImagesError != "" {
+		t.Errorf("message d'erreur = %q, attendu aucun", payload.ImagesError)
+	}
+}
+
+// Un registre absent ne doit pas rendre la page illisible, mais il doit se dire :
+// « pas de digest » et « impossible de lire le digest » n'appellent pas la même
+// réaction.
+func TestGetSaysWhyDigestsAreMissing(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0-rc1"] = store.Release{
+		ID: 9, Tag: "1.8.0-rc1", Kind: "pre", State: "ready", ImageVersion: "1.8.0-rc1",
+	}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0-rc1", nil)
+	request.SetPathValue("tag", "1.8.0-rc1")
+	recorder := httptest.NewRecorder()
+	handler.Get(recorder, asRole(request, auth.RoleViewer))
+
+	var payload releasePayload
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("décodage: %v", err)
+	}
+	if recorder.Code != http.StatusOK {
+		t.Errorf("code = %d: un registre absent ne doit pas casser la page", recorder.Code)
+	}
+	if payload.ImagesError == "" {
+		t.Error("l'absence de digest doit être expliquée")
+	}
+	if len(payload.Images) == 0 {
+		t.Error("les tags restent affichables sans leur digest")
+	}
+}
+
+func TestUpdateActionsRecordsTheAuthor(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{ID: 10, Tag: "1.8.0", Kind: "final", State: "ready"}
+	handler := newReleasesHandler(t, fake)
+
+	body := `{"markdown":"- purge du cache"}`
+	request := httptest.NewRequest(http.MethodPut, "/releases/1.8.0/actions", strings.NewReader(body))
+	request.SetPathValue("tag", "1.8.0")
+	recorder := httptest.NewRecorder()
+
+	handler.UpdateActions(recorder, asRole(request, auth.RoleOperator))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if fake.actions["1.8.0"] != "- purge du cache" {
+		t.Errorf("texte = %q", fake.actions["1.8.0"])
+	}
+	// L'auteur est posé par le serveur, jamais par le client : ce texte finit
+	// dans un document contractuel.
+	if fake.releases["1.8.0"].ManualActionsUpdatedBy != "vcarroy" {
+		t.Errorf("auteur = %q", fake.releases["1.8.0"].ManualActionsUpdatedBy)
+	}
+}
+
+func TestUpdateActionsOnAnUnknownRelease(t *testing.T) {
+	fake := newFakeStore()
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodPut, "/releases/9.9.9/actions", strings.NewReader(`{"markdown":"x"}`))
+	request.SetPathValue("tag", "9.9.9")
+	recorder := httptest.NewRecorder()
+
+	handler.UpdateActions(recorder, asRole(request, auth.RoleOperator))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("code = %d, attendu 404", recorder.Code)
+	}
+}
+
+// Ce que le dashboard déclenche sort de lui : un tag poussé dans un registre
+// survit à toute correction en base.
+func TestOutgoingActionsAreAudited(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{
+		ID: 11, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
+	}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/promote/prod", nil)
+	request.SetPathValue("tag", "1.8.0")
+	request.SetPathValue("environment", "prod")
+	handler.Promote(httptest.NewRecorder(), asRole(request, auth.RoleReleaser))
+
+	if len(fake.audit) != 1 || fake.audit[0] != "release.promote:1.8.0" {
+		t.Errorf("journal = %v", fake.audit)
+	}
+}
+
+// Le journal est une trace, pas une transaction : son échec ne doit pas annuler
+// une promotion qui a bien été mise en file.
+func TestAFailingAuditDoesNotBlockThePromotion(t *testing.T) {
+	fake := &failingAuditStore{newFakeStore()}
+	fake.releases["1.8.0"] = store.Release{
+		ID: 12, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
+	}
+	handler := newReleasesHandler(t, fake.fakeReleaseStore)
+	handler.store = fake
+
+	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/promote/prod", nil)
+	request.SetPathValue("tag", "1.8.0")
+	request.SetPathValue("environment", "prod")
+	recorder := httptest.NewRecorder()
+	handler.Promote(recorder, asRole(request, auth.RoleReleaser))
+
+	if recorder.Code != http.StatusAccepted {
+		t.Errorf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(fake.jobs) != 1 {
+		t.Errorf("%d job(s) mis en file", len(fake.jobs))
+	}
+}
+
+type failingAuditStore struct{ *fakeReleaseStore }
+
+func (f *failingAuditStore) Audit(context.Context, string, string, string, map[string]any) error {
+	return errors.New("journal indisponible")
+}
+
+func TestHistoryFollowsWhatWasRequested(t *testing.T) {
+	fake := newFakeStore()
+	fake.history = []store.EnvironmentHistory{
+		{ReleaseTag: "1.8.0-rc2", ImageVersion: "1.8.0-rc2", Tag: "1.8.0-rc2_testing"},
+		{ReleaseTag: "1.8.0-rc1", ImageVersion: "1.8.0-rc1", Tag: "1.8.0-rc1_testing"},
+	}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodGet, "/environments/qualif/history", nil)
+	request.SetPathValue("environment", "qualif")
+	recorder := httptest.NewRecorder()
+	handler.History(recorder, asRole(request, auth.RoleViewer))
+
+	var payload struct {
+		History []historyPayload `json:"history"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("décodage: %v", err)
+	}
+	if len(payload.History) != 2 || payload.History[0].Release != "1.8.0-rc2" {
+		t.Errorf("historique = %+v", payload.History)
 	}
 }

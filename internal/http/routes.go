@@ -79,9 +79,17 @@ func NewAPIRouter(
 	mux.Handle("POST /releases/{tag}/promote/{environment}", Chain(http.HandlerFunc(releases.Promote),
 		middleware.Authenticate, middleware.CSRF, middleware.RequireDeploy("environment")))
 
+	// Les actions manuelles sont éditables par ceux qui produisent le livrable,
+	// pas seulement par ceux qui peuvent livrer : `release:edit` et non
+	// `release:create:final`.
+	mux.Handle("PUT /releases/{tag}/actions", Chain(http.HandlerFunc(releases.UpdateActions),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
+
 	// La vue d'ensemble est en lecture pour tous : savoir ce qui tourne où ne
 	// demande aucun privilège.
 	mux.Handle("GET /environments", Chain(http.HandlerFunc(releases.Environments),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	mux.Handle("GET /environments/{environment}/history", Chain(http.HandlerFunc(releases.History),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 
 	return mux

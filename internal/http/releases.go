@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -21,6 +22,10 @@ type ReleaseStore interface {
 	ListReleases(ctx context.Context, limit int) ([]store.Release, error)
 	RecordPromotion(ctx context.Context, promotion store.Promotion) error
 	ListPromotions(ctx context.Context, releaseID int64) ([]store.Promotion, error)
+	SetManualActions(ctx context.Context, tag, markdown, author string) error
+	ListReleaseJobs(ctx context.Context, releaseID int64) ([]store.ReleaseJob, error)
+	ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]store.EnvironmentHistory, error)
+	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	ListEnvironments(ctx context.Context) ([]store.Environment, error)
 	ListEnvironmentViews(ctx context.Context) ([]store.EnvironmentView, error)
 	LatestPromotions(ctx context.Context) (map[string]store.EnvironmentPromotion, error)
@@ -32,21 +37,32 @@ type ReleasesHandler struct {
 	store      ReleaseStore
 	catalog    *catalog.Catalog
 	authorizer *auth.Authorizer
+	// images résout les digests. Nil quand le registre n'est pas configuré : le
+	// dashboard reste utilisable sans lui, l'écran affiche alors les tags sans
+	// leurs digests et le dit.
+	images Images
 	// imageName est le dépôt promu. Une seule image aujourd'hui ; la table des
 	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
 	// le jour où le portail se scinde.
 	imageName string
 }
 
+// Images est ce que le handler attend du registre : lire, jamais écrire. Le
+// re-tag est fait par la Task `promote-image` avec ses propres identifiants.
+type Images interface {
+	Digest(ctx context.Context, repository, tag string) (string, error)
+}
+
 func NewReleasesHandler(
 	releases ReleaseStore, pipelines *catalog.Catalog,
-	authorizer *auth.Authorizer, imageName string,
+	authorizer *auth.Authorizer, images Images, imageName string,
 ) *ReleasesHandler {
 	if imageName == "" {
 		imageName = "portal"
 	}
 	return &ReleasesHandler{
-		store: releases, catalog: pipelines, authorizer: authorizer, imageName: imageName,
+		store: releases, catalog: pipelines, authorizer: authorizer,
+		images: images, imageName: imageName,
 	}
 }
 
@@ -66,6 +82,37 @@ type releasePayload struct {
 	ReleasedAt   *time.Time          `json:"released_at,omitempty"`
 	Promotions   []promotionPayload  `json:"promotions,omitempty"`
 	Targets      []promotionTargetVw `json:"targets,omitempty"`
+	Jobs         []releaseJobPayload `json:"jobs,omitempty"`
+	Images       []imagePayload      `json:"images,omitempty"`
+	// ImagesError dit pourquoi les digests manquent. L'absence de digest et
+	// l'impossibilité de le lire ne se ressemblent pas : la première signale une
+	// image qui n'existe pas, la seconde un registre injoignable ou non
+	// configuré. Les confondre ferait chercher une panne de build.
+	ImagesError  string          `json:"images_error,omitempty"`
+	ManualAction *manualActionVw `json:"manual_actions,omitempty"`
+}
+
+type releaseJobPayload struct {
+	ID          int64      `json:"id"`
+	Kind        string     `json:"kind"`
+	State       string     `json:"state"`
+	Environment string     `json:"environment,omitempty"`
+	RunName     string     `json:"run_name,omitempty"`
+	RequestedBy string     `json:"requested_by"`
+	RequestedAt time.Time  `json:"requested_at"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+}
+
+type imagePayload struct {
+	Repository string `json:"repository"`
+	Tag        string `json:"tag"`
+	Digest     string `json:"digest,omitempty"`
+}
+
+type manualActionVw struct {
+	Markdown  string     `json:"markdown"`
+	UpdatedBy string     `json:"updated_by,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 type promotionPayload struct {
@@ -142,6 +189,29 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	jobs, err := h.store.ListReleaseJobs(r.Context(), item.ID)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Lecture des exécutions impossible", "")
+		return
+	}
+	for _, job := range jobs {
+		payload.Jobs = append(payload.Jobs, releaseJobPayload{
+			ID: job.ID, Kind: job.Kind, State: job.State, Environment: job.EnvironmentID,
+			RunName: job.RunName, RequestedBy: job.RequestedBy,
+			RequestedAt: job.RequestedAt, FinishedAt: job.FinishedAt,
+		})
+	}
+
+	if item.ManualActions != "" || item.ManualActionsUpdatedAt != nil {
+		payload.ManualAction = &manualActionVw{
+			Markdown:  item.ManualActions,
+			UpdatedBy: item.ManualActionsUpdatedBy,
+			UpdatedAt: item.ManualActionsUpdatedAt,
+		}
+	}
+
+	payload.Images, payload.ImagesError = h.resolveImages(r.Context(), item, promotions)
+
 	environments, err := h.store.ListEnvironments(r.Context())
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
@@ -175,6 +245,55 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, payload)
+}
+
+// resolveImages liste les tags de la release et leurs digests.
+//
+// Le digest est ce qui prouve qu'une promotion n'a pas reconstruit : le tag
+// suffixé et le tag d'origine doivent porter le **même** digest. Un écart signale
+// une image reconstruite entre-temps, c'est-à-dire une livraison qui n'est plus
+// celle qui a été validée (B17).
+//
+// L'échec de résolution est rendu comme un message et non comme une erreur HTTP :
+// un registre injoignable ne doit pas rendre la page de release illisible. Ce qui
+// est en base reste affichable.
+func (h *ReleasesHandler) resolveImages(
+	ctx context.Context, item store.Release, promotions []store.Promotion,
+) ([]imagePayload, string) {
+	// L'ordre importe : la version d'image d'abord, c'est-à-dire ce qui a été
+	// construit, puis le tag de la release, puis les tags de promotion.
+	tags := []string{item.ImageVersion}
+	if item.Tag != item.ImageVersion {
+		tags = append(tags, item.Tag)
+	}
+	for _, promotion := range promotions {
+		tags = append(tags, promotion.Tag)
+	}
+
+	images := make([]imagePayload, 0, len(tags))
+	for _, tag := range tags {
+		images = append(images, imagePayload{Repository: h.imageName, Tag: tag})
+	}
+
+	if h.images == nil {
+		return images, "Le registre n'est pas configuré : les digests ne peuvent pas être lus."
+	}
+
+	var failures int
+	for index, image := range images {
+		digest, err := h.images.Digest(ctx, image.Repository, image.Tag)
+		if err != nil {
+			// Un tag absent du registre n'est pas une anomalie de lecture : une
+			// promotion mise en file n'a pas encore poussé son tag.
+			failures++
+			continue
+		}
+		images[index].Digest = digest
+	}
+	if failures == len(images) && failures > 0 {
+		return images, "Aucun digest n'a pu être lu : le registre est peut-être injoignable."
+	}
+	return images, ""
 }
 
 func targetOf(environment store.Environment) release.Target {
@@ -303,6 +422,10 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusConflict, "Création impossible", "cette release existe peut-être déjà")
 		return
 	}
+
+	h.audit(r, store.AuditReleaseCreate, record.Tag, map[string]any{
+		"kind": record.Kind, "image_version": record.ImageVersion, "source": request.SourceTag,
+	})
 
 	response := map[string]any{
 		"release": toReleasePayload(record, request.SourceTag), "warnings": warnings,
@@ -435,6 +558,13 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Consigné après l'enregistrement : ce qui compte est que le tag ait été
+	// demandé, et le tag part dès que le job est pris.
+	h.audit(r, store.AuditReleasePromote, item.Tag, map[string]any{
+		"environment": environment.ID, "tag": plan.NewTag,
+		"from": plan.OldTag, "job_id": jobID,
+	})
+
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"job_id":      jobID,
 		"environment": environment.ID,
@@ -514,4 +644,103 @@ func (h *ReleasesHandler) Environments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"environments": payload})
+}
+
+type manualActionsRequest struct {
+	Markdown string `json:"markdown"`
+}
+
+// UpdateActions enregistre le récit des gestes manuels d'une livraison.
+//
+// Champ libre et non liste de cases à cocher : les gestes manuels d'une
+// livraison ne se répètent pas assez d'une version à l'autre pour qu'une
+// checklist les couvre, et une checklist incomplète se remplit quand même — elle
+// donnerait l'impression d'un contrôle qui n'a pas eu lieu.
+func (h *ReleasesHandler) UpdateActions(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	var request manualActionsRequest
+	// 256 Kio : le texte est libre, mais il finit dans un PDF de livraison.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		return
+	}
+
+	tag := r.PathValue("tag")
+	if err := h.store.SetManualActions(r.Context(), tag, request.Markdown, identity.Subject); err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
+		return
+	}
+
+	h.audit(r, store.AuditReleaseActions, tag, map[string]any{"length": len(request.Markdown)})
+
+	// La release est relue plutôt que reconstruite : l'horodatage est posé par la
+	// base, et le renvoyer depuis une valeur calculée ici les ferait diverger.
+	item, err := h.store.GetRelease(r.Context(), tag)
+	if err != nil {
+		writeJSON(w, http.StatusNoContent, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, manualActionVw{
+		Markdown:  item.ManualActions,
+		UpdatedBy: item.ManualActionsUpdatedBy,
+		UpdatedAt: item.ManualActionsUpdatedAt,
+	})
+}
+
+type historyPayload struct {
+	Release      string    `json:"release"`
+	ImageVersion string    `json:"image_version"`
+	Tag          string    `json:"tag"`
+	PushedAt     time.Time `json:"pushed_at"`
+	JobID        *int64    `json:"job_id,omitempty"`
+	JobState     string    `json:"job_state,omitempty"`
+	RequestedBy  string    `json:"requested_by,omitempty"`
+}
+
+// History rend la suite des promotions d'un environnement.
+//
+// La source est ce que le dashboard a demandé, et non l'historique des commits
+// que Flux écrit dans `mse-kustom`. Les deux diffèrent, et c'est l'écart qui
+// intéresse : une promotion qu'aucune ImagePolicy ne retient n'apparaît nulle
+// part côté Git alors qu'elle a bien été demandée.
+func (h *ReleasesHandler) History(w http.ResponseWriter, r *http.Request) {
+	entries, err := h.store.ListEnvironmentHistory(r.Context(), r.PathValue("environment"), 50)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Lecture de l'historique impossible", "")
+		return
+	}
+
+	payload := make([]historyPayload, 0, len(entries))
+	for _, entry := range entries {
+		payload = append(payload, historyPayload{
+			Release: entry.ReleaseTag, ImageVersion: entry.ImageVersion, Tag: entry.Tag,
+			PushedAt: entry.PushedAt, JobID: entry.JobID,
+			JobState: entry.JobState, RequestedBy: entry.RequestedBy,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"history": payload})
+}
+
+// audit consigne une action sortante, sans jamais faire échouer celle-ci.
+//
+// Le journal est une trace, pas une transaction : refuser une promotion parce que
+// son enregistrement a échoué serait une régression de disponibilité pour un gain
+// nul — la promotion, elle, a bien eu lieu. L'échec part au journal applicatif.
+func (h *ReleasesHandler) audit(r *http.Request, action, target string, payload map[string]any) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		return
+	}
+	if err := h.store.Audit(r.Context(), identity.Subject, action, target, payload); err != nil {
+		slog.Default().Error("journal d'audit", "action", action, "target", target, "err", err)
+	}
 }

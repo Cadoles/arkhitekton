@@ -147,3 +147,83 @@ func TestRecordPromotion(t *testing.T) {
 		t.Errorf("promotions = %+v", promotions)
 	}
 }
+
+func TestManualActionsCarryTheirAuthorAndDate(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	if _, err := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
+		GitRef: "abc", ImageVersion: "1.8.0-rc3", CreatedBy: "vcarroy",
+	}); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	if err := db.SetManualActions(ctx, "1.8.0", "- purge du cache\n- bascule du DNS", "vcarroy"); err != nil {
+		t.Fatalf("actions: %v", err)
+	}
+
+	release, err := db.GetRelease(ctx, "1.8.0")
+	if err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+	if release.ManualActions == "" {
+		t.Error("texte perdu")
+	}
+	// Ce texte finit dans un document contractuel : sa provenance en fait partie.
+	if release.ManualActionsUpdatedBy != "vcarroy" || release.ManualActionsUpdatedAt == nil {
+		t.Errorf("auteur = %q, date = %v", release.ManualActionsUpdatedBy, release.ManualActionsUpdatedAt)
+	}
+}
+
+func TestSetManualActionsOnAnUnknownRelease(t *testing.T) {
+	db := migrated(t)
+
+	if err := db.SetManualActions(context.Background(), "9.9.9", "texte", "vcarroy"); !errors.Is(err, ErrReleaseNotFound) {
+		t.Errorf("erreur = %v, attendu ErrReleaseNotFound", err)
+	}
+}
+
+// L'historique dit ce que le dashboard a **demandé**. Une promotion qu'une
+// ImagePolicy ignore n'apparaît nulle part côté Git, alors qu'elle a bien eu
+// lieu — et c'est ce cas-là qu'il faut pouvoir constater.
+func TestEnvironmentHistoryFollowsWhatWasRequested(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if err := db.UpsertEnvironment(ctx, Environment{
+		ID: "qualif", Label: "Qualification", PromotionSuffix: "testing",
+		AcceptsPrerelease: true, Rank: 2, Namespace: "mse-dev", Observable: true, Visible: true,
+	}); err != nil {
+		t.Fatalf("environnement: %v", err)
+	}
+
+	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	for _, tag := range []string{"1.8.0-rc1", "1.8.0-rc2"} {
+		releaseID, err := db.CreateRelease(ctx, Release{
+			VersionID: versionID, Tag: tag, Kind: "pre", State: "ready",
+			GitRef: "abc", ImageVersion: tag, CreatedBy: "vcarroy",
+		})
+		if err != nil {
+			t.Fatalf("release %s: %v", tag, err)
+		}
+		if err := db.RecordPromotion(ctx, Promotion{
+			ReleaseID: releaseID, EnvironmentID: "qualif",
+			ImageName: "portal", Tag: tag + "_testing",
+		}); err != nil {
+			t.Fatalf("promotion %s: %v", tag, err)
+		}
+	}
+
+	history, err := db.ListEnvironmentHistory(ctx, "qualif", 0)
+	if err != nil {
+		t.Fatalf("historique: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("%d entrée(s), attendu 2", len(history))
+	}
+	if history[0].ReleaseTag != "1.8.0-rc2" {
+		t.Errorf("première entrée = %q, attendu la plus récente", history[0].ReleaseTag)
+	}
+}

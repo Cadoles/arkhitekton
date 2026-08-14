@@ -24,6 +24,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
@@ -146,7 +147,20 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// Le nom du dépôt promu vient de la configuration du registre : c'est le même
 	// préfixe que celui employé pour lire les tags, et le déduire ailleurs ferait
 	// diverger lecture et promotion.
-	releasesHandler := dashhttp.NewReleasesHandler(db, pipelines, authorizer, cfg.Registry.Image)
+	// Le registre est optionnel : sans identifiants, la page de release affiche
+	// les tags sans leurs digests et le dit. Faire échouer le démarrage priverait
+	// le dashboard de tout le reste pour une information secondaire.
+	var images dashhttp.Images
+	if client, err := registry.Open(cfg.Registry); err != nil {
+		if !errors.Is(err, registry.ErrNotConfigured) {
+			return fmt.Errorf("accès au registre: %w", err)
+		}
+		logger.Warn("registre non configuré", "raison", "les digests d'images ne seront pas lisibles")
+	} else {
+		images = client
+	}
+
+	releasesHandler := dashhttp.NewReleasesHandler(db, pipelines, authorizer, images, cfg.Registry.Image)
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(

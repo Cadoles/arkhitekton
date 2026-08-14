@@ -27,6 +27,12 @@ type Release struct {
 	CreatedBy       string
 	CreatedAt       time.Time
 	ReleasedAt      *time.Time
+	// ManualActions est le récit libre des gestes manuels de la livraison, repris
+	// tel quel dans le bon de livraison. L'auteur et la date l'accompagnent parce
+	// que ce document est contractuel.
+	ManualActions          string
+	ManualActionsUpdatedBy string
+	ManualActionsUpdatedAt *time.Time
 }
 
 // ErrReleaseNotFound signale une release absente.
@@ -76,11 +82,14 @@ func (db *DB) GetRelease(ctx context.Context, tag string) (Release, error) {
 	var release Release
 	err := db.pool.QueryRow(ctx,
 		`select id, version_id, tag, kind, state, coalesce(git_ref, ''), image_version,
-		        source_release_id, created_by, created_at, released_at
+		        source_release_id, created_by, created_at, released_at,
+		        coalesce(manual_actions_md, ''), coalesce(manual_actions_updated_by, ''),
+		        manual_actions_updated_at
 		 from releases where tag = $1`, tag).
 		Scan(&release.ID, &release.VersionID, &release.Tag, &release.Kind, &release.State,
 			&release.GitRef, &release.ImageVersion, &release.SourceReleaseID,
-			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt)
+			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt,
+			&release.ManualActions, &release.ManualActionsUpdatedBy, &release.ManualActionsUpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return release, ErrReleaseNotFound
@@ -258,4 +267,112 @@ func (db *DB) LatestPromotions(ctx context.Context) (map[string]EnvironmentPromo
 		latest[promotion.EnvironmentID] = promotion
 	}
 	return latest, rows.Err()
+}
+
+// SetManualActions enregistre le récit des gestes manuels d'une livraison.
+//
+// L'auteur et l'horodatage sont posés ici et non fournis par l'appelant : ce
+// texte finit dans un document contractuel, et sa provenance ne doit pas dépendre
+// de ce qu'un client veut bien déclarer.
+func (db *DB) SetManualActions(ctx context.Context, tag, markdown, author string) error {
+	tally, err := db.pool.Exec(ctx,
+		`update releases
+		 set manual_actions_md = nullif($2, ''),
+		     manual_actions_updated_by = $3,
+		     manual_actions_updated_at = now(),
+		     updated_at = now()
+		 where tag = $1`, tag, markdown, author)
+	if err != nil {
+		return fmt.Errorf("actions manuelles de %q: %w", tag, err)
+	}
+	if tally.RowsAffected() == 0 {
+		return ErrReleaseNotFound
+	}
+	return nil
+}
+
+// ReleaseJob est un job rattaché à une release.
+type ReleaseJob struct {
+	ID            int64
+	Kind          string
+	State         string
+	EnvironmentID string
+	RunName       string
+	RequestedBy   string
+	RequestedAt   time.Time
+	FinishedAt    *time.Time
+}
+
+// ListReleaseJobs rend ce qui a été déclenché pour une release.
+//
+// C'est le chemin entre une promotion et sa preuve : la promotion dit ce qui a
+// été demandé, le job dit ce qui s'est passé, et son run porte les journaux.
+func (db *DB) ListReleaseJobs(ctx context.Context, releaseID int64) ([]ReleaseJob, error) {
+	rows, err := db.pool.Query(ctx,
+		`select id, kind, state, coalesce(environment_id, ''), coalesce(run_name, ''),
+		        requested_by, requested_at, finished_at
+		 from jobs where release_id = $1 order by requested_at desc`, releaseID)
+	if err != nil {
+		return nil, fmt.Errorf("jobs de la release %d: %w", releaseID, err)
+	}
+	defer rows.Close()
+
+	var jobs []ReleaseJob
+	for rows.Next() {
+		var job ReleaseJob
+		if err := rows.Scan(&job.ID, &job.Kind, &job.State, &job.EnvironmentID,
+			&job.RunName, &job.RequestedBy, &job.RequestedAt, &job.FinishedAt); err != nil {
+			return nil, fmt.Errorf("jobs de la release %d: %w", releaseID, err)
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}
+
+// EnvironmentHistory est une entrée de l'historique d'un environnement.
+type EnvironmentHistory struct {
+	ReleaseTag   string
+	ImageVersion string
+	Tag          string
+	PushedAt     time.Time
+	JobID        *int64
+	JobState     string
+	RequestedBy  string
+}
+
+// ListEnvironmentHistory rend la suite des promotions d'un environnement.
+//
+// La source est ce que le dashboard a demandé, et non l'historique des commits de
+// `mse-kustom` que Flux écrit. Les deux diffèrent : une promotion refusée par une
+// ImagePolicy n'apparaît nulle part côté Git, alors qu'elle a bien été demandée —
+// et c'est précisément ce cas qu'il faut pouvoir constater.
+func (db *DB) ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]EnvironmentHistory, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	rows, err := db.pool.Query(ctx,
+		`select r.tag, r.image_version, p.tag, p.pushed_at, p.job_id,
+		        coalesce(j.state, ''), coalesce(j.requested_by, '')
+		 from image_promotions p
+		 join releases r on r.id = p.release_id
+		 left join jobs j on j.id = p.job_id
+		 where p.environment_id = $1
+		 order by p.pushed_at desc
+		 limit $2`, environmentID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("historique de %q: %w", environmentID, err)
+	}
+	defer rows.Close()
+
+	var history []EnvironmentHistory
+	for rows.Next() {
+		var entry EnvironmentHistory
+		if err := rows.Scan(&entry.ReleaseTag, &entry.ImageVersion, &entry.Tag,
+			&entry.PushedAt, &entry.JobID, &entry.JobState, &entry.RequestedBy); err != nil {
+			return nil, fmt.Errorf("historique de %q: %w", environmentID, err)
+		}
+		history = append(history, entry)
+	}
+	return history, rows.Err()
 }
