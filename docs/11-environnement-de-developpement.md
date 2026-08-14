@@ -70,10 +70,26 @@ les objets de développement de `hack/dev-prereqs/fixtures/` :
 | `kustomize-controller` | v1.9.4 | `Kustomization` |
 | `source-controller` | v1.9.4 | `GitRepository`, et les autres sources |
 
-**Le groupe des images est servi en `v1`, non en `v1beta2`.** Flux a fait graduer ces API.
-À confirmer contre la version de Flux réellement déployée en production : le client Go du
-lot 5 doit viser la même, et une `ImagePolicy` lue dans la mauvaise version ne remonte
-pas les mêmes champs.
+**Versions d'API.** Les CRD installées ici servent `v1` pour les quatre groupes.
+
+| Groupe | Local | Production |
+|---|---|---|
+| `kustomize.toolkit.fluxcd.io` | `v1` | **`v1` — confirmé** |
+| `source.toolkit.fluxcd.io` | `v1` | à relever |
+| `image.toolkit.fluxcd.io` | `v1` | **à relever** |
+
+Le groupe des images reste ouvert, et la confirmation du groupe `kustomize` ne le
+règle pas : `kustomize.toolkit.fluxcd.io/v1` est stable depuis Flux 2.0, alors que
+`image.toolkit.fluxcd.io/v1` n'existe que depuis Flux 2.7 — les `ImagePolicy` d'une
+installation antérieure sont en `v1beta2`. Une même installation peut donc servir `v1`
+côté kustomize et `v1beta2` côté images.
+
+L'enjeu est le client Go du lot 5 : lire une `ImagePolicy` dans la mauvaise version ne
+remonte pas les mêmes champs. Une commande sur le cluster de production tranche :
+
+```bash
+kubectl api-resources --api-group=image.toolkit.fluxcd.io
+```
 
 Le CRD `PortalData` **n'est pas copié dans ce dépôt**. Il appartient à `mse`
 (`misc/k8s/kustomization/base/crds/portaldata-crd.yaml`) ; une copie ici divergerait en
@@ -242,7 +258,7 @@ vert :
 | ~~SigV4 sur `nuo-s3.nuonet.fr`~~ | *vérifié le 13/08/2026* | — |
 | ~~Sémantique des plages SemVer~~ | *vérifiée le 13/08/2026 en rejouant le code de Flux* | — |
 | `filterTags` réellement configurés en production | non lisibles d'ici | à relever sur le cluster de production, cf. [B7 §transition](02-blocages-et-decisions.md#b7-transition) |
-| Version d'API Flux en production | CRD locales servies en `v1` | à confirmer avant le client Go du lot 5 |
+| Version d'API du groupe `image.toolkit.fluxcd.io` en production | `kustomize.toolkit.fluxcd.io/v1` est confirmé, mais ne préjuge pas du groupe des images | `kubectl api-resources --api-group=image.toolkit.fluxcd.io`, avant le client Go du lot 5 |
 | Comportement du contrôleur autour de la sélection | contrôleurs absents | installation Flux ponctuelle, §11.3 |
 | Séparation du cluster de production | un seul cluster | pas avant un accès prod |
 | Volume et débit des logs | runs de développement courts | mesure sur les runs réels dès le lot 2 |
