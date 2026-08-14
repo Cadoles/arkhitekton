@@ -63,6 +63,10 @@ const (
 	RoleAPI     Role = "api"
 	RoleWorker  Role = "worker"
 	RoleMigrate Role = "migrate"
+	// RoleReprocess rejoue les résultats depuis les artefacts bruts. Rôle
+	// ponctuel, lancé à la main après correction d'un parseur : il n'a pas
+	// vocation à tourner en permanence, d'où l'absence de Deployment.
+	RoleReprocess Role = "reprocess"
 )
 
 type HTTPConfig struct {
@@ -201,6 +205,10 @@ func (c Config) validate() error {
 		problems = append(problems, c.validateHTTP()...)
 		problems = append(problems, c.validateOIDC()...)
 		problems = append(problems, c.validateStorage()...)
+	case RoleReprocess:
+		// Le stockage suffit : le rejeu lit le brut et écrit en base, sans
+		// toucher au cluster ni créer le moindre run.
+		problems = append(problems, c.validateStorage()...)
 	case RoleWorker:
 		problems = append(problems, c.validateStorage()...)
 		if strings.TrimSpace(c.Tekton.Namespace) == "" {
@@ -210,7 +218,8 @@ func (c Config) validate() error {
 			problems = append(problems, errors.New("POD_NAMESPACE est requis (namespace du bail de leader)"))
 		}
 	default:
-		problems = append(problems, fmt.Errorf("rôle inconnu %q (attendu: api, worker, migrate)", c.Role))
+		problems = append(problems, fmt.Errorf(
+			"rôle inconnu %q (attendu: api, worker, migrate, reprocess)", c.Role))
 	}
 
 	return errors.Join(problems...)

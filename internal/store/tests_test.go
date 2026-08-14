@@ -188,3 +188,101 @@ func TestPreviousReleaseIsTheOneJustBefore(t *testing.T) {
 		t.Error("la première release ne doit pas avoir de précédente")
 	}
 }
+
+// Le rejeu part de `raw_object` : un run dont l'objet source n'est pas
+// enregistré n'est pas rejouable, et le proposer donnerait un rejeu qui efface
+// sans reconstruire.
+func TestReprocessTargetsRequireARawObject(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	releaseID := releaseFor(t, db, "1.8.0-rc1")
+	withRaw := testRun(t, db, "avec-brut")
+	withoutRaw := testRun(t, db, "sans-brut")
+
+	if _, err := db.SaveTestResult(ctx, TestResult{
+		RunID: withRaw, ReleaseID: &releaseID, Family: "unit", Tool: "phpunit",
+		Status: "pass", RawObject: "raw/avec-brut/junit.xml",
+	}, nil); err != nil {
+		t.Fatalf("avec brut: %v", err)
+	}
+	if _, err := db.SaveTestResult(ctx, TestResult{
+		RunID: withoutRaw, ReleaseID: &releaseID, Family: "unit", Tool: "phpunit",
+		Status: "pass",
+	}, nil); err != nil {
+		t.Fatalf("sans brut: %v", err)
+	}
+
+	targets, err := db.ListReprocessTargets(ctx, 0)
+	if err != nil {
+		t.Fatalf("cibles: %v", err)
+	}
+	if len(targets) != 1 || targets[0].RunName != "avec-brut" {
+		t.Errorf("cibles = %+v", targets)
+	}
+	// Les outils déjà projetés sont rendus : savoir ce qui disparaît avant de le
+	// reconstruire est le seul moyen de constater qu'un parseur corrigé produit
+	// désormais moins.
+	if len(targets[0].Tools) != 1 || targets[0].Tools[0] != "phpunit" {
+		t.Errorf("outils = %v", targets[0].Tools)
+	}
+}
+
+func TestReprocessTargetsCanBeScopedToARelease(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	first := releaseFor(t, db, "1.8.0-rc1")
+	second := releaseFor(t, db, "1.8.0-rc2")
+
+	for _, pair := range []struct {
+		release int64
+		run     string
+	}{{first, "run-1"}, {second, "run-2"}} {
+		if _, err := db.SaveTestResult(ctx, TestResult{
+			RunID: testRun(t, db, pair.run), ReleaseID: &pair.release,
+			Family: "unit", Tool: "phpunit", Status: "pass",
+			RawObject: "raw/" + pair.run + "/junit.xml",
+		}, nil); err != nil {
+			t.Fatalf("%s: %v", pair.run, err)
+		}
+	}
+
+	targets, err := db.ListReprocessTargets(ctx, second)
+	if err != nil {
+		t.Fatalf("cibles: %v", err)
+	}
+	if len(targets) != 1 || targets[0].RunName != "run-2" {
+		t.Errorf("cibles = %+v", targets)
+	}
+}
+
+// Les cas partent avec leur rapport : ils n'ont aucun sens détachés de ce qui
+// les a produits.
+func TestDeleteTestResultsCascadesToCases(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	releaseID := releaseFor(t, db, "1.8.0-rc1")
+	runID := testRun(t, db, "run-1")
+	saveCases(t, db, runID, releaseID, "unit", []TestCase{
+		{Suite: "A", Name: "a", Status: "passed"},
+		{Suite: "A", Name: "b", Status: "failed"},
+	})
+
+	deleted, err := db.DeleteTestResults(ctx, runID)
+	if err != nil {
+		t.Fatalf("effacement: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("%d rapport(s) effacé(s)", deleted)
+	}
+
+	var remaining int
+	if err := db.pool.QueryRow(ctx, `select count(*) from test_cases`).Scan(&remaining); err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if remaining != 0 {
+		t.Errorf("%d cas subsistent après effacement du rapport", remaining)
+	}
+}

@@ -256,3 +256,66 @@ func (db *DB) PreviousRelease(ctx context.Context, releaseID int64) (int64, erro
 	}
 	return previous, nil
 }
+
+// ReprocessTarget est un run dont les résultats sont rejouables.
+type ReprocessTarget struct {
+	RunID     int64
+	RunName   string
+	ReleaseID *int64
+	// Tools nomme ce qui a déjà été projeté pour ce run. Sert au journal : savoir
+	// ce qui disparaît avant de le reconstruire est le seul moyen de constater
+	// qu'un parseur corrigé produit désormais moins, et non davantage.
+	Tools []string
+}
+
+// ListReprocessTargets rend les runs dont les artefacts bruts sont connus.
+//
+// La sélection part de `raw_object` et non de la liste des runs : un run dont
+// l'objet source n'est pas enregistré n'est pas rejouable, et le proposer
+// donnerait un rejeu qui efface sans reconstruire.
+func (db *DB) ListReprocessTargets(ctx context.Context, releaseID int64) ([]ReprocessTarget, error) {
+	query := `select r.run_id, coalesce(runs.pipelinerun_name, ''), r.release_id,
+	                 array_agg(distinct r.tool)
+	          from test_results r
+	          join runs on runs.id = r.run_id
+	          where r.raw_object is not null`
+	args := []any{}
+	if releaseID > 0 {
+		query += ` and r.release_id = $1`
+		args = append(args, releaseID)
+	}
+	query += ` group by r.run_id, runs.pipelinerun_name, r.release_id
+	           order by r.run_id`
+
+	rows, err := db.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("runs rejouables: %w", err)
+	}
+	defer rows.Close()
+
+	var targets []ReprocessTarget
+	for rows.Next() {
+		var target ReprocessTarget
+		if err := rows.Scan(&target.RunID, &target.RunName, &target.ReleaseID, &target.Tools); err != nil {
+			return nil, fmt.Errorf("runs rejouables: %w", err)
+		}
+		targets = append(targets, target)
+	}
+	return targets, rows.Err()
+}
+
+// DeleteTestResults efface les résultats d'un run.
+//
+// Effacer puis reconstruire, plutôt qu'ajouter : un rejeu qui empile
+// dupliquerait chaque cas et fausserait toute comparaison inter-release, c'est-
+// à-dire précisément ce que le rejeu sert à corriger.
+//
+// Les cas, findings et mesures partent avec, par cascade. C'est voulu : ils
+// n'ont aucun sens détachés du rapport qui les a produits.
+func (db *DB) DeleteTestResults(ctx context.Context, runID int64) (int64, error) {
+	tally, err := db.pool.Exec(ctx, `delete from test_results where run_id = $1`, runID)
+	if err != nil {
+		return 0, fmt.Errorf("effacement des résultats du run %d: %w", runID, err)
+	}
+	return tally.RowsAffected(), nil
+}

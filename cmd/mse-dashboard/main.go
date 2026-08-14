@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -46,6 +47,11 @@ Usage:
   mse-dashboard api       Serveur HTTP (réplicable)
   mse-dashboard worker    Boucles de fond (instance unique, élection de leader)
   mse-dashboard migrate   Applique les migrations de schéma
+  mse-dashboard reprocess Rejoue les résultats depuis les artefacts bruts
+
+Options de reprocess:
+  --release <tag>  Limite le rejeu à une release (défaut: tout l'historique)
+  --dry-run        Énumère ce qui serait rejoué, sans rien effacer
 `
 
 func main() {
@@ -83,6 +89,8 @@ func run() error {
 		return runWorker(ctx, cfg, logger)
 	case config.RoleMigrate:
 		return runMigrate(ctx, cfg, logger)
+	case config.RoleReprocess:
+		return runReprocess(ctx, cfg, logger, os.Args[2:])
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return fmt.Errorf("rôle inconnu %q", role)
@@ -381,4 +389,79 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 
 	logger.Info("schéma à jour", "count", len(state))
 	return nil
+}
+
+// runReprocess rejoue les résultats depuis les artefacts bruts.
+//
+// Rôle ponctuel et non boucle de fond : on le lance après avoir corrigé un
+// parseur, pour que l'historique reflète le code actuel plutôt que celui qui
+// tournait le jour du run. Le brut conservé est ce qui rend cette
+// reconstruction possible sans réexécuter le moindre pipeline.
+func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, args []string) error {
+	flags := flag.NewFlagSet("reprocess", flag.ContinueOnError)
+	releaseTag := flags.String("release", "", "limiter le rejeu à une release")
+	dryRun := flags.Bool("dry-run", false, "énumérer sans effacer ni reconstruire")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+
+	db, err := store.Open(ctx, cfg.Database)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	storage, err := blob.Open(ctx, cfg.Storage)
+	if err != nil {
+		return err
+	}
+
+	var releaseID int64
+	if *releaseTag != "" {
+		release, err := db.GetRelease(ctx, *releaseTag)
+		if err != nil {
+			// Refuser plutôt que rejouer tout : un tag mal orthographié
+			// déclencherait sinon un rejeu de l'historique entier, c'est-à-dire
+			// l'effacement de tout ce qui est projeté.
+			return fmt.Errorf("release %q: %w", *releaseTag, err)
+		}
+		releaseID = release.ID
+	}
+
+	objects := worker.NewObjectStore(storage)
+	reprocessor := worker.NewReprocessor(db,
+		worker.NewTestIngester(db, objects, logger),
+		worker.NewSecurityIngester(db, objects, logger),
+		worker.NewLoadIngester(db, objects, logger),
+		logger)
+
+	logger.Info("rejeu démarré",
+		"release", *releaseTag, "simulation", *dryRun, "portée",
+		portee(*releaseTag))
+
+	report, err := reprocessor.Run(ctx, worker.ReprocessOptions{
+		ReleaseID: releaseID, DryRun: *dryRun,
+	})
+	if err != nil {
+		return err
+	}
+
+	logger.Info("rejeu terminé",
+		"runs examinés", report.Examined, "runs rejoués", report.Replayed,
+		"rapports effacés", report.Deleted, "échecs", report.Failed)
+
+	if len(report.Failed) > 0 {
+		// Sortie non nulle : un rejeu partiel ne doit pas passer pour un succès
+		// dans un pipeline ou un script d'exploitation.
+		return fmt.Errorf("%d run(s) non rejoué(s): %s",
+			len(report.Failed), strings.Join(report.Failed, ", "))
+	}
+	return nil
+}
+
+func portee(releaseTag string) string {
+	if releaseTag == "" {
+		return "tout l'historique"
+	}
+	return "une release"
 }
