@@ -43,6 +43,9 @@ type RegistryConfig struct {
 	Password string
 	// Project est le préfixe des dépôts (`cnous-mse`, ou `vcarroy` en local).
 	Project string
+	// Image est le dépôt promu à l'intérieur du projet. Configurable parce que le
+	// nom du portail n'est pas une constante du dashboard.
+	Image string
 }
 
 // FluxConfig borne la lecture des objets Flux.
@@ -171,6 +174,7 @@ func Load(role Role) (Config, error) {
 			Username: os.Getenv("REGISTRY_USERNAME"),
 			Password: os.Getenv("REGISTRY_PASSWORD"),
 			Project:  envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
+			Image:    envOr("REGISTRY_IMAGE", "portal"),
 		},
 	}
 

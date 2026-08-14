@@ -13,7 +13,7 @@ import (
 // tard. Le tableau ci-dessous est donc la référence de ce qui est protégé.
 func NewAPIRouter(
 	handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, queue *QueueHandler,
-	middleware *Middleware,
+	releases *ReleasesHandler, middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -59,6 +59,30 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermPipelineRun)))
 	mux.Handle("POST /queue/{id}/cancel", Chain(http.HandlerFunc(queue.Cancel),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermPipelineCancel)))
+
+	// Les releases se lisent comme les runs. Le détail expose aussi, pour chaque
+	// environnement, si la release peut y aller — ce qui dépend de l'identité qui
+	// demande, et se calcule donc ici plutôt que dans la page.
+	mux.Handle("GET /releases", Chain(http.HandlerFunc(releases.List),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	mux.Handle("GET /releases/{tag}", Chain(http.HandlerFunc(releases.Get),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
+
+	// La route exige `release:create` ; la création d'une release **finale** exige
+	// davantage, et le handler le vérifie — la nature est dans le corps, pas dans
+	// le chemin, et un middleware ne peut pas la lire sans consommer la requête.
+	mux.Handle("POST /releases", Chain(http.HandlerFunc(releases.Create),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseCreate)))
+
+	// L'environnement est dans le chemin et non dans le corps, précisément pour
+	// que l'autorisation — qui est par environnement — reste décidée ici.
+	mux.Handle("POST /releases/{tag}/promote/{environment}", Chain(http.HandlerFunc(releases.Promote),
+		middleware.Authenticate, middleware.CSRF, middleware.RequireDeploy("environment")))
+
+	// La vue d'ensemble est en lecture pour tous : savoir ce qui tourne où ne
+	// demande aucun privilège.
+	mux.Handle("GET /environments", Chain(http.HandlerFunc(releases.Environments),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
 
 	return mux
 }

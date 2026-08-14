@@ -143,9 +143,14 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 	logger.Info("catalogue chargé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
 	queueHandler := dashhttp.NewQueueHandler(db, pipelines)
+	// Le nom du dépôt promu vient de la configuration du registre : c'est le même
+	// préfixe que celui employé pour lire les tags, et le déduire ailleurs ferait
+	// diverger lecture et promotion.
+	releasesHandler := dashhttp.NewReleasesHandler(db, pipelines, authorizer, cfg.Registry.Image)
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
-		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler, middleware),
+		dashhttp.NewAPIRouter(
+			authHandler, runsHandler, logsHandler, queueHandler, releasesHandler, middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se

@@ -118,7 +118,7 @@ func TestPromotionTagJudgesFormOnly(t *testing.T) {
 func TestPlanPromotionCarriesBothTags(t *testing.T) {
 	_, qualif, _ := targets()
 
-	plan, err := PlanPromotion("1.8.0-rc3", qualif, "")
+	plan, err := PlanPromotion("1.8.0-rc3", "1.8.0-rc3", qualif, "")
 	if err != nil {
 		t.Fatalf("plan refusé: %v", err)
 	}
@@ -127,5 +127,31 @@ func TestPlanPromotionCarriesBothTags(t *testing.T) {
 	}
 	if plan.EnvironmentID != "qualif" {
 		t.Errorf("environnement = %q", plan.EnvironmentID)
+	}
+}
+
+// Le cas qui justifie les deux paramètres : une release finale produite par
+// re-tag. Son image porte encore la version de la RC, et composer le tag de
+// promotion depuis cette version lui interdirait la production — la plage SemVer
+// de la production excluant les pré-releases (B7, B17).
+func TestPlanPromotionComposesFromTheReleaseTagAndRetagsFromTheImage(t *testing.T) {
+	prod := Target{ID: "prod", Suffix: "prod", AcceptsPrerelease: false}
+
+	plan, err := PlanPromotion("1.8.0", "1.8.0-rc3", prod, "")
+	if err != nil {
+		t.Fatalf("une release finale doit pouvoir atteindre la production: %v", err)
+	}
+	if plan.NewTag != "1.8.0_prod" {
+		t.Errorf("nouveau tag = %q, attendu 1.8.0_prod", plan.NewTag)
+	}
+	// Le re-tag part de ce qui existe dans le registre, et c'est l'image de la RC.
+	if plan.OldTag != "1.8.0-rc3" {
+		t.Errorf("ancien tag = %q, attendu celui de l'image construite", plan.OldTag)
+	}
+}
+
+func TestPlanPromotionRefusesAReleaseWithoutImage(t *testing.T) {
+	if _, err := PlanPromotion("1.8.0", "", Target{ID: "unstable", Suffix: "unstable"}, ""); err == nil {
+		t.Error("une release sans image ne peut pas être promue")
 	}
 }
