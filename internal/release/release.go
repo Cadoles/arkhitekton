@@ -1,0 +1,210 @@
+// Package release porte le cycle de vie d'une release et l'invariant de version.
+//
+// L'invariant de [B17] tient en une phrase : **une version est une chaîne,
+// présente à l'identique en quatre endroits** — le nom de la version Redmine, le
+// tag Git, le tag d'image, et le `version.txt` baké dans l'image que `PortalData`
+// rapporte ensuite.
+//
+// Ce n'est pas une commodité de nommage : c'est ce qui rend la jointure possible.
+// Si ces valeurs divergent, chaque fonctionnalité du dashboard se dégrade
+// différemment — un environnement affiché « divergent » à tort, un écran de
+// version vide, une note de release qui compare des intervalles de tags sans
+// rapport avec les images promues.
+//
+// Tout ce paquet est pur : ni base, ni cluster, ni réseau. C'est là que sont les
+// décisions, et elles doivent être vérifiables sans rien monter.
+package release
+
+import (
+	"errors"
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+// Kind distingue les trois natures de release.
+type Kind string
+
+const (
+	// KindPre est une pré-release — `1.8.0-rc1`. Destinée aux environnements de
+	// test, jusqu'en pré-production incluse.
+	KindPre Kind = "pre"
+	// KindFinal est la release livrable — `1.8.0`.
+	KindFinal Kind = "final"
+	// KindPatch corrige une version déjà livrée — `1.8.1`.
+	KindPatch Kind = "patch"
+)
+
+// State est l'état d'une release.
+type State string
+
+const (
+	// StateDraft : créée, aucune image encore construite.
+	StateDraft State = "draft"
+	// StateBuilding : `build-image` en cours.
+	StateBuilding State = "building"
+	// StateReady : image construite, release promouvable.
+	StateReady State = "ready"
+	// StateFailed : la construction a échoué.
+	StateFailed State = "failed"
+)
+
+// transitions décrit les passages autorisés.
+//
+// Une table explicite plutôt que des `if` dispersés : le jour où une transition
+// manque, elle manque à un seul endroit, et la lire suffit à savoir ce qui est
+// possible.
+var transitions = map[State][]State{
+	StateDraft:    {StateBuilding, StateFailed},
+	StateBuilding: {StateReady, StateFailed},
+	// Une reconstruction est permise : un build peut échouer pour une raison
+	// extérieure à la release — registre indisponible, nœud saturé.
+	StateReady:  {StateBuilding},
+	StateFailed: {StateBuilding},
+}
+
+// CanTransition dit si le passage est autorisé.
+func CanTransition(from, to State) bool {
+	return slices.Contains(transitions[from], to)
+}
+
+// ErrInvalidTransition signale un passage refusé.
+type ErrInvalidTransition struct {
+	From State
+	To   State
+}
+
+func (e ErrInvalidTransition) Error() string {
+	return fmt.Sprintf("transition refusée: %s → %s", e.From, e.To)
+}
+
+// semverPattern couvre la forme retenue : `MAJOR.MINOR.PATCH` avec pré-release
+// facultative. Les métadonnées de build (`+…`) sont volontairement absentes — le
+// séparateur retenu pour la promotion est l'underscore, la grammaire des tags OCI
+// excluant le `+` (B7).
+var semverPattern = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$`)
+
+// Version est un tag de release décomposé.
+type Version struct {
+	Raw string
+	// Base est la version sans pré-release : `1.8.0` pour `1.8.0-rc1`. C'est
+	// elle qui doit correspondre au nom de la version Redmine.
+	Base string
+	// Prerelease est vide pour une release finale.
+	Prerelease string
+}
+
+// IsPrerelease dit si le tag porte une composante de pré-release.
+func (v Version) IsPrerelease() bool { return v.Prerelease != "" }
+
+// ParseVersion décompose un tag de release.
+//
+// Refuser plutôt que tolérer : un tag hors forme casserait la jointure avec
+// Redmine et la sélection Flux, et il vaut mieux le dire à la création que le
+// découvrir en constatant qu'un environnement ne bouge pas.
+func ParseVersion(tag string) (Version, error) {
+	matches := semverPattern.FindStringSubmatch(strings.TrimSpace(tag))
+	if matches == nil {
+		return Version{}, fmt.Errorf(
+			"tag %q invalide: forme attendue MAJEUR.MINEUR.CORRECTIF[-prerelease]", tag)
+	}
+
+	return Version{
+		Raw:        matches[0],
+		Base:       fmt.Sprintf("%s.%s.%s", matches[1], matches[2], matches[3]),
+		Prerelease: matches[4],
+	}, nil
+}
+
+// CheckKind vérifie que la nature annoncée correspond à la forme du tag.
+//
+// L'erreur que cela attrape est banale et coûteuse : créer `1.8.0-rc1` en
+// déclarant une release finale, puis constater que la production ne la prend
+// jamais — sa plage SemVer excluant les pré-releases, Flux l'ignore sans rien
+// dire (B7).
+func CheckKind(version Version, kind Kind) error {
+	switch kind {
+	case KindPre:
+		if !version.IsPrerelease() {
+			return fmt.Errorf(
+				"le tag %q n'a pas de composante de pré-release: une pré-release s'écrit par exemple %s-rc1",
+				version.Raw, version.Base)
+		}
+	case KindFinal, KindPatch:
+		if version.IsPrerelease() {
+			return fmt.Errorf(
+				"le tag %q porte une composante de pré-release %q: une release %s s'écrit %s",
+				version.Raw, version.Prerelease, kind, version.Base)
+		}
+	default:
+		return fmt.Errorf("nature de release inconnue %q", kind)
+	}
+	return nil
+}
+
+// CheckRedmineVersion vérifie l'invariant de jointure avec Redmine.
+//
+// `tag de release = nom de version Redmine [+ suffixe de pré-release]`. Une RC
+// `1.8.0-rc1` se rattache donc à la version Redmine `1.8.0` : c'est ce qui relie
+// une pré-release à son périmètre fonctionnel.
+func CheckRedmineVersion(version Version, redmineName string) error {
+	if version.Base != strings.TrimSpace(redmineName) {
+		return fmt.Errorf(
+			"le tag %q se rattache à la version %q, or la version Redmine visée est %q",
+			version.Raw, version.Base, redmineName)
+	}
+	return nil
+}
+
+// ErrSourceRequired signale une release finale sans RC source.
+var ErrSourceRequired = errors.New("une release finale par re-tag exige une pré-release source")
+
+// Source décrit la pré-release réutilisée par une release finale.
+type Source struct {
+	Tag          string
+	ImageVersion string
+	State        State
+	// TestsGreen vaut false si les résultats de la RC ne sont pas au vert. La
+	// release reste possible — c'est une décision humaine — mais elle doit être
+	// signalée.
+	TestsGreen bool
+}
+
+// FinalFromSource compose l'image d'une release finale à partir de sa RC.
+//
+// Le passage RC → finale se fait par **re-tag** : ce qui part en production est
+// bit pour bit ce qui a été validé en pré-production. La contrepartie est que
+// l'image continue de porter la version de la RC — son `version.txt` a été baké
+// au build — et c'est donc `PortalData` qui rapportera `1.8.0-rc3` là où `1.8.0`
+// est déployée.
+//
+// D'où `image_version`, distinct de `tag` : comparer `PortalData` au tag
+// échouerait sur **toute** release finale (B8, B17).
+func FinalFromSource(source Source) (imageVersion string, warnings []string, err error) {
+	if strings.TrimSpace(source.Tag) == "" {
+		return "", nil, ErrSourceRequired
+	}
+	if source.State != StateReady {
+		return "", nil, fmt.Errorf(
+			"la pré-release %q est dans l'état %q: seule une release %q peut être re-taguée",
+			source.Tag, source.State, StateReady)
+	}
+
+	imageVersion = source.ImageVersion
+	if imageVersion == "" {
+		// Une RC dont l'image n'est pas identifiée ne peut pas être re-taguée :
+		// il n'y a rien à promouvoir.
+		return "", nil, fmt.Errorf("la pré-release %q ne porte aucune version d'image", source.Tag)
+	}
+
+	if !source.TestsGreen {
+		// Avertissement et non refus : livrer une RC dont un test est rouge est
+		// une décision qui appartient au client. La taire serait en revanche une
+		// faute.
+		warnings = append(warnings, fmt.Sprintf(
+			"les résultats de la pré-release %q ne sont pas au vert", source.Tag))
+	}
+
+	return imageVersion, warnings, nil
+}

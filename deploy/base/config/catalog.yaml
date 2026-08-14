@@ -88,6 +88,25 @@ pipelines:
           storageClassName: standard
           storage: 2Gi
 
+  # La promotion : un re-tag du même digest, jamais une reconstruction. C'est le
+  # seul kind que le dashboard lance pour déployer, et il ne déploie pas
+  # lui-même — Flux constate le nouveau tag et décide (B7).
+  - kind: promote
+    pipelineRef: promote-image
+    label: Promotion d'image
+    # Le registre supporte mal deux re-tags simultanés sur le même dépôt : les
+    # sérialiser coûte quelques secondes et évite des manifestes concurrents.
+    queueClass: exclusive-registry
+    params:
+      reg-project: { source: config, key: registry.project }
+      old-tag:     { source: input, required: true }
+      new-tag:     { source: input, required: true }
+    workspaces:
+      - name: git-credentials
+        secret: { secretName: git-credentials }
+      - name: dockerconfig
+        secret: { secretName: regcred }
+
   - kind: static-tests
     pipelineRef: php-static-tests
     label: Tests statiques
