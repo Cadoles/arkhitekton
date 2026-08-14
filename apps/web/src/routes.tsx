@@ -2,6 +2,8 @@ import { Navigate, type RouteObject } from 'react-router'
 import { AppShell } from './components/AppShell'
 import { Placeholder } from './components/Placeholder'
 import { NotFound } from './components/NotFound'
+import { RunsScreen } from './features/runs/RunsScreen'
+import { RunScreen } from './features/runs/RunScreen'
 
 /*
  * Arborescence de la doc 08 §8.3, posée en entier dès le lot 0.
@@ -134,21 +136,8 @@ export const routes: RouteObject[] = [
         ),
       },
 
-      {
-        path: 'runs',
-        element: <Placeholder lot="lot 2" title="Exécutions" summary="Tous les runs, filtrables par pipeline, release et état." />,
-      },
-      {
-        path: 'runs/:name',
-        element: (
-          <Placeholder
-            lot="lot 2"
-            title="Détail d'un run"
-            summary="Graphe des tasks, logs en direct avec suivi automatique et ancrage sur une ligne, résultats du PipelineRun."
-            params={['name']}
-          />
-        ),
-      },
+      { path: 'runs', element: <RunsScreen /> },
+      { path: 'runs/:name', element: <RunScreen /> },
 
       {
         path: 'queue',

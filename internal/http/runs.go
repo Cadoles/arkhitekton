@@ -11,6 +11,11 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
+// RunDetails est ce que le handler attend pour servir un run.
+type RunDetails interface {
+	GetRun(ctx context.Context, name string) (store.RunDetail, error)
+}
+
 // Runs décrit ce que le handler attend de la base.
 type Runs interface {
 	ListRuns(ctx context.Context, limit int) ([]store.RunSummary, error)
@@ -66,6 +71,57 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"runs": payload})
+}
+
+type taskPayload struct {
+	Name        string     `json:"name"`
+	DisplayName string     `json:"display_name"`
+	Status      string     `json:"status"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	// HasLog dit s'il y a quelque chose à lire ; Sealed, s'il est inutile de
+	// continuer à suivre.
+	HasLog bool `json:"has_log"`
+	Sealed bool `json:"log_sealed"`
+}
+
+// Get rend un run et ses tasks.
+func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
+	details, ok := h.runs.(RunDetails)
+	if !ok {
+		writeProblem(w, http.StatusNotImplemented, "Détail indisponible", "")
+		return
+	}
+
+	detail, err := details.GetRun(r.Context(), r.PathValue("run"))
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			// 404 et non 500 : un run purgé par les CronJobs de nettoyage est un
+			// cas normal, et l'interface doit pouvoir le dire.
+			writeProblem(w, http.StatusNotFound, "Exécution introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de l'exécution impossible", "")
+		return
+	}
+
+	tasks := make([]taskPayload, 0, len(detail.Tasks))
+	for _, task := range detail.Tasks {
+		tasks = append(tasks, taskPayload{
+			Name:        task.Name,
+			DisplayName: task.DisplayName,
+			Status:      task.Status,
+			StartedAt:   task.StartedAt,
+			CompletedAt: task.CompletedAt,
+			HasLog:      task.HasLog || task.PodName != "",
+			Sealed:      task.LogSealed,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"run":   toRunPayload(detail.Run),
+		"tasks": tasks,
+	})
 }
 
 // RunEvents est ce que le flux d'état attend de la base.

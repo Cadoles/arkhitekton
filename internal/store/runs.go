@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // RunRecord est ce que la projection d'un PipelineRun dépose en base.
@@ -343,4 +346,69 @@ func (db *DB) RunsUpdatedSince(ctx context.Context, since time.Time) ([]RunSumma
 		runs = append(runs, run)
 	}
 	return runs, latest, rows.Err()
+}
+
+// TaskSummary est la vue d'une task dans le détail d'un run.
+type TaskSummary struct {
+	Name        string
+	DisplayName string
+	Status      string
+	StartedAt   *time.Time
+	CompletedAt *time.Time
+	PodName     string
+	// LogSealed dit que le journal est définitif. L'interface s'en sert pour
+	// décider s'il faut suivre le flux ou se contenter d'une lecture.
+	LogSealed bool
+	HasLog    bool
+}
+
+// RunDetail est un run et ses tasks.
+type RunDetail struct {
+	Run   RunSummary
+	Tasks []TaskSummary
+}
+
+// ErrRunNotFound signale un run absent.
+var ErrRunNotFound = errors.New("run introuvable")
+
+// GetRun rend un run et ses tasks, dans l'ordre d'exécution.
+func (db *DB) GetRun(ctx context.Context, name string) (RunDetail, error) {
+	var detail RunDetail
+
+	err := db.pool.QueryRow(ctx,
+		`select id, pipelinerun_name, pipeline_name, status, coalesce(reason, ''),
+		        started_at, completed_at, observed
+		 from runs where pipelinerun_name = $1`, name).
+		Scan(&detail.Run.ID, &detail.Run.Name, &detail.Run.Pipeline, &detail.Run.Status,
+			&detail.Run.Reason, &detail.Run.StartedAt, &detail.Run.CompletedAt, &detail.Run.Observed)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return detail, ErrRunNotFound
+		}
+		return detail, fmt.Errorf("lecture du run %q: %w", name, err)
+	}
+
+	rows, err := db.pool.Query(ctx,
+		`select name, coalesce(display_name, name), status, started_at, completed_at,
+		        coalesce(pod_name, ''), log_sealed, log_object is not null
+		 from task_runs
+		 where run_id = $1
+		 -- Les tasks sans date de début — pas encore ordonnancées — passent en
+		 -- fin de liste : elles n'ont rien à montrer, contrairement aux runs où
+		 -- c'est le plus récent qu'on cherche.
+		 order by started_at nulls last, name`, detail.Run.ID)
+	if err != nil {
+		return detail, fmt.Errorf("lecture des tasks de %q: %w", name, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var task TaskSummary
+		if err := rows.Scan(&task.Name, &task.DisplayName, &task.Status, &task.StartedAt,
+			&task.CompletedAt, &task.PodName, &task.LogSealed, &task.HasLog); err != nil {
+			return detail, fmt.Errorf("lecture des tasks de %q: %w", name, err)
+		}
+		detail.Tasks = append(detail.Tasks, task)
+	}
+	return detail, rows.Err()
 }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -401,5 +402,96 @@ func TestUnknownJobIDDoesNotLoseTheRun(t *testing.T) {
 	}
 	if !observed {
 		t.Error("un run sans lien de job valide doit être en lecture seule")
+	}
+}
+
+func TestGetRunReturnsItsTasksInExecutionOrder(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if _, err := db.UpsertRun(ctx, runningRecord("run-detail")); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	early := time.Now().Add(-3 * time.Minute)
+	late := time.Now().Add(-time.Minute)
+	tasks := []TaskRunRecord{
+		// Insérées à l'envers de l'ordre d'exécution, et nommées de sorte que
+		// l'ordre alphabétique ne sauve pas le test.
+		{RunName: "run-detail", Name: "run-detail-zebre", DisplayName: "zebre", Status: "running", StartedAt: &late},
+		{RunName: "run-detail", Name: "run-detail-alpha", DisplayName: "alpha", Status: "succeeded", StartedAt: &early},
+		{RunName: "run-detail", Name: "run-detail-attente", DisplayName: "attente", Status: "pending"},
+	}
+	for _, task := range tasks {
+		if err := db.UpsertTaskRun(ctx, task); err != nil {
+			t.Fatalf("task %s: %v", task.Name, err)
+		}
+	}
+
+	detail, err := db.GetRun(ctx, "run-detail")
+	if err != nil {
+		t.Fatalf("détail: %v", err)
+	}
+	if detail.Run.Name != "run-detail" {
+		t.Errorf("run = %q", detail.Run.Name)
+	}
+	if len(detail.Tasks) != 3 {
+		t.Fatalf("%d task(s), attendu 3", len(detail.Tasks))
+	}
+
+	order := []string{detail.Tasks[0].DisplayName, detail.Tasks[1].DisplayName, detail.Tasks[2].DisplayName}
+	expected := []string{"alpha", "zebre", "attente"}
+	for i := range expected {
+		if order[i] != expected[i] {
+			t.Errorf("ordre = %v, attendu %v (la task non démarrée doit finir la liste)", order, expected)
+			break
+		}
+	}
+}
+
+// Un run purgé par les CronJobs de nettoyage est un cas normal : l'erreur doit
+// être distinguable pour que l'interface réponde 404 plutôt que 500.
+func TestGetRunDistinguishesAbsence(t *testing.T) {
+	db := migrated(t)
+
+	_, err := db.GetRun(context.Background(), "run-qui-n-existe-pas")
+	if !errors.Is(err, ErrRunNotFound) {
+		t.Errorf("erreur = %v, attendu ErrRunNotFound", err)
+	}
+}
+
+func TestRunsUpdatedSinceReturnsOnlyChanges(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if _, err := db.UpsertRun(ctx, runningRecord("run-avant")); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	_, watermark, err := db.RunsUpdatedSince(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("première lecture: %v", err)
+	}
+
+	// Rien n'a changé : le flux ne doit rien retransmettre, sinon chaque tour
+	// renverrait des centaines de runs figés.
+	unchanged, _, err := db.RunsUpdatedSince(ctx, watermark)
+	if err != nil {
+		t.Fatalf("lecture à vide: %v", err)
+	}
+	if len(unchanged) != 0 {
+		t.Errorf("%d run(s) retransmis sans changement", len(unchanged))
+	}
+
+	if _, err := db.UpsertRun(ctx, runningRecord("run-apres")); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+
+	changed, _, err := db.RunsUpdatedSince(ctx, watermark)
+	if err != nil {
+		t.Fatalf("lecture après changement: %v", err)
+	}
+	if len(changed) != 1 || changed[0].Name != "run-apres" {
+		t.Errorf("changements = %+v", changed)
 	}
 }

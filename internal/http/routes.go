@@ -31,6 +31,10 @@ func NewAPIRouter(handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, mi
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 	mux.Handle("GET /runs/events", Chain(http.HandlerFunc(runs.Stream),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	// Déclarée après /runs/events : le ServeMux choisit le motif le plus
+	// spécifique, mais l'ordre de lecture reste plus clair ainsi.
+	mux.Handle("GET /runs/{run}", Chain(http.HandlerFunc(runs.Get),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
 
 	// Les journaux se lisent par plage, et se suivent par flux. Les deux passent
 	// par le même lecteur : un client peut suivre un run puis remonter dans son

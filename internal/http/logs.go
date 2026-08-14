@@ -92,6 +92,19 @@ func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	// Sans reprise, le client reçoit d'abord la fin du journal : se brancher sur
 	// un run en cours et ne rien voir avant la prochaine ligne serait déroutant.
 	offset := int64(-1)
+
+	// Le paramètre de requête sert à la **première** connexion : EventSource ne
+	// permet pas de poser un en-tête, et un client qui a déjà chargé la fin par
+	// l'API de lecture doit pouvoir démarrer le flux à sa suite plutôt que de
+	// recevoir cette fin une seconde fois.
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	// Last-Event-ID l'emporte : il vient des reconnexions du navigateur, et sa
+	// valeur est plus récente que celle inscrite dans l'URL au premier abonnement.
 	if resume := r.Header.Get("Last-Event-ID"); resume != "" {
 		if parsed, err := strconv.ParseInt(resume, 10, 64); err == nil && parsed >= 0 {
 			offset = parsed

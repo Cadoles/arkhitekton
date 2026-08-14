@@ -90,6 +90,17 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   return (await response.json()) as T
 }
 
+/**
+ * Construit l'URL d'un flux SSE.
+ *
+ * `EventSource` n'emprunte pas `request` : il faut donc lui donner un chemin
+ * complet. L'oubli du préfixe est silencieux et coûteux — le serveur renvoie la
+ * SPA avec un code 200, et le flux reste vide sans qu'aucune erreur n'apparaisse.
+ */
+export function streamURL(path: string): string {
+  return `${BASE}${path}`
+}
+
 /** Redirige vers le fournisseur d'identité, en demandant le retour ici même. */
 export function login(returnTo: string = window.location.pathname + window.location.search): void {
   // Navigation complète et non fetch : le flux OIDC est une suite de redirections
