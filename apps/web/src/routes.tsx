@@ -5,6 +5,7 @@ import { NotFound } from './components/NotFound'
 import { RunsScreen } from './features/runs/RunsScreen'
 import { RunScreen } from './features/runs/RunScreen'
 import { QueueScreen } from './features/queue/QueueScreen'
+import { EnvironmentsScreen } from './features/environments/EnvironmentsScreen'
 
 /*
  * Arborescence de la doc 08 §8.3, posée en entier dès le lot 0.
@@ -22,16 +23,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="/environments" replace /> },
 
-      {
-        path: 'environments',
-        element: (
-          <Placeholder
-            lot="lot 5"
-            title="Environnements"
-            summary="Flux de promotion et vue d'ensemble : quelle version est livrée sur chaque environnement, et où en est la promotion en cours."
-          />
-        ),
-      },
+      { path: 'environments', element: <EnvironmentsScreen /> },
       {
         path: 'environments/:env',
         element: (
