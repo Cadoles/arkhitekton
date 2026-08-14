@@ -21,6 +21,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -216,6 +217,28 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	}
 	logger.Info("catalogue validé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
 
+	// Le client Flux découvre les versions d'API servies au lieu de les coder :
+	// `kustomize.toolkit.fluxcd.io/v1` est stable depuis Flux 2.0, alors que
+	// `image.toolkit.fluxcd.io/v1` n'existe que depuis 2.7, et une même
+	// installation peut donc servir les deux dans des versions différentes.
+	fluxClient, err := flux.Open(cluster.RESTConfig, cfg.Flux.Namespace)
+	if err != nil {
+		return err
+	}
+	logger.Info("client Flux", "namespace", cfg.Flux.Namespace, "versions", fluxClient.Versions())
+
+	environments := worker.NewEnvironmentObserver(db, fluxClient, logger)
+
+	// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
+	// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux
+	// ignorerait. Mieux vaut ne pas démarrer.
+	syncCtx, cancelSync := context.WithTimeout(ctx, 30*time.Second)
+	err = environments.SyncEnvironments(syncCtx, pipelines.Environments)
+	cancelSync()
+	if err != nil {
+		return err
+	}
+
 	identity := worker.LeaderIdentity()
 	logger.Info("candidature au bail", "identity", identity, "lease_namespace", cfg.Tekton.LeaseNamespace)
 
@@ -242,9 +265,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// seconde dépend de la première pour apprendre qu'un run est fini,
 			// et les sérialiser bloquerait la file derrière la synchronisation
 			// du cache.
-			errs := make(chan error, 2)
+			errs := make(chan error, 3)
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
+			go func() { errs <- environments.Run(leadingCtx) }()
 
 			// La première erreur l'emporte : une boucle morte doit faire perdre
 			// le bail plutôt que de laisser l'autre tourner à moitié.

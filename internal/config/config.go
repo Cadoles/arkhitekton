@@ -27,6 +27,14 @@ type Config struct {
 	Storage  StorageConfig
 	OIDC     OIDCConfig
 	Tekton   TektonConfig
+	Flux     FluxConfig
+}
+
+// FluxConfig borne la lecture des objets Flux.
+type FluxConfig struct {
+	// Namespace où vivent ImagePolicy et Kustomization. Distinct de celui des
+	// pipelines : Flux vit dans `flux-system`.
+	Namespace string
 }
 
 // Role décrit ce que fait le processus. Le binaire est unique, déployé en
@@ -139,6 +147,9 @@ func Load(role Role) (Config, error) {
 			KubeconfigPath: os.Getenv("KUBECONFIG"),
 			CatalogPath:    envOr("PIPELINE_CATALOG_PATH", "/etc/mse-dashboard/catalog.yaml"),
 			LeaseNamespace: envOr("POD_NAMESPACE", "mse-dashboard"),
+		},
+		Flux: FluxConfig{
+			Namespace: envOr("FLUX_NAMESPACE", "flux-system"),
 		},
 	}
 

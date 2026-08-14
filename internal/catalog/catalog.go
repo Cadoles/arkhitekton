@@ -39,10 +39,42 @@ const (
 // Catalog est le catalogue chargé.
 type Catalog struct {
 	Pipelines []Pipeline `json:"pipelines"`
+	// Environments vit dans le même fichier que les pipelines : les deux
+	// décrivent ce que le dashboard peut déclencher, et les séparer imposerait
+	// deux montages et deux chargements pour une même intention.
+	Environments []Environment `json:"environments,omitempty"`
 	// MaxConcurrentRuns protège le cluster : les pipelines demandent des PVC et
 	// des pods de build, et rien n'empêche mécaniquement d'en lancer vingt.
 	MaxConcurrentRuns int `json:"maxConcurrentRuns"`
 }
+
+// Environment décrit un environnement de déploiement.
+//
+// Ces valeurs sont de la configuration et non des constantes : le libellé, le
+// rang et surtout le suffixe de promotion sont propres au déploiement — Flux
+// désigne `qualif` sous le nom `testing`. Coder cette correspondance reviendrait
+// à promouvoir vers le mauvais environnement au premier oubli (B13).
+type Environment struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	// PromotionSuffix est la métadonnée SemVer attendue par Flux. Vérifiée au
+	// démarrage contre les ImagePolicy réelles : une erreur ici ne produit aucun
+	// échec visible, seulement une promotion sans effet.
+	PromotionSuffix   string `json:"promotionSuffix"`
+	AcceptsPrerelease bool   `json:"acceptsPrerelease"`
+	Rank              int    `json:"rank"`
+	Namespace         string `json:"namespace"`
+	FluxKustomization string `json:"fluxKustomization,omitempty"`
+	// Observable vaut false pour la production, dans un cluster indépendant.
+	Observable *bool `json:"observable,omitempty"`
+	Visible    *bool `json:"visible,omitempty"`
+}
+
+// IsObservable rend la valeur effective, l'absence valant « observable ».
+func (e Environment) IsObservable() bool { return e.Observable == nil || *e.Observable }
+
+// IsVisible rend la valeur effective, l'absence valant « visible ».
+func (e Environment) IsVisible() bool { return e.Visible == nil || *e.Visible }
 
 // Pipeline décrit un pipeline lançable.
 type Pipeline struct {
@@ -160,6 +192,29 @@ func (c *Catalog) validate() error {
 	}
 	if len(c.Pipelines) == 0 {
 		problems = append(problems, errors.New("le catalogue ne déclare aucun pipeline"))
+	}
+
+	suffixes := make(map[string]string, len(c.Environments))
+	ranks := make(map[int]string, len(c.Environments))
+	for _, environment := range c.Environments {
+		if strings.TrimSpace(environment.ID) == "" || strings.TrimSpace(environment.PromotionSuffix) == "" {
+			problems = append(problems, fmt.Errorf(
+				"environnement %q: id et promotionSuffix sont requis", environment.ID))
+		}
+		// Deux environnements partageant un suffixe promouvraient au même
+		// endroit : l'un des deux ne serait jamais déployé, sans erreur.
+		if other, clash := suffixes[environment.PromotionSuffix]; clash {
+			problems = append(problems, fmt.Errorf(
+				"environnements %q et %q partagent le suffixe %q",
+				other, environment.ID, environment.PromotionSuffix))
+		}
+		suffixes[environment.PromotionSuffix] = environment.ID
+
+		if other, clash := ranks[environment.Rank]; clash {
+			problems = append(problems, fmt.Errorf(
+				"environnements %q et %q partagent le rang %d", other, environment.ID, environment.Rank))
+		}
+		ranks[environment.Rank] = environment.ID
 	}
 
 	seen := make(map[string]bool, len(c.Pipelines))

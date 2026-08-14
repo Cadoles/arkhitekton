@@ -29,6 +29,10 @@ type Client struct {
 	// à l'échelle du cluster : la RBAC accordée est une Role, pas une
 	// ClusterRole (doc 07 §7.3).
 	Namespace string
+	// RESTConfig est réexposée pour les clients qui lisent d'autres API du même
+	// cluster — Flux, PortalData — sans refaire la résolution in-cluster puis
+	// kubeconfig, dont l'ordre est ce qui empêche de parler au mauvais cluster.
+	RESTConfig *rest.Config
 }
 
 // Open construit les clients.
@@ -60,7 +64,7 @@ func Open(cfg config.TektonConfig) (*Client, error) {
 		return nil, fmt.Errorf("client Tekton: %w", err)
 	}
 
-	return &Client{Kube: kube, Tekton: tekton, Namespace: cfg.Namespace}, nil
+	return &Client{Kube: kube, Tekton: tekton, Namespace: cfg.Namespace, RESTConfig: restConfig}, nil
 }
 
 func restConfig(kubeconfigPath string) (*rest.Config, error) {

@@ -10,6 +10,56 @@
 # inventées : le catalogue doit reproduire ce que faisaient les TriggerTemplate
 # de `mse-tekton`.
 
+# Environnements de déploiement, dans leur ordre de promotion.
+#
+# Le `promotionSuffix` est la métadonnée que Flux attend dans le tag, et il est
+# vérifié au démarrage contre les ImagePolicy réelles : une erreur ici ne produit
+# aucun échec visible — le tag est poussé, Flux l'ignore, et la promotion paraît
+# réussie (B7).
+#
+# Noter `qualif` → `testing` : Flux connaît cet environnement sous son ancien nom.
+# C'est une correspondance de **sortie**, employée pour construire un tag.
+environments:
+  - id: unstable
+    label: Unstable
+    promotionSuffix: unstable
+    acceptsPrerelease: true
+    rank: 1
+    namespace: mse-dev
+    fluxKustomization: portal-unstable
+
+  - id: qualif
+    label: Qualification
+    promotionSuffix: testing
+    acceptsPrerelease: true
+    rank: 2
+    namespace: mse-dev
+    fluxKustomization: portal-testing
+
+  - id: preprod
+    label: Pré-production
+    # Les RC vont jusqu'en pré-production ; la frontière RC / release finale se
+    # situe entre preprod et prod, et non avant.
+    promotionSuffix: preprod
+    acceptsPrerelease: true
+    rank: 3
+    namespace: mse-dev
+    fluxKustomization: portal-preprod
+
+  - id: prod
+    label: Production
+    promotionSuffix: prod
+    # Sans pré-releases : la plage SemVer de sa politique s'écrit sans `-0`, ce
+    # qui rend une RC structurellement inéligible.
+    acceptsPrerelease: false
+    rank: 4
+    namespace: mse-prod
+    fluxKustomization: portal-prod
+    # Cluster indépendant : ni PortalData, ni Deployment, ni statut Flux n'y sont
+    # lisibles. L'interface l'affiche « non observable », état distinct de
+    # « inconnu » (B8).
+    observable: false
+
 # Plafond global. Les pipelines demandent des PVC et des pods de build, et rien
 # n'empêche mécaniquement d'en lancer vingt.
 maxConcurrentRuns: 4
