@@ -113,12 +113,22 @@ pipelines:
     queueClass: parallel
     params:
       repo-url:     { source: config, key: forge.mse.repoUrl }
-      minio-host:   { source: config, key: minio.host }
-      minio-bucket: { source: config, key: minio.pipelineBucket }
       revision:     { source: input, required: true }
       # Le commit sert au retour de statut vers Gitea : sans lui, la PR ne voit
       # jamais le résultat.
       commit:       { source: input, required: true }
+    # Artefacts attendus. Le dashboard calcule la clé de chacun et mint l'URL
+    # d'écriture **avant** de créer le run : le pipeline n'a donc ni bucket, ni
+    # préfixe, ni identifiants MinIO, et le lecteur n'a rien à chercher par
+    # préfixe ensuite (B14).
+    uploads:
+      results:
+        param: results-upload-url
+        # Les trois familles écrivent sous `test-results/`, et leur nombre dépend
+        # de ce qui a tourné : une archive, sous une clé unique par run.
+        artifact: static-tests.tar.gz
+        family: static
+        format: archive
     workspaces:
       - name: git-credentials
         secret: { secretName: git-credentials }
@@ -137,10 +147,27 @@ pipelines:
     timeout: 60m
     params:
       repo-url:     { source: config, key: forge.e2e.repoUrl }
-      minio-host:   { source: config, key: minio.host }
-      minio-bucket: { source: config, key: minio.pipelineBucket }
       revision:     { source: input, required: true }
       environment:  { source: input, required: true }
+    # Trois artefacts distincts, trois URLs. Les noms de fichiers produits par
+    # Cypress dépendent des specs exécutées : personne ne peut les pré-signer un
+    # par un, et chaque répertoire part donc en une archive.
+    uploads:
+      reports:
+        param: reports-upload-url
+        artifact: e2e-reports.tar.gz
+        family: e2e
+        format: archive
+      videos:
+        param: videos-upload-url
+        artifact: e2e-videos.tar.gz
+        family: e2e
+        format: archive
+      screenshots:
+        param: screenshots-upload-url
+        artifact: e2e-screenshots.tar.gz
+        family: e2e
+        format: archive
     workspaces:
       - name: git-credentials
         secret: { secretName: git-credentials }

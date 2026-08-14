@@ -300,7 +300,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				worker.NewLoadIngester(db, worker.NewObjectStore(storage), logger))
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
-			scheduler := worker.NewSchedulerFromCatalog(db, cluster, pipelines, schedulerConfig(cfg), logger)
+			// Les URLs d'écriture des artefacts sont minées ici : le layout de
+			// stockage appartient au dashboard, et c'est ce qui sort le secret
+			// MinIO des Tasks de test (B14).
+			scheduler := worker.NewSchedulerFromCatalog(
+				db, cluster, pipelines, schedulerConfig(cfg), logger).WithUploads(storage)
 
 			// Les livrables passent par la file comme le reste, mais sont
 			// produits ici : générer un bon de livraison lit la base et écrit un

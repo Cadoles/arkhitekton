@@ -80,11 +80,32 @@ func (p Pipeline) validateParams(spec PipelineSpec) []error {
 		}
 	}
 
+	// Les URLs d'artefacts sont des paramètres comme les autres, mais elles
+	// n'apparaissent pas dans `params` : elles sont minées au lancement. Sans ce
+	// contrôle, une faute de frappe dans `uploads[].param` ne se manifesterait
+	// qu'au premier run, rejeté par Tekton pour paramètre inconnu.
+	for name, upload := range p.Uploads {
+		if upload.Param == "" || upload.Artifact == "" {
+			problems = append(problems, fmt.Errorf(
+				"kind %q: l'artefact %q doit déclarer `param` et `artifact`", p.Kind, name))
+			continue
+		}
+		if _, accepted := spec.Params[upload.Param]; !accepted {
+			problems = append(problems, fmt.Errorf(
+				"kind %q: le Pipeline %q n'accepte pas le paramètre %q, déclaré pour l'artefact %q (attendus: %s)",
+				p.Kind, spec.Name, upload.Param, name, strings.Join(paramNames(spec), ", ")))
+		}
+	}
+
 	for name, hasDefault := range spec.Params {
 		if hasDefault {
 			continue
 		}
 		if _, provided := p.Params[name]; !provided {
+			// Un paramètre couvert par un artefact est fourni au lancement.
+			if p.coveredByUpload(name) {
+				continue
+			}
 			problems = append(problems, fmt.Errorf(
 				"kind %q: le Pipeline %q exige le paramètre %q, que le catalogue ne fournit pas",
 				p.Kind, spec.Name, name))
@@ -92,6 +113,16 @@ func (p Pipeline) validateParams(spec PipelineSpec) []error {
 	}
 
 	return problems
+}
+
+// coveredByUpload dit si un paramètre reçoit une URL d'artefact.
+func (p Pipeline) coveredByUpload(name string) bool {
+	for _, upload := range p.Uploads {
+		if upload.Param == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (p Pipeline) validateWorkspaces(spec PipelineSpec) []error {

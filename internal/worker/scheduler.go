@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
@@ -46,6 +48,23 @@ type LocalTask interface {
 	Run(ctx context.Context, job store.Job) error
 }
 
+// Presigner mint les URLs d'écriture des artefacts.
+//
+// Le layout appartient au dashboard : il calcule la clé exacte de chaque artefact
+// **avant** de créer le run, et fournit l'URL correspondante en paramètre. Le
+// pipeline n'a donc ni bucket, ni préfixe, ni identifiants — et le lecteur n'a
+// rien à chercher par préfixe ensuite (B14).
+type Presigner interface {
+	PresignPut(ctx context.Context, key string, ttl time.Duration) (*url.URL, error)
+}
+
+// uploadTTL borne la validité d'une URL d'écriture.
+//
+// Elle doit survivre au pipeline le plus long — une campagne E2E dépasse l'heure —
+// sans devenir un droit d'écriture durable. Six heures : au-delà, une URL fuitée
+// resterait exploitable après la fin du run qui la justifiait.
+const uploadTTL = 6 * time.Hour
+
 // Scheduler transforme les jobs en file en PipelineRun.
 type Scheduler struct {
 	queue   Queue
@@ -53,7 +72,17 @@ type Scheduler struct {
 	catalog *catalog.Catalog
 	config  map[string]string
 	local   map[string]LocalTask
+	// uploads mint les URLs pré-signées. Nil quand le stockage n'est pas
+	// disponible : les runs partent alors sans publication, et le disent.
+	uploads Presigner
+	keys    blob.Keys
 	logger  *slog.Logger
+}
+
+// WithUploads branche la génération des URLs d'artefacts.
+func (s *Scheduler) WithUploads(presigner Presigner) *Scheduler {
+	s.uploads = presigner
+	return s
 }
 
 // NewSchedulerFromCatalog assemble l'ordonnanceur. `config` fournit les valeurs
@@ -141,6 +170,9 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 	}
 
 	params, err := s.resolveParams(pipeline, job.Params)
+	if err == nil {
+		err = s.addUploadURLs(ctx, pipeline, job.RunName, params)
+	}
 	if err != nil {
 		s.logger.Error("paramètres du job", "job", job.ID, "error", err)
 		if err := s.queue.Requeue(ctx, job.ID, err.Error()); err != nil {
@@ -179,6 +211,48 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 	s.logger.Info("run lancé",
 		"job", job.ID, "kind", job.Kind, "run", job.RunName, "classe", job.QueueClass)
 	return true
+}
+
+// addUploadURLs ajoute une URL pré-signée par artefact déclaré.
+//
+// Faite ici, avant la création du run, et non par le pipeline : c'est ce qui
+// permet au dashboard de connaître la clé de chaque artefact sans la chercher, et
+// ce qui sort le secret MinIO des Tasks de test.
+//
+// Un artefact non déclaré ne reçoit pas d'URL, et sa publication est simplement
+// ignorée par la Task. C'est la dégradation voulue : un pipeline qui produit plus
+// que ce que le catalogue annonce ne doit pas échouer pour autant.
+func (s *Scheduler) addUploadURLs(
+	ctx context.Context, pipeline catalog.Pipeline, runName string, params map[string]string,
+) error {
+	if len(pipeline.Uploads) == 0 {
+		return nil
+	}
+	if s.uploads == nil {
+		// Sans stockage, le run part sans publication. Le refuser priverait
+		// l'utilisateur d'une exécution qui reste utile — les journaux, eux,
+		// passent par un autre chemin.
+		s.logger.Warn("stockage indisponible, artefacts non publiés", "run", runName)
+		return nil
+	}
+
+	for name, upload := range pipeline.Uploads {
+		if upload.Param == "" || upload.Artifact == "" {
+			return fmt.Errorf("artefact %q: `param` et `artifact` sont requis pour minter une URL", name)
+		}
+
+		key, err := s.keys.RawArtifact(runName, upload.Artifact)
+		if err != nil {
+			return fmt.Errorf("artefact %q: %w", name, err)
+		}
+
+		signed, err := s.uploads.PresignPut(ctx, key, uploadTTL)
+		if err != nil {
+			return fmt.Errorf("artefact %q: %w", name, err)
+		}
+		params[upload.Param] = signed.String()
+	}
+	return nil
 }
 
 // runLocal exécute une tâche du processus et conclut son job.

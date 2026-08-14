@@ -119,8 +119,15 @@ const (
 // stockage et de minter les URLs pré-signées **avant** de créer le run : sans
 // elle, il faudrait deviner ce que le pipeline produit (B14).
 type Upload struct {
-	Family string `json:"family"`
-	Format string `json:"format"`
+	// Param est le paramètre du Pipeline qui reçoit l'URL pré-signée. Sans lui, la
+	// clé serait calculée sans que personne ne sache où l'envoyer.
+	Param string `json:"param"`
+	// Artifact est le nom de l'objet sous `raw/<run>/`. Il porte l'extension du
+	// contenu réel — `.tar.gz` pour un répertoire empaqueté — parce que la Task
+	// publie ce que le mode déclare, et non ce qu'elle trouve.
+	Artifact string `json:"artifact"`
+	Family   string `json:"family"`
+	Format   string `json:"format"`
 }
 
 // Workspace décrit un workspace du PipelineRun.
