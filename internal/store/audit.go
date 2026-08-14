@@ -23,11 +23,12 @@ type AuditEntry struct {
 // faute de frappe dans un `action` rend la ligne introuvable au moment où on la
 // cherche, c'est-à-dire après coup.
 const (
-	AuditReleaseCreate  = "release.create"
-	AuditReleasePromote = "release.promote"
-	AuditReleaseActions = "release.actions"
-	AuditJobEnqueue     = "job.enqueue"
-	AuditJobCancel      = "job.cancel"
+	AuditReleaseCreate    = "release.create"
+	AuditReleasePromote   = "release.promote"
+	AuditReleaseActions   = "release.actions"
+	AuditJobEnqueue       = "job.enqueue"
+	AuditJobCancel        = "job.cancel"
+	AuditArtifactGenerate = "artifact.generate"
 )
 
 // Audit consigne une action.

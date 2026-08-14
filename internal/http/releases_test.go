@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,6 +26,8 @@ type fakeReleaseStore struct {
 	history      []store.EnvironmentHistory
 	audit        []string
 	actions      map[string]string
+	artifacts    []store.Artifact
+	objects      map[string]string
 	registry     Images
 }
 
@@ -102,6 +105,34 @@ func (f *fakeReleaseStore) Audit(_ context.Context, _, action, target string, _ 
 	return nil
 }
 
+func (f *fakeReleaseStore) ListArtifacts(_ context.Context, releaseID int64) ([]store.Artifact, error) {
+	var found []store.Artifact
+	for _, artifact := range f.artifacts {
+		if artifact.ReleaseID == releaseID {
+			found = append(found, artifact)
+		}
+	}
+	return found, nil
+}
+
+func (f *fakeReleaseStore) GetArtifact(_ context.Context, id int64) (store.Artifact, error) {
+	for _, artifact := range f.artifacts {
+		if artifact.ID == id {
+			return artifact, nil
+		}
+	}
+	return store.Artifact{}, store.ErrArtifactNotFound
+}
+
+// Get sert aussi de stockage objet : le handler n'en attend qu'une lecture.
+func (f *fakeReleaseStore) Get(_ context.Context, key string) (io.ReadCloser, error) {
+	content, found := f.objects[key]
+	if !found {
+		return nil, errors.New("objet absent")
+	}
+	return io.NopCloser(strings.NewReader(content)), nil
+}
+
 func (f *fakeReleaseStore) Enqueue(_ context.Context, request store.JobRequest) (int64, error) {
 	f.jobs = append(f.jobs, request)
 	return int64(len(f.jobs)), nil
@@ -111,6 +142,7 @@ func newFakeStore() *fakeReleaseStore {
 	return &fakeReleaseStore{
 		releases: map[string]store.Release{},
 		actions:  map[string]string{},
+		objects:  map[string]string{},
 		environments: []store.Environment{
 			{ID: "qualif", Label: "Qualification", PromotionSuffix: "testing",
 				AcceptsPrerelease: true, Rank: 2, Observable: true, Visible: true},
@@ -128,7 +160,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	})
-	return NewReleasesHandler(store, pipelines, authorizer, store.registry, "portal")
+	return NewReleasesHandler(store, pipelines, authorizer, store.registry, store, "portal")
 }
 
 func asRole(request *http.Request, role auth.Role) *http.Request {
@@ -556,5 +588,119 @@ func TestHistoryFollowsWhatWasRequested(t *testing.T) {
 	}
 	if len(payload.History) != 2 || payload.History[0].Release != "1.8.0-rc2" {
 		t.Errorf("historique = %+v", payload.History)
+	}
+}
+
+func TestExportEnqueuesAJobBoundToTheRelease(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{ID: 20, Tag: "1.8.0", Kind: "final", State: "ready"}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/exports", strings.NewReader(`{}`))
+	request.SetPathValue("tag", "1.8.0")
+	recorder := httptest.NewRecorder()
+	handler.Export(recorder, asRole(request, auth.RoleReleaser))
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(fake.jobs) != 1 {
+		t.Fatalf("%d job(s)", len(fake.jobs))
+	}
+	job := fake.jobs[0]
+	if job.Kind != exportJobKind || job.ReleaseID == nil || *job.ReleaseID != 20 {
+		t.Errorf("job = %+v", job)
+	}
+	// Le générateur part de la release, pas du tag : sans le rattachement il ne
+	// saurait pas quoi produire.
+	if job.Params[exportParamKind] != store.ArtifactDeliveryNote || job.Params[exportParamFormat] != "pdf" {
+		t.Errorf("paramètres = %v", job.Params)
+	}
+	// Un export ne touche ni le registre ni le cluster : rien ne justifie de le
+	// sérialiser avec des pipelines.
+	if job.QueueClass != "parallel" {
+		t.Errorf("classe de file = %q", job.QueueClass)
+	}
+}
+
+func TestExportRefusesAnUnknownFormat(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{ID: 21, Tag: "1.8.0"}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/exports", strings.NewReader(`{"format":"docx"}`))
+	request.SetPathValue("tag", "1.8.0")
+	recorder := httptest.NewRecorder()
+	handler.Export(recorder, asRole(request, auth.RoleReleaser))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Errorf("code = %d, attendu 400", recorder.Code)
+	}
+	if len(fake.jobs) != 0 {
+		t.Error("aucun job ne doit partir pour un format inconnu")
+	}
+}
+
+func TestDownloadServesTheArtifact(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{ID: 22, Tag: "1.8.0"}
+	fake.artifacts = []store.Artifact{
+		{ID: 7, ReleaseID: 22, Kind: store.ArtifactDeliveryNote, Format: "pdf",
+			Object: "artifacts/releases/1.8.0/delivery-note.pdf"},
+	}
+	fake.objects["artifacts/releases/1.8.0/delivery-note.pdf"] = "%PDF-1.3 contenu"
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0/exports/7/download", nil)
+	request.SetPathValue("tag", "1.8.0")
+	request.SetPathValue("artifact", "7")
+	recorder := httptest.NewRecorder()
+	handler.Download(recorder, asRole(request, auth.RoleViewer))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("code = %d", recorder.Code)
+	}
+	if recorder.Header().Get("Content-Type") != "application/pdf" {
+		t.Errorf("type = %q", recorder.Header().Get("Content-Type"))
+	}
+	if !strings.HasPrefix(recorder.Body.String(), "%PDF-") {
+		t.Errorf("corps = %q", recorder.Body.String())
+	}
+}
+
+// Sans ce contrôle, un identifiant deviné donnerait le bon de livraison d'une
+// autre release — un document contractuel qui n'est pas le sien.
+func TestDownloadRefusesAnArtifactOfAnotherRelease(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{ID: 23, Tag: "1.8.0"}
+	fake.artifacts = []store.Artifact{{ID: 8, ReleaseID: 999, Object: "ailleurs"}}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0/exports/8/download", nil)
+	request.SetPathValue("tag", "1.8.0")
+	request.SetPathValue("artifact", "8")
+	recorder := httptest.NewRecorder()
+	handler.Download(recorder, asRole(request, auth.RoleViewer))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("code = %d, attendu 404", recorder.Code)
+	}
+}
+
+// La ligne survit à une purge du bucket : le dire vaut mieux qu'un fichier vide.
+func TestDownloadReportsAMissingObject(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{ID: 24, Tag: "1.8.0"}
+	fake.artifacts = []store.Artifact{{ID: 9, ReleaseID: 24, Format: "pdf", Object: "purgé"}}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0/exports/9/download", nil)
+	request.SetPathValue("tag", "1.8.0")
+	request.SetPathValue("artifact", "9")
+	recorder := httptest.NewRecorder()
+	handler.Download(recorder, asRole(request, auth.RoleViewer))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("code = %d, attendu 404", recorder.Code)
 	}
 }

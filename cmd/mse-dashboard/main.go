@@ -160,7 +160,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		images = client
 	}
 
-	releasesHandler := dashhttp.NewReleasesHandler(db, pipelines, authorizer, images, cfg.Registry.Image)
+	releasesHandler := dashhttp.NewReleasesHandler(db, pipelines, authorizer, images, storage, cfg.Registry.Image)
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(
@@ -187,6 +187,24 @@ func environmentPolicies() map[string]auth.EnvironmentPolicy {
 		"preprod":  {Sensitive: true},
 		"prod":     {Sensitive: true},
 	}
+}
+
+// exportRegistry ouvre le registre pour la génération de livrables.
+//
+// Nil quand il n'est pas configuré : un bon de livraison reste produisible sans
+// empreintes, à condition de nommer ce qu'il n'a pas pu vérifier — ce que fait le
+// document. Refuser de le produire serait pire.
+func exportRegistry(cfg config.Config, logger *slog.Logger) worker.Registry {
+	client, err := registry.Open(cfg.Registry)
+	if err != nil {
+		if !errors.Is(err, registry.ErrNotConfigured) {
+			logger.Error("accès au registre", "error", err)
+		}
+		logger.Warn("registre non configuré",
+			"conséquence", "les bons de livraison ne porteront pas d'empreinte d'image")
+		return nil
+	}
+	return client
 }
 
 // secureCookies n'autorise les cookies non sécurisés que sur http, c'est-à-dire
@@ -279,6 +297,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
 			scheduler := worker.NewSchedulerFromCatalog(db, cluster, pipelines, schedulerConfig(cfg), logger)
+
+			// Les livrables passent par la file comme le reste, mais sont
+			// produits ici : générer un bon de livraison lit la base et écrit un
+			// objet. Le faire traverser Tekton coûterait un pod et un workspace
+			// pour produire deux pages.
+			scheduler.Handle(worker.NewExporter(db, storage, exportRegistry(cfg, logger), cfg.Registry.Image, logger))
 
 			// L'observation et l'ordonnancement tournent en parallèle : la
 			// seconde dépend de la première pour apprendre qu'un run est fini,

@@ -85,6 +85,15 @@ func NewAPIRouter(
 	mux.Handle("PUT /releases/{tag}/actions", Chain(http.HandlerFunc(releases.UpdateActions),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
 
+	// Les livrables se listent et se téléchargent en lecture ; les produire est un
+	// geste de livraison, donc `release:export`.
+	mux.Handle("GET /releases/{tag}/exports", Chain(http.HandlerFunc(releases.Exports),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	mux.Handle("GET /releases/{tag}/exports/{artifact}/download", Chain(http.HandlerFunc(releases.Download),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	mux.Handle("POST /releases/{tag}/exports", Chain(http.HandlerFunc(releases.Export),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseExport)))
+
 	// La vue d'ensemble est en lecture pour tous : savoir ce qui tourne où ne
 	// demande aucun privilège.
 	mux.Handle("GET /environments", Chain(http.HandlerFunc(releases.Environments),

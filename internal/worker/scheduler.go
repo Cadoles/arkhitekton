@@ -27,8 +27,23 @@ const tickInterval = 2 * time.Second
 type Queue interface {
 	ClaimNext(ctx context.Context, maxConcurrent int, runName func(kind string, id int64) string) (store.Job, error)
 	Requeue(ctx context.Context, id int64, reason string) error
+	FinishJob(ctx context.Context, id int64, state, reason string) error
 	ExplainQueue(ctx context.Context, maxConcurrent int) error
 	PendingCancellations(ctx context.Context) ([]store.RunningJob, error)
+}
+
+// LocalTask exécute un job dans le processus, sans passer par Tekton.
+//
+// Tout ce que la file porte ne devient pas un PipelineRun. Générer un bon de
+// livraison lit la base et écrit un objet : le faire traverser Tekton coûterait
+// un pod et un workspace pour produire deux pages. Passer malgré tout par la
+// file donne l'ordonnancement, la trace et la visibilité — un export apparaît
+// dans la file comme le reste, et son échec se lit au même endroit.
+type LocalTask interface {
+	// Kind est le `kind` traité. Ces kinds sont absents du catalogue, qui décrit
+	// ce qui devient un PipelineRun.
+	Kind() string
+	Run(ctx context.Context, job store.Job) error
 }
 
 // Scheduler transforme les jobs en file en PipelineRun.
@@ -37,6 +52,7 @@ type Scheduler struct {
 	cluster *tekton.Client
 	catalog *catalog.Catalog
 	config  map[string]string
+	local   map[string]LocalTask
 	logger  *slog.Logger
 }
 
@@ -46,7 +62,15 @@ func NewSchedulerFromCatalog(
 	queue Queue, cluster *tekton.Client, pipelines *catalog.Catalog,
 	config map[string]string, logger *slog.Logger,
 ) *Scheduler {
-	return &Scheduler{queue: queue, cluster: cluster, catalog: pipelines, config: config, logger: logger}
+	return &Scheduler{
+		queue: queue, cluster: cluster, catalog: pipelines,
+		config: config, local: map[string]LocalTask{}, logger: logger,
+	}
+}
+
+// Handle enregistre une tâche exécutée dans le processus.
+func (s *Scheduler) Handle(task LocalTask) {
+	s.local[task.Kind()] = task
 }
 
 // Run fait tourner la boucle jusqu'à annulation.
@@ -95,6 +119,13 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 			s.logger.Error("réservation d'un job", "error", err)
 		}
 		return false
+	}
+
+	// Les tâches locales sont consultées avant le catalogue : leur `kind` n'y
+	// figure pas, et l'absence du catalogue conclurait le job en échec.
+	if task, local := s.local[job.Kind]; local {
+		s.runLocal(ctx, task, job)
+		return true
 	}
 
 	pipeline, found := s.catalog.Find(job.Kind)
@@ -148,6 +179,29 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 	s.logger.Info("run lancé",
 		"job", job.ID, "kind", job.Kind, "run", job.RunName, "classe", job.QueueClass)
 	return true
+}
+
+// runLocal exécute une tâche du processus et conclut son job.
+//
+// La conclusion est immédiate et non déléguée à l'informer : aucun PipelineRun
+// n'existe pour ce job, donc rien d'autre ne viendra le terminer. Un job local
+// laissé `running` bloquerait sa classe indéfiniment.
+func (s *Scheduler) runLocal(ctx context.Context, task LocalTask, job store.Job) {
+	if err := task.Run(ctx, job); err != nil {
+		s.logger.Error("tâche locale", "job", job.ID, "kind", job.Kind, "error", err)
+		// Échec définitif plutôt que remise en file : ces tâches échouent sur des
+		// causes qui ne se corrigent pas d'elles-mêmes — une release sans image,
+		// un format inconnu. Réessayer produirait la même erreur en boucle.
+		if err := s.queue.FinishJob(ctx, job.ID, store.JobFailed, err.Error()); err != nil {
+			s.logger.Error("conclusion du job", "job", job.ID, "error", err)
+		}
+		return
+	}
+
+	if err := s.queue.FinishJob(ctx, job.ID, store.JobSucceeded, ""); err != nil {
+		s.logger.Error("conclusion du job", "job", job.ID, "error", err)
+	}
+	s.logger.Info("tâche locale terminée", "job", job.ID, "kind", job.Kind)
 }
 
 // applyCancellations exécute les demandes d'arrêt enregistrées par l'api.

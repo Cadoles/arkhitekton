@@ -60,6 +60,9 @@ type Job struct {
 	QueueReason string
 	Error       string
 	RunName     string
+	// ReleaseID rattache le job à une release. Renseigné pour les promotions et
+	// les exports, dont l'exécution part de la release et non de paramètres.
+	ReleaseID *int64
 }
 
 // ErrJobNotFound signale un job absent.
@@ -138,7 +141,7 @@ func (db *DB) ClaimNext(ctx context.Context, maxConcurrent int, runName func(kin
 		    select exists(select 1 from head where queue_class = $2) as leading
 		)
 		select j.id, j.kind, j.queue_class, j.priority, j.params, j.requested_by,
-		       j.requested_at, j.attempt
+		       j.requested_at, j.attempt, j.release_id
 		from jobs j, capacity, barrier
 		where j.state = 'queued'
 		  and capacity.total < $1
@@ -160,7 +163,7 @@ func (db *DB) ClaimNext(ctx context.Context, maxConcurrent int, runName func(kin
 	var params []byte
 	err = transaction.QueryRow(ctx, query, maxConcurrent, ClassBarrier).Scan(
 		&job.ID, &job.Kind, &job.QueueClass, &job.Priority, &params,
-		&job.RequestedBy, &job.RequestedAt, &job.Attempt)
+		&job.RequestedBy, &job.RequestedAt, &job.Attempt, &job.ReleaseID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return job, ErrJobNotFound

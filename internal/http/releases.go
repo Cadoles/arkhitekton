@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
@@ -26,6 +29,8 @@ type ReleaseStore interface {
 	ListReleaseJobs(ctx context.Context, releaseID int64) ([]store.ReleaseJob, error)
 	ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]store.EnvironmentHistory, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
+	ListArtifacts(ctx context.Context, releaseID int64) ([]store.Artifact, error)
+	GetArtifact(ctx context.Context, id int64) (store.Artifact, error)
 	ListEnvironments(ctx context.Context) ([]store.Environment, error)
 	ListEnvironmentViews(ctx context.Context) ([]store.EnvironmentView, error)
 	LatestPromotions(ctx context.Context) (map[string]store.EnvironmentPromotion, error)
@@ -41,6 +46,10 @@ type ReleasesHandler struct {
 	// dashboard reste utilisable sans lui, l'écran affiche alors les tags sans
 	// leurs digests et le dit.
 	images Images
+	// artifacts sert le contenu des livrables. Le téléchargement transite par
+	// l'api plutôt que par une URL pré-signée : ces objets portent la preuve
+	// d'une livraison, et une URL pré-signée est transmissible.
+	artifacts Artifacts
 	// imageName est le dépôt promu. Une seule image aujourd'hui ; la table des
 	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
 	// le jour où le portail se scinde.
@@ -53,16 +62,30 @@ type Images interface {
 	Digest(ctx context.Context, repository, tag string) (string, error)
 }
 
+// Artifacts est ce que le handler attend du stockage objet.
+type Artifacts interface {
+	Get(ctx context.Context, key string) (io.ReadCloser, error)
+}
+
+// Contrat avec l'ordonnanceur. Répétés ici plutôt qu'importés de `worker` :
+// l'`api` ne dépend pas du worker, et l'inverse non plus — les deux se parlent
+// par la base.
+const (
+	exportJobKind     = "export"
+	exportParamKind   = "export-kind"
+	exportParamFormat = "export-format"
+)
+
 func NewReleasesHandler(
 	releases ReleaseStore, pipelines *catalog.Catalog,
-	authorizer *auth.Authorizer, images Images, imageName string,
+	authorizer *auth.Authorizer, images Images, artifacts Artifacts, imageName string,
 ) *ReleasesHandler {
 	if imageName == "" {
 		imageName = "portal"
 	}
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
-		images: images, imageName: imageName,
+		images: images, artifacts: artifacts, imageName: imageName,
 	}
 }
 
@@ -747,5 +770,181 @@ func (h *ReleasesHandler) audit(r *http.Request, action, target string, payload 
 	}
 	if err := h.store.Audit(r.Context(), identity.Subject, action, target, payload); err != nil {
 		slog.Default().Error("journal d'audit", "action", action, "target", target, "err", err)
+	}
+}
+
+type artifactPayload struct {
+	ID          int64     `json:"id"`
+	Kind        string    `json:"kind"`
+	Format      string    `json:"format"`
+	SizeBytes   int64     `json:"size_bytes"`
+	GeneratedBy string    `json:"generated_by"`
+	GeneratedAt time.Time `json:"generated_at"`
+}
+
+// Exports rend les livrables déjà produits pour une release.
+func (h *ReleasesHandler) Exports(w http.ResponseWriter, r *http.Request) {
+	item, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		return
+	}
+
+	artifacts, err := h.store.ListArtifacts(r.Context(), item.ID)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Lecture des livrables impossible", "")
+		return
+	}
+
+	payload := make([]artifactPayload, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		payload = append(payload, artifactPayload{
+			ID: artifact.ID, Kind: artifact.Kind, Format: artifact.Format,
+			SizeBytes: artifact.SizeBytes, GeneratedBy: artifact.GeneratedBy,
+			GeneratedAt: artifact.GeneratedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"artifacts": payload})
+}
+
+type exportRequest struct {
+	Kind   string `json:"kind"`
+	Format string `json:"format"`
+}
+
+// Export met en file la génération d'un livrable.
+//
+// Asynchrone bien que la génération soit rapide : elle passe par la file comme
+// tout le reste, ce qui lui donne l'ordonnancement, la trace et la visibilité. Un
+// export apparaît alors dans la file avec les autres jobs, et son échec se lit au
+// même endroit que celui d'un pipeline.
+func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	var request exportRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&request); err != nil && err != io.EOF {
+		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		return
+	}
+	if request.Kind == "" {
+		request.Kind = store.ArtifactDeliveryNote
+	}
+	if request.Format == "" {
+		request.Format = "pdf"
+	}
+	if request.Format != "pdf" && request.Format != "json" {
+		writeProblem(w, http.StatusBadRequest, "Format inconnu", request.Format)
+		return
+	}
+
+	item, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		return
+	}
+
+	jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
+		Kind: exportJobKind,
+		// `parallel` : un export ne touche ni le registre ni le cluster, rien ne
+		// justifie de le sérialiser avec des pipelines.
+		QueueClass: "parallel",
+		Params: map[string]string{
+			exportParamKind:   request.Kind,
+			exportParamFormat: request.Format,
+		},
+		RequestedBy: identity.Subject,
+		ReleaseID:   &item.ID,
+	})
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Mise en file impossible", "")
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"job_id": jobID, "kind": request.Kind, "format": request.Format,
+	})
+}
+
+// Download sert un livrable.
+//
+// Le contenu transite par l'api plutôt que par une URL pré-signée : ces objets
+// portent la preuve d'une livraison, et une URL pré-signée est transmissible —
+// elle échapperait au contrôle de rôle dès le premier copier-coller.
+func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("artifact"), 10, 64)
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Identifiant invalide", "")
+		return
+	}
+
+	artifact, err := h.store.GetArtifact(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrArtifactNotFound) {
+			writeProblem(w, http.StatusNotFound, "Livrable introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture du livrable impossible", "")
+		return
+	}
+
+	item, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	if err != nil {
+		writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+		return
+	}
+	// Le livrable doit appartenir à la release du chemin : sans ce contrôle, un
+	// identifiant deviné donnerait le bon de livraison d'une autre release.
+	if artifact.ReleaseID != item.ID {
+		writeProblem(w, http.StatusNotFound, "Livrable introuvable", "")
+		return
+	}
+
+	if h.artifacts == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "Stockage indisponible", "")
+		return
+	}
+
+	content, err := h.artifacts.Get(r.Context(), artifact.Object)
+	if err != nil {
+		// L'objet est référencé mais absent : la ligne survit à une purge du
+		// bucket, et le dire vaut mieux qu'un fichier vide.
+		writeProblem(w, http.StatusNotFound, "Contenu du livrable introuvable", "")
+		return
+	}
+	defer content.Close()
+
+	w.Header().Set("Content-Type", artifactContentType(artifact.Format))
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf(`attachment; filename="%s-%s.%s"`, artifact.Kind, item.Tag, artifact.Format))
+	// Un livrable est immuable : chaque génération écrit une nouvelle ligne.
+	w.Header().Set("Cache-Control", "private, max-age=300")
+
+	if _, err := io.Copy(w, content); err != nil {
+		// L'en-tête est déjà parti : rien à annoncer au client, seulement à
+		// consigner.
+		slog.Default().Error("téléchargement interrompu", "artefact", artifact.ID, "err", err)
+	}
+}
+
+func artifactContentType(format string) string {
+	switch format {
+	case "pdf":
+		return "application/pdf"
+	case "json":
+		return "application/json"
+	default:
+		return "application/octet-stream"
 	}
 }

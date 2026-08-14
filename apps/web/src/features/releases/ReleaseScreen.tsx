@@ -6,6 +6,9 @@ import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primiti
 import { formatDateTime } from '../../lib/format'
 import { useEnvironments } from '../environments/api'
 import {
+  downloadURL,
+  useExports,
+  useGenerateExport,
   useRelease,
   useSaveManualActions,
   usePromote,
@@ -47,6 +50,7 @@ export function ReleaseScreen() {
           <Deployment release={data} />
           <Executions release={data} />
           <ManualActionsPanel release={data} />
+          <Exports release={data} />
         </>
       )}
     </div>
@@ -313,4 +317,95 @@ function ManualActionsEditor({ release, stored }: { release: ReleaseDetail; stor
       </div>
     </Card>
   )
+}
+
+const ARTIFACT_LABEL: Record<string, string> = {
+  'delivery-note': 'Bon de livraison',
+  'test-report': 'Rapport de tests',
+  'security-report': 'Rapport de sécurité',
+}
+
+function Exports({ release }: { release: ReleaseDetail }) {
+  const { data, isPending } = useExports(release.tag)
+  const generate = useGenerateExport(release.tag)
+
+  return (
+    <Card
+      title="Livrables"
+      action={
+        <span className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => generate.mutate({ kind: 'delivery-note', format: 'pdf' })}
+            disabled={generate.isPending}
+            className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
+          >
+            Bon de livraison (PDF)
+          </button>
+          <button
+            type="button"
+            onClick={() => generate.mutate({ kind: 'delivery-note', format: 'json' })}
+            disabled={generate.isPending}
+            className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
+          >
+            JSON
+          </button>
+        </span>
+      }
+    >
+      {/* Dit avant tout téléchargement, parce que c'est ce qui décide si le
+          document peut être transmis. La mise en page du bon de livraison est un
+          élément contractuel, et elle n'a pas encore été validée par le client :
+          chaque page produite porte la mention « PROVISOIRE ». */}
+      <p className="mb-3 flex items-start gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-600">
+        <Icon name="alert" className="mt-0.5 size-4 shrink-0 text-warn-700" />
+        <span>
+          La mise en page du bon de livraison attend la validation du client. Les documents produits portent la mention
+          « PROVISOIRE » et ne doivent pas être transmis tels quels. Leur contenu, lui, est complet.
+        </span>
+      </p>
+
+      {generate.isError && <p className="mb-3 text-sm text-critical-700">{(generate.error as Error).message}</p>}
+      {generate.isSuccess && (
+        <p className="mb-3 text-sm text-zinc-500">
+          Génération mise en file. Le document apparaîtra ici une fois produit.
+        </p>
+      )}
+
+      {isPending && <Skeleton className="h-16 w-full" />}
+
+      {data &&
+        (data.artifacts.length === 0 ? (
+          <EmptyState>Aucun livrable produit pour cette release.</EmptyState>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {data.artifacts.map((artifact) => (
+              <li
+                key={artifact.id}
+                className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border border-zinc-200 px-3 py-2 text-sm"
+              >
+                <span className="font-medium text-zinc-900">{ARTIFACT_LABEL[artifact.kind] ?? artifact.kind}</span>
+                <span className="uppercase text-zinc-500">{artifact.format}</span>
+                <span className="text-zinc-500">{formatBytes(artifact.size_bytes)}</span>
+                <span className="text-zinc-500">
+                  {artifact.generated_by} — {formatDateTime(artifact.generated_at)}
+                </span>
+                <a
+                  href={downloadURL(release.tag, artifact.id)}
+                  className="ml-auto rounded-md border border-zinc-300 bg-white px-3 py-1 font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+                >
+                  Télécharger
+                </a>
+              </li>
+            ))}
+          </ul>
+        ))}
+    </Card>
+  )
+}
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} o`
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} Kio`
+  return `${(size / (1024 * 1024)).toFixed(1)} Mio`
 }
