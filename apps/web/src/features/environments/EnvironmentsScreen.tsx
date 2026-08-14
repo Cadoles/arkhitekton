@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
-import { describe, useEnvironments, usePromote, useReleases, type Environment, type Release } from './api'
+import { usePromote, useReleases, type Release } from '../releases/api'
+import { describe, useEnvironments, type Environment } from './api'
 
 /*
  * Vue d'ensemble des environnements.
@@ -60,6 +63,11 @@ function EnvironmentCard({ environment, releases }: { environment: Environment; 
 
   return (
     <Card
+      action={
+        <Link to={`/environments/${environment.id}/history`} className="text-xs text-zinc-500 hover:underline">
+          Historique
+        </Link>
+      }
       title={
         <span className="flex items-center gap-2">
           {environment.label}
@@ -118,6 +126,7 @@ function EnvironmentCard({ environment, releases }: { environment: Environment; 
 
 function PromotePanel({ environment, releases }: { environment: Environment; releases: Release[] }) {
   const [selected, setSelected] = useState('')
+  const [confirming, setConfirming] = useState(false)
   const promote = usePromote()
 
   // Toutes les releases prêtes sont proposées, et c'est le serveur qui refuse.
@@ -130,9 +139,37 @@ function PromotePanel({ environment, releases }: { environment: Environment; rel
       className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-200 pt-3"
       onSubmit={(event) => {
         event.preventDefault()
-        if (selected) promote.mutate({ tag: selected, environment: environment.id })
+        // Jamais de promotion directe : la confirmation rappelle l'environnement,
+        // la version et l'action (doc 08 §8.5).
+        if (selected) setConfirming(true)
       }}
     >
+      {confirming && (
+        <ConfirmDialog
+          title="Promouvoir cette release ?"
+          confirmLabel="Promouvoir"
+          pending={promote.isPending}
+          /* Un environnement sensible exige la ressaisie de la version. Le coût
+             de la friction est négligeable devant celui d'une erreur. */
+          challenge={environment.sensitive ? selected : undefined}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            promote.mutate({ tag: selected, environment: environment.id })
+            setConfirming(false)
+          }}
+        >
+          <p>
+            Release <span className="font-mono font-medium text-zinc-900">{selected}</span>
+          </p>
+          <p>
+            Environnement <span className="font-medium text-zinc-900">{environment.label}</span>
+          </p>
+          <p className="text-zinc-500">
+            Le tag <span className="font-mono">{environment.promotion_suffix}</span> sera poussé dans le registre. Le
+            déploiement suivra la réconciliation de Flux.
+          </p>
+        </ConfirmDialog>
+      )}
       <label className="sr-only" htmlFor={`promote-${environment.id}`}>
         Release à promouvoir vers {environment.label}
       </label>

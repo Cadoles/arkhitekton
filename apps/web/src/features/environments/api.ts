@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 
 /**
@@ -25,6 +25,9 @@ export type Environment = {
   rank: number
   promotion_suffix: string
   observable: boolean
+  /** Reçoit ce qui part chez l'utilisateur final : la confirmation exige alors
+   *  de ressaisir le numéro de version. */
+  sensitive: boolean
   portal_version?: string
   migration_state?: string
   flux_state?: string
@@ -41,83 +44,6 @@ export function useEnvironments() {
     // Un déploiement Flux prend des dizaines de secondes : rafraîchir plus vite
     // ne montrerait rien de plus, seulement du bruit.
     refetchInterval: 15000,
-  })
-}
-
-export type ReleaseState = 'draft' | 'building' | 'ready' | 'failed'
-export type ReleaseKind = 'pre' | 'final' | 'patch'
-
-/**
- * Cible de promotion, telle que le serveur la juge.
- *
- * `allowed` et `reason` viennent du serveur et ne sont pas recalculés ici : le
- * refus dépend de la plage SemVer de l'ImagePolicy et du rôle de l'appelant, deux
- * choses que le navigateur ne connaît pas. Le dupliquer donnerait une interface
- * qui autorise ce que l'API refuse — ou l'inverse.
- */
-export type PromotionTarget = {
-  environment: string
-  label: string
-  tag?: string
-  allowed: boolean
-  reason?: string
-}
-
-export type Promotion = {
-  environment: string
-  image: string
-  tag: string
-  digest?: string
-  job_id?: number
-  pushed_at: string
-}
-
-export type Release = {
-  tag: string
-  kind: ReleaseKind
-  state: ReleaseState
-  /** Version portée par l'image, distincte du tag sur toute finale re-taguée. */
-  image_version: string
-  git_ref?: string
-  source_tag?: string
-  created_by: string
-  created_at: string
-  released_at?: string
-  promotions?: Promotion[]
-  targets?: PromotionTarget[]
-}
-
-export function useReleases() {
-  return useQuery({
-    queryKey: ['releases'],
-    queryFn: () => request<{ releases: Release[] }>('/releases'),
-  })
-}
-
-export function useRelease(tag: string | undefined) {
-  return useQuery({
-    queryKey: ['releases', tag],
-    queryFn: () => request<Release>(`/releases/${encodeURIComponent(tag as string)}`),
-    enabled: Boolean(tag),
-  })
-}
-
-export function usePromote() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: ({ tag, environment }: { tag: string; environment: string }) =>
-      request<{ job_id: number; environment: string; tag: string }>(
-        `/releases/${encodeURIComponent(tag)}/promote/${encodeURIComponent(environment)}`,
-        { method: 'POST' },
-      ),
-    onSuccess: () => {
-      // Trois vues changent d'un coup : la file reçoit le job, la release gagne
-      // une promotion, l'environnement gagne une promotion demandée.
-      void queryClient.invalidateQueries({ queryKey: ['queue'] })
-      void queryClient.invalidateQueries({ queryKey: ['releases'] })
-      void queryClient.invalidateQueries({ queryKey: ['environments'] })
-    },
   })
 }
 
@@ -156,4 +82,31 @@ export function describe(environment: Environment): { tone: 'neutral' | 'warn' |
   }
 
   return { tone: 'ok', text: `${running} tourne, migrations abouties.` }
+}
+
+export type HistoryEntry = {
+  release: string
+  image_version: string
+  tag: string
+  pushed_at: string
+  job_id?: number
+  job_state?: string
+  requested_by?: string
+}
+
+/**
+ * Historique des promotions d'un environnement.
+ *
+ * La source est ce que le dashboard a **demandé**, et non les commits que Flux
+ * écrit dans `mse-kustom`. Les deux diffèrent, et c'est l'écart qui intéresse :
+ * une promotion qu'aucune ImagePolicy ne retient n'apparaît nulle part côté Git
+ * alors qu'elle a bien eu lieu.
+ */
+export function useEnvironmentHistory(environment: string | undefined) {
+  return useQuery({
+    queryKey: ['environments', environment, 'history'],
+    queryFn: () =>
+      request<{ history: HistoryEntry[] }>(`/environments/${encodeURIComponent(environment as string)}/history`),
+    enabled: Boolean(environment),
+  })
 }

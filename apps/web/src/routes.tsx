@@ -6,6 +6,9 @@ import { RunsScreen } from './features/runs/RunsScreen'
 import { RunScreen } from './features/runs/RunScreen'
 import { QueueScreen } from './features/queue/QueueScreen'
 import { EnvironmentsScreen } from './features/environments/EnvironmentsScreen'
+import { HistoryScreen } from './features/environments/HistoryScreen'
+import { ReleasesScreen } from './features/releases/ReleasesScreen'
+import { ReleaseScreen } from './features/releases/ReleaseScreen'
 
 /*
  * Arborescence de la doc 08 §8.3, posée en entier dès le lot 0.
@@ -35,17 +38,7 @@ export const routes: RouteObject[] = [
           />
         ),
       },
-      {
-        path: 'environments/:env/history',
-        element: (
-          <Placeholder
-            lot="lot 5"
-            title="Historique des déploiements"
-            summary="Suite des versions déployées, datée et attribuée. La source est l'historique des commits que Flux écrit dans mse-kustom."
-            params={['env']}
-          />
-        ),
-      },
+      { path: 'environments/:env/history', element: <HistoryScreen /> },
 
       {
         path: 'versions',
@@ -69,21 +62,8 @@ export const routes: RouteObject[] = [
         ),
       },
 
-      {
-        path: 'releases',
-        element: <Placeholder lot="lot 6" title="Releases" summary="Liste des releases, de leur état et de leur score." />,
-      },
-      {
-        path: 'releases/:tag',
-        element: (
-          <Placeholder
-            lot="lot 6"
-            title="Release"
-            summary="Agrégat complet : images et digests, résultats par famille de tests, sécurité, note de release, actions manuelles, exports, déploiement."
-            params={['tag']}
-          />
-        ),
-      },
+      { path: 'releases', element: <ReleasesScreen /> },
+      { path: 'releases/:tag', element: <ReleaseScreen /> },
       {
         path: 'releases/:tag/tests/:family',
         element: (
@@ -113,17 +93,6 @@ export const routes: RouteObject[] = [
             lot="lot 6"
             title="Note de release"
             summary="Note générée puis éditable, avec la date et l'auteur de la dernière modification."
-            params={['tag']}
-          />
-        ),
-      },
-      {
-        path: 'releases/:tag/actions',
-        element: (
-          <Placeholder
-            lot="lot 6"
-            title="Actions manuelles"
-            summary="Champ libre en Markdown, renseigné au fil de la production du livrable."
             params={['tag']}
           />
         ),

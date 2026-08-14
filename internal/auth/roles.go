@@ -98,6 +98,22 @@ func NewAuthorizer(environments map[string]EnvironmentPolicy) *Authorizer {
 	return &Authorizer{environments: environments}
 }
 
+// Sensitive dit si un environnement reçoit ce qui part chez l'utilisateur final.
+//
+// Exposé parce que l'interface en a besoin : c'est ce qui déclenche la ressaisie
+// de la version à la confirmation (doc 08 §8.5). Le déduire côté navigateur — de
+// l'observabilité, du rang — reviendrait à traiter une coïncidence comme une
+// règle : la production est aujourd'hui non observable, mais c'est sa sensibilité
+// qui justifie la friction, pas son isolement.
+//
+// Un environnement absent de la table est sensible, comme pour l'autorisation :
+// se tromper dans ce sens fait perdre du temps, dans l'autre laisse promouvoir
+// sans y penser.
+func (a *Authorizer) Sensitive(environment string) bool {
+	policy, known := a.environments[environment]
+	return !known || policy.Sensitive
+}
+
 // Can indique si l'identité dispose de la permission demandée.
 func (a *Authorizer) Can(identity Identity, permission Permission) bool {
 	if !identity.Role.Valid() {

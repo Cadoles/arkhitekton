@@ -581,7 +581,11 @@ type environmentPayload struct {
 	// La production vit dans un cluster indépendant : ni PortalData, ni Deployment,
 	// ni statut Flux n'y sont lisibles. Afficher « inconnu » y ferait croire à une
 	// panne d'observation (B8).
-	Observable     bool           `json:"observable"`
+	Observable bool `json:"observable"`
+	// Sensitive déclenche la ressaisie de la version à la confirmation. Décidé par
+	// l'autorisateur, seul à savoir ce qu'un environnement reçoit — le déduire de
+	// l'observabilité côté navigateur traiterait une coïncidence comme une règle.
+	Sensitive      bool           `json:"sensitive"`
 	PortalVersion  string         `json:"portal_version,omitempty"`
 	MigrationState string         `json:"migration_state,omitempty"`
 	FluxState      string         `json:"flux_state,omitempty"`
@@ -623,6 +627,7 @@ func (h *ReleasesHandler) Environments(w http.ResponseWriter, r *http.Request) {
 			Rank:       view.Environment.Rank,
 			Suffix:     view.Environment.PromotionSuffix,
 			Observable: view.Environment.Observable,
+			Sensitive:  h.authorizer.Sensitive(view.Environment.ID),
 			CanDeploy:  h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
 		}
 		if view.Observation != nil {
