@@ -2,6 +2,8 @@ package http
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -60,17 +62,102 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	payload := make([]runPayload, 0, len(runs))
 	for _, run := range runs {
-		payload = append(payload, runPayload{
-			ID:          run.ID,
-			Name:        run.Name,
-			Pipeline:    run.Pipeline,
-			Status:      run.Status,
-			Reason:      run.Reason,
-			StartedAt:   run.StartedAt,
-			CompletedAt: run.CompletedAt,
-			Observed:    run.Observed,
-		})
+		payload = append(payload, toRunPayload(run))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"runs": payload})
+}
+
+// RunEvents est ce que le flux d'état attend de la base.
+type RunEvents interface {
+	RunsUpdatedSince(ctx context.Context, since time.Time) ([]store.RunSummary, time.Time, error)
+}
+
+// runPollInterval espace deux relectures de la table des runs.
+const runPollInterval = 2 * time.Second
+
+// Stream pousse les changements d'état des runs.
+//
+// Le flux ne transmet que ce qui a changé : renvoyer la liste entière à chaque
+// tour ferait retransmettre des centaines de runs figés pour un seul changement,
+// et l'interface ne saurait pas lequel a bougé.
+//
+// L'identifiant de reprise est l'horodatage de la dernière modification vue. Un
+// client qui se reconnecte ne redemande donc que la différence — mais le
+// mécanisme n'a rien d'une garantie de livraison : ce flux accélère l'affichage,
+// il ne le fonde pas. La liste reste la source de vérité, et l'interface s'en
+// contente si le flux tombe.
+func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
+	events, ok := h.runs.(RunEvents)
+	if !ok {
+		writeProblem(w, http.StatusNotImplemented, "Flux d'état indisponible", "")
+		return
+	}
+
+	stream, streaming := newSSEWriter(w)
+	if !streaming {
+		writeProblem(w, http.StatusInternalServerError, "Flux non supporté", "")
+		return
+	}
+
+	// Sans reprise, le flux part de maintenant : l'état initial vient de la liste,
+	// que l'interface a déjà chargée. Rejouer tout l'historique doublerait ce
+	// travail pour rien.
+	since := time.Now()
+	if resume := r.Header.Get("Last-Event-ID"); resume != "" {
+		if parsed, err := time.Parse(time.RFC3339Nano, resume); err == nil {
+			since = parsed
+		}
+	}
+
+	ticker := time.NewTicker(runPollInterval)
+	defer ticker.Stop()
+
+	heartbeat := time.NewTicker(sseHeartbeat)
+	defer heartbeat.Stop()
+
+	for {
+		updated, latest, err := events.RunsUpdatedSince(r.Context(), since)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			_ = stream.event("error", "", "lecture des exécutions impossible")
+			return
+		}
+		since = latest
+
+		for _, run := range updated {
+			payload, err := json.Marshal(toRunPayload(run))
+			if err != nil {
+				continue
+			}
+			if err := stream.event("run", latest.Format(time.RFC3339Nano), string(payload)); err != nil {
+				return
+			}
+		}
+
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			if err := stream.comment("battement"); err != nil {
+				return
+			}
+		case <-ticker.C:
+		}
+	}
+}
+
+func toRunPayload(run store.RunSummary) runPayload {
+	return runPayload{
+		ID:          run.ID,
+		Name:        run.Name,
+		Pipeline:    run.Pipeline,
+		Status:      run.Status,
+		Reason:      run.Reason,
+		StartedAt:   run.StartedAt,
+		CompletedAt: run.CompletedAt,
+		Observed:    run.Observed,
+	}
 }

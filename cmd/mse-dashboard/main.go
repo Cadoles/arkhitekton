@@ -127,9 +127,13 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL), cfg.OIDC.SessionTTL)
 	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger)
 	runsHandler := dashhttp.NewRunsHandler(db)
+	// Le lecteur de journaux vit côté `api` et lit le stockage : le collecteur
+	// écrit depuis le `worker`, et les deux processus n'ont pas d'autre point de
+	// rencontre que MinIO et PostgreSQL.
+	logsHandler := dashhttp.NewLogsHandler(logs.NewReader(storage))
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
-		dashhttp.NewAPIRouter(authHandler, runsHandler, middleware),
+		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se

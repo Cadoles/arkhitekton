@@ -236,6 +236,39 @@ comparaison d'horodatage. Perdre des lignes serait pire que d'en dupliquer.
 La lecture d'un log scellé se fait par plage d'octets (`Range`), l'interface ne charge
 que la fin par défaut et remonte à la demande.
 
+### Trois écarts constatés à la mise en œuvre — *14/08/2026*
+
+**Pas d'envoi multipart.** Une partie d'envoi multipart S3 doit peser au moins 5 Mio,
+ce qui rend inatteignable la granularité de flush décrite ci-dessus : un incident
+perdrait jusqu'à 5 Mio de journal. Chaque flush écrit donc un **objet complet**,
+durable immédiatement, et le scellement les concatène en un objet unique avant de les
+purger. La clé d'une tranche porte le rang de l'étape puis celui de la tranche, tous
+deux zéro-paddés : l'ordre lexicographique des clés est l'ordre chronologique du
+journal, et l'assemblage n'a rien à savoir du pipeline.
+
+**Une goroutine par étape, et non un flux unique par conteneur.** Une étape non
+démarrée fait échouer la lecture de son conteneur ; les suivre en série demanderait
+d'attendre et de réessayer sur chacune. Chaque étape écrit dans son propre espace de
+tranches, et l'ordre est rétabli au scellement — il est connu d'avance.
+
+**Le direct ne passe pas par un canal en mémoire.** Le collecteur tourne dans le
+`worker`, le flux SSE est servi par l'`api` : ce sont deux processus, et un canal en
+mémoire ne les relie pas. Trois voies étaient possibles — faire transiter chaque ligne
+par PostgreSQL `NOTIFY`, dont la charge utile est bornée à 8 000 octets ; servir le
+flux depuis le `worker`, qui n'a ni serveur HTTP ni service ; ou **suivre le
+stockage**, retenu.
+
+L'`api` relit périodiquement ce que le collecteur a écrit et pousse la différence. La
+latence est donc bornée par l'intervalle de flush du collecteur, non par le sondage.
+Trois avantages compensent ce délai : le procédé fonctionne avec plusieurs répliques
+d'`api`, il est repris **à l'octet près** par `Last-Event-ID`, et c'est le même chemin
+de lecture que l'historique — il n'y a pas deux implémentations à garder d'accord.
+
+**Un TaskRun devient terminal avant que son flux de logs soit épuisé côté client.**
+Sceller à cet instant tronque la fin du journal, c'est-à-dire le message d'échec qu'on
+vient chercher. Le scellement laisse donc les lectures en cours atteindre la fin du
+flux, avec un délai de grâce de 30 secondes.
+
 ## 6.6 Publication et récupération des résultats
 
 Découpage retenu et options écartées en [B14](02-blocages-et-decisions.md#b14). En

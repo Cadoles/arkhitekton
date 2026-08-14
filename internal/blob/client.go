@@ -146,6 +146,18 @@ type ObjectInfo struct {
 	LastModified time.Time
 }
 
+// Stat rend les métadonnées d'un objet, sans son contenu.
+//
+// Sert à connaître la taille avant une lecture par plage : afficher la fin d'un
+// journal de cinquante mégaoctets suppose de savoir où elle commence.
+func (c *Client) Stat(ctx context.Context, key string) (ObjectInfo, error) {
+	info, err := c.minio.StatObject(ctx, c.bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		return ObjectInfo{}, fmt.Errorf("métadonnées de %q: %w", key, err)
+	}
+	return ObjectInfo{Key: info.Key, Size: info.Size, LastModified: info.LastModified}, nil
+}
+
 // List énumère les objets sous un préfixe.
 func (c *Client) List(ctx context.Context, prefix string) ([]ObjectInfo, error) {
 	var objects []ObjectInfo

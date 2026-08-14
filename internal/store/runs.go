@@ -309,3 +309,38 @@ func (db *DB) TaskLog(ctx context.Context, runName, taskName string) (TaskLogLoc
 	}
 	return location, nil
 }
+
+// RunsUpdatedSince rend les runs modifiés depuis un instant donné, et l'instant
+// de la modification la plus récente.
+//
+// Alimente le flux d'état : renvoyer la liste entière à chaque tour ferait
+// retransmettre des centaines de runs figés pour un seul changement.
+func (db *DB) RunsUpdatedSince(ctx context.Context, since time.Time) ([]RunSummary, time.Time, error) {
+	rows, err := db.pool.Query(ctx,
+		`select id, pipelinerun_name, pipeline_name, status, coalesce(reason, ''),
+		        started_at, completed_at, observed, updated_at
+		 from runs
+		 where updated_at > $1
+		 order by updated_at
+		 limit 200`, since)
+	if err != nil {
+		return nil, since, fmt.Errorf("runs modifiés: %w", err)
+	}
+	defer rows.Close()
+
+	latest := since
+	var runs []RunSummary
+	for rows.Next() {
+		var run RunSummary
+		var updatedAt time.Time
+		if err := rows.Scan(&run.ID, &run.Name, &run.Pipeline, &run.Status, &run.Reason,
+			&run.StartedAt, &run.CompletedAt, &run.Observed, &updatedAt); err != nil {
+			return nil, since, fmt.Errorf("runs modifiés: %w", err)
+		}
+		if updatedAt.After(latest) {
+			latest = updatedAt
+		}
+		runs = append(runs, run)
+	}
+	return runs, latest, rows.Err()
+}
