@@ -29,6 +29,8 @@ type runSink struct {
 	load *LoadIngester
 	// tests ingère les rapports de tests. Même règle.
 	tests *TestIngester
+	// security ingère les audits normalisés. Même règle.
+	security *SecurityIngester
 }
 
 // NewRunSink rend l'adaptateur consommé par l'observateur Tekton.
@@ -56,6 +58,12 @@ func (s *runSink) WithTestIngester(ingester *TestIngester) *runSink {
 	return s
 }
 
+// WithSecurityIngester branche l'ingestion des audits de sécurité.
+func (s *runSink) WithSecurityIngester(ingester *SecurityIngester) *runSink {
+	s.security = ingester
+	return s
+}
+
 func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 	if err := s.finishJob(ctx, run); err != nil {
 		return err
@@ -80,7 +88,26 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 	if err := s.ingestLoad(ctx, id, run); err != nil {
 		return err
 	}
-	return s.ingestTests(ctx, id, run)
+	if err := s.ingestTests(ctx, id, run); err != nil {
+		return err
+	}
+	return s.ingestSecurity(ctx, id, run)
+}
+
+// ingestSecurity enregistre l'audit normalisé d'un run terminé.
+//
+// L'échec n'est pas rendu à l'observateur, pour la même raison que les deux
+// autres ingestions : il ferait retenter la projection du run entier alors que
+// le run est correctement enregistré.
+func (s *runSink) ingestSecurity(ctx context.Context, runID int64, run tekton.Run) error {
+	if s.security == nil || !run.Status.Terminal() {
+		return nil
+	}
+
+	if err := s.security.Ingest(ctx, LoadRun{ID: runID, Name: run.Name, JobID: run.JobID}); err != nil {
+		s.security.logger.Error("ingestion de l'audit de sécurité", "run", run.Name, "error", err)
+	}
+	return nil
 }
 
 // ingestTests enregistre les rapports d'un run terminé.

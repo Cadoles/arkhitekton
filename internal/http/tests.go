@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/bench"
@@ -18,6 +19,8 @@ type TestStore interface {
 	ListTestCases(ctx context.Context, resultID int64, onlyFailures bool) ([]store.TestCase, error)
 	DiffFamily(ctx context.Context, releaseID, previousID int64, family string) ([]store.CaseDiff, error)
 	PreviousRelease(ctx context.Context, releaseID int64) (int64, error)
+	LatestSecurityAudit(ctx context.Context, releaseID int64) (store.SecurityAudit, error)
+	ListSecurityFindings(ctx context.Context, resultID int64, includeSuppressed bool) ([]store.SecurityFinding, error)
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
 	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
 	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
@@ -172,10 +175,13 @@ func (h *TestsHandler) score(
 		results.FromReport(results.SignalE2E,
 			byFamily[string(results.FamilyE2E)], seen[string(results.FamilyE2E)]),
 		results.FromStatic(staticViolations, staticRan),
-		// La sécurité attend la normalisation des findings : la déclarer non
-		// mesurée est exact, et son poids est redistribué.
-		results.FromSecurity(0, 0, false),
 	}
+
+	security, err := h.securityMeasure(ctx, releaseID)
+	if err != nil {
+		return results.Breakdown{}, err
+	}
+	measures = append(measures, security)
 
 	performance, err := h.benchMeasure(ctx, releaseID)
 	if err != nil {
@@ -184,6 +190,32 @@ func (h *TestsHandler) score(
 	measures = append(measures, performance)
 
 	return results.Score(measures, h.weights), nil
+}
+
+// securityMeasure rend le signal de sécurité du dernier audit.
+//
+// L'audit décide lui-même s'il est mesurable : un scanner en échec produit zéro
+// finding, exactement comme un audit propre, et seul son descripteur les
+// distingue. Le compter comme conforme serait l'erreur la plus chère possible
+// sur ce signal (P2, B11).
+func (h *TestsHandler) securityMeasure(ctx context.Context, releaseID int64) (results.Measure, error) {
+	audit, err := h.store.LatestSecurityAudit(ctx, releaseID)
+	if err != nil {
+		if errors.Is(err, store.ErrAuditNotFound) {
+			return results.FromSecurity(0, 0, false), nil
+		}
+		return results.Measure{}, err
+	}
+
+	if !audit.Measured() {
+		return results.Measure{Signal: results.SignalSecurity,
+			Detail: "audit incomplet : " + strings.Join(audit.FailedScanners, ", ") + " n'a pas conclu"}, nil
+	}
+
+	// Les compteurs viennent de `summary.json`, qui exclut déjà les findings
+	// supprimés par exception. Une exception est une décision humaine datée : la
+	// respecter ici est ce qui rend le score actionnable plutôt que subi.
+	return results.FromSecurity(audit.Critical, audit.High, true), nil
 }
 
 // benchMeasure rend le signal de performance de la campagne la plus récente.
@@ -320,4 +352,106 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 	// La première release d'un projet n'a rien à quoi se comparer.
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+type findingPayload struct {
+	Fingerprint string  `json:"fingerprint"`
+	Severity    string  `json:"severity"`
+	Title       string  `json:"title"`
+	Tool        string  `json:"tool"`
+	Category    string  `json:"category"`
+	RuleID      string  `json:"rule_id"`
+	CVSS        float64 `json:"cvss,omitempty"`
+	Target      string  `json:"target,omitempty"`
+	Location    string  `json:"location,omitempty"`
+	Package     string  `json:"package,omitempty"`
+	// Installed et Fixed ensemble : ce qui décide d'une action est l'écart entre
+	// la version en place et celle qui corrige.
+	Installed string `json:"installed,omitempty"`
+	Fixed     string `json:"fixed,omitempty"`
+	Fixable   bool   `json:"fixable"`
+	// Status vaut `new`, `existing` ou `resolved`, établi par le manager en
+	// comparant au run précédent. C'est ce qui distingue une régression d'une
+	// dette connue.
+	Status      string `json:"status"`
+	Description string `json:"description,omitempty"`
+	Suppressed  bool   `json:"suppressed"`
+	// Reason accompagne toujours une suppression : une exception sans motif est
+	// indéfendable en revue.
+	SuppressionReason  string `json:"suppression_reason,omitempty"`
+	SuppressionExpires string `json:"suppression_expires,omitempty"`
+}
+
+// Security rend le dernier audit d'une release et ses findings.
+func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
+	release, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		return
+	}
+
+	audit, err := h.store.LatestSecurityAudit(r.Context(), release.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrAuditNotFound) {
+			// Aucun audit n'est un état légitime, distinct d'un audit vide : le
+			// dire plutôt que rendre des compteurs à zéro, qui se liraient comme
+			// « rien trouvé ».
+			writeJSON(w, http.StatusOK, map[string]any{"audited": false})
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de l'audit impossible", "")
+		return
+	}
+
+	// Les supprimés sont inclus : la trace de ce qui a été écarté, et par quelle
+	// exception, vaut autant que la liste de ce qui reste. L'interface les
+	// sépare, elle ne les cache pas.
+	findings, err := h.store.ListSecurityFindings(r.Context(), audit.TestResultID, true)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Lecture des findings impossible", "")
+		return
+	}
+
+	payload := make([]findingPayload, 0, len(findings))
+	for _, finding := range findings {
+		payload = append(payload, findingPayload{
+			Fingerprint: finding.Fingerprint, Severity: finding.Severity,
+			Title: finding.Title, Tool: finding.Tool, Category: finding.Category,
+			RuleID: finding.RuleID, CVSS: finding.CVSS,
+			Target:   finding.TargetName,
+			Location: finding.Location, Package: finding.PackageName,
+			Installed: finding.PackageInstalled, Fixed: finding.PackageFixed,
+			Fixable: finding.Fixable, Status: finding.Status,
+			Description: finding.Description, Suppressed: finding.Suppressed,
+			SuppressionReason:  finding.SuppressionReason,
+			SuppressionExpires: finding.SuppressionExpires,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"audited": true,
+		"run_id":  audit.RunID,
+		// Measured dit si l'audit peut prononcer un verdict. Faux, les compteurs
+		// restent affichés mais ne notent rien : un audit partiel qui afficherait
+		// « conforme » est le pire résultat possible ici.
+		"measured":        audit.Measured(),
+		"failed_scanners": audit.FailedScanners,
+		"scanner_status":  audit.ScannerStatus,
+		"counts": map[string]int{
+			"total": audit.Total, "critical": audit.Critical, "high": audit.High,
+			"medium": audit.Medium, "low": audit.Low, "suppressed": audit.Suppressed,
+		},
+		"delta": map[string]int{
+			"new": audit.DeltaNew, "existing": audit.DeltaExisting,
+			"resolved": audit.DeltaResolved,
+		},
+		"previous_run_id": audit.PreviousRunID,
+		"policy":          audit.Policy,
+		"generated_at":    audit.GeneratedAt,
+		"findings":        payload,
+	})
 }

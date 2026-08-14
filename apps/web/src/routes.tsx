@@ -10,6 +10,7 @@ import { HistoryScreen } from './features/environments/HistoryScreen'
 import { ReleasesScreen } from './features/releases/ReleasesScreen'
 import { ReleaseScreen } from './features/releases/ReleaseScreen'
 import { FamilyScreen } from './features/releases/FamilyScreen'
+import { SecurityScreen } from './features/releases/SecurityScreen'
 
 /*
  * Arborescence de la doc 08 §8.3, posée en entier dès le lot 0.
@@ -66,17 +67,7 @@ export const routes: RouteObject[] = [
       { path: 'releases', element: <ReleasesScreen /> },
       { path: 'releases/:tag', element: <ReleaseScreen /> },
       { path: 'releases/:tag/tests/:family', element: <FamilyScreen /> },
-      {
-        path: 'releases/:tag/security',
-        element: (
-          <Placeholder
-            lot="lot 4"
-            title="Sécurité"
-            summary="Findings normalisés, filtrables par sévérité, catégorie et statut."
-            params={['tag']}
-          />
-        ),
-      },
+      { path: 'releases/:tag/security', element: <SecurityScreen /> },
       {
         path: 'releases/:tag/notes',
         element: (

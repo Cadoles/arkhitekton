@@ -101,6 +101,8 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 	mux.Handle("GET /releases/{tag}/tests/{family}", Chain(http.HandlerFunc(tests.Family),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	mux.Handle("GET /releases/{tag}/security", Chain(http.HandlerFunc(tests.Security),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
 
 	// Les campagnes de charge sont en lecture pour tous. Épingler une baseline
 	// déplace en revanche la référence de tous les verdicts suivants : c'est une

@@ -251,3 +251,8 @@ func extract(key string, source io.Reader) ([]artifactFile, error) {
 
 	return files, nil
 }
+
+// readLimited lit un flux en bornant ce qu'il peut occuper en mémoire.
+func readLimited(source io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(source, maxArtifactBytes))
+}

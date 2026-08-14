@@ -302,7 +302,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			objects := worker.NewObjectStore(storage)
 			sink := worker.NewRunSink(db).
 				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
-				WithTestIngester(worker.NewTestIngester(db, objects, logger))
+				WithTestIngester(worker.NewTestIngester(db, objects, logger)).
+				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger))
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
 			// Les URLs d'écriture des artefacts sont minées ici : le layout de

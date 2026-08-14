@@ -1,0 +1,156 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+func auditFixture(t *testing.T, db *DB, failed []string) (int64, int64) {
+	t.Helper()
+	ctx := context.Background()
+
+	releaseID := releaseFor(t, db, "1.8.0-rc1")
+	runID := testRun(t, db, "security-audit-1")
+
+	resultID, err := db.SaveTestResult(ctx, TestResult{
+		RunID: runID, ReleaseID: &releaseID, Family: "security",
+		Tool: "security-audit", Status: "warn", Total: 3,
+	}, nil)
+	if err != nil {
+		t.Fatalf("rapport: %v", err)
+	}
+
+	if err := db.SaveSecurityAudit(ctx, SecurityAudit{
+		TestResultID: resultID, RunID: "2026-08-14T10-00-00Z",
+		Total: 3, Critical: 0, High: 1, Medium: 2, Suppressed: 2,
+		DeltaNew: 1, DeltaExisting: 2, DeltaResolved: 4,
+		FailedScanners: failed,
+		ScannerStatus:  map[string]string{"trivy-fs": "ok"},
+		Policy:         map[string]string{"fail_on": "CRITICAL"},
+	}, []SecurityFinding{
+		{Fingerprint: "a", RunID: "r", TargetKind: "repo", TargetName: "mse",
+			Tool: "trivy", Category: "sca", RuleID: "CVE-1", Severity: "HIGH",
+			Title: "Faille", PackageName: "guzzle", PackageInstalled: "7.4.0",
+			PackageFixed: "7.8.2", Fixable: true, Status: "new"},
+		{Fingerprint: "b", RunID: "r", TargetKind: "repo", TargetName: "mse",
+			Tool: "semgrep", Category: "sast", RuleID: "php.sql", Severity: "MEDIUM",
+			Title: "Concaténation", Status: "existing",
+			Suppressed: true, SuppressionReason: "faux positif"},
+		{Fingerprint: "c", RunID: "r", TargetKind: "repo", TargetName: "mse",
+			Tool: "trivy", Category: "sca", RuleID: "CVE-2", Severity: "CRITICAL",
+			Title: "Critique", Status: "new"},
+	}); err != nil {
+		t.Fatalf("audit: %v", err)
+	}
+	return releaseID, resultID
+}
+
+func TestLatestSecurityAudit(t *testing.T) {
+	db := migrated(t)
+	releaseID, resultID := auditFixture(t, db, nil)
+
+	audit, err := db.LatestSecurityAudit(context.Background(), releaseID)
+	if err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+	if audit.TestResultID != resultID || audit.High != 1 || audit.DeltaResolved != 4 {
+		t.Errorf("audit = %+v", audit)
+	}
+	if audit.Policy["fail_on"] != "CRITICAL" || audit.ScannerStatus["trivy-fs"] != "ok" {
+		t.Errorf("politique = %v, statut = %v", audit.Policy, audit.ScannerStatus)
+	}
+	if !audit.Measured() {
+		t.Error("aucun scanner en échec : l'audit doit être mesurable")
+	}
+}
+
+// Trivy qui n'a pas tourné ne prouve pas qu'aucune vulnérabilité n'existe.
+func TestAnAuditWithAFailedScannerIsNotMeasured(t *testing.T) {
+	db := migrated(t)
+	releaseID, _ := auditFixture(t, db, []string{"trivy-image"})
+
+	audit, err := db.LatestSecurityAudit(context.Background(), releaseID)
+	if err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+	if audit.Measured() {
+		t.Error("un scanner en échec doit retirer le signal du score")
+	}
+	if len(audit.FailedScanners) != 1 {
+		t.Errorf("scanners = %v", audit.FailedScanners)
+	}
+}
+
+// L'ordre de sévérité n'est pas alphabétique : un tri textuel placerait HIGH
+// après LOW et MEDIUM.
+func TestFindingsAreOrderedBySeverity(t *testing.T) {
+	db := migrated(t)
+	_, resultID := auditFixture(t, db, nil)
+
+	findings, err := db.ListSecurityFindings(context.Background(), resultID, true)
+	if err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+	if len(findings) != 3 {
+		t.Fatalf("%d finding(s)", len(findings))
+	}
+	if findings[0].Severity != "CRITICAL" || findings[1].Severity != "HIGH" {
+		t.Errorf("ordre = %s, %s, %s",
+			findings[0].Severity, findings[1].Severity, findings[2].Severity)
+	}
+}
+
+// Un finding supprimé reste enregistré ; il est simplement écarté du décompte.
+func TestSuppressedFindingsAreKeptButFilterable(t *testing.T) {
+	db := migrated(t)
+	_, resultID := auditFixture(t, db, nil)
+	ctx := context.Background()
+
+	all, _ := db.ListSecurityFindings(ctx, resultID, true)
+	active, _ := db.ListSecurityFindings(ctx, resultID, false)
+
+	if len(all) != 3 || len(active) != 2 {
+		t.Errorf("%d au total, %d actifs", len(all), len(active))
+	}
+	for _, finding := range active {
+		if finding.Suppressed {
+			t.Error("un finding supprimé ne doit pas apparaître dans les actifs")
+		}
+	}
+	// Le motif accompagne la suppression : sans lui, l'exception est
+	// indéfendable en revue.
+	for _, finding := range all {
+		if finding.Suppressed && finding.SuppressionReason == "" {
+			t.Error("une suppression sans motif ne doit pas être conservée muette")
+		}
+	}
+}
+
+// L'écart entre la version installée et celle qui corrige est ce qui décide
+// d'une action.
+func TestPackageVersionsAreKeptApart(t *testing.T) {
+	db := migrated(t)
+	_, resultID := auditFixture(t, db, nil)
+
+	findings, _ := db.ListSecurityFindings(context.Background(), resultID, false)
+	for _, finding := range findings {
+		if finding.Fingerprint != "a" {
+			continue
+		}
+		if finding.PackageInstalled != "7.4.0" || finding.PackageFixed != "7.8.2" {
+			t.Errorf("paquet = %+v", finding)
+		}
+		return
+	}
+	t.Error("finding introuvable")
+}
+
+func TestLatestSecurityAuditOnAReleaseWithout(t *testing.T) {
+	db := migrated(t)
+	releaseID := releaseFor(t, db, "1.9.0-rc1")
+
+	if _, err := db.LatestSecurityAudit(context.Background(), releaseID); !errors.Is(err, ErrAuditNotFound) {
+		t.Errorf("erreur = %v, attendu ErrAuditNotFound", err)
+	}
+}

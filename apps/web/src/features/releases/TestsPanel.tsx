@@ -32,7 +32,11 @@ export function TestsPanel({ tag }: { tag: string }) {
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-zinc-200 px-3 py-2 text-sm"
               >
                 <Link
-                  to={`/releases/${encodeURIComponent(tag)}/tests/${encodeURIComponent(result.family)}`}
+                  to={
+                    result.family === 'security'
+                      ? `/releases/${encodeURIComponent(tag)}/security`
+                      : `/releases/${encodeURIComponent(tag)}/tests/${encodeURIComponent(result.family)}`
+                  }
                   className="font-medium text-zinc-900 hover:underline"
                 >
                   {FAMILY_LABEL[result.family] ?? result.family}

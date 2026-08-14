@@ -103,3 +103,61 @@ export const CHANGE_LABEL: Record<Change, string> = {
   added: 'Test ajouté',
   removed: 'Test supprimé',
 }
+
+export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO'
+
+export type Finding = {
+  fingerprint: string
+  severity: Severity
+  title: string
+  tool: string
+  category: string
+  rule_id: string
+  cvss?: number
+  target?: string
+  location?: string
+  package?: string
+  installed?: string
+  fixed?: string
+  fixable: boolean
+  /** `new`, `existing` ou `resolved`, établi par le manager en comparant au run
+   *  précédent. C'est ce qui distingue une régression d'une dette connue. */
+  status: string
+  description?: string
+  suppressed: boolean
+  suppression_reason?: string
+  suppression_expires?: string
+}
+
+export type SecurityReport = {
+  audited: boolean
+  run_id?: string
+  /** Faux quand un scanner n'a pas conclu. Les compteurs restent affichés mais
+   *  ne notent rien : un audit partiel qui afficherait « conforme » est le pire
+   *  résultat possible. */
+  measured?: boolean
+  failed_scanners?: string[]
+  scanner_status?: Record<string, string>
+  counts?: { total: number; critical: number; high: number; medium: number; low: number; suppressed: number }
+  delta?: { new: number; existing: number; resolved: number }
+  previous_run_id?: string
+  policy?: Record<string, string>
+  generated_at?: string
+  findings?: Finding[]
+}
+
+export function useSecurity(tag: string | undefined) {
+  return useQuery({
+    queryKey: ['releases', tag, 'security'],
+    queryFn: () => request<SecurityReport>(`/releases/${encodeURIComponent(tag as string)}/security`),
+    enabled: Boolean(tag),
+  })
+}
+
+export const SEVERITY_LABEL: Record<Severity, string> = {
+  CRITICAL: 'Critique',
+  HIGH: 'Haute',
+  MEDIUM: 'Moyenne',
+  LOW: 'Faible',
+  INFO: 'Information',
+}
