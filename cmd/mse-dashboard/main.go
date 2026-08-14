@@ -164,7 +164,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
-			releasesHandler, dashhttp.NewBenchHandler(db), middleware),
+			releasesHandler, dashhttp.NewBenchHandler(db),
+			// La pondération du score vient du catalogue : elle a été acceptée par
+			// le client et reste ajustable sans redéploiement (B11).
+			dashhttp.NewTestsHandler(db, pipelines.ScoreWeights()), middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
@@ -296,8 +299,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// L'ingestion des campagnes de charge est branchée sur la fin des
 			// runs : le runner k6 vit hors du cluster et n'a aucun chemin de
 			// retour vers le dashboard (B16).
-			sink := worker.NewRunSink(db).WithLoadIngester(
-				worker.NewLoadIngester(db, worker.NewObjectStore(storage), logger))
+			objects := worker.NewObjectStore(storage)
+			sink := worker.NewRunSink(db).
+				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
+				WithTestIngester(worker.NewTestIngester(db, objects, logger))
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
 			// Les URLs d'écriture des artefacts sont minées ici : le layout de

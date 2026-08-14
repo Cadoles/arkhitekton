@@ -43,6 +43,10 @@ type Catalog struct {
 	// décrivent ce que le dashboard peut déclencher, et les séparer imposerait
 	// deux montages et deux chargements pour une même intention.
 	Environments []Environment `json:"environments,omitempty"`
+	// ScoreWeights porte la pondération du score de qualité. Vide, la pondération
+	// acceptée par le client s'applique — l'absence de configuration ne doit pas
+	// rendre le score incalculable (B11).
+	Score map[string]float64 `json:"score,omitempty"`
 	// MaxConcurrentRuns protège le cluster : les pipelines demandent des PVC et
 	// des pods de build, et rien n'empêche mécaniquement d'en lancer vingt.
 	MaxConcurrentRuns int `json:"maxConcurrentRuns"`
@@ -345,4 +349,21 @@ func (p Pipeline) RequiredInputs() []string {
 	}
 	sort.Strings(required)
 	return required
+}
+
+// ScoreWeights rend la pondération du score, sous la forme attendue par le
+// calcul.
+//
+// La conversion se fait ici plutôt qu'au chargement : le catalogue est du YAML
+// générique, et lui faire connaître le type d'un autre paquet le lierait à une
+// implémentation qu'il n'a pas à connaître.
+func (c *Catalog) ScoreWeights() map[string]float64 {
+	if len(c.Score) == 0 {
+		return nil
+	}
+	weights := make(map[string]float64, len(c.Score))
+	for signal, weight := range c.Score {
+		weights[signal] = weight
+	}
+	return weights
 }

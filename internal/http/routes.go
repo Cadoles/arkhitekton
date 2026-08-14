@@ -13,7 +13,8 @@ import (
 // tard. Le tableau ci-dessous est donc la référence de ce qui est protégé.
 func NewAPIRouter(
 	handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, queue *QueueHandler,
-	releases *ReleasesHandler, benches *BenchHandler, middleware *Middleware,
+	releases *ReleasesHandler, benches *BenchHandler, tests *TestsHandler,
+	middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -93,6 +94,13 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 	mux.Handle("POST /releases/{tag}/exports", Chain(http.HandlerFunc(releases.Export),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseExport)))
+
+	// Les résultats de tests et le score sont en lecture pour tous : c'est la
+	// première chose qu'on vient regarder avant de décider quoi que ce soit.
+	mux.Handle("GET /releases/{tag}/tests", Chain(http.HandlerFunc(tests.Tests),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	mux.Handle("GET /releases/{tag}/tests/{family}", Chain(http.HandlerFunc(tests.Family),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
 
 	// Les campagnes de charge sont en lecture pour tous. Épingler une baseline
 	// déplace en revanche la référence de tous les verdicts suivants : c'est une

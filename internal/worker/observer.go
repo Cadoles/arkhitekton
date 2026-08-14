@@ -27,6 +27,8 @@ type runSink struct {
 	// load ingère les campagnes de charge d'un run terminé. Nil quand le stockage
 	// n'est pas disponible : le reste de l'observation continue sans lui.
 	load *LoadIngester
+	// tests ingère les rapports de tests. Même règle.
+	tests *TestIngester
 }
 
 // NewRunSink rend l'adaptateur consommé par l'observateur Tekton.
@@ -40,6 +42,17 @@ func NewRunSink(db *store.DB) *runSink { return &runSink{db: db} }
 // le dashboard possède déjà.
 func (s *runSink) WithLoadIngester(ingester *LoadIngester) *runSink {
 	s.load = ingester
+	return s
+}
+
+// WithTestIngester branche l'ingestion des rapports de tests.
+//
+// Déclenchée par la fin du run, comme la charge : les artefacts sont publiés au
+// fil de l'exécution mais ne sont complets qu'à la fin, et les lire plus tôt
+// donnerait des rapports partiels que rien ne distinguerait de rapports
+// tronqués.
+func (s *runSink) WithTestIngester(ingester *TestIngester) *runSink {
+	s.tests = ingester
 	return s
 }
 
@@ -64,7 +77,27 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 		return err
 	}
 
-	return s.ingestLoad(ctx, id, run)
+	if err := s.ingestLoad(ctx, id, run); err != nil {
+		return err
+	}
+	return s.ingestTests(ctx, id, run)
+}
+
+// ingestTests enregistre les rapports d'un run terminé.
+//
+// L'échec n'est pas rendu à l'observateur, pour la même raison que pour la
+// charge : il ferait retenter la projection du run entier alors que le run est
+// correctement enregistré. L'ingestion étant idempotente, la prochaine visite
+// rejouera ce qui manque.
+func (s *runSink) ingestTests(ctx context.Context, runID int64, run tekton.Run) error {
+	if s.tests == nil || !run.Status.Terminal() {
+		return nil
+	}
+
+	if err := s.tests.Ingest(ctx, LoadRun{ID: runID, Name: run.Name, JobID: run.JobID}); err != nil {
+		s.tests.logger.Error("ingestion des rapports de tests", "run", run.Name, "error", err)
+	}
+	return nil
 }
 
 // ingestLoad enregistre les campagnes de charge d'un run de charge terminé.

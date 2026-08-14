@@ -1,0 +1,190 @@
+package store
+
+import (
+	"context"
+	"testing"
+)
+
+func testRun(t *testing.T, db *DB, name string) int64 {
+	t.Helper()
+	var runID int64
+	err := db.pool.QueryRow(context.Background(),
+		`insert into runs (pipeline_name, pipelinerun_name, namespace, status, started_at)
+		 values ('php-static-tests', $1, 'mse-tekton', 'succeeded', now()) returning id`,
+		name).Scan(&runID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return runID
+}
+
+func saveCases(t *testing.T, db *DB, runID int64, releaseID int64, family string, cases []TestCase) {
+	t.Helper()
+	failed := 0
+	for _, testCase := range cases {
+		if testCase.Status == "failed" {
+			failed++
+		}
+	}
+	if _, err := db.SaveTestResult(context.Background(), TestResult{
+		RunID: runID, ReleaseID: &releaseID, Family: family, Tool: "phpunit",
+		Status: "pass", Total: len(cases), Failed: failed,
+	}, cases); err != nil {
+		t.Fatalf("enregistrement: %v", err)
+	}
+}
+
+func releaseFor(t *testing.T, db *DB, tag string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	id, err := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: tag, Kind: "pre", State: "ready",
+		GitRef: "abc", ImageVersion: tag, CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release %s: %v", tag, err)
+	}
+	return id
+}
+
+// La vue qui répond à la question réellement posée en recette : qu'est-ce qui a
+// changé ? Un compteur stable peut cacher un échec résolu et un échec apparu.
+func TestDiffFamilySeesTheFourKindsOfChange(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	previous := releaseFor(t, db, "1.8.0-rc1")
+	current := releaseFor(t, db, "1.8.0-rc2")
+
+	saveCases(t, db, testRun(t, db, "run-prev"), previous, "unit", []TestCase{
+		{Suite: "A", Name: "stable", Status: "passed"},
+		{Suite: "A", Name: "corrige", Status: "failed"},
+		{Suite: "A", Name: "casse", Status: "passed"},
+		{Suite: "A", Name: "supprime", Status: "passed"},
+	})
+	saveCases(t, db, testRun(t, db, "run-curr"), current, "unit", []TestCase{
+		{Suite: "A", Name: "stable", Status: "passed"},
+		{Suite: "A", Name: "corrige", Status: "passed"},
+		{Suite: "A", Name: "casse", Status: "failed"},
+		{Suite: "A", Name: "ajoute", Status: "passed"},
+	})
+
+	diffs, err := db.DiffFamily(ctx, current, previous, "unit")
+	if err != nil {
+		t.Fatalf("comparaison: %v", err)
+	}
+
+	changes := map[string]string{}
+	for _, diff := range diffs {
+		changes[diff.Name] = diff.Change
+	}
+
+	expected := map[string]string{
+		"stable":   ChangeUnchanged,
+		"corrige":  ChangeFixed,
+		"casse":    ChangeNewFailure,
+		"ajoute":   ChangeAdded,
+		"supprime": ChangeRemoved,
+	}
+	for name, change := range expected {
+		if changes[name] != change {
+			t.Errorf("%q = %q, attendu %q", name, changes[name], change)
+		}
+	}
+}
+
+// Un test instable est un échec du point de vue de la comparaison : passer de
+// stable à instable est une régression, et la taire ferait disparaître le seul
+// signal qui existe dessus.
+func TestFlakyCountsAsAFailureInTheDiff(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	previous := releaseFor(t, db, "1.8.0-rc1")
+	current := releaseFor(t, db, "1.8.0-rc2")
+
+	saveCases(t, db, testRun(t, db, "p"), previous, "e2e",
+		[]TestCase{{Suite: "A", Name: "panier", Status: "passed"}})
+	saveCases(t, db, testRun(t, db, "c"), current, "e2e",
+		[]TestCase{{Suite: "A", Name: "panier", Status: "flaky"}})
+
+	diffs, err := db.DiffFamily(ctx, current, previous, "e2e")
+	if err != nil {
+		t.Fatalf("comparaison: %v", err)
+	}
+	if len(diffs) != 1 || diffs[0].Change != ChangeNewFailure {
+		t.Errorf("comparaison = %+v", diffs)
+	}
+}
+
+// Une release peut être testée plusieurs fois : c'est la dernière exécution qui
+// la décrit.
+func TestTheMostRecentReportWins(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	previous := releaseFor(t, db, "1.8.0-rc1")
+	current := releaseFor(t, db, "1.8.0-rc2")
+
+	saveCases(t, db, testRun(t, db, "p"), previous, "unit",
+		[]TestCase{{Suite: "A", Name: "t", Status: "failed"}})
+	saveCases(t, db, testRun(t, db, "c1"), current, "unit",
+		[]TestCase{{Suite: "A", Name: "t", Status: "failed"}})
+	saveCases(t, db, testRun(t, db, "c2"), current, "unit",
+		[]TestCase{{Suite: "A", Name: "t", Status: "passed"}})
+
+	diffs, err := db.DiffFamily(ctx, current, previous, "unit")
+	if err != nil {
+		t.Fatalf("comparaison: %v", err)
+	}
+	if len(diffs) != 1 || diffs[0].Change != ChangeFixed {
+		t.Errorf("comparaison = %+v", diffs)
+	}
+}
+
+func TestSaveTestResultIsIdempotentPerTool(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	releaseID := releaseFor(t, db, "1.8.0-rc1")
+	runID := testRun(t, db, "run-1")
+	saveCases(t, db, runID, releaseID, "unit",
+		[]TestCase{{Suite: "A", Name: "t", Status: "passed"}})
+
+	exists, err := db.TestResultExists(ctx, runID, "phpunit")
+	if err != nil {
+		t.Fatalf("contrôle: %v", err)
+	}
+	if !exists {
+		t.Error("le rapport doit être reconnu comme déjà enregistré")
+	}
+
+	if other, _ := db.TestResultExists(ctx, runID, "phpstan"); other {
+		t.Error("un autre outil ne doit pas être confondu")
+	}
+}
+
+// Une RC se compare à la RC qui la précède, sans quoi rc2 serait confrontée à
+// une release livrée des semaines plus tôt et tout apparaîtrait changé.
+func TestPreviousReleaseIsTheOneJustBefore(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	first := releaseFor(t, db, "1.8.0-rc1")
+	second := releaseFor(t, db, "1.8.0-rc2")
+	third := releaseFor(t, db, "1.8.0-rc3")
+
+	previous, err := db.PreviousRelease(ctx, third)
+	if err != nil {
+		t.Fatalf("précédente: %v", err)
+	}
+	if previous != second {
+		t.Errorf("précédente = %d, attendu %d", previous, second)
+	}
+
+	// La première release n'a rien à quoi se comparer.
+	if _, err := db.PreviousRelease(ctx, first); err == nil {
+		t.Error("la première release ne doit pas avoir de précédente")
+	}
+}
