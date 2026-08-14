@@ -12,7 +12,10 @@ name: Intégration continue
 # la PR donne déjà.
 on:
   push:
-    branches: [main, master, develop]
+    # `dashboard` est la branche de travail du projet tant qu'aucune fusion n'a
+    # eu lieu. Sans elle, la CI ne s'exécuterait sur rien : les branches
+    # ci-dessous n'existent pas encore dans ce dépôt.
+    branches: [main, master, develop, dashboard]
     tags: ["v*"]
   pull_request:
 
