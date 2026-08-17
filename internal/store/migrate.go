@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // enregistre le pilote "pgx"
 	"github.com/pressly/goose/v3"
@@ -129,4 +130,57 @@ func (l gooseLogger) Printf(format string, v ...any) {
 // discardLogger sert aux tests, où le journal de goose n'apporte rien.
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// waitDelay borne l'attente entre deux tentatives de connexion.
+const waitDelay = 2 * time.Second
+
+// WaitForDatabase attend que PostgreSQL accepte des connexions.
+//
+// Nécessaire parce que la migration est une étape d'**initialisation** : dans un
+// déploiement neuf, son Job démarre en même temps que la base, et l'ordre entre
+// les deux n'est pas garanti. Sans cette attente, le Job échoue, Kubernetes le
+// relance, et le second essai réussit — la migration finit par passer, mais
+// chaque déploiement laisse derrière lui un pod en `Error`.
+//
+// Ce résidu n'est pas cosmétique : il apprend à ignorer les pods en erreur, et
+// c'est ainsi qu'une vraie panne passe inaperçue.
+//
+// L'attente est réservée à ce rôle. L'`api` et le `worker` doivent au contraire
+// échouer vite : ils tournent en permanence, Kubernetes les redémarre, et un
+// processus qui attend indéfiniment une base absente se déclarerait vivant sans
+// l'être.
+func WaitForDatabase(ctx context.Context, cfg config.DatabaseConfig, timeout time.Duration, logger *slog.Logger) error {
+	deadline := time.Now().Add(timeout)
+	attempt := 0
+
+	for {
+		attempt++
+		db, err := Open(ctx, cfg)
+		if err == nil {
+			db.Close()
+			if attempt > 1 {
+				logger.Info("base disponible", "tentatives", attempt)
+			}
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			// Le message porte le nombre de tentatives et la durée : « connexion
+			// refusée » seul ne dit pas si la base est absente ou simplement lente
+			// à démarrer.
+			return fmt.Errorf(
+				"base injoignable après %d tentative(s) en %s: %w",
+				attempt, timeout, redactError(err, cfg.DSN))
+		}
+
+		logger.Info("base indisponible, nouvelle tentative",
+			"tentative", attempt, "délai", waitDelay)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(waitDelay):
+		}
+	}
 }

@@ -195,3 +195,74 @@ func TestRedactErrorPassesThroughWhenNoPassword(t *testing.T) {
 type errorString string
 
 func (e errorString) Error() string { return string(e) }
+
+// La migration est une étape d'initialisation : son Job démarre en même temps que
+// la base. Sans attente, il échoue, Kubernetes le relance, et chaque déploiement
+// laisse un pod en `Error` — résidu qui apprend à ignorer les pods en erreur.
+func TestWaitForDatabaseSucceedsOnAnAvailableDatabase(t *testing.T) {
+	cfg := testDB(t)
+
+	if err := WaitForDatabase(context.Background(), cfg, 5*time.Second, discardLogger()); err != nil {
+		t.Errorf("erreur = %v, attendu aucune sur une base disponible", err)
+	}
+}
+
+// Le message doit porter le nombre de tentatives et la durée : « connexion
+// refusée » seul ne dit pas si la base est absente ou lente à démarrer.
+func TestWaitForDatabaseGivesUpWithACountedMessage(t *testing.T) {
+	cfg := config.DatabaseConfig{
+		DSN:      "postgres://nobody:nothing@127.0.0.1:1/absent?sslmode=disable",
+		MaxConns: 1,
+	}
+
+	start := time.Now()
+	err := WaitForDatabase(context.Background(), cfg, 3*time.Second, discardLogger())
+	if err == nil {
+		t.Fatal("une base injoignable doit finir par échouer")
+	}
+	if !strings.Contains(err.Error(), "tentative") {
+		t.Errorf("message = %q, attendu le nombre de tentatives", err)
+	}
+	// L'attente est bornée : un Job qui patiente indéfiniment ne se distingue pas
+	// d'un Job bloqué.
+	if elapsed := time.Since(start); elapsed > 20*time.Second {
+		t.Errorf("abandon après %s, la borne n'est pas respectée", elapsed)
+	}
+}
+
+// Le mot de passe ne doit pas fuiter dans le message d'échec, qui part au journal
+// puis dans les événements Kubernetes.
+func TestWaitForDatabaseRedactsTheDSN(t *testing.T) {
+	cfg := config.DatabaseConfig{
+		DSN:      "postgres://dashboard:tressecret@127.0.0.1:1/absent?sslmode=disable",
+		MaxConns: 1,
+	}
+
+	err := WaitForDatabase(context.Background(), cfg, 2*time.Second, discardLogger())
+	if err == nil {
+		t.Fatal("échec attendu")
+	}
+	if strings.Contains(err.Error(), "tressecret") {
+		t.Errorf("le mot de passe apparaît dans %q", err)
+	}
+}
+
+// L'annulation est honorée sans attendre la borne : un Job interrompu doit rendre
+// la main tout de suite.
+func TestWaitForDatabaseHonoursCancellation(t *testing.T) {
+	cfg := config.DatabaseConfig{
+		DSN:      "postgres://nobody:nothing@127.0.0.1:1/absent?sslmode=disable",
+		MaxConns: 1,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	if err := WaitForDatabase(ctx, cfg, time.Minute, discardLogger()); err == nil {
+		t.Fatal("échec attendu")
+	}
+	if elapsed := time.Since(start); elapsed > 15*time.Second {
+		t.Errorf("annulation non honorée: %s", elapsed)
+	}
+}

@@ -100,6 +100,13 @@ func run() error {
 func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.Info("démarrage", "role", cfg.Role, "addr", cfg.HTTP.Addr, "issuer", cfg.OIDC.IssuerURL)
 
+	// Attente bornée : la base repart souvent en même temps que le pod. Au-delà
+	// de la borne, la sonde de démarrage prend le relais et fait redémarrer le
+	// pod — le comportement de repli reste celui de Kubernetes.
+	if err := store.WaitForDatabase(ctx, cfg.Database, startupWait, logger); err != nil {
+		return err
+	}
+
 	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
 		return err
@@ -228,6 +235,10 @@ func secureCookies(publicURL string) bool {
 
 func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.Info("démarrage", "role", cfg.Role, "namespace", cfg.Tekton.Namespace)
+
+	if err := store.WaitForDatabase(ctx, cfg.Database, startupWait, logger); err != nil {
+		return err
+	}
 
 	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
@@ -376,6 +387,13 @@ func schedulerConfig(cfg config.Config) map[string]string {
 func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.Info("migration du schéma", "dsn", cfg.Redacted().Database.DSN)
 
+	// Le Job de migration démarre en même temps que la base dans un déploiement
+	// neuf : sans cette attente, il échoue, Kubernetes le relance, et chaque
+	// déploiement laisse un pod en `Error` derrière lui.
+	if err := store.WaitForDatabase(ctx, cfg.Database, databaseWait, logger); err != nil {
+		return err
+	}
+
 	if err := store.Migrate(ctx, cfg.Database, logger); err != nil {
 		return err
 	}
@@ -391,6 +409,27 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 	logger.Info("schéma à jour", "count", len(state))
 	return nil
 }
+
+// databaseWait borne l'attente de la base au démarrage d'une migration.
+//
+// Deux minutes : de quoi couvrir l'initialisation d'un PostgreSQL neuf — création
+// du cluster, premier démarrage — sans laisser un Job tourner indéfiniment contre
+// une base qui n'existe pas.
+const databaseWait = 2 * time.Minute
+
+// startupWait borne l'attente de la base au démarrage de l'`api` et du `worker`.
+//
+// Volontairement **plus courte** que le budget de la sonde de démarrage — 20
+// tentatives toutes les 3 secondes, soit 60 s. C'est ce qui préserve la
+// propriété qui compte : si la base est réellement absente, la sonde tue le pod
+// et Kubernetes le redémarre, comme avant.
+//
+// L'attente ne sert qu'au cas fréquent et bénin : la base repart en même temps
+// que le pod. Sans elle, le processus sortait en erreur, était redémarré, et
+// réussissait au second essai — un `RESTARTS 1` sur chaque déploiement neuf, et
+// un `skaffold run` qui rend 1 sur un déploiement sain. Le même défaut que le
+// Job de migration, sous une autre forme.
+const startupWait = 45 * time.Second
 
 // runReprocess rejoue les résultats depuis les artefacts bruts.
 //
