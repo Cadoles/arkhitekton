@@ -138,39 +138,23 @@ function UnmappedStatuses({ data }: { data: SyncAdmin }) {
   )
 }
 
-/*
- * Statuts dont la projection attend une décision du client.
- *
- * Ils sont placés en « en cours » par la migration 0012, par prudence : livré n'est
- * pas nécessairement recetté, et surestimer la complétion annoncerait une version
- * complète alors que la recette n'a pas eu lieu.
- *
- * Cette liste double celle de la migration, et c'est assumé : elle ne sert qu'à
- * mettre en avant les lignes à regarder. Une divergence n'aurait pour effet que de
- * souligner la mauvaise ligne, jamais de fausser un calcul.
- */
-const AWAITING_VALIDATION = new Set([
-  'Livré',
-  'Livré DEV',
-  'Prêt à livrer',
-  'Testé',
-  'Installation',
-])
-
 /**
  * Table complète de la projection, éditable.
  *
  * Les statuts **déjà projetés** ont besoin de cette interface autant que les
  * inconnus, et plus encore : ce sont eux qui décident du taux de complétion affiché
- * au client, et cinq d'entre eux attendent son arbitrage. N'exposer que les statuts
- * non mappés laissait le réglage inaccessible dès que l'amorçage les couvrait tous,
- * ce qui est le cas sur l'instance réelle.
+ * au client. N'exposer que les statuts non mappés laissait le réglage inaccessible
+ * dès que l'amorçage les couvrait tous, ce qui est le cas sur l'instance réelle.
+ *
+ * Aucun statut n'est mis en avant. Une liste d'exceptions écrite ici doublerait celle
+ * de la migration 0012 et dériverait dès qu'un arbitrage serait rendu, en soulignant
+ * des lignes déjà tranchées. La justification des choix d'amorçage vit dans la
+ * migration, à côté des valeurs qu'elle pose.
  */
 function MappingTable({ data }: { data: SyncAdmin }) {
   const [open, setOpen] = useState(false)
 
   const statuses = Object.keys(data.mapping).sort((a, b) => a.localeCompare(b, 'fr'))
-  const awaiting = statuses.filter((status) => AWAITING_VALIDATION.has(status))
 
   return (
     <div className="mt-4 border-t border-zinc-200 pt-3">
@@ -193,18 +177,6 @@ function MappingTable({ data }: { data: SyncAdmin }) {
         divisé par « tout sauf écarté » : changer un seau déplace donc un chiffre affiché.
       </p>
 
-      {awaiting.length > 0 && (
-        <p className="mt-2 flex items-start gap-2 rounded-md border border-warn-500 bg-warn-50 px-3 py-2 text-sm text-warn-700">
-          <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
-          <span>
-            {awaiting.length} statut(s) placé(s) en « en cours » par prudence, en attente d'un
-            arbitrage : <span className="font-medium">{awaiting.join(', ')}</span>. Livré n'est pas
-            nécessairement recetté — surestimer la complétion annoncerait une version complète
-            alors que la recette n'a pas eu lieu.
-          </span>
-        </p>
-      )}
-
       {open && (
         <ul className="mt-2 flex flex-col gap-1">
           {statuses.map((status) => (
@@ -215,7 +187,6 @@ function MappingTable({ data }: { data: SyncAdmin }) {
               key={`${status}:${data.mapping[status]}`}
               status={status}
               current={data.mapping[status]}
-              flagged={AWAITING_VALIDATION.has(status)}
             />
           ))}
         </ul>
@@ -228,21 +199,17 @@ function StatusRow({
   status,
   issues,
   current,
-  flagged,
 }: {
   status: string
   issues?: number
   current: Bucket | undefined
-  flagged?: boolean
 }) {
   const setBucket = useSetStatusBucket()
   const [bucket, setLocal] = useState<Bucket>(current ?? 'todo')
 
   return (
     <li className="flex flex-wrap items-center gap-2 text-sm">
-      <span className={`min-w-48 ${flagged ? 'font-medium text-warn-700' : 'text-zinc-900'}`}>
-        {status}
-      </span>
+      <span className="min-w-48 text-zinc-900">{status}</span>
       {issues !== undefined && <span className="text-zinc-500">{issues} demande(s)</span>}
       <select
         value={bucket}
