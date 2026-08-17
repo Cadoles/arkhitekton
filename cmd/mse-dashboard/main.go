@@ -25,6 +25,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
@@ -48,6 +49,9 @@ Usage:
   mse-dashboard worker    Boucles de fond (instance unique, élection de leader)
   mse-dashboard migrate   Applique les migrations de schéma
   mse-dashboard reprocess Rejoue les résultats depuis les artefacts bruts
+
+Diagnostic:
+  mse-dashboard check-redmine  Vérifie l'accès Redmine et s'arrête (lecture seule)
 
 Options de reprocess:
   --release <tag>  Limite le rejeu à une release (défaut: tout l'historique)
@@ -91,6 +95,8 @@ func run() error {
 		return runMigrate(ctx, cfg, logger)
 	case config.RoleReprocess:
 		return runReprocess(ctx, cfg, logger, os.Args[2:])
+	case config.RoleCheckRedmine:
+		return runCheckRedmine(ctx, cfg, logger)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return fmt.Errorf("rôle inconnu %q", role)
@@ -519,4 +525,45 @@ func portee(releaseTag string) string {
 		return "tout l'historique"
 	}
 	return "une release"
+}
+
+// runCheckRedmine vérifie l'accès à Redmine, puis s'arrête.
+//
+// Rôle de diagnostic, pour être sûr qu'une clé déposée fonctionne avant qu'un écran
+// n'en dépende. Il ne fait qu'une lecture — `/users/current.json` — et le transport
+// du paquet `redmine` interdit structurellement toute autre méthode que GET et
+// HEAD, ce qui rend cette vérification sans risque sur l'instance de production.
+//
+// La clé n'est jamais journalisée. Ce qui l'est : l'URL, le compte auquel elle
+// appartient, et son drapeau `admin`.
+func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+	client, err := redmine.New(redmine.Options{
+		URL:     cfg.Redmine.URL,
+		APIKey:  cfg.Redmine.APIKey,
+		Timeout: cfg.Redmine.Timeout,
+	})
+	if err != nil {
+		return fmt.Errorf("client Redmine: %w", err)
+	}
+
+	account, err := client.CheckAccess(ctx)
+	if err != nil {
+		return fmt.Errorf("vérification de l'accès Redmine: %w", err)
+	}
+
+	logger.Info("accès Redmine vérifié",
+		"url", cfg.Redmine.URL,
+		"project", cfg.Redmine.Project,
+		"login", account.Login,
+		"user_id", account.ID,
+		// Signalé parce qu'il mérite d'être vu : une clé d'administrateur donne
+		// bien plus que ce dont le dashboard a besoin. La lecture seule du
+		// transport protège d'une erreur de code, pas d'un compte trop puissant.
+		"admin", account.Admin)
+
+	if account.Admin {
+		logger.Warn("cette clé appartient à un compte administrateur Redmine ; " +
+			"un compte en lecture seule sur le projet suffirait")
+	}
+	return nil
 }

@@ -71,6 +71,35 @@ Le compte doit être en **lecture seule** sur le projet : le dashboard ne modifi
 dans Redmine. Si une écriture devenait nécessaire (clôture automatique d'une version à
 la livraison), ce serait une décision explicite, pas un effet de bord.
 
+**L'instance visée est celle de production, et l'interdiction d'écrire est appliquée par
+le code.** Le transport de `internal/redmine` refuse toute méthode autre que `GET` et
+`HEAD` avant tout contact réseau, et rend `ErrWriteForbidden`. Le choix du transport
+plutôt que d'une consigne est délibéré : une revue de code peut manquer un appel, un
+`RoundTrip` ne peut pas être contourné sans réécrire la construction du client. Un test
+le vérifie sur `POST`, `PUT`, `PATCH`, `DELETE` et deux méthodes exotiques, en comptant
+ce qu'un serveur reçoit — zéro.
+
+La clé est ajoutée par ce même transport, ce qui garantit qu'aucun appelant ne peut la
+placer dans une chaîne de requête, où elle finirait dans les journaux d'accès du serveur
+et dans l'`url.Error` de toute requête en échec. `https` est exigé hors localhost : la
+clé voyage à chaque appel.
+
+Cette garde protège d'une erreur de programmation, **pas d'un compte trop puissant**.
+D'où `CheckAccess`, qui rend le drapeau `admin` du compte et journalise un avertissement
+s'il est vrai : le pouvoir d'écrire existe dès que la clé le porte, même si le dashboard
+ne s'en sert pas, et le prochain outil branché sur le même fichier d'environnement n'aura
+pas forcément la même garde.
+
+**Vérifier une clé sans rien écrire :**
+
+```bash
+mse-dashboard check-redmine
+```
+
+Rôle de diagnostic qui lit `/users/current.json` puis s'arrête. Il n'exige ni base, ni
+stockage, ni accès au cluster — vérifier une clé doit rester possible depuis un poste qui
+n'a rien d'autre.
+
 **Endpoints utilisés.**
 
 | Besoin | Appel |

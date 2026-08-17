@@ -29,6 +29,39 @@ type Config struct {
 	Tekton   TektonConfig
 	Flux     FluxConfig
 	Registry RegistryConfig
+	Redmine  RedmineConfig
+}
+
+// RedmineConfig porte l'accès en lecture aux demandes et aux versions.
+//
+// **Lecture seule, et l'instance visée est la production.** Le dashboard consulte
+// les versions et les demandes ; il n'en crée ni n'en modifie aucune. Créer une
+// version, fermer une demande, poster une note restent des gestes humains faits
+// dans Redmine.
+//
+// L'interdiction n'est pas confiée à la discipline des appelants : le transport de
+// `internal/redmine` refuse toute méthode autre que GET et HEAD avant d'atteindre
+// le réseau. Une clé de production circule ici, sur une base sans sauvegarde à
+// notre disposition — la garantie devait être structurelle.
+type RedmineConfig struct {
+	URL string
+	// APIKey ne doit apparaître ni dans un log, ni dans un message d'erreur, ni
+	// dans une URL. Elle est transmise en en-tête `X-Redmine-API-Key`, jamais en
+	// chaîne de requête, où elle finirait dans les journaux d'accès.
+	APIKey string
+	// Project est l'identifiant du projet, tel qu'il apparaît dans l'URL Redmine.
+	Project string
+	// Timeout borne un appel : une lenteur de Redmine ne doit pas devenir une
+	// lenteur du dashboard.
+	Timeout time.Duration
+}
+
+// Configured dit si l'accès est renseigné.
+//
+// L'absence est un état normal, pas une erreur : le dashboard tourne sans Redmine,
+// les écrans qui en dépendent affichant un état dégradé explicite (doc 08 §8.2).
+func (c RedmineConfig) Configured() bool {
+	return c.URL != "" && c.APIKey != ""
 }
 
 // RegistryConfig porte l'accès en lecture au registre d'images.
@@ -67,6 +100,14 @@ const (
 	// ponctuel, lancé à la main après correction d'un parseur : il n'a pas
 	// vocation à tourner en permanence, d'où l'absence de Deployment.
 	RoleReprocess Role = "reprocess"
+	// RoleCheckRedmine vérifie l'accès à Redmine et s'arrête. Rôle de diagnostic,
+	// lancé à la main après avoir déposé une clé.
+	//
+	// Il existe parce que la clé visée est celle de la **production** : la seule
+	// façon de savoir si elle fonctionne, sans lui, serait d'attendre qu'un écran
+	// s'en serve. Une vérification explicite en lecture évite d'apprendre par une
+	// panne qu'une clé était révoquée.
+	RoleCheckRedmine Role = "check-redmine"
 )
 
 type HTTPConfig struct {
@@ -180,6 +221,12 @@ func Load(role Role) (Config, error) {
 			Project:  envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
 			Image:    envOr("REGISTRY_IMAGE", "portal"),
 		},
+		Redmine: RedmineConfig{
+			URL:     strings.TrimRight(os.Getenv("REDMINE_URL"), "/"),
+			APIKey:  os.Getenv("REDMINE_API_KEY"),
+			Project: os.Getenv("REDMINE_PROJECT"),
+			Timeout: durationOr("REDMINE_TIMEOUT", 15*time.Second),
+		},
 	}
 
 	return cfg, cfg.validate()
@@ -188,13 +235,21 @@ func Load(role Role) (Config, error) {
 func (c Config) validate() error {
 	var problems []error
 
-	// La base est requise par les trois rôles : `migrate` l'applique, `api` et
-	// `worker` la lisent.
-	if strings.TrimSpace(c.Database.DSN) == "" {
-		problems = append(problems, errors.New("DATABASE_URL est requis"))
-	}
-	if c.Database.MaxConns < 1 {
-		problems = append(problems, fmt.Errorf("DATABASE_MAX_CONNS doit être >= 1, vaut %d", c.Database.MaxConns))
+	// La base est requise par tous les rôles de service : `migrate` l'applique,
+	// `api`, `worker` et `reprocess` la lisent.
+	//
+	// `check-redmine` en est exempt, et c'est sa raison d'être : vérifier une clé
+	// doit être possible depuis un poste qui n'a accès ni à la base ni au cluster.
+	// Exiger un DSN ferait échouer le diagnostic pour une dépendance dont il ne se
+	// sert pas, ce qui est exactement le genre de contrainte qui pousse à
+	// contourner l'outil.
+	if c.Role != RoleCheckRedmine {
+		if strings.TrimSpace(c.Database.DSN) == "" {
+			problems = append(problems, errors.New("DATABASE_URL est requis"))
+		}
+		if c.Database.MaxConns < 1 {
+			problems = append(problems, fmt.Errorf("DATABASE_MAX_CONNS doit être >= 1, vaut %d", c.Database.MaxConns))
+		}
 	}
 
 	switch c.Role {
@@ -209,6 +264,13 @@ func (c Config) validate() error {
 		// Le stockage suffit : le rejeu lit le brut et écrit en base, sans
 		// toucher au cluster ni créer le moindre run.
 		problems = append(problems, c.validateStorage()...)
+	case RoleCheckRedmine:
+		// Ni base, ni stockage, ni cluster : ce rôle ne fait qu'une lecture HTTP.
+		// L'exiger davantage empêcherait de vérifier une clé depuis un poste qui
+		// n'a pas accès au reste.
+		if !c.Redmine.Configured() {
+			problems = append(problems, errors.New("REDMINE_URL et REDMINE_API_KEY sont requis"))
+		}
 	case RoleWorker:
 		problems = append(problems, c.validateStorage()...)
 		if strings.TrimSpace(c.Tekton.Namespace) == "" {
@@ -219,7 +281,7 @@ func (c Config) validate() error {
 		}
 	default:
 		problems = append(problems, fmt.Errorf(
-			"rôle inconnu %q (attendu: api, worker, migrate, reprocess)", c.Role))
+			"rôle inconnu %q (attendu: api, worker, migrate, reprocess, check-redmine)", c.Role))
 	}
 
 	return errors.Join(problems...)
