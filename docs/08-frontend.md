@@ -16,25 +16,33 @@ Le portage est mécanique — détail de l'arbitrage en
 | `Icon` (map nom → chemins SVG) | même map, en composant React |
 | `useStatus()` (tables de libellés) | même objet, en module TypeScript |
 
-Ce qui se recopie tel quel, parce que c'est de la logique métier et non du framework :
+Ce qui se recopie tel quel, ce sont les tables de libellés (santé, pipeline, bench,
+sign-off) et leurs classes de couleur associées, qui portent tout le vocabulaire
+français de l'interface. Elles vivent dans `lib/status.ts`.
 
-```ts
-// Seuils de santé
-const HEALTH = { healthy: 85, warn: 70 } as const
-export const healthFromScore = (s: number) =>
-  s >= HEALTH.healthy ? 'healthy' : s >= HEALTH.warn ? 'warn' : 'critical'
+**Les seuils, en revanche, ne se recopient pas.** Ce document prévoyait initialement de
+porter `healthFromScore` et le verdict de bench en TypeScript, la maquette les calculant
+dans le navigateur faute de serveur. Le dashboard a un serveur, et il est le seul à
+disposer de ce qu'il faut pour trancher : les conditions de mesure d'un bench
+([B16](02-blocages-et-decisions.md#b16)) et les signaux non mesurés dont le poids est
+redistribué ([B11](02-blocages-et-decisions.md#b11)). Les verdicts sont donc calculés là
+et transmis dans les réponses :
 
-// Verdict de bench : le volume total peut dégrader le verdict de débit, jamais l'améliorer
-const RANK = { na: 0, pass: 1, warn: 2, fail: 3 } as const
-const verdict = (value: number, baseline: number, lowerBetter: boolean) => {
-  const r = lowerBetter ? baseline / value : value / baseline
-  return r >= 1 ? 'pass' : r >= 0.9 ? 'warn' : 'fail'
-}
-```
+| Verdict | Implémentation |
+|---|---|
+| Santé depuis le score (85 / 70) | `internal/results/score.go` |
+| Verdict de bench, dégradation par le volume total | `internal/bench/compare.go` |
 
-Ainsi que les cinq tables de libellés (santé, pipeline, bench, sign-off, sévérité) et
-leurs classes de couleur associées, qui portent tout le vocabulaire français de
-l'interface.
+Une seconde implémentation côté navigateur a existé et n'a jamais été appelée. Elle a été
+retirée : deux copies d'un même seuil divergent au premier changement, et celle qui reste
+morte est celle qu'on oublie de mettre à jour.
+
+**La grammaire des sévérités a divergé de la maquette**, pour une raison de fond. La
+maquette parlait `high | moderate | low`, celle de `npm audit`. Les scanners réellement
+branchés — Trivy, govulncheck — parlent `CRITICAL | HIGH | MEDIUM | LOW | INFO`. La table
+de la maquette ne savait pas exprimer `CRITICAL`, soit la sévérité la plus grave. Le
+vocabulaire de sécurité vit donc dans `features/releases/tests.ts`, au contact du format
+qu'il décrit, et non dans `lib/status.ts`.
 
 ## 8.2 Ce que le portage doit changer
 

@@ -1,10 +1,24 @@
 /*
- * Vocabulaire et verdicts — repris de la maquette sans modification.
+ * Vocabulaire de l'interface — libellés français et apparence des statuts.
  *
- * Ce module ne contient aucune logique de framework : ce sont des seuils et des
- * tables de libellés, c'est-à-dire des décisions métier. Les recopier tels quels
- * est ce qui garantit que l'interface portée dit exactement la même chose que la
- * maquette validée (B9).
+ * Repris de la maquette (B9), mais réduit à ce qu'il porte réellement : des
+ * libellés et des classes. Les seuils, eux, ont quitté ce module.
+ *
+ * La maquette calculait ses verdicts dans le navigateur, faute de serveur. Ici
+ * ils viennent de l'API — `healthFromScore` en Go dans `internal/results/score.go`
+ * avec les mêmes 85/70, le verdict de bench dans `internal/bench/compare.go` avec
+ * la même dégradation par le volume total. Garder une seconde implémentation ici
+ * n'aurait pas servi l'interface : elle était morte, et la réveiller aurait
+ * produit un second avis, divergent au premier changement de seuil. Le calcul
+ * appartient au serveur, qui est aussi le seul à connaître les conditions de
+ * mesure (B16) et les signaux non mesurés (B11).
+ *
+ * La grammaire des sévérités a divergé pour une raison de fond : la maquette
+ * parlait `high|moderate|low`, celle de `npm audit`, alors que les scanners
+ * réellement branchés — Trivy, govulncheck — parlent
+ * `CRITICAL|HIGH|MEDIUM|LOW|INFO`. La table de la maquette ne savait pas dire
+ * `CRITICAL`, la plus grave. Le vocabulaire de sécurité vit donc dans
+ * `features/releases/tests.ts`, au contact du format qu'il décrit.
  *
  * Chaque entrée porte une icône en plus des couleurs : un statut ne doit jamais
  * être signalé par la seule couleur (doc 08 §8.5).
@@ -16,8 +30,6 @@ export type Health = 'healthy' | 'warn' | 'critical'
 export type PipelineStatus = 'pass' | 'warn' | 'fail' | 'skip' | 'na'
 export type BenchStatus = 'pass' | 'warn' | 'fail' | 'na'
 export type SignoffStatus = 'pass' | 'warn' | 'fail' | 'na'
-export type SecuritySeverity = 'high' | 'moderate' | 'medium' | 'low'
-export type IssueSeverity = 'high' | 'medium' | 'low'
 
 /** Apparence d'un statut : libellé français, icône, et classes Tailwind. */
 export type StatusStyle = {
@@ -26,51 +38,6 @@ export type StatusStyle = {
   text: string
   bg: string
   border: string
-}
-
-const HEALTH_THRESHOLDS = { healthy: 85, warn: 70 } as const
-
-/** Verdict de santé à partir du score agrégé d'une release. */
-export function healthFromScore(score: number): Health {
-  if (score >= HEALTH_THRESHOLDS.healthy) return 'healthy'
-  if (score >= HEALTH_THRESHOLDS.warn) return 'warn'
-  return 'critical'
-}
-
-const RANK = { na: 0, pass: 1, warn: 2, fail: 3 } as const
-
-function compare(value: number, baseline: number, lowerBetter: boolean): BenchStatus {
-  const ratio = lowerBetter ? baseline / value : value / baseline
-  if (ratio >= 1) return 'pass'
-  if (ratio >= 0.9) return 'warn'
-  return 'fail'
-}
-
-export type BenchMeasure = {
-  value: number | null
-  baseline: number
-  lowerBetter: boolean
-  total?: number | null
-  totalBaseline?: number | null
-}
-
-/**
- * Verdict d'un bench.
- *
- * Le volume total peut **dégrader** le verdict de débit, jamais l'améliorer : un
- * débit instantané conforme obtenu en traitant moins de requêtes n'est pas un
- * succès. D'où la comparaison de rangs plutôt qu'un simple `&&`.
- */
-export function benchVerdict(measure: BenchMeasure): BenchStatus {
-  if (measure.value === null) return 'na'
-
-  let verdict = compare(measure.value, measure.baseline, measure.lowerBetter)
-
-  if (measure.total != null && measure.totalBaseline != null) {
-    const onVolume = compare(measure.total, measure.totalBaseline, false)
-    if (RANK[onVolume] > RANK[verdict]) verdict = onVolume
-  }
-  return verdict
 }
 
 const HEALTH: Record<Health, StatusStyle> = {
@@ -101,24 +68,9 @@ const SIGNOFF: Record<SignoffStatus, StatusStyle> = {
   na: { label: 'En attente', icon: 'minus', text: 'text-zinc-400', bg: 'bg-zinc-50', border: 'border-zinc-200' },
 }
 
-const SECURITY: Record<SecuritySeverity, StatusStyle> = {
-  high: { label: 'Haute', icon: 'cross', text: 'text-critical-700', bg: 'bg-critical-50', border: 'border-critical-500' },
-  moderate: { label: 'Modérée', icon: 'alert', text: 'text-warn-700', bg: 'bg-warn-50', border: 'border-warn-500' },
-  medium: { label: 'Moyenne', icon: 'alert', text: 'text-warn-700', bg: 'bg-warn-50', border: 'border-warn-500' },
-  low: { label: 'Faible', icon: 'minus', text: 'text-zinc-600', bg: 'bg-zinc-100', border: 'border-zinc-300' },
-}
-
-const ISSUE: Record<IssueSeverity, StatusStyle> = {
-  high: { label: 'Haute', icon: 'cross', text: 'text-critical-700', bg: 'bg-critical-50', border: 'border-critical-500' },
-  medium: { label: 'Moyenne', icon: 'alert', text: 'text-warn-700', bg: 'bg-warn-50', border: 'border-warn-500' },
-  low: { label: 'Faible', icon: 'minus', text: 'text-zinc-600', bg: 'bg-zinc-100', border: 'border-zinc-300' },
-}
-
 export const status = {
   health: (value: Health) => HEALTH[value],
   pipeline: (value: PipelineStatus) => PIPELINE[value],
   bench: (value: BenchStatus) => BENCH[value],
   signoff: (value: SignoffStatus) => SIGNOFF[value],
-  security: (value: SecuritySeverity) => SECURITY[value],
-  issue: (value: IssueSeverity) => ISSUE[value],
 }
