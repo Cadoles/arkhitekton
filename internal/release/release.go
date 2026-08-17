@@ -143,16 +143,20 @@ func CheckKind(version Version, kind Kind) error {
 	return nil
 }
 
-// CheckRedmineVersion vérifie l'invariant de jointure avec Redmine.
+// CheckRedmineVersion vérifie la jointure avec Redmine.
 //
 // `tag de release = nom de version Redmine [+ suffixe de pré-release]`. Une RC
-// `1.8.0-rc1` se rattache donc à la version Redmine `1.8.0` : c'est ce qui relie
+// `3.2.0-rc1` se rattache donc à la version Redmine `3.2.0` : c'est ce qui relie
 // une pré-release à son périmètre fonctionnel.
+//
+// La comparaison est normalisée ([NormalizeVersionName]) et non stricte. L'égalité
+// exacte, telle que B8 et B17 la posaient, rejetait toute release réelle : les
+// versions de l'instance s'appellent `v3.2.0`, jamais `3.2.0`.
 func CheckRedmineVersion(version Version, redmineName string) error {
-	if version.Base != strings.TrimSpace(redmineName) {
+	if !SameVersion(version, redmineName) {
 		return fmt.Errorf(
 			"le tag %q se rattache à la version %q, or la version Redmine visée est %q",
-			version.Raw, version.Base, redmineName)
+			version.Raw, version.Base, strings.TrimSpace(redmineName))
 	}
 	return nil
 }

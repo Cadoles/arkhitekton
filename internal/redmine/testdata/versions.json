@@ -1,0 +1,53 @@
+{
+  "versions": [
+    {
+      "id": 801,
+      "name": "MSE3-1.5",
+      "description": "convention historique, close",
+      "status": "closed",
+      "due_date": "2025-04-14",
+      "updated_on": "2025-04-15T08:12:00Z"
+    },
+    {
+      "id": 802,
+      "name": "MSE3-1.20",
+      "description": "",
+      "status": "closed",
+      "due_date": null,
+      "updated_on": "2025-11-02T10:00:00Z"
+    },
+    {
+      "id": 803,
+      "name": "MSE 3.1.2",
+      "description": "deuxieme convention, avec espace",
+      "status": "closed",
+      "due_date": "2026-08-03",
+      "updated_on": "2026-08-04T09:30:00Z"
+    },
+    {
+      "id": 804,
+      "name": "v3.1.2",
+      "description": "troisieme convention: meme numero que 803, encore ouverte",
+      "status": "open",
+      "due_date": null,
+      "updated_on": "2026-08-10T14:00:00Z"
+    },
+    {
+      "id": 805,
+      "name": "v3.2.0",
+      "description": "",
+      "status": "open",
+      "due_date": "2026-09-01",
+      "updated_on": "2026-08-12T11:45:00Z"
+    },
+    {
+      "id": 806,
+      "name": "v3.1.3",
+      "description": "date d'echeance absente",
+      "status": "locked",
+      "due_date": null,
+      "updated_on": ""
+    }
+  ],
+  "total_count": 6
+}

@@ -3,6 +3,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
+import { SyncPanel } from './SyncPanel'
 import { useSession, type Role } from '../auth/session'
 import {
   ACTION_LABEL,
@@ -28,6 +29,11 @@ export function AdminScreen() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-semibold text-zinc-900">Administration</h1>
+
+      {/* La synchronisation est hors du bloc conditionnel des rôles : elle a sa
+          propre requête, et une panne de l'une ne doit pas masquer l'autre
+          (doc 08 §8.5). */}
+      <SyncPanel />
 
       {isPending && <Skeleton className="h-64 w-full" />}
       {error && <ErrorState message="Les rôles n'ont pas pu être chargés." onRetry={() => void refetch()} />}

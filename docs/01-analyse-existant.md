@@ -165,3 +165,44 @@ de `release.checks` (automatique, « CI / Pipelines ») et `environment.validati
 Ces écarts ne sont pas des erreurs de la maquette : elle décrit la cible de la partie
 consultation, et le client confirme que le pilotage reste entièrement à concevoir. Ils
 délimitent le périmètre de construction réel.
+
+## 1.4 Ce que l'instance Redmine réelle a démenti
+
+Relevé sur `dproj.cnous.fr`, projet `mse-dev`, à la première lecture effective — 20
+versions, 193 demandes. Trois hypothèses de conception se sont révélées fausses.
+
+**L'invariant de nommage de B8 et B17 ne tient pas.** Ces décisions posaient « nom de
+version Redmine = tag de release ». Le projet porte quatre conventions simultanées :
+
+| Convention | Nombre | Statut |
+|---|---|---|
+| `MSE3-1.5` … `MSE3-1.21` | 13 | toutes closes — historique |
+| `MSE 3.1.0` … `MSE 3.1.2` | 3 | closes |
+| `v3.1.1` … `v3.2.0` | 4 | ouvertes — convention courante |
+
+L'égalité stricte rejetait donc toute release réelle. Le rapprochement passe désormais
+par `release.NormalizeVersionName`, qui retire `v` devant un chiffre et le préfixe
+`MSE `. Les treize `MSE3-1.x` sont laissées intactes à dessein : « MSE3, version 1.5 »
+se lirait `1.5` ou `3.1.5` selon l'intention, rien dans les données ne tranche, et
+inventer une règle rattacherait des releases à la mauvaise version.
+
+**Deux numéros sont portés par deux versions chacun** — `MSE 3.1.1` / `v3.1.1` et
+`MSE 3.1.2` / `v3.1.2`, la première close et la seconde ouverte dans les deux cas. La
+normalisation n'est donc pas injective, et aucun rattachement automatique n'est possible
+pour ces numéros. Le dashboard ne choisit pas : il signale l'ambiguïté dans `/admin` et
+laisse la version provisoire en attente.
+
+**Il y a deux trackers d'anomalie, pas un.** `Anomalie` et `Anomalie (SDN4)`. Doc 04
+supposait un nom unique ; compter sur l'égalité en aurait manqué la moitié. Le comptage
+porte sur le préfixe.
+
+**Les 31 statuts de l'instance sont projetés** par la migration 0012, et la première
+synchronisation n'en a laissé aucun sans projection. Deux d'entre eux ne diffèrent que
+par la casse — `En Standby` et `En StandBy` — et `Ré-ouvert` est déclaré **clos** par la
+configuration de l'instance, ce qui ressemble à une erreur : le drapeau de Redmine est
+conservé tel quel dans `issues.is_closed`, la projection dit l'inverse.
+
+**La règle de projection attend validation du client**, parce qu'elle déplace le taux de
+complétion affiché. Le biais retenu est de sous-estimer : seuls les états terminaux sans
+ambiguïté vont dans `done`. Les cas à trancher, tous placés en `doing` par prudence :
+`Livré`, `Livré DEV`, `Prêt à livrer`, `Testé`, `Installation`.

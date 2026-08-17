@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 )
 
 // Release est une release enregistrée.
@@ -220,10 +222,14 @@ func (db *DB) EnsureVersion(ctx context.Context, name string) (int64, error) {
 		return 0, err
 	}
 
+	// `normalized_name` est renseigné dès la création, et ce n'est pas cosmétique :
+	// c'est la seule colonne sur laquelle la synchronisation peut reconnaître cette
+	// provisoire pour l'adopter. Nulle, la provisoire resterait orpheline et la
+	// version réelle s'afficherait sans aucune release.
 	err = db.pool.QueryRow(ctx,
-		`insert into versions (redmine_id, name, status, synced_at)
-		 values (-nextval('versions_id_seq'), $1, 'en-attente-de-synchronisation', now())
-		 returning id`, name).Scan(&id)
+		`insert into versions (redmine_id, name, normalized_name, status, synced_at)
+		 values (-nextval('versions_id_seq'), $1, $2, 'en-attente-de-synchronisation', now())
+		 returning id`, name, release.NormalizeVersionName(name)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("création de la version provisoire %q: %w", name, err)
 	}

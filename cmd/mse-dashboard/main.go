@@ -194,6 +194,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// le client et reste ajustable sans redéploiement (B11).
 			dashhttp.NewTestsHandler(db, pipelines.ScoreWeights()),
 			dashhttp.NewSignoffsHandler(db),
+			// L'URL de Redmine sert à construire les liens sortants. Absente, les
+			// liens sont omis plutôt que rendus cassés.
+			dashhttp.NewVersionsHandler(db, cfg.Redmine.URL),
+			dashhttp.NewSyncAdminHandler(db, cfg.Redmine.Configured()),
 			dashhttp.NewAdminHandler(db), middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
@@ -362,11 +366,36 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				auth.NewDBFlowStore(db.Pool(), 10*time.Minute),
 				logger)
 
-			errs := make(chan error, 4)
+			errs := make(chan error, 5)
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
 			go func() { errs <- environments.Run(leadingCtx) }()
 			go func() { errs <- purger.Run(leadingCtx) }()
+
+			// Redmine est optionnel : sans clé, le dashboard tourne et les écrans
+			// de versions le disent. Faire échouer le worker priverait
+			// l'ordonnancement et l'observation d'un accès qu'ils n'utilisent pas.
+			//
+			// La synchronisation vit sous le bail comme le reste : deux workers
+			// interrogeant la même instance doubleraient la charge sur un service
+			// tiers pour un résultat identique.
+			if cfg.Redmine.Configured() {
+				client, err := redmine.New(redmine.Options{
+					URL: cfg.Redmine.URL, APIKey: cfg.Redmine.APIKey,
+					Timeout: cfg.Redmine.Timeout,
+				})
+				if err != nil {
+					return fmt.Errorf("client Redmine: %w", err)
+				}
+				sync := worker.NewRedmineSync(db, client, cfg.Redmine.Project, logger)
+				logger.Info("synchronisation Redmine active",
+					"url", cfg.Redmine.URL, "project", cfg.Redmine.Project)
+				go func() { errs <- sync.Run(leadingCtx) }()
+			} else {
+				logger.Warn("synchronisation Redmine inactive",
+					"raison", "REDMINE_URL ou REDMINE_API_KEY absent",
+					"consequence", "les versions et les demandes ne seront pas renseignées")
+			}
 
 			// La première erreur l'emporte : une boucle morte doit faire perdre
 			// le bail plutôt que de laisser l'autre tourner à moitié.

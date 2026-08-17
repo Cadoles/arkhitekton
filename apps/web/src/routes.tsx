@@ -12,6 +12,7 @@ import { ReleasesScreen } from './features/releases/ReleasesScreen'
 import { ReleaseScreen } from './features/releases/ReleaseScreen'
 import { SecurityScreen } from './features/releases/SecurityScreen'
 import { AdminScreen } from './features/admin/AdminScreen'
+import { VersionsScreen } from './features/versions/VersionsScreen'
 
 /*
  * Arborescence de la doc 08 §8.3, posée en entier dès le lot 0.
@@ -40,6 +41,9 @@ const RunScreen = lazy(() =>
 const FamilyScreen = lazy(() =>
   import('./features/releases/FamilyScreen').then((module) => ({ default: module.FamilyScreen })),
 )
+const VersionScreen = lazy(() =>
+  import('./features/versions/VersionScreen').then((module) => ({ default: module.VersionScreen })),
+)
 
 export const routes: RouteObject[] = [
   {
@@ -52,27 +56,8 @@ export const routes: RouteObject[] = [
       { path: 'environments/:env', element: <EnvironmentScreen /> },
       { path: 'environments/:env/history', element: <HistoryScreen /> },
 
-      {
-        path: 'versions',
-        element: (
-          <Placeholder
-            lot="lot 1"
-            title="Versions"
-            summary="Versions déclarées dans Redmine, avec leur échéance et leur niveau de complétion."
-          />
-        ),
-      },
-      {
-        path: 'versions/:id',
-        element: (
-          <Placeholder
-            lot="lot 1"
-            title="Périmètre d'une version"
-            summary="Demandes réparties en trois colonnes (à faire, en cours, terminé), anomalies ouvertes comptées à part, releases produites."
-            params={['id']}
-          />
-        ),
-      },
+      { path: 'versions', element: <VersionsScreen /> },
+      { path: 'versions/:id', element: <VersionScreen /> },
 
       { path: 'releases', element: <ReleasesScreen /> },
       { path: 'releases/:tag', element: <ReleaseScreen /> },
