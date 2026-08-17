@@ -171,26 +171,40 @@ délimitent le périmètre de construction réel.
 Relevé sur `dproj.cnous.fr`, projet `mse-dev`, à la première lecture effective — 20
 versions, 193 demandes. Trois hypothèses de conception se sont révélées fausses.
 
-**L'invariant de nommage de B8 et B17 ne tient pas.** Ces décisions posaient « nom de
-version Redmine = tag de release ». Le projet porte quatre conventions simultanées :
+**Seules les quatre versions non closes comptent** — confirmé par le client. Les seize
+autres viennent d'un ancien système de versionnement et n'ont plus cours.
 
 | Convention | Nombre | Statut |
 |---|---|---|
-| `MSE3-1.5` … `MSE3-1.21` | 13 | toutes closes — historique |
-| `MSE 3.1.0` … `MSE 3.1.2` | 3 | closes |
-| `v3.1.1` … `v3.2.0` | 4 | ouvertes — convention courante |
+| `MSE3-1.5` … `MSE3-1.21` | 13 | closes — ancien système |
+| `MSE 3.1.0` … `MSE 3.1.2` | 3 | closes — ancien système |
+| `v3.1.1` … `v3.2.0` | 4 | **actives — convention courante** |
 
-L'égalité stricte rejetait donc toute release réelle. Le rapprochement passe désormais
-par `release.NormalizeVersionName`, qui retire `v` devant un chiffre et le préfixe
-`MSE `. Les treize `MSE3-1.x` sont laissées intactes à dessein : « MSE3, version 1.5 »
-se lirait `1.5` ou `3.1.5` selon l'intention, rien dans les données ne tranche, et
-inventer une règle rattacherait des releases à la mauvaise version.
+**L'invariant de nommage de B8 et B17 ne tient pas pour autant.** Ces décisions posaient
+« nom de version Redmine = tag de release », or la convention courante préfixe d'un `v` :
+l'égalité stricte rejetait toute release réelle. Le rapprochement passe donc par
+`release.NormalizeVersionName`, qui retire `v` devant un chiffre et le préfixe `MSE `.
 
-**Deux numéros sont portés par deux versions chacun** — `MSE 3.1.1` / `v3.1.1` et
-`MSE 3.1.2` / `v3.1.2`, la première close et la seconde ouverte dans les deux cas. La
-normalisation n'est donc pas injective, et aucun rattachement automatique n'est possible
-pour ces numéros. Le dashboard ne choisit pas : il signale l'ambiguïté dans `/admin` et
-laisse la version provisoire en attente.
+Les treize `MSE3-1.x` restent intactes : « MSE3, version 1.5 » se lirait `1.5` ou
+`3.1.5` selon l'intention, rien dans les données ne tranche, et inventer une règle
+rattacherait des releases à la mauvaise version. Closes et hors du système courant,
+aucune release ne les vise.
+
+**Deux numéros ont été repris d'un système à l'autre** — `MSE 3.1.1` / `v3.1.1` et
+`MSE 3.1.2` / `v3.1.2`. Dans chaque paire l'ancienne est close et la courante active. Le
+rapprochement préfère donc la version **non close**, ce qui lève l'indétermination sans
+rien deviner.
+
+Le critère est « non close » et non « ouverte », délibérément : une version se clôt
+normalement après sa livraison, et figer la règle sur `open` ferait cesser de
+fonctionner un rapprochement qui marchait, le jour où la version visée se clôt.
+L'indétermination n'est signalée que lorsqu'elle est réelle — deux versions **actives**
+portant le même numéro — faute de quoi l'écran d'administration porterait deux
+avertissements permanents pour une situation qui n'exige aucune décision.
+
+L'écran `/versions` mène avec les versions actives, l'historique clos étant replié
+derrière un bouton. Il n'est pas masqué : une release peut s'y rattacher, et cacher une
+version que Redmine déclare ferait douter de l'exhaustivité de l'écran.
 
 **Il y a deux trackers d'anomalie, pas un.** `Anomalie` et `Anomalie (SDN4)`. Doc 04
 supposait un nom unique ; compter sur l'égalité en aurait manqué la moitié. Le comptage

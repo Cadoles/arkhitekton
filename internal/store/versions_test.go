@@ -92,10 +92,10 @@ func TestUneVersionProvisoireEstAdopteeParLaVersionReelle(t *testing.T) {
 	}
 }
 
-// `MSE 3.1.2` et `v3.1.2` coexistent réellement, l'une close et l'autre ouverte. En
-// choisir une rattacherait des releases à la mauvaise version : l'ambiguïté est
-// rendue, jamais tranchée.
-func TestUneAmbiguiteDeNommageNestPasTranchee(t *testing.T) {
+// Le cas réel : `MSE 3.1.2` est close — ancien système de versionnement — et `v3.1.2`
+// ouverte. Une release visant ce numéro vise la version active, et l'adoption doit
+// donc aboutir plutôt que déclarer une ambiguïté.
+func TestUneVersionCloseHomonymeNeBloquePasLAdoption(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -106,6 +106,66 @@ func TestUneAmbiguiteDeNommageNestPasTranchee(t *testing.T) {
 	releaseOn(t, db, pendingID, "3.1.2")
 
 	redmineVersion(t, db, 803, "MSE 3.1.2", "closed")
+	redmineVersion(t, db, 804, "v3.1.2", "open")
+
+	report, err := db.AdoptPendingVersions(ctx)
+	if err != nil {
+		t.Fatalf("adoption: %v", err)
+	}
+	if len(report) != 1 {
+		t.Fatalf("rapport: %+v", report)
+	}
+	if report[0].Ambiguous {
+		t.Errorf("une seule version active porte ce numéro : pas d'ambiguïté attendue, %+v", report[0])
+	}
+	if report[0].AdoptedInto != "v3.1.2" {
+		t.Errorf("adoptée par %q, attendu la version active v3.1.2", report[0].AdoptedInto)
+	}
+
+	// La provisoire a disparu et la release suit la version ouverte.
+	pendings, err := db.PendingVersions(ctx)
+	if err != nil {
+		t.Fatalf("provisoires: %v", err)
+	}
+	if len(pendings) != 0 {
+		t.Errorf("provisoires subsistantes: %v", pendings)
+	}
+}
+
+// `locked` n'est pas `closed` : une version verrouillée n'accepte plus de nouvelle
+// demande mais n'est pas terminée, et reste donc la candidate.
+func TestUneVersionVerrouilleeResteCandidate(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	pendingID, _ := db.EnsureVersion(ctx, "3.1.3")
+	releaseOn(t, db, pendingID, "3.1.3")
+
+	redmineVersion(t, db, 810, "MSE 3.1.3", "closed")
+	redmineVersion(t, db, 811, "v3.1.3", "locked")
+
+	report, err := db.AdoptPendingVersions(ctx)
+	if err != nil {
+		t.Fatalf("adoption: %v", err)
+	}
+	if len(report) != 1 || report[0].AdoptedInto != "v3.1.3" {
+		t.Errorf("rapport: %+v", report)
+	}
+}
+
+// L'indétermination réelle subsiste quand deux versions actives portent le même
+// numéro : là, trancher rattacherait des releases à la mauvaise version.
+func TestDeuxVersionsActivesHomonymesRestentIndecidables(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	pendingID, err := db.EnsureVersion(ctx, "3.1.2")
+	if err != nil {
+		t.Fatalf("version provisoire: %v", err)
+	}
+	releaseOn(t, db, pendingID, "3.1.2")
+
+	redmineVersion(t, db, 803, "MSE 3.1.2", "open")
 	redmineVersion(t, db, 804, "v3.1.2", "open")
 
 	report, err := db.AdoptPendingVersions(ctx)
@@ -132,7 +192,7 @@ func TestUneAmbiguiteDeNommageNestPasTranchee(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ambiguïtés: %v", err)
 	}
-	if len(ambiguous) != 1 || ambiguous[0].Normalized != "3.1.2" || len(ambiguous[0].Names) != 2 {
+	if len(ambiguous) != 1 || ambiguous[0].Normalized != "3.1.2" {
 		t.Errorf("ambiguïtés: %+v", ambiguous)
 	}
 }
@@ -146,6 +206,8 @@ func TestLAdoptionNeDependPasDeLOrdreDeLecture(t *testing.T) {
 		pendingID, _ := db.EnsureVersion(ctx, "3.1.2")
 		releaseOn(t, db, pendingID, "3.1.2")
 
+		// Les deux actives : c'est le seul cas encore indécidable, et donc le seul
+		// où l'ordre de lecture pourrait faire une différence.
 		for i, name := range ordre {
 			redmineVersion(t, db, int64(900+i), name, "open")
 		}

@@ -102,10 +102,15 @@ type Adoption struct {
 // quelque chose. Sans rapprochement, la version réelle s'afficherait sans aucune
 // release et la provisoire sans aucun périmètre.
 //
-// **L'adoption n'a lieu que si une seule version réelle porte le numéro.** `MSE 3.1.2`
-// et `v3.1.2` coexistent réellement ; en choisir une rattacherait des releases à la
-// mauvaise version, ce qui est pire que de ne rien rattacher. Le cas ambigu est rendu
-// à l'appelant pour affichage, jamais tranché ici.
+// **L'adoption exige une candidate unique.** Quand plusieurs versions portent le même
+// numéro, la version non close est préférée : les seize versions closes du projet
+// viennent d'un ancien système de versionnement, et deux de leurs numéros ont été
+// repris par la convention courante — une release visant ce numéro vise la version
+// active, jamais son homonyme historique.
+//
+// Si l'indétermination subsiste — plusieurs actives, ou plusieurs closes et aucune
+// active — rien n'est adopté. Rattacher à la mauvaise version est pire que de ne rien
+// rattacher, et le cas est rendu à l'appelant pour affichage.
 //
 // À appeler après [DB.UpsertRedmineVersion] sur l'ensemble des versions : c'est ce qui
 // rend le résultat indépendant de l'ordre de lecture.
@@ -154,22 +159,42 @@ func (db *DB) AdoptPendingVersions(ctx context.Context) ([]Adoption, error) {
 			return nil, err
 		}
 
-		switch len(candidates) {
+		// Plusieurs versions peuvent porter le même numéro, l'une close et l'autre
+		// ouverte : les seize versions closes du projet viennent d'un ancien système
+		// de versionnement, et deux de leurs numéros ont été repris par la
+		// convention courante. Une release visant ce numéro vise la version encore
+		// active, jamais son homonyme historique.
+		//
+		// La préférence porte sur « non close » et non sur « ouverte », parce qu'une
+		// version se clôt normalement après sa livraison : figer la règle sur
+		// `open` ferait cesser de fonctionner un rapprochement qui marchait, le jour
+		// où la version visée se clôt.
+		retained := candidates
+		if len(candidates) > 1 {
+			if active := activeOnly(candidates); len(active) == 1 {
+				retained = active
+			}
+		}
+
+		switch len(retained) {
 		case 0:
 			// Aucune version réelle ne porte ce numéro. La provisoire reste, et
 			// `PendingVersions` la signalera : c'est le symptôme d'une faute de
 			// frappe dans un tag, ou d'une version absente de Redmine.
 		case 1:
-			moved, err := mergeVersion(ctx, tx, entry.id, candidates[0].id)
+			moved, err := mergeVersion(ctx, tx, entry.id, retained[0].id)
 			if err != nil {
 				return nil, err
 			}
 			report = append(report, Adoption{
-				PendingName: entry.name, AdoptedInto: candidates[0].name, Releases: moved,
+				PendingName: entry.name, AdoptedInto: retained[0].name, Releases: moved,
 			})
 		default:
-			names := make([]string, 0, len(candidates))
-			for _, candidate := range candidates {
+			// Toujours indécidable : plusieurs versions actives, ou plusieurs closes
+			// et aucune active. Trancher au hasard rattacherait des releases à la
+			// mauvaise version.
+			names := make([]string, 0, len(retained))
+			for _, candidate := range retained {
 				names = append(names, candidate.name)
 			}
 			report = append(report, Adoption{
@@ -185,13 +210,28 @@ func (db *DB) AdoptPendingVersions(ctx context.Context) ([]Adoption, error) {
 }
 
 type versionRef struct {
-	id   int64
-	name string
+	id     int64
+	name   string
+	status string
+}
+
+// activeOnly retient les versions non closes.
+//
+// `locked` en fait partie : une version verrouillée n'accepte plus de nouvelle
+// demande mais n'est pas terminée pour autant.
+func activeOnly(candidates []versionRef) []versionRef {
+	active := make([]versionRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.status != "closed" {
+			active = append(active, candidate)
+		}
+	}
+	return active
 }
 
 func realVersionsNamed(ctx context.Context, tx pgx.Tx, normalized string) ([]versionRef, error) {
 	rows, err := tx.Query(ctx,
-		`select id, name from versions
+		`select id, name, status from versions
 		 where redmine_id > 0 and normalized_name = $1
 		 order by id`, normalized)
 	if err != nil {
@@ -202,7 +242,7 @@ func realVersionsNamed(ctx context.Context, tx pgx.Tx, normalized string) ([]ver
 	var refs []versionRef
 	for rows.Next() {
 		var ref versionRef
-		if err := rows.Scan(&ref.id, &ref.name); err != nil {
+		if err := rows.Scan(&ref.id, &ref.name, &ref.status); err != nil {
 			return nil, fmt.Errorf("versions réelles nommées %q: %w", normalized, err)
 		}
 		refs = append(refs, ref)
@@ -369,17 +409,22 @@ type AmbiguousVersion struct {
 	Names      []string
 }
 
-// AmbiguousVersions rend les numéros portés par plusieurs versions.
+// AmbiguousVersions rend les numéros portés par plusieurs versions **actives**.
 //
-// Sur l'instance réelle, `MSE 3.1.2` et `v3.1.2` coexistent, l'une close et l'autre
-// ouverte. Ce n'est pas une erreur du dashboard mais un fait du projet, et c'est
-// pourtant lui qui empêche de rattacher une release automatiquement — d'où
-// l'affichage explicite plutôt qu'un choix arbitraire.
+// Le filtre sur les actives est ce qui rend cet écran utile. L'instance porte deux
+// numéros repris — `MSE 3.1.1`/`v3.1.1` et `MSE 3.1.2`/`v3.1.2` — mais dans chaque
+// paire l'ancienne est close, et l'adoption sait alors trancher en faveur de la
+// version active. Les signaler serait deux avertissements permanents pour une
+// situation qui n'exige aucune décision, et un écran d'administration qui crie sans
+// raison cesse d'être lu.
+//
+// Ne subsistent donc que les cas réellement indécidables : deux versions actives
+// portant le même numéro.
 func (db *DB) AmbiguousVersions(ctx context.Context) ([]AmbiguousVersion, error) {
 	rows, err := db.pool.Query(ctx,
 		`select normalized_name, array_agg(name order by name)
 		 from versions
-		 where normalized_name is not null and redmine_id > 0
+		 where normalized_name is not null and redmine_id > 0 and status <> 'closed'
 		 group by normalized_name
 		 having count(*) > 1
 		 order by normalized_name`)

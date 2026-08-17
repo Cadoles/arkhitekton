@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
@@ -25,24 +26,83 @@ export function VersionsScreen() {
         <>
           <SyncBanner sync={data.sync} />
 
-          {data.versions.length === 0 ? (
-            <Card title="Versions">
-              <EmptyState>
-                {data.sync.ever_ran
-                  ? 'Aucune version déclarée dans le projet Redmine.'
-                  : "La synchronisation Redmine n'a pas encore tourné."}
-              </EmptyState>
-            </Card>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {data.versions.map((version) => (
+          <VersionLists versions={data.versions} everRan={data.sync.ever_ran} />
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Versions actives d'abord, historique replié.
+ *
+ * Seules les versions non closes comptent pour le pilotage. Les seize closes du projet
+ * viennent d'un ancien système de versionnement — `MSE3-1.5`, `MSE 3.1.0` — et les
+ * mêler aux quatre actives noyait ces dernières dans une liste où rien ne distinguait
+ * l'historique du courant.
+ *
+ * Elles ne sont pas masquées pour autant : une release peut s'y rattacher, et cacher
+ * une version que Redmine déclare ferait douter de l'exhaustivité de l'écran.
+ *
+ * Le critère est « non close » et non « ouverte » : une version verrouillée n'accepte
+ * plus de demande mais n'est pas terminée.
+ */
+function VersionLists({ versions, everRan }: { versions: Version[]; everRan: boolean }) {
+  const [showClosed, setShowClosed] = useState(false)
+
+  const active = versions.filter((version) => version.status !== 'closed')
+  const closed = versions.filter((version) => version.status === 'closed')
+
+  if (versions.length === 0) {
+    return (
+      <Card title="Versions">
+        <EmptyState>
+          {everRan
+            ? 'Aucune version déclarée dans le projet Redmine.'
+            : "La synchronisation Redmine n'a pas encore tourné."}
+        </EmptyState>
+      </Card>
+    )
+  }
+
+  return (
+    <>
+      {active.length === 0 ? (
+        <Card title="Versions en cours">
+          <EmptyState>
+            Aucune version ouverte. Les {closed.length} versions closes sont dans l'historique
+            ci-dessous.
+          </EmptyState>
+        </Card>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {active.map((version) => (
+            <VersionRow key={version.id} version={version} />
+          ))}
+        </ul>
+      )}
+
+      {closed.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowClosed((value) => !value)}
+            aria-expanded={showClosed}
+            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+          >
+            {showClosed ? 'Masquer' : 'Afficher'} les {closed.length} versions closes
+          </button>
+
+          {showClosed && (
+            <ul className="mt-2 flex flex-col gap-2">
+              {closed.map((version) => (
                 <VersionRow key={version.id} version={version} />
               ))}
             </ul>
           )}
-        </>
+        </div>
       )}
-    </div>
+    </>
   )
 }
 
