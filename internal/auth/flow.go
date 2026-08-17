@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -29,16 +30,16 @@ type FlowState struct {
 	CreatedAt     time.Time
 }
 
-// FlowStore conserve les transactions d'authentification en cours.
+// FlowStore conserve les transactions d'authentification en mémoire.
 //
-// En mémoire volontairement : ces états vivent quelques secondes, sont sans
-// valeur après usage, et les perdre au redémarrage n'a pour effet que de
-// demander à l'utilisateur de recommencer sa connexion. Les persister ferait
-// payer une écriture en base à chaque tentative, pour un bénéfice nul.
+// **Réservé aux tests et à un usage mono-instance.** Le raisonnement d'origine —
+// ces états vivent quelques secondes et les perdre ne coûte qu'une reconnexion —
+// négligeait le cas qui compte : avec plusieurs répliques et sans affinité de
+// session, `/auth/login` est servi par l'une et `/auth/callback` par l'autre.
+// L'état est alors introuvable, et une connexion sur deux échoue.
 //
-// Conséquence assumée : avec plusieurs répliques d'API, la requête de retour
-// doit atteindre la même instance. C'est le cas avec des sessions collantes ou
-// une seule réplique ; au-delà, il faudra un stockage partagé.
+// La production emploie donc [DBFlowStore]. Celui-ci reste utile là où il n'y a
+// qu'un processus, et évite une base aux tests du flux.
 type FlowStore struct {
 	mu     sync.Mutex
 	states map[string]FlowState
@@ -58,7 +59,10 @@ func NewFlowStore(ttl time.Duration) *FlowStore {
 }
 
 // Begin crée une transaction d'authentification et rend son état.
-func (s *FlowStore) Begin(redirectAfter string) (FlowState, error) {
+//
+// Le contexte est ignoré : il n'existe que pour que ce magasin reste
+// interchangeable avec [DBFlowStore], qui en a besoin.
+func (s *FlowStore) Begin(_ context.Context, redirectAfter string) (FlowState, error) {
 	state, err := randomToken(32)
 	if err != nil {
 		return FlowState{}, err
@@ -97,7 +101,7 @@ var (
 //
 // À usage unique : un `state` rejouable permettrait de rejouer un code
 // d'autorisation intercepté. Le retrait a lieu que l'état soit valide ou expiré.
-func (s *FlowStore) Consume(state string) (FlowState, error) {
+func (s *FlowStore) Consume(_ context.Context, state string) (FlowState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

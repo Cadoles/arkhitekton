@@ -127,7 +127,7 @@ func TestCallbackOpensSessionAndSetsCookies(t *testing.T) {
 	sessions := &stubSessions{created: auth.Session{ID: "session-id"}}
 	handler, flows := newAuthHandler(ex, sessions)
 
-	flow, _ := flows.Begin("/versions")
+	flow, _ := flows.Begin(context.Background(), "/versions")
 	rec := httptest.NewRecorder()
 	handler.Callback(rec, httptest.NewRequest(http.MethodGet,
 		"/api/v1/auth/callback?code=abc&state="+url.QueryEscape(flow.State), nil))
@@ -189,7 +189,7 @@ func TestCallbackRejectsReplayedState(t *testing.T) {
 	ex := &stubExchanger{claims: auth.Claims{Subject: "sub-1"}}
 	handler, flows := newAuthHandler(ex, &stubSessions{created: auth.Session{ID: "s"}})
 
-	flow, _ := flows.Begin("/")
+	flow, _ := flows.Begin(context.Background(), "/")
 	target := "/api/v1/auth/callback?code=abc&state=" + url.QueryEscape(flow.State)
 
 	first := httptest.NewRecorder()
@@ -223,7 +223,7 @@ func TestCallbackRejectsFailedExchange(t *testing.T) {
 	ex := &stubExchanger{err: errors.New("nonce invalide")}
 	handler, flows := newAuthHandler(ex, &stubSessions{})
 
-	flow, _ := flows.Begin("/")
+	flow, _ := flows.Begin(context.Background(), "/")
 	rec := httptest.NewRecorder()
 	handler.Callback(rec, httptest.NewRequest(http.MethodGet,
 		"/api/v1/auth/callback?code=abc&state="+url.QueryEscape(flow.State), nil))

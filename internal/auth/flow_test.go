@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -14,7 +15,7 @@ func TestBeginProducesDistinctUnpredictableValues(t *testing.T) {
 
 	seen := map[string]bool{}
 	for range 50 {
-		flow, err := store.Begin("/versions")
+		flow, err := store.Begin(context.Background(), "/versions")
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
 		}
@@ -34,15 +35,15 @@ func TestBeginProducesDistinctUnpredictableValues(t *testing.T) {
 func TestConsumeIsSingleUse(t *testing.T) {
 	store := NewFlowStore(time.Minute)
 
-	flow, err := store.Begin("/")
+	flow, err := store.Begin(context.Background(), "/")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 
-	if _, err := store.Consume(flow.State); err != nil {
+	if _, err := store.Consume(context.Background(), flow.State); err != nil {
 		t.Fatalf("première consommation refusée: %v", err)
 	}
-	if _, err := store.Consume(flow.State); !errors.Is(err, ErrUnknownState) {
+	if _, err := store.Consume(context.Background(), flow.State); !errors.Is(err, ErrUnknownState) {
 		t.Fatalf("le state a été accepté une seconde fois: %v", err)
 	}
 }
@@ -50,7 +51,7 @@ func TestConsumeIsSingleUse(t *testing.T) {
 func TestConsumeRejectsUnknownState(t *testing.T) {
 	store := NewFlowStore(time.Minute)
 
-	if _, err := store.Consume("state-forgé"); !errors.Is(err, ErrUnknownState) {
+	if _, err := store.Consume(context.Background(), "state-forgé"); !errors.Is(err, ErrUnknownState) {
 		t.Fatalf("attendu ErrUnknownState, obtenu %v", err)
 	}
 }
@@ -60,14 +61,14 @@ func TestConsumeRejectsExpiredState(t *testing.T) {
 	current := time.Now()
 	store.now = func() time.Time { return current }
 
-	flow, err := store.Begin("/")
+	flow, err := store.Begin(context.Background(), "/")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 
 	current = current.Add(6 * time.Minute)
 
-	if _, err := store.Consume(flow.State); !errors.Is(err, ErrUnknownState) {
+	if _, err := store.Consume(context.Background(), flow.State); !errors.Is(err, ErrUnknownState) {
 		t.Fatalf("un state expiré a été accepté: %v", err)
 	}
 }
@@ -79,7 +80,7 @@ func TestBeginEvictsAbandonedTransactions(t *testing.T) {
 	store.now = func() time.Time { return current }
 
 	for range 10 {
-		if _, err := store.Begin("/"); err != nil {
+		if _, err := store.Begin(context.Background(), "/"); err != nil {
 			t.Fatalf("Begin: %v", err)
 		}
 	}
@@ -88,7 +89,7 @@ func TestBeginEvictsAbandonedTransactions(t *testing.T) {
 	}
 
 	current = current.Add(2 * time.Minute)
-	if _, err := store.Begin("/"); err != nil {
+	if _, err := store.Begin(context.Background(), "/"); err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 
@@ -105,12 +106,12 @@ func TestFlowStoreIsSafeForConcurrentUse(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			flow, err := store.Begin("/")
+			flow, err := store.Begin(context.Background(), "/")
 			if err != nil {
 				t.Errorf("Begin: %v", err)
 				return
 			}
-			if _, err := store.Consume(flow.State); err != nil {
+			if _, err := store.Consume(context.Background(), flow.State); err != nil {
 				t.Errorf("Consume: %v", err)
 			}
 		}()
@@ -137,11 +138,11 @@ func TestCodeChallengeMatchesS256(t *testing.T) {
 func TestBeginPreservesRequestedRedirect(t *testing.T) {
 	store := NewFlowStore(time.Minute)
 
-	flow, err := store.Begin("/releases/1.8.0/tests/unit")
+	flow, err := store.Begin(context.Background(), "/releases/1.8.0/tests/unit")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	consumed, err := store.Consume(flow.State)
+	consumed, err := store.Consume(context.Background(), flow.State)
 	if err != nil {
 		t.Fatalf("Consume: %v", err)
 	}

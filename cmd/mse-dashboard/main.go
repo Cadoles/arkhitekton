@@ -139,7 +139,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 
-	flows := auth.NewFlowStore(10 * time.Minute)
+	// En base et non en mémoire : deux répliques d'api sans affinité de session
+	// servent `/auth/login` et `/auth/callback` par des instances différentes, et
+	// l'état de transition serait introuvable une fois sur deux.
+	flows := auth.NewDBFlowStore(db.Pool(), 10*time.Minute)
 	authorizer := auth.NewAuthorizer(environmentPolicies())
 	authHandler := dashhttp.NewAuthHandler(
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL), cfg.OIDC.SessionTTL)
@@ -342,10 +345,20 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// seconde dépend de la première pour apprendre qu'un run est fini,
 			// et les sérialiser bloquerait la file derrière la synchronisation
 			// du cache.
-			errs := make(chan error, 3)
+			// La purge des sessions échues et des transactions
+			// d'authentification abandonnées : sa boucle manquait, et
+			// `PurgeExpired` était documentée comme appelée périodiquement sans
+			// que personne ne l'appelle.
+			purger := worker.NewPurger(
+				auth.NewSessionStore(db.Pool(), cfg.OIDC.SessionTTL),
+				auth.NewDBFlowStore(db.Pool(), 10*time.Minute),
+				logger)
+
+			errs := make(chan error, 4)
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
 			go func() { errs <- environments.Run(leadingCtx) }()
+			go func() { errs <- purger.Run(leadingCtx) }()
 
 			// La première erreur l'emporte : une boucle morte doit faire perdre
 			// le bail plutôt que de laisser l'autre tourner à moitié.

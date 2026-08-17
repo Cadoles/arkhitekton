@@ -26,7 +26,7 @@ type Sessions interface {
 // AuthHandler porte le flux d'authentification.
 type AuthHandler struct {
 	exchanger auth.Exchanger
-	flows     *auth.FlowStore
+	flows     Flows
 	sessions  Sessions
 	logger    *slog.Logger
 	// secureCookies doit valoir true partout sauf en développement sur http.
@@ -36,7 +36,7 @@ type AuthHandler struct {
 
 func NewAuthHandler(
 	exchanger auth.Exchanger,
-	flows *auth.FlowStore,
+	flows Flows,
 	sessions Sessions,
 	logger *slog.Logger,
 	secureCookies bool,
@@ -52,9 +52,20 @@ func NewAuthHandler(
 	}
 }
 
+// Flows est ce que le handler attend du magasin de transactions.
+//
+// Une interface, et non le type concret : le magasin en mémoire suffit aux tests,
+// tandis que la production exige un stockage partagé — deux répliques d'api sans
+// affinité de session servent `/auth/login` et `/auth/callback` par des instances
+// différentes, et l'état serait introuvable une fois sur deux.
+type Flows interface {
+	Begin(ctx context.Context, redirectAfter string) (auth.FlowState, error)
+	Consume(ctx context.Context, state string) (auth.FlowState, error)
+}
+
 // Login ouvre une transaction et redirige vers le fournisseur.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	flow, err := h.flows.Begin(safeRedirect(r.URL.Query().Get("redirect")))
+	flow, err := h.flows.Begin(r.Context(), safeRedirect(r.URL.Query().Get("redirect")))
 	if err != nil {
 		h.logger.Error("ouverture de transaction d'authentification", "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Authentification indisponible", "")
@@ -80,7 +91,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flow, err := h.flows.Consume(query.Get("state"))
+	flow, err := h.flows.Consume(r.Context(), query.Get("state"))
 	if err != nil {
 		// Rejeu, expiration ou state forgé : tous se traitent pareil, et sans
 		// détail — distinguer les cas donnerait un oracle.
