@@ -48,6 +48,7 @@ export function SyncPanel() {
     <Card title="Synchronisation Redmine" action={<ResyncButton />}>
       <SyncSummary data={data} />
       <UnmappedStatuses data={data} />
+      <MappingTable data={data} />
       <AmbiguousVersions data={data} />
       <PendingVersions data={data} />
     </Card>
@@ -136,22 +137,112 @@ function UnmappedStatuses({ data }: { data: SyncAdmin }) {
   )
 }
 
+/*
+ * Statuts dont la projection attend une décision du client.
+ *
+ * Ils sont placés en « en cours » par la migration 0012, par prudence : livré n'est
+ * pas nécessairement recetté, et surestimer la complétion annoncerait une version
+ * complète alors que la recette n'a pas eu lieu.
+ *
+ * Cette liste double celle de la migration, et c'est assumé : elle ne sert qu'à
+ * mettre en avant les lignes à regarder. Une divergence n'aurait pour effet que de
+ * souligner la mauvaise ligne, jamais de fausser un calcul.
+ */
+const AWAITING_VALIDATION = new Set([
+  'Livré',
+  'Livré DEV',
+  'Prêt à livrer',
+  'Testé',
+  'Installation',
+])
+
+/**
+ * Table complète de la projection, éditable.
+ *
+ * Les statuts **déjà projetés** ont besoin de cette interface autant que les
+ * inconnus, et plus encore : ce sont eux qui décident du taux de complétion affiché
+ * au client, et cinq d'entre eux attendent son arbitrage. N'exposer que les statuts
+ * non mappés laissait le réglage inaccessible dès que l'amorçage les couvrait tous,
+ * ce qui est le cas sur l'instance réelle.
+ */
+function MappingTable({ data }: { data: SyncAdmin }) {
+  const [open, setOpen] = useState(false)
+
+  const statuses = Object.keys(data.mapping).sort((a, b) => a.localeCompare(b, 'fr'))
+  const awaiting = statuses.filter((status) => AWAITING_VALIDATION.has(status))
+
+  return (
+    <div className="mt-4 border-t border-zinc-200 pt-3">
+      <div className="flex flex-wrap items-baseline gap-3">
+        <h3 className="text-sm font-medium text-zinc-900">
+          Projection des statuts ({statuses.length})
+        </h3>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+        >
+          {open ? 'Replier' : 'Modifier'}
+        </button>
+      </div>
+
+      <p className="mt-1 text-sm text-zinc-500">
+        Chaque statut Redmine est rangé dans un seau. Le taux de complétion vaut « terminé »
+        divisé par « tout sauf écarté » : changer un seau déplace donc un chiffre affiché.
+      </p>
+
+      {awaiting.length > 0 && (
+        <p className="mt-2 flex items-start gap-2 rounded-md border border-warn-500 bg-warn-50 px-3 py-2 text-sm text-warn-700">
+          <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+          <span>
+            {awaiting.length} statut(s) placé(s) en « en cours » par prudence, en attente d'un
+            arbitrage : <span className="font-medium">{awaiting.join(', ')}</span>. Livré n'est pas
+            nécessairement recetté — surestimer la complétion annoncerait une version complète
+            alors que la recette n'a pas eu lieu.
+          </span>
+        </p>
+      )}
+
+      {open && (
+        <ul className="mt-2 flex flex-col gap-1">
+          {statuses.map((status) => (
+            <StatusRow
+              // Le seau courant entre dans la clé : une modification enregistrée
+              // remonte la table, et sans cela la ligne conserverait l'état local
+              // de son sélecteur, affichant une valeur que le serveur a remplacée.
+              key={`${status}:${data.mapping[status]}`}
+              status={status}
+              current={data.mapping[status]}
+              flagged={AWAITING_VALIDATION.has(status)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function StatusRow({
   status,
   issues,
   current,
+  flagged,
 }: {
   status: string
-  issues: number
+  issues?: number
   current: Bucket | undefined
+  flagged?: boolean
 }) {
   const setBucket = useSetStatusBucket()
   const [bucket, setLocal] = useState<Bucket>(current ?? 'todo')
 
   return (
     <li className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="min-w-48 text-zinc-900">{status}</span>
-      <span className="text-zinc-500">{issues} demande(s)</span>
+      <span className={`min-w-48 ${flagged ? 'font-medium text-warn-700' : 'text-zinc-900'}`}>
+        {status}
+      </span>
+      {issues !== undefined && <span className="text-zinc-500">{issues} demande(s)</span>}
       <select
         value={bucket}
         onChange={(event) => setLocal(event.target.value as Bucket)}
