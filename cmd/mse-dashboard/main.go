@@ -124,13 +124,13 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	sessions := auth.NewSessionStore(db.Pool(), cfg.OIDC.SessionTTL)
 
-	// L'amorçage a lieu avant l'ouverture du port : démarrer sans administrateur
-	// donnerait une interface où personne ne peut rien faire ni rien débloquer.
-	granted, err := sessions.EnsureBootstrapAdmins(ctx, cfg.OIDC.BootstrapAdmins)
-	if err != nil {
-		return fmt.Errorf("amorçage des administrateurs: %w", err)
-	}
-	logger.Info("administrateurs d'amorçage", "declared", len(cfg.OIDC.BootstrapAdmins), "granted", granted)
+	// L'amorçage n'a plus lieu au démarrage : il prenait chaque identifiant de la
+	// configuration pour un `subject`, alors que Gitea met son identifiant
+	// numérique dans le claim `sub`. La ligne créée ne correspondait donc à aucun
+	// utilisateur réel. La promotion se fait désormais à la connexion, seul moment
+	// où le sujet est connu.
+	logger.Info("administrateurs d'amorçage déclarés",
+		"count", len(cfg.OIDC.BootstrapAdmins), "resolution", "à la première connexion")
 
 	// La découverte OIDC a lieu ici : un fournisseur injoignable doit empêcher le
 	// démarrage plutôt que de produire des erreurs opaques au premier utilisateur.
@@ -145,7 +145,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	flows := auth.NewDBFlowStore(db.Pool(), 10*time.Minute)
 	authorizer := auth.NewAuthorizer(environmentPolicies())
 	authHandler := dashhttp.NewAuthHandler(
-		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL), cfg.OIDC.SessionTTL)
+		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL),
+		cfg.OIDC.BootstrapAdmins, cfg.OIDC.SessionTTL)
 	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger)
 	runsHandler := dashhttp.NewRunsHandler(db)
 	// Le lecteur de journaux vit côté `api` et lit le stockage : le collecteur

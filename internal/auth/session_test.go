@@ -152,32 +152,95 @@ func TestRevokeSubjectClosesEverySession(t *testing.T) {
 	}
 }
 
-// Un compte rétrogradé volontairement ne doit pas redevenir administrateur au
-// redémarrage suivant.
+// Un compte rétrogradé volontairement ne doit pas redevenir administrateur à sa
+// prochaine connexion.
 func TestBootstrapDoesNotOverrideExistingRole(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	store := NewSessionStore(pool, time.Hour)
 
-	if err := store.GrantRole(ctx, "vcarroy", "vcarroy", RoleViewer, "admin"); err != nil {
+	if err := store.GrantRole(ctx, "121", "vcarroy", RoleViewer, "admin"); err != nil {
 		t.Fatalf("GrantRole: %v", err)
 	}
 
-	granted, err := store.EnsureBootstrapAdmins(ctx, []string{"vcarroy", "nouveau"})
+	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy", []string{"vcarroy"})
 	if err != nil {
-		t.Fatalf("EnsureBootstrapAdmins: %v", err)
+		t.Fatalf("ApplyBootstrap: %v", err)
 	}
-	if granted != 1 {
-		t.Errorf("attendu 1 attribution (le compte existant est préservé), obtenu %d", granted)
+	if granted {
+		t.Error("un rôle existant ne doit pas être écrasé")
 	}
 
-	session, _ := store.Create(ctx, "vcarroy", "vcarroy", "")
+	session, _ := store.Create(ctx, "121", "vcarroy", "")
 	_, role, err := store.Lookup(ctx, session.ID)
 	if err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
 	if role != RoleViewer {
 		t.Errorf("le rôle a été écrasé par l'amorçage: %s", role)
+	}
+}
+
+// La panne à corriger : Gitea met son identifiant numérique dans `sub`, là où un
+// humain écrit un nom de compte dans la configuration. L'ancienne version créait
+// un rôle pour le nom, l'utilisateur se connectait sous le numéro, et personne
+// n'avait de permission.
+func TestBootstrapMatchesTheUsernameNotOnlyTheSubject(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy", []string{"vcarroy"})
+	if err != nil {
+		t.Fatalf("ApplyBootstrap: %v", err)
+	}
+	if !granted {
+		t.Fatal("un nom de compte déclaré doit promouvoir le sujet correspondant")
+	}
+
+	// Le rôle porte le sujet réel, pas le nom : c'est lui qui portera
+	// l'autorisation aux requêtes suivantes.
+	session, _ := store.Create(ctx, "121", "vcarroy", "")
+	_, role, err := store.Lookup(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if role != RoleAdmin {
+		t.Errorf("rôle = %s, attendu admin", role)
+	}
+}
+
+// Le sujet reste accepté : il est immuable, donc plus sûr pour qui le connaît.
+func TestBootstrapAlsoMatchesTheSubject(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy", []string{"121"})
+	if err != nil || !granted {
+		t.Fatalf("granted = %v, err = %v", granted, err)
+	}
+}
+
+// Un compte absent de la liste ne gagne rien : sans quoi l'amorçage promouvrait
+// le premier venu.
+func TestBootstrapIgnoresUndeclaredAccounts(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	granted, err := store.ApplyBootstrap(ctx, "999", "intrus", []string{"vcarroy"})
+	if err != nil {
+		t.Fatalf("ApplyBootstrap: %v", err)
+	}
+	if granted {
+		t.Error("un compte non déclaré ne doit pas être promu")
+	}
+
+	session, _ := store.Create(ctx, "999", "intrus", "")
+	_, role, _ := store.Lookup(ctx, session.ID)
+	if role == RoleAdmin {
+		t.Error("rôle administrateur accordé à un compte non déclaré")
 	}
 }
 

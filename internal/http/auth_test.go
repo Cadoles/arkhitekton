@@ -47,6 +47,12 @@ type stubSessions struct {
 	revoked    []string
 }
 
+// L'amorçage est neutre dans ces tests : ils éprouvent le flux, pas la
+// promotion. Un stub qui promeut masquerait un défaut d'autorisation.
+func (s *stubSessions) ApplyBootstrap(context.Context, string, string, []string) (bool, error) {
+	return false, nil
+}
+
 func (s *stubSessions) Create(context.Context, string, string, string) (auth.Session, error) {
 	return s.created, s.createErr
 }
@@ -64,7 +70,7 @@ func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard
 
 func newAuthHandler(ex auth.Exchanger, sessions Sessions) (*AuthHandler, *auth.FlowStore) {
 	flows := auth.NewFlowStore(time.Minute)
-	return NewAuthHandler(ex, flows, sessions, quietLogger(), true, time.Hour), flows
+	return NewAuthHandler(ex, flows, sessions, quietLogger(), true, nil, time.Hour), flows
 }
 
 func cookieByName(res *http.Response, name string) *http.Cookie {

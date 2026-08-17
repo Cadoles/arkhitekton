@@ -19,6 +19,10 @@ const (
 // Sessions décrit ce que les handlers attendent du magasin de sessions.
 type Sessions interface {
 	Create(ctx context.Context, subject, username, email string) (auth.Session, error)
+	// ApplyBootstrap promeut administrateur un compte déclaré en configuration.
+	// Appelée à la connexion : le sujet du fournisseur d'identité n'est pas
+	// connaissable avant.
+	ApplyBootstrap(ctx context.Context, subject, username string, identifiers []string) (bool, error)
 	Lookup(ctx context.Context, id string) (auth.Session, auth.Role, error)
 	Revoke(ctx context.Context, id string) error
 }
@@ -31,7 +35,10 @@ type AuthHandler struct {
 	logger    *slog.Logger
 	// secureCookies doit valoir true partout sauf en développement sur http.
 	secureCookies bool
-	sessionTTL    time.Duration
+	// bootstrapAdmins nomme les comptes promus administrateurs à leur première
+	// connexion, par sujet ou par nom de compte.
+	bootstrapAdmins []string
+	sessionTTL      time.Duration
 }
 
 func NewAuthHandler(
@@ -40,15 +47,17 @@ func NewAuthHandler(
 	sessions Sessions,
 	logger *slog.Logger,
 	secureCookies bool,
+	bootstrapAdmins []string,
 	sessionTTL time.Duration,
 ) *AuthHandler {
 	return &AuthHandler{
-		exchanger:     exchanger,
-		flows:         flows,
-		sessions:      sessions,
-		logger:        logger,
-		secureCookies: secureCookies,
-		sessionTTL:    sessionTTL,
+		exchanger:       exchanger,
+		flows:           flows,
+		sessions:        sessions,
+		logger:          logger,
+		secureCookies:   secureCookies,
+		bootstrapAdmins: bootstrapAdmins,
+		sessionTTL:      sessionTTL,
 	}
 }
 
@@ -112,6 +121,19 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("échange du code d'autorisation", "error", err)
 		writeProblem(w, http.StatusUnauthorized, "Authentification refusée", "")
 		return
+	}
+
+	// Avant la création de session : c'est ici que le sujet du fournisseur est
+	// enfin connu, et donc le seul moment où un identifiant écrit à l'avance dans
+	// la configuration peut lui être rattaché.
+	if granted, err := h.sessions.ApplyBootstrap(
+		r.Context(), claims.Subject, claims.Username, h.bootstrapAdmins); err != nil {
+		// L'amorçage n'est pas bloquant : échouer ici priverait de connexion un
+		// utilisateur qui a peut-être déjà un rôle.
+		h.logger.Error("amorçage administrateur", "subject", claims.Subject, "error", err)
+	} else if granted {
+		h.logger.Info("administrateur d'amorçage promu",
+			"subject", claims.Subject, "username", claims.Username)
 	}
 
 	session, err := h.sessions.Create(r.Context(), claims.Subject, claims.Username, claims.Email)
