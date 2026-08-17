@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { CompletionBar } from './VersionsScreen'
+import { CreateReleasePanel } from './CreateReleasePanel'
 import { useVersion, type Bucket, type Issue, type VersionRelease } from './api'
 
 /*
@@ -101,6 +102,10 @@ export function VersionScreen() {
           )}
 
           <Releases releases={data.releases} />
+
+          {/* Après les releases existantes : on crée au vu de ce qui existe déjà,
+              notamment pour choisir la RC source d'une finale. */}
+          <CreateReleasePanel version={data.version} releases={data.releases} />
         </>
       )}
     </div>

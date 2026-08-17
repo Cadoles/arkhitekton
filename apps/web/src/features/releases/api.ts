@@ -261,3 +261,41 @@ export function useClearSignoff(tag: string) {
     },
   })
 }
+
+export type CreatedRelease = {
+  release: { tag: string; kind: ReleaseKind; state: ReleaseState; image_version: string }
+  /** Réserves émises par le serveur — RC aux tests non verts, re-tag non mis en
+   *  file. La création a réussi malgré elles : les taire ferait croire à un
+   *  succès sans condition. */
+  warnings?: string[]
+  retag_job_id?: number
+}
+
+/**
+ * Création d'une release.
+ *
+ * Toute la validation vit côté serveur — cohérence tag/nature, jointure avec la
+ * version Redmine (B17), permission `release:create:final` pour livrer. Le
+ * formulaire ne pré-vérifie rien : dupliquer ces règles ici les ferait diverger,
+ * et c'est précisément le message d'erreur du serveur qui explique le refus.
+ */
+export function useCreateRelease() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (payload: {
+      tag: string
+      kind: ReleaseKind
+      redmine_version?: string
+      source_tag?: string
+      tests_green?: boolean
+    }) =>
+      request<CreatedRelease>('/releases', { method: 'POST', body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases'] })
+      // La version gagne une release, et une finale met un re-tag en file.
+      void queryClient.invalidateQueries({ queryKey: ['versions'] })
+      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
+}

@@ -615,3 +615,74 @@ func TestSeulsTodoEtDoingSontOuverts(t *testing.T) {
 		}
 	}
 }
+
+// Le rattachement immédiat : quand la version Redmine existe déjà, une release taguée
+// `3.2.0-rc1` — base `3.2.0` — doit s'accrocher à `v3.2.0` directement. Chercher le nom
+// exact seul créait une provisoire fantôme, adoptée cinq minutes plus tard ; entre-temps
+// l'écran montrait la release accrochée à une version « inconnue de Redmine » qui
+// existait bel et bien.
+func TestEnsureVersionRattacheAUneVersionReelleParNomNormalise(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	realID := redmineVersion(t, db, 805, "v3.2.0", "open")
+
+	id, err := db.EnsureVersion(ctx, "3.2.0")
+	if err != nil {
+		t.Fatalf("rattachement: %v", err)
+	}
+	if id != realID {
+		t.Errorf("rattaché à %d, attendu la version réelle %d", id, realID)
+	}
+
+	// Aucune provisoire ne doit être née de ce rattachement.
+	pendings, err := db.PendingVersions(ctx)
+	if err != nil {
+		t.Fatalf("provisoires: %v", err)
+	}
+	if len(pendings) != 0 {
+		t.Errorf("provisoires créées à tort: %v", pendings)
+	}
+}
+
+// La même préférence que l'adoption : entre l'homonyme close de l'ancien système et la
+// version active, la release va à l'active. Les deux chemins — rattachement immédiat et
+// adoption différée — doivent désigner la même version, sans quoi le résultat dépendrait
+// du moment où la release est créée.
+func TestEnsureVersionPrefereLaVersionActiveALHomonymeClose(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	redmineVersion(t, db, 803, "MSE 3.1.2", "closed")
+	activeID := redmineVersion(t, db, 804, "v3.1.2", "open")
+
+	id, err := db.EnsureVersion(ctx, "3.1.2")
+	if err != nil {
+		t.Fatalf("rattachement: %v", err)
+	}
+	if id != activeID {
+		t.Errorf("rattaché à %d, attendu la version active %d", id, activeID)
+	}
+}
+
+// Deux versions actives homonymes : indécidable, donc provisoire — choisir au hasard
+// rattacherait la release à la mauvaise version, et la provisoire reste visible.
+func TestEnsureVersionRetombeSurUneProvisoireQuandCestIndecidable(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	redmineVersion(t, db, 803, "MSE 3.1.2", "open")
+	redmineVersion(t, db, 804, "v3.1.2", "open")
+
+	if _, err := db.EnsureVersion(ctx, "3.1.2"); err != nil {
+		t.Fatalf("rattachement: %v", err)
+	}
+
+	pendings, err := db.PendingVersions(ctx)
+	if err != nil {
+		t.Fatalf("provisoires: %v", err)
+	}
+	if len(pendings) != 1 || pendings[0] != "3.1.2" {
+		t.Errorf("provisoires: %v, attendu la seule 3.1.2", pendings)
+	}
+}

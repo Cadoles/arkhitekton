@@ -229,6 +229,21 @@ func activeOnly(candidates []versionRef) []versionRef {
 	return active
 }
 
+// realVersionsNormalized est [realVersionsNamed] hors transaction, pour les
+// lectures qui n'ont pas de provisoire à verrouiller — le rattachement immédiat
+// d'une release, notamment.
+func (db *DB) realVersionsNormalized(ctx context.Context, normalized string) ([]versionRef, error) {
+	rows, err := db.pool.Query(ctx,
+		`select id, name, status from versions
+		 where redmine_id > 0 and normalized_name = $1
+		 order by id`, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("versions réelles nommées %q: %w", normalized, err)
+	}
+	defer rows.Close()
+	return scanVersionRefs(rows, normalized)
+}
+
 func realVersionsNamed(ctx context.Context, tx pgx.Tx, normalized string) ([]versionRef, error) {
 	rows, err := tx.Query(ctx,
 		`select id, name, status from versions
@@ -238,7 +253,10 @@ func realVersionsNamed(ctx context.Context, tx pgx.Tx, normalized string) ([]ver
 		return nil, fmt.Errorf("versions réelles nommées %q: %w", normalized, err)
 	}
 	defer rows.Close()
+	return scanVersionRefs(rows, normalized)
+}
 
+func scanVersionRefs(rows pgx.Rows, normalized string) ([]versionRef, error) {
 	var refs []versionRef
 	for rows.Next() {
 		var ref versionRef

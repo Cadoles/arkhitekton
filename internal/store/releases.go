@@ -203,16 +203,21 @@ func (db *DB) ListPromotions(ctx context.Context, releaseID int64) ([]Promotion,
 	return promotions, rows.Err()
 }
 
-// EnsureVersion crée une version au besoin, et rend son identifiant.
+// EnsureVersion rattache une release à sa version, en la créant au besoin.
 //
-// Sert tant que la synchronisation Redmine (lot 1) n'est pas en place : sans
-// elle, la table des versions est vide et aucune release ne peut être créée,
-// alors que tout le reste de la chaîne fonctionne.
+// La recherche se fait en trois temps, et l'ordre porte la sémantique :
 //
-// La ligne créée porte `redmine_id` négatif et un statut explicite : elle est
-// reconnaissable, et la synchronisation la remplacera par la vraie version sans
-// que les releases déjà rattachées perdent leur lien — la jointure se fait sur le
-// nom, qui est l'invariant.
+//  1. le nom exact — le cas d'une provisoire déjà créée pour ce même numéro ;
+//  2. le nom **normalisé**, en préférant la version non close — le cas nominal
+//     depuis la synchronisation : une release taguée `3.2.0-rc1` a pour base
+//     `3.2.0`, alors que la version Redmine s'appelle `v3.2.0`. Chercher le nom
+//     exact seul créait une provisoire fantôme, adoptée cinq minutes plus tard
+//     par la synchronisation ; entre-temps l'écran montrait la release accrochée
+//     à une version « inconnue de Redmine » qui existait bel et bien. La règle de
+//     préférence est celle de l'adoption, pour que le rattachement immédiat et le
+//     rattachement différé désignent la même version ;
+//  3. la création d'une provisoire à `redmine_id` négatif — le repli quand
+//     Redmine ne connaît pas encore le numéro, reconnaissable et adopté plus tard.
 func (db *DB) EnsureVersion(ctx context.Context, name string) (int64, error) {
 	id, err := db.FindVersionByName(ctx, name)
 	if err == nil {
@@ -220,6 +225,21 @@ func (db *DB) EnsureVersion(ctx context.Context, name string) (int64, error) {
 	}
 	if !errors.Is(err, ErrVersionNotFound) {
 		return 0, err
+	}
+
+	// Parmi les versions réelles portant ce numéro, la non-close l'emporte ; à
+	// égalité le rattachement est indécidable et on retombe sur la provisoire —
+	// choisir au hasard rattacherait la release à la mauvaise version, et la
+	// provisoire, elle, reste visible et signalée.
+	candidates, err := db.realVersionsNormalized(ctx, release.NormalizeVersionName(name))
+	if err != nil {
+		return 0, err
+	}
+	if active := activeOnly(candidates); len(active) == 1 {
+		return active[0].id, nil
+	}
+	if len(candidates) == 1 {
+		return candidates[0].id, nil
 	}
 
 	// `normalized_name` est renseigné dès la création, et ce n'est pas cosmétique :
