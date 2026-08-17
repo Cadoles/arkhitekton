@@ -199,7 +199,12 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		// périmètre. La liste séparée est un second angle de lecture, pas un
 		// déplacement — une anomalie retirée du périmètre serait invisible pour qui
 		// regarde les colonnes.
-		if issue.Anomaly && !issue.IsClosed && issue.Bucket != store.BucketRejected {
+		//
+		// « Ouverte » se lit sur le seau projeté et non sur le drapeau `is_closed` de
+		// Redmine. Les deux divergent — `Testé` y est déclaré non clos alors qu'il est
+		// projeté en `done` — et employer deux notions de « clos » dans le même écran
+		// faisait apparaître des anomalies terminées dans le bandeau des ouvertes.
+		if issue.Anomaly && store.BucketIsOpen(issue.Bucket) {
 			anomalies = append(anomalies, view)
 		}
 	}

@@ -74,6 +74,30 @@ const (
 	BucketRejected = "rejected"
 )
 
+// OpenBuckets sont les seaux d'une demande encore à traiter.
+//
+// C'est **cette** liste qui décide si une anomalie est ouverte, et non le drapeau
+// `is_closed` de Redmine. Les deux divergent sur l'instance réelle : `Testé` y est
+// déclaré non clos alors qu'il est projeté en `done`, et `Ré-ouvert` l'inverse. Compter
+// les anomalies sur `is_closed` affichait donc cinq anomalies terminées comme ouvertes.
+//
+// Employer deux notions de « clos » dans le même écran est la faute de fond ; la
+// projection est celle que l'utilisateur règle et voit, donc la seule autorité.
+//
+// `client-test` en est absent : une anomalie en attente de validation client n'est plus
+// à traiter par l'équipe.
+var OpenBuckets = []string{BucketTodo, BucketDoing}
+
+// BucketIsOpen dit si un seau désigne une demande encore à traiter.
+func BucketIsOpen(bucket string) bool {
+	for _, open := range OpenBuckets {
+		if open == bucket {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidBucket dit si un seau est déclaré.
 func ValidBucket(bucket string) bool {
 	if bucket == BucketRejected {
@@ -100,7 +124,7 @@ const anomalyTrackerPrefix = "Anomalie"
 // existent dans Redmine, et les cacher ferait douter de l'exhaustivité de l'écran.
 func (db *DB) ListVersionSummaries(ctx context.Context) ([]VersionSummary, error) {
 	rows, err := db.pool.Query(ctx, versionSummaryQuery+`
-		 order by v.due_date desc nulls last, v.name desc`, anomalyTrackerPrefix)
+		 order by v.due_date desc nulls last, v.name desc`, anomalyTrackerPrefix, OpenBuckets)
 	if err != nil {
 		return nil, fmt.Errorf("liste des versions: %w", err)
 	}
@@ -119,7 +143,8 @@ func (db *DB) ListVersionSummaries(ctx context.Context) ([]VersionSummary, error
 
 // GetVersionSummary rend une version par sa clé locale.
 func (db *DB) GetVersionSummary(ctx context.Context, id int64) (VersionSummary, error) {
-	rows, err := db.pool.Query(ctx, versionSummaryQuery+` and v.id = $2`, anomalyTrackerPrefix, id)
+	rows, err := db.pool.Query(ctx, versionSummaryQuery+` and v.id = $3`,
+		anomalyTrackerPrefix, OpenBuckets, id)
 	if err != nil {
 		return VersionSummary{}, fmt.Errorf("version %d: %w", id, err)
 	}
@@ -149,9 +174,12 @@ const versionSummaryQuery = `
 	    select count(*) filter (where status_bucket <> 'rejected')            as counted,
 	           count(*) filter (where status_bucket = 'done')                 as done,
 	           coalesce(sum(done_ratio) filter (where status_bucket <> 'rejected'), 0) as weighted,
+	           -- Ouverte au sens du seau projeté, jamais du drapeau is_closed de
+	           -- Redmine : les deux divergent, et c'est ce qui faisait compter cinq
+	           -- anomalies terminées comme ouvertes. (Pas de backtick ici : cette
+	           -- chaîne est brute, un backtick la fermerait.)
 	           count(*) filter (
-	               where tracker like $1 || '%' and not is_closed
-	                 and status_bucket <> 'rejected'
+	               where tracker like $1 || '%' and status_bucket = any($2)
 	           ) as anomalies
 	    from issues where version_id = v.id
 	) counts on true

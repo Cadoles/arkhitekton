@@ -530,3 +530,88 @@ func TestLaListeOrdonneeDesSeauxEstLaSourceUnique(t *testing.T) {
 		}
 	}
 }
+
+// Le cas constaté sur v3.2.0 : huit anomalies affichées ouvertes, dont cinq au statut
+// `Testé` — que Redmine déclare **non clos** alors qu'il est projeté en `done`.
+//
+// « Ouverte » se lit sur le seau projeté, jamais sur `is_closed`. Employer deux notions
+// de « clos » dans le même écran est la faute de fond : la projection est celle que
+// l'utilisateur règle et voit.
+func TestUneAnomalieTermineeNestPasOuverteMemeSiRedmineLaDitNonClose(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	redmineVersion(t, db, 805, "v3.2.0", "open")
+
+	// Les trois réellement ouvertes.
+	issueOf(t, db, 1, 805, "Anomalie", "Ready", BucketTodo, 0, false)
+	issueOf(t, db, 2, 805, "Anomalie", "En cours", BucketDoing, 20, false)
+	issueOf(t, db, 3, 805, "Anomalie", "En revue", BucketDoing, 80, false)
+
+	// Cinq au statut `Testé` : projetées en `done`, mais non closes selon Redmine.
+	// C'est précisément la combinaison qui les faisait compter comme ouvertes.
+	for i := 0; i < 5; i++ {
+		issueOf(t, db, int64(10+i), 805, "Anomalie", "Testé", BucketDone, 100, false)
+	}
+
+	summary, err := db.GetVersionSummary(ctx, mustVersionID(t, db, "v3.2.0"))
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if summary.OpenAnomalies != 3 {
+		t.Errorf("%d anomalies ouvertes, attendu 3 : les cinq en `done` ne le sont pas",
+			summary.OpenAnomalies)
+	}
+}
+
+// Une anomalie en attente de validation client n'est plus à traiter par l'équipe : elle
+// ne compte pas comme ouverte.
+func TestUneAnomalieEnTestClientNestPasOuverte(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	redmineVersion(t, db, 805, "v3.2.0", "open")
+	issueOf(t, db, 1, 805, "Anomalie", "En cours", BucketDoing, 0, false)
+	issueOf(t, db, 2, 805, "Anomalie", "Livré", BucketClientTest, 100, false)
+	issueOf(t, db, 3, 805, "Anomalie", "Rejeté", BucketRejected, 0, true)
+
+	summary, err := db.GetVersionSummary(ctx, mustVersionID(t, db, "v3.2.0"))
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if summary.OpenAnomalies != 1 {
+		t.Errorf("%d anomalies ouvertes, attendu 1", summary.OpenAnomalies)
+	}
+}
+
+// L'inverse du même écart : `Ré-ouvert` est déclaré **clos** par l'instance alors qu'il
+// est projeté en `doing`. Une anomalie réouverte doit compter comme ouverte.
+func TestUneAnomalieReouverteCompteCommeOuverte(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	redmineVersion(t, db, 805, "v3.2.0", "open")
+	issueOf(t, db, 1, 805, "Anomalie", "Ré-ouvert", BucketDoing, 60, true)
+
+	summary, err := db.GetVersionSummary(ctx, mustVersionID(t, db, "v3.2.0"))
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if summary.OpenAnomalies != 1 {
+		t.Errorf("%d anomalies ouvertes, attendu 1 malgré is_closed", summary.OpenAnomalies)
+	}
+}
+
+// Les seaux ouverts sont todo et doing, et rien d'autre.
+func TestSeulsTodoEtDoingSontOuverts(t *testing.T) {
+	for _, bucket := range []string{BucketTodo, BucketDoing} {
+		if !BucketIsOpen(bucket) {
+			t.Errorf("%q devrait être ouvert", bucket)
+		}
+	}
+	for _, bucket := range []string{BucketClientTest, BucketDone, BucketRejected, "invente"} {
+		if BucketIsOpen(bucket) {
+			t.Errorf("%q ne devrait pas être ouvert", bucket)
+		}
+	}
+}
