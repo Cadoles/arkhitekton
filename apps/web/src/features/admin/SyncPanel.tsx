@@ -99,6 +99,7 @@ function SyncSummary({ data }: { data: SyncAdmin }) {
 const BUCKETS: { value: Bucket; label: string }[] = [
   { value: 'todo', label: 'À faire' },
   { value: 'doing', label: 'En cours' },
+  { value: 'client-test', label: 'Test client' },
   { value: 'done', label: 'Terminé' },
   { value: 'rejected', label: 'Écarté' },
 ]

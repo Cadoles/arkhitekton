@@ -46,6 +46,47 @@ type VersionSummary struct {
 	Releases int
 }
 
+// Buckets est la projection des statuts Redmine, dans l'ordre d'avancement.
+//
+// Un seul endroit, et ordonné : les colonnes de l'écran, la liste du sélecteur
+// d'administration et la contrainte de la base doivent dire la même chose. Trois
+// énumérations séparées divergeraient au premier ajout — c'est précisément ce qui
+// vient d'arriver avec `client-test`.
+//
+// `rejected` est en dehors de l'avancement : il n'est ni avant ni après, il est hors
+// périmètre (doc 04 §4.5).
+var Buckets = []string{BucketTodo, BucketDoing, BucketClientTest, BucketDone}
+
+const (
+	BucketTodo  = "todo"
+	BucketDoing = "doing"
+	// BucketClientTest est l'attente de validation par le client : le développement
+	// est fini, la recette non.
+	//
+	// **Il ne compte pas comme terminé.** Il entre au dénominateur de la complétion,
+	// jamais au numérateur — confondre « fini de développer » et « accepté » est
+	// exactement ce qu'un taux de complétion doit éviter.
+	BucketClientTest = "client-test"
+	BucketDone       = "done"
+	// BucketRejected sort du calcul : ni au numérateur ni au dénominateur. Le compter
+	// en bas ferait baisser la complétion d'une version parce qu'on y a renoncé à une
+	// demande.
+	BucketRejected = "rejected"
+)
+
+// ValidBucket dit si un seau est déclaré.
+func ValidBucket(bucket string) bool {
+	if bucket == BucketRejected {
+		return true
+	}
+	for _, known := range Buckets {
+		if known == bucket {
+			return true
+		}
+	}
+	return false
+}
+
 // anomalyTrackers borne ce qui compte comme anomalie.
 //
 // L'instance en déclare deux — `Anomalie` et `Anomalie (SDN4)` — là où doc 04

@@ -386,3 +386,85 @@ func mustVersionID(t *testing.T, db *DB, name string) int64 {
 	}
 	return id
 }
+
+// Le seau `client-test` s'intercale entre `doing` et `done`, et **ne compte pas comme
+// terminé** : il entre au dénominateur de la complétion, jamais au numérateur.
+// Confondre « fini de développer » et « accepté » est exactement ce qu'un taux de
+// complétion doit éviter.
+func TestLeSeauTestClientCompteAuDenominateurPasAuNumerateur(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	redmineVersion(t, db, 805, "v3.2.0", "open")
+	issueOf(t, db, 1, 805, "Évolution", "Fermé", BucketDone, 100, true)
+	issueOf(t, db, 2, 805, "Évolution", "Livré", BucketClientTest, 100, false)
+	issueOf(t, db, 3, 805, "Évolution", "En cours", BucketDoing, 30, false)
+	issueOf(t, db, 4, 805, "Évolution", "Rejeté", BucketRejected, 0, true)
+
+	summary, err := db.GetVersionSummary(ctx, mustVersionID(t, db, "v3.2.0"))
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+
+	// Trois comptées — tout sauf la rejetée — dont une seule terminée.
+	if summary.Counted != 3 {
+		t.Errorf("dénominateur %d, attendu 3 : test client doit y figurer", summary.Counted)
+	}
+	if summary.Done != 1 {
+		t.Errorf("numérateur %d, attendu 1 : test client ne doit pas y figurer", summary.Done)
+	}
+	// La pondérée porte sur les comptées : 100 + 100 + 30.
+	if summary.WeightedDone != 230 {
+		t.Errorf("pondération %d, attendu 230", summary.WeightedDone)
+	}
+}
+
+// La contrainte de la base accepte les cinq seaux, et rien d'autre. Un seau inventé
+// doit être refusé plutôt que rangé silencieusement.
+func TestLaBaseAccepteLesCinqSeauxEtRienDautre(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	redmineVersion(t, db, 805, "v3.2.0", "open")
+
+	for i, bucket := range []string{BucketTodo, BucketDoing, BucketClientTest, BucketDone, BucketRejected} {
+		if err := db.UpsertRedmineIssue(ctx, RedmineIssue{
+			RedmineID: int64(100 + i), Tracker: "Évolution", Subject: "s",
+			StatusName: "x", StatusBucket: bucket,
+		}); err != nil {
+			t.Errorf("seau %q refusé par la base: %v", bucket, err)
+		}
+	}
+
+	if err := db.UpsertRedmineIssue(ctx, RedmineIssue{
+		RedmineID: 200, Tracker: "Évolution", Subject: "s",
+		StatusName: "x", StatusBucket: "invente",
+	}); err == nil {
+		t.Error("un seau inventé devrait être refusé par la contrainte")
+	}
+}
+
+// La liste ordonnée est la source unique : les colonnes de l'écran, le sélecteur
+// d'administration et la contrainte de la base doivent dire la même chose.
+func TestLaListeOrdonneeDesSeauxEstLaSourceUnique(t *testing.T) {
+	expected := []string{"todo", "doing", "client-test", "done", "rejected"}
+
+	if len(Buckets) != 4 {
+		t.Fatalf("%d seaux d'avancement, attendu 4 (rejected est hors avancement)", len(Buckets))
+	}
+	// L'ordre porte du sens : c'est celui des colonnes.
+	if Buckets[1] != BucketDoing || Buckets[2] != BucketClientTest || Buckets[3] != BucketDone {
+		t.Errorf("ordre %v : test client doit s'intercaler entre doing et done", Buckets)
+	}
+
+	for _, bucket := range expected {
+		if !ValidBucket(bucket) {
+			t.Errorf("seau %q devrait être admis", bucket)
+		}
+	}
+	for _, bucket := range []string{"", "invente", "DONE", "client_test"} {
+		if ValidBucket(bucket) {
+			t.Errorf("seau %q ne devrait pas être admis", bucket)
+		}
+	}
+}

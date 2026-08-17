@@ -140,9 +140,8 @@ type statusMappingRequest struct {
 	Bucket string `json:"bucket"`
 }
 
-var statusBuckets = map[string]bool{
-	"todo": true, "doing": true, "done": true, "rejected": true,
-}
+// Les seaux admis viennent du magasin : une seconde énumération ici divergerait de
+// la contrainte de la base au premier ajout.
 
 // SetMapping déclare la projection d'un statut, puis la réapplique.
 //
@@ -161,9 +160,9 @@ func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
 		return
 	}
-	if !statusBuckets[request.Bucket] {
+	if !store.ValidBucket(request.Bucket) {
 		writeProblem(w, http.StatusBadRequest, "Seau invalide",
-			"Le seau vaut « todo », « doing », « done » ou « rejected ».")
+			"Le seau vaut « todo », « doing », « client-test », « done » ou « rejected ».")
 		return
 	}
 

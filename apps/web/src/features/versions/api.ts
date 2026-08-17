@@ -1,8 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 
-/** Les quatre seaux de la projection des statuts Redmine. */
-export type Bucket = 'todo' | 'doing' | 'done' | 'rejected'
+/**
+ * Les seaux de la projection des statuts Redmine, dans l'ordre d'avancement.
+ *
+ * `client-test` est l'attente de validation par le client : le développement est
+ * fini, la recette non. **Il ne compte pas comme terminé** — il entre au
+ * dénominateur de la complétion, jamais au numérateur.
+ *
+ * `rejected` est hors de l'avancement : ni avant ni après, hors périmètre.
+ */
+export type Bucket = 'todo' | 'doing' | 'client-test' | 'done' | 'rejected'
 
 /**
  * Les deux mesures de complétion, calculées côté serveur (doc 04 §4.5).

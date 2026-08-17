@@ -168,8 +168,11 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buckets := map[string][]issueVw{
-		"todo": {}, "doing": {}, "done": {}, "rejected": {},
+	// Initialisé depuis la liste ordonnée du magasin : un seau ajouté là apparaît
+	// ici sans retouche, et un seau oublié rendrait `null` là où l'interface itère.
+	buckets := map[string][]issueVw{store.BucketRejected: {}}
+	for _, bucket := range store.Buckets {
+		buckets[bucket] = []issueVw{}
 	}
 	anomalies := make([]issueVw, 0)
 	for _, issue := range issues {
@@ -189,14 +192,14 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 			// Un seau inconnu ne doit pas faire disparaître la demande de l'écran.
 			// La contrainte de base l'interdit, mais une demande invisible serait
 			// une perte silencieuse là où une demande mal rangée se voit.
-			buckets["todo"] = append(buckets["todo"], view)
+			buckets[store.BucketTodo] = append(buckets[store.BucketTodo], view)
 		}
 
 		// Les anomalies sont **aussi** dans leur seau : elles font partie du
 		// périmètre. La liste séparée est un second angle de lecture, pas un
 		// déplacement — une anomalie retirée du périmètre serait invisible pour qui
 		// regarde les colonnes.
-		if issue.Anomaly && !issue.IsClosed && issue.Bucket != "rejected" {
+		if issue.Anomaly && !issue.IsClosed && issue.Bucket != store.BucketRejected {
 			anomalies = append(anomalies, view)
 		}
 	}

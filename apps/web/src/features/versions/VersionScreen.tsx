@@ -73,9 +73,18 @@ export function VersionScreen() {
 
           <AnomaliesBanner anomalies={data.anomalies} />
 
-          <div className="grid gap-4 md:grid-cols-3">
+          {/* Quatre colonnes dans l'ordre d'avancement. `Test client` s'intercale
+              entre « en cours » et « terminé » : le développement y est fini, la
+              validation du client non — et cette colonne ne compte pas dans le taux
+              de complétion, qui ne retient que « terminé ». */}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <BucketColumn title="À faire" issues={data.buckets.todo} />
             <BucketColumn title="En cours" issues={data.buckets.doing} />
+            <BucketColumn
+              title="Test client"
+              issues={data.buckets['client-test']}
+              note="Développement fini, validation du client en attente. Hors du taux de complétion."
+            />
             <BucketColumn title="Terminé" issues={data.buckets.done} />
           </div>
 
@@ -112,9 +121,18 @@ function AnomaliesBanner({ anomalies }: { anomalies: Issue[] }) {
   )
 }
 
-function BucketColumn({ title, issues }: { title: string; issues: Issue[] }) {
+function BucketColumn({
+  title,
+  issues,
+  note,
+}: {
+  title: string
+  issues: Issue[]
+  note?: string
+}) {
   return (
     <Card title={`${title} (${issues.length})`}>
+      {note && <p className="mb-2 text-xs text-zinc-500">{note}</p>}
       {issues.length === 0 ? (
         <EmptyState>Aucune demande.</EmptyState>
       ) : (
