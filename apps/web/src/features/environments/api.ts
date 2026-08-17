@@ -110,3 +110,64 @@ export function useEnvironmentHistory(environment: string | undefined) {
     enabled: Boolean(environment),
   })
 }
+
+/** Release rapprochée de la version observée sur un environnement.
+ *
+ *  Le rapprochement se fait sur `image_version`, jamais sur le tag : ce que le
+ *  portail rapporte est la version bakée dans l'image, restée celle de la RC
+ *  pour toute release finale produite par re-tag (B8, B17). */
+export type DeployedRelease = {
+  tag: string
+  image_version: string
+  kind: string
+  state: string
+  git_ref?: string
+  created_by: string
+  created_at: string
+  /** Absent quand la version observée correspond à une release que le dashboard
+   *  n'a jamais promue ici — un déploiement antérieur, ou par un autre chemin. */
+  promoted_at?: string
+  promoted_tag?: string
+  /** Plusieurs releases portent cette image et aucune promotion ne tranche.
+   *  Normal après un re-tag : la RC et la finale la partagent. */
+  ambiguous: boolean
+}
+
+export type FlowStep = {
+  id: string
+  label: string
+  rank: number
+  current: boolean
+  version: string
+}
+
+export type EnvironmentDetail = {
+  id: string
+  label: string
+  rank: number
+  promotion_suffix: string
+  namespace: string
+  observable: boolean
+  sensitive: boolean
+  can_deploy: boolean
+  portal_version?: string
+  migration_state?: string
+  flux_state?: string
+  resolution?: Resolution
+  observed_at?: string
+  flow: FlowStep[]
+  /** Null quand la version observée ne correspond à aucune release connue :
+   *  l'application est déployée depuis des années, le dashboard ne connaît que
+   *  ce qu'il a lui-même produit. */
+  deployed: DeployedRelease | null
+  last_promotion?: LastPromotion
+}
+
+export function useEnvironment(id: string | undefined) {
+  return useQuery({
+    queryKey: ['environments', id],
+    queryFn: () => request<EnvironmentDetail>(`/environments/${encodeURIComponent(id as string)}`),
+    enabled: Boolean(id),
+    refetchInterval: 15000,
+  })
+}

@@ -26,6 +26,7 @@ type fakeReleaseStore struct {
 	history      []store.EnvironmentHistory
 	audit        []string
 	actions      map[string]string
+	deployed     map[string]store.DeployedRelease
 	artifacts    []store.Artifact
 	objects      map[string]string
 	registry     Images
@@ -100,6 +101,14 @@ func (f *fakeReleaseStore) ListEnvironmentHistory(context.Context, string, int) 
 	return f.history, nil
 }
 
+func (f *fakeReleaseStore) DeployedRelease(_ context.Context, environmentID string) (store.DeployedRelease, error) {
+	deployed, found := f.deployed[environmentID]
+	if !found {
+		return store.DeployedRelease{}, store.ErrNoDeployedRelease
+	}
+	return deployed, nil
+}
+
 func (f *fakeReleaseStore) Audit(_ context.Context, _, action, target string, _ map[string]any) error {
 	f.audit = append(f.audit, action+":"+target)
 	return nil
@@ -143,6 +152,7 @@ func newFakeStore() *fakeReleaseStore {
 		releases: map[string]store.Release{},
 		actions:  map[string]string{},
 		objects:  map[string]string{},
+		deployed: map[string]store.DeployedRelease{},
 		environments: []store.Environment{
 			{ID: "qualif", Label: "Qualification", PromotionSuffix: "testing",
 				AcceptsPrerelease: true, Rank: 2, Observable: true, Visible: true},

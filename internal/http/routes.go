@@ -116,6 +116,8 @@ func NewAPIRouter(
 	// demande aucun privilège.
 	mux.Handle("GET /environments", Chain(http.HandlerFunc(releases.Environments),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	mux.Handle("GET /environments/{environment}", Chain(http.HandlerFunc(releases.Environment),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
 	mux.Handle("GET /environments/{environment}/history", Chain(http.HandlerFunc(releases.History),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 

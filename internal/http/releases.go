@@ -28,6 +28,7 @@ type ReleaseStore interface {
 	SetManualActions(ctx context.Context, tag, markdown, author string) error
 	ListReleaseJobs(ctx context.Context, releaseID int64) ([]store.ReleaseJob, error)
 	ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]store.EnvironmentHistory, error)
+	DeployedRelease(ctx context.Context, environmentID string) (store.DeployedRelease, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	ListArtifacts(ctx context.Context, releaseID int64) ([]store.Artifact, error)
 	GetArtifact(ctx context.Context, id int64) (store.Artifact, error)
@@ -947,4 +948,128 @@ func artifactContentType(format string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+type deployedPayload struct {
+	Tag string `json:"tag"`
+	// ImageVersion est ce qui a été rapproché de l'observation. Rendue parce que
+	// l'écart avec le tag est la chose la plus contre-intuitive du dispositif.
+	ImageVersion string     `json:"image_version"`
+	Kind         string     `json:"kind"`
+	State        string     `json:"state"`
+	GitRef       string     `json:"git_ref,omitempty"`
+	CreatedBy    string     `json:"created_by"`
+	CreatedAt    time.Time  `json:"created_at"`
+	PromotedAt   *time.Time `json:"promoted_at,omitempty"`
+	PromotedTag  string     `json:"promoted_tag,omitempty"`
+	// Ambiguous : plusieurs releases portent cette image et aucune promotion ne
+	// tranche. Normal après un re-tag, et le taire ferait afficher l'une pour
+	// l'autre.
+	Ambiguous bool `json:"ambiguous"`
+}
+
+// Environment rend l'état détaillé d'un environnement.
+//
+// L'écran est une jointure : l'environnement porte une version, la release porte
+// le contenu. Le rapprochement se fait sur `image_version` et jamais sur le tag —
+// ce que le portail rapporte est la version bakée dans l'image, restée celle de
+// la RC pour toute release finale produite par re-tag (B8, B17).
+func (h *ReleasesHandler) Environment(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("environment")
+
+	views, err := h.store.ListEnvironmentViews(r.Context())
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Lecture de l'environnement impossible", "")
+		return
+	}
+
+	var view store.EnvironmentView
+	for _, candidate := range views {
+		if candidate.Environment.ID == name {
+			view = candidate
+			break
+		}
+	}
+	if view.Environment.ID == "" {
+		writeProblem(w, http.StatusNotFound, "Environnement inconnu", name)
+		return
+	}
+
+	identity, _ := IdentityFrom(r.Context())
+	payload := map[string]any{
+		"id":               view.Environment.ID,
+		"label":            view.Environment.Label,
+		"rank":             view.Environment.Rank,
+		"promotion_suffix": view.Environment.PromotionSuffix,
+		"namespace":        view.Environment.Namespace,
+		"observable":       view.Environment.Observable,
+		"sensitive":        h.authorizer.Sensitive(view.Environment.ID),
+		"can_deploy":       h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
+	}
+
+	if view.Observation != nil {
+		payload["portal_version"] = view.Observation.PortalVersion
+		payload["migration_state"] = view.Observation.MigrationState
+		payload["flux_state"] = view.Observation.FluxState
+		payload["resolution"] = view.Observation.Resolution
+	}
+	if view.ObservedAt != nil {
+		payload["observed_at"] = *view.ObservedAt
+	}
+
+	// Le fil de promotion : la position de cet environnement dans le chemin
+	// qu'une version parcourt. Rendu ici plutôt que reconstruit côté navigateur,
+	// où l'ordre des rangs devrait être redeviné.
+	flow := make([]map[string]any, 0, len(views))
+	for _, candidate := range views {
+		flow = append(flow, map[string]any{
+			"id": candidate.Environment.ID, "label": candidate.Environment.Label,
+			"rank":    candidate.Environment.Rank,
+			"current": candidate.Environment.ID == name,
+			"version": observedVersion(candidate),
+		})
+	}
+	payload["flow"] = flow
+
+	deployed, err := h.store.DeployedRelease(r.Context(), name)
+	switch {
+	case err == nil:
+		payload["deployed"] = deployedPayload{
+			Tag: deployed.Tag, ImageVersion: deployed.ImageVersion,
+			Kind: deployed.Kind, State: deployed.State, GitRef: deployed.GitRef,
+			CreatedBy: deployed.CreatedBy, CreatedAt: deployed.CreatedAt,
+			PromotedAt: deployed.PromotedAt, PromotedTag: deployed.PromotedTag,
+			Ambiguous: deployed.Ambiguous,
+		}
+	case errors.Is(err, store.ErrNoDeployedRelease):
+		// Cas normal : l'application est déployée depuis des années, et le
+		// dashboard ne connaît que les releases créées par lui. Le dire plutôt
+		// que présenter un écran vide.
+		payload["deployed"] = nil
+	default:
+		writeProblem(w, http.StatusInternalServerError, "Rapprochement impossible", "")
+		return
+	}
+
+	promotions, err := h.store.LatestPromotions(r.Context())
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
+		return
+	}
+	if promotion, found := promotions[name]; found {
+		payload["last_promotion"] = lastPromotion{
+			Tag: promotion.Tag, Release: promotion.ReleaseTag,
+			PushedAt: promotion.PushedAt, JobID: promotion.JobID,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, payload)
+}
+
+// observedVersion rend la version constatée sur un environnement, ou vide.
+func observedVersion(view store.EnvironmentView) string {
+	if view.Observation == nil {
+		return ""
+	}
+	return view.Observation.PortalVersion
 }

@@ -2,7 +2,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Environment décrit un environnement de déploiement.
@@ -163,4 +167,98 @@ func (db *DB) ListEnvironmentViews(ctx context.Context) ([]EnvironmentView, erro
 		views = append(views, view)
 	}
 	return views, rows.Err()
+}
+
+// DeployedRelease est la release qu'un environnement fait tourner.
+//
+// « Fait tourner » et non « a reçu » : la distinction est tout l'objet de ce
+// type. Une promotion pousse un tag ; ce qui tourne est ce que `PortalData`
+// rapporte. Les deux peuvent différer — pendant une réconciliation, ou
+// indéfiniment si Flux a ignoré le tag.
+type DeployedRelease struct {
+	Tag string
+	// ImageVersion est la version que l'image porte, et c'est **elle** qui a été
+	// rapprochée de l'observation. Comparer au tag échouerait sur toute release
+	// finale produite par re-tag (B17).
+	ImageVersion string
+	Kind         string
+	State        string
+	GitRef       string
+	CreatedBy    string
+	CreatedAt    time.Time
+	// PromotedAt date la promotion vers cet environnement. Nil quand la version
+	// observée correspond à une release que le dashboard n'a jamais promue ici —
+	// un déploiement fait avant lui, ou par un autre chemin.
+	PromotedAt  *time.Time
+	PromotedTag string
+	// Ambiguous vaut true quand plusieurs releases portent la version observée et
+	// qu'aucune promotion ne tranche. Le re-tag rend ce cas normal : la RC et la
+	// finale partagent la même image. Le taire ferait afficher l'une pour l'autre.
+	Ambiguous bool
+}
+
+// ErrNoDeployedRelease signale une version observée qui ne correspond à aucune
+// release connue.
+//
+// Cas parfaitement normal : l'application est déployée depuis des années, et le
+// dashboard n'a connaissance que des releases créées par lui. L'interface doit le
+// dire plutôt que présenter un écran vide.
+var ErrNoDeployedRelease = errors.New("aucune release connue ne correspond à la version observée")
+
+// DeployedRelease rapproche la version observée sur un environnement de la
+// release qui la porte.
+//
+// La jointure se fait sur `image_version` et jamais sur le tag : ce que
+// `PortalData` rapporte est la version bakée dans l'image, restée celle de la RC
+// pour toute release finale produite par re-tag (B8, B17).
+//
+// L'ambiguïté est résolue par la promotion, non par une heuristique : quand une
+// RC et sa finale partagent la même image, c'est celle qui a été promue ici qui
+// est déployée. Deviner par la date de création choisirait la RC, c'est-à-dire
+// systématiquement la mauvaise dès qu'une finale existe.
+func (db *DB) DeployedRelease(ctx context.Context, environmentID string) (DeployedRelease, error) {
+	var release DeployedRelease
+
+	const query = `
+		with observed as (
+		    select portal_version from environment_observations
+		    where environment_id = $1 and portal_version is not null
+		),
+		candidates as (
+		    -- Les colonnes calculées portent un alias : sans lui, le select
+		    -- extérieur ne sait pas les nommer.
+		    select r.tag, r.image_version, r.kind, r.state,
+		           coalesce(r.git_ref, '') as git_ref, r.created_by, r.created_at,
+		           p.pushed_at, coalesce(p.tag, '') as promoted_tag,
+		           count(*) over () as total
+		    from releases r
+		    join observed o on o.portal_version = r.image_version
+		    -- Jointure externe : une release peut porter la version observée sans
+		    -- avoir été promue ici par le dashboard.
+		    left join image_promotions p
+		         on p.release_id = r.id and p.environment_id = $1
+		)
+		select tag, image_version, kind, state, git_ref, created_by, created_at,
+		       pushed_at, promoted_tag, total
+		from candidates
+		-- La promotion tranche : une release promue ici passe devant une release
+		-- qui partage seulement son image. À défaut, la plus récemment créée.
+		order by pushed_at desc nulls last, created_at desc
+		limit 1`
+
+	var total int
+	err := db.pool.QueryRow(ctx, query, environmentID).Scan(
+		&release.Tag, &release.ImageVersion, &release.Kind, &release.State,
+		&release.GitRef, &release.CreatedBy, &release.CreatedAt,
+		&release.PromotedAt, &release.PromotedTag, &total)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return release, ErrNoDeployedRelease
+		}
+		return release, fmt.Errorf("release déployée sur %q: %w", environmentID, err)
+	}
+
+	// Plusieurs candidates et aucune promotion pour les séparer : le dire.
+	release.Ambiguous = total > 1 && release.PromotedAt == nil
+	return release, nil
 }

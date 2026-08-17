@@ -7,6 +7,7 @@ import { RunScreen } from './features/runs/RunScreen'
 import { QueueScreen } from './features/queue/QueueScreen'
 import { EnvironmentsScreen } from './features/environments/EnvironmentsScreen'
 import { HistoryScreen } from './features/environments/HistoryScreen'
+import { EnvironmentScreen } from './features/environments/EnvironmentScreen'
 import { ReleasesScreen } from './features/releases/ReleasesScreen'
 import { ReleaseScreen } from './features/releases/ReleaseScreen'
 import { FamilyScreen } from './features/releases/FamilyScreen'
@@ -30,17 +31,7 @@ export const routes: RouteObject[] = [
       { index: true, element: <Navigate to="/environments" replace /> },
 
       { path: 'environments', element: <EnvironmentsScreen /> },
-      {
-        path: 'environments/:env',
-        element: (
-          <Placeholder
-            lot="lot 5"
-            title="Environnement"
-            summary="Vue détaillée reprise de la maquette : score de qualité, pipelines, benchs, sécurité, note de release, anomalies, validations."
-            params={['env']}
-          />
-        ),
-      },
+      { path: 'environments/:env', element: <EnvironmentScreen /> },
       { path: 'environments/:env/history', element: <HistoryScreen /> },
 
       {

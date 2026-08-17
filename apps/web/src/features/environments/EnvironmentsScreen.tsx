@@ -70,7 +70,9 @@ function EnvironmentCard({ environment, releases }: { environment: Environment; 
       }
       title={
         <span className="flex items-center gap-2">
-          {environment.label}
+          <Link to={`/environments/${environment.id}`} className="hover:underline">
+            {environment.label}
+          </Link>
           <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs font-normal text-zinc-500">
             {/* Le suffixe est affiché parce qu'il ne se devine pas : Flux connaît
                 `qualif` sous le nom `testing`, et c'est ce nom-là qui part dans le
