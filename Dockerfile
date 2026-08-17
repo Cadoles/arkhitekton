@@ -26,11 +26,34 @@ FROM golang:1.26-alpine AS build
 
 WORKDIR /src
 
+# `git` est indispensable depuis que le dashboard dépend d'un module privé.
+#
+# Un module public arrive en archive depuis proxy.golang.org, et aucun outil
+# n'est requis. Un module privé est récupéré en `direct`, c'est-à-dire par un
+# clone git — et l'image Go alpine n'embarque pas git. Sans lui, la construction
+# échoue sur « executable file not found in $PATH », message qui ne dit rien de
+# la cause réelle.
+RUN apk add --no-cache git
+
+# `forge.cadoles.com` n'est pas servi par le proxy public, et sa somme de
+# contrôle n'est pas dans sum.golang.org. Sans GOPRIVATE, Go interrogerait l'un
+# et l'autre, qui répondraient tous deux que le module n'existe pas.
+ENV GOPRIVATE=forge.cadoles.com/*
+
 # Les dépendances d'abord : elles changent rarement, le code souvent. Sans cette
 # séparation, chaque modification d'un fichier .go relancerait un téléchargement
 # complet du module cache.
 COPY go.mod go.sum ./
-RUN go mod download
+
+# Le secret n'est monté que le temps de cette instruction et ne laisse aucune
+# trace dans les couches de l'image — un `COPY` des identifiants les y graverait
+# définitivement, y compris après suppression dans une couche ultérieure.
+#
+# En local, Skaffold monte `~/.git-credentials`. En intégration, il faudra un
+# jeton en lecture sur le dépôt du module : c'est la même exigence d'accès, et
+# elle n'est pas encore satisfaite côté CI.
+RUN --mount=type=secret,id=git-credentials,target=/root/.git-credentials \
+    git config --global credential.helper store && go mod download
 
 COPY . .
 

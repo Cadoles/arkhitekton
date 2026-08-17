@@ -1,0 +1,106 @@
+apiVersion: skaffold/v4beta14
+kind: Config
+metadata:
+  name: mse-dashboard
+
+# Boucle de développement local sur kind.
+#
+# Skaffold remplace `make deploy`, et pas seulement par commodité : il corrige un
+# défaut de fond de cette cible. Le tag `dev` y était mutable, donc invisible pour
+# un nœud en `IfNotPresent`, et il fallait un `kubectl rollout restart` explicite
+# pour que les pods reprennent l'image. Un oubli de ce redémarrage donnait un
+# cluster qui tourne sur du code vieux de dix-sept commits en affichant des
+# manifests à jour — panne difficile à voir, puisque tout paraît déployé.
+#
+# Skaffold tague par empreinte du contenu : chaque construction produit un tag
+# différent, et `IfNotPresent` ne peut donc plus servir une image périmée. Le
+# problème disparaît par construction au lieu d'être contourné.
+
+build:
+  # Le démon local, sans registre. Skaffold reconnaît un contexte kind et injecte
+  # l'image dans les nœuds : l'aller-retour par reg.cadoles.com dominerait
+  # largement le temps d'une itération.
+  local:
+    push: false
+    useBuildkit: true
+
+  artifacts:
+    # Le nom doit être celui que produit l'overlay, faute de quoi Skaffold ne
+    # reconnaîtrait pas l'image à substituer dans les manifests rendus.
+    - image: reg.cadoles.com/vcarroy/mse-dashboard
+      docker:
+        dockerfile: Dockerfile
+        # Les identifiants de la forge, montés le temps du `go mod download`.
+        # Le dashboard dépend d'un module privé, récupéré par clone git : sans
+        # eux, la construction échoue sur une erreur d'authentification.
+        #
+        # Un secret BuildKit ne laisse aucune trace dans les couches de l'image,
+        # contrairement à un `COPY` qui les y graverait définitivement.
+        secrets:
+          - id: git-credentials
+            src: ~/.git-credentials
+        buildArgs:
+          VERSION: dev-skaffold
+          # Skaffold ne substitue pas les commandes shell dans buildArgs : la
+          # révision exacte reste l'affaire de `make image`, qui sert à produire
+          # les images publiées. Ici, seule l'itération compte.
+          REVISION: developpement-local
+
+manifests:
+  kustomize:
+    paths:
+      - deploy/overlays/local
+
+deploy:
+  # Garde-fou de cluster : cette configuration construit du code non publié et
+  # l'injecte dans les nœuds. La restreindre à kind est ce qui empêche un
+  # `skaffold run` lancé avec le mauvais contexte d'atteindre un vrai
+  # environnement — un namespace forcé n'aurait rien protégé de cela.
+  kubeContext: kind-mse
+
+  # L'attente de disponibilité est explicite : sans elle, Skaffold rendrait la
+  # main avant que le schéma ne soit appliqué, et les premiers appels échoueraient
+  # sur des tables absentes.
+  #
+  # Le délai couvre la migration et le démarrage des sondes, qui vérifient
+  # PostgreSQL, le schéma et MinIO avant de déclarer un pod prêt.
+  statusCheck: true
+  statusCheckDeadlineSeconds: 300
+
+  kubectl:
+    # Aucun `defaultNamespace` : il ferait passer `--namespace` à kubectl, qui
+    # refuse alors tout objet déclarant un autre namespace. L'overlay en couvre
+    # cinq — mse-dashboard, flux-system, mse-dev, mse-tekton-pipelines, et un
+    # objet cluster-scoped — parce que chaque manifeste porte le sien.
+    #
+    # C'est la même raison qui interdit un transformateur `namespace:` dans
+    # `deploy/base` : là il déplacerait silencieusement le Role inter-namespace,
+    # ici il fait échouer le déploiement. Le second cas est le plus chanceux.
+    hooks:
+      before:
+        # Le `spec.template` d'un Job est immuable : réappliquer un Job dont
+        # l'image a changé est refusé par l'API. Les supprimer d'abord est ce qui
+        # rend le déploiement rejouable — sans quoi la deuxième itération échoue
+        # là où la première a réussi.
+        - host:
+            command:
+              - sh
+              - -c
+              - >-
+                kubectl delete job -n mse-dashboard
+                mse-dashboard-migrate mse-dashboard-minio-bucket
+                --ignore-not-found
+            os: [linux, darwin]
+
+portForward:
+  # L'interface est accessible sans ingress ni entrée dans /etc/hosts : un
+  # développeur doit pouvoir regarder l'écran qu'il modifie sans configurer la
+  # résolution de noms de sa machine.
+  - resourceType: service
+    # `mse-dashboard-api`, et non `mse-dashboard` : le préfixe de nom vient du
+    # `namePrefix` de la base, et un nom inventé ferait échouer la redirection en
+    # silence — curl répond 000, ce qui ressemble à une application morte.
+    resourceName: mse-dashboard-api
+    namespace: mse-dashboard
+    port: 80
+    localPort: 8080

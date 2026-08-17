@@ -32,7 +32,7 @@ MINIO_TEST_NAME   := minio-mse-dashboard-test
 MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := mse-dashboard-test
 
-.PHONY: help build test test-integration test-ci lint fmt fmt-check vet vuln clean check \
+.PHONY: help build test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
         web web-install web-dev web-check dev-prereqs image image-push kind-load manifests deploy undeploy logs
 
 help: ## Affiche cette aide
@@ -159,7 +159,11 @@ manifests: ## Rend et analyse les manifests de l'overlay
 # Les Job sont supprimés avant d'appliquer : `spec.template` d'un Job est
 # immuable, et un simple `apply` échouerait sur « field is immutable » dès que
 # le tag d'image ou une variable de configuration change.
-deploy: kind-load manifests ## Déploie sur kind (overlay local)
+# Conservée pour un déploiement ponctuel sans Skaffold. Préférer `make dev` :
+# le tag `dev` étant mutable, cette cible doit forcer un redémarrage, et l'oubli
+# de ce redémarrage donne un cluster qui tourne sur du code ancien en affichant
+# des manifests à jour.
+deploy: kind-load manifests ## Déploie sur kind (overlay local, sans Skaffold)
 	kubectl delete job -n mse-dashboard mse-dashboard-migrate mse-dashboard-minio-bucket --ignore-not-found
 	kustomize build $(OVERLAY) | kubectl apply -f -
 	kubectl wait --for=condition=complete --timeout=180s -n mse-dashboard job/mse-dashboard-migrate
@@ -174,3 +178,11 @@ undeploy: ## Supprime le déploiement (le namespace emporte les PVC)
 
 logs: ## Suit les journaux de l'api
 	kubectl logs -n mse-dashboard -l app.kubernetes.io/component=api --tail=100 -f
+
+# --- Boucle de développement -------------------------------------------------
+
+dev: ## Boucle Skaffold : reconstruit et redéploie à chaque modification
+	skaffold dev
+
+run-once: ## Construit et déploie une fois via Skaffold
+	skaffold run
