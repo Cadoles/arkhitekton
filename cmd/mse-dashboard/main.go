@@ -23,6 +23,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
@@ -187,6 +188,26 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	releasesHandler := dashhttp.NewReleasesHandler(db, pipelines, authorizer, images, storage, cfg.Registry.Image)
 
+	// La forge est optionnelle : sans jeton, le formulaire de création de release
+	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture
+	// seule par transport, comme celui de Redmine.
+	var forgeReader dashhttp.ForgeReader
+	if cfg.Gitea.Configured() {
+		forgeClient, err := gitea.New(gitea.Options{
+			URL: cfg.Gitea.URL, Token: cfg.Gitea.Token,
+			Repository: cfg.Gitea.Repository, Timeout: cfg.Gitea.Timeout,
+		})
+		if err != nil {
+			return fmt.Errorf("client Gitea: %w", err)
+		}
+		forgeReader = forgeClient
+		logger.Info("forge configurée", "url", cfg.Gitea.URL, "repo", cfg.Gitea.Repository)
+	} else {
+		logger.Warn("forge non configurée",
+			"raison", "GITEA_URL, GITEA_TOKEN ou GITEA_REPO absent",
+			"consequence", "le git_ref des releases se saisira à la main")
+	}
+
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
 			releasesHandler, dashhttp.NewBenchHandler(db),
@@ -198,6 +219,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// liens sont omis plutôt que rendus cassés.
 			dashhttp.NewVersionsHandler(db, cfg.Redmine.URL),
 			dashhttp.NewSyncAdminHandler(db, cfg.Redmine.Configured()),
+			dashhttp.NewForgeHandler(forgeReader),
 			dashhttp.NewAdminHandler(db), middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de

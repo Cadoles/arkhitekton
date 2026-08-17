@@ -150,3 +150,33 @@ export function useSetStatusBucket() {
     },
   })
 }
+
+/**
+ * Références du dépôt de l'application, pour le champ git_ref.
+ *
+ * `configured` faux : pas de jeton Gitea côté serveur, le formulaire retombe sur
+ * la saisie libre et le dit. `truncated` vrai : le dépôt porte plus de références
+ * que la borne, la liste est un extrait — la saisie libre reste possible, une
+ * référence absente de la liste n'est pas une référence inexistante.
+ */
+export type ForgeRefs = {
+  configured: boolean
+  default_branch?: string
+  branches: { name: string; sha?: string }[]
+  tags: { name: string; sha?: string }[]
+  truncated?: boolean
+}
+
+export function useForgeRefs(enabled: boolean) {
+  return useQuery({
+    queryKey: ['forge', 'refs'],
+    queryFn: () => request<ForgeRefs>('/forge/refs'),
+    enabled,
+    // Une minute : les branches bougent au rythme des développeurs, pas de la
+    // frappe dans un formulaire. Rappeler la forge à chaque focus serait du bruit.
+    staleTime: 60_000,
+    // Un échec — forge injoignable, jeton révoqué — ne se réessaie pas en boucle :
+    // le formulaire affiche la cause et la saisie libre reste ouverte.
+    retry: false,
+  })
+}

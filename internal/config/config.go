@@ -30,6 +30,33 @@ type Config struct {
 	Flux     FluxConfig
 	Registry RegistryConfig
 	Redmine  RedmineConfig
+	Gitea    GiteaConfig
+}
+
+// GiteaConfig porte l'accès en lecture à la forge.
+//
+// **Lecture seule**, appliquée par le transport de `internal/gitea` comme pour
+// Redmine. Sert au formulaire de création de release : proposer les branches et
+// les tags du dépôt plutôt qu'un champ libre, où une faute de frappe ne se
+// découvre qu'à l'échec du build.
+//
+// Poser un tag ou publier une release Gitea restera un client distinct et une
+// décision explicite, pas un assouplissement de celui-ci.
+type GiteaConfig struct {
+	URL string
+	// Token ne doit apparaître ni dans un log, ni dans un message d'erreur, ni
+	// dans une URL. Il ouvre la forge entière au nom de son détenteur : demander
+	// un jeton à portée `read:repository` suffit et vaut mieux.
+	Token string
+	// Repository au format `owner/nom` — `CNOUS/mse`.
+	Repository string
+	Timeout    time.Duration
+}
+
+// Configured dit si l'accès est renseigné. L'absence est un état normal : le
+// formulaire retombe sur la saisie libre et le dit.
+func (c GiteaConfig) Configured() bool {
+	return c.URL != "" && c.Token != "" && c.Repository != ""
 }
 
 // RedmineConfig porte l'accès en lecture aux demandes et aux versions.
@@ -226,6 +253,12 @@ func Load(role Role) (Config, error) {
 			APIKey:  os.Getenv("REDMINE_API_KEY"),
 			Project: os.Getenv("REDMINE_PROJECT"),
 			Timeout: durationOr("REDMINE_TIMEOUT", 15*time.Second),
+		},
+		Gitea: GiteaConfig{
+			URL:        strings.TrimRight(os.Getenv("GITEA_URL"), "/"),
+			Token:      os.Getenv("GITEA_TOKEN"),
+			Repository: os.Getenv("GITEA_REPO"),
+			Timeout:    durationOr("GITEA_TIMEOUT", 10*time.Second),
 		},
 	}
 

@@ -5,7 +5,7 @@ import { Icon } from '../../components/Icon'
 import { Card } from '../../components/primitives'
 import { hasAtLeast, useSession } from '../auth/session'
 import { useCreateRelease, type ReleaseKind } from '../releases/api'
-import type { Version, VersionRelease } from './api'
+import { useForgeRefs, type Version, type VersionRelease } from './api'
 
 /*
  * Création d'une release depuis le périmètre d'une version (doc 08 §8.4).
@@ -65,11 +65,21 @@ export function CreateReleasePanel({
   const [open, setOpen] = useState(false)
   const [kind, setKind] = useState<ReleaseKind>('pre')
   const [tag, setTag] = useState('')
+  const [gitRef, setGitRef] = useState('')
+  const [refEdited, setRefEdited] = useState(false)
   const [sourceTag, setSourceTag] = useState('')
   const [testsGreen, setTestsGreen] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
   const base = useMemo(() => suggestedBase(version.name), [version.name])
+  const refs = useForgeRefs(open)
+
+  // La branche par défaut du dépôt arrive après l'ouverture du formulaire : elle
+  // pré-remplit le champ tant que l'utilisateur n'y a pas touché — écraser une
+  // saisie en cours au retour d'une requête est le genre de surprise qui fait
+  // perdre confiance dans un formulaire.
+  const defaultBranch = refs.data?.default_branch ?? ''
+  const refValue = refEdited ? gitRef : gitRef || defaultBranch
   const sources = releases.filter((release) => release.kind === 'pre')
 
   // Le rôle décide de ce qui est proposé, pas de ce qui est permis : masquer une
@@ -99,6 +109,10 @@ export function CreateReleasePanel({
       // Le nom Redmine n'est transmis que s'il en est un : celui d'une provisoire
       // vient d'un tag, et le vérifier contre lui-même ne vérifierait rien.
       redmine_version: version.pending || kind === 'patch' ? undefined : version.name,
+      // Le git_ref n'accompagne qu'une pré-release : c'est elle qui se construit
+      // depuis une branche ou un tag. Une finale est un re-tag — son origine Git
+      // est celle de sa RC source.
+      git_ref: kind === 'pre' && refValue.trim() !== '' ? refValue.trim() : undefined,
       source_tag: kind === 'pre' ? undefined : sourceTag,
       tests_green: kind === 'pre' ? undefined : testsGreen,
     })
@@ -169,6 +183,49 @@ export function CreateReleasePanel({
               className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
             />
           </label>
+
+          {kind === 'pre' && (
+            <label className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="min-w-24 text-zinc-500">Branche ou tag</span>
+              <input
+                value={refValue}
+                onChange={(event) => {
+                  setGitRef(event.target.value)
+                  setRefEdited(true)
+                }}
+                list="forge-refs"
+                placeholder={refs.isPending ? 'lecture de la forge…' : 'develop, v3.1.2…'}
+                className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+              />
+              {/* datalist : suggestions ET saisie libre. Une liste fermée
+                  interdirait un commit précis, ou une référence au-delà de la
+                  borne de lecture. */}
+              <datalist id="forge-refs">
+                {(refs.data?.branches ?? []).map((branch) => (
+                  <option key={`b-${branch.name}`} value={branch.name} />
+                ))}
+                {(refs.data?.tags ?? []).map((tagRef) => (
+                  <option key={`t-${tagRef.name}`} value={tagRef.name} />
+                ))}
+              </datalist>
+              {refs.data && !refs.data.configured && (
+                <span className="text-xs text-zinc-500">
+                  Forge non configurée : saisie libre.
+                </span>
+              )}
+              {refs.data?.truncated && (
+                <span className="text-xs text-zinc-500">
+                  Liste tronquée — une référence absente reste saisissable.
+                </span>
+              )}
+              {refs.isError && (
+                <span className="flex items-center gap-1 text-xs text-warn-700">
+                  <Icon name="alert" className="size-3.5" />
+                  {(refs.error as Error).message} — saisie libre.
+                </span>
+              )}
+            </label>
+          )}
 
           {kind !== 'pre' && (
             <>
@@ -269,6 +326,12 @@ export function CreateReleasePanel({
           <p>
             {KINDS.find((option) => option.value === kind)?.label} pour la version{' '}
             <span className="font-mono">{version.name}</span>
+            {kind === 'pre' && refValue.trim() && (
+              <>
+                {' '}
+                — construite depuis <span className="font-mono">{refValue.trim()}</span>
+              </>
+            )}
             {kind !== 'pre' && sourceTag && (
               <>
                 {' '}

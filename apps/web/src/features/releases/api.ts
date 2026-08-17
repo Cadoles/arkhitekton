@@ -287,6 +287,7 @@ export function useCreateRelease() {
       tag: string
       kind: ReleaseKind
       redmine_version?: string
+      git_ref?: string
       source_tag?: string
       tests_green?: boolean
     }) =>

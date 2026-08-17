@@ -15,7 +15,7 @@ func NewAPIRouter(
 	handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, queue *QueueHandler,
 	releases *ReleasesHandler, benches *BenchHandler, tests *TestsHandler,
 	signoffs *SignoffsHandler, versions *VersionsHandler, syncAdmin *SyncAdminHandler,
-	admin *AdminHandler, middleware *Middleware,
+	forge *ForgeHandler, admin *AdminHandler, middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -155,6 +155,12 @@ func NewAPIRouter(
 	mux.Handle("GET /versions", Chain(http.HandlerFunc(versions.List),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 	mux.Handle("GET /versions/{id}", Chain(http.HandlerFunc(versions.Get),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
+
+	// Les références du dépôt servent le formulaire de création de release. En
+	// lecture pour tous : ce sont des noms de branches, pas des secrets, et le
+	// jeton qui les lit ne quitte jamais le serveur.
+	mux.Handle("GET /forge/refs", Chain(http.HandlerFunc(forge.Refs),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 
 	// L'état des synchronisations exige `admin` : il porte les messages d'erreur de
