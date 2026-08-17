@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 
+	"golang.org/x/sync/errgroup"
+
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 )
 
@@ -50,22 +52,32 @@ func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defaultBranch, err := h.forge.DefaultBranch(r.Context())
-	if err != nil {
+	// Les trois lectures en parallèle. En séquence, dépôt réel à l'appui, elles
+	// coûtaient huit secondes — la pagination des tags à elle seule en vaut
+	// plusieurs — et huit secondes d'attente sur un formulaire se lisent comme une
+	// liste vide.
+	var (
+		defaultBranch                    string
+		branches, tags                   []gitea.Ref
+		branchesTruncated, tagsTruncated bool
+	)
+	group, groupCtx := errgroup.WithContext(r.Context())
+	group.Go(func() (err error) {
+		defaultBranch, err = h.forge.DefaultBranch(groupCtx)
+		return err
+	})
+	group.Go(func() (err error) {
+		branches, branchesTruncated, err = h.forge.ListBranches(groupCtx)
+		return err
+	})
+	group.Go(func() (err error) {
+		tags, tagsTruncated, err = h.forge.ListTags(groupCtx)
+		return err
+	})
+	if err := group.Wait(); err != nil {
 		// 502 et le message du client : la panne est chez la forge ou dans le
 		// jeton, pas dans le dashboard, et le formulaire doit pouvoir le dire.
 		writeProblem(w, http.StatusBadGateway, "Forge injoignable", err.Error())
-		return
-	}
-
-	branches, branchesTruncated, err := h.forge.ListBranches(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusBadGateway, "Lecture des branches impossible", err.Error())
-		return
-	}
-	tags, tagsTruncated, err := h.forge.ListTags(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusBadGateway, "Lecture des tags impossible", err.Error())
 		return
 	}
 

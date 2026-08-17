@@ -161,9 +161,13 @@ const pageSize = 50
 // maxRefs borne le nombre total de références lues.
 //
 // Le formulaire propose une liste ; personne ne choisit parmi des milliers
-// d'entrées. La borne protège d'un dépôt aux branches jamais nettoyées, et son
-// franchissement est signalé par l'appelant plutôt que tronqué en silence.
-const maxRefs = 300
+// d'entrées, et les tags arrivent du plus récent au plus ancien — les cent
+// premiers couvrent l'histoire utile. La borne est aussi une borne de latence :
+// chaque page est un aller-retour vers la forge, et le dépôt réel porte plus de
+// trois cents tags. Son franchissement est signalé par l'appelant plutôt que
+// tronqué en silence, et la saisie libre reste ouverte pour une référence
+// au-delà.
+const maxRefs = 100
 
 // Ref est une branche ou un tag.
 type Ref struct {

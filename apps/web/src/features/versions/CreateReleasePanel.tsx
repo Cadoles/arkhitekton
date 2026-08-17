@@ -22,6 +22,10 @@ import { useForgeRefs, type Version, type VersionRelease } from './api'
  * diverger (doc 07 §7.2).
  */
 
+// Valeur sentinelle du choix « Autre référence… ». Un double underscore : aucun
+// nom de branche légitime ne commence ainsi.
+const CUSTOM_REF = '__custom__'
+
 const KINDS: { value: ReleaseKind; label: string; hint: string }[] = [
   { value: 'pre', label: 'Pré-release', hint: 'construite puis testée, jusqu’en pré-production' },
   { value: 'final', label: 'Finale', hint: 're-tag bit à bit d’une pré-release validée' },
@@ -65,8 +69,9 @@ export function CreateReleasePanel({
   const [open, setOpen] = useState(false)
   const [kind, setKind] = useState<ReleaseKind>('pre')
   const [tag, setTag] = useState('')
-  const [gitRef, setGitRef] = useState('')
-  const [refEdited, setRefEdited] = useState(false)
+  // '' = suivre la branche par défaut du dépôt ; CUSTOM_REF = saisie libre.
+  const [refChoice, setRefChoice] = useState('')
+  const [customRef, setCustomRef] = useState('')
   const [sourceTag, setSourceTag] = useState('')
   const [testsGreen, setTestsGreen] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -74,12 +79,12 @@ export function CreateReleasePanel({
   const base = useMemo(() => suggestedBase(version.name), [version.name])
   const refs = useForgeRefs(open)
 
-  // La branche par défaut du dépôt arrive après l'ouverture du formulaire : elle
-  // pré-remplit le champ tant que l'utilisateur n'y a pas touché — écraser une
-  // saisie en cours au retour d'une requête est le genre de surprise qui fait
-  // perdre confiance dans un formulaire.
+  // La branche par défaut du dépôt tient lieu de choix tant que l'utilisateur n'a
+  // rien sélectionné : c'est le cas courant, et il ne doit demander aucun geste.
+  const forgeReady = refs.data?.configured === true
   const defaultBranch = refs.data?.default_branch ?? ''
-  const refValue = refEdited ? gitRef : gitRef || defaultBranch
+  const refValue =
+    refChoice === CUSTOM_REF || !forgeReady ? customRef : refChoice || defaultBranch
   const sources = releases.filter((release) => release.kind === 'pre')
 
   // Le rôle décide de ce qui est proposé, pas de ce qui est permis : masquer une
@@ -185,37 +190,61 @@ export function CreateReleasePanel({
           </label>
 
           {kind === 'pre' && (
-            <label className="flex flex-wrap items-center gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="min-w-24 text-zinc-500">Branche ou tag</span>
-              <input
-                value={refValue}
-                onChange={(event) => {
-                  setGitRef(event.target.value)
-                  setRefEdited(true)
-                }}
-                list="forge-refs"
-                placeholder={refs.isPending ? 'lecture de la forge…' : 'develop, v3.1.2…'}
-                className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-              />
-              {/* datalist : suggestions ET saisie libre. Une liste fermée
-                  interdirait un commit précis, ou une référence au-delà de la
-                  borne de lecture. */}
-              <datalist id="forge-refs">
-                {(refs.data?.branches ?? []).map((branch) => (
-                  <option key={`b-${branch.name}`} value={branch.name} />
-                ))}
-                {(refs.data?.tags ?? []).map((tagRef) => (
-                  <option key={`t-${tagRef.name}`} value={tagRef.name} />
-                ))}
-              </datalist>
+
+              {/* Un vrai <select>, pas un datalist : un datalist filtre ses
+                  suggestions par le contenu du champ, et le pré-remplir avec la
+                  branche par défaut vidait donc le menu — l'utilisateur voyait
+                  une liste vide alors que 72 branches étaient chargées. Le select
+                  montre tout, toujours ; la saisie libre passe par le dernier
+                  choix, qui ouvre un champ. */}
+              {refs.isPending && <span className="text-zinc-500">lecture de la forge…</span>}
+
+              {forgeReady && (
+                <select
+                  value={refChoice === CUSTOM_REF ? CUSTOM_REF : refValue}
+                  onChange={(event) => setRefChoice(event.target.value)}
+                  aria-label="Branche ou tag à construire"
+                  className="max-w-72 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+                >
+                  <optgroup label="Branches">
+                    {(refs.data?.branches ?? []).map((branch) => (
+                      <option key={`b-${branch.name}`} value={branch.name}>
+                        {branch.name}
+                        {branch.name === defaultBranch ? ' (défaut)' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Tags récents">
+                    {(refs.data?.tags ?? []).map((tagRef) => (
+                      <option key={`t-${tagRef.name}`} value={tagRef.name}>
+                        {tagRef.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {/* L'échappatoire : un commit précis, ou une référence au-delà
+                      de la borne de lecture. Une liste fermée l'interdirait. */}
+                  <option value={CUSTOM_REF}>Autre référence…</option>
+                </select>
+              )}
+
+              {(refChoice === CUSTOM_REF || (!forgeReady && !refs.isPending)) && (
+                <input
+                  value={customRef}
+                  onChange={(event) => setCustomRef(event.target.value)}
+                  placeholder="branche, tag ou commit"
+                  aria-label="Référence saisie librement"
+                  className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+                />
+              )}
+
               {refs.data && !refs.data.configured && (
-                <span className="text-xs text-zinc-500">
-                  Forge non configurée : saisie libre.
-                </span>
+                <span className="text-xs text-zinc-500">Forge non configurée : saisie libre.</span>
               )}
               {refs.data?.truncated && (
                 <span className="text-xs text-zinc-500">
-                  Liste tronquée — une référence absente reste saisissable.
+                  Liste bornée aux références récentes — « Autre référence… » pour le reste.
                 </span>
               )}
               {refs.isError && (
@@ -224,7 +253,7 @@ export function CreateReleasePanel({
                   {(refs.error as Error).message} — saisie libre.
                 </span>
               )}
-            </label>
+            </div>
           )}
 
           {kind !== 'pre' && (
