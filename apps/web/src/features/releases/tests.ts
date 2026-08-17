@@ -69,14 +69,46 @@ export type CaseDiff = {
   change: Change
 }
 
-export function useFamily(tag: string | undefined, family: string | undefined) {
+export type FamilyPage = {
+  family: string
+  cases: TestCase[]
+  diff?: CaseDiff[]
+  /** Nombre de cas correspondant au filtre, toutes pages confondues. */
+  total: number
+  limit: number
+  offset: number
+}
+
+/**
+ * Une page de cas d'une famille.
+ *
+ * `offset` et `query` entrent dans la clé de cache : deux pages sont deux
+ * ressources distinctes, et les confondre ferait afficher la première pour la
+ * seconde le temps d'un aller-retour.
+ *
+ * `placeholderData` garde la page précédente affichée pendant le chargement de la
+ * suivante. Sans elle, chaque changement de page vide la table puis la remplit,
+ * ce qui fait sauter la mise en page à chaque clic.
+ */
+export function useFamily(
+  tag: string | undefined,
+  family: string | undefined,
+  offset = 0,
+  query = '',
+) {
   return useQuery({
-    queryKey: ['releases', tag, 'tests', family],
-    queryFn: () =>
-      request<{ family: string; cases: TestCase[]; diff?: CaseDiff[] }>(
-        `/releases/${encodeURIComponent(tag as string)}/tests/${encodeURIComponent(family as string)}`,
-      ),
+    queryKey: ['releases', tag, 'tests', family, { offset, query }],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (offset > 0) params.set('offset', String(offset))
+      if (query) params.set('q', query)
+      const suffix = params.size > 0 ? `?${params}` : ''
+      return request<FamilyPage>(
+        `/releases/${encodeURIComponent(tag as string)}/tests/${encodeURIComponent(family as string)}${suffix}`,
+      )
+    },
     enabled: Boolean(tag && family),
+    placeholderData: (previous) => previous,
   })
 }
 

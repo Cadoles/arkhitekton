@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -125,19 +126,68 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 	return results, rows.Err()
 }
 
-// ListTestCases rend les cas d'un rapport.
-func (db *DB) ListTestCases(ctx context.Context, resultID int64, onlyFailures bool) ([]TestCase, error) {
+// CasePage borne une lecture de cas de test.
+//
+// Une suite Cypress produit couramment plusieurs milliers de cas, et les rendre
+// tous coûte autant à PostgreSQL qu'au navigateur. La pagination est côté serveur
+// (doc 08 §8.6) : la découper côté client supposerait de tout avoir transféré,
+// c'est-à-dire de n'avoir rien économisé.
+type CasePage struct {
+	// OnlyFailures restreint aux cas en échec ou instables.
+	OnlyFailures bool
+	// Query filtre sur la suite et le nom réunis.
+	//
+	// Le filtre est côté serveur pour la même raison que la pagination, et pas
+	// seulement par symétrie : filtrer la page déjà transférée répondrait « aucun
+	// cas ne correspond » pour un test qui existe deux pages plus loin. Un filtre
+	// qui ne voit qu'une fraction des données ne filtre pas, il induit en erreur.
+	Query string
+	// Limit à zéro ou négatif rend tout : la pagination est un choix de
+	// l'appelant, pas une contrainte du magasin.
+	Limit  int
+	Offset int
+}
+
+// ListTestCases rend une page de cas d'un rapport, et le total avant découpage.
+//
+// Le total est compté à part plutôt que par `count(*) over ()`. Une fenêtre ne
+// rend rien quand la page est vide, ce qui arrive dès qu'un `offset` dépasse le
+// total — l'interface perdrait alors le seul chiffre qui lui permet de revenir en
+// arrière.
+func (db *DB) ListTestCases(ctx context.Context, resultID int64, page CasePage) ([]TestCase, int, error) {
+	filter := `from test_cases where test_result_id = $1`
+	args := []any{resultID}
+	if page.OnlyFailures {
+		filter += ` and status in ('failed', 'flaky')`
+	}
+	if needle := strings.TrimSpace(page.Query); needle != "" {
+		// `ilike` sur la concaténation : l'utilisateur tape un fragment sans
+		// savoir s'il appartient à la suite ou au nom du cas.
+		args = append(args, "%"+needle+"%")
+		filter += fmt.Sprintf(` and (suite || ' ' || name) ilike $%d`, len(args))
+	}
+
+	// Le total porte sur l'ensemble filtré, non sur le rapport entier : c'est lui
+	// qui doit dire « 12 cas » quand un filtre en retient douze sur trois mille.
+	var total int
+	if err := db.pool.QueryRow(ctx, `select count(*) `+filter, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("total des cas du rapport %d: %w", resultID, err)
+	}
+
+	// `id` en dernier critère de tri, et il n'est pas décoratif : sans ordre total,
+	// deux cas homonymes peuvent s'échanger entre deux requêtes, ce qui fait
+	// apparaître l'un deux fois et disparaître l'autre au passage d'une page.
 	query := `select id, test_result_id, suite, name, status, coalesce(duration_ms, 0),
 	                 coalesce(failure_message, ''), coalesce(failure_trace, '')
-	          from test_cases where test_result_id = $1`
-	if onlyFailures {
-		query += ` and status in ('failed', 'flaky')`
+	          ` + filter + ` order by suite, name, id`
+	if page.Limit > 0 {
+		query += fmt.Sprintf(` limit $%d offset $%d`, len(args)+1, len(args)+2)
+		args = append(args, page.Limit, max(page.Offset, 0))
 	}
-	query += ` order by suite, name`
 
-	rows, err := db.pool.Query(ctx, query, resultID)
+	rows, err := db.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("cas du rapport %d: %w", resultID, err)
+		return nil, 0, fmt.Errorf("cas du rapport %d: %w", resultID, err)
 	}
 	defer rows.Close()
 
@@ -147,11 +197,11 @@ func (db *DB) ListTestCases(ctx context.Context, resultID int64, onlyFailures bo
 		if err := rows.Scan(&testCase.ID, &testCase.TestResultID, &testCase.Suite,
 			&testCase.Name, &testCase.Status, &testCase.DurationMS,
 			&testCase.FailureMessage, &testCase.FailureTrace); err != nil {
-			return nil, fmt.Errorf("cas du rapport %d: %w", resultID, err)
+			return nil, 0, fmt.Errorf("cas du rapport %d: %w", resultID, err)
 		}
 		cases = append(cases, testCase)
 	}
-	return cases, rows.Err()
+	return cases, total, rows.Err()
 }
 
 // CaseDiff est la comparaison d'une famille à la release précédente.

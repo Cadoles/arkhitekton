@@ -1,5 +1,7 @@
+import { Suspense } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { Icon, type IconName } from './Icon'
+import { Skeleton } from './primitives'
 import { useTheme } from '../lib/theme'
 import { logout } from '../lib/api'
 import { roleLabel, useSession } from '../features/auth/session'
@@ -121,7 +123,17 @@ export function AppShell() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        <Outlet />
+        {/* La frontière est ici, et non par route : la coquille — en-tête,
+            navigation, thème — reste affichée pendant le chargement d'un écran
+            découpé. Une frontière plus haute ferait clignoter la navigation à
+            chaque arrivée sur un écran paresseux.
+
+            Le repli est un squelette et non un indicateur d'attente, par la même
+            convention que les écrans (doc 08 §8.5) : il occupe la place du
+            contenu attendu, ce qui évite le saut de mise en page. */}
+        <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   )

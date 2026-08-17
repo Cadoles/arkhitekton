@@ -1,16 +1,15 @@
+import { lazy } from 'react'
 import { Navigate, type RouteObject } from 'react-router'
 import { AppShell } from './components/AppShell'
 import { Placeholder } from './components/Placeholder'
 import { NotFound } from './components/NotFound'
 import { RunsScreen } from './features/runs/RunsScreen'
-import { RunScreen } from './features/runs/RunScreen'
 import { QueueScreen } from './features/queue/QueueScreen'
 import { EnvironmentsScreen } from './features/environments/EnvironmentsScreen'
 import { HistoryScreen } from './features/environments/HistoryScreen'
 import { EnvironmentScreen } from './features/environments/EnvironmentScreen'
 import { ReleasesScreen } from './features/releases/ReleasesScreen'
 import { ReleaseScreen } from './features/releases/ReleaseScreen'
-import { FamilyScreen } from './features/releases/FamilyScreen'
 import { SecurityScreen } from './features/releases/SecurityScreen'
 import { AdminScreen } from './features/admin/AdminScreen'
 
@@ -22,6 +21,25 @@ import { AdminScreen } from './features/admin/AdminScreen'
  * d'URL en conditions réelles, et de constater tout de suite qu'un lien de menu
  * mène quelque part.
  */
+
+/*
+ * Découpage du bundle sur les deux écrans lourds (doc 08 §8.6).
+ *
+ * Le choix n'est pas fait au poids des écrans mais à celui de leurs dépendances.
+ * `RunScreen` entraîne la visionneuse de logs et son virtualiseur ; `FamilyScreen`
+ * entraîne les tables de cas de test. Ces deux-là ne servent qu'à qui les ouvre,
+ * alors que la page d'accueil est `/environments` — la charger avec un virtualiseur
+ * dont elle n'a que faire retarde le premier rendu pour tout le monde.
+ *
+ * Les autres écrans restent en import direct : découper une carte de deux cents
+ * lignes échange un gain nul contre un aller-retour réseau.
+ */
+const RunScreen = lazy(() =>
+  import('./features/runs/RunScreen').then((module) => ({ default: module.RunScreen })),
+)
+const FamilyScreen = lazy(() =>
+  import('./features/releases/FamilyScreen').then((module) => ({ default: module.FamilyScreen })),
+)
 
 export const routes: RouteObject[] = [
   {

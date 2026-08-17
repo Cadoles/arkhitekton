@@ -16,7 +16,7 @@ import (
 type TestStore interface {
 	GetRelease(ctx context.Context, tag string) (store.Release, error)
 	ListReleaseTestResults(ctx context.Context, releaseID int64) ([]store.TestResult, error)
-	ListTestCases(ctx context.Context, resultID int64, onlyFailures bool) ([]store.TestCase, error)
+	ListTestCases(ctx context.Context, resultID int64, page store.CasePage) ([]store.TestCase, int, error)
 	DiffFamily(ctx context.Context, releaseID, previousID int64, family string) ([]store.CaseDiff, error)
 	PreviousRelease(ctx context.Context, releaseID int64) (int64, error)
 	LatestSecurityAudit(ctx context.Context, releaseID int64) (store.SecurityAudit, error)
@@ -269,6 +269,13 @@ type caseDiffPayload struct {
 	Change string `json:"change"`
 }
 
+// casePageSize borne une page de cas de test (doc 08 §8.6).
+//
+// Cinq cents lignes tiennent dans une table utilisable et couvrent la totalité des
+// familles sauf Cypress sur une release complète. La taille n'est pas négociable
+// par l'appelant : un `limit` libre dans l'URL rendrait la borne décorative.
+const casePageSize = 500
+
 type casePayload struct {
 	Suite      string `json:"suite"`
 	Name       string `json:"name"`
@@ -295,6 +302,11 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 	}
 
 	family := r.PathValue("family")
+	page := store.CasePage{
+		Limit:  casePageSize,
+		Offset: int(intQuery(r, "offset", 0)),
+		Query:  r.URL.Query().Get("q"),
+	}
 
 	reports, err := h.store.ListReleaseTestResults(r.Context(), release.ID)
 	if err != nil {
@@ -302,16 +314,18 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cases []casePayload
+	cases := make([]casePayload, 0, casePageSize)
+	total := 0
 	for _, report := range reports {
 		if report.Family != family {
 			continue
 		}
-		stored, err := h.store.ListTestCases(r.Context(), report.ID, false)
+		stored, count, err := h.store.ListTestCases(r.Context(), report.ID, page)
 		if err != nil {
 			writeProblem(w, http.StatusInternalServerError, "Lecture des cas impossible", "")
 			return
 		}
+		total = count
 		for _, testCase := range stored {
 			cases = append(cases, casePayload{
 				Suite: testCase.Suite, Name: testCase.Name, Status: testCase.Status,
@@ -324,7 +338,16 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 
-	response := map[string]any{"family": family, "cases": cases}
+	// La comparaison n'est pas paginée : elle est déjà réduite à ce qui a changé,
+	// et c'est la partie que l'on vient lire. La tronquer reviendrait à cacher un
+	// échec apparu parce qu'il tombe en deuxième page.
+	response := map[string]any{
+		"family": family,
+		"cases":  cases,
+		"total":  total,
+		"limit":  casePageSize,
+		"offset": page.Offset,
+	}
 
 	previous, err := h.store.PreviousRelease(r.Context(), release.ID)
 	if err == nil {
