@@ -11,6 +11,7 @@ import { ReleasesScreen } from './features/releases/ReleasesScreen'
 import { ReleaseScreen } from './features/releases/ReleaseScreen'
 import { FamilyScreen } from './features/releases/FamilyScreen'
 import { SecurityScreen } from './features/releases/SecurityScreen'
+import { AdminScreen } from './features/admin/AdminScreen'
 
 /*
  * Arborescence de la doc 08 §8.3, posée en entier dès le lot 0.
@@ -85,16 +86,7 @@ export const routes: RouteObject[] = [
 
       { path: 'queue', element: <QueueScreen /> },
 
-      {
-        path: 'admin',
-        element: (
-          <Placeholder
-            lot="lot 0"
-            title="Administration"
-            summary="Attribution des rôles, configuration des environnements, resynchronisations, journal d'audit."
-          />
-        ),
-      },
+      { path: 'admin', element: <AdminScreen /> },
 
       { path: '*', element: <NotFound /> },
     ],

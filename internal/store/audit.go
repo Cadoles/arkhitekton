@@ -30,6 +30,11 @@ const (
 	AuditJobCancel        = "job.cancel"
 	AuditArtifactGenerate = "artifact.generate"
 	AuditBaselinePin      = "bench.baseline.pin"
+	// Les changements de rôle sont consignés comme les actions sortantes : ils
+	// décident de qui peut livrer, et « qui a promu qui » doit avoir une réponse
+	// sans consulter les journaux applicatifs.
+	AuditRoleGrant  = "role.grant"
+	AuditRoleRevoke = "role.revoke"
 )
 
 // Audit consigne une action.

@@ -175,7 +175,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			releasesHandler, dashhttp.NewBenchHandler(db),
 			// La pondération du score vient du catalogue : elle a été acceptée par
 			// le client et reste ajustable sans redéploiement (B11).
-			dashhttp.NewTestsHandler(db, pipelines.ScoreWeights()), middleware),
+			dashhttp.NewTestsHandler(db, pipelines.ScoreWeights()),
+			dashhttp.NewAdminHandler(db), middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se

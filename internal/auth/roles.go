@@ -114,6 +114,30 @@ func (a *Authorizer) Sensitive(environment string) bool {
 	return !known || policy.Sensitive
 }
 
+// PermissionsOf rend les permissions cumulées d'un rôle.
+//
+// Cumulées, parce que les rôles sont ordonnés : `releaser` ajoute aux droits de
+// `operator`, qui ajoute à ceux de `viewer`. Une interface qui n'afficherait que
+// l'apport d'un rôle laisserait croire qu'un releaser ne peut pas lancer de
+// pipeline.
+//
+// Exposé pour que l'écran d'administration décrive ce qu'il attribue. Le
+// dupliquer côté navigateur ferait diverger la description de la règle au
+// premier ajout de permission.
+func PermissionsOf(role Role) []Permission {
+	if !role.Valid() {
+		return nil
+	}
+	var granted []Permission
+	for _, candidate := range AllRoles {
+		if candidate.rank() > role.rank() {
+			break
+		}
+		granted = append(granted, rolePermissions[candidate]...)
+	}
+	return granted
+}
+
 // Can indique si l'identité dispose de la permission demandée.
 func (a *Authorizer) Can(identity Identity, permission Permission) bool {
 	if !identity.Role.Valid() {

@@ -14,7 +14,7 @@ import (
 func NewAPIRouter(
 	handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, queue *QueueHandler,
 	releases *ReleasesHandler, benches *BenchHandler, tests *TestsHandler,
-	middleware *Middleware,
+	admin *AdminHandler, middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -118,6 +118,19 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 	mux.Handle("GET /environments/{environment}/history", Chain(http.HandlerFunc(releases.History),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
+
+	// L'administration exige `admin`, et rien de moins : attribuer un rôle est ce
+	// qui permet d'en attribuer d'autres, donc la seule permission qui se
+	// propage. Le journal d'audit y est rattaché parce qu'il sert d'abord à
+	// contrôler ces attributions.
+	mux.Handle("GET /admin/roles", Chain(http.HandlerFunc(admin.Roles),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+	mux.Handle("POST /admin/roles", Chain(http.HandlerFunc(admin.Grant),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	mux.Handle("DELETE /admin/roles/{subject}", Chain(http.HandlerFunc(admin.Revoke),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	mux.Handle("GET /admin/audit", Chain(http.HandlerFunc(admin.Audit),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
 
 	return mux
 }
