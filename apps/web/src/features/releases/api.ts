@@ -182,3 +182,82 @@ export function useGenerateExport(tag: string) {
 export function downloadURL(tag: string, artifact: number): string {
   return `/api/v1/releases/${encodeURIComponent(tag)}/exports/${artifact}/download`
 }
+
+/*
+ * Validation de recette.
+ *
+ * Doc 01 §1.2 décrit le sign-off comme la concaténation de deux moitiés : les
+ * contrôles automatiques et la validation humaine. Seule la seconde vit ici — la
+ * première est déjà chargée sous forme de résultats de tests, et la jointure se
+ * fait dans le panneau, où les deux sont présentes.
+ */
+
+/** `pass` validé, `warn` validé sous réserve, `fail` refusé. L'attente est
+ *  l'absence d'entrée, non une valeur : une ligne « en attente » supposerait de
+ *  savoir à l'avance qui doit se prononcer. */
+export type SignoffStatus = 'pass' | 'warn' | 'fail'
+
+export type Signoff = {
+  role: string
+  status: SignoffStatus
+  detail?: string
+  decided_by: string
+  decided_at: string
+}
+
+export type EnvironmentSignoffs = {
+  environment: string
+  label: string
+  signoffs: Signoff[]
+}
+
+export function useSignoffs(tag: string) {
+  return useQuery({
+    queryKey: ['releases', tag, 'signoffs'],
+    queryFn: () =>
+      request<{ environments: EnvironmentSignoffs[] }>(
+        `/releases/${encodeURIComponent(tag)}/signoffs`,
+      ),
+    enabled: Boolean(tag),
+  })
+}
+
+export function useSetSignoff(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      environment,
+      ...payload
+    }: {
+      environment: string
+      role: string
+      status: SignoffStatus
+      detail: string
+    }) =>
+      request<void>(
+        `/releases/${encodeURIComponent(tag)}/signoffs/${encodeURIComponent(environment)}`,
+        { method: 'PUT', body: JSON.stringify(payload) },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'signoffs'] })
+    },
+  })
+}
+
+/** Retirer n'est pas refuser : un avis rendu sur la mauvaise release doit pouvoir
+ *  disparaître sans laisser un refus qui bloquerait la livraison. */
+export function useClearSignoff(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ environment, role }: { environment: string; role: string }) =>
+      request<void>(
+        `/releases/${encodeURIComponent(tag)}/signoffs/${encodeURIComponent(environment)}?role=${encodeURIComponent(role)}`,
+        { method: 'DELETE' },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'signoffs'] })
+    },
+  })
+}

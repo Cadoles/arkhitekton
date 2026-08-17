@@ -484,6 +484,47 @@ L'audit n'est pas optionnel : le dashboard déclenche des déploiements en produ
 question « qui a déployé quoi, quand » doit avoir une réponse sans consulter les logs
 applicatifs.
 
+### Validation de recette
+
+```sql
+create table release_signoffs (
+  id             bigserial primary key,
+  release_id     bigint not null references releases(id) on delete cascade,
+  environment_id text not null references environments(id),
+  role           text not null,                 -- 'Client', 'Recette', 'Exploitation'
+  status         text not null check (status in ('pass','warn','fail')),
+  detail         text,                           -- réserve ou motif de refus
+  decided_by     text not null,
+  decided_at     timestamptz not null default now(),
+  unique (release_id, environment_id, role)
+);
+create index on release_signoffs (release_id, environment_id);
+```
+
+**La clé est composée, et c'est le point qui compte.** La maquette portait
+`validation[]` sur l'environnement seul ; ses données étant figées, la distinction ne
+pouvait pas se voir. Une validation porte sur « cette release, dans cet environnement » :
+attachée à l'environnement, elle survivrait au déploiement suivant et afficherait
+« validé par le client » pour une version que le client n'a jamais vue.
+
+**`na` n'est pas stocké.** L'attente est l'absence de ligne, pas une ligne qui dit « en
+attente » — l'enregistrer obligerait à créer une entrée par intervenant dès la release,
+sans savoir qui doit se prononcer.
+
+**Le motif obligatoire pour `warn` et `fail` est porté par l'API, pas par la base.** Un
+refus sans motif n'aide personne, mais le rejeter en base rendrait les données déjà
+écrites irréparables si la règle changeait.
+
+Se prononcer à nouveau remplace son propre avis, ce qui est le comportement attendu d'un
+changement d'avis après correction. L'historique reste dans `audit_log`
+(`release.signoff`, `release.signoff.clear`) : c'est lui, et non cette table, qui répond
+à « qui avait validé, avant de se rétracter ».
+
+La moitié automatique du sign-off — les contrôles CI décrits en
+[doc 01 §1.2](01-analyse-existant.md) — n'a pas de table : elle se dérive des
+`test_results` déjà enregistrés. La concaténation des deux moitiés se fait à l'affichage,
+là où les deux sont présentes.
+
 ### Cache des appels externes
 
 ```sql

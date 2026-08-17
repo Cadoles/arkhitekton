@@ -30,6 +30,12 @@ const (
 	AuditJobCancel        = "job.cancel"
 	AuditArtifactGenerate = "artifact.generate"
 	AuditBaselinePin      = "bench.baseline.pin"
+	// La validation de recette est la décision qui autorise une livraison. Son
+	// historique ne peut pas vivre dans `release_signoffs`, où un changement
+	// d'avis remplace le précédent : le journal est le seul endroit qui répond à
+	// « qui avait validé, avant de se rétracter ».
+	AuditSignoffSet   = "release.signoff"
+	AuditSignoffClear = "release.signoff.clear"
 	// Les changements de rôle sont consignés comme les actions sortantes : ils
 	// décident de qui peut livrer, et « qui a promu qui » doit avoir une réponse
 	// sans consulter les journaux applicatifs.

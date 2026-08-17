@@ -142,7 +142,15 @@ par environnement, augmenté de :
   renseigné au fil de la production du livrable, avec la date et l'auteur de la dernière
   modification ;
 - les boutons d'export (rapport de tests, bon de livraison) ;
-- les boutons de déploiement par environnement, soumis à permission.
+- les boutons de déploiement par environnement, soumis à permission ;
+- le `SignoffPanel`, qui réunit les deux moitiés du sign-off décrites en
+  [doc 01 §1.2](01-analyse-existant.md) : les contrôles automatiques — résumés depuis
+  les résultats de tests, le détail vivant déjà dans le panneau des tests — et la
+  validation humaine, saisissable avec `release:edit`.
+
+  L'ordre n'est pas indifférent : l'automatique d'abord, parce qu'un client qui valide
+  le fait au vu des tests. Sur `/environments/:env`, le panneau est restreint à cet
+  environnement — une release validée en qualif ne l'est pas en préproduction.
 
 ## 8.5 Conventions
 

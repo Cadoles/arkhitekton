@@ -14,7 +14,7 @@ import (
 func NewAPIRouter(
 	handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, queue *QueueHandler,
 	releases *ReleasesHandler, benches *BenchHandler, tests *TestsHandler,
-	admin *AdminHandler, middleware *Middleware,
+	signoffs *SignoffsHandler, admin *AdminHandler, middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -103,6 +103,20 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 	mux.Handle("GET /releases/{tag}/security", Chain(http.HandlerFunc(tests.Security),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
+
+	// La validation de recette se lit sans privilège — savoir si le client a
+	// validé intéresse tout le monde. Se prononcer est en revanche une décision de
+	// livraison : `release:edit`, la même permission que les actions manuelles,
+	// parce que ce sont les mêmes personnes qui conduisent une recette. Exiger
+	// `release:create:final` reviendrait à réserver la validation à ceux qui
+	// livrent, alors que valider et livrer sont justement les deux gestes qu'on
+	// souhaite voir accomplis par des personnes distinctes.
+	mux.Handle("GET /releases/{tag}/signoffs", Chain(http.HandlerFunc(signoffs.List),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	mux.Handle("PUT /releases/{tag}/signoffs/{env}", Chain(http.HandlerFunc(signoffs.Set),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
+	mux.Handle("DELETE /releases/{tag}/signoffs/{env}", Chain(http.HandlerFunc(signoffs.Clear),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
 
 	// Les campagnes de charge sont en lecture pour tous. Épingler une baseline
 	// déplace en revanche la référence de tous les verdicts suivants : c'est une

@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
+import { SignoffPanel } from '../releases/SignoffPanel'
 import { TestsPanel } from '../releases/TestsPanel'
 import { describe, useEnvironment, type DeployedRelease, type EnvironmentDetail, type FlowStep } from './api'
 
@@ -50,9 +51,16 @@ export function EnvironmentScreen() {
           <PromotionFlow flow={data.flow} />
           <StateCard environment={data} />
           <DeployedCard environment={data} />
-          {/* Le score et les résultats sont ceux de la release déployée : c'est la
-              jointure qui donne son intérêt à cet écran. */}
-          {data.deployed && <TestsPanel tag={data.deployed.tag} />}
+          {/* Le score, les résultats et la validation sont ceux de la release
+              déployée : c'est la jointure qui donne son intérêt à cet écran. La
+              validation est restreinte à cet environnement — une release validée
+              en qualif ne l'est pas en préproduction. */}
+          {data.deployed && (
+            <>
+              <TestsPanel tag={data.deployed.tag} />
+              {env && <SignoffPanel tag={data.deployed.tag} environment={env} />}
+            </>
+          )}
         </>
       )}
     </div>
