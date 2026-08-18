@@ -366,8 +366,18 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// Les URLs d'écriture des artefacts sont minées ici : le layout de
 			// stockage appartient au dashboard, et c'est ce qui sort le secret
 			// MinIO des Tasks de test (B14).
+			// Ce que les pipelines recevront, journalisé avant toute exécution.
+			// Un dépôt ou un Dockerfile qui ne correspond pas à ce qu'on croit
+			// piloter ne se voit sinon qu'à l'échec du build, où le message
+			// désigne un chemin sans dire d'où il vient.
+			resolved := schedulerConfig(cfg)
+			logger.Info("cible des pipelines",
+				"repo", resolved["forge.mse.repoUrl"],
+				"dockerfile", resolved["mse.dockerfile"],
+				"registry_project", resolved["registry.project"])
+
 			scheduler := worker.NewSchedulerFromCatalog(
-				db, cluster, pipelines, schedulerConfig(cfg), logger).WithUploads(storage)
+				db, cluster, pipelines, resolved, logger).WithUploads(storage)
 
 			// Les livrables passent par la file comme le reste, mais sont
 			// produits ici : générer un bon de livraison lit la base et écrit un
@@ -439,9 +449,22 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		return fallback
 	}
 
+	// Le dépôt applicatif est dérivé de `GITEA_REPO` : c'est le même dépôt que
+	// celui dont le formulaire propose les branches, et le nommer deux fois
+	// laissait basculer l'un sans l'autre. `FORGE_MSE_REPO_URL` reste une
+	// dérogation explicite, non le réglage courant.
+	//
+	// Les deux autres dépôts ne suivent pas : `mse-kustom` et `mse-tests-e2e`
+	// sont d'autres dépôts, pas d'autres vues du même.
+	appRepo := envOr("FORGE_MSE_REPO_URL",
+		cfg.Gitea.CloneURL(os.Getenv("FORGE_SSH_PORT")))
+	if appRepo == "" {
+		appRepo = "ssh://git@forge.cadoles.com:2222/CNOUS/mse.git"
+	}
+
 	return map[string]string{
 		"tekton.namespace":        cfg.Tekton.Namespace,
-		"forge.mse.repoUrl":       envOr("FORGE_MSE_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse.git"),
+		"forge.mse.repoUrl":       appRepo,
 		"forge.mseKustom.repoUrl": envOr("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
 		"forge.e2e.repoUrl":       envOr("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
 		"registry.project":        envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
