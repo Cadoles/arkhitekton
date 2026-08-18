@@ -38,6 +38,7 @@ type ReleaseStore interface {
 	LatestPromotions(ctx context.Context) (map[string]store.EnvironmentPromotion, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	SetReleaseState(ctx context.Context, id int64, state string) error
+	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
 }
 
 // ReleasesHandler expose les releases, leur création et leur promotion.
@@ -510,6 +511,66 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, response)
+}
+
+// Release valide une release et l'autorise à partir en environnement.
+//
+// C'est la décision humaine du cycle documenté (doc 04 §4.2) : les tests ont
+// conclu, quelqu'un tranche. Rien ne l'automatise, et c'est le point — un
+// pipeline vert dit que le code fonctionne, pas qu'on veut le livrer.
+//
+// `release:create:final` et non `release:edit` : valider engage ce qui partira
+// chez l'utilisateur, au même titre que produire une release finale.
+func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
+	if _, ok := IdentityFrom(r.Context()); !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	tag := r.PathValue("tag")
+	record, err := h.store.GetRelease(r.Context(), tag)
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		return
+	}
+
+	// La transition est vérifiée avant l'écriture, et par le paquet qui en porte
+	// la table : une validation depuis `building` ou depuis `cancelled` n'a pas de
+	// sens, et le message doit dire lequel des deux cas s'applique.
+	from := release.State(record.State)
+	if !release.CanTransition(from, release.StateReleased) {
+		writeProblem(w, http.StatusConflict, "Validation impossible",
+			fmt.Sprintf("la release %q est dans l'état %q: seule une release %q se valide",
+				tag, record.State, release.StateReady))
+		return
+	}
+
+	validated, err := h.store.MarkReleased(r.Context(), record.ID, record.State)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Validation impossible", "")
+		return
+	}
+	if !validated {
+		// La release a bougé entre la lecture et l'écriture. Un 409 plutôt qu'un
+		// succès muet : l'appelant a pris sa décision sur un état qui n'est plus
+		// celui de la base.
+		writeProblem(w, http.StatusConflict, "Validation impossible",
+			"l'état de la release a changé entre-temps, rechargez la page")
+		return
+	}
+
+	h.audit(r, store.AuditReleaseRelease, tag, map[string]any{
+		"from": record.State, "image_version": record.ImageVersion,
+	})
+
+	record.State = string(release.StateReleased)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"release": toReleasePayload(record, ""),
+	})
 }
 
 // enqueueBuild met en file la construction des images d'une release.

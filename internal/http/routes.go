@@ -81,6 +81,13 @@ func NewAPIRouter(
 	mux.Handle("POST /releases/{tag}/promote/{environment}", Chain(http.HandlerFunc(releases.Promote),
 		middleware.Authenticate, middleware.CSRF, middleware.RequireDeploy("environment")))
 
+	// Valider une release engage ce qui partira chez l'utilisateur : même
+	// permission que produire une release finale, et non `release:edit`. C'est
+	// aussi la seule transition que rien n'automatise — un pipeline vert dit que
+	// le code fonctionne, pas qu'on veut le livrer.
+	mux.Handle("POST /releases/{tag}/release", Chain(http.HandlerFunc(releases.Release),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseFinal)))
+
 	// Les actions manuelles sont éditables par ceux qui produisent le livrable,
 	// pas seulement par ceux qui peuvent livrer : `release:edit` et non
 	// `release:create:final`.

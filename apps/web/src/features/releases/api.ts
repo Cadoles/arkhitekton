@@ -316,3 +316,28 @@ export function useCreateRelease() {
     },
   })
 }
+
+/**
+ * Validation d'une release : `ready` → `released`.
+ *
+ * C'est la décision humaine du cycle (doc 04 §4.2). Rien ne l'automatise, et
+ * c'est le point — un pipeline vert dit que le code fonctionne, pas qu'on veut le
+ * livrer. Tant qu'elle n'est pas prise, la release n'est ni promouvable ni
+ * re-taguable en finale.
+ */
+export function useReleaseRelease(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      request<{ release: Release }>(`/releases/${encodeURIComponent(tag)}/release`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases'] })
+      void queryClient.invalidateQueries({ queryKey: ['release', tag] })
+      // La liste des promouvables change : elle ne retient que les validées.
+      void queryClient.invalidateQueries({ queryKey: ['environments'] })
+    },
+  })
+}

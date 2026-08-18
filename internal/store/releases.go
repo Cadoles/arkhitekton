@@ -403,6 +403,27 @@ func (db *DB) ListEnvironmentHistory(ctx context.Context, environmentID string, 
 	return history, rows.Err()
 }
 
+// MarkReleased fait passer une release en `released` et date sa livraison.
+//
+// L'écriture est conditionnée à l'état de départ, comme [DB.AdvanceReleaseState] :
+// deux validations simultanées, ou une validation qui arrive après un abandon, ne
+// doivent pas se marcher dessus. Rend `false` quand la release a bougé entre la
+// lecture et l'écriture.
+//
+// `released_at` est posé ici et pas ailleurs : c'est la date de la décision
+// humaine, pas celle d'un déploiement. Une release validée mais jamais promue
+// porte quand même sa date de validation, et c'est ce qui distingue « validée,
+// pas encore livrée » de « jamais validée » dans le bon de livraison.
+func (db *DB) MarkReleased(ctx context.Context, id int64, from string) (bool, error) {
+	tag, err := db.pool.Exec(ctx,
+		`update releases set state = $3, released_at = now(), updated_at = now()
+		 where id = $1 and state = $2`, id, from, string(release.StateReleased))
+	if err != nil {
+		return false, fmt.Errorf("validation de la release %d: %w", id, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // JobReleaseContext décrit la release qu'un job fait avancer.
 type JobReleaseContext struct {
 	ReleaseID int64

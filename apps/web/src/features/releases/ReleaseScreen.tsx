@@ -8,11 +8,13 @@ import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { useEnvironments } from '../environments/api'
+import { hasAtLeast, useSession } from '../auth/session'
 import {
   downloadURL,
   useExports,
   useGenerateExport,
   useRelease,
+  useReleaseRelease,
   useSaveManualActions,
   usePromote,
   type Image,
@@ -48,6 +50,7 @@ export function ReleaseScreen() {
 
       {data && (
         <>
+          <ReleaseAction release={data} />
           <Identity release={data} />
           <Images release={data} />
           <Deployment release={data} />
@@ -414,4 +417,72 @@ function formatBytes(size: number): string {
   if (size < 1024) return `${size} o`
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} Kio`
   return `${(size / (1024 * 1024)).toFixed(1)} Mio`
+}
+
+
+/**
+ * Validation d'une release : la décision humaine du cycle (doc 04 §4.2).
+ *
+ * N'apparaît que sur une release `ready` — celle dont les tests ont conclu et qui
+ * attend qu'on tranche. Ailleurs elle n'aurait pas de sens : rien à valider avant
+ * les tests, plus rien à décider après.
+ *
+ * Ressaisie du tag exigée : valider autorise la promotion vers les environnements
+ * et le re-tag en release finale. C'est le geste qui engage ce qui partira chez
+ * l'utilisateur (doc 08 §8.5).
+ */
+function ReleaseAction({ release }: { release: ReleaseDetail }) {
+  const session = useSession()
+  const validate = useReleaseRelease(release.tag)
+  const [confirming, setConfirming] = useState(false)
+
+  const canRelease =
+    session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'releaser')
+
+  if (release.state !== 'ready' || !canRelease) return null
+
+  return (
+    <Card title="Décision">
+      <p className="text-sm text-zinc-600">
+        Les tests de cette release ont conclu. La valider l'autorise à partir en environnement
+        et permet d'en tirer une release finale par re-tag.
+      </p>
+
+      {validate.isError && (
+        <p className="mt-2 flex items-start gap-2 text-sm text-critical-700">
+          <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+          {(validate.error as Error).message}
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        disabled={validate.isPending}
+        className="mt-3 rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-40"
+      >
+        Valider la release
+      </button>
+
+      {confirming && (
+        <ConfirmDialog
+          title={`Valider la release ${release.tag}`}
+          confirmLabel="Valider"
+          challenge={release.tag}
+          onConfirm={() => {
+            setConfirming(false)
+            validate.mutate()
+          }}
+          onCancel={() => setConfirming(false)}
+          pending={validate.isPending}
+        >
+          <p>
+            <span className="font-mono">{release.tag}</span> deviendra promouvable sur les
+            environnements, et pourra être re-taguée en release finale. Cette décision est
+            consignée au journal d'audit.
+          </p>
+        </ConfirmDialog>
+      )}
+    </Card>
+  )
 }

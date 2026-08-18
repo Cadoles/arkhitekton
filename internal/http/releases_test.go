@@ -150,6 +150,23 @@ func (f *fakeReleaseStore) Enqueue(_ context.Context, request store.JobRequest) 
 
 // states retient les états écrits, pour vérifier qu'une pré-release passe bien en
 // `building` après mise en file de sa construction.
+// MarkReleased applique la même condition que la base : l'écriture n'aboutit que
+// si la release est encore dans l'état lu.
+func (f *fakeReleaseStore) MarkReleased(_ context.Context, id int64, from string) (bool, error) {
+	for tag, release := range f.releases {
+		if release.ID != id {
+			continue
+		}
+		if release.State != from {
+			return false, nil
+		}
+		release.State = "released"
+		f.releases[tag] = release
+		return true, nil
+	}
+	return false, nil
+}
+
 func (f *fakeReleaseStore) SetReleaseState(_ context.Context, id int64, state string) error {
 	if f.states == nil {
 		f.states = map[int64]string{}
@@ -312,7 +329,7 @@ func TestCreateRefusesAMismatchedRedmineVersion(t *testing.T) {
 func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0-rc3"] = store.Release{
-		ID: 4, Tag: "1.8.0-rc3", Kind: "pre", State: "ready", ImageVersion: "1.8.0-rc3",
+		ID: 4, Tag: "1.8.0-rc3", Kind: "pre", State: "released", ImageVersion: "1.8.0-rc3",
 	}
 	handler := newReleasesHandler(t, fake)
 
@@ -367,7 +384,7 @@ func TestCreateFinalRefusesAnUnbuiltSource(t *testing.T) {
 func TestCreateFinalRequiresTheReleaserRole(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0-rc3"] = store.Release{
-		ID: 6, Tag: "1.8.0-rc3", Kind: "pre", State: "ready", ImageVersion: "1.8.0-rc3",
+		ID: 6, Tag: "1.8.0-rc3", Kind: "pre", State: "released", ImageVersion: "1.8.0-rc3",
 	}
 	handler := newReleasesHandler(t, fake)
 
@@ -788,7 +805,7 @@ func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
 func TestUneReleaseFinaleNenfilePasDeConstruction(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["3.2.0-rc1"] = store.Release{
-		ID: 1, Tag: "3.2.0-rc1", Kind: "pre", State: "ready", ImageVersion: "3.2.0-rc1",
+		ID: 1, Tag: "3.2.0-rc1", Kind: "pre", State: "released", ImageVersion: "3.2.0-rc1",
 	}
 	handler := newReleasesHandler(t, fake)
 
@@ -837,6 +854,59 @@ func TestUnePrereleaseSansReferenceEstCreeeAvecReserve(t *testing.T) {
 	for _, job := range fake.jobs {
 		if job.Kind == "build" {
 			t.Error("aucune construction ne doit partir sans référence Git")
+		}
+	}
+}
+
+// La validation est la décision humaine du cycle : elle fait passer `ready` à
+// `released`, ce qui autorise la promotion et le re-tag.
+func TestValiderUneReleasePreteLaRendLivrable(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["3.2.0-rc1"] = store.Release{
+		ID: 7, Tag: "3.2.0-rc1", Kind: "pre", State: "ready", ImageVersion: "3.2.0-rc1",
+	}
+	handler := newReleasesHandler(t, fake)
+
+	request := asRole(httptest.NewRequest(http.MethodPost, "/releases/3.2.0-rc1/release", nil),
+		auth.RoleReleaser)
+	request.SetPathValue("tag", "3.2.0-rc1")
+	recorder := httptest.NewRecorder()
+	handler.Release(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if fake.releases["3.2.0-rc1"].State != "released" {
+		t.Errorf("état %q, attendu released", fake.releases["3.2.0-rc1"].State)
+	}
+	// La décision engage ce qui partira : elle est consignée.
+	if len(fake.audit) == 0 {
+		t.Error("la validation doit être consignée au journal d'audit")
+	}
+}
+
+// Valider n'a de sens que depuis `ready` : rien à valider avant les tests, plus
+// rien à décider après. Le refus est un 409 et non un 400 — la requête est
+// correcte, c'est l'état qui ne s'y prête pas.
+func TestValiderDepuisUnAutreEtatEstRefuse(t *testing.T) {
+	for _, state := range []string{"draft", "building", "verifying", "released", "cancelled"} {
+		fake := newFakeStore()
+		fake.releases["3.2.0-rc1"] = store.Release{
+			ID: 7, Tag: "3.2.0-rc1", Kind: "pre", State: state, ImageVersion: "3.2.0-rc1",
+		}
+		handler := newReleasesHandler(t, fake)
+
+		request := asRole(httptest.NewRequest(http.MethodPost, "/releases/3.2.0-rc1/release", nil),
+			auth.RoleReleaser)
+		request.SetPathValue("tag", "3.2.0-rc1")
+		recorder := httptest.NewRecorder()
+		handler.Release(recorder, request)
+
+		if recorder.Code != http.StatusConflict {
+			t.Errorf("état %q: code %d, attendu 409", state, recorder.Code)
+		}
+		if fake.releases["3.2.0-rc1"].State != state {
+			t.Errorf("état %q modifié en %q", state, fake.releases["3.2.0-rc1"].State)
 		}
 	}
 }

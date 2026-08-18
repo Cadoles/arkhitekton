@@ -23,7 +23,11 @@ type AuditEntry struct {
 // faute de frappe dans un `action` rend la ligne introuvable au moment où on la
 // cherche, c'est-à-dire après coup.
 const (
-	AuditReleaseCreate    = "release.create"
+	AuditReleaseCreate = "release.create"
+	// La validation d'une release engage ce qui partira chez l'utilisateur. Elle
+	// est consignée à part de sa création : ce sont deux décisions distinctes,
+	// souvent prises par des personnes différentes et à plusieurs jours d'écart.
+	AuditReleaseRelease   = "release.release"
 	AuditReleasePromote   = "release.promote"
 	AuditReleaseActions   = "release.actions"
 	AuditJobEnqueue       = "job.enqueue"

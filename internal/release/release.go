@@ -234,17 +234,15 @@ func FinalFromSource(source Source) (imageVersion string, warnings []string, err
 	if strings.TrimSpace(source.Tag) == "" {
 		return "", nil, ErrSourceRequired
 	}
-	// **Écart connu avec doc 04 §4.2**, qui conditionne le re-tag à une RC source
-	// en `released`. La règle appliquée ici reste `ready`, parce que rien ne fait
-	// aujourd'hui passer une release en `released` : aucune action de validation
-	// n'est exposée. Resserrer la règle avant d'ouvrir cette action rendrait toute
-	// release finale impossible.
-	//
-	// À resserrer en même temps que l'action de validation, pas avant.
-	if source.State != StateReady {
+	// La RC source doit être **validée**, et non seulement prête (doc 04 §4.2).
+	// La distinction porte tout le sens du re-tag : il transporte la validation de
+	// la RC vers la release finale, donc il n'y a rien à transporter tant que
+	// personne n'a validé. Accepter une RC `ready` reviendrait à livrer sur la foi
+	// de tests verts, alors que le cycle réserve cette décision à un humain.
+	if source.State != StateReleased {
 		return "", nil, fmt.Errorf(
 			"la pré-release %q est dans l'état %q: seule une release %q peut être re-taguée",
-			source.Tag, source.State, StateReady)
+			source.Tag, source.State, StateReleased)
 	}
 
 	imageVersion = source.ImageVersion

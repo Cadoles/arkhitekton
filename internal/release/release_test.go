@@ -129,7 +129,7 @@ func TestTransitions(t *testing.T) {
 // finale.
 func TestFinalFromSourceKeepsTheSourceImageVersion(t *testing.T) {
 	imageVersion, warnings, err := FinalFromSource(Source{
-		Tag: "1.8.0-rc3", ImageVersion: "1.8.0-rc3", State: StateReady, TestsGreen: true,
+		Tag: "1.8.0-rc3", ImageVersion: "1.8.0-rc3", State: StateReleased, TestsGreen: true,
 	})
 	if err != nil {
 		t.Fatalf("re-tag refusé: %v", err)
@@ -146,7 +146,7 @@ func TestFinalFromSourceKeepsTheSourceImageVersion(t *testing.T) {
 // revanche une faute.
 func TestFinalFromSourceWarnsOnRedTests(t *testing.T) {
 	_, warnings, err := FinalFromSource(Source{
-		Tag: "1.8.0-rc3", ImageVersion: "1.8.0-rc3", State: StateReady, TestsGreen: false,
+		Tag: "1.8.0-rc3", ImageVersion: "1.8.0-rc3", State: StateReleased, TestsGreen: false,
 	})
 	if err != nil {
 		t.Fatalf("le re-tag ne doit pas être refusé: %v", err)
@@ -168,8 +168,22 @@ func TestFinalFromSourceRefusesUnusableSources(t *testing.T) {
 	}
 
 	if _, _, err := FinalFromSource(Source{
-		Tag: "1.8.0-rc3", State: StateReady,
+		Tag: "1.8.0-rc3", State: StateReleased,
 	}); err == nil {
 		t.Error("une RC sans version d'image ne doit pas être re-taguée")
+	}
+}
+
+// La RC source doit être **validée**, pas seulement prête. C'est tout le sens du
+// re-tag : il transporte la validation vers la release finale, et il n'y a rien à
+// transporter tant que personne n'a validé.
+func TestUneRCNonValideeNePeutPasEtreReTaguee(t *testing.T) {
+	for _, state := range []State{StateDraft, StateBuilding, StateVerifying, StateReady, StateFailed} {
+		_, _, err := FinalFromSource(Source{
+			Tag: "1.8.0-rc3", ImageVersion: "1.8.0-rc3", State: state, TestsGreen: true,
+		})
+		if err == nil {
+			t.Errorf("état %q: le re-tag devrait être refusé tant que la RC n'est pas validée", state)
+		}
 	}
 }
