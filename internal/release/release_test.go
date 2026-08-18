@@ -93,11 +93,22 @@ func TestTransitions(t *testing.T) {
 		// raison extérieure à la release.
 		{StateFailed, StateBuilding},
 		{StateReady, StateBuilding},
+		// `draft → ready` est la porte du chemin **dérivé** : une release finale
+		// est un re-tag, rien n'est construit ni exécuté, elle entre donc
+		// directement en attente de décision (doc 04 §4.2, B17). Ce passage était
+		// refusé tant que le code ne modélisait que le chemin construit.
+		{StateDraft, StateReady},
+		// `ready → failed` : le diagramme de doc 04 rend `failed` atteignable
+		// depuis `building`, `verifying` **et** `ready` — une release en attente
+		// de décision peut voir un pipeline obligatoire retomber en échec.
+		{StateReady, StateFailed},
 	}
 	refused := [][2]State{
-		{StateDraft, StateReady},
-		{StateReady, StateFailed},
+		// Rien ne revient à `draft` : cet état dit « pas encore construite », et y
+		// retourner effacerait ce qui a été produit depuis.
 		{StateReady, StateDraft},
+		{StateBuilding, StateDraft},
+		{StateReleased, StateDraft},
 	}
 
 	for _, pair := range allowed {

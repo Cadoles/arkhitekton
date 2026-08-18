@@ -1,7 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 
-export type ReleaseState = 'draft' | 'building' | 'ready' | 'failed'
+/**
+ * États d'une release, dans l'ordre du chemin construit (doc 04 §4.2).
+ *
+ * Une release **dérivée** — finale par re-tag — saute `building` et `verifying` :
+ * rien n'est construit, donc rien ne s'exécute (B17).
+ *
+ * `ready` n'est pas promouvable : c'est `released` qui l'autorise, après décision
+ * humaine. Les confondre ferait proposer une promotion avant validation.
+ */
+export type ReleaseState =
+  | 'draft'
+  | 'building'
+  | 'verifying'
+  | 'ready'
+  | 'released'
+  | 'failed'
+  | 'cancelled'
 export type ReleaseKind = 'pre' | 'final' | 'patch'
 
 /**

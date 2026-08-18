@@ -23,8 +23,18 @@ export function EnvironmentsScreen() {
   // n'est pas cosmétique : c'est le chemin qu'une version parcourt.
   const environments = useMemo(() => data?.environments ?? [], [data])
 
+  // Doc 04 §4.2 réserve la promotion à `released`. `ready` est accepté en plus,
+  // et c'est temporaire : rien ne fait aujourd'hui passer une release en
+  // `released`, aucune action de validation n'étant exposée. Ne garder que
+  // `released` viderait la liste et rendrait toute promotion impossible.
+  //
+  // À resserrer en même temps que l'action de validation, comme la règle du
+  // re-tag dans `internal/release`.
   const promotable = useMemo(
-    () => (releases.data?.releases ?? []).filter((release) => release.state === 'ready'),
+    () =>
+      (releases.data?.releases ?? []).filter(
+        (release) => release.state === 'ready' || release.state === 'released',
+      ),
     [releases.data],
   )
 

@@ -9,11 +9,17 @@ const KIND_LABEL: Record<Release['kind'], string> = {
   patch: 'Correctif',
 }
 
+// Les libellés disent l'attente, pas seulement l'état : « décision en attente »
+// se lit mieux que « prête » pour un état qui n'autorise justement pas encore la
+// promotion.
 const STATE_LABEL: Record<Release['state'], string> = {
   draft: 'Créée',
   building: 'Construction en cours',
-  ready: 'Prête',
-  failed: 'Construction échouée',
+  verifying: 'Tests en cours',
+  ready: 'Décision en attente',
+  released: 'Livrée',
+  failed: 'Échec',
+  cancelled: 'Abandonnée',
 }
 
 export function ReleasesScreen() {

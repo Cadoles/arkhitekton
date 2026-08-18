@@ -40,29 +40,74 @@ const (
 type State string
 
 const (
-	// StateDraft : créée, aucune image encore construite.
+	// StateDraft : créée dans le dashboard, tag Git pas encore posé.
 	StateDraft State = "draft"
-	// StateBuilding : `build-image` en cours.
+	// StateBuilding : tag posé, `build-image` en cours.
 	StateBuilding State = "building"
-	// StateReady : image construite, release promouvable.
+	// StateVerifying : images disponibles, batterie de tests en cours ou
+	// partielle.
+	//
+	// `verifying` plutôt que `testing` : `testing` est l'ancien nom de
+	// l'environnement `qualif` (B13) et reste présent dans le code existant. Deux
+	// sens pour un même mot dans le même système est une confusion gratuite.
+	StateVerifying State = "verifying"
+	// StateReady : tous les tests obligatoires terminés, décision humaine en
+	// attente. **Pas encore promouvable** — c'est `released` qui l'autorise.
 	StateReady State = "ready"
-	// StateFailed : la construction a échoué.
+	// StateReleased : validée, promouvable sur les environnements de rang
+	// supérieur.
+	StateReleased State = "released"
+	// StateFailed : un pipeline obligatoire a échoué. Relançable, ce qui ramène en
+	// `verifying` quand les images existent déjà.
 	StateFailed State = "failed"
+	// StateCancelled : abandonnée. Terminal — reprendre une release abandonnée
+	// masquerait la raison de son abandon, alors qu'en créer une nouvelle la
+	// laisse lisible.
+	StateCancelled State = "cancelled"
 )
 
-// transitions décrit les passages autorisés.
+// transitions décrit les passages autorisés (doc 04 §4.2).
 //
 // Une table explicite plutôt que des `if` dispersés : le jour où une transition
 // manque, elle manque à un seul endroit, et la lire suffit à savoir ce qui est
 // possible.
+//
+// Deux chemins y coexistent, et c'est délibéré :
+//
+//	construite (pre, patch)
+//	  draft ──▶ building ──▶ verifying ──▶ ready ──▶ released
+//
+//	dérivée (final, re-tag d'une RC validée)
+//	  draft ──▶ ready ──▶ released
+//
+// Le chemin dérivé ne passe ni par `building` ni par `verifying` : rien n'est
+// construit, donc rien ne s'exécute (B17). Modéliser un `building` fictif ferait
+// attendre l'interface sur un pipeline qui ne viendra jamais.
 var transitions = map[State][]State{
-	StateDraft:    {StateBuilding, StateFailed},
-	StateBuilding: {StateReady, StateFailed},
-	// Une reconstruction est permise : un build peut échouer pour une raison
-	// extérieure à la release — registre indisponible, nœud saturé.
-	StateReady:  {StateBuilding},
-	StateFailed: {StateBuilding},
+	// `draft → ready` est la porte du chemin dérivé ; `draft → building` celle du
+	// chemin construit.
+	StateDraft:    {StateBuilding, StateReady, StateFailed, StateCancelled},
+	StateBuilding: {StateVerifying, StateReady, StateFailed, StateCancelled},
+	// `verifying → building` : reconstruire depuis la même référence reste permis,
+	// un build pouvant échouer pour une raison extérieure à la release.
+	StateVerifying: {StateReady, StateBuilding, StateFailed, StateCancelled},
+	// Depuis `ready`, la décision humaine tranche : livrer, ou renvoyer aux tests
+	// parce qu'on veut en relancer une famille.
+	StateReady: {StateReleased, StateVerifying, StateBuilding, StateFailed, StateCancelled},
+	// `released` n'est pas terminal : une release livrée peut être abandonnée —
+	// retirée du service après une régression — mais ne redescend pas vers les
+	// tests. Rejouer sa validation après coup réécrirait l'histoire d'un livrable
+	// déjà parti chez le client.
+	StateReleased: {StateCancelled},
+	// Un échec est relançable : `verifying` quand les images existent déjà,
+	// `building` quand il faut reconstruire.
+	StateFailed: {StateBuilding, StateVerifying, StateCancelled},
+	// `cancelled` est terminal, à dessein : voir plus haut.
+	StateCancelled: {},
 }
+
+// Terminal dit si un état ne mène nulle part.
+func (s State) Terminal() bool { return len(transitions[s]) == 0 }
 
 // CanTransition dit si le passage est autorisé.
 func CanTransition(from, to State) bool {
@@ -189,6 +234,13 @@ func FinalFromSource(source Source) (imageVersion string, warnings []string, err
 	if strings.TrimSpace(source.Tag) == "" {
 		return "", nil, ErrSourceRequired
 	}
+	// **Écart connu avec doc 04 §4.2**, qui conditionne le re-tag à une RC source
+	// en `released`. La règle appliquée ici reste `ready`, parce que rien ne fait
+	// aujourd'hui passer une release en `released` : aucune action de validation
+	// n'est exposée. Resserrer la règle avant d'ouvrir cette action rendrait toute
+	// release finale impossible.
+	//
+	// À resserrer en même temps que l'action de validation, pas avant.
 	if source.State != StateReady {
 		return "", nil, fmt.Errorf(
 			"la pré-release %q est dans l'état %q: seule une release %q peut être re-taguée",
