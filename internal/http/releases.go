@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
@@ -36,6 +37,7 @@ type ReleaseStore interface {
 	ListEnvironmentViews(ctx context.Context) ([]store.EnvironmentView, error)
 	LatestPromotions(ctx context.Context) (map[string]store.EnvironmentPromotion, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
+	SetReleaseState(ctx context.Context, id int64, state string) error
 }
 
 // ReleasesHandler expose les releases, leur création et leur promotion.
@@ -402,6 +404,13 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		// `build-image` qui fera passer la release en `ready`.
 		record.State = string(release.StateDraft)
 		record.ImageVersion = version.Raw
+	} else if kind == release.KindPatch {
+		// Un patch se construit comme une pré-release : il corrige une version
+		// livrée, donc il y a du code nouveau à compiler. Le distinguer d'une
+		// finale — qui, elle, ne fait que re-taguer — est ce qui évite de lui
+		// réclamer une RC source qui n'existe pas.
+		record.State = string(release.StateDraft)
+		record.ImageVersion = version.Raw
 	} else {
 		source, err := h.store.GetRelease(r.Context(), request.SourceTag)
 		if err != nil {
@@ -455,6 +464,35 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		"release": toReleasePayload(record, request.SourceTag), "warnings": warnings,
 	}
 
+	// Une release construite enchaîne sur `build-image`. Sans cet enchaînement,
+	// elle restait `draft` indéfiniment : le pipeline existait dans le cluster,
+	// mais rien ne le déclenchait, et l'écran affichait un brouillon que personne
+	// ne savait faire avancer.
+	if record.State == string(release.StateDraft) && kind != release.KindFinal {
+		jobID, buildErr := h.enqueueBuild(r.Context(), releaseID, record, request.GitRef, identity.Subject)
+		switch {
+		case buildErr != nil:
+			// La release est créée : le dire, plutôt que de laisser croire à un
+			// échec de création. La construction se relance depuis la file.
+			warnings = append(warnings,
+				"la release est créée mais la construction n'a pas pu être mise en file: "+buildErr.Error())
+			response["warnings"] = warnings
+		default:
+			response["build_job_id"] = jobID
+			// L'état suit la mise en file et non la fin du pipeline : `building`
+			// signifie « construction demandée », ce qui est exactement ce qu'on
+			// sait à cet instant.
+			if err := h.store.SetReleaseState(r.Context(), releaseID, string(release.StateBuilding)); err != nil {
+				warnings = append(warnings,
+					"construction mise en file, mais l'état de la release n'a pas pu être avancé")
+				response["warnings"] = warnings
+			} else {
+				record.State = string(release.StateBuilding)
+				response["release"] = toReleasePayload(record, request.SourceTag)
+			}
+		}
+	}
+
 	// Une release finale doit exister sous son propre tag dans le registre, pas
 	// seulement sous celui de sa RC. Sans ce re-tag, `1.8.0` ne désigne rien :
 	// aucune ImagePolicy ne peut le retenir, et la release n'est promouvable nulle
@@ -472,6 +510,41 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, response)
+}
+
+// enqueueBuild met en file la construction des images d'une release.
+//
+// `version` porte le tag SemVer et prime sur `tag-name` : la Task
+// `generate-image-tag` s'en sert tel quel plutôt que de le dériver de la branche,
+// et le même tag part en `--build-arg VERSION` pour être inscrit dans
+// `/app/version.txt`. C'est ce qui rend l'image identifiable par ce qu'elle
+// rapporte d'elle-même (B17, P10).
+//
+// Une référence Git vide est refusée ici plutôt que transmise : le clone
+// échouerait en cours de pipeline, plusieurs minutes plus tard, sur un message
+// qui ne désignerait pas la cause.
+func (h *ReleasesHandler) enqueueBuild(
+	ctx context.Context, releaseID int64, record store.Release, gitRef, subject string,
+) (int64, error) {
+	pipeline, found := h.catalog.Find("build")
+	if !found {
+		return 0, errors.New("catalogue sans pipeline build")
+	}
+	if strings.TrimSpace(gitRef) == "" {
+		return 0, errors.New("aucune référence Git à construire")
+	}
+
+	return h.store.Enqueue(ctx, store.JobRequest{
+		Kind:       pipeline.Kind,
+		QueueClass: pipeline.QueueClass,
+		Params: map[string]string{
+			"revision": gitRef,
+			"version":  record.Tag,
+			"tag-name": record.Tag,
+		},
+		RequestedBy: subject,
+		ReleaseID:   &releaseID,
+	})
 }
 
 // enqueueRetag met en file le re-tag d'une release vers son propre tag.

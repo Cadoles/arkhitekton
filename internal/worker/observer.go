@@ -10,9 +10,12 @@ package worker
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 )
@@ -31,10 +34,19 @@ type runSink struct {
 	tests *TestIngester
 	// security ingère les audits normalisés. Même règle.
 	security *SecurityIngester
+	logger   *slog.Logger
 }
 
+// buildJobKind est la nature de job qui construit les images.
+//
+// Doit correspondre au `kind` de l'entrée du catalogue : c'est sur cette valeur
+// que la conclusion d'un run décide de faire avancer une release.
+const buildJobKind = "build"
+
 // NewRunSink rend l'adaptateur consommé par l'observateur Tekton.
-func NewRunSink(db *store.DB) *runSink { return &runSink{db: db} }
+func NewRunSink(db *store.DB) *runSink {
+	return &runSink{db: db, logger: slog.Default()}
+}
 
 // WithLoadIngester branche l'ingestion des campagnes de charge.
 //
@@ -183,7 +195,64 @@ func (s *runSink) finishJob(ctx context.Context, run tekton.Run) error {
 		state = store.JobCancelled
 	}
 
-	return s.db.FinishJob(ctx, run.JobID, state, run.Reason)
+	if err := s.db.FinishJob(ctx, run.JobID, state, run.Reason); err != nil {
+		return err
+	}
+	return s.advanceRelease(ctx, run.JobID, state)
+}
+
+// advanceRelease fait suivre à une release la conclusion de son pipeline.
+//
+// Seule la construction déplace l'état : une promotion réussie ne rend pas une
+// release « prête », elle la déploie quelque part, et les tests qui suivront ne
+// concluent rien tant que personne ne les a lus. Élargir cette règle ferait
+// avancer une release sur la foi d'un pipeline qui ne dit rien de sa qualité.
+//
+// L'état de départ est relu ici plutôt que supposé : entre la mise en file et la
+// fin du run, une reprise manuelle ou une annulation a pu déplacer la release, et
+// écrire sans condition effacerait cette décision. L'écriture conditionnelle rend
+// `false` dans ce cas, ce qui est consigné et non traité comme une erreur — un
+// pipeline arrivé après coup n'a pas le dernier mot.
+func (s *runSink) advanceRelease(ctx context.Context, jobID int64, jobState string) error {
+	linked, err := s.db.JobRelease(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobWithoutRelease) {
+			// Cas courant : un lancement manuel de tests depuis la file ne
+			// désigne aucune release.
+			return nil
+		}
+		return err
+	}
+	if linked.Kind != buildJobKind {
+		return nil
+	}
+
+	target := release.StateFailed
+	if jobState == store.JobSucceeded {
+		target = release.StateReady
+	}
+
+	from := release.State(linked.State)
+	if !release.CanTransition(from, target) {
+		s.logger.Info("conclusion de construction sans effet sur la release",
+			"release", linked.Tag, "etat", linked.State, "vise", string(target),
+			"raison", "transition non autorisée depuis cet état")
+		return nil
+	}
+
+	advanced, err := s.db.AdvanceReleaseState(ctx, linked.ReleaseID, linked.State, string(target))
+	if err != nil {
+		return err
+	}
+	if !advanced {
+		s.logger.Info("release déplacée entre-temps, conclusion ignorée",
+			"release", linked.Tag, "etat_lu", linked.State, "vise", string(target))
+		return nil
+	}
+
+	s.logger.Info("release avancée par sa construction",
+		"release", linked.Tag, "de", linked.State, "vers", string(target))
+	return nil
 }
 
 func (s *runSink) SaveTaskRun(ctx context.Context, taskRun tekton.TaskRunProjection) error {

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
@@ -684,5 +685,105 @@ func TestEnsureVersionRetombeSurUneProvisoireQuandCestIndecidable(t *testing.T) 
 	}
 	if len(pendings) != 1 || pendings[0] != "3.1.2" {
 		t.Errorf("provisoires: %v, attendu la seule 3.1.2", pendings)
+	}
+}
+
+// Le chaînon qui manquait : la conclusion d'une construction doit pouvoir faire
+// avancer la release, et l'écriture doit être conditionnée à l'état lu.
+func TestUnJobPorteSaReleaseEtSonEtat(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
+	releaseID, err := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "building",
+		GitRef: "develop", ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	jobID, err := db.Enqueue(ctx, JobRequest{
+		Kind: "build", QueueClass: "parallel",
+		Params:      map[string]string{"revision": "develop", "version": "3.2.0-rc1"},
+		RequestedBy: "vcarroy", ReleaseID: &releaseID,
+	})
+	if err != nil {
+		t.Fatalf("mise en file: %v", err)
+	}
+
+	linked, err := db.JobRelease(ctx, jobID)
+	if err != nil {
+		t.Fatalf("release du job: %v", err)
+	}
+	if linked.Kind != "build" || linked.Tag != "3.2.0-rc1" || linked.State != "building" {
+		t.Errorf("contexte: %+v", linked)
+	}
+}
+
+// Un job sans release n'est pas une erreur : un lancement manuel de tests depuis
+// la file n'en désigne aucune, et le traiter comme une panne remplirait les
+// journaux de faux problèmes.
+func TestUnJobSansReleaseSeDistingueDuneErreur(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	jobID, err := db.Enqueue(ctx, JobRequest{
+		Kind: "static-tests", QueueClass: "parallel", RequestedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("mise en file: %v", err)
+	}
+
+	if _, err := db.JobRelease(ctx, jobID); !errors.Is(err, ErrJobWithoutRelease) {
+		t.Errorf("erreur %v, attendu ErrJobWithoutRelease", err)
+	}
+}
+
+// L'écriture est conditionnée à l'état lu : entre la mise en file et la fin du
+// run, une reprise manuelle a pu déplacer la release, et l'écraser effacerait
+// cette décision au profit d'un pipeline qui n'était plus le dernier mot.
+func TestLAvancementNecrasePasUnEtatDeplaceEntreTemps(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
+	releaseID, err := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "building",
+		GitRef: "develop", ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	// Quelqu'un déplace la release pendant que le pipeline tourne.
+	if err := db.SetReleaseState(ctx, releaseID, "failed"); err != nil {
+		t.Fatalf("déplacement: %v", err)
+	}
+
+	// La conclusion arrive avec l'état qu'elle avait lu au départ.
+	advanced, err := db.AdvanceReleaseState(ctx, releaseID, "building", "ready")
+	if err != nil {
+		t.Fatalf("avancement: %v", err)
+	}
+	if advanced {
+		t.Error("l'avancement ne devait pas aboutir sur un état déplacé")
+	}
+
+	current, err := db.GetReleaseByID(ctx, releaseID)
+	if err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if current.State != "failed" {
+		t.Errorf("état %q, attendu failed conservé", current.State)
+	}
+
+	// Depuis l'état réel, l'avancement passe.
+	advanced, err = db.AdvanceReleaseState(ctx, releaseID, "failed", "building")
+	if err != nil {
+		t.Fatalf("avancement: %v", err)
+	}
+	if !advanced {
+		t.Error("l'avancement depuis l'état réel devait aboutir")
 	}
 }

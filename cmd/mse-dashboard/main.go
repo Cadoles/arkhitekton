@@ -470,7 +470,10 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		"registry.project":        envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
 		"mse.overlayLocation":     envOr("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
 		"mse.dockerfile":          envOr("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
-		"mse.pipelineTag":         envOr("MSE_PIPELINE_TAG", "pipeline"),
+		// Contexte de build, distinct du Dockerfile : `mse` place le sien dans
+		// une sous-arborescence tout en construisant depuis la racine.
+		"mse.buildContext": envOr("MSE_BUILD_CONTEXT", "."),
+		"mse.pipelineTag":  envOr("MSE_PIPELINE_TAG", "pipeline"),
 		// Le bucket des pipelines n'est pas celui du dashboard : `mse-pipeline`
 		// porte les artefacts que les Tasks publient, `mse-dashboard` ce que le
 		// dashboard écrit lui-même (doc 03 §3.5).

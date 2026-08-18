@@ -402,3 +402,56 @@ func (db *DB) ListEnvironmentHistory(ctx context.Context, environmentID string, 
 	}
 	return history, rows.Err()
 }
+
+// JobReleaseContext décrit la release qu'un job fait avancer.
+type JobReleaseContext struct {
+	ReleaseID int64
+	// Kind est la nature du job — `build`, `promote` — et non celle de la release.
+	Kind  string
+	Tag   string
+	State string
+}
+
+// ErrJobWithoutRelease signale un job qui ne porte aucune release.
+//
+// Cas courant et non exceptionnel : un lancement manuel de tests depuis `/queue`
+// n'en désigne aucune.
+var ErrJobWithoutRelease = errors.New("job sans release rattachée")
+
+// JobRelease rend la release qu'un job fait avancer, et son état courant.
+//
+// Lu au moment où le job se termine : l'état a pu changer entre-temps — reprise
+// manuelle, annulation — et décider d'une transition sur l'état connu à
+// l'enfilement produirait un écrasement silencieux.
+func (db *DB) JobRelease(ctx context.Context, jobID int64) (JobReleaseContext, error) {
+	var entry JobReleaseContext
+	err := db.pool.QueryRow(ctx,
+		`select j.kind, r.id, r.tag, r.state
+		 from jobs j join releases r on r.id = j.release_id
+		 where j.id = $1`, jobID).
+		Scan(&entry.Kind, &entry.ReleaseID, &entry.Tag, &entry.State)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return JobReleaseContext{}, ErrJobWithoutRelease
+		}
+		return JobReleaseContext{}, fmt.Errorf("release du job %d: %w", jobID, err)
+	}
+	return entry, nil
+}
+
+// AdvanceReleaseState écrit un état **si** la release est encore dans celui qu'on
+// a lu, et rend `false` sinon.
+//
+// La condition sur l'état de départ est ce qui distingue cette écriture de
+// [DB.SetReleaseState] : entre la lecture et l'écriture, un autre geste a pu
+// déplacer la release, et écraser son état effacerait une décision humaine par
+// la conclusion d'un pipeline qui n'était plus le dernier mot.
+func (db *DB) AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error) {
+	tag, err := db.pool.Exec(ctx,
+		`update releases set state = $3, updated_at = now()
+		 where id = $1 and state = $2`, id, from, to)
+	if err != nil {
+		return false, fmt.Errorf("avancement de la release %d: %w", id, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}

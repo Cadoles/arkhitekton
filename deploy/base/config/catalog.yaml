@@ -91,6 +91,50 @@ pipelines:
   # La promotion : un re-tag du même digest, jamais une reconstruction. C'est le
   # seul kind que le dashboard lance pour déployer, et il ne déploie pas
   # lui-même — Flux constate le nouveau tag et décide (B7).
+  # Construction des images d'une pré-release.
+  #
+  # C'est le chaînon qui manquait entre « créer une release » et « une image
+  # existe » : sans cette entrée, une pré-release naissait `draft` et y restait
+  # indéfiniment, alors que le pipeline `build-image` existait dans le cluster.
+  #
+  # `version` porte le tag SemVer et prime sur `tag-name` : la Task
+  # `generate-image-tag` s'en sert tel quel plutôt que de le dériver de la
+  # branche, et le même tag part en `--build-arg VERSION` pour être inscrit dans
+  # `/app/version.txt`. C'est ce qui rend l'image identifiable par ce qu'elle
+  # rapporte d'elle-même, et donc l'invariant de version vérifiable (B17, P10).
+  - kind: build
+    pipelineRef: build-image
+    label: Construction des images
+    # `parallel` : deux constructions de versions différentes ne se gênent pas,
+    # elles écrivent sous des tags distincts. La sérialisation du registre ne
+    # concerne que le re-tag, où deux manifestes visent le même dépôt.
+    queueClass: parallel
+    params:
+      repo-url:    { source: config, key: forge.mse.repoUrl }
+      reg-project: { source: config, key: registry.project }
+      dockerfile:  { source: config, key: mse.dockerfile }
+      context:     { source: config, key: mse.buildContext }
+      # La référence Git à construire — branche, tag ou commit, choisie à la
+      # création de la release.
+      revision:    { source: input, required: true }
+      # Le tag SemVer. Requis : le laisser vide ferait retomber la Task sur la
+      # dérivation par branche, et l'image porterait un tag sans rapport avec la
+      # release qui l'a demandée.
+      version:     { source: input, required: true }
+      # Repli de nommage de la Task quand `version` est vide. Transmis pour que
+      # le pipeline reste utilisable tel quel hors dashboard.
+      tag-name:    { source: input, required: true }
+    workspaces:
+      - name: git-credentials
+        secret: { secretName: git-credentials }
+      - name: dockerconfig
+        secret: { secretName: regcred }
+      - name: shared-data
+        volumeClaimTemplate:
+          accessModes: [ReadWriteOnce]
+          storageClassName: standard
+          storage: 2Gi
+
   - kind: promote
     pipelineRef: promote-image
     label: Promotion d'image

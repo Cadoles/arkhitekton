@@ -30,6 +30,7 @@ type fakeReleaseStore struct {
 	artifacts    []store.Artifact
 	objects      map[string]string
 	registry     Images
+	states       map[int64]string
 }
 
 func (f *fakeReleaseStore) EnsureVersion(context.Context, string) (int64, error) { return 1, nil }
@@ -147,6 +148,16 @@ func (f *fakeReleaseStore) Enqueue(_ context.Context, request store.JobRequest) 
 	return int64(len(f.jobs)), nil
 }
 
+// states retient les états écrits, pour vérifier qu'une pré-release passe bien en
+// `building` après mise en file de sa construction.
+func (f *fakeReleaseStore) SetReleaseState(_ context.Context, id int64, state string) error {
+	if f.states == nil {
+		f.states = map[int64]string{}
+	}
+	f.states[id] = state
+	return nil
+}
+
 func newFakeStore() *fakeReleaseStore {
 	return &fakeReleaseStore{
 		releases: map[string]store.Release{},
@@ -166,6 +177,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	t.Helper()
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
 		{Kind: "promote", PipelineRef: "promote-image", QueueClass: "exclusive-registry"},
+		{Kind: "build", PipelineRef: "build-image", QueueClass: "parallel"},
 	}}
 	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
@@ -712,5 +724,119 @@ func TestDownloadReportsAMissingObject(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Errorf("code = %d, attendu 404", recorder.Code)
+	}
+}
+
+// Le chaînon qui manquait : créer une pré-release doit mettre sa construction en
+// file et l'annoncer. Sans cela la release restait `draft` indéfiniment, le
+// pipeline existant dans le cluster mais rien ne le déclenchant.
+func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
+	fake := newFakeStore()
+	handler := newReleasesHandler(t, fake)
+
+	recorder := httptest.NewRecorder()
+	handler.Create(recorder, asRole(
+		httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(`{
+		"tag": "3.2.0-rc1", "kind": "pre", "git_ref": "develop"
+	}`)),
+		auth.RoleReleaser))
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	if len(fake.jobs) != 1 {
+		t.Fatalf("%d job(s) en file, attendu 1", len(fake.jobs))
+	}
+	job := fake.jobs[0]
+	if job.Kind != "build" {
+		t.Errorf("nature du job %q, attendu build", job.Kind)
+	}
+	// `version` porte le tag SemVer et prime sur `tag-name` : sans lui, la Task
+	// dériverait le tag de la branche et l'image ne porterait pas la version de
+	// la release qui l'a demandée (B17, P10).
+	if job.Params["version"] != "3.2.0-rc1" {
+		t.Errorf("version transmise %q", job.Params["version"])
+	}
+	if job.Params["revision"] != "develop" {
+		t.Errorf("révision transmise %q", job.Params["revision"])
+	}
+	if job.ReleaseID == nil {
+		t.Error("le job doit porter sa release, sans quoi sa conclusion ne fera rien avancer")
+	}
+
+	var response struct {
+		BuildJobID int64 `json:"build_job_id"`
+		Release    struct {
+			State string `json:"state"`
+		} `json:"release"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("réponse illisible: %v", err)
+	}
+	if response.BuildJobID == 0 {
+		t.Error("l'identifiant du job de construction doit être rendu")
+	}
+	if response.Release.State != "building" {
+		t.Errorf("état rendu %q, attendu building", response.Release.State)
+	}
+}
+
+// Une release finale ne construit rien : c'est un re-tag, et lui réclamer une
+// construction ferait tourner un pipeline pour produire une image qui existe
+// déjà (B17).
+func TestUneReleaseFinaleNenfilePasDeConstruction(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["3.2.0-rc1"] = store.Release{
+		ID: 1, Tag: "3.2.0-rc1", Kind: "pre", State: "ready", ImageVersion: "3.2.0-rc1",
+	}
+	handler := newReleasesHandler(t, fake)
+
+	recorder := httptest.NewRecorder()
+	handler.Create(recorder, asRole(
+		httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(`{
+		"tag": "3.2.0", "kind": "final", "source_tag": "3.2.0-rc1", "tests_green": true
+	}`)),
+		auth.RoleReleaser))
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	for _, job := range fake.jobs {
+		if job.Kind == "build" {
+			t.Error("une release finale ne doit pas enfiler de construction")
+		}
+	}
+}
+
+// Une pré-release sans référence Git est créée quand même, et la réserve le dit :
+// transmettre une référence vide ferait échouer le clone plusieurs minutes plus
+// tard, sur un message qui ne désignerait pas la cause.
+func TestUnePrereleaseSansReferenceEstCreeeAvecReserve(t *testing.T) {
+	fake := newFakeStore()
+	handler := newReleasesHandler(t, fake)
+
+	recorder := httptest.NewRecorder()
+	handler.Create(recorder, asRole(
+		httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(`{"tag": "3.2.0-rc9", "kind": "pre"}`)),
+		auth.RoleReleaser))
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("réponse illisible: %v", err)
+	}
+	if len(response.Warnings) == 0 {
+		t.Error("la réserve doit être rendue: la release existe mais rien ne se construit")
+	}
+	for _, job := range fake.jobs {
+		if job.Kind == "build" {
+			t.Error("aucune construction ne doit partir sans référence Git")
+		}
 	}
 }
