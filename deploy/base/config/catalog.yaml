@@ -79,9 +79,9 @@ pipelines:
     # c'est la validation contre le cluster qui les impose.
     workspaces:
       - name: git-credentials
-        secret: { secretName: git-credentials }
+        secret: { configKey: pipeline.gitSecret }
       - name: docker-config
-        secret: { secretName: regcred }
+        secret: { configKey: pipeline.registrySecret }
       - name: shared
         volumeClaimTemplate:
           accessModes: [ReadWriteOnce]
@@ -126,9 +126,9 @@ pipelines:
       tag-name:    { source: input, required: true }
     workspaces:
       - name: git-credentials
-        secret: { secretName: git-credentials }
+        secret: { configKey: pipeline.gitSecret }
       - name: dockerconfig
-        secret: { secretName: regcred }
+        secret: { configKey: pipeline.registrySecret }
       - name: shared-data
         volumeClaimTemplate:
           accessModes: [ReadWriteOnce]
@@ -147,9 +147,9 @@ pipelines:
       new-tag:     { source: input, required: true }
     workspaces:
       - name: git-credentials
-        secret: { secretName: git-credentials }
+        secret: { configKey: pipeline.gitSecret }
       - name: dockerconfig
-        secret: { secretName: regcred }
+        secret: { configKey: pipeline.registrySecret }
 
   - kind: static-tests
     pipelineRef: php-static-tests
@@ -175,7 +175,7 @@ pipelines:
         format: archive
     workspaces:
       - name: git-credentials
-        secret: { secretName: git-credentials }
+        secret: { configKey: pipeline.gitSecret }
       - name: shared-data
         volumeClaimTemplate:
           accessModes: [ReadWriteOnce]
@@ -214,7 +214,7 @@ pipelines:
         format: archive
     workspaces:
       - name: git-credentials
-        secret: { secretName: git-credentials }
+        secret: { configKey: pipeline.gitSecret }
       - name: shared-data
         volumeClaimTemplate:
           accessModes: [ReadWriteOnce]
@@ -243,9 +243,9 @@ pipelines:
       mse-kustom-revision: { source: input, required: true }
     workspaces:
       - name: git-credentials
-        secret: { secretName: git-credentials }
+        secret: { configKey: pipeline.gitSecret }
       - name: dockerconfig
-        secret: { secretName: regcred }
+        secret: { configKey: pipeline.registrySecret }
       - name: mse
         volumeClaimTemplate:
           accessModes: [ReadWriteOnce]

@@ -20,4 +20,16 @@ apps/web/node_modules/.tmp/
 
 # Fichiers d'environnement des overlays : identifiants de base, de stockage objet
 # et d'OIDC. Seuls les *.example sont versionnés.
-deploy/overlays/*/secrets/*.env
+# Tout ce qui vit dans un répertoire `secrets/` est ignoré, sauf les modèles.
+# La règle est inversée — tout interdit, exceptions explicites — parce que
+# l'ancienne ne couvrait que `*.env` : une clé SSH privée déposée sous un autre
+# nom passait au travers, et une clé privée commitée ne se dé-commite pas.
+deploy/overlays/*/secrets/*
+!deploy/overlays/*/secrets/*.example
+!deploy/overlays/*/secrets/.gitkeep
+
+# Idem pour les identifiants des pipelines. Ils vivent dans le composant plutôt
+# que dans `secrets/` parce que kustomize refuse de lire au-dessus de la racine
+# d'un composant ; la règle d'ignorance les suit.
+deploy/overlays/*/components/pipeline-credentials/pipeline-*
+!deploy/overlays/*/components/pipeline-credentials/*.yaml

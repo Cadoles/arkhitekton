@@ -142,8 +142,26 @@ type Workspace struct {
 	EmptyDir            bool                 `json:"emptyDir,omitempty"`
 }
 
+// SecretSource désigne le secret monté sur un workspace.
+//
+// Deux formes, exclusives :
+//
+//	secret: { secretName: git-credentials }         # nom littéral
+//	secret: { configKey: pipeline.gitSecret }       # nom tiré de la configuration
+//
+// La seconde existe pour qu'on puisse viser un dépôt de test sans modifier le
+// catalogue versionné : les identifiants qui donnent accès à `CNOUS/mse` ne sont
+// pas ceux qui donnent accès à un bac à sable, et le nom du secret est la seule
+// chose qui distingue les deux.
+//
+// **C'est le nom qui circule, jamais la matière.** Le dashboard n'a pas
+// `secrets` dans sa RBAC (doc 07 §7.3) et ne doit pas l'avoir : transmettre une
+// clé en paramètre la ferait atterrir dans la spec du PipelineRun, lisible par
+// quiconque a `pipelineruns: get` sur le namespace. C'est le même principe que
+// les URLs pré-signées de B14 — le dashboard désigne, il ne distribue pas.
 type SecretSource struct {
-	SecretName string `json:"secretName"`
+	SecretName string `json:"secretName,omitempty"`
+	ConfigKey  string `json:"configKey,omitempty"`
 }
 
 type VolumeClaimTemplate struct {
@@ -366,4 +384,36 @@ func (c *Catalog) ScoreWeights() map[string]float64 {
 		weights[signal] = weight
 	}
 	return weights
+}
+
+// ResolveSecrets rend une copie du pipeline dont les noms de secrets sont
+// résolus depuis la configuration.
+//
+// Résolu avant la création du PipelineRun plutôt qu'au chargement du catalogue :
+// le catalogue est lu une fois au démarrage, et une clé de configuration absente
+// doit se signaler au moment où elle manque, avec le kind qui la réclame.
+func (p Pipeline) ResolveSecrets(config map[string]string) (Pipeline, error) {
+	resolved := p
+	resolved.Workspaces = make([]Workspace, len(p.Workspaces))
+	copy(resolved.Workspaces, p.Workspaces)
+
+	for i, workspace := range resolved.Workspaces {
+		if workspace.Secret == nil || workspace.Secret.ConfigKey == "" {
+			continue
+		}
+
+		name, present := config[workspace.Secret.ConfigKey]
+		if !present || name == "" {
+			return Pipeline{}, fmt.Errorf(
+				"kind %q, workspace %q: clé de configuration %q absente",
+				p.Kind, workspace.Name, workspace.Secret.ConfigKey)
+		}
+
+		// La copie du pointeur est nécessaire : sans elle, la résolution
+		// écrirait dans le catalogue partagé, et le second run verrait le nom
+		// résolu du premier comme s'il était littéral.
+		resolved.Workspaces[i].Secret = &SecretSource{SecretName: name}
+	}
+
+	return resolved, nil
 }

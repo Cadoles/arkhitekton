@@ -374,7 +374,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			logger.Info("cible des pipelines",
 				"repo", resolved["forge.mse.repoUrl"],
 				"dockerfile", resolved["mse.dockerfile"],
-				"registry_project", resolved["registry.project"])
+				"registry_project", resolved["registry.project"],
+				"git_secret", resolved["pipeline.gitSecret"],
+				"registry_secret", resolved["pipeline.registrySecret"])
 
 			scheduler := worker.NewSchedulerFromCatalog(
 				db, cluster, pipelines, resolved, logger).WithUploads(storage)
@@ -463,7 +465,17 @@ func schedulerConfig(cfg config.Config) map[string]string {
 	}
 
 	return map[string]string{
-		"tekton.namespace":        cfg.Tekton.Namespace,
+		"tekton.namespace": cfg.Tekton.Namespace,
+		// Noms des secrets montés sur les workspaces. Le dashboard **désigne** les
+		// identifiants, il ne les manipule jamais : `secrets` est volontairement
+		// absent de sa RBAC (doc 07 §7.3), et une clé passée en paramètre
+		// atterrirait dans la spec du PipelineRun. Même principe que les URLs
+		// pré-signées de B14.
+		//
+		// Les secrets vivent dans le namespace des PipelineRun, pas dans celui du
+		// dashboard : c'est là que Tekton les monte.
+		"pipeline.gitSecret":      envOr("PIPELINE_GIT_SECRET", "git-credentials"),
+		"pipeline.registrySecret": envOr("PIPELINE_REGISTRY_SECRET", "regcred"),
 		"forge.mse.repoUrl":       appRepo,
 		"forge.mseKustom.repoUrl": envOr("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
 		"forge.e2e.repoUrl":       envOr("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),

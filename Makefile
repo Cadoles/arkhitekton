@@ -186,3 +186,56 @@ dev: ## Boucle Skaffold : reconstruit et redéploie à chaque modification
 
 run-once: ## Construit et déploie une fois via Skaffold
 	skaffold run
+
+SECRETS_DIR := deploy/overlays/local/components/pipeline-credentials
+
+.PHONY: pipeline-credentials
+pipeline-credentials: ## Prépare les identifiants que les pipelines utiliseront (local)
+	@# Fabrique les trois fichiers que l'overlay local monte en secrets, dans le
+	@# namespace des PipelineRun. Aucun n'est versionné.
+	@#
+	@# Ils sont distincts de ceux de `mse-tekton`, qui visent l'application
+	@# réelle : la clé y est une clé de déploiement de `CNOUS/mse`, et le compte
+	@# de registre n'a `push` que sur `cnous-mse`.
+	@set -eu; \
+	mkdir -p $(SECRETS_DIR); \
+	if [ ! -f $(SECRETS_DIR)/pipeline-ssh-key ]; then \
+	  echo '==> génération d une paire de clés dédiée'; \
+	  ssh-keygen -t ed25519 -C mse-dashboard-pipelines -N '' \
+	    -f $(SECRETS_DIR)/pipeline-ssh-key >/dev/null; \
+	  mv $(SECRETS_DIR)/pipeline-ssh-key.pub $(SECRETS_DIR)/pipeline-ssh-key.pub.txt; \
+	else \
+	  echo '==> clé déjà présente, conservée'; \
+	fi; \
+	if [ ! -f $(SECRETS_DIR)/pipeline-known-hosts ]; then \
+	  echo '==> relevé de la clé d hôte de la forge'; \
+	  ssh-keyscan -p $${FORGE_SSH_PORT:-2222} $${FORGE_HOST:-forge.cadoles.com} \
+	    > $(SECRETS_DIR)/pipeline-known-hosts 2>/dev/null; \
+	fi; \
+	if [ ! -f $(SECRETS_DIR)/pipeline-dockerconfig.json ]; then \
+	  echo '==> identifiants de registre'; \
+	  printf 'Serveur [https://reg.cadoles.com] : '; read -r server; \
+	  server=$${server:-https://reg.cadoles.com}; \
+	  printf 'Utilisateur : '; read -r user; \
+	  printf 'Mot de passe : '; stty -echo; read -r pass; stty echo; echo; \
+	  kubectl create secret docker-registry tmp-regcred \
+	    --docker-server="$$server" --docker-username="$$user" --docker-password="$$pass" \
+	    --dry-run=client -o jsonpath='{.data.\.dockerconfigjson}' \
+	    | base64 -d > $(SECRETS_DIR)/pipeline-dockerconfig.json; \
+	  unset pass; \
+	fi; \
+	chmod 600 $(SECRETS_DIR)/pipeline-ssh-key $(SECRETS_DIR)/pipeline-dockerconfig.json; \
+	echo; \
+	echo 'Il reste deux gestes, sur vos comptes :'; \
+	echo; \
+	echo '  1. Déclarer cette clé publique en LECTURE SEULE sur le dépôt visé'; \
+	echo '     (Gitea -> dépôt -> Paramètres -> Clés de déploiement) :'; \
+	echo; \
+	sed 's/^/     /' $(SECRETS_DIR)/pipeline-ssh-key.pub.txt; \
+	echo; \
+	echo '  2. Donner au compte de registre le droit d écrire sur le projet visé'; \
+	echo '     (Harbor -> projet -> Membres -> rôle Developer).'; \
+	echo; \
+	echo 'Puis activer ces secrets dans dashboard.env :'; \
+	echo '     PIPELINE_GIT_SECRET=mse-dashboard-pipeline-git'; \
+	echo '     PIPELINE_REGISTRY_SECRET=mse-dashboard-pipeline-registry'

@@ -11,6 +11,19 @@ resources:
   # Observation de l'environnement applicatif local.
   - resources/rbac-observer.yaml
 
+# Identifiants des pipelines, pour éprouver la chaîne sur un dépôt de test.
+#
+# Optionnel, et c'est le point : les défauts `git-credentials` et `regcred` de
+# `mse-tekton` conviennent à qui travaille sur l'application réelle, et l'overlay
+# doit se rendre sans qu'aucun fichier de secret n'existe. Rendre ces générateurs
+# inconditionnels ferait échouer `skaffold run` chez tout le monde.
+#
+#   make pipeline-credentials     # fabrique les trois fichiers
+#   puis décommenter la ligne ci-dessous
+#
+# components:
+#   - components/pipeline-credentials
+
 patches:
   - path: patches/ingress-host.yaml
 

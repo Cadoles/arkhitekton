@@ -173,6 +173,14 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 	if err == nil {
 		err = s.addUploadURLs(ctx, pipeline, job.RunName, params)
 	}
+	// Les noms de secrets sont résolus dans la même chaîne que les paramètres :
+	// ce sont deux façons pour le catalogue de désigner une valeur de
+	// configuration, et les traiter ensemble évite qu'un run parte avec les uns
+	// résolus et les autres non.
+	resolved := pipeline
+	if err == nil {
+		resolved, err = pipeline.ResolveSecrets(s.config)
+	}
 	if err != nil {
 		s.logger.Error("paramètres du job", "job", job.ID, "error", err)
 		if err := s.queue.Requeue(ctx, job.ID, err.Error()); err != nil {
@@ -187,7 +195,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 	if _, err := s.cluster.Create(ctx, tekton.Request{
 		Name:     job.RunName,
 		JobID:    job.ID,
-		Pipeline: pipeline,
+		Pipeline: resolved,
 		Params:   params,
 	}); err != nil {
 		if apierrors.IsAlreadyExists(err) {

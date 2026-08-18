@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Identifiants que les pipelines montent, dans le namespace où Tekton les monte —
+# `mse-tekton-pipelines`, et non celui du dashboard, qui ne les lit jamais.
+#
+# Ils existent parce que ceux de `mse-tekton` visent l'application réelle : la clé
+# `git-credentials` est une clé de déploiement de `CNOUS/mse`, et le compte
+# `regcred` (`cflux`) n'a `push` que sur `cnous-mse`. Éprouver la chaîne sur un
+# dépôt de test exige donc d'autres identifiants.
+#
+# Le dashboard les **désigne** par `PIPELINE_GIT_SECRET` et
+# `PIPELINE_REGISTRY_SECRET` ; il ne les manipule jamais (doc 07 §7.3, B14).
+#
+# En production, ces deux secrets viennent d'`ExternalSecret` adossé à Vault
+# (doc 07 §7.4). Ce composant est un raccourci de développement.
+
+secretGenerator:
+  # `disableNameSuffixHash` est indispensable : Tekton référence le secret par un
+  # nom fixe dans le workspace, et un suffixe de hachage le rendrait introuvable
+  # à chaque modification du contenu.
+  - name: mse-dashboard-pipeline-git
+    namespace: mse-tekton-pipelines
+    type: Opaque
+    options:
+      disableNameSuffixHash: true
+    files:
+      # Les noms de clés sont ceux qu'attend la Task `git-clone` de mse-tekton.
+      # Les fichiers vivent dans ce répertoire et non dans `secrets/` : kustomize
+      # refuse de lire au-dessus de la racine d'un composant, par sécurité.
+      - id_ed25519=pipeline-ssh-key
+      - known_hosts=pipeline-known-hosts
+
+  - name: mse-dashboard-pipeline-registry
+    namespace: mse-tekton-pipelines
+    type: kubernetes.io/dockerconfigjson
+    options:
+      disableNameSuffixHash: true
+    files:
+      - .dockerconfigjson=pipeline-dockerconfig.json
