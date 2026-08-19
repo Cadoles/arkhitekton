@@ -242,7 +242,16 @@ func (s *runSink) advanceRelease(ctx context.Context, jobID int64, jobState stri
 		}
 		return err
 	}
-	if linked.Kind != buildJobKind {
+	// Deux natures font avancer une release, et pas de la même façon.
+	switch {
+	case linked.Kind == buildJobKind:
+		// traité ci-dessous
+	case isVerificationKind(linked.Kind):
+		return s.concludeVerification(ctx, linked)
+	default:
+		// Une promotion réussie ne rend pas une release « prête » : elle la
+		// déploie quelque part, et les tests qui suivront ne concluent rien tant
+		// que personne ne les a lus.
 		return nil
 	}
 
@@ -452,3 +461,60 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 // runs ne sont demandés par personne, ils découlent d'une construction réussie,
 // et les attribuer à un humain brouillerait le journal d'audit.
 const verificationRequester = "dashboard:verification"
+
+func isVerificationKind(kind string) bool {
+	for _, known := range verificationKinds {
+		if known == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// concludeVerification fait sortir une release de `verifying` quand toutes ses
+// vérifications ont rendu leur verdict.
+//
+// Le décompte est relu en base à chaque conclusion plutôt que retenu en mémoire :
+// les runs continuent pendant qu'un worker redémarre, et un compteur en mémoire
+// laisserait la release bloquée en `verifying` pour toujours — ce qui vient
+// précisément d'arriver, faute de cette conclusion.
+//
+// Un échec de vérification mène à `failed` et non à `ready` : la décision humaine
+// se prend sur des tests qui ont conclu, pas sur des tests qui ont planté. La
+// release reste relançable, la table de transitions autorisant `failed →
+// verifying`.
+func (s *runSink) concludeVerification(ctx context.Context, linked store.JobReleaseContext) error {
+	if release.State(linked.State) != release.StateVerifying {
+		// La release a déjà été conclue, ou déplacée à la main. Le verdict d'une
+		// vérification tardive ne doit pas la ramener en arrière.
+		return nil
+	}
+
+	tally, err := s.db.CountVerifications(ctx, linked.ReleaseID, verificationKinds)
+	if err != nil {
+		return err
+	}
+	if !tally.Done() {
+		return nil
+	}
+
+	target := release.StateReady
+	if tally.Failed > 0 {
+		target = release.StateFailed
+	}
+
+	advanced, err := s.db.AdvanceReleaseState(ctx, linked.ReleaseID, linked.State, string(target))
+	if err != nil {
+		return err
+	}
+	if !advanced {
+		s.logger.Info("release déplacée entre-temps, conclusion de vérification ignorée",
+			"release", linked.Tag, "etat_lu", linked.State)
+		return nil
+	}
+
+	s.logger.Info("vérification conclue",
+		"release", linked.Tag, "vers", string(target),
+		"reussies", tally.Succeeded, "echouees", tally.Failed)
+	return nil
+}

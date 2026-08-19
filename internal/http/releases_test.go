@@ -1058,12 +1058,18 @@ func TestUnePrereleaseEstAncreeSurUnCommitEtTaguee(t *testing.T) {
 		t.Errorf("tags posés: %v", forge.tags)
 	}
 
-	// La construction part du tag, pas de la branche.
+	// La construction part du **commit**, pas du tag ni de la branche : un clone
+	// superficiel ne crée pas la référence locale d'un tag, et le checkout que la
+	// Task fait ensuite échouerait.
 	if len(fake.jobs) != 1 {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
-	if got := fake.jobs[0].Params["revision"]; got != "3.2.0-rc1" {
-		t.Errorf("révision construite %q, attendu le tag posé", got)
+	if got := fake.jobs[0].Params["revision"]; got != "abc123def456" {
+		t.Errorf("révision construite %q, attendu le commit", got)
+	}
+	// Le tag reste porté par `version`, qui devient le tag de l'image (B17, P10).
+	if got := fake.jobs[0].Params["version"]; got != "3.2.0-rc1" {
+		t.Errorf("version %q, attendu le tag de la release", got)
 	}
 }
 

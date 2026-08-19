@@ -215,17 +215,42 @@ func (db *DB) ClaimNext(ctx context.Context, maxConcurrent int, runName func(kin
 	return job, nil
 }
 
+// MaxJobAttempts borne les reprises d'un job.
+//
+// Une reprise sert aux échecs transitoires — cluster momentanément indisponible,
+// nœud saturé. Elle ne répare pas un job devenu insatisfiable : un paramètre que
+// le catalogue exige et que le job ne porte pas ne se matérialisera jamais, parce
+// que les paramètres sont figés à la mise en file et le catalogue évolue.
+//
+// Sans plafond, un tel job est repris indéfiniment. Constaté : deux cent trente
+// essais en quelques minutes, et la file entière immobilisée derrière lui —
+// l'ordonnanceur reprenait toujours le même, le plus ancien, avant de considérer
+// les suivants.
+const MaxJobAttempts = 5
+
 // Requeue remet un job en file après un échec de création dans le cluster.
-func (db *DB) Requeue(ctx context.Context, id int64, reason string) error {
-	_, err := db.pool.Exec(ctx,
+//
+// Rend `false` quand le plafond est atteint : l'appelant doit alors conclure le
+// job en échec plutôt que d'insister. Rendre l'information plutôt que conclure
+// ici garde la décision là où le motif est connu — c'est l'ordonnanceur qui sait
+// pourquoi la reprise a échoué, et c'est lui qui l'écrit.
+func (db *DB) Requeue(ctx context.Context, id int64, reason string) (bool, error) {
+	var attempt int
+	err := db.pool.QueryRow(ctx,
 		`update jobs
 		 set state = 'queued', started_at = null, run_name = null,
 		     attempt = attempt + 1, error = $2, updated_at = now()
-		 where id = $1 and state = 'running'`, id, reason)
+		 where id = $1 and state = 'running'
+		 returning attempt`, id, reason).Scan(&attempt)
 	if err != nil {
-		return fmt.Errorf("remise en file du job %d: %w", id, err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Le job n'était plus `running` : annulé entre-temps, ou déjà repris
+			// par une autre passe. Rien à faire, et ce n'est pas une erreur.
+			return false, nil
+		}
+		return false, fmt.Errorf("remise en file du job %d: %w", id, err)
 	}
-	return nil
+	return attempt < MaxJobAttempts, nil
 }
 
 // FinishJob conclut un job.

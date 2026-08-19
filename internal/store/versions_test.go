@@ -787,3 +787,99 @@ func TestLAvancementNecrasePasUnEtatDeplaceEntreTemps(t *testing.T) {
 		t.Error("l'avancement depuis l'état réel devait aboutir")
 	}
 }
+
+// Une release ne sort de `verifying` que lorsque **toutes** ses vérifications ont
+// rendu leur verdict. Sans ce décompte, elle y restait indéfiniment — constaté sur
+// 3.2.0-rc1, bloquée alors que ses deux tests avaient conclu.
+func TestUneReleaseNeSortDeVerifyingQueQuandToutAConclu(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
+	releaseID, err := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "verifying",
+		GitRef: "main", GitCommit: "abc123", ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	kinds := []string{"static-tests", "security-audit"}
+	var jobs []int64
+	for _, kind := range kinds {
+		id, err := db.Enqueue(ctx, JobRequest{
+			Kind: kind, QueueClass: "parallel", RequestedBy: "dashboard:verification",
+			ReleaseID: &releaseID,
+		})
+		if err != nil {
+			t.Fatalf("mise en file %s: %v", kind, err)
+		}
+		jobs = append(jobs, id)
+	}
+
+	// Les deux en attente : rien n'est conclu.
+	tally, err := db.CountVerifications(ctx, releaseID, kinds)
+	if err != nil {
+		t.Fatalf("décompte: %v", err)
+	}
+	if tally.Done() || tally.Pending != 2 {
+		t.Fatalf("décompte initial: %+v", tally)
+	}
+
+	// La première conclut : toujours pas fini.
+	if err := db.FinishJob(ctx, jobs[0], JobSucceeded, ""); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+	tally, _ = db.CountVerifications(ctx, releaseID, kinds)
+	if tally.Done() {
+		t.Error("une vérification sur deux ne conclut pas la release")
+	}
+
+	// La seconde échoue : fini, mais avec un échec.
+	if err := db.FinishJob(ctx, jobs[1], JobFailed, "clone refusé"); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+	tally, _ = db.CountVerifications(ctx, releaseID, kinds)
+	if !tally.Done() {
+		t.Error("toutes les vérifications ont conclu")
+	}
+	if tally.Failed != 1 || tally.Succeeded != 1 {
+		t.Errorf("décompte final: %+v", tally)
+	}
+}
+
+// Les jobs d'une autre release, ou d'une autre nature, ne comptent pas.
+func TestLeDecompteNeRegardeQueLaBonneRelease(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
+	mine, _ := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "verifying",
+		ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
+	})
+	other, _ := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.2.0-rc2", Kind: "pre", State: "verifying",
+		ImageVersion: "3.2.0-rc2", CreatedBy: "vcarroy",
+	})
+
+	if _, err := db.Enqueue(ctx, JobRequest{
+		Kind: "static-tests", QueueClass: "parallel", RequestedBy: "x", ReleaseID: &other,
+	}); err != nil {
+		t.Fatalf("job d'une autre release: %v", err)
+	}
+	// Une construction porte la même release mais n'est pas une vérification.
+	if _, err := db.Enqueue(ctx, JobRequest{
+		Kind: "build", QueueClass: "parallel", RequestedBy: "x", ReleaseID: &mine,
+	}); err != nil {
+		t.Fatalf("construction: %v", err)
+	}
+
+	tally, err := db.CountVerifications(ctx, mine, []string{"static-tests", "security-audit"})
+	if err != nil {
+		t.Fatalf("décompte: %v", err)
+	}
+	if tally.Pending != 0 || !tally.Done() {
+		t.Errorf("décompte: %+v — ni la construction ni la release voisine ne comptent", tally)
+	}
+}

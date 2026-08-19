@@ -492,3 +492,41 @@ func (db *DB) AdvanceReleaseState(ctx context.Context, id int64, from, to string
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// VerificationTally compte les vérifications d'une release par issue.
+type VerificationTally struct {
+	Pending   int
+	Failed    int
+	Succeeded int
+}
+
+// Done dit si plus aucune vérification n'est en cours.
+func (t VerificationTally) Done() bool { return t.Pending == 0 }
+
+// CountVerifications compte les jobs de vérification d'une release.
+//
+// Sert à conclure `verifying` : la release n'avance que lorsque **toutes** les
+// familles ont rendu leur verdict. Compter en base plutôt que retenir un état en
+// mémoire est ce qui rend la conclusion correcte après un redémarrage du worker —
+// les runs continuent pendant qu'il ne tourne pas.
+//
+// Les natures comptées sont passées par l'appelant : c'est lui qui décide de ce
+// qui constitue une vérification, et cette liste vit à côté de celle qui les
+// lance.
+func (db *DB) CountVerifications(
+	ctx context.Context, releaseID int64, kinds []string,
+) (VerificationTally, error) {
+	var tally VerificationTally
+	err := db.pool.QueryRow(ctx,
+		`select
+		     count(*) filter (where state in ('queued', 'running')),
+		     count(*) filter (where state = 'failed'),
+		     count(*) filter (where state = 'succeeded')
+		 from jobs
+		 where release_id = $1 and kind = any($2)`, releaseID, kinds).
+		Scan(&tally.Pending, &tally.Failed, &tally.Succeeded)
+	if err != nil {
+		return VerificationTally{}, fmt.Errorf("vérifications de la release %d: %w", releaseID, err)
+	}
+	return tally, nil
+}

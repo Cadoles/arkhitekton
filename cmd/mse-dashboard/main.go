@@ -505,9 +505,13 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		"forge.mse.repoUrl":        appRepo,
 		"forge.mseKustom.repoUrl":  envOr("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
 		"forge.e2e.repoUrl":        envOr("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
-		"registry.project":         envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
-		"mse.overlayLocation":      envOr("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
-		"mse.dockerfile":           envOr("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
+		// L'audit de sécurité lit ses règles Semgrep et ses politiques dans
+		// `mse-tekton` : c'est un dépôt qu'il clone, au même titre que l'application
+		// et l'infrastructure de déploiement.
+		"forge.tekton.repoUrl": envOr("FORGE_TEKTON_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tekton.git"),
+		"registry.project":     envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
+		"mse.overlayLocation":  envOr("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
+		"mse.dockerfile":       envOr("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
 		// Contexte de build, distinct du Dockerfile : `mse` place le sien dans
 		// une sous-arborescence tout en construisant depuis la racine.
 		"mse.buildContext": envOr("MSE_BUILD_CONTEXT", "."),

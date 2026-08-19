@@ -168,8 +168,12 @@ func TestRequeueClearsTheRunNameAndCountsTheAttempt(t *testing.T) {
 		t.Fatalf("réservation: %v", err)
 	}
 
-	if err := db.Requeue(ctx, id, "création refusée par le cluster"); err != nil {
+	again, err := db.Requeue(ctx, id, "création refusée par le cluster")
+	if err != nil {
 		t.Fatalf("remise en file: %v", err)
+	}
+	if !again {
+		t.Error("une première reprise doit être permise")
 	}
 
 	job, err := db.GetJob(ctx, id)
@@ -367,5 +371,62 @@ func TestLeadingBarrierFreezesTheQueue(t *testing.T) {
 	}
 	if next.QueueClass != ClassBarrier {
 		t.Errorf("job servi = %q, attendu la barrière", next.Kind)
+	}
+}
+
+// Un job insatisfiable ne doit pas être repris indéfiniment : il immobiliserait la
+// file, l'ordonnanceur reprenant toujours le plus ancien avant de considérer les
+// suivants. Constaté en conditions réelles à deux cent trente essais.
+func TestUneRepriseSarreteAuPlafond(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	id := enqueue(t, db, "build", "parallel", 100)
+
+	// `attempt` compte la tentative en cours, pas les reprises : un job enfilé
+	// est déjà à un essai. Le plafond borne donc le total, et la boucle doit
+	// s'arrêter d'elle-même.
+	reprises := 0
+	for reprises < 50 {
+		if _, err := claim(t, db, 4); err != nil {
+			t.Fatalf("réservation: %v", err)
+		}
+		again, err := db.Requeue(ctx, id, "cause qui ne disparaîtra pas")
+		if err != nil {
+			t.Fatalf("reprise %d: %v", reprises, err)
+		}
+		reprises++
+		if !again {
+			break
+		}
+	}
+
+	if reprises >= 50 {
+		t.Fatal("la reprise ne s'arrête jamais: la file resterait immobilisée")
+	}
+
+	job, err := db.GetJob(ctx, id)
+	if err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if job.Attempt != MaxJobAttempts {
+		t.Errorf("%d tentatives au total, attendu le plafond %d", job.Attempt, MaxJobAttempts)
+	}
+}
+
+// Un job qui n'est plus `running` — annulé entre-temps — n'est pas une erreur de
+// reprise : il n'y a simplement plus rien à reprendre.
+func TestUneRepriseSurUnJobNonCourantNestPasUneErreur(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	id := enqueue(t, db, "build", "parallel", 100)
+
+	again, err := db.Requeue(ctx, id, "jamais démarré")
+	if err != nil {
+		t.Fatalf("remise en file: %v", err)
+	}
+	if again {
+		t.Error("aucune reprise ne devrait être annoncée sur un job non courant")
 	}
 }

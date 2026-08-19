@@ -28,7 +28,7 @@ const tickInterval = 2 * time.Second
 // Queue est ce que l'ordonnanceur attend de la base.
 type Queue interface {
 	ClaimNext(ctx context.Context, maxConcurrent int, runName func(kind string, id int64) string) (store.Job, error)
-	Requeue(ctx context.Context, id int64, reason string) error
+	Requeue(ctx context.Context, id int64, reason string) (bool, error)
 	FinishJob(ctx context.Context, id int64, state, reason string) error
 	ExplainQueue(ctx context.Context, maxConcurrent int) error
 	PendingCancellations(ctx context.Context) ([]store.RunningJob, error)
@@ -163,9 +163,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 		// le job en file le ferait boucler : mieux vaut le conclure en échec avec
 		// un motif qui nomme la cause.
 		s.logger.Error("kind absent du catalogue", "job", job.ID, "kind", job.Kind)
-		if err := s.queue.Requeue(ctx, job.ID, fmt.Sprintf("kind %q absent du catalogue", job.Kind)); err != nil {
-			s.logger.Error("remise en file", "job", job.ID, "error", err)
-		}
+		s.retry(ctx, job.ID, fmt.Sprintf("kind %q absent du catalogue", job.Kind))
 		return false
 	}
 
@@ -183,9 +181,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 	}
 	if err != nil {
 		s.logger.Error("paramètres du job", "job", job.ID, "error", err)
-		if err := s.queue.Requeue(ctx, job.ID, err.Error()); err != nil {
-			s.logger.Error("remise en file", "job", job.ID, "error", err)
-		}
+		s.retry(ctx, job.ID, err.Error())
 		return false
 	}
 
@@ -210,9 +206,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 		}
 
 		s.logger.Error("création du PipelineRun", "job", job.ID, "run", job.RunName, "error", err)
-		if err := s.queue.Requeue(ctx, job.ID, err.Error()); err != nil {
-			s.logger.Error("remise en file", "job", job.ID, "error", err)
-		}
+		s.retry(ctx, job.ID, err.Error())
 		return false
 	}
 
@@ -356,4 +350,30 @@ func (s *Scheduler) resolveParams(
 // l'ordonnanceur lit comme « c'était déjà fait » plutôt que de créer un doublon.
 func RunName(kind string, id int64) string {
 	return fmt.Sprintf("mse-%s-%d", kind, id)
+}
+
+// retry remet un job en file, ou le conclut en échec quand il a trop insisté.
+//
+// La distinction est ce qui empêche un job insatisfiable d'immobiliser la file.
+// Une reprise sert aux échecs transitoires ; un paramètre manquant, lui, ne se
+// matérialisera jamais — les paramètres sont figés à la mise en file, et le
+// catalogue évolue. Sans plafond, l'ordonnanceur reprend indéfiniment le même
+// job, toujours le plus ancien, et ne considère jamais les suivants.
+func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
+	again, err := s.queue.Requeue(ctx, jobID, reason)
+	if err != nil {
+		s.logger.Error("remise en file", "job", jobID, "error", err)
+		return
+	}
+	if again {
+		return
+	}
+
+	// Le motif de la dernière tentative est conservé : sans lui, l'utilisateur
+	// lirait « trop de tentatives » sans savoir de quoi.
+	final := fmt.Sprintf("abandonné après %d tentatives: %s", store.MaxJobAttempts, reason)
+	s.logger.Error("job abandonné", "job", jobID, "tentatives", store.MaxJobAttempts, "raison", reason)
+	if err := s.queue.FinishJob(ctx, jobID, store.JobFailed, final); err != nil {
+		s.logger.Error("conclusion du job abandonné", "job", jobID, "error", err)
+	}
 }

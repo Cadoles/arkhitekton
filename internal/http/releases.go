@@ -498,15 +498,16 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// `tagged` est une variable locale et non un champ du handler : celui-ci est
 	// partagé par toutes les requêtes, et deux créations simultanées liraient le
 	// drapeau l'une de l'autre.
-	var tagged bool
 	if kind != release.KindFinal {
 		commit, resolveWarnings := h.anchorCommit(r.Context(), request.GitRef)
 		record.GitCommit = commit
 		warnings = append(warnings, resolveWarnings...)
 
 		if commit != "" {
-			var tagWarnings []string
-			tagged, tagWarnings = h.tagRelease(r.Context(), version.Raw, commit)
+			// Le tag est posé pour les humains et pour la traçabilité ; la
+			// construction, elle, part du commit. Son échec est donc une réserve
+			// et n'empêche pas de construire.
+			_, tagWarnings := h.tagRelease(r.Context(), version.Raw, commit)
 			warnings = append(warnings, tagWarnings...)
 		}
 	}
@@ -537,11 +538,9 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// mais rien ne le déclenchait, et l'écran affichait un brouillon que personne
 	// ne savait faire avancer.
 	if record.State == string(release.StateDraft) && kind != release.KindFinal {
-		// La construction part du tag si on a pu le poser, du commit sinon, et de
-		// la référence saisie en dernier recours. Jamais d'une branche quand mieux
-		// est disponible : reconstruire la même release six mois plus tard doit
-		// produire la même image (B17).
-		buildRef := buildReference(record, request.GitRef, tagged)
+		// Jamais d'une branche quand le commit est connu : reconstruire la même
+		// release six mois plus tard doit produire la même image (B17).
+		buildRef := buildReference(record, request.GitRef)
 		jobID, buildErr := h.enqueueBuild(r.Context(), releaseID, record, buildRef, identity.Subject)
 		switch {
 		case buildErr != nil:
@@ -771,13 +770,21 @@ func (h *ReleasesHandler) tagRelease(ctx context.Context, tag, commit string) (b
 
 // buildReference choisit ce que la construction va cloner.
 //
-// Par ordre de préférence : le tag posé, le commit résolu, puis la référence
-// saisie. Les deux premiers sont immuables ; le troisième ne l'est pas, et n'est
-// retenu que faute de mieux.
-func buildReference(record store.Release, requested string, tagged bool) string {
-	if tagged {
-		return record.Tag
-	}
+// **Le commit d'abord, pas le tag.** B3 décrit une construction depuis
+// `refs/tags/<tag>`, et c'est ce qui était fait ici : le clone réussissait, puis
+// `generate-image-tag` échouait sur `pathspec 3.2.0-rc2 did not match`. La cause
+// est que `git-clone` travaille en `--depth=1` : un clone superficiel positionne
+// l'arbre sur la révision demandée mais ne crée pas la référence locale du tag,
+// et le `git checkout` que la Task fait ensuite ne trouve rien. Un SHA, lui, est
+// toujours présent — c'est `HEAD`.
+//
+// Le tag reste posé sur la forge, où il sert aux humains, et `version` continue
+// de le porter jusqu'au `version.txt` de l'image : l'invariant est intact, seule
+// la façon de désigner le point de départ change.
+//
+// Ordre : commit résolu, puis référence saisie faute de mieux. Cette dernière
+// n'est pas immuable et ne devrait servir que quand la forge est injoignable.
+func buildReference(record store.Release, requested string) string {
 	if record.GitCommit != "" {
 		return record.GitCommit
 	}
