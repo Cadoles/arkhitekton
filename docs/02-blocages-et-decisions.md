@@ -853,9 +853,24 @@ fichiers, et sont déjà testés. Le package est **extrait en module Go partagé
 par le dashboard et — pendant la transition — par `tekton-mse-manager`. C'est un
 déplacement, pas une réécriture.
 
-`sec-normalize` reste en place le temps de la bascule : elle porte la notification
-Rocket.Chat, fonctionnalité utile indépendamment du dashboard. Le dashboard, lui,
-consomme `raw/` et `meta/`, jamais `findings.jsonl`.
+`sec-normalize` reste en place le temps de la bascule. Le dashboard, lui, consomme
+`raw/` et `meta/`, jamais `findings.jsonl`.
+
+**Révision — 19/08/2026 : les notifications Rocket.Chat sont retirées.** Ce document
+retenait d'abord de les conserver, « utiles indépendamment du dashboard ». Le client a
+tranché l'inverse une fois le dashboard capable d'afficher les résultats : deux canaux
+pour la même information en font un que personne ne lit.
+
+Retirées de `security-audit` **et** de `php-integration-test`, avec la Task
+`rocketchat-notify` devenue sans appelant et le secret `rocketchat-webhook` — qui était
+versionné en clair, et relevait donc du problème décrit plus haut.
+
+**Conséquence assumée, à connaître :** ces deux pipelines tournent aussi par CronJob,
+indépendamment du dashboard. L'audit nocturne et les tests d'intégration nocturnes sont
+désormais **silencieux** — leur résultat ne se constate qu'en ouvrant le dashboard. La
+notification d'échec disparaît avec le reste, or elle couvrait le cas d'un audit qui
+n'a jamais tourné. Si cette surveillance compte, elle est à reconstruire côté dashboard,
+et rien ne la porte aujourd'hui.
 
 ### Ce que cela change pour les autres pipelines
 

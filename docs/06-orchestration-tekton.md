@@ -347,10 +347,14 @@ figée à l'écriture.
 
 ### Cas de l'audit de sécurité
 
-Pendant la transition, `sec-normalize` continue de tourner : elle porte la notification
-Rocket.Chat, utile indépendamment du dashboard. Le dashboard, lui, consomme `raw/` et
-`meta/`, **jamais** `findings.jsonl` — sinon il hériterait d'un diff calculé sans
-transaction et d'exceptions figées à l'écriture.
+Pendant la transition, `sec-normalize` continue de tourner. Le dashboard, lui, consomme
+`raw/` et `meta/`, **jamais** `findings.jsonl` — sinon il hériterait d'un diff calculé
+sans transaction et d'exceptions figées à l'écriture.
+
+*Les notifications Rocket.Chat que cette Task portait ont été retirées le 19/08/2026
+([B14](02-blocages-et-decisions.md#b14)). Les exécutions nocturnes de `security-audit`
+et de `php-integration-test` sont donc silencieuses : leur résultat se constate dans le
+dashboard, et nulle part ailleurs.*
 
 Deux propriétés du format d'origine sont conservées telles quelles : un scanner en
 erreur reste visible et ne compte pas zéro finding ; un finding couvert par une
