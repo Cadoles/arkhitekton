@@ -3,7 +3,8 @@ import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { CompletionBar } from './VersionsScreen'
-import { CreateReleasePanel } from './CreateReleasePanel'
+import { RedmineMark } from '../../components/RedmineMark'
+import { CreateReleaseButton } from './CreateReleaseButton'
 import { useVersion, type Bucket, type Issue, type VersionRelease } from './api'
 
 /*
@@ -19,25 +20,40 @@ export function VersionScreen() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <div className="flex flex-wrap items-baseline gap-3">
+      {/* Barre de contrôle : le retour à gauche, les actions à droite. Le titre
+          reste entre les deux — c'est lui qui dit sur quoi portent les boutons,
+          et le reléguer sous la barre séparerait l'action de son objet. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            to="/versions"
+            className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+          >
+            <Icon name="arrow-left" className="size-4" />
+            Toutes les versions
+          </Link>
           <h1 className="font-mono text-2xl font-semibold text-zinc-900">
             {data?.version.name ?? '…'}
           </h1>
-          <Link to="/versions" className="text-sm text-zinc-500 hover:underline">
-            Toutes les versions
-          </Link>
         </div>
-        {data?.version.url && (
-          <a
-            href={data.version.url}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="text-sm text-zinc-500 hover:underline"
-          >
-            Ouvrir dans Redmine
-          </a>
-        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {data?.version.url && (
+            <a
+              href={data.version.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+            >
+              <RedmineMark className="size-4" />
+              Redmine
+              {/* La sortie du dashboard est annoncée : l'onglet change, et rien
+                  d'autre dans la barre ne le fait. */}
+              <Icon name="external" className="size-3.5 text-zinc-400" />
+            </a>
+          )}
+          {data && <CreateReleaseButton version={data.version} releases={data.releases} />}
+        </div>
       </div>
 
       {isPending && <Skeleton className="h-64 w-full" />}
@@ -102,10 +118,6 @@ export function VersionScreen() {
           )}
 
           <Releases releases={data.releases} />
-
-          {/* Après les releases existantes : on crée au vu de ce qui existe déjà,
-              notamment pour choisir la RC source d'une finale. */}
-          <CreateReleasePanel version={data.version} releases={data.releases} />
         </>
       )}
     </div>
