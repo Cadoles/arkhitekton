@@ -385,7 +385,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				"kustom_repo", resolved["forge.mseKustom.repoUrl"],
 				"kustom_revision", resolved["forge.mseKustom.revision"],
 				"git_secret", resolved["pipeline.gitSecret"],
-				"registry_secret", resolved["pipeline.registrySecret"])
+				"registry_secret", resolved["pipeline.registrySecret"],
+				// Le stockage des pipelines n'est pas celui du dashboard, et il
+				// ne se manifeste qu'à la dernière étape d'un audit : une heure
+				// de scans aboutis, puis un refus d'identifiants.
+				"pipeline_minio", resolved["minio.host"])
 
 			// L'identité de la base entre dans le nom des runs : sans elle, une
 			// base neuve réattribue des identifiants de jobs déjà portés par des
