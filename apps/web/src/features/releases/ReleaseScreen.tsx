@@ -13,6 +13,7 @@ import {
   downloadURL,
   useExports,
   useGenerateExport,
+  useRebuild,
   useRelease,
   useReleaseRelease,
   useSaveManualActions,
@@ -50,6 +51,7 @@ export function ReleaseScreen() {
 
       {data && (
         <>
+          <RebuildAction release={data} />
           <ReleaseAction release={data} />
           <Identity release={data} />
           <Images release={data} />
@@ -483,6 +485,54 @@ function ReleaseAction({ release }: { release: ReleaseDetail }) {
           </p>
         </ConfirmDialog>
       )}
+    </Card>
+  )
+}
+
+
+/**
+ * Relance de la construction, après un échec.
+ *
+ * N'apparaît que sur une release en échec : ailleurs, reconstruire écraserait une
+ * image que quelqu'un est peut-être en train de tester. Une release finale n'est
+ * jamais concernée — c'est un re-tag, son image est celle de sa RC source.
+ */
+function RebuildAction({ release }: { release: ReleaseDetail }) {
+  const session = useSession()
+  const rebuild = useRebuild(release.tag)
+
+  const canBuild =
+    session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
+
+  if (release.state !== 'failed' || release.kind === 'final' || !canBuild) return null
+
+  return (
+    <Card title="Construction en échec">
+      <p className="text-sm text-zinc-600">
+        Relancer reconstruit depuis{' '}
+        <span className="font-mono">{release.git_ref || 'la référence enregistrée'}</span>, sans
+        créer de nouvelle version. À faire quand la cause était extérieure au code — droits
+        d&apos;accès, registre injoignable, nœud saturé.
+      </p>
+
+      {rebuild.isError && (
+        <p className="mt-2 flex items-start gap-2 text-sm text-critical-700">
+          <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+          {(rebuild.error as Error).message}
+        </p>
+      )}
+
+      {/* Pas de ressaisie : rien ne part vers l'extérieur qui ne puisse être
+          refait, et un échec de build se relance souvent plusieurs fois de
+          suite. Exiger une confirmation à chaque essai serait du bruit. */}
+      <button
+        type="button"
+        onClick={() => rebuild.mutate()}
+        disabled={rebuild.isPending}
+        className="mt-3 rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+      >
+        {rebuild.isPending ? 'Relance…' : 'Relancer la construction'}
+      </button>
     </Card>
   )
 }

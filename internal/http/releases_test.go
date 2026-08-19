@@ -167,6 +167,21 @@ func (f *fakeReleaseStore) MarkReleased(_ context.Context, id int64, from string
 	return false, nil
 }
 
+func (f *fakeReleaseStore) AdvanceReleaseState(_ context.Context, id int64, from, to string) (bool, error) {
+	for tag, release := range f.releases {
+		if release.ID != id {
+			continue
+		}
+		if release.State != from {
+			return false, nil
+		}
+		release.State = to
+		f.releases[tag] = release
+		return true, nil
+	}
+	return false, nil
+}
+
 func (f *fakeReleaseStore) SetReleaseState(_ context.Context, id int64, state string) error {
 	if f.states == nil {
 		f.states = map[int64]string{}
@@ -908,5 +923,86 @@ func TestValiderDepuisUnAutreEtatEstRefuse(t *testing.T) {
 		if fake.releases["3.2.0-rc1"].State != state {
 			t.Errorf("état %q modifié en %q", state, fake.releases["3.2.0-rc1"].State)
 		}
+	}
+}
+
+// Relancer après un échec reconstruit depuis la même référence, sans créer de
+// version : faire porter au numéro de version l'historique des pannes du cluster
+// serait absurde.
+func TestRelancerUneConstructionEchoueeReutiliseLaMemeReference(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["3.2.0-rc1"] = store.Release{
+		ID: 9, Tag: "3.2.0-rc1", Kind: "pre", State: "failed",
+		GitRef: "main", ImageVersion: "3.2.0-rc1",
+	}
+	handler := newReleasesHandler(t, fake)
+
+	request := asRole(httptest.NewRequest(http.MethodPost, "/releases/3.2.0-rc1/build", nil),
+		auth.RoleOperator)
+	request.SetPathValue("tag", "3.2.0-rc1")
+	recorder := httptest.NewRecorder()
+	handler.Rebuild(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(fake.jobs) != 1 || fake.jobs[0].Kind != "build" {
+		t.Fatalf("jobs: %+v", fake.jobs)
+	}
+	if fake.jobs[0].Params["revision"] != "main" {
+		t.Errorf("révision %q, attendu celle de la release", fake.jobs[0].Params["revision"])
+	}
+	if fake.jobs[0].Params["version"] != "3.2.0-rc1" {
+		t.Errorf("version %q", fake.jobs[0].Params["version"])
+	}
+	if fake.releases["3.2.0-rc1"].State != "building" {
+		t.Errorf("état %q, attendu building", fake.releases["3.2.0-rc1"].State)
+	}
+}
+
+// Une release finale n'a rien à reconstruire : son image est celle de sa RC
+// source, et un pipeline produirait une seconde image sous le même tag.
+func TestUneReleaseFinaleNeSeReconstruitPas(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["3.2.0"] = store.Release{
+		ID: 9, Tag: "3.2.0", Kind: "final", State: "failed", ImageVersion: "3.2.0-rc1",
+	}
+	handler := newReleasesHandler(t, fake)
+
+	request := asRole(httptest.NewRequest(http.MethodPost, "/releases/3.2.0/build", nil),
+		auth.RoleOperator)
+	request.SetPathValue("tag", "3.2.0")
+	recorder := httptest.NewRecorder()
+	handler.Rebuild(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Errorf("code %d, attendu 409", recorder.Code)
+	}
+	if len(fake.jobs) != 0 {
+		t.Errorf("aucun job ne devait partir: %+v", fake.jobs)
+	}
+}
+
+// Reconstruire une release déjà livrée écraserait une image en service. La table
+// de transitions l'interdit, et le handler s'y tient.
+func TestUneReleaseLivreeNeSeReconstruitPas(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["3.2.0-rc1"] = store.Release{
+		ID: 9, Tag: "3.2.0-rc1", Kind: "pre", State: "released",
+		GitRef: "main", ImageVersion: "3.2.0-rc1",
+	}
+	handler := newReleasesHandler(t, fake)
+
+	request := asRole(httptest.NewRequest(http.MethodPost, "/releases/3.2.0-rc1/build", nil),
+		auth.RoleOperator)
+	request.SetPathValue("tag", "3.2.0-rc1")
+	recorder := httptest.NewRecorder()
+	handler.Rebuild(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Errorf("code %d, attendu 409", recorder.Code)
+	}
+	if len(fake.jobs) != 0 {
+		t.Errorf("aucun job ne devait partir: %+v", fake.jobs)
 	}
 }

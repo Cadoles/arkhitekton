@@ -341,3 +341,32 @@ export function useReleaseRelease(tag: string) {
     },
   })
 }
+
+/**
+ * Relance la construction des images d'une release.
+ *
+ * Sert après un échec dont la cause est extérieure au code — clé de déploiement
+ * mal déclarée, registre injoignable, nœud saturé. Créer une RC de plus pour
+ * contourner un incident d'infrastructure ferait porter au numéro de version
+ * l'historique des pannes du cluster.
+ *
+ * La référence Git n'est pas redemandée : c'est celle de la release, décidée à sa
+ * création. La rouvrir permettrait de reconstruire un tag donné depuis un autre
+ * commit, et deux images porteraient le même numéro sans être la même chose.
+ */
+export function useRebuild(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      request<{ release: Release; build_job_id: number }>(
+        `/releases/${encodeURIComponent(tag)}/build`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['release', tag] })
+      void queryClient.invalidateQueries({ queryKey: ['releases'] })
+      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
+}

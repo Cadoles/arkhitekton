@@ -21,8 +21,8 @@ resources:
 #   make pipeline-credentials     # fabrique les trois fichiers
 #   puis décommenter la ligne ci-dessous
 #
-# components:
-#   - components/pipeline-credentials
+components:
+  - components/pipeline-credentials
 
 patches:
   - path: patches/ingress-host.yaml

@@ -88,6 +88,13 @@ func NewAPIRouter(
 	mux.Handle("POST /releases/{tag}/release", Chain(http.HandlerFunc(releases.Release),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseFinal)))
 
+	// Relancer une construction ne crée pas de version : même permission que la
+	// création, et non celle de livrer. C'est le geste qui répare un échec
+	// d'infrastructure sans faire porter au numéro de version l'historique des
+	// pannes du cluster.
+	mux.Handle("POST /releases/{tag}/build", Chain(http.HandlerFunc(releases.Rebuild),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseCreate)))
+
 	// Les actions manuelles sont éditables par ceux qui produisent le livrable,
 	// pas seulement par ceux qui peuvent livrer : `release:edit` et non
 	// `release:create:final`.

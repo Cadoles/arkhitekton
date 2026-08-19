@@ -39,6 +39,7 @@ type ReleaseStore interface {
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	SetReleaseState(ctx context.Context, id int64, state string) error
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
+	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
 }
 
 // ReleasesHandler expose les releases, leur création et leur promotion.
@@ -570,6 +571,81 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 	record.State = string(release.StateReleased)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"release": toReleasePayload(record, ""),
+	})
+}
+
+// Rebuild relance la construction des images d'une release.
+//
+// Sert après un échec dont la cause est extérieure au code — clé de déploiement
+// mal déclarée, registre injoignable, nœud saturé. Créer une RC de plus pour
+// contourner un incident d'infrastructure ferait porter au numéro de version
+// l'historique des pannes du cluster.
+//
+// La référence Git n'est pas redemandée : elle est celle de la release, décidée à
+// sa création. La rouvrir permettrait de reconstruire un tag donné depuis un
+// autre commit, et deux images porteraient alors le même numéro sans être la même
+// chose (B17).
+func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	tag := r.PathValue("tag")
+	record, err := h.store.GetRelease(r.Context(), tag)
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		return
+	}
+
+	// Une release finale n'a rien à construire : c'est un re-tag, et son image est
+	// celle de sa RC source.
+	if record.Kind == string(release.KindFinal) {
+		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
+			"une release finale est un re-tag: son image est celle de sa pré-release source")
+		return
+	}
+
+	from := release.State(record.State)
+	if !release.CanTransition(from, release.StateBuilding) {
+		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
+			fmt.Sprintf("la release %q est dans l'état %q, d'où aucune reconstruction n'est permise",
+				tag, record.State))
+		return
+	}
+
+	jobID, err := h.enqueueBuild(r.Context(), record.ID, record, record.GitRef, identity.Subject)
+	if err != nil {
+		writeProblem(w, http.StatusUnprocessableEntity, "Reconstruction impossible", err.Error())
+		return
+	}
+
+	// L'état suit la mise en file, comme à la création : `building` signifie
+	// « construction demandée ». L'écriture est conditionnée à l'état lu — deux
+	// relances simultanées ne doivent pas produire deux runs.
+	advanced, err := h.store.AdvanceReleaseState(r.Context(), record.ID, record.State, string(release.StateBuilding))
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Reconstruction impossible", "")
+		return
+	}
+	if !advanced {
+		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
+			"l'état de la release a changé entre-temps, rechargez la page")
+		return
+	}
+
+	h.audit(r, store.AuditReleaseRebuild, tag, map[string]any{
+		"from": record.State, "git_ref": record.GitRef, "job": jobID,
+	})
+
+	record.State = string(release.StateBuilding)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"release": toReleasePayload(record, ""), "build_job_id": jobID,
 	})
 }
 

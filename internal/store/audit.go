@@ -27,7 +27,10 @@ const (
 	// La validation d'une release engage ce qui partira chez l'utilisateur. Elle
 	// est consignée à part de sa création : ce sont deux décisions distinctes,
 	// souvent prises par des personnes différentes et à plusieurs jours d'écart.
-	AuditReleaseRelease   = "release.release"
+	AuditReleaseRelease = "release.release"
+	// Une reconstruction relance un pipeline sur la même référence Git : la
+	// tracer distingue « l'image a été rebâtie » de « le code a changé ».
+	AuditReleaseRebuild   = "release.rebuild"
 	AuditReleasePromote   = "release.promote"
 	AuditReleaseActions   = "release.actions"
 	AuditJobEnqueue       = "job.enqueue"
