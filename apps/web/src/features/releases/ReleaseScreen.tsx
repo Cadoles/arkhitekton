@@ -5,8 +5,10 @@ import { SignoffPanel } from './SignoffPanel'
 import { TestsPanel } from './TestsPanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
-import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
+import { CollapsibleSection } from '../../components/CollapsibleSection'
+import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
+import { status } from '../../lib/status'
 import { useEnvironments } from '../environments/api'
 import { hasAtLeast, useSession } from '../auth/session'
 import {
@@ -39,10 +41,14 @@ export function ReleaseScreen() {
   const { data, isPending, error, refetch } = useRelease(tag)
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-baseline gap-3">
-        <h1 className="font-mono text-2xl font-semibold text-zinc-900">{tag}</h1>
-        <Link to="/releases" className="text-sm text-zinc-500 hover:underline">
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <Header tag={tag ?? ''} release={data} />
+        <Link
+          to="/releases"
+          className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+        >
+          <Icon name="arrow-left" className="size-4" />
           Toutes les releases
         </Link>
       </div>
@@ -52,12 +58,19 @@ export function ReleaseScreen() {
 
       {data && (
         <>
+          {/* Les deux actions restent en tête et hors des sections repliables :
+              elles ne s'affichent que lorsqu'une décision est attendue, et une
+              décision qu'il faut déplier n'est pas demandée. */}
           <RebuildAction release={data} />
           <ReleaseAction release={data} />
+
+          {/* Le score en premier : c'est le bloc qu'on lit d'un coup d'œil, et
+              celui qui dit s'il faut ouvrir le reste. */}
+          <TestsPanel tag={data.tag} />
+
           <Identity release={data} />
           <Images release={data} />
           <Deployment release={data} />
-          <TestsPanel tag={data.tag} />
           <BenchPanel tag={data.tag} />
           <SignoffPanel tag={data.tag} />
           <Executions release={data} />
@@ -69,9 +82,58 @@ export function ReleaseScreen() {
   )
 }
 
+/**
+ * En-tête de la release — repris de la maquette.
+ *
+ * Le tag, son état en badge, la nature en dessous, puis une ligne de repères en
+ * chiffres : version d'image, commit, date de création. Le tag reste en
+ * chasse fixe, contrairement à la maquette : c'est un identifiant qu'on compare
+ * caractère par caractère avec un tag Git et un tag d'image (B17).
+ */
+function Header({ tag, release }: { tag: string; release?: ReleaseDetail }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="font-mono text-2xl font-semibold text-zinc-900">{release?.tag ?? tag}</h1>
+        {release && <StatusBadge style={status.release(release.state)} />}
+      </div>
+
+      {release && (
+        <>
+          <p className="text-zinc-600">{KIND_LABEL[release.kind] ?? release.kind}</p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-sm text-zinc-500">
+            {/* La version d'image n'est rappelée que lorsqu'elle diffère du tag,
+                c'est-à-dire sur une finale produite par re-tag. La montrer partout
+                noierait le seul cas où elle surprend. */}
+            {release.image_version !== release.tag && (
+              <span className="text-zinc-700">image {release.image_version}</span>
+            )}
+            {release.git_commit && (
+              <span className="inline-flex items-center gap-1" title={release.git_commit}>
+                <Icon name="commit" className="size-3.5" />
+                {release.git_commit.slice(0, 12)}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1">
+              <Icon name="clock" className="size-3.5" />
+              créée le {formatDateTime(release.created_at)}
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+const KIND_LABEL: Record<string, string> = {
+  pre: 'Pré-release',
+  final: 'Release finale',
+  patch: 'Correctif',
+}
+
 function Identity({ release }: { release: ReleaseDetail }) {
   return (
-    <Card title="Identité">
+    <CollapsibleSection title="Identité">
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
         <dt className="text-zinc-500">Nature</dt>
         <dd className="text-zinc-900">{release.kind}</dd>
@@ -121,7 +183,7 @@ function Identity({ release }: { release: ReleaseDetail }) {
           </span>
         </p>
       )}
-    </Card>
+    </CollapsibleSection>
   )
 }
 
@@ -131,7 +193,7 @@ function Images({ release }: { release: ReleaseDetail }) {
   const reference = images[0]?.digest
 
   return (
-    <Card title="Images">
+    <CollapsibleSection title="Images" count={images.length}>
       {release.images_error && <p className="mb-3 text-sm text-zinc-500">{release.images_error}</p>}
 
       {images.length === 0 ? (
@@ -143,7 +205,7 @@ function Images({ release }: { release: ReleaseDetail }) {
           ))}
         </ul>
       )}
-    </Card>
+    </CollapsibleSection>
   )
 }
 
@@ -183,7 +245,7 @@ function Deployment({ release }: { release: ReleaseDetail }) {
   )
 
   return (
-    <Card title="Déploiement">
+    <CollapsibleSection title="Déploiement" count={(release.targets ?? []).length}>
       {(release.targets ?? []).length === 0 ? (
         <EmptyState>Aucun environnement déclaré.</EmptyState>
       ) : (
@@ -250,7 +312,7 @@ function Deployment({ release }: { release: ReleaseDetail }) {
           </p>
         </ConfirmDialog>
       )}
-    </Card>
+    </CollapsibleSection>
   )
 }
 
@@ -258,7 +320,7 @@ function Executions({ release }: { release: ReleaseDetail }) {
   const jobs = release.jobs ?? []
 
   return (
-    <Card title="Exécutions">
+    <CollapsibleSection title="Exécutions" count={jobs.length}>
       {jobs.length === 0 ? (
         <EmptyState>Aucune exécution déclenchée pour cette release.</EmptyState>
       ) : (
@@ -285,7 +347,7 @@ function Executions({ release }: { release: ReleaseDetail }) {
           ))}
         </ul>
       )}
-    </Card>
+    </CollapsibleSection>
   )
 }
 

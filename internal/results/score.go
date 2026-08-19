@@ -259,10 +259,29 @@ func Health(breakdown Breakdown) string {
 	if !breakdown.Measured {
 		return "na"
 	}
+	return healthFromValue(float64(breakdown.Score))
+}
+
+// SignalHealth dérive le statut d'un signal, aux mêmes seuils que le score
+// global.
+//
+// Rendu par l'API plutôt que recalculé dans le navigateur : l'interface ne
+// dérive aucun verdict, sans quoi un changement de seuil ici produirait un
+// second avis divergent côté client (B11). Appliquer les seuils du score à un
+// signal est une extrapolation, et c'est le seul endroit où elle est faite —
+// elle vaut ce que vaut l'échelle 85/70, ni plus ni moins.
+func SignalHealth(signal SignalScore) string {
+	if !signal.Measured {
+		return "na"
+	}
+	return healthFromValue(signal.Value)
+}
+
+func healthFromValue(value float64) string {
 	switch {
-	case breakdown.Score >= 85:
+	case value >= 85:
 		return "healthy"
-	case breakdown.Score >= 70:
+	case value >= 70:
 		return "warn"
 	default:
 		return "critical"

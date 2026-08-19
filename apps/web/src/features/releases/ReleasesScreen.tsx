@@ -1,25 +1,13 @@
 import { Link } from 'react-router'
-import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
+import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
+import { status } from '../../lib/status'
 import { useReleases, type Release } from './api'
 
 const KIND_LABEL: Record<Release['kind'], string> = {
   pre: 'Pré-release',
   final: 'Release',
   patch: 'Correctif',
-}
-
-// Les libellés disent l'attente, pas seulement l'état : « décision en attente »
-// se lit mieux que « prête » pour un état qui n'autorise justement pas encore la
-// promotion.
-const STATE_LABEL: Record<Release['state'], string> = {
-  draft: 'Créée',
-  building: 'Construction en cours',
-  verifying: 'Tests en cours',
-  ready: 'Décision en attente',
-  released: 'Livrée',
-  failed: 'Échec',
-  cancelled: 'Abandonnée',
 }
 
 export function ReleasesScreen() {
@@ -47,7 +35,10 @@ export function ReleasesScreen() {
                     {release.tag}
                   </Link>
                   <span className="text-sm text-zinc-500">{KIND_LABEL[release.kind]}</span>
-                  <span className="text-sm text-zinc-500">{STATE_LABEL[release.state]}</span>
+                  {/* L'état en badge plutôt qu'en texte gris : c'est le seul
+                      champ de la ligne qui porte un verdict, et il se lisait
+                      comme une note de plus. */}
+                  <StatusBadge style={status.release(release.state)} />
 
                   {/* La version d'image n'est rappelée que lorsqu'elle diffère du
                       tag, c'est-à-dire sur une finale produite par re-tag. La

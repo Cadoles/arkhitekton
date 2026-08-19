@@ -1,6 +1,7 @@
 import { Icon } from '../../components/Icon'
 import { Sparkline } from '../../components/Sparkline'
-import { Card, EmptyState, Skeleton, StatusBadge } from '../../components/primitives'
+import { CollapsibleSection } from '../../components/CollapsibleSection'
+import { EmptyState, Skeleton, StatusBadge } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
 import { hasAtLeast, useSession } from '../auth/session'
@@ -22,7 +23,7 @@ export function BenchPanel({ tag }: { tag: string }) {
   if (!data) return null
 
   return (
-    <Card title="Tests de charge">
+    <CollapsibleSection title="Tests de charge" count={data.campaigns.length}>
       {data.campaigns.length === 0 ? (
         <EmptyState>Aucune campagne de charge pour cette release.</EmptyState>
       ) : (
@@ -32,7 +33,7 @@ export function BenchPanel({ tag }: { tag: string }) {
           ))}
         </div>
       )}
-    </Card>
+    </CollapsibleSection>
   )
 }
 

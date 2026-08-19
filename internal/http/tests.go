@@ -72,6 +72,9 @@ type signalPayload struct {
 	Weight   float64 `json:"weight"`
 	Measured bool    `json:"measured"`
 	Detail   string  `json:"detail,omitempty"`
+	// Health est le verdict du signal — `healthy`, `warn`, `critique` ou `na`.
+	// Rendu par le serveur pour que l'interface ne dérive aucun seuil (B11).
+	Health string `json:"health"`
 }
 
 // Tests rend les rapports d'une release et le score qu'ils composent.
@@ -113,6 +116,10 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 		signals = append(signals, signalPayload{
 			Signal: string(signal.Signal), Value: signal.Value, Weight: signal.Weight,
 			Measured: signal.Measured, Detail: signal.Detail,
+			// Le verdict d'un signal vient du serveur comme celui du score : le
+			// dériver côté client en ferait un second avis, divergent au premier
+			// changement de seuil (B11).
+			Health: results.SignalHealth(signal),
 		})
 	}
 

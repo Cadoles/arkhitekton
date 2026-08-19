@@ -30,6 +30,14 @@ export type Health = 'healthy' | 'warn' | 'critical'
 export type PipelineStatus = 'pass' | 'warn' | 'fail' | 'skip' | 'na'
 export type BenchStatus = 'pass' | 'warn' | 'fail' | 'na'
 export type SignoffStatus = 'pass' | 'warn' | 'fail' | 'na'
+export type ReleaseState =
+  | 'draft'
+  | 'building'
+  | 'verifying'
+  | 'ready'
+  | 'released'
+  | 'failed'
+  | 'cancelled'
 
 /** Apparence d'un statut : libellé français, icône, et classes Tailwind. */
 export type StatusStyle = {
@@ -68,7 +76,29 @@ const SIGNOFF: Record<SignoffStatus, StatusStyle> = {
   na: { label: 'En attente', icon: 'minus', text: 'text-zinc-400', bg: 'bg-zinc-50', border: 'border-zinc-200' },
 }
 
+/*
+ * États d'une release.
+ *
+ * Les libellés disent l'attente, pas seulement l'état : « décision en attente »
+ * se lit mieux que « prête » pour un état qui n'autorise justement pas encore la
+ * promotion.
+ *
+ * Trois états en cours — construction, tests, création — restent neutres : ils ne
+ * portent aucun verdict, et les teinter d'alerte ferait lire comme un problème ce
+ * qui n'est qu'un travail en cours.
+ */
+const RELEASE: Record<ReleaseState, StatusStyle> = {
+  draft: { label: 'Créée', icon: 'doc', text: 'text-zinc-600', bg: 'bg-zinc-50', border: 'border-zinc-300' },
+  building: { label: 'Construction en cours', icon: 'cog', text: 'text-zinc-600', bg: 'bg-zinc-50', border: 'border-zinc-300' },
+  verifying: { label: 'Tests en cours', icon: 'beaker', text: 'text-zinc-600', bg: 'bg-zinc-50', border: 'border-zinc-300' },
+  ready: { label: 'Décision en attente', icon: 'alert', text: 'text-warn-700', bg: 'bg-warn-50', border: 'border-warn-500' },
+  released: { label: 'Livrée', icon: 'check', text: 'text-healthy-700', bg: 'bg-healthy-50', border: 'border-healthy-500' },
+  failed: { label: 'Échec', icon: 'cross', text: 'text-critical-700', bg: 'bg-critical-50', border: 'border-critical-500' },
+  cancelled: { label: 'Abandonnée', icon: 'skip', text: 'text-zinc-500', bg: 'bg-zinc-100', border: 'border-zinc-300' },
+}
+
 export const status = {
+  release: (value: ReleaseState) => RELEASE[value],
   health: (value: Health) => HEALTH[value],
   pipeline: (value: PipelineStatus) => PIPELINE[value],
   bench: (value: BenchStatus) => BENCH[value],

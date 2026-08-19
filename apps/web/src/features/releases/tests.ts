@@ -25,6 +25,10 @@ export type SignalScore = {
   weight: number
   measured: boolean
   detail?: string
+  /** Verdict du signal, rendu par le serveur. L'interface ne dérive aucun
+   *  seuil : le faire produirait un second avis, divergent au premier
+   *  changement côté serveur (B11). */
+  health: Health | 'na'
 }
 
 export type ScoreBreakdown = {
