@@ -50,6 +50,17 @@ type Catalog struct {
 	// MaxConcurrentRuns protège le cluster : les pipelines demandent des PVC et
 	// des pods de build, et rien n'empêche mécaniquement d'en lancer vingt.
 	MaxConcurrentRuns int `json:"maxConcurrentRuns"`
+	// PodTemplate s'applique à tous les pipelines, sauf à ceux qui en déclarent
+	// un.
+	//
+	// Global plutôt que répété par entrée, et c'est le correctif d'un défaut
+	// constaté : **les cinq pipelines tirent au moins une image de
+	// `reg.cadoles.com`**, projet privé, et aucun ne déclarait de secret de
+	// tirage. Les runs échouaient en `TaskRunImagePullFailed` — pas au moment de
+	// pousser, mais avant même de démarrer l'étape. Répéter le réglage sur chaque
+	// entrée l'aurait fait oublier sur la suivante ; ici, une entrée nouvelle en
+	// hérite sans qu'on y pense.
+	PodTemplate *PodTemplate `json:"podTemplate,omitempty"`
 }
 
 // Environment décrit un environnement de déploiement.
@@ -172,6 +183,10 @@ type VolumeClaimTemplate struct {
 
 type PodTemplate struct {
 	ImagePullSecrets []string `json:"imagePullSecrets,omitempty"`
+	// ImagePullSecretsConfigKey nomme une clé de configuration portant le nom du
+	// secret, pour la même raison que `SecretSource.ConfigKey` : viser un autre
+	// registre ne doit pas demander de modifier le catalogue versionné.
+	ImagePullSecretsConfigKey string `json:"imagePullSecretsConfigKey,omitempty"`
 }
 
 // DefaultMaxConcurrentRuns est le plafond retenu à défaut (doc 06 §6.3).
@@ -341,6 +356,12 @@ func ValidQueueClass(class string) bool {
 func (c *Catalog) Find(kind string) (Pipeline, bool) {
 	for _, pipeline := range c.Pipelines {
 		if pipeline.Kind == kind {
+			// Le podTemplate global s'applique à qui n'en déclare pas. Hérité ici
+			// plutôt qu'au chargement : le catalogue reste alors le reflet exact
+			// du fichier, et ce qui est hérité se lit dans une seule fonction.
+			if pipeline.PodTemplate == nil {
+				pipeline.PodTemplate = c.PodTemplate
+			}
 			return pipeline, true
 		}
 	}
@@ -396,6 +417,17 @@ func (p Pipeline) ResolveSecrets(config map[string]string) (Pipeline, error) {
 	resolved := p
 	resolved.Workspaces = make([]Workspace, len(p.Workspaces))
 	copy(resolved.Workspaces, p.Workspaces)
+
+	if template := resolved.PodTemplate; template != nil && template.ImagePullSecretsConfigKey != "" {
+		name, present := config[template.ImagePullSecretsConfigKey]
+		if !present || name == "" {
+			return Pipeline{}, fmt.Errorf(
+				"kind %q, secret de tirage: clé de configuration %q absente",
+				p.Kind, template.ImagePullSecretsConfigKey)
+		}
+		// Copie, pour la même raison que les workspaces : le catalogue est partagé.
+		resolved.PodTemplate = &PodTemplate{ImagePullSecrets: []string{name}}
+	}
 
 	for i, workspace := range resolved.Workspaces {
 		if workspace.Secret == nil || workspace.Secret.ConfigKey == "" {

@@ -476,12 +476,16 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// dashboard : c'est là que Tekton les monte.
 		"pipeline.gitSecret":      envOr("PIPELINE_GIT_SECRET", "git-credentials"),
 		"pipeline.registrySecret": envOr("PIPELINE_REGISTRY_SECRET", "regcred"),
-		"forge.mse.repoUrl":       appRepo,
-		"forge.mseKustom.repoUrl": envOr("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
-		"forge.e2e.repoUrl":       envOr("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
-		"registry.project":        envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
-		"mse.overlayLocation":     envOr("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
-		"mse.dockerfile":          envOr("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
+		// Secret de tirage des images d'outillage, distinct de celui qui sert à
+		// pousser : le pod tire depuis `cnous-mse`, `crane` pousse vers le projet
+		// de la release. Deux portées, potentiellement deux comptes.
+		"pipeline.imagePullSecret": envOr("PIPELINE_IMAGE_PULL_SECRET", "regcred"),
+		"forge.mse.repoUrl":        appRepo,
+		"forge.mseKustom.repoUrl":  envOr("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
+		"forge.e2e.repoUrl":        envOr("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
+		"registry.project":         envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
+		"mse.overlayLocation":      envOr("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
+		"mse.dockerfile":           envOr("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
 		// Contexte de build, distinct du Dockerfile : `mse` place le sien dans
 		// une sous-arborescence tout en construisant depuis la racine.
 		"mse.buildContext": envOr("MSE_BUILD_CONTEXT", "."),

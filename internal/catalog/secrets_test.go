@@ -86,3 +86,71 @@ func TestLaResolutionNeContaminePasLeCatalogue(t *testing.T) {
 		t.Errorf("la clé d'origine a été perdue: %q", pipeline.Workspaces[0].Secret.ConfigKey)
 	}
 }
+
+// Le défaut qui a fait échouer les runs : aucun secret de tirage, alors que les
+// cinq pipelines emploient des images d'un projet privé. Le podTemplate global
+// doit être hérité par toute entrée qui n'en déclare pas.
+func TestLeSecretDeTirageEstHeriteDuCatalogue(t *testing.T) {
+	c := &Catalog{
+		PodTemplate: &PodTemplate{ImagePullSecretsConfigKey: "pipeline.imagePullSecret"},
+		Pipelines: []Pipeline{
+			{Kind: "build"},
+			// Une entrée qui déclare le sien l'emporte : un pipeline peut tirer
+			// depuis un registre différent des autres.
+			{Kind: "promote", PodTemplate: &PodTemplate{ImagePullSecrets: []string{"autre-secret"}}},
+		},
+	}
+
+	build, _ := c.Find("build")
+	if build.PodTemplate == nil || build.PodTemplate.ImagePullSecretsConfigKey != "pipeline.imagePullSecret" {
+		t.Fatalf("podTemplate non hérité: %+v", build.PodTemplate)
+	}
+
+	resolved, err := build.ResolveSecrets(map[string]string{"pipeline.imagePullSecret": "regcred"})
+	if err != nil {
+		t.Fatalf("résolution: %v", err)
+	}
+	if got := resolved.PodTemplate.ImagePullSecrets; len(got) != 1 || got[0] != "regcred" {
+		t.Errorf("secret de tirage résolu: %v", got)
+	}
+
+	promote, _ := c.Find("promote")
+	if got := promote.PodTemplate.ImagePullSecrets; len(got) != 1 || got[0] != "autre-secret" {
+		t.Errorf("l'entrée déclarante doit l'emporter: %v", got)
+	}
+}
+
+// La résolution du podTemplate ne contamine pas le catalogue partagé, pour la
+// même raison que celle des workspaces.
+func TestLaResolutionDuPodTemplateNeContaminePas(t *testing.T) {
+	c := &Catalog{
+		PodTemplate: &PodTemplate{ImagePullSecretsConfigKey: "pipeline.imagePullSecret"},
+		Pipelines:   []Pipeline{{Kind: "build"}},
+	}
+
+	build, _ := c.Find("build")
+	if _, err := build.ResolveSecrets(map[string]string{"pipeline.imagePullSecret": "regcred"}); err != nil {
+		t.Fatalf("résolution: %v", err)
+	}
+
+	if len(c.PodTemplate.ImagePullSecrets) != 0 {
+		t.Errorf("le catalogue a été modifié: %v", c.PodTemplate.ImagePullSecrets)
+	}
+	if c.PodTemplate.ImagePullSecretsConfigKey == "" {
+		t.Error("la clé d'origine a été perdue")
+	}
+}
+
+// Une clé absente refuse le run plutôt que de laisser partir un pod sans secret,
+// qui échouerait en TaskRunImagePullFailed sans désigner la cause.
+func TestUneCleDeTirageAbsenteRefuseLeRun(t *testing.T) {
+	c := &Catalog{
+		PodTemplate: &PodTemplate{ImagePullSecretsConfigKey: "pipeline.imagePullSecret"},
+		Pipelines:   []Pipeline{{Kind: "build"}},
+	}
+	build, _ := c.Find("build")
+
+	if _, err := build.ResolveSecrets(map[string]string{}); err == nil {
+		t.Error("la résolution devrait échouer sur une clé absente")
+	}
+}

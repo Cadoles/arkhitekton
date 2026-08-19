@@ -64,6 +64,22 @@ environments:
 # n'empêche mécaniquement d'en lancer vingt.
 maxConcurrentRuns: 4
 
+# Secret de tirage appliqué à tous les pipelines.
+#
+# Les cinq tirent au moins une image de `reg.cadoles.com` — `crane` pour pousser,
+# `mktools` pour dériver un tag, `tekton-mse-manager` pour déployer — et le projet
+# est privé. Sans ce réglage, les runs échouaient en `TaskRunImagePullFailed`,
+# avant même d'atteindre l'étape qu'on croyait fautive.
+#
+# Global et non répété par entrée : le répéter l'aurait fait oublier sur la
+# prochaine. Une entrée qui déclare son propre `podTemplate` l'emporte.
+#
+# Distinct du dockerconfig monté en workspace : celui-ci sert au **pod** à tirer
+# son outillage depuis `cnous-mse`, celui-là sert à `crane` pour **pousser** les
+# images produites. Deux gestes, deux portées, potentiellement deux comptes.
+podTemplate:
+  imagePullSecretsConfigKey: pipeline.imagePullSecret
+
 pipelines:
   # L'audit de sécurité n'exige aucun paramètre : le pipeline porte ses propres
   # valeurs par défaut. C'est le kind le plus simple, et le seul lançable sans
