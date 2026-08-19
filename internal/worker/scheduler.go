@@ -76,7 +76,20 @@ type Scheduler struct {
 	// disponible : les runs partent alors sans publication, et le disent.
 	uploads Presigner
 	keys    blob.Keys
-	logger  *slog.Logger
+	// instance identifie la base. Entre dans le nom des runs pour qu'une remise à
+	// zéro ne produise pas d'homonymes de PipelineRun restés dans le cluster.
+	instance string
+	logger   *slog.Logger
+}
+
+// WithInstance déclare l'identité de la base.
+//
+// Séparée du constructeur pour ne pas propager une lecture en base dans tous les
+// appelants : elle est facultative, et son absence retombe sur l'ancien nommage —
+// suffisant pour un test, jamais pour un déploiement qui a déjà tourné.
+func (s *Scheduler) WithInstance(id string) *Scheduler {
+	s.instance = id
+	return s
 }
 
 // WithUploads branche la génération des URLs d'artefacts.
@@ -142,7 +155,8 @@ func (s *Scheduler) Run(ctx context.Context) error {
 // dispatchOne réserve et lance un job. Rend false quand il n'y a plus rien à
 // faire pour ce tour.
 func (s *Scheduler) dispatchOne(ctx context.Context) bool {
-	job, err := s.queue.ClaimNext(ctx, s.catalog.MaxConcurrentRuns, RunName)
+	job, err := s.queue.ClaimNext(ctx, s.catalog.MaxConcurrentRuns,
+		func(kind string, id int64) string { return RunName(s.instance, kind, id) })
 	if err != nil {
 		if !errors.Is(err, store.ErrJobNotFound) {
 			s.logger.Error("réservation d'un job", "error", err)
@@ -348,8 +362,21 @@ func (s *Scheduler) resolveParams(
 // consulter la base, et deux essais du même job donnent le même nom. C'est ce qui
 // rend la reprise sûre — une seconde création se heurte à un conflit, que
 // l'ordonnanceur lit comme « c'était déjà fait » plutôt que de créer un doublon.
-func RunName(kind string, id int64) string {
-	return fmt.Sprintf("mse-%s-%d", kind, id)
+//
+// Il porte **aussi** l'identité de la base, et c'est ce qui manquait. Les
+// identifiants de jobs repartent à 1 sur une base neuve, alors que les
+// PipelineRun survivent dans le cluster : chaque nouveau job s'accrochait à un
+// run existant, le conflit était lu comme un succès, et rien ne partait. On
+// regardait l'échec d'une exécution vieille de plusieurs heures en croyant
+// consulter la sienne.
+//
+// L'identité vide est tolérée pour que les tests n'aient pas à la fournir ; en
+// production elle est lue au démarrage et ne l'est jamais.
+func RunName(instance, kind string, id int64) string {
+	if instance == "" {
+		return fmt.Sprintf("mse-%s-%d", kind, id)
+	}
+	return fmt.Sprintf("mse-%s-%s-%d", instance, kind, id)
 }
 
 // retry remet un job en file, ou le conclut en échec quand il a trop insisté.

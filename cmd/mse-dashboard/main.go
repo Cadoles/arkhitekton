@@ -402,8 +402,20 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// stockage appartient au dashboard, et c'est ce qui sort le secret
 			// MinIO des Tasks de test (B14).
 
+			// L'identité de la base entre dans le nom des runs : sans elle, une
+			// base neuve réattribue des identifiants de jobs déjà portés par des
+			// PipelineRun restés dans le cluster, et l'ordonnanceur lit le conflit
+			// comme « c'était déjà fait » sans rien lancer.
+			instance, err := db.InstanceID(ctx)
+			if err != nil {
+				return err
+			}
+			logger.Info("identité de la base", "instance", instance)
+
 			scheduler := worker.NewSchedulerFromCatalog(
-				db, cluster, pipelines, resolved, logger).WithUploads(storage)
+				db, cluster, pipelines, resolved, logger).
+				WithUploads(storage).
+				WithInstance(instance)
 
 			// Les livrables passent par la file comme le reste, mais sont
 			// produits ici : générer un bon de livraison lit la base et écrit un

@@ -468,3 +468,18 @@ func (db *DB) PendingCancellations(ctx context.Context) ([]RunningJob, error) {
 	}
 	return jobs, rows.Err()
 }
+
+// InstanceID rend l'identité de cette base.
+//
+// Elle entre dans le nom des PipelineRun. Sans elle, les identifiants de jobs —
+// qui repartent à 1 sur une base neuve — produisaient des noms déjà pris par des
+// runs restés dans le cluster : la création se heurtait à un conflit, lu comme
+// « c'était déjà fait », et aucun run ne partait. L'interface montrait alors
+// l'échec d'une exécution vieille de plusieurs heures.
+func (db *DB) InstanceID(ctx context.Context) (string, error) {
+	var id string
+	if err := db.pool.QueryRow(ctx, `select id from instance`).Scan(&id); err != nil {
+		return "", fmt.Errorf("identité de la base: %w", err)
+	}
+	return id, nil
+}

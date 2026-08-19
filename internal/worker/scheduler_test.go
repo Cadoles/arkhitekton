@@ -93,3 +93,57 @@ func TestAnUnsafeRunNameIsRefused(t *testing.T) {
 		t.Error("un nom de run hors grammaire doit être refusé")
 	}
 }
+
+// Le défaut qui a coûté trois builds fantômes : les identifiants de jobs
+// repartent à 1 sur une base neuve, alors que les PipelineRun survivent dans le
+// cluster. Sans identité de base, le nouveau job portait le nom d'un run
+// existant, la création se heurtait à un conflit lu comme « c'était déjà fait »,
+// et rien ne partait — l'interface affichant l'échec d'une exécution vieille de
+// plusieurs heures.
+func TestLeNomDunRunDistingueDeuxGenerationsDeBase(t *testing.T) {
+	ancienne := RunName("a1b2c3", "build", 1)
+	nouvelle := RunName("d4e5f6", "build", 1)
+
+	if ancienne == nouvelle {
+		t.Errorf("même nom pour deux bases: %q — une remise à zéro produirait des homonymes", ancienne)
+	}
+}
+
+// La propriété que le nommage doit conserver : deux essais du même job donnent le
+// même nom. C'est elle qui rend la reprise sûre — une seconde création se heurte
+// à un conflit que l'ordonnanceur lit comme « c'était déjà fait » au lieu de
+// créer un doublon.
+func TestDeuxEssaisDuMemeJobDonnentLeMemeNom(t *testing.T) {
+	if RunName("a1b2c3", "build", 7) != RunName("a1b2c3", "build", 7) {
+		t.Error("le nom doit rester déterministe pour un job donné")
+	}
+	// Et deux jobs distincts ne se confondent pas.
+	if RunName("a1b2c3", "build", 7) == RunName("a1b2c3", "build", 8) {
+		t.Error("deux jobs distincts ne doivent pas partager un nom")
+	}
+	if RunName("a1b2c3", "build", 7) == RunName("a1b2c3", "static-tests", 7) {
+		t.Error("deux natures distinctes ne doivent pas partager un nom")
+	}
+}
+
+// Le nom doit rester un nom de ressource Kubernetes valide.
+func TestLeNomResteUnNomKubernetesValide(t *testing.T) {
+	name := RunName("a1b2c3", "security-audit", 12345)
+
+	if len(name) > 63 {
+		t.Errorf("nom trop long (%d): %q", len(name), name)
+	}
+	for _, r := range name {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			t.Errorf("caractère invalide %q dans %q", r, name)
+		}
+	}
+}
+
+// Sans identité, l'ancien nommage subsiste : les tests n'ont pas à la fournir, et
+// un déploiement qui n'a jamais tourné ne change pas de comportement.
+func TestSansIdentiteLAncienNommageSubsiste(t *testing.T) {
+	if got := RunName("", "build", 3); got != "mse-build-3" {
+		t.Errorf("nom sans identité: %q", got)
+	}
+}
