@@ -90,6 +90,22 @@ pipelines:
     # Aucune contention : un audit peut tourner pendant des tests E2E.
     queueClass: parallel
     timeout: 90m
+    # Sans ces paramètres, les défauts du pipeline s'appliquaient : il scannait
+    # `CNOUS/mse` à la révision `k8s-unstable`, quel que soit ce que le dashboard
+    # croyait auditer. Un audit qui porte sur autre chose que la release est pire
+    # qu'un audit absent — il rend un verdict qu'on rapporte à la mauvaise chose.
+    params:
+      app-repo-url:        { source: config, key: forge.mse.repoUrl }
+      app-revision:        { source: input,  required: true }
+      # L'audit scanne aussi l'infrastructure de déploiement et lit ses règles
+      # Semgrep dans `mse-tekton` : trois dépôts, trois accès à accorder à la clé
+      # de déploiement des pipelines.
+      mse-kustom-repo-url: { source: config, key: forge.mseKustom.repoUrl }
+      tekton-repo-url:     { source: config, key: forge.tekton.repoUrl }
+      dockerfile:          { source: config, key: mse.dockerfile }
+      build-context:       { source: config, key: mse.buildContext }
+      minio-host:          { source: config, key: minio.host }
+      minio-bucket:        { source: config, key: minio.pipelineBucket }
     # Les noms diffèrent de ceux des autres pipelines — `shared` et
     # `docker-config`, non `shared-data` et `dockerconfig`. Rien ne le devinerait :
     # c'est la validation contre le cluster qui les impose.

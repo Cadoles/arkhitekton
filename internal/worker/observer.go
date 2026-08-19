@@ -403,12 +403,15 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 			continue
 		}
 
-		// `commit` sert au retour de statut vers Gitea ; `revision` à ce qui est
-		// cloné. Les deux valent le commit construit.
+		// Trois noms pour la même chose, hérités de pipelines écrits séparément :
+		// `revision` est ce qui est cloné, `commit` sert au retour de statut vers
+		// Gitea, `app-revision` est le nom qu'emploie l'audit de sécurité. Tous
+		// valent le commit construit — c'est lui qu'on vérifie, pas la branche
+		// dont il vient.
 		params := map[string]string{}
 		for _, name := range pipeline.RequiredInputs() {
 			switch name {
-			case "revision", "commit":
+			case "revision", "commit", "app-revision":
 				params[name] = revision
 			default:
 				// Un paramètre requis qu'on ne sait pas renseigner ferait échouer

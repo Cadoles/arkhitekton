@@ -34,7 +34,14 @@ func verificationCatalog() *catalog.Catalog {
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
-			{Kind: "security-audit", QueueClass: "parallel"},
+			{
+				Kind: "security-audit", QueueClass: "parallel",
+				Params: map[string]catalog.Param{
+					// L'audit nomme sa révision autrement que les tests statiques.
+					"app-revision": {Source: catalog.SourceInput, Required: true},
+					"app-repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
+				},
+			},
 			// Présent au catalogue mais non enchaîné : il exige une révision que le
 			// dashboard ne connaît pas.
 			{
@@ -89,6 +96,14 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 	static := kinds["static-tests"]
 	if static.Params["revision"] != "abc123def456" || static.Params["commit"] != "abc123def456" {
 		t.Errorf("params de static-tests: %v — attendu le commit, pas la branche", static.Params)
+	}
+
+	// L'audit nomme sa révision `app-revision`. Sans ce nom, il retombait sur son
+	// défaut et scannait `CNOUS/mse` à `k8s-unstable` — donc autre chose que la
+	// release, en rendant un verdict qu'on rapportait à la mauvaise chose.
+	audit := kinds["security-audit"]
+	if audit.Params["app-revision"] != "abc123def456" {
+		t.Errorf("params de security-audit: %v — attendu le commit en app-revision", audit.Params)
 	}
 	if static.ReleaseID == nil || *static.ReleaseID != 7 {
 		t.Error("les vérifications doivent porter leur release, sans quoi leur conclusion ne fait rien avancer")

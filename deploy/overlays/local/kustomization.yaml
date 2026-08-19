@@ -34,7 +34,12 @@ configMapGenerator:
     literals:
       - PUBLIC_URL=http://dashboard.mse.local
       - OIDC_REDIRECT_URL=http://dashboard.mse.local/api/v1/auth/callback
-      - MINIO_ENDPOINT=mse-dashboard-minio:9000
+      # Nom pleinement qualifié, et non le nom court : les URLs pré-signées
+      # d'écriture sont minées avec cet hôte puis remises aux pipelines, qui
+      # tournent dans `mse-tekton-pipelines`. Le nom court n'y résout pas — la
+      # publication échouait sur « Could not resolve host », après des tests
+      # pourtant passés.
+      - MINIO_ENDPOINT=mse-dashboard-minio.mse-dashboard.svc.cluster.local:9000
       - MINIO_USE_SSL=false
       # `NUO-Region` est la région de l'instance de production. En local, MinIO
       # accepte n'importe quelle région pourvu que le client signe avec la même ;
