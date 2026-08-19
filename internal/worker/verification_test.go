@@ -40,9 +40,13 @@ func verificationCatalog() *catalog.Catalog {
 			{
 				Kind: "security-audit", QueueClass: "parallel",
 				Params: map[string]catalog.Param{
-					// L'audit nomme sa révision autrement que les tests statiques.
-					"app-revision": {Source: catalog.SourceInput, Required: true},
-					"app-repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
+					// L'audit nomme sa révision autrement que les tests statiques,
+					// et réclame les images déjà publiées plutôt que de les
+					// reconstruire.
+					"app-revision":   {Source: catalog.SourceInput, Required: true},
+					"portal-image":   {Source: catalog.SourceInput, Required: true},
+					"consumer-image": {Source: catalog.SourceInput, Required: true},
+					"app-repo-url":   {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
 			// Présent au catalogue mais non enchaîné : il exige une révision que le
@@ -59,7 +63,10 @@ func verificationCatalog() *catalog.Catalog {
 }
 
 func sinkFor(store *fakeVerificationStore, pipelines *catalog.Catalog) *runSink {
-	sink := &runSink{logger: quietLogger(), catalog: pipelines}
+	sink := &runSink{
+		logger: quietLogger(), catalog: pipelines,
+		registryProject: "reg.cadoles.com/vcarroy",
+	}
 	sink.verification = store
 	return sink
 }
@@ -107,6 +114,15 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 	audit := kinds["security-audit"]
 	if audit.Params["app-revision"] != "abc123def456" {
 		t.Errorf("params de security-audit: %v — attendu le commit en app-revision", audit.Params)
+	}
+	// L'audit analyse les images **publiées** par la construction, au tag de la
+	// release. Reconstruire pour scanner produirait un artefact différent de celui
+	// qui sera déployé (B17).
+	if got := audit.Params["portal-image"]; got != "reg.cadoles.com/vcarroy/portal:3.2.0-rc1" {
+		t.Errorf("image portal %q", got)
+	}
+	if got := audit.Params["consumer-image"]; got != "reg.cadoles.com/vcarroy/portal-consumer:3.2.0-rc1" {
+		t.Errorf("image consumer %q", got)
 	}
 	if static.ReleaseID == nil || *static.ReleaseID != 7 {
 		t.Error("les vérifications doivent porter leur release, sans quoi leur conclusion ne fait rien avancer")

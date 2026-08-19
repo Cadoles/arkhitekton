@@ -35,6 +35,10 @@ type runSink struct {
 	tests *TestIngester
 	// security ingère les audits normalisés. Même règle.
 	security *SecurityIngester
+	// registryProject préfixe les images publiées, pour les nommer à l'audit.
+	// Vide, les familles qui les réclament ne sont pas lançables et le journal le
+	// dit — mieux qu'un run qui échouerait sur une référence tronquée.
+	registryProject string
 	// catalog sert à enchaîner les vérifications d'une construction réussie. Nil
 	// quand il n'est pas branché : l'observation continue, sans enchaînement.
 	catalog *catalog.Catalog
@@ -60,9 +64,21 @@ type Enqueuer interface {
 }
 
 // WithCatalog branche l'enchaînement des vérifications.
-func (s *runSink) WithCatalog(pipelines *catalog.Catalog) *runSink {
+func (s *runSink) WithCatalog(pipelines *catalog.Catalog, registryProject string) *runSink {
 	s.catalog = pipelines
+	s.registryProject = registryProject
 	return s
+}
+
+// imageRef compose la référence d'une image publiée par la construction.
+//
+// Le tag de l'image est celui de la release : c'est ce que `build-image` reçoit
+// en `version` et inscrit dans `version.txt` (B17, P10).
+func (s *runSink) imageRef(name, tag string) string {
+	if s.registryProject == "" {
+		return ""
+	}
+	return s.registryProject + "/" + name + ":" + tag
 }
 
 // buildJobKind est la nature de job qui construit les images.
@@ -456,6 +472,14 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 			switch name {
 			case "revision", "commit", "app-revision":
 				params[name] = revision
+
+			// L'audit analyse les images publiées par la construction, jamais une
+			// reconstruction : elle produirait un artefact différent de celui qui
+			// sera déployé, et le verdict porterait à côté (B17).
+			case "portal-image":
+				params[name] = s.imageRef("portal", linked.Tag)
+			case "consumer-image":
+				params[name] = s.imageRef("portal-consumer", linked.Tag)
 			default:
 				// Un paramètre requis qu'on ne sait pas renseigner ferait échouer
 				// le run à l'ordonnancement : ne pas l'enfiler du tout est plus

@@ -102,8 +102,11 @@ pipelines:
       # de déploiement des pipelines.
       mse-kustom-repo-url: { source: config, key: forge.mseKustom.repoUrl }
       tekton-repo-url:     { source: config, key: forge.tekton.repoUrl }
-      dockerfile:          { source: config, key: mse.dockerfile }
-      build-context:       { source: config, key: mse.buildContext }
+      # L'audit ne construit plus : il analyse les images **déjà publiées** par
+      # la construction de la release. Scanner une reconstruction rendrait un
+      # verdict sur un artefact qu'on ne livre pas (B17).
+      portal-image:        { source: input,  required: true }
+      consumer-image:      { source: input,  required: true }
       minio-host:          { source: config, key: minio.host }
       minio-bucket:        { source: config, key: minio.pipelineBucket }
     # Les noms diffèrent de ceux des autres pipelines — `shared` et

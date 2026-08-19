@@ -373,21 +373,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// L'ingestion des campagnes de charge est branchée sur la fin des
 			// runs : le runner k6 vit hors du cluster et n'a aucun chemin de
 			// retour vers le dashboard (B16).
-			objects := worker.NewObjectStore(storage)
-			sink := worker.NewRunSink(db).
-				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
-				WithTestIngester(worker.NewTestIngester(db, objects, logger)).
-				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger)).
-				// Le catalogue permet d'enchaîner les vérifications d'une
-				// construction réussie : sans lui, l'observation continue mais
-				// une release construite reste en attente d'un test que rien
-				// ne lance.
-				WithCatalog(pipelines)
-			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
-
-			// Les URLs d'écriture des artefacts sont minées ici : le layout de
-			// stockage appartient au dashboard, et c'est ce qui sort le secret
-			// MinIO des Tasks de test (B14).
 			// Ce que les pipelines recevront, journalisé avant toute exécution.
 			// Un dépôt ou un Dockerfile qui ne correspond pas à ce qu'on croit
 			// piloter ne se voit sinon qu'à l'échec du build, où le message
@@ -399,6 +384,22 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				"registry_project", resolved["registry.project"],
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"])
+
+			objects := worker.NewObjectStore(storage)
+			sink := worker.NewRunSink(db).
+				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
+				WithTestIngester(worker.NewTestIngester(db, objects, logger)).
+				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger)).
+				// Le catalogue permet d'enchaîner les vérifications d'une
+				// construction réussie : sans lui, l'observation continue mais
+				// une release construite reste en attente d'un test que rien
+				// ne lance.
+				WithCatalog(pipelines, resolved["registry.project"])
+			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
+
+			// Les URLs d'écriture des artefacts sont minées ici : le layout de
+			// stockage appartient au dashboard, et c'est ce qui sort le secret
+			// MinIO des Tasks de test (B14).
 
 			scheduler := worker.NewSchedulerFromCatalog(
 				db, cluster, pipelines, resolved, logger).WithUploads(storage)
