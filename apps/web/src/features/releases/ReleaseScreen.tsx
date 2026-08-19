@@ -21,6 +21,7 @@ import {
   type Image,
   type PromotionTarget,
   type ReleaseDetail,
+  type ReleaseJob,
 } from './api'
 
 /*
@@ -508,6 +509,35 @@ function ReleaseAction({ release }: { release: ReleaseDetail }) {
 
 
 /**
+ * Les natures de job qui vérifient une release, par opposition à celle qui la
+ * construit. Sert à dire **ce qui** a échoué : l'état `failed` d'une release ne
+ * le dit pas, il couvre les deux.
+ */
+const VERIFICATION_KINDS = ['static-tests', 'security-audit', 'integration-tests', 'e2e-tests']
+
+/**
+ * Nomme l'étape à laquelle la release a échoué.
+ *
+ * Une release `failed` peut l'être parce que sa construction a échoué, ou parce
+ * que ses vérifications ont rendu un verdict négatif sur une image parfaitement
+ * construite. Annoncer « construction en échec » dans le second cas envoie
+ * chercher la cause au mauvais endroit — constaté sur une release dont le build
+ * avait réussi et dont seul l'audit de sécurité avait échoué.
+ *
+ * On lit la **dernière** construction : les précédentes ont pu échouer avant une
+ * relance réussie, et c'est la dernière qui décrit l'image en place.
+ */
+function failedStage(jobs: ReleaseJob[]): 'build' | 'verification' | 'inconnue' {
+  const builds = jobs.filter((job) => job.kind === 'build')
+  const lastBuild = builds.length > 0 ? builds[builds.length - 1] : undefined
+
+  if (lastBuild && lastBuild.state !== 'succeeded') return 'build'
+  if (jobs.some((job) => VERIFICATION_KINDS.includes(job.kind) && job.state === 'failed'))
+    return 'verification'
+  return lastBuild ? 'inconnue' : 'build'
+}
+
+/**
  * Relance de la construction, après un échec.
  *
  * N'apparaît que sur une release en échec : ailleurs, reconstruire écraserait une
@@ -523,14 +553,32 @@ function RebuildAction({ release }: { release: ReleaseDetail }) {
 
   if (release.state !== 'failed' || release.kind === 'final' || !canBuild) return null
 
+  const stage = failedStage(release.jobs ?? [])
+  const title =
+    stage === 'build'
+      ? 'Construction en échec'
+      : stage === 'verification'
+        ? 'Vérifications en échec'
+        : 'Release en échec'
+
   return (
-    <Card title="Construction en échec">
-      <p className="text-sm text-zinc-600">
-        Relancer reconstruit depuis{' '}
-        <span className="font-mono">{release.git_ref || 'la référence enregistrée'}</span>, sans
-        créer de nouvelle version. À faire quand la cause était extérieure au code — droits
-        d&apos;accès, registre injoignable, nœud saturé.
-      </p>
+    <Card title={title}>
+      {stage === 'verification' ? (
+        <p className="text-sm text-zinc-600">
+          Les images ont été construites ; ce sont les vérifications qui ont échoué. La cause est
+          dans leurs journaux, listés plus bas. Relancer reconstruit tout depuis{' '}
+          <span className="font-mono">{release.git_ref || 'la référence enregistrée'}</span> puis
+          rejoue les vérifications — inutile si le verdict portait sur le code, qu&apos;il faut
+          alors corriger d&apos;abord.
+        </p>
+      ) : (
+        <p className="text-sm text-zinc-600">
+          Relancer reconstruit depuis{' '}
+          <span className="font-mono">{release.git_ref || 'la référence enregistrée'}</span>, sans
+          créer de nouvelle version. À faire quand la cause était extérieure au code — droits
+          d&apos;accès, registre injoignable, nœud saturé.
+        </p>
+      )}
 
       {rebuild.isError && (
         <p className="mt-2 flex items-start gap-2 text-sm text-critical-700">
