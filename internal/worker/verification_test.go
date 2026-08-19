@@ -7,6 +7,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 )
 
 // fakeVerificationStore retient ce qui est mis en file après une construction.
@@ -321,5 +322,60 @@ func TestUneConstructionEchoueeFaitEchouerSaRelease(t *testing.T) {
 	}
 	if len(fake.enqueued) != 0 {
 		t.Error("une construction échouée ne lance pas de vérifications")
+	}
+}
+
+// Le second visage du même défaut. Corriger le **nom** des runs empêche une base
+// neuve d'écraser un run existant ; il reste le **label**, par lequel
+// l'observateur rattache un run à un job. Un run laissé dans le cluster porte
+// `job-id: 7` ; la base suivante crée à son tour un job 7 ; l'observateur lit le
+// label et conclut ce job avec le verdict d'un run qui ne le concerne pas.
+//
+// Constaté : `mse-static-tests-7`, échoué quatre heures plus tôt sous une base
+// précédente, a fait passer en échec le job 7 d'une base créée depuis — un job
+// qui n'avait pas encore été lancé, et dont aucun run n'existait.
+func TestUnRunDUneAutreBaseNeConclutAucunJob(t *testing.T) {
+	sink := &runSink{logger: quietLogger(), instance: "1d82ae"}
+
+	disowned := sink.disown(tekton.Run{
+		Name: "mse-static-tests-7", JobID: 7, Instance: "",
+		Status: tekton.StatusFailed, Reason: "Failed",
+	})
+
+	if disowned.JobID != 0 {
+		t.Errorf("job %d encore rattaché", disowned.JobID)
+	}
+	if !disowned.Observed {
+		t.Error("un run d'une autre base est observé, pas piloté")
+	}
+	// Le run reste projeté : il a existé, ses journaux ont une valeur, et le
+	// masquer ferait disparaître de l'historique ce que le cluster détient encore.
+	if disowned.Name != "mse-static-tests-7" || disowned.Status != tekton.StatusFailed {
+		t.Errorf("le run a été altéré au-delà du rattachement: %+v", disowned)
+	}
+}
+
+// Un run de la base courante garde son rattachement, sans quoi plus rien
+// n'avancerait.
+func TestUnRunDeLaBaseCouranteResteRattache(t *testing.T) {
+	sink := &runSink{logger: quietLogger(), instance: "1d82ae"}
+
+	run := tekton.Run{
+		Name: "mse-1d82ae-static-tests-7", JobID: 7, Instance: "1d82ae",
+		Status: tekton.StatusSucceeded,
+	}
+	if got := sink.disown(run); got.JobID != 7 || got.Observed {
+		t.Errorf("rattachement perdu: %+v", got)
+	}
+}
+
+// Un run qui n'a jamais été piloté — webhook Gitea, CronJob — traverse inchangé,
+// quelle que soit la base.
+func TestUnRunObserveTraverseInchange(t *testing.T) {
+	sink := &runSink{logger: quietLogger(), instance: "1d82ae"}
+
+	run := tekton.Run{Name: "e2e-test-run-f8m8c", JobID: 0, Observed: true}
+	if got := sink.disown(run); got.JobID != 0 || !got.Observed {
+		t.Errorf("run observé altéré: %+v", got)
 	}
 }

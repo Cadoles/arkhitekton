@@ -14,7 +14,15 @@ import (
 // ce qui distingue un run observé — déclenché par un webhook Gitea ou un CronJob —
 // d'un run piloté.
 const (
-	LabelJobID    = "mse.dashboard/job-id"
+	LabelJobID = "mse.dashboard/job-id"
+	// LabelInstance porte l'identité de la base qui a lancé le run.
+	//
+	// Le seul `job-id` ne suffit pas : les identifiants repartent à 1 sur une
+	// base neuve, les PipelineRun survivent dans le cluster, et un run resté là
+	// concluait le job homonyme de la nouvelle base. Constaté — `mse-static-
+	// tests-7`, échoué la veille, a fait échouer le job 7 d'une base créée depuis,
+	// qui n'avait pas encore été lancé.
+	LabelInstance = "mse.dashboard/instance"
 	LabelKind     = "mse.dashboard/kind"
 	LabelRelease  = "mse.dashboard/release"
 	LabelPipeline = "tekton.dev/pipeline"
@@ -58,7 +66,10 @@ type Run struct {
 	CompletedAt *time.Time
 	Results     map[string]string
 	// JobID vaut 0 pour un run observé, c'est-à-dire non lancé par le dashboard.
-	JobID    int64
+	JobID int64
+	// Instance est la base qui a lancé le run. Vide sur un run observé, et sur
+	// ceux lancés avant que ce label existe.
+	Instance string
 	Observed bool
 }
 
@@ -109,6 +120,7 @@ func ProjectRun(pr *tektonv1.PipelineRun) Run {
 		run.Message = condition.Message
 	}
 
+	run.Instance = pr.Labels[LabelInstance]
 	if raw, ok := pr.Labels[LabelJobID]; ok {
 		if id, err := strconv.ParseInt(raw, 10, 64); err == nil {
 			run.JobID = id

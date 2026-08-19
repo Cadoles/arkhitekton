@@ -205,6 +205,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 	if _, err := s.cluster.Create(ctx, tekton.Request{
 		Name:     job.RunName,
 		JobID:    job.ID,
+		Instance: s.instance,
 		Pipeline: resolved,
 		Params:   params,
 	}); err != nil {

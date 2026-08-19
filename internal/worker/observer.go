@@ -50,7 +50,38 @@ type runSink struct {
 	// l'écriture conditionnelle qui rend l'enchaînement idempotent, et elle
 	// mérite d'être éprouvée sans base.
 	releases ReleaseAdvancer
+	// instance identifie la base. Un run qui porte celle d'une autre n'est pas
+	// rattaché à un job : les identifiants de jobs repartent à 1 sur une base
+	// neuve, et un run resté dans le cluster conclurait son homonyme.
+	instance string
 	logger   *slog.Logger
+}
+
+// WithInstance déclare l'identité de la base.
+func (s *runSink) WithInstance(id string) *runSink {
+	s.instance = id
+	return s
+}
+
+// disown coupe le rattachement d'un run lancé par une autre base.
+//
+// Le label `job-id` seul ne suffit pas à identifier un job : les identifiants
+// repartent à 1 sur une base neuve, alors que les PipelineRun survivent dans le
+// cluster. Constaté — `mse-static-tests-7`, échoué la veille sous une base
+// précédente, a conclu en échec le job 7 d'une base créée depuis, qui n'avait
+// même pas encore été lancé. Le run reste projeté, il n'est simplement plus
+// tenu pour le run de ce job.
+func (s *runSink) disown(run tekton.Run) tekton.Run {
+	if run.JobID == 0 || run.Instance == s.instance {
+		return run
+	}
+
+	s.logger.Debug("run d'une autre base, non rattaché",
+		"run", run.Name, "job", run.JobID,
+		"instance_run", run.Instance, "instance", s.instance)
+	run.JobID = 0
+	run.Observed = true
+	return run
 }
 
 // ReleaseAdvancer est ce que la conclusion attend de la base.
@@ -121,6 +152,8 @@ func (s *runSink) WithSecurityIngester(ingester *SecurityIngester) *runSink {
 }
 
 func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
+	run = s.disown(run)
+
 	if err := s.finishJob(ctx, run); err != nil {
 		return err
 	}

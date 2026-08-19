@@ -19,8 +19,11 @@ import (
 type Request struct {
 	// Name est décidé par l'ordonnanceur **avant** l'appel, et déjà inscrit en
 	// base. C'est ce qui rend un run orphelin impossible (doc 06 §6.3).
-	Name     string
-	JobID    int64
+	Name  string
+	JobID int64
+	// Instance identifie la base. Sans elle, un run resté dans le cluster après
+	// une remise à zéro conclut le job homonyme de la base suivante.
+	Instance string
 	Pipeline catalog.Pipeline
 	Params   map[string]string
 }
@@ -40,8 +43,9 @@ func (c *Client) Create(ctx context.Context, request Request) (*tektonv1.Pipelin
 			// webhook ou un CronJob, et par eux que la réconciliation retrouve
 			// les runs du dashboard après un redémarrage.
 			Labels: map[string]string{
-				LabelJobID: fmt.Sprint(request.JobID),
-				LabelKind:  request.Pipeline.Kind,
+				LabelJobID:    fmt.Sprint(request.JobID),
+				LabelKind:     request.Pipeline.Kind,
+				LabelInstance: request.Instance,
 			},
 		},
 		Spec: tektonv1.PipelineRunSpec{

@@ -387,22 +387,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"])
 
-			objects := worker.NewObjectStore(storage)
-			sink := worker.NewRunSink(db).
-				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
-				WithTestIngester(worker.NewTestIngester(db, objects, logger)).
-				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger)).
-				// Le catalogue permet d'enchaîner les vérifications d'une
-				// construction réussie : sans lui, l'observation continue mais
-				// une release construite reste en attente d'un test que rien
-				// ne lance.
-				WithCatalog(pipelines, resolved["registry.project"])
-			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
-
-			// Les URLs d'écriture des artefacts sont minées ici : le layout de
-			// stockage appartient au dashboard, et c'est ce qui sort le secret
-			// MinIO des Tasks de test (B14).
-
 			// L'identité de la base entre dans le nom des runs : sans elle, une
 			// base neuve réattribue des identifiants de jobs déjà portés par des
 			// PipelineRun restés dans le cluster, et l'ordonnanceur lit le conflit
@@ -412,6 +396,25 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				return err
 			}
 			logger.Info("identité de la base", "instance", instance)
+
+			objects := worker.NewObjectStore(storage)
+			sink := worker.NewRunSink(db).
+				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
+				WithTestIngester(worker.NewTestIngester(db, objects, logger)).
+				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger)).
+				// Le catalogue permet d'enchaîner les vérifications d'une
+				// construction réussie : sans lui, l'observation continue mais
+				// une release construite reste en attente d'un test que rien
+				// ne lance.
+				WithCatalog(pipelines, resolved["registry.project"]).
+				// Sans l'identité de la base, un run resté dans le cluster après
+				// une remise à zéro conclut le job homonyme de la base courante.
+				WithInstance(instance)
+			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
+
+			// Les URLs d'écriture des artefacts sont minées ici : le layout de
+			// stockage appartient au dashboard, et c'est ce qui sort le secret
+			// MinIO des Tasks de test (B14).
 
 			scheduler := worker.NewSchedulerFromCatalog(
 				db, cluster, pipelines, resolved, logger).
