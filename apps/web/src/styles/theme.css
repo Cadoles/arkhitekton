@@ -77,6 +77,18 @@
 @layer base {
   html {
     font-family: var(--font-sans);
+
+    /* La gouttière de l'ascenseur est réservée en permanence.
+     *
+     * Le contenu est centré — `mx-auto max-w-6xl` sur l'en-tête, la navigation
+     * et le corps. Sans réservation, l'apparition de l'ascenseur rétrécit la
+     * zone visible et décale tout d'une demi-largeur de barre vers la gauche.
+     * Le décalage se voit surtout au changement de page : une page courte n'a
+     * pas d'ascenseur, la suivante en a un, et l'interface entière saute.
+     *
+     * `scrollbar-gutter` plutôt qu'un `overflow-y: scroll` permanent : celui-ci
+     * réserve la place en affichant une piste vide sur les pages courtes. */
+    scrollbar-gutter: stable;
   }
 
   body {
