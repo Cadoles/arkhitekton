@@ -34,7 +34,6 @@ func verificationCatalog() *catalog.Catalog {
 				Kind: "static-tests", QueueClass: "parallel",
 				Params: map[string]catalog.Param{
 					"revision": {Source: catalog.SourceInput, Required: true},
-					"commit":   {Source: catalog.SourceInput, Required: true},
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
@@ -117,7 +116,7 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 	}
 
 	static := kinds["static-tests"]
-	if static.Params["revision"] != "abc123def456" || static.Params["commit"] != "abc123def456" {
+	if static.Params["revision"] != "abc123def456" {
 		t.Errorf("params de static-tests: %v — attendu le commit, pas la branche", static.Params)
 	}
 

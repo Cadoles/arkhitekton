@@ -198,9 +198,6 @@ pipelines:
     params:
       repo-url:     { source: config, key: forge.mse.repoUrl }
       revision:     { source: input, required: true }
-      # Le commit sert au retour de statut vers Gitea : sans lui, la PR ne voit
-      # jamais le résultat.
-      commit:       { source: input, required: true }
     # Artefacts attendus. Le dashboard calcule la clé de chacun et mint l'URL
     # d'écriture **avant** de créer le run : le pipeline n'a donc ni bucket, ni
     # préfixe, ni identifiants MinIO, et le lecteur n'a rien à chercher par
