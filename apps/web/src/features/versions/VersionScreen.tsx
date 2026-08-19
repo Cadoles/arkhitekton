@@ -88,6 +88,11 @@ export function VersionScreen() {
             <CompletionBar completion={data.version.completion} />
           </Card>
 
+          {/* Juste après l'avancement : c'est le résultat de la version, et ce
+              qu'on vient chercher le plus souvent. Le laisser sous le périmètre
+              le reléguait derrière quatre colonnes de demandes. */}
+          <Releases releases={data.releases} />
+
           <AnomaliesBanner anomalies={data.anomalies} />
 
           {/* Quatre colonnes dans l'ordre d'avancement. `Test client` s'intercale
@@ -116,8 +121,6 @@ export function VersionScreen() {
               <IssueList issues={data.buckets.rejected} />
             </Card>
           )}
-
-          <Releases releases={data.releases} />
         </>
       )}
     </div>
