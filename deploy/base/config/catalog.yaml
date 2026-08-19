@@ -101,6 +101,11 @@ pipelines:
       # Semgrep dans `mse-tekton` : trois dépôts, trois accès à accorder à la clé
       # de déploiement des pipelines.
       mse-kustom-repo-url: { source: config, key: forge.mseKustom.repoUrl }
+      # La branche, elle aussi, doit venir de la configuration. Le défaut du
+      # pipeline est `unstable`, la convention de `CNOUS/mse-kustom` ; un dépôt
+      # qui ne la porte pas faisait échouer le clone — donc l'audit entier —
+      # sur « couldn't find remote ref unstable ».
+      mse-kustom-revision: { source: config, key: forge.mseKustom.revision }
       tekton-repo-url:     { source: config, key: forge.tekton.repoUrl }
       # L'audit ne construit plus : il analyse les images **déjà publiées** par
       # la construction de la release. Scanner une reconstruction rendrait un

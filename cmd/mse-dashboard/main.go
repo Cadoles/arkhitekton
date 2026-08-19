@@ -383,6 +383,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				"dockerfile", resolved["mse.dockerfile"],
 				"registry_project", resolved["registry.project"],
 				"kustom_repo", resolved["forge.mseKustom.repoUrl"],
+				"kustom_revision", resolved["forge.mseKustom.revision"],
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"])
 
@@ -518,6 +519,11 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		"pipeline.imagePullSecret": envOr("PIPELINE_IMAGE_PULL_SECRET", "regcred"),
 		"forge.mse.repoUrl":        appRepo,
 		"forge.mseKustom.repoUrl":  envOr("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
+		// La branche de l'infrastructure de déploiement à auditer. Sans elle,
+		// l'audit retombait sur le défaut du pipeline — `unstable`, la convention
+		// de `CNOUS/mse-kustom` — et échouait au clone sur tout dépôt qui ne la
+		// porte pas : « couldn't find remote ref unstable ».
+		"forge.mseKustom.revision": envOr("FORGE_MSE_KUSTOM_REVISION", "unstable"),
 		"forge.e2e.repoUrl":        envOr("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
 		// L'audit de sécurité lit ses règles Semgrep et ses politiques dans
 		// `mse-tekton` : c'est un dépôt qu'il clone, au même titre que l'application
