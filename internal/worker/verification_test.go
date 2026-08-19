@@ -50,13 +50,14 @@ func verificationCatalog() *catalog.Catalog {
 					"app-repo-url":   {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
-			// Présent au catalogue mais non enchaîné : il exige une révision que le
-			// dashboard ne connaît pas.
+			// La révision de l'infrastructure de déploiement vient de la
+			// configuration : c'est ce qui rend ce pipeline enchaînable. Tant
+			// qu'elle était une entrée, le dashboard ne savait pas la renseigner.
 			{
 				Kind: "integration-tests", QueueClass: "exclusive-mse-pipeline",
 				Params: map[string]catalog.Param{
 					"mse-revision":        {Source: catalog.SourceInput, Required: true},
-					"mse-kustom-revision": {Source: catalog.SourceInput, Required: true},
+					"mse-kustom-revision": {Source: catalog.SourceConfig, Key: "forge.mseKustom.revision"},
 				},
 			},
 		},
@@ -84,8 +85,8 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 		GitRef: "main", GitCommit: "abc123def456",
 	})
 
-	if launched != 2 {
-		t.Fatalf("%d vérifications lancées, attendu 2", launched)
+	if launched != 3 {
+		t.Fatalf("%d vérifications lancées, attendu 3", launched)
 	}
 
 	kinds := map[string]store.JobRequest{}
@@ -98,10 +99,21 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 	if _, ok := kinds["security-audit"]; !ok {
 		t.Error("security-audit devrait être lancé")
 	}
-	// `integration-tests` exige `mse-kustom-revision`, que le dashboard ne connaît
-	// pas : le lancer produirait un échec sans rapport avec le code testé.
-	if _, ok := kinds["integration-tests"]; ok {
-		t.Error("integration-tests ne doit pas être enchaîné automatiquement")
+	integration, ok := kinds["integration-tests"]
+	if !ok {
+		t.Error("integration-tests devrait être lancé")
+	}
+	// Le pipeline d'intégration nomme sa révision `mse-revision`. C'est encore le
+	// commit construit : le déploiement qu'il éprouve doit être celui de la
+	// release, pas celui de la branche dont elle est issue (B17).
+	if integration.Params["mse-revision"] != "abc123def456" {
+		t.Errorf("params de integration-tests: %v", integration.Params)
+	}
+	// `mse-kustom-revision` vient de la configuration, pas de l'enchaînement :
+	// l'ordonnanceur la résout au lancement, et la fournir ici la figerait au
+	// moment de la construction.
+	if _, present := integration.Params["mse-kustom-revision"]; present {
+		t.Error("mse-kustom-revision ne doit pas être renseignée à l'enchaînement")
 	}
 
 	static := kinds["static-tests"]
@@ -140,7 +152,7 @@ func TestSansCommitLaVerificationRetombeSurLaReference(t *testing.T) {
 		ReleaseID: 7, Tag: "3.2.0-rc1", GitRef: "main",
 	})
 
-	if launched != 2 {
+	if launched != 3 {
 		t.Fatalf("%d vérifications lancées", launched)
 	}
 	for _, job := range fake.enqueued {
@@ -229,8 +241,8 @@ func TestUneConstructionNeLanceSesVerificationsQuUneFois(t *testing.T) {
 		t.Fatalf("état %q, attendu verifying", fake.state)
 	}
 	premier := len(fake.enqueued)
-	if premier != 2 {
-		t.Fatalf("%d vérifications lancées, attendu 2", premier)
+	if premier != 3 {
+		t.Fatalf("%d vérifications lancées, attendu 3", premier)
 	}
 
 	// Redélivrances : l'état lu est resté `building` côté appelant, mais la base

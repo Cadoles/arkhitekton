@@ -473,7 +473,12 @@ func toLogSteps(steps []tekton.Step) []logs.Step {
 // dashboard ne connaît pas — la révision du dépôt de déploiement est une donnée
 // d'exploitation, pas une propriété de la release. Le lancer d'office ferait
 // échouer toute vérification sur une cause étrangère au code testé.
-var verificationKinds = []string{"static-tests", "security-audit"}
+// verificationKinds énumère ce qu'une construction réussie enchaîne.
+//
+// `e2e-tests` n'y figure pas : le pipeline vise un environnement déployé, et
+// l'enchaîner sur une construction le ferait porter sur ce qui s'y trouve, pas
+// sur la release qui vient d'être construite.
+var verificationKinds = []string{"static-tests", "security-audit", "integration-tests"}
 
 // launchVerification met en file les tests d'une release construite, et rend le
 // nombre effectivement enfilé.
@@ -518,7 +523,7 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 		params := map[string]string{}
 		for _, name := range pipeline.RequiredInputs() {
 			switch name {
-			case "revision", "commit", "app-revision":
+			case "revision", "commit", "app-revision", "mse-revision":
 				params[name] = revision
 
 			// L'audit analyse les images publiées par la construction, jamais une

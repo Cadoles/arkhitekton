@@ -280,7 +280,12 @@ pipelines:
       minio-host:          { source: config, key: minio.host }
       minio-bucket:        { source: config, key: minio.pipelineBucket }
       mse-revision:        { source: input, required: true }
-      mse-kustom-revision: { source: input, required: true }
+      # La branche de l'infrastructure de déploiement vient de la configuration,
+      # comme pour l'audit. C'est ce qui rend ce pipeline enchaînable : tant
+      # qu'elle était un paramètre d'entrée, le dashboard ne savait pas la
+      # renseigner et ne lançait donc jamais les tests d'intégration
+      # automatiquement.
+      mse-kustom-revision: { source: config, key: forge.mseKustom.revision }
     workspaces:
       - name: git-credentials
         secret: { configKey: pipeline.gitSecret }
