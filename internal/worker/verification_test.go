@@ -13,6 +13,9 @@ import (
 type fakeVerificationStore struct {
 	enqueued  []store.JobRequest
 	enqueueEr error
+	// state simule la release et son écriture conditionnelle.
+	state    string
+	advances int
 }
 
 func (f *fakeVerificationStore) Enqueue(_ context.Context, request store.JobRequest) (int64, error) {
@@ -169,5 +172,59 @@ func TestSansCatalogueRienNePart(t *testing.T) {
 		ReleaseID: 7, Tag: "3.2.0-rc1", GitCommit: "abc123",
 	}); launched != 0 {
 		t.Errorf("%d vérifications lancées sans catalogue", launched)
+	}
+}
+
+func (f *fakeVerificationStore) AdvanceReleaseState(_ context.Context, _ int64, from, to string) (bool, error) {
+	if f.state != from {
+		return false, nil
+	}
+	f.state = to
+	f.advances++
+	return true, nil
+}
+
+func (f *fakeVerificationStore) JobRelease(context.Context, int64) (store.JobReleaseContext, error) {
+	return store.JobReleaseContext{}, nil
+}
+
+// L'observateur redélivre les runs terminés : resynchronisation de l'informer,
+// redémarrage du worker. Une même construction conclut donc plusieurs fois, et
+// les vérifications ne doivent partir qu'une.
+//
+// Constaté avant correction : cinq paires de tests pour une seule construction,
+// parce que le lancement précédait le contrôle de transition.
+func TestUneConstructionNeLanceSesVerificationsQuUneFois(t *testing.T) {
+	fake := &fakeVerificationStore{state: "building"}
+	sink := sinkFor(fake, verificationCatalog())
+	sink.releases = fake
+
+	linked := store.JobReleaseContext{
+		ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "build",
+		State: "building", GitCommit: "abc123",
+	}
+
+	// Première conclusion : la release avance et les tests partent.
+	if err := sink.advanceRelease(context.Background(), linked, store.JobSucceeded); err != nil {
+		t.Fatalf("première conclusion: %v", err)
+	}
+	if fake.state != "verifying" {
+		t.Fatalf("état %q, attendu verifying", fake.state)
+	}
+	premier := len(fake.enqueued)
+	if premier != 2 {
+		t.Fatalf("%d vérifications lancées, attendu 2", premier)
+	}
+
+	// Redélivrances : l'état lu est resté `building` côté appelant, mais la base
+	// est passée à `verifying`. Rien ne doit repartir.
+	for i := 0; i < 3; i++ {
+		if err := sink.advanceRelease(context.Background(), linked, store.JobSucceeded); err != nil {
+			t.Fatalf("redélivrance %d: %v", i, err)
+		}
+	}
+	if len(fake.enqueued) != premier {
+		t.Errorf("%d vérifications au total, attendu %d — les redélivrances en ont relancé",
+			len(fake.enqueued), premier)
 	}
 }

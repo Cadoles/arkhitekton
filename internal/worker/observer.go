@@ -42,7 +42,16 @@ type runSink struct {
 	// l'enchaînement s'éprouve sans base : c'est de la logique de décision — quoi
 	// lancer, avec quelle révision — et elle mérite d'être testée seule.
 	verification Enqueuer
-	logger       *slog.Logger
+	// releases porte l'avancement d'état. Extrait comme `verification` : c'est
+	// l'écriture conditionnelle qui rend l'enchaînement idempotent, et elle
+	// mérite d'être éprouvée sans base.
+	releases ReleaseAdvancer
+	logger   *slog.Logger
+}
+
+// ReleaseAdvancer est ce que la conclusion attend de la base.
+type ReleaseAdvancer interface {
+	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
 }
 
 // Enqueuer est ce que l'enchaînement attend de la file.
@@ -64,7 +73,7 @@ const buildJobKind = "build"
 
 // NewRunSink rend l'adaptateur consommé par l'observateur Tekton.
 func NewRunSink(db *store.DB) *runSink {
-	return &runSink{db: db, verification: db, logger: slog.Default()}
+	return &runSink{db: db, verification: db, releases: db, logger: slog.Default()}
 }
 
 // WithLoadIngester branche l'ingestion des campagnes de charge.
@@ -217,7 +226,7 @@ func (s *runSink) finishJob(ctx context.Context, run tekton.Run) error {
 	if err := s.db.FinishJob(ctx, run.JobID, state, run.Reason); err != nil {
 		return err
 	}
-	return s.advanceRelease(ctx, run.JobID, state)
+	return s.advanceReleaseForJob(ctx, run.JobID, state)
 }
 
 // advanceRelease fait suivre à une release la conclusion de son pipeline.
@@ -232,7 +241,7 @@ func (s *runSink) finishJob(ctx context.Context, run tekton.Run) error {
 // écrire sans condition effacerait cette décision. L'écriture conditionnelle rend
 // `false` dans ce cas, ce qui est consigné et non traité comme une erreur — un
 // pipeline arrivé après coup n'a pas le dernier mot.
-func (s *runSink) advanceRelease(ctx context.Context, jobID int64, jobState string) error {
+func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobState string) error {
 	linked, err := s.db.JobRelease(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobWithoutRelease) {
@@ -245,7 +254,7 @@ func (s *runSink) advanceRelease(ctx context.Context, jobID int64, jobState stri
 	// Deux natures font avancer une release, et pas de la même façon.
 	switch {
 	case linked.Kind == buildJobKind:
-		// traité ci-dessous
+		return s.advanceRelease(ctx, linked, jobState)
 	case isVerificationKind(linked.Kind):
 		return s.concludeVerification(ctx, linked)
 	default:
@@ -254,25 +263,30 @@ func (s *runSink) advanceRelease(ctx context.Context, jobID int64, jobState stri
 		// que personne ne les a lus.
 		return nil
 	}
+}
 
+// advanceRelease fait suivre à une release la conclusion de sa construction.
+//
+// Séparé de la recherche en base pour s'éprouver seul : c'est ici que vit
+// l'idempotence, et elle se vérifie en rappelant la fonction, pas en montant une
+// base.
+func (s *runSink) advanceRelease(
+	ctx context.Context, linked store.JobReleaseContext, jobState string,
+) error {
+	from := release.State(linked.State)
+
+	// **Le contrôle avant l'effet.** L'observateur redélivre les runs terminés —
+	// resynchronisation de l'informer, redémarrage du worker — et cette fonction
+	// est donc appelée plusieurs fois pour la même construction. Lancer les
+	// vérifications avant de vérifier la transition les relançait à chaque
+	// passage : constaté à cinq paires de tests pour une seule construction.
+	//
+	// Seule une release encore en `building` déclenche ses vérifications. Une
+	// fois passée en `verifying`, la transition est refusée et rien ne repart.
 	target := release.StateFailed
 	if jobState == store.JobSucceeded {
-		// Une construction réussie enchaîne sur la vérification : les images
-		// existent, les tests peuvent s'exécuter. Passer directement en `ready`
-		// laisserait croire qu'une décision est possible alors que rien n'a été
-		// éprouvé.
-		//
-		// Si aucun test ne part — catalogue incomplet, file indisponible — la
-		// release rejoint `ready` : mieux vaut une décision prise sans tests, et
-		// dite comme telle, qu'une release bloquée en `verifying` que rien ne
-		// fera avancer.
 		target = release.StateVerifying
-		if launched := s.launchVerification(ctx, linked); launched == 0 {
-			target = release.StateReady
-		}
 	}
-
-	from := release.State(linked.State)
 	if !release.CanTransition(from, target) {
 		s.logger.Info("conclusion de construction sans effet sur la release",
 			"release", linked.Tag, "etat", linked.State, "vise", string(target),
@@ -280,7 +294,11 @@ func (s *runSink) advanceRelease(ctx context.Context, jobID int64, jobState stri
 		return nil
 	}
 
-	advanced, err := s.db.AdvanceReleaseState(ctx, linked.ReleaseID, linked.State, string(target))
+	// L'écriture d'état **précède** le lancement des vérifications, et c'est ce
+	// qui rend l'ensemble idempotent : elle est conditionnée à l'état lu, donc
+	// une seule livraison la gagne. Lancer d'abord laisserait deux livraisons
+	// simultanées enfiler deux jeux de tests avant qu'aucune n'ait écrit.
+	advanced, err := s.releases.AdvanceReleaseState(ctx, linked.ReleaseID, linked.State, string(target))
 	if err != nil {
 		return err
 	}
@@ -292,6 +310,22 @@ func (s *runSink) advanceRelease(ctx context.Context, jobID int64, jobState stri
 
 	s.logger.Info("release avancée par sa construction",
 		"release", linked.Tag, "de", linked.State, "vers", string(target))
+
+	if target != release.StateVerifying {
+		return nil
+	}
+
+	// Si aucun test ne part — catalogue incomplet, file indisponible — la release
+	// rejoint `ready` : mieux vaut une décision prise sans tests, et dite comme
+	// telle, qu'une release bloquée en `verifying` que rien ne fera avancer.
+	if launched := s.launchVerification(ctx, linked); launched == 0 {
+		if _, err := s.releases.AdvanceReleaseState(ctx, linked.ReleaseID,
+			string(release.StateVerifying), string(release.StateReady)); err != nil {
+			return err
+		}
+		s.logger.Info("aucune vérification lancée, release en attente de décision",
+			"release", linked.Tag)
+	}
 	return nil
 }
 
@@ -503,7 +537,7 @@ func (s *runSink) concludeVerification(ctx context.Context, linked store.JobRele
 		target = release.StateFailed
 	}
 
-	advanced, err := s.db.AdvanceReleaseState(ctx, linked.ReleaseID, linked.State, string(target))
+	advanced, err := s.releases.AdvanceReleaseState(ctx, linked.ReleaseID, linked.State, string(target))
 	if err != nil {
 		return err
 	}
