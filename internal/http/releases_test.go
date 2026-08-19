@@ -205,6 +205,31 @@ func newFakeStore() *fakeReleaseStore {
 	}
 }
 
+// fakeForge résout et pose des tags, en retenant ce qu'on lui a demandé.
+type fakeForge struct {
+	commit     string
+	resolveErr error
+	tagErr     error
+	tags       []string
+	resolved   []string
+}
+
+func (f *fakeForge) ResolveCommit(_ context.Context, ref string) (string, error) {
+	f.resolved = append(f.resolved, ref)
+	if f.resolveErr != nil {
+		return "", f.resolveErr
+	}
+	return f.commit, nil
+}
+
+func (f *fakeForge) CreateTag(_ context.Context, tag, commit, _ string) error {
+	if f.tagErr != nil {
+		return f.tagErr
+	}
+	f.tags = append(f.tags, tag+"@"+commit)
+	return nil
+}
+
 func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler {
 	t.Helper()
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
@@ -1004,5 +1029,124 @@ func TestUneReleaseLivreeNeSeReconstruitPas(t *testing.T) {
 	}
 	if len(fake.jobs) != 0 {
 		t.Errorf("aucun job ne devait partir: %+v", fake.jobs)
+	}
+}
+
+// Une release doit désigner un commit, pas une branche : la branche bouge, et
+// reconstruire six mois plus tard produirait une autre image (B17).
+func TestUnePrereleaseEstAncreeSurUnCommitEtTaguee(t *testing.T) {
+	fake := newFakeStore()
+	forge := &fakeForge{commit: "abc123def456"}
+	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
+
+	recorder := httptest.NewRecorder()
+	handler.Create(recorder, asRole(
+		httptest.NewRequest(http.MethodPost, "/releases",
+			strings.NewReader(`{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)),
+		auth.RoleReleaser))
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	// La branche est résolue en commit, et le tag posé sur ce commit — jamais sur
+	// la branche, qui désignerait autre chose une minute plus tard.
+	if len(forge.resolved) != 1 || forge.resolved[0] != "main" {
+		t.Errorf("références résolues: %v", forge.resolved)
+	}
+	if len(forge.tags) != 1 || forge.tags[0] != "3.2.0-rc1@abc123def456" {
+		t.Errorf("tags posés: %v", forge.tags)
+	}
+
+	// La construction part du tag, pas de la branche.
+	if len(fake.jobs) != 1 {
+		t.Fatalf("jobs: %+v", fake.jobs)
+	}
+	if got := fake.jobs[0].Params["revision"]; got != "3.2.0-rc1" {
+		t.Errorf("révision construite %q, attendu le tag posé", got)
+	}
+}
+
+// Sans jeton capable d'écrire, la release existe quand même : elle est ancrée sur
+// son commit et la réserve le dit. Refuser priverait de toute la chaîne pour un
+// tag qu'on peut poser ensuite.
+func TestSansEcritureLaReleaseResteAncreeSurSonCommit(t *testing.T) {
+	fake := newFakeStore()
+	forge := &fakeForge{commit: "abc123def456"}
+	// Forge branchée en lecture seule : pas de tagger.
+	handler := newReleasesHandler(t, fake).WithForge(forge, nil)
+
+	recorder := httptest.NewRecorder()
+	handler.Create(recorder, asRole(
+		httptest.NewRequest(http.MethodPost, "/releases",
+			strings.NewReader(`{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)),
+		auth.RoleReleaser))
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("réponse illisible: %v", err)
+	}
+	if len(response.Warnings) == 0 {
+		t.Error("l'absence de tag doit être signalée")
+	}
+
+	// La construction part du commit : immuable, même sans tag.
+	if got := fake.jobs[0].Params["revision"]; got != "abc123def456" {
+		t.Errorf("révision construite %q, attendu le commit résolu", got)
+	}
+}
+
+// Forge injoignable : la release est créée, la réserve dit qu'elle n'est pas
+// reproductible, et la construction retombe sur la référence saisie.
+func TestUneForgeInjoignableNempechePasLaCreation(t *testing.T) {
+	fake := newFakeStore()
+	forge := &fakeForge{resolveErr: errors.New("forge injoignable")}
+	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
+
+	recorder := httptest.NewRecorder()
+	handler.Create(recorder, asRole(
+		httptest.NewRequest(http.MethodPost, "/releases",
+			strings.NewReader(`{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)),
+		auth.RoleReleaser))
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(forge.tags) != 0 {
+		t.Error("aucun tag ne doit être posé sans commit résolu")
+	}
+	if got := fake.jobs[0].Params["revision"]; got != "main" {
+		t.Errorf("révision construite %q, attendu le repli sur la référence saisie", got)
+	}
+}
+
+// Une release finale n'est ni ancrée ni taguée ici : c'est un re-tag, son commit
+// est celui de sa RC source, déjà taguée à sa propre création.
+func TestUneReleaseFinaleNestPasTagueeUneSecondeFois(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["3.2.0-rc1"] = store.Release{
+		ID: 1, Tag: "3.2.0-rc1", Kind: "pre", State: "released", ImageVersion: "3.2.0-rc1",
+	}
+	forge := &fakeForge{commit: "abc123"}
+	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
+
+	recorder := httptest.NewRecorder()
+	handler.Create(recorder, asRole(
+		httptest.NewRequest(http.MethodPost, "/releases",
+			strings.NewReader(`{"tag":"3.2.0","kind":"final","source_tag":"3.2.0-rc1","tests_green":true}`)),
+		auth.RoleReleaser))
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(forge.tags) != 0 || len(forge.resolved) != 0 {
+		t.Errorf("une finale ne doit ni résoudre ni taguer: résolus=%v tags=%v",
+			forge.resolved, forge.tags)
 	}
 }

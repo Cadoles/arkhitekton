@@ -201,6 +201,23 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			return fmt.Errorf("client Gitea: %w", err)
 		}
 		forgeReader = forgeClient
+
+		// Le client d'écriture pose le tag Git d'une release (B3). Distinct du
+		// client de lecture, dont le transport refuse tout ce qui n'est pas GET :
+		// l'assouplir aurait fait qu'un appel de lecture mal écrit puisse écrire.
+		//
+		// Sa construction ne vérifie pas la portée du jeton — seule une écriture
+		// réelle le dirait. Un jeton en lecture seule produit donc une réserve à
+		// la première release, pas un échec au démarrage.
+		writer, err := gitea.NewWriter(gitea.Options{
+			URL: cfg.Gitea.URL, Token: cfg.Gitea.Token,
+			Repository: cfg.Gitea.Repository, Timeout: cfg.Gitea.Timeout,
+		})
+		if err != nil {
+			return fmt.Errorf("client Gitea en écriture: %w", err)
+		}
+		releasesHandler = releasesHandler.WithForge(forgeClient, writer)
+
 		logger.Info("forge configurée", "url", cfg.Gitea.URL, "repo", cfg.Gitea.Repository)
 	} else {
 		logger.Warn("forge non configurée",
@@ -360,7 +377,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			sink := worker.NewRunSink(db).
 				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
 				WithTestIngester(worker.NewTestIngester(db, objects, logger)).
-				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger))
+				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger)).
+				// Le catalogue permet d'enchaîner les vérifications d'une
+				// construction réussie : sans lui, l'observation continue mais
+				// une release construite reste en attente d'un test que rien
+				// ne lance.
+				WithCatalog(pipelines)
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
 			// Les URLs d'écriture des artefacts sont minées ici : le layout de

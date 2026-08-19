@@ -78,10 +78,27 @@ function Identity({ release }: { release: ReleaseDetail }) {
         <dd className="text-zinc-900">{release.state}</dd>
         <dt className="text-zinc-500">Version d'image</dt>
         <dd className="font-mono text-zinc-900">{release.image_version}</dd>
+        {/* Le commit avant la référence : c'est lui qui identifie ce qui tourne.
+            La référence n'est qu'un point de départ, et elle a pu bouger depuis. */}
+        {release.git_commit && (
+          <>
+            <dt className="text-zinc-500">Commit</dt>
+            <dd className="font-mono text-zinc-900" title={release.git_commit}>
+              {release.git_commit.slice(0, 12)}
+            </dd>
+          </>
+        )}
         {release.git_ref && (
           <>
             <dt className="text-zinc-500">Référence Git</dt>
-            <dd className="font-mono text-zinc-900">{release.git_ref}</dd>
+            <dd className="font-mono text-zinc-900">
+              {release.git_ref}
+              {!release.git_commit && (
+                <span className="ml-2 text-xs font-sans text-warn-700">
+                  non résolue en commit — cette release n&apos;est pas reproductible
+                </span>
+              )}
+            </dd>
           </>
         )}
         <dt className="text-zinc-500">Créée</dt>

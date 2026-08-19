@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -34,7 +35,25 @@ type runSink struct {
 	tests *TestIngester
 	// security ingère les audits normalisés. Même règle.
 	security *SecurityIngester
-	logger   *slog.Logger
+	// catalog sert à enchaîner les vérifications d'une construction réussie. Nil
+	// quand il n'est pas branché : l'observation continue, sans enchaînement.
+	catalog *catalog.Catalog
+	// verification met en file les tests enchaînés. Extrait en interface pour que
+	// l'enchaînement s'éprouve sans base : c'est de la logique de décision — quoi
+	// lancer, avec quelle révision — et elle mérite d'être testée seule.
+	verification Enqueuer
+	logger       *slog.Logger
+}
+
+// Enqueuer est ce que l'enchaînement attend de la file.
+type Enqueuer interface {
+	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
+}
+
+// WithCatalog branche l'enchaînement des vérifications.
+func (s *runSink) WithCatalog(pipelines *catalog.Catalog) *runSink {
+	s.catalog = pipelines
+	return s
 }
 
 // buildJobKind est la nature de job qui construit les images.
@@ -45,7 +64,7 @@ const buildJobKind = "build"
 
 // NewRunSink rend l'adaptateur consommé par l'observateur Tekton.
 func NewRunSink(db *store.DB) *runSink {
-	return &runSink{db: db, logger: slog.Default()}
+	return &runSink{db: db, verification: db, logger: slog.Default()}
 }
 
 // WithLoadIngester branche l'ingestion des campagnes de charge.
@@ -229,7 +248,19 @@ func (s *runSink) advanceRelease(ctx context.Context, jobID int64, jobState stri
 
 	target := release.StateFailed
 	if jobState == store.JobSucceeded {
-		target = release.StateReady
+		// Une construction réussie enchaîne sur la vérification : les images
+		// existent, les tests peuvent s'exécuter. Passer directement en `ready`
+		// laisserait croire qu'une décision est possible alors que rien n'a été
+		// éprouvé.
+		//
+		// Si aucun test ne part — catalogue incomplet, file indisponible — la
+		// release rejoint `ready` : mieux vaut une décision prise sans tests, et
+		// dite comme telle, qu'une release bloquée en `verifying` que rien ne
+		// fera avancer.
+		target = release.StateVerifying
+		if launched := s.launchVerification(ctx, linked); launched == 0 {
+			target = release.StateReady
+		}
 	}
 
 	from := release.State(linked.State)
@@ -327,3 +358,94 @@ func toLogSteps(steps []tekton.Step) []logs.Step {
 	}
 	return converted
 }
+
+// verificationKinds sont les familles lancées après une construction réussie.
+//
+// `integration-tests` n'y figure pas, et c'est un choix : il déploie
+// l'application dans `mse-pipeline` et exige `mse-kustom-revision`, que le
+// dashboard ne connaît pas — la révision du dépôt de déploiement est une donnée
+// d'exploitation, pas une propriété de la release. Le lancer d'office ferait
+// échouer toute vérification sur une cause étrangère au code testé.
+var verificationKinds = []string{"static-tests", "security-audit"}
+
+// launchVerification met en file les tests d'une release construite, et rend le
+// nombre effectivement enfilé.
+//
+// Les échecs de mise en file sont consignés et non propagés : la construction a
+// réussi, et perdre ce fait parce qu'un test n'a pas pu être enfilé serait pire
+// que de le signaler. Le nombre rendu décide de l'état — zéro test enfilé ne doit
+// pas laisser la release en attente d'une vérification qui ne viendra pas.
+func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleaseContext) int {
+	// Les tests portent sur ce qui a été construit, donc sur le commit — jamais
+	// sur la branche d'où il vient, qui a pu bouger depuis (B17).
+	revision := linked.GitCommit
+	if revision == "" {
+		revision = linked.GitRef
+	}
+	if revision == "" {
+		s.logger.Warn("vérification non lancée",
+			"release", linked.Tag, "raison", "aucune référence Git sur la release")
+		return 0
+	}
+
+	if s.catalog == nil {
+		s.logger.Warn("vérification non lancée",
+			"release", linked.Tag, "raison", "catalogue non branché sur l'observateur")
+		return 0
+	}
+
+	launched := 0
+	for _, kind := range verificationKinds {
+		pipeline, found := s.catalog.Find(kind)
+		if !found {
+			s.logger.Warn("famille de vérification absente du catalogue",
+				"release", linked.Tag, "kind", kind)
+			continue
+		}
+
+		// `commit` sert au retour de statut vers Gitea ; `revision` à ce qui est
+		// cloné. Les deux valent le commit construit.
+		params := map[string]string{}
+		for _, name := range pipeline.RequiredInputs() {
+			switch name {
+			case "revision", "commit":
+				params[name] = revision
+			default:
+				// Un paramètre requis qu'on ne sait pas renseigner ferait échouer
+				// le run à l'ordonnancement : ne pas l'enfiler du tout est plus
+				// honnête, et le journal dit lequel manque.
+				s.logger.Warn("famille de vérification non lançable",
+					"release", linked.Tag, "kind", kind, "parametre_manquant", name)
+			}
+		}
+		if len(params) != len(pipeline.RequiredInputs()) {
+			continue
+		}
+
+		id, err := s.verification.Enqueue(ctx, store.JobRequest{
+			Kind:        pipeline.Kind,
+			QueueClass:  pipeline.QueueClass,
+			Params:      params,
+			RequestedBy: verificationRequester,
+			ReleaseID:   &linked.ReleaseID,
+		})
+		if err != nil {
+			s.logger.Error("mise en file d'une vérification",
+				"release", linked.Tag, "kind", kind, "error", err)
+			continue
+		}
+
+		launched++
+		s.logger.Info("vérification lancée",
+			"release", linked.Tag, "kind", kind, "job", id, "revision", revision)
+	}
+
+	return launched
+}
+
+// verificationRequester est l'auteur inscrit sur les jobs enchaînés.
+//
+// Une valeur explicite plutôt que le sujet de celui qui a créé la release : ces
+// runs ne sont demandés par personne, ils découlent d'une construction réussie,
+// et les attribuer à un humain brouillerait le journal d'audit.
+const verificationRequester = "dashboard:verification"

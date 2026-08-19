@@ -14,6 +14,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -59,12 +60,46 @@ type ReleasesHandler struct {
 	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
 	// le jour où le portail se scinde.
 	imageName string
+	// forge résout une référence en commit. Nil quand la forge n'est pas
+	// configurée.
+	forge Forge
+	// tagger pose le tag Git. Nil quand le jeton est en lecture seule.
+	tagger Tagger
+}
+
+// WithForge branche la résolution de commits et la pose de tags.
+//
+// Les deux ensemble parce qu'ils sont un seul geste : résoudre une branche en
+// commit puis poser le tag sur ce commit. Poser un tag sur une branche le
+// placerait sur ce qu'elle désigne à cet instant, et deux releases créées à une
+// minute d'intervalle pourraient viser des commits différents.
+func (h *ReleasesHandler) WithForge(forge Forge, tagger Tagger) *ReleasesHandler {
+	h.forge = forge
+	h.tagger = tagger
+	return h
 }
 
 // Images est ce que le handler attend du registre : lire, jamais écrire. Le
 // re-tag est fait par la Task `promote-image` avec ses propres identifiants.
 type Images interface {
 	Digest(ctx context.Context, repository, tag string) (string, error)
+}
+
+// Forge est ce que le handler attend de la forge pour ancrer une release.
+//
+// Optionnelle : sans elle, la release est créée depuis la référence saisie et le
+// dit. Faire échouer la création parce que la forge est injoignable priverait du
+// reste de la chaîne pour un ancrage qu'on peut ajouter ensuite.
+type Forge interface {
+	ResolveCommit(ctx context.Context, ref string) (string, error)
+}
+
+// Tagger pose le tag Git d'une release (B3).
+//
+// Séparée de [Forge] : lire la forge et y écrire sont deux permissions, portées
+// par deux clients. Nil quand le jeton ne peut pas écrire.
+type Tagger interface {
+	CreateTag(ctx context.Context, tag, commit, message string) error
 }
 
 // Artifacts est ce que le handler attend du stockage objet.
@@ -102,16 +137,20 @@ type releasePayload struct {
 	// l'image porte la version de la RC validée, `version.txt` compris. C'est
 	// cette valeur, et non le tag, qu'il faut comparer à ce que rapporte
 	// PortalData (B17).
-	ImageVersion string              `json:"image_version"`
-	GitRef       string              `json:"git_ref,omitempty"`
-	SourceTag    string              `json:"source_tag,omitempty"`
-	CreatedBy    string              `json:"created_by"`
-	CreatedAt    time.Time           `json:"created_at"`
-	ReleasedAt   *time.Time          `json:"released_at,omitempty"`
-	Promotions   []promotionPayload  `json:"promotions,omitempty"`
-	Targets      []promotionTargetVw `json:"targets,omitempty"`
-	Jobs         []releaseJobPayload `json:"jobs,omitempty"`
-	Images       []imagePayload      `json:"images,omitempty"`
+	ImageVersion string `json:"image_version"`
+	GitRef       string `json:"git_ref,omitempty"`
+	// GitCommit est ce qui a réellement été construit. Distinct de `GitRef`, qui
+	// dit seulement d'où la release est partie : une branche bouge, un commit non
+	// (B17).
+	GitCommit  string              `json:"git_commit,omitempty"`
+	SourceTag  string              `json:"source_tag,omitempty"`
+	CreatedBy  string              `json:"created_by"`
+	CreatedAt  time.Time           `json:"created_at"`
+	ReleasedAt *time.Time          `json:"released_at,omitempty"`
+	Promotions []promotionPayload  `json:"promotions,omitempty"`
+	Targets    []promotionTargetVw `json:"targets,omitempty"`
+	Jobs       []releaseJobPayload `json:"jobs,omitempty"`
+	Images     []imagePayload      `json:"images,omitempty"`
 	// ImagesError dit pourquoi les digests manquent. L'absence de digest et
 	// l'impossibilité de le lire ne se ressemblent pas : la première signale une
 	// image qui n'existe pas, la seconde un registre injoignable ou non
@@ -170,7 +209,8 @@ type promotionTargetVw struct {
 func toReleasePayload(release store.Release, sourceTag string) releasePayload {
 	return releasePayload{
 		Tag: release.Tag, Kind: release.Kind, State: release.State,
-		ImageVersion: release.ImageVersion, GitRef: release.GitRef, SourceTag: sourceTag,
+		ImageVersion: release.ImageVersion, GitRef: release.GitRef,
+		GitCommit: release.GitCommit, SourceTag: sourceTag,
 		CreatedBy: release.CreatedBy, CreatedAt: release.CreatedAt, ReleasedAt: release.ReleasedAt,
 	}
 }
@@ -445,6 +485,32 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		warnings = sourceWarnings
 	}
 
+	// Ancrage sur un commit, puis pose du tag (B3, B17).
+	//
+	// L'ordre importe : on résout la référence en commit **avant** de créer la
+	// release, pour que ce qui est enregistré désigne un point immuable. Poser le
+	// tag ensuite donne à ce point un nom lisible dans la forge.
+	//
+	// Les deux sont facultatifs et le disent : sans forge configurée, ou sans
+	// jeton capable d'écrire, la release existe quand même — avec une réserve.
+	// Refuser la création priverait de toute la chaîne pour un ancrage qu'on peut
+	// ajouter après coup.
+	// `tagged` est une variable locale et non un champ du handler : celui-ci est
+	// partagé par toutes les requêtes, et deux créations simultanées liraient le
+	// drapeau l'une de l'autre.
+	var tagged bool
+	if kind != release.KindFinal {
+		commit, resolveWarnings := h.anchorCommit(r.Context(), request.GitRef)
+		record.GitCommit = commit
+		warnings = append(warnings, resolveWarnings...)
+
+		if commit != "" {
+			var tagWarnings []string
+			tagged, tagWarnings = h.tagRelease(r.Context(), version.Raw, commit)
+			warnings = append(warnings, tagWarnings...)
+		}
+	}
+
 	versionID, err := h.store.EnsureVersion(r.Context(), version.Base)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Version indisponible", "")
@@ -471,7 +537,12 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// mais rien ne le déclenchait, et l'écran affichait un brouillon que personne
 	// ne savait faire avancer.
 	if record.State == string(release.StateDraft) && kind != release.KindFinal {
-		jobID, buildErr := h.enqueueBuild(r.Context(), releaseID, record, request.GitRef, identity.Subject)
+		// La construction part du tag si on a pu le poser, du commit sinon, et de
+		// la référence saisie en dernier recours. Jamais d'une branche quand mieux
+		// est disponible : reconstruire la même release six mois plus tard doit
+		// produire la même image (B17).
+		buildRef := buildReference(record, request.GitRef, tagged)
+		jobID, buildErr := h.enqueueBuild(r.Context(), releaseID, record, buildRef, identity.Subject)
 		switch {
 		case buildErr != nil:
 			// La release est créée : le dire, plutôt que de laisser croire à un
@@ -647,6 +718,70 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"release": toReleasePayload(record, ""), "build_job_id": jobID,
 	})
+}
+
+// anchorCommit résout une référence en commit, et dit pourquoi il ne l'a pas fait.
+//
+// Une release qui désigne une branche n'est pas reproductible : la branche bouge,
+// et reconstruire produirait une autre image. Résoudre à la création fige le
+// point de départ, même quand le tag ne peut pas être posé.
+func (h *ReleasesHandler) anchorCommit(ctx context.Context, ref string) (string, []string) {
+	if strings.TrimSpace(ref) == "" {
+		return "", []string{"aucune référence Git fournie: la release n'est rattachée à aucun commit"}
+	}
+	if h.forge == nil {
+		return "", []string{
+			"forge non configurée: la release retient la référence " + ref +
+				" sans la résoudre en commit, et n'est donc pas reproductible",
+		}
+	}
+
+	commit, err := h.forge.ResolveCommit(ctx, ref)
+	if err != nil {
+		return "", []string{"la référence " + ref + " n'a pas pu être résolue en commit: " + err.Error()}
+	}
+	return commit, nil
+}
+
+// tagRelease pose le tag Git de la release sur son commit.
+//
+// C'est le segment que B3 confie au dashboard et qui restait manuel. Un échec est
+// une réserve et non un refus : le tag se repose, alors qu'une release refusée
+// oblige à tout recommencer.
+func (h *ReleasesHandler) tagRelease(ctx context.Context, tag, commit string) (bool, []string) {
+	if h.tagger == nil {
+		return false, []string{
+			"aucun jeton capable d'écrire sur la forge: le tag " + tag +
+				" n'a pas été posé, la release reste identifiée par son commit",
+		}
+	}
+
+	err := h.tagger.CreateTag(ctx, tag, commit, "Release "+tag)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, gitea.ErrTagExists):
+		// Reposer un tag après une reprise est normal. Il désigne déjà ce qu'il
+		// faut, et le signaler suffit.
+		return true, []string{"le tag " + tag + " existait déjà sur la forge et n'a pas été modifié"}
+	default:
+		return false, []string{"le tag " + tag + " n'a pas pu être posé: " + err.Error()}
+	}
+}
+
+// buildReference choisit ce que la construction va cloner.
+//
+// Par ordre de préférence : le tag posé, le commit résolu, puis la référence
+// saisie. Les deux premiers sont immuables ; le troisième ne l'est pas, et n'est
+// retenu que faute de mieux.
+func buildReference(record store.Release, requested string, tagged bool) string {
+	if tagged {
+		return record.Tag
+	}
+	if record.GitCommit != "" {
+		return record.GitCommit
+	}
+	return requested
 }
 
 // enqueueBuild met en file la construction des images d'une release.

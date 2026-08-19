@@ -25,10 +25,15 @@ type Release struct {
 	// RC (B17). Comparer PortalData au tag échouerait systématiquement.
 	ImageVersion    string
 	SourceReleaseID *int64
-	GitRef          string
-	CreatedBy       string
-	CreatedAt       time.Time
-	ReleasedAt      *time.Time
+	// GitRef est la référence désignée à la création — `main`, un tag. Elle dit
+	// d'où la release est partie ; elle ne suffit pas à la reproduire.
+	GitRef string
+	// GitCommit est la résolution de `GitRef` à cet instant. C'est lui qui rend la
+	// release reproductible : une branche bouge (B17).
+	GitCommit  string
+	CreatedBy  string
+	CreatedAt  time.Time
+	ReleasedAt *time.Time
 	// ManualActions est le récit libre des gestes manuels de la livraison, repris
 	// tel quel dans le bon de livraison. L'auteur et la date l'accompagnent parce
 	// que ce document est contractuel.
@@ -68,11 +73,13 @@ func (db *DB) CreateRelease(ctx context.Context, release Release) (int64, error)
 	var id int64
 	err := db.pool.QueryRow(ctx,
 		`insert into releases (
-		     version_id, tag, kind, state, git_ref, image_version, source_release_id, created_by
-		 ) values ($1, $2, $3, $4, $5, $6, $7, $8)
+		     version_id, tag, kind, state, git_ref, git_commit, image_version,
+		     source_release_id, created_by
+		 ) values ($1, $2, $3, $4, $5, nullif($6, ''), $7, $8, $9)
 		 returning id`,
 		release.VersionID, release.Tag, release.Kind, release.State,
-		release.GitRef, release.ImageVersion, release.SourceReleaseID, release.CreatedBy).Scan(&id)
+		release.GitRef, release.GitCommit, release.ImageVersion,
+		release.SourceReleaseID, release.CreatedBy).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("création de la release %q: %w", release.Tag, err)
 	}
@@ -83,13 +90,14 @@ func (db *DB) CreateRelease(ctx context.Context, release Release) (int64, error)
 func (db *DB) GetRelease(ctx context.Context, tag string) (Release, error) {
 	var release Release
 	err := db.pool.QueryRow(ctx,
-		`select id, version_id, tag, kind, state, coalesce(git_ref, ''), image_version,
+		`select id, version_id, tag, kind, state, coalesce(git_ref, ''),
+		        coalesce(git_commit, ''), image_version,
 		        source_release_id, created_by, created_at, released_at,
 		        coalesce(manual_actions_md, ''), coalesce(manual_actions_updated_by, ''),
 		        manual_actions_updated_at
 		 from releases where tag = $1`, tag).
 		Scan(&release.ID, &release.VersionID, &release.Tag, &release.Kind, &release.State,
-			&release.GitRef, &release.ImageVersion, &release.SourceReleaseID,
+			&release.GitRef, &release.GitCommit, &release.ImageVersion, &release.SourceReleaseID,
 			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt,
 			&release.ManualActions, &release.ManualActionsUpdatedBy, &release.ManualActionsUpdatedAt)
 	if err != nil {
@@ -108,7 +116,8 @@ func (db *DB) ListReleases(ctx context.Context, limit int) ([]Release, error) {
 	}
 
 	rows, err := db.pool.Query(ctx,
-		`select id, version_id, tag, kind, state, coalesce(git_ref, ''), image_version,
+		`select id, version_id, tag, kind, state, coalesce(git_ref, ''),
+		        coalesce(git_commit, ''), image_version,
 		        source_release_id, created_by, created_at, released_at
 		 from releases order by created_at desc limit $1`, limit)
 	if err != nil {
@@ -120,7 +129,8 @@ func (db *DB) ListReleases(ctx context.Context, limit int) ([]Release, error) {
 	for rows.Next() {
 		var release Release
 		if err := rows.Scan(&release.ID, &release.VersionID, &release.Tag, &release.Kind,
-			&release.State, &release.GitRef, &release.ImageVersion, &release.SourceReleaseID,
+			&release.State, &release.GitRef, &release.GitCommit, &release.ImageVersion,
+			&release.SourceReleaseID,
 			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt); err != nil {
 			return nil, fmt.Errorf("liste des releases: %w", err)
 		}
@@ -431,6 +441,10 @@ type JobReleaseContext struct {
 	Kind  string
 	Tag   string
 	State string
+	// GitRef et GitCommit servent à enchaîner les vérifications sur ce qui a été
+	// construit. Le commit prime : la branche a pu bouger depuis le build (B17).
+	GitRef    string
+	GitCommit string
 }
 
 // ErrJobWithoutRelease signale un job qui ne porte aucune release.
@@ -447,10 +461,12 @@ var ErrJobWithoutRelease = errors.New("job sans release rattachée")
 func (db *DB) JobRelease(ctx context.Context, jobID int64) (JobReleaseContext, error) {
 	var entry JobReleaseContext
 	err := db.pool.QueryRow(ctx,
-		`select j.kind, r.id, r.tag, r.state
+		`select j.kind, r.id, r.tag, r.state,
+		        coalesce(r.git_ref, ''), coalesce(r.git_commit, '')
 		 from jobs j join releases r on r.id = j.release_id
 		 where j.id = $1`, jobID).
-		Scan(&entry.Kind, &entry.ReleaseID, &entry.Tag, &entry.State)
+		Scan(&entry.Kind, &entry.ReleaseID, &entry.Tag, &entry.State,
+			&entry.GitRef, &entry.GitCommit)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return JobReleaseContext{}, ErrJobWithoutRelease

@@ -52,6 +52,9 @@ export type Release = {
   /** Version portée par l'image, distincte du tag sur toute finale re-taguée. */
   image_version: string
   git_ref?: string
+  /** Le commit réellement construit. `git_ref` dit d'où la release est partie —
+   *  une branche bouge, un commit non (B17). */
+  git_commit?: string
   source_tag?: string
   created_by: string
   created_at: string
