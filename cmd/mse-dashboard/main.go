@@ -382,6 +382,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				"repo", resolved["forge.mse.repoUrl"],
 				"dockerfile", resolved["mse.dockerfile"],
 				"registry_project", resolved["registry.project"],
+				"kustom_repo", resolved["forge.mseKustom.repoUrl"],
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"])
 
