@@ -181,11 +181,23 @@ logs: ## Suit les journaux de l'api
 
 # --- Boucle de développement -------------------------------------------------
 
+# `--cleanup=false` sur les deux cibles, et ce n'est pas un détail de confort.
+#
+# Skaffold nettoie par défaut quand il est interrompu **ou qu'il échoue** : il
+# supprime ce qu'il a déployé, namespace compris, et le namespace emporte les
+# PVC. Un échec de chargement d'image dans kind — qui arrive, `ctr` refusant
+# parfois une image déjà présente — détruisait donc PostgreSQL et MinIO.
+#
+# Ce qui disparaît alors n'est pas rattrapable : les runs et les versions se
+# reconstruisent depuis Tekton et Redmine, mais les **releases**, les **jobs** et
+# le **journal d'audit** n'existent que dans cette base. C'est arrivé.
+#
+# Pour repartir de zéro délibérément : `make undeploy`.
 dev: ## Boucle Skaffold : reconstruit et redéploie à chaque modification
-	skaffold dev
+	skaffold dev --cleanup=false
 
 run-once: ## Construit et déploie une fois via Skaffold
-	skaffold run
+	skaffold run --cleanup=false
 
 SECRETS_DIR := deploy/overlays/local/components/pipeline-credentials
 
