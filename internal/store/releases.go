@@ -501,7 +501,17 @@ type VerificationTally struct {
 }
 
 // Done dit si plus aucune vérification n'est en cours.
-func (t VerificationTally) Done() bool { return t.Pending == 0 }
+// Done dit que toutes les vérifications de la série ont rendu leur verdict.
+//
+// Une série **vide** n'est pas conclue. Le décompte ne portant que sur la
+// dernière construction, il existe un instant — entre l'écriture de `verifying`
+// et la mise en file des tests — où la série est vide. Un verdict tardif d'une
+// série précédente, redélivré par l'informer à ce moment, y verrait « tout a
+// conclu » et ferait passer la release en `ready` sans qu'aucun test de la série
+// en cours n'ait tourné.
+func (t VerificationTally) Done() bool {
+	return t.Pending == 0 && t.Failed+t.Succeeded > 0
+}
 
 // CountVerifications compte les jobs de vérification d'une release.
 //
@@ -514,16 +524,26 @@ func (t VerificationTally) Done() bool { return t.Pending == 0 }
 // qui constitue une vérification, et cette liste vit à côté de celle qui les
 // lance.
 func (db *DB) CountVerifications(
-	ctx context.Context, releaseID int64, kinds []string,
+	ctx context.Context, releaseID int64, kinds []string, buildKind string,
 ) (VerificationTally, error) {
 	var tally VerificationTally
+	// Le décompte ne porte que sur la **dernière** série. Une release relancée
+	// après un échec traîne les vérifications de ses tentatives précédentes : les
+	// compter ferait échouer indéfiniment une release dont la seconde série passe
+	// entièrement, sans que rien ne le dise. La frontière est la dernière
+	// construction — les vérifications d'une série sont enfilées après elle, et
+	// les identifiants sont monotones.
 	err := db.pool.QueryRow(ctx,
 		`select
 		     count(*) filter (where state in ('queued', 'running')),
 		     count(*) filter (where state = 'failed'),
 		     count(*) filter (where state = 'succeeded')
 		 from jobs
-		 where release_id = $1 and kind = any($2)`, releaseID, kinds).
+		 where release_id = $1
+		   and kind = any($2)
+		   and id > coalesce(
+		       (select max(id) from jobs where release_id = $1 and kind = $3), 0)`,
+		releaseID, kinds, buildKind).
 		Scan(&tally.Pending, &tally.Failed, &tally.Succeeded)
 	if err != nil {
 		return VerificationTally{}, fmt.Errorf("vérifications de la release %d: %w", releaseID, err)

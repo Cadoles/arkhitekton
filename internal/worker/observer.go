@@ -297,8 +297,23 @@ func (s *runSink) advanceRelease(
 	// vérifications avant de vérifier la transition les relançait à chaque
 	// passage : constaté à cinq paires de tests pour une seule construction.
 	//
-	// Seule une release encore en `building` déclenche ses vérifications. Une
-	// fois passée en `verifying`, la transition est refusée et rien ne repart.
+	// Seule une release encore en `building` déclenche ses vérifications.
+	//
+	// Ce contrôle est **explicite**, et non déduit de la table des transitions.
+	// Il l'a été, et c'était faux : la table autorise `failed -> verifying` pour
+	// qu'un opérateur puisse reprendre une release après un échec, et une
+	// redélivrance de la construction empruntait ce même chemin. Constaté en
+	// production locale — l'audit d'une release échoue, la release passe en
+	// `failed`, le worker redémarre, la conclusion de construction est
+	// redélivrée, `failed -> verifying` est accepté, et les vérifications
+	// repartent une seconde fois.
+	if from != release.StateBuilding {
+		s.logger.Info("conclusion de construction hors construction, ignorée",
+			"release", linked.Tag, "etat", linked.State,
+			"raison", "seule une release en construction est conclue par son build")
+		return nil
+	}
+
 	target := release.StateFailed
 	if jobState == store.JobSucceeded {
 		target = release.StateVerifying
@@ -548,7 +563,7 @@ func (s *runSink) concludeVerification(ctx context.Context, linked store.JobRele
 		return nil
 	}
 
-	tally, err := s.db.CountVerifications(ctx, linked.ReleaseID, verificationKinds)
+	tally, err := s.db.CountVerifications(ctx, linked.ReleaseID, verificationKinds, buildJobKind)
 	if err != nil {
 		return err
 	}

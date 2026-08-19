@@ -244,3 +244,82 @@ func TestUneConstructionNeLanceSesVerificationsQuUneFois(t *testing.T) {
 			len(fake.enqueued), premier)
 	}
 }
+
+// Le défaut qui a produit deux jeux de vérifications pour une seule
+// construction : la table des transitions autorise `failed -> verifying`, pour
+// qu'un opérateur puisse reprendre une release après un échec. La conclusion de
+// construction empruntait ce chemin comme n'importe quel autre.
+//
+// Déroulé constaté : la construction réussit, la release passe en `verifying`,
+// l'audit échoue, la release retombe en `failed`. Le worker redémarre,
+// l'informer redélivre la construction terminée, et la conclusion relance tout.
+//
+// Une conclusion de construction ne vaut que depuis `building`.
+func TestUneConstructionNeConclutRienDepuisUneReleaseDejaEchouee(t *testing.T) {
+	fake := &fakeVerificationStore{state: "failed"}
+	sink := sinkFor(fake, verificationCatalog())
+	sink.releases = fake
+
+	err := sink.advanceRelease(context.Background(), store.JobReleaseContext{
+		ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "build",
+		State: "failed", GitCommit: "abc123",
+	}, store.JobSucceeded)
+	if err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+
+	if fake.state != "failed" {
+		t.Errorf("état %q — une redélivrance a fait bouger la release", fake.state)
+	}
+	if len(fake.enqueued) != 0 {
+		t.Errorf("%d vérifications relancées: %+v", len(fake.enqueued), fake.enqueued)
+	}
+}
+
+// Même règle pour les autres états. `ready` et `released` sont les plus
+// dangereux : y relancer des vérifications les ferait retomber en `verifying`,
+// et une release validée redeviendrait non validée sans que personne l'ait
+// décidé.
+func TestSeuleUneReleaseEnConstructionEstConclueParSonBuild(t *testing.T) {
+	for _, state := range []string{"draft", "verifying", "ready", "released", "cancelled"} {
+		fake := &fakeVerificationStore{state: state}
+		sink := sinkFor(fake, verificationCatalog())
+		sink.releases = fake
+
+		if err := sink.advanceRelease(context.Background(), store.JobReleaseContext{
+			ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "build",
+			State: state, GitCommit: "abc123",
+		}, store.JobSucceeded); err != nil {
+			t.Fatalf("état %s: %v", state, err)
+		}
+
+		if fake.state != state {
+			t.Errorf("état %s devenu %s", state, fake.state)
+		}
+		if len(fake.enqueued) != 0 {
+			t.Errorf("état %s: %d vérifications lancées", state, len(fake.enqueued))
+		}
+	}
+}
+
+// Et une construction en échec conclut toujours, elle : c'est le seul chemin par
+// lequel une release apprend que sa construction a échoué.
+func TestUneConstructionEchoueeFaitEchouerSaRelease(t *testing.T) {
+	fake := &fakeVerificationStore{state: "building"}
+	sink := sinkFor(fake, verificationCatalog())
+	sink.releases = fake
+
+	if err := sink.advanceRelease(context.Background(), store.JobReleaseContext{
+		ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "build",
+		State: "building", GitCommit: "abc123",
+	}, store.JobFailed); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+
+	if fake.state != "failed" {
+		t.Errorf("état %q, attendu failed", fake.state)
+	}
+	if len(fake.enqueued) != 0 {
+		t.Error("une construction échouée ne lance pas de vérifications")
+	}
+}

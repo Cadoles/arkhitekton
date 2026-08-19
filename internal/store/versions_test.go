@@ -818,7 +818,7 @@ func TestUneReleaseNeSortDeVerifyingQueQuandToutAConclu(t *testing.T) {
 	}
 
 	// Les deux en attente : rien n'est conclu.
-	tally, err := db.CountVerifications(ctx, releaseID, kinds)
+	tally, err := db.CountVerifications(ctx, releaseID, kinds, "build")
 	if err != nil {
 		t.Fatalf("décompte: %v", err)
 	}
@@ -830,7 +830,7 @@ func TestUneReleaseNeSortDeVerifyingQueQuandToutAConclu(t *testing.T) {
 	if err := db.FinishJob(ctx, jobs[0], JobSucceeded, ""); err != nil {
 		t.Fatalf("conclusion: %v", err)
 	}
-	tally, _ = db.CountVerifications(ctx, releaseID, kinds)
+	tally, _ = db.CountVerifications(ctx, releaseID, kinds, "build")
 	if tally.Done() {
 		t.Error("une vérification sur deux ne conclut pas la release")
 	}
@@ -839,7 +839,7 @@ func TestUneReleaseNeSortDeVerifyingQueQuandToutAConclu(t *testing.T) {
 	if err := db.FinishJob(ctx, jobs[1], JobFailed, "clone refusé"); err != nil {
 		t.Fatalf("conclusion: %v", err)
 	}
-	tally, _ = db.CountVerifications(ctx, releaseID, kinds)
+	tally, _ = db.CountVerifications(ctx, releaseID, kinds, "build")
 	if !tally.Done() {
 		t.Error("toutes les vérifications ont conclu")
 	}
@@ -863,23 +863,92 @@ func TestLeDecompteNeRegardeQueLaBonneRelease(t *testing.T) {
 		ImageVersion: "3.2.0-rc2", CreatedBy: "vcarroy",
 	})
 
-	if _, err := db.Enqueue(ctx, JobRequest{
-		Kind: "static-tests", QueueClass: "parallel", RequestedBy: "x", ReleaseID: &other,
-	}); err != nil {
-		t.Fatalf("job d'une autre release: %v", err)
-	}
-	// Une construction porte la même release mais n'est pas une vérification.
+	// La construction vient d'abord, comme en production : c'est elle qui borne
+	// la série de vérifications qui la suit.
 	if _, err := db.Enqueue(ctx, JobRequest{
 		Kind: "build", QueueClass: "parallel", RequestedBy: "x", ReleaseID: &mine,
 	}); err != nil {
 		t.Fatalf("construction: %v", err)
 	}
+	if _, err := db.Enqueue(ctx, JobRequest{
+		Kind: "static-tests", QueueClass: "parallel", RequestedBy: "x", ReleaseID: &other,
+	}); err != nil {
+		t.Fatalf("job d'une autre release: %v", err)
+	}
 
-	tally, err := db.CountVerifications(ctx, mine, []string{"static-tests", "security-audit"})
+	kinds := []string{"static-tests", "security-audit"}
+	tally, err := db.CountVerifications(ctx, mine, kinds, "build")
 	if err != nil {
 		t.Fatalf("décompte: %v", err)
 	}
-	if tally.Pending != 0 || !tally.Done() {
+	if tally.Pending != 0 || tally.Failed != 0 || tally.Succeeded != 0 {
 		t.Errorf("décompte: %+v — ni la construction ni la release voisine ne comptent", tally)
+	}
+	// Et une série vide n'est pas conclue : entre l'écriture de `verifying` et la
+	// mise en file des tests, la série l'est momentanément, et un verdict tardif
+	// redélivré à cet instant ferait passer la release en `ready` sans qu'aucun
+	// test n'ait tourné.
+	if tally.Done() {
+		t.Error("une série vide ne conclut rien")
+	}
+}
+
+// Une release relancée après un échec traîne les vérifications de ses tentatives
+// précédentes. Les compter ferait échouer indéfiniment une release dont la
+// seconde série passe entièrement — et le premier geste offert par l'interface
+// sur une release en échec est précisément « relancer la construction ».
+func TestUneRelanceNeCompteQueSesPropresVerifications(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
+	releaseID, err := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "verifying",
+		GitRef: "main", GitCommit: "abc123", ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	kinds := []string{"static-tests", "security-audit"}
+
+	enqueue := func(kind string) int64 {
+		t.Helper()
+		id, err := db.Enqueue(ctx, JobRequest{
+			Kind: kind, QueueClass: "parallel", RequestedBy: "dashboard", ReleaseID: &releaseID,
+		})
+		if err != nil {
+			t.Fatalf("mise en file %s: %v", kind, err)
+		}
+		return id
+	}
+
+	// Première série : la construction passe, l'audit échoue.
+	enqueue("build")
+	first := []int64{enqueue("static-tests"), enqueue("security-audit")}
+	if err := db.FinishJob(ctx, first[0], JobSucceeded, ""); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+	if err := db.FinishJob(ctx, first[1], JobFailed, "clone refusé"); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+
+	// Seconde série, après relance : tout passe.
+	enqueue("build")
+	second := []int64{enqueue("static-tests"), enqueue("security-audit")}
+	for _, id := range second {
+		if err := db.FinishJob(ctx, id, JobSucceeded, ""); err != nil {
+			t.Fatalf("conclusion: %v", err)
+		}
+	}
+
+	tally, err := db.CountVerifications(ctx, releaseID, kinds, "build")
+	if err != nil {
+		t.Fatalf("décompte: %v", err)
+	}
+	if !tally.Done() {
+		t.Fatal("la seconde série a conclu")
+	}
+	if tally.Failed != 0 || tally.Succeeded != 2 {
+		t.Errorf("décompte: %+v — l'échec de la première série est encore compté", tally)
 	}
 }
