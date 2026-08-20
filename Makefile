@@ -138,8 +138,17 @@ dev-prereqs: ## Installe les CRD Flux et les objets Flux de développement
 
 # --- Image et déploiement -----------------------------------------------------
 
+# Le secret Git est monté comme le fait Skaffold, et pour la même raison : le
+# module `tekton-mse-manager` vit dans un dépôt privé, et `go mod download` ne
+# peut pas s'authentifier sans lui. Son absence ici rendait cette cible — donc
+# `make deploy`, le seul chemin de déploiement sans Skaffold — inutilisable :
+# elle échouait sur « could not read Username for forge.cadoles.com ».
+#
+# Un secret BuildKit ne laisse aucune trace dans les couches de l'image,
+# contrairement à un `COPY` qui les y graverait définitivement.
 image: ## Construit l'image, taguée par le commit et `dev`
-	docker build \
+	DOCKER_BUILDKIT=1 docker build \
+		--secret id=git-credentials,src=$(HOME)/.git-credentials \
 		--build-arg VERSION=$(IMAGE_TAG) \
 		--build-arg REVISION=$$(git rev-parse HEAD 2>/dev/null || echo inconnue) \
 		-t $(IMAGE) -t $(LOCAL_IMAGE) .
