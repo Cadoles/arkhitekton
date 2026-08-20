@@ -51,35 +51,66 @@ type artifactKind struct {
 	parse  func(raw []byte) (results.Report, error)
 }
 
+// junitKind rend un lecteur JUnit pour une famille et un outil donnés.
+func junitKind(family results.Family, tool string) artifactKind {
+	return artifactKind{family, tool, func(raw []byte) (results.Report, error) {
+		return results.ParseJUnit(family, tool, raw)
+	}}
+}
+
 // recognise identifie un fichier d'artefact.
 //
-// Le nom du fichier suffit parce que les pipelines les produisent sous des noms
-// fixes (P3, doc 10). Un fichier inconnu est ignoré en silence : une archive
-// contient aussi des journaux et des captures, et échouer dessus perdrait les
-// rapports qui l'accompagnent.
+// Le **répertoire** est consulté avant le nom du fichier, et c'est ce qui
+// manquait. Les Tasks écrivent sous `test-results/<famille>/` — `unit/`,
+// `integration/`, `phpstan/`, `cs-fixer/` — et nomment toutes leur rapport
+// `junit.xml`. Ne regarder que le nom faisait donc tomber le rapport
+// d'intégration dans la dernière règle, celle des tests unitaires : la famille
+// `integration` n'était jamais mesurée, et son échec était rapporté comme un
+// échec de tests unitaires.
+//
+// Un fichier inconnu est ignoré en silence : une archive contient aussi des
+// journaux et des captures, et échouer dessus perdrait les rapports qui
+// l'accompagnent.
 func recognise(name string) (artifactKind, bool) {
-	base := strings.ToLower(path.Base(name))
+	clean := strings.ToLower(path.Clean(name))
+	base := path.Base(clean)
+	// Le segment qui précède le fichier. `test-results/integration/junit.xml`
+	// donne `integration`.
+	dir := path.Base(path.Dir(clean))
+
+	xml := strings.HasSuffix(base, ".xml")
+	json := strings.HasSuffix(base, ".json")
 
 	switch {
-	case strings.Contains(base, "phpstan") && strings.HasSuffix(base, ".json"):
+	// Le répertoire nomme la famille, quel que soit le nom du rapport.
+	case dir == "integration" && xml:
+		return junitKind(results.FamilyIntegration, "phpunit-integration"), true
+
+	case dir == "unit" && xml:
+		return junitKind(results.FamilyUnit, "phpunit"), true
+
+	case dir == "phpstan" && json:
 		return artifactKind{results.FamilyStatic, "phpstan", results.ParsePHPStan}, true
 
-	case (strings.Contains(base, "cs-fixer") || strings.Contains(base, "csfixer")) &&
-		strings.HasSuffix(base, ".json"):
+	case (dir == "cs-fixer" || dir == "csfixer") && json:
 		return artifactKind{results.FamilyStatic, "cs-fixer", results.ParseCSFixer}, true
 
-	case strings.Contains(base, "mocha") && strings.HasSuffix(base, ".json"):
+	// À défaut de répertoire parlant, le nom du fichier. Ces règles couvrent les
+	// rapports publiés à plat, hors de la convention `test-results/`.
+	case strings.Contains(base, "phpstan") && json:
+		return artifactKind{results.FamilyStatic, "phpstan", results.ParsePHPStan}, true
+
+	case (strings.Contains(base, "cs-fixer") || strings.Contains(base, "csfixer")) && json:
+		return artifactKind{results.FamilyStatic, "cs-fixer", results.ParseCSFixer}, true
+
+	case strings.Contains(base, "mocha") && json:
 		return artifactKind{results.FamilyE2E, "cypress", results.ParseMochawesome}, true
 
-	case strings.Contains(base, "integration") && strings.HasSuffix(base, ".xml"):
-		return artifactKind{results.FamilyIntegration, "phpunit-integration", func(raw []byte) (results.Report, error) {
-			return results.ParseJUnit(results.FamilyIntegration, "phpunit-integration", raw)
-		}}, true
+	case strings.Contains(base, "integration") && xml:
+		return junitKind(results.FamilyIntegration, "phpunit-integration"), true
 
-	case strings.HasSuffix(base, ".xml") && (strings.Contains(base, "junit") || strings.Contains(base, "phpunit")):
-		return artifactKind{results.FamilyUnit, "phpunit", func(raw []byte) (results.Report, error) {
-			return results.ParseJUnit(results.FamilyUnit, "phpunit", raw)
-		}}, true
+	case xml && (strings.Contains(base, "junit") || strings.Contains(base, "phpunit")):
+		return junitKind(results.FamilyUnit, "phpunit"), true
 	}
 
 	return artifactKind{}, false

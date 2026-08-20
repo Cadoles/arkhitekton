@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -193,5 +194,53 @@ func TestRecognise(t *testing.T) {
 	}
 	if _, known := recognise("videos/panier.mp4"); known {
 		t.Error("une vidéo n'est pas un rapport")
+	}
+}
+
+// Le défaut qui rendait la famille `integration` inobservable. Les Tasks écrivent
+// sous `test-results/<famille>/` et nomment toutes leur rapport `junit.xml` :
+// l'intégration tombait donc dans la règle des tests unitaires, et son échec
+// était rapporté comme un échec unitaire — sur un signal qui pèse 25 au score au
+// lieu de 20, et en laissant `integration` éternellement non mesurée.
+func TestLeRepertoireNommeLaFamille(t *testing.T) {
+	cases := map[string]struct {
+		family results.Family
+		tool   string
+	}{
+		"test-results/integration/junit.xml": {results.FamilyIntegration, "phpunit-integration"},
+		"test-results/unit/junit.xml":        {results.FamilyUnit, "phpunit"},
+		"test-results/phpstan/report.json":   {results.FamilyStatic, "phpstan"},
+		"test-results/cs-fixer/report.json":  {results.FamilyStatic, "cs-fixer"},
+		// Le même fichier, publié à plat : le nom prend le relais.
+		"junit.xml": {results.FamilyUnit, "phpunit"},
+	}
+
+	for name, expected := range cases {
+		kind, known := recognise(name)
+		if !known {
+			t.Errorf("recognise(%q) non reconnu", name)
+			continue
+		}
+		if kind.family != expected.family || kind.tool != expected.tool {
+			t.Errorf("recognise(%q) = %s/%s, attendu %s/%s",
+				name, kind.family, kind.tool, expected.family, expected.tool)
+		}
+	}
+}
+
+// Deux rapports d'un même run, dans deux familles différentes, doivent être
+// distingués. C'est le cas d'une archive qui porte à la fois l'unitaire et
+// l'intégration — et le cas où l'ancienne reconnaissance les confondait.
+func TestDeuxFamillesDansUneMemeArchiveNeSeConfondentPas(t *testing.T) {
+	unit, _ := recognise("test-results/unit/junit.xml")
+	integration, _ := recognise("test-results/integration/junit.xml")
+
+	if unit.family == integration.family {
+		t.Errorf("même famille %q pour deux répertoires distincts", unit.family)
+	}
+	// Les outils diffèrent aussi : l'idempotence de l'ingestion est indexée par
+	// outil, et deux familles sous le même nom d'outil feraient perdre la seconde.
+	if unit.tool == integration.tool {
+		t.Errorf("même outil %q — la seconde ingestion serait ignorée", unit.tool)
 	}
 }

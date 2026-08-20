@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
@@ -388,5 +390,71 @@ func TestUnRunObserveTraverseInchange(t *testing.T) {
 	run := tekton.Run{Name: "e2e-test-run-f8m8c", JobID: 0, Observed: true}
 	if got := sink.disown(run); got.JobID != 0 || !got.Observed {
 		t.Errorf("run observé altéré: %+v", got)
+	}
+}
+
+// Le catalogue réellement livré, confronté à ce que l'enchaînement lance.
+//
+// Une famille de vérification qui ne déclare aucun artefact tourne, échoue ou
+// réussit, et le dashboard n'en sait rien : son signal reste « non mesuré »
+// pendant que dix scanners ou trois cents tests s'exécutent. C'était le cas de
+// `security-audit` et de `integration-tests`, qui publiaient dans le bucket des
+// pipelines — là où le lecteur ne regarde pas.
+//
+// La règle vaut pour tout ce qui est enchaîné : lancer une vérification dont on
+// ne lira pas le verdict revient à ne pas la lancer, en plus cher.
+func TestToutCeQuiEstEnchaineRendUnResultatLisible(t *testing.T) {
+	shipped := "../../deploy/base/config/catalog.yaml"
+	if _, err := os.Stat(shipped); err != nil {
+		t.Skip("catalogue livré introuvable")
+	}
+
+	pipelines, err := catalog.Load(shipped)
+	if err != nil {
+		t.Fatalf("catalogue livré: %v", err)
+	}
+
+	for _, kind := range verificationKinds {
+		pipeline, found := pipelines.Find(kind)
+		if !found {
+			t.Errorf("%s est enchaîné mais absent du catalogue", kind)
+			continue
+		}
+		if len(pipeline.Uploads) == 0 {
+			t.Errorf("%s ne déclare aucun artefact : son verdict n'atteindra jamais le dashboard", kind)
+		}
+	}
+}
+
+// Et le pendant : un artefact déclaré doit désigner un paramètre et un nom
+// d'objet, sans quoi l'URL est minée sans que personne sache où l'envoyer —
+// l'ordonnanceur refuse alors le run, et la release reste en attente d'un test
+// qui ne partira pas.
+func TestChaqueArtefactDeclareSonParametreEtSonNom(t *testing.T) {
+	shipped := "../../deploy/base/config/catalog.yaml"
+	if _, err := os.Stat(shipped); err != nil {
+		t.Skip("catalogue livré introuvable")
+	}
+
+	pipelines, err := catalog.Load(shipped)
+	if err != nil {
+		t.Fatalf("catalogue livré: %v", err)
+	}
+
+	for _, pipeline := range pipelines.Pipelines {
+		for name, upload := range pipeline.Uploads {
+			if upload.Param == "" || upload.Artifact == "" {
+				t.Errorf("%s/%s: param=%q artifact=%q — les deux sont requis",
+					pipeline.Kind, name, upload.Param, upload.Artifact)
+			}
+			// L'extension de l'objet doit dire son contenu : c'est elle qui
+			// décide, à la lecture, s'il faut déballer une archive.
+			archive := strings.HasSuffix(upload.Artifact, ".tar.gz") ||
+				strings.HasSuffix(upload.Artifact, ".tgz")
+			if (upload.Format == "archive") != archive {
+				t.Errorf("%s/%s: format=%q mais artifact=%q — le lecteur déballera ou non à tort",
+					pipeline.Kind, name, upload.Format, upload.Artifact)
+			}
+		}
 	}
 }

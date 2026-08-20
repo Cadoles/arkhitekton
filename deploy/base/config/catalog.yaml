@@ -114,6 +114,26 @@ pipelines:
       consumer-image:      { source: input,  required: true }
       minio-host:          { source: config, key: minio.host }
       minio-bucket:        { source: config, key: minio.pipelineBucket }
+    # Le rapport normalisé, publié vers le dashboard par URL pré-signée.
+    #
+    # Sans cette déclaration, l'audit ne publiait que dans le bucket des
+    # pipelines, où le dashboard ne lit pas : ses constats n'atteignaient jamais
+    # l'écran de sécurité, et le signal `security` restait éternellement non
+    # mesuré alors que dix scanners avaient tourné.
+    #
+    # Deux fichiers plutôt qu'une archive : l'ingesteur les reconnaît à leur nom
+    # sous `raw/<run>/`, sans rien déballer.
+    uploads:
+      summary:
+        param: summary-upload-url
+        artifact: summary.json
+        family: security
+        format: file
+      findings:
+        param: findings-upload-url
+        artifact: findings.jsonl
+        family: security
+        format: file
     # Les noms diffèrent de ceux des autres pipelines — `shared` et
     # `docker-config`, non `shared-data` et `dockerconfig`. Rien ne le devinerait :
     # c'est la validation contre le cluster qui les impose.
@@ -283,6 +303,16 @@ pipelines:
       # renseigner et ne lançait donc jamais les tests d'intégration
       # automatiquement.
       mse-kustom-revision: { source: config, key: forge.mseKustom.revision }
+    # Le rapport JUnit, publié comme celui des tests statiques. La Task écrit
+    # sous `test-results/integration/`, et c'est ce chemin qui nomme la famille
+    # au lecteur — le fichier, lui, s'appelle `junit.xml` comme celui des tests
+    # unitaires.
+    uploads:
+      results:
+        param: results-upload-url
+        artifact: integration-tests.tar.gz
+        family: integration
+        format: archive
     workspaces:
       - name: git-credentials
         secret: { configKey: pipeline.gitSecret }
