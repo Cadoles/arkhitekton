@@ -875,7 +875,9 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 //
 // Doit rester alignée sur `verificationKinds` de l'ordonnanceur. Un test le
 // vérifie sur le catalogue livré.
-var VerifiableKinds = []string{"static-tests", "security-audit", "integration-tests"}
+var VerifiableKinds = []string{
+	"static-tests", "unit-tests", "security-audit", "integration-tests",
+}
 
 func verifiable(kind string) bool {
 	for _, known := range VerifiableKinds {

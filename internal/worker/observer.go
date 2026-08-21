@@ -515,7 +515,9 @@ func toLogSteps(steps []tekton.Step) []logs.Step {
 // `e2e-tests` n'y figure pas : le pipeline vise un environnement déployé, et
 // l'enchaîner sur une construction le ferait porter sur ce qui s'y trouve, pas
 // sur la release qui vient d'être construite.
-var verificationKinds = []string{"static-tests", "security-audit", "integration-tests"}
+var verificationKinds = []string{
+	"static-tests", "unit-tests", "security-audit", "integration-tests",
+}
 
 // launchVerification met en file les tests d'une release construite, et rend le
 // nombre effectivement enfilé.

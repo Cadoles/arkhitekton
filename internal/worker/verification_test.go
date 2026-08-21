@@ -43,6 +43,15 @@ func verificationCatalog() *catalog.Catalog {
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
+			// Les tests unitaires ont leur propre pipeline : deux questions
+			// distinctes, deux signaux que le score pondère séparément.
+			{
+				Kind: "unit-tests", QueueClass: "parallel",
+				Params: map[string]catalog.Param{
+					"revision": {Source: catalog.SourceInput, Required: true},
+					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
+				},
+			},
 			{
 				Kind: "security-audit", QueueClass: "parallel",
 				Params: map[string]catalog.Param{
@@ -93,8 +102,8 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 		GitRef: "main", GitCommit: "abc123def456",
 	})
 
-	if launched != 3 {
-		t.Fatalf("%d vérifications lancées, attendu 3", launched)
+	if launched != 4 {
+		t.Fatalf("%d vérifications lancées, attendu 4", launched)
 	}
 
 	kinds := map[string]store.JobRequest{}
@@ -103,6 +112,9 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 	}
 	if _, ok := kinds["static-tests"]; !ok {
 		t.Error("static-tests devrait être lancé")
+	}
+	if _, ok := kinds["unit-tests"]; !ok {
+		t.Error("unit-tests devrait être lancé")
 	}
 	if _, ok := kinds["security-audit"]; !ok {
 		t.Error("security-audit devrait être lancé")
@@ -165,7 +177,7 @@ func TestSansCommitLaVerificationRetombeSurLaReference(t *testing.T) {
 		ReleaseID: 7, Tag: "3.2.0-rc1", GitRef: "main",
 	})
 
-	if launched != 3 {
+	if launched != 4 {
 		t.Fatalf("%d vérifications lancées", launched)
 	}
 	for _, job := range fake.enqueued {
@@ -261,8 +273,8 @@ func TestUneConstructionNeLanceSesVerificationsQuUneFois(t *testing.T) {
 		t.Fatalf("état %q, attendu verifying", fake.state)
 	}
 	premier := len(fake.enqueued)
-	if premier != 3 {
-		t.Fatalf("%d vérifications lancées, attendu 3", premier)
+	if premier != 4 {
+		t.Fatalf("%d vérifications lancées, attendu 4", premier)
 	}
 
 	// Redélivrances : l'état lu est resté `building` côté appelant, mais la base

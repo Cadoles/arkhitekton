@@ -10,18 +10,32 @@ import type { ReleaseJob } from './api'
  */
 
 /** Familles de vérification relançables. Alignées sur `VerifiableKinds` côté API. */
-export const VERIFIABLE_KINDS = ['static-tests', 'security-audit', 'integration-tests'] as const
+export const VERIFIABLE_KINDS = [
+  'static-tests',
+  'unit-tests',
+  'security-audit',
+  'integration-tests',
+] as const
 
 export const KIND_LABEL: Record<string, string> = {
-  'static-tests': 'Tests statiques',
+  'static-tests': 'Analyse statique',
+  'unit-tests': 'Tests unitaires',
   'security-audit': 'Audit de sécurité',
   'integration-tests': "Tests d'intégration",
   'e2e-tests': 'Tests E2E',
 }
 
-/** Les signaux qu'un pipeline mesure. */
+/**
+ * Les signaux qu'un pipeline mesure.
+ *
+ * Un à un depuis que l'analyse statique et les tests unitaires ont chacun leur
+ * pipeline. Auparavant `static-tests` en mesurait deux : relancer pour un
+ * cs-fixer non conforme rejouait les tests unitaires, et les deux tuiles
+ * s'animaient pour une seule chose à remesurer.
+ */
 const KIND_SIGNALS: Record<string, string[]> = {
-  'static-tests': ['code', 'unit'],
+  'static-tests': ['code'],
+  'unit-tests': ['unit'],
   'security-audit': ['security'],
   'integration-tests': ['integration'],
   'e2e-tests': ['e2e'],
@@ -30,7 +44,7 @@ const KIND_SIGNALS: Record<string, string[]> = {
 /** Le pipeline à relancer pour remesurer un signal. */
 const SIGNAL_KIND: Record<string, string> = {
   code: 'static-tests',
-  unit: 'static-tests',
+  unit: 'unit-tests',
   security: 'security-audit',
   integration: 'integration-tests',
 }

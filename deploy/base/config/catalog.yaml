@@ -211,9 +211,16 @@ pipelines:
       - name: dockerconfig
         secret: { configKey: pipeline.registrySecret }
 
+  # Analyse statique — PHP-CS-Fixer et PHPStan.
+  #
+  # Distincte des tests unitaires depuis qu'ils ont leur pipeline : « le code
+  # fait-il ce qu'on attend » et « le code est-il écrit proprement » sont deux
+  # questions, que le score pondère séparément. Les mêler donnait un seul verdict
+  # pour deux signaux, et un cs-fixer non conforme faisait échouer le même run
+  # que des tests verts — donc une relance qui rejouait les deux.
   - kind: static-tests
     pipelineRef: php-static-tests
-    label: Tests statiques
+    label: Analyse statique
     queueClass: parallel
     params:
       repo-url:     { source: config, key: forge.mse.repoUrl }
@@ -225,10 +232,33 @@ pipelines:
     uploads:
       results:
         param: results-upload-url
-        # Les trois familles écrivent sous `test-results/`, et leur nombre dépend
-        # de ce qui a tourné : une archive, sous une clé unique par run.
+        # PHPStan et cs-fixer écrivent chacun sous `test-results/<outil>/` : une
+        # archive, sous une clé unique par run. C'est le répertoire qui nomme la
+        # famille au lecteur.
         artifact: static-tests.tar.gz
         family: static
+        format: archive
+    workspaces:
+      - name: git-credentials
+        secret: { configKey: pipeline.gitSecret }
+      - name: shared-data
+        volumeClaimTemplate:
+          accessModes: [ReadWriteOnce]
+          storageClassName: standard
+          storage: 1Gi
+
+  - kind: unit-tests
+    pipelineRef: php-unit-tests
+    label: Tests unitaires
+    queueClass: parallel
+    params:
+      repo-url:     { source: config, key: forge.mse.repoUrl }
+      revision:     { source: input, required: true }
+    uploads:
+      results:
+        param: results-upload-url
+        artifact: unit-tests.tar.gz
+        family: unit
         format: archive
     workspaces:
       - name: git-credentials
