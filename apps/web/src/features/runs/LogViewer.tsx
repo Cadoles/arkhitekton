@@ -173,7 +173,12 @@ export function LogViewer({
 
   // Mesurée sur le panneau lui-même : c'est sa position dans la page qui dit
   // combien de place reste en dessous.
-  const height = useAvailableHeight(containerRef, !expanded)
+  //
+  // `loading` fait partie de la condition, et pas par prudence : pendant le
+  // chargement le panneau n'est pas monté, la mesure ne trouve rien, et sans ce
+  // passage de faux à vrai elle ne serait jamais refaite — la visionneuse
+  // resterait au plancher sur un grand écran.
+  const height = useAvailableHeight(containerRef, !expanded && !loading)
 
   const items = virtualizer.getVirtualItems()
   const summary = useMemo(() => `${lines.length} ligne${lines.length > 1 ? 's' : ''}`, [lines.length])
