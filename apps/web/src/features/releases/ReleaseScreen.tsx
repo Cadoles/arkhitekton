@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { SignoffPanel } from './SignoffPanel'
 import { TestsPanel } from './TestsPanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
@@ -70,10 +69,14 @@ export function ReleaseScreen() {
 
           <Images release={data} />
           <Deployment release={data} />
-          <SignoffPanel tag={data.tag} />
-          <Executions release={data} />
           <ManualActionsPanel release={data} />
           <Exports release={data} />
+
+          {/* Les exécutions en dernier et repliées : c'est de la matière de
+              diagnostic, consultée quand quelque chose ne va pas. Le reste de
+              l'écran répond déjà à « où en est cette release », et une liste de
+              runs entre les deux repoussait les exports hors du premier écran. */}
+          <Executions release={data} />
         </>
       )}
     </div>
@@ -318,7 +321,7 @@ function Executions({ release }: { release: ReleaseDetail }) {
   const jobs = release.jobs ?? []
 
   return (
-    <CollapsibleSection title="Exécutions" count={jobs.length}>
+    <CollapsibleSection title="Exécutions" count={jobs.length} defaultOpen={false}>
       {jobs.length === 0 ? (
         <EmptyState>Aucune exécution déclenchée pour cette release.</EmptyState>
       ) : (
