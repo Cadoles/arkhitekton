@@ -89,6 +89,14 @@
      * `scrollbar-gutter` plutôt qu'un `overflow-y: scroll` permanent : celui-ci
      * réserve la place en affichant une piste vide sur les pages courtes. */
     scrollbar-gutter: stable;
+
+    /* Le fond est ici et pas seulement sur `body`, et c'est la contrepartie de
+     * la gouttière : celle-ci appartient à la boîte de `<html>`, pas à celle de
+     * `<body>`. Un fond posé uniquement sur `body` ne la peint donc pas, et sur
+     * un thème sombre — où `color-scheme: dark` fait peindre le canevas par le
+     * navigateur — la bande réservée apparaissait en noir le long du bord droit
+     * dès qu'il n'y avait pas d'ascenseur pour l'occuper. */
+    @apply bg-zinc-50;
   }
 
   body {
