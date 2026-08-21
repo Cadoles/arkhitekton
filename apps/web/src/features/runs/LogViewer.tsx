@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { APP_SCROLL_ID } from '../../components/AppShell'
 import { Icon } from '../../components/Icon'
 import { ErrorState, Skeleton } from '../../components/primitives'
 import { useScrollLock } from '../../lib/scrollLock'
@@ -64,7 +65,7 @@ export function LogViewer({
   // L'ancre a une source unique : l'URL. Un état local en parallèle finirait par
   // la contredire — un clic ancien resterait prioritaire sur un lien fraîchement
   // ouvert, et rien dans l'interface ne l'expliquerait.
-  const { hash } = useLocation()
+  const { hash, search } = useLocation()
   const navigate = useNavigate()
   const selection = useMemo(() => parseAnchor(hash), [hash])
   // Marque le premier positionnement. Sans lui, la vue s'ouvrirait au début du
@@ -151,11 +152,17 @@ export function LogViewer({
 
       const line = index + 1
       const anchor = extend && selection ? `#L${selection.start + 1}-L${line}` : `#L${line}`
+      // La query est reconduite explicitement, et c'est indispensable : elle
+      // porte la task dont on lit le journal. Naviguer vers la seule ancre la
+      // ferait disparaître — react-router résout `#L42` en une destination sans
+      // query — et le lien partagé rouvrirait la task par défaut, c'est-à-dire
+      // une autre, avec un numéro de ligne qui n'y désigne rien.
+      //
       // `replace` : ancrer une ligne n'est pas une navigation, et empiler une
       // entrée d'historique par clic rendrait le bouton « retour » inutilisable.
-      navigate(anchor, { replace: true })
+      navigate({ search, hash: anchor }, { replace: true })
     },
-    [navigate, selection],
+    [navigate, search, selection],
   )
 
   useScrollLock(expanded)
@@ -203,23 +210,7 @@ export function LogViewer({
 
         {selection && <ShareLink selection={selection} />}
 
-        <label className="ml-auto flex items-center gap-2 text-xs text-zinc-600">
-          <input
-            type="checkbox"
-            checked={following}
-            onChange={(event) => setFollowing(event.target.checked)}
-            className="size-3.5"
-          />
-          Suivre la fin
-        </label>
-
-        {sealed && (
-          <span className="flex items-center gap-1 text-xs text-zinc-400">
-            <Icon name="check" className="size-3.5" />
-            journal scellé
-          </span>
-        )}
-
+        <span className="ml-auto" />
         <Tools runName={runName} taskName={taskName} expanded={expanded} onExpand={setExpanded} />
       </div>
 
@@ -289,6 +280,28 @@ export function LogViewer({
             )
           })}
         </div>
+      </div>
+
+      {/* Le suivi se commande sous le journal, à hauteur de la fin qu'il colle.
+          En tête de panneau, la case se lisait comme un réglage de la barre
+          d'outils alors qu'elle décrit ce que fait le bas de la vue. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-xs text-zinc-600">
+          <input
+            type="checkbox"
+            checked={following}
+            onChange={(event) => setFollowing(event.target.checked)}
+            className="size-3.5"
+          />
+          Suivre la fin
+        </label>
+
+        {sealed && (
+          <span className="flex items-center gap-1 text-xs text-zinc-400">
+            <Icon name="check" className="size-3.5" />
+            journal scellé
+          </span>
+        )}
       </div>
     </div>
   )
@@ -402,13 +415,24 @@ function Tools({
 }
 
 /**
- * Hauteur restante sous la visionneuse, plancher compris.
+ * Hauteur restante pour la visionneuse, plancher compris.
  *
  * Une hauteur fixe gâche un grand écran : la moitié basse reste vide pendant
  * qu'on fait défiler quarante lignes dans une fenêtre de vingt. La mesure est
  * faite sur la position réelle du panneau plutôt que déduite d'une chaîne de
  * `h-full` — celle-ci traverserait la coquille, deux cartes et une grille, et
  * casserait au premier changement de mise en page.
+ *
+ * Ce qui compte n'est pas la distance au bas de la **fenêtre** mais la place
+ * libre dans le conteneur de défilement. Viser le bas de la fenêtre laissait
+ * dehors tout ce qui vit sous le panneau — la marge de la carte, celle de la
+ * page, la ligne de commande du suivi — et le journal étiré poussait donc la
+ * page d'autant : il créait l'ascenseur qu'il devait justement rendre inutile.
+ *
+ * D'où la forme retenue : `disponible = visible − occupé au-dessus − occupé en
+ * dessous`, les deux occupations étant des distances entre le panneau et les
+ * bords du contenu. Ni l'une ni l'autre ne dépend de la hauteur du panneau, donc
+ * une seule passe suffit et le résultat tient exactement dans la fenêtre.
  *
  * Recalculée au redimensionnement seulement, pas au défilement : la hauteur du
  * panneau ne dépend pas de l'endroit où l'on est dans la page, et la recalculer
@@ -423,8 +447,7 @@ function useAvailableHeight(ref: React.RefObject<HTMLElement | null>, enabled: b
     const measure = () => {
       const element = ref.current
       if (!element) return
-      const top = element.getBoundingClientRect().top
-      setHeight(Math.max(MIN_HEIGHT, Math.round(window.innerHeight - top - BOTTOM_GUTTER)))
+      setHeight(Math.max(MIN_HEIGHT, Math.round(availableHeight(element))))
     }
 
     measure()
@@ -433,6 +456,24 @@ function useAvailableHeight(ref: React.RefObject<HTMLElement | null>, enabled: b
   }, [enabled, ref])
 
   return height
+}
+
+function availableHeight(element: HTMLElement): number {
+  const panel = element.getBoundingClientRect()
+
+  const scroller = document.getElementById(APP_SCROLL_ID)
+  // Le contenu est l'enfant du conteneur de défilement, et c'est lui qu'il faut
+  // mesurer : `scrollHeight` est écrêté à la hauteur visible quand le contenu
+  // est plus court, ce qui ferait conclure qu'il n'y a pas de place à prendre.
+  const content = scroller?.firstElementChild
+  if (!scroller || !content) {
+    // Hors coquille — un écran rendu seul. Le bas de la fenêtre est alors le
+    // seul repère disponible.
+    return window.innerHeight - panel.top - BOTTOM_GUTTER
+  }
+
+  const box = content.getBoundingClientRect()
+  return scroller.clientHeight - (panel.top - box.top) - (box.bottom - panel.bottom)
 }
 
 /**
