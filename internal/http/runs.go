@@ -105,23 +105,75 @@ func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tasks := make([]taskPayload, 0, len(detail.Tasks))
-	for _, task := range detail.Tasks {
-		tasks = append(tasks, taskPayload{
-			Name:        task.Name,
-			DisplayName: task.DisplayName,
-			Status:      task.Status,
-			StartedAt:   task.StartedAt,
-			CompletedAt: task.CompletedAt,
-			HasLog:      task.HasLog || task.PodName != "",
-			Sealed:      task.LogSealed,
-		})
-	}
+	tasks := mergeTasks(detail)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"run":   toRunPayload(detail.Run),
 		"tasks": tasks,
 	})
+}
+
+// mergeTasks compose la liste des tâches d'un run : celles qui ont démarré, et
+// celles que le pipeline déclare sans les avoir encore lancées.
+//
+// Tekton ne crée un TaskRun qu'au démarrage d'une tâche. Sans ce complément, un
+// pipeline de huit étapes en montrait deux au début, et rien ne disait ce qu'il
+// restait à faire — ni combien de temps il fallait encore attendre.
+//
+// L'ordre est celui du graphe, donné par la déclaration, et non celui des
+// démarrages : une tâche non démarrée n'a pas de date, et la trier par ce
+// qu'elle n'a pas l'aurait rejetée en fin de liste quelle que soit sa place
+// réelle. Les tâches observées qui ne figurent pas dans la déclaration —
+// pipeline modifié entre-temps, run projeté avant l'enregistrement des
+// déclarations — sont conservées en tête : les taire perdrait une exécution
+// réelle au profit d'une définition.
+func mergeTasks(detail store.RunDetail) []taskPayload {
+	observed := make(map[string]store.TaskSummary, len(detail.Tasks))
+	for _, task := range detail.Tasks {
+		observed[task.Name] = task
+	}
+
+	tasks := make([]taskPayload, 0, len(detail.Tasks)+len(detail.Declared))
+
+	// Ce qui a tourné sans être déclaré passe d'abord, dans son ordre d'origine.
+	declared := make(map[string]bool, len(detail.Declared))
+	for _, task := range detail.Declared {
+		declared[task.Name] = true
+	}
+	for _, task := range detail.Tasks {
+		if !declared[task.Name] {
+			tasks = append(tasks, toTaskPayload(task))
+		}
+	}
+
+	for _, task := range detail.Declared {
+		if started, ok := observed[task.Name]; ok {
+			tasks = append(tasks, toTaskPayload(started))
+			continue
+		}
+		// Pas encore démarrée. `pending` est le même vocabulaire que celui d'un
+		// run qui n'a pas commencé : l'interface sait déjà le rendre.
+		name := task.DisplayName
+		if name == "" {
+			name = task.Name
+		}
+		tasks = append(tasks, taskPayload{
+			Name: task.Name, DisplayName: name, Status: "pending",
+		})
+	}
+	return tasks
+}
+
+func toTaskPayload(task store.TaskSummary) taskPayload {
+	return taskPayload{
+		Name:        task.Name,
+		DisplayName: task.DisplayName,
+		Status:      task.Status,
+		StartedAt:   task.StartedAt,
+		CompletedAt: task.CompletedAt,
+		HasLog:      task.HasLog || task.PodName != "",
+		Sealed:      task.LogSealed,
+	}
 }
 
 // RunEvents est ce que le flux d'état attend de la base.

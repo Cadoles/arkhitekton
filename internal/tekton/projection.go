@@ -71,6 +71,23 @@ type Run struct {
 	// ceux lancés avant que ce label existe.
 	Instance string
 	Observed bool
+	// DeclaredTasks énumère les tâches du pipeline, dans l'ordre du graphe.
+	//
+	// Tekton ne crée un TaskRun qu'au démarrage d'une tâche : sans cette liste,
+	// un pipeline de huit étapes n'en montre que deux au début, et rien ne dit ce
+	// qu'il reste à faire. Elle vient de `status.pipelineSpec`, que Tekton dépose
+	// à la création du run — la définition résolue est donc connue d'emblée.
+	DeclaredTasks []DeclaredTask
+}
+
+// DeclaredTask est une tâche telle que le pipeline la déclare.
+type DeclaredTask struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	// Finally distingue les tâches de fin : elles s'exécutent quoi qu'il arrive,
+	// et les mêler aux autres ferait lire leur position dans la frise comme une
+	// étape de plus du chemin nominal.
+	Finally bool `json:"finally,omitempty"`
 }
 
 // TaskRunProjection est la projection d'un TaskRun.
@@ -118,6 +135,22 @@ func ProjectRun(pr *tektonv1.PipelineRun) Run {
 	if condition != nil {
 		run.Reason = condition.Reason
 		run.Message = condition.Message
+	}
+
+	// La définition résolue, quand Tekton l'a déposée. Absente sur un run tout
+	// juste créé ou dont la résolution a échoué : la liste est alors vide, et
+	// l'écran retombe sur les seules tâches démarrées — le comportement d'avant.
+	if pr.Status.PipelineSpec != nil {
+		for _, task := range pr.Status.PipelineSpec.Tasks {
+			run.DeclaredTasks = append(run.DeclaredTasks, DeclaredTask{
+				Name: task.Name, DisplayName: task.DisplayName,
+			})
+		}
+		for _, task := range pr.Status.PipelineSpec.Finally {
+			run.DeclaredTasks = append(run.DeclaredTasks, DeclaredTask{
+				Name: task.Name, DisplayName: task.DisplayName, Finally: true,
+			})
+		}
 	}
 
 	run.Instance = pr.Labels[LabelInstance]

@@ -27,15 +27,12 @@ export function PipelineTimeline({ runName }: { runName: string }) {
 
   if (!data) return null
 
-  // Les étapes d'un pipeline sont partiellement parallèles : Tekton les rend
-  // dans un ordre qui n'est pas celui du graphe. Trier par démarrage donne la
-  // chronologie réelle, et laisse les non démarrées à la fin — là où elles sont.
-  const tasks = [...data.tasks].sort((a, b) => {
-    if (!a.started_at && !b.started_at) return 0
-    if (!a.started_at) return 1
-    if (!b.started_at) return -1
-    return a.started_at.localeCompare(b.started_at)
-  })
+  // L'ordre vient du serveur, qui rend celui du graphe : les tâches déclarées
+  // dans leur ordre de définition, les tâches de fin en dernier. Retrier ici par
+  // date de démarrage rejetterait les non démarrées à la fin de la frise — elles
+  // n'ont pas de date — alors que c'est justement leur place dans la suite qu'on
+  // vient lire.
+  const tasks = data.tasks
 
   if (tasks.length === 0) {
     return (

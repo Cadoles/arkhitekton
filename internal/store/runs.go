@@ -26,6 +26,23 @@ type RunRecord struct {
 	Results     map[string]string
 	JobID       int64
 	Observed    bool
+	// DeclaredTasks énumère les tâches du pipeline, telles qu'il les déclare.
+	// Sert à montrer ce qui n'a pas encore démarré : Tekton ne crée un TaskRun
+	// qu'au démarrage d'une tâche.
+	DeclaredTasks []DeclaredTask
+}
+
+// DeclaredTask est une tâche telle que le pipeline la déclare.
+//
+// Redit ici plutôt qu'importé de `tekton` : ce paquet ignore Tekton, et
+// l'adaptateur de l'observateur fait la traduction. C'est la même règle qui fait
+// que `tekton` ignore PostgreSQL, et elle se paie une fois — six champs de
+// recopie — plutôt qu'en dépendance croisée entre deux paquets qui n'ont pas à
+// se connaître.
+type DeclaredTask struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	Finally     bool   `json:"finally,omitempty"`
 }
 
 // TaskRunRecord est la projection d'un TaskRun.
@@ -72,7 +89,7 @@ func (db *DB) UpsertRun(ctx context.Context, record RunRecord) (int64, error) {
 	const query = `
 		insert into runs (
 			pipeline_name, pipelinerun_name, namespace, status, reason,
-			started_at, completed_at, results, observed, job_id
+			started_at, completed_at, results, observed, job_id, declared_tasks
 		)
 		-- job_id passe par une sous-requête plutôt que d'être inséré tel quel.
 		-- La colonne référence la table jobs, et un PipelineRun portant un
@@ -86,7 +103,7 @@ func (db *DB) UpsertRun(ctx context.Context, record RunRecord) (int64, error) {
 		-- ce qu'il ne peut pas rattacher.
 		select $1, $2, $3, $4, $5, $6, $7, $8,
 		       $9 or job.id is null,
-		       job.id
+		       job.id, $11
 		from (select 1) as always
 		left join (select id from jobs where id = $10) as job on true
 		on conflict (pipelinerun_name) do update set
@@ -102,13 +119,28 @@ func (db *DB) UpsertRun(ctx context.Context, record RunRecord) (int64, error) {
 			completed_at = coalesce(runs.completed_at, excluded.completed_at),
 			results      = coalesce(excluded.results, runs.results),
 			job_id       = coalesce(runs.job_id, excluded.job_id),
+			-- La déclaration ne se perd pas : Tekton la retire du statut d'un run
+			-- terminé, et une redélivrance tardive viderait sinon la liste d'un
+			-- run qu'on regarde encore.
+			declared_tasks = case
+				when jsonb_array_length(excluded.declared_tasks) > 0 then excluded.declared_tasks
+				else runs.declared_tasks
+			end,
 			updated_at   = now()
 		returning id`
+
+	declared, err := json.Marshal(record.DeclaredTasks)
+	if err != nil {
+		return 0, fmt.Errorf("tâches déclarées du run %q: %w", record.Name, err)
+	}
+	if record.DeclaredTasks == nil {
+		declared = []byte("[]")
+	}
 
 	var id int64
 	err = db.pool.QueryRow(ctx, query,
 		record.Pipeline, record.Name, record.Namespace, record.Status, nullString(record.Reason),
-		record.StartedAt, record.CompletedAt, results, record.Observed, jobID,
+		record.StartedAt, record.CompletedAt, results, record.Observed, jobID, declared,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("enregistrement du run %q: %w", record.Name, err)
@@ -366,6 +398,10 @@ type TaskSummary struct {
 type RunDetail struct {
 	Run   RunSummary
 	Tasks []TaskSummary
+	// Declared énumère les tâches du pipeline, dans l'ordre du graphe. Vide sur
+	// un run projeté avant que cette liste ne soit enregistrée : l'appelant
+	// retombe alors sur les seules tâches démarrées.
+	Declared []DeclaredTask
 }
 
 // ErrRunNotFound signale un run absent.
@@ -375,17 +411,25 @@ var ErrRunNotFound = errors.New("run introuvable")
 func (db *DB) GetRun(ctx context.Context, name string) (RunDetail, error) {
 	var detail RunDetail
 
+	var declared []byte
 	err := db.pool.QueryRow(ctx,
 		`select id, pipelinerun_name, pipeline_name, status, coalesce(reason, ''),
-		        started_at, completed_at, observed
+		        started_at, completed_at, observed, declared_tasks
 		 from runs where pipelinerun_name = $1`, name).
 		Scan(&detail.Run.ID, &detail.Run.Name, &detail.Run.Pipeline, &detail.Run.Status,
-			&detail.Run.Reason, &detail.Run.StartedAt, &detail.Run.CompletedAt, &detail.Run.Observed)
+			&detail.Run.Reason, &detail.Run.StartedAt, &detail.Run.CompletedAt,
+			&detail.Run.Observed, &declared)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return detail, ErrRunNotFound
 		}
 		return detail, fmt.Errorf("lecture du run %q: %w", name, err)
+	}
+
+	// Une déclaration illisible n'empêche pas de rendre le run : l'écran retombe
+	// sur les tâches démarrées, ce qui est le comportement d'avant.
+	if len(declared) > 0 {
+		_ = json.Unmarshal(declared, &detail.Declared)
 	}
 
 	rows, err := db.pool.Query(ctx,

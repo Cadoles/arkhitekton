@@ -175,6 +175,10 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 		Results:     run.Results,
 		JobID:       run.JobID,
 		Observed:    run.Observed,
+		// Traduction plutôt que passage direct : `store` ignore Tekton, et
+		// `tekton` ignore PostgreSQL. C'est ce que cet adaptateur existe pour
+		// tenir.
+		DeclaredTasks: declaredTasks(run.DeclaredTasks),
 	})
 	if err != nil {
 		return err
@@ -217,6 +221,20 @@ func (s *runSink) releaseOf(ctx context.Context, run tekton.Run) *int64 {
 		return nil
 	}
 	return &linked.ReleaseID
+}
+
+// declaredTasks traduit la déclaration d'un pipeline vers le modèle du magasin.
+func declaredTasks(tasks []tekton.DeclaredTask) []store.DeclaredTask {
+	if len(tasks) == 0 {
+		return nil
+	}
+	translated := make([]store.DeclaredTask, 0, len(tasks))
+	for _, task := range tasks {
+		translated = append(translated, store.DeclaredTask{
+			Name: task.Name, DisplayName: task.DisplayName, Finally: task.Finally,
+		})
+	}
+	return translated
 }
 
 // ingestSecurity enregistre l'audit normalisé d'un run terminé.
