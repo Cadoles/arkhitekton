@@ -44,6 +44,7 @@ type ReleaseStore interface {
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
 	ReleaseBadgesByTag(ctx context.Context) (map[string]store.ReleaseBadges, error)
 	ListNoteEntries(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
+	ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
 	LinkNoteIssue(ctx context.Context, releaseID, redmineID int64, source, pullRequest, actor string) error
 	UnlinkNoteIssue(ctx context.Context, releaseID, redmineID int64) error
 	// Les deux lectures du score. Rendues ici parce que la liste des releases
@@ -1056,7 +1057,9 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	payload := make([]notePayload, 0, len(entries))
+	linked := make(map[int64]bool, len(entries))
 	for _, entry := range entries {
+		linked[entry.RedmineID] = true
 		payload = append(payload, notePayload{
 			RedmineID: entry.RedmineID, Subject: entry.Subject, Tracker: entry.Tracker,
 			Status: entry.StatusName, Anomaly: entry.Anomaly, Known: entry.Known,
@@ -1064,7 +1067,29 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 			URL: h.issueURL(entry.RedmineID),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"notes": payload})
+
+	// Le vivier dans lequel compléter la note à la main : les demandes de la
+	// version, moins celles déjà rattachées. Rendu avec la note plutôt que par un
+	// second appel — les deux se lisent ensemble, et l'écran n'a pas à composer
+	// une différence que le serveur connaît déjà.
+	//
+	// Un échec de lecture n'empêche pas d'afficher la note : le vivier n'est
+	// qu'un confort de saisie, et le rattachement par numéro reste possible.
+	available := make([]notePayload, 0)
+	if issues, err := h.store.ListReleaseVersionIssues(r.Context(), record.ID); err == nil {
+		for _, issue := range issues {
+			if linked[issue.RedmineID] {
+				continue
+			}
+			available = append(available, notePayload{
+				RedmineID: issue.RedmineID, Subject: issue.Subject, Tracker: issue.Tracker,
+				Status: issue.StatusName, Anomaly: issue.Anomaly, Known: true,
+				URL: h.issueURL(issue.RedmineID),
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"notes": payload, "available": available})
 }
 
 // AddNote rattache une demande à la main.

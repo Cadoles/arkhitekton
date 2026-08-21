@@ -452,7 +452,13 @@ export function useNotes(tag: string | undefined) {
   return useQuery({
     queryKey: ['releases', tag, 'notes'],
     queryFn: () =>
-      request<{ notes: NoteEntry[] }>(`/releases/${encodeURIComponent(tag as string)}/notes`),
+      // `available` est le vivier de rattachement : les demandes de la version
+      // moins celles déjà dans la note. Rendu avec elle plutôt que par un second
+      // appel — les deux se lisent ensemble, et l'écran n'a pas à composer une
+      // différence que le serveur connaît.
+      request<{ notes: NoteEntry[]; available: NoteEntry[] }>(
+        `/releases/${encodeURIComponent(tag as string)}/notes`,
+      ),
     enabled: Boolean(tag),
   })
 }

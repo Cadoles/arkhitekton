@@ -1228,3 +1228,7 @@ func (f *fakeReleaseStore) LinkNoteIssue(context.Context, int64, int64, string, 
 func (f *fakeReleaseStore) UnlinkNoteIssue(context.Context, int64, int64) error {
 	return nil
 }
+
+func (f *fakeReleaseStore) ListReleaseVersionIssues(context.Context, int64) ([]store.NoteEntry, error) {
+	return nil, nil
+}

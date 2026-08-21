@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CollapsibleSection } from '../../components/CollapsibleSection'
 import { Icon } from '../../components/Icon'
+import { Modal } from '../../components/Modal'
 import { EmptyState, Skeleton } from '../../components/primitives'
 import { hasAtLeast, useSession } from '../auth/session'
 import { useAddNote, useNotes, useRemoveNote, type NoteEntry } from './api'
@@ -34,12 +35,12 @@ export function ReleaseNotes({ tag }: { tag: string }) {
     <CollapsibleSection
       title="Notes de release"
       count={notes.length}
-      action={canEdit ? <AddNote tag={tag} /> : undefined}
+      action={canEdit ? <AddNote tag={tag} available={data?.available ?? []} /> : undefined}
     >
       {notes.length === 0 ? (
         <EmptyState>
           Aucune demande rattachée. La détection retient les demandes en revue citées par une pull
-          request fusionnée&nbsp;; les autres s&apos;ajoutent par leur numéro.
+          request fusionnée&nbsp;; les autres se choisissent dans la liste de la version.
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-4">
@@ -140,45 +141,135 @@ function NoteRow({ entry, tag, canEdit }: { entry: NoteEntry; tag: string; canEd
 }
 
 /**
- * Ajout d'une demande par son numéro.
+ * Rattachement d'une demande, choisie dans la version.
  *
  * Le geste existe parce que la détection ne peut pas tout voir : une PR dont le
  * titre ne suit pas la convention `#1234`, une demande passée en revue après la
  * création de la release. Sans lui, la seule issue serait de recréer la release.
+ *
+ * La liste plutôt qu'un champ de saisie : la demande cherchée appartient presque
+ * toujours à la version de la release, et taper son numéro demandait de l'avoir
+ * sous les yeux dans Redmine. Le champ subsiste dans la boîte, pour les demandes
+ * d'une autre version — un correctif remonté d'une branche de maintenance.
  */
-function AddNote({ tag }: { tag: string }) {
-  const add = useAddNote(tag)
-  const [value, setValue] = useState('')
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault()
-    const number = Number(value.replace(/^#/, '').trim())
-    if (!Number.isInteger(number) || number <= 0) return
-    add.mutate(number, { onSuccess: () => setValue('') })
-  }
+function AddNote({ tag, available }: { tag: string; available: NoteEntry[] }) {
+  const [open, setOpen] = useState(false)
 
   return (
-    <form onSubmit={submit} className="flex items-center gap-1">
-      <input
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        placeholder="#1234"
-        aria-label="Numéro de demande Redmine à rattacher"
-        className="w-24 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-      />
+    <>
       <button
-        type="submit"
-        disabled={add.isPending || value.trim() === ''}
-        className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
       >
         Rattacher
       </button>
-      {add.isError && (
-        <span className="flex items-center gap-1 text-xs text-critical-700">
-          <Icon name="alert" className="size-3.5" />
-          {(add.error as Error).message}
-        </span>
+
+      {open && (
+        <Modal title="Rattacher une demande" onClose={() => setOpen(false)} size="lg">
+          <AddNoteBody tag={tag} available={available} />
+        </Modal>
       )}
-    </form>
+    </>
+  )
+}
+
+function AddNoteBody({ tag, available }: { tag: string; available: NoteEntry[] }) {
+  const add = useAddNote(tag)
+  const [needle, setNeedle] = useState('')
+  const [manual, setManual] = useState('')
+
+  const filtered = available.filter((entry) => {
+    const query = needle.trim().toLowerCase()
+    if (query === '') return true
+    return (
+      String(entry.redmine_id).includes(query) ||
+      (entry.subject ?? '').toLowerCase().includes(query)
+    )
+  })
+
+  const submitManual = (event: React.FormEvent) => {
+    event.preventDefault()
+    const number = Number(manual.replace(/^#/, '').trim())
+    if (!Number.isInteger(number) || number <= 0) return
+    add.mutate(number, { onSuccess: () => setManual('') })
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {add.isError && (
+        <p className="flex items-start gap-2 text-sm text-critical-700">
+          <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+          {(add.error as Error).message}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-zinc-900">
+          Demandes de la version ({available.length})
+        </h3>
+        <input
+          value={needle}
+          onChange={(event) => setNeedle(event.target.value)}
+          placeholder="Filtrer…"
+          aria-label="Filtrer les demandes"
+          className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
+        />
+      </div>
+
+      {available.length === 0 ? (
+        <EmptyState>
+          Toutes les demandes de cette version sont déjà rattachées, ou la version n&apos;en porte
+          aucune.
+        </EmptyState>
+      ) : filtered.length === 0 ? (
+        <EmptyState>Aucune demande ne correspond au filtre.</EmptyState>
+      ) : (
+        <ul className="flex flex-col">
+          {filtered.map((entry) => (
+            <li
+              key={entry.redmine_id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-200 py-1.5 text-sm first:border-t-0"
+            >
+              <span className="font-mono text-xs text-zinc-500">#{entry.redmine_id}</span>
+              <span className="text-zinc-900">{entry.subject}</span>
+              <span className="text-xs text-zinc-500">{entry.tracker}</span>
+              <span className="text-xs text-zinc-500">{entry.status}</span>
+              <button
+                type="button"
+                onClick={() => add.mutate(entry.redmine_id)}
+                disabled={add.isPending}
+                className="ml-auto rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+              >
+                Rattacher
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* La saisie libre reste : une demande d'une autre version — un correctif
+          remonté d'une branche de maintenance — n'apparaît pas dans la liste, et
+          la boîte serait alors une impasse. */}
+      <form onSubmit={submitManual} className="flex items-center gap-2 border-t border-zinc-200 pt-3">
+        <label htmlFor="note-manual" className="text-sm text-zinc-500">
+          Demande d&apos;une autre version
+        </label>
+        <input
+          id="note-manual"
+          value={manual}
+          onChange={(event) => setManual(event.target.value)}
+          placeholder="#1234"
+          className="w-24 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+        />
+        <button
+          type="submit"
+          disabled={add.isPending || manual.trim() === ''}
+          className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+        >
+          Rattacher
+        </button>
+      </form>
+    </div>
   )
 }

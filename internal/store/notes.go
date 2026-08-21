@@ -140,6 +140,43 @@ func (db *DB) NoteCandidates(ctx context.Context, statuses []string) (map[int64]
 	return candidates, rows.Err()
 }
 
+// ListReleaseVersionIssues rend les demandes de la version d'une release.
+//
+// C'est le vivier dans lequel on puise pour compléter une note à la main : la
+// demande qu'on cherche appartient presque toujours à la version de la release,
+// et la retrouver par son numéro seul demandait de l'avoir sous les yeux dans
+// Redmine.
+//
+// Les rejetées sont écartées : elles ne sont pas livrées, et les proposer au
+// rattachement inviterait à annoncer au client ce qui a été abandonné.
+func (db *DB) ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]NoteEntry, error) {
+	rows, err := db.pool.Query(ctx,
+		`select i.redmine_id, coalesce(i.tracker, ''), coalesce(i.subject, ''),
+		        coalesce(i.status_name, '')
+		   from releases r
+		   join issues i on i.version_id = r.version_id
+		  where r.id = $1
+		    and i.status_bucket <> $2
+		  order by i.tracker, i.redmine_id`, releaseID, BucketRejected)
+	if err != nil {
+		return nil, fmt.Errorf("demandes de la version de la release %d: %w", releaseID, err)
+	}
+	defer rows.Close()
+
+	var entries []NoteEntry
+	for rows.Next() {
+		var entry NoteEntry
+		if err := rows.Scan(&entry.RedmineID, &entry.Tracker, &entry.Subject,
+			&entry.StatusName); err != nil {
+			return nil, fmt.Errorf("demandes de la version de la release %d: %w", releaseID, err)
+		}
+		entry.Known = true
+		entry.Anomaly = isAnomaly(entry.Tracker)
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
 // ReleaseIDByTag rend la clé d'une release depuis son tag.
 func (db *DB) ReleaseIDByTag(ctx context.Context, tag string) (int64, error) {
 	var id int64
