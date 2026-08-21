@@ -40,7 +40,13 @@ type RunRecord struct {
 // recopie — plutôt qu'en dépendance croisée entre deux paquets qui n'ont pas à
 // se connaître.
 type DeclaredTask struct {
-	Name        string `json:"name"`
+	Name string `json:"name"`
+	// DisplayName porte le label `tekton.dev/pipelineTask`, c'est-à-dire le nom
+	// de la **tâche du pipeline** — `git-clone` — et non un libellé humain. Le
+	// nom est un accident d'histoire, et il a coûté un défaut : la même étape
+	// s'affichait deux fois, une fois exécutée sous ce nom et une fois « en
+	// attente » sous le libellé de la déclaration. C'est par lui que les deux se
+	// rapprochent.
 	DisplayName string `json:"display_name,omitempty"`
 	Finally     bool   `json:"finally,omitempty"`
 }

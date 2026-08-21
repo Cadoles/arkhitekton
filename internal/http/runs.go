@@ -128,9 +128,19 @@ func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 // déclarations — sont conservées en tête : les taire perdrait une exécution
 // réelle au profit d'une définition.
 func mergeTasks(detail store.RunDetail) []taskPayload {
+	// Le rapprochement se fait sur le nom de la **tâche du pipeline**, et c'est
+	// tout le sujet : une tâche observée porte deux noms — celui de son TaskRun,
+	// `mse-…-git-clone`, et celui de la tâche qu'elle exécute, `git-clone`. Seul
+	// le second existe dans la déclaration. Les confondre affichait la même étape
+	// deux fois : une fois exécutée sous son nom technique, une fois « en
+	// attente » sous son libellé.
+	//
+	// Le champ qui le porte s'appelle `DisplayName` par accident d'histoire : il
+	// reçoit le label `tekton.dev/pipelineTask`, qui est une identité, pas un
+	// libellé. Le vrai libellé humain ne vit que dans la déclaration.
 	observed := make(map[string]store.TaskSummary, len(detail.Tasks))
 	for _, task := range detail.Tasks {
-		observed[task.Name] = task
+		observed[task.DisplayName] = task
 	}
 
 	tasks := make([]taskPayload, 0, len(detail.Tasks)+len(detail.Declared))
@@ -141,33 +151,44 @@ func mergeTasks(detail store.RunDetail) []taskPayload {
 		declared[task.Name] = true
 	}
 	for _, task := range detail.Tasks {
-		if !declared[task.Name] {
-			tasks = append(tasks, toTaskPayload(task))
+		if !declared[task.DisplayName] {
+			tasks = append(tasks, toTaskPayload(task, ""))
 		}
 	}
 
 	for _, task := range detail.Declared {
 		if started, ok := observed[task.Name]; ok {
-			tasks = append(tasks, toTaskPayload(started))
+			// Le libellé vient de la déclaration : « Clone mse » plutôt que
+			// `git-clone`. Une tâche ne doit pas changer de nom en démarrant.
+			tasks = append(tasks, toTaskPayload(started, task.DisplayName))
 			continue
 		}
 		// Pas encore démarrée. `pending` est le même vocabulaire que celui d'un
 		// run qui n'a pas commencé : l'interface sait déjà le rendre.
-		name := task.DisplayName
-		if name == "" {
-			name = task.Name
-		}
 		tasks = append(tasks, taskPayload{
-			Name: task.Name, DisplayName: name, Status: "pending",
+			Name: task.Name, DisplayName: taskLabel(task.DisplayName, task.Name),
+			Status: "pending",
 		})
 	}
 	return tasks
 }
 
-func toTaskPayload(task store.TaskSummary) taskPayload {
+// taskLabel rend le libellé humain, ou le nom technique à défaut.
+func taskLabel(displayName, fallback string) string {
+	if displayName != "" {
+		return displayName
+	}
+	return fallback
+}
+
+// toTaskPayload traduit une tâche observée.
+//
+// `label` est le libellé de la déclaration, vide quand la tâche n'y figure pas.
+// `Name` reste le nom du TaskRun : c'est par lui que les journaux se lisent.
+func toTaskPayload(task store.TaskSummary, label string) taskPayload {
 	return taskPayload{
 		Name:        task.Name,
-		DisplayName: task.DisplayName,
+		DisplayName: taskLabel(label, task.DisplayName),
 		Status:      task.Status,
 		StartedAt:   task.StartedAt,
 		CompletedAt: task.CompletedAt,
