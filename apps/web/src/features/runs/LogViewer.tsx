@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { APP_SCROLL_ID } from '../../components/AppShell'
 import { Icon } from '../../components/Icon'
 import { ErrorState, Skeleton } from '../../components/primitives'
+import { copyText } from '../../lib/clipboard'
 import { useScrollLock } from '../../lib/scrollLock'
 import { useTaskLog } from './useTaskLog'
 
@@ -359,15 +360,15 @@ export function LogViewer({
 
 /** Bouton de copie du lien vers la sélection. */
 function ShareLink({ selection }: { selection: Selection }) {
-  const [copied, setCopied] = useState(false)
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   // Le retour visuel s'efface de lui-même : un « copié » qui reste laisse croire,
   // à la copie suivante, que rien ne s'est passé.
   useEffect(() => {
-    if (!copied) return
-    const timer = window.setTimeout(() => setCopied(false), 2000)
+    if (state === 'idle') return
+    const timer = window.setTimeout(() => setState('idle'), 2500)
     return () => window.clearTimeout(timer)
-  }, [copied])
+  }, [state])
 
   const label =
     selection.start === selection.end
@@ -379,18 +380,32 @@ function ShareLink({ selection }: { selection: Selection }) {
       type="button"
       onClick={() => {
         // L'URL vient de la barre d'adresse et non d'une reconstruction : elle
-        // porte déjà l'ancre que la sélection vient d'y écrire, et la recomposer
-        // à la main ferait diverger les deux au premier changement de route.
-        void navigator.clipboard
-          .writeText(window.location.href)
-          .then(() => setCopied(true))
-          .catch(() => setCopied(false))
+        // porte déjà l'ancre et la task que la sélection vient d'y écrire, et la
+        // recomposer à la main ferait diverger les deux au premier changement de
+        // route.
+        //
+        // L'échec est affiché plutôt que tu : le presse-papiers peut refuser, et
+        // laisser croire à une copie ferait coller autre chose.
+        void copyText(window.location.href).then((done) => setState(done ? 'copied' : 'failed'))
       }}
-      title="Copier le lien vers cette sélection"
-      className="flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100"
+      title={
+        state === 'failed'
+          ? 'Le navigateur a refusé la copie — sélectionnez la barre d’adresse'
+          : 'Copier le lien vers cette sélection'
+      }
+      className={`flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+        state === 'failed'
+          ? 'border-critical-500 bg-critical-50 text-critical-700'
+          : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'
+      }`}
     >
-      <Icon name={copied ? 'check' : 'link'} className="size-3.5" />
-      {copied ? 'Lien copié' : `Copier le lien — ${label}`}
+      <Icon
+        name={state === 'copied' ? 'check' : state === 'failed' ? 'alert' : 'link'}
+        className="size-3.5"
+      />
+      {state === 'copied' && 'Lien copié'}
+      {state === 'failed' && 'Copie refusée'}
+      {state === 'idle' && `Copier le lien — ${label}`}
     </button>
   )
 }
