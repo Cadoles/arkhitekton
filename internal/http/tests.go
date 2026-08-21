@@ -368,6 +368,11 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 
 	cases := make([]casePayload, 0, casePageSize)
 	total := 0
+	// Le run qui a produit le rapport affiché. Rendu avec les cas pour que le
+	// lecteur puisse ouvrir l'exécution — ses journaux disent pourquoi un test a
+	// échoué là où le rapport dit seulement qu'il a échoué.
+	var runName, tool string
+	var measuredAt time.Time
 	for _, report := range reports {
 		if report.Family != family {
 			continue
@@ -385,6 +390,7 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 				Message:    testCase.FailureMessage, Trace: testCase.FailureTrace,
 			})
 		}
+		runName, tool, measuredAt = report.RunName, report.Tool, report.CreatedAt
 		// Le rapport le plus récent de la famille suffit : c'est lui qui décrit
 		// l'état de la release.
 		break
@@ -399,6 +405,13 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 		"total":  total,
 		"limit":  casePageSize,
 		"offset": page.Offset,
+	}
+	if runName != "" {
+		response["run_name"] = runName
+	}
+	if tool != "" {
+		response["tool"] = tool
+		response["measured_at"] = measuredAt
 	}
 
 	previous, err := h.store.PreviousRelease(r.Context(), release.ID)
@@ -508,8 +521,9 @@ func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"audited": true,
-		"run_id":  audit.RunID,
+		"audited":  true,
+		"run_id":   audit.RunID,
+		"run_name": audit.RunName,
 		// Measured dit si l'audit peut prononcer un verdict. Faux, les compteurs
 		// restent affichés mais ne notent rien : un audit partiel qui afficherait
 		// « conforme » est le pire résultat possible ici.

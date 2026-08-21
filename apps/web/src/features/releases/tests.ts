@@ -77,6 +77,11 @@ export type FamilyPage = {
   family: string
   cases: TestCase[]
   diff?: CaseDiff[]
+  /** Exécution qui a produit le rapport affiché. Absente si sa projection a été
+   *  purgée — le rapport lui survit. */
+  run_name?: string
+  tool?: string
+  measured_at?: string
   /** Nombre de cas correspondant au filtre, toutes pages confondues. */
   total: number
   limit: number
@@ -167,7 +172,10 @@ export type Finding = {
 
 export type SecurityReport = {
   audited: boolean
+  /** Identifiant que l'audit se donne dans son rapport, distinct du PipelineRun. */
   run_id?: string
+  /** Exécution qui a produit l'audit. Absente si sa projection a été purgée. */
+  run_name?: string
   /** Faux quand un scanner n'a pas conclu. Les compteurs restent affichés mais
    *  ne notent rien : un audit partiel qui afficherait « conforme » est le pire
    *  résultat possible. */

@@ -24,6 +24,9 @@ type TestResult struct {
 	Summary    string
 	RawObject  string
 	CreatedAt  time.Time
+	// RunName est le nom du PipelineRun qui a produit ce rapport. Vide si le run
+	// a été purgé de la projection — le rapport survit à son exécution.
+	RunName string
 }
 
 // TestCase est un cas individuel.
@@ -100,13 +103,18 @@ func (db *DB) TestResultExists(ctx context.Context, runID int64, tool string) (b
 // ListReleaseTestResults rend les rapports d'une release.
 func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]TestResult, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, run_id, release_id, family, tool, status,
-		        coalesce(total, 0), coalesce(passed, 0), coalesce(failed, 0),
-		        coalesce(skipped, 0), coalesce(flaky, 0), coalesce(duration_ms, 0),
-		        coalesce(summary, ''), coalesce(raw_object, ''), created_at
-		 from test_results
-		 where release_id = $1 and family <> 'load'
-		 order by created_at desc`, releaseID)
+		// Le nom du run est joint plutôt que résolu ensuite : il sert à renvoyer
+		// le lecteur vers l'exécution qui a produit le rapport, et une seconde
+		// requête par rapport pour un seul champ ne se justifie pas.
+		`select t.id, t.run_id, t.release_id, t.family, t.tool, t.status,
+		        coalesce(t.total, 0), coalesce(t.passed, 0), coalesce(t.failed, 0),
+		        coalesce(t.skipped, 0), coalesce(t.flaky, 0), coalesce(t.duration_ms, 0),
+		        coalesce(t.summary, ''), coalesce(t.raw_object, ''), t.created_at,
+		        coalesce(r.pipelinerun_name, '')
+		 from test_results t
+		 left join runs r on r.id = t.run_id
+		 where t.release_id = $1 and t.family <> 'load'
+		 order by t.created_at desc`, releaseID)
 	if err != nil {
 		return nil, fmt.Errorf("résultats de la release %d: %w", releaseID, err)
 	}
@@ -118,7 +126,7 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 		if err := rows.Scan(&result.ID, &result.RunID, &result.ReleaseID, &result.Family,
 			&result.Tool, &result.Status, &result.Total, &result.Passed, &result.Failed,
 			&result.Skipped, &result.Flaky, &result.DurationMS, &result.Summary,
-			&result.RawObject, &result.CreatedAt); err != nil {
+			&result.RawObject, &result.CreatedAt, &result.RunName); err != nil {
 			return nil, fmt.Errorf("résultats de la release %d: %w", releaseID, err)
 		}
 		results = append(results, result)

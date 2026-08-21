@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
 import { status } from '../../lib/status'
 import { PipelineTimeline } from './PipelineTimeline'
+import { RunLink } from './RunLink'
 import { SEVERITY_LABEL, useSecurity, type Finding, type SecurityReport, type Severity } from './tests'
 
 /*
@@ -38,6 +39,11 @@ export function SecurityDetail({ tag, runName }: { tag: string | undefined; runN
 
       {data?.audited && (
         <>
+          {data.run_name && (
+            <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+              <RunLink runName={data.run_name} />
+            </div>
+          )}
           <Overview report={data} />
           <FindingsCard
             findings={data.findings ?? []}

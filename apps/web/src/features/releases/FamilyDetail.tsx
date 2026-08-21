@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
+import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
 import { PipelineTimeline } from './PipelineTimeline'
+import { RunLink } from './RunLink'
 import { CHANGE_LABEL, useFamily, type CaseDiff, type Change, type TestCase } from './tests'
 
 /*
@@ -104,6 +106,18 @@ export function FamilyDetail({
 
       {data && (
         <>
+          {/* L'exécution qui a produit ce rapport, en tête : le rapport dit
+              qu'un test a échoué, ses journaux disent pourquoi. Quand un run est
+              en cours, c'est lui que la frise décrit et celui-ci décrit la mesure
+              affichée — les deux coexistent sans se contredire. */}
+          {(data.run_name || data.tool) && (
+            <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+              {data.tool && <span className="font-mono">{data.tool}</span>}
+              {data.measured_at && <span>mesuré le {formatDateTime(data.measured_at)}</span>}
+              <RunLink runName={data.run_name} />
+            </div>
+          )}
+
           <DiffSummary diff={data.diff} />
 
           <div className="flex flex-wrap items-center justify-between gap-2">

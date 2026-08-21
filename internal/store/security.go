@@ -12,8 +12,13 @@ import (
 
 // SecurityAudit est l'agrégat d'un audit, tel que `summary.json` le porte.
 type SecurityAudit struct {
-	TestResultID  int64
-	RunID         string
+	TestResultID int64
+	// RunID est l'identifiant que l'audit se donne à lui-même, tel que
+	// `sec-normalize` l'inscrit dans son rapport — pas celui d'un PipelineRun.
+	RunID string
+	// RunName est le PipelineRun qui a produit l'audit. Vide si sa projection a
+	// été purgée : le rapport lui survit.
+	RunName       string
 	GeneratedAt   string
 	Total         int
 	Critical      int
@@ -157,16 +162,22 @@ func (db *DB) LatestSecurityAudit(ctx context.Context, releaseID int64) (Securit
 		`select a.test_result_id, a.run_id, a.generated_at, a.total,
 		        a.critical, a.high, a.medium, a.low, a.suppressed,
 		        a.delta_new, a.delta_existing, a.delta_resolved,
-		        a.failed_scanners, a.scanner_status, a.policy, a.previous_run_id, a.created_at
+		        a.failed_scanners, a.scanner_status, a.policy, a.previous_run_id, a.created_at,
+		        coalesce(p.pipelinerun_name, '')
 		 from security_audits a
 		 join test_results r on r.id = a.test_result_id
+		 -- Le nom du run, pour renvoyer le lecteur vers l'exécution qui a produit
+		 -- l'audit. Jointure lâche : le rapport survit à la purge de sa
+		 -- projection, et un audit sans run reste lisible.
+		 left join runs p on p.id = r.run_id
 		 where r.release_id = $1
 		 order by a.created_at desc
 		 limit 1`, releaseID).
 		Scan(&audit.TestResultID, &audit.RunID, &generatedAt, &audit.Total,
 			&audit.Critical, &audit.High, &audit.Medium, &audit.Low, &audit.Suppressed,
 			&audit.DeltaNew, &audit.DeltaExisting, &audit.DeltaResolved,
-			&audit.FailedScanners, &status, &policy, &previousRunID, &audit.CreatedAt)
+			&audit.FailedScanners, &status, &policy, &previousRunID, &audit.CreatedAt,
+			&audit.RunName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return audit, ErrAuditNotFound
