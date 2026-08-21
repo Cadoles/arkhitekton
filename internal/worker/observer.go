@@ -85,8 +85,14 @@ func (s *runSink) disown(run tekton.Run) tekton.Run {
 }
 
 // ReleaseAdvancer est ce que la conclusion attend de la base.
+//
+// `JobRelease` y figure parce que deux chemins en dépendent — la conclusion
+// d'état et le rattachement des rapports ingérés — et que les éprouver sans base
+// est ce qui a manqué : les rapports s'enregistraient orphelins de leur release
+// sans qu'aucun test ne le voie.
 type ReleaseAdvancer interface {
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
+	JobRelease(ctx context.Context, jobID int64) (store.JobReleaseContext, error)
 }
 
 // Enqueuer est ce que l'enchaînement attend de la file.
@@ -174,13 +180,43 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 		return err
 	}
 
-	if err := s.ingestLoad(ctx, id, run); err != nil {
+	// La release est résolue une fois, ici, et non dans chacune des trois
+	// ingestions : elles la portent toutes, et trois lectures pour un même run
+	// diraient trois fois la même chose.
+	release := s.releaseOf(ctx, run)
+
+	if err := s.ingestLoad(ctx, id, run, release); err != nil {
 		return err
 	}
-	if err := s.ingestTests(ctx, id, run); err != nil {
+	if err := s.ingestTests(ctx, id, run, release); err != nil {
 		return err
 	}
-	return s.ingestSecurity(ctx, id, run)
+	return s.ingestSecurity(ctx, id, run, release)
+}
+
+// releaseOf rend la release que ce run vérifie, s'il en vérifie une.
+//
+// Sans elle, les rapports étaient enregistrés **orphelins** : l'écran d'une
+// release cherche ses résultats par `release_id`, et n'en trouvait aucun alors
+// que la table en portait neuf. Le score restait donc « non évalué » sur une
+// release dont les tests avaient tourné et réussi.
+//
+// Nil est un cas normal, pas une anomalie : un run déclenché par webhook ou par
+// CronJob ne vérifie aucune release, et ses rapports restent consultables depuis
+// le run lui-même.
+func (s *runSink) releaseOf(ctx context.Context, run tekton.Run) *int64 {
+	if run.JobID == 0 {
+		return nil
+	}
+
+	linked, err := s.releases.JobRelease(ctx, run.JobID)
+	if err != nil {
+		if !errors.Is(err, store.ErrJobWithoutRelease) {
+			s.logger.Error("release d'un run", "run", run.Name, "job", run.JobID, "error", err)
+		}
+		return nil
+	}
+	return &linked.ReleaseID
 }
 
 // ingestSecurity enregistre l'audit normalisé d'un run terminé.
@@ -188,12 +224,12 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 // L'échec n'est pas rendu à l'observateur, pour la même raison que les deux
 // autres ingestions : il ferait retenter la projection du run entier alors que
 // le run est correctement enregistré.
-func (s *runSink) ingestSecurity(ctx context.Context, runID int64, run tekton.Run) error {
+func (s *runSink) ingestSecurity(ctx context.Context, runID int64, run tekton.Run, release *int64) error {
 	if s.security == nil || !run.Status.Terminal() {
 		return nil
 	}
 
-	if err := s.security.Ingest(ctx, LoadRun{ID: runID, Name: run.Name, JobID: run.JobID}); err != nil {
+	if err := s.security.Ingest(ctx, LoadRun{ID: runID, Name: run.Name, JobID: run.JobID, ReleaseID: release}); err != nil {
 		s.security.logger.Error("ingestion de l'audit de sécurité", "run", run.Name, "error", err)
 	}
 	return nil
@@ -205,12 +241,12 @@ func (s *runSink) ingestSecurity(ctx context.Context, runID int64, run tekton.Ru
 // charge : il ferait retenter la projection du run entier alors que le run est
 // correctement enregistré. L'ingestion étant idempotente, la prochaine visite
 // rejouera ce qui manque.
-func (s *runSink) ingestTests(ctx context.Context, runID int64, run tekton.Run) error {
+func (s *runSink) ingestTests(ctx context.Context, runID int64, run tekton.Run, release *int64) error {
 	if s.tests == nil || !run.Status.Terminal() {
 		return nil
 	}
 
-	if err := s.tests.Ingest(ctx, LoadRun{ID: runID, Name: run.Name, JobID: run.JobID}); err != nil {
+	if err := s.tests.Ingest(ctx, LoadRun{ID: runID, Name: run.Name, JobID: run.JobID, ReleaseID: release}); err != nil {
 		s.tests.logger.Error("ingestion des rapports de tests", "run", run.Name, "error", err)
 	}
 	return nil
@@ -223,7 +259,7 @@ func (s *runSink) ingestTests(ctx context.Context, runID int64, run tekton.Run) 
 // résumé illisible est un problème de résultat, pas d'observation, et la
 // prochaine visite du run le rejouera de toute façon — l'ingestion est
 // idempotente.
-func (s *runSink) ingestLoad(ctx context.Context, runID int64, run tekton.Run) error {
+func (s *runSink) ingestLoad(ctx context.Context, runID int64, run tekton.Run, release *int64) error {
 	if s.load == nil || !run.Status.Terminal() || !isLoadRun(run) {
 		return nil
 	}
@@ -235,6 +271,7 @@ func (s *runSink) ingestLoad(ctx context.Context, runID int64, run tekton.Run) e
 
 	err := s.load.Ingest(ctx, LoadRun{
 		ID: runID, Name: run.Name, JobID: run.JobID, DurationMS: duration,
+		ReleaseID: release,
 	})
 	if err != nil {
 		s.load.logger.Error("ingestion des campagnes de charge", "run", run.Name, "error", err)
@@ -291,7 +328,7 @@ func (s *runSink) finishJob(ctx context.Context, run tekton.Run) error {
 // `false` dans ce cas, ce qui est consigné et non traité comme une erreur — un
 // pipeline arrivé après coup n'a pas le dernier mot.
 func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobState string) error {
-	linked, err := s.db.JobRelease(ctx, jobID)
+	linked, err := s.releases.JobRelease(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobWithoutRelease) {
 			// Cas courant : un lancement manuel de tests depuis la file ne

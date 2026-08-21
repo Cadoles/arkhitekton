@@ -19,6 +19,9 @@ type fakeVerificationStore struct {
 	// state simule la release et son écriture conditionnelle.
 	state    string
 	advances int
+	// jobRelease associe un job à sa release. Nil, tous les jobs en rendent une
+	// vide — le comportement des tests qui ne s'y intéressent pas.
+	jobRelease map[int64]store.JobReleaseContext
 }
 
 func (f *fakeVerificationStore) Enqueue(_ context.Context, request store.JobRequest) (int64, error) {
@@ -214,8 +217,15 @@ func (f *fakeVerificationStore) AdvanceReleaseState(_ context.Context, _ int64, 
 	return true, nil
 }
 
-func (f *fakeVerificationStore) JobRelease(context.Context, int64) (store.JobReleaseContext, error) {
-	return store.JobReleaseContext{}, nil
+func (f *fakeVerificationStore) JobRelease(_ context.Context, jobID int64) (store.JobReleaseContext, error) {
+	if f.jobRelease == nil {
+		return store.JobReleaseContext{}, nil
+	}
+	linked, ok := f.jobRelease[jobID]
+	if !ok {
+		return store.JobReleaseContext{}, store.ErrJobWithoutRelease
+	}
+	return linked, nil
 }
 
 // L'observateur redélivre les runs terminés : resynchronisation de l'informer,
@@ -456,5 +466,58 @@ func TestChaqueArtefactDeclareSonParametreEtSonNom(t *testing.T) {
 					pipeline.Kind, name, upload.Format, upload.Artifact)
 			}
 		}
+	}
+}
+
+// Le défaut qui vidait l'écran d'une release : les rapports étaient bien ingérés
+// — neuf lignes en base — mais avec `release_id` nul. L'écran les cherche par
+// release et n'en trouvait aucun, laissant le score « non évalué » sur une
+// release dont les tests avaient tourné et réussi.
+//
+// La cause tenait en un champ non renseigné à l'appel : `LoadRun` porte bien
+// `ReleaseID`, et les trois ingestions le laissaient à zéro.
+func TestUnRapportEstRattacheALaReleaseQueSonRunVerifie(t *testing.T) {
+	fake := &fakeVerificationStore{
+		jobRelease: map[int64]store.JobReleaseContext{
+			42: {ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "static-tests"},
+		},
+	}
+	sink := sinkFor(fake, verificationCatalog())
+	sink.releases = fake
+
+	release := sink.releaseOf(context.Background(), tekton.Run{Name: "mse-static-tests-42", JobID: 42})
+
+	if release == nil {
+		t.Fatal("aucune release rendue: les rapports s'enregistreraient orphelins")
+	}
+	if *release != 7 {
+		t.Errorf("release %d, attendu 7", *release)
+	}
+}
+
+// Un run que le dashboard n'a pas lancé — webhook Gitea, CronJob nocturne — ne
+// vérifie aucune release. C'est un cas normal : ses rapports restent
+// consultables depuis le run, et leur inventer une release les ferait apparaître
+// dans le score de quelqu'un d'autre.
+func TestUnRunObserveNeRattacheSesRapportsAAucuneRelease(t *testing.T) {
+	fake := &fakeVerificationStore{}
+	sink := sinkFor(fake, verificationCatalog())
+	sink.releases = fake
+
+	if release := sink.releaseOf(context.Background(),
+		tekton.Run{Name: "php-static-tests-run-abc", JobID: 0}); release != nil {
+		t.Errorf("release %d rendue pour un run observé", *release)
+	}
+}
+
+// Un job sans release non plus — un lancement manuel depuis la file.
+func TestUnLancementManuelNeRattacheRien(t *testing.T) {
+	fake := &fakeVerificationStore{jobRelease: map[int64]store.JobReleaseContext{}}
+	sink := sinkFor(fake, verificationCatalog())
+	sink.releases = fake
+
+	if release := sink.releaseOf(context.Background(),
+		tekton.Run{Name: "mse-static-tests-9", JobID: 9}); release != nil {
+		t.Errorf("release %d rendue pour un job sans release", *release)
 	}
 }
