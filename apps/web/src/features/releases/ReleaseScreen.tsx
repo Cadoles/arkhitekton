@@ -67,12 +67,14 @@ export function ReleaseScreen() {
               celui qui dit s'il faut ouvrir le reste. */}
           <TestsPanel tag={data.tag} jobs={data.jobs ?? []} />
 
-          {/* La note avant les images : c'est le contenu fonctionnel de la
-              release, ce qu'on relit avant de l'envoyer au client. */}
-          <ReleaseNotes release={data} />
-
+          {/* L'état technique d'abord — quelles images existent, où elles
+              tournent — puis le contenu fonctionnel. On vient sur cet écran pour
+              savoir où en est la release ; ce qu'elle apporte se relit ensuite,
+              au moment de rédiger ce qui part chez le client. */}
           <Images release={data} />
           <Deployment release={data} />
+
+          <ReleaseNotes release={data} />
           <Exports release={data} />
 
           {/* Les exécutions en dernier et repliées : c'est de la matière de
