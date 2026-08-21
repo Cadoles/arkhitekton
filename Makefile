@@ -173,7 +173,11 @@ manifests: ## Rend et analyse les manifests de l'overlay
 # de ce redémarrage donne un cluster qui tourne sur du code ancien en affichant
 # des manifests à jour.
 deploy: kind-load manifests ## Déploie sur kind (overlay local, sans Skaffold)
-	kubectl delete job -n mse-dashboard mse-dashboard-migrate mse-dashboard-minio-bucket --ignore-not-found
+	@# `--wait` n'est pas un confort : un Job est immuable, et l'`apply` qui suit
+	@# échoue sur « field is immutable » si l'objet n'a pas fini de disparaître.
+	@# La suppression par défaut rend la main avant que ses pods soient partis.
+	kubectl delete job -n mse-dashboard mse-dashboard-migrate mse-dashboard-minio-bucket \
+		--ignore-not-found --wait=true
 	kustomize build $(OVERLAY) | kubectl apply -f -
 	kubectl wait --for=condition=complete --timeout=180s -n mse-dashboard job/mse-dashboard-migrate
 	@# Le tag `dev` ne change pas d'un build à l'autre : sans redémarrage forcé,
