@@ -18,7 +18,6 @@ import {
   useRebuild,
   useRelease,
   useReleaseRelease,
-  useSaveManualActions,
   usePromote,
   type Image,
   type PromotionTarget,
@@ -70,11 +69,10 @@ export function ReleaseScreen() {
 
           {/* La note avant les images : c'est le contenu fonctionnel de la
               release, ce qu'on relit avant de l'envoyer au client. */}
-          <ReleaseNotes tag={data.tag} />
+          <ReleaseNotes release={data} />
 
           <Images release={data} />
           <Deployment release={data} />
-          <ManualActionsPanel release={data} />
           <Exports release={data} />
 
           {/* Les exécutions en dernier et repliées : c'est de la matière de
@@ -358,65 +356,6 @@ function Executions({ release }: { release: ReleaseDetail }) {
         </ul>
       )}
     </CollapsibleSection>
-  )
-}
-
-function ManualActionsPanel({ release }: { release: ReleaseDetail }) {
-  const stored = release.manual_actions?.markdown ?? ''
-
-  // La clé remonte l'éditeur quand le texte enregistré change, et seulement
-  // alors. Une saisie en cours ne bouge donc pas — `stored` ne varie pas pendant
-  // qu'on tape — mais une sauvegarde, ici ou ailleurs, repart du texte réel.
-  // Synchroniser dans un effet ferait la même chose avec un rendu de plus et une
-  // fenêtre où les deux valeurs divergent.
-  return <ManualActionsEditor key={stored} release={release} stored={stored} />
-}
-
-function ManualActionsEditor({ release, stored }: { release: ReleaseDetail; stored: string }) {
-  const save = useSaveManualActions(release.tag)
-  const [draft, setDraft] = useState(stored)
-  const dirty = draft !== stored
-
-  return (
-    <Card
-      title="Actions manuelles"
-      action={
-        release.manual_actions?.updated_at ? (
-          <span className="text-xs text-zinc-500">
-            {release.manual_actions.updated_by} — {formatDateTime(release.manual_actions.updated_at)}
-          </span>
-        ) : undefined
-      }
-    >
-      {/* Champ libre et non liste de cases à cocher : les gestes manuels d'une
-          livraison ne se répètent pas assez d'une version à l'autre pour qu'une
-          checklist les couvre, et une checklist incomplète se remplit quand même.
-          Ce texte est repris dans le bon de livraison. */}
-      <label className="sr-only" htmlFor="manual-actions">
-        Actions manuelles de la livraison
-      </label>
-      <textarea
-        id="manual-actions"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        rows={8}
-        placeholder="Gestes manuels de la livraison, en Markdown. Repris dans le bon de livraison."
-        className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900"
-      />
-
-      <div className="mt-2 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => save.mutate(draft)}
-          disabled={!dirty || save.isPending}
-          className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
-        >
-          Enregistrer
-        </button>
-        {save.isError && <span className="text-sm text-critical-700">{(save.error as Error).message}</span>}
-        {dirty && !save.isPending && <span className="text-sm text-zinc-500">Modifications non enregistrées.</span>}
-      </div>
-    </Card>
   )
 }
 

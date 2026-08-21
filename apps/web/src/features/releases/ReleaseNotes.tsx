@@ -4,7 +4,15 @@ import { Icon } from '../../components/Icon'
 import { Modal } from '../../components/Modal'
 import { EmptyState, Skeleton } from '../../components/primitives'
 import { hasAtLeast, useSession } from '../auth/session'
-import { useAddNote, useNotes, useRemoveNote, type NoteEntry } from './api'
+import { formatDateTime } from '../../lib/format'
+import {
+  useAddNote,
+  useNotes,
+  useRemoveNote,
+  useSaveManualActions,
+  type NoteEntry,
+  type ReleaseDetail,
+} from './api'
 
 /*
  * Note de release — reprise de la maquette, qui la sépare en « Nouveautés » et
@@ -19,7 +27,8 @@ import { useAddNote, useNotes, useRemoveNote, type NoteEntry } from './api'
  * rejoue pas : elle écraserait ces ajustements, et une note est un document qu'on
  * relit avant de l'envoyer au client.
  */
-export function ReleaseNotes({ tag }: { tag: string }) {
+export function ReleaseNotes({ release }: { release: ReleaseDetail }) {
+  const tag = release.tag
   const { data, isPending } = useNotes(tag)
   const session = useSession()
 
@@ -45,17 +54,26 @@ export function ReleaseNotes({ tag }: { tag: string }) {
         ) : undefined
       }
     >
-      {notes.length === 0 ? (
-        <EmptyState>
-          Aucune demande rattachée. La détection retient les demandes en revue citées par une pull
-          request fusionnée&nbsp;; les autres se choisissent dans la liste de la version.
-        </EmptyState>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <NoteGroup title="Nouveautés" entries={features} tag={tag} canEdit={canEdit} />
-          <NoteGroup title="Corrections" entries={fixes} tag={tag} canEdit={canEdit} />
-        </div>
-      )}
+      <div className="flex flex-col gap-4">
+        {notes.length === 0 ? (
+          <EmptyState>
+            Aucune demande rattachée. La détection retient les demandes en revue citées par une
+            pull request fusionnée&nbsp;; les autres se choisissent dans la liste de la version.
+          </EmptyState>
+        ) : (
+          <>
+            <NoteGroup title="Nouveautés" entries={features} tag={tag} canEdit={canEdit} />
+            <NoteGroup title="Corrections" entries={fixes} tag={tag} canEdit={canEdit} />
+          </>
+        )}
+
+        {/* Les actions manuelles font partie de la note, pas d'une section à
+            elles : ce qu'on envoie au client, c'est ce qui change, ce qui est
+            corrigé, et ce qu'il doit faire à la main pour que la livraison
+            prenne. Les séparer laissait la troisième derrière les exécutions,
+            où personne ne la relisait avant d'éditer le bon de livraison. */}
+        <ManualActions release={release} canEdit={canEdit} />
+      </div>
     </CollapsibleSection>
   )
 }
@@ -304,5 +322,98 @@ function AddNoteBody({
         </button>
       </form>
     </div>
+  )
+}
+
+/**
+ * Actions manuelles de la livraison, troisième volet de la note.
+ *
+ * Champ libre et non liste de cases à cocher : les gestes manuels d'une
+ * livraison ne se répètent pas assez d'une version à l'autre pour qu'une
+ * checklist les couvre, et une checklist incomplète se remplit quand même. Ce
+ * texte est repris tel quel dans le bon de livraison.
+ */
+function ManualActions({ release, canEdit }: { release: ReleaseDetail; canEdit: boolean }) {
+  const stored = release.manual_actions?.markdown ?? ''
+
+  // La clé remonte l'éditeur quand le texte enregistré change, et seulement
+  // alors. Une saisie en cours ne bouge donc pas — `stored` ne varie pas pendant
+  // qu'on tape — mais une sauvegarde, ici ou ailleurs, repart du texte réel.
+  // Synchroniser dans un effet ferait la même chose avec un rendu de plus et une
+  // fenêtre où les deux valeurs divergent.
+  return <ManualActionsEditor key={stored} release={release} stored={stored} canEdit={canEdit} />
+}
+
+function ManualActionsEditor({
+  release,
+  stored,
+  canEdit,
+}: {
+  release: ReleaseDetail
+  stored: string
+  canEdit: boolean
+}) {
+  const save = useSaveManualActions(release.tag)
+  const [draft, setDraft] = useState(stored)
+  const dirty = draft !== stored
+
+  // Rien à éditer et rien d'écrit : le volet disparaît. Un champ vide et
+  // désactivé n'apprendrait rien à qui ne peut pas le remplir.
+  if (!canEdit && stored === '') return null
+
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          Actions manuelles
+        </h3>
+        {release.manual_actions?.updated_at && (
+          <span className="text-xs text-zinc-500">
+            {release.manual_actions.updated_by} —{' '}
+            {formatDateTime(release.manual_actions.updated_at)}
+          </span>
+        )}
+      </div>
+
+      {canEdit ? (
+        <>
+          <label className="sr-only" htmlFor="manual-actions">
+            Actions manuelles de la livraison
+          </label>
+          <textarea
+            id="manual-actions"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={6}
+            placeholder="Gestes manuels de la livraison, en Markdown. Repris dans le bon de livraison."
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900"
+          />
+
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => save.mutate(draft)}
+              disabled={!dirty || save.isPending}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
+            >
+              Enregistrer
+            </button>
+            {save.isError && (
+              <span className="text-sm text-critical-700">{(save.error as Error).message}</span>
+            )}
+            {dirty && !save.isPending && (
+              <span className="text-sm text-zinc-500">Modifications non enregistrées.</span>
+            )}
+          </div>
+        </>
+      ) : (
+        // En lecture seule, le texte tel qu'il a été écrit : c'est du Markdown
+        // destiné au bon de livraison, et le rendre ici demanderait un moteur
+        // pour un gain nul sur quelques lignes de consignes.
+        <pre className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm text-zinc-700">
+          {stored}
+        </pre>
+      )}
+    </section>
   )
 }
