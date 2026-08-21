@@ -62,6 +62,12 @@ export function LogViewer({
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => containerRef.current,
+    // Une **estimation** seulement : la hauteur réelle est mesurée après rendu.
+    // Elle l'était autrefois imposée, et c'était le défaut : une ligne trop
+    // longue pour la largeur se replie sur plusieurs hauteurs de texte, mais la
+    // suivante restait positionnée à une hauteur de ligne de distance — les
+    // lignes se recouvraient. `measureElement`, posé en référence sur chaque
+    // ligne rendue, corrige la position des suivantes.
     estimateSize: () => LINE_HEIGHT,
     // Quelques lignes au-delà du viewport : sans marge, un défilement rapide
     // laisse apparaître des blancs le temps du rendu.
@@ -159,7 +165,12 @@ export function LogViewer({
         tabIndex={0}
         role="log"
         aria-label={`Journal de ${taskName}`}
-        className="h-96 overflow-auto rounded-lg border border-zinc-200 bg-zinc-950 font-mono text-xs"
+        // Le fond suit le thème. Il ne le suivait pas : l'échelle zinc est
+        // **inversée** en thème sombre — c'est ainsi que le thème est construit —
+        // et un `bg-zinc-950` écrit pour obtenir une console noire en thème clair
+        // devenait donc presque blanc en thème sombre. Les tokens ordinaires
+        // donnent le bon sens dans les deux.
+        className="h-96 overflow-auto rounded-lg border border-zinc-200 bg-zinc-100 font-mono text-xs"
       >
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
           {items.map((item) => {
@@ -171,15 +182,18 @@ export function LogViewer({
               <div
                 key={item.key}
                 data-index={item.index}
+                // La mesure passe par cette référence : sans elle, le
+                // virtualiseur en resterait à son estimation, et les lignes
+                // repliées se recouvriraient.
+                ref={virtualizer.measureElement}
                 style={{
                   position: 'absolute',
                   top: 0,
                   left: 0,
                   width: '100%',
-                  height: item.size,
                   transform: `translateY(${item.start}px)`,
                 }}
-                className={`flex gap-3 px-3 leading-5 ${highlighted ? 'bg-zinc-800' : ''}`}
+                className={`flex gap-3 px-3 leading-5 ${highlighted ? 'bg-zinc-200' : ''}`}
               >
                 <button
                   type="button"
@@ -195,11 +209,17 @@ export function LogViewer({
                   }}
                   title={line.timestamp || undefined}
                   aria-label={`Ancrer la ligne ${item.index + 1}`}
-                  className="w-12 shrink-0 select-none text-right text-zinc-600 tabular-nums hover:text-zinc-300"
+                  className="w-12 shrink-0 select-none text-right text-zinc-400 tabular-nums hover:text-zinc-900"
                 >
                   {item.index + 1}
                 </button>
-                <span className="whitespace-pre-wrap break-all text-zinc-200">{line.text}</span>
+                {/* `min-w-0` est indispensable dans un conteneur flex : sans
+                    lui, la boîte du texte prend la largeur de son contenu au
+                    lieu de se replier, et une ligne longue déborde du cadre au
+                    lieu de passer à la ligne. */}
+                <span className="min-w-0 whitespace-pre-wrap break-all text-zinc-900">
+                  {line.text}
+                </span>
               </div>
             )
           })}
