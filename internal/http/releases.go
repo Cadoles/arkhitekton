@@ -848,6 +848,8 @@ func verificationParams(
 			params[name] = imageReference(registryProject, "portal", tag)
 		case "consumer-image":
 			params[name] = imageReference(registryProject, "portal-consumer", tag)
+		case "image-tag":
+			params[name] = tag
 		default:
 			return nil, name
 		}

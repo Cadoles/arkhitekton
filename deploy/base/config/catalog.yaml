@@ -291,11 +291,13 @@ pipelines:
       mse-kustom-repo:     { source: config, key: forge.mseKustom.repoUrl }
       overlay-location:    { source: config, key: mse.overlayLocation }
       reg-project:         { source: config, key: registry.project }
-      dockerfile:          { source: config, key: mse.dockerfile }
-      context:             { source: literal, value: "./" }
-      tag-name:            { source: config, key: mse.pipelineTag }
       minio-host:          { source: config, key: minio.host }
       minio-bucket:        { source: config, key: minio.pipelineBucket }
+      # Le tag des images à déployer. Ce pipeline ne construit plus : il éprouve
+      # celles que la construction de la release a publiées. Reconstruire ici
+      # produisait un artefact différent de celui qu'on livrera, et le verdict
+      # portait donc à côté (B17) — même correction que sur l'audit.
+      image-tag:           { source: input, required: true }
       mse-revision:        { source: input, required: true }
       # La branche de l'infrastructure de déploiement vient de la configuration,
       # comme pour l'audit. C'est ce qui rend ce pipeline enchaînable : tant

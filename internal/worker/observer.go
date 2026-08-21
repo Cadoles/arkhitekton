@@ -570,6 +570,12 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 				params[name] = s.imageRef("portal", linked.Tag)
 			case "consumer-image":
 				params[name] = s.imageRef("portal-consumer", linked.Tag)
+
+			// Les tests d'intégration déploient les images publiées par la
+			// construction ; ils en reçoivent le tag plutôt que la référence
+			// complète, le préfixe de registre leur venant de la configuration.
+			case "image-tag":
+				params[name] = linked.Tag
 			default:
 				// Un paramètre requis qu'on ne sait pas renseigner ferait échouer
 				// le run à l'ordonnancement : ne pas l'enfiler du tout est plus

@@ -63,6 +63,9 @@ func verificationCatalog() *catalog.Catalog {
 				Params: map[string]catalog.Param{
 					"mse-revision":        {Source: catalog.SourceInput, Required: true},
 					"mse-kustom-revision": {Source: catalog.SourceConfig, Key: "forge.mseKustom.revision"},
+					// Le pipeline déploie des images déjà publiées : il en reçoit
+					// le tag, jamais de quoi les reconstruire.
+					"image-tag": {Source: catalog.SourceInput, Required: true},
 				},
 			},
 		},
@@ -119,6 +122,11 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 	// moment de la construction.
 	if _, present := integration.Params["mse-kustom-revision"]; present {
 		t.Error("mse-kustom-revision ne doit pas être renseignée à l'enchaînement")
+	}
+	// Le tag des images à déployer est celui de la release : ce sont celles que
+	// sa construction vient de publier, et non une reconstruction (B17).
+	if integration.Params["image-tag"] != "3.2.0-rc1" {
+		t.Errorf("image-tag %q, attendu le tag de la release", integration.Params["image-tag"])
 	}
 
 	static := kinds["static-tests"]
