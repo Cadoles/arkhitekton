@@ -952,3 +952,104 @@ func TestUneRelanceNeCompteQueSesPropresVerifications(t *testing.T) {
 		t.Errorf("décompte: %+v — l'échec de la première série est encore compté", tally)
 	}
 }
+
+// Le défaut qui laissait 3.2.0-rc3 en échec alors que ses trois familles étaient
+// vertes : le décompte cumulait les essais d'une même famille. Trois échecs
+// d'intégration suivis d'une réussite comptaient trois échecs, et la release
+// restait en échec pour des verdicts que le dernier essai avait remplacés — donc
+// le bouton « Rejouer » ne pouvait rien rattraper.
+func TestSeulLeDernierEssaiDUneFamilleCompte(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
+	releaseID, err := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.2.0-rc3", Kind: "pre", State: "failed",
+		GitRef: "main", GitCommit: "abc123", ImageVersion: "3.2.0-rc3", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	kinds := []string{"static-tests", "security-audit", "integration-tests"}
+
+	enqueue := func(kind string) int64 {
+		t.Helper()
+		id, err := db.Enqueue(ctx, JobRequest{
+			Kind: kind, QueueClass: "parallel", RequestedBy: "dashboard", ReleaseID: &releaseID,
+		})
+		if err != nil {
+			t.Fatalf("mise en file %s: %v", kind, err)
+		}
+		return id
+	}
+	conclude := func(id int64, state string) {
+		t.Helper()
+		if err := db.FinishJob(ctx, id, state, ""); err != nil {
+			t.Fatalf("conclusion: %v", err)
+		}
+	}
+
+	enqueue("build")
+	conclude(enqueue("static-tests"), JobSucceeded)
+	conclude(enqueue("security-audit"), JobSucceeded)
+
+	// L'intégration échoue trois fois, puis passe.
+	for i := 0; i < 3; i++ {
+		conclude(enqueue("integration-tests"), JobFailed)
+	}
+	conclude(enqueue("integration-tests"), JobSucceeded)
+
+	tally, err := db.CountVerifications(ctx, releaseID, kinds, "build")
+	if err != nil {
+		t.Fatalf("décompte: %v", err)
+	}
+	if !tally.Done() {
+		t.Fatal("les trois familles ont conclu")
+	}
+	if tally.Failed != 0 {
+		t.Errorf("%d échec(s) comptés — les essais précédents pèsent encore", tally.Failed)
+	}
+	if tally.Succeeded != 3 {
+		t.Errorf("%d réussite(s), attendu une par famille", tally.Succeeded)
+	}
+}
+
+// Et le pendant : un dernier essai en échec compte, même précédé de réussites.
+func TestUnDernierEssaiEnEchecCompte(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
+	releaseID, _ := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.2.0-rc4", Kind: "pre", State: "verifying",
+		ImageVersion: "3.2.0-rc4", CreatedBy: "vcarroy",
+	})
+
+	enqueue := func(kind string) int64 {
+		id, err := db.Enqueue(ctx, JobRequest{
+			Kind: kind, QueueClass: "parallel", RequestedBy: "dashboard", ReleaseID: &releaseID,
+		})
+		if err != nil {
+			t.Fatalf("mise en file: %v", err)
+		}
+		return id
+	}
+
+	enqueue("build")
+	first := enqueue("static-tests")
+	if err := db.FinishJob(ctx, first, JobSucceeded, ""); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+	second := enqueue("static-tests")
+	if err := db.FinishJob(ctx, second, JobFailed, "régression"); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+
+	tally, err := db.CountVerifications(ctx, releaseID, []string{"static-tests"}, "build")
+	if err != nil {
+		t.Fatalf("décompte: %v", err)
+	}
+	if tally.Failed != 1 || tally.Succeeded != 0 {
+		t.Errorf("décompte %+v — le dernier essai doit l'emporter", tally)
+	}
+}

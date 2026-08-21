@@ -81,12 +81,27 @@ func TestUnEchecEstRelancable(t *testing.T) {
 	if !CanTransition(StateFailed, StateVerifying) {
 		t.Error("failed → verifying devrait être permis")
 	}
-	// Mais un échec ne devient pas livrable sans repasser par les tests.
+	// Mais un échec ne devient pas livrable sans décision humaine.
 	if CanTransition(StateFailed, StateReleased) {
 		t.Error("failed → released devrait être refusé")
 	}
-	if CanTransition(StateFailed, StateReady) {
-		t.Error("failed → ready devrait être refusé: il faut repasser par les tests")
+}
+
+// `failed → ready` est permis, et cette règle a changé.
+//
+// Elle était refusée au motif qu'« il faut repasser par les tests ». C'était
+// précisément le cas qu'elle interdisait : relancer une famille de vérification
+// **est** repasser par les tests, et son verdict remplace le précédent. La
+// release restait donc en échec pour un résultat périmé, et le bouton
+// « Rejouer » ne rattrapait rien. Constaté sur 3.2.0-rc3, dont les trois
+// familles étaient vertes au dernier essai.
+//
+// Ce que la règle protégeait est ailleurs, et tient toujours : `failed` ne mène
+// pas à `released`. Passer en `ready` ne livre rien — c'est l'état « décision en
+// attente », et la décision reste humaine.
+func TestUnEchecRattrapeParUneRelanceRedevientDecidable(t *testing.T) {
+	if !CanTransition(StateFailed, StateReady) {
+		t.Error("failed → ready devrait être permis: une relance réussie remplace le verdict")
 	}
 }
 

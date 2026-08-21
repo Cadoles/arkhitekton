@@ -638,9 +638,19 @@ func isVerificationKind(kind string) bool {
 // release reste relançable, la table de transitions autorisant `failed →
 // verifying`.
 func (s *runSink) concludeVerification(ctx context.Context, linked store.JobReleaseContext) error {
-	if release.State(linked.State) != release.StateVerifying {
-		// La release a déjà été conclue, ou déplacée à la main. Le verdict d'une
-		// vérification tardive ne doit pas la ramener en arrière.
+	// `verifying` est le cas courant ; `failed` est celui d'une relance.
+	//
+	// Une release tombée en échec sur une vérification devait pouvoir s'en
+	// relever : c'est tout l'objet du bouton « Rejouer ». Sans ce second état
+	// admis, un essai réussi ne concluait rien et la release restait en échec
+	// pour un verdict que le dernier essai avait remplacé.
+	//
+	// `ready` et `released` ne sont pas repris : la première a déjà été jugée
+	// bonne, la seconde est livrée, et un verdict tardif ne doit pas défaire une
+	// décision prise.
+	switch release.State(linked.State) {
+	case release.StateVerifying, release.StateFailed:
+	default:
 		return nil
 	}
 
@@ -655,6 +665,12 @@ func (s *runSink) concludeVerification(ctx context.Context, linked store.JobRele
 	target := release.StateReady
 	if tally.Failed > 0 {
 		target = release.StateFailed
+	}
+
+	// Rien de neuf : la release est déjà dans l'état visé. Écrire quand même
+	// ferait un tour de journal à chaque redélivrance de l'informer.
+	if release.State(linked.State) == target {
+		return nil
 	}
 
 	advanced, err := s.releases.AdvanceReleaseState(ctx, linked.ReleaseID, linked.State, string(target))

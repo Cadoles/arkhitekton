@@ -534,15 +534,27 @@ func (db *DB) CountVerifications(
 	// construction — les vérifications d'une série sont enfilées après elle, et
 	// les identifiants sont monotones.
 	err := db.pool.QueryRow(ctx,
-		`select
+		// Le **dernier** essai de chaque famille, et non tous.
+		//
+		// Une famille relancée après un échec laissait ses tentatives précédentes
+		// dans le décompte : trois échecs d'intégration suivis d'une réussite
+		// comptaient trois échecs, et la release restait en échec pour des
+		// verdicts que le dernier essai avait remplacés. Le bouton « Rejouer » ne
+		// pouvait donc rien rattraper.
+		`with derniers as (
+		     select distinct on (kind) kind, state
+		       from jobs
+		      where release_id = $1
+		        and kind = any($2)
+		        and id > coalesce(
+		            (select max(id) from jobs where release_id = $1 and kind = $3), 0)
+		      order by kind, id desc
+		 )
+		 select
 		     count(*) filter (where state in ('queued', 'running')),
 		     count(*) filter (where state = 'failed'),
 		     count(*) filter (where state = 'succeeded')
-		 from jobs
-		 where release_id = $1
-		   and kind = any($2)
-		   and id > coalesce(
-		       (select max(id) from jobs where release_id = $1 and kind = $3), 0)`,
+		 from derniers`,
 		releaseID, kinds, buildKind).
 		Scan(&tally.Pending, &tally.Failed, &tally.Succeeded)
 	if err != nil {

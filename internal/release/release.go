@@ -101,7 +101,13 @@ var transitions = map[State][]State{
 	StateReleased: {StateCancelled},
 	// Un échec est relançable : `verifying` quand les images existent déjà,
 	// `building` quand il faut reconstruire.
-	StateFailed: {StateBuilding, StateVerifying, StateCancelled},
+	//
+	// `failed → ready` s'y ajoute, et ce n'est pas un raccourci : une famille de
+	// vérification relancée peut réussir, et c'est alors le dernier verdict qui
+	// vaut. Sans ce passage, une release restait en échec pour un résultat que
+	// l'essai suivant avait remplacé, et le bouton « Rejouer » ne rattrapait
+	// rien. La décision de livrer reste humaine — `ready` ne signifie pas livrée.
+	StateFailed: {StateBuilding, StateVerifying, StateReady, StateCancelled},
 	// `cancelled` est terminal, à dessein : voir plus haut.
 	StateCancelled: {},
 }
