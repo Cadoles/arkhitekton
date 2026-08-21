@@ -35,7 +35,15 @@ export function ReleaseNotes({ tag }: { tag: string }) {
     <CollapsibleSection
       title="Notes de release"
       count={notes.length}
-      action={canEdit ? <AddNote tag={tag} available={data?.available ?? []} /> : undefined}
+      action={
+        canEdit ? (
+          <AddNote
+            tag={tag}
+            available={data?.available ?? []}
+            error={data?.available_error}
+          />
+        ) : undefined
+      }
     >
       {notes.length === 0 ? (
         <EmptyState>
@@ -152,7 +160,15 @@ function NoteRow({ entry, tag, canEdit }: { entry: NoteEntry; tag: string; canEd
  * sous les yeux dans Redmine. Le champ subsiste dans la boîte, pour les demandes
  * d'une autre version — un correctif remonté d'une branche de maintenance.
  */
-function AddNote({ tag, available }: { tag: string; available: NoteEntry[] }) {
+function AddNote({
+  tag,
+  available,
+  error,
+}: {
+  tag: string
+  available: NoteEntry[]
+  error?: string
+}) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -167,14 +183,22 @@ function AddNote({ tag, available }: { tag: string; available: NoteEntry[] }) {
 
       {open && (
         <Modal title="Rattacher une demande" onClose={() => setOpen(false)} size="lg">
-          <AddNoteBody tag={tag} available={available} />
+          <AddNoteBody tag={tag} available={available} error={error} />
         </Modal>
       )}
     </>
   )
 }
 
-function AddNoteBody({ tag, available }: { tag: string; available: NoteEntry[] }) {
+function AddNoteBody({
+  tag,
+  available,
+  error,
+}: {
+  tag: string
+  available: NoteEntry[]
+  error?: string
+}) {
   const add = useAddNote(tag)
   const [needle, setNeedle] = useState('')
   const [manual, setManual] = useState('')
@@ -217,10 +241,19 @@ function AddNoteBody({ tag, available }: { tag: string; available: NoteEntry[] }
         />
       </div>
 
-      {available.length === 0 ? (
+      {/* Une liste vide et une lecture impossible ne se ressemblent pas : la
+          première dit qu'il n'y a rien à proposer, la seconde qu'on ne sait pas.
+          Les confondre annonçait que tout était déjà rattaché alors que rien
+          n'avait pu être lu. */}
+      {error ? (
+        <p className="flex items-start gap-2 rounded-md border border-warn-500 bg-warn-50 px-3 py-2 text-sm text-warn-700">
+          <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+          {error} Le rattachement par numéro reste possible.
+        </p>
+      ) : available.length === 0 ? (
         <EmptyState>
-          Toutes les demandes de cette version sont déjà rattachées, ou la version n&apos;en porte
-          aucune.
+          Aucune demande à proposer : la version n&apos;en porte pas, ou toutes sont déjà
+          rattachées.
         </EmptyState>
       ) : filtered.length === 0 ? (
         <EmptyState>Aucune demande ne correspond au filtre.</EmptyState>

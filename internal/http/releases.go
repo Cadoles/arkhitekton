@@ -74,6 +74,9 @@ type ReleasesHandler struct {
 	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
 	// le jour où le portail se scinde.
 	imageName string
+	// logger sert à dire ce qui échoue sans faire échouer l'écran. Nil-safe :
+	// `slog.Default()` par défaut, pour que les tests n'aient pas à le fournir.
+	logger *slog.Logger
 	// redmineURL sert à construire les liens vers les demandes d'une note. Vide,
 	// les liens sont omis plutôt que rendus morts.
 	redmineURL string
@@ -176,7 +179,7 @@ func NewReleasesHandler(
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
 		images: images, artifacts: artifacts, imageName: imageName,
-		registryProject: registryProject,
+		registryProject: registryProject, logger: slog.Default(),
 	}
 }
 
@@ -1073,23 +1076,36 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 	// second appel — les deux se lisent ensemble, et l'écran n'a pas à composer
 	// une différence que le serveur connaît déjà.
 	//
-	// Un échec de lecture n'empêche pas d'afficher la note : le vivier n'est
-	// qu'un confort de saisie, et le rattachement par numéro reste possible.
+	// Un échec de lecture n'empêche pas d'afficher la note — le rattachement par
+	// numéro reste possible — mais il est **dit**. Le taire rendait une liste vide
+	// indiscernable d'une version sans demandes, et l'écran annonçait alors que
+	// tout était déjà rattaché alors qu'il n'avait rien pu lire. Même règle que
+	// `images_error` : l'absence et l'impossibilité de lire ne se ressemblent pas.
 	available := make([]notePayload, 0)
-	if issues, err := h.store.ListReleaseVersionIssues(r.Context(), record.ID); err == nil {
-		for _, issue := range issues {
-			if linked[issue.RedmineID] {
-				continue
-			}
-			available = append(available, notePayload{
-				RedmineID: issue.RedmineID, Subject: issue.Subject, Tracker: issue.Tracker,
-				Status: issue.StatusName, Anomaly: issue.Anomaly, Known: true,
-				URL: h.issueURL(issue.RedmineID),
-			})
+	var availableError string
+
+	issues, err := h.store.ListReleaseVersionIssues(r.Context(), record.ID)
+	if err != nil {
+		availableError = "Les demandes de la version n'ont pas pu être lues."
+		h.logger.Error("demandes de la version d'une release",
+			"release", record.Tag, "error", err)
+	}
+	for _, issue := range issues {
+		if linked[issue.RedmineID] {
+			continue
 		}
+		available = append(available, notePayload{
+			RedmineID: issue.RedmineID, Subject: issue.Subject, Tracker: issue.Tracker,
+			Status: issue.StatusName, Anomaly: issue.Anomaly, Known: true,
+			URL: h.issueURL(issue.RedmineID),
+		})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"notes": payload, "available": available})
+	response := map[string]any{"notes": payload, "available": available}
+	if availableError != "" {
+		response["available_error"] = availableError
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 // AddNote rattache une demande à la main.

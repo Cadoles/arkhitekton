@@ -456,7 +456,7 @@ export function useNotes(tag: string | undefined) {
       // moins celles déjà dans la note. Rendu avec elle plutôt que par un second
       // appel — les deux se lisent ensemble, et l'écran n'a pas à composer une
       // différence que le serveur connaît.
-      request<{ notes: NoteEntry[]; available: NoteEntry[] }>(
+      request<{ notes: NoteEntry[]; available: NoteEntry[]; available_error?: string }>(
         `/releases/${encodeURIComponent(tag as string)}/notes`,
       ),
     enabled: Boolean(tag),
