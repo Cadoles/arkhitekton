@@ -97,6 +97,19 @@
      * navigateur — la bande réservée apparaissait en noir le long du bord droit
      * dès qu'il n'y avait pas d'ascenseur pour l'occuper. */
     @apply bg-zinc-50;
+
+    /* La piste de l'ascenseur suit le thème.
+     *
+     * Peindre le fond de `<html>` n'a pas suffi : la gouttière réservée est
+     * rendue par le navigateur comme une piste d'ascenseur vide, et
+     * `color-scheme: dark` la lui fait peindre en sombre. D'où la bande noire au
+     * bord droit, indépendante du fond de la page — c'est un contrôle du
+     * navigateur, pas une zone que la feuille de style couvrait.
+     *
+     * `scrollbar-color` est la propriété standard, et les variables suivent
+     * l'inversion du thème : `zinc-50` est le fond de page dans les deux, donc
+     * la piste s'y fond, et `zinc-300` donne un curseur visible sans être dur. */
+    scrollbar-color: var(--color-zinc-300) var(--color-zinc-50);
   }
 
   body {
