@@ -174,7 +174,7 @@ function SignalTile({
         <Modal
           title={`${SIGNAL_LABEL[signal.signal] ?? signal.signal} — ${tag}`}
           onClose={() => setOpen(false)}
-          wide
+          size="lg"
         >
           {family && (
             <FamilyDetail tag={tag} family={family} runName={runningJob?.run_name} />

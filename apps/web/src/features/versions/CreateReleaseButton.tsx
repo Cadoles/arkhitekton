@@ -155,7 +155,6 @@ export function CreateReleaseButton({
           // l'utilisateur annulerait la confirmation et perdrait sa saisie du
           // même geste.
           closable={!confirming}
-          wide
         >
           <form
             onSubmit={(event) => {
