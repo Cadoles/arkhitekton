@@ -2,7 +2,7 @@
 -- Demandes Redmine rattachées à une release, pour sa note.
 
 -- La table est un **rattachement**, pas une copie : le sujet, le tracker et le
--- statut d'une demande vivent dans `redmine_issues` et changent avec elle. Les
+-- statut d'une demande vivent dans `issues` et changent avec elle. Les
 -- recopier ici figerait une note au moment de sa génération, et un sujet corrigé
 -- dans Redmine n'apparaîtrait jamais.
 --
@@ -11,7 +11,7 @@
 create table release_notes (
     id         bigserial primary key,
     release_id bigint not null references releases (id) on delete cascade,
-    -- L'identifiant Redmine, et non la clé locale de `redmine_issues` : une
+    -- L'identifiant Redmine, et non la clé locale de `issues` : une
     -- demande peut être rattachée avant que la synchronisation ne l'ait vue, et
     -- une clé étrangère l'interdirait. La jointure se fait sur ce numéro.
     redmine_id bigint not null,
@@ -40,7 +40,7 @@ create table release_notes (
 create index release_notes_release_idx on release_notes (release_id);
 
 comment on table release_notes is
-    'Demandes Redmine rattachées à une release. Rattachement seul : le contenu vit dans redmine_issues.';
+    'Demandes Redmine rattachées à une release. Rattachement seul : le contenu vit dans issues.';
 
 -- +goose Down
 drop table if exists release_notes;

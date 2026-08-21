@@ -12,7 +12,7 @@ import (
  * Note de release : quelles demandes Redmine une release apporte.
  *
  * La table ne porte qu'un rattachement. Le sujet, le tracker et le statut
- * viennent de `redmine_issues` à la lecture, si bien qu'un sujet corrigé dans
+ * viennent de `issues` à la lecture, si bien qu'un sujet corrigé dans
  * Redmine apparaît sans qu'on ait rien à régénérer.
  */
 
@@ -29,7 +29,7 @@ type NoteEntry struct {
 	Source      string
 	PullRequest string
 	AddedBy     string
-	// Les champs suivants viennent de `redmine_issues`, absents tant que la
+	// Les champs suivants viennent de `issues`, absents tant que la
 	// synchronisation n'a pas vu la demande.
 	Known      bool
 	Tracker    string
@@ -73,7 +73,7 @@ func (db *DB) UnlinkNoteIssue(ctx context.Context, releaseID, redmineID int64) e
 
 // ListNoteEntries rend la note d'une release.
 //
-// Jointure lâche sur `redmine_issues` : une demande rattachée avant que la
+// Jointure lâche sur `issues` : une demande rattachée avant que la
 // synchronisation ne l'ait vue reste listée, sans son sujet. La masquer ferait
 // disparaître une ligne que quelqu'un a ajoutée, ce qui se lirait comme une
 // perte.
@@ -84,7 +84,7 @@ func (db *DB) ListNoteEntries(ctx context.Context, releaseID int64) ([]NoteEntry
 		        coalesce(i.tracker, ''), coalesce(i.subject, ''),
 		        coalesce(i.status_name, '')
 		   from release_notes n
-		   left join redmine_issues i on i.redmine_id = n.redmine_id
+		   left join issues i on i.redmine_id = n.redmine_id
 		  where n.release_id = $1
 		  order by n.redmine_id`, releaseID)
 	if err != nil {
@@ -119,7 +119,7 @@ func (db *DB) NoteCandidates(ctx context.Context, statuses []string) (map[int64]
 	rows, err := db.pool.Query(ctx,
 		`select redmine_id, coalesce(tracker, ''), coalesce(subject, ''),
 		        coalesce(status_name, '')
-		   from redmine_issues
+		   from issues
 		  where status_name = any($1)`, statuses)
 	if err != nil {
 		return nil, fmt.Errorf("demandes en revue: %w", err)
