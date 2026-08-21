@@ -1,9 +1,12 @@
+import { useState } from 'react'
 import { Link } from 'react-router'
 import { Icon, type IconName } from '../../components/Icon'
+import { Modal } from '../../components/Modal'
 import { status } from '../../lib/status'
 import { hasAtLeast, useSession } from '../auth/session'
 import { useVerify, type ReleaseJob } from './api'
-import { KIND_LABEL, kindForSignal, signalIsRunning } from './signals'
+import { FamilyDetail } from './FamilyDetail'
+import { familyForSignal, KIND_LABEL, kindForSignal, runningJobFor } from './signals'
 import { SIGNAL_LABEL, type SignalScore } from './tests'
 
 /*
@@ -84,10 +87,16 @@ function SignalTile({
 }) {
   const session = useSession()
   const verify = useVerify(tag)
+  const [open, setOpen] = useState(false)
 
-  const running = signalIsRunning(signal.signal, jobs)
+  const runningJob = runningJobFor(signal.signal, jobs)
+  const running = runningJob !== undefined
   const kind = kindForSignal(signal.signal)
   const href = signalHref(tag, signal.signal)
+  // Les familles de tests s'ouvrent en place ; la sécurité garde son écran, qui
+  // porte bien plus qu'une liste de cas — avis, sévérités, exceptions — et qui
+  // tiendrait mal dans une boîte.
+  const family = familyForSignal(signal.signal)
 
   const canReplay =
     session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
@@ -97,12 +106,12 @@ function SignalTile({
   // résultat qu'on est en train de remplacer.
   const style = running || signal.health === 'na' ? undefined : status.health(signal.health)
 
-  return (
-    <div
-      className={`flex h-full flex-col gap-1.5 rounded-lg border bg-white p-3 ${
-        running ? 'animate-pulse border-zinc-400' : (style?.border ?? 'border-zinc-200')
-      }`}
-    >
+  const shell = `flex h-full w-full flex-col gap-1.5 rounded-lg border bg-white p-3 text-left ${
+    running ? 'animate-pulse border-zinc-400' : (style?.border ?? 'border-zinc-200')
+  }`
+
+  const body = (
+    <>
       <div className="flex items-center gap-2 text-zinc-500">
         <Icon name={SIGNAL_ICON[signal.signal] ?? 'doc'} className="size-4 shrink-0" />
         {href ? (
@@ -166,7 +175,42 @@ function SignalTile({
           {(verify.error as Error).message}
         </p>
       )}
-    </div>
+    </>
+  )
+
+  // Sans détail à ouvrir — bench, performance — la tuile reste inerte : un
+  // bouton qui n'ouvre rien se clique une fois et déçoit.
+  if (!family) return <div className={shell}>{body}</div>
+
+  return (
+    <>
+      {/* La tuile entière est cliquable, sauf ce qui l'est déjà : le titre mène à
+          la page adressable, le bouton relance. Un `<button>` englobant les
+          aurait avalés — on ne peut pas imbriquer un lien dans un bouton. */}
+      <div className={`relative ${shell}`}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={`Ouvrir le détail : ${SIGNAL_LABEL[signal.signal] ?? signal.signal}`}
+          className="absolute inset-0 z-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-1"
+        />
+        {/* Le contenu passe au-dessus de la surface cliquable, sans quoi ni le
+            titre ni le bouton ne recevraient leurs propres clics. */}
+        <div className="pointer-events-none relative z-10 flex h-full flex-col gap-1.5 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+          {body}
+        </div>
+      </div>
+
+      {open && (
+        <Modal
+          title={`${SIGNAL_LABEL[signal.signal] ?? signal.signal} — ${tag}`}
+          onClose={() => setOpen(false)}
+          wide
+        >
+          <FamilyDetail tag={tag} family={family} runName={runningJob?.run_name} />
+        </Modal>
+      )}
+    </>
   )
 }
 

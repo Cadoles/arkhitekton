@@ -47,13 +47,37 @@ export function kindForSignal(signal: string): string | undefined {
   return SIGNAL_KIND[signal]
 }
 
-/** Vrai si un pipeline mesurant ce signal est en file ou en cours. */
-export function signalIsRunning(signal: string, jobs: ReleaseJob[]): boolean {
-  return jobs.some(
+/** Le job en file ou en cours qui mesure ce signal, s'il y en a un. */
+export function runningJobFor(signal: string, jobs: ReleaseJob[]): ReleaseJob | undefined {
+  return jobs.find(
     (job) =>
       (job.state === 'queued' || job.state === 'running') &&
       (KIND_SIGNALS[job.kind] ?? []).includes(signal),
   )
+}
+
+/** Vrai si un pipeline mesurant ce signal est en file ou en cours. */
+export function signalIsRunning(signal: string, jobs: ReleaseJob[]): boolean {
+  return runningJobFor(signal, jobs) !== undefined
+}
+
+/**
+ * La famille de rapports d'un signal.
+ *
+ * Distincte du signal : `code` est mesuré par la famille `static`, et les deux
+ * noms coexistent parce que l'un pèse au score quand l'autre range des rapports.
+ */
+export function familyForSignal(signal: string): string | undefined {
+  switch (signal) {
+    case 'unit':
+    case 'integration':
+    case 'e2e':
+      return signal
+    case 'code':
+      return 'static'
+    default:
+      return undefined
+  }
 }
 
 /**

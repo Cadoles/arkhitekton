@@ -50,6 +50,13 @@ export function useRun(name: string) {
   return useQuery({
     queryKey: ['run', name],
     queryFn: () => request<RunDetail>(`/runs/${encodeURIComponent(name)}`),
+    // Tant que le run n'a pas conclu, ses étapes sont relues.
+    //
+    // L'écran d'un run reçoit aussi le flux SSE, qui va plus vite ; la frise
+    // affichée dans une modale, elle, n'y est pas abonnée et resterait figée sur
+    // la première étape. Le sondage s'arrête de lui-même à la conclusion.
+    refetchInterval: (query) =>
+      query.state.data && isTerminal(query.state.data.run.status) ? false : 5000,
   })
 }
 
