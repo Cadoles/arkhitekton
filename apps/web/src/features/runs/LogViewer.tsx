@@ -52,7 +52,9 @@ export function LogViewer({
   taskName: string
   sealed: boolean
 }) {
-  const { lines, loading, error, complete, loadEarlier } = useTaskLog(runName, taskName, sealed)
+  const { lines, firstLine, loading, error, complete, loadEarlier } = useTaskLog(
+    runName, taskName, sealed,
+  )
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [following, setFollowing] = useState(!sealed)
@@ -72,6 +74,11 @@ export function LogViewer({
   // contenu chargé — or ce contenu **est** la fin du journal, et c'est la
   // dernière ligne qu'on vient lire : l'échec est à la fin.
   const positioned = useRef(false)
+  // Une remontée est en cours. Sans ce drapeau, l'effet de positionnement — qui
+  // rejoue à chaque ligne reçue en direct — relancerait la même lecture avant
+  // que la précédente n'ait rendu, et le contenu se retrouverait préfixé deux
+  // fois de la même plage.
+  const reaching = useRef(false)
 
   // La règle react-hooks signale que `useVirtualizer` rend des fonctions non
   // mémoïsables. C'est exact et sans conséquence ici : le virtualiseur est un
@@ -109,11 +116,25 @@ export function LogViewer({
     if (lines.length === 0) return
 
     if (selection !== null && !positioned.current) {
-      positioned.current = true
       setFollowing(false)
-      virtualizerRef.current.scrollToIndex(Math.min(selection.start, lines.length - 1), {
-        align: 'center',
-      })
+      // La ligne visée précède la fenêtre chargée : la visionneuse n'ouvre que la
+      // fin du journal. On remonte tant qu'elle n'est pas atteinte plutôt que de
+      // se poser au plus près — un lien reçu doit montrer sa ligne, pas la
+      // première dont on dispose.
+      if (selection.start < firstLine) {
+        if (!complete && !reaching.current) {
+          reaching.current = true
+          void loadEarlier().finally(() => {
+            reaching.current = false
+          })
+        }
+        return
+      }
+      positioned.current = true
+      virtualizerRef.current.scrollToIndex(
+        Math.min(selection.start - firstLine, lines.length - 1),
+        { align: 'center' },
+      )
       return
     }
 
@@ -128,7 +149,7 @@ export function LogViewer({
     if (following) {
       virtualizerRef.current.scrollToIndex(lines.length - 1, { align: 'end' })
     }
-  }, [selection, following, lines.length])
+  }, [selection, following, lines.length, firstLine, complete, loadEarlier])
 
   const onScroll = useCallback(() => {
     const element = containerRef.current
@@ -150,19 +171,26 @@ export function LogViewer({
       // événement reçu — et le lecteur perdrait la ligne qu'il vient de viser.
       setFollowing(false)
 
-      const line = index + 1
+      // Le numéro est celui du journal entier, pas celui de la fenêtre chargée :
+      // c'est ce qui fait qu'une ancre désigne la même ligne pour qui a lu la
+      // fin seule et pour qui a chargé le début.
+      const line = firstLine + index + 1
       const anchor = extend && selection ? `#L${selection.start + 1}-L${line}` : `#L${line}`
-      // La query est reconduite explicitement, et c'est indispensable : elle
-      // porte la task dont on lit le journal. Naviguer vers la seule ancre la
-      // ferait disparaître — react-router résout `#L42` en une destination sans
-      // query — et le lien partagé rouvrirait la task par défaut, c'est-à-dire
-      // une autre, avec un numéro de ligne qui n'y désigne rien.
-      //
+
+      // La task est inscrite dans l'adresse par ce geste même, et pas seulement
+      // par un clic dans la liste des étapes. Une ancre désigne une ligne de
+      // **ce** journal ; sans le nom de l'étape à côté, le destinataire du lien
+      // ouvre celle choisie par défaut — la dernière démarrée, ou celle en échec
+      // — où ce numéro ne désigne rien. C'est le défaut constaté : un lien copié
+      // sans avoir cliqué dans la liste ne portait que `#L275`.
+      const params = new URLSearchParams(search)
+      params.set('task', taskName)
+
       // `replace` : ancrer une ligne n'est pas une navigation, et empiler une
       // entrée d'historique par clic rendrait le bouton « retour » inutilisable.
-      navigate({ search, hash: anchor }, { replace: true })
+      navigate({ search: `?${params.toString()}`, hash: anchor }, { replace: true })
     },
-    [navigate, search, selection],
+    [firstLine, navigate, search, selection, taskName],
   )
 
   useScrollLock(expanded)
@@ -237,8 +265,11 @@ export function LogViewer({
             const line = lines[item.index]
             if (!line) return null
 
+            // Le rang dans le journal entier. C'est lui qui s'affiche et qui entre
+            // dans l'ancre ; l'indice local ne vaut que pour ce qui est chargé.
+            const absolute = firstLine + item.index
             const highlighted =
-              selection !== null && item.index >= selection.start && item.index <= selection.end
+              selection !== null && absolute >= selection.start && absolute <= selection.end
             return (
               <div
                 key={item.key}
@@ -264,10 +295,10 @@ export function LogViewer({
                   type="button"
                   onClick={(event) => select(item.index, event.shiftKey)}
                   title={line.timestamp || undefined}
-                  aria-label={`Ancrer la ligne ${item.index + 1}`}
+                  aria-label={`Ancrer la ligne ${absolute + 1}`}
                   className="w-12 shrink-0 select-none text-right leading-5 text-zinc-400 tabular-nums hover:text-zinc-900"
                 >
-                  {item.index + 1}
+                  {absolute + 1}
                 </button>
                 {/* `min-w-0` est indispensable dans un conteneur flex : sans
                     lui, la boîte du texte prend la largeur de son contenu au
