@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useScrollLock } from '../lib/scrollLock'
 import { Icon } from './Icon'
 
 /*
@@ -53,6 +54,10 @@ export function Modal({
 }) {
   const dialog = useRef<HTMLDivElement>(null)
   const titleId = useId()
+
+  // La page ne défile plus derrière : la molette traverserait la boîte, et
+  // refermer laisserait le lecteur ailleurs qu'où il était.
+  useScrollLock(true)
 
   useEffect(() => {
     if (!closable) return

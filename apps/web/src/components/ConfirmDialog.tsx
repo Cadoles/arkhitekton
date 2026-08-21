@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useScrollLock } from '../lib/scrollLock'
 import { Icon } from './Icon'
 
 /*
@@ -36,6 +37,10 @@ export function ConfirmDialog({
   const dialog = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const challengeId = useId()
+
+  // Le verrou est compté : cette boîte s'ouvre souvent par-dessus une `Modal`,
+  // et la refermer ne doit pas rendre le défilement à celle qui reste.
+  useScrollLock(true)
 
   // Échap annule. Le raccourci est attendu d'une boîte modale, et son absence
   // oblige à viser un bouton pour sortir de ce qu'on ne voulait pas ouvrir.
