@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { APP_SCROLL_ID } from '../components/AppShell'
 
 /*
  * Gel du défilement de la page pendant qu'une surface modale est ouverte.
@@ -18,34 +19,43 @@ import { useEffect } from 'react'
  * la restaurer en dur écraserait un style posé ailleurs, et ce genre de dégât ne
  * se voit qu'une fois la boîte refermée.
  *
- * Le verrou est posé sur `<html>` et non sur `<body>`, alors que la seconde
- * forme est la plus répandue. C'est `<html>` qui porte `scrollbar-gutter: stable`
- * (voir `styles/theme.css`) : la gouttière reste réservée sous `overflow: hidden`,
- * et masquer la barre ne décale donc rien. Verrouiller `<body>` ferait retomber
- * le viewport sur l'`overflow` de `<html>` et rouvrirait le décalage latéral que
- * cette règle avait précisément fermé.
+ * Le verrou porte sur le conteneur de défilement de la coquille, pas sur le
+ * document : c'est lui qui défile depuis que l'ascenseur a été descendu d'un
+ * cran dans la mise en page. Il réserve sa propre gouttière, donc la figer ne
+ * décale rien et aucune compensation de largeur n'est nécessaire.
  *
- * Aucune compensation de largeur n'est donc nécessaire.
+ * Le repli sur `<html>` couvre les écrans rendus hors coquille — la page de
+ * connexion — où une boîte peut aussi s'ouvrir.
  */
 
 let locks = 0
 let previousOverflow = ''
+let locked: HTMLElement | null = null
 
-/** Verrouille le défilement du document tant que `active` est vrai. */
+function scroller(): HTMLElement {
+  return document.getElementById(APP_SCROLL_ID) ?? document.documentElement
+}
+
+/** Verrouille le défilement de la page tant que `active` est vrai. */
 export function useScrollLock(active: boolean) {
   useEffect(() => {
     if (!active) return
 
-    const root = document.documentElement
     if (locks === 0) {
-      previousOverflow = root.style.overflow
-      root.style.overflow = 'hidden'
+      // L'élément verrouillé est retenu : le relâchement doit viser celui qu'on
+      // a figé, même si la coquille a été démontée entre-temps.
+      locked = scroller()
+      previousOverflow = locked.style.overflow
+      locked.style.overflow = 'hidden'
     }
     locks += 1
 
     return () => {
       locks -= 1
-      if (locks === 0) root.style.overflow = previousOverflow
+      if (locks === 0 && locked) {
+        locked.style.overflow = previousOverflow
+        locked = null
+      }
     }
   }, [active])
 }

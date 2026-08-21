@@ -78,10 +78,33 @@ function SessionBadge() {
   )
 }
 
+/**
+ * Identifiant du conteneur de défilement de l'application.
+ *
+ * Partagé avec `useScrollLock` : c'est lui qu'une modale doit figer, le document
+ * ne défilant plus.
+ */
+export const APP_SCROLL_ID = 'app-scroll'
+
 export function AppShell() {
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-zinc-200 bg-white">
+    /*
+     * Le défilement appartient au conteneur intérieur, pas au document.
+     *
+     * Réserver la gouttière de l'ascenseur sur `<html>` évitait bien le décalage
+     * du contenu centré, mais découpait une bande hors de **tout** ce qui vit
+     * dedans : le bandeau de l'en-tête s'arrêtait avant le bord droit, et le
+     * voile d'une modale — `position: fixed`, donc borné au bloc conteneur
+     * initial — n'atteignait pas cette bande non plus. D'où un trou clair à
+     * droite de l'en-tête, et une bande sombre le long des modales.
+     *
+     * En descendant l'ascenseur d'un cran, il devient un élément de la mise en
+     * page : l'en-tête traverse toute la largeur, les surfaces `fixed` couvrent
+     * la fenêtre entière, et la gouttière réservée ici garde le contenu centré
+     * immobile quand l'ascenseur va et vient.
+     */
+    <div className="flex h-dvh flex-col">
+      <header className="shrink-0 border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="grid size-8 place-items-center rounded-md bg-zinc-900 text-white">
@@ -122,19 +145,28 @@ export function AppShell() {
         </nav>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        {/* La frontière est ici, et non par route : la coquille — en-tête,
-            navigation, thème — reste affichée pendant le chargement d'un écran
-            découpé. Une frontière plus haute ferait clignoter la navigation à
-            chaque arrivée sur un écran paresseux.
+      {/* `id` plutôt qu'un contexte React : le verrou de défilement des modales
+          doit désigner ce conteneur, la coquille est unique, et faire traverser
+          une référence à travers tout l'arbre pour un singleton coûterait plus
+          que ça ne clarifierait. */}
+      <div
+        id={APP_SCROLL_ID}
+        className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+      >
+        <main className="mx-auto max-w-6xl px-4 py-6">
+          {/* La frontière est ici, et non par route : la coquille — en-tête,
+              navigation, thème — reste affichée pendant le chargement d'un écran
+              découpé. Une frontière plus haute ferait clignoter la navigation à
+              chaque arrivée sur un écran paresseux.
 
-            Le repli est un squelette et non un indicateur d'attente, par la même
-            convention que les écrans (doc 08 §8.5) : il occupe la place du
-            contenu attendu, ce qui évite le saut de mise en page. */}
-        <Suspense fallback={<Skeleton className="h-64 w-full" />}>
-          <Outlet />
-        </Suspense>
-      </main>
+              Le repli est un squelette et non un indicateur d'attente, par la
+              même convention que les écrans (doc 08 §8.5) : il occupe la place
+              du contenu attendu, ce qui évite le saut de mise en page. */}
+          <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+            <Outlet />
+          </Suspense>
+        </main>
+      </div>
     </div>
   )
 }

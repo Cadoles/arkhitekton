@@ -78,38 +78,35 @@
   html {
     font-family: var(--font-sans);
 
-    /* La gouttière de l'ascenseur est réservée en permanence.
-     *
-     * Le contenu est centré — `mx-auto max-w-6xl` sur l'en-tête, la navigation
-     * et le corps. Sans réservation, l'apparition de l'ascenseur rétrécit la
-     * zone visible et décale tout d'une demi-largeur de barre vers la gauche.
-     * Le décalage se voit surtout au changement de page : une page courte n'a
-     * pas d'ascenseur, la suivante en a un, et l'interface entière saute.
-     *
-     * `scrollbar-gutter` plutôt qu'un `overflow-y: scroll` permanent : celui-ci
-     * réserve la place en affichant une piste vide sur les pages courtes. */
-    scrollbar-gutter: stable;
-
-    /* Le fond est ici et pas seulement sur `body`, et c'est la contrepartie de
-     * la gouttière : celle-ci appartient à la boîte de `<html>`, pas à celle de
-     * `<body>`. Un fond posé uniquement sur `body` ne la peint donc pas, et sur
-     * un thème sombre — où `color-scheme: dark` fait peindre le canevas par le
-     * navigateur — la bande réservée apparaissait en noir le long du bord droit
-     * dès qu'il n'y avait pas d'ascenseur pour l'occuper. */
+    /* Le fond est posé ici et pas seulement sur `body` : c'est `<html>` qui
+     * couvre la fenêtre entière, y compris ce qu'aucun élément de la mise en
+     * page n'atteint. */
     @apply bg-zinc-50;
 
     /* La piste de l'ascenseur suit le thème.
      *
-     * Peindre le fond de `<html>` n'a pas suffi : la gouttière réservée est
-     * rendue par le navigateur comme une piste d'ascenseur vide, et
-     * `color-scheme: dark` la lui fait peindre en sombre. D'où la bande noire au
-     * bord droit, indépendante du fond de la page — c'est un contrôle du
-     * navigateur, pas une zone que la feuille de style couvrait.
+     * `color-scheme: dark` fait peindre les ascenseurs par le navigateur, et une
+     * piste sombre tranchait sur le fond de page. `scrollbar-color` est la
+     * propriété standard, et les variables suivent l'inversion du thème :
+     * `zinc-50` est le fond de page dans les deux, donc la piste s'y fond, et
+     * `zinc-300` donne un curseur visible sans être dur.
      *
-     * `scrollbar-color` est la propriété standard, et les variables suivent
-     * l'inversion du thème : `zinc-50` est le fond de page dans les deux, donc
-     * la piste s'y fond, et `zinc-300` donne un curseur visible sans être dur. */
+     * Posée sur `<html>` et non sur le conteneur qui défile : elle est héritée,
+     * donc tous les ascenseurs de l'application la reprennent — celui de la
+     * coquille comme celui d'une modale. */
     scrollbar-color: var(--color-zinc-300) var(--color-zinc-50);
+
+    /* Pas de `scrollbar-gutter` ici, et c'est le point : réservée sur `<html>`,
+     * la gouttière découpait une bande hors de **tout** ce qui vit dedans —
+     * l'en-tête s'arrêtait avant le bord droit, et le voile d'une modale,
+     * `position: fixed`, ne l'atteignait pas davantage. L'ascenseur a été
+     * descendu d'un cran, dans la coquille (voir `AppShell`), où il réserve sa
+     * gouttière sans amputer la fenêtre.
+     *
+     * `overflow` reste libre : les écrans rendus hors coquille — connexion,
+     * erreur de session — n'ont pas d'ascenseur à eux et doivent pouvoir
+     * défiler. La coquille faisant exactement la hauteur visible, le document
+     * ne déborde pas pour autant. */
   }
 
   body {
