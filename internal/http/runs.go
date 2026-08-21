@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -24,10 +27,50 @@ type Runs interface {
 // RunsHandler expose les runs observés.
 type RunsHandler struct {
 	runs Runs
+	// dashboardURL est la racine du dashboard Tekton. Vide, le lien est omis
+	// plutôt que rendu mort : un lien qui mène nulle part coûte plus qu'il ne
+	// rapporte.
+	dashboardURL string
+	// directory traduit les sujets OIDC en noms. Nil-safe : sans lui le sujet
+	// s'affiche tel quel, ce qui reste identifiable.
+	directory DirectoryReader
+	logger    *slog.Logger
 }
 
 func NewRunsHandler(runs Runs) *RunsHandler {
 	return &RunsHandler{runs: runs}
+}
+
+// WithTektonDashboard branche le lien vers l'exécution telle que Tekton la voit.
+//
+// Le dashboard de ce projet montre ce qu'il a retenu d'un run : statut, étapes,
+// journaux collectés. Celui de Tekton montre l'objet lui-même — ses paramètres
+// résolus, ses workspaces, ses résultats. Quand les deux divergent, c'est le
+// second qui tranche, et il faut pouvoir y aller sans reconstruire l'URL à la
+// main.
+func (h *RunsHandler) WithTektonDashboard(url string) *RunsHandler {
+	h.dashboardURL = strings.TrimRight(url, "/")
+	return h
+}
+
+// WithDirectory branche la traduction des sujets en noms.
+func (h *RunsHandler) WithDirectory(directory DirectoryReader, logger *slog.Logger) *RunsHandler {
+	h.directory = directory
+	h.logger = logger
+	return h
+}
+
+// dashboardLink compose l'URL de l'exécution dans le dashboard Tekton.
+//
+// La forme `#/namespaces/<ns>/pipelineruns/<nom>` est celle du routeur du
+// dashboard Tekton. Un namespace vide donnerait une URL qui s'ouvre sur une page
+// d'erreur : mieux vaut alors ne pas proposer le lien.
+func (h *RunsHandler) dashboardLink(run store.RunSummary) string {
+	if h.dashboardURL == "" || run.Namespace == "" {
+		return ""
+	}
+	return h.dashboardURL + "/#/namespaces/" + url.PathEscape(run.Namespace) +
+		"/pipelineruns/" + url.PathEscape(run.Name)
 }
 
 // runPayload est la représentation transmise au frontend.
@@ -46,6 +89,15 @@ type runPayload struct {
 	// Observed distingue un run que le dashboard a lancé d'un run qu'il
 	// constate : l'interface n'offre ni annulation ni relance sur le second.
 	Observed bool `json:"observed"`
+
+	// Origin dit d'où vient l'exécution : la release qu'elle sert, ou à défaut
+	// la personne qui l'a demandée. Les deux champs sont omis quand ils sont
+	// vides — un run observé n'a ni l'un ni l'autre, et afficher « — » à leur
+	// place ferait croire à une donnée perdue.
+	ReleaseTag  string `json:"release_tag,omitempty"`
+	TriggeredBy string `json:"triggered_by,omitempty"`
+	// DashboardURL pointe vers l'objet dans le dashboard Tekton.
+	DashboardURL string `json:"dashboard_url,omitempty"`
 }
 
 // List rend les runs les plus récents.
@@ -107,8 +159,15 @@ func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	tasks := mergeTasks(detail)
 
+	run := toRunPayload(detail.Run)
+	run.ReleaseTag = detail.Run.ReleaseTag
+	run.DashboardURL = h.dashboardLink(detail.Run)
+	if detail.Run.RequestedBy != "" {
+		run.TriggeredBy = h.actorName(r.Context(), detail.Run.RequestedBy)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"run":   toRunPayload(detail.Run),
+		"run":   run,
 		"tasks": tasks,
 	})
 }
@@ -195,6 +254,14 @@ func toTaskPayload(task store.TaskSummary, label string) taskPayload {
 		HasLog:      task.HasLog || task.PodName != "",
 		Sealed:      task.LogSealed,
 	}
+}
+
+// actorName traduit un sujet OIDC en nom lisible.
+func (h *RunsHandler) actorName(ctx context.Context, subject string) string {
+	if h.directory == nil {
+		return subject
+	}
+	return resolveActors(ctx, h.directory, h.logger).name(subject)
 }
 
 // RunEvents est ce que le flux d'état attend de la base.

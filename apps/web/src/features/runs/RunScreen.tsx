@@ -95,6 +95,21 @@ export function RunScreen() {
               observée — non lancée par le dashboard
             </span>
           )}
+
+          {/* Le lien vers Tekton passe en tête plutôt qu'en métadonnée : c'est
+              une sortie, pas une donnée à lire. Absent quand le dashboard Tekton
+              n'est pas configuré. */}
+          {run.dashboard_url && (
+            <a
+              href={run.dashboard_url}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+            >
+              <Icon name="external" className="size-3.5" />
+              Ouvrir dans Tekton
+            </a>
+          )}
         </div>
       </div>
 
@@ -103,6 +118,27 @@ export function RunScreen() {
           <Field label="Pipeline" value={run.pipeline} />
           <Field label="Début" value={run.started_at ? formatDateTime(run.started_at) : '—'} />
           <Field label="Durée" value={formatDuration(duration(run.started_at, run.completed_at))} />
+
+          {/* La provenance, quand elle existe. La release prime : une exécution
+              de vérification appartient à ce qu'elle vérifie, et savoir qui a
+              cliqué importe moins. Un run observé n'a ni l'une ni l'autre —
+              rien ne s'affiche alors, plutôt qu'un tiret qui se lirait comme une
+              donnée perdue. */}
+          {run.release_tag && (
+            <div>
+              <dt className="text-xs text-zinc-500">Release</dt>
+              <dd className="text-sm">
+                <Link
+                  to={`/releases/${encodeURIComponent(run.release_tag)}`}
+                  className="font-mono text-zinc-900 hover:underline"
+                >
+                  {run.release_tag}
+                </Link>
+              </dd>
+            </div>
+          )}
+          {run.triggered_by && <Field label="Demandée par" value={run.triggered_by} />}
+
           {run.reason && <Field label="Motif Tekton" value={run.reason} mono />}
         </dl>
       </Card>

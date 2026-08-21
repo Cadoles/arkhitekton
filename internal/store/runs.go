@@ -249,6 +249,17 @@ type RunSummary struct {
 	StartedAt   *time.Time
 	CompletedAt *time.Time
 	Observed    bool
+	// Namespace est celui du PipelineRun. Sert à composer le lien vers le
+	// dashboard Tekton, qui range ses objets par namespace.
+	Namespace string
+	// ReleaseTag et RequestedBy disent d'où vient l'exécution. Vides sur un run
+	// observé — déclenché hors dashboard, il n'a ni job ni demandeur — et c'est
+	// une information en soi : personne ici ne l'a lancé.
+	//
+	// Renseignés par GetRun seulement : la liste n'en a pas l'usage, et la
+	// jointure la ferait payer à chaque ligne.
+	ReleaseTag  string
+	RequestedBy string
 }
 
 // ListRuns rend les runs les plus récents d'abord.
@@ -259,7 +270,7 @@ func (db *DB) ListRuns(ctx context.Context, limit int) ([]RunSummary, error) {
 
 	rows, err := db.pool.Query(ctx,
 		`select id, pipelinerun_name, pipeline_name, status, coalesce(reason, ''),
-		        started_at, completed_at, observed
+		        started_at, completed_at, observed, namespace
 		 from runs
 		 -- Les runs sans date de début — créés mais pas encore réconciliés par
 		 -- Tekton — doivent apparaître en tête et non en fin de liste.
@@ -274,7 +285,7 @@ func (db *DB) ListRuns(ctx context.Context, limit int) ([]RunSummary, error) {
 	for rows.Next() {
 		var run RunSummary
 		if err := rows.Scan(&run.ID, &run.Name, &run.Pipeline, &run.Status, &run.Reason,
-			&run.StartedAt, &run.CompletedAt, &run.Observed); err != nil {
+			&run.StartedAt, &run.CompletedAt, &run.Observed, &run.Namespace); err != nil {
 			return nil, fmt.Errorf("liste des runs: %w", err)
 		}
 		runs = append(runs, run)
@@ -359,7 +370,7 @@ func (db *DB) TaskLog(ctx context.Context, runName, taskName string) (TaskLogLoc
 func (db *DB) RunsUpdatedSince(ctx context.Context, since time.Time) ([]RunSummary, time.Time, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, pipelinerun_name, pipeline_name, status, coalesce(reason, ''),
-		        started_at, completed_at, observed, updated_at
+		        started_at, completed_at, observed, namespace, updated_at
 		 from runs
 		 where updated_at > $1
 		 order by updated_at
@@ -375,7 +386,8 @@ func (db *DB) RunsUpdatedSince(ctx context.Context, since time.Time) ([]RunSumma
 		var run RunSummary
 		var updatedAt time.Time
 		if err := rows.Scan(&run.ID, &run.Name, &run.Pipeline, &run.Status, &run.Reason,
-			&run.StartedAt, &run.CompletedAt, &run.Observed, &updatedAt); err != nil {
+			&run.StartedAt, &run.CompletedAt, &run.Observed, &run.Namespace,
+			&updatedAt); err != nil {
 			return nil, since, fmt.Errorf("runs modifiés: %w", err)
 		}
 		if updatedAt.After(latest) {
@@ -418,13 +430,21 @@ func (db *DB) GetRun(ctx context.Context, name string) (RunDetail, error) {
 	var detail RunDetail
 
 	var declared []byte
+	// Les jointures sont externes à dessein : un run observé n'a pas de job, et
+	// un job de synchronisation n'a pas de release. Une jointure interne les
+	// ferait disparaître de l'écran plutôt que de les afficher sans provenance.
 	err := db.pool.QueryRow(ctx,
-		`select id, pipelinerun_name, pipeline_name, status, coalesce(reason, ''),
-		        started_at, completed_at, observed, declared_tasks
-		 from runs where pipelinerun_name = $1`, name).
+		`select r.id, r.pipelinerun_name, r.pipeline_name, r.status, coalesce(r.reason, ''),
+		        r.started_at, r.completed_at, r.observed, r.namespace, r.declared_tasks,
+		        coalesce(j.requested_by, ''), coalesce(rel.tag, '')
+		 from runs r
+		 left join jobs j on j.id = r.job_id
+		 left join releases rel on rel.id = j.release_id
+		 where r.pipelinerun_name = $1`, name).
 		Scan(&detail.Run.ID, &detail.Run.Name, &detail.Run.Pipeline, &detail.Run.Status,
 			&detail.Run.Reason, &detail.Run.StartedAt, &detail.Run.CompletedAt,
-			&detail.Run.Observed, &declared)
+			&detail.Run.Observed, &detail.Run.Namespace, &declared,
+			&detail.Run.RequestedBy, &detail.Run.ReleaseTag)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return detail, ErrRunNotFound

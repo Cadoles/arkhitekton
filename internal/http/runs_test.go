@@ -98,3 +98,27 @@ func TestSansDeclarationSeulesLesTachesDemarreesSontRendues(t *testing.T) {
 		t.Errorf("tâches: %+v", tasks)
 	}
 }
+
+// Le lien vers le dashboard Tekton, et les deux cas où il ne doit pas exister.
+func TestLeLienTektonEstOmisQuandIlSeraitMort(t *testing.T) {
+	run := store.RunSummary{Name: "mse-unit-tests-1", Namespace: "mse-tekton-pipelines"}
+
+	configured := NewRunsHandler(nil).WithTektonDashboard("https://tekton.example.fr/")
+	want := "https://tekton.example.fr/#/namespaces/mse-tekton-pipelines/pipelineruns/mse-unit-tests-1"
+	if got := configured.dashboardLink(run); got != want {
+		t.Errorf("lien: %q, attendu %q", got, want)
+	}
+
+	// Sans dashboard configuré, pas de lien : le déployer n'est pas une exigence
+	// de ce dashboard-ci.
+	if got := NewRunsHandler(nil).dashboardLink(run); got != "" {
+		t.Errorf("lien sans configuration: %q", got)
+	}
+
+	// Sans namespace, l'URL s'ouvrirait sur une page d'erreur. Mieux vaut ne rien
+	// proposer.
+	orphan := store.RunSummary{Name: "mse-unit-tests-1"}
+	if got := configured.dashboardLink(orphan); got != "" {
+		t.Errorf("lien sans namespace: %q", got)
+	}
+}

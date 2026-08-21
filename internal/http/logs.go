@@ -3,8 +3,10 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
@@ -151,6 +153,79 @@ func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// Raw sert le journal entier en texte.
+//
+// Deux usages pour une seule route, distingués par `download` : ouvrir le
+// journal brut dans un onglet — la visionneuse virtualise, ce qui empêche de
+// chercher avec le navigateur ou de tout sélectionner — et l'enregistrer en
+// fichier. La ressource est la même, seule la façon de la présenter change ;
+// deux routes pour cela auraient dupliqué la lecture.
+//
+// Le contenu est rendu tel qu'il est stocké, horodatages du kubelet compris.
+// C'est le sens de « brut » : ce que la visionneuse retire pour l'affichage doit
+// se retrouver ici, sans quoi le fichier téléchargé ne permettrait plus de
+// recouper avec un autre journal.
+func (h *LogsHandler) Raw(w http.ResponseWriter, r *http.Request) {
+	runName := r.PathValue("run")
+	taskName := r.PathValue("task")
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if r.URL.Query().Get("download") != "" {
+		// Le nom de fichier est composé des deux identifiants : un dossier de
+		// téléchargements où dix fichiers s'appellent `log.txt` ne sert à rien.
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf("attachment; filename=%q", sanitizeFilename(runName+"-"+taskName)+".txt"))
+	}
+
+	// La lecture est paginée parce que le lecteur borne chaque appel à MaxRead :
+	// un journal d'intégration dépasse largement cette taille. Les tranches sont
+	// écrites au fil de l'eau plutôt qu'accumulées — le journal complet n'a
+	// aucune raison de tenir en mémoire du serveur avant de partir.
+	var offset int64
+	for {
+		segment, err := h.reader.From(r.Context(), runName, taskName, offset, 0)
+		if err != nil {
+			if offset == 0 {
+				writeProblem(w, http.StatusInternalServerError, "Lecture du journal impossible", "")
+				return
+			}
+			// L'en-tête est parti et une partie du corps aussi : il n'y a plus de
+			// code d'état à changer. Interrompre laisse une réponse tronquée, ce
+			// qui est le moins mauvais des états possibles.
+			return
+		}
+
+		if _, err := w.Write(segment.Content); err != nil {
+			// Onglet fermé en cours de téléchargement : rien à signaler.
+			return
+		}
+
+		// La progression est la condition d'arrêt, et pas seulement l'égalité à
+		// la taille : un journal qui grossit pendant la lecture ferait tourner
+		// cette boucle indéfiniment si l'on attendait de la rattraper.
+		if segment.NextOffset <= offset || segment.NextOffset >= segment.Size {
+			return
+		}
+		offset = segment.NextOffset
+	}
+}
+
+// sanitizeFilename ne garde que ce qui traverse sans dommage un en-tête et un
+// système de fichiers. Les noms de PipelineRun sont déjà des identifiants DNS,
+// mais l'en-tête est construit ici et rien ne garantit qu'il le restera.
+func sanitizeFilename(name string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '-'
+		}
+	}, name)
 }
 
 func (h *LogsHandler) next(

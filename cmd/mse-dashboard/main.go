@@ -155,7 +155,11 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL),
 		cfg.OIDC.BootstrapAdmins, cfg.OIDC.SessionTTL)
 	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger)
-	runsHandler := dashhttp.NewRunsHandler(db)
+	runsHandler := dashhttp.NewRunsHandler(db).
+		WithTektonDashboard(cfg.Tekton.DashboardURL).
+		// L'annuaire traduit le sujet OIDC du demandeur en nom : c'est « qui a
+		// lancé » qu'on lit sur un écran d'exécution, pas un identifiant.
+		WithDirectory(db, logger)
 	// Le lecteur de journaux vit côté `api` et lit le stockage : le collecteur
 	// écrit depuis le `worker`, et les deux processus n'ont pas d'autre point de
 	// rencontre que MinIO et PostgreSQL.

@@ -48,6 +48,11 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 	mux.Handle("GET /runs/{run}/tasks/{task}/log/stream", Chain(http.HandlerFunc(logs.Stream),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	// Le journal entier, en texte : consultable dans un onglet, enregistrable en
+	// fichier. Même permission que la lecture par plage — c'est la même donnée,
+	// servie autrement.
+	mux.Handle("GET /runs/{run}/tasks/{task}/log.txt", Chain(http.HandlerFunc(logs.Raw),
+		middleware.Authenticate, middleware.Require(auth.PermRead)))
 
 	// La file est en lecture pour tous : comprendre pourquoi une exécution
 	// attend ne demande aucun privilège, et c'est justement ce qui évite les

@@ -197,6 +197,11 @@ type TektonConfig struct {
 	// droit de l'écrire, et non dans celui des pipelines, où il n'a que la
 	// lecture (doc 07 §7.3).
 	LeaseNamespace string
+	// DashboardURL est la racine du dashboard Tekton, s'il est déployé. Facultatif :
+	// vide, l'interface n'affiche simplement pas le lien vers l'objet. En faire une
+	// exigence obligerait à déployer un composant dont ce dashboard n'a pas besoin
+	// pour fonctionner.
+	DashboardURL string
 }
 
 // Load lit la configuration depuis l'environnement et la valide pour le rôle
@@ -238,6 +243,7 @@ func Load(role Role) (Config, error) {
 		},
 		Tekton: TektonConfig{
 			Namespace:      envOr("TEKTON_NAMESPACE", "mse-tekton-pipelines"),
+			DashboardURL:   strings.TrimRight(os.Getenv("TEKTON_DASHBOARD_URL"), "/"),
 			KubeconfigPath: os.Getenv("KUBECONFIG"),
 			CatalogPath:    envOr("PIPELINE_CATALOG_PATH", "/etc/mse-dashboard/catalog.yaml"),
 			LeaseNamespace: envOr("POD_NAMESPACE", "mse-dashboard"),

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Icon } from '../../components/Icon'
 import { ErrorState, Skeleton } from '../../components/primitives'
+import { useScrollLock } from '../../lib/scrollLock'
 import { useTaskLog } from './useTaskLog'
 
 /*
@@ -18,11 +20,27 @@ import { useTaskLog } from './useTaskLog'
  *   - **le suivi**, qui colle la vue au bas du flux ;
  *   - **la remontée**, qui doit interrompre le suivi — sinon la vue redescend
  *     sous les doigts de l'utilisateur au premier événement reçu ;
- *   - **l'ancrage** sur une ligne, partageable par URL, qui doit aussi
- *     l'interrompre.
+ *   - **l'ancrage** sur une ligne ou une plage, partageable par URL, qui doit
+ *     aussi l'interrompre.
+ *
+ * La virtualisation a un prix, et il faut l'assumer : la recherche du navigateur
+ * ne trouve que ce qui est rendu, et « tout sélectionner » ne prend que la
+ * fenêtre visible. D'où les deux échappatoires — le texte brut dans un onglet et
+ * le téléchargement — qui servent précisément les usages que la virtualisation
+ * empêche.
  */
 
 const LINE_HEIGHT = 20
+
+/**
+ * Hauteur plancher, celle d'avant. Sur un grand écran la visionneuse s'étire
+ * jusqu'au bas de la fenêtre ; en dessous de cette taille elle cesserait de se
+ * lire comme un journal, et vaut mieux alors déborder que rétrécir.
+ */
+const MIN_HEIGHT = 384
+
+/** Marge sous la visionneuse quand elle s'étire, pour ne pas coller au bord. */
+const BOTTOM_GUTTER = 24
 
 export function LogViewer({
   runName,
@@ -37,6 +55,7 @@ export function LogViewer({
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [following, setFollowing] = useState(!sealed)
+  const [expanded, setExpanded] = useState(false)
 
   // L'ancre vient du routeur et non de `window.location`. La différence n'est pas
   // théorique : le composant est monté après la résolution de la requête, et lire
@@ -47,7 +66,7 @@ export function LogViewer({
   // ouvert, et rien dans l'interface ne l'expliquerait.
   const { hash } = useLocation()
   const navigate = useNavigate()
-  const anchor = useMemo(() => parseAnchor(hash), [hash])
+  const selection = useMemo(() => parseAnchor(hash), [hash])
   // Marque le premier positionnement. Sans lui, la vue s'ouvrirait au début du
   // contenu chargé — or ce contenu **est** la fin du journal, et c'est la
   // dernière ligne qu'on vient lire : l'échec est à la fin.
@@ -63,11 +82,11 @@ export function LogViewer({
     count: lines.length,
     getScrollElement: () => containerRef.current,
     // Une **estimation** seulement : la hauteur réelle est mesurée après rendu.
-    // Elle l'était autrefois imposée, et c'était le défaut : une ligne trop
-    // longue pour la largeur se replie sur plusieurs hauteurs de texte, mais la
-    // suivante restait positionnée à une hauteur de ligne de distance — les
-    // lignes se recouvraient. `measureElement`, posé en référence sur chaque
-    // ligne rendue, corrige la position des suivantes.
+    // Elle était autrefois imposée, et c'était le défaut : une ligne trop longue
+    // pour la largeur se replie sur plusieurs hauteurs de texte, mais la suivante
+    // restait positionnée à une hauteur de ligne de distance — les lignes se
+    // recouvraient. `measureElement`, posé en référence sur chaque ligne rendue,
+    // corrige la position des suivantes.
     estimateSize: () => LINE_HEIGHT,
     // Quelques lignes au-delà du viewport : sans marge, un défilement rapide
     // laisse apparaître des blancs le temps du rendu.
@@ -88,10 +107,12 @@ export function LogViewer({
   useEffect(() => {
     if (lines.length === 0) return
 
-    if (anchor !== null && !positioned.current) {
+    if (selection !== null && !positioned.current) {
       positioned.current = true
       setFollowing(false)
-      virtualizerRef.current.scrollToIndex(Math.min(anchor, lines.length - 1), { align: 'center' })
+      virtualizerRef.current.scrollToIndex(Math.min(selection.start, lines.length - 1), {
+        align: 'center',
+      })
       return
     }
 
@@ -106,7 +127,7 @@ export function LogViewer({
     if (following) {
       virtualizerRef.current.scrollToIndex(lines.length - 1, { align: 'end' })
     }
-  }, [anchor, following, lines.length])
+  }, [selection, following, lines.length])
 
   const onScroll = useCallback(() => {
     const element = containerRef.current
@@ -118,14 +139,50 @@ export function LogViewer({
     setFollowing(atBottom)
   }, [])
 
+  // Sélection d'une ligne, ou extension de la plage en cours avec Maj.
+  //
+  // Le geste est celui des forges, et c'est délibéré : personne n'apprendra une
+  // convention propre à ce dashboard pour désigner vingt lignes d'erreur.
+  const select = useCallback(
+    (index: number, extend: boolean) => {
+      // Le clic coupe le suivi, sans quoi la vue redescendrait au premier
+      // événement reçu — et le lecteur perdrait la ligne qu'il vient de viser.
+      setFollowing(false)
+
+      const line = index + 1
+      const anchor = extend && selection ? `#L${selection.start + 1}-L${line}` : `#L${line}`
+      // `replace` : ancrer une ligne n'est pas une navigation, et empiler une
+      // entrée d'historique par clic rendrait le bouton « retour » inutilisable.
+      navigate(anchor, { replace: true })
+    },
+    [navigate, selection],
+  )
+
+  useScrollLock(expanded)
+
+  // Échap referme le plein écran. Sans lui, la seule sortie serait un bouton
+  // qu'on ne cherche pas quand la vue occupe l'écran entier.
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [expanded])
+
+  // Mesurée sur le panneau lui-même : c'est sa position dans la page qui dit
+  // combien de place reste en dessous.
+  const height = useAvailableHeight(containerRef, !expanded)
+
   const items = virtualizer.getVirtualItems()
   const summary = useMemo(() => `${lines.length} ligne${lines.length > 1 ? 's' : ''}`, [lines.length])
 
   if (loading) return <Skeleton className="h-96 w-full" />
   if (error) return <ErrorState message={error} />
 
-  return (
-    <div className="flex flex-col gap-2">
+  const view = (
+    <div className={`flex flex-col gap-2 ${expanded ? 'min-h-0 flex-1' : ''}`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-zinc-500">{summary}</span>
 
@@ -138,6 +195,8 @@ export function LogViewer({
             Charger le début
           </button>
         )}
+
+        {selection && <ShareLink selection={selection} />}
 
         <label className="ml-auto flex items-center gap-2 text-xs text-zinc-600">
           <input
@@ -155,6 +214,8 @@ export function LogViewer({
             journal scellé
           </span>
         )}
+
+        <Tools runName={runName} taskName={taskName} expanded={expanded} onExpand={setExpanded} />
       </div>
 
       <div
@@ -170,14 +231,18 @@ export function LogViewer({
         // et un `bg-zinc-950` écrit pour obtenir une console noire en thème clair
         // devenait donc presque blanc en thème sombre. Les tokens ordinaires
         // donnent le bon sens dans les deux.
-        className="h-96 overflow-auto rounded-lg border border-zinc-200 bg-zinc-100 font-mono text-xs"
+        className={`overflow-auto rounded-lg border border-zinc-200 bg-zinc-100 font-mono text-xs ${
+          expanded ? 'min-h-0 flex-1' : ''
+        }`}
+        style={expanded ? undefined : { height }}
       >
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
           {items.map((item) => {
             const line = lines[item.index]
             if (!line) return null
 
-            const highlighted = anchor === item.index
+            const highlighted =
+              selection !== null && item.index >= selection.start && item.index <= selection.end
             return (
               <div
                 key={item.key}
@@ -193,23 +258,18 @@ export function LogViewer({
                   width: '100%',
                   transform: `translateY(${item.start}px)`,
                 }}
-                className={`flex gap-3 px-3 leading-5 ${highlighted ? 'bg-zinc-200' : ''}`}
+                // `items-start` place le numéro en face de la **première** ligne
+                // d'un texte replié. Par défaut une rangée flex étire ses enfants
+                // et le bouton, centrant son contenu, affichait le numéro au
+                // milieu du bloc — à côté de nulle part.
+                className={`flex items-start gap-3 px-3 leading-5 ${highlighted ? 'bg-zinc-200' : ''}`}
               >
                 <button
                   type="button"
-                  onClick={() => {
-                    // Le clic pose l'ancre sans repositionner : l'utilisateur
-                    // voit déjà la ligne. Il coupe en revanche le suivi, sans
-                    // quoi la vue redescendrait au premier événement reçu.
-                    setFollowing(false)
-                    // `replace` : ancrer une ligne n'est pas une navigation, et
-                    // empiler une entrée d'historique par clic rendrait le
-                    // bouton « retour » inutilisable.
-                    navigate(`#L${item.index + 1}`, { replace: true })
-                  }}
+                  onClick={(event) => select(item.index, event.shiftKey)}
                   title={line.timestamp || undefined}
                   aria-label={`Ancrer la ligne ${item.index + 1}`}
-                  className="w-12 shrink-0 select-none text-right text-zinc-400 tabular-nums hover:text-zinc-900"
+                  className="w-12 shrink-0 select-none text-right leading-5 text-zinc-400 tabular-nums hover:text-zinc-900"
                 >
                   {item.index + 1}
                 </button>
@@ -227,13 +287,166 @@ export function LogViewer({
       </div>
     </div>
   )
+
+  if (!expanded) return view
+
+  // Le plein écran passe par un portail : la visionneuse est rendue au fond
+  // d'une grille et de deux cartes, et un `fixed` posé là serait contenu par le
+  // premier ancêtre transformé rencontré. Le portail la sort de cette pile.
+  //
+  // Une superposition maison plutôt que l'API Fullscreen du navigateur : celle-ci
+  // sort l'élément du document et lui donne un fond noir imposé, ce qui casse le
+  // thème et le lien avec le reste de l'écran.
+  return createPortal(
+    <div className="fixed inset-0 z-40 flex flex-col gap-2 bg-zinc-50 p-4">
+      <p className="font-mono text-xs text-zinc-500">
+        {runName} — {taskName}
+      </p>
+      {view}
+    </div>,
+    document.body,
+  )
 }
 
-/** `#L42` désigne la 42e ligne affichée, donc l'indice 41. */
-function parseAnchor(hash: string): number | null {
-  const match = /^#L(\d+)$/.exec(hash)
+/** Bouton de copie du lien vers la sélection. */
+function ShareLink({ selection }: { selection: Selection }) {
+  const [copied, setCopied] = useState(false)
+
+  // Le retour visuel s'efface de lui-même : un « copié » qui reste laisse croire,
+  // à la copie suivante, que rien ne s'est passé.
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+
+  const label =
+    selection.start === selection.end
+      ? `ligne ${selection.start + 1}`
+      : `lignes ${selection.start + 1} à ${selection.end + 1}`
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        // L'URL vient de la barre d'adresse et non d'une reconstruction : elle
+        // porte déjà l'ancre que la sélection vient d'y écrire, et la recomposer
+        // à la main ferait diverger les deux au premier changement de route.
+        void navigator.clipboard
+          .writeText(window.location.href)
+          .then(() => setCopied(true))
+          .catch(() => setCopied(false))
+      }}
+      title="Copier le lien vers cette sélection"
+      className="flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100"
+    >
+      <Icon name={copied ? 'check' : 'link'} className="size-3.5" />
+      {copied ? 'Lien copié' : `Copier le lien — ${label}`}
+    </button>
+  )
+}
+
+/** Sorties du journal : texte brut, fichier, plein écran. */
+function Tools({
+  runName,
+  taskName,
+  expanded,
+  onExpand,
+}: {
+  runName: string
+  taskName: string
+  expanded: boolean
+  onExpand: (expanded: boolean) => void
+}) {
+  // Route servie par `internal/http/logs.go`. Une navigation ordinaire suffit à
+  // l'atteindre : la session est un cookie, et ces liens visent la même origine.
+  const raw = `/api/v1/runs/${encodeURIComponent(runName)}/tasks/${encodeURIComponent(taskName)}/log.txt`
+
+  return (
+    <span className="flex items-center gap-1">
+      <a
+        href={raw}
+        target="_blank"
+        rel="noreferrer"
+        title="Ouvrir le journal brut dans un onglet"
+        className="flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100"
+      >
+        <Icon name="external" className="size-3.5" />
+        Brut
+      </a>
+      <a
+        href={`${raw}?download=1`}
+        title="Télécharger le journal complet"
+        className="flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100"
+      >
+        <Icon name="download" className="size-3.5" />
+        Télécharger
+      </a>
+      <button
+        type="button"
+        onClick={() => onExpand(!expanded)}
+        title={expanded ? 'Quitter le plein écran (Échap)' : 'Afficher en plein écran'}
+        aria-pressed={expanded}
+        className="flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100"
+      >
+        <Icon name={expanded ? 'collapse' : 'expand'} className="size-3.5" />
+        {expanded ? 'Réduire' : 'Plein écran'}
+      </button>
+    </span>
+  )
+}
+
+/**
+ * Hauteur restante sous la visionneuse, plancher compris.
+ *
+ * Une hauteur fixe gâche un grand écran : la moitié basse reste vide pendant
+ * qu'on fait défiler quarante lignes dans une fenêtre de vingt. La mesure est
+ * faite sur la position réelle du panneau plutôt que déduite d'une chaîne de
+ * `h-full` — celle-ci traverserait la coquille, deux cartes et une grille, et
+ * casserait au premier changement de mise en page.
+ *
+ * Recalculée au redimensionnement seulement, pas au défilement : la hauteur du
+ * panneau ne dépend pas de l'endroit où l'on est dans la page, et la recalculer
+ * pendant qu'on défile la ferait vibrer.
+ */
+function useAvailableHeight(ref: React.RefObject<HTMLElement | null>, enabled: boolean): number {
+  const [height, setHeight] = useState(MIN_HEIGHT)
+
+  useLayoutEffect(() => {
+    if (!enabled) return
+
+    const measure = () => {
+      const element = ref.current
+      if (!element) return
+      const top = element.getBoundingClientRect().top
+      setHeight(Math.max(MIN_HEIGHT, Math.round(window.innerHeight - top - BOTTOM_GUTTER)))
+    }
+
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [enabled, ref])
+
+  return height
+}
+
+/**
+ * `#L42` désigne la 42e ligne affichée, donc l'indice 41 ; `#L42-L50` la plage
+ * qui va de la 42e à la 50e.
+ */
+type Selection = { start: number; end: number }
+
+function parseAnchor(hash: string): Selection | null {
+  const match = /^#L(\d+)(?:-L(\d+))?$/.exec(hash)
   if (!match?.[1]) return null
 
-  const line = Number.parseInt(match[1], 10)
-  return Number.isFinite(line) && line > 0 ? line - 1 : null
+  const first = Number.parseInt(match[1], 10)
+  if (!Number.isFinite(first) || first <= 0) return null
+
+  const second = match[2] ? Number.parseInt(match[2], 10) : first
+  if (!Number.isFinite(second) || second <= 0) return null
+
+  // Les bornes sont réordonnées : une sélection étendue vers le haut produit
+  // `#L50-L42`, qui désigne la même plage et doit se lire pareil.
+  return { start: Math.min(first, second) - 1, end: Math.max(first, second) - 1 }
 }

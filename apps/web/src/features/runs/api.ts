@@ -21,6 +21,18 @@ export type Run = {
   completed_at?: string
   /** Un run observé n'a pas été lancé par le dashboard : il s'affiche sans action. */
   observed: boolean
+  /**
+   * Provenance. La release prime sur la personne : une exécution de vérification
+   * appartient à ce qu'elle vérifie, et savoir qui a cliqué importe moins.
+   *
+   * Les deux sont absents sur un run observé — déclenché par un webhook ou un
+   * CronJob, il n'a ni demandeur ni release — et l'interface n'affiche alors rien
+   * plutôt qu'un tiret, qui se lirait comme une donnée perdue.
+   */
+  release_tag?: string
+  triggered_by?: string
+  /** Lien vers l'objet dans le dashboard Tekton. Absent s'il n'est pas configuré. */
+  dashboard_url?: string
 }
 
 export type Task = {
