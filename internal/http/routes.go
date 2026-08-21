@@ -95,6 +95,12 @@ func NewAPIRouter(
 	mux.Handle("POST /releases/{tag}/build", Chain(http.HandlerFunc(releases.Rebuild),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseCreate)))
 
+	// Relancer une seule vérification. Même permission que la reconstruction :
+	// c'est du calcul dans le cluster, pas une livraison. Moins engageant, même :
+	// rien n'est republié, l'image ne bouge pas.
+	mux.Handle("POST /releases/{tag}/verify/{kind}", Chain(http.HandlerFunc(releases.Verify),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseCreate)))
+
 	// Les actions manuelles sont éditables par ceux qui produisent le livrable,
 	// pas seulement par ceux qui peuvent livrer : `release:edit` et non
 	// `release:create:final`.

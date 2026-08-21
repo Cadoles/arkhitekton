@@ -142,6 +142,34 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// severity ordonne les statuts de rapport, du plus clément au plus sévère.
+var severity = map[string]int{"pass": 0, "warn": 1, "fail": 2}
+
+// worstStatus rend le plus sévère de deux statuts.
+//
+// Un statut inconnu est traité comme le plus sévère : mieux vaut signaler à tort
+// qu'absoudre en silence un verdict qu'on ne sait pas lire.
+func worstStatus(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	rankA, knownA := severity[a]
+	rankB, knownB := severity[b]
+	switch {
+	case !knownA:
+		return a
+	case !knownB:
+		return b
+	case rankB > rankA:
+		return b
+	default:
+		return a
+	}
+}
+
 // score compose le score d'une release à partir de ce qui a été mesuré.
 //
 // Chaque signal est cherché explicitement plutôt que dérivé d'une boucle sur les
@@ -151,20 +179,37 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 func (h *TestsHandler) score(
 	ctx context.Context, releaseID int64, reports []store.TestResult,
 ) (results.Breakdown, error) {
+	// Le dernier rapport de chaque **outil**, puis la somme par famille.
+	//
+	// Retenir un seul rapport par famille perdait les familles à plusieurs
+	// outils. `static` en compte deux — PHPStan et PHP-CS-Fixer — et seul le plus
+	// récent des deux entrait au score : une release avec quarante erreurs
+	// PHPStan et un cs-fixer propre affichait 100 dès lors que cs-fixer avait
+	// conclu en dernier.
 	byFamily := map[string]results.Report{}
 	seen := map[string]bool{}
+	seenTool := map[string]bool{}
 
 	for _, report := range reports {
-		// Le rapport le plus récent d'une famille fait foi : la liste est
-		// antichronologique, donc le premier rencontré.
-		if seen[report.Family] {
+		// La liste est antichronologique : le premier rencontré pour un couple
+		// famille/outil est le plus récent, les suivants sont son historique.
+		key := report.Family + "/" + report.Tool
+		if seenTool[key] {
 			continue
 		}
+		seenTool[key] = true
 		seen[report.Family] = true
-		byFamily[report.Family] = results.Report{
-			Total: report.Total, Passed: report.Passed, Failed: report.Failed,
-			Skipped: report.Skipped, Flaky: report.Flaky, Status: report.Status,
-		}
+
+		combined := byFamily[report.Family]
+		combined.Total += report.Total
+		combined.Passed += report.Passed
+		combined.Failed += report.Failed
+		combined.Skipped += report.Skipped
+		combined.Flaky += report.Flaky
+		// Le statut le plus sévère l'emporte : deux outils d'une même famille
+		// rendent un verdict commun, et le plus clément masquerait l'autre.
+		combined.Status = worstStatus(combined.Status, report.Status)
+		byFamily[report.Family] = combined
 	}
 
 	// Les violations d'analyse statique se comptent en cas, pas en tests réussis :

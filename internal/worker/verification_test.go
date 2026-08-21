@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 )
@@ -519,5 +520,34 @@ func TestUnLancementManuelNeRattacheRien(t *testing.T) {
 	if release := sink.releaseOf(context.Background(),
 		tekton.Run{Name: "mse-static-tests-9", JobID: 9}); release != nil {
 		t.Errorf("release %d rendue pour un job sans release", *release)
+	}
+}
+
+// L'enchaînement automatique et la relance à l'unité doivent porter sur les
+// mêmes familles. Les deux listes vivent dans deux paquets — l'ordonnanceur
+// décide quoi lancer après une construction, l'API ce qu'on peut rejouer — et
+// leur divergence donnerait un bouton qui lance ce que la chaîne ne lance pas,
+// ou l'inverse : une famille enchaînée mais non relançable, donc irrattrapable
+// sans reconstruire toute la release.
+func TestLesFamillesRelancablesSontCellesQuiSontEnchainees(t *testing.T) {
+	enchainees := map[string]bool{}
+	for _, kind := range verificationKinds {
+		enchainees[kind] = true
+	}
+
+	relancables := map[string]bool{}
+	for _, kind := range dashhttp.VerifiableKinds {
+		relancables[kind] = true
+	}
+
+	for kind := range enchainees {
+		if !relancables[kind] {
+			t.Errorf("%s est enchaîné mais ne peut pas être relancé seul", kind)
+		}
+	}
+	for kind := range relancables {
+		if !enchainees[kind] {
+			t.Errorf("%s est relançable mais n'est jamais enchaîné", kind)
+		}
 	}
 }

@@ -60,6 +60,10 @@ type ReleasesHandler struct {
 	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
 	// le jour où le portail se scinde.
 	imageName string
+	// registryProject préfixe les images publiées. Sert à nommer à l'audit celles
+	// qu'il doit analyser lors d'une relance — il analyse une image **déjà
+	// publiée**, jamais une reconstruction (B17).
+	registryProject string
 	// forge résout une référence en commit. Nil quand la forge n'est pas
 	// configurée.
 	forge Forge
@@ -118,7 +122,8 @@ const (
 
 func NewReleasesHandler(
 	releases ReleaseStore, pipelines *catalog.Catalog,
-	authorizer *auth.Authorizer, images Images, artifacts Artifacts, imageName string,
+	authorizer *auth.Authorizer, images Images, artifacts Artifacts,
+	imageName, registryProject string,
 ) *ReleasesHandler {
 	if imageName == "" {
 		imageName = "portal"
@@ -126,6 +131,7 @@ func NewReleasesHandler(
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
 		images: images, artifacts: artifacts, imageName: imageName,
+		registryProject: registryProject,
 	}
 }
 
@@ -717,6 +723,146 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"release": toReleasePayload(record, ""), "build_job_id": jobID,
 	})
+}
+
+// VerifiableKinds énumère les familles de vérification relançables à l'unité.
+//
+// Volontairement figée ici plutôt que déduite du catalogue : celui-ci porte aussi
+// `build` et `promote`, qui ne sont pas des vérifications, et une relance de
+// construction déguisée en relance de test ferait bien plus que ce que
+// l'utilisateur a demandé.
+//
+// Doit rester alignée sur `verificationKinds` de l'ordonnanceur. Un test le
+// vérifie sur le catalogue livré.
+var VerifiableKinds = []string{"static-tests", "security-audit", "integration-tests"}
+
+func verifiable(kind string) bool {
+	for _, known := range VerifiableKinds {
+		if known == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// Verify relance une seule famille de vérification sur une release.
+//
+// Le geste manquait : une vérification en échec pour une cause extérieure —
+// registre injoignable, nœud saturé, dépôt momentanément inaccessible —
+// n'obligeait à rien de moins qu'une reconstruction complète, qui republie les
+// images et rejoue *toutes* les vérifications. Rejouer celle qui a échoué coûte
+// une fraction de cela et ne touche pas à l'artefact.
+//
+// L'état de la release n'est **pas** modifié. Une relance ne dit rien de neuf sur
+// la release tant qu'elle n'a pas conclu, et la faire retomber en `verifying`
+// depuis `ready` annulerait une décision déjà prise sur les autres familles.
+func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	tag := r.PathValue("tag")
+	kind := r.PathValue("kind")
+	if !verifiable(kind) {
+		writeProblem(w, http.StatusBadRequest, "Famille inconnue",
+			fmt.Sprintf("%q n'est pas une famille de vérification relançable", kind))
+		return
+	}
+
+	record, err := h.store.GetRelease(r.Context(), tag)
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		return
+	}
+
+	// La révision vérifiée est le commit construit, jamais la branche dont il
+	// vient : celle-ci a pu bouger, et les tests porteraient alors sur autre chose
+	// que l'image (B17).
+	revision := record.GitCommit
+	if revision == "" {
+		revision = record.GitRef
+	}
+	if revision == "" {
+		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
+			"cette release ne désigne aucune référence Git: il n'y a rien à vérifier")
+		return
+	}
+
+	pipeline, found := h.catalog.Find(kind)
+	if !found {
+		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
+			fmt.Sprintf("le catalogue ne déclare aucun pipeline %q", kind))
+		return
+	}
+
+	params, missing := verificationParams(pipeline, revision, record.Tag, h.registryProject)
+	if missing != "" {
+		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
+			fmt.Sprintf("le paramètre %q ne peut pas être renseigné pour cette release", missing))
+		return
+	}
+
+	jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
+		Kind:        pipeline.Kind,
+		QueueClass:  pipeline.QueueClass,
+		Params:      params,
+		RequestedBy: identity.Subject,
+		ReleaseID:   &record.ID,
+	})
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Relance impossible", "")
+		return
+	}
+
+	h.audit(r, store.AuditReleaseVerify, tag, map[string]any{
+		"kind": kind, "revision": revision, "job": jobID,
+	})
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"kind": kind, "job_id": jobID, "revision": revision,
+	})
+}
+
+// verificationParams renseigne les entrées obligatoires d'une vérification.
+//
+// Même table que celle de l'enchaînement automatique, et pour la même raison :
+// plusieurs pipelines nomment différemment la même chose. Un paramètre requis
+// qu'on ne sait pas renseigner est rendu à l'appelant plutôt que de partir vide —
+// le run échouerait à l'ordonnancement, sur un message qui ne désigne pas la
+// cause.
+func verificationParams(
+	pipeline catalog.Pipeline, revision, tag, registryProject string,
+) (map[string]string, string) {
+	params := map[string]string{}
+	for _, name := range pipeline.RequiredInputs() {
+		switch name {
+		case "revision", "app-revision", "mse-revision":
+			params[name] = revision
+		case "portal-image":
+			params[name] = imageReference(registryProject, "portal", tag)
+		case "consumer-image":
+			params[name] = imageReference(registryProject, "portal-consumer", tag)
+		default:
+			return nil, name
+		}
+		if params[name] == "" {
+			return nil, name
+		}
+	}
+	return params, ""
+}
+
+func imageReference(registryProject, name, tag string) string {
+	if registryProject == "" {
+		return ""
+	}
+	return registryProject + "/" + name + ":" + tag
 }
 
 // anchorCommit résout une référence en commit, et dit pourquoi il ne l'a pas fait.

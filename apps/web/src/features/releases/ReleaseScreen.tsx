@@ -66,9 +66,8 @@ export function ReleaseScreen() {
 
           {/* Le score en premier : c'est le bloc qu'on lit d'un coup d'œil, et
               celui qui dit s'il faut ouvrir le reste. */}
-          <TestsPanel tag={data.tag} />
+          <TestsPanel tag={data.tag} jobs={data.jobs ?? []} />
 
-          <Identity release={data} />
           <Images release={data} />
           <Deployment release={data} />
           <BenchPanel tag={data.tag} />
@@ -92,7 +91,7 @@ export function ReleaseScreen() {
  */
 function Header({ tag, release }: { tag: string; release?: ReleaseDetail }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="font-mono text-2xl font-semibold text-zinc-900">{release?.tag ?? tag}</h1>
         {release && <StatusBadge style={status.release(release.state)} />}
@@ -101,6 +100,11 @@ function Header({ tag, release }: { tag: string; release?: ReleaseDetail }) {
       {release && (
         <>
           <p className="text-zinc-600">{KIND_LABEL[release.kind] ?? release.kind}</p>
+
+          {/* Les repères d'identité, en une ligne. Ils occupaient une carte
+              entière plus bas, qui redisait le tag, l'état et la nature déjà
+              portés ici — et reléguait sous le score ce qui identifie la chose
+              qu'on est en train de lire. */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-sm text-zinc-500">
             {/* La version d'image n'est rappelée que lorsqu'elle diffère du tag,
                 c'est-à-dire sur une finale produite par re-tag. La montrer partout
@@ -108,17 +112,63 @@ function Header({ tag, release }: { tag: string; release?: ReleaseDetail }) {
             {release.image_version !== release.tag && (
               <span className="text-zinc-700">image {release.image_version}</span>
             )}
+
+            {/* Le commit avant la référence : c'est lui qui identifie ce qui
+                tourne. La référence n'est qu'un point de départ, et elle a pu
+                bouger depuis. */}
             {release.git_commit && (
               <span className="inline-flex items-center gap-1" title={release.git_commit}>
                 <Icon name="commit" className="size-3.5" />
                 {release.git_commit.slice(0, 12)}
               </span>
             )}
+            {release.git_ref && (
+              <span className="inline-flex items-center gap-1">
+                <Icon name="branch" className="size-3.5" />
+                {release.git_ref}
+              </span>
+            )}
+            {release.source_tag && (
+              <span className="inline-flex items-center gap-1">
+                <Icon name="tag" className="size-3.5" />
+                re-tag de {release.source_tag}
+              </span>
+            )}
+
+            <span className="inline-flex items-center gap-1 font-sans">
+              <Icon name="user" className="size-3.5" />
+              {release.created_by}
+            </span>
             <span className="inline-flex items-center gap-1">
               <Icon name="clock" className="size-3.5" />
               créée le {formatDateTime(release.created_at)}
             </span>
           </div>
+
+          {release.git_ref && !release.git_commit && (
+            // Une release qui ne désigne qu'une branche n'est pas reproductible :
+            // la branche bouge, et reconstruire produirait une autre image.
+            <p className="flex items-start gap-2 text-sm text-warn-700">
+              <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+              Référence non résolue en commit : cette release n&apos;est pas reproductible.
+            </p>
+          )}
+
+          {release.image_version !== release.tag && (
+            // Le point le plus contre-intuitif de tout le dispositif : ce qui part
+            // en production porte encore la version de la RC. Le taire ferait
+            // conclure à une erreur de déploiement en lisant l'écran des
+            // environnements.
+            <p className="flex max-w-3xl items-start gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-600">
+              <Icon name="alert" className="mt-0.5 size-4 shrink-0 text-warn-700" />
+              <span>
+                Re-tag de <span className="font-mono">{release.image_version}</span> : l&apos;image
+                est bit pour bit celle qui a été validée, et son{' '}
+                <span className="font-mono">version.txt</span> porte donc encore la version de la
+                pré-release. C&apos;est cette valeur, et non le tag, que rapportera le portail.
+              </span>
+            </p>
+          )}
         </>
       )}
     </div>
@@ -129,62 +179,6 @@ const KIND_LABEL: Record<string, string> = {
   pre: 'Pré-release',
   final: 'Release finale',
   patch: 'Correctif',
-}
-
-function Identity({ release }: { release: ReleaseDetail }) {
-  return (
-    <CollapsibleSection title="Identité">
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-zinc-500">Nature</dt>
-        <dd className="text-zinc-900">{release.kind}</dd>
-        <dt className="text-zinc-500">État</dt>
-        <dd className="text-zinc-900">{release.state}</dd>
-        <dt className="text-zinc-500">Version d'image</dt>
-        <dd className="font-mono text-zinc-900">{release.image_version}</dd>
-        {/* Le commit avant la référence : c'est lui qui identifie ce qui tourne.
-            La référence n'est qu'un point de départ, et elle a pu bouger depuis. */}
-        {release.git_commit && (
-          <>
-            <dt className="text-zinc-500">Commit</dt>
-            <dd className="font-mono text-zinc-900" title={release.git_commit}>
-              {release.git_commit.slice(0, 12)}
-            </dd>
-          </>
-        )}
-        {release.git_ref && (
-          <>
-            <dt className="text-zinc-500">Référence Git</dt>
-            <dd className="font-mono text-zinc-900">
-              {release.git_ref}
-              {!release.git_commit && (
-                <span className="ml-2 text-xs font-sans text-warn-700">
-                  non résolue en commit — cette release n&apos;est pas reproductible
-                </span>
-              )}
-            </dd>
-          </>
-        )}
-        <dt className="text-zinc-500">Créée</dt>
-        <dd className="text-zinc-900">
-          {release.created_by} — {formatDateTime(release.created_at)}
-        </dd>
-      </dl>
-
-      {release.image_version !== release.tag && (
-        // Le point le plus contre-intuitif de tout le dispositif : ce qui part en
-        // production porte encore la version de la RC. Le taire ferait conclure à
-        // une erreur de déploiement en lisant l'écran des environnements.
-        <p className="mt-3 flex items-start gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-600">
-          <Icon name="alert" className="mt-0.5 size-4 shrink-0 text-warn-700" />
-          <span>
-            Cette release est un re-tag de <span className="font-mono">{release.image_version}</span> : l'image est bit
-            pour bit celle qui a été validée, et son <span className="font-mono">version.txt</span> porte donc encore la
-            version de la pré-release. C'est cette valeur, et non le tag, que rapportera le portail.
-          </span>
-        </p>
-      )}
-    </CollapsibleSection>
-  )
 }
 
 function Images({ release }: { release: ReleaseDetail }) {

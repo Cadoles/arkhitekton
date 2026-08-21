@@ -186,7 +186,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		images = client
 	}
 
-	releasesHandler := dashhttp.NewReleasesHandler(db, pipelines, authorizer, images, storage, cfg.Registry.Image)
+	releasesHandler := dashhttp.NewReleasesHandler(
+		db, pipelines, authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project)
 
 	// La forge est optionnelle : sans jeton, le formulaire de création de release
 	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture

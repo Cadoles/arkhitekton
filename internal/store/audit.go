@@ -31,6 +31,7 @@ const (
 	// Une reconstruction relance un pipeline sur la même référence Git : la
 	// tracer distingue « l'image a été rebâtie » de « le code a changé ».
 	AuditReleaseRebuild   = "release.rebuild"
+	AuditReleaseVerify    = "release.verify"
 	AuditReleasePromote   = "release.promote"
 	AuditReleaseActions   = "release.actions"
 	AuditJobEnqueue       = "job.enqueue"

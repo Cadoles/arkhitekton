@@ -130,6 +130,18 @@ export function useRelease(tag: string | undefined) {
     queryKey: ['releases', tag],
     queryFn: () => request<ReleaseDetail>(`/releases/${encodeURIComponent(tag as string)}`),
     enabled: Boolean(tag),
+    // Tant qu'une exécution est en file ou en cours, la release est relue.
+    //
+    // C'est ce qui fait cesser l'animation d'un signal quand son pipeline
+    // conclut : sans cela, la tuile resterait à pulser jusqu'au prochain
+    // rechargement manuel, et un score recalculé ne s'afficherait pas. Le
+    // sondage s'arrête de lui-même dès que plus rien ne tourne — il n'y a alors
+    // plus rien à attendre.
+    refetchInterval: (query) => {
+      const jobs = query.state.data?.jobs ?? []
+      const running = jobs.some((job) => job.state === 'queued' || job.state === 'running')
+      return running ? 5000 : false
+    },
   })
 }
 
@@ -338,7 +350,7 @@ export function useReleaseRelease(tag: string) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['releases'] })
-      void queryClient.invalidateQueries({ queryKey: ['release', tag] })
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag] })
       // La liste des promouvables change : elle ne retient que les validées.
       void queryClient.invalidateQueries({ queryKey: ['environments'] })
     },
@@ -357,6 +369,33 @@ export function useReleaseRelease(tag: string) {
  * création. La rouvrir permettrait de reconstruire un tag donné depuis un autre
  * commit, et deux images porteraient le même numéro sans être la même chose.
  */
+/**
+ * Relance d'une seule famille de vérification.
+ *
+ * Distincte de `useRebuild` : celle-ci reconstruit les images et rejoue tout,
+ * celle-là rejoue un pipeline sur l'image déjà publiée. L'état de la release ne
+ * bouge pas — une relance ne dit rien de neuf tant qu'elle n'a pas conclu.
+ */
+export function useVerify(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (kind: string) =>
+      request<{ kind: string; job_id: number; revision: string }>(
+        `/releases/${encodeURIComponent(tag)}/verify/${encodeURIComponent(kind)}`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      // La release porte la liste des exécutions, d'où l'écran déduit qu'un
+      // pipeline tourne : sans cette invalidation, le bouton resterait au repos
+      // alors que le run est parti.
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag] })
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'tests'] })
+      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
+}
+
 export function useRebuild(tag: string) {
   const queryClient = useQueryClient()
 
@@ -367,7 +406,7 @@ export function useRebuild(tag: string) {
         { method: 'POST' },
       ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['release', tag] })
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag] })
       void queryClient.invalidateQueries({ queryKey: ['releases'] })
       void queryClient.invalidateQueries({ queryKey: ['queue'] })
     },

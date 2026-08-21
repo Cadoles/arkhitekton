@@ -1,14 +1,13 @@
-import { Link } from 'react-router'
-import { CollapsibleSection } from '../../components/CollapsibleSection'
 import { Icon } from '../../components/Icon'
-import { EmptyState, Skeleton, StatusBadge } from '../../components/primitives'
-import { status } from '../../lib/status'
+import { Skeleton } from '../../components/primitives'
 import { HealthGauge } from './HealthGauge'
-import { SignalGrid } from './SignalGrid'
-import { FAMILY_LABEL, SIGNAL_LABEL, useTests, type ScoreBreakdown } from './tests'
+import { SignalGrid, Spinner } from './SignalGrid'
+import { buildIsRunning } from './signals'
+import { SIGNAL_LABEL, useTests, type ScoreBreakdown } from './tests'
+import type { ReleaseJob } from './api'
 
 /*
- * Score de qualité et résultats de tests d'une release.
+ * Score de qualité d'une release.
  *
  * Le score est toujours affiché **avec sa décomposition**. Un score dont on ne
  * peut pas voir le détail n'est pas ajustable en connaissance de cause : « 72 »
@@ -17,68 +16,70 @@ import { FAMILY_LABEL, SIGNAL_LABEL, useTests, type ScoreBreakdown } from './tes
  * La disposition est celle de la maquette : la jauge à gauche, les signaux en
  * tuiles à droite, le tout dans une seule carte. C'est le bloc qu'on lit en
  * premier, et le seul qui doive tenir dans un coup d'œil.
+ *
+ * La liste des rapports bruts a été retirée. Elle empilait l'historique de toutes
+ * les exécutions — trois lignes par construction, sans jamais rien remplacer — et
+ * redisait ce que les tuiles portent déjà. Le détail d'une famille vit sur son
+ * écran, atteignable depuis sa tuile.
  */
-export function TestsPanel({ tag }: { tag: string }) {
+export function TestsPanel({
+  tag,
+  jobs = [],
+}: {
+  tag: string
+  /** Exécutions de la release, d'où l'écran déduit ce qui est en cours.
+   *
+   *  Absentes sur l'écran d'un environnement, qui montre le score de la release
+   *  déployée sans en charger le détail : rien n'y est annoncé comme en cours,
+   *  ce qui est exact — il n'y a pas d'action à y attendre. */
+  jobs?: ReleaseJob[]
+}) {
   const { data, isPending } = useTests(tag)
 
   if (isPending) return <Skeleton className="h-48 w-full" />
   if (!data) return null
 
-  return (
-    <>
-      <ScoreCard tag={tag} score={data.score} />
-
-      <CollapsibleSection title="Résultats de tests" count={data.results.length}>
-        {data.results.length === 0 ? (
-          <EmptyState>Aucun résultat de test pour cette release.</EmptyState>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {data.results.map((result) => (
-              <li
-                key={result.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-zinc-200 px-3 py-2 text-sm"
-              >
-                <Link
-                  to={
-                    result.family === 'security'
-                      ? `/releases/${encodeURIComponent(tag)}/security`
-                      : `/releases/${encodeURIComponent(tag)}/tests/${encodeURIComponent(result.family)}`
-                  }
-                  className="font-medium text-zinc-900 hover:underline"
-                >
-                  {FAMILY_LABEL[result.family] ?? result.family}
-                </Link>
-                <span className="text-zinc-500">{result.tool}</span>
-                <StatusBadge style={status.pipeline(result.status)} />
-                <span className="text-zinc-500">{result.summary}</span>
-                {result.flaky > 0 && (
-                  <span className="flex items-center gap-1 text-warn-700">
-                    <Icon name="alert" className="size-3.5" />
-                    {result.flaky} instable(s)
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </CollapsibleSection>
-    </>
-  )
+  return <ScoreCard tag={tag} score={data.score} jobs={jobs} />
 }
 
-function ScoreCard({ tag, score }: { tag: string; score: ScoreBreakdown }) {
+function ScoreCard({
+  tag,
+  score,
+  jobs,
+}: {
+  tag: string
+  score: ScoreBreakdown
+  jobs: ReleaseJob[]
+}) {
+  const building = buildIsRunning(jobs)
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-4">
       <div className="grid gap-4 md:grid-cols-[auto_1fr] md:items-center">
-        <HealthGauge score={score.value} health={score.measured ? score.health : 'na'} />
+        <HealthGauge
+          score={score.value}
+          health={score.measured ? score.health : 'na'}
+          pending={building}
+        />
 
         <div className="flex flex-col gap-3">
-          {!score.measured && (
+          {building && (
+            // Pendant une construction, aucun signal ne décrit ce qui se
+            // construit : les tests qui suivront porteront sur une autre image.
+            // Laisser le score sans mention le ferait lire comme actuel.
+            <p className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-600">
+              <Spinner className="size-4 shrink-0 text-zinc-400" />
+              Construction en cours. Le score affiché est celui de l&apos;image précédente : les
+              vérifications repartiront sur la nouvelle.
+            </p>
+          )}
+
+          {!score.measured && !building && (
             // Zéro serait un jugement, et le plus sévère possible sur une release
             // qu'on n'a pas regardée.
             <p className="text-sm text-zinc-500">
-              Aucun signal n'a été mesuré pour cette release : il n'y a pas de score, ce qui n'est
-              pas la même chose qu'un score de zéro.
+              Aucun signal n&apos;a été mesuré pour cette release : il n&apos;y a pas de score, ce
+              qui n&apos;est pas la même chose qu&apos;un score de zéro.
             </p>
           )}
 
@@ -95,7 +96,7 @@ function ScoreCard({ tag, score }: { tag: string; score: ScoreBreakdown }) {
             </p>
           )}
 
-          <SignalGrid tag={tag} signals={score.signals} />
+          <SignalGrid tag={tag} signals={score.signals} jobs={jobs} />
         </div>
       </div>
     </section>

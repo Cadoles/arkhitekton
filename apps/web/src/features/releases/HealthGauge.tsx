@@ -23,7 +23,17 @@ const STROKE: Record<Health, string> = {
   critical: 'text-critical-500',
 }
 
-export function HealthGauge({ score, health }: { score: number; health: Health | 'na' }) {
+export function HealthGauge({
+  score,
+  health,
+  pending = false,
+}: {
+  score: number
+  health: Health | 'na'
+  /** Vrai pendant une construction : le score affiché ne décrit pas ce qui se
+   *  construit, et l'anneau le dit en tournant plutôt qu'en restant figé. */
+  pending?: boolean
+}) {
   // Un score non évalué n'est pas un score de zéro : l'anneau reste vide et le
   // centre porte un tiret. Afficher 0 serait le jugement le plus sévère possible
   // sur une release qu'on n'a pas regardée (B11).
@@ -43,7 +53,10 @@ export function HealthGauge({ score, health }: { score: number; health: Health |
             : 'Score de qualité non évalué'
         }
       >
-        <svg viewBox="0 0 120 120" className="size-32 -rotate-90">
+        <svg
+          viewBox="0 0 120 120"
+          className={`size-32 -rotate-90 ${pending ? 'animate-spin [animation-duration:3s]' : ''}`}
+        >
           <circle
             cx="60"
             cy="60"
@@ -68,6 +81,8 @@ export function HealthGauge({ score, health }: { score: number; health: Health |
             }`}
           />
         </svg>
+        {/* Le centre ne tourne pas avec l'anneau : un chiffre en rotation est
+            illisible, et c'est justement ce qu'on vient lire. */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="font-mono text-3xl font-semibold text-zinc-900">
             {measured ? score : '—'}
@@ -76,7 +91,9 @@ export function HealthGauge({ score, health }: { score: number; health: Health |
         </div>
       </div>
 
-      {style ? (
+      {pending ? (
+        <span className="text-sm text-zinc-500">Recalcul en attente</span>
+      ) : style ? (
         <span className={`inline-flex items-center gap-1 text-sm font-medium ${style.text}`}>
           <Icon name={style.icon} className="size-4" />
           {style.label}

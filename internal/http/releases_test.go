@@ -239,7 +239,8 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	})
-	return NewReleasesHandler(store, pipelines, authorizer, store.registry, store, "portal")
+	return NewReleasesHandler(store, pipelines, authorizer, store.registry, store,
+		"portal", "reg.cadoles.com/vcarroy")
 }
 
 func asRole(request *http.Request, role auth.Role) *http.Request {
