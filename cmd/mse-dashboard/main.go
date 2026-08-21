@@ -384,6 +384,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				"registry_project", resolved["registry.project"],
 				"kustom_repo", resolved["forge.mseKustom.repoUrl"],
 				"kustom_revision", resolved["forge.mseKustom.revision"],
+				// L'overlay est cherché dans la kustomization, pas dans
+				// l'application : viser la racine de l'une parce que l'autre y
+				// porte son Dockerfile a coûté un déploiement.
+				"kustom_overlay", resolved["mse.overlayLocation"],
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"],
 				// Le stockage des pipelines n'est pas celui du dashboard, et il
