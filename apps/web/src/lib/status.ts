@@ -92,7 +92,13 @@ const RELEASE: Record<ReleaseState, StatusStyle> = {
   building: { label: 'Construction en cours', icon: 'cog', text: 'text-zinc-600', bg: 'bg-zinc-50', border: 'border-zinc-300' },
   verifying: { label: 'Tests en cours', icon: 'beaker', text: 'text-zinc-600', bg: 'bg-zinc-50', border: 'border-zinc-300' },
   ready: { label: 'Décision en attente', icon: 'alert', text: 'text-warn-700', bg: 'bg-warn-50', border: 'border-warn-500' },
-  released: { label: 'Livrée', icon: 'check', text: 'text-healthy-700', bg: 'bg-healthy-50', border: 'border-healthy-500' },
+  // « Validée » et non « Livrée » : cet état dit qu'une décision humaine a été
+  // prise et que l'image est promouvable, pas qu'elle tourne quelque part. Le
+  // déploiement est un autre axe — il se lit aux pastilles d'environnement, qui
+  // viennent de ce que chaque environnement rapporte. Une release validée que
+  // personne n'a promue n'est déployée nulle part, et « Livrée » le laissait
+  // croire.
+  released: { label: 'Validée', icon: 'check', text: 'text-healthy-700', bg: 'bg-healthy-50', border: 'border-healthy-500' },
   failed: { label: 'Échec', icon: 'cross', text: 'text-critical-700', bg: 'bg-critical-50', border: 'border-critical-500' },
   cancelled: { label: 'Abandonnée', icon: 'skip', text: 'text-zinc-500', bg: 'bg-zinc-100', border: 'border-zinc-300' },
 }

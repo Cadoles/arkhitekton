@@ -6,9 +6,9 @@ import type { Release } from './api'
 /*
  * Ce qu'on lit à côté du nom d'une release.
  *
- * L'état seul — « Livrée », « Échec » — répondait mal à la question posée devant
- * une liste : *puis-je livrer celle-ci ?* « Échec » ne disait pas ce qui avait
- * échoué, et « Livrée » ne disait pas où elle tourne encore.
+ * L'état seul répondait mal à la question posée devant une liste : *puis-je
+ * livrer celle-ci ?* « Échec » ne disait pas ce qui avait échoué, et l'état de
+ * validation ne dit rien de l'endroit où la release tourne.
  *
  * Trois pastilles y répondent, dans l'ordre où l'on se pose les questions :
  *

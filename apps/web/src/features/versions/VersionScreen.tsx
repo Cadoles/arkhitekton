@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router'
 import { Icon } from '../../components/Icon'
-import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
+import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
+import { status } from '../../lib/status'
 import { formatDateTime } from '../../lib/format'
 import { CompletionBar } from './VersionsScreen'
 import { RedmineMark } from '../../components/RedmineMark'
@@ -228,7 +229,10 @@ function Releases({ releases }: { releases: VersionRelease[] }) {
                 {item.tag}
               </Link>
               <span className="text-zinc-500">{KIND_LABEL[item.kind] ?? item.kind}</span>
-              <span className="text-zinc-500">{item.state}</span>
+              {/* L'état passe par le vocabulaire commun : il s'affichait ici tel
+                  qu'il est stocké — `released`, `verifying` — alors que les deux
+                  autres écrans le traduisent. */}
+              <StatusBadge style={status.release(item.state)} />
               {/* L'écart tag / version d'image est le fait d'un re-tag : ce qui tourne
                   porte la version de la RC (B8, B17). */}
               {item.image_version !== item.tag && (

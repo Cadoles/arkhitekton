@@ -1,3 +1,4 @@
+import type { ReleaseState } from '../../lib/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 
@@ -58,7 +59,7 @@ export type Issue = {
 export type VersionRelease = {
   tag: string
   kind: string
-  state: string
+  state: ReleaseState
   image_version: string
   created_at: string
 }
