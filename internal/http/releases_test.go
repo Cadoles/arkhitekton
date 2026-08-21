@@ -1232,3 +1232,10 @@ func (f *fakeReleaseStore) UnlinkNoteIssue(context.Context, int64, int64) error 
 func (f *fakeReleaseStore) ListReleaseVersionIssues(context.Context, int64) ([]store.NoteEntry, error) {
 	return nil, nil
 }
+
+// L'annuaire des noms d'acteurs. Vide : ces tests portent sur des comportements,
+// pas sur l'affichage, et un annuaire vide fait retomber sur le sujet — le
+// comportement exact d'un acteur inconnu.
+func (f *fakeReleaseStore) Directory(context.Context) (map[string]string, error) {
+	return map[string]string{}, nil
+}

@@ -231,3 +231,10 @@ func withSubject(request *http.Request, subject string) *http.Request {
 	request.SetPathValue("subject", subject)
 	return request
 }
+
+// L'annuaire des noms d'acteurs. Vide : ces tests portent sur des comportements,
+// pas sur l'affichage, et un annuaire vide fait retomber sur le sujet — le
+// comportement exact d'un acteur inconnu.
+func (f *fakeAdminStore) Directory(context.Context) (map[string]string, error) {
+	return map[string]string{}, nil
+}

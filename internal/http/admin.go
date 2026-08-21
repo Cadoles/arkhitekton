@@ -21,6 +21,7 @@ type AdminStore interface {
 	RevokeRole(ctx context.Context, subject string) error
 	ListAudit(ctx context.Context, target string, limit int) ([]store.AuditEntry, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
+	Directory(ctx context.Context) (map[string]string, error)
 }
 
 // AdminHandler expose l'attribution des rôles et le journal d'audit.
@@ -49,11 +50,13 @@ func (h *AdminHandler) Roles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	who := resolveActors(r.Context(), h.store, slog.Default())
+
 	payload := make([]userRolePayload, 0, len(roles))
 	for _, role := range roles {
 		payload = append(payload, userRolePayload{
 			Subject: role.Subject, Username: role.Username, Role: role.Role,
-			GrantedBy: role.GrantedBy, GrantedAt: role.GrantedAt,
+			GrantedBy: who.name(role.GrantedBy), GrantedAt: role.GrantedAt,
 			LastSeen: role.LastSeen, Sessions: role.Sessions,
 		})
 	}
@@ -180,10 +183,12 @@ func (h *AdminHandler) Audit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	who := resolveActors(r.Context(), h.store, slog.Default())
+
 	payload := make([]auditPayload, 0, len(entries))
 	for _, entry := range entries {
 		payload = append(payload, auditPayload{
-			ID: entry.ID, Actor: entry.Actor, Action: entry.Action,
+			ID: entry.ID, Actor: who.name(entry.Actor), Action: entry.Action,
 			Target: entry.Target, Payload: entry.Payload, At: entry.At,
 		})
 	}

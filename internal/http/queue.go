@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -19,6 +20,7 @@ type QueueStore interface {
 	GetJob(ctx context.Context, id int64) (store.Job, error)
 	CancelQueuedJob(ctx context.Context, id int64, reason string) (bool, error)
 	RequestCancel(ctx context.Context, id int64, reason string) (bool, error)
+	Directory(ctx context.Context) (map[string]string, error)
 }
 
 // QueueHandler expose la file et le lancement.
@@ -67,6 +69,8 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	who := resolveActors(r.Context(), h.queue, slog.Default())
+
 	payload := make([]jobPayload, 0, len(jobs))
 	for _, job := range jobs {
 		entry := jobPayload{
@@ -76,7 +80,7 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 			QueueClass:  job.QueueClass,
 			Priority:    job.Priority,
 			State:       job.State,
-			RequestedBy: job.RequestedBy,
+			RequestedBy: who.name(job.RequestedBy),
 			RequestedAt: job.RequestedAt,
 			StartedAt:   job.StartedAt,
 			Attempt:     job.Attempt,

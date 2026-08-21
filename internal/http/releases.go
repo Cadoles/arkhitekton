@@ -47,6 +47,7 @@ type ReleaseStore interface {
 	ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
 	LinkNoteIssue(ctx context.Context, releaseID, redmineID int64, source, pullRequest, actor string) error
 	UnlinkNoteIssue(ctx context.Context, releaseID, redmineID int64) error
+	Directory(ctx context.Context) (map[string]string, error)
 	// Les deux lectures du score. Rendues ici parce que la liste des releases
 	// affiche le même chiffre que l'écran d'une release, et que deux calculs
 	// distincts finiraient par diverger.
@@ -289,13 +290,19 @@ type promotionTargetVw struct {
 	Reason      string `json:"reason,omitempty"`
 }
 
-func toReleasePayload(release store.Release, sourceTag string) releasePayload {
+func toReleasePayload(release store.Release, sourceTag string, who actors) releasePayload {
 	return releasePayload{
 		Tag: release.Tag, Kind: release.Kind, State: release.State,
 		ImageVersion: release.ImageVersion, GitRef: release.GitRef,
 		GitCommit: release.GitCommit, SourceTag: sourceTag,
-		CreatedBy: release.CreatedBy, CreatedAt: release.CreatedAt, ReleasedAt: release.ReleasedAt,
+		CreatedBy: who.name(release.CreatedBy),
+		CreatedAt: release.CreatedAt, ReleasedAt: release.ReleasedAt,
 	}
+}
+
+// actorsFor charge l'annuaire pour la durée d'une requête.
+func (h *ReleasesHandler) actorsFor(ctx context.Context) actors {
+	return resolveActors(ctx, h.store, h.logger)
 }
 
 // List rend les releases les plus récentes.
@@ -312,9 +319,11 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	who := h.actorsFor(r.Context())
+
 	payload := make([]releasePayload, 0, len(releases))
 	for _, item := range releases {
-		entry := toReleasePayload(item, "")
+		entry := toReleasePayload(item, "", who)
 		entry.BuildFailed = badges[item.Tag].BuildFailed
 		entry.DeployedOn = badges[item.Tag].Deployed
 		// Le score est calculé release par release, donc deux lectures chacune.
@@ -360,7 +369,8 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload := toReleasePayload(item, "")
+	who := h.actorsFor(r.Context())
+	payload := toReleasePayload(item, "", who)
 
 	promotions, err := h.store.ListPromotions(r.Context(), item.ID)
 	if err != nil {
@@ -383,7 +393,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	for _, job := range jobs {
 		payload.Jobs = append(payload.Jobs, releaseJobPayload{
 			ID: job.ID, Kind: job.Kind, State: job.State, Environment: job.EnvironmentID,
-			RunName: job.RunName, RequestedBy: job.RequestedBy,
+			RunName: job.RunName, RequestedBy: who.name(job.RequestedBy),
 			RequestedAt: job.RequestedAt, FinishedAt: job.FinishedAt,
 		})
 	}
@@ -400,7 +410,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if item.ManualActions != "" || item.ManualActionsUpdatedAt != nil {
 		payload.ManualAction = &manualActionVw{
 			Markdown:  item.ManualActions,
-			UpdatedBy: item.ManualActionsUpdatedBy,
+			UpdatedBy: who.name(item.ManualActionsUpdatedBy),
 			UpdatedAt: item.ManualActionsUpdatedAt,
 		}
 	}
@@ -660,8 +670,9 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		"kind": record.Kind, "image_version": record.ImageVersion, "source": request.SourceTag,
 	})
 
+	who := h.actorsFor(r.Context())
 	response := map[string]any{
-		"release": toReleasePayload(record, request.SourceTag), "warnings": warnings,
+		"release": toReleasePayload(record, request.SourceTag, who), "warnings": warnings,
 	}
 
 	// Une release construite enchaîne sur `build-image`. Sans cet enchaînement,
@@ -691,7 +702,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 				response["warnings"] = warnings
 			} else {
 				record.State = string(release.StateBuilding)
-				response["release"] = toReleasePayload(record, request.SourceTag)
+				response["release"] = toReleasePayload(record, request.SourceTag, who)
 			}
 		}
 	}
@@ -787,7 +798,7 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 
 	record.State = string(release.StateReleased)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"release": toReleasePayload(record, ""),
+		"release": toReleasePayload(record, "", h.actorsFor(r.Context())),
 	})
 }
 
@@ -862,7 +873,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 
 	record.State = string(release.StateBuilding)
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"release": toReleasePayload(record, ""), "build_job_id": jobID,
+		"release": toReleasePayload(record, "", h.actorsFor(r.Context())), "build_job_id": jobID,
 	})
 }
 
@@ -1061,6 +1072,8 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	who := h.actorsFor(r.Context())
+
 	payload := make([]notePayload, 0, len(entries))
 	linked := make(map[int64]bool, len(entries))
 	for _, entry := range entries {
@@ -1068,8 +1081,9 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 		payload = append(payload, notePayload{
 			RedmineID: entry.RedmineID, Subject: entry.Subject, Tracker: entry.Tracker,
 			Status: entry.StatusName, Anomaly: entry.Anomaly, Known: entry.Known,
-			Source: entry.Source, PullRequest: entry.PullRequest, AddedBy: entry.AddedBy,
-			URL: h.issueURL(entry.RedmineID),
+			Source: entry.Source, PullRequest: entry.PullRequest,
+			AddedBy: who.name(entry.AddedBy),
+			URL:     h.issueURL(entry.RedmineID),
 		})
 	}
 
@@ -1534,7 +1548,7 @@ func (h *ReleasesHandler) UpdateActions(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, manualActionVw{
 		Markdown:  item.ManualActions,
-		UpdatedBy: item.ManualActionsUpdatedBy,
+		UpdatedBy: h.actorsFor(r.Context()).name(item.ManualActionsUpdatedBy),
 		UpdatedAt: item.ManualActionsUpdatedAt,
 	})
 }
