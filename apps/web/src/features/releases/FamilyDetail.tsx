@@ -8,10 +8,9 @@ import { CHANGE_LABEL, useFamily, type CaseDiff, type Change, type TestCase } fr
 /*
  * Détail d'une famille de tests, sans son cadre.
  *
- * Extrait pour servir deux fois : la page `/releases/:tag/tests/:family` et la
- * modale ouverte depuis une tuile du score. Les deux montrent exactement la même
- * chose — dupliquer la liste des cas les aurait fait diverger au premier
- * ajustement.
+ * Il s'affiche dans la modale ouverte depuis une tuile du score. Il n'y a plus
+ * de page dédiée : la consulter faisait perdre le score, les cinq autres signaux
+ * et sa place dans la lecture pour une liste de cas, puis il fallait revenir.
  *
  * La comparaison à la release précédente ne fait plus une section à elle. Elle
  * tient en une ligne de comptes au-dessus, et en une pastille sur les cas
@@ -27,12 +26,26 @@ const CASE_STATUS = {
   flaky: 'warn',
 } as const
 
-/** Pastille courte, à mettre sur un cas. Le libellé long reste pour l'infobulle. */
-const CHANGE_BADGE: Record<Change, { label: string; tone: string }> = {
-  'new-failure': { label: 'nouveau', tone: 'border-critical-500 bg-critical-50 text-critical-700' },
-  fixed: { label: 'corrigé', tone: 'border-healthy-500 bg-healthy-50 text-healthy-700' },
-  added: { label: 'ajouté', tone: 'border-zinc-300 bg-zinc-100 text-zinc-600' },
-  removed: { label: 'retiré', tone: 'border-warn-500 bg-warn-50 text-warn-700' },
+/*
+ * Pastille courte, à mettre sur un cas. Le libellé long reste pour l'infobulle.
+ *
+ * Le pluriel est écrit, pas dérivé. Ajouter un `x` ou un `s` au singulier donnait
+ * « 3 ajoutéx » : ces mots sont des participes accordés, et aucune règle
+ * mécanique ne les couvre tous.
+ */
+const CHANGE_BADGE: Record<Change, { one: string; many: string; tone: string }> = {
+  'new-failure': {
+    one: 'nouveau',
+    many: 'nouveaux',
+    tone: 'border-critical-500 bg-critical-50 text-critical-700',
+  },
+  fixed: {
+    one: 'corrigé',
+    many: 'corrigés',
+    tone: 'border-healthy-500 bg-healthy-50 text-healthy-700',
+  },
+  added: { one: 'ajouté', many: 'ajoutés', tone: 'border-zinc-300 bg-zinc-100 text-zinc-600' },
+  removed: { one: 'retiré', many: 'retirés', tone: 'border-warn-500 bg-warn-50 text-warn-700' },
 }
 
 /** Ordre de gravité : un nouvel échec se lit avant un test ajouté. */
@@ -152,16 +165,19 @@ export function DiffSummary({ diff }: { diff?: CaseDiff[] }) {
   return (
     <p className="flex flex-wrap items-center gap-2 text-sm">
       <span className="text-zinc-500">Depuis la release précédente</span>
-      {CHANGE_ORDER.filter((change) => counts.has(change)).map((change) => (
-        <span
-          key={change}
-          title={CHANGE_LABEL[change]}
-          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${CHANGE_BADGE[change].tone}`}
-        >
-          {counts.get(change)} {CHANGE_BADGE[change].label}
-          {(counts.get(change) ?? 0) > 1 ? 'x' : ''}
-        </span>
-      ))}
+      {CHANGE_ORDER.filter((change) => counts.has(change)).map((change) => {
+        const count = counts.get(change) ?? 0
+        const badge = CHANGE_BADGE[change]
+        return (
+          <span
+            key={change}
+            title={CHANGE_LABEL[change]}
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${badge.tone}`}
+          >
+            {count} {count > 1 ? badge.many : badge.one}
+          </span>
+        )
+      })}
     </p>
   )
 }
@@ -295,7 +311,7 @@ function CaseRow({ entry, change }: { entry: TestCase; change?: Change }) {
             title={CHANGE_LABEL[change as Change]}
             className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${badge.tone}`}
           >
-            {badge.label}
+            {badge.one}
           </span>
         )}
 

@@ -1,32 +1,31 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
 import { status } from '../../lib/status'
+import { PipelineTimeline } from './PipelineTimeline'
 import { SEVERITY_LABEL, useSecurity, type Finding, type SecurityReport, type Severity } from './tests'
 
 /*
  * Findings de sécurité d'une release.
  *
- * L'écran porte une distinction que les compteurs seuls ne peuvent pas rendre :
+ * Le bloc porte une distinction que les compteurs seuls ne peuvent pas rendre :
  * un audit dont un scanner a échoué produit zéro vulnérabilité, exactement comme
  * un audit propre. Le bandeau d'incomplétude passe donc **avant** les chiffres —
  * les lire sans lui reviendrait à conclure « rien trouvé » là où personne n'a
  * regardé.
+ *
+ * Sans cadre, comme `FamilyDetail` : il s'affiche dans la modale ouverte depuis
+ * la tuile Sécurité du score.
  */
-export function SecurityScreen() {
-  const { tag } = useParams()
+export function SecurityDetail({ tag, runName }: { tag: string | undefined; runName?: string }) {
   const { data, isPending, error, refetch } = useSecurity(tag)
   const [showSuppressed, setShowSuppressed] = useState(false)
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-baseline gap-3">
-        <h1 className="text-2xl font-semibold text-zinc-900">Sécurité</h1>
-        <Link to={`/releases/${encodeURIComponent(tag ?? '')}`} className="font-mono text-sm text-zinc-500 hover:underline">
-          {tag}
-        </Link>
-      </div>
+    <div className="flex flex-col gap-3">
+      {/* La frise avant tout le reste : quand l'audit tourne, ce qui suit décrit
+          le précédent. */}
+      {runName && <PipelineTimeline runName={runName} />}
 
       {isPending && <Skeleton className="h-64 w-full" />}
       {error && <ErrorState message="L'audit n'a pas pu être chargé." onRetry={() => void refetch()} />}

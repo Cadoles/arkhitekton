@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Link } from 'react-router'
 import { Icon, type IconName } from '../../components/Icon'
 import { Modal } from '../../components/Modal'
 import { status } from '../../lib/status'
 import { hasAtLeast, useSession } from '../auth/session'
 import { useVerify, type ReleaseJob } from './api'
+import { BenchDetail } from './BenchDetail'
 import { FamilyDetail } from './FamilyDetail'
+import { SecurityDetail } from './SecurityDetail'
 import { familyForSignal, KIND_LABEL, kindForSignal, runningJobFor } from './signals'
 import { SIGNAL_LABEL, type SignalScore } from './tests'
 
@@ -30,30 +31,6 @@ const SIGNAL_ICON: Record<string, IconName> = {
   code: 'check',
   security: 'shield',
   performance: 'gauge',
-}
-
-/**
- * Écran de détail d'un signal, quand il en a un.
- *
- * La maquette ouvrait une boîte de détail ; ici les écrans existent déjà et
- * portent bien plus que ce qu'une boîte afficherait — cas de test, journaux,
- * avis de sécurité. Un signal sans écran reste une tuile inerte plutôt que de
- * mener à une page vide.
- */
-function signalHref(tag: string, signal: string): string | undefined {
-  const encoded = encodeURIComponent(tag)
-  switch (signal) {
-    case 'unit':
-    case 'integration':
-    case 'e2e':
-      return `/releases/${encoded}/tests/${signal}`
-    case 'code':
-      return `/releases/${encoded}/tests/static`
-    case 'security':
-      return `/releases/${encoded}/security`
-    default:
-      return undefined
-  }
 }
 
 export function SignalGrid({
@@ -92,11 +69,12 @@ function SignalTile({
   const runningJob = runningJobFor(signal.signal, jobs)
   const running = runningJob !== undefined
   const kind = kindForSignal(signal.signal)
-  const href = signalHref(tag, signal.signal)
-  // Les familles de tests s'ouvrent en place ; la sécurité garde son écran, qui
-  // porte bien plus qu'une liste de cas — avis, sévérités, exceptions — et qui
-  // tiendrait mal dans une boîte.
+  // Chaque signal a son détail, et tous s'ouvrent en place : une famille de
+  // tests montre ses cas, la sécurité ses constats, la performance ses
+  // campagnes. Aucun ne mène plus à une page — perdre le score et les cinq
+  // autres signaux pour lire une liste coûtait plus que ça ne rapportait.
   const family = familyForSignal(signal.signal)
+  const hasDetail = family !== undefined || signal.signal === 'security' || signal.signal === 'performance'
 
   const canReplay =
     session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
@@ -114,18 +92,9 @@ function SignalTile({
     <>
       <div className="flex items-center gap-2 text-zinc-500">
         <Icon name={SIGNAL_ICON[signal.signal] ?? 'doc'} className="size-4 shrink-0" />
-        {href ? (
-          <Link
-            to={href}
-            className="truncate text-sm font-medium hover:text-zinc-900 hover:underline"
-          >
-            {SIGNAL_LABEL[signal.signal] ?? signal.signal}
-          </Link>
-        ) : (
-          <span className="truncate text-sm font-medium">
-            {SIGNAL_LABEL[signal.signal] ?? signal.signal}
-          </span>
-        )}
+        <span className="truncate text-sm font-medium">
+          {SIGNAL_LABEL[signal.signal] ?? signal.signal}
+        </span>
 
         {running ? (
           <Spinner className="ml-auto size-4 shrink-0 text-zinc-400" />
@@ -178,15 +147,15 @@ function SignalTile({
     </>
   )
 
-  // Sans détail à ouvrir — bench, performance — la tuile reste inerte : un
-  // bouton qui n'ouvre rien se clique une fois et déçoit.
-  if (!family) return <div className={shell}>{body}</div>
+  // Un signal sans détail reste une tuile inerte : un bouton qui n'ouvre rien se
+  // clique une fois et déçoit.
+  if (!hasDetail) return <div className={shell}>{body}</div>
 
   return (
     <>
-      {/* La tuile entière est cliquable, sauf ce qui l'est déjà : le titre mène à
-          la page adressable, le bouton relance. Un `<button>` englobant les
-          aurait avalés — on ne peut pas imbriquer un lien dans un bouton. */}
+      {/* La tuile entière est cliquable, sauf le bouton de relance qu'elle
+          contient. Un `<button>` englobant l'aurait avalé — on ne peut pas
+          imbriquer deux boutons. */}
       <div className={`relative ${shell}`}>
         <button
           type="button"
@@ -194,9 +163,9 @@ function SignalTile({
           aria-label={`Ouvrir le détail : ${SIGNAL_LABEL[signal.signal] ?? signal.signal}`}
           className="absolute inset-0 z-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-1"
         />
-        {/* Le contenu passe au-dessus de la surface cliquable, sans quoi ni le
-            titre ni le bouton ne recevraient leurs propres clics. */}
-        <div className="pointer-events-none relative z-10 flex h-full flex-col gap-1.5 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+        {/* Le contenu passe au-dessus de la surface cliquable, sans quoi le
+            bouton de relance ne recevrait pas ses propres clics. */}
+        <div className="pointer-events-none relative z-10 flex h-full flex-col gap-1.5 [&_button]:pointer-events-auto">
           {body}
         </div>
       </div>
@@ -207,7 +176,16 @@ function SignalTile({
           onClose={() => setOpen(false)}
           wide
         >
-          <FamilyDetail tag={tag} family={family} runName={runningJob?.run_name} />
+          {family && (
+            <FamilyDetail tag={tag} family={family} runName={runningJob?.run_name} />
+          )}
+          {signal.signal === 'security' && (
+            <SecurityDetail tag={tag} runName={runningJob?.run_name} />
+          )}
+          {/* La performance n'a pas de pipeline que le dashboard lance : ses
+              campagnes viennent d'un runner extérieur (B16), d'où l'absence de
+              frise. */}
+          {signal.signal === 'performance' && <BenchDetail tag={tag} />}
         </Modal>
       )}
     </>

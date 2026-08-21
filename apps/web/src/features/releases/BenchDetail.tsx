@@ -1,6 +1,5 @@
 import { Icon } from '../../components/Icon'
 import { Sparkline } from '../../components/Sparkline'
-import { CollapsibleSection } from '../../components/CollapsibleSection'
 import { EmptyState, Skeleton, StatusBadge } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
@@ -16,24 +15,22 @@ import { useBench, usePinBaseline, type BenchMeasure, type Campaign } from './be
  * (B16). Ces mesures sont affichées — les cacher ferait croire que la campagne
  * n'a pas eu lieu — mais sans verdict, et le motif est dit.
  */
-export function BenchPanel({ tag }: { tag: string }) {
+export function BenchDetail({ tag }: { tag: string }) {
   const { data, isPending } = useBench(tag)
 
   if (isPending) return <Skeleton className="h-40 w-full" />
   if (!data) return null
 
+  if (data.campaigns.length === 0) {
+    return <EmptyState>Aucune campagne de charge pour cette release.</EmptyState>
+  }
+
   return (
-    <CollapsibleSection title="Tests de charge" count={data.campaigns.length}>
-      {data.campaigns.length === 0 ? (
-        <EmptyState>Aucune campagne de charge pour cette release.</EmptyState>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {data.campaigns.map((campaign) => (
-            <CampaignBlock key={campaign.id} tag={tag} campaign={campaign} />
-          ))}
-        </div>
-      )}
-    </CollapsibleSection>
+    <div className="flex flex-col gap-4">
+      {data.campaigns.map((campaign) => (
+        <CampaignBlock key={campaign.id} tag={tag} campaign={campaign} />
+      ))}
+    </div>
   )
 }
 
