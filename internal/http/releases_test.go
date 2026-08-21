@@ -1157,3 +1157,35 @@ func TestUneReleaseFinaleNestPasTagueeUneSecondeFois(t *testing.T) {
 			forge.resolved, forge.tags)
 	}
 }
+
+/*
+ * Les lectures que la composition des pastilles ajoute au magasin.
+ *
+ * Muettes : ces tests portent sur la création, la validation et la promotion
+ * d'une release, pas sur son score. Rendre des valeurs vides fait que la
+ * pastille ne s'affiche pas, ce qui est exactement le comportement attendu d'une
+ * release sans résultats.
+ */
+func (f *fakeReleaseStore) ReleaseBadgesByTag(context.Context) (map[string]store.ReleaseBadges, error) {
+	return map[string]store.ReleaseBadges{}, nil
+}
+
+func (f *fakeReleaseStore) ListReleaseTestResults(context.Context, int64) ([]store.TestResult, error) {
+	return nil, nil
+}
+
+func (f *fakeReleaseStore) LatestSecurityAudit(context.Context, int64) (store.SecurityAudit, error) {
+	return store.SecurityAudit{}, store.ErrAuditNotFound
+}
+
+func (f *fakeReleaseStore) ListReleaseLoadResults(context.Context, int64) ([]store.LoadResult, error) {
+	return nil, nil
+}
+
+func (f *fakeReleaseStore) ListResultMeasures(context.Context, int64) ([]store.BenchMeasure, error) {
+	return nil, nil
+}
+
+func (f *fakeReleaseStore) Baselines(context.Context, string) (map[string]store.Baseline, error) {
+	return map[string]store.Baseline{}, nil
+}

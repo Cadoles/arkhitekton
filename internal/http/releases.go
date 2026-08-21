@@ -16,6 +16,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -41,6 +42,15 @@ type ReleaseStore interface {
 	SetReleaseState(ctx context.Context, id int64, state string) error
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
+	ReleaseBadgesByTag(ctx context.Context) (map[string]store.ReleaseBadges, error)
+	// Les deux lectures du score. Rendues ici parce que la liste des releases
+	// affiche le même chiffre que l'écran d'une release, et que deux calculs
+	// distincts finiraient par diverger.
+	ListReleaseTestResults(ctx context.Context, releaseID int64) ([]store.TestResult, error)
+	LatestSecurityAudit(ctx context.Context, releaseID int64) (store.SecurityAudit, error)
+	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
+	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
+	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
 }
 
 // ReleasesHandler expose les releases, leur création et leur promotion.
@@ -69,6 +79,16 @@ type ReleasesHandler struct {
 	forge Forge
 	// tagger pose le tag Git. Nil quand le jeton est en lecture seule.
 	tagger Tagger
+	// weights pondère le score. Même valeur que celle du gestionnaire des tests :
+	// la pastille de la liste et l'écran d'une release doivent afficher le même
+	// chiffre.
+	weights results.Weights
+}
+
+// WithWeights déclare la pondération du score.
+func (h *ReleasesHandler) WithWeights(weights results.Weights) *ReleasesHandler {
+	h.weights = weights
+	return h
 }
 
 // WithForge branche la résolution de commits et la pose de tags.
@@ -163,6 +183,29 @@ type releasePayload struct {
 	// configuré. Les confondre ferait chercher une panne de build.
 	ImagesError  string          `json:"images_error,omitempty"`
 	ManualAction *manualActionVw `json:"manual_actions,omitempty"`
+
+	// Ce qu'un écran affiche à côté du nom, sans avoir à déplier la release.
+	//
+	// `BuildFailed` porte sur la **dernière** construction : une release relancée
+	// après un échec d'infrastructure garderait sinon une pastille que plus rien
+	// ne justifie.
+	BuildFailed bool `json:"build_failed,omitempty"`
+	// DeployedOn énumère les environnements qui font tourner cette release. Vide
+	// dès qu'une autre y a été déployée depuis : la liste vient de ce que chaque
+	// environnement rapporte, pas de l'historique des promotions.
+	DeployedOn []string     `json:"deployed_on,omitempty"`
+	Score      *scoreDigest `json:"score,omitempty"`
+}
+
+// scoreDigest est le score sans sa décomposition.
+//
+// Le détail vit sur l'écran d'une release ; une pastille n'a besoin que du
+// chiffre et de son verdict. `Measured` distingue « non évalué » de « zéro », que
+// le seul chiffre confondrait (B11).
+type scoreDigest struct {
+	Value    int    `json:"value"`
+	Health   string `json:"health"`
+	Measured bool   `json:"measured"`
 }
 
 type releaseJobPayload struct {
@@ -229,11 +272,46 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	badges, err := h.store.ReleaseBadgesByTag(r.Context())
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Lecture des releases impossible", "")
+		return
+	}
+
 	payload := make([]releasePayload, 0, len(releases))
 	for _, item := range releases {
-		payload = append(payload, toReleasePayload(item, ""))
+		entry := toReleasePayload(item, "")
+		entry.BuildFailed = badges[item.Tag].BuildFailed
+		entry.DeployedOn = badges[item.Tag].Deployed
+		// Le score est calculé release par release, donc deux lectures chacune.
+		// C'est assumé : la liste est bornée à cinquante entrées, les requêtes
+		// sont indexées, et le même chiffre doit sortir ici et sur l'écran d'une
+		// release — un calcul approché pour la liste les aurait fait diverger.
+		entry.Score = h.scoreDigest(r.Context(), item.ID)
+		payload = append(payload, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"releases": payload})
+}
+
+// scoreDigest rend le score d'une release, ou rien.
+//
+// Un échec de lecture ne fait pas échouer l'écran : la liste reste utile sans
+// pastille de score, et refuser de l'afficher pour un signal secondaire serait
+// disproportionné. Le cas est silencieux parce qu'il n'appelle aucune action.
+func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *scoreDigest {
+	reports, err := h.store.ListReleaseTestResults(ctx, releaseID)
+	if err != nil {
+		return nil
+	}
+	breakdown, err := computeScore(ctx, h.store, releaseID, reports, h.weights)
+	if err != nil {
+		return nil
+	}
+	return &scoreDigest{
+		Value:    breakdown.Score,
+		Health:   results.Health(breakdown),
+		Measured: breakdown.Measured,
+	}
 }
 
 // Get rend une release, ses promotions et ses cibles possibles.
@@ -275,6 +353,15 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 			RequestedAt: job.RequestedAt, FinishedAt: job.FinishedAt,
 		})
 	}
+
+	// Les mêmes pastilles que dans la liste, et par le même chemin : deux
+	// dérivations de « la construction a-t-elle échoué » auraient fini par se
+	// contredire d'un écran à l'autre.
+	if badges, err := h.store.ReleaseBadgesByTag(r.Context()); err == nil {
+		payload.BuildFailed = badges[item.Tag].BuildFailed
+		payload.DeployedOn = badges[item.Tag].Deployed
+	}
+	payload.Score = h.scoreDigest(r.Context(), item.ID)
 
 	if item.ManualActions != "" || item.ManualActionsUpdatedAt != nil {
 		payload.ManualAction = &manualActionVw{

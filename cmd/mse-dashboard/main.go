@@ -187,7 +187,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	releasesHandler := dashhttp.NewReleasesHandler(
-		db, pipelines, authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project)
+		db, pipelines, authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project).
+		// Même pondération que le gestionnaire des tests : la pastille de la
+		// liste et l'écran d'une release affichent le même chiffre.
+		WithWeights(dashhttp.ScoreWeights(pipelines.ScoreWeights()))
 
 	// La forge est optionnelle : sans jeton, le formulaire de création de release
 	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture

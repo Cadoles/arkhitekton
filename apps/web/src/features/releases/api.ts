@@ -1,3 +1,4 @@
+import type { Health } from '../../lib/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 
@@ -56,6 +57,13 @@ export type Release = {
    *  une branche bouge, un commit non (B17). */
   git_commit?: string
   source_tag?: string
+  /** La **dernière** construction a échoué. Une relance réussie l'efface. */
+  build_failed?: boolean
+  /** Environnements qui font tourner cette release. Vide dès qu'une autre y a
+   *  été déployée depuis : la liste vient de ce que chaque environnement
+   *  rapporte, pas de l'historique des promotions. */
+  deployed_on?: string[]
+  score?: { value: number; health: Health | 'na'; measured: boolean }
   created_by: string
   created_at: string
   released_at?: string

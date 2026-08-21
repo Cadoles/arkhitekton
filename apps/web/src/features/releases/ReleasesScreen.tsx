@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
+import { ReleaseBadges } from './ReleaseBadges'
 import { useReleases, type Release } from './api'
 
 const KIND_LABEL: Record<Release['kind'], string> = {
@@ -39,6 +40,7 @@ export function ReleasesScreen() {
                       champ de la ligne qui porte un verdict, et il se lisait
                       comme une note de plus. */}
                   <StatusBadge style={status.release(release.state)} />
+                  <ReleaseBadges release={release} />
 
                   {/* La version d'image n'est rappelée que lorsqu'elle diffère du
                       tag, c'est-à-dire sur une finale produite par re-tag. La

@@ -39,6 +39,16 @@ type TestsHandler struct {
 // générique — elle vient d'un YAML — et convertie ici : c'est la frontière entre
 // la configuration et la règle de calcul.
 func NewTestsHandler(tests TestStore, weights map[string]float64) *TestsHandler {
+	return &TestsHandler{store: tests, weights: ScoreWeights(weights)}
+}
+
+// ScoreWeights convertit la pondération du catalogue, ou rend celle par défaut.
+//
+// Exportée parce que deux gestionnaires en ont besoin : celui des tests pour
+// l'écran d'une release, celui des releases pour la pastille de la liste.
+// Convertir deux fois aurait suffi à les faire diverger le jour où le repli
+// change.
+func ScoreWeights(weights map[string]float64) results.Weights {
 	converted := results.Weights{}
 	for signal, weight := range weights {
 		converted[results.Signal(signal)] = weight
@@ -46,7 +56,7 @@ func NewTestsHandler(tests TestStore, weights map[string]float64) *TestsHandler 
 	if len(converted) == 0 {
 		converted = results.DefaultWeights()
 	}
-	return &TestsHandler{store: tests, weights: converted}
+	return converted
 }
 
 type testResultPayload struct {
@@ -179,6 +189,26 @@ func worstStatus(a, b string) string {
 func (h *TestsHandler) score(
 	ctx context.Context, releaseID int64, reports []store.TestResult,
 ) (results.Breakdown, error) {
+	return computeScore(ctx, h.store, releaseID, reports, h.weights)
+}
+
+// scoreStore est ce dont le calcul du score a besoin.
+//
+// Une interface plutôt qu'un type concret parce que deux gestionnaires
+// l'appellent : celui des tests, pour l'écran d'une release, et celui des
+// releases, pour la pastille de la liste. Le même chiffre doit sortir des deux,
+// et deux implémentations auraient divergé.
+type scoreStore interface {
+	LatestSecurityAudit(ctx context.Context, releaseID int64) (store.SecurityAudit, error)
+	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
+	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
+	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
+}
+
+func computeScore(
+	ctx context.Context, source scoreStore, releaseID int64,
+	reports []store.TestResult, weights results.Weights,
+) (results.Breakdown, error) {
 	// Le dernier rapport de chaque **outil**, puis la somme par famille.
 	//
 	// Retenir un seul rapport par famille perdait les familles à plusieurs
@@ -229,19 +259,19 @@ func (h *TestsHandler) score(
 		results.FromStatic(staticViolations, staticRan),
 	}
 
-	security, err := h.securityMeasure(ctx, releaseID)
+	security, err := securityMeasure(ctx, source, releaseID)
 	if err != nil {
 		return results.Breakdown{}, err
 	}
 	measures = append(measures, security)
 
-	performance, err := h.benchMeasure(ctx, releaseID)
+	performance, err := benchMeasure(ctx, source, releaseID)
 	if err != nil {
 		return results.Breakdown{}, err
 	}
 	measures = append(measures, performance)
 
-	return results.Score(measures, h.weights), nil
+	return results.Score(measures, weights), nil
 }
 
 // securityMeasure rend le signal de sécurité du dernier audit.
@@ -250,8 +280,10 @@ func (h *TestsHandler) score(
 // finding, exactement comme un audit propre, et seul son descripteur les
 // distingue. Le compter comme conforme serait l'erreur la plus chère possible
 // sur ce signal (P2, B11).
-func (h *TestsHandler) securityMeasure(ctx context.Context, releaseID int64) (results.Measure, error) {
-	audit, err := h.store.LatestSecurityAudit(ctx, releaseID)
+func securityMeasure(
+	ctx context.Context, source scoreStore, releaseID int64,
+) (results.Measure, error) {
+	audit, err := source.LatestSecurityAudit(ctx, releaseID)
 	if err != nil {
 		if errors.Is(err, store.ErrAuditNotFound) {
 			return results.FromSecurity(0, 0, false), nil
@@ -271,8 +303,10 @@ func (h *TestsHandler) securityMeasure(ctx context.Context, releaseID int64) (re
 }
 
 // benchMeasure rend le signal de performance de la campagne la plus récente.
-func (h *TestsHandler) benchMeasure(ctx context.Context, releaseID int64) (results.Measure, error) {
-	campaigns, err := h.store.ListReleaseLoadResults(ctx, releaseID)
+func benchMeasure(
+	ctx context.Context, source scoreStore, releaseID int64,
+) (results.Measure, error) {
+	campaigns, err := source.ListReleaseLoadResults(ctx, releaseID)
 	if err != nil {
 		return results.Measure{}, err
 	}
@@ -288,11 +322,11 @@ func (h *TestsHandler) benchMeasure(ctx context.Context, releaseID int64) (resul
 		return results.FromBench("", false), nil
 	}
 
-	measures, err := h.store.ListResultMeasures(ctx, campaign.ID)
+	measures, err := source.ListResultMeasures(ctx, campaign.ID)
 	if err != nil {
 		return results.Measure{}, err
 	}
-	baselines, err := h.store.Baselines(ctx, campaign.Scenario)
+	baselines, err := source.Baselines(ctx, campaign.Scenario)
 	if err != nil {
 		return results.Measure{}, err
 	}

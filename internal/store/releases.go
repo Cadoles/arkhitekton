@@ -550,3 +550,83 @@ func (db *DB) CountVerifications(
 	}
 	return tally, nil
 }
+
+// ReleaseBadges porte ce qu'un écran affiche à côté du nom d'une release, sans
+// avoir à la déplier.
+type ReleaseBadges struct {
+	// BuildFailed dit que la **dernière** construction a échoué.
+	//
+	// La dernière et non « une » : une release relancée après un échec
+	// d'infrastructure garderait sinon un badge d'échec que plus rien ne justifie.
+	BuildFailed bool
+	// Deployed énumère les environnements qui font tourner cette release, dans
+	// l'ordre de rang.
+	Deployed []string
+}
+
+// ReleaseBadgesByTag rend, pour chaque release, de quoi composer ses badges.
+//
+// Une lecture pour toutes les releases plutôt qu'une par release : la liste en
+// affiche cinquante, et cinquante allers-retours pour deux booléens et un nom
+// d'environnement se paieraient à chaque ouverture de l'écran.
+func (db *DB) ReleaseBadgesByTag(ctx context.Context) (map[string]ReleaseBadges, error) {
+	badges := map[string]ReleaseBadges{}
+
+	// L'état de la dernière construction de chaque release.
+	builds, err := db.pool.Query(ctx,
+		`select distinct on (r.tag) r.tag, j.state
+		   from releases r
+		   join jobs j on j.release_id = r.id and j.kind = 'build'
+		  order by r.tag, j.id desc`)
+	if err != nil {
+		return nil, fmt.Errorf("constructions des releases: %w", err)
+	}
+	defer builds.Close()
+
+	for builds.Next() {
+		var tag, state string
+		if err := builds.Scan(&tag, &state); err != nil {
+			return nil, fmt.Errorf("constructions des releases: %w", err)
+		}
+		entry := badges[tag]
+		entry.BuildFailed = state == JobFailed
+		badges[tag] = entry
+	}
+	if err := builds.Err(); err != nil {
+		return nil, fmt.Errorf("constructions des releases: %w", err)
+	}
+
+	// Ce que chaque environnement fait tourner, par la même règle que
+	// `DeployedRelease` : la version observée désigne la release, une promotion
+	// enregistrée ici tranche entre plusieurs candidates, à défaut la plus
+	// récemment créée.
+	//
+	// C'est ce qui rend le badge exact sans condition supplémentaire : un
+	// environnement n'a qu'une version observée, donc une release plus récente
+	// déployée depuis fait mécaniquement disparaître le badge de la précédente.
+	deployed, err := db.pool.Query(ctx,
+		`select distinct on (e.id) e.id, r.tag
+		   from environments e
+		   join environment_observations o
+		     on o.environment_id = e.id and o.portal_version is not null
+		   join releases r on r.image_version = o.portal_version
+		   left join image_promotions p
+		     on p.release_id = r.id and p.environment_id = e.id
+		  where e.visible
+		  order by e.id, p.pushed_at desc nulls last, r.created_at desc`)
+	if err != nil {
+		return nil, fmt.Errorf("déploiements des releases: %w", err)
+	}
+	defer deployed.Close()
+
+	for deployed.Next() {
+		var environment, tag string
+		if err := deployed.Scan(&environment, &tag); err != nil {
+			return nil, fmt.Errorf("déploiements des releases: %w", err)
+		}
+		entry := badges[tag]
+		entry.Deployed = append(entry.Deployed, environment)
+		badges[tag] = entry
+	}
+	return badges, deployed.Err()
+}

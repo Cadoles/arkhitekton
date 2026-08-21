@@ -5,6 +5,7 @@ import { TestsPanel } from './TestsPanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { CollapsibleSection } from '../../components/CollapsibleSection'
+import { ReleaseBadges } from './ReleaseBadges'
 import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
@@ -92,7 +93,12 @@ function Header({ tag, release }: { tag: string; release?: ReleaseDetail }) {
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="font-mono text-2xl font-semibold text-zinc-900">{release?.tag ?? tag}</h1>
-        {release && <StatusBadge style={status.release(release.state)} />}
+        {release && (
+          <>
+            <StatusBadge style={status.release(release.state)} />
+            <ReleaseBadges release={release} />
+          </>
+        )}
       </div>
 
       {release && (
