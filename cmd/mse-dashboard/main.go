@@ -190,7 +190,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		db, pipelines, authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project).
 		// Même pondération que le gestionnaire des tests : la pastille de la
 		// liste et l'écran d'une release affichent le même chiffre.
-		WithWeights(dashhttp.ScoreWeights(pipelines.ScoreWeights()))
+		WithWeights(dashhttp.ScoreWeights(pipelines.ScoreWeights())).
+		WithRedmineURL(cfg.Redmine.URL)
 
 	// La forge est optionnelle : sans jeton, le formulaire de création de release
 	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture
@@ -438,6 +439,26 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// objet. Le faire traverser Tekton coûterait un pod et un workspace
 			// pour produire deux pages.
 			scheduler.Handle(worker.NewExporter(db, storage, exportRegistry(cfg, logger), cfg.Registry.Image, logger))
+
+			// La note de release, pour la même raison : elle lit Redmine, la
+			// forge et la base. Sans forge configurée, la tâche n'est pas
+			// enregistrée et les jobs de note échouent en le disant — plutôt que
+			// de composer des notes vides sans expliquer pourquoi.
+			if cfg.Gitea.Configured() {
+				forgeClient, err := gitea.New(gitea.Options{
+					URL: cfg.Gitea.URL, Token: cfg.Gitea.Token,
+					Repository: cfg.Gitea.Repository, Timeout: cfg.Gitea.Timeout,
+				})
+				if err != nil {
+					return fmt.Errorf("client Gitea du worker: %w", err)
+				}
+				scheduler.Handle(worker.NewNoteBuilder(
+					forgeClient, db, cfg.Redmine.ReviewStatuses, logger))
+				logger.Info("note de release",
+					"statuts_en_revue", cfg.Redmine.ReviewStatuses)
+			} else {
+				logger.Warn("forge non configurée: les notes de release ne seront pas composées")
+			}
 
 			// L'observation et l'ordonnancement tournent en parallèle : la
 			// seconde dépend de la première pour apprendre qu'un run est fini,

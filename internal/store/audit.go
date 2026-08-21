@@ -30,14 +30,16 @@ const (
 	AuditReleaseRelease = "release.release"
 	// Une reconstruction relance un pipeline sur la même référence Git : la
 	// tracer distingue « l'image a été rebâtie » de « le code a changé ».
-	AuditReleaseRebuild   = "release.rebuild"
-	AuditReleaseVerify    = "release.verify"
-	AuditReleasePromote   = "release.promote"
-	AuditReleaseActions   = "release.actions"
-	AuditJobEnqueue       = "job.enqueue"
-	AuditJobCancel        = "job.cancel"
-	AuditArtifactGenerate = "artifact.generate"
-	AuditBaselinePin      = "bench.baseline.pin"
+	AuditReleaseRebuild    = "release.rebuild"
+	AuditReleaseVerify     = "release.verify"
+	AuditReleaseNoteAdd    = "release.note.add"
+	AuditReleaseNoteRemove = "release.note.remove"
+	AuditReleasePromote    = "release.promote"
+	AuditReleaseActions    = "release.actions"
+	AuditJobEnqueue        = "job.enqueue"
+	AuditJobCancel         = "job.cancel"
+	AuditArtifactGenerate  = "artifact.generate"
+	AuditBaselinePin       = "bench.baseline.pin"
 	// La validation de recette est la décision qui autorise une livraison. Son
 	// historique ne peut pas vivre dans `release_signoffs`, où un changement
 	// d'avis remplace le précédent : le journal est le seul endroit qui répond à

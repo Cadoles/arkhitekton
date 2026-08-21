@@ -392,11 +392,17 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 		t.Errorf("état = %q: l'image existe déjà, la release est promouvable", created.State)
 	}
 
-	if len(fake.jobs) != 1 {
-		t.Fatalf("%d job(s) de re-tag", len(fake.jobs))
+	retags := fake.jobsOfKind("promote")
+	if len(retags) != 1 {
+		t.Fatalf("%d job(s) de re-tag", len(retags))
 	}
-	if fake.jobs[0].Params["old-tag"] != "1.8.0-rc3" || fake.jobs[0].Params["new-tag"] != "1.8.0" {
-		t.Errorf("re-tag = %+v", fake.jobs[0].Params)
+	if retags[0].Params["old-tag"] != "1.8.0-rc3" || retags[0].Params["new-tag"] != "1.8.0" {
+		t.Errorf("re-tag = %+v", retags[0].Params)
+	}
+	// La note est composée pour toute release, finale comprise : ce qu'elle
+	// apporte au client ne dépend pas de la façon dont son image a été produite.
+	if len(fake.jobsOfKind(ReleaseNotesJobKind)) != 1 {
+		t.Error("la composition de la note devrait être mise en file")
 	}
 }
 
@@ -803,12 +809,13 @@ func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 
-	if len(fake.jobs) != 1 {
-		t.Fatalf("%d job(s) en file, attendu 1", len(fake.jobs))
+	builds := fake.jobsOfKind("build")
+	if len(builds) != 1 {
+		t.Fatalf("%d construction(s) en file, attendu 1", len(builds))
 	}
-	job := fake.jobs[0]
-	if job.Kind != "build" {
-		t.Errorf("nature du job %q, attendu build", job.Kind)
+	job := builds[0]
+	if len(fake.jobsOfKind(ReleaseNotesJobKind)) != 1 {
+		t.Error("la composition de la note devrait être mise en file")
 	}
 	// `version` porte le tag SemVer et prime sur `tag-name` : sans lui, la Task
 	// dériverait le tag de la branche et l'image ne porterait pas la version de
@@ -1062,14 +1069,15 @@ func TestUnePrereleaseEstAncreeSurUnCommitEtTaguee(t *testing.T) {
 	// La construction part du **commit**, pas du tag ni de la branche : un clone
 	// superficiel ne crée pas la référence locale d'un tag, et le checkout que la
 	// Task fait ensuite échouerait.
-	if len(fake.jobs) != 1 {
+	builds := fake.jobsOfKind("build")
+	if len(builds) != 1 {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
-	if got := fake.jobs[0].Params["revision"]; got != "abc123def456" {
+	if got := builds[0].Params["revision"]; got != "abc123def456" {
 		t.Errorf("révision construite %q, attendu le commit", got)
 	}
 	// Le tag reste porté par `version`, qui devient le tag de l'image (B17, P10).
-	if got := fake.jobs[0].Params["version"]; got != "3.2.0-rc1" {
+	if got := builds[0].Params["version"]; got != "3.2.0-rc1" {
 		t.Errorf("version %q, attendu le tag de la release", got)
 	}
 }
@@ -1188,4 +1196,35 @@ func (f *fakeReleaseStore) ListResultMeasures(context.Context, int64) ([]store.B
 
 func (f *fakeReleaseStore) Baselines(context.Context, string) (map[string]store.Baseline, error) {
 	return map[string]store.Baseline{}, nil
+}
+
+// La note de release : ces tests ne la couvrent pas, la détection étant éprouvée
+// dans `internal/worker`. Une note vide est le comportement attendu d'une
+// release dont aucune demande n'a été rattachée.
+// jobsOfKind rend les jobs d'une nature donnée.
+//
+// Les tests désignent le job qu'ils examinent par sa nature plutôt que par sa
+// position : toute création en enfile désormais deux — la construction ou le
+// re-tag, et la composition de la note — et un indice figé se serait cassé au
+// premier ajout suivant.
+func (f *fakeReleaseStore) jobsOfKind(kind string) []store.JobRequest {
+	var found []store.JobRequest
+	for _, job := range f.jobs {
+		if job.Kind == kind {
+			found = append(found, job)
+		}
+	}
+	return found
+}
+
+func (f *fakeReleaseStore) ListNoteEntries(context.Context, int64) ([]store.NoteEntry, error) {
+	return nil, nil
+}
+
+func (f *fakeReleaseStore) LinkNoteIssue(context.Context, int64, int64, string, string, string) error {
+	return nil
+}
+
+func (f *fakeReleaseStore) UnlinkNoteIssue(context.Context, int64, int64) error {
+	return nil
 }

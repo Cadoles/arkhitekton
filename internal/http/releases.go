@@ -43,6 +43,9 @@ type ReleaseStore interface {
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
 	ReleaseBadgesByTag(ctx context.Context) (map[string]store.ReleaseBadges, error)
+	ListNoteEntries(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
+	LinkNoteIssue(ctx context.Context, releaseID, redmineID int64, source, pullRequest, actor string) error
+	UnlinkNoteIssue(ctx context.Context, releaseID, redmineID int64) error
 	// Les deux lectures du score. Rendues ici parce que la liste des releases
 	// affiche le même chiffre que l'écran d'une release, et que deux calculs
 	// distincts finiraient par diverger.
@@ -70,6 +73,9 @@ type ReleasesHandler struct {
 	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
 	// le jour où le portail se scinde.
 	imageName string
+	// redmineURL sert à construire les liens vers les demandes d'une note. Vide,
+	// les liens sont omis plutôt que rendus morts.
+	redmineURL string
 	// registryProject préfixe les images publiées. Sert à nommer à l'audit celles
 	// qu'il doit analyser lors d'une relance — il analyse une image **déjà
 	// publiée**, jamais une reconstruction (B17).
@@ -83,6 +89,19 @@ type ReleasesHandler struct {
 	// la pastille de la liste et l'écran d'une release doivent afficher le même
 	// chiffre.
 	weights results.Weights
+}
+
+// WithRedmineURL branche les liens vers les demandes.
+func (h *ReleasesHandler) WithRedmineURL(url string) *ReleasesHandler {
+	h.redmineURL = url
+	return h
+}
+
+func (h *ReleasesHandler) issueURL(redmineID int64) string {
+	if h.redmineURL == "" {
+		return ""
+	}
+	return h.redmineURL + "/issues/" + strconv.FormatInt(redmineID, 10)
 }
 
 // WithWeights déclare la pondération du score.
@@ -135,9 +154,14 @@ type Artifacts interface {
 // l'`api` ne dépend pas du worker, et l'inverse non plus — les deux se parlent
 // par la base.
 const (
-	exportJobKind     = "export"
-	exportParamKind   = "export-kind"
-	exportParamFormat = "export-format"
+	exportJobKind = "export"
+	// Écrit ici plutôt qu'importé de `worker` : ce paquet ne dépend pas de
+	// l'ordonnanceur, et l'inverse est vrai — l'y faire dépendre créerait un
+	// cycle avec les tests de `worker`, qui lisent ce paquet. Un test de
+	// cohérence garde les deux alignés.
+	ReleaseNotesJobKind = "release-notes"
+	exportParamKind     = "export-kind"
+	exportParamFormat   = "export-format"
 )
 
 func NewReleasesHandler(
@@ -668,6 +692,22 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// La note de release est composée en tâche de fond : la détection interroge
+	// jusqu'à deux cents pull requests, et la faire ici aurait fait attendre
+	// l'utilisateur devant son formulaire. Son échec ne remet pas la création en
+	// cause — la note se complète à la main.
+	if _, err := h.store.Enqueue(r.Context(), store.JobRequest{
+		Kind:        ReleaseNotesJobKind,
+		QueueClass:  "parallel",
+		Params:      map[string]string{},
+		RequestedBy: identity.Subject,
+		ReleaseID:   &releaseID,
+	}); err != nil {
+		warnings = append(warnings,
+			"la note de release n'a pas pu être mise en file: "+err.Error())
+		response["warnings"] = warnings
+	}
+
 	// Une release finale doit exister sous son propre tag dans le registre, pas
 	// seulement sous celui de sa RC. Sans ce re-tag, `1.8.0` ne désigne rien :
 	// aucune ImagePolicy ne peut le retenir, et la release n'est promouvable nulle
@@ -974,6 +1014,128 @@ func imageRepository(registryProject, name string) string {
 		return ""
 	}
 	return registryProject + "/" + name
+}
+
+// notePayload est une ligne de note de release.
+type notePayload struct {
+	RedmineID int64  `json:"redmine_id"`
+	Subject   string `json:"subject,omitempty"`
+	Tracker   string `json:"tracker,omitempty"`
+	Status    string `json:"status,omitempty"`
+	// Anomaly range la ligne : les anomalies vont aux corrections, le reste aux
+	// nouveautés. Le tracker et non le statut : c'est la nature de la demande qui
+	// décide, pas son avancement.
+	Anomaly bool `json:"anomaly"`
+	// Known est faux tant que la synchronisation Redmine n'a pas vu la demande.
+	// La ligne reste affichée : la masquer ferait disparaître un ajout manuel.
+	Known       bool   `json:"known"`
+	Source      string `json:"source"`
+	PullRequest string `json:"pull_request,omitempty"`
+	AddedBy     string `json:"added_by"`
+	// URL vers la demande dans Redmine. Vide quand Redmine n'est pas configuré :
+	// un lien mort vaut moins que pas de lien.
+	URL string `json:"url,omitempty"`
+}
+
+// Notes rend la note d'une release.
+func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
+	record, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		return
+	}
+
+	entries, err := h.store.ListNoteEntries(r.Context(), record.ID)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la note impossible", "")
+		return
+	}
+
+	payload := make([]notePayload, 0, len(entries))
+	for _, entry := range entries {
+		payload = append(payload, notePayload{
+			RedmineID: entry.RedmineID, Subject: entry.Subject, Tracker: entry.Tracker,
+			Status: entry.StatusName, Anomaly: entry.Anomaly, Known: entry.Known,
+			Source: entry.Source, PullRequest: entry.PullRequest, AddedBy: entry.AddedBy,
+			URL: h.issueURL(entry.RedmineID),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"notes": payload})
+}
+
+// AddNote rattache une demande à la main.
+//
+// Le geste existe parce que la détection ne peut pas tout voir : une PR dont le
+// titre ne suit pas la convention, une demande passée en revue après la création
+// de la release. Sans lui, la seule issue serait de recréer la release.
+func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	record, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		return
+	}
+
+	redmineID, err := strconv.ParseInt(r.PathValue("issue"), 10, 64)
+	if err != nil || redmineID <= 0 {
+		writeProblem(w, http.StatusBadRequest, "Demande invalide",
+			"le numéro de demande doit être un entier positif")
+		return
+	}
+
+	switch err := h.store.LinkNoteIssue(r.Context(), record.ID, redmineID,
+		store.NoteSourceManual, "", identity.Subject); {
+	case errors.Is(err, store.ErrNoteAlreadyLinked):
+		writeProblem(w, http.StatusConflict, "Demande déjà rattachée",
+			fmt.Sprintf("la demande #%d figure déjà dans la note de %s", redmineID, record.Tag))
+		return
+	case err != nil:
+		writeProblem(w, http.StatusInternalServerError, "Rattachement impossible", "")
+		return
+	}
+
+	h.audit(r, store.AuditReleaseNoteAdd, record.Tag, map[string]any{"redmine_id": redmineID})
+	writeJSON(w, http.StatusCreated, map[string]any{"redmine_id": redmineID})
+}
+
+// RemoveNote retire une demande de la note.
+func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
+	record, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		return
+	}
+
+	redmineID, err := strconv.ParseInt(r.PathValue("issue"), 10, 64)
+	if err != nil || redmineID <= 0 {
+		writeProblem(w, http.StatusBadRequest, "Demande invalide", "")
+		return
+	}
+
+	if err := h.store.UnlinkNoteIssue(r.Context(), record.ID, redmineID); err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Retrait impossible", "")
+		return
+	}
+
+	h.audit(r, store.AuditReleaseNoteRemove, record.Tag, map[string]any{"redmine_id": redmineID})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // anchorCommit résout une référence en commit, et dit pourquoi il ne l'a pas fait.

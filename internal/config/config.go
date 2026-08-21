@@ -81,6 +81,10 @@ type RedmineConfig struct {
 	// Timeout borne un appel : une lenteur de Redmine ne doit pas devenir une
 	// lenteur du dashboard.
 	Timeout time.Duration
+	// ReviewStatuses énumère les statuts qui rendent une demande éligible à la
+	// note d'une release. Le vocabulaire appartient au client : il peut renommer
+	// « En revue » sans qu'aucun code ait à changer.
+	ReviewStatuses []string
 }
 
 // Configured dit si l'accès est renseigné.
@@ -249,10 +253,14 @@ func Load(role Role) (Config, error) {
 			Image:    envOr("REGISTRY_IMAGE", "portal"),
 		},
 		Redmine: RedmineConfig{
-			URL:     strings.TrimRight(os.Getenv("REDMINE_URL"), "/"),
-			APIKey:  os.Getenv("REDMINE_API_KEY"),
-			Project: os.Getenv("REDMINE_PROJECT"),
-			Timeout: durationOr("REDMINE_TIMEOUT", 15*time.Second),
+			// Les statuts qui rendent une demande éligible à la note de release.
+			// Configurables parce que le vocabulaire appartient au client : il
+			// peut renommer « En revue » sans qu'aucun code ait à changer.
+			ReviewStatuses: listOr("REDMINE_REVIEW_STATUSES", []string{"En revue"}),
+			URL:            strings.TrimRight(os.Getenv("REDMINE_URL"), "/"),
+			APIKey:         os.Getenv("REDMINE_API_KEY"),
+			Project:        os.Getenv("REDMINE_PROJECT"),
+			Timeout:        durationOr("REDMINE_TIMEOUT", 15*time.Second),
 		},
 		Gitea: GiteaConfig{
 			URL:        strings.TrimRight(os.Getenv("GITEA_URL"), "/"),

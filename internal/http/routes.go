@@ -101,6 +101,16 @@ func NewAPIRouter(
 	mux.Handle("POST /releases/{tag}/verify/{kind}", Chain(http.HandlerFunc(releases.Verify),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseCreate)))
 
+	// La note de release se lit avec la release et s'édite comme les actions
+	// manuelles : `release:edit` et non `release:create:final`. Composer la note
+	// est le travail de qui produit le livrable, pas de qui décide de le livrer.
+	mux.Handle("GET /releases/{tag}/notes", Chain(http.HandlerFunc(releases.Notes),
+		middleware.Authenticate))
+	mux.Handle("POST /releases/{tag}/notes/{issue}", Chain(http.HandlerFunc(releases.AddNote),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
+	mux.Handle("DELETE /releases/{tag}/notes/{issue}", Chain(http.HandlerFunc(releases.RemoveNote),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
+
 	// Les actions manuelles sont éditables par ceux qui produisent le livrable,
 	// pas seulement par ceux qui peuvent livrer : `release:edit` et non
 	// `release:create:final`.

@@ -424,3 +424,64 @@ export function useRebuild(tag: string) {
     },
   })
 }
+
+/*
+ * Note de release : les demandes Redmine que la release apporte.
+ *
+ * Deux sous-ensembles à l'affichage — nouveautés et corrections — décidés par le
+ * tracker de la demande et non par son statut : c'est la nature de ce qui a été
+ * fait qui range la ligne, pas son avancement.
+ */
+export type NoteEntry = {
+  redmine_id: number
+  subject?: string
+  tracker?: string
+  status?: string
+  /** Range la ligne : les anomalies aux corrections, le reste aux nouveautés. */
+  anomaly: boolean
+  /** Faux tant que la synchronisation Redmine n'a pas vu la demande. La ligne
+   *  reste affichée : la masquer ferait disparaître un ajout manuel. */
+  known: boolean
+  source: 'auto' | 'manual'
+  pull_request?: string
+  added_by: string
+  url?: string
+}
+
+export function useNotes(tag: string | undefined) {
+  return useQuery({
+    queryKey: ['releases', tag, 'notes'],
+    queryFn: () =>
+      request<{ notes: NoteEntry[] }>(`/releases/${encodeURIComponent(tag as string)}/notes`),
+    enabled: Boolean(tag),
+  })
+}
+
+export function useAddNote(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (redmineID: number) =>
+      request<{ redmine_id: number }>(
+        `/releases/${encodeURIComponent(tag)}/notes/${redmineID}`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'notes'] })
+    },
+  })
+}
+
+export function useRemoveNote(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (redmineID: number) =>
+      request<void>(`/releases/${encodeURIComponent(tag)}/notes/${redmineID}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'notes'] })
+    },
+  })
+}

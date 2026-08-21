@@ -5,6 +5,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { CollapsibleSection } from '../../components/CollapsibleSection'
 import { ReleaseBadges } from './ReleaseBadges'
+import { ReleaseNotes } from './ReleaseNotes'
 import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
@@ -66,6 +67,10 @@ export function ReleaseScreen() {
           {/* Le score en premier : c'est le bloc qu'on lit d'un coup d'œil, et
               celui qui dit s'il faut ouvrir le reste. */}
           <TestsPanel tag={data.tag} jobs={data.jobs ?? []} />
+
+          {/* La note avant les images : c'est le contenu fonctionnel de la
+              release, ce qu'on relit avant de l'envoyer au client. */}
+          <ReleaseNotes tag={data.tag} />
 
           <Images release={data} />
           <Deployment release={data} />
