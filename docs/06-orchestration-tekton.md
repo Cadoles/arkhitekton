@@ -44,7 +44,6 @@ URLs pré-signées avant de créer le run (voir §6.6).
 pipelines:
   - kind: static-tests
     pipelineRef: php-static-tests
-    queueClass: parallel
     label: "Tests statiques"
     params:
       repo-url:     { source: config, key: forge.mse.sshUrl }
@@ -67,34 +66,32 @@ pipelines:
 
   - kind: integration-tests
     pipelineRef: php-integration-test
-    queueClass: exclusive-mse-pipeline     # déploie dans le namespace mse-pipeline
+    maxConcurrent: 1                       # déploie dans le namespace mse-pipeline
     serviceAccountName: tekton-kubectl
     timeout: 45m
     # ...
 
   - kind: e2e-tests
     pipelineRef: e2e-test
-    queueClass: exclusive-e2e
+    maxConcurrent: 1
     timeout: 60m
     # ...
 
   - kind: load-tests
     pipelineRef: load-test                 # à créer, cf. lot 8
-    queueClass: exclusive-cluster    # barrière : le cluster héberge aussi la cible (B16)
+    maxConcurrent: 1                       # une mesure à la fois (B16)
     # ...
 
   - kind: security-audit
     pipelineRef: security-audit
-    queueClass: parallel
     timeout: 90m
 
   - kind: build
     pipelineRef: build-image
-    queueClass: parallel
 
   - kind: promote
     pipelineRef: promote-image
-    queueClass: exclusive-registry
+    maxConcurrent: 1                       # deux re-tags concurrents sur le même dépôt
 ```
 
 ## 6.3 File d'exécution
@@ -104,48 +101,54 @@ Or les tests E2E et de charge ne supportent pas la concurrence — ils s'exécut
 un environnement partagé —, et le pipeline d'intégration déploie dans le namespace
 `mse-pipeline`, qu'il faudrait sinon partager entre deux exécutions.
 
-### Classes d'exclusion
+### Une file par type
 
-| Classe | Sémantique |
+| Réglage | Sémantique |
 |---|---|
-| `parallel` | aucune restriction, limité seulement par le plafond global |
-| `exclusive-<nom>` | un seul job de cette classe en cours à la fois |
-| `exclusive-cluster` | **barrière** : exclut tous les jobs, quelle que soit leur classe |
+| `maxConcurrent: 1` | un seul job de ce type à la fois |
+| `maxConcurrent: <n>` | jusqu'à *n* jobs de ce type en parallèle |
+| absent | le défaut, cinq |
+| `maxConcurrentRuns` | plafond global, toutes files confondues |
 
-L'exclusion ordinaire est **par classe**, pas globale : un audit de sécurité peut tourner
-pendant des tests E2E, deux campagnes E2E non. La classe est une donnée du catalogue, ce
-qui permet de la corriger sans toucher au code si une contention imprévue apparaît.
+Chaque type a sa file, et un plafond qui dit combien de ses exécutions peuvent tourner
+ensemble. Les types qui ne supportent pas le parallélisme — intégration, E2E, charge,
+promotion — portent un plafond de 1 ; les autres retombent sur le défaut.
 
-### La barrière `exclusive-cluster`
+L'exclusion est **par type** : un audit de sécurité peut tourner pendant des tests E2E,
+deux campagnes E2E non. Un job dont la file est pleine est **sauté**, pas bloquant :
+sans cela, une intégration en cours retiendrait tous les tests unitaires derrière elle.
 
-Cas d'usage : les tests de charge. Le cluster Tekton est le même que celui de
-l'environnement de test de charge ([B16](02-blocages-et-decisions.md#b16)), donc tout
-job concurrent — build buildx, audit Trivy, campagne E2E — fausse la mesure.
+Le plafond global prime et n'est pas la somme des autres : sept files à cinq places
+autoriseraient trente-cinq exécutions simultanées, ce qu'aucun cluster de ce projet ne
+tient. Il est en revanche fixé assez haut — dix — pour qu'aucune file ne soit bornée par
+lui en temps normal ; à quatre, le plafond par type serait décoratif.
 
-Sémantique, en trois temps :
+Les plafonds par type sont **réglables à chaud**, depuis l'onglet Paramètres des
+exécutions. La valeur vit en base, l'ordonnanceur la relit à chaque tour, et le défaut du
+catalogue reste affiché à côté pour qu'on puisse y revenir. Un réglage qui exige de
+reconstruire un ConfigMap n'est pas un réglage.
 
-1. **Drainage** — le job est sélectionné, l'ordonnanceur cesse de démarrer de nouveaux
-   runs, tous classes confondues.
-2. **Attente** — il attend la fin des runs en cours. Le job reste `queued`, avec un
-   motif distinct (`draining`) pour que l'interface l'explique.
-3. **Exécution** — seul dans la file, jusqu'à sa complétion.
+### Ce que le modèle précédent portait
 
-Une file qui bloque sans dire pourquoi produit systématiquement des relances inutiles :
-l'interface affiche « cluster réservé — N job(s) en attente » et la liste de ce qui est
-retenu.
+Les jobs étaient groupés en **classes d'exclusion** : `parallel` n'excluait rien,
+`exclusive-<nom>` excluait sa propre classe, `exclusive-cluster` excluait tout. Trois
+régimes pour une seule question, et une réponse qu'il fallait reconstituer en cherchant
+quels types partageaient une classe.
 
-Le job enregistre par ailleurs, à son démarrage, s'il s'exécutait bien en exclusivité.
-Cette information (`exclusive: true|false`, plus le nombre de jobs concurrents constatés)
-est portée par le `test_results` de famille `load` : sans elle, la comparaison à la
-baseline et les tendances du `BenchPanel` compareraient des mesures prises dans des
-conditions différentes.
+La barrière `exclusive-cluster` réservait le cluster entier pour une mesure de charge,
+en trois temps : drainage, attente, exécution seule. **Aucun plafond par type ne
+reproduit cela**, et c'est la perte assumée du changement.
 
-Le drainage a un coût de débit réel. Il est donc **activable par classe dans le
-catalogue**, et l'arbitrage débit / justesse de mesure appartient au client.
+Ce qui la justifiait — le cluster Tekton est le même que celui de l'environnement de
+charge ([B16](02-blocages-et-decisions.md#b16)), donc tout job concurrent fausse la
+mesure — reste vrai. Mais la comparabilité ne reposait déjà pas sur l'intention : elle
+repose sur le **constat** relevé à la réservation, `exclusive_at_start` et
+`concurrent_at_start`, et la règle exige que le second soit nul. Une mesure prise pendant
+qu'autre chose tournait n'entre donc pas dans la comparaison — elle n'est plus empêchée
+de se produire, elle est écartée de la baseline et le dit.
 
-Un plafond global (`maxConcurrentRuns`, par défaut 4) protège le cluster : les
-pipelines Tekton demandent des PVC et des pods de build, et rien n'empêche
-mécaniquement d'en lancer vingt.
+Le premier champ change de sens sans changer de rôle : il ne dit plus « la barrière était
+tenue » mais « la file de ce type n'a qu'une place ».
 
 ### Ordonnanceur
 
@@ -154,22 +157,28 @@ Boucle unique dans le `worker`, protégée par un `Lease` Kubernetes. À chaque 
 
 ```sql
 -- Sélection des jobs éligibles : file FIFO par priorité, en écartant
--- les classes déjà occupées.
-with busy as (
-  select distinct queue_class from jobs where state = 'running'
+-- ceux dont la file est pleine.
+with limits as (
+  select * from unnest($2::text[], $3::int[]) as l(kind, max_concurrent)
 ),
-capacity as (
-  select count(*) as running from jobs where state = 'running'
+running as (
+  select kind from jobs where state = 'running'
 )
 select j.*
-from jobs j, capacity c
+from jobs j
 where j.state = 'queued'
-  and (j.queue_class = 'parallel' or j.queue_class not in (select queue_class from busy))
-  and c.running < $1
+  and (select count(*) from running) < $1
+  and (select count(*) from running r where r.kind = j.kind)
+      < coalesce((select l.max_concurrent from limits l where l.kind = j.kind), $4)
 order by j.priority, j.requested_at
 for update of j skip locked
 limit 1;
 ```
+
+Les plafonds arrivent en deux tableaux parallèles plutôt qu'en JSON : la jointure se lit
+en SQL sans extraction. Un type absent prend le défaut — c'est le cas des tâches locales,
+qui ne deviennent pas des `PipelineRun`, et celui d'un type retiré du catalogue depuis la
+mise en file : le job avance au lieu d'attendre un réglage qui n'existera jamais.
 
 `FOR UPDATE ... SKIP LOCKED` garantit qu'aucun job n'est pris deux fois même si
 l'élection de leader échouait — ceinture et bretelles, parce qu'un double lancement de

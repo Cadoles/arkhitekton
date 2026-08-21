@@ -38,8 +38,12 @@ const (
 	AuditReleaseActions    = "release.actions"
 	AuditJobEnqueue        = "job.enqueue"
 	AuditJobCancel         = "job.cancel"
-	AuditArtifactGenerate  = "artifact.generate"
-	AuditBaselinePin       = "bench.baseline.pin"
+	// Le plafond d'une file décide de ce que le cluster accepte de mener de
+	// front. Le relever engage la machine, le baisser rallonge toute
+	// vérification : les deux méritent d'être attribués.
+	AuditQueueLimit       = "queue.limit"
+	AuditArtifactGenerate = "artifact.generate"
+	AuditBaselinePin      = "bench.baseline.pin"
 	// La validation de recette est la décision qui autorise une livraison. Son
 	// historique ne peut pas vivre dans `release_signoffs`, où un changement
 	// d'avis remplace le précédent : le journal est le seul endroit qui répond à

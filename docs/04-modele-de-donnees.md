@@ -328,7 +328,7 @@ révèle un déploiement bloqué.
 create table jobs (
   id            bigserial primary key,
   kind          text   not null,               -- clé du catalogue de pipelines
-  queue_class   text   not null,               -- classe d'exclusion mutuelle
+  queue_class   text,                          -- historique : classe du modèle précédent
   priority      int    not null default 100,   -- plus petit = plus prioritaire
   state         text   not null,
   params        jsonb  not null,               -- paramètres du PipelineRun
@@ -343,7 +343,7 @@ create table jobs (
   cancel_reason text,
   error         text
 );
-create index on jobs (state, queue_class, priority, requested_at)
+create index on jobs (state, kind, priority, requested_at)
   where state = 'queued';
 
 create table runs (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -21,6 +22,10 @@ type QueueStore interface {
 	CancelQueuedJob(ctx context.Context, id int64, reason string) (bool, error)
 	RequestCancel(ctx context.Context, id int64, reason string) (bool, error)
 	Directory(ctx context.Context) (map[string]string, error)
+	QueueLimits(ctx context.Context) (map[string]int, error)
+	SetQueueLimit(ctx context.Context, kind string, max int, by string) error
+	ClearQueueLimit(ctx context.Context, kind string) error
+	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
 // QueueHandler expose la file et le lancement.
@@ -37,7 +42,6 @@ type jobPayload struct {
 	ID          int64      `json:"id"`
 	Kind        string     `json:"kind"`
 	Label       string     `json:"label"`
-	QueueClass  string     `json:"queue_class"`
 	Priority    int        `json:"priority"`
 	State       string     `json:"state"`
 	RequestedBy string     `json:"requested_by"`
@@ -51,17 +55,42 @@ type jobPayload struct {
 }
 
 type kindPayload struct {
-	Kind       string   `json:"kind"`
-	Label      string   `json:"label"`
-	QueueClass string   `json:"queue_class"`
-	Inputs     []string `json:"required_inputs"`
+	Kind   string   `json:"kind"`
+	Label  string   `json:"label"`
+	Inputs []string `json:"required_inputs"`
 }
 
-// List rend la file et le catalogue.
+// queuePayload est une file : son plafond, son occupation, ses jobs.
 //
-// Les deux ensemble parce que l'écran a besoin des deux : afficher les jobs sans
-// dire ce qui est lançable oblige à une seconde requête pour peupler le moindre
-// bouton.
+// Une file par type, y compris vide. Ne rendre que les files occupées ferait
+// disparaître de l'écran la moitié des réglages, et c'est justement quand une
+// file est vide qu'on veut vérifier ce qu'elle autorise.
+type queuePayload struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	// MaxConcurrent est le plafond effectif : le réglage s'il existe, celui du
+	// catalogue sinon.
+	MaxConcurrent int `json:"max_concurrent"`
+	// DefaultMax est celui du catalogue. Rendu à côté de l'effectif pour que
+	// l'écran puisse dire « réglé à 2, par défaut 5 » plutôt qu'un nombre seul,
+	// et proposer le retour au défaut.
+	DefaultMax int  `json:"default_max_concurrent"`
+	Overridden bool `json:"overridden"`
+	// Known distingue une file du catalogue d'une file constatée : les tâches
+	// locales — bon de livraison, note de release — ne deviennent pas des
+	// PipelineRun et n'y figurent pas, mais occupent bien une file.
+	Known   bool         `json:"known"`
+	Running int          `json:"running"`
+	Waiting int          `json:"waiting"`
+	Jobs    []jobPayload `json:"jobs"`
+}
+
+// List rend les files, leur occupation et le catalogue.
+//
+// Les trois ensemble parce que l'écran a besoin des trois : afficher des jobs
+// sans dire ce qui est lançable oblige à une seconde requête pour peupler le
+// moindre bouton, et sans les plafonds on ne peut ni expliquer une attente ni
+// proposer de la lever.
 func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 	jobs, err := h.queue.ListQueue(r.Context())
 	if err != nil {
@@ -71,47 +100,192 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	who := resolveActors(r.Context(), h.queue, slog.Default())
 
-	payload := make([]jobPayload, 0, len(jobs))
+	// Les jobs sont répartis dans leur file en conservant l'ordre reçu, qui est
+	// celui du service. Retrier par type suffirait à mentir sur qui passe en
+	// premier.
+	byKind := map[string][]jobPayload{}
+	order := make([]string, 0, len(jobs))
 	for _, job := range jobs {
-		entry := jobPayload{
-			ID:          job.ID,
-			Kind:        job.Kind,
-			Label:       job.Kind,
-			QueueClass:  job.QueueClass,
-			Priority:    job.Priority,
-			State:       job.State,
-			RequestedBy: who.name(job.RequestedBy),
-			RequestedAt: job.RequestedAt,
-			StartedAt:   job.StartedAt,
-			Attempt:     job.Attempt,
-			QueueReason: job.QueueReason,
-			RunName:     job.RunName,
+		if _, seen := byKind[job.Kind]; !seen {
+			order = append(order, job.Kind)
 		}
-		if pipeline, found := h.catalog.Find(job.Kind); found && pipeline.Label != "" {
-			entry.Label = pipeline.Label
+		byKind[job.Kind] = append(byKind[job.Kind], h.toJobPayload(job, who))
+	}
+
+	overrides, err := h.queue.QueueLimits(r.Context())
+	if err != nil {
+		// Un réglage illisible ne doit pas faire disparaître la file : les
+		// plafonds du catalogue s'affichent alors, ce qui est le comportement
+		// d'avant les réglages.
+		slog.Default().Error("lecture des plafonds de file", "error", err)
+		overrides = map[string]int{}
+	}
+
+	queues := make([]queuePayload, 0, len(h.catalog.Pipelines)+len(order))
+	for _, pipeline := range h.catalog.Pipelines {
+		queues = append(queues, h.toQueuePayload(
+			pipeline.Kind, pipelineLabel(pipeline), pipeline.Concurrency(),
+			true, overrides, byKind))
+		delete(byKind, pipeline.Kind)
+	}
+	// Les files constatées hors catalogue passent ensuite : ce sont les tâches
+	// locales, qui ne deviennent pas des PipelineRun mais occupent bien une file.
+	for _, kind := range order {
+		if _, remaining := byKind[kind]; !remaining {
+			continue
 		}
-		payload = append(payload, entry)
+		queues = append(queues, h.toQueuePayload(
+			kind, kind, catalog.DefaultKindConcurrency, false, overrides, byKind))
+		delete(byKind, kind)
 	}
 
 	kinds := make([]kindPayload, 0, len(h.catalog.Pipelines))
 	for _, pipeline := range h.catalog.Pipelines {
-		label := pipeline.Label
-		if label == "" {
-			label = pipeline.Kind
-		}
 		kinds = append(kinds, kindPayload{
-			Kind:       pipeline.Kind,
-			Label:      label,
-			QueueClass: pipeline.QueueClass,
-			Inputs:     pipeline.RequiredInputs(),
+			Kind:   pipeline.Kind,
+			Label:  pipelineLabel(pipeline),
+			Inputs: pipeline.RequiredInputs(),
 		})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"jobs":           payload,
-		"kinds":          kinds,
+		"queues": queues,
+		"kinds":  kinds,
+		// Le plafond global, toutes files confondues. Il prime sur les plafonds
+		// par type : sans lui, sept files à cinq places autoriseraient
+		// trente-cinq exécutions simultanées.
 		"max_concurrent": h.catalog.MaxConcurrentRuns,
 	})
+}
+
+func pipelineLabel(pipeline catalog.Pipeline) string {
+	if pipeline.Label != "" {
+		return pipeline.Label
+	}
+	return pipeline.Kind
+}
+
+func (h *QueueHandler) toJobPayload(job store.Job, who actors) jobPayload {
+	entry := jobPayload{
+		ID:          job.ID,
+		Kind:        job.Kind,
+		Label:       job.Kind,
+		Priority:    job.Priority,
+		State:       job.State,
+		RequestedBy: who.name(job.RequestedBy),
+		RequestedAt: job.RequestedAt,
+		StartedAt:   job.StartedAt,
+		Attempt:     job.Attempt,
+		QueueReason: job.QueueReason,
+		RunName:     job.RunName,
+	}
+	if pipeline, found := h.catalog.Find(job.Kind); found {
+		entry.Label = pipelineLabel(pipeline)
+	}
+	return entry
+}
+
+func (h *QueueHandler) toQueuePayload(
+	kind, label string, fromCatalog int, known bool,
+	overrides map[string]int, byKind map[string][]jobPayload,
+) queuePayload {
+	queue := queuePayload{
+		Kind: kind, Label: label,
+		MaxConcurrent: fromCatalog, DefaultMax: fromCatalog, Known: known,
+		Jobs: byKind[kind],
+	}
+	if limit, set := overrides[kind]; set {
+		queue.MaxConcurrent = limit
+		queue.Overridden = true
+	}
+	if queue.Jobs == nil {
+		// Un tableau vide et non `null` : l'interface itère dessus sans avoir à
+		// se prémunir de l'absence.
+		queue.Jobs = []jobPayload{}
+	}
+	for _, job := range queue.Jobs {
+		if job.State == store.JobRunning {
+			queue.Running++
+			continue
+		}
+		queue.Waiting++
+	}
+	return queue
+}
+
+// limitRequest porte un nouveau plafond.
+type limitRequest struct {
+	MaxConcurrent int `json:"max_concurrent"`
+}
+
+// maxQueueLimit borne ce qu'un réglage peut demander.
+//
+// Le plafond global reste au-dessus de toute façon, mais accepter 10 000 dans le
+// formulaire laisserait croire que le nombre a un sens. Vingt est déjà plus que
+// ce que le cluster tient.
+const maxQueueLimit = 20
+
+// SetLimit règle le plafond d'une file.
+//
+// Réservé à l'administration : relever un plafond engage le cluster, et le
+// baisser peut immobiliser une vérification en cours de route. La valeur vit en
+// base et non dans le catalogue — un réglage qui exige de reconstruire un
+// ConfigMap n'est pas un réglage.
+func (h *QueueHandler) SetLimit(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	kind := r.PathValue("kind")
+	if kind == "" {
+		writeProblem(w, http.StatusBadRequest, "Type de file manquant", "")
+		return
+	}
+
+	var request limitRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		return
+	}
+	if request.MaxConcurrent < 1 || request.MaxConcurrent > maxQueueLimit {
+		writeProblem(w, http.StatusBadRequest, "Plafond invalide",
+			fmt.Sprintf("attendu entre 1 et %d", maxQueueLimit))
+		return
+	}
+
+	if err := h.queue.SetQueueLimit(r.Context(), kind, request.MaxConcurrent, identity.Subject); err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Réglage impossible", "")
+		return
+	}
+
+	// Consigné comme les autres décisions d'exploitation : « qui a ouvert la file
+	// à dix » doit avoir une réponse sans consulter les journaux applicatifs.
+	_ = h.queue.Audit(r.Context(), identity.Subject, store.AuditQueueLimit, kind,
+		map[string]any{"max_concurrent": request.MaxConcurrent})
+
+	writeJSON(w, http.StatusOK, map[string]any{"kind": kind, "max_concurrent": request.MaxConcurrent})
+}
+
+// ClearLimit rend une file à son plafond de catalogue.
+func (h *QueueHandler) ClearLimit(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	kind := r.PathValue("kind")
+	if err := h.queue.ClearQueueLimit(r.Context(), kind); err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Réglage impossible", "")
+		return
+	}
+
+	_ = h.queue.Audit(r.Context(), identity.Subject, store.AuditQueueLimit, kind,
+		map[string]any{"max_concurrent": nil})
+
+	writeJSON(w, http.StatusOK, map[string]any{"kind": kind})
 }
 
 type launchRequest struct {
@@ -157,7 +331,6 @@ func (h *QueueHandler) Launch(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.queue.Enqueue(r.Context(), store.JobRequest{
 		Kind:        pipeline.Kind,
-		QueueClass:  pipeline.QueueClass,
 		Priority:    request.Priority,
 		Params:      request.Params,
 		RequestedBy: identity.Subject,

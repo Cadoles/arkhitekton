@@ -37,8 +37,7 @@ func verificationCatalog() *catalog.Catalog {
 	return &catalog.Catalog{
 		Pipelines: []catalog.Pipeline{
 			{
-				Kind: "static-tests", QueueClass: "parallel",
-				Params: map[string]catalog.Param{
+				Kind: "static-tests", Params: map[string]catalog.Param{
 					"revision": {Source: catalog.SourceInput, Required: true},
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
@@ -46,15 +45,13 @@ func verificationCatalog() *catalog.Catalog {
 			// Les tests unitaires ont leur propre pipeline : deux questions
 			// distinctes, deux signaux que le score pondère séparément.
 			{
-				Kind: "unit-tests", QueueClass: "parallel",
-				Params: map[string]catalog.Param{
+				Kind: "unit-tests", Params: map[string]catalog.Param{
 					"revision": {Source: catalog.SourceInput, Required: true},
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
 			{
-				Kind: "security-audit", QueueClass: "parallel",
-				Params: map[string]catalog.Param{
+				Kind: "security-audit", Params: map[string]catalog.Param{
 					// L'audit nomme sa révision autrement que les tests statiques,
 					// et réclame les images déjà publiées plutôt que de les
 					// reconstruire.
@@ -68,8 +65,7 @@ func verificationCatalog() *catalog.Catalog {
 			// configuration : c'est ce qui rend ce pipeline enchaînable. Tant
 			// qu'elle était une entrée, le dashboard ne savait pas la renseigner.
 			{
-				Kind: "integration-tests", QueueClass: "exclusive-mse-pipeline",
-				Params: map[string]catalog.Param{
+				Kind: "integration-tests", Params: map[string]catalog.Param{
 					"mse-revision":        {Source: catalog.SourceInput, Required: true},
 					"mse-kustom-revision": {Source: catalog.SourceConfig, Key: "forge.mseKustom.revision"},
 					// Le pipeline déploie des images déjà publiées : il en reçoit

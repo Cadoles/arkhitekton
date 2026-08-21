@@ -27,11 +27,15 @@ const tickInterval = 2 * time.Second
 
 // Queue est ce que l'ordonnanceur attend de la base.
 type Queue interface {
-	ClaimNext(ctx context.Context, maxConcurrent int, runName func(kind string, id int64) string) (store.Job, error)
+	ClaimNext(ctx context.Context, limits store.Limits, runName func(kind string, id int64) string) (store.Job, error)
 	Requeue(ctx context.Context, id int64, reason string) (bool, error)
 	FinishJob(ctx context.Context, id int64, state, reason string) error
-	ExplainQueue(ctx context.Context, maxConcurrent int) error
+	ExplainQueue(ctx context.Context, limits store.Limits) error
 	PendingCancellations(ctx context.Context) ([]store.RunningJob, error)
+	// QueueLimits rend les plafonds réglés à la main. Relus à chaque tour : un
+	// réglage doit prendre effet sans redémarrer le worker, sinon personne ne
+	// s'en sert.
+	QueueLimits(ctx context.Context) (map[string]int, error)
 }
 
 // LocalTask exécute un job dans le processus, sans passer par Tekton.
@@ -128,10 +132,16 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	for {
+		// Les plafonds sont relus une fois par tour, et non par job : un réglage
+		// changé pendant qu'un tour vide la file s'appliquera au tour suivant, ce
+		// qui suffit largement, alors qu'une lecture par job multiplierait les
+		// allers-retours en base pour une valeur qui bouge une fois par mois.
+		limits := s.limits(ctx)
+
 		// Chaque tour vide la file autant que les règles le permettent : servir
 		// un seul job par tick ferait démarrer quatre jobs éligibles en huit
 		// secondes, sans raison.
-		for s.dispatchOne(ctx) {
+		for s.dispatchOne(ctx, limits) {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -139,7 +149,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 
 		s.applyCancellations(ctx)
 
-		if err := s.queue.ExplainQueue(ctx, s.catalog.MaxConcurrentRuns); err != nil {
+		if err := s.queue.ExplainQueue(ctx, limits); err != nil {
 			s.logger.Error("explication de la file", "error", err)
 		}
 
@@ -152,10 +162,34 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 }
 
+// limits compose les plafonds effectifs : ceux du catalogue, écrasés par les
+// réglages enregistrés.
+//
+// Un échec de lecture ne fait pas s'arrêter la file : les plafonds du catalogue
+// s'appliquent alors seuls. Se figer parce qu'un réglage n'a pas pu être lu
+// coûterait plus que de tourner un tour avec les valeurs par défaut.
+func (s *Scheduler) limits(ctx context.Context) store.Limits {
+	limits := store.Limits{
+		PerKind: s.catalog.Concurrency(),
+		Default: catalog.DefaultKindConcurrency,
+		Global:  s.catalog.MaxConcurrentRuns,
+	}
+
+	overrides, err := s.queue.QueueLimits(ctx)
+	if err != nil {
+		s.logger.Error("lecture des plafonds de file", "error", err)
+		return limits
+	}
+	for kind, limit := range overrides {
+		limits.PerKind[kind] = limit
+	}
+	return limits
+}
+
 // dispatchOne réserve et lance un job. Rend false quand il n'y a plus rien à
 // faire pour ce tour.
-func (s *Scheduler) dispatchOne(ctx context.Context) bool {
-	job, err := s.queue.ClaimNext(ctx, s.catalog.MaxConcurrentRuns,
+func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
+	job, err := s.queue.ClaimNext(ctx, limits,
 		func(kind string, id int64) string { return RunName(s.instance, kind, id) })
 	if err != nil {
 		if !errors.Is(err, store.ErrJobNotFound) {
@@ -226,7 +260,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context) bool {
 	}
 
 	s.logger.Info("run lancé",
-		"job", job.ID, "kind", job.Kind, "run", job.RunName, "classe", job.QueueClass)
+		"job", job.ID, "kind", job.Kind, "run", job.RunName, "file", limits.Of(job.Kind))
 	return true
 }
 

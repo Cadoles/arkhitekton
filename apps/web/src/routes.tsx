@@ -4,7 +4,9 @@ import { AppShell } from './components/AppShell'
 import { Placeholder } from './components/Placeholder'
 import { NotFound } from './components/NotFound'
 import { RunsScreen } from './features/runs/RunsScreen'
+import { ExecutionsLayout } from './features/runs/ExecutionsLayout'
 import { QueueScreen } from './features/queue/QueueScreen'
+import { QueueSettingsScreen } from './features/queue/QueueSettingsScreen'
 import { EnvironmentsScreen } from './features/environments/EnvironmentsScreen'
 import { HistoryScreen } from './features/environments/HistoryScreen'
 import { EnvironmentScreen } from './features/environments/EnvironmentScreen'
@@ -71,10 +73,29 @@ export const routes: RouteObject[] = [
         ),
       },
 
-      { path: 'runs', element: <RunsScreen /> },
+      /*
+       * Les trois vues d'exécution sous une coquille commune. Elles répondaient
+       * à la même question depuis deux entrées de menu : ce qui tourne, ce qui
+       * attend, et ce qui gouverne l'attente.
+       */
+      {
+        path: 'runs',
+        element: <ExecutionsLayout />,
+        children: [
+          { index: true, element: <RunsScreen /> },
+          { path: 'queue', element: <QueueScreen /> },
+          { path: 'settings', element: <QueueSettingsScreen /> },
+        ],
+      },
+      // Hors coquille : le détail d'une exécution n'est pas une quatrième vue, et
+      // lui coiffer des onglets ferait croire qu'on peut y revenir. Le segment
+      // statique l'emporte sur le paramètre, donc `/runs/queue` ne cherche pas
+      // une exécution de ce nom.
       { path: 'runs/:name', element: <RunScreen /> },
 
-      { path: 'queue', element: <QueueScreen /> },
+      // Ancienne adresse de la file, conservée : les liens partagés et les
+      // signets ne se corrigent pas d'eux-mêmes.
+      { path: 'queue', element: <Navigate to="/runs/queue" replace /> },
 
       { path: 'admin', element: <AdminScreen /> },
 

@@ -3,14 +3,20 @@ import { request } from '../../lib/api'
 
 export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
-/** Motifs d'attente, tels que la base les calcule. */
-export type QueueReason = 'class-busy' | 'capacity' | 'draining'
+/**
+ * Motifs d'attente, tels que la base les calcule.
+ *
+ * Deux seulement depuis que chaque type a sa file : elle est pleine, ou le
+ * plafond global l'est. Le modèle précédent en avait trois — `class-busy`,
+ * `capacity`, `draining` — dont un, le drainage, qu'il fallait expliquer en
+ * deux phrases parce que rien à l'écran ne le laissait deviner.
+ */
+export type QueueReason = 'kind-busy' | 'capacity'
 
 export type Job = {
   id: number
   kind: string
   label: string
-  queue_class: string
   priority: number
   state: JobState
   requested_by: string
@@ -21,14 +27,29 @@ export type Job = {
   run_name?: string
 }
 
+/** Une file : son plafond, son occupation, ses jobs dans l'ordre du service. */
+export type Queue = {
+  kind: string
+  label: string
+  /** Plafond effectif : le réglage s'il existe, celui du catalogue sinon. */
+  max_concurrent: number
+  /** Plafond du catalogue, pour dire « réglé à 2, par défaut 5 ». */
+  default_max_concurrent: number
+  overridden: boolean
+  /** Une file constatée hors catalogue : une tâche locale, qui n'a pas de pipeline. */
+  known: boolean
+  running: number
+  waiting: number
+  jobs: Job[]
+}
+
 export type Kind = {
   kind: string
   label: string
-  queue_class: string
   required_inputs: string[]
 }
 
-type QueueResponse = { jobs: Job[]; kinds: Kind[]; max_concurrent: number }
+type QueueResponse = { queues: Queue[]; kinds: Kind[]; max_concurrent: number }
 
 export function useQueue() {
   return useQuery({
@@ -66,24 +87,46 @@ export function useCancel() {
 }
 
 /**
- * Explication d'une attente, en français et à la première personne de la file.
+ * Réglage du plafond d'une file.
+ *
+ * `max_concurrent` à `null` rend la file à son plafond de catalogue. Deux verbes
+ * pour deux intentions : régler est un `PUT`, revenir au défaut un `DELETE` —
+ * envoyer zéro pour dire « comme avant » aurait confondu « pas de limite » et
+ * « limite absente ».
+ */
+export function useSetLimit() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ kind, max }: { kind: string; max: number | null }) =>
+      max === null
+        ? request<{ kind: string }>(`/queue/limits/${encodeURIComponent(kind)}`, { method: 'DELETE' })
+        : request<{ kind: string }>(`/queue/limits/${encodeURIComponent(kind)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ max_concurrent: max }),
+          }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
+}
+
+/**
+ * Explication d'une attente, en français.
  *
  * Le texte dit **ce qui bloque**, pas seulement qu'il y a blocage : une file qui
  * n'explique pas son attente engendre systématiquement des relances inutiles.
  */
-export function explainWait(job: Job, kinds: Kind[]): string {
+export function explainWait(job: Job, queue: Queue | undefined): string {
   switch (job.queue_reason) {
-    case 'class-busy': {
-      const other = kinds.find((entry) => entry.queue_class === job.queue_class && entry.kind !== job.kind)
-      const shared = other ? ` (partagée avec ${other.label})` : ''
-      return `La classe ${job.queue_class} est déjà occupée${shared}.`
-    }
+    case 'kind-busy':
+      return queue
+        ? `La file ${queue.label} est pleine — ${queue.max_concurrent} en parallèle au maximum.`
+        : 'La file de ce type est pleine.'
     case 'capacity':
-      return 'Le plafond d’exécutions simultanées est atteint.'
-    case 'draining':
-      // Le cas le plus opaque, et le plus long : sans explication, l'utilisateur
-      // relance en croyant à une panne.
-      return 'Cluster réservé pour une exécution exclusive — attente de la fin des runs en cours.'
+      // Le plafond global prime sur celui de la file, et régler la file n'y
+      // changerait rien : le dire évite de chercher la place au mauvais endroit.
+      return 'Le plafond global d’exécutions simultanées est atteint, toutes files confondues.'
     default:
       return 'En attente de son tour.'
   }

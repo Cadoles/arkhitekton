@@ -713,7 +713,6 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// cause — la note se complète à la main.
 	if _, err := h.store.Enqueue(r.Context(), store.JobRequest{
 		Kind:        ReleaseNotesJobKind,
-		QueueClass:  "parallel",
 		Params:      map[string]string{},
 		RequestedBy: identity.Subject,
 		ReleaseID:   &releaseID,
@@ -964,7 +963,6 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 
 	jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
 		Kind:        pipeline.Kind,
-		QueueClass:  pipeline.QueueClass,
 		Params:      params,
 		RequestedBy: identity.Subject,
 		ReleaseID:   &record.ID,
@@ -1290,8 +1288,7 @@ func (h *ReleasesHandler) enqueueBuild(
 	}
 
 	return h.store.Enqueue(ctx, store.JobRequest{
-		Kind:       pipeline.Kind,
-		QueueClass: pipeline.QueueClass,
+		Kind: pipeline.Kind,
 		Params: map[string]string{
 			"revision": gitRef,
 			"version":  record.Tag,
@@ -1311,8 +1308,7 @@ func (h *ReleasesHandler) enqueueRetag(
 		return 0, errors.New("catalogue sans pipeline promote")
 	}
 	return h.store.Enqueue(ctx, store.JobRequest{
-		Kind:       pipeline.Kind,
-		QueueClass: pipeline.QueueClass,
+		Kind: pipeline.Kind,
 		Params: map[string]string{
 			"old-tag": record.ImageVersion,
 			"new-tag": record.Tag,
@@ -1384,8 +1380,7 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
-		Kind:       pipeline.Kind,
-		QueueClass: pipeline.QueueClass,
+		Kind: pipeline.Kind,
 		Params: map[string]string{
 			"old-tag": plan.OldTag,
 			"new-tag": plan.NewTag,
@@ -1688,7 +1683,6 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 		Kind: exportJobKind,
 		// `parallel` : un export ne touche ni le registre ni le cluster, rien ne
 		// justifie de le sérialiser avec des pipelines.
-		QueueClass: "parallel",
 		Params: map[string]string{
 			exportParamKind:   request.Kind,
 			exportParamFormat: request.Format,

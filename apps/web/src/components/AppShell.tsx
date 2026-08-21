@@ -21,8 +21,9 @@ const NAV: NavEntry[] = [
   { to: '/environments', label: 'Environnements', icon: 'layers' },
   { to: '/versions', label: 'Versions', icon: 'tag' },
   { to: '/releases', label: 'Releases', icon: 'doc' },
+  // Une entrée pour les trois vues d'exécution : l'historique, les files et
+  // leurs réglages sont des sous-onglets, pas des destinations distinctes.
   { to: '/runs', label: 'Exécutions', icon: 'beaker' },
-  { to: '/queue', label: "File d'attente", icon: 'queue' },
   { to: '/admin', label: 'Administration', icon: 'cog' },
 ]
 

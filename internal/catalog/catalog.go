@@ -23,18 +23,17 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// Classes d'exclusion reconnues. La sémantique est décrite en doc 06 §6.3.
-const (
-	// ClassParallel n'exclut rien : seul le plafond global s'applique.
-	ClassParallel = "parallel"
-	// ClassBarrier exclut **tous** les jobs, quelle que soit leur classe. Le
-	// cluster Tekton héberge aussi la cible des tests de charge : tout job
-	// concurrent fausse la mesure (B16).
-	ClassBarrier = "exclusive-cluster"
-	// exclusivePrefix introduit une exclusion par classe : un seul job de cette
-	// classe à la fois, sans effet sur les autres.
-	exclusivePrefix = "exclusive-"
-)
+// DefaultKindConcurrency est le plafond d'un type qui n'en déclare pas.
+//
+// Cinq, et non un : la plupart des pipelines — analyse statique, tests
+// unitaires, audit — n'ont aucune raison de s'exclure, et les faire attendre
+// l'un l'autre allongerait la vérification d'une release sans rien protéger.
+const DefaultKindConcurrency = 5
+
+// ExclusiveKindConcurrency est le plafond d'un type qui ne supporte pas le
+// parallélisme : tests d'intégration, E2E, charge. Chacun déploie ou mesure une
+// cible unique, et deux exécutions simultanées se marchent dessus.
+const ExclusiveKindConcurrency = 1
 
 // Catalog est le catalogue chargé.
 type Catalog struct {
@@ -99,7 +98,15 @@ type Pipeline struct {
 	// PipelineRef est le nom du Pipeline dans le cluster.
 	PipelineRef string `json:"pipelineRef"`
 	Label       string `json:"label"`
-	QueueClass  string `json:"queueClass"`
+	// MaxConcurrent borne la file de ce type. Zéro vaut DefaultKindConcurrency :
+	// un type nouveau démarre parallélisable, ce qui est le cas courant, et
+	// s'exclut en le déclarant plutôt qu'en l'oubliant.
+	//
+	// Remplace la classe d'exclusion du modèle précédent, qui groupait plusieurs
+	// types dans une même file sans que rien ne dise lesquels. Un plafond répond
+	// à la seule question posée — combien peuvent tourner ensemble — et se lit
+	// sans avoir à parcourir le catalogue entier.
+	MaxConcurrent int `json:"maxConcurrent,omitempty"`
 	// Timeout borne l'exécution. Vide vaut le défaut de Tekton.
 	Timeout string `json:"timeout,omitempty"`
 	// ServiceAccountName n'est pas décoratif : `php-integration-test` déploie
@@ -189,8 +196,12 @@ type PodTemplate struct {
 	ImagePullSecretsConfigKey string `json:"imagePullSecretsConfigKey,omitempty"`
 }
 
-// DefaultMaxConcurrentRuns est le plafond retenu à défaut (doc 06 §6.3).
-const DefaultMaxConcurrentRuns = 4
+// DefaultMaxConcurrentRuns est le plafond global retenu à défaut.
+//
+// Au-dessus du plafond par type, et pas par confort : à quatre, aucune file de
+// cinq places n'atteindrait jamais la sienne et le réglage par type serait
+// décoratif.
+const DefaultMaxConcurrentRuns = 10
 
 // Load lit un catalogue depuis un fichier.
 func Load(path string) (*Catalog, error) {
@@ -285,10 +296,9 @@ func (p Pipeline) validate() []error {
 	if strings.TrimSpace(p.PipelineRef) == "" {
 		problems = append(problems, fmt.Errorf("kind %q: pipelineRef est requis", p.Kind))
 	}
-	if !ValidQueueClass(p.QueueClass) {
+	if p.MaxConcurrent < 0 {
 		problems = append(problems, fmt.Errorf(
-			"kind %q: queueClass %q invalide (attendu %q, %q ou %q)",
-			p.Kind, p.QueueClass, ClassParallel, exclusivePrefix+"<nom>", ClassBarrier))
+			"kind %q: maxConcurrent doit être >= 1 (ou absent), vaut %d", p.Kind, p.MaxConcurrent))
 	}
 
 	for name, param := range p.Params {
@@ -340,16 +350,25 @@ func (p Pipeline) validate() []error {
 	return problems
 }
 
-// ValidQueueClass dit si une classe est reconnue.
-func ValidQueueClass(class string) bool {
-	switch {
-	case class == ClassParallel, class == ClassBarrier:
-		return true
-	case strings.HasPrefix(class, exclusivePrefix) && len(class) > len(exclusivePrefix):
-		return true
-	default:
-		return false
+// Concurrency rend le plafond effectif d'un type.
+func (p Pipeline) Concurrency() int {
+	if p.MaxConcurrent > 0 {
+		return p.MaxConcurrent
 	}
+	return DefaultKindConcurrency
+}
+
+// Concurrency rend les plafonds déclarés, par type.
+//
+// Les types absents du catalogue — les tâches locales, qui ne deviennent pas des
+// PipelineRun — n'y figurent pas : l'ordonnanceur leur applique le défaut, comme
+// à un type nouveau.
+func (c *Catalog) Concurrency() map[string]int {
+	limits := make(map[string]int, len(c.Pipelines))
+	for _, pipeline := range c.Pipelines {
+		limits[pipeline.Kind] = pipeline.Concurrency()
+	}
+	return limits
 }
 
 // Find rend l'entrée d'un kind.

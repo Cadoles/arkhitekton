@@ -954,21 +954,29 @@ mesure varient d'un point à l'autre, la courbe ne veut rien dire.
 
 Le modèle de file le permet déjà, sans infrastructure supplémentaire :
 
-- **Classe `exclusive-cluster`.** Elle n'exclut pas seulement les autres tests de
-  charge, mais **tous** les jobs. C'est une extension du modèle de classes décrit en
-  [06 §6.3](06-orchestration-tekton.md#63-file-dexécution) : une classe qui exclut
-  l'univers plutôt qu'elle-même.
-- **Sémantique de barrière.** À la prise du job, l'ordonnanceur cesse de démarrer de
-  nouveaux runs, attend la fin de ceux en cours, puis lance. L'interface affiche
-  « cluster réservé — 3 jobs en attente », faute de quoi l'attente est incompréhensible
-  pour l'utilisateur.
+- **File à une place.** Le type `load-tests` porte `maxConcurrent: 1` : deux mesures ne
+  se chevauchent jamais. Voir [06 §6.3](06-orchestration-tekton.md#63-file-dexécution).
 - **Étiquetage des conditions de mesure.** Chaque `test_results` de famille `load` porte
   `exclusive: true|false` et le nombre de jobs concurrents constatés au démarrage. La
-  comparaison à la baseline n'inclut que les mesures exclusives ; les autres sont
-  affichées, mais marquées comme non comparables.
+  comparaison à la baseline exige les deux : file à une place **et** aucune exécution
+  concurrente. Les autres mesures sont affichées, mais marquées non comparables, avec le
+  motif.
 
 Cela ne couvre pas les autres locataires du cluster. Cela couvre ce qui est sous notre
 contrôle, et rend honnête la comparaison qui ne l'était pas.
+
+**Ce que la version précédente prévoyait, et qui a été retiré.** Une classe
+`exclusive-cluster` faisait barrière : à la prise du job, l'ordonnanceur cessait de
+démarrer de nouveaux runs, attendait la fin de ceux en cours, puis lançait seul. Le
+modèle de file a été ramené à un plafond par type, et aucun plafond ne reproduit une
+barrière.
+
+La perte est réelle mais bornée : la comparabilité ne reposait déjà pas sur la barrière
+mais sur le **constat** relevé à la réservation, et ce constat exige que rien d'autre ne
+tournât. Une mesure prise en voisinage n'est donc plus empêchée de se produire — elle est
+écartée de la baseline, et le dit. Si le débit de mesures comparables se révélait
+insuffisant, la barrière serait à réintroduire comme un attribut du type, non comme un
+troisième régime de file.
 
 ### Intégration du runner externe
 

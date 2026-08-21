@@ -610,7 +610,6 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 
 		id, err := s.verification.Enqueue(ctx, store.JobRequest{
 			Kind:        pipeline.Kind,
-			QueueClass:  pipeline.QueueClass,
 			Params:      params,
 			RequestedBy: verificationRequester,
 			ReleaseID:   &linked.ReleaseID,

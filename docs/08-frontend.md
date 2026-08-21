@@ -121,16 +121,29 @@ fin par défaut avec remontée à la demande.
   qui a changé ? » — et non « combien de tests passent ».
 - Téléchargement du rapport brut.
 
-### `/queue` — file d'exécution
+### `/runs` — exécutions, files et paramètres
 
-- Jobs en cours, groupés par classe d'exclusion, avec durée écoulée.
-- Jobs en attente, dans l'ordre réel de traitement, avec la raison de l'attente
-  (« classe `exclusive-e2e` occupée », « plafond de concurrence atteint »,
-  « cluster réservé pour un test de charge — 3 job(s) à terminer »). Une file qui
-  n'explique pas pourquoi elle attend engendre systématiquement des relances inutiles,
-  et le drainage d'une barrière `exclusive-cluster` ([B16](02-blocages-et-decisions.md#b16))
-  est le cas où l'attente est la plus longue et la plus opaque.
+Trois sous-onglets sous une coquille commune. Ils répondaient à la même question depuis
+deux entrées de menu — ce qui tourne, ce qui attend, ce qui gouverne l'attente — et les
+réglages de file n'avaient nulle part où vivre.
+
+**Exécutions** : l'historique des runs, inchangé.
+
+**File d'attente** : une carte par file, y compris vides. Ne montrer que les files
+occupées ferait disparaître la moitié du tableau au repos, et c'est justement quand rien
+ne tourne qu'on vient vérifier ce qu'une file autorise.
+
+- Occupation avant plafond — « 1 / 5 en parallèle » —, dans cet ordre : c'est le rapport
+  des deux qui dit s'il reste de la place, et le lire ainsi évite de soustraire.
+- Jobs en attente dans l'ordre réel de traitement, avec la raison : « la file Tests E2E
+  est pleine — 1 en parallèle au maximum », ou « le plafond global est atteint, toutes
+  files confondues ». Une file qui n'explique pas pourquoi elle attend engendre
+  systématiquement des relances inutiles.
 - Annulation, remise en file, changement de priorité selon permission.
+
+**Paramètres** : le plafond de chaque file, modifiable à chaud par l'administration. Le
+défaut du catalogue reste affiché à côté et le retour à cette valeur reste possible — un
+réglage qu'on ne peut pas défaire est un réglage qu'on n'ose pas toucher.
 
 ### `/releases/:tag` — agrégat
 

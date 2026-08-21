@@ -704,8 +704,7 @@ func TestUnJobPorteSaReleaseEtSonEtat(t *testing.T) {
 	}
 
 	jobID, err := db.Enqueue(ctx, JobRequest{
-		Kind: "build", QueueClass: "parallel",
-		Params:      map[string]string{"revision": "develop", "version": "3.2.0-rc1"},
+		Kind: "build", Params: map[string]string{"revision": "develop", "version": "3.2.0-rc1"},
 		RequestedBy: "vcarroy", ReleaseID: &releaseID,
 	})
 	if err != nil {
@@ -729,7 +728,7 @@ func TestUnJobSansReleaseSeDistingueDuneErreur(t *testing.T) {
 	ctx := context.Background()
 
 	jobID, err := db.Enqueue(ctx, JobRequest{
-		Kind: "static-tests", QueueClass: "parallel", RequestedBy: "vcarroy",
+		Kind: "static-tests", RequestedBy: "vcarroy",
 	})
 	if err != nil {
 		t.Fatalf("mise en file: %v", err)
@@ -808,7 +807,7 @@ func TestUneReleaseNeSortDeVerifyingQueQuandToutAConclu(t *testing.T) {
 	var jobs []int64
 	for _, kind := range kinds {
 		id, err := db.Enqueue(ctx, JobRequest{
-			Kind: kind, QueueClass: "parallel", RequestedBy: "dashboard:verification",
+			Kind: kind, RequestedBy: "dashboard:verification",
 			ReleaseID: &releaseID,
 		})
 		if err != nil {
@@ -866,12 +865,12 @@ func TestLeDecompteNeRegardeQueLaBonneRelease(t *testing.T) {
 	// La construction vient d'abord, comme en production : c'est elle qui borne
 	// la série de vérifications qui la suit.
 	if _, err := db.Enqueue(ctx, JobRequest{
-		Kind: "build", QueueClass: "parallel", RequestedBy: "x", ReleaseID: &mine,
+		Kind: "build", RequestedBy: "x", ReleaseID: &mine,
 	}); err != nil {
 		t.Fatalf("construction: %v", err)
 	}
 	if _, err := db.Enqueue(ctx, JobRequest{
-		Kind: "static-tests", QueueClass: "parallel", RequestedBy: "x", ReleaseID: &other,
+		Kind: "static-tests", RequestedBy: "x", ReleaseID: &other,
 	}); err != nil {
 		t.Fatalf("job d'une autre release: %v", err)
 	}
@@ -914,7 +913,7 @@ func TestUneRelanceNeCompteQueSesPropresVerifications(t *testing.T) {
 	enqueue := func(kind string) int64 {
 		t.Helper()
 		id, err := db.Enqueue(ctx, JobRequest{
-			Kind: kind, QueueClass: "parallel", RequestedBy: "dashboard", ReleaseID: &releaseID,
+			Kind: kind, RequestedBy: "dashboard", ReleaseID: &releaseID,
 		})
 		if err != nil {
 			t.Fatalf("mise en file %s: %v", kind, err)
@@ -975,7 +974,7 @@ func TestSeulLeDernierEssaiDUneFamilleCompte(t *testing.T) {
 	enqueue := func(kind string) int64 {
 		t.Helper()
 		id, err := db.Enqueue(ctx, JobRequest{
-			Kind: kind, QueueClass: "parallel", RequestedBy: "dashboard", ReleaseID: &releaseID,
+			Kind: kind, RequestedBy: "dashboard", ReleaseID: &releaseID,
 		})
 		if err != nil {
 			t.Fatalf("mise en file %s: %v", kind, err)
@@ -1027,7 +1026,7 @@ func TestUnDernierEssaiEnEchecCompte(t *testing.T) {
 
 	enqueue := func(kind string) int64 {
 		id, err := db.Enqueue(ctx, JobRequest{
-			Kind: kind, QueueClass: "parallel", RequestedBy: "dashboard", ReleaseID: &releaseID,
+			Kind: kind, RequestedBy: "dashboard", ReleaseID: &releaseID,
 		})
 		if err != nil {
 			t.Fatalf("mise en file: %v", err)

@@ -19,7 +19,7 @@ func loadFixture(t *testing.T, db *DB) (int64, int64) {
 	}
 
 	jobID, err := db.Enqueue(ctx, JobRequest{
-		Kind: "load-test", QueueClass: ClassBarrier, RequestedBy: "vcarroy",
+		Kind: "load-test", RequestedBy: "vcarroy",
 	})
 	if err != nil {
 		t.Fatalf("job: %v", err)
@@ -196,12 +196,15 @@ func TestClaimRecordsTheStartConditions(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := db.Enqueue(ctx, JobRequest{
-		Kind: "load-test", QueueClass: ClassBarrier, RequestedBy: "vcarroy",
+		Kind: "load-test", RequestedBy: "vcarroy",
 	}); err != nil {
 		t.Fatalf("mise en file: %v", err)
 	}
 
-	job, err := db.ClaimNext(ctx, 4, func(kind string, id int64) string { return "run-1" })
+	// Une file à une place : c'est ce qui rend la mesure exclusive, la barrière
+	// du modèle précédent ayant disparu.
+	limits := Limits{PerKind: map[string]int{"load-test": 1}, Default: 5, Global: 4}
+	job, err := db.ClaimNext(ctx, limits, func(kind string, id int64) string { return "run-1" })
 	if err != nil {
 		t.Fatalf("réservation: %v", err)
 	}
@@ -222,12 +225,12 @@ func TestAnOrdinaryJobIsNeverMarkedExclusive(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := db.Enqueue(ctx, JobRequest{
-		Kind: "static-tests", QueueClass: "parallel", RequestedBy: "vcarroy",
+		Kind: "static-tests", RequestedBy: "vcarroy",
 	}); err != nil {
 		t.Fatalf("mise en file: %v", err)
 	}
 
-	job, _ := db.ClaimNext(ctx, 4, func(kind string, id int64) string { return "run-2" })
+	job, _ := db.ClaimNext(ctx, caps(4, nil), func(kind string, id int64) string { return "run-2" })
 	exclusive, _, err := db.StartConditions(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("conditions: %v", err)
@@ -244,7 +247,7 @@ func TestUnrecordedConditionsDefaultToNonExclusive(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	id, err := db.Enqueue(ctx, JobRequest{Kind: "x", QueueClass: "parallel", RequestedBy: "v"})
+	id, err := db.Enqueue(ctx, JobRequest{Kind: "x", RequestedBy: "v"})
 	if err != nil {
 		t.Fatalf("mise en file: %v", err)
 	}

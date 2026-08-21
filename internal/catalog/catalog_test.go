@@ -12,7 +12,6 @@ pipelines:
   - kind: static-tests
     pipelineRef: php-static-tests
     label: Tests statiques
-    queueClass: parallel
     params:
       revision: { source: input, required: true }
       repo-url: { source: config, key: forge.mse.sshUrl }
@@ -39,7 +38,6 @@ func TestUnknownFieldIsRejected(t *testing.T) {
 pipelines:
   - kind: static-tests
     pipelineRef: php-static-tests
-    queueClass: parallel
     serviceAccount: tekton-kubectl
 `))
 	if err == nil {
@@ -50,19 +48,15 @@ pipelines:
 	}
 }
 
-func TestQueueClassValidation(t *testing.T) {
-	valid := []string{"parallel", "exclusive-e2e", "exclusive-mse-pipeline", "exclusive-cluster"}
-	invalid := []string{"", "exclusive-", "serial", "Parallel", "exclusive cluster"}
-
-	for _, class := range valid {
-		if !ValidQueueClass(class) {
-			t.Errorf("classe %q refusée à tort", class)
-		}
+// Le plafond d'un type : déclaré, ou celui du défaut. Un type nouveau démarre
+// parallélisable — le cas courant — et s'exclut en le déclarant plutôt qu'en
+// l'oubliant.
+func TestLePlafondDunTypeRetombeSurLeDefaut(t *testing.T) {
+	if got := (Pipeline{Kind: "unit-tests"}).Concurrency(); got != DefaultKindConcurrency {
+		t.Errorf("plafond = %d, attendu le défaut %d", got, DefaultKindConcurrency)
 	}
-	for _, class := range invalid {
-		if ValidQueueClass(class) {
-			t.Errorf("classe %q acceptée à tort", class)
-		}
+	if got := (Pipeline{Kind: "e2e-tests", MaxConcurrent: 1}).Concurrency(); got != 1 {
+		t.Errorf("plafond déclaré = %d, attendu 1", got)
 	}
 }
 
@@ -71,10 +65,8 @@ func TestDuplicateKindIsRejected(t *testing.T) {
 pipelines:
   - kind: build
     pipelineRef: build-image
-    queueClass: parallel
   - kind: build
     pipelineRef: build-image-bis
-    queueClass: parallel
 `))
 	if err == nil || !strings.Contains(err.Error(), "deux fois") {
 		t.Errorf("un kind dupliqué doit être refusé: %v", err)
@@ -86,7 +78,6 @@ func TestWorkspaceNeedsExactlyOneSource(t *testing.T) {
 pipelines:
   - kind: build
     pipelineRef: build-image
-    queueClass: parallel
     workspaces:
       - name: sans-source
 `))
@@ -98,7 +89,6 @@ pipelines:
 pipelines:
   - kind: build
     pipelineRef: build-image
-    queueClass: parallel
     workspaces:
       - name: deux-sources
         emptyDir: true
@@ -121,7 +111,6 @@ func TestParamSourcesAreChecked(t *testing.T) {
 pipelines:
   - kind: build
     pipelineRef: build-image
-    queueClass: parallel
     params:
       ` + params + `
 `))
@@ -136,7 +125,6 @@ func TestRequiredInputsAreListed(t *testing.T) {
 pipelines:
   - kind: build
     pipelineRef: build-image
-    queueClass: parallel
     params:
       revision: { source: input, required: true }
       commit:   { source: input, required: true }
@@ -302,7 +290,6 @@ func TestValidateAgainstDetectsMisnamedWorkspace(t *testing.T) {
 pipelines:
   - kind: audit
     pipelineRef: security-audit
-    queueClass: parallel
     workspaces:
       - name: shared-data
         emptyDir: true

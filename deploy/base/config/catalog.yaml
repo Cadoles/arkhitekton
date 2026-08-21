@@ -60,9 +60,14 @@ environments:
     # « inconnu » (B8).
     observable: false
 
-# Plafond global. Les pipelines demandent des PVC et des pods de build, et rien
-# n'empêche mécaniquement d'en lancer vingt.
-maxConcurrentRuns: 4
+# Plafond global, toutes files confondues. Les pipelines demandent des PVC et des
+# pods de build, et rien n'empêche mécaniquement d'en lancer vingt.
+#
+# Il prime sur les plafonds par type et n'est pas leur somme : sept files à cinq
+# places en autoriseraient trente-cinq. Il est en revanche assez haut pour que les
+# files respirent — le fixer à quatre rendrait le plafond par type décoratif,
+# puisque aucun type n'atteindrait jamais le sien.
+maxConcurrentRuns: 10
 
 # Secret de tirage appliqué à tous les pipelines.
 #
@@ -88,7 +93,6 @@ pipelines:
     pipelineRef: security-audit
     label: Audit de sécurité
     # Aucune contention : un audit peut tourner pendant des tests E2E.
-    queueClass: parallel
     timeout: 90m
     # Sans ces paramètres, les défauts du pipeline s'appliquaient : il scannait
     # `CNOUS/mse` à la révision `k8s-unstable`, quel que soit ce que le dashboard
@@ -168,7 +172,6 @@ pipelines:
     # `parallel` : deux constructions de versions différentes ne se gênent pas,
     # elles écrivent sous des tags distincts. La sérialisation du registre ne
     # concerne que le re-tag, où deux manifestes visent le même dépôt.
-    queueClass: parallel
     params:
       repo-url:    { source: config, key: forge.mse.repoUrl }
       reg-project: { source: config, key: registry.project }
@@ -200,7 +203,9 @@ pipelines:
     label: Promotion d'image
     # Le registre supporte mal deux re-tags simultanés sur le même dépôt : les
     # sérialiser coûte quelques secondes et évite des manifestes concurrents.
-    queueClass: exclusive-registry
+    # Une seule à la fois : elle déploie ou mesure une cible unique, et deux
+    # exécutions simultanées se marcheraient dessus.
+    maxConcurrent: 1
     params:
       reg-project: { source: config, key: registry.project }
       old-tag:     { source: input, required: true }
@@ -221,7 +226,6 @@ pipelines:
   - kind: static-tests
     pipelineRef: php-static-tests
     label: Analyse statique
-    queueClass: parallel
     params:
       repo-url:     { source: config, key: forge.mse.repoUrl }
       revision:     { source: input, required: true }
@@ -250,7 +254,6 @@ pipelines:
   - kind: unit-tests
     pipelineRef: php-unit-tests
     label: Tests unitaires
-    queueClass: parallel
     params:
       repo-url:     { source: config, key: forge.mse.repoUrl }
       revision:     { source: input, required: true }
@@ -274,7 +277,9 @@ pipelines:
     label: Tests E2E
     # Une campagne E2E s'exécute contre un environnement partagé : deux
     # exécutions simultanées se fausseraient mutuellement.
-    queueClass: exclusive-e2e
+    # Une seule à la fois : elle déploie ou mesure une cible unique, et deux
+    # exécutions simultanées se marcheraient dessus.
+    maxConcurrent: 1
     timeout: 60m
     params:
       repo-url:     { source: config, key: forge.e2e.repoUrl }
@@ -313,7 +318,9 @@ pipelines:
     label: Tests d'intégration
     # Le pipeline déploie dans un namespace applicatif : deux exécutions
     # simultanées partageraient la même cible.
-    queueClass: exclusive-mse-pipeline
+    # Une seule à la fois : elle déploie ou mesure une cible unique, et deux
+    # exécutions simultanées se marcheraient dessus.
+    maxConcurrent: 1
     serviceAccountName: tekton-kubectl
     timeout: 45m
     params:

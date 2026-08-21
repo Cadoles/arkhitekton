@@ -233,8 +233,8 @@ func (f *fakeForge) CreateTag(_ context.Context, tag, commit, _ string) error {
 func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler {
 	t.Helper()
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
-		{Kind: "promote", PipelineRef: "promote-image", QueueClass: "exclusive-registry"},
-		{Kind: "build", PipelineRef: "build-image", QueueClass: "parallel"},
+		{Kind: "promote", PipelineRef: "promote-image"},
+		{Kind: "build", PipelineRef: "build-image"},
 	}}
 	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
@@ -303,9 +303,6 @@ func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
 	// Le re-tag part de ce qui existe réellement dans le registre.
 	if job.Params["old-tag"] != "1.8.0-rc3" {
 		t.Errorf("old-tag = %q, attendu 1.8.0-rc3", job.Params["old-tag"])
-	}
-	if job.QueueClass != "exclusive-registry" {
-		t.Errorf("classe de file = %q: deux re-tags concurrents sur le même dépôt", job.QueueClass)
 	}
 	// La promotion est enregistrée **demandée**, sans digest : le re-tag n'a pas
 	// encore eu lieu.
@@ -701,11 +698,6 @@ func TestExportEnqueuesAJobBoundToTheRelease(t *testing.T) {
 	// saurait pas quoi produire.
 	if job.Params[exportParamKind] != store.ArtifactDeliveryNote || job.Params[exportParamFormat] != "pdf" {
 		t.Errorf("paramètres = %v", job.Params)
-	}
-	// Un export ne touche ni le registre ni le cluster : rien ne justifie de le
-	// sérialiser avec des pipelines.
-	if job.QueueClass != "parallel" {
-		t.Errorf("classe de file = %q", job.QueueClass)
 	}
 }
 

@@ -24,19 +24,56 @@ const (
 // Une file qui n'explique pas son attente engendre systématiquement des relances
 // inutiles : l'utilisateur voit un job immobile et en lance un second.
 const (
-	ReasonClassBusy = "class-busy"
-	ReasonCapacity  = "capacity"
-	ReasonDraining  = "draining"
+	// ReasonKindBusy : la file du type est pleine. C'est le motif le plus
+	// courant, et le seul qu'un réglage puisse lever.
+	ReasonKindBusy = "kind-busy"
+	// ReasonCapacity : le plafond global est atteint, toutes files confondues.
+	// Il protège le cluster et prime sur les plafonds par type.
+	ReasonCapacity = "capacity"
 )
 
-// ClassBarrier doit rester aligné sur catalog.ClassBarrier. La duplication évite
-// à `store` de dépendre du catalogue pour une constante.
-const ClassBarrier = "exclusive-cluster"
+// Limits porte les plafonds effectifs, par type.
+//
+// Composés par l'appelant à partir du catalogue et des réglages : `store` ne
+// connaît ni l'un ni les autres, et les recomposer ici le lierait au catalogue
+// pour une addition.
+type Limits struct {
+	// PerKind donne le plafond d'un type. Un type absent prend Default.
+	PerKind map[string]int
+	// Default s'applique aux types que le catalogue ne décrit pas — les tâches
+	// locales, un type retiré depuis la mise en file.
+	Default int
+	// Global borne le total, toutes files confondues. Sans lui, sept files à
+	// cinq places autoriseraient trente-cinq exécutions simultanées, ce qu'aucun
+	// cluster de ce projet ne tient.
+	Global int
+}
+
+// Of rend le plafond effectif d'un type.
+func (l Limits) Of(kind string) int {
+	if limit, declared := l.PerKind[kind]; declared && limit > 0 {
+		return limit
+	}
+	return l.Default
+}
+
+// arrays rend les plafonds sous la forme attendue par `unnest`.
+//
+// Deux tableaux parallèles plutôt qu'un JSON : la jointure se lit en SQL sans
+// extraction, et Postgres sait les indexer.
+func (l Limits) arrays() ([]string, []int32) {
+	kinds := make([]string, 0, len(l.PerKind))
+	limits := make([]int32, 0, len(l.PerKind))
+	for kind, limit := range l.PerKind {
+		kinds = append(kinds, kind)
+		limits = append(limits, int32(limit))
+	}
+	return kinds, limits
+}
 
 // JobRequest décrit une demande de lancement.
 type JobRequest struct {
 	Kind        string
-	QueueClass  string
 	Priority    int
 	Params      map[string]string
 	RequestedBy string
@@ -48,7 +85,6 @@ type JobRequest struct {
 type Job struct {
 	ID          int64
 	Kind        string
-	QueueClass  string
 	Priority    int
 	State       string
 	Params      map[string]string
@@ -85,10 +121,10 @@ func (db *DB) Enqueue(ctx context.Context, request JobRequest) (int64, error) {
 
 	var id int64
 	err = db.pool.QueryRow(ctx,
-		`insert into jobs (kind, queue_class, priority, state, params, requested_by, release_id, environment_id)
-		 values ($1, $2, $3, 'queued', $4, $5, $6, $7)
+		`insert into jobs (kind, priority, state, params, requested_by, release_id, environment_id)
+		 values ($1, $2, 'queued', $3, $4, $5, $6)
 		 returning id`,
-		request.Kind, request.QueueClass, request.Priority, params,
+		request.Kind, request.Priority, params,
 		request.RequestedBy, request.ReleaseID, request.Environment).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("mise en file de %q: %w", request.Kind, err)
@@ -105,18 +141,25 @@ func (db *DB) Enqueue(ctx context.Context, request JobRequest) (int64, error) {
 // l'élection de leader, parce qu'un double lancement de déploiement en production
 // n'est pas rattrapable.
 //
-// L'ordre des conditions traduit trois règles :
+// Deux conditions, et plus trois régimes :
 //
-//  1. le plafond global protège le cluster, quelles que soient les classes ;
-//  2. la barrière ne démarre que **seule**, et une fois en tête de file elle gèle
-//     tout — sans quoi elle serait indéfiniment doublée par des jobs plus courts
-//     et n'obtiendrait jamais le cluster. Le gel ne commence qu'en tête : une
-//     barrière déposée derrière vingt jobs attend son tour comme les autres ;
-//  3. une classe exclusive déjà occupée est écartée, mais n'empêche pas les
-//     autres : un audit de sécurité peut tourner pendant des tests E2E.
+//  1. le plafond global protège le cluster, toutes files confondues ;
+//  2. la file du type doit avoir une place libre.
+//
+// Chaque type a sa file. Un type sans plafond déclaré prend le défaut, ce qui
+// vaut pour les tâches locales — absentes du catalogue — comme pour un type
+// retiré depuis la mise en file : le job avance au lieu d'attendre un réglage
+// qui n'existera jamais.
+//
+// L'ordre reste le même pour tous, priorité puis ancienneté : c'est la file
+// unique qui décide de qui est examiné en premier, les plafonds ne font
+// qu'écarter. Un job dont la file est pleine est sauté, pas bloquant — sans quoi
+// une intégration en cours retiendrait tous les tests unitaires derrière elle.
 //
 // Rend `ErrJobNotFound` quand rien n'est éligible — cas courant, pas une erreur.
-func (db *DB) ClaimNext(ctx context.Context, maxConcurrent int, runName func(kind string, id int64) string) (Job, error) {
+func (db *DB) ClaimNext(
+	ctx context.Context, limits Limits, runName func(kind string, id int64) string,
+) (Job, error) {
 	var job Job
 
 	transaction, err := db.pool.Begin(ctx)
@@ -126,53 +169,33 @@ func (db *DB) ClaimNext(ctx context.Context, maxConcurrent int, runName func(kin
 	defer func() { _ = transaction.Rollback(ctx) }()
 
 	const query = `
-		with running as (
-		    select queue_class from jobs where state = 'running'
+		with limits as (
+		    select * from unnest($2::text[], $3::int[]) as l(kind, max_concurrent)
 		),
-		capacity as (
-		    select count(*) as total from running
-		),
-		-- La barrière ne gèle la file que lorsqu'elle est **en tête**, et non dès
-		-- qu'elle est mise en file. Bloquer sur sa seule présence figerait des
-		-- jobs qui la précèdent légitimement : une barrière déposée derrière vingt
-		-- jobs les arrêterait tous sur-le-champ, au lieu d'attendre son tour.
-		head as (
-		    select queue_class from jobs
-		    where state = 'queued'
-		    order by priority, requested_at
-		    limit 1
-		),
-		barrier as (
-		    select exists(select 1 from head where queue_class = $2) as leading
+		running as (
+		    select kind from jobs where state = 'running'
 		)
-		select j.id, j.kind, j.queue_class, j.priority, j.params, j.requested_by,
+		select j.id, j.kind, j.priority, j.params, j.requested_by,
 		       j.requested_at, j.attempt, j.release_id,
 		       -- Constat des conditions de démarrage, relevé **ici** et pas plus
 		       -- tard : minutes après, plus rien ne dit ce qui tournait au moment
 		       -- de la mesure. La CTE running est calculée avant la réservation,
 		       -- donc ce compte exclut le job réservé (B16).
-		       capacity.total
-		from jobs j, capacity, barrier
+		       (select count(*) from running)
+		from jobs j
 		where j.state = 'queued'
-		  and capacity.total < $1
-		  and (
-		      case
-		          -- La barrière démarre quand elle est en tête et le cluster vide.
-		          when j.queue_class = $2 then barrier.leading and capacity.total = 0
-		          -- Les autres s'effacent devant une barrière en tête : c'est le
-		          -- drainage, qui laisse les runs en cours finir sans en lancer.
-		          when barrier.leading then false
-		          when j.queue_class = 'parallel' then true
-		          else j.queue_class not in (select queue_class from running)
-		      end
-		  )
+		  and (select count(*) from running) < $1
+		  and (select count(*) from running r where r.kind = j.kind)
+		      < coalesce((select l.max_concurrent from limits l where l.kind = j.kind), $4)
 		order by j.priority, j.requested_at
 		for update of j skip locked
 		limit 1`
 
+	kinds, perKind := limits.arrays()
+
 	var params []byte
-	err = transaction.QueryRow(ctx, query, maxConcurrent, ClassBarrier).Scan(
-		&job.ID, &job.Kind, &job.QueueClass, &job.Priority, &params,
+	err = transaction.QueryRow(ctx, query, limits.Global, kinds, perKind, limits.Default).Scan(
+		&job.ID, &job.Kind, &job.Priority, &params,
 		&job.RequestedBy, &job.RequestedAt, &job.Attempt, &job.ReleaseID,
 		&job.ConcurrentAtStart)
 	if err != nil {
@@ -194,15 +217,22 @@ func (db *DB) ClaimNext(ctx context.Context, maxConcurrent int, runName func(kin
 	// `queued` et le nom est réattribué au prochain essai (doc 06 §6.3).
 	job.RunName = runName(job.Kind, job.ID)
 
+	// L'exclusivité constatée n'est plus une barrière tenue mais une file à une
+	// place : le type ne tolérait aucune exécution jumelle. Elle ne suffit pas à
+	// rendre une mesure comparable — `concurrent_at_start` doit être nul, donc
+	// rien d'autre ne tournait non plus — et c'est cette seconde condition qui
+	// porte désormais l'essentiel de B16.
+	exclusive := limits.Of(job.Kind) == 1
+
 	_, err = transaction.Exec(ctx,
 		`update jobs
 		 set state = 'running', started_at = now(), queue_reason = null,
 		     -- Conditions constatées, figées dans la même transaction que la
 		     -- réservation : c'est le seul instant où elles existent.
-		     exclusive_at_start = ($3 = queue_class),
+		     exclusive_at_start = $3,
 		     concurrent_at_start = $4,
 		     run_name = $2, updated_at = now()
-		 where id = $1`, job.ID, job.RunName, ClassBarrier, job.ConcurrentAtStart)
+		 where id = $1`, job.ID, job.RunName, exclusive, job.ConcurrentAtStart)
 	if err != nil {
 		return job, fmt.Errorf("réservation du job %d: %w", job.ID, err)
 	}
@@ -295,10 +325,10 @@ func (db *DB) GetJob(ctx context.Context, id int64) (Job, error) {
 	var reason, failure, runName *string
 
 	err := db.pool.QueryRow(ctx,
-		`select id, kind, queue_class, priority, state, params, requested_by,
+		`select id, kind, priority, state, params, requested_by,
 		        requested_at, started_at, finished_at, attempt, queue_reason, error, run_name
 		 from jobs where id = $1`, id).
-		Scan(&job.ID, &job.Kind, &job.QueueClass, &job.Priority, &job.State, &params,
+		Scan(&job.ID, &job.Kind, &job.Priority, &job.State, &params,
 			&job.RequestedBy, &job.RequestedAt, &job.StartedAt, &job.FinishedAt,
 			&job.Attempt, &reason, &failure, &runName)
 	if err != nil {
@@ -325,7 +355,7 @@ func (db *DB) GetJob(ctx context.Context, id int64) (Job, error) {
 // qu'absente : elle fait attendre le mauvais job.
 func (db *DB) ListQueue(ctx context.Context) ([]Job, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, kind, queue_class, priority, state, params, requested_by,
+		`select id, kind, priority, state, params, requested_by,
 		        requested_at, started_at, attempt, queue_reason, run_name
 		 from jobs
 		 where state in ('queued', 'running')
@@ -342,7 +372,7 @@ func (db *DB) ListQueue(ctx context.Context) ([]Job, error) {
 		var params []byte
 		var reason, runName *string
 
-		if err := rows.Scan(&job.ID, &job.Kind, &job.QueueClass, &job.Priority, &job.State,
+		if err := rows.Scan(&job.ID, &job.Kind, &job.Priority, &job.State,
 			&params, &job.RequestedBy, &job.RequestedAt, &job.StartedAt, &job.Attempt,
 			&reason, &runName); err != nil {
 			return nil, fmt.Errorf("lecture de la file: %w", err)
@@ -363,44 +393,124 @@ func (db *DB) ListQueue(ctx context.Context) ([]Job, error) {
 // Calculé en base et non à l'affichage : la raison dépend de l'état global de la
 // file à un instant donné, et deux clients qui la recalculeraient chacun de leur
 // côté afficheraient des explications différentes du même blocage.
-func (db *DB) ExplainQueue(ctx context.Context, maxConcurrent int) error {
+func (db *DB) ExplainQueue(ctx context.Context, limits Limits) error {
 	const query = `
-		with running as (
-		    select queue_class from jobs where state = 'running'
+		with limits as (
+		    select * from unnest($2::text[], $3::int[]) as l(kind, max_concurrent)
+		),
+		running as (
+		    select kind from jobs where state = 'running'
 		),
 		capacity as (
 		    select count(*) as total from running
-		),
-		head as (
-		    select queue_class from jobs
-		    where state = 'queued'
-		    order by priority, requested_at
-		    limit 1
-		),
-		barrier as (
-		    select exists(select 1 from head where queue_class = $2) as leading
 		)
 		update jobs j
 		set queue_reason = case
-		        -- L'ordre des branches est celui de la cause dominante : un job
-		        -- retenu par une barrière ne doit pas afficher « plafond atteint »,
-		        -- qui ferait attendre la fin d'un run alors que c'est la barrière
-		        -- qui décide.
-		        when barrier.leading and j.queue_class <> $2 then 'draining'
-		        when j.queue_class = $2 and capacity.total > 0 then 'draining'
+		        -- L'ordre des branches est celui de la cause dominante : le
+		        -- plafond global prime, parce qu'aucun réglage de file ne le
+		        -- lèvera. Dire « file pleine » à un job retenu par le plafond
+		        -- ferait chercher la place au mauvais endroit.
 		        when capacity.total >= $1 then 'capacity'
-		        when j.queue_class <> 'parallel'
-		             and j.queue_class in (select queue_class from running) then 'class-busy'
+		        when (select count(*) from running r where r.kind = j.kind)
+		             >= coalesce((select l.max_concurrent from limits l where l.kind = j.kind), $4)
+		             then 'kind-busy'
 		        else null
 		    end,
 		    updated_at = now()
-		from capacity, barrier
+		from capacity
 		where j.state = 'queued'`
 
-	if _, err := db.pool.Exec(ctx, query, maxConcurrent, ClassBarrier); err != nil {
+	kinds, perKind := limits.arrays()
+	if _, err := db.pool.Exec(ctx, query, limits.Global, kinds, perKind, limits.Default); err != nil {
 		return fmt.Errorf("explication de la file: %w", err)
 	}
 	return nil
+}
+
+// QueueLimits rend les plafonds réglés à la main, par type.
+//
+// Seuls les réglages **modifiés** y figurent : recopier le catalogue en base
+// figerait sa valeur, et changer un défaut dans le ConfigMap n'aurait plus
+// d'effet sans que rien ne le dise.
+func (db *DB) QueueLimits(ctx context.Context) (map[string]int, error) {
+	rows, err := db.pool.Query(ctx, `select kind, max_concurrent from queue_limits`)
+	if err != nil {
+		return nil, fmt.Errorf("lecture des plafonds de file: %w", err)
+	}
+	defer rows.Close()
+
+	limits := map[string]int{}
+	for rows.Next() {
+		var kind string
+		var limit int
+		if err := rows.Scan(&kind, &limit); err != nil {
+			return nil, fmt.Errorf("lecture des plafonds de file: %w", err)
+		}
+		limits[kind] = limit
+	}
+	return limits, rows.Err()
+}
+
+// SetQueueLimit règle le plafond d'une file.
+func (db *DB) SetQueueLimit(ctx context.Context, kind string, max int, by string) error {
+	if max < 1 {
+		return fmt.Errorf("plafond de %q: %d, attendu >= 1", kind, max)
+	}
+	_, err := db.pool.Exec(ctx,
+		`insert into queue_limits (kind, max_concurrent, updated_by)
+		 values ($1, $2, $3)
+		 on conflict (kind) do update
+		     set max_concurrent = excluded.max_concurrent,
+		         updated_by = excluded.updated_by,
+		         updated_at = now()`, kind, max, by)
+	if err != nil {
+		return fmt.Errorf("réglage du plafond de %q: %w", kind, err)
+	}
+	return nil
+}
+
+// ClearQueueLimit rend une file à son plafond de catalogue.
+func (db *DB) ClearQueueLimit(ctx context.Context, kind string) error {
+	if _, err := db.pool.Exec(ctx, `delete from queue_limits where kind = $1`, kind); err != nil {
+		return fmt.Errorf("retrait du plafond de %q: %w", kind, err)
+	}
+	return nil
+}
+
+// QueueOccupancy compte les jobs actifs par type et par état.
+//
+// Compté en base et non à l'affichage : l'écran des files doit dire combien de
+// places sont prises **maintenant**, et un décompte fait sur la liste paginée
+// des jobs se tromperait dès qu'elle est tronquée.
+func (db *DB) QueueOccupancy(ctx context.Context) (map[string]QueueCount, error) {
+	rows, err := db.pool.Query(ctx,
+		`select kind,
+		        count(*) filter (where state = 'running') as running,
+		        count(*) filter (where state = 'queued')  as queued
+		 from jobs
+		 where state in ('queued', 'running')
+		 group by kind`)
+	if err != nil {
+		return nil, fmt.Errorf("occupation des files: %w", err)
+	}
+	defer rows.Close()
+
+	counts := map[string]QueueCount{}
+	for rows.Next() {
+		var kind string
+		var count QueueCount
+		if err := rows.Scan(&kind, &count.Running, &count.Queued); err != nil {
+			return nil, fmt.Errorf("occupation des files: %w", err)
+		}
+		counts[kind] = count
+	}
+	return counts, rows.Err()
+}
+
+// QueueCount est l'occupation d'une file.
+type QueueCount struct {
+	Running int
+	Queued  int
 }
 
 // RunningJobs liste les jobs en cours, pour la réconciliation au démarrage.

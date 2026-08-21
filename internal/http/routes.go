@@ -64,6 +64,14 @@ func NewAPIRouter(
 	// permission, et `pipeline:run` plutôt que `read`.
 	mux.Handle("POST /queue", Chain(http.HandlerFunc(queue.Launch),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermPipelineRun)))
+	// Les plafonds de file sont un réglage d'exploitation : relever engage le
+	// cluster, baisser rallonge toute vérification. Réservés à l'administration,
+	// au même titre que les rôles.
+	mux.Handle("PUT /queue/limits/{kind}", Chain(http.HandlerFunc(queue.SetLimit),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
+	mux.Handle("DELETE /queue/limits/{kind}", Chain(http.HandlerFunc(queue.ClearLimit),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
+
 	mux.Handle("POST /queue/{id}/cancel", Chain(http.HandlerFunc(queue.Cancel),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermPipelineCancel)))
 
