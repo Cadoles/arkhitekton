@@ -189,3 +189,47 @@ func TestReadIsBounded(t *testing.T) {
 		t.Errorf("taille = %d", segment.Size)
 	}
 }
+
+// La numérotation absolue repose là-dessus : combien de lignes complètes
+// précèdent la fenêtre affichée.
+//
+// Sans ce compte, la visionneuse numérotait à partir de ce qu'elle avait chargé,
+// et « ligne 42 » désignait deux lignes différentes de part et d'autre d'un lien
+// partagé — l'un ayant lu la fin seule, l'autre le journal entier.
+func TestLinesBeforeCountsAcrossChunks(t *testing.T) {
+	storage := testStorage(t)
+	ctx := context.Background()
+
+	target := uniqueTarget(t, Step{Name: "tests", Container: "step-run-tests"})
+	cleanup(t, storage, target)
+
+	// Deux tranches, la coupure tombant au milieu d'une ligne : c'est le cas
+	// réel, le collecteur découpe sur la taille et non sur les sauts de ligne.
+	putChunk(t, target, 0, 1, "step-run-tests", "une\ndeux\ntro")
+	putChunk(t, target, 0, 2, "step-run-tests", "is\nquatre\n")
+
+	reader := NewReader(storage)
+
+	// Un décalage nul ne coûte rien et ne précède rien.
+	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 0); err != nil || count != 0 {
+		t.Errorf("avant le début: %d, %v", count, err)
+	}
+
+	// Position 9 : juste après « une\ndeux\n », donc deux lignes complètes.
+	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 9); err != nil || count != 2 {
+		t.Errorf("après deux lignes: %d, %v — attendu 2", count, err)
+	}
+
+	// Position 14, au milieu de « trois » et donc dans la seconde tranche : les
+	// deux mêmes lignes complètes précèdent, la troisième est entamée. C'est ce
+	// qui fait qu'une fenêtre ouverte en plein milieu d'une ligne la numérote
+	// comme la ligne à laquelle elle appartient.
+	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 14); err != nil || count != 2 {
+		t.Errorf("au milieu d'une ligne: %d, %v — attendu 2", count, err)
+	}
+
+	// La fin : toutes les lignes précèdent.
+	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 22); err != nil || count != 4 {
+		t.Errorf("à la fin: %d, %v — attendu 4", count, err)
+	}
+}

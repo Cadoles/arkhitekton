@@ -1,7 +1,9 @@
 package logs
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -88,6 +90,76 @@ func (r *Reader) From(ctx context.Context, runName, taskName string, offset, len
 	}
 	return r.read(ctx, pieces, total, sealed, offset, length)
 }
+
+// LinesBefore compte les lignes complètes qui précèdent un décalage.
+//
+// Sert à numéroter en absolu. La visionneuse n'ouvre que la fin d'un journal, et
+// sans ce compte elle numérotait à partir de ce qu'elle avait chargé : le même
+// « #L42 » désignait alors deux lignes différentes selon la quantité lue de part
+// et d'autre d'un lien partagé.
+//
+// Le prix est assumé : compter demande de parcourir tout ce qui précède, donc de
+// télécharger le début du journal que la lecture par plage évite justement. C'est
+// pourquoi l'appel n'est fait qu'à l'ouverture d'une fenêtre, et jamais pendant
+// le suivi — le flux n'ajoute qu'à la fin, ce qui ne renumérote rien.
+//
+// Un décalage nul ne coûte rien : le cas le plus courant, un journal plus court
+// que la lecture par défaut, est donc gratuit.
+func (r *Reader) LinesBefore(ctx context.Context, runName, taskName string, offset int64) (int64, error) {
+	if offset <= 0 {
+		return 0, nil
+	}
+
+	pieces, _, _, err := r.layout(ctx, runName, taskName)
+	if err != nil {
+		return 0, err
+	}
+
+	var count int64
+	for _, p := range pieces {
+		if p.start >= offset {
+			break
+		}
+		lines, err := r.countNewlines(ctx, p.key, min(offset-p.start, p.size))
+		if err != nil {
+			return 0, err
+		}
+		count += lines
+	}
+	return count, nil
+}
+
+// countNewlines compte les sauts de ligne des `length` premiers octets d'un objet.
+//
+// La lecture se fait par tampon plutôt qu'en une fois : le début d'un journal
+// d'intégration pèse des mégaoctets, et le charger entièrement en mémoire pour n'y
+// compter que des octets serait gratuitement coûteux.
+func (r *Reader) countNewlines(ctx context.Context, key string, length int64) (int64, error) {
+	if length <= 0 {
+		return 0, nil
+	}
+
+	reader, err := r.storage.GetRange(ctx, key, 0, length)
+	if err != nil {
+		return 0, fmt.Errorf("lecture de %q: %w", key, err)
+	}
+	defer reader.Close()
+
+	var count int64
+	buffer := make([]byte, 32<<10)
+	for {
+		n, err := reader.Read(buffer)
+		count += int64(bytes.Count(buffer[:n], newline))
+		if errors.Is(err, io.EOF) {
+			return count, nil
+		}
+		if err != nil {
+			return 0, fmt.Errorf("lecture de %q: %w", key, err)
+		}
+	}
+}
+
+var newline = []byte{'\n'}
 
 // piece est un objet et sa position dans le journal complet.
 type piece struct {

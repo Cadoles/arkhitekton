@@ -20,6 +20,8 @@ type Segment = {
   offset: number
   next_offset: number
   size: number
+  /** Rang, dans le journal entier, de la première ligne rendue. */
+  first_line: number
   sealed: boolean
 }
 
@@ -30,12 +32,23 @@ type State = {
   content: string
   /** Position du premier octet chargé. Zéro veut dire « le début est là ». */
   firstOffset: number
+  /**
+   * Rang de la première ligne chargée dans le journal entier.
+   *
+   * C'est ce qui rend la numérotation absolue. Sans lui, la visionneuse comptait
+   * à partir de ce qu'elle avait sous la main — or elle n'ouvre que la fin — et
+   * « ligne 42 » ne désignait pas la même ligne pour qui avait chargé le début.
+   * Un lien partagé tombait donc à côté.
+   */
+  firstLine: number
   size: number
   loading: boolean
   error: string | null
 }
 
-const INITIAL: State = { content: '', firstOffset: 0, size: 0, loading: true, error: null }
+const INITIAL: State = {
+  content: '', firstOffset: 0, firstLine: 0, size: 0, loading: true, error: null,
+}
 
 export function useTaskLog(runName: string, taskName: string, sealed: boolean) {
   const [state, setState] = useState<State>(INITIAL)
@@ -65,6 +78,7 @@ export function useTaskLog(runName: string, taskName: string, sealed: boolean) {
         setState({
           content: segment.content,
           firstOffset: segment.offset,
+          firstLine: segment.first_line,
           size: segment.size,
           loading: false,
           error: null,
@@ -124,6 +138,11 @@ export function useTaskLog(runName: string, taskName: string, sealed: boolean) {
         ...previous,
         content: segment.content + previous.content,
         firstOffset: segment.offset,
+        // Le rang vient du serveur plutôt que d'une soustraction locale : compter
+        // les lignes ajoutées supposerait que la fenêtre commence sur une ligne
+        // entière, ce qui est faux — une lecture par décalage tombe où elle
+        // tombe, et l'erreur d'une ligne se propagerait à toutes les suivantes.
+        firstLine: segment.first_line,
       }))
     } catch {
       setState((previous) => ({ ...previous, error: 'Le début du journal n’a pas pu être chargé.' }))
@@ -132,6 +151,7 @@ export function useTaskLog(runName: string, taskName: string, sealed: boolean) {
 
   return {
     lines: splitLines(state.content),
+    firstLine: state.firstLine,
     size: state.size,
     loading: state.loading,
     error: state.error,
@@ -144,9 +164,16 @@ export function useTaskLog(runName: string, taskName: string, sealed: boolean) {
 function splitLines(content: string): LogLine[] {
   if (!content) return []
 
-  return content
-    .split('\n')
-    .filter((line) => line.length > 0)
+  const raw = content.split('\n')
+  // Seule la dernière séparation est écartée, et seulement si elle est vide : le
+  // journal se termine par un saut de ligne, qui produit un élément fantôme.
+  //
+  // Les lignes vides intérieures, elles, sont conservées. Les filtrer toutes —
+  // ce qui était fait — décalait la numérotation de tout ce qui suit, et
+  // condamnait la numérotation absolue avant même de la calculer.
+  if (raw[raw.length - 1] === '') raw.pop()
+
+  return raw
     .map((line) => {
       // kubelet préfixe chaque ligne d'un RFC3339Nano suivi d'un espace. Le
       // préfixe est retiré de l'affichage — il est du bruit à l'écran — mais

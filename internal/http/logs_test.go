@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -30,6 +31,18 @@ type chunkedReader struct {
 
 func (r *chunkedReader) Tail(context.Context, string, string, int64) (logs.Segment, error) {
 	return logs.Segment{}, errors.New("Tail n'a pas à servir le texte brut")
+}
+
+// LinesBefore ne sert pas la vue brute — elle rend le journal tel quel, sans
+// numéroter — mais l'interface l'exige.
+func (r *chunkedReader) LinesBefore(_ context.Context, _, _ string, offset int64) (int64, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if offset <= 0 || offset > int64(len(r.content)) {
+		return 0, nil
+	}
+	return int64(bytes.Count(r.content[:offset], []byte{'\n'})), nil
 }
 
 func (r *chunkedReader) From(_ context.Context, _, _ string, offset, _ int64) (logs.Segment, error) {

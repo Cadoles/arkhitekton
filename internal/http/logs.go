@@ -16,6 +16,8 @@ import (
 type LogReader interface {
 	Tail(ctx context.Context, runName, taskName string, length int64) (logs.Segment, error)
 	From(ctx context.Context, runName, taskName string, offset, length int64) (logs.Segment, error)
+	// LinesBefore numérote la fenêtre rendue dans le journal entier.
+	LinesBefore(ctx context.Context, runName, taskName string, offset int64) (int64, error)
 }
 
 // logPollInterval espace deux relectures du stockage pendant un suivi.
@@ -38,6 +40,11 @@ type logPayload struct {
 	Offset     int64  `json:"offset"`
 	NextOffset int64  `json:"next_offset"`
 	Size       int64  `json:"size"`
+	// FirstLine est le rang, dans le journal entier, de la première ligne rendue.
+	// Sans lui le client numérote à partir de ce qu'il a chargé, et « ligne 42 »
+	// ne désigne pas la même chose selon la quantité lue — un lien partagé tombe
+	// alors à côté.
+	FirstLine int64 `json:"first_line"`
 	// Sealed dit à l'interface qu'il est inutile de continuer à suivre : le
 	// journal ne changera plus.
 	Sealed bool `json:"sealed"`
@@ -66,11 +73,20 @@ func (h *LogsHandler) Read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Le comptage n'a lieu que pour la lecture d'une fenêtre, jamais pour le
+	// suivi : le flux n'ajoute qu'à la fin, ce qui ne renumérote rien.
+	firstLine, err := h.reader.LinesBefore(r.Context(), runName, taskName, segment.Offset)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Lecture du journal impossible", "")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, logPayload{
 		Content:    string(segment.Content),
 		Offset:     segment.Offset,
 		NextOffset: segment.NextOffset,
 		Size:       segment.Size,
+		FirstLine:  firstLine,
 		Sealed:     segment.Sealed,
 	})
 }
