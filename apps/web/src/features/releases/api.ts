@@ -116,7 +116,11 @@ export type ReleaseJob = {
 }
 
 export type Image = {
+  /** Nom court du dépôt, tel que le registre l'attend. */
   repository: string
+  /** Dépôt complet, registre et projet compris. Absent quand le projet n'est pas
+   *  configuré : mieux vaut alors le nom court qu'une référence tronquée. */
+  reference?: string
   tag: string
   /** Vide quand le tag n'existe pas encore dans le registre — une promotion mise
    *  en file n'a pas encore poussé le sien. */

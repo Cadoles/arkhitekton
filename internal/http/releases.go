@@ -220,9 +220,15 @@ type releaseJobPayload struct {
 }
 
 type imagePayload struct {
+	// Repository est le nom court du dépôt — `portal` — tel que le registre
+	// l'attend : son client préfixe lui-même le projet.
 	Repository string `json:"repository"`
-	Tag        string `json:"tag"`
-	Digest     string `json:"digest,omitempty"`
+	// Reference est le dépôt complet, registre et projet compris. C'est ce qu'on
+	// copie pour tirer l'image ou l'inspecter, et le nom court seul ne suffit pas
+	// à la désigner — deux projets du même registre portent un `portal`.
+	Reference string `json:"reference,omitempty"`
+	Tag       string `json:"tag"`
+	Digest    string `json:"digest,omitempty"`
 }
 
 type manualActionVw struct {
@@ -433,7 +439,11 @@ func (h *ReleasesHandler) resolveImages(
 
 	images := make([]imagePayload, 0, len(tags))
 	for _, tag := range tags {
-		images = append(images, imagePayload{Repository: h.imageName, Tag: tag})
+		images = append(images, imagePayload{
+			Repository: h.imageName,
+			Reference:  imageRepository(h.registryProject, h.imageName),
+			Tag:        tag,
+		})
 	}
 
 	if h.images == nil {
@@ -948,10 +958,22 @@ func verificationParams(
 }
 
 func imageReference(registryProject, name, tag string) string {
+	repository := imageRepository(registryProject, name)
+	if repository == "" {
+		return ""
+	}
+	return repository + ":" + tag
+}
+
+// imageRepository compose le dépôt complet, sans tag.
+//
+// Vide quand le projet ne l'est pas : mieux vaut ne rien afficher qu'un nom
+// tronqué qui ressemblerait à une référence tirable sans l'être.
+func imageRepository(registryProject, name string) string {
 	if registryProject == "" {
 		return ""
 	}
-	return registryProject + "/" + name + ":" + tag
+	return registryProject + "/" + name
 }
 
 // anchorCommit résout une référence en commit, et dit pourquoi il ne l'a pas fait.

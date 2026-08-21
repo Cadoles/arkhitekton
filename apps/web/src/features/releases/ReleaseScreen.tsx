@@ -217,8 +217,12 @@ function ImageRow({ image, reference }: { image: Image; reference?: string }) {
 
   return (
     <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border border-zinc-200 px-3 py-2 text-sm">
+      {/* La référence complète : c'est ce qu'on copie pour tirer l'image ou
+          l'inspecter. Le nom court seul ne désigne rien — deux projets du même
+          registre portent un `portal` — et obligeait à reconstituer le préfixe
+          de tête. */}
       <span className="font-mono text-zinc-900">
-        {image.repository}:{image.tag}
+        {image.reference ?? image.repository}:{image.tag}
       </span>
       {image.digest ? (
         <span className={`font-mono text-xs ${diverged ? 'text-critical-700' : 'text-zinc-500'}`}>{image.digest}</span>
