@@ -102,8 +102,16 @@ export function AppShell() {
      * page : l'en-tête traverse toute la largeur, les surfaces `fixed` couvrent
      * la fenêtre entière, et la gouttière réservée ici garde le contenu centré
      * immobile quand l'ascenseur va et vient.
+     *
+     * La coquille est `fixed` et non haute de `100dvh`. Les deux se valent tant
+     * que rien ne réduit la zone visible, mais `100dvh` est la hauteur de la
+     * fenêtre et non celle qui reste : qu'un ascenseur horizontal apparaisse et
+     * la coquille dépasse de sa hauteur, le document se met à défiler, et
+     * l'écran porte alors **deux** ascenseurs verticaux — celui de la page,
+     * en-tête compris, et celui du contenu. `inset-0` colle aux bords quoi qu'il
+     * arrive, et le document ne peut plus déborder.
      */
-    <div className="flex h-dvh flex-col">
+    <div className="fixed inset-0 flex flex-col">
       <header className="shrink-0 border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <div className="flex items-center gap-2">
