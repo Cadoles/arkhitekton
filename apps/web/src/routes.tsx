@@ -15,6 +15,7 @@ import { ReleaseScreen } from './features/releases/ReleaseScreen'
 import { AdminLayout } from './features/admin/AdminLayout'
 import { SyncPanel } from './features/admin/SyncPanel'
 import { UsersScreen } from './features/admin/UsersScreen'
+import { ProjectsScreen } from './features/admin/ProjectsScreen'
 import { AuditScreen } from './features/admin/AuditScreen'
 import { VersionsScreen } from './features/versions/VersionsScreen'
 
@@ -112,6 +113,7 @@ export const routes: RouteObject[] = [
         children: [
           { index: true, element: <SyncPanel /> },
           { path: 'users', element: <UsersScreen /> },
+          { path: 'projects', element: <ProjectsScreen /> },
           { path: 'logs', element: <AuditScreen /> },
         ],
       },

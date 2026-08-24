@@ -15,7 +15,8 @@ func NewAPIRouter(
 	handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, queue *QueueHandler,
 	releases *ReleasesHandler, benches *BenchHandler, tests *TestsHandler,
 	signoffs *SignoffsHandler, versions *VersionsHandler, syncAdmin *SyncAdminHandler,
-	forge *ForgeHandler, admin *AdminHandler, middleware *Middleware,
+	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
+	middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -203,6 +204,22 @@ func NewAPIRouter(
 	// Les références du dépôt servent le formulaire de création de release. En
 	// lecture pour tous : ce sont des noms de branches, pas des secrets, et le
 	// jeton qui les lit ne quitte jamais le serveur.
+	// Les dépôts pilotés se lisent avec les autres réglages, et s'écrivent comme
+	// eux : déclarer un dépôt dit ce que le dashboard ira cloner, ce qui n'est
+	// pas une décision d'exploitation courante.
+	mux.Handle("GET /projects", Chain(http.HandlerFunc(projects.List),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+	mux.Handle("POST /projects", Chain(http.HandlerFunc(projects.Create),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
+	mux.Handle("PUT /projects/{id}", Chain(http.HandlerFunc(projects.Update),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
+	mux.Handle("DELETE /projects/{id}", Chain(http.HandlerFunc(projects.Delete),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
+	// Le test sort du dashboard : il appelle la forge. `POST` et contrôle CSRF,
+	// bien qu'il n'écrive que son propre constat.
+	mux.Handle("POST /projects/{id}/probe", Chain(http.HandlerFunc(projects.Probe),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
+
 	mux.Handle("GET /forge/refs", Chain(http.HandlerFunc(forge.Refs),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 

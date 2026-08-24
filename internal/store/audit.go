@@ -41,7 +41,13 @@ const (
 	// Le plafond d'une file décide de ce que le cluster accepte de mener de
 	// front. Le relever engage la machine, le baisser rallonge toute
 	// vérification : les deux méritent d'être attribués.
-	AuditQueueLimit       = "queue.limit"
+	AuditQueueLimit = "queue.limit"
+	// Déclarer un dépôt dit ce que le dashboard pilote, et le retirer le lui
+	// retire. Le test d'accès est consigné aussi : c'est la trace qui dit depuis
+	// quand on savait qu'un dépôt était injoignable.
+	AuditProjectSet       = "project.set"
+	AuditProjectRemove    = "project.remove"
+	AuditProjectProbe     = "project.probe"
 	AuditArtifactGenerate = "artifact.generate"
 	AuditBaselinePin      = "bench.baseline.pin"
 	// La validation de recette est la décision qui autorise une livraison. Son

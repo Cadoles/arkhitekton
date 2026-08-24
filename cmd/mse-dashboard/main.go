@@ -251,7 +251,12 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			dashhttp.NewVersionsHandler(db, cfg.Redmine.URL),
 			dashhttp.NewSyncAdminHandler(db, cfg.Redmine.Configured()),
 			dashhttp.NewForgeHandler(forgeReader),
-			dashhttp.NewAdminHandler(db), middleware),
+			dashhttp.NewAdminHandler(db),
+			// Le test d'accès emploie le jeton de la forge, avec un client par
+			// dépôt : celui de la configuration est lié au sien, et le test porte
+			// justement sur un autre. Sans jeton, l'écran le dit plutôt que de
+			// rendre un échec qu'on prendrait pour un défaut de droits.
+			projectsHandler(cfg, db), middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
@@ -750,4 +755,22 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 			"un compte en lecture seule sur le projet suffirait")
 	}
 	return nil
+}
+
+// projectsHandler assemble la déclaration des dépôts pilotés.
+//
+// La clé de déploiement affichée est la moitié **publique** de celle que les
+// pipelines présentent au clone : c'est ce qu'on colle dans les réglages d'un
+// dépôt. Elle vient de la configuration et non du secret — le dashboard n'a pas
+// `secrets` dans sa RBAC et ne doit pas l'avoir (doc 07 §7.3).
+func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler {
+	handler := dashhttp.NewProjectsHandler(db).
+		WithDeployKey(cfg.Gitea.DeployKey, cfg.Gitea.URL)
+
+	if cfg.Gitea.URL == "" || cfg.Gitea.Token == "" {
+		return handler
+	}
+	return handler.WithProbe(dashhttp.GiteaProber{
+		URL: cfg.Gitea.URL, Token: cfg.Gitea.Token, Timeout: cfg.Gitea.Timeout,
+	})
 }

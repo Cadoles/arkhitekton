@@ -94,3 +94,108 @@ export const ACTION_LABEL: Record<string, string> = {
   'role.grant': 'Attribution de rôle',
   'role.revoke': 'Retrait de rôle',
 }
+
+/*
+ * Les dépôts pilotés par le dashboard.
+ *
+ * Ils vivaient dans la configuration : en déclarer un de plus demandait de
+ * modifier un ConfigMap, donc de reconstruire et de redéployer. Rien ne disait,
+ * depuis l'interface, quels dépôts le dashboard croyait piloter — et surtout,
+ * rien ne permettait de vérifier qu'il y avait accès.
+ */
+
+/** Une étape constructible et le dépôt d'image qu'elle alimente. */
+export type ProjectTarget = { stage: string; image: string }
+
+export type Project = {
+  id: number
+  repository: string
+  label: string
+  forge_url: string
+  /** Lien vers le dépôt. Vide si la forge n'est pas connue. */
+  url: string
+  dockerfile: string
+  build_context: string
+  multi_stage: boolean
+  targets: ProjectTarget[]
+  /** Absent : aucun test n'a eu lieu. État distinct d'un test qui a échoué. */
+  checked_at?: string
+  check_ok?: boolean
+  check_note?: string
+  created_by: string
+}
+
+type ProjectsResponse = {
+  projects: Project[]
+  /** Moitié publique de la clé que les pipelines présentent au clone. */
+  deploy_key: string
+  forge_url: string
+  /** Faux quand la forge n'est pas configurée : le test ne peut pas conclure. */
+  probe_configured: boolean
+}
+
+/** Ce qu'un formulaire envoie. Le dépôt n'est modifiable qu'à la déclaration. */
+export type ProjectDraft = {
+  repository: string
+  label: string
+  forge_url: string
+  dockerfile: string
+  build_context: string
+  multi_stage: boolean
+  targets: ProjectTarget[]
+}
+
+export function useProjects() {
+  return useQuery({
+    queryKey: ['projects'],
+    queryFn: () => request<ProjectsResponse>('/projects'),
+  })
+}
+
+export function useSaveProject() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    // Un identifiant : c'est une mise à jour. Sans : une déclaration. Le dépôt
+    // n'est pas modifiable — le changer ferait d'un projet un autre, et les
+    // constats d'accès porteraient sur ce qui n'a pas été testé.
+    mutationFn: ({ id, draft }: { id?: number; draft: ProjectDraft }) =>
+      id === undefined
+        ? request<{ id: number }>('/projects', {
+            method: 'POST',
+            body: JSON.stringify(draft),
+          })
+        : request<{ id: number }>(`/projects/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(draft),
+          }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+export function useDeleteProject() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) => request<{ id: number }>(`/projects/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+export function useProbeProject() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) =>
+      request<{ ok: boolean; note: string }>(`/projects/${id}/probe`, { method: 'POST' }),
+    onSuccess: () => {
+      // Le constat est enregistré côté serveur : le relire est ce qui met la
+      // liste à jour, plutôt que de tenir un état parallèle qui divergerait.
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}

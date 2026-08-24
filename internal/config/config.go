@@ -51,6 +51,15 @@ type GiteaConfig struct {
 	// Repository au format `owner/nom` — `CNOUS/mse`.
 	Repository string
 	Timeout    time.Duration
+	// DeployKey est la **moitié publique** de la clé que les pipelines présentent
+	// au clone. Publique, donc affichable sans précaution : c'est précisément ce
+	// qu'on colle dans les réglages d'un dépôt.
+	//
+	// Elle est ici et non lue dans le secret : le dashboard n'a pas `secrets`
+	// dans sa RBAC et ne doit pas l'avoir (doc 07 §7.3). Une clé par projet
+	// demanderait de les créer, donc ce droit ; une seule clé ajoutée à plusieurs
+	// dépôts fait le même travail sans l'exiger.
+	DeployKey string
 }
 
 // Configured dit si l'accès est renseigné. L'absence est un état normal : le
@@ -275,6 +284,7 @@ func Load(role Role) (Config, error) {
 		},
 		Gitea: GiteaConfig{
 			URL:        strings.TrimRight(os.Getenv("GITEA_URL"), "/"),
+			DeployKey:  strings.TrimSpace(os.Getenv("PIPELINE_GIT_PUBLIC_KEY")),
 			Token:      os.Getenv("GITEA_TOKEN"),
 			Repository: os.Getenv("GITEA_REPO"),
 			Timeout:    durationOr("GITEA_TIMEOUT", 10*time.Second),
