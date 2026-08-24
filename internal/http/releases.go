@@ -15,6 +15,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
+	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -175,7 +176,7 @@ func NewReleasesHandler(
 	imageName, registryProject string,
 ) *ReleasesHandler {
 	if imageName == "" {
-		imageName = "portal"
+		imageName = imagenames.Web
 	}
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
@@ -997,9 +998,9 @@ func verificationParams(
 		case "revision", "app-revision", "mse-revision":
 			params[name] = revision
 		case "portal-image":
-			params[name] = imageReference(registryProject, "portal", tag)
+			params[name] = imageReference(registryProject, imagenames.Web, tag)
 		case "consumer-image":
-			params[name] = imageReference(registryProject, "portal-consumer", tag)
+			params[name] = imageReference(registryProject, imagenames.CLI, tag)
 		case "image-tag":
 			params[name] = tag
 		default:
@@ -1013,22 +1014,11 @@ func verificationParams(
 }
 
 func imageReference(registryProject, name, tag string) string {
-	repository := imageRepository(registryProject, name)
-	if repository == "" {
-		return ""
-	}
-	return repository + ":" + tag
+	return imagenames.Reference(registryProject, name, tag)
 }
 
-// imageRepository compose le dépôt complet, sans tag.
-//
-// Vide quand le projet ne l'est pas : mieux vaut ne rien afficher qu'un nom
-// tronqué qui ressemblerait à une référence tirable sans l'être.
 func imageRepository(registryProject, name string) string {
-	if registryProject == "" {
-		return ""
-	}
-	return registryProject + "/" + name
+	return imagenames.Repository(registryProject, name)
 }
 
 // notePayload est une ligne de note de release.

@@ -109,6 +109,11 @@ type RegistryConfig struct {
 	Project string
 	// Image est le dépôt promu à l'intérieur du projet. Configurable parce que le
 	// nom du portail n'est pas une constante du dashboard.
+	//
+	// La seconde image publiée par une release — `portal-cli` — n'est pas ici :
+	// elle n'est pas promue, elle suit. Son nom vit dans `internal/images`, avec
+	// celui du portail par défaut, parce qu'il doit rester le même que celui que
+	// `build-image` publie et que `mse-kustom` déploie.
 	Image string
 }
 

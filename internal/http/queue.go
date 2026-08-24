@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -258,10 +259,10 @@ func (h *QueueHandler) suggestions(ctx context.Context) map[string][]option {
 	consumer := make([]option, 0, len(releases))
 	for _, release := range releases {
 		tags = append(tags, option{Value: release.Tag})
-		if reference := imageReference(h.registryProject, "portal", release.Tag); reference != "" {
+		if reference := imageReference(h.registryProject, imagenames.Web, release.Tag); reference != "" {
 			portal = append(portal, option{Value: reference, Label: release.Tag})
 		}
-		if reference := imageReference(h.registryProject, "portal-consumer", release.Tag); reference != "" {
+		if reference := imageReference(h.registryProject, imagenames.CLI, release.Tag); reference != "" {
 			consumer = append(consumer, option{Value: reference, Label: release.Tag})
 		}
 	}

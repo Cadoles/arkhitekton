@@ -202,7 +202,7 @@ dashboard ──▶ promote-image (crane tag) ──▶ registre ──▶ FluxC
 ```
 
 - **`promote-image` est le mécanisme de release.** Il re-tague `portal` et
-  `portal-consumer` et publie sur le registre. C'est le seul geste que le dashboard
+  `portal-cli` et publie sur le registre. C'est le seul geste que le dashboard
   déclenche.
 - **FluxCD prend le relais** et déploie sur les environnements cibles en fonction du tag
   de l'image. Le dashboard n'intervient pas dans cette phase.

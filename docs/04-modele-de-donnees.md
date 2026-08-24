@@ -208,7 +208,7 @@ create index on releases (image_version);
 
 create table release_images (
   release_id bigint not null references releases(id) on delete cascade,
-  name       text   not null,                  -- 'portal', 'portal-consumer'
+  name       text   not null,                  -- 'portal', 'portal-cli'
   repository text   not null,                  -- 'reg.cadoles.com/cnous-mse/portal'
   tag        text   not null,                  -- tag de version, SANS métadonnée
   digest     text   not null,                  -- identité stable (cf. B8)

@@ -155,7 +155,10 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 	if got := audit.Params["portal-image"]; got != "reg.cadoles.com/vcarroy/portal:3.2.0-rc1" {
 		t.Errorf("image portal %q", got)
 	}
-	if got := audit.Params["consumer-image"]; got != "reg.cadoles.com/vcarroy/portal-consumer:3.2.0-rc1" {
+	// `portal-cli` depuis la migration FrankenPHP de `mse` : la cible `consumer`
+	// du Dockerfile a disparu, remplacée par `cli`, et l'image qu'elle publie a
+	// été renommée avec elle.
+	if got := audit.Params["consumer-image"]; got != "reg.cadoles.com/vcarroy/portal-cli:3.2.0-rc1" {
 		t.Errorf("image consumer %q", got)
 	}
 	if static.ReleaseID == nil || *static.ReleaseID != 7 {

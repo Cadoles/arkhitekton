@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -112,10 +113,7 @@ func (s *runSink) WithCatalog(pipelines *catalog.Catalog, registryProject string
 // Le tag de l'image est celui de la release : c'est ce que `build-image` reçoit
 // en `version` et inscrit dans `version.txt` (B17, P10).
 func (s *runSink) imageRef(name, tag string) string {
-	if s.registryProject == "" {
-		return ""
-	}
-	return s.registryProject + "/" + name + ":" + tag
+	return images.Reference(s.registryProject, name, tag)
 }
 
 // buildJobKind est la nature de job qui construit les images.
@@ -587,9 +585,9 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 			// reconstruction : elle produirait un artefact différent de celui qui
 			// sera déployé, et le verdict porterait à côté (B17).
 			case "portal-image":
-				params[name] = s.imageRef("portal", linked.Tag)
+				params[name] = s.imageRef(images.Web, linked.Tag)
 			case "consumer-image":
-				params[name] = s.imageRef("portal-consumer", linked.Tag)
+				params[name] = s.imageRef(images.CLI, linked.Tag)
 
 			// Les tests d'intégration déploient les images publiées par la
 			// construction ; ils en reçoivent le tag plutôt que la référence
