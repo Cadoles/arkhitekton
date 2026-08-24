@@ -3,12 +3,9 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
-import { SyncPanel } from './SyncPanel'
 import { useSession, type Role } from '../auth/session'
 import {
-  ACTION_LABEL,
   ROLE_LABEL,
-  useAudit,
   useGrantRole,
   useRevokeRole,
   useRoles,
@@ -17,32 +14,27 @@ import {
 } from './api'
 
 /*
- * Administration : rôles et journal d'audit.
+ * Utilisateurs : qui a quel rôle, et comment en attribuer un.
  *
- * Les deux sur le même écran, et ce n'est pas un raccourci de mise en page : le
- * journal sert d'abord à contrôler les attributions. Les séparer obligerait à
- * changer de page pour vérifier ce qu'on vient de faire.
+ * Le journal d'audit vivait sur la même page, et ce n'était pas un raccourci de
+ * mise en page : il sert d'abord à contrôler les attributions. Il est désormais
+ * dans l'onglet voisin — à un clic, ce qui suffit — plutôt qu'empilé sous un
+ * formulaire qu'on n'ouvre que rarement.
  */
-export function AdminScreen() {
+export function UsersScreen() {
   const { data, isPending, error, refetch } = useRoles()
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold text-zinc-900">Administration</h1>
-
-      {/* La synchronisation est hors du bloc conditionnel des rôles : elle a sa
-          propre requête, et une panne de l'une ne doit pas masquer l'autre
-          (doc 08 §8.5). */}
-      <SyncPanel />
-
       {isPending && <Skeleton className="h-64 w-full" />}
-      {error && <ErrorState message="Les rôles n'ont pas pu être chargés." onRetry={() => void refetch()} />}
+      {error && (
+        <ErrorState message="Les rôles n'ont pas pu être chargés." onRetry={() => void refetch()} />
+      )}
 
       {data && (
         <>
           <RolesCard roles={data.roles} catalogue={data.catalogue} />
           <GrantCard catalogue={data.catalogue} />
-          <AuditCard />
         </>
       )}
     </div>
@@ -241,71 +233,6 @@ function GrantCard({ catalogue }: { catalogue: RoleCatalogue[] }) {
         {grant.isError && <p className="text-sm text-critical-700">{(grant.error as Error).message}</p>}
         {grant.isSuccess && <p className="text-sm text-zinc-500">Rôle attribué.</p>}
       </form>
-    </Card>
-  )
-}
-
-function AuditCard() {
-  const [target, setTarget] = useState('')
-  const [query, setQuery] = useState('')
-  const { data, isPending } = useAudit(target)
-
-  return (
-    <Card
-      title="Journal d'audit"
-      action={
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            setTarget(query.trim())
-          }}
-        >
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="filtrer par cible…"
-            aria-label="Filtrer le journal par cible"
-            className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-sm text-zinc-900"
-          />
-          <button
-            type="submit"
-            className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
-          >
-            Filtrer
-          </button>
-        </form>
-      }
-    >
-      {isPending && <Skeleton className="h-32 w-full" />}
-
-      {data &&
-        (data.entries.length === 0 ? (
-          <EmptyState>{target ? `Aucune action sur « ${target} ».` : 'Aucune action consignée.'}</EmptyState>
-        ) : (
-          <ul className="flex flex-col">
-            {data.entries.map((entry) => (
-              <li
-                key={entry.id}
-                className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-zinc-200 py-1.5 text-sm first:border-t-0"
-              >
-                <span className="min-w-44 font-medium text-zinc-900">
-                  {ACTION_LABEL[entry.action] ?? entry.action}
-                </span>
-                {entry.target && <span className="font-mono text-zinc-600">{entry.target}</span>}
-                <span className="text-zinc-500">{entry.actor}</span>
-                {entry.payload && (
-                  <span className="text-xs text-zinc-500">
-                    {Object.entries(entry.payload)
-                      .map(([key, value]) => `${key}=${String(value)}`)
-                      .join(' ')}
-                  </span>
-                )}
-                <span className="ml-auto text-zinc-500">{formatDateTime(entry.at)}</span>
-              </li>
-            ))}
-          </ul>
-        ))}
     </Card>
   )
 }

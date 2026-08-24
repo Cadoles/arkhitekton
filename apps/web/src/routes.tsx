@@ -12,7 +12,10 @@ import { HistoryScreen } from './features/environments/HistoryScreen'
 import { EnvironmentScreen } from './features/environments/EnvironmentScreen'
 import { ReleasesScreen } from './features/releases/ReleasesScreen'
 import { ReleaseScreen } from './features/releases/ReleaseScreen'
-import { AdminScreen } from './features/admin/AdminScreen'
+import { AdminLayout } from './features/admin/AdminLayout'
+import { SyncPanel } from './features/admin/SyncPanel'
+import { UsersScreen } from './features/admin/UsersScreen'
+import { AuditScreen } from './features/admin/AuditScreen'
 import { VersionsScreen } from './features/versions/VersionsScreen'
 
 /*
@@ -97,7 +100,21 @@ export const routes: RouteObject[] = [
       // signets ne se corrigent pas d'eux-mêmes.
       { path: 'queue', element: <Navigate to="/runs/queue" replace /> },
 
-      { path: 'admin', element: <AdminScreen /> },
+      /*
+       * Trois sujets sous une coquille commune : la synchronisation Redmine, les
+       * rôles, le journal d'audit. Ils n'ont ni la même fréquence de consultation
+       * ni le même lecteur, et empilés ils faisaient une page qu'on parcourait au
+       * lieu de la lire.
+       */
+      {
+        path: 'admin',
+        element: <AdminLayout />,
+        children: [
+          { index: true, element: <SyncPanel /> },
+          { path: 'users', element: <UsersScreen /> },
+          { path: 'logs', element: <AuditScreen /> },
+        ],
+      },
 
       { path: '*', element: <NotFound /> },
     ],
