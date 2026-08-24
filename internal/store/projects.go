@@ -23,10 +23,26 @@ import (
 
 // Target est une étape constructible et le dépôt d'image qu'elle alimente.
 type Target struct {
-	// Stage est la cible du Dockerfile — `web`, `cli`, `dev`.
+	// Stage est la cible du Dockerfile — `web`, `cli`, `dev`. Vide sur un
+	// Dockerfile à image unique, qui n'en a pas.
 	Stage string `json:"stage"`
-	// Image est le dépôt publié, sans le projet de registre — `portal-cli`.
+	// Image est le nom court du dépôt publié — `portal-cli`. Le registre qui le
+	// préfixe vit sur le projet : il est le même pour toutes les étapes.
 	Image string `json:"image"`
+}
+
+// Reference compose la référence complète d'une image, sans tag.
+//
+// Vide quand l'un des deux manque : un nom sans registre ressemble à une
+// référence tirable sans l'être, et c'est le genre de chaîne qu'on recopie dans
+// un déploiement avant de découvrir qu'elle ne désigne rien.
+func (p Project) Reference(target Target) string {
+	registry := strings.Trim(strings.TrimSpace(p.ImageRegistry), "/")
+	image := strings.TrimSpace(target.Image)
+	if registry == "" || image == "" {
+		return ""
+	}
+	return registry + "/" + image
 }
 
 // Project décrit un dépôt piloté.
@@ -37,8 +53,16 @@ type Project struct {
 	ForgeURL     string
 	Dockerfile   string
 	BuildContext string
-	MultiStage   bool
-	Targets      []Target
+	// ImageRegistry est le registre et le projet où publier, sans le nom
+	// d'image : `reg.cadoles.com/cnous-mse`. Porté par le projet et non répété
+	// par étape — les images d'une application vont au même endroit, et les
+	// répéter ferait diverger la dernière au premier changement de registre.
+	ImageRegistry string
+	MultiStage    bool
+	// Targets porte les étapes constructibles. Une seule entrée sans `Stage`
+	// décrit un Dockerfile à image unique : un second champ dirait la même chose
+	// d'une autre façon, et il faudrait savoir lequel fait foi.
+	Targets []Target
 	// CheckedAt et CheckOK portent le constat du dernier test d'accès. Nils tant
 	// qu'aucun test n'a eu lieu — état distinct d'un test qui a échoué.
 	CheckedAt *time.Time
@@ -66,8 +90,8 @@ var ErrProjectExists = errors.New("dépôt déjà déclaré")
 func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, repository, label, forge_url, dockerfile, build_context,
-		        multi_stage, targets, checked_at, check_ok, check_note,
-		        created_by, created_at, updated_at
+		        image_registry, multi_stage, targets, checked_at, check_ok,
+		        check_note, created_by, created_at, updated_at
 		 from projects order by label`)
 	if err != nil {
 		return nil, fmt.Errorf("liste des projets: %w", err)
@@ -89,8 +113,8 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, repository, label, forge_url, dockerfile, build_context,
-		        multi_stage, targets, checked_at, check_ok, check_note,
-		        created_by, created_at, updated_at
+		        image_registry, multi_stage, targets, checked_at, check_ok,
+		        check_note, created_by, created_at, updated_at
 		 from projects where id = $1`, id)
 	if err != nil {
 		return Project{}, fmt.Errorf("lecture du projet %d: %w", id, err)
@@ -111,7 +135,8 @@ func scanProject(rows pgx.Rows) (Project, error) {
 	var targets []byte
 	if err := rows.Scan(&project.ID, &project.Repository, &project.Label,
 		&project.ForgeURL, &project.Dockerfile, &project.BuildContext,
-		&project.MultiStage, &targets, &project.CheckedAt, &project.CheckOK,
+		&project.ImageRegistry, &project.MultiStage, &targets,
+		&project.CheckedAt, &project.CheckOK,
 		&project.CheckNote, &project.CreatedBy, &project.CreatedAt,
 		&project.UpdatedAt); err != nil {
 		return Project{}, fmt.Errorf("lecture d'un projet: %w", err)
@@ -135,12 +160,14 @@ func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error)
 	var id int64
 	err = db.pool.QueryRow(ctx,
 		`insert into projects (repository, label, forge_url, dockerfile,
-		                       build_context, multi_stage, targets, created_by)
-		 values ($1, $2, $3, $4, $5, $6, $7, $8)
+		                       build_context, image_registry, multi_stage,
+		                       targets, created_by)
+		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 on conflict (repository) do nothing
 		 returning id`,
 		project.Repository, project.Label, project.ForgeURL, project.Dockerfile,
-		project.BuildContext, project.MultiStage, targets, project.CreatedBy).Scan(&id)
+		project.BuildContext, project.ImageRegistry, project.MultiStage,
+		targets, project.CreatedBy).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// `do nothing` n'a rien rendu : le dépôt est déjà déclaré.
@@ -180,7 +207,8 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 	tag, err := db.pool.Exec(ctx,
 		`update projects
 		 set repository = $2, label = $3, forge_url = $4, dockerfile = $5,
-		     build_context = $6, multi_stage = $7, targets = $8,
+		     build_context = $6, image_registry = $7, multi_stage = $8,
+		     targets = $9,
 		     -- Le constat ne survit qu'à un dépôt inchangé. La comparaison porte
 		     -- sur la valeur en base, encore lisible pendant l'update : une
 		     -- lecture préalable ouvrirait une fenêtre entre le constat et
@@ -191,7 +219,8 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		     updated_at = now()
 		 where id = $1`,
 		project.ID, project.Repository, project.Label, project.ForgeURL,
-		project.Dockerfile, project.BuildContext, project.MultiStage, targets)
+		project.Dockerfile, project.BuildContext, project.ImageRegistry,
+		project.MultiStage, targets)
 	if err != nil {
 		// Un dépôt déjà déclaré ailleurs : deux entrées le décriraient, et rien
 		// ne dirait laquelle fait foi. L'appelant doit pouvoir le dire plutôt que

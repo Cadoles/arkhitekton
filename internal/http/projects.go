@@ -65,6 +65,10 @@ type ProjectsHandler struct {
 	// plusieurs dépôts fait le même travail sans l'exiger.
 	deployKey string
 	forgeURL  string
+	// imageRegistry est le registre proposé par défaut à la déclaration. Celui de
+	// la configuration : c'est là que publient les projets existants, et le
+	// resaisir à chaque déclaration inviterait la faute de frappe.
+	imageRegistry string
 }
 
 func NewProjectsHandler(projects ProjectStore) *ProjectsHandler {
@@ -84,21 +88,32 @@ func (h *ProjectsHandler) WithDeployKey(key, forgeURL string) *ProjectsHandler {
 	return h
 }
 
+// WithImageRegistry déclare le registre proposé par défaut.
+func (h *ProjectsHandler) WithImageRegistry(registry string) *ProjectsHandler {
+	h.imageRegistry = strings.Trim(strings.TrimSpace(registry), "/")
+	return h
+}
+
 type targetPayload struct {
 	Stage string `json:"stage"`
 	Image string `json:"image"`
+	// Reference est la référence complète, registre compris. Composée par le
+	// serveur : l'écran l'affiche pour qu'on la reconnaisse, et la recomposer
+	// côté navigateur la ferait diverger de ce que le pipeline recevra.
+	Reference string `json:"reference,omitempty"`
 }
 
 type projectPayload struct {
-	ID           int64           `json:"id"`
-	Repository   string          `json:"repository"`
-	Label        string          `json:"label"`
-	ForgeURL     string          `json:"forge_url"`
-	URL          string          `json:"url"`
-	Dockerfile   string          `json:"dockerfile"`
-	BuildContext string          `json:"build_context"`
-	MultiStage   bool            `json:"multi_stage"`
-	Targets      []targetPayload `json:"targets"`
+	ID            int64           `json:"id"`
+	Repository    string          `json:"repository"`
+	Label         string          `json:"label"`
+	ForgeURL      string          `json:"forge_url"`
+	URL           string          `json:"url"`
+	Dockerfile    string          `json:"dockerfile"`
+	BuildContext  string          `json:"build_context"`
+	ImageRegistry string          `json:"image_registry"`
+	MultiStage    bool            `json:"multi_stage"`
+	Targets       []targetPayload `json:"targets"`
 	// CheckedAt absent : aucun test n'a eu lieu. État distinct d'un test qui a
 	// échoué, et qui ne doit pas se lire comme lui.
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
@@ -130,6 +145,8 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 		// trousseau.
 		"deploy_key": h.deployKey,
 		"forge_url":  h.forgeURL,
+		// Proposé à la déclaration : c'est là que publient les projets existants.
+		"image_registry": h.imageRegistry,
 		// Le test ne prouve que l'accès **du dashboard**, par jeton et en HTTPS.
 		// Les pipelines clonent en SSH avec la clé de déploiement, et rien ici ne
 		// l'éprouve : le dire évite de lire un test vert comme une garantie de
@@ -141,14 +158,18 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 	targets := make([]targetPayload, 0, len(project.Targets))
 	for _, target := range project.Targets {
-		targets = append(targets, targetPayload{Stage: target.Stage, Image: target.Image})
+		targets = append(targets, targetPayload{
+			Stage: target.Stage, Image: target.Image,
+			Reference: project.Reference(target),
+		})
 	}
 
 	return projectPayload{
 		ID: project.ID, Repository: project.Repository, Label: project.Label,
 		ForgeURL: project.ForgeURL, URL: repositoryURL(project.ForgeURL, project.Repository),
 		Dockerfile: project.Dockerfile, BuildContext: project.BuildContext,
-		MultiStage: project.MultiStage, Targets: targets,
+		ImageRegistry: project.ImageRegistry,
+		MultiStage:    project.MultiStage, Targets: targets,
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
 	}
@@ -165,13 +186,14 @@ func repositoryURL(forgeURL, repository string) string {
 }
 
 type projectRequest struct {
-	Repository   string          `json:"repository"`
-	Label        string          `json:"label"`
-	ForgeURL     string          `json:"forge_url"`
-	Dockerfile   string          `json:"dockerfile"`
-	BuildContext string          `json:"build_context"`
-	MultiStage   bool            `json:"multi_stage"`
-	Targets      []targetPayload `json:"targets"`
+	Repository    string          `json:"repository"`
+	Label         string          `json:"label"`
+	ForgeURL      string          `json:"forge_url"`
+	Dockerfile    string          `json:"dockerfile"`
+	BuildContext  string          `json:"build_context"`
+	ImageRegistry string          `json:"image_registry"`
+	MultiStage    bool            `json:"multi_stage"`
+	Targets       []targetPayload `json:"targets"`
 }
 
 // repositoryPattern borne la forme d'un dépôt.
@@ -212,6 +234,13 @@ func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projec
 		request.BuildContext = "."
 	}
 	request.Dockerfile = strings.TrimSpace(request.Dockerfile)
+	// Les barres de fin sont retirées : composer la référence les redoublerait,
+	// et `reg.example.fr/projet//portal` n'est pas la même image que
+	// `reg.example.fr/projet/portal` pour un registre.
+	request.ImageRegistry = strings.Trim(strings.TrimSpace(request.ImageRegistry), "/")
+	if request.ImageRegistry == "" {
+		request.ImageRegistry = h.imageRegistry
+	}
 
 	return request, true
 }
@@ -243,7 +272,8 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	id, err := h.store.CreateProject(r.Context(), store.Project{
 		Repository: request.Repository, Label: request.Label, ForgeURL: request.ForgeURL,
 		Dockerfile: request.Dockerfile, BuildContext: request.BuildContext,
-		MultiStage: request.MultiStage, Targets: targetsOf(request),
+		ImageRegistry: request.ImageRegistry,
+		MultiStage:    request.MultiStage, Targets: targetsOf(request),
 		CreatedBy: identity.Subject,
 	})
 	if err != nil {
@@ -286,8 +316,8 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	err := h.store.UpdateProject(r.Context(), store.Project{
 		ID: id, Repository: request.Repository, Label: request.Label,
 		ForgeURL: request.ForgeURL, Dockerfile: request.Dockerfile,
-		BuildContext: request.BuildContext, MultiStage: request.MultiStage,
-		Targets: targetsOf(request),
+		BuildContext: request.BuildContext, ImageRegistry: request.ImageRegistry,
+		MultiStage: request.MultiStage, Targets: targetsOf(request),
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {

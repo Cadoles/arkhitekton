@@ -851,7 +851,8 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 // `secrets` dans sa RBAC et ne doit pas l'avoir (doc 07 §7.3).
 func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
-		WithDeployKey(cfg.Gitea.DeployKey, cfg.Gitea.URL)
+		WithDeployKey(cfg.Gitea.DeployKey, cfg.Gitea.URL).
+		WithImageRegistry(cfg.Registry.Project)
 
 	if cfg.Gitea.URL == "" || cfg.Gitea.Token == "" {
 		return handler
@@ -910,9 +911,18 @@ func configuredProjects(cfg config.Config) []store.Project {
 			buildContext = "."
 		}
 
+		// Le registre n'est renseigné que sur ce qui se construit : un dépôt
+		// cloné sans image n'en publie aucune, et lui en attribuer un ferait
+		// croire le contraire.
+		registry := ""
+		if declaration.dockerfile != "" {
+			registry = resolved["registry.project"]
+		}
+
 		projects = append(projects, store.Project{
 			Repository: repository, Label: declaration.label, ForgeURL: forgeURL,
 			Dockerfile: declaration.dockerfile, BuildContext: buildContext,
+			ImageRegistry: registry,
 			// Plusieurs cibles seulement là où il y en a : un Dockerfile simple
 			// coché « multi-étapes » ferait attendre une liste qui n'existe pas.
 			MultiStage: len(declaration.targets) > 0,

@@ -104,8 +104,15 @@ export const ACTION_LABEL: Record<string, string> = {
  * rien ne permettait de vérifier qu'il y avait accès.
  */
 
-/** Une étape constructible et le dépôt d'image qu'elle alimente. */
-export type ProjectTarget = { stage: string; image: string }
+/**
+ * Une étape constructible et le dépôt d'image qu'elle alimente.
+ *
+ * `stage` est vide sur un Dockerfile à image unique, qui n'a pas de cible.
+ * `reference` est composée par le serveur — registre compris — et n'est pas
+ * renvoyée : la recomposer côté navigateur la ferait diverger de ce que le
+ * pipeline recevra.
+ */
+export type ProjectTarget = { stage: string; image: string; reference?: string }
 
 export type Project = {
   id: number
@@ -116,6 +123,8 @@ export type Project = {
   url: string
   dockerfile: string
   build_context: string
+  /** Registre et projet où publier, sans le nom d'image. */
+  image_registry: string
   multi_stage: boolean
   targets: ProjectTarget[]
   /** Absent : aucun test n'a eu lieu. État distinct d'un test qui a échoué. */
@@ -130,6 +139,8 @@ type ProjectsResponse = {
   /** Moitié publique de la clé que les pipelines présentent au clone. */
   deploy_key: string
   forge_url: string
+  /** Registre proposé à la déclaration : celui où publient les projets existants. */
+  image_registry: string
   /** Faux quand la forge n'est pas configurée : le test ne peut pas conclure. */
   probe_configured: boolean
 }
@@ -141,6 +152,7 @@ export type ProjectDraft = {
   forge_url: string
   dockerfile: string
   build_context: string
+  image_registry: string
   multi_stage: boolean
   targets: ProjectTarget[]
 }

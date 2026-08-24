@@ -34,6 +34,7 @@ const EMPTY: ProjectDraft = {
   forge_url: '',
   dockerfile: '',
   build_context: '.',
+  image_registry: '',
   multi_stage: false,
   targets: [],
 }
@@ -72,7 +73,11 @@ export function ProjectsScreen() {
             {adding && (
               <div className="mb-4">
                 <ProjectForm
-                  draft={{ ...EMPTY, forge_url: data.forge_url }}
+                  draft={{
+                    ...EMPTY,
+                    forge_url: data.forge_url,
+                    image_registry: data.image_registry,
+                  }}
                   onDone={() => setAdding(false)}
                 />
               </div>
@@ -118,6 +123,7 @@ function toDraft(project: Project): ProjectDraft {
     forge_url: project.forge_url,
     dockerfile: project.dockerfile,
     build_context: project.build_context,
+    image_registry: project.image_registry,
     multi_stage: project.multi_stage,
     targets: project.targets,
   }
@@ -211,9 +217,7 @@ function ProjectRow({
 
         {project.dockerfile ? (
           <span className="rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-500">
-            {project.targets.length > 0
-              ? `${project.targets.length} étape(s)`
-              : 'image unique'}
+            {project.multi_stage ? `${project.targets.length} étape(s)` : 'image unique'}
           </span>
         ) : (
           // Un dépôt cloné sans être construit : c'est le cas de `mse-kustom` et
@@ -268,7 +272,15 @@ function ProjectRow({
           {project.targets.length > 0 && (
             <>
               {' — '}
-              {project.targets.map((target) => `${target.stage} → ${target.image}`).join(', ')}
+              {project.targets
+                .map((target) => {
+                  // La référence complète plutôt que le nom court : c'est elle
+                  // qu'on recopie dans un déploiement, et un nom seul ressemble à
+                  // une référence tirable sans l'être.
+                  const image = target.reference || target.image
+                  return target.stage ? `${target.stage} → ${image}` : image
+                })
+                .join(', ')}
             </>
           )}
         </p>
@@ -415,15 +427,58 @@ function ProjectForm({
 
       {form.dockerfile && (
         <>
+          {/* Le registre est porté par le projet et non répété par étape : ses
+              images vont au même endroit, et les répéter ferait diverger la
+              dernière au premier changement. */}
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Dépôt d'images</span>
+            <input
+              value={form.image_registry}
+              onChange={(event) => set('image_registry', event.target.value)}
+              placeholder="reg.cadoles.com/cnous-mse"
+              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+            />
+          </label>
+
           <label className="flex items-center gap-2 text-sm text-zinc-700">
             <input
               type="checkbox"
               checked={form.multi_stage}
-              onChange={(event) => set('multi_stage', event.target.checked)}
+              onChange={(event) => {
+                const multi = event.target.checked
+                set('multi_stage', multi)
+                // Passer d'un régime à l'autre ne perd pas le nom d'image déjà
+                // saisi : c'est la même image, elle gagne ou perd sa cible.
+                if (!multi && form.targets.length > 1) {
+                  set('targets', form.targets.slice(0, 1))
+                }
+              }}
               className="size-3.5"
             />
             Dockerfile à plusieurs cibles
           </label>
+
+          {/* Le cas simple avait été oublié : la liste des étapes était masquée,
+              et rien ne disait ce que le projet produit. Une image unique passe
+              par la même liste, avec une entrée sans cible — un second champ
+              dirait la même chose d'une autre façon, et il faudrait savoir lequel
+              fait foi. */}
+          {!form.multi_stage && (
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-700">Image à construire</span>
+              <div className="flex items-center gap-2">
+                <input
+                  value={form.targets[0]?.image ?? ''}
+                  onChange={(event) =>
+                    set('targets', [{ stage: '', image: event.target.value }])
+                  }
+                  placeholder="portal"
+                  className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+                />
+                <Reference registry={form.image_registry} image={form.targets[0]?.image} />
+              </div>
+            </label>
+          )}
 
           {form.multi_stage && (
             <div className="flex flex-col gap-2">
@@ -448,6 +503,7 @@ function ProjectForm({
                     placeholder="image"
                     className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
                   />
+                  <Reference registry={form.image_registry} image={target.image} />
                   <button
                     type="button"
                     onClick={() =>
@@ -507,5 +563,25 @@ function ProjectForm({
         </button>
       </div>
     </form>
+  )
+}
+
+/**
+ * La référence complète, telle que le pipeline la construira.
+ *
+ * Affichée à côté du nom court parce que c'est elle qui compte : un nom seul
+ * ressemble à une référence tirable sans l'être, et c'est le genre de chaîne
+ * qu'on recopie dans un déploiement avant de découvrir qu'elle ne désigne rien.
+ */
+function Reference({ registry, image }: { registry: string; image?: string }) {
+  const name = (image ?? '').trim()
+  const prefix = registry.trim().replace(/\/+$/, '')
+
+  if (!name || !prefix) return null
+
+  return (
+    <span className="truncate font-mono text-xs text-zinc-500" title={`${prefix}/${name}`}>
+      {prefix}/{name}
+    </span>
   )
 }

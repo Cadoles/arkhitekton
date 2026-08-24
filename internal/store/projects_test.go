@@ -308,3 +308,54 @@ func TestUneCorrectionSansDepotEstRefusee(t *testing.T) {
 		t.Errorf("dépôt = %q: il a été effacé", read.Repository)
 	}
 }
+
+// La référence complète est ce qui désigne une image. Un nom court seul
+// ressemble à une référence tirable sans l'être.
+func TestLaReferenceCombineLeRegistreEtLimage(t *testing.T) {
+	project := Project{ImageRegistry: "reg.example.fr/mse"}
+
+	if got := project.Reference(Target{Stage: "cli", Image: "portal-cli"}); got != "reg.example.fr/mse/portal-cli" {
+		t.Errorf("référence = %q", got)
+	}
+	// Les barres de fin ne doivent pas se redoubler : `projet//portal` n'est pas
+	// la même image que `projet/portal` pour un registre.
+	sloppy := Project{ImageRegistry: "reg.example.fr/mse/"}
+	if got := sloppy.Reference(Target{Image: "portal"}); got != "reg.example.fr/mse/portal" {
+		t.Errorf("référence = %q", got)
+	}
+	// Vide plutôt que tronquée : mieux vaut ne rien afficher qu'un nom qui ne
+	// désigne rien.
+	if got := project.Reference(Target{Stage: "web"}); got != "" {
+		t.Errorf("référence sans image = %q", got)
+	}
+	if got := (Project{}).Reference(Target{Image: "portal"}); got != "" {
+		t.Errorf("référence sans registre = %q", got)
+	}
+}
+
+// Un Dockerfile à image unique passe par la même liste, avec une entrée sans
+// cible : c'est le cas qui n'avait aucun nom d'image du tout.
+func TestUneImageUniqueSeDeclareSansCible(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	id, err := db.CreateProject(ctx, Project{
+		Repository: "vcarroy/outil", Label: "Outil",
+		ForgeURL: "https://forge.example.fr", Dockerfile: "Dockerfile",
+		BuildContext: ".", ImageRegistry: "reg.example.fr/mse",
+		MultiStage: false,
+		Targets:    []Target{{Stage: "", Image: "outil"}},
+		CreatedBy:  "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("déclaration: %v", err)
+	}
+
+	read, _ := db.GetProject(ctx, id)
+	if len(read.Targets) != 1 || read.Targets[0].Image != "outil" {
+		t.Fatalf("étapes = %+v", read.Targets)
+	}
+	if got := read.Reference(read.Targets[0]); got != "reg.example.fr/mse/outil" {
+		t.Errorf("référence = %q", got)
+	}
+}
