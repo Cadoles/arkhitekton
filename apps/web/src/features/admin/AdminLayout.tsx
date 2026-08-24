@@ -17,7 +17,7 @@ import { SubTabs, type SubTab } from '../../components/SubTabs'
  */
 
 const TABS: SubTab[] = [
-  { to: '/admin', label: 'Redmine', icon: <RedmineMark className="size-4" />, end: true },
+  { to: '/admin', label: 'Redmine', icon: <RedmineMark className="h-4 w-6" />, end: true },
   { to: '/admin/users', label: 'Utilisateurs', icon: <Icon name="user" className="size-4" /> },
   { to: '/admin/logs', label: "Journal d'audit", icon: <Icon name="doc" className="size-4" /> },
 ]

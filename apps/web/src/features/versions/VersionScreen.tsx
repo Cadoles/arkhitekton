@@ -46,7 +46,7 @@ export function VersionScreen() {
               rel="noreferrer noopener"
               className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
             >
-              <RedmineMark className="size-4" />
+              <RedmineMark className="h-4 w-6" />
               Redmine
               {/* La sortie du dashboard est annoncée : l'onglet change, et rien
                   d'autre dans la barre ne le fait. */}
