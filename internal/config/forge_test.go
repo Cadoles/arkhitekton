@@ -56,3 +56,34 @@ func TestSansForgeLaDerivationSabstient(t *testing.T) {
 		}
 	}
 }
+
+// L'opération inverse : les dépôts que les pipelines clonent sont écrits en URL
+// SSH, alors que l'API Gitea et l'écran des projets les nomment `owner/nom`.
+func TestLeDepotSeRetrouveDepuisSonURLDeClonage(t *testing.T) {
+	cases := []struct {
+		clone      string
+		repository string
+		forge      string
+	}{
+		{"ssh://git@forge.cadoles.com:2222/CNOUS/mse.git", "CNOUS/mse", "https://forge.cadoles.com"},
+		{"ssh://git@forge.cadoles.com:2222/vcarroy/mse-test-project.git",
+			"vcarroy/mse-test-project", "https://forge.cadoles.com"},
+		// La forme courte que Git accepte aussi : son `:` sépare l'hôte du
+		// chemin, pas un port, et `net/url` s'y trompe.
+		{"git@forge.cadoles.com:CNOUS/mse.git", "CNOUS/mse", "https://forge.cadoles.com"},
+		{"https://forge.cadoles.com/CNOUS/mse", "CNOUS/mse", "https://forge.cadoles.com"},
+		// Écartés plutôt que tronqués : en fabriquer un dépôt donnerait un test
+		// d'accès qui échoue sans qu'on sache que la saisie était fautive.
+		{"ssh://git@forge.cadoles.com:2222/mse.git", "", ""},
+		{"ssh://git@forge.cadoles.com:2222/a/b/c.git", "", ""},
+		{"", "", ""},
+	}
+
+	for _, tc := range cases {
+		repository, forge := RepositoryFromCloneURL(tc.clone)
+		if repository != tc.repository || forge != tc.forge {
+			t.Errorf("%q → %q / %q, attendu %q / %q",
+				tc.clone, repository, forge, tc.repository, tc.forge)
+		}
+	}
+}

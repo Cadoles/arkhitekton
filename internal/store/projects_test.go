@@ -145,3 +145,73 @@ func TestUnProjetAbsentSeDistingueDUneErreur(t *testing.T) {
 		t.Errorf("constat sur un projet absent: %v", err)
 	}
 }
+
+/*
+ * L'amorçage depuis la configuration.
+ *
+ * Il existe parce que la table doit décrire ce que le dashboard fait réellement,
+ * pas ce qu'un administrateur aura pensé à y ressaisir. Deux propriétés le
+ * rendent sûr : il est rejouable, et il n'écrase rien.
+ */
+func TestLamorcageEstRejouableEtNecrasePas(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	configured := []Project{
+		{
+			Repository: "CNOUS/mse", Label: "Application",
+			ForgeURL: "https://forge.example.fr", Dockerfile: "Dockerfile",
+			BuildContext: ".", MultiStage: true,
+			Targets:   []Target{{Stage: "web", Image: "portal"}},
+			CreatedBy: "configuration",
+		},
+		{
+			Repository: "CNOUS/mse-kustom", Label: "Kustomizations",
+			ForgeURL: "https://forge.example.fr", BuildContext: ".",
+			CreatedBy: "configuration",
+		},
+		// Une URL dont on n'a pas su tirer `owner/nom` : écartée plutôt que
+		// déclarée, un dépôt qui ne désigne rien donnerait un test d'accès en
+		// échec sans qu'on sache que la faute est en amont.
+		{Repository: "", Label: "Illisible"},
+	}
+
+	declared, err := db.SeedProjects(ctx, configured)
+	if err != nil {
+		t.Fatalf("amorçage: %v", err)
+	}
+	if declared != 2 {
+		t.Errorf("%d projet(s) déclarés, attendu 2", declared)
+	}
+
+	// Un administrateur corrige un libellé.
+	projects, _ := db.ListProjects(ctx)
+	var mse Project
+	for _, project := range projects {
+		if project.Repository == "CNOUS/mse" {
+			mse = project
+		}
+	}
+	if err := db.UpdateProject(ctx, Project{
+		ID: mse.ID, Label: "Portail MSE", ForgeURL: mse.ForgeURL,
+		Dockerfile: mse.Dockerfile, BuildContext: mse.BuildContext,
+		MultiStage: mse.MultiStage, Targets: mse.Targets,
+	}); err != nil {
+		t.Fatalf("correction: %v", err)
+	}
+
+	// Le redémarrage rejoue l'amorçage : il ne doit rien déclarer, et surtout
+	// rien réécrire.
+	declared, err = db.SeedProjects(ctx, configured)
+	if err != nil {
+		t.Fatalf("second amorçage: %v", err)
+	}
+	if declared != 0 {
+		t.Errorf("%d projet(s) redéclarés", declared)
+	}
+
+	read, _ := db.GetProject(ctx, mse.ID)
+	if read.Label != "Portail MSE" {
+		t.Errorf("libellé = %q: l'amorçage a écrasé une correction", read.Label)
+	}
+}

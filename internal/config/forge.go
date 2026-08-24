@@ -50,3 +50,62 @@ func (c GiteaConfig) CloneURL(sshPort string) string {
 
 	return fmt.Sprintf("ssh://git@%s:%s/%s.git", parsed.Hostname(), sshPort, repo)
 }
+
+// RepositoryFromCloneURL retrouve `owner/nom` et la forge depuis une URL de
+// clonage.
+//
+// L'opération inverse de CloneURL, et elle sert au même souci de cohérence : les
+// dépôts que les pipelines clonent sont écrits dans la configuration sous forme
+// d'URL SSH, alors que l'API Gitea et l'écran des projets les nomment
+// `owner/nom`. Les ressaisir à la main ferait diverger les deux formes au premier
+// changement — on déclarerait un dépôt tout en clonant l'autre.
+//
+// Rend deux chaînes vides quand l'URL ne porte pas de dépôt : l'appelant écarte
+// alors l'entrée plutôt que d'en déclarer une qui ne désigne rien.
+func RepositoryFromCloneURL(clone string) (repository, forgeURL string) {
+	clone = strings.TrimSpace(clone)
+	if clone == "" {
+		return "", ""
+	}
+
+	// Deux formes circulent : `ssh://git@hote:2222/owner/nom.git`, que la
+	// configuration emploie, et `git@hote:owner/nom.git`, que Git accepte aussi.
+	// La seconde n'est pas une URL au sens de `net/url` — son `:` sépare l'hôte
+	// du chemin, pas un port — d'où le traitement séparé.
+	if !strings.Contains(clone, "://") {
+		_, rest, found := strings.Cut(clone, "@")
+		if !found {
+			return "", ""
+		}
+		host, path, found := strings.Cut(rest, ":")
+		if !found {
+			return "", ""
+		}
+		return normaliseRepository(path), "https://" + host
+	}
+
+	parsed, err := url.Parse(clone)
+	if err != nil || parsed.Hostname() == "" {
+		return "", ""
+	}
+
+	repository = normaliseRepository(parsed.Path)
+	if repository == "" {
+		return "", ""
+	}
+	return repository, "https://" + parsed.Hostname()
+}
+
+// normaliseRepository ramène un chemin de clonage à `owner/nom`.
+//
+// Un chemin plus profond est écarté plutôt que tronqué : `owner/groupe/nom` ne
+// désigne pas un dépôt Gitea, et en fabriquer un donnerait un test d'accès qui
+// échoue sans qu'on sache que la saisie était fautive.
+func normaliseRepository(path string) string {
+	trimmed := strings.TrimSuffix(strings.Trim(path, "/"), ".git")
+	owner, name, found := strings.Cut(trimmed, "/")
+	if !found || owner == "" || name == "" || strings.Contains(name, "/") {
+		return ""
+	}
+	return owner + "/" + name
+}

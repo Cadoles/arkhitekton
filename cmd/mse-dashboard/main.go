@@ -25,6 +25,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
@@ -130,6 +131,24 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.Info("stockage objet", "bucket", storage.Bucket(), "region", cfg.Storage.Region)
 
 	sessions := auth.NewSessionStore(db.Pool(), cfg.OIDC.SessionTTL)
+
+	// Les dépôts pilotés sont déduits de la configuration au premier démarrage.
+	//
+	// La table doit décrire ce que le dashboard fait **réellement**, pas ce qu'un
+	// administrateur aura pensé à y ressaisir : les déduire de ce que les
+	// pipelines reçoivent déjà est la seule façon d'obtenir une liste juste sans
+	// double saisie, et sans qu'un déploiement local et un déploiement de
+	// production ne divergent — leurs dépôts ne sont pas les mêmes.
+	//
+	// Rien n'est écrasé ensuite : une correction de libellé ou l'ajout d'une
+	// étape survit aux redémarrages.
+	if declared, err := db.SeedProjects(ctx, configuredProjects(cfg)); err != nil {
+		// L'amorçage n'empêche pas de démarrer : il alimente un écran, pas une
+		// décision. Le taire, en revanche, laisserait un onglet vide sans cause.
+		logger.Error("amorçage des projets", "error", err)
+	} else if declared > 0 {
+		logger.Info("projets déclarés depuis la configuration", "count", declared)
+	}
 
 	// L'amorçage n'a plus lieu au démarrage : il prenait chaque identifiant de la
 	// configuration pour un `subject`, alors que Gitea met son identifiant
@@ -773,4 +792,68 @@ func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler 
 	return handler.WithProbe(dashhttp.GiteaProber{
 		URL: cfg.Gitea.URL, Token: cfg.Gitea.Token, Timeout: cfg.Gitea.Timeout,
 	})
+}
+
+// configuredProjects rend les dépôts que la configuration désigne.
+//
+// Quatre, et ils ne jouent pas le même rôle : l'application est construite, les
+// trois autres sont clonés — la kustomization par les tests d'intégration, les
+// pipelines par l'audit qui y lit ses règles, la campagne E2E par elle-même.
+// Seule la première porte donc un Dockerfile.
+//
+// Les étapes de l'application viennent de `internal/images`, où elles sont déjà
+// nommées : les redire ici les ferait diverger de ce que le dashboard construit
+// vraiment.
+func configuredProjects(cfg config.Config) []store.Project {
+	resolved := schedulerConfig(cfg)
+
+	targets := make([]store.Target, 0, len(images.Buildable))
+	for _, image := range images.Buildable {
+		targets = append(targets, store.Target{Stage: image.Target, Image: image.Name})
+	}
+
+	declarations := []struct {
+		clone      string
+		label      string
+		dockerfile string
+		context    string
+		targets    []store.Target
+	}{
+		{
+			clone:      resolved["forge.mse.repoUrl"],
+			label:      "Application",
+			dockerfile: resolved["mse.dockerfile"],
+			context:    resolved["mse.buildContext"],
+			targets:    targets,
+		},
+		{clone: resolved["forge.mseKustom.repoUrl"], label: "Kustomizations"},
+		{clone: resolved["forge.tekton.repoUrl"], label: "Pipelines Tekton"},
+		{clone: resolved["forge.e2e.repoUrl"], label: "Campagne E2E"},
+	}
+
+	projects := make([]store.Project, 0, len(declarations))
+	for _, declaration := range declarations {
+		repository, forgeURL := config.RepositoryFromCloneURL(declaration.clone)
+		if repository == "" {
+			continue
+		}
+
+		buildContext := declaration.context
+		if buildContext == "" {
+			buildContext = "."
+		}
+
+		projects = append(projects, store.Project{
+			Repository: repository, Label: declaration.label, ForgeURL: forgeURL,
+			Dockerfile: declaration.dockerfile, BuildContext: buildContext,
+			// Plusieurs cibles seulement là où il y en a : un Dockerfile simple
+			// coché « multi-étapes » ferait attendre une liste qui n'existe pas.
+			MultiStage: len(declaration.targets) > 0,
+			Targets:    declaration.targets,
+			// L'auteur est la configuration elle-même, et le dire évite
+			// d'attribuer à quelqu'un une déclaration que personne n'a faite.
+			CreatedBy: "configuration",
+		})
+	}
+	return projects
 }
