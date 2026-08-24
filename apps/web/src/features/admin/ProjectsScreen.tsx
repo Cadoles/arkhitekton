@@ -366,12 +366,8 @@ function ProjectForm({
           <input
             value={form.repository}
             onChange={(event) => set('repository', event.target.value)}
-            // Le dépôt n'est pas modifiable après coup : le changer ferait d'un
-            // projet un autre, et les constats d'accès porteraient alors sur ce
-            // qui n'a pas été testé.
-            disabled={id !== undefined}
             placeholder="CNOUS/mse"
-            className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900 disabled:opacity-60"
+            className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
           />
         </label>
 
@@ -478,6 +474,16 @@ function ProjectForm({
             </div>
           )}
         </>
+      )}
+
+      {/* Changer de dépôt efface le constat d'accès : il portait sur ce qu'on ne
+          pilote plus, et le garder afficherait « accès vérifié » sur un dépôt que
+          personne n'a testé. Le dire avant plutôt que de laisser découvrir une
+          pastille disparue. */}
+      {id !== undefined && form.repository !== draft.repository && (
+        <p className="text-xs text-warn-700">
+          Le dépôt change : le constat d'accès sera effacé, et le test à refaire.
+        </p>
       )}
 
       {save.isError && (

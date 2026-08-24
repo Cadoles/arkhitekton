@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 /*
@@ -49,6 +51,9 @@ type Project struct {
 
 // ErrProjectNotFound signale un projet absent.
 var ErrProjectNotFound = errors.New("projet introuvable")
+
+// uniqueViolation est le code PostgreSQL d'une contrainte d'unicité rompue.
+const uniqueViolation = "23505"
 
 // ErrProjectExists signale un dépôt déjà déclaré.
 //
@@ -146,12 +151,27 @@ func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error)
 	return id, nil
 }
 
-// UpdateProject remplace la description d'un projet.
+// UpdateProject remplace la description d'un projet, dépôt compris.
 //
-// Le dépôt n'en fait pas partie : le changer ferait d'un projet un autre, et les
-// constats d'accès qui l'accompagnent porteraient alors sur ce qui n'a pas été
-// testé. Renommer un dépôt se fait en le redéclarant.
+// Le dépôt a d'abord été figé, au motif qu'en changer ferait d'un projet un
+// autre. C'était vrai et sans importance : les projets amorcés portent le dépôt
+// que la **configuration** a nommé, et corriger celui-là est exactement ce qu'on
+// vient faire — le figer obligeait à supprimer puis redéclarer, en perdant tout
+// ce qui accompagnait la ligne.
+//
+// Ce qui était juste dans ce motif est conservé : changer de dépôt **efface le
+// constat d'accès**. Il portait sur ce qu'on ne pilote plus, et le garder
+// afficherait « accès vérifié » sur un dépôt que personne n'a testé — la pire
+// des trois réponses possibles.
 func (db *DB) UpdateProject(ctx context.Context, project Project) error {
+	// Un dépôt vide n'est jamais une intention : c'est un appelant qui a oublié
+	// le champ. Le laisser passer l'effacerait en silence, et le projet
+	// deviendrait une ligne qui ne désigne rien — ce qu'aucun écran ne saurait
+	// expliquer. Constaté sur un test écrit du temps où le dépôt était figé.
+	if strings.TrimSpace(project.Repository) == "" {
+		return fmt.Errorf("mise à jour du projet %d: dépôt vide", project.ID)
+	}
+
 	targets, err := json.Marshal(normaliseTargets(project.Targets))
 	if err != nil {
 		return fmt.Errorf("sérialisation des étapes: %w", err)
@@ -159,12 +179,31 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 
 	tag, err := db.pool.Exec(ctx,
 		`update projects
-		 set label = $2, forge_url = $3, dockerfile = $4, build_context = $5,
-		     multi_stage = $6, targets = $7, updated_at = now()
+		 set repository = $2, label = $3, forge_url = $4, dockerfile = $5,
+		     build_context = $6, multi_stage = $7, targets = $8,
+		     -- Le constat ne survit qu'à un dépôt inchangé. La comparaison porte
+		     -- sur la valeur en base, encore lisible pendant l'update : une
+		     -- lecture préalable ouvrirait une fenêtre entre le constat et
+		     -- l'écriture.
+		     checked_at = case when repository = $2 then checked_at end,
+		     check_ok   = case when repository = $2 then check_ok end,
+		     check_note = case when repository = $2 then check_note else '' end,
+		     updated_at = now()
 		 where id = $1`,
-		project.ID, project.Label, project.ForgeURL, project.Dockerfile,
-		project.BuildContext, project.MultiStage, targets)
+		project.ID, project.Repository, project.Label, project.ForgeURL,
+		project.Dockerfile, project.BuildContext, project.MultiStage, targets)
 	if err != nil {
+		// Un dépôt déjà déclaré ailleurs : deux entrées le décriraient, et rien
+		// ne dirait laquelle fait foi. L'appelant doit pouvoir le dire plutôt que
+		// de rendre une panne.
+		//
+		// Le code d'erreur plutôt que le message : celui-ci est traduit selon la
+		// locale du serveur, et le comparer marcherait ici pour cesser de marcher
+		// sur une base configurée autrement.
+		var violation *pgconn.PgError
+		if errors.As(err, &violation) && violation.Code == uniqueViolation {
+			return ErrProjectExists
+		}
 		return fmt.Errorf("mise à jour du projet %d: %w", project.ID, err)
 	}
 	if tag.RowsAffected() == 0 {

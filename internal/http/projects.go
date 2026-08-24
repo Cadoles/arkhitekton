@@ -279,14 +279,23 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Le dépôt est modifiable, et c'est le cas d'usage principal : les projets
+	// amorcés portent celui que la configuration a nommé, et le corriger est
+	// exactement ce qu'on vient faire. Le changer efface le constat d'accès —
+	// il portait sur ce qu'on ne pilote plus.
 	err := h.store.UpdateProject(r.Context(), store.Project{
-		ID: id, Label: request.Label, ForgeURL: request.ForgeURL,
-		Dockerfile: request.Dockerfile, BuildContext: request.BuildContext,
-		MultiStage: request.MultiStage, Targets: targetsOf(request),
+		ID: id, Repository: request.Repository, Label: request.Label,
+		ForgeURL: request.ForgeURL, Dockerfile: request.Dockerfile,
+		BuildContext: request.BuildContext, MultiStage: request.MultiStage,
+		Targets: targetsOf(request),
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
 			writeProblem(w, http.StatusNotFound, "Projet introuvable", "")
+			return
+		}
+		if errors.Is(err, store.ErrProjectExists) {
+			writeProblem(w, http.StatusConflict, "Dépôt déjà déclaré", request.Repository)
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Mise à jour impossible", "")

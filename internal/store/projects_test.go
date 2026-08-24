@@ -71,33 +71,32 @@ func TestUnDepotNeSeDeclarePasDeuxFois(t *testing.T) {
 	}
 }
 
-func TestLaMiseAJourNeTouchePasAuDepot(t *testing.T) {
+// Une ligne de formulaire à moitié remplie ne devient pas une étape : elle
+// n'aurait rien à construire, et rien à l'écran ne la distinguerait d'une étape
+// valide.
+//
+// Cette fonction éprouvait aussi l'immuabilité du dépôt. Elle a cessé de le
+// faire avec elle : les projets amorcés portent le dépôt que la configuration a
+// nommé, et le corriger est le premier geste qu'on vient faire sur cet écran.
+func TestUneCorrectionEcarteLesEtapesVides(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
 
-	// Le dépôt n'est pas un champ de la mise à jour : le changer ferait d'un
-	// projet un autre, et les constats d'accès porteraient sur ce qui n'a pas
-	// été testé.
 	if err := db.UpdateProject(ctx, Project{
-		ID: id, Label: "Portail MSE", ForgeURL: "https://forge.example.fr",
-		Dockerfile: "Dockerfile", BuildContext: ".", MultiStage: false,
+		ID: id, Repository: "CNOUS/mse", Label: "Portail MSE",
+		ForgeURL: "https://forge.example.fr", Dockerfile: "Dockerfile",
+		BuildContext: ".", MultiStage: false,
 		Targets: []Target{{Stage: "", Image: ""}, {Stage: "web", Image: "portal"}},
 	}); err != nil {
 		t.Fatalf("mise à jour: %v", err)
 	}
 
 	read, _ := db.GetProject(ctx, id)
-	if read.Repository != "CNOUS/mse" {
-		t.Errorf("dépôt modifié: %q", read.Repository)
-	}
 	if read.Label != "Portail MSE" || read.MultiStage {
 		t.Errorf("projet = %+v", read)
 	}
-	// Une ligne de formulaire à moitié remplie ne devient pas une étape : elle
-	// n'aurait rien à construire, et rien à l'écran ne la distinguerait d'une
-	// étape valide.
 	if len(read.Targets) != 1 || read.Targets[0].Stage != "web" {
 		t.Errorf("étapes = %+v", read.Targets)
 	}
@@ -193,9 +192,10 @@ func TestLamorcageEstRejouableEtNecrasePas(t *testing.T) {
 		}
 	}
 	if err := db.UpdateProject(ctx, Project{
-		ID: mse.ID, Label: "Portail MSE", ForgeURL: mse.ForgeURL,
-		Dockerfile: mse.Dockerfile, BuildContext: mse.BuildContext,
-		MultiStage: mse.MultiStage, Targets: mse.Targets,
+		ID: mse.ID, Repository: mse.Repository, Label: "Portail MSE",
+		ForgeURL: mse.ForgeURL, Dockerfile: mse.Dockerfile,
+		BuildContext: mse.BuildContext, MultiStage: mse.MultiStage,
+		Targets: mse.Targets,
 	}); err != nil {
 		t.Fatalf("correction: %v", err)
 	}
@@ -213,5 +213,98 @@ func TestLamorcageEstRejouableEtNecrasePas(t *testing.T) {
 	read, _ := db.GetProject(ctx, mse.ID)
 	if read.Label != "Portail MSE" {
 		t.Errorf("libellé = %q: l'amorçage a écrasé une correction", read.Label)
+	}
+}
+
+// Le dépôt est modifiable, et c'est le cas d'usage principal : les projets
+// amorcés portent celui que la configuration a nommé, et le corriger est
+// exactement ce qu'on vient faire.
+func TestLeDepotSeCorrigeEtEffaceLeConstat(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	id := project(t, db, "vcarroy/mse-test-project")
+	if err := db.RecordProjectCheck(ctx, id, true, "branche par défaut : main"); err != nil {
+		t.Fatalf("constat: %v", err)
+	}
+
+	corrected := Project{
+		ID: id, Repository: "CNOUS/mse", Label: "Portail",
+		ForgeURL: "https://forge.example.fr", Dockerfile: "Dockerfile",
+		BuildContext: ".", MultiStage: false,
+	}
+	if err := db.UpdateProject(ctx, corrected); err != nil {
+		t.Fatalf("correction: %v", err)
+	}
+
+	read, _ := db.GetProject(ctx, id)
+	if read.Repository != "CNOUS/mse" {
+		t.Errorf("dépôt = %q", read.Repository)
+	}
+	// Le constat portait sur ce qu'on ne pilote plus. Le garder afficherait
+	// « accès vérifié » sur un dépôt que personne n'a testé.
+	if read.CheckedAt != nil || read.CheckOK != nil || read.CheckNote != "" {
+		t.Errorf("constat conservé après changement de dépôt: %+v", read)
+	}
+}
+
+// Modifier autre chose que le dépôt conserve le constat : le refaire à chaque
+// correction de libellé le rendrait inutile.
+func TestUneCorrectionSansChangementDeDepotGardeLeConstat(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	id := project(t, db, "CNOUS/mse")
+	if err := db.RecordProjectCheck(ctx, id, true, "branche par défaut : main"); err != nil {
+		t.Fatalf("constat: %v", err)
+	}
+
+	if err := db.UpdateProject(ctx, Project{
+		ID: id, Repository: "CNOUS/mse", Label: "Portail MSE",
+		ForgeURL: "https://forge.example.fr", BuildContext: ".",
+	}); err != nil {
+		t.Fatalf("correction: %v", err)
+	}
+
+	read, _ := db.GetProject(ctx, id)
+	if read.CheckedAt == nil || read.CheckOK == nil || !*read.CheckOK {
+		t.Errorf("constat perdu sur une correction de libellé: %+v", read)
+	}
+}
+
+// Deux entrées pour un même dépôt décriraient la même chose : le refus vaut
+// aussi pour une correction, et doit se distinguer d'une panne d'écriture.
+func TestUneCorrectionVersUnDepotDejaDeclareEstRefusee(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	project(t, db, "CNOUS/mse")
+	id := project(t, db, "CNOUS/mse-kustom")
+
+	err := db.UpdateProject(ctx, Project{
+		ID: id, Repository: "CNOUS/mse", Label: "Doublon",
+		ForgeURL: "https://forge.example.fr", BuildContext: ".",
+	})
+	if !errors.Is(err, ErrProjectExists) {
+		t.Errorf("correction vers un dépôt déclaré: %v, attendu ErrProjectExists", err)
+	}
+}
+
+// Un dépôt vide n'est jamais une intention : c'est un appelant qui a oublié le
+// champ. L'accepter l'effacerait en silence, et le projet deviendrait une ligne
+// qui ne désigne rien.
+func TestUneCorrectionSansDepotEstRefusee(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	id := project(t, db, "CNOUS/mse")
+
+	if err := db.UpdateProject(ctx, Project{ID: id, Label: "Sans dépôt"}); err == nil {
+		t.Fatal("un dépôt vide devrait être refusé")
+	}
+
+	read, _ := db.GetProject(ctx, id)
+	if read.Repository != "CNOUS/mse" {
+		t.Errorf("dépôt = %q: il a été effacé", read.Repository)
 	}
 }
