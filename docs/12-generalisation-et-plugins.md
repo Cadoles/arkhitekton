@@ -18,6 +18,7 @@ Trois axes, indépendants et de coûts très différents :
 | **Fournisseurs** | Une autre forge, un autre outil de suivi, un autre déployeur | Moyen |
 | **Multi-projet** | Plusieurs applications dans une même instance | **Élevé** |
 | **Domaine** | Un cycle de release qui n'est pas celui du MSE | Variable |
+| **Autonomie** | Fonctionner sans dépôt de pipelines préexistant | Moyen |
 
 Le troisième est le plus mal compris, et c'est celui qui décide de la faisabilité des
 deux autres. On y revient en [12.4](#124-la-frontière-difficile-la-sémantique).
@@ -261,49 +262,92 @@ surveiller à chaque ajout.
 ### Le problème
 
 Le catalogue est déjà déclaratif et validé contre le cluster au démarrage. Mais les
-pipelines eux-mêmes vivent dans `mse-tekton`, un dépôt indépendant, dont le nom dit le
-couplage.
+pipelines eux-mêmes vivent dans `mse-tekton`, un dépôt indépendant dont le nom dit le
+couplage. Un second projet devrait le forker, ou réécrire ses pipelines — et
+divergerait dès la première correction.
 
-### Ce qu'une bibliothèque doit fournir
+### La bibliothèque est une dépendance du dashboard, pas de l'exploitation
 
-Un pipeline réutilisable n'est pas un pipeline sans paramètres : c'est un pipeline dont
-les **contrats sont explicites**.
+C'est le point qui décide de tout le reste, et il mérite d'être posé clairement.
+
+Les pipelines de construction et de re-tag ne sont pas de l'infrastructure que
+l'exploitation choisit : ce sont les **mécanismes du dashboard**. Il en connaît les
+paramètres, en attend les résultats, et sa machine à états conclut sur leur issue. Les
+laisser à chaque déploiement, c'est garantir des implémentations divergentes de ce que
+le dashboard croit piloter.
+
+C'est encore plus net pour les tests. Le format des résultats — familles, marqueurs de
+flux, artefacts publiés par URL pré-signée ([B14]) — est **le protocole du dashboard**.
+Un pipeline qui ne l'honore pas produit un écran vide, et rien ne dira pourquoi.
+
+**L'analogie juste est celle du schéma de base.** Le dashboard possède son schéma
+PostgreSQL et l'applique lui-même, par le rôle `migrate` ; personne ne trouverait sain de
+demander à l'exploitation de poser les tables à la main. Les pipelines qui portent ses
+mécanismes sont de la même nature : sa propre machinerie, versionnée avec lui.
+
+Ce raisonnement lève l'objection posée dans les premières versions de ce document. Il
+reste deux exigences, qui deviennent des règles de conception plutôt que des motifs de
+refus.
+
+### Deux tiers, un contrat
+
+| Tier | Contenu | Hypothèse de pile | Installation |
+|---|---|---|---|
+| **Noyau** | construction, re-tag | aucune | toujours |
+| **Référence** | tests par pile — PHP, Node, Go | forte | à la demande |
+
+Le noyau est purement mécanique : cloner, construire une cible, pousser, re-taguer un
+digest. Rien n'y suppose un langage. C'est le tier qui rend le projet autonome.
+
+Les implémentations de référence supposent une pile. Elles sont **installables et
+forkables** : un projet dont la pile n'est pas couverte écrit les siennes, et n'a qu'un
+contrat à honorer.
+
+**Dans les deux cas, le normatif est le contrat, pas l'implémentation.**
 
 | Contrat | Aujourd'hui | À expliciter |
 |---|---|---|
 | Entrées | paramètres du catalogue | déjà fait |
 | Sorties | artefacts déclarés + URL pré-signées ([B14]) | déjà fait |
-| Format des résultats | familles + parseurs | à documenter comme contrat public |
-| Marqueurs de flux | `##MSE-…##` | préfixe réglable |
-| Version de l'image | `--build-arg VERSION` → `version.txt` ([P10]) | à documenter comme contrat |
+| Format des résultats | familles + parseurs | à publier comme contrat |
+| Marqueurs de flux | `##MSE-…##` | préfixe réglable, à publier |
+| Version de l'image | `--build-arg VERSION` → `version.txt` ([P10]) | à publier comme contrat |
 
-**Le vrai travail n'est pas d'installer des pipelines : c'est d'écrire le contrat qu'ils
-doivent honorer.** Une fois écrit, la bibliothèque peut être un simple dépôt de
-kustomizations versionnées.
+### Le modèle d'installation : celui des migrations
 
-### Installer, ou pas
+La bibliothèque est **embarquée dans le binaire** (`//go:embed`), comme les migrations de
+schéma, et appliquée par un rôle dédié au déploiement. Quatre propriétés en découlent,
+et elles répondent aux risques :
 
-Le dashboard crée aujourd'hui des `PipelineRun`, **pas** des `Pipeline` ni des `Task`.
-Lui donner `create/update` sur les définitions lui donne le pouvoir de modifier ce qu'il
-exécute lui-même — un saut de privilège réel, à mettre en regard de la ligne tenue
-jusqu'ici : il n'a délibérément pas `secrets` ([07 §7.3]).
+**1. Versionnée avec le dashboard.** Une version du dashboard attend une version de
+bibliothèque. Pas de dépôt tiers à synchroniser, pas de dérive silencieuse.
 
-Deuxième risque, plus insidieux : **la validation au démarrage ne protège plus rien** si
-c'est le dashboard qui a posé ce qu'il valide.
+**2. Propriété explicite.** Tout objet posé porte un label
+`app.kubernetes.io/managed-by: mse-dashboard` et une version. Le dashboard **ne touche
+jamais** ce qu'il n'a pas posé : `deploy-mse`, l'E2E maison, tout pipeline propre à un
+déploiement restent à leur propriétaire, et le catalogue continue de les référencer.
 
-**Position recommandée** — le dashboard *propose* et *vérifie*, il n'installe pas :
+**3. La validation au démarrage devient plus forte, pas plus faible.** C'était mon
+objection, et elle était mal posée : `goose` valide bien un schéma qu'il a lui-même
+appliqué, et cette validation sert — elle détecte l'application partielle, la dérive
+manuelle, le décalage de version. Ici de même :
 
-1. une bibliothèque versionnée de pipelines, en kustomizations ;
-2. le déploiement (Flux, kustomize) les applique — comme aujourd'hui ;
-3. l'écran des projets affiche ce qui est **disponible**, ce qui est **installé**, et
-   l'écart ;
-4. l'installation reste un geste d'exploitation, hors du dashboard.
+- ce qui est installé ne correspond pas à la version attendue → refus de démarrer ;
+- un objet a été modifié à la main → l'écart est nommé ;
+- le catalogue référence un pipeline absent → refus de démarrer, comportement actuel
+  ([06 §6.2]) conservé.
 
-On garde la découvrabilité — le vrai manque — sans le privilège ni la perte du
-garde-fou. Un mode « installateur » pourra venir plus tard, explicitement activé, si le
-besoin se confirme.
+**4. Le privilège reste borné.** Oui, `create/update` sur `Pipeline` et `Task` — dans le
+namespace des pipelines, sur les objets qu'il possède, et **jamais** `secrets`. La ligne
+tenue depuis le début ([07 §7.3]) n'est pas franchie : le dashboard désigne les
+identifiants, il ne les manipule pas.
 
----
+### La porte de sortie
+
+Un mode **bibliothèque externe** reste possible : le dashboard n'installe rien, vérifie
+seulement, et signale l'écart. Il sert les déploiements où l'application des manifestes
+passe obligatoirement par un pipeline d'exploitation. Ce n'est pas le défaut, c'est une
+dérogation — et elle ne coûte presque rien puisque la vérification existe de toute façon.
 
 ## 12.7 Ce que la mise en produit ajoute
 
@@ -369,14 +413,24 @@ forge et suivi. À faire en dernier pour cette raison.
 
 ### Lot F — Bibliothèque de pipelines
 
-Contrat public des pipelines, dépôt versionné, écran de découverte. **Sans installation
-par le dashboard** (voir [12.6](#126-architecture-de-pipelines)).
+Publier le contrat, embarquer le noyau — construction, re-tag — et l'installer par un
+rôle dédié, sur le modèle des migrations de schéma. Les implémentations de référence par
+pile suivent, installables à la demande.
+
+**Ce lot peut avancer en parallèle des autres.** Il ne dépend ni du multi-projet ni des
+contrats de fournisseurs : c'est de la machinerie propre au dashboard, et c'est ce qui
+rend une seconde instance possible sans forker `mse-tekton`. À prendre tôt si le besoin
+d'un second projet se présente avant que le lot B ne soit fini.
 
 ### Jalon de vérification
 
 Le projet est agnostique le jour où **une instance tourne sans plugin MSE** sur un projet
 qui n'a ni `PortalData`, ni bon de livraison, ni Redmine — et où l'interface le dit
 proprement au lieu d'afficher des trous.
+
+Il est **autonome** le jour où cette instance n'a eu besoin d'aucun dépôt de pipelines
+préexistant : le dashboard a posé son noyau, le projet a déclaré son dépôt, et une
+première release s'est construite.
 
 ---
 
@@ -388,6 +442,9 @@ proprement au lieu d'afficher des trous.
   plugins sont écrits par la même équipe.
 - **Ne pas rendre Tekton pluggable.** L'hypothèse est saine ; la remettre en cause
   doublerait le travail pour un gain hypothétique.
+- **Ne pas installer ce qu'on ne possède pas.** Le dashboard pose son noyau et ses
+  implémentations de référence, jamais les pipelines propres à un déploiement. La
+  frontière est un label, et elle doit être vérifiée par un test, pas par la discipline.
 - **Ne pas généraliser les parseurs de résultats.** JUnit, Trivy, k6 sont des formats
   d'outils, pas de projet : ils sont déjà génériques.
 - **Ne pas dissoudre les doctrines.** [B7] et [B17] sont les meilleures décisions du
