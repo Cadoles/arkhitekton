@@ -337,10 +337,10 @@ manuelle, le décalage de version. Ici de même :
 - le catalogue référence un pipeline absent → refus de démarrer, comportement actuel
   ([06 §6.2]) conservé.
 
-**4. Le privilège reste borné.** Oui, `create/update` sur `Pipeline` et `Task` — dans le
-namespace des pipelines, sur les objets qu'il possède, et **jamais** `secrets`. La ligne
-tenue depuis le début ([07 §7.3]) n'est pas franchie : le dashboard désigne les
-identifiants, il ne les manipule pas.
+**4. Le privilège est borné par la propriété, pas par la liste des verbes.** `create` et
+`patch` sur `Pipeline` et `Task`, dans le namespace des pipelines, sur les objets qu'il a
+posés et marqués comme siens. La question des secrets, que j'avais tranchée trop vite
+ici, est reprise en [12.7](#127-posture-dopérateur).
 
 ### La porte de sortie
 
@@ -349,15 +349,149 @@ seulement, et signale l'écart. Il sert les déploiements où l'application des 
 passe obligatoirement par un pipeline d'exploitation. Ce n'est pas le défaut, c'est une
 dérogation — et elle ne coûte presque rien puisque la vérification existe de toute façon.
 
-## 12.7 Ce que la mise en produit ajoute
+## 12.7 Posture d'opérateur
+
+### La règle disait moins que ce que j'en avais fait
+
+`deploy/base/rbac-tekton.yaml` motive l'absence de `secrets` ainsi :
+
+> `secrets` : le dashboard n'a aucune raison de **lire** les secrets de Tekton, et ce
+> namespace en contient (registre, clé SSH de déploiement, MinIO).
+
+C'est un interdit de **lecture**. En conclure que le dashboard ne doit jamais créer de
+secret était une extrapolation de ma part, et elle ne tient pas : en RBAC Kubernetes les
+verbes sont indépendants. `create`, `patch` et `delete` s'accordent **sans** `get` ni
+`list`.
+
+Un rôle qui crée les secrets qu'il possède, et qui ne peut lire aucun secret du
+namespace, est donc exprimable — et il honore le motif d'origine à la lettre.
+
+### Ce qui contient réellement un pipeline
+
+Deuxième correction. Ce n'est pas la RBAC du dashboard qui empêche une Task de se servir
+dans le namespace, c'est l'annotation portée par le compte de service :
+
+```yaml
+kubernetes.io/enforce-mountable-secrets: "true"
+```
+
+Le dashboard crée déjà des `PipelineRun`, donc indirectement des pods. Sans cette
+annotation, il pourrait déjà faire monter n'importe quel secret montable du namespace.
+**La défense est ailleurs que là où le document la plaçait**, et elle reste valable quelle
+que soit la posture retenue.
+
+### L'invariant à conserver
+
+Ce qui compte n'est pas le verbe RBAC, c'est ceci :
+
+> **La matière d'un secret ne transite jamais par une spec, un paramètre, un journal ou
+> une réponse d'API.**
+
+C'est cela que [B14] protège — les URLs pré-signées existent pour que les Tasks ne
+détiennent pas les identifiants MinIO — et [07 §7.3] avec sa règle « le dashboard désigne,
+il ne distribue pas ». Cet invariant survit intact à la posture d'opérateur, et [B14]
+garde sa raison d'être propre : monter des identifiants MinIO dans chaque pod de test
+élargirait l'exposition à tous les pipelines, ce qu'une URL à durée de vie bornée évite.
+
+### Ce que la posture d'opérateur débloque
+
+Elle résout un problème que [12.8](#128-ce-que-la-mise-en-produit-ajoute) laissait
+ouvert : **une clé de déploiement par projet**.
+
+Le dashboard génère la paire dans le cluster, écrit la moitié privée dans un secret que
+les pipelines montent, et n'affiche que la moitié publique. Il **n'a jamais besoin de
+relire** ce qu'il a écrit. Une clé compromise se révoque projet par projet ; aujourd'hui,
+une seule clé ouvre tous les dépôts déclarés, ce qui ne tient pas à l'échelle d'un
+produit.
+
+C'est un gain de sécurité, pas une concession.
+
+### L'exposition nouvelle, et comment la borner
+
+Elle est réelle et il faut la nommer : les identifiants **fournis par un humain** — jeton
+de forge, clé d'API du suivi, mot de passe de registre — transiteraient désormais par le
+navigateur et l'API, ce qui n'est pas le cas aujourd'hui où ils viennent de Vault.
+
+Quatre règles :
+
+1. **Champs en écriture seule.** Une valeur saisie n'est jamais renvoyée, ni en clair ni
+   masquée. L'écran affiche « renseigné le … », jamais la valeur.
+2. **Jamais en base.** Ces identifiants vont dans des `Secret`, pas dans PostgreSQL, qui
+   n'est ni chiffré au repos ni couvert par la RBAC du cluster.
+3. **Vault reste une option de premier rang.** `ExternalSecret` doit rester un chemin
+   supporté, et non un vestige : c'est le mode attendu en production réglementée.
+4. **Journalisé comme une action sortante.** « Qui a changé le jeton de la forge, et
+   quand » relève du journal d'audit au même titre qu'une promotion.
+
+### La frontière de propriété
+
+Comme pour les pipelines, mais avec des conséquences plus lourdes :
+
+- le dashboard ne crée que des secrets **qu'il nomme**, marqués `managed-by` ;
+- il **n'adopte jamais** un secret préexistant — trouver `regcred` déjà présent ne lui en
+  donne pas la propriété ;
+- il ne demande pas `get` ni `list` : il ne sait pas ce que le namespace contient d'autre ;
+- il **gère l'annotation `enforce-mountable-secrets`** du compte de service, puisqu'en
+  devenant propriétaire des secrets il devient responsable de ce qui peut les monter.
+
+Ce dernier point est une charge nouvelle, et elle est le prix de la posture. Elle doit
+être couverte par un test : un secret créé hors de la liste montable ne doit pas devenir
+montable par accident.
+
+### Le périmètre
+
+| Ressource | Qui l'installe |
+|---|---|
+| Tekton lui-même — contrôleur, CRD | **le cluster**, jamais le dashboard |
+| `Pipeline`, `Task` du noyau et de référence | le dashboard |
+| `Secret`, `ServiceAccount`, `PVC` de ses pipelines | le dashboard |
+| `PipelineRun` | le dashboard *(déjà)* |
+| `deploy-mse`, E2E maison, pipelines d'un déploiement | leur propriétaire |
+| PostgreSQL, MinIO — son propre socle | **le déploiement** |
+
+La dernière ligne mérite d'être explicite : le dashboard gère les ressources que Tekton
+consomme, **pas son propre socle d'exécution**. Une application qui provisionne sa propre
+base sort du modèle d'opérateur pour entrer dans celui d'un installateur de plateforme,
+et c'est un autre métier.
+
+### Le modèle d'opérateur, sans CRD
+
+Le dashboard est déjà à moitié un opérateur : il observe les `PipelineRun` par informer,
+réconcilie au démarrage, et tient un `Lease` d'élection de leader. Lui donner la
+propriété de ressources est un petit pas.
+
+Une différence assumée : **l'état désiré vit dans PostgreSQL, pas dans des CRD**. C'est
+une variante légitime — l'état est déjà relationnel, multi-entités, et interrogé par des
+écrans — mais elle a deux conséquences à écrire :
+
+- l'intention n'est **pas lisible par `kubectl`** ; le seul endroit qui dit ce que le
+  dashboard veut est sa base, et son interface ;
+- la dérive à réconcilier n'est pas « spec contre status » mais **base contre cluster**,
+  ce qui appelle une boucle de réconciliation continue, et non une installation unique.
+
+Cette boucle est un gain : un `Task` modifié à la main revient à sa version connue, au
+lieu de rester modifié jusqu'au prochain déploiement.
+
+### Ce que cela change au plan
+
+Le lot F cesse d'être « installer des pipelines » pour devenir **« posséder ses
+ressources »** : définitions, secrets, comptes de service, et la boucle qui les maintient.
+C'est plus large, mais c'est le lot qui rend l'autonomie réelle — sans lui, déclarer un
+projet dans l'interface laisse encore un geste manuel à faire dans le cluster, et
+l'autonomie s'arrête là.
+
+---
+
+## 12.8 Ce que la mise en produit ajoute
 
 Hors périmètre immédiat, mais à savoir avant de s'engager :
 
 - **Cloisonnement.** Les rôles sont globaux (`user_roles.role`). Plusieurs projets dans
   une instance exigent des rôles **par projet**.
 - **Secrets par projet.** La clé de déploiement unique tient pour trois dépôts d'une même
-  équipe. Elle ne tient pas pour des clients distincts — et générer une clé par projet
-  demande le droit `secrets` qu'on a refusé.
+  équipe ; elle ne tient pas pour des clients distincts. La posture d'opérateur
+  ([12.7](#127-posture-dopérateur)) la résout : une paire générée par projet, dont seule
+  la moitié publique est affichée.
 - **Montée de version du schéma** chez des tiers, sans accès à leur base.
 - **Surface de test.** Généraliser multiplie les combinaisons *forge × suivi ×
   déployeur*. Il faut **désigner une combinaison de référence** — Gitea + Redmine + Flux
@@ -366,7 +500,7 @@ Hors périmètre immédiat, mais à savoir avant de s'engager :
 
 ---
 
-## 12.8 Plan
+## 12.9 Plan
 
 Six lots, dans cet ordre. L'ordre n'est pas négociable sur les deux premiers : le reste
 en dépend.
@@ -411,11 +545,17 @@ déployeur » — vaut plus que dix pages de conception.
 Le plus intriqué (6 fichiers) : références, tags, PR, et la composition de note qui mêle
 forge et suivi. À faire en dernier pour cette raison.
 
-### Lot F — Bibliothèque de pipelines
+### Lot F — Bibliothèque de pipelines, et propriété des ressources
 
 Publier le contrat, embarquer le noyau — construction, re-tag — et l'installer par un
 rôle dédié, sur le modèle des migrations de schéma. Les implémentations de référence par
 pile suivent, installables à la demande.
+
+Puis étendre la propriété aux ressources que ces pipelines consomment : secrets, comptes
+de service, volumes, et la boucle de réconciliation qui les maintient
+([12.7](#127-posture-dopérateur)). C'est cette seconde moitié qui rend l'autonomie
+réelle — sans elle, déclarer un projet dans l'interface laisse encore un geste manuel à
+faire dans le cluster.
 
 **Ce lot peut avancer en parallèle des autres.** Il ne dépend ni du multi-projet ni des
 contrats de fournisseurs : c'est de la machinerie propre au dashboard, et c'est ce qui
@@ -434,7 +574,7 @@ première release s'est construite.
 
 ---
 
-## 12.9 Ce que je recommande de ne pas faire
+## 12.10 Ce que je recommande de ne pas faire
 
 - **Ne pas commencer par les plugins.** C'est la partie visible et la moins chère. Sans
   le multi-projet, elle ne débloque presque rien.
@@ -445,6 +585,11 @@ première release s'est construite.
 - **Ne pas installer ce qu'on ne possède pas.** Le dashboard pose son noyau et ses
   implémentations de référence, jamais les pipelines propres à un déploiement. La
   frontière est un label, et elle doit être vérifiée par un test, pas par la discipline.
+- **Ne pas demander `get` sur les secrets.** Créer ce qu'on possède ne suppose pas de
+  pouvoir lire ce qu'on ne possède pas. Les verbes RBAC sont indépendants, et cette
+  asymétrie est ce qui rend la posture d'opérateur défendable.
+- **Ne pas provisionner son propre socle.** PostgreSQL et MinIO restent au déploiement.
+  Une application qui installe sa propre base change de métier.
 - **Ne pas généraliser les parseurs de résultats.** JUnit, Trivy, k6 sont des formats
   d'outils, pas de projet : ils sont déjà génériques.
 - **Ne pas dissoudre les doctrines.** [B7] et [B17] sont les meilleures décisions du
