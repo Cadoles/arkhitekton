@@ -313,14 +313,26 @@ contrat à honorer.
 | Marqueurs de flux | `##MSE-…##` | préfixe réglable, à publier |
 | Version de l'image | `--build-arg VERSION` → `version.txt` ([P10]) | à publier comme contrat |
 
-### Le modèle d'installation : celui des migrations
+### Le modèle d'installation
 
-La bibliothèque est **embarquée dans le binaire** (`//go:embed`), comme les migrations de
-schéma, et appliquée par un rôle dédié au déploiement. Quatre propriétés en découlent,
-et elles répondent aux risques :
+Les deux tiers ne s'installent pas de la même façon, et le critère de
+[12.7](#127-posture-dopérateur) tranche : le noyau ne change qu'avec la version du
+dashboard, les implémentations de référence changent quand un projet déclare sa pile.
+
+| Tier | Livré par | Pourquoi |
+|---|---|---|
+| Noyau | le `deploy/` du dashboard | suit la version du binaire, comme le Job de migration |
+| Référence | le dashboard, à la demande | suit la déclaration d'un projet |
+
+Dans les deux cas la bibliothèque est **versionnée avec le binaire** — les manifestes du
+noyau vivent dans le dépôt du dashboard, les Task de référence y sont embarquées
+(`//go:embed`). Aucun dépôt tiers à synchroniser, aucune dérive silencieuse, et un
+déploiement neuf obtient les pipelines essentiels sans forker quoi que ce soit.
+
+Quatre propriétés en découlent, et elles répondent aux risques :
 
 **1. Versionnée avec le dashboard.** Une version du dashboard attend une version de
-bibliothèque. Pas de dépôt tiers à synchroniser, pas de dérive silencieuse.
+bibliothèque.
 
 **2. Propriété explicite.** Tout objet posé porte un label
 `app.kubernetes.io/managed-by: mse-dashboard` et une version. Le dashboard **ne touche
@@ -438,21 +450,70 @@ Ce dernier point est une charge nouvelle, et elle est le prix de la posture. Ell
 être couverte par un test : un secret créé hors de la liste montable ne doit pas devenir
 montable par accident.
 
-### Le périmètre
+### Le critère de partage : ce qui bouge sous l'action d'un utilisateur
 
-| Ressource | Qui l'installe |
-|---|---|
-| Tekton lui-même — contrôleur, CRD | **le cluster**, jamais le dashboard |
-| `Pipeline`, `Task` du noyau et de référence | le dashboard |
-| `Secret`, `ServiceAccount`, `PVC` de ses pipelines | le dashboard |
-| `PipelineRun` | le dashboard *(déjà)* |
-| `deploy-mse`, E2E maison, pipelines d'un déploiement | leur propriétaire |
-| PostgreSQL, MinIO — son propre socle | **le déploiement** |
+Le périmètre ne se décide pas par nature de ressource — « les secrets oui, les Task
+non » — mais par une question unique :
 
-La dernière ligne mérite d'être explicite : le dashboard gère les ressources que Tekton
-consomme, **pas son propre socle d'exécution**. Une application qui provisionne sa propre
-base sort du modèle d'opérateur pour entrer dans celui d'un installateur de plateforme,
-et c'est un autre métier.
+> **L'état désiré de cette ressource change-t-il quand quelqu'un agit dans
+> l'interface ?**
+
+Oui → le dashboard la crée et la réconcilie. Non → elle reste dans la kustomization.
+
+Le critère est meilleur que « tout ce que Tekton consomme », pour trois raisons. Il se
+décide sans débat pour chaque ressource nouvelle. Il borne l'opérateur à ce qu'il est
+seul à savoir — l'état vit dans sa base, et lui seul sait quand il change. Et il laisse
+au déploiement ce que le déploiement sait déjà faire, avec l'élagage, la revue et la
+traçabilité Git qui vont avec.
+
+| Ressource | Change sur action ? | Propriétaire |
+|---|---|---|
+| Tekton — contrôleur, CRD | non | **le cluster** |
+| PostgreSQL, MinIO — son propre socle | non | le déploiement |
+| `Role`, `RoleBinding` **du dashboard** | non | le déploiement |
+| `ServiceAccount` des pipelines, son existence | non | le déploiement |
+| `Pipeline` / `Task` du **noyau** — construction, re-tag | non | le déploiement |
+| Identifiants d'outillage partagés — tirage d'images | non | le déploiement |
+| Modèles de volume, classe de stockage | non | le déploiement |
+| `Pipeline` / `Task` de **référence**, par pile | **oui** — un projet déclare sa pile | le dashboard |
+| `Secret` de clé de déploiement, par projet | **oui** — on déclare un projet | le dashboard |
+| `Secret` de registre, par projet | **oui** — un projet publie ailleurs | le dashboard |
+| Liste des secrets montables | **oui** — dérivée des précédents | le dashboard |
+| `PipelineRun` | **oui** *(déjà)* | le dashboard |
+
+### Ce que ce partage corrige dans la section précédente
+
+**Le noyau de pipelines repasse au déploiement**, et c'est plus juste. Sa version suit
+celle du **binaire**, pas les actions d'un utilisateur : le livrer dans le `deploy/` du
+dashboard le fait arriver avec lui, exactement comme le Job de migration — qui est bien
+une ressource de la kustomization, et qui exécute pourtant du code du dashboard.
+
+L'autonomie est préservée : un nouveau déploiement obtient les pipelines essentiels sans
+forker quoi que ce soit, puisqu'ils viennent du dépôt du dashboard. Et la validation au
+démarrage retrouve sa forme la plus simple — elle vérifie ce que le déploiement a posé,
+comme aujourd'hui.
+
+Ne reste dynamique, côté pipelines, que **l'installation à la demande d'une
+implémentation de référence** : déclarer un projet PHP pose les Task PHP. Là, l'état
+désiré vient bien de la base.
+
+### Deux points que le critère laisse ouverts
+
+**La liste des secrets montables.** Elle est *dérivée* de ressources dynamiques mais
+portée par un objet fixe, le `ServiceAccount`. Deux voies :
+
+- le dashboard **patche ce seul champ** — chirurgical, mais il écrit dans un objet dont
+  il n'est pas propriétaire, ce que le critère cherchait justement à éviter ;
+- **un compte de service par projet**, entièrement dynamique — propriété nette, au prix
+  d'un objet de plus par projet et d'un `RoleBinding` à poser.
+
+La seconde est plus cohérente avec le critère. À trancher au moment de l'implémentation,
+avec le cas réel sous les yeux.
+
+**La RBAC du dashboard reste fixe, et ce n'est pas négociable.** Un opérateur qui peut
+modifier ses propres droits n'a plus de bornes. Elle est déclarée par le déploiement,
+revue en Git, et le dashboard ne demande jamais `roles` ni `rolebindings` sur lui-même.
+C'est ce qui rend le reste de la posture tenable.
 
 ### Le modèle d'opérateur, sans CRD
 
@@ -545,22 +606,29 @@ déployeur » — vaut plus que dix pages de conception.
 Le plus intriqué (6 fichiers) : références, tags, PR, et la composition de note qui mêle
 forge et suivi. À faire en dernier pour cette raison.
 
-### Lot F — Bibliothèque de pipelines, et propriété des ressources
+### Lot F — Bibliothèque de pipelines
 
-Publier le contrat, embarquer le noyau — construction, re-tag — et l'installer par un
-rôle dédié, sur le modèle des migrations de schéma. Les implémentations de référence par
-pile suivent, installables à la demande.
+Publier le contrat, et livrer le noyau — construction, re-tag — dans le `deploy/` du
+dashboard. Un déploiement neuf obtient alors les pipelines essentiels sans forker
+`mse-tekton`, ce qui suffit à rendre une seconde instance possible.
 
-Puis étendre la propriété aux ressources que ces pipelines consomment : secrets, comptes
-de service, volumes, et la boucle de réconciliation qui les maintient
-([12.7](#127-posture-dopérateur)). C'est cette seconde moitié qui rend l'autonomie
-réelle — sans elle, déclarer un projet dans l'interface laisse encore un geste manuel à
-faire dans le cluster.
+Pas d'installation par le dashboard à ce stade : le noyau ne change qu'avec la version du
+binaire, et le déploiement sait déjà poser ce qui bouge à ce rythme.
+
+### Lot G — Propriété des ressources dynamiques
+
+Ce que le dashboard est seul à savoir : clés de déploiement par projet, secrets de
+registre, implémentations de référence installées à la demande, et la boucle qui les
+réconcilie ([12.7](#127-posture-dopérateur)).
+
+C'est ce lot qui rend l'autonomie réelle — sans lui, déclarer un projet dans l'interface
+laisse encore un geste manuel à faire dans le cluster. Il vient **après** le multi-projet
+(lot B), qui donne son sens à « par projet ».
 
 **Ce lot peut avancer en parallèle des autres.** Il ne dépend ni du multi-projet ni des
-contrats de fournisseurs : c'est de la machinerie propre au dashboard, et c'est ce qui
-rend une seconde instance possible sans forker `mse-tekton`. À prendre tôt si le besoin
-d'un second projet se présente avant que le lot B ne soit fini.
+contrats de fournisseurs, et c'est le moins cher de tous depuis qu'il se réduit à
+déplacer des manifestes et à écrire un contrat. À prendre tôt si un second projet se
+présente avant que le lot B ne soit fini.
 
 ### Jalon de vérification
 
@@ -590,6 +658,11 @@ première release s'est construite.
   asymétrie est ce qui rend la posture d'opérateur défendable.
 - **Ne pas provisionner son propre socle.** PostgreSQL et MinIO restent au déploiement.
   Une application qui installe sa propre base change de métier.
+- **Ne pas gérer ce qui ne bouge pas.** Une ressource dont l'état désiré ne change
+  qu'avec la version du binaire appartient au déploiement : il sait l'élaguer, la revoir
+  en Git et la tracer. La réconciliation est un coût, elle doit acheter quelque chose.
+- **Ne jamais posséder sa propre RBAC.** Un opérateur qui peut modifier ses droits n'a
+  plus de bornes. C'est ce qui rend le reste de la posture tenable.
 - **Ne pas généraliser les parseurs de résultats.** JUnit, Trivy, k6 sont des formats
   d'outils, pas de projet : ils sont déjà génériques.
 - **Ne pas dissoudre les doctrines.** [B7] et [B17] sont les meilleures décisions du
