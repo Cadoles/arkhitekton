@@ -204,6 +204,13 @@ dashboard ──▶ promote-image (crane tag) ──▶ registre ──▶ FluxC
 - **`promote-image` est le mécanisme de release.** Il re-tague `portal` et
   `portal-cli` et publie sur le registre. C'est le seul geste que le dashboard
   déclenche.
+- **`portal-dev` est construite mais jamais promue.** La construction publie une
+  troisième image, celle de développement : elle embarque xdebug, xhprof et le
+  client PostgreSQL, et fait tourner le job de bootstrap des overlays `dev` et
+  `pipeline` — seul à savoir charger le jeu de données de test. Aucun
+  environnement du flux de promotion ne la déploie, donc rien ne la re-tague. Elle
+  reste atteignable par son tag de version, ce qui permet de reproduire un défaut
+  sur exactement la version livrée.
 - **FluxCD prend le relais** et déploie sur les environnements cibles en fonction du tag
   de l'image. Le dashboard n'intervient pas dans cette phase.
 - **`deploy-mse` est hors flux.** Il sert uniquement au pipeline de tests d'intégration,

@@ -30,6 +30,13 @@ const (
 	CLI = "portal-cli"
 )
 
+// La construction publie une troisième image, `portal-dev`, absente d'ici à
+// dessein : le dashboard ne la nomme jamais. Elle n'est pas promue — aucun
+// environnement du flux de promotion ne la déploie —, elle n'est pas auditée —
+// elle n'est pas livrée, et ses outils de développement noieraient les constats
+// réels —, et le pipeline d'intégration la désigne par son propre paramètre.
+// L'inscrire ici créerait un nom que personne n'emploie.
+
 // Repository compose le dépôt complet, sans tag.
 //
 // Vide quand le projet l'est : mieux vaut ne rien afficher qu'un nom tronqué qui

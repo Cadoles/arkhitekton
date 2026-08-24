@@ -13,8 +13,8 @@ Déploiement kustomize (`base/` + `overlays/local|prod`), namespace cible
 | `php-integration-test` | build + déploiement éphémère dans `mse-pipeline` + PHPUnit `--testsuite integration` | `Tekton-Event: test-integration`, CronJob nocturne | `mse-revision`, `mse-kustom-revision`, `tag-name`, `integration-timeout` |
 | `e2e-test` | Cypress sur un environnement déployé | `Tekton-Event: test-e2e`, CronJob `0 3 * * *` | `repo-url` (**GitLab**, pas Gitea), `revision`, `environment` |
 | `security-audit` | Trivy (image/fs/config), Semgrep, Gitleaks, composer audit, puis normalisation | `Tekton-Event: security-audit`, CronJob | `app-revision`, `mse-kustom-revision`, `tekton-revision` |
-| `build-image` | buildx des images `portal` (cible `web`) et `portal-cli` (cible `cli`), push registre | `Tekton-Event: build` | `revision`, `tag-name`, `reg-project` |
-| `promote-image` | re-tag des deux images via `crane tag` | `Tekton-Event: promote` | `old-tag`, `new-tag` |
+| `build-image` | buildx des images `portal` (cible `web`), `portal-cli` (cible `cli`) et `portal-dev` (cible `dev`), push registre | `Tekton-Event: build` | `revision`, `tag-name`, `reg-project` |
+| `promote-image` | re-tag de `portal` et `portal-cli` via `crane tag` — `portal-dev` n'est pas promue | `Tekton-Event: promote` | `old-tag`, `new-tag` |
 | `deploy-mse` | clone `mse-kustom` puis `tekton-mse-manager deploy` | **aucun** — pipeline sans Trigger | `namespace`, `replace-image-mapping`, `overlay-location`, `reset-data` |
 
 Tous les Triggers sont agrégés par l'`EventListener` `mse-listener`, exposé en interne
