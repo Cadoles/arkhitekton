@@ -176,12 +176,12 @@ indispensable. Il reste utile pour l'homogénéité et pour un déclenchement ho
 dashboard. À arbitrer avec l'équipe `mse-tekton` — sans impact sur le planning du
 dashboard.
 
-**Point tranché depuis :** le déploiement d'un environnement passe par `promote-image`
+**Point tranché depuis :** le déploiement d'un environnement passe par `retag-image`
 (re-tag avec métadonnée SemVer), FluxCD prenant le relais. `deploy-mse` reste réservé au
 pipeline d'intégration et à son namespace `mse-pipeline`. Le dashboard n'écrit jamais
 dans les clusters d'environnement ([B7](02-blocages-et-decisions.md#b7)).
 
-`promote-image` fonctionne tel quel : le séparateur retenu est l'**underscore**
+`retag-image` fonctionne tel quel : le séparateur retenu est l'**underscore**
 (`1.8.0-rc1_testing`), caractère valide dans un tag OCI — contrairement au `+` de la
 notation SemVer. Aucun ajustement de la Task n'est nécessaire, le dashboard lui passant
 le tag déjà construit en `new-tag`.

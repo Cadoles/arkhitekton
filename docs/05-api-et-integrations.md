@@ -215,7 +215,7 @@ inverse par digest s'avère impraticable en OCI pur — auquel cas
 directement.
 
 Compte de service en **lecture seule** : le dashboard ne pousse ni ne re-tague
-lui-même. Le re-tag passe par le pipeline `promote-image`, qui a déjà les droits
+lui-même. Le re-tag passe par le pipeline `retag-image`, qui a déjà les droits
 nécessaires via le secret `regcred`.
 
 ## 5.6 Kubernetes

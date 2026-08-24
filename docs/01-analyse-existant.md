@@ -13,8 +13,8 @@ Déploiement kustomize (`base/` + `overlays/local|prod`), namespace cible
 | `php-integration-test` | build + déploiement éphémère dans `mse-pipeline` + PHPUnit `--testsuite integration` | `Tekton-Event: test-integration`, CronJob nocturne | `mse-revision`, `mse-kustom-revision`, `tag-name`, `integration-timeout` |
 | `e2e-test` | Cypress sur un environnement déployé | `Tekton-Event: test-e2e`, CronJob `0 3 * * *` | `repo-url` (**GitLab**, pas Gitea), `revision`, `environment` |
 | `security-audit` | Trivy (image/fs/config), Semgrep, Gitleaks, composer audit, puis normalisation | `Tekton-Event: security-audit`, CronJob | `app-revision`, `mse-kustom-revision`, `tekton-revision` |
-| `build-image` | buildx des images `portal` (cible `web`), `portal-cli` (cible `cli`) et `portal-dev` (cible `dev`), push registre | `Tekton-Event: build` | `revision`, `tag-name`, `reg-project` |
-| `promote-image` | re-tag de `portal` et `portal-cli` via `crane tag` — `portal-dev` n'est pas promue | `Tekton-Event: promote` | `old-tag`, `new-tag` |
+| `build-image` | buildx d'**une** image, nommée en paramètre, puis push registre. Une release en lance trois | `Tekton-Event: build` | `revision`, `tag-name`, `reg-project` |
+| `retag-image` | re-tag d'**une** image via `crane tag`. Une promotion en lance deux — `portal-dev` n'est pas promue | `Tekton-Event: promote` | `old-tag`, `new-tag` |
 | `deploy-mse` | clone `mse-kustom` puis `tekton-mse-manager deploy` | **aucun** — pipeline sans Trigger | `namespace`, `replace-image-mapping`, `overlay-location`, `reset-data` |
 
 Tous les Triggers sont agrégés par l'`EventListener` `mse-listener`, exposé en interne
@@ -154,7 +154,7 @@ de `release.checks` (automatique, « CI / Pipelines ») et `environment.validati
 | Environnements | unstable, testing, preprod, prod | unstable, **qualif**, preprod, prod | `mse-pipeline` (éphémère), param `environment` défaut `dev` | **tranché** — `qualif` retenu, `testing` = alias, `dev` hors périmètre |
 | Frontend | React | **Vue 3** | — | **tranché** — React, maquette portée |
 | Tests de charge | demandés | affichés (`BenchPanel`, `perf`) | **inexistants** | outil = k6, runner hors cluster à l'étude *(B16)* |
-| Release / pré-release | pilotée par le dashboard | version affichée | `promote-image` seul ; **release Gitea manuelle** | à construire *(B3)* |
+| Release / pré-release | pilotée par le dashboard | version affichée | `retag-image` seul ; **release Gitea manuelle** | à construire *(B3)* |
 | Périmètre de la maquette | pilotage + consultation | **consultation seule** | — | pilotage entièrement à concevoir |
 | Anomalies Redmine | demandées | `issues[]` en dur | — | à construire |
 | Actions manuelles | demandées | absentes de la maquette | — | **tranché** — champ texte libre éditable |

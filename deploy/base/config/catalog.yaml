@@ -166,9 +166,14 @@ pipelines:
   # branche, et le même tag part en `--build-arg VERSION` pour être inscrit dans
   # `/app/version.txt`. C'est ce qui rend l'image identifiable par ce qu'elle
   # rapporte d'elle-même, et donc l'invariant de version vérifiable (B17, P10).
+  # Une exécution, une image. Le pipeline portait les trois cibles du Dockerfile
+  # en dur ; il en prend désormais une en paramètre, et le dashboard lance autant
+  # d'exécutions que d'images à produire. Chacune apparaît, échoue et se relance
+  # séparément — un `portal-dev` en échec ne fait plus perdre le portail déjà
+  # construit.
   - kind: build
     pipelineRef: build-image
-    label: Construction des images
+    label: Construction d'image
     # `parallel` : deux constructions de versions différentes ne se gênent pas,
     # elles écrivent sous des tags distincts. La sérialisation du registre ne
     # concerne que le re-tag, où deux manifestes visent le même dépôt.
@@ -187,6 +192,11 @@ pipelines:
       # Repli de nommage de la Task quand `version` est vide. Transmis pour que
       # le pipeline reste utilisable tel quel hors dashboard.
       tag-name: { source: input, required: true, suggest: release-tag }
+      # Le dépôt publié et la cible du Dockerfile qui l'alimente. Deux paramètres
+      # et non un : la correspondance appartient à l'appelant, et une cible
+      # renommée ne doit pas obliger à renommer un dépôt du registre.
+      image-name: { source: input, required: true, suggest: image-name }
+      target: { source: input, required: true, suggest: build-target }
     workspaces:
       - name: git-credentials
         secret: { configKey: pipeline.gitSecret }
@@ -198,21 +208,25 @@ pipelines:
           storageClassName: standard
           storage: 2Gi
 
-  - kind: promote
-    pipelineRef: promote-image
-    label: Promotion d'image
+  # Re-tag, et non « promotion » : le pipeline ne promeut rien, il pose un tag
+  # supplémentaire sur un digest existant. C'est Flux qui déploie, en constatant
+  # ce tag (B7). Et le dashboard s'en sert aussi hors promotion — donner à une
+  # release finale son propre tag depuis celui de sa pré-release source —, où le
+  # mot « promotion » induisait franchement en erreur.
+  - kind: retag
+    pipelineRef: retag-image
+    label: Re-tag d'image
     # Le registre supporte mal deux re-tags simultanés sur le même dépôt : les
     # sérialiser coûte quelques secondes et évite des manifestes concurrents.
-    # Une seule à la fois : elle déploie ou mesure une cible unique, et deux
-    # exécutions simultanées se marcheraient dessus.
     maxConcurrent: 1
     params:
       reg-project: { source: config, key: registry.project }
+      image-name: { source: input, required: true, suggest: image-name }
       old-tag: { source: input, required: true, suggest: release-tag }
       new-tag: { source: input, required: true, suggest: release-tag }
     workspaces:
-      - name: git-credentials
-        secret: { configKey: pipeline.gitSecret }
+      # Ni dépôt cloné, ni fichier échangé : le re-tag ne manipule que des
+      # manifestes. Le workspace `git-credentials` qu'il montait n'a jamais servi.
       - name: dockerconfig
         secret: { configKey: pipeline.registrySecret }
 

@@ -62,7 +62,7 @@ l'historique rejouable : normaliser à l'écriture, comme le fait aujourd'hui
 bucket sans transaction.
 
 **Le dashboard demande, il ne déploie pas.** La chaîne réelle est
-`promote-image` → registre → **FluxCD** → environnement
+`retag-image` → registre → **FluxCD** → environnement
 ([B7](02-blocages-et-decisions.md#b7)). Le dashboard déclenche le re-tag et **constate**
 la suite : rapprochement Flux, rollout, puis migrations rapportées par le CRD
 `PortalData` ([B8](02-blocages-et-decisions.md#b8)). Il n'écrit jamais dans les clusters

@@ -28,14 +28,41 @@ const (
 	// `portal-consumer` jusqu'à la migration FrankenPHP, où elle a cessé de ne
 	// servir que les consumers.
 	CLI = "portal-cli"
+	// Dev est l'image « grasse » : xdebug, xhprof, client PostgreSQL. Elle fait
+	// tourner le job de bootstrap des overlays à fausses données, et permet de
+	// reproduire un défaut sur exactement la version livrée.
+	Dev = "portal-dev"
 )
 
-// La construction publie une troisième image, `portal-dev`, absente d'ici à
-// dessein : le dashboard ne la nomme jamais. Elle n'est pas promue — aucun
-// environnement du flux de promotion ne la déploie —, elle n'est pas auditée —
-// elle n'est pas livrée, et ses outils de développement noieraient les constats
-// réels —, et le pipeline d'intégration la désigne par son propre paramètre.
-// L'inscrire ici créerait un nom que personne n'emploie.
+// Buildable énumère ce qu'une release construit.
+//
+// La liste est ici parce que le dashboard doit la parcourir : le pipeline de
+// construction ne traite plus qu'une image par exécution, et c'est l'appelant qui
+// décide combien il en lance. Elle vit à côté des noms plutôt que dans le
+// catalogue parce qu'elle est indissociable des cibles du Dockerfile de `mse` —
+// une image sans cible n'est pas constructible, et le catalogue ne saurait pas le
+// dire.
+var Buildable = []Build{
+	{Name: Web, Target: "web"},
+	{Name: CLI, Target: "cli"},
+	{Name: Dev, Target: "dev"},
+}
+
+// Build associe un dépôt publié à la cible du Dockerfile qui l'alimente.
+//
+// Deux champs et non un : la correspondance appartient au dashboard, et une
+// cible renommée côté `mse` ne doit pas obliger à renommer un dépôt du registre.
+type Build struct {
+	Name   string
+	Target string
+}
+
+// Promotable énumère ce qu'un re-tag propage.
+//
+// `portal-dev` en est absente, et c'est la seule différence avec Buildable :
+// aucun environnement du flux de promotion ne la déploie, et la re-taguer en
+// préproduction reviendrait à annoncer comme livrable une image qui ne l'est pas.
+var Promotable = []string{Web, CLI}
 
 // Repository compose le dépôt complet, sans tag.
 //

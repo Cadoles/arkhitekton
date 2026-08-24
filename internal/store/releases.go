@@ -563,6 +563,62 @@ func (db *DB) CountVerifications(
 	return tally, nil
 }
 
+// BuildTally compte les constructions d'une release.
+type BuildTally struct {
+	Pending   int
+	Failed    int
+	Succeeded int
+}
+
+// Done dit que toutes les images ont été construites, et aucune en échec.
+//
+// Une série vide n'est pas conclue, pour la même raison que les vérifications :
+// entre l'écriture de `building` et la mise en file des constructions, il existe
+// un instant où le décompte est nul, et une redélivrance tardive y verrait « tout
+// a réussi ».
+func (t BuildTally) Done() bool {
+	return t.Pending == 0 && t.Failed == 0 && t.Succeeded > 0
+}
+
+// CountBuilds compte les constructions d'une release, une par image.
+//
+// Une release construit désormais plusieurs images — le pipeline n'en traite
+// qu'une par exécution — et elle n'est construite que lorsque **toutes** ont
+// abouti. Compter en base plutôt que retenir un état en mémoire est ce qui rend
+// la conclusion correcte après un redémarrage du worker : les runs continuent
+// pendant qu'il ne tourne pas.
+//
+// Le **dernier** essai de chaque image, et non tous : relancer une construction
+// laisserait sinon ses tentatives précédentes dans le décompte, et une release
+// dont la reprise passe entièrement resterait en échec pour un verdict que le
+// dernier essai a remplacé.
+//
+// Le regroupement se fait sur le paramètre `image-name`, seul à dire quelle image
+// un job construit. Les jobs antérieurs à ce paramètre le portent à `null` et se
+// regroupent donc ensemble, ce qui est le comportement d'avant : une release
+// construite par l'ancien pipeline avait bien une seule construction.
+func (db *DB) CountBuilds(ctx context.Context, releaseID int64, buildKind string) (BuildTally, error) {
+	var tally BuildTally
+	err := db.pool.QueryRow(ctx,
+		`with derniers as (
+		     select distinct on (params->>'image-name') params->>'image-name' as image, state
+		       from jobs
+		      where release_id = $1 and kind = $2
+		      order by params->>'image-name', id desc
+		 )
+		 select
+		     count(*) filter (where state in ('queued', 'running')),
+		     count(*) filter (where state = 'failed'),
+		     count(*) filter (where state = 'succeeded')
+		 from derniers`,
+		releaseID, buildKind).
+		Scan(&tally.Pending, &tally.Failed, &tally.Succeeded)
+	if err != nil {
+		return BuildTally{}, fmt.Errorf("constructions de la release %d: %w", releaseID, err)
+	}
+	return tally, nil
+}
+
 // ReleaseBadges porte ce qu'un écran affiche à côté du nom d'une release, sans
 // avoir à la déplier.
 type ReleaseBadges struct {

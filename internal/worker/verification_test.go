@@ -23,6 +23,10 @@ type fakeVerificationStore struct {
 	// jobRelease associe un job à sa release. Nil, tous les jobs en rendent une
 	// vide — le comportement des tests qui ne s'y intéressent pas.
 	jobRelease map[int64]store.JobReleaseContext
+	// builds est le décompte des constructions rendu à l'observateur. Zéro
+	// valeur : une seule construction réussie, ce qui est le cas des tests qui ne
+	// s'intéressent pas à la multiplicité des images.
+	builds store.BuildTally
 }
 
 func (f *fakeVerificationStore) Enqueue(_ context.Context, request store.JobRequest) (int64, error) {
@@ -235,6 +239,15 @@ func (f *fakeVerificationStore) AdvanceReleaseState(_ context.Context, _ int64, 
 	f.state = to
 	f.advances++
 	return true, nil
+}
+
+func (f *fakeVerificationStore) CountBuilds(
+	_ context.Context, _ int64, _ string,
+) (store.BuildTally, error) {
+	if f.builds == (store.BuildTally{}) {
+		return store.BuildTally{Succeeded: 1}, nil
+	}
+	return f.builds, nil
 }
 
 func (f *fakeVerificationStore) JobRelease(_ context.Context, jobID int64) (store.JobReleaseContext, error) {
@@ -568,5 +581,78 @@ func TestLesFamillesRelancablesSontCellesQuiSontEnchainees(t *testing.T) {
 		if !enchainees[kind] {
 			t.Errorf("%s est relançable mais n'est jamais enchaîné", kind)
 		}
+	}
+}
+
+/*
+ * Une release construit plusieurs images, et le pipeline n'en traite qu'une par
+ * exécution : la conclusion est donc appelée une fois par image.
+ *
+ * Elle ne doit avancer qu'à la dernière. Avancer à la première ferait partir les
+ * vérifications sur une release dont deux images sur trois n'existent pas encore
+ * au registre — l'audit et l'intégration échoueraient sur un tirage impossible,
+ * et l'échec désignerait le test au lieu de la construction.
+ */
+func TestUneConstructionPartielleNeFaitPasAvancerLaRelease(t *testing.T) {
+	fake := &fakeVerificationStore{
+		state: "building",
+		// Deux images sur trois : la troisième tourne encore.
+		builds: store.BuildTally{Pending: 1, Succeeded: 2},
+	}
+	sink := sinkFor(fake, verificationCatalog())
+	sink.releases = fake
+
+	linked := store.JobReleaseContext{
+		ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "build",
+		State: "building", GitCommit: "abc123",
+	}
+
+	if err := sink.advanceRelease(context.Background(), linked, store.JobSucceeded); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+	if fake.state != "building" {
+		t.Errorf("état %q, attendu building: une image reste à construire", fake.state)
+	}
+	if len(fake.enqueued) != 0 {
+		t.Errorf("%d vérification(s) lancées trop tôt: %+v", len(fake.enqueued), fake.enqueued)
+	}
+
+	// La dernière image conclut la série, et c'est elle qui déclenche les tests.
+	fake.builds = store.BuildTally{Succeeded: 3}
+	if err := sink.advanceRelease(context.Background(), linked, store.JobSucceeded); err != nil {
+		t.Fatalf("conclusion finale: %v", err)
+	}
+	if fake.state != "verifying" {
+		t.Errorf("état %q, attendu verifying", fake.state)
+	}
+	if len(fake.enqueued) == 0 {
+		t.Error("aucune vérification lancée après la dernière image")
+	}
+}
+
+// Un échec conclut tout de suite, sans attendre les autres images. Les faire
+// tourner produirait un résultat dont on sait déjà qu'il ne servira pas, et
+// retarderait d'autant le moment où l'écran dit ce qui ne va pas.
+func TestUneImageEnEchecConclutSansAttendreLesAutres(t *testing.T) {
+	fake := &fakeVerificationStore{
+		state:  "building",
+		builds: store.BuildTally{Pending: 2},
+	}
+	sink := sinkFor(fake, verificationCatalog())
+	sink.releases = fake
+
+	linked := store.JobReleaseContext{
+		ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "build",
+		State: "building", GitCommit: "abc123",
+	}
+
+	if err := sink.advanceRelease(context.Background(), linked, store.JobFailed); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+	if fake.state != "failed" {
+		t.Errorf("état %q, attendu failed", fake.state)
+	}
+	if len(fake.enqueued) != 0 {
+		t.Errorf("%d vérification(s) lancées sur une construction en échec", len(fake.enqueued))
 	}
 }

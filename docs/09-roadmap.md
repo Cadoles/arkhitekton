@@ -118,14 +118,14 @@ validée ([B17](02-blocages-et-decisions.md#b17)).*
 - Cycle de vie des releases et table de transitions, invariant de version
   ([B17](02-blocages-et-decisions.md#b17)).
 - Création de tag et de release Gitea via l'API — c'est le segment aujourd'hui manuel.
-- **Release finale par re-tag** : `promote-image` avec `old-tag` = la RC validée,
+- **Release finale par re-tag** : `retag-image` avec `old-tag` = la RC validée,
   `image_version` et `source_release_id` renseignés, héritage des résultats de tests de
   la RC source, avertissement si ses tests ne sont pas au vert.
 - Enchaînement vers `build-image`, avec le tag SemVer passé en paramètre et
   `version.txt` baké (prérequis [P10](10-prerequis-mse-tekton.md)).
 - Inventaire des images et digests via le registre.
 - **Promotion** : construction du tag suffixé depuis `promotion_suffix` et le gabarit
-  configurable, déclenchement de `promote-image`, puis suivi de la chaîne Flux →
+  configurable, déclenchement de `retag-image`, puis suivi de la chaîne Flux →
   rollout → migrations. Le dashboard demande et constate, il ne déploie pas
   ([B7](02-blocages-et-decisions.md#b7)).
 - Vérification au démarrage : `promotion_suffix` et `accepts_prerelease` confrontés aux

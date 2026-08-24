@@ -158,11 +158,18 @@ const (
 	SuggestEnvironment   = "environment"
 	SuggestPortalImage   = "portal-image"
 	SuggestConsumerImage = "consumer-image"
+	// SuggestImageName propose les dépôts publiés — `portal`, `portal-cli`,
+	// `portal-dev` — pour les pipelines qui en prennent un en paramètre depuis
+	// qu'ils n'en traitent qu'un par exécution.
+	SuggestImageName = "image-name"
+	// SuggestBuildTarget propose les cibles du Dockerfile qui les alimentent.
+	SuggestBuildTarget = "build-target"
 )
 
 var suggestions = map[string]bool{
 	SuggestGitRef: true, SuggestReleaseTag: true, SuggestEnvironment: true,
 	SuggestPortalImage: true, SuggestConsumerImage: true,
+	SuggestImageName: true, SuggestBuildTarget: true,
 }
 
 // Input décrit un paramètre à fournir au lancement.

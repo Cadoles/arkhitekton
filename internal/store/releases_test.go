@@ -227,3 +227,130 @@ func TestEnvironmentHistoryFollowsWhatWasRequested(t *testing.T) {
 		t.Errorf("première entrée = %q, attendu la plus récente", history[0].ReleaseTag)
 	}
 }
+
+// buildJob met en file une construction d'image et la conclut.
+func buildJob(t *testing.T, db *DB, releaseID int64, image, state string) int64 {
+	t.Helper()
+	ctx := context.Background()
+
+	id, err := db.Enqueue(ctx, JobRequest{
+		Kind:        "build",
+		Params:      map[string]string{"image-name": image, "target": "web"},
+		RequestedBy: "vcarroy",
+		ReleaseID:   &releaseID,
+	})
+	if err != nil {
+		t.Fatalf("mise en file de %s: %v", image, err)
+	}
+	if state != JobQueued {
+		if err := db.FinishJob(ctx, id, state, ""); err != nil {
+			t.Fatalf("conclusion de %s: %v", image, err)
+		}
+	}
+	return id
+}
+
+/*
+ * Le décompte des constructions.
+ *
+ * Une release en lance plusieurs — le pipeline ne construit qu'une image par
+ * exécution — et n'est construite que lorsque toutes ont abouti. Compter en base
+ * plutôt que retenir un état en mémoire est ce qui rend la conclusion correcte
+ * après un redémarrage du worker : les runs continuent pendant qu'il ne tourne
+ * pas.
+ */
+func TestLeDecompteDesConstructionsAttendToutesLesImages(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 930, "v3.3.0", "open")
+	releaseID, err := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.3.0-rc1", Kind: "pre", State: "building",
+		ImageVersion: "3.3.0-rc1", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	buildJob(t, db, releaseID, "portal", JobSucceeded)
+	buildJob(t, db, releaseID, "portal-cli", JobSucceeded)
+	buildJob(t, db, releaseID, "portal-dev", JobQueued)
+
+	tally, err := db.CountBuilds(ctx, releaseID, "build")
+	if err != nil {
+		t.Fatalf("décompte: %v", err)
+	}
+	if tally.Done() {
+		t.Errorf("série conclue alors qu'une image reste à construire: %+v", tally)
+	}
+	if tally.Pending != 1 || tally.Succeeded != 2 {
+		t.Errorf("décompte = %+v", tally)
+	}
+
+	if err := db.FinishJob(ctx, buildJob(t, db, releaseID, "portal-dev", JobQueued),
+		JobSucceeded, ""); err != nil {
+		t.Fatalf("conclusion: %v", err)
+	}
+	// Le **dernier** essai de chaque image, et non tous : la première mise en
+	// file de `portal-dev` reste `queued` et ne doit plus compter.
+	tally, _ = db.CountBuilds(ctx, releaseID, "build")
+	if !tally.Done() || tally.Succeeded != 3 {
+		t.Errorf("décompte après la dernière image = %+v", tally)
+	}
+}
+
+// Un échec suffit à disqualifier la série, même si les autres images passent.
+func TestUneImageEnEchecEmpecheLaConclusion(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 931, "v3.4.0", "open")
+	releaseID, err := db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.4.0-rc1", Kind: "pre", State: "building",
+		ImageVersion: "3.4.0-rc1", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	buildJob(t, db, releaseID, "portal", JobSucceeded)
+	buildJob(t, db, releaseID, "portal-cli", JobFailed)
+
+	tally, _ := db.CountBuilds(ctx, releaseID, "build")
+	if tally.Done() || tally.Failed != 1 {
+		t.Errorf("décompte = %+v", tally)
+	}
+
+	// La reprise remplace l'essai précédent : une release dont la seconde
+	// tentative passe entièrement ne doit pas rester en échec pour un verdict
+	// que le dernier essai a remplacé.
+	buildJob(t, db, releaseID, "portal-cli", JobSucceeded)
+	tally, _ = db.CountBuilds(ctx, releaseID, "build")
+	if !tally.Done() || tally.Failed != 0 {
+		t.Errorf("décompte après reprise = %+v", tally)
+	}
+}
+
+// Une série vide n'est pas conclue : entre l'écriture de `building` et la mise
+// en file des constructions, il existe un instant où le décompte est nul, et une
+// redélivrance tardive y verrait « tout a réussi ».
+func TestUneSerieVideNestPasConclue(t *testing.T) {
+	db := migrated(t)
+
+	versionID := redmineVersion(t, db, 932, "v3.5.0", "open")
+	releaseID, err := db.CreateRelease(context.Background(), Release{
+		VersionID: versionID, Tag: "3.5.0-rc1", Kind: "pre", State: "building",
+		ImageVersion: "3.5.0-rc1", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	tally, err := db.CountBuilds(context.Background(), releaseID, "build")
+	if err != nil {
+		t.Fatalf("décompte: %v", err)
+	}
+	if tally.Done() {
+		t.Error("une série vide ne doit pas être conclue")
+	}
+}

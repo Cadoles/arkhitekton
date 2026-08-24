@@ -311,7 +311,8 @@ export type CreatedRelease = {
    *  file. La création a réussi malgré elles : les taire ferait croire à un
    *  succès sans condition. */
   warnings?: string[]
-  retag_job_id?: number
+  /** Une exécution par image promue : le pipeline de re-tag n'en traite qu'une. */
+  retag_job_ids?: number[]
 }
 
 /**
@@ -413,7 +414,7 @@ export function useRebuild(tag: string) {
 
   return useMutation({
     mutationFn: () =>
-      request<{ release: Release; build_job_id: number }>(
+      request<{ release: Release; build_job_ids: number[] }>(
         `/releases/${encodeURIComponent(tag)}/build`,
         { method: 'POST' },
       ),

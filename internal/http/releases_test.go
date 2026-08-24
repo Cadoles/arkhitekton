@@ -12,6 +12,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -233,7 +234,7 @@ func (f *fakeForge) CreateTag(_ context.Context, tag, commit, _ string) error {
 func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler {
 	t.Helper()
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
-		{Kind: "promote", PipelineRef: "promote-image"},
+		{Kind: "retag", PipelineRef: "retag-image"},
 		{Kind: "build", PipelineRef: "build-image"},
 	}}
 	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
@@ -293,10 +294,14 @@ func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(fake.jobs) != 1 {
-		t.Fatalf("%d job(s) mis en file", len(fake.jobs))
+	// Une exécution par image promue : le pipeline de re-tag n'en traite qu'une.
+	if len(fake.jobs) != len(imagenames.Promotable) {
+		t.Fatalf("%d job(s) mis en file, attendu %d", len(fake.jobs), len(imagenames.Promotable))
 	}
 	job := fake.jobs[0]
+	if job.Params["image-name"] != imagenames.Web {
+		t.Errorf("première image promue = %q", job.Params["image-name"])
+	}
 	if job.Params["new-tag"] != "1.8.0_prod" {
 		t.Errorf("new-tag = %q, attendu 1.8.0_prod", job.Params["new-tag"])
 	}
@@ -304,10 +309,26 @@ func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
 	if job.Params["old-tag"] != "1.8.0-rc3" {
 		t.Errorf("old-tag = %q, attendu 1.8.0-rc3", job.Params["old-tag"])
 	}
-	// La promotion est enregistrée **demandée**, sans digest : le re-tag n'a pas
-	// encore eu lieu.
-	if len(fake.promotions) != 1 || fake.promotions[0].Digest != "" {
-		t.Errorf("promotions = %+v", fake.promotions)
+	// Une ligne de promotion par image, et non une seule. La table les distingue
+	// par son nom d'image ; n'en écrire qu'une laissait `portal-cli` promue sans
+	// trace, donc sans moyen de dire que son re-tag avait échoué.
+	if len(fake.promotions) != len(imagenames.Promotable) {
+		t.Fatalf("promotions = %+v", fake.promotions)
+	}
+	recorded := map[string]store.Promotion{}
+	for _, promotion := range fake.promotions {
+		recorded[promotion.ImageName] = promotion
+	}
+	for _, name := range imagenames.Promotable {
+		promotion, found := recorded[name]
+		if !found {
+			t.Errorf("aucune promotion enregistrée pour %s", name)
+			continue
+		}
+		// Enregistrée **demandée**, sans digest : le re-tag n'a pas encore eu lieu.
+		if promotion.Digest != "" || promotion.Tag != "1.8.0_prod" {
+			t.Errorf("promotion de %s = %+v", name, promotion)
+		}
 	}
 }
 
@@ -389,9 +410,9 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 		t.Errorf("état = %q: l'image existe déjà, la release est promouvable", created.State)
 	}
 
-	retags := fake.jobsOfKind("promote")
-	if len(retags) != 1 {
-		t.Fatalf("%d job(s) de re-tag", len(retags))
+	retags := fake.jobsOfKind("retag")
+	if len(retags) != len(imagenames.Promotable) {
+		t.Fatalf("%d job(s) de re-tag, attendu %d", len(retags), len(imagenames.Promotable))
 	}
 	if retags[0].Params["old-tag"] != "1.8.0-rc3" || retags[0].Params["new-tag"] != "1.8.0" {
 		t.Errorf("re-tag = %+v", retags[0].Params)
@@ -639,8 +660,8 @@ func TestAFailingAuditDoesNotBlockThePromotion(t *testing.T) {
 	if recorder.Code != http.StatusAccepted {
 		t.Errorf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(fake.jobs) != 1 {
-		t.Errorf("%d job(s) mis en file", len(fake.jobs))
+	if len(fake.jobs) != len(imagenames.Promotable) {
+		t.Errorf("%d job(s) mis en file, attendu %d", len(fake.jobs), len(imagenames.Promotable))
 	}
 }
 
@@ -801,9 +822,18 @@ func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 
+	// Une exécution par image : le pipeline n'en construit qu'une, et c'est le
+	// dashboard qui décide combien il en lance.
 	builds := fake.jobsOfKind("build")
-	if len(builds) != 1 {
-		t.Fatalf("%d construction(s) en file, attendu 1", len(builds))
+	if len(builds) != len(imagenames.Buildable) {
+		t.Fatalf("%d construction(s) en file, attendu %d", len(builds), len(imagenames.Buildable))
+	}
+	for index, image := range imagenames.Buildable {
+		if builds[index].Params["image-name"] != image.Name ||
+			builds[index].Params["target"] != image.Target {
+			t.Errorf("construction %d = %+v, attendu %s/%s",
+				index, builds[index].Params, image.Name, image.Target)
+		}
 	}
 	job := builds[0]
 	if len(fake.jobsOfKind(ReleaseNotesJobKind)) != 1 {
@@ -823,16 +853,17 @@ func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
 	}
 
 	var response struct {
-		BuildJobID int64 `json:"build_job_id"`
-		Release    struct {
+		BuildJobIDs []int64 `json:"build_job_ids"`
+		Release     struct {
 			State string `json:"state"`
 		} `json:"release"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("réponse illisible: %v", err)
 	}
-	if response.BuildJobID == 0 {
-		t.Error("l'identifiant du job de construction doit être rendu")
+	if len(response.BuildJobIDs) != len(imagenames.Buildable) {
+		t.Errorf("%d identifiant(s) de construction rendus, attendu %d",
+			len(response.BuildJobIDs), len(imagenames.Buildable))
 	}
 	if response.Release.State != "building" {
 		t.Errorf("état rendu %q, attendu building", response.Release.State)
@@ -971,7 +1002,7 @@ func TestRelancerUneConstructionEchoueeReutiliseLaMemeReference(t *testing.T) {
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(fake.jobs) != 1 || fake.jobs[0].Kind != "build" {
+	if len(fake.jobs) != len(imagenames.Buildable) || fake.jobs[0].Kind != "build" {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if fake.jobs[0].Params["revision"] != "main" {
@@ -1062,7 +1093,7 @@ func TestUnePrereleaseEstAncreeSurUnCommitEtTaguee(t *testing.T) {
 	// superficiel ne crée pas la référence locale d'un tag, et le checkout que la
 	// Task fait ensuite échouerait.
 	builds := fake.jobsOfKind("build")
-	if len(builds) != 1 {
+	if len(builds) != len(imagenames.Buildable) {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if got := builds[0].Params["revision"]; got != "abc123def456" {

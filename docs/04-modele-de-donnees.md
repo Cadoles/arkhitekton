@@ -237,7 +237,7 @@ create table deployments (
   environment_id text   not null references environments(id),
   release_id     bigint not null references releases(id),
   state          text   not null,
-  job_id         bigint references jobs(id),   -- run promote-image
+  job_id         bigint references jobs(id),   -- run retag-image
   requested_at   timestamptz not null,
   requested_by   text not null,
   observed_at    timestamptz,                  -- version constatée sur l'environnement
@@ -251,7 +251,7 @@ create unique index on deployments (environment_id)
 L'index unique partiel garantit structurellement qu'un environnement n'a qu'une
 promotion courante — la contrainte est dans le schéma, pas dans le code applicatif.
 
-États d'une promotion, reflétant la chaîne `promote-image → registre → Flux → rollout →
+États d'une promotion, reflétant la chaîne `retag-image → registre → Flux → rollout →
 migrations` :
 
 ```
@@ -260,7 +260,7 @@ requested ──▶ tagged ──▶ reconciling ──▶ rolling-out ──▶
     └───────────┴─────────────┴───────────────┴──────────────┴──▶ failed
 ```
 
-- `requested` — job `promote-image` en file.
+- `requested` — job `retag-image` en file.
 - `tagged` — images re-taguées et poussées. **Fin du périmètre d'action du dashboard.**
 - `reconciling` — Flux a détecté le changement.
 - `rolling-out` — les pods se remplacent.

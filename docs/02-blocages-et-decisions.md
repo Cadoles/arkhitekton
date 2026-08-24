@@ -83,7 +83,7 @@ Ces fichiers sont publiés tels quels, sans retraitement, via les URLs pré-sign
 **Blocage.** Le processus décrit — création d'une pré-release, d'une release finale,
 d'un patch — n'a aucun équivalent Tekton. Ce qui existe : `build-image` produit des
 images taguées par `mktools mkt-project-version` à partir de la branche et de la
-révision, `promote-image` re-tague une image existante.
+révision, `retag-image` re-tague une image existante.
 
 Ce qui n'existe nulle part : la création du tag Git, la clôture de la version Redmine,
 la génération de la note de release, l'agrégation des résultats de tests en une
@@ -105,9 +105,9 @@ Cela évite d'écrire un pipeline « release » monolithique qui devrait manipul
 credentials Git en écriture et de la logique métier.
 
 **Confirmé par le client.** La procédure est aujourd'hui partiellement manuelle :
-`promote-image` re-tague les images et les publie sur le registre, **la release Gitea
+`retag-image` re-tague les images et les publie sur le registre, **la release Gitea
 est créée à la main**. L'arbitrage ci-dessus automatise donc exactement le segment qui
-ne l'est pas, sans rien retirer de ce qui fonctionne. Le pipeline `promote-image` est
+ne l'est pas, sans rien retirer de ce qui fonctionne. Le pipeline `retag-image` est
 conservé tel quel et piloté par le dashboard.
 
 **Confirmé également :** la maquette ne décrit que la partie consultation. Le pilotage
@@ -198,12 +198,14 @@ réellement.
 **La chaîne réelle, confirmée par le client :**
 
 ```
-dashboard ──▶ promote-image (crane tag) ──▶ registre ──▶ FluxCD ──▶ environnement cible
+dashboard ──▶ retag-image (crane tag) ──▶ registre ──▶ FluxCD ──▶ environnement cible
 ```
 
-- **`promote-image` est le mécanisme de release.** Il re-tague `portal` et
-  `portal-cli` et publie sur le registre. C'est le seul geste que le dashboard
-  déclenche.
+- **`retag-image` est le mécanisme de release.** Il pose un tag supplémentaire sur
+  un digest existant, une image par exécution : le dashboard en lance une par
+  image promue. Nommé `promote-image` jusqu'ici, ce qui décrivait l'intention
+  plutôt que l'acte — il ne promeut rien, c'est Flux qui déploie, et le dashboard
+  s'en sert aussi hors promotion pour donner à une release finale son propre tag.
 - **`portal-dev` est construite mais jamais promue.** La construction publie une
   troisième image, celle de développement : elle embarque xdebug, xhprof et le
   client PostgreSQL, et fait tourner le job de bootstrap des overlays `dev` et
@@ -249,7 +251,7 @@ le registre pour la raison exposée plus bas.
 | `3.1.0+preprod` | `3.1.0_preprod` | release finale sur pré-production |
 | `3.1.0+prod` | `3.1.0_prod` | promue en production |
 
-Promouvoir = `promote-image` re-tague l'image existante avec le tag suffixé. C'est un
+Promouvoir = `retag-image` re-tague l'image existante avec le tag suffixé. C'est un
 **re-tag du même digest**, pas une reconstruction : une release promue sur trois
 environnements est une image, quatre tags.
 
@@ -394,7 +396,7 @@ environnement.
 La chaîne complète est donc :
 
 ```
-dashboard ──▶ promote-image ──▶ registre
+dashboard ──▶ retag-image ──▶ registre
                                    │
                       Flux : ImagePolicy sélectionne le tag
                                    │
@@ -1028,7 +1030,7 @@ tout le reste du dashboard suppose sans la nommer.
 |---|---|---|
 | Nom de la version Redmine | `1.8.0` | l'équipe projet |
 | Tag Git | `1.8.0`, `1.8.0-rc1` | le dashboard, via l'API Gitea |
-| Tag d'image | `1.8.0`, `1.8.0-rc1` | `build-image`, puis `promote-image` |
+| Tag d'image | `1.8.0`, `1.8.0-rc1` | `build-image`, puis `retag-image` |
 | `version.txt` dans l'image → `PortalData` | `1.8.0`, `1.8.0-rc1` | *baké au build* |
 
 Relation précise : `tag de release = nom de version Redmine [+ suffixe de pré-release]`.
@@ -1166,7 +1168,7 @@ transporte aussi son absence.
 |---|---|
 | Framework frontend *(B9)* | **React**. La maquette est portée et sert de **référence design** |
 | Environnements *(B13)* | `unstable` → `qualif` → `preprod` → `prod`. `testing` = ancien nom de `qualif`, traité en alias. `dev` = local, hors périmètre. `mse-pipeline` **non affiché** |
-| Déploiement *(B7)* | `promote-image` re-tague et publie ; **FluxCD** déploie ensuite. Sélection par métadonnée SemVer, séparateur `_`, `qualif` désigné `testing`. **Mécanisme déjà en service, indépendant de `mse-kustom`.** `deploy-mse` est hors flux, réservé au pipeline d'intégration |
+| Déploiement *(B7)* | `retag-image` re-tague et publie ; **FluxCD** déploie ensuite. Sélection par métadonnée SemVer, séparateur `_`, `qualif` désigné `testing`. **Mécanisme déjà en service, indépendant de `mse-kustom`.** `deploy-mse` est hors flux, réservé au pipeline d'intégration |
 | Frontière RC / release *(B7)* | les pré-releases vont jusqu'en **pré-production** ; seule la production exige une version stable |
 | Passage RC → release finale *(B17)* | **re-tag** de l'image validée. Ce qui part en production est bit pour bit ce qui a été validé en pré-production ; en contrepartie `PortalData` rapporte la version de la RC, absorbée par `releases.image_version` |
 | Version déployée *(B8)* | CRD **`PortalData`** (PR en validation sur `mse-kustom`), alimenté par le job de migration depuis `version.txt` baké au build. **La production est dans un cluster indépendant : aucune donnée en attendant** |
@@ -1180,7 +1182,7 @@ transporte aussi son absence.
 | Liaison commit ↔ demande | `#1234` dans les messages de commit et les titres de PR |
 | Outil de test de charge *(B16)* | **k6**, runner hors cluster — hébergement en réflexion |
 | Actions manuelles | **simple champ texte éditable** sur la release, renseigné au fil de la production du livrable |
-| État de la procédure de release *(B3)* | `promote-image` re-tague et publie ; la release Gitea est **manuelle** aujourd'hui |
+| État de la procédure de release *(B3)* | `retag-image` re-tague et publie ; la release Gitea est **manuelle** aujourd'hui |
 | Périmètre de la maquette | consultation seule ; le pilotage est à concevoir, derrière permissions |
 | URLs pré-signées *(B14)* | **SigV4 vérifié sur `nuo-s3.nuonet.fr`**, depuis un poste et depuis un pod. Région `NUO-Region`, `UNSIGNED-PAYLOAD` accepté, versioning actif |
 

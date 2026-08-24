@@ -684,7 +684,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		// Jamais d'une branche quand le commit est connu : reconstruire la même
 		// release six mois plus tard doit produire la même image (B17).
 		buildRef := buildReference(record, request.GitRef)
-		jobID, buildErr := h.enqueueBuild(r.Context(), releaseID, record, buildRef, identity.Subject)
+		jobIDs, buildErr := h.enqueueBuild(r.Context(), releaseID, record, buildRef, identity.Subject)
 		switch {
 		case buildErr != nil:
 			// La release est créée : le dire, plutôt que de laisser croire à un
@@ -693,7 +693,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 				"la release est créée mais la construction n'a pas pu être mise en file: "+buildErr.Error())
 			response["warnings"] = warnings
 		default:
-			response["build_job_id"] = jobID
+			response["build_job_ids"] = jobIDs
 			// L'état suit la mise en file et non la fin du pipeline : `building`
 			// signifie « construction demandée », ce qui est exactement ce qu'on
 			// sait à cet instant.
@@ -728,14 +728,14 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// aucune ImagePolicy ne peut le retenir, et la release n'est promouvable nulle
 	// part alors que son image est prête (B17).
 	if record.ImageVersion != record.Tag {
-		jobID, err := h.enqueueRetag(r.Context(), releaseID, record, identity.Subject)
+		jobIDs, err := h.enqueueRetag(r.Context(), releaseID, record, identity.Subject)
 		if err != nil {
 			// La release est créée : le dire, plutôt que de laisser croire à un
 			// échec de création. Le re-tag se relance.
 			response["warnings"] = append(warnings,
 				"la release est créée mais le re-tag vers son propre tag n'a pas pu être mis en file")
 		} else {
-			response["retag_job_id"] = jobID
+			response["retag_job_ids"] = jobIDs
 		}
 	}
 
@@ -847,7 +847,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobID, err := h.enqueueBuild(r.Context(), record.ID, record, record.GitRef, identity.Subject)
+	jobIDs, err := h.enqueueBuild(r.Context(), record.ID, record, record.GitRef, identity.Subject)
 	if err != nil {
 		writeProblem(w, http.StatusUnprocessableEntity, "Reconstruction impossible", err.Error())
 		return
@@ -868,12 +868,12 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.audit(r, store.AuditReleaseRebuild, tag, map[string]any{
-		"from": record.State, "git_ref": record.GitRef, "job": jobID,
+		"from": record.State, "git_ref": record.GitRef, "jobs": jobIDs,
 	})
 
 	record.State = string(release.StateBuilding)
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"release": toReleasePayload(record, "", h.actorsFor(r.Context())), "build_job_id": jobID,
+		"release": toReleasePayload(record, "", h.actorsFor(r.Context())), "build_job_ids": jobIDs,
 	})
 }
 
@@ -1266,47 +1266,86 @@ func buildReference(record store.Release, requested string) string {
 // Une référence Git vide est refusée ici plutôt que transmise : le clone
 // échouerait en cours de pipeline, plusieurs minutes plus tard, sur un message
 // qui ne désignerait pas la cause.
+// Une exécution par image, et non une pour toutes. Le pipeline n'en construit
+// qu'une : c'est l'appelant qui décide combien il en lance, et c'est ce qui
+// permet à chacune d'échouer et de se relancer séparément.
+//
+// Les mises en file sont indépendantes, mais l'échec de la première interrompt :
+// laisser partir deux constructions quand la troisième n'a pas pu être enfilée
+// produirait une release que rien ne pourrait conclure — le décompte attendrait
+// une image qui n'a jamais été demandée.
 func (h *ReleasesHandler) enqueueBuild(
 	ctx context.Context, releaseID int64, record store.Release, gitRef, subject string,
-) (int64, error) {
+) ([]int64, error) {
 	pipeline, found := h.catalog.Find("build")
 	if !found {
-		return 0, errors.New("catalogue sans pipeline build")
+		return nil, errors.New("catalogue sans pipeline build")
 	}
 	if strings.TrimSpace(gitRef) == "" {
-		return 0, errors.New("aucune référence Git à construire")
+		return nil, errors.New("aucune référence Git à construire")
 	}
 
-	return h.store.Enqueue(ctx, store.JobRequest{
-		Kind: pipeline.Kind,
-		Params: map[string]string{
-			"revision": gitRef,
-			"version":  record.Tag,
-			"tag-name": record.Tag,
-		},
-		RequestedBy: subject,
-		ReleaseID:   &releaseID,
-	})
+	jobs := make([]int64, 0, len(imagenames.Buildable))
+	for _, image := range imagenames.Buildable {
+		jobID, err := h.store.Enqueue(ctx, store.JobRequest{
+			Kind: pipeline.Kind,
+			Params: map[string]string{
+				"revision":   gitRef,
+				"version":    record.Tag,
+				"tag-name":   record.Tag,
+				"image-name": image.Name,
+				"target":     image.Target,
+			},
+			RequestedBy: subject,
+			ReleaseID:   &releaseID,
+		})
+		if err != nil {
+			return jobs, fmt.Errorf("construction de %s: %w", image.Name, err)
+		}
+		jobs = append(jobs, jobID)
+	}
+	return jobs, nil
 }
 
 // enqueueRetag met en file le re-tag d'une release vers son propre tag.
+//
+// Une exécution par image promue — l'image de développement n'en est pas : aucun
+// environnement du flux de promotion ne la déploie.
 func (h *ReleasesHandler) enqueueRetag(
 	ctx context.Context, releaseID int64, record store.Release, subject string,
-) (int64, error) {
-	pipeline, found := h.catalog.Find("promote")
+) ([]int64, error) {
+	pipeline, found := h.catalog.Find(retagJobKind)
 	if !found {
-		return 0, errors.New("catalogue sans pipeline promote")
+		return nil, errors.New("catalogue sans pipeline de re-tag")
 	}
-	return h.store.Enqueue(ctx, store.JobRequest{
-		Kind: pipeline.Kind,
-		Params: map[string]string{
-			"old-tag": record.ImageVersion,
-			"new-tag": record.Tag,
-		},
-		RequestedBy: subject,
-		ReleaseID:   &releaseID,
-	})
+
+	jobs := make([]int64, 0, len(imagenames.Promotable))
+	for _, name := range imagenames.Promotable {
+		jobID, err := h.store.Enqueue(ctx, store.JobRequest{
+			Kind: pipeline.Kind,
+			Params: map[string]string{
+				"image-name": name,
+				"old-tag":    record.ImageVersion,
+				"new-tag":    record.Tag,
+			},
+			RequestedBy: subject,
+			ReleaseID:   &releaseID,
+		})
+		if err != nil {
+			return jobs, fmt.Errorf("re-tag de %s: %w", name, err)
+		}
+		jobs = append(jobs, jobID)
+	}
+	return jobs, nil
 }
+
+// retagJobKind est la nature de job qui pose un tag supplémentaire.
+//
+// Nommée `promote` jusqu'ici, ce qui décrivait l'intention plutôt que l'acte : le
+// pipeline ne promeut rien, il re-tague, et le dashboard s'en sert aussi hors
+// promotion — donner à une release finale son propre tag depuis celui de sa
+// pré-release source.
+const retagJobKind = "retag"
 
 // Promote met en file la promotion d'une release vers un environnement.
 //
@@ -1363,47 +1402,56 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pipeline, found := h.catalog.Find("promote")
+	pipeline, found := h.catalog.Find(retagJobKind)
 	if !found {
-		writeProblem(w, http.StatusInternalServerError, "Catalogue incomplet", "promote")
+		writeProblem(w, http.StatusInternalServerError, "Catalogue incomplet", retagJobKind)
 		return
 	}
 
-	jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
-		Kind: pipeline.Kind,
-		Params: map[string]string{
-			"old-tag": plan.OldTag,
-			"new-tag": plan.NewTag,
-		},
-		RequestedBy: identity.Subject,
-		ReleaseID:   &item.ID,
-		Environment: &environment.ID,
-	})
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Mise en file impossible", "")
-		return
-	}
+	// Une exécution et une ligne de promotion par image. La table les distingue
+	// déjà — sa clé porte le nom de l'image — mais une seule y était écrite : le
+	// portail. Ce qui suivait le portail sans être suivi, c'était `portal-cli`,
+	// et rien n'aurait dit qu'un de ses re-tags avait échoué.
+	jobIDs := make([]int64, 0, len(imagenames.Promotable))
+	for _, name := range imagenames.Promotable {
+		jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
+			Kind: pipeline.Kind,
+			Params: map[string]string{
+				"image-name": name,
+				"old-tag":    plan.OldTag,
+				"new-tag":    plan.NewTag,
+			},
+			RequestedBy: identity.Subject,
+			ReleaseID:   &item.ID,
+			Environment: &environment.ID,
+		})
+		if err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Mise en file impossible", "")
+			return
+		}
+		jobIDs = append(jobIDs, jobID)
 
-	// Enregistrer la promotion **demandée**, sans digest : le re-tag n'a pas eu
-	// lieu. C'est ce qui permettra de distinguer « promu mais pas encore
-	// déployé » de « jamais promu » quand l'observation contredira l'attendu.
-	if err := h.store.RecordPromotion(r.Context(), store.Promotion{
-		ReleaseID: item.ID, EnvironmentID: environment.ID,
-		ImageName: h.imageName, Tag: plan.NewTag, JobID: &jobID,
-	}); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Enregistrement de la promotion impossible", "")
-		return
+		// Enregistrer la promotion **demandée**, sans digest : le re-tag n'a pas
+		// eu lieu. C'est ce qui permettra de distinguer « promu mais pas encore
+		// déployé » de « jamais promu » quand l'observation contredira l'attendu.
+		if err := h.store.RecordPromotion(r.Context(), store.Promotion{
+			ReleaseID: item.ID, EnvironmentID: environment.ID,
+			ImageName: name, Tag: plan.NewTag, JobID: &jobID,
+		}); err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Enregistrement de la promotion impossible", "")
+			return
+		}
 	}
 
 	// Consigné après l'enregistrement : ce qui compte est que le tag ait été
 	// demandé, et le tag part dès que le job est pris.
 	h.audit(r, store.AuditReleasePromote, item.Tag, map[string]any{
 		"environment": environment.ID, "tag": plan.NewTag,
-		"from": plan.OldTag, "job_id": jobID,
+		"from": plan.OldTag, "job_ids": jobIDs,
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"job_id":      jobID,
+		"job_ids":     jobIDs,
 		"environment": environment.ID,
 		"tag":         plan.NewTag,
 	})

@@ -94,6 +94,10 @@ func (s *runSink) disown(run tekton.Run) tekton.Run {
 type ReleaseAdvancer interface {
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
 	JobRelease(ctx context.Context, jobID int64) (store.JobReleaseContext, error)
+	// CountBuilds dit où en sont les constructions d'une release. Une release en
+	// construit plusieurs — une par image — et n'avance que lorsque toutes ont
+	// abouti.
+	CountBuilds(ctx context.Context, releaseID int64, buildKind string) (store.BuildTally, error)
 }
 
 // Enqueuer est ce que l'enchaînement attend de la file.
@@ -400,8 +404,28 @@ func (s *runSink) advanceRelease(
 		return nil
 	}
 
+	// Une release construit plusieurs images, et le pipeline n'en traite qu'une
+	// par exécution : cette fonction est donc appelée une fois par image.
+	//
+	// Un échec conclut tout de suite. Attendre les autres ferait tourner deux
+	// constructions dont on sait déjà que le résultat ne servira pas, et
+	// retarderait d'autant le moment où l'écran dit ce qui ne va pas.
+	//
+	// Une réussite, elle, ne conclut que la dernière. Le décompte est relu en base
+	// plutôt que tenu en mémoire : c'est ce qui reste juste après un redémarrage
+	// du worker, pendant lequel les runs continuent.
 	target := release.StateFailed
 	if jobState == store.JobSucceeded {
+		tally, err := s.releases.CountBuilds(ctx, linked.ReleaseID, buildJobKind)
+		if err != nil {
+			return err
+		}
+		if !tally.Done() {
+			s.logger.Info("construction partielle, release maintenue en construction",
+				"release", linked.Tag, "restantes", tally.Pending,
+				"reussies", tally.Succeeded, "echouees", tally.Failed)
+			return nil
+		}
 		target = release.StateVerifying
 	}
 	if !release.CanTransition(from, target) {

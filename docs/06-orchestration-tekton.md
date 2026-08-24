@@ -86,11 +86,13 @@ pipelines:
     pipelineRef: security-audit
     timeout: 90m
 
+  # Une exécution, une image : `image-name` et `target` la désignent, et le
+  # dashboard en lance autant qu'il y a d'images à produire.
   - kind: build
     pipelineRef: build-image
 
-  - kind: promote
-    pipelineRef: promote-image
+  - kind: retag
+    pipelineRef: retag-image
     maxConcurrent: 1                       # deux re-tags concurrents sur le même dépôt
 ```
 
