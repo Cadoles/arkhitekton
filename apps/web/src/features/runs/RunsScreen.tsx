@@ -6,6 +6,7 @@ import { formatDateTime } from '../../lib/format'
 import { duration, formatDuration, useRuns, type Run, type RunStatus } from './api'
 import { runStatus } from './status'
 import { useRunEvents } from './useRunEvents'
+import { LaunchButton } from '../queue/LaunchButton'
 
 /*
  * Liste des exécutions.
@@ -49,11 +50,16 @@ export function RunsScreen() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold text-zinc-900">Exécutions</h1>
-        <p className="text-sm text-zinc-500">
-          Toutes les exécutions du namespace, y compris celles déclenchées hors du dashboard.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-semibold text-zinc-900">Exécutions</h1>
+          <p className="text-sm text-zinc-500">
+            Toutes les exécutions du namespace, y compris celles déclenchées hors du dashboard.
+          </p>
+        </div>
+        {/* Le lancement est ici, et non dans la file : c'est devant la liste des
+            exécutions qu'on décide d'en relancer une. */}
+        <LaunchButton />
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

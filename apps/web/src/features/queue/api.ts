@@ -43,13 +43,38 @@ export type Queue = {
   jobs: Job[]
 }
 
+/** Un champ du formulaire de lancement, tel que le catalogue le déclare. */
+export type Input = {
+  name: string
+  required: boolean
+  /**
+   * Nature de la valeur attendue, qui nomme la liste à proposer. Absente, le
+   * champ reste libre : le dashboard ne sait pas énumérer ses valeurs.
+   */
+  suggest?: string
+}
+
 export type Kind = {
   kind: string
   label: string
-  required_inputs: string[]
+  /** Tous les paramètres saisis, requis ou non. */
+  inputs: Input[]
 }
 
-type QueueResponse = { queues: Queue[]; kinds: Kind[]; max_concurrent: number }
+/** Une valeur proposée : ce qui part, et ce qui se lit. */
+export type Option = { value: string; label?: string }
+
+type QueueResponse = {
+  queues: Queue[]
+  kinds: Kind[]
+  /**
+   * Listes proposées, par nature. Les références Git n'y sont pas : elles se
+   * lisent en direct chez la forge, et les recharger avec la file les ferait
+   * payer toutes les deux secondes.
+   */
+  suggestions: Record<string, Option[]>
+  max_concurrent: number
+}
 
 export function useQueue() {
   return useQuery({

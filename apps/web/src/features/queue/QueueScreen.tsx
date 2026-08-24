@@ -1,10 +1,9 @@
-import { useState } from 'react'
 import { Link } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { hasAtLeast, useSession } from '../auth/session'
-import { explainWait, useCancel, useLaunch, useQueue, type Job, type Kind, type Queue } from './api'
+import { explainWait, useCancel, useQueue, type Job, type Queue } from './api'
 
 /*
  * Les files d'attente, une par type d'exécution.
@@ -48,15 +47,10 @@ export function QueueScreen() {
       {isPending && <Skeleton className="h-40 w-full" />}
       {error && <ErrorState message="La file n'a pas pu être chargée." onRetry={() => void refetch()} />}
 
-      {data && (
-        <>
-          {canLaunch && <LaunchPanel kinds={data.kinds} />}
-
-          {queues.map((queue) => (
-            <QueueCard key={queue.kind} queue={queue} canCancel={canLaunch} />
-          ))}
-        </>
-      )}
+      {data &&
+        queues.map((queue) => (
+          <QueueCard key={queue.kind} queue={queue} canCancel={canLaunch} />
+        ))}
     </div>
   )
 }
@@ -180,67 +174,5 @@ function JobRow({
         </button>
       )}
     </li>
-  )
-}
-
-function LaunchPanel({ kinds }: { kinds: Kind[] }) {
-  const [selected, setSelected] = useState(kinds[0]?.kind ?? '')
-  const [params, setParams] = useState<Record<string, string>>({})
-  const launch = useLaunch()
-
-  const kind = kinds.find((entry) => entry.kind === selected)
-  const inputs = kind?.required_inputs ?? []
-  const complete = inputs.every((name) => (params[name] ?? '').trim() !== '')
-
-  return (
-    <Card title="Lancer une exécution">
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-zinc-500">Type</span>
-          <select
-            value={selected}
-            onChange={(event) => {
-              setSelected(event.target.value)
-              // Les paramètres sont repartis de zéro : garder ceux du type
-              // précédent enverrait des valeurs qui ne veulent rien dire ici.
-              setParams({})
-            }}
-            className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900"
-          >
-            {kinds.map((entry) => (
-              <option key={entry.kind} value={entry.kind}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {inputs.map((name) => (
-          <label key={name} className="flex flex-col gap-1">
-            <span className="text-xs text-zinc-500">{name}</span>
-            <input
-              value={params[name] ?? ''}
-              onChange={(event) => setParams((previous) => ({ ...previous, [name]: event.target.value }))}
-              className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900"
-            />
-          </label>
-        ))}
-
-        <button
-          type="button"
-          disabled={!complete || launch.isPending}
-          onClick={() => launch.mutate({ kind: selected, params })}
-          className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-40"
-        >
-          Mettre en file
-        </button>
-      </div>
-
-      {launch.isError && (
-        <p className="mt-3 text-xs text-critical-700">
-          Le lancement a été refusé. Vérifiez les paramètres.
-        </p>
-      )}
-    </Card>
   )
 }

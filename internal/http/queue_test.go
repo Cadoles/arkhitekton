@@ -22,9 +22,10 @@ import (
  */
 
 type fakeQueueStore struct {
-	jobs   []store.Job
-	limits map[string]int
-	set    map[string]int
+	jobs     []store.Job
+	releases []store.Release
+	limits   map[string]int
+	set      map[string]int
 	// cleared retient les retours au défaut : la distinction entre régler et
 	// défaire est ce qui rend un réglage réversible.
 	cleared []string
@@ -60,15 +61,35 @@ func (f *fakeQueueStore) ClearQueueLimit(_ context.Context, kind string) error {
 func (f *fakeQueueStore) Audit(context.Context, string, string, string, map[string]any) error {
 	return nil
 }
+func (f *fakeQueueStore) ListReleases(context.Context, int) ([]store.Release, error) {
+	return f.releases, nil
+}
 
-func queueHandler(store *fakeQueueStore) *QueueHandler {
-	return NewQueueHandler(store, &catalog.Catalog{
+func queueHandler(fake *fakeQueueStore) *QueueHandler {
+	return NewQueueHandler(fake, &catalog.Catalog{
 		MaxConcurrentRuns: 10,
-		Pipelines: []catalog.Pipeline{
-			{Kind: "unit-tests", PipelineRef: "php-unit-tests", Label: "Tests unitaires"},
-			{Kind: "e2e-tests", PipelineRef: "e2e-test", Label: "Tests E2E", MaxConcurrent: 1},
+		Environments: []catalog.Environment{
+			{ID: "dev", Label: "Unstable", PromotionSuffix: "dev", Rank: 1},
 		},
-	})
+		Pipelines: []catalog.Pipeline{
+			{
+				Kind: "unit-tests", PipelineRef: "php-unit-tests", Label: "Tests unitaires",
+				Params: map[string]catalog.Param{
+					"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
+					// Facultatif, et sans nature : c'est le cas qui doit rester
+					// une saisie libre, et qui n'apparaissait pas du tout avant.
+					"debug":    {Source: catalog.SourceInput},
+					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
+				},
+			},
+			{
+				Kind: "e2e-tests", PipelineRef: "e2e-test", Label: "Tests E2E", MaxConcurrent: 1,
+				Params: map[string]catalog.Param{
+					"image-tag": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestReleaseTag},
+				},
+			},
+		},
+	}).WithSuggestions(fake, "reg.example.fr/mse", nil)
 }
 
 type queueListing struct {
@@ -86,7 +107,16 @@ type queueListing struct {
 			RequestedBy string `json:"requested_by"`
 		} `json:"jobs"`
 	} `json:"queues"`
-	MaxConcurrent int `json:"max_concurrent"`
+	Kinds []struct {
+		Kind   string `json:"kind"`
+		Inputs []struct {
+			Name     string `json:"name"`
+			Required bool   `json:"required"`
+			Suggest  string `json:"suggest"`
+		} `json:"inputs"`
+	} `json:"kinds"`
+	Suggestions   map[string][]struct{ Value, Label string } `json:"suggestions"`
+	MaxConcurrent int                                        `json:"max_concurrent"`
 }
 
 func listQueues(t *testing.T, handler *QueueHandler) queueListing {
@@ -230,5 +260,90 @@ func TestLeRetourAuDefautEffaceLeReglage(t *testing.T) {
 	}
 	if len(fake.cleared) != 1 || fake.cleared[0] != "unit-tests" {
 		t.Errorf("réglages effacés = %v", fake.cleared)
+	}
+}
+
+// Le formulaire de lancement se peuple depuis le catalogue et la base.
+//
+// Ses champs étaient des saisies libres : un `revision` vide oblige à aller
+// chercher le nom d'une branche ailleurs pour le recopier, et la faute de frappe
+// ne se découvre qu'à l'échec du clone.
+func TestLeFormulaireDeLancementEstPeuple(t *testing.T) {
+	fake := newFakeQueueStore()
+	fake.releases = []store.Release{{Tag: "3.2.0-rc3"}, {Tag: "3.1.0"}}
+
+	listing := listQueues(t, queueHandler(fake))
+
+	if len(listing.Kinds) != 2 {
+		t.Fatalf("%d type(s)", len(listing.Kinds))
+	}
+
+	// Les requis d'abord, puis l'ordre alphabétique : une map Go n'a pas d'ordre,
+	// et un formulaire dont les champs changent de place à chaque ouverture est
+	// impraticable.
+	unit := listing.Kinds[0].Inputs
+	if len(unit) != 2 {
+		t.Fatalf("paramètres de unit-tests = %+v — les facultatifs comptent aussi", unit)
+	}
+	if unit[0].Name != "revision" || !unit[0].Required || unit[0].Suggest != catalog.SuggestGitRef {
+		t.Errorf("premier paramètre = %+v", unit[0])
+	}
+	if unit[1].Name != "debug" || unit[1].Required || unit[1].Suggest != "" {
+		t.Errorf("second paramètre = %+v — un facultatif sans nature reste libre", unit[1])
+	}
+
+	// Les tags de release, et les images composées du préfixe du registre. Le
+	// navigateur ne connaît pas ce préfixe : le lui transmettre pour qu'il
+	// assemble reviendrait à le publier pour un gain nul.
+	tags := listing.Suggestions[catalog.SuggestReleaseTag]
+	if len(tags) != 2 || tags[0].Value != "3.2.0-rc3" {
+		t.Errorf("tags proposés = %+v", tags)
+	}
+	images := listing.Suggestions[catalog.SuggestPortalImage]
+	if len(images) != 2 || images[0].Value != "reg.example.fr/mse/portal:3.2.0-rc3" {
+		t.Errorf("images proposées = %+v", images)
+	}
+	environments := listing.Suggestions[catalog.SuggestEnvironment]
+	if len(environments) != 1 || environments[0].Value != "dev" || environments[0].Label != "Unstable" {
+		t.Errorf("environnements proposés = %+v", environments)
+	}
+
+	// Les références Git manquent délibérément : elles se lisent en direct chez
+	// la forge, et les recharger avec la file les ferait payer toutes les deux
+	// secondes.
+	if _, present := listing.Suggestions[catalog.SuggestGitRef]; present {
+		t.Error("les références Git ne doivent pas transiter par la file")
+	}
+}
+
+func launch(t *testing.T, handler *QueueHandler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	request := httptest.NewRequest(http.MethodPost, "/queue", strings.NewReader(body))
+	request = request.WithContext(context.WithValue(request.Context(), identityKey,
+		auth.Identity{Subject: "121", Username: "vcarroy", Role: auth.RoleOperator}))
+
+	recorder := httptest.NewRecorder()
+	handler.Launch(recorder, request)
+	return recorder
+}
+
+// Les paramètres supplémentaires atterrissent dans la spec d'un objet
+// Kubernetes : un nom fantaisiste y produit une erreur de validation illisible
+// plutôt qu'un refus clair.
+func TestUnNomDeParametreFantaisisteEstRefuse(t *testing.T) {
+	handler := queueHandler(newFakeQueueStore())
+
+	refused := launch(t, handler,
+		`{"kind":"unit-tests","params":{"revision":"main","mauvais nom":"x"}}`)
+	if refused.Code != http.StatusBadRequest {
+		t.Errorf("code %d, attendu 400", refused.Code)
+	}
+
+	// Un nom acceptable passe, et le paramètre n'a pas à être déclaré au
+	// catalogue : c'est ce qui rend une exécution personnalisée possible.
+	accepted := launch(t, handler, `{"kind":"unit-tests","params":{"revision":"main","debug-mode":"1"}}`)
+	if accepted.Code != http.StatusAccepted {
+		t.Errorf("code %d, attendu 202", accepted.Code)
 	}
 }

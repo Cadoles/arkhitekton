@@ -100,7 +100,7 @@ pipelines:
     # qu'un audit absent — il rend un verdict qu'on rapporte à la mauvaise chose.
     params:
       app-repo-url:        { source: config, key: forge.mse.repoUrl }
-      app-revision:        { source: input,  required: true }
+      app-revision: { source: input,  required: true, suggest: git-ref }
       # L'audit scanne aussi l'infrastructure de déploiement et lit ses règles
       # Semgrep dans `mse-tekton` : trois dépôts, trois accès à accorder à la clé
       # de déploiement des pipelines.
@@ -114,8 +114,8 @@ pipelines:
       # L'audit ne construit plus : il analyse les images **déjà publiées** par
       # la construction de la release. Scanner une reconstruction rendrait un
       # verdict sur un artefact qu'on ne livre pas (B17).
-      portal-image:        { source: input,  required: true }
-      consumer-image:      { source: input,  required: true }
+      portal-image: { source: input,  required: true, suggest: portal-image }
+      consumer-image: { source: input,  required: true, suggest: consumer-image }
       minio-host:          { source: config, key: minio.host }
       minio-bucket:        { source: config, key: minio.pipelineBucket }
     # Le rapport normalisé, publié vers le dashboard par URL pré-signée.
@@ -179,14 +179,14 @@ pipelines:
       context:     { source: config, key: mse.buildContext }
       # La référence Git à construire — branche, tag ou commit, choisie à la
       # création de la release.
-      revision:    { source: input, required: true }
+      revision: { source: input, required: true, suggest: git-ref }
       # Le tag SemVer. Requis : le laisser vide ferait retomber la Task sur la
       # dérivation par branche, et l'image porterait un tag sans rapport avec la
       # release qui l'a demandée.
-      version:     { source: input, required: true }
+      version: { source: input, required: true, suggest: release-tag }
       # Repli de nommage de la Task quand `version` est vide. Transmis pour que
       # le pipeline reste utilisable tel quel hors dashboard.
-      tag-name:    { source: input, required: true }
+      tag-name: { source: input, required: true, suggest: release-tag }
     workspaces:
       - name: git-credentials
         secret: { configKey: pipeline.gitSecret }
@@ -208,8 +208,8 @@ pipelines:
     maxConcurrent: 1
     params:
       reg-project: { source: config, key: registry.project }
-      old-tag:     { source: input, required: true }
-      new-tag:     { source: input, required: true }
+      old-tag: { source: input, required: true, suggest: release-tag }
+      new-tag: { source: input, required: true, suggest: release-tag }
     workspaces:
       - name: git-credentials
         secret: { configKey: pipeline.gitSecret }
@@ -228,7 +228,7 @@ pipelines:
     label: Analyse statique
     params:
       repo-url:     { source: config, key: forge.mse.repoUrl }
-      revision:     { source: input, required: true }
+      revision: { source: input, required: true, suggest: git-ref }
     # Artefacts attendus. Le dashboard calcule la clé de chacun et mint l'URL
     # d'écriture **avant** de créer le run : le pipeline n'a donc ni bucket, ni
     # préfixe, ni identifiants MinIO, et le lecteur n'a rien à chercher par
@@ -256,7 +256,7 @@ pipelines:
     label: Tests unitaires
     params:
       repo-url:     { source: config, key: forge.mse.repoUrl }
-      revision:     { source: input, required: true }
+      revision: { source: input, required: true, suggest: git-ref }
     uploads:
       results:
         param: results-upload-url
@@ -283,8 +283,8 @@ pipelines:
     timeout: 60m
     params:
       repo-url:     { source: config, key: forge.e2e.repoUrl }
-      revision:     { source: input, required: true }
-      environment:  { source: input, required: true }
+      revision: { source: input, required: true, suggest: git-ref }
+      environment: { source: input, required: true, suggest: environment }
     # Trois artefacts distincts, trois URLs. Les noms de fichiers produits par
     # Cypress dépendent des specs exécutées : personne ne peut les pré-signer un
     # par un, et chaque répertoire part donc en une archive.
@@ -334,8 +334,8 @@ pipelines:
       # celles que la construction de la release a publiées. Reconstruire ici
       # produisait un artefact différent de celui qu'on livrera, et le verdict
       # portait donc à côté (B17) — même correction que sur l'audit.
-      image-tag:           { source: input, required: true }
-      mse-revision:        { source: input, required: true }
+      image-tag: { source: input, required: true, suggest: release-tag }
+      mse-revision: { source: input, required: true, suggest: git-ref }
       # La branche de l'infrastructure de déploiement vient de la configuration,
       # comme pour l'audit. C'est ce qui rend ce pipeline enchaînable : tant
       # qu'elle était un paramètre d'entrée, le dashboard ne savait pas la

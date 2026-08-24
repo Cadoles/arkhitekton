@@ -147,3 +147,62 @@ func TestSansIdentiteLAncienNommageSubsiste(t *testing.T) {
 		t.Errorf("nom sans identité: %q", got)
 	}
 }
+
+// Les paramètres que le catalogue ne déclare pas passent tels quels : c'est ce
+// qui rend possible une exécution personnalisée, où l'on renseigne un paramètre
+// que le pipeline connaît mais que le dashboard n'a pas décrit.
+func TestUnParametreNonDeclarePasseTelQuel(t *testing.T) {
+	scheduler := &Scheduler{config: map[string]string{"forge.mse.repoUrl": "ssh://git@forge/CNOUS/mse"}}
+
+	pipeline := catalog.Pipeline{
+		Kind: "unit-tests",
+		Params: map[string]catalog.Param{
+			"revision": {Source: catalog.SourceInput, Required: true},
+			"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
+		},
+	}
+
+	params, err := scheduler.resolveParams(pipeline, map[string]string{
+		"revision": "unstable",
+		"debug":    "true",
+	})
+	if err != nil {
+		t.Fatalf("résolution: %v", err)
+	}
+	if params["debug"] != "true" {
+		t.Errorf("paramètre supplémentaire perdu: %v", params)
+	}
+	if params["revision"] != "unstable" || params["repo-url"] != "ssh://git@forge/CNOUS/mse" {
+		t.Errorf("paramètres déclarés = %v", params)
+	}
+}
+
+// Le passe-plat n'affaiblit pas la séparation des sources. Laisser une demande
+// fournir un paramètre de source `config` permettrait de pointer un pipeline
+// vers un autre dépôt que celui prévu — exactement ce que cette séparation
+// existe pour empêcher.
+func TestUneDemandeNeRemplacePasUnParametreDeConfiguration(t *testing.T) {
+	scheduler := &Scheduler{config: map[string]string{"forge.mse.repoUrl": "ssh://git@forge/CNOUS/mse"}}
+
+	pipeline := catalog.Pipeline{
+		Kind: "unit-tests",
+		Params: map[string]catalog.Param{
+			"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
+			"image":    {Source: catalog.SourceLiteral, Value: "reg.example.fr/mse/ci"},
+		},
+	}
+
+	params, err := scheduler.resolveParams(pipeline, map[string]string{
+		"repo-url": "ssh://git@ailleurs/attaquant/mse",
+		"image":    "docker.io/attaquant/ci",
+	})
+	if err != nil {
+		t.Fatalf("résolution: %v", err)
+	}
+	if params["repo-url"] != "ssh://git@forge/CNOUS/mse" {
+		t.Errorf("dépôt = %q: une demande a écrasé la configuration", params["repo-url"])
+	}
+	if params["image"] != "reg.example.fr/mse/ci" {
+		t.Errorf("image = %q: une demande a écrasé une valeur littérale", params["image"])
+	}
+}

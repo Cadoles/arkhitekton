@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -28,14 +29,41 @@ type QueueStore interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
+// Releases est ce que le formulaire de lancement attend des releases.
+//
+// Il ne s'agit que de peupler des listes : un paramètre `image-tag` ou `old-tag`
+// désigne une release existante, et un champ vide oblige à aller la chercher
+// dans un autre écran pour la recopier — avec la faute de frappe qui va avec.
+type Releases interface {
+	ListReleases(ctx context.Context, limit int) ([]store.Release, error)
+}
+
 // QueueHandler expose la file et le lancement.
 type QueueHandler struct {
 	queue   QueueStore
 	catalog *catalog.Catalog
+	// releases peuple les listes de tags. Nil-safe : sans lui, les champs
+	// concernés restent en saisie libre, ce qui est le comportement d'avant.
+	releases Releases
+	// registryProject préfixe les images proposées. Vide, aucune image n'est
+	// suggérée : un nom tronqué ressemblerait à une référence tirable sans
+	// l'être.
+	registryProject string
+	logger          *slog.Logger
 }
 
 func NewQueueHandler(queue QueueStore, pipelines *catalog.Catalog) *QueueHandler {
 	return &QueueHandler{queue: queue, catalog: pipelines}
+}
+
+// WithSuggestions branche les listes que le formulaire de lancement propose.
+func (h *QueueHandler) WithSuggestions(
+	releases Releases, registryProject string, logger *slog.Logger,
+) *QueueHandler {
+	h.releases = releases
+	h.registryProject = registryProject
+	h.logger = logger
+	return h
 }
 
 type jobPayload struct {
@@ -54,10 +82,31 @@ type jobPayload struct {
 	RunName     string `json:"run_name,omitempty"`
 }
 
+// inputPayload décrit un champ du formulaire de lancement.
+type inputPayload struct {
+	Name     string `json:"name"`
+	Required bool   `json:"required"`
+	// Suggest nomme la liste à proposer. Vide, le champ reste libre — c'est le
+	// cas d'un paramètre dont le dashboard ne sait pas énumérer les valeurs.
+	Suggest string `json:"suggest,omitempty"`
+}
+
 type kindPayload struct {
-	Kind   string   `json:"kind"`
-	Label  string   `json:"label"`
-	Inputs []string `json:"required_inputs"`
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	// Inputs porte **tous** les paramètres saisis, pas seulement les requis : un
+	// paramètre facultatif qu'on ne voit pas est un paramètre qu'on ne renseigne
+	// jamais.
+	Inputs []inputPayload `json:"inputs"`
+}
+
+// option est une valeur proposée.
+//
+// Une valeur et un libellé, distincts : un environnement s'envoie sous son
+// identifiant `dev` et se lit « Unstable ».
+type option struct {
+	Value string `json:"value"`
+	Label string `json:"label,omitempty"`
 }
 
 // queuePayload est une file : son plafond, son occupation, ses jobs.
@@ -141,22 +190,90 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	kinds := make([]kindPayload, 0, len(h.catalog.Pipelines))
 	for _, pipeline := range h.catalog.Pipelines {
+		inputs := make([]inputPayload, 0, len(pipeline.Params))
+		for _, input := range pipeline.Inputs() {
+			inputs = append(inputs, inputPayload{
+				Name: input.Name, Required: input.Required, Suggest: input.Suggest,
+			})
+		}
 		kinds = append(kinds, kindPayload{
 			Kind:   pipeline.Kind,
 			Label:  pipelineLabel(pipeline),
-			Inputs: pipeline.RequiredInputs(),
+			Inputs: inputs,
 		})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"queues": queues,
-		"kinds":  kinds,
+		"queues":      queues,
+		"kinds":       kinds,
+		"suggestions": h.suggestions(r.Context()),
 		// Le plafond global, toutes files confondues. Il prime sur les plafonds
 		// par type : sans lui, sept files à cinq places autoriseraient
 		// trente-cinq exécutions simultanées.
 		"max_concurrent": h.catalog.MaxConcurrentRuns,
 	})
 }
+
+// suggestions constitue les listes proposées par le formulaire de lancement.
+//
+// Composées ici et non par le client : les tags viennent de la base, les
+// environnements du catalogue, et les images d'un préfixe de configuration que
+// le navigateur ne connaît pas. Les faire assembler côté client demanderait de
+// lui transmettre ce préfixe, donc de le publier, pour un gain nul.
+//
+// Les références Git manquent délibérément à l'appel : elles se lisent en direct
+// chez la forge, l'appel coûte des secondes, et le client les demande déjà pour
+// le formulaire de création de release. Les recharger ici les ferait payer à
+// chaque rafraîchissement de la file, toutes les deux secondes.
+func (h *QueueHandler) suggestions(ctx context.Context) map[string][]option {
+	proposed := map[string][]option{}
+
+	environments := make([]option, 0, len(h.catalog.Environments))
+	for _, environment := range h.catalog.Environments {
+		if !environment.IsVisible() {
+			continue
+		}
+		environments = append(environments, option{Value: environment.ID, Label: environment.Label})
+	}
+	proposed[catalog.SuggestEnvironment] = environments
+
+	if h.releases == nil {
+		return proposed
+	}
+
+	// Les plus récentes d'abord, et pas toutes : une liste de deux cents entrées
+	// ne se parcourt pas, et ce qu'on relance porte sur ce qui vient de sortir.
+	releases, err := h.releases.ListReleases(ctx, suggestedReleases)
+	if err != nil {
+		// Une liste illisible ne fait pas échouer la file : les champs concernés
+		// restent en saisie libre, ce qui est le comportement d'avant.
+		if h.logger != nil {
+			h.logger.Error("suggestions de releases", "error", err)
+		}
+		return proposed
+	}
+
+	tags := make([]option, 0, len(releases))
+	portal := make([]option, 0, len(releases))
+	consumer := make([]option, 0, len(releases))
+	for _, release := range releases {
+		tags = append(tags, option{Value: release.Tag})
+		if reference := imageReference(h.registryProject, "portal", release.Tag); reference != "" {
+			portal = append(portal, option{Value: reference, Label: release.Tag})
+		}
+		if reference := imageReference(h.registryProject, "portal-consumer", release.Tag); reference != "" {
+			consumer = append(consumer, option{Value: reference, Label: release.Tag})
+		}
+	}
+	proposed[catalog.SuggestReleaseTag] = tags
+	proposed[catalog.SuggestPortalImage] = portal
+	proposed[catalog.SuggestConsumerImage] = consumer
+
+	return proposed
+}
+
+// suggestedReleases borne la liste proposée.
+const suggestedReleases = 30
 
 func pipelineLabel(pipeline catalog.Pipeline) string {
 	if pipeline.Label != "" {
@@ -288,6 +405,20 @@ func (h *QueueHandler) ClearLimit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"kind": kind})
 }
 
+// maxLaunchParams borne ce qu'un lancement peut porter.
+//
+// Le corps est déjà borné en octets ; ce plafond-ci borne le nombre, parce qu'un
+// millier de paramètres d'un octet passerait la première borne et produirait une
+// spec de PipelineRun ingérable.
+const maxLaunchParams = 40
+
+// paramName borne la forme d'un nom de paramètre.
+//
+// Tekton est plus permissif, mais ces noms voyagent aussi dans des libellés et
+// des messages : s'en tenir à ce qu'un identifiant peut porter évite d'avoir à
+// s'en préoccuper partout ailleurs.
+var paramName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
 type launchRequest struct {
 	Kind     string            `json:"kind"`
 	Params   map[string]string `json:"params"`
@@ -325,6 +456,27 @@ func (h *QueueHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	for _, name := range pipeline.RequiredInputs() {
 		if request.Params[name] == "" {
 			writeProblem(w, http.StatusBadRequest, "Paramètre requis manquant", name)
+			return
+		}
+	}
+
+	// Les paramètres supplémentaires — ceux que le catalogue ne déclare pas —
+	// sont transmis tels quels au PipelineRun. C'est ce qui permet une exécution
+	// personnalisée, et c'est aussi ce qui exige de borner la forme des noms :
+	// ils atterrissent dans la spec d'un objet Kubernetes, où un nom fantaisiste
+	// produit une erreur de validation illisible plutôt qu'un refus clair.
+	//
+	// La séparation des sources n'en est pas affaiblie : l'ordonnanceur ne
+	// reprend un paramètre fourni que si le catalogue l'ignore, donc une valeur
+	// envoyée sous le nom d'un paramètre de configuration reste sans effet.
+	if len(request.Params) > maxLaunchParams {
+		writeProblem(w, http.StatusBadRequest, "Trop de paramètres",
+			fmt.Sprintf("%d au maximum", maxLaunchParams))
+		return
+	}
+	for name := range request.Params {
+		if !paramName.MatchString(name) {
+			writeProblem(w, http.StatusBadRequest, "Nom de paramètre invalide", name)
 			return
 		}
 	}

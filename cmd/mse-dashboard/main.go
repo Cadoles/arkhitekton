@@ -173,7 +173,12 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("catalogue chargé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
-	queueHandler := dashhttp.NewQueueHandler(db, pipelines)
+	queueHandler := dashhttp.NewQueueHandler(db, pipelines).
+		// Les listes du formulaire de lancement : tags de release et images
+		// publiées. Le préfixe du registre vient de la même configuration que
+		// celle employée pour lire les tags — le déduire ailleurs ferait diverger
+		// ce qu'on propose de ce qu'on tire.
+		WithSuggestions(db, cfg.Registry.Project, logger)
 	// Le nom du dépôt promu vient de la configuration du registre : c'est le même
 	// préfixe que celui employé pour lire les tags, et le déduire ailleurs ferait
 	// diverger lecture et promotion.

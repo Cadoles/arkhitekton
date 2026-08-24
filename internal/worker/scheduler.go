@@ -359,6 +359,17 @@ func (s *Scheduler) applyCancellations(ctx context.Context) {
 // `config` de la configuration du dashboard, `literal` du catalogue. Laisser une
 // demande fournir un paramètre de source `config` permettrait de pointer un
 // pipeline vers un autre dépôt que celui prévu.
+//
+// Ce qui n'est **pas** déclaré passe en revanche tel quel, et c'est ce qui rend
+// possible une exécution personnalisée : le formulaire accepte des paramètres
+// supplémentaires, que le catalogue ignore et que le pipeline peut connaître.
+// La règle ci-dessus n'en est pas affaiblie — un paramètre déclaré garde sa
+// source, et une valeur fournie sous le nom d'un paramètre `config` est écartée
+// par la boucle qui suit, non reprise par celle d'après.
+//
+// Un paramètre supplémentaire que le Pipeline ne déclare pas fait échouer la
+// création côté Tekton, avec un message qui le nomme. C'est le comportement
+// voulu : mieux vaut un refus explicite qu'un paramètre silencieusement perdu.
 func (s *Scheduler) resolveParams(
 	pipeline catalog.Pipeline, provided map[string]string,
 ) (map[string]string, error) {
@@ -386,6 +397,19 @@ func (s *Scheduler) resolveParams(
 			}
 			params[name] = value
 		}
+	}
+
+	for name, value := range provided {
+		if _, declared := pipeline.Params[name]; declared {
+			// Déjà traité par sa source. Le reprendre ici écraserait une valeur
+			// de configuration par une valeur d'utilisateur, ce que toute la
+			// séparation des sources existe pour empêcher.
+			continue
+		}
+		if value == "" {
+			continue
+		}
+		params[name] = value
 	}
 
 	return params, nil

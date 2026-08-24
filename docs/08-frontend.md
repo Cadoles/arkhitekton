@@ -127,7 +127,28 @@ Trois sous-onglets sous une coquille commune. Ils répondaient à la même quest
 deux entrées de menu — ce qui tourne, ce qui attend, ce qui gouverne l'attente — et les
 réglages de file n'avaient nulle part où vivre.
 
-**Exécutions** : l'historique des runs, inchangé.
+**Exécutions** : l'historique des runs, et le bouton qui en lance une — c'est là
+qu'on est quand on décide d'en relancer une.
+
+Le lancement ouvre une modale. Le formulaire vivait dans une carte permanente en tête
+de la file, où il occupait de la place en permanence pour un geste occasionnel.
+
+Chaque paramètre déclare au catalogue la **nature** de ce qu'il attend — `git-ref`,
+`release-tag`, `environment`, `portal-image`, `consumer-image` — et le formulaire propose
+la liste correspondante. Déclaré plutôt que déduit du nom : `revision`, `app-revision` et
+`mse-revision` désignent la même chose sous trois noms, et coder cette correspondance
+la ferait diverger au premier pipeline ajouté.
+
+Une liste n'est jamais imposée. Chaque champ offre « saisie libre », une valeur hors
+liste y bascule d'elle-même, et une case « exécution personnalisée » libère tous les
+champs d'un coup : une valeur absente d'une liste n'est pas une valeur inexistante.
+
+Un champ JSON accepte des paramètres que le catalogue ne déclare pas. Ils sont transmis
+tels quels au `PipelineRun` ; un paramètre que le pipeline ignore fait échouer la
+création avec un message qui le nomme, ce qui vaut mieux qu'un paramètre silencieusement
+perdu. La séparation des sources n'en est pas affaiblie : l'ordonnanceur ne reprend un
+paramètre fourni que si le catalogue l'ignore, donc une valeur envoyée sous le nom d'un
+paramètre de configuration reste sans effet.
 
 **File d'attente** : une carte par file, y compris vides. Ne montrer que les files
 occupées ferait disparaître la moitié du tableau au repos, et c'est justement quand rien

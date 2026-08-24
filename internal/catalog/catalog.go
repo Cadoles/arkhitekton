@@ -126,6 +126,18 @@ type Param struct {
 	Key      string `json:"key,omitempty"`
 	Value    string `json:"value,omitempty"`
 	Required bool   `json:"required,omitempty"`
+	// Suggest nomme la nature de la valeur attendue, pour que le formulaire de
+	// lancement propose une liste plutôt qu'un champ vide.
+	//
+	// Déclaré ici et non déduit du nom du paramètre : `revision`,
+	// `app-revision` et `mse-revision` désignent la même chose sous trois noms,
+	// et coder cette correspondance en Go la ferait diverger du catalogue au
+	// premier pipeline ajouté. Le catalogue sait ce qu'il demande.
+	//
+	// Sans effet sur l'exécution : une suggestion est une aide à la saisie, pas
+	// une contrainte. Le champ reste libre — une référence absente d'une liste
+	// n'est pas une référence inexistante.
+	Suggest string `json:"suggest,omitempty"`
 }
 
 // Sources reconnues.
@@ -134,6 +146,31 @@ const (
 	SourceConfig  = "config"
 	SourceLiteral = "literal"
 )
+
+// Natures suggérées reconnues.
+//
+// Volontairement peu nombreuses : chacune correspond à une liste que le
+// dashboard sait constituer. En ajouter une sans la source qui la peuple
+// donnerait un menu déroulant vide, pire qu'un champ libre.
+const (
+	SuggestGitRef        = "git-ref"
+	SuggestReleaseTag    = "release-tag"
+	SuggestEnvironment   = "environment"
+	SuggestPortalImage   = "portal-image"
+	SuggestConsumerImage = "consumer-image"
+)
+
+var suggestions = map[string]bool{
+	SuggestGitRef: true, SuggestReleaseTag: true, SuggestEnvironment: true,
+	SuggestPortalImage: true, SuggestConsumerImage: true,
+}
+
+// Input décrit un paramètre à fournir au lancement.
+type Input struct {
+	Name     string
+	Required bool
+	Suggest  string
+}
 
 // Upload déclare un artefact attendu.
 //
@@ -304,7 +341,18 @@ func (p Pipeline) validate() []error {
 	for name, param := range p.Params {
 		switch param.Source {
 		case SourceInput:
+			if param.Suggest != "" && !suggestions[param.Suggest] {
+				problems = append(problems, fmt.Errorf(
+					"kind %q, paramètre %q: suggestion %q inconnue", p.Kind, name, param.Suggest))
+			}
 		case SourceConfig:
+			if param.Suggest != "" {
+				// Une suggestion sur un paramètre que l'utilisateur ne saisit pas
+				// ne s'afficherait nulle part : la signaler évite de croire le
+				// formulaire cassé.
+				problems = append(problems, fmt.Errorf(
+					"kind %q, paramètre %q: suggestion sur une source %q", p.Kind, name, param.Source))
+			}
 			if param.Key == "" {
 				problems = append(problems, fmt.Errorf(
 					"kind %q, paramètre %q: source config exige une clé", p.Kind, name))
@@ -407,6 +455,32 @@ func (p Pipeline) RequiredInputs() []string {
 	}
 	sort.Strings(required)
 	return required
+}
+
+// Inputs rend tous les paramètres saisis au lancement, requis ou non.
+//
+// Distinct de RequiredInputs, qui sert à refuser un lancement incomplet : le
+// formulaire, lui, doit montrer aussi les facultatifs — un paramètre qu'on ne
+// voit pas est un paramètre qu'on ne renseigne jamais, et il fallait alors
+// passer par le champ libre pour l'atteindre.
+func (p Pipeline) Inputs() []Input {
+	inputs := make([]Input, 0, len(p.Params))
+	for name, param := range p.Params {
+		if param.Source != SourceInput {
+			continue
+		}
+		inputs = append(inputs, Input{Name: name, Required: param.Required, Suggest: param.Suggest})
+	}
+	// Les requis d'abord, puis l'ordre alphabétique : une map Go n'a pas d'ordre,
+	// et un formulaire dont les champs changent de place à chaque ouverture est
+	// impraticable.
+	sort.Slice(inputs, func(i, j int) bool {
+		if inputs[i].Required != inputs[j].Required {
+			return inputs[i].Required
+		}
+		return inputs[i].Name < inputs[j].Name
+	})
+	return inputs
 }
 
 // ScoreWeights rend la pondération du score, sous la forme attendue par le
