@@ -592,3 +592,56 @@ L'interface montre la première et propose la seconde en survol. Les anomalies
 (`tracker = 'Anomalie'`) sont comptées séparément et **n'entrent pas** dans le taux de
 complétion : une version peut être fonctionnellement complète et porter des anomalies
 ouvertes, ce sont deux signaux distincts qui doivent le rester.
+
+## Amorçage des données
+
+Deux jeux de données naissaient d'une variable d'environnement relue à chaque
+fois : les administrateurs, testés à chaque connexion contre `BOOTSTRAP_ADMINS`,
+et les dépôts pilotés, redéclarés à chaque démarrage de l'api.
+
+Relire indéfiniment une configuration d'amorçage a deux défauts. La base cesse
+d'être la source — retirer un dépôt de l'interface le voyait revenir au
+redémarrage suivant, sans que rien à l'écran ne l'explique. Et la configuration
+devient un **pouvoir permanent** : qui peut l'éditer peut se redonner un rôle
+administrateur, indéfiniment, sans laisser d'autre trace qu'une connexion.
+
+L'amorçage a donc lieu une fois, dans le Job de migration, juste après le schéma
+qu'il alimente.
+
+```sql
+bootstrap_steps (step pk, applied_at, detail)
+```
+
+Une table plutôt qu'un drapeau unique : les étapes s'ajoutent avec le temps, et
+une base déjà amorcée doit pouvoir en recevoir une nouvelle sans rejouer les
+précédentes. Le marquage est fait **dans la même transaction** que l'étape — les
+séparer laisserait une fenêtre où l'étape a eu lieu sans être marquée, et un
+second démarrage la rejouerait. La réservation passe par `insert … on conflict do
+nothing` : deux Jobs de migration lancés en parallèle, ce que Kubernetes fait
+volontiers après un échec, ne doivent pas appliquer deux fois la même étape.
+
+### Rôles déclarés avant leur titulaire
+
+```sql
+bootstrap_grants (identifier pk, role, claimed_at, claimed_by, created_at)
+```
+
+`user_roles` est indexée par `subject`, l'identifiant que le fournisseur met dans
+le jeton — un nombre, chez Gitea. Il n'est connaissable qu'après la première
+connexion : une ligne écrite à l'avance viserait un sujet inexistant, et
+l'utilisateur réel se connecterait sans aucune permission. **Le projet l'a fait,
+et l'a retiré.**
+
+Cette table porte donc l'intention — « ce compte-là doit être `releaser` » — et la
+connexion la transforme en rôle. `identifier` accepte le `sub` ou le nom de
+compte ; le premier l'emporte en cas d'homonymie, étant immuable.
+
+Une déclaration se réclame **une fois**. Consommée, elle ne repromeut plus
+personne : c'est exactement la différence avec la configuration relue à chaque
+connexion, et ce qui fait qu'un compte rétrogradé volontairement le reste. Elle
+est conservée plutôt que supprimée — « ce rôle a été réclamé par ce sujet, ce
+jour-là » est ce qu'on cherche quand on se demande d'où vient une permission.
+
+Les déclarations non réclamées sont journalisées au démarrage de l'api : un
+identifiant mal orthographié n'a aucun autre symptôme que « cet utilisateur n'a
+aucune permission ».

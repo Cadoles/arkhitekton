@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -132,31 +133,21 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	sessions := auth.NewSessionStore(db.Pool(), cfg.OIDC.SessionTTL)
 
-	// Les dépôts pilotés sont déduits de la configuration au premier démarrage.
-	//
-	// La table doit décrire ce que le dashboard fait **réellement**, pas ce qu'un
-	// administrateur aura pensé à y ressaisir : les déduire de ce que les
-	// pipelines reçoivent déjà est la seule façon d'obtenir une liste juste sans
-	// double saisie, et sans qu'un déploiement local et un déploiement de
-	// production ne divergent — leurs dépôts ne sont pas les mêmes.
-	//
-	// Rien n'est écrasé ensuite : une correction de libellé ou l'ajout d'une
-	// étape survit aux redémarrages.
-	if declared, err := db.SeedProjects(ctx, configuredProjects(cfg)); err != nil {
-		// L'amorçage n'empêche pas de démarrer : il alimente un écran, pas une
-		// décision. Le taire, en revanche, laisserait un onglet vide sans cause.
-		logger.Error("amorçage des projets", "error", err)
-	} else if declared > 0 {
-		logger.Info("projets déclarés depuis la configuration", "count", declared)
+	// L'amorçage n'a plus lieu ici : il est posé une fois, avec la migration du
+	// schéma, et la base en est ensuite seule maîtresse. Ce qui reste au démarrage
+	// est le constat de ce qui attend encore son titulaire — un identifiant mal
+	// orthographié n'a aucun autre symptôme que « cet utilisateur n'a aucune
+	// permission ».
+	if pending, err := db.PendingGrants(ctx); err != nil {
+		logger.Error("rôles d'amorçage en attente", "error", err)
+	} else if len(pending) > 0 {
+		identifiers := make([]string, 0, len(pending))
+		for _, grant := range pending {
+			identifiers = append(identifiers, grant.Identifier+":"+grant.Role)
+		}
+		logger.Info("rôles d'amorçage en attente d'une première connexion",
+			"count", len(pending), "declarations", identifiers)
 	}
-
-	// L'amorçage n'a plus lieu au démarrage : il prenait chaque identifiant de la
-	// configuration pour un `subject`, alors que Gitea met son identifiant
-	// numérique dans le claim `sub`. La ligne créée ne correspondait donc à aucun
-	// utilisateur réel. La promotion se fait désormais à la connexion, seul moment
-	// où le sujet est connu.
-	logger.Info("administrateurs d'amorçage déclarés",
-		"count", len(cfg.OIDC.BootstrapAdmins), "resolution", "à la première connexion")
 
 	// La découverte OIDC a lieu ici : un fournisseur injoignable doit empêcher le
 	// démarrage plutôt que de produire des erreurs opaques au premier utilisateur.
@@ -172,7 +163,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	authorizer := auth.NewAuthorizer(environmentPolicies())
 	authHandler := dashhttp.NewAuthHandler(
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL),
-		cfg.OIDC.BootstrapAdmins, cfg.OIDC.SessionTTL)
+		cfg.OIDC.SessionTTL)
 	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger)
 	runsHandler := dashhttp.NewRunsHandler(db).
 		WithTektonDashboard(cfg.Tekton.DashboardURL).
@@ -636,7 +627,83 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 	}
 
 	logger.Info("schéma à jour", "count", len(state))
+
+	// L'amorçage suit la migration, dans le même Job : le schéma qu'il alimente
+	// vient d'être posé, et lui donner son propre déclencheur laisserait une
+	// fenêtre où l'api démarre sur une base sans administrateur — personne ne
+	// pourrait alors rien attribuer depuis l'interface.
+	//
+	// Une étape déjà appliquée n'est jamais rejouée, même si la configuration a
+	// changé depuis. C'est ce qui rend la base seule maîtresse après le premier
+	// passage : un dépôt retiré de l'interface ne revient pas, et un rôle retiré à
+	// quelqu'un ne se réattribue pas à la faveur d'un redéploiement.
+	return bootstrap(ctx, cfg, logger)
+}
+
+// bootstrap pose les données d'amorçage, une fois.
+//
+// Il ouvre sa propre connexion plutôt que d'en recevoir une : `runMigrate`
+// travaille jusqu'ici sans pool, chaque opération ouvrant la sienne, et lui en
+// faire porter un pour la seule étape qui en a besoin étendrait sa durée de vie à
+// tout le Job.
+func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+	db, err := store.Open(ctx, cfg.Database)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	report, err := db.Bootstrap(ctx, store.BootstrapSpec{
+		Grants:   configuredGrants(cfg),
+		Projects: configuredProjects(cfg),
+	})
+
+	// Le rapport est journalisé avant l'erreur : une étape peut avoir abouti
+	// pendant qu'une autre échouait, et le taire ferait croire à un amorçage
+	// entièrement raté.
+	if report.GrantsApplied > 0 || report.ProjectsApplied > 0 {
+		logger.Info("amorçage appliqué",
+			"roles", report.GrantsApplied, "depots", report.ProjectsApplied)
+	}
+	if len(report.Skipped) > 0 {
+		logger.Info("amorçage déjà fait, étapes ignorées",
+			"steps", report.Skipped, "source", "la base fait foi")
+	}
+	if err != nil {
+		return fmt.Errorf("amorçage: %w", err)
+	}
 	return nil
+}
+
+// configuredGrants rend les rôles déclarés dans la configuration.
+//
+// Deux variables, et la seconde n'est pas un doublon : `BOOTSTRAP_ADMINS` ne sait
+// dire qu'« administrateur », ce qui suffit à débloquer une base neuve mais oblige
+// à passer par l'interface pour tout le reste. `BOOTSTRAP_USERS` porte le rôle
+// avec le compte — `alice:releaser` — et permet de décrire une équipe entière
+// avant sa première connexion.
+//
+// Un compte nommé dans les deux prend le rôle le plus explicite : une déclaration
+// qui précise `viewer` ne doit pas être écrasée par un raccourci qui dit
+// « administrateur ».
+func configuredGrants(cfg config.Config) []store.Grant {
+	grants := make([]store.Grant, 0, len(cfg.OIDC.BootstrapAdmins)+len(cfg.OIDC.BootstrapUsers))
+
+	for identifier, role := range cfg.OIDC.BootstrapUsers {
+		grants = append(grants, store.Grant{Identifier: identifier, Role: role})
+	}
+	for _, identifier := range cfg.OIDC.BootstrapAdmins {
+		if _, declared := cfg.OIDC.BootstrapUsers[identifier]; declared {
+			continue
+		}
+		grants = append(grants, store.Grant{Identifier: identifier, Role: string(auth.RoleAdmin)})
+	}
+
+	// L'ordre d'une map n'est pas stable, et un amorçage doit produire la même
+	// chose à chaque exécution — ne serait-ce que pour que ses journaux se
+	// comparent.
+	sort.Slice(grants, func(i, j int) bool { return grants[i].Identifier < grants[j].Identifier })
+	return grants
 }
 
 // databaseWait borne l'attente de la base au démarrage d'une migration.

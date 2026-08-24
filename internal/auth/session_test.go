@@ -40,7 +40,11 @@ func testPool(t *testing.T) *pgxpool.Pool {
 
 	// Chaque test part d'un état propre : une session héritée du test précédent
 	// ferait passer un test qui ne prouve rien.
-	if _, err := pool.Exec(context.Background(), "truncate sessions, user_roles"); err != nil {
+	// `bootstrap_grants` en fait partie : une déclaration consommée par le test
+	// précédent laisserait le suivant sans rien à réclamer, et son échec
+	// désignerait la résolution plutôt que l'isolation.
+	if _, err := pool.Exec(context.Background(),
+		"truncate sessions, user_roles, bootstrap_grants"); err != nil {
 		t.Fatalf("nettoyage: %v", err)
 	}
 	return pool
@@ -163,12 +167,14 @@ func TestBootstrapDoesNotOverrideExistingRole(t *testing.T) {
 		t.Fatalf("GrantRole: %v", err)
 	}
 
-	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy", []string{"vcarroy"})
+	declare(t, pool, "vcarroy", "admin")
+
+	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy")
 	if err != nil {
 		t.Fatalf("ApplyBootstrap: %v", err)
 	}
-	if granted {
-		t.Error("un rôle existant ne doit pas être écrasé")
+	if granted != "" {
+		t.Errorf("un rôle existant ne doit pas être écrasé, rôle rendu = %q", granted)
 	}
 
 	session, _ := store.Create(ctx, "121", "vcarroy", "")
@@ -190,11 +196,13 @@ func TestBootstrapMatchesTheUsernameNotOnlyTheSubject(t *testing.T) {
 	ctx := context.Background()
 	store := NewSessionStore(pool, time.Hour)
 
-	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy", []string{"vcarroy"})
+	declare(t, pool, "vcarroy", "admin")
+
+	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy")
 	if err != nil {
 		t.Fatalf("ApplyBootstrap: %v", err)
 	}
-	if !granted {
+	if granted == "" {
 		t.Fatal("un nom de compte déclaré doit promouvoir le sujet correspondant")
 	}
 
@@ -216,9 +224,11 @@ func TestBootstrapAlsoMatchesTheSubject(t *testing.T) {
 	ctx := context.Background()
 	store := NewSessionStore(pool, time.Hour)
 
-	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy", []string{"121"})
-	if err != nil || !granted {
-		t.Fatalf("granted = %v, err = %v", granted, err)
+	declare(t, pool, "121", "admin")
+
+	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy")
+	if err != nil || granted == "" {
+		t.Fatalf("granted = %q, err = %v", granted, err)
 	}
 }
 
@@ -229,12 +239,14 @@ func TestBootstrapIgnoresUndeclaredAccounts(t *testing.T) {
 	ctx := context.Background()
 	store := NewSessionStore(pool, time.Hour)
 
-	granted, err := store.ApplyBootstrap(ctx, "999", "intrus", []string{"vcarroy"})
+	declare(t, pool, "vcarroy", "admin")
+
+	granted, err := store.ApplyBootstrap(ctx, "999", "intrus")
 	if err != nil {
 		t.Fatalf("ApplyBootstrap: %v", err)
 	}
-	if granted {
-		t.Error("un compte non déclaré ne doit pas être promu")
+	if granted != "" {
+		t.Errorf("un compte non déclaré ne doit pas être promu, rôle = %q", granted)
 	}
 
 	session, _ := store.Create(ctx, "999", "intrus", "")
@@ -274,4 +286,78 @@ func TestPurgeExpiredRemovesOnlyExpiredSessions(t *testing.T) {
 
 func discardTestLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// declare pose une déclaration d'amorçage, comme le fait la migration.
+//
+// Les rôles ne viennent plus d'une liste passée à chaque connexion mais d'une
+// table écrite une fois : c'est ce qui empêche une variable d'environnement de
+// redonner un rôle indéfiniment.
+func declare(t *testing.T, pool *pgxpool.Pool, identifier, role string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`insert into bootstrap_grants (identifier, role) values ($1, $2)
+		 on conflict (identifier) do nothing`, identifier, role); err != nil {
+		t.Fatalf("déclaration de %q: %v", identifier, err)
+	}
+}
+
+// Une déclaration consommée ne repromeut plus personne.
+//
+// C'est la différence avec la configuration relue à chaque connexion : celle-ci
+// donnait à qui pouvait l'éditer le pouvoir de se redonner un rôle indéfiniment,
+// sans autre trace qu'une connexion. Une déclaration se réclame une fois.
+func TestUneDeclarationNeSeReclameQuUneFois(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	declare(t, pool, "vcarroy", "admin")
+
+	if granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy"); err != nil || granted == "" {
+		t.Fatalf("première réclamation: %q, %v", granted, err)
+	}
+
+	// Un administrateur rétrograde le compte.
+	if err := store.GrantRole(ctx, "121", "vcarroy", RoleViewer, "admin"); err != nil {
+		t.Fatalf("rétrogradation: %v", err)
+	}
+
+	// La reconnexion ne doit pas le repromouvoir.
+	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy")
+	if err != nil {
+		t.Fatalf("seconde réclamation: %v", err)
+	}
+	if granted != "" {
+		t.Errorf("rôle rendu = %q: une déclaration consommée a repromu", granted)
+	}
+
+	session, _ := store.Create(ctx, "121", "vcarroy", "")
+	_, role, _ := store.Lookup(ctx, session.ID)
+	if role != RoleViewer {
+		t.Errorf("rôle = %s, attendu viewer: la rétrogradation a été annulée", role)
+	}
+}
+
+// Le rôle déclaré est celui posé, et pas seulement « administrateur ».
+func TestLeRoleDeclareEstCeluiAttribue(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	declare(t, pool, "alice", "releaser")
+
+	granted, err := store.ApplyBootstrap(ctx, "204", "alice")
+	if err != nil {
+		t.Fatalf("réclamation: %v", err)
+	}
+	if granted != string(RoleReleaser) {
+		t.Fatalf("rôle rendu = %q, attendu releaser", granted)
+	}
+
+	session, _ := store.Create(ctx, "204", "alice", "")
+	_, role, _ := store.Lookup(ctx, session.ID)
+	if role != RoleReleaser {
+		t.Errorf("rôle = %s, attendu releaser", role)
+	}
 }

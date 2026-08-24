@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -170,53 +169,71 @@ func (s *SessionStore) GrantRole(ctx context.Context, subject, username string, 
 	return err
 }
 
-// ApplyBootstrap promeut administrateur un compte déclaré en configuration.
+// ApplyBootstrap consomme le rôle déclaré pour ce compte, s'il en existe un.
 //
-// Appelée **à la connexion**, et c'est tout le correctif. La version précédente
-// insérait les lignes au démarrage, en prenant chaque identifiant de la
-// configuration pour un `subject`. Or Gitea met son identifiant numérique dans le
-// claim `sub` — `121` — là où un humain écrit naturellement `vcarroy` dans un
-// fichier de configuration. Les deux ne se rencontraient jamais : le rôle était
-// créé pour un sujet qui n'existait pas, et l'utilisateur réel se connectait sans
-// aucune permission.
+// Rend le rôle attribué, ou une chaîne vide quand rien n'était en attente.
 //
-// Le sujet n'est connaissable qu'après la première connexion. La résolution y a
-// donc lieu, en acceptant les deux formes : le `subject`, immuable et donc plus
-// sûr pour qui le connaît, ou le nom de compte, seule valeur qu'on puisse écrire
-// à l'avance.
+// `user_roles` est indexée par `subject`, l'identifiant que le fournisseur met
+// dans le jeton — un nombre, chez Gitea. Il n'est connaissable qu'après la
+// première connexion : une ligne écrite à l'avance viserait un sujet inexistant,
+// et l'utilisateur réel se connecterait sans aucune permission. Le projet l'a
+// fait, et l'a retiré. La déclaration porte donc l'intention, et la connexion la
+// transforme en rôle.
 //
-// Un rôle existant n'est jamais écrasé — un compte rétrogradé volontairement ne
-// doit pas redevenir administrateur à sa prochaine connexion.
+// Les déclarations viennent de `bootstrap_grants`, posée **une fois** par
+// l'amorçage — et non d'une configuration relue à chaque connexion. La
+// différence est un pouvoir : une variable d'environnement toujours lue permet à
+// qui peut l'éditer de se redonner un rôle indéfiniment, sans autre trace qu'une
+// connexion. Une déclaration consommée ne repromeut plus personne.
 //
-// La correspondance par nom de compte est plus faible que par sujet : un nom peut
-// être réattribué dans Gitea. Elle ne joue qu'en l'absence de tout rôle, donc au
-// premier accès, et la ligne produite porte `granted_by = 'bootstrap'`, ce qui la
-// rend reconnaissable dans l'écran d'administration.
-func (s *SessionStore) ApplyBootstrap(ctx context.Context, subject, username string, identifiers []string) (bool, error) {
-	matched := false
-	for _, identifier := range identifiers {
-		identifier = strings.TrimSpace(identifier)
-		if identifier == "" {
-			continue
-		}
-		if identifier == subject || (username != "" && strings.EqualFold(identifier, username)) {
-			matched = true
-			break
-		}
-	}
-	if !matched {
-		return false, nil
-	}
+// La ligne produite porte `granted_by = 'bootstrap'`, ce qui la rend
+// reconnaissable dans l'écran d'administration.
+func (s *SessionStore) ApplyBootstrap(ctx context.Context, subject, username string) (string, error) {
+	// La correspondance accepte les deux formes, et l'ordre compte : le sujet
+	// d'abord, immuable, puis le nom de compte, qui peut être réattribué dans
+	// Gitea. Une déclaration par sujet doit l'emporter sur une homonymie.
+	//
+	// `claimed_at is null` est ce qui rend la réclamation unique : une
+	// déclaration consommée ne repromeut personne, y compris le même compte
+	// après qu'un administrateur l'a rétrogradé.
+	//
+	// Tout tient dans une requête. La répartir entre du SQL et du Go ouvrirait
+	// une fenêtre entre la lecture et l'écriture, pendant laquelle deux
+	// connexions simultanées réclameraient la même déclaration.
+	const query = `
+		with candidate as (
+		    select identifier, role from bootstrap_grants
+		     where claimed_at is null
+		       and (identifier = $1 or ($2 <> '' and lower(identifier) = lower($2)))
+		     order by (identifier = $1) desc
+		     limit 1
+		),
+		claimed as (
+		    update bootstrap_grants
+		       set claimed_at = $3, claimed_by = $1
+		     where identifier in (select identifier from candidate)
+		    returning role
+		)
+		insert into user_roles (subject, username, role, granted_by, granted_at)
+		select $1, nullif($2, ''), role, 'bootstrap', $3 from claimed
+		-- Un rôle existant n'est jamais écrasé : un compte rétrogradé
+		-- volontairement ne doit pas redevenir administrateur à sa prochaine
+		-- connexion.
+		on conflict (subject) do nothing
+		returning role`
 
-	tag, err := s.pool.Exec(ctx,
-		`insert into user_roles (subject, username, role, granted_by, granted_at)
-		 values ($1, nullif($2, ''), 'admin', 'bootstrap', $3)
-		 on conflict (subject) do nothing`,
-		subject, username, s.now().UTC())
+	var role string
+	err := s.pool.QueryRow(ctx, query, subject, username, s.now().UTC()).Scan(&role)
 	if err != nil {
-		return false, fmt.Errorf("amorçage de %q: %w", subject, err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Aucune déclaration en attente pour ce compte, ou un rôle existe
+			// déjà. Ni l'un ni l'autre n'est une anomalie : c'est le cas de
+			// toutes les connexions après la première.
+			return "", nil
+		}
+		return "", fmt.Errorf("amorçage de %q: %w", subject, err)
 	}
-	return tag.RowsAffected() > 0, nil
+	return role, nil
 }
 
 func nullable(value string) any {

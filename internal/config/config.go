@@ -199,7 +199,12 @@ type OIDCConfig struct {
 	// administrateurs au démarrage. Sans cette liste, personne ne peut attribuer
 	// le premier rôle et l'interface est inutilisable après déploiement.
 	BootstrapAdmins []string
-	SessionTTL      time.Duration
+	// BootstrapUsers déclare un rôle par compte — `alice:releaser` — là où
+	// BootstrapAdmins ne sait dire qu'« administrateur ». Les deux servent au
+	// même amorçage, posé une fois : ils ne sont plus relus ensuite, et la base
+	// fait foi.
+	BootstrapUsers map[string]string
+	SessionTTL     time.Duration
 }
 
 type TektonConfig struct {
@@ -253,6 +258,7 @@ func Load(role Role) (Config, error) {
 			RedirectURL:     os.Getenv("OIDC_REDIRECT_URL"),
 			Scopes:          listOr("OIDC_SCOPES", []string{"openid", "profile", "email"}),
 			BootstrapAdmins: listOr("BOOTSTRAP_ADMINS", nil),
+			BootstrapUsers:  parseGrants(os.Getenv("BOOTSTRAP_USERS")),
 			SessionTTL:      durationOr("SESSION_TTL", 12*time.Hour),
 		},
 		Tekton: TektonConfig{
@@ -498,4 +504,38 @@ func listOr(key string, fallback []string) []string {
 		return fallback
 	}
 	return out
+}
+
+// bootstrapRoles borne ce qu'un amorçage peut attribuer.
+//
+// Alignée sur la contrainte du schéma : une valeur hors liste ferait échouer
+// l'insertion en cours d'amorçage, sur un message qui désignerait une contrainte
+// plutôt qu'une variable mal remplie.
+var bootstrapRoles = map[string]bool{
+	"viewer": true, "operator": true, "releaser": true, "admin": true,
+}
+
+// parseGrants lit `compte:role,autre:role`.
+//
+// Une entrée sans rôle reconnu est **écartée** plutôt que refusée au démarrage :
+// l'amorçage n'est pas la raison d'être du dashboard, et le priver de démarrage
+// pour une virgule en trop empêcherait aussi de corriger depuis l'interface. Les
+// déclarations en attente sont journalisées au démarrage de l'api, où l'absence
+// se voit.
+func parseGrants(raw string) map[string]string {
+	grants := map[string]string{}
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		identifier, role, found := strings.Cut(entry, ":")
+		identifier = strings.TrimSpace(identifier)
+		role = strings.ToLower(strings.TrimSpace(role))
+		if !found || identifier == "" || !bootstrapRoles[role] {
+			continue
+		}
+		grants[identifier] = role
+	}
+	return grants
 }

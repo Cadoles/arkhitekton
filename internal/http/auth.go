@@ -22,7 +22,7 @@ type Sessions interface {
 	// ApplyBootstrap promeut administrateur un compte déclaré en configuration.
 	// Appelée à la connexion : le sujet du fournisseur d'identité n'est pas
 	// connaissable avant.
-	ApplyBootstrap(ctx context.Context, subject, username string, identifiers []string) (bool, error)
+	ApplyBootstrap(ctx context.Context, subject, username string) (string, error)
 	Lookup(ctx context.Context, id string) (auth.Session, auth.Role, error)
 	Revoke(ctx context.Context, id string) error
 }
@@ -35,10 +35,7 @@ type AuthHandler struct {
 	logger    *slog.Logger
 	// secureCookies doit valoir true partout sauf en développement sur http.
 	secureCookies bool
-	// bootstrapAdmins nomme les comptes promus administrateurs à leur première
-	// connexion, par sujet ou par nom de compte.
-	bootstrapAdmins []string
-	sessionTTL      time.Duration
+	sessionTTL    time.Duration
 }
 
 func NewAuthHandler(
@@ -47,17 +44,15 @@ func NewAuthHandler(
 	sessions Sessions,
 	logger *slog.Logger,
 	secureCookies bool,
-	bootstrapAdmins []string,
 	sessionTTL time.Duration,
 ) *AuthHandler {
 	return &AuthHandler{
-		exchanger:       exchanger,
-		flows:           flows,
-		sessions:        sessions,
-		logger:          logger,
-		secureCookies:   secureCookies,
-		bootstrapAdmins: bootstrapAdmins,
-		sessionTTL:      sessionTTL,
+		exchanger:     exchanger,
+		flows:         flows,
+		sessions:      sessions,
+		logger:        logger,
+		secureCookies: secureCookies,
+		sessionTTL:    sessionTTL,
 	}
 }
 
@@ -124,16 +119,16 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Avant la création de session : c'est ici que le sujet du fournisseur est
-	// enfin connu, et donc le seul moment où un identifiant écrit à l'avance dans
-	// la configuration peut lui être rattaché.
-	if granted, err := h.sessions.ApplyBootstrap(
-		r.Context(), claims.Subject, claims.Username, h.bootstrapAdmins); err != nil {
+	// enfin connu, et donc le seul moment où un rôle déclaré à l'avance peut lui
+	// être rattaché.
+	if role, err := h.sessions.ApplyBootstrap(
+		r.Context(), claims.Subject, claims.Username); err != nil {
 		// L'amorçage n'est pas bloquant : échouer ici priverait de connexion un
 		// utilisateur qui a peut-être déjà un rôle.
-		h.logger.Error("amorçage administrateur", "subject", claims.Subject, "error", err)
-	} else if granted {
-		h.logger.Info("administrateur d'amorçage promu",
-			"subject", claims.Subject, "username", claims.Username)
+		h.logger.Error("amorçage d'un rôle", "subject", claims.Subject, "error", err)
+	} else if role != "" {
+		h.logger.Info("rôle d'amorçage attribué",
+			"subject", claims.Subject, "username", claims.Username, "role", role)
 	}
 
 	session, err := h.sessions.Create(r.Context(), claims.Subject, claims.Username, claims.Email)
