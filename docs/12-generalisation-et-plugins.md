@@ -709,8 +709,112 @@ Hors périmètre immédiat, mais à savoir avant de s'engager :
 
 ## 12.9 Plan
 
-Six lots, dans cet ordre. L'ordre n'est pas négociable sur les deux premiers : le reste
-en dépend.
+Deux horizons, et c'est délibéré. Le découplage complet demande de trancher des
+sémantiques — schéma de version, cycle de release, sens de « promu » — qui sont
+difficiles à trancher **dans l'abstrait**, avant d'avoir un second projet réel sous les
+yeux. Les repousser n'est pas les fuir : c'est refuser de décider trop tôt.
+
+En attendant, on peut préparer le terrain. Ce qui suit ne rend pas l'outil générique ;
+cela le rend **prêt à le devenir**, et chaque élément a une valeur immédiate.
+
+---
+
+### Horizon court — préparer le terrain
+
+**Le critère de sélection**, et il tranche seul les cas douteux :
+
+> Est-ce que cela **déplace une décision du code vers une donnée**, sans exiger qu'on
+> tranche une sémantique ?
+
+Si oui, c'est du terrain préparé : la décision devient visible, modifiable, et le jour où
+il faudra la rendre pluggable, elle sera déjà sortie du code. Si non — s'il faut d'abord
+répondre à « que veut dire promouvoir » — cela relève de l'horizon long.
+
+Six chantiers, du plus rentable au moins :
+
+| # | Chantier | Valeur structurante | Coût |
+|---|---|---|---|
+| 1 | Publier le contrat des pipelines et des résultats | **forte** | faible |
+| 2 | Livrer le noyau de pipelines dans le `deploy/` du dashboard | **forte** | faible |
+| 3 | Images pilotées par la table `projects` | **forte** | moyen |
+| 4 | Nommer les frontières de fournisseurs | **forte** | moyen |
+| 5 | Marqueurs et préfixes de normalisation configurables | moyenne | très faible |
+| 6 | Enchaînement des vérifications configuré | moyenne | faible |
+
+#### 1. Publier le contrat
+
+Aucun code. Écrire ce qu'un pipeline doit honorer pour que le dashboard sache l'exploiter :
+familles de résultats, marqueurs de flux, artefacts déclarés et publiés par URL pré-signée
+([B14]), `--build-arg VERSION` → `version.txt` ([P10]).
+
+**Pourquoi en premier** : c'est le document qui permet à quelqu'un d'écrire un pipeline
+conforme sans lire notre code. Tout le reste s'y adosse, et il coûte une journée.
+
+#### 2. Le noyau de pipelines dans le dépôt du dashboard
+
+`build-image` et `retag-image` sont **déjà génériques** : le nom d'image et la cible du
+Dockerfile sont des paramètres, plus rien n'y suppose MSE. Il ne reste qu'à les déplacer
+de `mse-tekton` vers le `deploy/` du dashboard.
+
+**Ce que cela débloque immédiatement** : un second projet n'a plus besoin de forker
+`mse-tekton` pour construire et promouvoir. C'est le premier pas d'autonomie réelle, et il
+consiste à déplacer deux fichiers.
+
+#### 3. Les images pilotées par la table
+
+`internal/images` porte encore `portal` et `portal-cli` en constantes. La table `projects`
+sait déjà décrire ce qu'un dépôt construit — registre, cibles, noms d'images. Il reste à
+brancher l'enchaînement de vérification et les suggestions dessus, et à retirer les
+constantes.
+
+**Pourquoi c'est structurant** : c'est le premier endroit où « le projet se décrit
+lui-même » remplace « le code connaît MSE ». Le chantier est en cours, il mérite d'être
+fini plutôt que laissé à mi-chemin.
+
+#### 4. Nommer les frontières de fournisseurs
+
+Écrire les interfaces, garder les implémentations actuelles comme seules réalisations.
+Aucun plugin, aucun changement fonctionnel.
+
+Trois sur cinq sont tractables tout de suite — `Tracker`, `Forge`, `Attester` — parce que
+ce sont des **lectures** dont le sens ne prête pas à discussion. `Deployer` est reporté :
+il exige de répondre à « que veut dire promouvoir », qui est précisément ce qu'on ne veut
+pas trancher dans l'abstrait.
+
+**Pourquoi c'est structurant** : à partir de là, tout ajout touchant un fournisseur atterrit
+dans un endroit nommé. Sans cela, chaque nouvelle fonctionnalité recommence à mélanger les
+couches, et le coût du découplage futur augmente à chaque sprint.
+
+#### 5. Marqueurs et préfixes
+
+`##MSE-META##`, `##MSE-SUMMARY##`, et les préfixes `v` / `MSE ` de la normalisation
+deviennent des réglages. Une demi-journée.
+
+**Pourquoi ça compte plus que sa taille** : ces marqueurs sont dans le **protocole**, pas
+dans l'interface. Un pipeline générique qui émet `##MSE-META##` reste marqué MSE dans son
+code source, et c'est exactement ce qu'on cherche à retirer.
+
+#### 6. L'enchaînement des vérifications
+
+`verificationKinds` est une liste en dur dans l'observateur : les quatre pipelines lancés
+après une construction réussie. Elle devient une donnée du catalogue.
+
+**Pourquoi c'est structurant** : c'est une décision de processus — « ce projet vérifie ceci
+après avoir construit » — aujourd'hui écrite en Go. La sortir du code la rend visible,
+et un projet sans tests E2E cesse d'avoir un pipeline fantôme dans sa file.
+
+#### Ce que cet horizon ne résout pas, et l'assume
+
+Le schéma de version, le cycle de release, le multi-projet, le sens de « promouvoir ». Ces
+quatre points restent entiers. Le terrain préparé ne les rend pas plus faciles à trancher —
+il évite seulement qu'ils deviennent plus difficiles.
+
+---
+
+### Horizon long — le découplage
+
+À reprendre quand un second projet réel existe, parce que c'est lui qui tranchera les
+sémantiques. L'ordre reste celui-ci ; l'échéance, non.
 
 ### Lot A — Le contrat des fournisseurs *(sans plugin)*
 
