@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 )
 
 // Config regroupe la configuration du binaire, quel que soit son rôle (api,
@@ -31,6 +33,22 @@ type Config struct {
 	Registry RegistryConfig
 	Redmine  RedmineConfig
 	Gitea    GiteaConfig
+	Versions VersionsConfig
+}
+
+// VersionsConfig porte la façon dont les noms de version se rapprochent.
+type VersionsConfig struct {
+	// NamePrefixes énumère les préfixes retirés pour comparer deux noms.
+	//
+	// Configurables parce que la convention appartient au client : l'instance
+	// réelle porte `v3.2.0` et `MSE 3.1.0` dans le même projet, et le second est
+	// le nom d'un client, pas une convention de versionnement. Il était en dur
+	// dans `internal/release` (doc 12 §12.9, chantier 5).
+	//
+	// Attention : la forme normalisée est **stockée** dans `redmine_versions`.
+	// Changer cette liste rend la colonne obsolète, et le démarrage la recalcule
+	// pour cette raison — voir `store.RenormalizeVersions`.
+	NamePrefixes []string
 }
 
 // GiteaConfig porte l'accès en lecture à la forge.
@@ -278,6 +296,12 @@ func Load(role Role) (Config, error) {
 			Project:  envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
 			Image:    envOr("REGISTRY_IMAGE", "portal"),
 		},
+		Versions: VersionsConfig{
+			// `v` seul par défaut : il vient du versionnement sémantique et ne
+			// suppose rien d'un projet donné. Tout le reste — `MSE `, un préfixe
+			// d'équipe — se déclare, et le déploiement MSE le fait.
+			NamePrefixes: prefixesOr("VERSION_NAME_PREFIXES", []string{release.DefaultPrefix}),
+		},
 		Redmine: RedmineConfig{
 			// Les statuts qui rendent une demande éligible à la note de release.
 			// Configurables parce que le vocabulaire appartient au client : il
@@ -489,6 +513,34 @@ func durationOr(key string, fallback time.Duration) time.Duration {
 
 // listOr découpe une valeur séparée par des virgules, en ignorant les entrées
 // vides — "a,,b" et "a, b" donnent le même résultat.
+// prefixesOr lit une liste de préfixes en **préservant leur espace final**.
+//
+// Distinct de listOr, et la différence n'est pas cosmétique : `MSE ` et `MSE` ne
+// désignent pas la même règle. Le premier ramène `MSE 3.1.0` à `3.1.0` et laisse
+// `MSE3-1.5` intact ; le second ramènerait aussi `MSE3-1.5` à `3-1.5`, c'est-à-dire
+// rattacherait treize versions closes à des numéros inventés. listOr, qui coupe
+// des deux côtés, produirait silencieusement le second.
+//
+// L'espace **avant** un élément est retiré : il vient de la virgule de séparation
+// — `v, MSE ` — et le conserver ferait échouer toute correspondance.
+func prefixesOr(key string, fallback []string) []string {
+	raw := os.Getenv(key)
+	if strings.TrimSpace(raw) == "" {
+		return fallback
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimLeft(part, " \t")
+		if strings.TrimSpace(part) != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return fallback
+	}
+	return out
+}
+
 func listOr(key string, fallback []string) []string {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {

@@ -486,3 +486,60 @@ func (db *DB) PendingVersions(ctx context.Context) ([]string, error) {
 	}
 	return names, rows.Err()
 }
+
+// RenormalizeVersions réaligne la colonne normalisée sur les préfixes configurés.
+//
+// `versions.normalized_name` est une colonne **dérivée**, écrite au moment de la
+// synchronisation. Changer les préfixes rend donc obsolètes toutes les lignes déjà
+// écrites, et le rapprochement se ferait alors entre une forme calculée avec les
+// nouveaux préfixes et une forme stockée avec les anciens : une release cesserait
+// de trouver sa version, sans le moindre message.
+//
+// La synchronisation Redmine finirait par les réécrire, mais seulement à son
+// prochain passage, et seulement pour les versions qu'elle voit encore. Le faire
+// au démarrage ferme cette fenêtre et rattrape aussi les provisoires, qu'aucune
+// synchronisation ne recalcule.
+//
+// Rend le nombre de lignes corrigées, pour que le démarrage puisse le dire : zéro
+// est le cas courant, et un nombre non nul mérite d'apparaître au journal parce
+// qu'il signale un changement de convention.
+func (db *DB) RenormalizeVersions(ctx context.Context) (int, error) {
+	rows, err := db.pool.Query(ctx, `select id, name, normalized_name from versions`)
+	if err != nil {
+		return 0, fmt.Errorf("lecture des versions à renormaliser: %w", err)
+	}
+
+	type correction struct {
+		id         int64
+		normalized string
+	}
+	var corrections []correction
+
+	for rows.Next() {
+		var id int64
+		var name, normalized string
+		if err := rows.Scan(&id, &name, &normalized); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("lecture d'une version à renormaliser: %w", err)
+		}
+		if wanted := db.names.Normalize(name); wanted != normalized {
+			corrections = append(corrections, correction{id: id, normalized: wanted})
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("lecture des versions à renormaliser: %w", err)
+	}
+
+	// Les corrections sont appliquées après la lecture complète, et non pendant :
+	// écrire sur la connexion qui porte le curseur d'une autre requête n'est pas
+	// permis par pgx, et le découvrir à l'exécution serait une panne au démarrage.
+	for _, fix := range corrections {
+		if _, err := db.pool.Exec(ctx,
+			`update versions set normalized_name = $2 where id = $1`,
+			fix.id, fix.normalized); err != nil {
+			return 0, fmt.Errorf("renormalisation de la version %d: %w", fix.id, err)
+		}
+	}
+	return len(corrections), nil
+}

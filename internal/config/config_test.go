@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 )
 
 // setEnv positionne les variables pour la durée du test et restaure l'état
@@ -170,5 +172,45 @@ func TestDurationOrFallsBackOnInvalidValue(t *testing.T) {
 
 	if got := durationOr("SESSION_TTL", 12*time.Hour); got != 12*time.Hour {
 		t.Errorf("attendu le repli 12h, obtenu %s", got)
+	}
+}
+
+// L'espace final d'un préfixe est significatif : `MSE ` et `MSE` ne désignent pas
+// la même règle, et le second rattacherait `MSE3-1.5` à un numéro inventé.
+func TestLesPrefixesDeVersionGardentLeurEspaceFinal(t *testing.T) {
+	setEnv(t, validAPIEnv())
+	t.Setenv("VERSION_NAME_PREFIXES", "v, MSE ")
+
+	cfg, err := Load(RoleAPI)
+	if err != nil {
+		t.Fatalf("configuration refusée: %v", err)
+	}
+	prefixes := cfg.Versions.NamePrefixes
+	if len(prefixes) != 2 || prefixes[0] != "v" || prefixes[1] != "MSE " {
+		t.Fatalf("préfixes = %q", prefixes)
+	}
+
+	names := release.NewNormalizer(prefixes)
+	if got := names.Normalize("MSE 3.1.0"); got != "3.1.0" {
+		t.Errorf("`MSE 3.1.0` normalisé en %q", got)
+	}
+	// La convention historique reste intacte : « MSE3, version 1.5 » se lirait
+	// 3.1.5 ou 1.5 selon l'intention, et rien dans les données ne tranche.
+	if got := names.Normalize("MSE3-1.5"); got != "MSE3-1.5" {
+		t.Errorf("`MSE3-1.5` ne doit pas être deviné, obtenu %q", got)
+	}
+}
+
+// Sans déclaration, seul `v` s'applique : il vient du versionnement sémantique et
+// ne suppose rien d'un projet donné.
+func TestSansDeclarationSeulVEstRetire(t *testing.T) {
+	setEnv(t, validAPIEnv())
+
+	cfg, err := Load(RoleAPI)
+	if err != nil {
+		t.Fatalf("configuration refusée: %v", err)
+	}
+	if prefixes := cfg.Versions.NamePrefixes; len(prefixes) != 1 || prefixes[0] != "v" {
+		t.Errorf("préfixes par défaut = %q", prefixes)
 	}
 }

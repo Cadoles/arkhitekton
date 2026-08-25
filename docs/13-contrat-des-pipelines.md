@@ -68,6 +68,22 @@ trop utiles pour attendre — devant une campagne de quarante minutes, on veut l
 
 Elles sont écrites **sur la sortie standard**, une par ligne, préfixées.
 
+### Le jeton du marqueur est un réglage
+
+La forme générale est `##<JETON->META##` et `##<JETON->SUMMARY##`, où le jeton est celui
+du déploiement. Sans jeton déclaré, la forme neutre s'applique — `##META##` et
+`##SUMMARY##` —, et le déploiement MSE déclare `MSE`, ce qui rend les formes historiques
+`##MSE-META##` et `##MSE-SUMMARY##` employées dans les exemples ci-dessous.
+
+Le nom d'un projet dans un **protocole** est un couplage d'une autre nature que dans une
+interface : un pipeline générique qui émet `##MSE-META##` reste marqué MSE dans son code
+source, quelle que soit la propreté de ce qui le lit. D'où le jeton (doc 12 §12.9,
+chantier 5).
+
+Les deux marqueurs d'un même protocole portent nécessairement le **même** jeton : un
+`##ACME-META##` accompagné d'un `##SUMMARY##` serait accepté par personne, et rien dans
+les données ne dirait qu'ils appartiennent au même flux.
+
 ### Descripteur — `##MSE-META##`
 
 ```
@@ -269,8 +285,17 @@ qu'un pipeline conforme ne soit pas soupçonné quand l'effet attendu n'apparaî
 
 ### Les marqueurs ne sont pas consommés
 
-`ScanMarkers` et `StripMarkers` existent, sont testés, et n'ont **aucun appelant**. Rien
-ne lit les journaux d'un run conclu pour en extraire les descripteurs.
+`MarkerSet.ScanMarkers` et `MarkerSet.StripMarkers` existent, sont testés, et n'ont
+**aucun appelant**. Rien ne lit les journaux d'un run conclu pour en extraire les
+descripteurs.
+
+Le jeton est devenu un réglage (13.3) alors que le canal reste débranché, et c'est
+délibéré : rendre configurable un protocole non consommé ne coûte rien, tandis qu'ajouter
+la configuration après coup obligerait à changer le jeton déjà émis par des pipelines
+déployés. Conséquence à retenir le jour du branchement : le jeton du déploiement devra
+valoir `MSE` pour que les Tasks existantes de `mse-tekton` soient lues — c'est ce que
+`deploy/base` déclare déjà pour les préfixes de version, et le même endroit portera
+celui-ci.
 
 Ce qui en découle :
 

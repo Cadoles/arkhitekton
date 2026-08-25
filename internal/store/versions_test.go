@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 )
 
 // redmineVersion dépose une version réelle, comme le ferait la synchronisation.
@@ -13,7 +11,7 @@ func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) 
 	t.Helper()
 	id, err := db.UpsertRedmineVersion(context.Background(), RedmineVersion{
 		RedmineID: redmineID, Name: name,
-		Normalized: release.NormalizeVersionName(name),
+		Normalized: testNames.Normalize(name),
 		Status:     status,
 	})
 	if err != nil {

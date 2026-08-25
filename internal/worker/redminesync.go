@@ -61,12 +61,25 @@ type RedmineSync struct {
 	store   RedmineStore
 	client  RedmineReader
 	project string
-	logger  *slog.Logger
-	now     func() time.Time
+	// names calcule la forme comparable écrite en base. Doit être **la même** que
+	// celle du store : deux normaliseurs divergents rendraient une release
+	// incapable de trouver sa version, sans le moindre message.
+	names  release.Normalizer
+	logger *slog.Logger
+	now    func() time.Time
 }
 
 func NewRedmineSync(db RedmineStore, client RedmineReader, project string, logger *slog.Logger) *RedmineSync {
-	return &RedmineSync{store: db, client: client, project: project, logger: logger, now: time.Now}
+	return &RedmineSync{
+		store: db, client: client, project: project,
+		names: release.DefaultNormalizer, logger: logger, now: time.Now,
+	}
+}
+
+// WithNormalizer déclare les préfixes retirés pour comparer deux noms de version.
+func (s *RedmineSync) WithNormalizer(names release.Normalizer) *RedmineSync {
+	s.names = names
+	return s
 }
 
 // Run synchronise jusqu'à annulation.
@@ -130,7 +143,7 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 		if _, err := s.store.UpsertRedmineVersion(ctx, store.RedmineVersion{
 			RedmineID:   version.ID,
 			Name:        version.Name,
-			Normalized:  release.NormalizeVersionName(version.Name),
+			Normalized:  s.names.Normalize(version.Name),
 			Description: version.Description,
 			Status:      version.Status,
 			DueDate:     version.DueDate,

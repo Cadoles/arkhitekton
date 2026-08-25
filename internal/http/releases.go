@@ -81,6 +81,9 @@ type ReleasesHandler struct {
 	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
 	// le jour où le portail se scinde.
 	imageName string
+	// names rapproche le nom de version saisi de celui du suivi. Doit être le
+	// même que celui du store, dont il compare le résultat à une colonne.
+	names release.Normalizer
 	// logger sert à dire ce qui échoue sans faire échouer l'écran. Nil-safe :
 	// `slog.Default()` par défaut, pour que les tests n'aient pas à le fournir.
 	logger *slog.Logger
@@ -175,6 +178,16 @@ const (
 	exportParamFormat   = "export-format"
 )
 
+// WithNormalizer déclare les préfixes retirés pour comparer deux noms de version.
+//
+// Sans appel, [release.DefaultNormalizer] s'applique. Le déploiement doit passer
+// le **même** que celui du store : ce handler compare une saisie à ce que la base
+// a stocké, et deux conventions divergentes rejetteraient une saisie correcte.
+func (h *ReleasesHandler) WithNormalizer(names release.Normalizer) *ReleasesHandler {
+	h.names = names
+	return h
+}
+
 func NewReleasesHandler(
 	releases ReleaseStore, pipelines *catalog.Catalog,
 	authorizer *auth.Authorizer, images Images, artifacts Artifacts,
@@ -183,7 +196,8 @@ func NewReleasesHandler(
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
 		images: images, artifacts: artifacts, imageName: imageName,
-		registryProject: registryProject, logger: slog.Default(),
+		registryProject: registryProject, names: release.DefaultNormalizer,
+		logger: slog.Default(),
 	}
 }
 
@@ -573,7 +587,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if request.RedmineVersion != "" {
-		if err := release.CheckRedmineVersion(version, request.RedmineVersion); err != nil {
+		if err := h.names.CheckRedmineVersion(version, request.RedmineVersion); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Version Redmine incohérente", err.Error())
 			return
 		}

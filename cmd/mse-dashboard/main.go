@@ -29,6 +29,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
@@ -115,7 +116,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 
-	db, err := store.Open(ctx, cfg.Database)
+	db, err := openStore(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -209,7 +210,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// Même pondération que le gestionnaire des tests : la pastille de la
 		// liste et l'écran d'une release affichent le même chiffre.
 		WithWeights(dashhttp.ScoreWeights(pipelines.ScoreWeights())).
-		WithRedmineURL(cfg.Redmine.URL)
+		WithRedmineURL(cfg.Redmine.URL).
+		// Le même normaliseur que le store, et ce n'est pas une précaution : ce
+		// handler compare une saisie à une colonne que le store a écrite.
+		WithNormalizer(versionNames(cfg))
 
 	// La forge est optionnelle : sans jeton, le formulaire de création de release
 	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture
@@ -322,11 +326,25 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
-	db, err := store.Open(ctx, cfg.Database)
+	db, err := openStore(ctx, cfg)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
+
+	// `versions.normalized_name` est une colonne dérivée : changer les préfixes
+	// configurés la rend obsolète, et le rapprochement comparerait alors une forme
+	// calculée avec les nouveaux à une forme écrite avec les anciens. Le worker
+	// est seul à le faire — l'api tourne à plusieurs répliques, et trois
+	// renormalisations concurrentes écriraient la même chose trois fois.
+	corrected, err := db.RenormalizeVersions(ctx)
+	if err != nil {
+		return err
+	}
+	if corrected > 0 {
+		logger.Info("noms de version renormalisés",
+			"corrigees", corrected, "prefixes", versionNames(cfg).Prefixes())
+	}
 
 	storage, err := blob.Open(ctx, cfg.Storage)
 	if err != nil {
@@ -517,7 +535,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				if err != nil {
 					return fmt.Errorf("client Redmine: %w", err)
 				}
-				sync := worker.NewRedmineSync(db, client, cfg.Redmine.Project, logger)
+				sync := worker.NewRedmineSync(db, client, cfg.Redmine.Project, logger).
+					WithNormalizer(versionNames(cfg))
 				logger.Info("synchronisation Redmine active",
 					"url", cfg.Redmine.URL, "project", cfg.Redmine.Project)
 				go func() { errs <- sync.Run(leadingCtx) }()
@@ -646,7 +665,7 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 // faire porter un pour la seule étape qui en a besoin étendrait sa durée de vie à
 // tout le Job.
 func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	db, err := store.Open(ctx, cfg.Database)
+	db, err := openStore(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -740,7 +759,7 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 		return err
 	}
 
-	db, err := store.Open(ctx, cfg.Database)
+	db, err := openStore(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -859,6 +878,25 @@ func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler 
 	return handler.WithProbe(gitea.Prober{
 		URL: cfg.Gitea.URL, Token: cfg.Gitea.Token, Timeout: cfg.Gitea.Timeout,
 	})
+}
+
+// openStore ouvre le pool et lui applique la convention de nommage des versions.
+//
+// Un point d'ouverture unique et non quatre : la forme normalisée est une colonne,
+// et un binaire qui l'écrirait avec d'autres préfixes que celui qui la lit
+// rendrait le rapprochement muet. Une ouverture qui oublierait le normaliseur ne
+// casserait rien à la compilation — d'où le passage obligé.
+func openStore(ctx context.Context, cfg config.Config) (*store.DB, error) {
+	db, err := store.Open(ctx, cfg.Database)
+	if err != nil {
+		return nil, err
+	}
+	return db.WithNormalizer(versionNames(cfg)), nil
+}
+
+// versionNames construit le normaliseur déclaré par la configuration.
+func versionNames(cfg config.Config) release.Normalizer {
+	return release.NewNormalizer(cfg.Versions.NamePrefixes)
 }
 
 // configuredProjects rend les dépôts que la configuration désigne.

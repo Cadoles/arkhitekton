@@ -241,7 +241,7 @@ func (db *DB) EnsureVersion(ctx context.Context, name string) (int64, error) {
 	// égalité le rattachement est indécidable et on retombe sur la provisoire —
 	// choisir au hasard rattacherait la release à la mauvaise version, et la
 	// provisoire, elle, reste visible et signalée.
-	candidates, err := db.realVersionsNormalized(ctx, release.NormalizeVersionName(name))
+	candidates, err := db.realVersionsNormalized(ctx, db.names.Normalize(name))
 	if err != nil {
 		return 0, err
 	}
@@ -259,7 +259,7 @@ func (db *DB) EnsureVersion(ctx context.Context, name string) (int64, error) {
 	err = db.pool.QueryRow(ctx,
 		`insert into versions (redmine_id, name, normalized_name, status, synced_at)
 		 values (-nextval('versions_id_seq'), $1, $2, 'en-attente-de-synchronisation', now())
-		 returning id`, name, release.NormalizeVersionName(name)).Scan(&id)
+		 returning id`, name, db.names.Normalize(name)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("création de la version provisoire %q: %w", name, err)
 	}

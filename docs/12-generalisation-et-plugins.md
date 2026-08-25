@@ -845,14 +845,51 @@ nommé, et le débordement se voit à la compilation. Sans cela, chaque fonction
 recommençait à mélanger les couches, et le coût du découplage futur augmentait à chaque
 sprint.
 
-#### 5. Marqueurs et préfixes
+#### 5. Marqueurs et préfixes — **fait**
 
-`##MSE-META##`, `##MSE-SUMMARY##`, et les préfixes `v` / `MSE ` de la normalisation
-deviennent des réglages. Une demi-journée.
+Deux noms de client qui vivaient en constantes Go sont devenus des réglages.
+
+**Les préfixes de normalisation.** `release.Normalizer` remplace la fonction de paquet
+`NormalizeVersionName`, qui retirait `v` et `MSE ` en dur. Le binaire ne connaît plus
+d'office que `v` — il vient du versionnement sémantique et ne suppose rien d'un projet —,
+et `deploy/base` déclare `VERSION_NAME_PREFIXES=v,MSE `.
+
+Trois conséquences qui ne se voyaient pas dans l'énoncé du chantier :
+
+- **La règle est devenue uniforme, donc plus stricte.** `MSE ` était retiré sans
+  condition, `v` seulement devant un chiffre. La garde du chiffre vaut désormais pour tout
+  préfixe — sans quoi un projet déclarant `rel` ramènerait « release-candidate » à
+  « ease-candidate ». Sur les vingt noms de l'instance réelle, ancienne et nouvelle règles
+  donnent le **même** résultat ; `MSE3-1.5` reste intact dans les deux cas.
+- **L'espace final de `MSE ` est significatif, et fragile à transporter.** `MSE` sans
+  espace ramènerait `MSE3-1.5` à `3-1.5`, c'est-à-dire rattacherait treize versions closes
+  à des numéros inventés. Le lecteur de configuration ne coupe donc que l'espace *avant*
+  un élément, et le littéral kustomize est quoté — un scalaire YAML non quoté perd son
+  espace de fin sans le moindre message.
+- **`versions.normalized_name` est une colonne dérivée.** Changer les préfixes la rend
+  obsolète, et le rapprochement comparerait alors une forme calculée avec les nouveaux à
+  une forme écrite avec les anciens : une release cesserait de trouver sa version, en
+  silence. `store.RenormalizeVersions` la réaligne au démarrage du worker. Son premier
+  passage en cluster a corrigé **trois** lignes — pas à cause du changement de règle, qui
+  est neutre sur ces données, mais parce que la colonne avait déjà dérivé.
+
+Un point d'ouverture unique, `openStore`, applique la convention aux quatre pools du
+binaire : une ouverture qui l'oublierait ne casserait rien à la compilation.
+
+**Les marqueurs.** `results.MarkerSet` remplace les constantes `##MSE-META##` et
+`##MSE-SUMMARY##` : le jeu neutre est `##META##` / `##SUMMARY##`, et le jeton `MSE` rend
+les formes historiques. Un jeton et non deux chaînes libres — les deux marqueurs d'un même
+protocole doivent porter la même marque.
+
+Le canal reste **débranché** (doc 13 §13.9), et le rendre configurable maintenant est
+délibéré : cela ne coûte rien tant que rien ne le lit, tandis que l'inverse obligerait à
+changer un jeton déjà émis par des pipelines déployés. Aucune configuration n'est donc
+câblée pour lui — en ajouter une pour un protocole que personne ne consomme serait de la
+surface morte.
 
 **Pourquoi ça compte plus que sa taille** : ces marqueurs sont dans le **protocole**, pas
 dans l'interface. Un pipeline générique qui émet `##MSE-META##` reste marqué MSE dans son
-code source, et c'est exactement ce qu'on cherche à retirer.
+code source, quelle que soit la propreté de ce qui le lit.
 
 #### 6. L'enchaînement des vérifications
 

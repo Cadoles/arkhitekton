@@ -73,6 +73,17 @@ configMapGenerator:
       - OIDC_SCOPES=openid,profile,email
       - SESSION_TTL=12h
       - TEKTON_NAMESPACE=mse-tekton-pipelines
+      # Les préfixes retirés pour rapprocher un tag de release d'un nom de
+      # version. Le binaire n'en connaît qu'un d'office — `v`, qui vient du
+      # versionnement sémantique. `MSE ` est le nom d'un client, et c'est
+      # précisément pour cela qu'il est déclaré ici plutôt qu'écrit en Go
+      # (doc 12 §12.9, chantier 5).
+      #
+      # **Les guillemets portent l'espace final**, et il est significatif : sans
+      # lui, `MSE` retirerait aussi son préfixe à `MSE3-1.5`, ramenant treize
+      # versions closes à des numéros que rien ne permet de deviner. Un scalaire
+      # YAML non quoté perd son espace de fin sans le moindre message.
+      - "VERSION_NAME_PREFIXES=v,MSE "
 
 images:
   # Substituée par chaque overlay. `latest` est délibérément faux : un overlay

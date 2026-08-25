@@ -2,6 +2,12 @@ package release
 
 import "testing"
 
+// mseNames est la convention du déploiement MSE : `v` du versionnement
+// sémantique, `MSE ` du client. Déclarée ici parce que ces tests portent sur des
+// noms réellement présents dans le projet — la configuration, elle, la porte
+// désormais dans `deploy`.
+var mseNames = NewNormalizer([]string{DefaultPrefix, "MSE "})
+
 // Les conventions réellement présentes dans le projet, et ce qu'on en fait.
 func TestNormalizeVersionName(t *testing.T) {
 	cases := []struct {
@@ -27,8 +33,8 @@ func TestNormalizeVersionName(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if got := NormalizeVersionName(c.name); got != c.want {
-			t.Errorf("%s: NormalizeVersionName(%q) = %q, attendu %q", c.why, c.name, got, c.want)
+		if got := mseNames.Normalize(c.name); got != c.want {
+			t.Errorf("%s: Normalize(%q) = %q, attendu %q", c.why, c.name, got, c.want)
 		}
 	}
 }
@@ -37,7 +43,7 @@ func TestNormalizeVersionName(t *testing.T) {
 // et `v3.1.2` coexistent dans le projet. Tout rapprochement doit traiter ce cas au
 // lieu de supposer une correspondance unique.
 func TestLaNormalisationNestPasInjective(t *testing.T) {
-	if NormalizeVersionName("MSE 3.1.2") != NormalizeVersionName("v3.1.2") {
+	if mseNames.Normalize("MSE 3.1.2") != mseNames.Normalize("v3.1.2") {
 		t.Error("ces deux noms réels doivent bien se réduire au même numéro")
 	}
 }
@@ -49,16 +55,47 @@ func TestUneReleaseSeRattacheAUneVersionPrefixee(t *testing.T) {
 		t.Fatalf("analyse: %v", err)
 	}
 
-	if err := CheckRedmineVersion(version, "v3.2.0"); err != nil {
+	if err := mseNames.CheckRedmineVersion(version, "v3.2.0"); err != nil {
 		t.Errorf("une RC 3.2.0-rc1 doit se rattacher à la version Redmine v3.2.0: %v", err)
 	}
-	if err := CheckRedmineVersion(version, "MSE 3.2.0"); err != nil {
+	if err := mseNames.CheckRedmineVersion(version, "MSE 3.2.0"); err != nil {
 		t.Errorf("et à MSE 3.2.0: %v", err)
 	}
 
 	// Une version réellement différente reste refusée : la normalisation assouplit
 	// la forme, pas le fond.
-	if err := CheckRedmineVersion(version, "v3.3.0"); err == nil {
+	if err := mseNames.CheckRedmineVersion(version, "v3.3.0"); err == nil {
 		t.Error("3.2.0-rc1 ne doit pas se rattacher à v3.3.0")
+	}
+}
+
+// Un préfixe non déclaré n'est pas retiré : c'est ce qui rend la convention
+// portable. Un déploiement qui ne dit rien obtient `v`, et rien d'autre.
+func TestSeulsLesPrefixesDeclaresSontRetires(t *testing.T) {
+	if got := DefaultNormalizer.Normalize("MSE 3.1.2"); got != "MSE 3.1.2" {
+		t.Errorf("sans déclaration, `MSE ` doit rester: %q", got)
+	}
+	if got := DefaultNormalizer.Normalize("v3.1.2"); got != "3.1.2" {
+		t.Errorf("`v` vient du versionnement sémantique et s'applique d'office: %q", got)
+	}
+
+	// La garde du chiffre vaut pour tout préfixe, et pas pour `v` seul : sans
+	// elle, un projet déclarant `rel` ramènerait une version « release-candidate »
+	// à « ease-candidate ».
+	acme := NewNormalizer([]string{"rel"})
+	if got := acme.Normalize("release-candidate"); got != "release-candidate" {
+		t.Errorf("un préfixe ne se retire que devant un chiffre: %q", got)
+	}
+	if got := acme.Normalize("rel3.2.0"); got != "3.2.0" {
+		t.Errorf("et se retire quand un chiffre suit: %q", got)
+	}
+}
+
+// Le plus long d'abord, sans quoi le résultat dépendrait de l'ordre de saisie.
+func TestLePlusLongPrefixeLemporte(t *testing.T) {
+	names := NewNormalizer([]string{"v", "version "})
+
+	if got := names.Normalize("version 3.2.0"); got != "3.2.0" {
+		t.Errorf("`version ` doit primer sur `v`: %q", got)
 	}
 }

@@ -1,6 +1,9 @@
 package release
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 /*
  * Rapprochement d'un tag de release et d'un nom de version Redmine.
@@ -18,31 +21,91 @@ import "strings"
  * Redmine, et réécrire le nom perdrait ce que l'utilisateur lit dans Redmine.
  */
 
-// NormalizeVersionName rend la forme comparable d'un nom de version.
+// DefaultPrefix est le seul préfixe qu'un déploiement obtient sans rien déclarer.
 //
-// Deux préfixes sont retirés, et deux seulement :
+// `v3.2.0` est une convention de fait, pas une convention de projet : elle vient
+// du versionnement sémantique lui-même, et la retirer d'office ne suppose rien
+// d'un projet donné. `MSE `, en revanche, est le nom d'un client — il était en
+// dur à côté, et c'est ce que ce chantier déplace vers la configuration
+// (doc 12 §12.9, chantier 5).
+const DefaultPrefix = "v"
+
+// Normalizer rend comparables des noms de version écrits selon des conventions
+// différentes.
 //
-//   - `v`, quand il précède un chiffre — `v3.2.0` → `3.2.0` ;
-//   - `MSE ` — `MSE 3.1.2` → `3.1.2`.
+// Une valeur et non une fonction de paquet : les préfixes viennent de la
+// configuration, et une fonction libre laisserait n'importe quel appelant
+// normaliser sans eux — en silence, et différemment de la colonne stockée.
+type Normalizer struct {
+	// prefixes est trié du plus long au plus court. `MSE ` doit être essayé avant
+	// `M` si les deux sont déclarés, sans quoi le résultat dépendrait de l'ordre
+	// de saisie.
+	prefixes []string
+}
+
+// NewNormalizer construit un normaliseur.
 //
-// `MSE3-1.5` est délibérément laissé intact. Ce préfixe ne désigne pas la même
-// chose : « MSE3, version 1.5 » se lirait `3.1.5` ou `1.5` selon l'intention, et
-// rien dans les données ne permet de trancher. Inventer une règle rattacherait des
-// releases à la mauvaise version, ce qui est pire que de ne rien rattacher — ces
-// treize versions sont closes et n'attendent aucune release.
+// Les entrées vides sont écartées et les doublons ignorés : une liste mal saisie
+// — virgule en trop, préfixe répété — donne le même résultat qu'une liste propre
+// plutôt qu'un comportement à expliquer.
+func NewNormalizer(prefixes []string) Normalizer {
+	seen := map[string]bool{}
+	kept := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		prefix = strings.TrimLeft(prefix, " \t")
+		if strings.TrimSpace(prefix) == "" || seen[strings.ToLower(prefix)] {
+			continue
+		}
+		seen[strings.ToLower(prefix)] = true
+		kept = append(kept, prefix)
+	}
+	sort.SliceStable(kept, func(i, j int) bool { return len(kept[i]) > len(kept[j]) })
+	return Normalizer{prefixes: kept}
+}
+
+// DefaultNormalizer ne retire que [DefaultPrefix].
+//
+// Sert aux tests et aux chemins qui n'ont pas de configuration à porter. Un
+// appelant qui rapproche des noms réels doit recevoir celui de la configuration :
+// normaliser autrement que la colonne stockée ne rapproche rien.
+var DefaultNormalizer = NewNormalizer([]string{DefaultPrefix})
+
+// Prefixes rend les préfixes retenus, du plus long au plus court.
+func (n Normalizer) Prefixes() []string { return append([]string(nil), n.prefixes...) }
+
+// Normalize rend la forme comparable d'un nom de version.
+//
+// Un seul préfixe est retiré, le premier qui s'applique — enchaîner les retraits
+// ferait dépendre le résultat de l'ordre de la liste, et `vv3.0` n'est pas un nom
+// qu'on cherche à rattraper.
+//
+// La coupe exige que le reste **commence par un chiffre**. C'est ce qui protège
+// une version nommée `validation` d'être ramenée à `alidation` par le préfixe
+// `v`, et la garde vaut pour tous les préfixes plutôt que pour celui-là seul.
+//
+// `MSE3-1.5` reste donc intact même quand `MSE` est déclaré : le reste commence
+// par un chiffre, mais ce préfixe ne désigne pas la même chose — « MSE3, version
+// 1.5 » se lirait `3.1.5` ou `1.5` selon l'intention, et rien dans les données ne
+// permet de trancher. Seul `MSE ` avec son espace est déclaré, et il ne s'applique
+// pas ici. Inventer une règle rattacherait des releases à la mauvaise version, ce
+// qui est pire que de ne rien rattacher.
 //
 // La normalisation n'est pas injective : `MSE 3.1.2` et `v3.1.2` rendent tous deux
 // `3.1.2`, et ces deux versions coexistent réellement. Tout rapprochement doit donc
 // traiter le cas ambigu, et jamais supposer une correspondance unique.
-func NormalizeVersionName(name string) string {
+func (n Normalizer) Normalize(name string) string {
 	normalized := strings.TrimSpace(name)
 
-	if rest, found := cutPrefixFold(normalized, "MSE "); found {
-		normalized = strings.TrimSpace(rest)
-	}
-
-	if rest, found := cutPrefixFold(normalized, "v"); found && startsWithDigit(rest) {
-		normalized = rest
+	for _, prefix := range n.prefixes {
+		rest, found := cutPrefixFold(normalized, prefix)
+		if !found {
+			continue
+		}
+		rest = strings.TrimSpace(rest)
+		if !startsWithDigit(rest) {
+			continue
+		}
+		return rest
 	}
 
 	return normalized
@@ -67,6 +130,6 @@ func startsWithDigit(value string) bool {
 // La comparaison porte sur la version de base : une pré-release `3.2.0-rc1` se
 // rattache à la version `3.2.0`, ce qui est ce qui relie une RC à son périmètre
 // fonctionnel.
-func SameVersion(version Version, redmineName string) bool {
-	return NormalizeVersionName(version.Base) == NormalizeVersionName(redmineName)
+func (n Normalizer) SameVersion(version Version, redmineName string) bool {
+	return n.Normalize(version.Base) == n.Normalize(redmineName)
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -87,7 +88,8 @@ func newSync(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) *RedmineSy
 	if db.mapping == nil {
 		db.mapping = map[string]string{"En cours": "doing", "Fermé": "done", "Rejeté": "rejected"}
 	}
-	return NewRedmineSync(db, client, "mse-dev", quietLogger())
+	return NewRedmineSync(db, client, "mse-dev", quietLogger()).
+		WithNormalizer(testNames)
 }
 
 // Les versions avant les demandes : une demande se rattache à sa version par
@@ -312,3 +314,8 @@ func TestLeDrapeauDeClotureEstTransmisIndependammentDuSeau(t *testing.T) {
 		t.Errorf("seau %q, attendu doing", db.issues[0].StatusBucket)
 	}
 }
+
+// testNames est la convention du déploiement MSE. Ces tests portent sur des noms
+// réellement présents dans le projet — `v3.2.0` et `MSE 3.1.2` y coexistent —, et
+// c'est la configuration qui la déclare depuis que `MSE ` n'est plus en dur.
+var testNames = release.NewNormalizer([]string{release.DefaultPrefix, "MSE "})

@@ -6,7 +6,7 @@ import (
 )
 
 /*
-Marqueurs de flux — `##MSE-META##` et `##MSE-SUMMARY##`.
+Marqueurs de flux — `##META##` et `##SUMMARY##`, éventuellement préfixés.
 
 Deux informations doivent remonter **avant la fin du run** : le descripteur
 d'exécution et la ligne de résumé. Elles sont trop petites pour justifier un
@@ -25,11 +25,38 @@ un code sain. C'est la meilleure propriété du `security-audit` existant, et el
 est reprise telle quelle.
 */
 
-// Marqueurs, en début de ligne.
-const (
-	MarkerMeta    = "##MSE-META##"
-	MarkerSummary = "##MSE-SUMMARY##"
-)
+// MarkerSet nomme les deux marqueurs qu'un flux emploie.
+//
+// Un jeton et non deux chaînes libres : les deux marqueurs d'un même protocole
+// doivent porter la même marque, et laisser l'appelant les composer permettrait
+// un `##ACME-META##` avec un `##SUMMARY##`, dont rien ne dirait qu'ils vont
+// ensemble.
+type MarkerSet struct {
+	Meta    string
+	Summary string
+}
+
+// DefaultMarkers est le jeu sans marque de projet.
+//
+// Les marqueurs valaient `##MSE-META##` et `##MSE-SUMMARY##`, en constantes. Le
+// nom d'un projet dans un **protocole** est un couplage d'une autre nature que
+// dans une interface : un pipeline générique qui émet `##MSE-META##` reste marqué
+// MSE dans son code source, et c'est précisément ce qu'on cherche à retirer
+// (doc 12 §12.9, chantier 5).
+var DefaultMarkers = NewMarkerSet("")
+
+// NewMarkerSet compose les marqueurs d'un jeton de projet.
+//
+// Jeton vide pour la forme neutre — `##META##`. Le jeton `MSE` rend la forme
+// historique, `##MSE-META##`, ce qui laisse un déploiement qui l'émet déjà
+// continuer sans rien changer à ses pipelines.
+func NewMarkerSet(token string) MarkerSet {
+	token = strings.TrimSpace(strings.Trim(strings.TrimSpace(token), "-"))
+	if token != "" {
+		token += "-"
+	}
+	return MarkerSet{Meta: "##" + token + "META##", Summary: "##" + token + "SUMMARY##"}
+}
 
 // Meta est le descripteur d'exécution d'un outil.
 type Meta struct {
@@ -69,23 +96,23 @@ type Markers struct {
 // Tolérant sur la forme : un marqueur mal formé est ignoré plutôt que de faire
 // échouer la lecture du journal. Le journal a d'autres usages que celui-ci, et le
 // perdre en entier pour une accolade manquante serait disproportionné.
-func ScanMarkers(text string) Markers {
+func (m MarkerSet) ScanMarkers(text string) Markers {
 	markers := Markers{Metas: map[string]Meta{}}
 
 	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 
 		switch {
-		case strings.HasPrefix(trimmed, MarkerMeta):
-			payload := strings.TrimSpace(strings.TrimPrefix(trimmed, MarkerMeta))
+		case strings.HasPrefix(trimmed, m.Meta):
+			payload := strings.TrimSpace(strings.TrimPrefix(trimmed, m.Meta))
 			var meta Meta
 			if err := json.Unmarshal([]byte(payload), &meta); err != nil || meta.Tool == "" {
 				continue
 			}
 			markers.Metas[meta.Tool] = meta
 
-		case strings.HasPrefix(trimmed, MarkerSummary):
-			summary := strings.TrimSpace(strings.TrimPrefix(trimmed, MarkerSummary))
+		case strings.HasPrefix(trimmed, m.Summary):
+			summary := strings.TrimSpace(strings.TrimPrefix(trimmed, m.Summary))
 			if summary != "" {
 				markers.Summaries = append(markers.Summaries, summary)
 			}
@@ -100,13 +127,13 @@ func ScanMarkers(text string) Markers {
 // Le journal affiché est celui que l'utilisateur lit : y laisser des lignes de
 // protocole le charge sans rien lui apprendre, puisque l'information qu'elles
 // portent est affichée à côté, mise en forme.
-func StripMarkers(text string) string {
+func (m MarkerSet) StripMarkers(text string) string {
 	lines := strings.Split(text, "\n")
 	kept := lines[:0]
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, MarkerMeta) || strings.HasPrefix(trimmed, MarkerSummary) {
+		if strings.HasPrefix(trimmed, m.Meta) || strings.HasPrefix(trimmed, m.Summary) {
 			continue
 		}
 		kept = append(kept, line)

@@ -8,11 +8,28 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 )
 
 // DB enveloppe le pool de connexions PostgreSQL.
 type DB struct {
 	pool *pgxpool.Pool
+	// names rapproche des noms de version écrits selon des conventions
+	// différentes. Porté par le pool parce que la forme normalisée est une
+	// **colonne** : la calculer autrement qu'elle a été écrite ne rapprocherait
+	// rien, et un appelant qui apporterait le sien pourrait le faire sans que
+	// rien ne le signale.
+	names release.Normalizer
+}
+
+// WithNormalizer déclare les préfixes retirés pour comparer deux noms de version.
+//
+// Séparé de Open : la configuration du rapprochement n'a rien à voir avec
+// l'ouverture d'un pool, et les fondre obligerait tous les tests à en fournir une.
+// Sans appel, [release.DefaultNormalizer] s'applique.
+func (db *DB) WithNormalizer(names release.Normalizer) *DB {
+	db.names = names
+	return db
 }
 
 // Open établit le pool et vérifie qu'une connexion aboutit.
@@ -42,7 +59,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*DB, error) {
 		return nil, fmt.Errorf("connexion à PostgreSQL: %w", redactError(err, cfg.DSN))
 	}
 
-	return &DB{pool: pool}, nil
+	return &DB{pool: pool, names: release.DefaultNormalizer}, nil
 }
 
 // Pool expose le pool sous-jacent aux couches qui exécutent des requêtes.
