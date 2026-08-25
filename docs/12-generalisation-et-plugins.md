@@ -881,11 +881,10 @@ binaire : une ouverture qui l'oublierait ne casserait rien à la compilation.
 les formes historiques. Un jeton et non deux chaînes libres — les deux marqueurs d'un même
 protocole doivent porter la même marque.
 
-Le canal reste **débranché** (doc 13 §13.9), et le rendre configurable maintenant est
-délibéré : cela ne coûte rien tant que rien ne le lit, tandis que l'inverse obligerait à
-changer un jeton déjà émis par des pipelines déployés. Aucune configuration n'est donc
-câblée pour lui — en ajouter une pour un protocole que personne ne consomme serait de la
-surface morte.
+Le canal était alors **débranché**, et aucune configuration n'était câblée pour lui : en
+ajouter une pour un protocole que personne ne consomme aurait été de la surface morte. Il a
+été raccordé depuis, et `deploy/base` déclare `MARKER_TOKEN=MSE` — le jeton que `mse-tekton`
+émet déjà. L'ordre a payé : les Tasks n'ont pas eu à changer.
 
 **Pourquoi ça compte plus que sa taille** : ces marqueurs sont dans le **protocole**, pas
 dans l'interface. Un pipeline générique qui émet `##MSE-META##` reste marqué MSE dans son

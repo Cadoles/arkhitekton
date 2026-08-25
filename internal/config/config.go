@@ -34,6 +34,20 @@ type Config struct {
 	Redmine  RedmineConfig
 	Gitea    GiteaConfig
 	Versions VersionsConfig
+	Results  ResultsConfig
+}
+
+// ResultsConfig porte la lecture des résultats laissés par les pipelines.
+type ResultsConfig struct {
+	// MarkerToken est la marque des lignes de protocole qu'une Task écrit sur sa
+	// sortie standard : `MSE` donne `##MSE-META##`, vide donne `##META##`.
+	//
+	// Configurable parce que le nom d'un projet dans un **protocole** est un
+	// couplage d'une autre nature que dans une interface : un pipeline générique
+	// qui émet `##MSE-META##` reste marqué MSE dans son code source. Le
+	// déploiement MSE déclare donc `MSE`, ce que ses Tasks émettent déjà
+	// (doc 13 §13.3).
+	MarkerToken string
 }
 
 // VersionsConfig porte la façon dont les noms de version se rapprochent.
@@ -295,6 +309,9 @@ func Load(role Role) (Config, error) {
 			Password: os.Getenv("REGISTRY_PASSWORD"),
 			Project:  envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
 			Image:    envOr("REGISTRY_IMAGE", "portal"),
+		},
+		Results: ResultsConfig{
+			MarkerToken: os.Getenv("MARKER_TOKEN"),
 		},
 		Versions: VersionsConfig{
 			// `v` seul par défaut : il vient du versionnement sémantique et ne

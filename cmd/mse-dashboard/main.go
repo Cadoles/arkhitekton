@@ -30,6 +30,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
@@ -456,6 +457,13 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
 				WithTestIngester(worker.NewTestIngester(db, objects, logger)).
 				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger)).
+				// La lecture des descripteurs d'exécution. Elle passe par le
+				// lecteur de journaux et non par le stockage d'artefacts : un
+				// outil qui n'a pas conclu n'a rien publié, et c'est précisément
+				// ce cas qu'elle rend visible.
+				WithMarkerIngester(worker.NewMarkerIngester(
+					db, logs.NewReader(storage),
+					results.NewMarkerSet(cfg.Results.MarkerToken), logger)).
 				// Le catalogue permet d'enchaîner les vérifications d'une
 				// construction réussie : sans lui, l'observation continue mais
 				// une release construite reste en attente d'un test que rien

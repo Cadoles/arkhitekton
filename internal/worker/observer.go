@@ -36,6 +36,10 @@ type runSink struct {
 	tests *TestIngester
 	// security ingère les audits normalisés. Même règle.
 	security *SecurityIngester
+	// markers lit les descripteurs d'exécution laissés dans les journaux. Nil
+	// quand le lecteur de journaux n'est pas branché : le reste continue, et un
+	// outil planté redevient alors indiscernable d'un outil propre.
+	markers *MarkerIngester
 	// registryProject préfixe les images publiées, pour les nommer à l'audit.
 	// Vide, les familles qui les réclament ne sont pas lançables et le journal le
 	// dit — mieux qu'un run qui échouerait sur une référence tronquée.
@@ -153,6 +157,15 @@ func (s *runSink) WithTestIngester(ingester *TestIngester) *runSink {
 	return s
 }
 
+// WithMarkerIngester branche la lecture des descripteurs d'exécution.
+//
+// Optionnel comme les autres ingestions : sans lui, l'observation continue, mais
+// un outil qui a planté redevient indiscernable d'un outil qui n'a rien trouvé.
+func (s *runSink) WithMarkerIngester(ingester *MarkerIngester) *runSink {
+	s.markers = ingester
+	return s
+}
+
 // WithSecurityIngester branche l'ingestion des audits de sécurité.
 func (s *runSink) WithSecurityIngester(ingester *SecurityIngester) *runSink {
 	s.security = ingester
@@ -192,6 +205,13 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 	release := s.releaseOf(ctx, run)
 
 	if err := s.ingestLoad(ctx, id, run, release); err != nil {
+		return err
+	}
+	// Les marqueurs **avant** les artefacts, et l'ordre porte une décision : les
+	// deux ingestions sont idempotentes par outil, donc la première l'emporte. Le
+	// descripteur doit gagner — il est le seul à savoir que l'outil a échoué, là
+	// où un artefact partiel se lirait comme un résultat complet.
+	if err := s.ingestMarkers(ctx, id, run, release); err != nil {
 		return err
 	}
 	if err := s.ingestTests(ctx, id, run, release); err != nil {
@@ -251,6 +271,44 @@ func (s *runSink) ingestSecurity(ctx context.Context, runID int64, run tekton.Ru
 
 	if err := s.security.Ingest(ctx, LoadRun{ID: runID, Name: run.Name, JobID: run.JobID, ReleaseID: release}); err != nil {
 		s.security.logger.Error("ingestion de l'audit de sécurité", "run", run.Name, "error", err)
+	}
+	return nil
+}
+
+// ingestMarkers enregistre ce que les descripteurs disent des outils qui n'ont
+// pas conclu.
+//
+// L'échec n'est pas rendu à l'observateur, comme pour les autres ingestions : il
+// ferait retenter la projection du run entier alors que le run est correctement
+// enregistré, et la prochaine visite rejouera ce qui manque.
+//
+// La famille vient du catalogue et non du run : un outil qui n'a rien publié n'a
+// pas d'artefact d'où la déduire, et c'est précisément le cas qu'on cherche à
+// rendre visible.
+func (s *runSink) ingestMarkers(ctx context.Context, runID int64, run tekton.Run, release *int64) error {
+	if s.markers == nil || !run.Status.Terminal() || run.JobID == 0 {
+		return nil
+	}
+
+	job, err := s.db.GetJob(ctx, run.JobID)
+	if err != nil || job.Kind == "" {
+		return nil
+	}
+
+	tasks := make([]string, 0, len(run.DeclaredTasks))
+	for _, task := range run.DeclaredTasks {
+		tasks = append(tasks, task.Name)
+	}
+
+	marked, ok := markerRunFor(s.catalog, job.Kind, MarkerRun{
+		ID: runID, Name: run.Name, Tasks: tasks, ReleaseID: release,
+	})
+	if !ok {
+		return nil
+	}
+
+	if err := s.markers.Ingest(ctx, marked); err != nil {
+		s.logger.Error("lecture des marqueurs", "run", run.Name, "error", err)
 	}
 	return nil
 }

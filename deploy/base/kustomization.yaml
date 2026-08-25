@@ -84,6 +84,13 @@ configMapGenerator:
       # versions closes à des numéros que rien ne permet de deviner. Un scalaire
       # YAML non quoté perd son espace de fin sans le moindre message.
       - "VERSION_NAME_PREFIXES=v,MSE "
+      # La marque des lignes de protocole que les Tasks écrivent sur leur sortie
+      # standard. `MSE` donne `##MSE-META##`, ce que `mse-tekton` émet déjà.
+      #
+      # Le laisser vide rendrait la forme neutre `##META##` : les descripteurs
+      # existants ne seraient plus lus, et un outil planté redeviendrait
+      # indiscernable d'un outil propre (doc 13 §13.3).
+      - MARKER_TOKEN=MSE
 
 images:
   # Substituée par chaque overlay. `latest` est délibérément faux : un overlay

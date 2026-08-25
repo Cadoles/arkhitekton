@@ -52,15 +52,6 @@ plutôt que d'échouer en cours d'exécution sur un message qui ne le désigne p
 
 ## 13.3 Marqueurs de flux
 
-> **État : spécifié et émis, pas encore consommé.** Les Tasks de `mse-tekton` écrivent
-> ces marqueurs, et `internal/results` sait les lire — la fonction est écrite et
-> testée — mais **aucun appelant ne les relie**. Le canal est donc décrit ici comme le
-> contrat qu'il est, et non comme un comportement observable aujourd'hui.
->
-> Conséquence concrète : la distinction entre « l'outil a trouvé des problèmes » et
-> « l'outil n'a pas pu tourner » est portée par les pipelines mais **perdue** avant
-> d'atteindre l'écran. Voir [13.9](#139-écarts-connus).
-
 Deux informations doivent remonter **avant la fin du run** : le descripteur d'exécution
 d'un outil, et sa ligne de résumé. Elles sont trop petites pour justifier un artefact, et
 trop utiles pour attendre — devant une campagne de quarante minutes, on veut lire
@@ -108,6 +99,25 @@ Un descripteur **absent** vaut « n'a pas conclu ». Le signal correspondant dev
 mesuré* et non *conforme* : se tromper dans ce sens affiche « non mesuré » sur un outil
 qui a tourné, ce qui est corrigible ; dans l'autre, on afficherait « conforme » sur un
 scanner qui a planté.
+
+### Le `tool` du descripteur nomme le même outil que son artefact
+
+Le descripteur d'un outil qui **échoue** est la seule trace qu'il laisse : il ne publie
+alors aucun artefact. Le dashboard en crée un résultat `na`, et le nom qu'il y inscrit est
+celui du champ `tool`.
+
+Ce nom doit donc être **exactement** celui sous lequel l'artefact du même outil est
+enregistré quand il réussit. Sinon le même outil apparaît sous deux noms selon son issue —
+un signal « conforme » sous l'un, un « non mesuré » sous l'autre — et l'écran d'une release
+laisse croire à deux outils dont l'un ne tourne jamais.
+
+C'était le cas : la Task `cs-fixer` émettait `php-cs-fixer` alors que son rapport est rangé
+sous `cs-fixer`.
+
+### Ce qui n'émet pas encore
+
+`security-audit` n'émet aucun descripteur. C'est le pipeline où l'absence coûte le plus :
+un scanner de vulnérabilités mort rend zéro constat, exactement comme un dépôt sain.
 
 ### Résumé — `##MSE-SUMMARY##`
 
@@ -280,38 +290,40 @@ les soirs sans que personne ne comprenne pourquoi.
 
 ## 13.9 Écarts connus
 
-Ce que ce document décrit et que le code ne fait pas encore. Écrit ici plutôt que tu, pour
-qu'un pipeline conforme ne soit pas soupçonné quand l'effet attendu n'apparaît pas.
+Ce que ce document décrit et que le code ne fait pas. Écrit ici plutôt que tu, pour qu'un
+pipeline conforme ne soit pas soupçonné quand l'effet attendu n'apparaît pas.
 
-### Les marqueurs ne sont pas consommés
+Le canal de marqueurs y figurait en entier — émis, lisible, sans le moindre appelant. Il
+est **raccordé** depuis : à la conclusion d'un run, les journaux de ses tasks sont scannés,
+et tout outil dont le descripteur ne dit pas `ok` produit un résultat `na` porteur de sa
+cause. Le score sort alors ce signal du calcul et redistribue son poids, au lieu de compter
+un zéro qui serait faux ([B11]). Ce qui reste ci-dessous est plus étroit, et l'un des deux
+points est un refus assumé plutôt qu'un manque.
 
-`MarkerSet.ScanMarkers` et `MarkerSet.StripMarkers` existent, sont testés, et n'ont
-**aucun appelant**. Rien ne lit les journaux d'un run conclu pour en extraire les
-descripteurs.
+### Les lignes de marqueur restent visibles dans le journal
 
-Le jeton est devenu un réglage (13.3) alors que le canal reste débranché, et c'est
-délibéré : rendre configurable un protocole non consommé ne coûte rien, tandis qu'ajouter
-la configuration après coup obligerait à changer le jeton déjà émis par des pipelines
-déployés. Conséquence à retenir le jour du branchement : le jeton du déploiement devra
-valoir `MSE` pour que les Tasks existantes de `mse-tekton` soient lues — c'est ce que
-`deploy/base` déclare déjà pour les préfixes de version, et le même endroit portera
-celui-ci.
+`MarkerSet.StripMarkers` existe et n'a **aucun appelant**, délibérément.
 
-Ce qui en découle :
+Le journal affiché n'est pas recomposé : il est servi par plages depuis l'objet scellé, et
+la numérotation absolue compte les sauts de ligne de cet objet-là. Retirer des lignes à
+l'affichage décalerait chaque numéro après le premier marqueur, et un lien `#L275` partagé
+ne désignerait plus la même ligne selon qu'il a été produit avant ou après le filtrage.
 
-- le résumé d'un outil n'apparaît pas pendant l'exécution ;
-- `status` n'est pas exploité, donc **un outil planté ne se distingue pas d'un outil qui
-  n'a rien trouvé** — c'est la propriété que le canal existait pour préserver ;
-- les lignes de marqueur restent visibles dans le journal affiché, alors que
-  `StripMarkers` est écrit pour les en retirer.
+Le prix de les laisser est faible — quelques lignes de protocole dans un flux qui en
+compte des milliers. Le prix de les retirer est un système d'ancrage qui ment. Le filtrage
+resterait possible côté visionneuse, comme un affichage optionnel qui ne touche ni aux
+décalages ni aux numéros ; ce n'est pas fait, et ce n'est pas prévu.
 
-Le raccordement est mécanique — lire le journal scellé à la conclusion d'un run, scanner,
-persister — mais ce n'est pas du travail préparatoire : c'est une fonctionnalité qui
-manque. À traiter comme telle.
+### Le résumé n'apparaît pas pendant l'exécution
 
-**En attendant, les pipelines doivent continuer d'émettre.** Le contrat ne change pas, et
-le jour où le raccordement est fait, ce qui a déjà été émis devient exploitable sans
-retoucher une seule Task.
+`##SUMMARY##` est lu — `Markers.Summaries` le rend — mais rien ne l'affiche en cours de
+run. Le descripteur, lui, est exploité à la **conclusion** du run : c'est ce qui distingue
+un outil planté d'un outil qui n'a rien trouvé.
+
+Ce qui manque est donc l'immédiateté, pas l'information : devant une campagne de quarante
+minutes, on aimerait lire « PHPStan : 12 violations » dès que PHPStan a fini plutôt qu'à la
+fin de tout. Cela demande de scanner un journal **en cours** et de pousser le résultat par
+le flux d'événements — un travail de diffusion, distinct de celui d'ingestion qui est fait.
 
 [B11]: 02-blocages-et-decisions.md#b11
 [B14]: 02-blocages-et-decisions.md#b14

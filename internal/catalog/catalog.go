@@ -587,6 +587,31 @@ func (p Pipeline) Inputs() []Input {
 	return inputs
 }
 
+// Family rend la famille de signal que ce pipeline mesure.
+//
+// Vide quand il n'en déclare aucune — `build`, `retag` — ou plusieurs, cas où
+// rien ne dit à laquelle rattacher un outil : mieux vaut ne pas classer que
+// classer au hasard, une famille erronée déplaçant un verdict sur un signal qui
+// n'a pas été mesuré.
+//
+// Lue des `uploads`, qui la déclarent déjà pour ranger les artefacts. Le canal de
+// marqueurs s'en sert pour attribuer une famille à un outil qui n'a **rien**
+// publié : il n'a alors pas d'artefact d'où la déduire, et c'est précisément le
+// cas qu'on cherche à rendre visible.
+func (p Pipeline) Family() string {
+	var found string
+	for _, upload := range p.Uploads {
+		if upload.Family == "" || upload.Family == found {
+			continue
+		}
+		if found != "" {
+			return ""
+		}
+		found = upload.Family
+	}
+	return found
+}
+
 // VerificationKinds énumère ce qu'une construction réussie enchaîne.
 //
 // Dans l'ordre de déclaration, qui devient l'ordre de mise en file : une map Go
