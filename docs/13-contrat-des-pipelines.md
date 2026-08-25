@@ -114,10 +114,49 @@ laisse croire à deux outils dont l'un ne tourne jamais.
 C'était le cas : la Task `cs-fixer` émettait `php-cs-fixer` alors que son rapport est rangé
 sous `cs-fixer`.
 
-### Ce qui n'émet pas encore
+### Un pipeline qui rapporte déjà son statut n'émet pas de marqueur
 
-`security-audit` n'émet aucun descripteur. C'est le pipeline où l'absence coûte le plus :
-un scanner de vulnérabilités mort rend zéro constat, exactement comme un dépôt sain.
+Le canal de marqueurs est **un** moyen de dire qu'un outil n'a pas conclu, pas le seul. Un
+pipeline qui porte déjà cette information dans ses artefacts ne doit pas la redire en
+marqueur : les deux canaux produiraient chacun un résultat, et la famille serait comptée
+deux fois dans le score.
+
+`security-audit` est dans ce cas, et il le fait mieux. Ses Tasks écrivent un descripteur
+par scanner sous `meta/<scanner>.json` — mêmes champs, même `status` —, la normalisation
+les agrège dans `summary.json` sous `scanner_status` et `failed_scanners`, et le dashboard
+en tire un unique résultat `security-audit` en `na` dès qu'un scanner a échoué. La
+granularité par scanner survit dans l'audit, là où un marqueur l'aurait aplatie.
+
+La règle générale : **une mesure, un résultat**. Si un outil publie un artefact, son statut
+voyage avec ; le marqueur ne sert qu'aux outils qui n'ont rien pu publier.
+
+### Tout pipeline enchaîné doit dire s'il a conclu
+
+Par l'un des deux canaux, au choix, mais par l'un des deux. Un pipeline enchaîné qui ne dit
+rien laisse son signal muet, et le muet se lit comme le vert.
+
+| Pipeline | Canal | Outil déclaré |
+|---|---|---|
+| `static-tests` | marqueur | `phpstan`, `cs-fixer` |
+| `unit-tests` | marqueur | `phpunit` |
+| `integration-tests` | marqueur | `phpunit-integration` |
+| `security-audit` | `meta/*.json` → `summary.json` | par scanner |
+| `e2e-tests` | marqueur | `cypress` |
+
+### Le rapport fait foi, jamais le code de sortie
+
+Un outil de test sort en échec **dès qu'un test échoue**, ce qui est un succès de l'outil.
+PHPStan sort en 1 quand il trouve une violation. Déduire `status` du code de sortie ferait
+donc passer chaque analyse fructueuse pour un outil en panne — l'inverse exact du but.
+
+Ce qui distingue un outil qui n'a pas conclu est l'**absence de rapport**. Le descripteur
+porte le code de sortie parce qu'il est informatif, pas parce qu'il tranche.
+
+Une Task dont l'outil est un binaire opaque le fait en deux étapes : la première porte
+`onError: continue` pour que la seconde tourne **surtout** quand elle échoue, la seconde
+lit `$(steps.step-<nom>.exitCode.path)`, constate la présence du rapport, émet, et sort
+avec le même code. Sans cette dernière ligne, `onError: continue` transformerait chaque
+échec de tests en succès.
 
 ### Résumé — `##MSE-SUMMARY##`
 
