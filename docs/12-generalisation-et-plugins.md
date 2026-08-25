@@ -760,16 +760,41 @@ de `mse-tekton` vers le `deploy/` du dashboard.
 `mse-tekton` pour construire et promouvoir. C'est le premier pas d'autonomie réelle, et il
 consiste à déplacer deux fichiers.
 
-#### 3. Les images pilotées par la table
+#### 3. Les images pilotées par la table — **fait**
 
-`internal/images` porte encore `portal` et `portal-cli` en constantes. La table `projects`
-sait déjà décrire ce qu'un dépôt construit — registre, cibles, noms d'images. Il reste à
-brancher l'enchaînement de vérification et les suggestions dessus, et à retirer les
-constantes.
+`internal/images` portait `portal`, `portal-cli` et `portal-dev` en constantes, doublées de
+deux listes : ce qu'une release construit, ce qu'un re-tag propage. La table `projects`
+décrivait déjà ce qu'un dépôt construit — registre, cibles, dépôts d'image alimentés. Elle
+dit désormais aussi lesquels sont **promus**, et c'est elle que le dashboard lit.
 
-**Pourquoi c'est structurant** : c'est le premier endroit où « le projet se décrit
-lui-même » remplace « le code connaît MSE ». Le chantier est en cours, il mérite d'être
-fini plutôt que laissé à mi-chemin.
+Ce qui a bougé :
+
+- `store.Target` gagne `Promote`, et `Project` les méthodes `Buildable()` / `Promotable()`.
+  `BuildableProject` rend le dépôt dont une release construit les images, et refuse
+  plusieurs candidats plutôt que d'en choisir un au hasard. La migration `0024` renseigne
+  le drapeau sur les lignes déjà écrites — muettes, elles auraient promu l'image de
+  développement en préproduction.
+- Les trois chemins de mise en file — construction, re-tag de conclusion, promotion — lisent
+  la table à chaque appel plutôt qu'un tableau figé au démarrage : les étapes se modifient
+  depuis l'administration, où une case dit maintenant si l'étape est promue.
+- Le **tableau de noms en dur** disparaît, et c'est le gain principal. Il existait en
+  double — une copie dans l'enchaînement automatique, une dans la relance manuelle — et
+  énumérait `revision`, `app-revision`, `mse-revision`, `portal-image`, `consumer-image`.
+  `Pipeline.VerificationInputs` le remplace en s'appuyant sur ce que le catalogue déclare
+  déjà : `suggest: git-ref` dit qu'un paramètre veut une référence Git, quel que soit son
+  nom. Les natures `portal-image` / `consumer-image` cèdent la place à `suggest: image`
+  accompagné de `image: portal`, et la liste proposée par le formulaire se constitue à
+  partir des images que le catalogue nomme.
+- `internal/images` ne fait plus que composer `registre/nom:tag`.
+
+**Ce que ça vaut** : c'est le premier endroit où « le projet se décrit lui-même » remplace
+« le code connaît MSE ». Publier une image de plus ne demande plus de recompiler, et un
+pipeline qui nomme autrement ses paramètres devient enchaînable sans toucher au Go.
+
+**Ce qui reste attaché** : les *cibles* du Dockerfile — `web`, `cli`, `dev` — sont
+maintenant du contenu de table et d'amorçage, pas du code. La migration `0024`, elle, nomme
+`dev` : c'est assumé, une migration de données porte sur les données qui existent, et le
+champ reste libre pour un déploiement qui appellerait autrement ce qu'il ne promeut pas.
 
 #### 4. Nommer les frontières de fournisseurs
 

@@ -594,39 +594,18 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 			continue
 		}
 
-		// Plusieurs noms pour la même chose, hérités de pipelines écrits
-		// séparément : `revision` est ce qui est cloné, `app-revision` le nom
-		// qu'emploie l'audit de sécurité, `mse-revision` celui des tests
-		// d'intégration. Tous valent le commit construit — c'est lui qu'on
+		// Les valeurs sortent de ce que le catalogue déclare vouloir : `revision`,
+		// `app-revision` et `mse-revision` désignent la même chose sous trois noms
+		// hérités de pipelines écrits séparément, et c'est leur `suggest: git-ref`
+		// commun qui le dit. Tous valent le commit construit — c'est lui qu'on
 		// vérifie, pas la branche dont il vient.
-		params := map[string]string{}
-		for _, name := range pipeline.RequiredInputs() {
-			switch name {
-			case "revision", "app-revision", "mse-revision":
-				params[name] = revision
-
-			// L'audit analyse les images publiées par la construction, jamais une
-			// reconstruction : elle produirait un artefact différent de celui qui
-			// sera déployé, et le verdict porterait à côté (B17).
-			case "portal-image":
-				params[name] = s.imageRef(images.Web, linked.Tag)
-			case "consumer-image":
-				params[name] = s.imageRef(images.CLI, linked.Tag)
-
-			// Les tests d'intégration déploient les images publiées par la
-			// construction ; ils en reçoivent le tag plutôt que la référence
-			// complète, le préfixe de registre leur venant de la configuration.
-			case "image-tag":
-				params[name] = linked.Tag
-			default:
-				// Un paramètre requis qu'on ne sait pas renseigner ferait échouer
-				// le run à l'ordonnancement : ne pas l'enfiler du tout est plus
-				// honnête, et le journal dit lequel manque.
-				s.logger.Warn("famille de vérification non lançable",
-					"release", linked.Tag, "kind", kind, "parametre_manquant", name)
-			}
-		}
-		if len(params) != len(pipeline.RequiredInputs()) {
+		params, missing := pipeline.VerificationInputs(revision, linked.Tag, s.registryProject)
+		if missing != "" {
+			// Un paramètre requis qu'on ne sait pas renseigner ferait échouer le
+			// run à l'ordonnancement : ne pas l'enfiler du tout est plus honnête,
+			// et le journal dit lequel manque.
+			s.logger.Warn("famille de vérification non lançable",
+				"release", linked.Tag, "kind", kind, "parametre_manquant", missing)
 			continue
 		}
 

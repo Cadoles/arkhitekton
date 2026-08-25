@@ -42,7 +42,7 @@ func verificationCatalog() *catalog.Catalog {
 		Pipelines: []catalog.Pipeline{
 			{
 				Kind: "static-tests", Params: map[string]catalog.Param{
-					"revision": {Source: catalog.SourceInput, Required: true},
+					"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
@@ -50,7 +50,7 @@ func verificationCatalog() *catalog.Catalog {
 			// distinctes, deux signaux que le score pondère séparément.
 			{
 				Kind: "unit-tests", Params: map[string]catalog.Param{
-					"revision": {Source: catalog.SourceInput, Required: true},
+					"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
@@ -59,10 +59,17 @@ func verificationCatalog() *catalog.Catalog {
 					// L'audit nomme sa révision autrement que les tests statiques,
 					// et réclame les images déjà publiées plutôt que de les
 					// reconstruire.
-					"app-revision":   {Source: catalog.SourceInput, Required: true},
-					"portal-image":   {Source: catalog.SourceInput, Required: true},
-					"consumer-image": {Source: catalog.SourceInput, Required: true},
-					"app-repo-url":   {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
+					// Trois noms pour trois natures : c'est la déclaration, et non le
+					// nom du paramètre, qui dit ce que l'enchaînement doit y mettre.
+					"app-revision": {
+						Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
+					"portal-image": {
+						Source: catalog.SourceInput, Required: true,
+						Suggest: catalog.SuggestImage, Image: "portal"},
+					"consumer-image": {
+						Source: catalog.SourceInput, Required: true,
+						Suggest: catalog.SuggestImage, Image: "portal-cli"},
+					"app-repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
 			// La révision de l'infrastructure de déploiement vient de la
@@ -70,11 +77,13 @@ func verificationCatalog() *catalog.Catalog {
 			// qu'elle était une entrée, le dashboard ne savait pas la renseigner.
 			{
 				Kind: "integration-tests", Params: map[string]catalog.Param{
-					"mse-revision":        {Source: catalog.SourceInput, Required: true},
+					"mse-revision": {
+						Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
 					"mse-kustom-revision": {Source: catalog.SourceConfig, Key: "forge.mseKustom.revision"},
 					// Le pipeline déploie des images déjà publiées : il en reçoit
 					// le tag, jamais de quoi les reconstruire.
-					"image-tag": {Source: catalog.SourceInput, Required: true},
+					"image-tag": {
+						Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestReleaseTag},
 				},
 			},
 		},

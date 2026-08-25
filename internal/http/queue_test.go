@@ -86,6 +86,12 @@ func queueHandler(fake *fakeQueueStore) *QueueHandler {
 				Kind: "e2e-tests", PipelineRef: "e2e-test", Label: "Tests E2E", MaxConcurrent: 1,
 				Params: map[string]catalog.Param{
 					"image-tag": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestReleaseTag},
+					// La liste des références se constitue à partir de ce que le
+					// catalogue déclare : sans ce paramètre, aucune image ne serait
+					// proposée, ce qui est le comportement voulu.
+					"portal-image": {
+						Source: catalog.SourceInput, Required: true,
+						Suggest: catalog.SuggestImage, Image: "portal"},
 				},
 			},
 		},
@@ -299,7 +305,7 @@ func TestLeFormulaireDeLancementEstPeuple(t *testing.T) {
 	if len(tags) != 2 || tags[0].Value != "3.2.0-rc3" {
 		t.Errorf("tags proposés = %+v", tags)
 	}
-	images := listing.Suggestions[catalog.SuggestPortalImage]
+	images := listing.Suggestions[catalog.Input{Suggest: catalog.SuggestImage, Image: "portal"}.SuggestionKey()]
 	if len(images) != 2 || images[0].Value != "reg.example.fr/mse/portal:3.2.0-rc3" {
 		t.Errorf("images proposées = %+v", images)
 	}

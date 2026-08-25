@@ -21,6 +21,8 @@ import (
 	"strings"
 
 	"sigs.k8s.io/yaml"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 )
 
 // DefaultKindConcurrency est le plafond d'un type qui n'en déclare pas.
@@ -137,7 +139,20 @@ type Param struct {
 	// Sans effet sur l'exécution : une suggestion est une aide à la saisie, pas
 	// une contrainte. Le champ reste libre — une référence absente d'une liste
 	// n'est pas une référence inexistante.
+	// Elle sert aussi à **renseigner** un paramètre lors d'un enchaînement
+	// automatique, où personne ne saisit rien : c'est elle qui dit qu'un
+	// `app-revision` veut une référence Git, sans que le code ait à connaître ce
+	// nom-là. Voir Pipeline.VerificationInputs.
 	Suggest string `json:"suggest,omitempty"`
+	// Image nomme le dépôt d'image court — `portal`, `portal-cli` — que ce
+	// paramètre doit recevoir. N'a de sens qu'avec `suggest: image`.
+	//
+	// Déclaré ici parce que la correspondance « ce paramètre veut cette image »
+	// appartient au pipeline, pas au dashboard. Elle vivait dans une table de
+	// noms en dur — `portal-image` → `portal` — recopiée à deux endroits, et qui
+	// obligeait à modifier le Go pour tout pipeline nommant autrement ses
+	// paramètres.
+	Image string `json:"image,omitempty"`
 }
 
 // Sources reconnues.
@@ -153,11 +168,14 @@ const (
 // dashboard sait constituer. En ajouter une sans la source qui la peuple
 // donnerait un menu déroulant vide, pire qu'un champ libre.
 const (
-	SuggestGitRef        = "git-ref"
-	SuggestReleaseTag    = "release-tag"
-	SuggestEnvironment   = "environment"
-	SuggestPortalImage   = "portal-image"
-	SuggestConsumerImage = "consumer-image"
+	SuggestGitRef      = "git-ref"
+	SuggestReleaseTag  = "release-tag"
+	SuggestEnvironment = "environment"
+	// SuggestImage attend une **référence** d'image complète, registre et tag
+	// compris. Laquelle est dite par `Param.Image` : une seule nature suffit donc
+	// là où il en fallait une par image — `portal-image`, `consumer-image` —, et
+	// publier une image de plus ne demande plus de toucher au code.
+	SuggestImage = "image"
 	// SuggestImageName propose les dépôts publiés — `portal`, `portal-cli`,
 	// `portal-dev` — pour les pipelines qui en prennent un en paramètre depuis
 	// qu'ils n'en traitent qu'un par exécution.
@@ -168,8 +186,7 @@ const (
 
 var suggestions = map[string]bool{
 	SuggestGitRef: true, SuggestReleaseTag: true, SuggestEnvironment: true,
-	SuggestPortalImage: true, SuggestConsumerImage: true,
-	SuggestImageName: true, SuggestBuildTarget: true,
+	SuggestImage: true, SuggestImageName: true, SuggestBuildTarget: true,
 }
 
 // Input décrit un paramètre à fournir au lancement.
@@ -177,6 +194,7 @@ type Input struct {
 	Name     string
 	Required bool
 	Suggest  string
+	Image    string
 }
 
 // Upload déclare un artefact attendu.
@@ -352,6 +370,19 @@ func (p Pipeline) validate() []error {
 				problems = append(problems, fmt.Errorf(
 					"kind %q, paramètre %q: suggestion %q inconnue", p.Kind, name, param.Suggest))
 			}
+			// Une image non nommée ne se devine pas : l'enchaînement rendrait une
+			// référence tronquée, et le run échouerait au tirage sur un message
+			// qui ne désigne pas le catalogue.
+			if param.Suggest == SuggestImage && param.Image == "" {
+				problems = append(problems, fmt.Errorf(
+					"kind %q, paramètre %q: suggestion %q exige le nom de l'image",
+					p.Kind, name, SuggestImage))
+			}
+			if param.Image != "" && param.Suggest != SuggestImage {
+				problems = append(problems, fmt.Errorf(
+					"kind %q, paramètre %q: image nommée sans suggestion %q",
+					p.Kind, name, SuggestImage))
+			}
 		case SourceConfig:
 			if param.Suggest != "" {
 				// Une suggestion sur un paramètre que l'utilisateur ne saisit pas
@@ -464,6 +495,47 @@ func (p Pipeline) RequiredInputs() []string {
 	return required
 }
 
+// VerificationInputs renseigne les entrées obligatoires d'un enchaînement.
+//
+// Les valeurs viennent de ce que le catalogue **déclare vouloir**, et non d'une
+// table de noms tenue dans le code. Celle-ci existait en double — une copie dans
+// l'enchaînement automatique, une dans la relance manuelle, qu'il fallait penser
+// à modifier ensemble — et énumérait `revision`, `app-revision`, `mse-revision`,
+// `portal-image`, `consumer-image` : cinq noms propres à un projet, qu'un
+// pipeline nommant autrement ses paramètres ne pouvait pas employer.
+//
+// Rend le nom du paramètre resté vide plutôt qu'une table incomplète : un run
+// créé sans ses entrées requises échoue à l'ordonnancement, sur un message qui
+// ne désigne pas la cause.
+func (p Pipeline) VerificationInputs(revision, tag, registry string) (map[string]string, string) {
+	params := map[string]string{}
+
+	for _, input := range p.Inputs() {
+		if !input.Required {
+			continue
+		}
+
+		var value string
+		switch input.Suggest {
+		case SuggestGitRef:
+			value = revision
+		case SuggestReleaseTag:
+			value = tag
+		case SuggestImage:
+			// La vérification analyse les images **publiées** par la construction,
+			// jamais une reconstruction : elle produirait un artefact différent de
+			// celui qui sera déployé, et le verdict porterait à côté (B17).
+			value = images.Reference(registry, input.Image, tag)
+		}
+
+		if value == "" {
+			return nil, input.Name
+		}
+		params[input.Name] = value
+	}
+	return params, ""
+}
+
 // Inputs rend tous les paramètres saisis au lancement, requis ou non.
 //
 // Distinct de RequiredInputs, qui sert à refuser un lancement incomplet : le
@@ -476,7 +548,10 @@ func (p Pipeline) Inputs() []Input {
 		if param.Source != SourceInput {
 			continue
 		}
-		inputs = append(inputs, Input{Name: name, Required: param.Required, Suggest: param.Suggest})
+		inputs = append(inputs, Input{
+			Name: name, Required: param.Required,
+			Suggest: param.Suggest, Image: param.Image,
+		})
 	}
 	// Les requis d'abord, puis l'ordre alphabétique : une map Go n'a pas d'ordre,
 	// et un formulaire dont les champs changent de place à chaque ouverture est
@@ -488,6 +563,41 @@ func (p Pipeline) Inputs() []Input {
 		return inputs[i].Name < inputs[j].Name
 	})
 	return inputs
+}
+
+// SuggestionKey nomme la liste à proposer pour cette entrée.
+//
+// La nature seule ne suffit plus depuis que `image` les désigne toutes : deux
+// paramètres qui veulent tous deux une référence d'image n'attendent pas la même
+// liste. La clé compose donc la nature et l'image, et c'est elle — et non le nom
+// du paramètre — qui indexe les listes envoyées au formulaire.
+func (i Input) SuggestionKey() string {
+	if i.Suggest == "" || i.Image == "" {
+		return i.Suggest
+	}
+	return i.Suggest + ":" + i.Image
+}
+
+// SuggestedImages rend les dépôts d'image que le catalogue déclare attendre.
+//
+// Constituer les listes à partir de là plutôt que d'une énumération en Go veut
+// dire qu'un pipeline référençant une image de plus obtient son menu déroulant
+// sans qu'on touche au dashboard.
+func (c *Catalog) SuggestedImages() []string {
+	seen := map[string]bool{}
+	for _, pipeline := range c.Pipelines {
+		for _, param := range pipeline.Params {
+			if param.Suggest == SuggestImage && param.Image != "" {
+				seen[param.Image] = true
+			}
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ScoreWeights rend la pondération du score, sous la forme attendue par le

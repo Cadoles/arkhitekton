@@ -114,8 +114,14 @@ pipelines:
       # L'audit ne construit plus : il analyse les images **déjà publiées** par
       # la construction de la release. Scanner une reconstruction rendrait un
       # verdict sur un artefact qu'on ne livre pas (B17).
-      portal-image: { source: input,  required: true, suggest: portal-image }
-      consumer-image: { source: input,  required: true, suggest: consumer-image }
+      # `image` dit la nature, `image` (le champ) dit laquelle : c'est ici, et non
+      # dans le code du dashboard, qu'un paramètre est rattaché à un dépôt publié.
+      # La correspondance vivait en Go, sous forme d'un `case "portal-image"`, et
+      # un pipeline nommant autrement ses paramètres ne pouvait pas la réemployer.
+      portal-image:
+        { source: input, required: true, suggest: image, image: portal }
+      consumer-image:
+        { source: input, required: true, suggest: image, image: portal-cli }
       minio-host:          { source: config, key: minio.host }
       minio-bucket:        { source: config, key: minio.pipelineBucket }
     # Le rapport normalisé, publié vers le dashboard par URL pré-signée.

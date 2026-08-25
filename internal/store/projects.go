@@ -29,7 +29,19 @@ type Target struct {
 	// Image est le nom court du dépôt publié — `portal-cli`. Le registre qui le
 	// préfixe vit sur le projet : il est le même pour toutes les étapes.
 	Image string `json:"image"`
+	// Promote dit si un re-tag propage cette image. Faux pour une image que la
+	// construction publie sans qu'aucun environnement du flux ne la déploie —
+	// l'image de développement : la re-taguer en préproduction reviendrait à
+	// annoncer comme livrable quelque chose qui ne l'est pas.
+	//
+	// Pointeur, pour distinguer « non promue » d'une entrée écrite avant que le
+	// champ existe. Une entrée muette est traitée comme promue : c'est le cas
+	// courant, et le taire est ce que faisait le code qui promouvait tout.
+	Promote *bool `json:"promote,omitempty"`
 }
+
+// Promoted dit si un re-tag propage cette image.
+func (t Target) Promoted() bool { return t.Promote == nil || *t.Promote }
 
 // Reference compose la référence complète d'une image, sans tag.
 //
@@ -43,6 +55,29 @@ func (p Project) Reference(target Target) string {
 		return ""
 	}
 	return registry + "/" + image
+}
+
+// Buildable rend les étapes qu'une release construit.
+//
+// Vide sans Dockerfile : un dépôt cloné par un pipeline — kustomizations,
+// campagne E2E — décrit des cibles nulle part, et en inventer une lancerait une
+// construction qui échouerait au premier `docker build`.
+func (p Project) Buildable() []Target {
+	if strings.TrimSpace(p.Dockerfile) == "" {
+		return nil
+	}
+	return p.Targets
+}
+
+// Promotable rend les étapes qu'un re-tag propage.
+func (p Project) Promotable() []Target {
+	var promoted []Target
+	for _, target := range p.Buildable() {
+		if target.Promoted() {
+			promoted = append(promoted, target)
+		}
+	}
+	return promoted
 }
 
 // Project décrit un dépôt piloté.
@@ -75,6 +110,54 @@ type Project struct {
 
 // ErrProjectNotFound signale un projet absent.
 var ErrProjectNotFound = errors.New("projet introuvable")
+
+// ErrNoBuildableProject signale qu'aucun dépôt déclaré n'est constructible.
+//
+// Distinct d'une erreur de lecture : la table est joignable, elle ne décrit
+// simplement rien à construire. Une release ne peut alors pas démarrer, et le
+// dire ainsi vaut mieux que d'enfiler zéro construction — le décompte
+// conclurait aussitôt sur une release sans image.
+var ErrNoBuildableProject = errors.New("aucun dépôt constructible déclaré")
+
+// BuildableProject rend le dépôt dont une release construit les images.
+//
+// Un seul, pour l'instant : le dashboard versionne une application, et l'appelant
+// n'a nulle part où recevoir un choix. Plusieurs candidats sont refusés plutôt
+// que départagés par l'ordre de la table — en construire un au hasard produirait
+// une release dont personne ne pourrait dire ce qu'elle contient.
+//
+// C'est le point où la table remplace les constantes qui portaient `portal` et
+// `portal-cli` en Go (doc 12 §12.9).
+func (db *DB) BuildableProject(ctx context.Context) (Project, error) {
+	projects, err := db.ListProjects(ctx)
+	if err != nil {
+		return Project{}, err
+	}
+
+	var found []Project
+	for _, project := range projects {
+		if len(project.Buildable()) > 0 {
+			found = append(found, project)
+		}
+	}
+
+	switch len(found) {
+	case 0:
+		return Project{}, ErrNoBuildableProject
+	case 1:
+		return found[0], nil
+	default:
+		names := make([]string, 0, len(found))
+		for _, project := range found {
+			names = append(names, project.Repository)
+		}
+		return Project{}, fmt.Errorf(
+			"%w: plusieurs candidats (%s)", ErrProjectAmbiguous, strings.Join(names, ", "))
+	}
+}
+
+// ErrProjectAmbiguous signale plusieurs dépôts constructibles.
+var ErrProjectAmbiguous = errors.New("dépôt constructible ambigu")
 
 // uniqueViolation est le code PostgreSQL d'une contrainte d'unicité rompue.
 const uniqueViolation = "23505"

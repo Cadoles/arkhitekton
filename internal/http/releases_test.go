@@ -12,7 +12,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -32,6 +31,32 @@ type fakeReleaseStore struct {
 	objects      map[string]string
 	registry     Images
 	states       map[int64]string
+	// project décrit ce que la release construit. Nil, la fixture ci-dessous
+	// s'applique : les tests portent sur le nombre d'exécutions enfilées et sur
+	// leurs paramètres, pas sur le contenu de la table.
+	project *store.Project
+}
+
+// fixtureProject reproduit ce que l'amorçage installe : trois étapes, dont une
+// construite sans être promue.
+func fixtureProject() store.Project {
+	promoted, held := true, false
+	return store.Project{
+		Repository: "vcarroy/mse",
+		Dockerfile: "Dockerfile",
+		Targets: []store.Target{
+			{Stage: "web", Image: "portal", Promote: &promoted},
+			{Stage: "cli", Image: "portal-cli", Promote: &promoted},
+			{Stage: "dev", Image: "portal-dev", Promote: &held},
+		},
+	}
+}
+
+func (f *fakeReleaseStore) BuildableProject(context.Context) (store.Project, error) {
+	if f.project != nil {
+		return *f.project, nil
+	}
+	return fixtureProject(), nil
 }
 
 func (f *fakeReleaseStore) EnsureVersion(context.Context, string) (int64, error) { return 1, nil }
@@ -295,11 +320,11 @@ func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
 		t.Fatalf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
 	}
 	// Une exécution par image promue : le pipeline de re-tag n'en traite qu'une.
-	if len(fake.jobs) != len(imagenames.Promotable) {
-		t.Fatalf("%d job(s) mis en file, attendu %d", len(fake.jobs), len(imagenames.Promotable))
+	if len(fake.jobs) != len(fixtureProject().Promotable()) {
+		t.Fatalf("%d job(s) mis en file, attendu %d", len(fake.jobs), len(fixtureProject().Promotable()))
 	}
 	job := fake.jobs[0]
-	if job.Params["image-name"] != imagenames.Web {
+	if job.Params["image-name"] != "portal" {
 		t.Errorf("première image promue = %q", job.Params["image-name"])
 	}
 	if job.Params["new-tag"] != "1.8.0_prod" {
@@ -312,14 +337,15 @@ func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
 	// Une ligne de promotion par image, et non une seule. La table les distingue
 	// par son nom d'image ; n'en écrire qu'une laissait `portal-cli` promue sans
 	// trace, donc sans moyen de dire que son re-tag avait échoué.
-	if len(fake.promotions) != len(imagenames.Promotable) {
+	if len(fake.promotions) != len(fixtureProject().Promotable()) {
 		t.Fatalf("promotions = %+v", fake.promotions)
 	}
 	recorded := map[string]store.Promotion{}
 	for _, promotion := range fake.promotions {
 		recorded[promotion.ImageName] = promotion
 	}
-	for _, name := range imagenames.Promotable {
+	for _, target := range fixtureProject().Promotable() {
+		name := target.Image
 		promotion, found := recorded[name]
 		if !found {
 			t.Errorf("aucune promotion enregistrée pour %s", name)
@@ -411,8 +437,8 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 	}
 
 	retags := fake.jobsOfKind("retag")
-	if len(retags) != len(imagenames.Promotable) {
-		t.Fatalf("%d job(s) de re-tag, attendu %d", len(retags), len(imagenames.Promotable))
+	if len(retags) != len(fixtureProject().Promotable()) {
+		t.Fatalf("%d job(s) de re-tag, attendu %d", len(retags), len(fixtureProject().Promotable()))
 	}
 	if retags[0].Params["old-tag"] != "1.8.0-rc3" || retags[0].Params["new-tag"] != "1.8.0" {
 		t.Errorf("re-tag = %+v", retags[0].Params)
@@ -660,8 +686,8 @@ func TestAFailingAuditDoesNotBlockThePromotion(t *testing.T) {
 	if recorder.Code != http.StatusAccepted {
 		t.Errorf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(fake.jobs) != len(imagenames.Promotable) {
-		t.Errorf("%d job(s) mis en file, attendu %d", len(fake.jobs), len(imagenames.Promotable))
+	if len(fake.jobs) != len(fixtureProject().Promotable()) {
+		t.Errorf("%d job(s) mis en file, attendu %d", len(fake.jobs), len(fixtureProject().Promotable()))
 	}
 }
 
@@ -825,14 +851,14 @@ func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
 	// Une exécution par image : le pipeline n'en construit qu'une, et c'est le
 	// dashboard qui décide combien il en lance.
 	builds := fake.jobsOfKind("build")
-	if len(builds) != len(imagenames.Buildable) {
-		t.Fatalf("%d construction(s) en file, attendu %d", len(builds), len(imagenames.Buildable))
+	if len(builds) != len(fixtureProject().Buildable()) {
+		t.Fatalf("%d construction(s) en file, attendu %d", len(builds), len(fixtureProject().Buildable()))
 	}
-	for index, image := range imagenames.Buildable {
-		if builds[index].Params["image-name"] != image.Name ||
-			builds[index].Params["target"] != image.Target {
+	for index, target := range fixtureProject().Buildable() {
+		if builds[index].Params["image-name"] != target.Image ||
+			builds[index].Params["target"] != target.Stage {
 			t.Errorf("construction %d = %+v, attendu %s/%s",
-				index, builds[index].Params, image.Name, image.Target)
+				index, builds[index].Params, target.Image, target.Stage)
 		}
 	}
 	job := builds[0]
@@ -861,9 +887,9 @@ func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("réponse illisible: %v", err)
 	}
-	if len(response.BuildJobIDs) != len(imagenames.Buildable) {
+	if len(response.BuildJobIDs) != len(fixtureProject().Buildable()) {
 		t.Errorf("%d identifiant(s) de construction rendus, attendu %d",
-			len(response.BuildJobIDs), len(imagenames.Buildable))
+			len(response.BuildJobIDs), len(fixtureProject().Buildable()))
 	}
 	if response.Release.State != "building" {
 		t.Errorf("état rendu %q, attendu building", response.Release.State)
@@ -1002,7 +1028,7 @@ func TestRelancerUneConstructionEchoueeReutiliseLaMemeReference(t *testing.T) {
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(fake.jobs) != len(imagenames.Buildable) || fake.jobs[0].Kind != "build" {
+	if len(fake.jobs) != len(fixtureProject().Buildable()) || fake.jobs[0].Kind != "build" {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if fake.jobs[0].Params["revision"] != "main" {
@@ -1093,7 +1119,7 @@ func TestUnePrereleaseEstAncreeSurUnCommitEtTaguee(t *testing.T) {
 	// superficiel ne crée pas la référence locale d'un tag, et le checkout que la
 	// Task fait ensuite échouerait.
 	builds := fake.jobsOfKind("build")
-	if len(builds) != len(imagenames.Buildable) {
+	if len(builds) != len(fixtureProject().Buildable()) {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if got := builds[0].Params["revision"]; got != "abc123def456" {

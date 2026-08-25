@@ -194,7 +194,7 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 		inputs := make([]inputPayload, 0, len(pipeline.Params))
 		for _, input := range pipeline.Inputs() {
 			inputs = append(inputs, inputPayload{
-				Name: input.Name, Required: input.Required, Suggest: input.Suggest,
+				Name: input.Name, Required: input.Required, Suggest: input.SuggestionKey(),
 			})
 		}
 		kinds = append(kinds, kindPayload{
@@ -255,20 +255,28 @@ func (h *QueueHandler) suggestions(ctx context.Context) map[string][]option {
 	}
 
 	tags := make([]option, 0, len(releases))
-	portal := make([]option, 0, len(releases))
-	consumer := make([]option, 0, len(releases))
 	for _, release := range releases {
 		tags = append(tags, option{Value: release.Tag})
-		if reference := imageReference(h.registryProject, imagenames.Web, release.Tag); reference != "" {
-			portal = append(portal, option{Value: reference, Label: release.Tag})
-		}
-		if reference := imageReference(h.registryProject, imagenames.CLI, release.Tag); reference != "" {
-			consumer = append(consumer, option{Value: reference, Label: release.Tag})
-		}
 	}
 	proposed[catalog.SuggestReleaseTag] = tags
-	proposed[catalog.SuggestPortalImage] = portal
-	proposed[catalog.SuggestConsumerImage] = consumer
+
+	// Une liste par image **déclarée par le catalogue**, et non par image connue
+	// du code : deux paramètres qui veulent tous deux une référence n'attendent
+	// pas la même, et publier une image de plus ne doit pas demander de recompiler.
+	for _, name := range h.catalog.SuggestedImages() {
+		references := make([]option, 0, len(releases))
+		for _, release := range releases {
+			reference := imagenames.Reference(h.registryProject, name, release.Tag)
+			if reference == "" {
+				continue
+			}
+			// Le tag en étiquette : la référence complète est longue et identique
+			// à un préfixe près, la seule chose qui distingue deux lignes est ce
+			// qui serait tronqué.
+			references = append(references, option{Value: reference, Label: release.Tag})
+		}
+		proposed[catalog.Input{Suggest: catalog.SuggestImage, Image: name}.SuggestionKey()] = references
+	}
 
 	return proposed
 }

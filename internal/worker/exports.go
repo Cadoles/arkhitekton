@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/report"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -63,9 +62,6 @@ func NewExporter(
 	releases ExportStore, storage Storage, registry Registry,
 	imageName string, logger *slog.Logger,
 ) *Exporter {
-	if imageName == "" {
-		imageName = images.Web
-	}
 	return &Exporter{
 		store: releases, storage: storage, registry: registry,
 		imageName: imageName, logger: logger,

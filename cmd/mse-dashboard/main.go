@@ -26,7 +26,6 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
@@ -869,15 +868,28 @@ func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler 
 // pipelines par l'audit qui y lit ses règles, la campagne E2E par elle-même.
 // Seule la première porte donc un Dockerfile.
 //
-// Les étapes de l'application viennent de `internal/images`, où elles sont déjà
-// nommées : les redire ici les ferait diverger de ce que le dashboard construit
-// vraiment.
+// Les étapes de l'application sont nommées ici, et nulle part ailleurs. Elles
+// vivaient en constantes Go — `portal`, `portal-cli`, `portal-dev` — que le
+// dashboard parcourait pour savoir quoi construire. Elles décrivent un dépôt
+// donné, pas le produit : leur place est dans l'amorçage, qui est justement ce
+// qui installe une vérité propre à un déploiement avant que la base ne prenne le
+// relais (doc 12 §12.9).
 func configuredProjects(cfg config.Config) []store.Project {
 	resolved := schedulerConfig(cfg)
 
-	targets := make([]store.Target, 0, len(images.Buildable))
-	for _, image := range images.Buildable {
-		targets = append(targets, store.Target{Stage: image.Target, Image: image.Name})
+	promoted, held := true, false
+	targets := []store.Target{
+		// Le runtime HTTP : front office, back office, web services.
+		{Stage: "web", Image: "portal", Promote: &promoted},
+		// Les consumers Messenger, les cronjobs et les jobs. Nommée
+		// `portal-consumer` jusqu'à la migration FrankenPHP, où elle a cessé de
+		// ne servir que les consumers.
+		{Stage: "cli", Image: "portal-cli", Promote: &promoted},
+		// L'image « grasse » : xdebug, xhprof, client PostgreSQL. Elle fait
+		// tourner le job de bootstrap des overlays à fausses données et permet de
+		// reproduire un défaut sur exactement la version livrée. Construite mais
+		// non promue : aucun environnement du flux ne la déploie.
+		{Stage: "dev", Image: "portal-dev", Promote: &held},
 	}
 
 	declarations := []struct {

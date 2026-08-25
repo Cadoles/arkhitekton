@@ -278,7 +278,11 @@ function ProjectRow({
                   // qu'on recopie dans un déploiement, et un nom seul ressemble à
                   // une référence tirable sans l'être.
                   const image = target.reference || target.image
-                  return target.stage ? `${target.stage} → ${image}` : image
+                  // Les non promues sont signalées, pas les promues : c'est
+                  // l'exception qui mérite d'être vue, et marquer les trois
+                  // rendrait la ligne illisible pour ne rien distinguer.
+                  const built = target.promote ? image : `${image} (non promue)`
+                  return target.stage ? `${target.stage} → ${built}` : built
                 })
                 .join(', ')}
             </>
@@ -470,7 +474,9 @@ function ProjectForm({
                 <input
                   value={form.targets[0]?.image ?? ''}
                   onChange={(event) =>
-                    set('targets', [{ stage: '', image: event.target.value }])
+                    set('targets', [
+                      { stage: '', image: event.target.value, promote: true },
+                    ])
                   }
                   placeholder="portal"
                   className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
@@ -504,6 +510,21 @@ function ProjectForm({
                     className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
                   />
                   <Reference registry={form.image_registry} image={target.image} />
+                  {/* Construite n'est pas promue : l'image de développement sert
+                      au débogage et à l'amorçage des overlays, et aucun
+                      environnement du flux ne la déploie. La propager reviendrait
+                      à annoncer comme livrable ce qui ne l'est pas. */}
+                  <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={target.promote}
+                      onChange={(event) =>
+                        setTarget(index, { ...target, promote: event.target.checked })
+                      }
+                      className="size-3.5 rounded border-zinc-300"
+                    />
+                    Promue
+                  </label>
                   <button
                     type="button"
                     onClick={() =>
@@ -522,7 +543,9 @@ function ProjectForm({
 
               <button
                 type="button"
-                onClick={() => set('targets', [...form.targets, { stage: '', image: '' }])}
+                onClick={() =>
+                  set('targets', [...form.targets, { stage: '', image: '', promote: true }])
+                }
                 className="w-fit rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
               >
                 Ajouter une étape

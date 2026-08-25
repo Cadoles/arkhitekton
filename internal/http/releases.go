@@ -40,6 +40,11 @@ type ReleaseStore interface {
 	ListEnvironmentViews(ctx context.Context) ([]store.EnvironmentView, error)
 	LatestPromotions(ctx context.Context) (map[string]store.EnvironmentPromotion, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
+	// BuildableProject dit quelles images une release construit et lesquelles un
+	// re-tag propage. Lu à chaque mise en file plutôt que mémorisé au démarrage :
+	// les étapes se modifient depuis l'administration, et une release lancée
+	// après le changement doit construire ce qui est déclaré maintenant.
+	BuildableProject(ctx context.Context) (store.Project, error)
 	SetReleaseState(ctx context.Context, id int64, state string) error
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
@@ -175,9 +180,6 @@ func NewReleasesHandler(
 	authorizer *auth.Authorizer, images Images, artifacts Artifacts,
 	imageName, registryProject string,
 ) *ReleasesHandler {
-	if imageName == "" {
-		imageName = imagenames.Web
-	}
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
 		images: images, artifacts: artifacts, imageName: imageName,
@@ -955,7 +957,7 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	params, missing := verificationParams(pipeline, revision, record.Tag, h.registryProject)
+	params, missing := pipeline.VerificationInputs(revision, record.Tag, h.registryProject)
 	if missing != "" {
 		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
 			fmt.Sprintf("le paramètre %q ne peut pas être renseigné pour cette release", missing))
@@ -980,37 +982,6 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"kind": kind, "job_id": jobID, "revision": revision,
 	})
-}
-
-// verificationParams renseigne les entrées obligatoires d'une vérification.
-//
-// Même table que celle de l'enchaînement automatique, et pour la même raison :
-// plusieurs pipelines nomment différemment la même chose. Un paramètre requis
-// qu'on ne sait pas renseigner est rendu à l'appelant plutôt que de partir vide —
-// le run échouerait à l'ordonnancement, sur un message qui ne désigne pas la
-// cause.
-func verificationParams(
-	pipeline catalog.Pipeline, revision, tag, registryProject string,
-) (map[string]string, string) {
-	params := map[string]string{}
-	for _, name := range pipeline.RequiredInputs() {
-		switch name {
-		case "revision", "app-revision", "mse-revision":
-			params[name] = revision
-		case "portal-image":
-			params[name] = imageReference(registryProject, imagenames.Web, tag)
-		case "consumer-image":
-			params[name] = imageReference(registryProject, imagenames.CLI, tag)
-		case "image-tag":
-			params[name] = tag
-		default:
-			return nil, name
-		}
-		if params[name] == "" {
-			return nil, name
-		}
-	}
-	return params, ""
 }
 
 func imageReference(registryProject, name, tag string) string {
@@ -1285,22 +1256,28 @@ func (h *ReleasesHandler) enqueueBuild(
 		return nil, errors.New("aucune référence Git à construire")
 	}
 
-	jobs := make([]int64, 0, len(imagenames.Buildable))
-	for _, image := range imagenames.Buildable {
+	project, err := h.store.BuildableProject(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	targets := project.Buildable()
+	jobs := make([]int64, 0, len(targets))
+	for _, target := range targets {
 		jobID, err := h.store.Enqueue(ctx, store.JobRequest{
 			Kind: pipeline.Kind,
 			Params: map[string]string{
 				"revision":   gitRef,
 				"version":    record.Tag,
 				"tag-name":   record.Tag,
-				"image-name": image.Name,
-				"target":     image.Target,
+				"image-name": target.Image,
+				"target":     target.Stage,
 			},
 			RequestedBy: subject,
 			ReleaseID:   &releaseID,
 		})
 		if err != nil {
-			return jobs, fmt.Errorf("construction de %s: %w", image.Name, err)
+			return jobs, fmt.Errorf("construction de %s: %w", target.Image, err)
 		}
 		jobs = append(jobs, jobID)
 	}
@@ -1319,12 +1296,18 @@ func (h *ReleasesHandler) enqueueRetag(
 		return nil, errors.New("catalogue sans pipeline de re-tag")
 	}
 
-	jobs := make([]int64, 0, len(imagenames.Promotable))
-	for _, name := range imagenames.Promotable {
+	project, err := h.store.BuildableProject(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	targets := project.Promotable()
+	jobs := make([]int64, 0, len(targets))
+	for _, target := range targets {
 		jobID, err := h.store.Enqueue(ctx, store.JobRequest{
 			Kind: pipeline.Kind,
 			Params: map[string]string{
-				"image-name": name,
+				"image-name": target.Image,
 				"old-tag":    record.ImageVersion,
 				"new-tag":    record.Tag,
 			},
@@ -1332,7 +1315,7 @@ func (h *ReleasesHandler) enqueueRetag(
 			ReleaseID:   &releaseID,
 		})
 		if err != nil {
-			return jobs, fmt.Errorf("re-tag de %s: %w", name, err)
+			return jobs, fmt.Errorf("re-tag de %s: %w", target.Image, err)
 		}
 		jobs = append(jobs, jobID)
 	}
@@ -1412,12 +1395,19 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 	// déjà — sa clé porte le nom de l'image — mais une seule y était écrite : le
 	// portail. Ce qui suivait le portail sans être suivi, c'était `portal-cli`,
 	// et rien n'aurait dit qu'un de ses re-tags avait échoué.
-	jobIDs := make([]int64, 0, len(imagenames.Promotable))
-	for _, name := range imagenames.Promotable {
+	project, err := h.store.BuildableProject(r.Context())
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Images promues inconnues", err.Error())
+		return
+	}
+
+	targets := project.Promotable()
+	jobIDs := make([]int64, 0, len(targets))
+	for _, target := range targets {
 		jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
 			Kind: pipeline.Kind,
 			Params: map[string]string{
-				"image-name": name,
+				"image-name": target.Image,
 				"old-tag":    plan.OldTag,
 				"new-tag":    plan.NewTag,
 			},
@@ -1436,7 +1426,7 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		// déployé » de « jamais promu » quand l'observation contredira l'attendu.
 		if err := h.store.RecordPromotion(r.Context(), store.Promotion{
 			ReleaseID: item.ID, EnvironmentID: environment.ID,
-			ImageName: name, Tag: plan.NewTag, JobID: &jobID,
+			ImageName: target.Image, Tag: plan.NewTag, JobID: &jobID,
 		}); err != nil {
 			writeProblem(w, http.StatusInternalServerError, "Enregistrement de la promotion impossible", "")
 			return

@@ -112,7 +112,18 @@ export const ACTION_LABEL: Record<string, string> = {
  * renvoyée : la recomposer côté navigateur la ferait diverger de ce que le
  * pipeline recevra.
  */
-export type ProjectTarget = { stage: string; image: string; reference?: string }
+export type ProjectTarget = {
+  stage: string
+  image: string
+  reference?: string
+  /**
+   * Vrai si un re-tag propage cette image vers les environnements. Faux pour une
+   * image que la construction publie sans qu'aucun environnement du flux ne la
+   * déploie — l'image de développement : la re-taguer en préproduction
+   * reviendrait à l'annoncer comme livrable.
+   */
+  promote: boolean
+}
 
 export type Project = {
   id: number

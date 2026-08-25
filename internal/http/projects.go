@@ -97,6 +97,10 @@ func (h *ProjectsHandler) WithImageRegistry(registry string) *ProjectsHandler {
 type targetPayload struct {
 	Stage string `json:"stage"`
 	Image string `json:"image"`
+	// Promote dit si un re-tag propage cette image. Toujours rendu, jamais
+	// omis : un booléen absent se lit `false` côté formulaire, ce qui dirait
+	// « non promue » d'une étape sur laquelle personne ne s'est prononcé.
+	Promote bool `json:"promote"`
 	// Reference est la référence complète, registre compris. Composée par le
 	// serveur : l'écran l'affiche pour qu'on la reconnaisse, et la recomposer
 	// côté navigateur la ferait diverger de ce que le pipeline recevra.
@@ -159,7 +163,7 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 	targets := make([]targetPayload, 0, len(project.Targets))
 	for _, target := range project.Targets {
 		targets = append(targets, targetPayload{
-			Stage: target.Stage, Image: target.Image,
+			Stage: target.Stage, Image: target.Image, Promote: target.Promoted(),
 			Reference: project.Reference(target),
 		})
 	}
@@ -248,9 +252,14 @@ func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projec
 func targetsOf(request projectRequest) []store.Target {
 	targets := make([]store.Target, 0, len(request.Targets))
 	for _, target := range request.Targets {
+		// Écrit explicitement, y compris quand il vaut vrai : le formulaire a
+		// tranché, et laisser l'entrée muette la rendrait indiscernable de celles
+		// que la migration a rattrapées.
+		promote := target.Promote
 		targets = append(targets, store.Target{
-			Stage: strings.TrimSpace(target.Stage),
-			Image: strings.TrimSpace(target.Image),
+			Stage:   strings.TrimSpace(target.Stage),
+			Image:   strings.TrimSpace(target.Image),
+			Promote: &promote,
 		})
 	}
 	return targets
