@@ -384,6 +384,25 @@ func (c *Collector) flushQuietly(ctx context.Context, writer *chunkWriter, targe
 	}
 }
 
+// Plain rend le texte d'un journal stocké, débarrassé de ses horodatages.
+//
+// Les tranches stockées **conservent** le préfixe RFC3339Nano ajouté par kubelet :
+// c'est lui qui rend la reprise possible après un redémarrage du collecteur. Tout
+// lecteur qui cherche autre chose qu'un affichage doit donc le retirer d'abord.
+//
+// Écrit ici et non chez l'appelant parce que le format appartient à ce paquet.
+// L'oublier ne casse rien de visible : les lignes se lisent parfaitement, et
+// seule une recherche en début de ligne échoue — silencieusement. C'est ce qui
+// est arrivé au canal de marqueurs, dont chaque descripteur était précédé d'un
+// horodatage et n'a donc jamais été reconnu.
+func Plain(stored string) string {
+	lines := strings.Split(stored, "\n")
+	for index, line := range lines {
+		lines[index] = parseLine(line).Text
+	}
+	return strings.Join(lines, "\n")
+}
+
 // parseLine sépare l'horodatage ajouté par kubelet du texte.
 //
 // `timestamps=true` préfixe chaque ligne d'un RFC3339Nano suivi d'un espace. Le

@@ -109,7 +109,12 @@ func (i *MarkerIngester) Ingest(ctx context.Context, run MarkerRun) error {
 			continue
 		}
 
-		for tool, meta := range i.markers.ScanMarkers(text).Metas {
+		// L'horodatage est retiré avant l'analyse : les tranches stockées le
+		// conservent, et un marqueur précédé d'un `2026-08-25T14:33:39Z ` n'est
+		// plus en début de ligne. Sans cela le canal ne reconnaît rien, sans le
+		// moindre message — les journaux se lisent bien, ils ne s'analysent
+		// simplement pas.
+		for tool, meta := range i.markers.ScanMarkers(logs.Plain(text)).Metas {
 			if meta.Ran() {
 				continue
 			}

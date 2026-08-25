@@ -353,6 +353,21 @@ compte des milliers. Le prix de les retirer est un système d'ancrage qui ment. 
 resterait possible côté visionneuse, comme un affichage optionnel qui ne touche ni aux
 décalages ni aux numéros ; ce n'est pas fait, et ce n'est pas prévu.
 
+### Le format stocké n'est pas le format émis
+
+Une Task écrit `##MSE-META## {...}` en début de ligne. Ce n'est **pas** ce que le dashboard
+stocke : le collecteur conserve l'horodatage RFC3339Nano que kubelet préfixe à chaque
+ligne, parce que c'est lui qui rend la reprise possible après un redémarrage.
+
+Tout lecteur qui cherche autre chose qu'un affichage doit donc le retirer d'abord —
+`logs.Plain` le fait. L'oublier ne casse rien de visible : les journaux se lisent
+parfaitement, et seule la reconnaissance en début de ligne échoue, sans le moindre
+message. C'est arrivé au raccordement du canal, dont pas un descripteur n'était reconnu
+alors que tous les tests unitaires passaient — leurs fixtures n'avaient pas d'horodatage.
+
+C'est écrit ici parce qu'un pipeline conforme peut être soupçonné à tort quand l'effet
+attendu n'apparaît pas, et que la cause est alors entièrement du côté du dashboard.
+
 ### Le résumé n'apparaît pas pendant l'exécution
 
 `##SUMMARY##` est lu — `Markers.Summaries` le rend — mais rien ne l'affiche en cours de

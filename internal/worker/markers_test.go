@@ -219,3 +219,28 @@ func TestLaFamilleVientDuCatalogue(t *testing.T) {
 		t.Error("sans catalogue, rien n'est classable")
 	}
 }
+
+// Les tranches stockées conservent l'horodatage ajouté par kubelet, et le
+// marqueur n'est donc **pas** en début de ligne. C'est ce qui a fait que le canal
+// ne reconnaissait rien sur les journaux réels alors que tous les tests unitaires
+// passaient : leurs fixtures n'en portaient pas.
+func TestUnMarqueurPrecedeDunHorodatageEstReconnu(t *testing.T) {
+	ingester, db := markerIngester(t, &fakeLogSource{byTask: map[string]string{
+		"audit": "2026-08-25T14:33:39.746477394Z Running trivy...\n" +
+			`2026-08-25T14:33:39.746667427Z ##MSE-META## {"tool":"trivy","status":"error","error":"db download failed"}` + "\n" +
+			"2026-08-25T14:33:39.746678103Z ##MSE-SUMMARY## audit interrompu\n",
+	}})
+
+	if err := ingester.Ingest(context.Background(), MarkerRun{
+		ID: 13, Name: "audit-run", Tasks: []string{"audit"}, Family: "security",
+	}); err != nil {
+		t.Fatalf("ingestion: %v", err)
+	}
+
+	if len(db.saved) != 1 {
+		t.Fatalf("%d résultat(s), attendu 1: le marqueur horodaté n'est pas reconnu", len(db.saved))
+	}
+	if db.saved[0].Tool != "trivy" || db.saved[0].Summary != "db download failed" {
+		t.Errorf("résultat = %+v", db.saved[0])
+	}
+}
