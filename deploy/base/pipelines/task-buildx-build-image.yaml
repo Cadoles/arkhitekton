@@ -1,0 +1,139 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: buildx-build-image
+spec:
+  workspaces:
+    - name: source
+    - name: dockerconfig
+      optional: true
+  params:
+    - name: image
+      description: Full image reference to build (including tag)
+    - name: context
+      description: Build context path (relative to source workspace)
+      default: .
+    - name: dockerfile
+      description: Dockerfile path (relative to source workspace)
+      default: Dockerfile
+    - name: platforms
+      description: Target platforms for buildx
+      default: linux/amd64
+    - name: target
+      description: Optional Dockerfile target stage
+      default: ""
+    - name: push
+      description: Push image to registry when true, otherwise load in local daemon
+      default: "true"
+    - name: output-tar
+      description: Optional tar output path to export built image (disables --push/--load)
+      default: ""
+    - name: version
+      description: >
+        Valeur du build-arg VERSION. Le Dockerfile l'inscrit dans /app/version.txt,
+        que l'application lit pour renseigner le CRD PortalData — seule source disant
+        quelle version tourne réellement sur un environnement. Laissée vide, le
+        Dockerfile retombe sur son défaut `latest`, qui n'identifie aucune release.
+      default: ""
+    - name: extra-args
+      description: Additional arguments passed to docker buildx build
+      default: ""
+  results:
+    - name: IMAGE_URL
+      description: Built image reference
+    - name: IMAGE_DIGEST
+      description: Built image digest when push is enabled
+  sidecars:
+    - name: dind
+      image: docker:29.2.1-dind
+      env:
+        - name: DOCKER_TLS_CERTDIR
+          value: ""
+      args:
+        - --host=tcp://0.0.0.0:2375
+        - --tls=false
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: dind-storage
+          mountPath: /var/lib/docker
+  volumes:
+    - name: dind-storage
+      emptyDir: {}
+  steps:
+    - name: build-image
+      image: docker:29.2.1-cli
+      env:
+        - name: DOCKER_HOST
+          value: tcp://localhost:2375
+        - name: DOCKER_BUILDKIT
+          value: "1"
+      script: |
+        #!/bin/sh
+        set -eu
+
+        if [ "$(workspaces.dockerconfig.bound)" = "true" ] && [ -f "$(workspaces.dockerconfig.path)/.dockerconfigjson" ]; then
+          mkdir -p "${HOME}/.docker"
+          cp "$(workspaces.dockerconfig.path)/.dockerconfigjson" "${HOME}/.docker/config.json"
+        fi
+
+        timeout=120
+        while ! docker info >/dev/null 2>&1; do
+          timeout=$((timeout - 1))
+          if [ "${timeout}" -le 0 ]; then
+            echo "docker daemon did not become ready in time"
+            exit 1
+          fi
+          sleep 1
+        done
+
+        cd "$(workspaces.source.path)"
+        docker buildx create --driver docker-container --name tekton-builder --use >/dev/null
+        trap 'docker buildx rm tekton-builder >/dev/null 2>&1 || true' EXIT
+
+        metadata_file="$(workspaces.source.path)/buildx-metadata.json"
+        build_output="--load"
+        target_arg=""
+        output_arg=""
+        if [ -n "$(params.output-tar)" ]; then
+          output_tar="$(params.output-tar)"
+          case "${output_tar}" in
+            /*) ;;
+            *) output_tar="$(workspaces.source.path)/${output_tar}" ;;
+          esac
+          output_arg="--output type=docker,dest=${output_tar}"
+          build_output=""
+        fi
+        if [ -z "$(params.output-tar)" ] && [ "$(params.push)" = "true" ]; then
+          build_output="--push"
+        fi
+        if [ -n "$(params.target)" ]; then
+          target_arg="--target $(params.target)"
+        fi
+
+        version_arg=""
+        if [ -n "$(params.version)" ]; then
+          version_arg="--build-arg VERSION=$(params.version)"
+        fi
+
+        docker buildx build \
+          --progress=plain \
+          --platform "$(params.platforms)" \
+          --file "$(params.dockerfile)" \
+          --tag "$(params.image)" \
+          --metadata-file "${metadata_file}" \
+          ${build_output} \
+          ${output_arg} \
+          ${target_arg} \
+          ${version_arg} \
+          $(params.extra-args) \
+          $(params.context)
+
+        printf "%s" "$(params.image)" > "$(results.IMAGE_URL.path)"
+
+        if [ -f "${metadata_file}" ]; then
+          digest="$(grep -o '"containerimage.digest":"[^"]*"' "${metadata_file}" | sed 's/.*"containerimage.digest":"\([^"]*\)".*/\1/' || true)"
+          printf "%s" "${digest}" > "$(results.IMAGE_DIGEST.path)"
+        else
+          : > "$(results.IMAGE_DIGEST.path)"
+        fi

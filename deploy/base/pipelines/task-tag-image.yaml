@@ -1,0 +1,22 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: tag-image
+spec:
+  workspaces:
+    - name: dockerconfig
+  params:
+    - name: image-source
+    - name: tag
+  steps:
+    - name: push-image-tar
+      image: reg.cadoles.com/cnous-mse/go-containerregistry/crane/debug:v0.20.3
+      script: |
+        #!/busybox/sh
+        set -eu -o pipefail
+        
+        mkdir ~/.docker || true
+        cp $(workspaces.dockerconfig.path)/.dockerconfigjson ~/.docker/config.json
+        
+        echo "== TAG IMAGE ==================================="
+        crane tag $(params.image-source) $(params.tag)

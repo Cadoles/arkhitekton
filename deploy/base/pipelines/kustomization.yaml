@@ -1,0 +1,59 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Le noyau de pipelines : ce que le dashboard **possède**.
+#
+# Construire une image et poser un tag supplémentaire ne sont pas de
+# l'infrastructure que l'exploitation choisit : ce sont les mécanismes du
+# dashboard. Il en connaît les paramètres, en attend les résultats, et sa machine
+# à états conclut sur leur issue. Les laisser à chaque déploiement garantirait des
+# implémentations divergentes de ce qu'il croit piloter (doc 12 §12.6).
+#
+# Ils vivaient dans `mse-tekton`, dont le nom disait le couplage : un second
+# projet aurait dû le forker. Ils sont désormais livrés avec le binaire qui les
+# emploie, et leur version suit la sienne — comme le Job de migration, qui est une
+# ressource de ce même déploiement et exécute pourtant du code du dashboard.
+#
+# Ce qui n'est **pas** ici, et n'a pas à y être : les pipelines propres à un
+# déploiement — déploiement d'environnement, campagne E2E maison, audit de
+# sécurité. Ils restent à leur propriétaire, et le catalogue les référence sans
+# que le dashboard les possède.
+#
+# Le contrat que ces pipelines honorent est écrit en doc 13. Il est normatif :
+# ceux-ci en sont des réalisations, pas la définition.
+
+# Le namespace est celui des pipelines, pas celui du dashboard : c'est là que
+# Tekton lit les définitions. Il est posé ici plutôt qu'en tête du dépôt parce que
+# la base n'a délibérément **aucun** transformateur global — voir le commentaire
+# de `../kustomization.yaml`. Cette kustomization imbriquée ne transforme que ses
+# propres ressources, ce qui est exactement la portée voulue.
+namespace: mse-tekton-pipelines
+
+# La marque de propriété. Elle n'est pas décorative : elle est ce qui autorisera
+# le dashboard à ne réconcilier que ce qu'il a posé, et à ne jamais adopter ce
+# qu'il trouve (doc 12 §12.7).
+#
+# Clé **propre au projet**, et non `app.kubernetes.io/managed-by`. Cet espace est
+# disputé : Skaffold y écrit `kustomize` par-dessus, Flux y écrirait le sien, et
+# la marque disparaissait sans le moindre message — constaté ici même, la première
+# version de ce fichier posait `managed-by: mse-dashboard` et le cluster rendait
+# `managed-by: kustomize`. Une propriété qu'un outil de déploiement peut effacer
+# ne prouve rien.
+labels:
+  - includeSelectors: false
+    pairs:
+      dashboard.cadoles.com/owner: core
+
+resources:
+  # `git-clone` vient du catalogue Tekton, épinglé en 0.6. Vendorisé plutôt que
+  # tiré par URL : une kustomization qui télécharge à chaque rendu échoue hors
+  # ligne, et la version employée n'apparaît alors dans aucun diff.
+  - task-git-clone.yaml
+
+  - task-generate-image-tag.yaml
+  - task-buildx-build-image.yaml
+  - task-push-image.yaml
+  - task-tag-image.yaml
+
+  - pipeline-build-image.yaml
+  - pipeline-retag-image.yaml

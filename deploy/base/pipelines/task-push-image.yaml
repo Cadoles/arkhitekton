@@ -1,0 +1,48 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: push-image
+spec:
+  workspaces:
+    - name: source
+    - name: dockerconfig
+  params:
+    - name: image-tag
+    - name: image-path
+  steps:
+    - name: push-image-tar
+      image: reg.cadoles.com/cnous-mse/go-containerregistry/crane/debug:v0.20.3
+      script: |
+        #!/busybox/sh
+        set -eu -o pipefail
+        
+        mkdir ~/.docker || true
+        cp $(workspaces.dockerconfig.path)/.dockerconfigjson ~/.docker/config.json
+
+        image_path="$(params.image-path)"
+        case "${image_path}" in
+          /*) ;;
+          *) image_path="$(workspaces.source.path)/${image_path}" ;;
+        esac
+        
+        echo "== PUSH IMAGE ==================================="
+
+        max_iteration=5
+
+        for i in $(seq 1 $max_iteration)
+        do
+          crane push "${image_path}" $(params.image-tag)
+          result=$?
+          if [[ $result -eq 0 ]]
+          then
+            echo "Image pushed"
+            break
+          else
+            sleep 1
+          fi
+        done
+
+        if [[ $result -ne 0 ]]
+        then
+          echo "Push failed after $max_iteration retry"
+        fi

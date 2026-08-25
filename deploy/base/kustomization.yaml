@@ -10,6 +10,12 @@ kind: Kustomization
 # Chaque ressource porte donc son namespace explicitement.
 
 resources:
+  # Le noyau de pipelines que le dashboard possède : construction et re-tag. Sa
+  # kustomization imbriquée porte son propre namespace — celui des pipelines — ce
+  # qui est la seule exception à la règle ci-dessus, et elle est bornée à ses
+  # ressources (doc 12 §12.6).
+  - pipelines
+
   - namespace.yaml
   - serviceaccount.yaml
   - rbac-dashboard.yaml
