@@ -52,6 +52,15 @@ plutôt que d'échouer en cours d'exécution sur un message qui ne le désigne p
 
 ## 13.3 Marqueurs de flux
 
+> **État : spécifié et émis, pas encore consommé.** Les Tasks de `mse-tekton` écrivent
+> ces marqueurs, et `internal/results` sait les lire — la fonction est écrite et
+> testée — mais **aucun appelant ne les relie**. Le canal est donc décrit ici comme le
+> contrat qu'il est, et non comme un comportement observable aujourd'hui.
+>
+> Conséquence concrète : la distinction entre « l'outil a trouvé des problèmes » et
+> « l'outil n'a pas pu tourner » est portée par les pipelines mais **perdue** avant
+> d'atteindre l'écran. Voir [13.9](#139-écarts-connus).
+
 Deux informations doivent remonter **avant la fin du run** : le descripteur d'exécution
 d'un outil, et sa ligne de résumé. Elles sont trop petites pour justifier un artefact, et
 trop utiles pour attendre — devant une campagne de quarante minutes, on veut lire
@@ -250,6 +259,34 @@ Un pipeline conforme se vérifie sans le dashboard :
 
 Le point 3 est celui qu'on oublie, et il se manifeste par des CronJobs qui échouent tous
 les soirs sans que personne ne comprenne pourquoi.
+
+---
+
+## 13.9 Écarts connus
+
+Ce que ce document décrit et que le code ne fait pas encore. Écrit ici plutôt que tu, pour
+qu'un pipeline conforme ne soit pas soupçonné quand l'effet attendu n'apparaît pas.
+
+### Les marqueurs ne sont pas consommés
+
+`ScanMarkers` et `StripMarkers` existent, sont testés, et n'ont **aucun appelant**. Rien
+ne lit les journaux d'un run conclu pour en extraire les descripteurs.
+
+Ce qui en découle :
+
+- le résumé d'un outil n'apparaît pas pendant l'exécution ;
+- `status` n'est pas exploité, donc **un outil planté ne se distingue pas d'un outil qui
+  n'a rien trouvé** — c'est la propriété que le canal existait pour préserver ;
+- les lignes de marqueur restent visibles dans le journal affiché, alors que
+  `StripMarkers` est écrit pour les en retirer.
+
+Le raccordement est mécanique — lire le journal scellé à la conclusion d'un run, scanner,
+persister — mais ce n'est pas du travail préparatoire : c'est une fonctionnalité qui
+manque. À traiter comme telle.
+
+**En attendant, les pipelines doivent continuer d'émettre.** Le contrat ne change pas, et
+le jour où le raccordement est fait, ce qui a déjà été émis devient exploitable sans
+retoucher une seule Task.
 
 [B11]: 02-blocages-et-decisions.md#b11
 [B14]: 02-blocages-et-decisions.md#b14
