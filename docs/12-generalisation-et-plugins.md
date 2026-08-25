@@ -92,7 +92,7 @@ Légende : **C** = configuration du dashboard · **P** = configuration de pipeli
 | Normalisation `v3.2.0` → `3.2.0` | `release/naming.go` | **C** — liste de préfixes réglable |
 | Normalisation `MSE 3.1.2` → `3.1.2` | `release/naming.go` | **C** — même liste |
 | `MSE3-1.5` laissé intact, ambigu | `release/naming.go` | **MSE** — décision propre à un historique |
-| Natures `pre` / `final` / `patch` | `release/`, schéma | **G** — vocabulaire de release courant |
+| Natures `pre` / `final` / `patch` | `release/`, schéma | **C** — un cycle déclaré, pas trois noms figés ([12.4](#124-la-frontière-difficile-la-sémantique)) |
 | Re-tag du même digest ([B17]) | machine à états | **G** — doctrine saine, à garder par défaut |
 | Suffixe SemVer de promotion, séparateur `_` | catalogue, `release/` | **C** — déjà en configuration |
 | `qualif` → `testing` | catalogue `environments` | **C** — déjà en configuration |
@@ -142,7 +142,11 @@ C'est le point que je crois le plus sous-estimé dans le projet de généralisat
 **Un plugin qui ne fait que traduire un protocole produit du code qui compile et des
 verdicts faux.**
 
-Trois exemples tirés du code existant.
+Le même piège existe un cran plus bas, dans le vocabulaire du domaine : un mot courant
+peut encoder des décisions propres à une équipe, et le classer « générique » parce qu'il
+est répandu revient à imposer ces décisions à tout le monde.
+
+Quatre exemples tirés du code existant.
 
 ### Promouvoir
 
@@ -163,6 +167,66 @@ Un plugin ArgoCD ou `kubectl apply` ne change pas un client HTTP : il change ce 
 pas la même affirmation. Le dashboard sait déjà distinguer ces deux niveaux
 (`resolution: portaldata | digest | git | unobservable`) — **c'est ce vocabulaire qu'il
 faut promouvoir en contrat de plugin**, pas une méthode `Deploy()`.
+
+### Nommer une release
+
+`pre` / `final` / `patch` ont d'abord été classés « génériques » dans ce document, au
+motif que le vocabulaire est courant. **C'est une erreur de méthode** : la fréquence d'un
+mot ne dit rien de sa généralité, et il fallait regarder ce que ces natures *font*.
+
+Elles ne nomment pas trois vocables mais **trois points dans un espace de quatre traits
+indépendants** :
+
+| Trait | `pre` | `final` | `patch` |
+|---|---|---|---|
+| Source de l'image | construction | **re-tag** d'une release source | construction |
+| Forme du tag | pré-release **exigée** | pré-release **interdite** | pré-release **interdite** |
+| Permission | `release:create` | `release:create:final` | `release:create:final` |
+| Prérequis | une référence Git | une source validée | une référence Git |
+
+Le tableau montre le défaut : **`pre` et `patch` ne diffèrent que par la forme du tag et
+la permission.** Leur comportement est le même — construire depuis du code. Trois noms
+pour deux comportements, et un `check (kind in ('pre','final','patch'))` en base qui
+interdit d'en déclarer un quatrième.
+
+Un projet en `alpha` / `beta` / `rc` / `ga` n'entre pas dans ces trois cases. Un projet
+qui ne distingue rien — une seule sorte de release — doit en choisir une arbitrairement.
+
+### Ce que la généralisation demande ici
+
+Séparer trois couches aujourd'hui fondues dans une énumération :
+
+1. **Les faits SemVer** — « ce tag porte-t-il une composante de pré-release ? » est défini
+   par la spécification, pas par nous. Reste générique, inchangé.
+2. **Les modes** — construire depuis une référence Git, ou re-taguer une release
+   existante. Un jeu fermé de primitives, générique.
+3. **Le cycle** — quelles natures existent, comment elles s'appellent, quel mode et
+   quelles contraintes chacune porte. **Propre au projet**, donc en configuration.
+
+Une nature devient alors une entité déclarée :
+
+```yaml
+releaseKinds:
+  - id: rc
+    label: "Release candidate"
+    mode: build            # build | retag
+    tag: prerelease-required   # required | forbidden | any
+    permission: release:create
+  - id: ga
+    label: "Livraison"
+    mode: retag
+    source: rc             # la nature dont elle reprend l'image
+    tag: prerelease-forbidden
+    permission: release:create:final
+```
+
+Le coût est réel : trois branchements dans le handler de création, une contrainte de
+schéma à transformer en référence, et l'écran de création à piloter par la déclaration
+plutôt que par une liste en dur. Ce n'est pas un renommage.
+
+Le gain l'est aussi. [B17] — une finale est un re-tag, jamais une reconstruction — cesse
+d'être une propriété de la valeur `final` pour devenir une propriété du **mode**
+`retag` : elle vaut alors pour toute nature qui le déclare, quel que soit son nom.
 
 ### Composer une note
 
@@ -576,11 +640,16 @@ faible et sans risque. Tant qu'il n'est pas fait, tout découpage est spéculati
 
 **Livrable** : `internal/provider/` avec les contrats et leur documentation.
 
-### Lot B — Le multi-projet
+### Lot B — Le multi-projet et le cycle déclaré
 
 Le lot lourd. Déplacer l'identité : `project_id` sur `versions`, `releases`, et tout ce
 qui en dépend ; unicité `(project_id, tag)` ; routes `/projects/{p}/releases/{tag}` ;
 rôles par projet.
+
+**Le cycle de release s'y rattache** ([12.4](#124-la-frontière-difficile-la-sémantique)) :
+les natures cessent d'être une énumération en base pour devenir une déclaration par
+projet. Les deux changements touchent les mêmes tables et les mêmes écrans ; les séparer
+ferait payer deux fois la même migration.
 
 **Pourquoi si tôt** : sans lui, les plugins ne servent qu'à changer de Redmine **pour un
 projet unique**. C'est le prérequis dur de tout le reste, et le repousser rend chaque lot
@@ -665,6 +734,9 @@ première release s'est construite.
   plus de bornes. C'est ce qui rend le reste de la posture tenable.
 - **Ne pas généraliser les parseurs de résultats.** JUnit, Trivy, k6 sont des formats
   d'outils, pas de projet : ils sont déjà génériques.
+- **Ne pas confondre courant et générique.** Un vocabulaire répandu peut encoder des
+  décisions propres à une équipe. Le test n'est pas « ce mot est-il usuel » mais « quel
+  comportement ce mot sélectionne-t-il, et un autre projet le voudrait-il ? ».
 - **Ne pas dissoudre les doctrines.** [B7] et [B17] sont les meilleures décisions du
   projet. Elles doivent rester le **défaut**, et un plugin qui s'en écarte doit le
   déclarer et l'assumer à l'écran.
