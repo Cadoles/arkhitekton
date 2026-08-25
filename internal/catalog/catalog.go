@@ -100,6 +100,20 @@ type Pipeline struct {
 	// PipelineRef est le nom du Pipeline dans le cluster.
 	PipelineRef string `json:"pipelineRef"`
 	Label       string `json:"label"`
+	// Verification dit qu'une construction réussie enchaîne ce pipeline, et qu'il
+	// est relançable seul depuis l'écran d'une release.
+	//
+	// C'est une décision de **processus** — « ce projet vérifie ceci après avoir
+	// construit » — qui vivait en Go, dans deux listes en dur tenues alignées par
+	// un test : une dans l'ordonnanceur, une dans l'API. Elle appartient au
+	// catalogue, à côté du pipeline qu'elle décrit : un déploiement sans campagne
+	// E2E cesse ainsi d'avoir un pipeline fantôme dans sa file, sans recompiler
+	// (doc 12 §12.9, chantier 6).
+	//
+	// Porté par chaque pipeline plutôt que par une liste en tête du catalogue :
+	// une liste peut nommer une famille absente, et l'ordre d'enchaînement
+	// deviendrait une seconde vérité à côté de l'ordre de déclaration.
+	Verification bool `json:"verification,omitempty"`
 	// MaxConcurrent borne la file de ce type. Zéro vaut DefaultKindConcurrency :
 	// un type nouveau démarre parallélisable, ce qui est le cas courant, et
 	// s'exclut en le déclarant plutôt qu'en l'oubliant.
@@ -358,6 +372,14 @@ func (p Pipeline) validate() []error {
 	if strings.TrimSpace(p.PipelineRef) == "" {
 		problems = append(problems, fmt.Errorf("kind %q: pipelineRef est requis", p.Kind))
 	}
+	// Une vérification sans artefact déclaré a un verdict qui n'atteint jamais le
+	// dashboard : le run tourne, conclut, et la release reste en attente d'un
+	// résultat que rien ne remonte. Refusé au démarrage plutôt que constaté au
+	// bout d'une campagne de quarante minutes (doc 06 §6.2).
+	if p.Verification && len(p.Uploads) == 0 {
+		problems = append(problems, fmt.Errorf(
+			"kind %q: une vérification doit déclarer au moins un artefact", p.Kind))
+	}
 	if p.MaxConcurrent < 0 {
 		problems = append(problems, fmt.Errorf(
 			"kind %q: maxConcurrent doit être >= 1 (ou absent), vaut %d", p.Kind, p.MaxConcurrent))
@@ -563,6 +585,32 @@ func (p Pipeline) Inputs() []Input {
 		return inputs[i].Name < inputs[j].Name
 	})
 	return inputs
+}
+
+// VerificationKinds énumère ce qu'une construction réussie enchaîne.
+//
+// Dans l'ordre de déclaration, qui devient l'ordre de mise en file : une map Go
+// n'a pas d'ordre, et des runs qui changent de rang à chaque construction rendent
+// impossible de comparer deux releases d'un coup d'œil.
+//
+// Sert aussi à décider ce qui est relançable à l'unité. Les deux questions ont la
+// même réponse, et les avoir séparées donnait un bouton qui pouvait lancer ce que
+// la chaîne ne lançait pas — ou l'inverse, une famille enchaînée qu'on ne pouvait
+// pas rattraper sans reconstruire toute la release.
+func (c *Catalog) VerificationKinds() []string {
+	kinds := make([]string, 0, len(c.Pipelines))
+	for _, pipeline := range c.Pipelines {
+		if pipeline.Verification {
+			kinds = append(kinds, pipeline.Kind)
+		}
+	}
+	return kinds
+}
+
+// IsVerification dit si une famille est une vérification enchaînée.
+func (c *Catalog) IsVerification(kind string) bool {
+	pipeline, found := c.Find(kind)
+	return found && pipeline.Verification
 }
 
 // SuggestionKey nomme la liste à proposer pour cette entrée.

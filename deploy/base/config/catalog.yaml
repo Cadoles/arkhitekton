@@ -90,6 +90,10 @@ pipelines:
   # valeurs par défaut. C'est le kind le plus simple, et le seul lançable sans
   # rien saisir.
   - kind: security-audit
+    # Enchaîné après une construction réussie, et relançable seul depuis l'écran
+    # d'une release. Décidé ici et non en Go : c'est ce que **ce déploiement**
+    # vérifie, et un projet sans audit de sécurité le retire sans recompiler.
+    verification: true
     pipelineRef: security-audit
     label: Audit de sécurité
     # Aucune contention : un audit peut tourner pendant des tests E2E.
@@ -244,6 +248,7 @@ pipelines:
   # pour deux signaux, et un cs-fixer non conforme faisait échouer le même run
   # que des tests verts — donc une relance qui rejouait les deux.
   - kind: static-tests
+    verification: true
     pipelineRef: php-static-tests
     label: Analyse statique
     params:
@@ -272,6 +277,7 @@ pipelines:
           storage: 1Gi
 
   - kind: unit-tests
+    verification: true
     pipelineRef: php-unit-tests
     label: Tests unitaires
     params:
@@ -334,6 +340,7 @@ pipelines:
           storage: 1Gi
 
   - kind: integration-tests
+    verification: true
     pipelineRef: php-integration-test
     label: Tests d'intégration
     # Le pipeline déploie dans un namespace applicatif : deux exécutions

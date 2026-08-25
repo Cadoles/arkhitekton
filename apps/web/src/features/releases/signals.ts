@@ -9,14 +9,6 @@ import type { ReleaseJob } from './api'
  * l'autre au repos pendant qu'il est justement en train d'être mesuré.
  */
 
-/** Familles de vérification relançables. Alignées sur `VerifiableKinds` côté API. */
-export const VERIFIABLE_KINDS = [
-  'static-tests',
-  'unit-tests',
-  'security-audit',
-  'integration-tests',
-] as const
-
 export const KIND_LABEL: Record<string, string> = {
   'static-tests': 'Analyse statique',
   'unit-tests': 'Tests unitaires',

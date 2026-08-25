@@ -893,26 +893,20 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// VerifiableKinds énumère les familles de vérification relançables à l'unité.
+// verifiable dit si une famille est relançable à l'unité.
 //
-// Volontairement figée ici plutôt que déduite du catalogue : celui-ci porte aussi
-// `build` et `promote`, qui ne sont pas des vérifications, et une relance de
-// construction déguisée en relance de test ferait bien plus que ce que
-// l'utilisateur a demandé.
+// Le catalogue tranche, et il ne suffit pas d'y être : `build` et `retag` y
+// figurent aussi, et une relance de construction déguisée en relance de test
+// ferait bien plus que ce que l'utilisateur a demandé. C'est le drapeau
+// `verification` qui distingue.
 //
-// Doit rester alignée sur `verificationKinds` de l'ordonnanceur. Un test le
-// vérifie sur le catalogue livré.
-var VerifiableKinds = []string{
-	"static-tests", "unit-tests", "security-audit", "integration-tests",
-}
-
-func verifiable(kind string) bool {
-	for _, known := range VerifiableKinds {
-		if known == kind {
-			return true
-		}
-	}
-	return false
+// Il était impossible de le déduire tant que ce drapeau n'existait pas, d'où une
+// liste en dur ici, jumelle de celle de l'ordonnanceur et tenue alignée par un
+// test. Deux listes qui divergent donnent un bouton qui lance ce que la chaîne ne
+// lance pas, ou une famille enchaînée qu'on ne peut pas rattraper sans
+// reconstruire toute la release.
+func (h *ReleasesHandler) verifiable(kind string) bool {
+	return h.catalog != nil && h.catalog.IsVerification(kind)
 }
 
 // Verify relance une seule famille de vérification sur une release.
@@ -935,7 +929,7 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 
 	tag := r.PathValue("tag")
 	kind := r.PathValue("kind")
-	if !verifiable(kind) {
+	if !h.verifiable(kind) {
 		writeProblem(w, http.StatusBadRequest, "Famille inconnue",
 			fmt.Sprintf("%q n'est pas une famille de vérification relançable", kind))
 		return

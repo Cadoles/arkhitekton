@@ -891,14 +891,34 @@ surface morte.
 dans l'interface. Un pipeline générique qui émet `##MSE-META##` reste marqué MSE dans son
 code source, quelle que soit la propreté de ce qui le lit.
 
-#### 6. L'enchaînement des vérifications
+#### 6. L'enchaînement des vérifications — **fait**
 
-`verificationKinds` est une liste en dur dans l'observateur : les quatre pipelines lancés
-après une construction réussie. Elle devient une donnée du catalogue.
+La liste des pipelines lancés après une construction réussie existait **deux fois** en
+Go : `verificationKinds` dans l'observateur, `VerifiableKinds` dans l'API, tenues alignées
+par un test — plus une troisième copie morte dans le front, que personne n'importait.
+
+Elle devient un drapeau `verification: true` sur chaque pipeline du catalogue. Porté par
+le pipeline plutôt que par une liste en tête : une liste peut nommer une famille absente,
+et l'ordre d'enchaînement deviendrait une seconde vérité à côté de l'ordre de déclaration.
+`Catalog.VerificationKinds()` et `Catalog.IsVerification()` servent les quatre usages —
+enchaînement, décompte de conclusion, reconnaissance d'un run enchaîné, relance à l'unité.
+
+Trois choses en sont sorties, qui n'étaient pas dans l'énoncé :
+
+- **Une règle de validation.** Une vérification qui ne déclare aucun artefact tourne,
+  conclut, et son verdict n'atteint jamais le dashboard : la release attend un résultat que
+  rien ne remonte. C'était vérifié par un test sur le catalogue livré ; c'est désormais
+  refusé au démarrage, pour tout catalogue (doc 06 §6.2).
+- **Un commentaire mort.** L'observateur expliquait pourquoi `integration-tests` n'était
+  *pas* enchaîné, au-dessus d'une liste qui le contenait. Un lecteur pouvait en tirer
+  l'inverse de ce que le code faisait.
+- **Un endpoint sans test.** `Verify` — la relance à l'unité — n'était couvert par aucun
+  test. Le changement l'aurait rendu silencieusement inopérant, ou pire, aurait laissé
+  passer une relance de `build` qui republie les images au lieu de rejouer un test.
 
 **Pourquoi c'est structurant** : c'est une décision de processus — « ce projet vérifie ceci
-après avoir construit » — aujourd'hui écrite en Go. La sortir du code la rend visible,
-et un projet sans tests E2E cesse d'avoir un pipeline fantôme dans sa file.
+après avoir construit » — qui était écrite en Go. La sortir du code la rend visible, et un
+déploiement sans campagne E2E cesse d'avoir un pipeline fantôme dans sa file.
 
 #### Ce que cet horizon ne résout pas, et l'assume
 

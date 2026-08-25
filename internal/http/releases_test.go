@@ -261,6 +261,14 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
 		{Kind: "retag", PipelineRef: "retag-image"},
 		{Kind: "build", PipelineRef: "build-image"},
+		{
+			Kind: "unit-tests", PipelineRef: "php-unit-tests", Verification: true,
+			Params: map[string]catalog.Param{
+				"revision": {
+					Source: catalog.SourceInput, Required: true,
+					Suggest: catalog.SuggestGitRef},
+			},
+		},
 	}}
 	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
@@ -1287,4 +1295,51 @@ func (f *fakeReleaseStore) ListReleaseVersionIssues(context.Context, int64) ([]s
 // comportement exact d'un acteur inconnu.
 func (f *fakeReleaseStore) Directory(context.Context) (map[string]string, error) {
 	return map[string]string{}, nil
+}
+
+// La relance à l'unité lit désormais le catalogue au lieu d'une liste en dur, et
+// c'est le drapeau `verification` qui distingue ce qu'on peut rejouer.
+//
+// Le point qui compte est le refus : `build` figure aussi au catalogue, et une
+// relance de construction déguisée en relance de test republierait les images de
+// la release au lieu de rejouer un test.
+func TestLaRelanceALUniteNaccepteQueLesVerifications(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{
+		ID: 42, Tag: "1.8.0", State: "failed", GitCommit: "abc123def456",
+	}
+	handler := newReleasesHandler(t, fake)
+
+	verify := func(kind string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/releases/1.8.0/verify/"+kind, nil)
+		request.SetPathValue("tag", "1.8.0")
+		request.SetPathValue("kind", kind)
+		recorder := httptest.NewRecorder()
+		handler.Verify(recorder, asRole(request, auth.RoleReleaser))
+		return recorder
+	}
+
+	recorder := verify("unit-tests")
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(fake.jobs) != 1 || fake.jobs[0].Kind != "unit-tests" {
+		t.Fatalf("jobs mis en file: %+v", fake.jobs)
+	}
+	// La révision vérifiée est le commit construit, jamais la branche dont il
+	// vient : celle-ci a pu bouger, et les tests porteraient alors sur autre chose
+	// que l'image (B17).
+	if got := fake.jobs[0].Params["revision"]; got != "abc123def456" {
+		t.Errorf("révision relancée = %q, attendu le commit construit", got)
+	}
+
+	if recorder := verify("build"); recorder.Code != http.StatusBadRequest {
+		t.Errorf("relancer `build` doit être refusé, code = %d", recorder.Code)
+	}
+	if recorder := verify("inconnue"); recorder.Code != http.StatusBadRequest {
+		t.Errorf("une famille absente du catalogue doit être refusée, code = %d", recorder.Code)
+	}
+	if len(fake.jobs) != 1 {
+		t.Errorf("un refus ne doit rien mettre en file: %+v", fake.jobs)
+	}
 }

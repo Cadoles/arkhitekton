@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 )
@@ -41,7 +40,7 @@ func verificationCatalog() *catalog.Catalog {
 	return &catalog.Catalog{
 		Pipelines: []catalog.Pipeline{
 			{
-				Kind: "static-tests", Params: map[string]catalog.Param{
+				Kind: "static-tests", Verification: true, Params: map[string]catalog.Param{
 					"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
@@ -49,13 +48,13 @@ func verificationCatalog() *catalog.Catalog {
 			// Les tests unitaires ont leur propre pipeline : deux questions
 			// distinctes, deux signaux que le score pondère séparément.
 			{
-				Kind: "unit-tests", Params: map[string]catalog.Param{
+				Kind: "unit-tests", Verification: true, Params: map[string]catalog.Param{
 					"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
 			{
-				Kind: "security-audit", Params: map[string]catalog.Param{
+				Kind: "security-audit", Verification: true, Params: map[string]catalog.Param{
 					// L'audit nomme sa révision autrement que les tests statiques,
 					// et réclame les images déjà publiées plutôt que de les
 					// reconstruire.
@@ -76,7 +75,7 @@ func verificationCatalog() *catalog.Catalog {
 			// configuration : c'est ce qui rend ce pipeline enchaînable. Tant
 			// qu'elle était une entrée, le dashboard ne savait pas la renseigner.
 			{
-				Kind: "integration-tests", Params: map[string]catalog.Param{
+				Kind: "integration-tests", Verification: true, Params: map[string]catalog.Param{
 					"mse-revision": {
 						Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
 					"mse-kustom-revision": {Source: catalog.SourceConfig, Key: "forge.mseKustom.revision"},
@@ -466,14 +465,22 @@ func TestToutCeQuiEstEnchaineRendUnResultatLisible(t *testing.T) {
 		t.Fatalf("catalogue livré: %v", err)
 	}
 
-	for _, kind := range verificationKinds {
-		pipeline, found := pipelines.Find(kind)
-		if !found {
-			t.Errorf("%s est enchaîné mais absent du catalogue", kind)
-			continue
-		}
-		if len(pipeline.Uploads) == 0 {
-			t.Errorf("%s ne déclare aucun artefact : son verdict n'atteindra jamais le dashboard", kind)
+	kinds := pipelines.VerificationKinds()
+	if len(kinds) == 0 {
+		t.Fatal("le catalogue livré n'enchaîne aucune vérification : une construction réussie conclurait sur rien")
+	}
+
+	// La règle « une vérification déclare un artefact » est désormais tenue par la
+	// validation du catalogue, que `Load` applique : ce test échouerait plus haut,
+	// au chargement, si le fichier livré la rompait. La vérifier une seconde fois
+	// ici mesurerait le même code deux fois.
+
+	// Le point que la validation ne peut pas trancher seule : ce qui construit
+	// ou re-tague ne doit pas être enchaîné. Une construction qui s'enchaînerait
+	// elle-même bouclerait sans fin, en publiant une image à chaque tour.
+	for _, kind := range []string{"build", "retag"} {
+		if pipelines.IsVerification(kind) {
+			t.Errorf("%s est déclaré vérification : une construction s'enchaînerait elle-même", kind)
 		}
 	}
 }
@@ -564,31 +571,34 @@ func TestUnLancementManuelNeRattacheRien(t *testing.T) {
 	}
 }
 
-// L'enchaînement automatique et la relance à l'unité doivent porter sur les
-// mêmes familles. Les deux listes vivent dans deux paquets — l'ordonnanceur
-// décide quoi lancer après une construction, l'API ce qu'on peut rejouer — et
-// leur divergence donnerait un bouton qui lance ce que la chaîne ne lance pas,
-// ou l'inverse : une famille enchaînée mais non relançable, donc irrattrapable
-// sans reconstruire toute la release.
-func TestLesFamillesRelancablesSontCellesQuiSontEnchainees(t *testing.T) {
-	enchainees := map[string]bool{}
-	for _, kind := range verificationKinds {
-		enchainees[kind] = true
+// L'enchaînement automatique et la relance à l'unité portent sur les mêmes
+// familles, et le catalogue est désormais leur source **unique**. Ce qui suit ne
+// compare donc plus deux listes — il vérifie que le fichier livré désigne bien
+// celles qu'on attend, la déclaration étant maintenant ce qu'on peut se tromper
+// en écrivant.
+func TestLeCatalogueLivreEnchaineLesQuatreFamillesAttendues(t *testing.T) {
+	shipped := "../../deploy/base/config/catalog.yaml"
+	if _, err := os.Stat(shipped); err != nil {
+		t.Skip("catalogue livré introuvable")
 	}
 
-	relancables := map[string]bool{}
-	for _, kind := range dashhttp.VerifiableKinds {
-		relancables[kind] = true
+	pipelines, err := catalog.Load(shipped)
+	if err != nil {
+		t.Fatalf("catalogue livré: %v", err)
 	}
 
-	for kind := range enchainees {
-		if !relancables[kind] {
-			t.Errorf("%s est enchaîné mais ne peut pas être relancé seul", kind)
-		}
+	want := []string{"security-audit", "static-tests", "unit-tests", "integration-tests"}
+	got := pipelines.VerificationKinds()
+
+	if len(got) != len(want) {
+		t.Fatalf("familles enchaînées = %v, attendu %v", got, want)
 	}
-	for kind := range relancables {
-		if !enchainees[kind] {
-			t.Errorf("%s est relançable mais n'est jamais enchaîné", kind)
+	for index, kind := range want {
+		// L'ordre est celui de déclaration, et il devient celui de mise en file :
+		// des runs qui changent de rang à chaque construction rendent impossible
+		// de comparer deux releases d'un coup d'œil.
+		if got[index] != kind {
+			t.Errorf("famille %d = %q, attendu %q", index, got[index], kind)
 		}
 	}
 }

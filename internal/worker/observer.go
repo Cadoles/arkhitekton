@@ -361,7 +361,7 @@ func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobStat
 	switch {
 	case linked.Kind == buildJobKind:
 		return s.advanceRelease(ctx, linked, jobState)
-	case isVerificationKind(linked.Kind):
+	case s.isVerificationKind(linked.Kind):
 		return s.concludeVerification(ctx, linked)
 	default:
 		// Une promotion réussie ne rend pas une release « prête » : elle la
@@ -543,22 +543,6 @@ func toLogSteps(steps []tekton.Step) []logs.Step {
 	return converted
 }
 
-// verificationKinds sont les familles lancées après une construction réussie.
-//
-// `integration-tests` n'y figure pas, et c'est un choix : il déploie
-// l'application dans `mse-pipeline` et exige `mse-kustom-revision`, que le
-// dashboard ne connaît pas — la révision du dépôt de déploiement est une donnée
-// d'exploitation, pas une propriété de la release. Le lancer d'office ferait
-// échouer toute vérification sur une cause étrangère au code testé.
-// verificationKinds énumère ce qu'une construction réussie enchaîne.
-//
-// `e2e-tests` n'y figure pas : le pipeline vise un environnement déployé, et
-// l'enchaîner sur une construction le ferait porter sur ce qui s'y trouve, pas
-// sur la release qui vient d'être construite.
-var verificationKinds = []string{
-	"static-tests", "unit-tests", "security-audit", "integration-tests",
-}
-
 // launchVerification met en file les tests d'une release construite, et rend le
 // nombre effectivement enfilé.
 //
@@ -586,7 +570,7 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 	}
 
 	launched := 0
-	for _, kind := range verificationKinds {
+	for _, kind := range s.catalog.VerificationKinds() {
 		pipeline, found := s.catalog.Find(kind)
 		if !found {
 			s.logger.Warn("famille de vérification absente du catalogue",
@@ -636,13 +620,13 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 // et les attribuer à un humain brouillerait le journal d'audit.
 const verificationRequester = "dashboard:verification"
 
-func isVerificationKind(kind string) bool {
-	for _, known := range verificationKinds {
-		if known == kind {
-			return true
-		}
-	}
-	return false
+// isVerificationKind dit si une famille est une vérification enchaînée.
+//
+// Sans catalogue branché, la réponse est non : l'observateur ne lance alors
+// aucune vérification, et traiter un run comme la conclusion d'une chaîne qui
+// n'existe pas ferait avancer une release sur un verdict qu'elle n'a pas.
+func (s *runSink) isVerificationKind(kind string) bool {
+	return s.catalog != nil && s.catalog.IsVerification(kind)
 }
 
 // concludeVerification fait sortir une release de `verifying` quand toutes ses
@@ -674,7 +658,15 @@ func (s *runSink) concludeVerification(ctx context.Context, linked store.JobRele
 		return nil
 	}
 
-	tally, err := s.db.CountVerifications(ctx, linked.ReleaseID, verificationKinds, buildJobKind)
+	// Sans catalogue, aucune vérification n'a pu être enchaînée : conclure sur une
+	// liste vide ferait passer la release en `ready` sans qu'aucun test ait rendu
+	// de verdict.
+	if s.catalog == nil {
+		return nil
+	}
+
+	tally, err := s.db.CountVerifications(
+		ctx, linked.ReleaseID, s.catalog.VerificationKinds(), buildJobKind)
 	if err != nil {
 		return err
 	}

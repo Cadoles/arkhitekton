@@ -326,3 +326,33 @@ func TestValidateAgainstIgnoresOptionalWorkspaces(t *testing.T) {
 		t.Errorf("un workspace optionnel a été exigé: %v", err)
 	}
 }
+
+// Une vérification sans artefact tourne, conclut, et son verdict n'atteint jamais
+// le dashboard : la release reste en attente d'un résultat que rien ne remonte.
+// Refusé au démarrage plutôt que constaté au bout d'une campagne.
+func TestUneVerificationSansArtefactEstRefusee(t *testing.T) {
+	_, err := Parse([]byte(`
+pipelines:
+  - kind: unit-tests
+    pipelineRef: php-unit-tests
+    verification: true
+`))
+	if err == nil {
+		t.Fatal("une vérification sans artefact doit être refusée")
+	}
+	if !strings.Contains(err.Error(), "au moins un artefact") {
+		t.Errorf("message = %v", err)
+	}
+}
+
+// Et le pendant : un pipeline non enchaîné n'a rien à publier. `build` produit une
+// image, pas un rapport, et lui réclamer un artefact le rendrait indéclarable.
+func TestUnPipelineNonEnchaineNaPasBesoinDArtefact(t *testing.T) {
+	if _, err := Parse([]byte(`
+pipelines:
+  - kind: build
+    pipelineRef: build-image
+`)); err != nil {
+		t.Fatalf("un pipeline ordinaire sans artefact doit être accepté: %v", err)
+	}
+}
