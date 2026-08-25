@@ -818,13 +818,14 @@ sémantiques. L'ordre reste celui-ci ; l'échéance, non.
 
 ### Lot A — Le contrat des fournisseurs *(sans plugin)*
 
-Écrire les cinq interfaces en questions métier, avec les implémentations actuelles comme
-seules réalisations. Aucun plugin, aucun changement fonctionnel.
+Compléter ce que l'horizon court a commencé : `Deployer` rejoint `Tracker`, `Forge` et
+`Attester`, avec les implémentations actuelles comme seules réalisations.
 
-**Pourquoi d'abord** : c'est l'exercice qui révèle les fuites de sémantique, à coût
-faible et sans risque. Tant qu'il n'est pas fait, tout découpage est spéculatif.
+**Ce qui reste ici** est précisément ce que l'horizon court a écarté : écrire le contrat
+de promotion en questions métier, ce qui suppose d'avoir vu un second déployeur — même
+trivial.
 
-**Livrable** : `internal/provider/` avec les contrats et leur documentation.
+**Livrable** : `internal/provider/` complet.
 
 ### Lot B — Le multi-projet et le cycle déclaré
 
@@ -867,12 +868,12 @@ forge et suivi. À faire en dernier pour cette raison.
 
 ### Lot F — Bibliothèque de pipelines
 
-Publier le contrat, et livrer le noyau — construction, re-tag — dans le `deploy/` du
-dashboard. Un déploiement neuf obtient alors les pipelines essentiels sans forker
-`mse-tekton`, ce qui suffit à rendre une seconde instance possible.
+**Fait par l'horizon court** pour l'essentiel : contrat publié, noyau livré dans le
+`deploy/` du dashboard.
 
-Pas d'installation par le dashboard à ce stade : le noyau ne change qu'avec la version du
-binaire, et le déploiement sait déjà poser ce qui bouge à ce rythme.
+Ne restent ici que les **implémentations de référence par pile** — les Task PHP, Node, Go
+posées à la demande quand un projet déclare la sienne. Elles relèvent des ressources
+dynamiques, donc du lot G.
 
 ### Lot G — Propriété des ressources dynamiques
 
@@ -901,10 +902,25 @@ première release s'est construite.
 
 ---
 
+### Le jalon intermédiaire
+
+Avant même le second projet, l'horizon court a un résultat vérifiable : **un `grep -ri mse`
+sur `internal/` ne rend plus que le plugin MSE et l'historique des décisions**. Les
+constantes, les marqueurs et les listes en dur en sont sortis.
+
+Ce n'est pas la généricité, et il ne faut pas le présenter comme telle. C'est la preuve
+que la frontière est **trouvable** — condition nécessaire pour que le découplage suivant
+soit un déplacement plutôt qu'une réécriture.
+
+---
+
 ## 12.10 Ce que je recommande de ne pas faire
 
 - **Ne pas commencer par les plugins.** C'est la partie visible et la moins chère. Sans
   le multi-projet, elle ne débloque presque rien.
+- **Ne pas trancher une sémantique dans l'abstrait.** Le schéma de version, le cycle de
+  release et le sens de « promouvoir » se décident bien avec un second projet réel sous
+  les yeux, mal sans. Préparer le terrain est utile ; deviner ne l'est pas.
 - **Ne pas construire le gRPC tout de suite.** Coût élevé, bénéfice nul tant que les
   plugins sont écrits par la même équipe.
 - **Ne pas rendre Tekton pluggable.** L'hypothèse est saine ; la remettre en cause
