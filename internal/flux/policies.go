@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 )
 
 // ImagePolicy est ce que le dashboard lit d'une politique de sélection.
@@ -151,43 +153,51 @@ func (c *Client) Kustomizations(ctx context.Context) ([]Kustomization, error) {
 	return kustomizations, nil
 }
 
-// PortalData est l'état des données applicatives d'un environnement.
+// Client réalise [provider.Attester]. Il ne réalise **pas** de frontière de
+// déploiement : elle n'existe pas encore, parce qu'elle exige de trancher ce que
+// « promouvoir » veut dire, et qu'une interface écrite avant cette réponse serait
+// un calque de Flux qu'on croirait générique (doc 12 §12.4).
+var _ provider.Attester = (*Client)(nil)
+
+// Attestations lit ce que les applications d'un namespace rapportent
+// d'elles-mêmes, par le CRD `PortalData`.
 //
-// Seule source issue de l'application en exécution, et la seule à dire si les
-// migrations ont abouti : **une image déployée dont les migrations ont échoué
-// n'est pas une version livrée**, et rien d'autre ne le signale (B8).
-type PortalData struct {
-	Namespace string
-	Name      string
-	Phase     string
-	// DataVersion est la version de l'**image** ayant réalisé le dernier
-	// bootstrap, non celle de la release. Une release finale réutilisant l'image
-	// de sa RC, le rapprochement se fait sur `releases.image_version` et jamais
-	// sur le tag (B8).
-	DataVersion string
-	// SchemaVersion est un nom de classe Doctrine, informatif. Le confondre avec
-	// une version de release est l'erreur que la relecture du CRD a corrigée.
-	SchemaVersion string
-}
-
-// Ready dit si les données sont exploitables.
-func (p PortalData) Ready() bool { return p.Phase == "Ready" }
-
-// PortalData lit l'état applicatif d'un namespace.
-func (c *Client) PortalData(ctx context.Context, namespace string) ([]PortalData, error) {
+// Seule source issue de l'application **en exécution**, et la seule à dire si les
+// migrations ont abouti : une image déployée dont les migrations ont échoué n'est
+// pas une version livrée, et rien d'autre ne le signale (B8).
+//
+// Réalise [provider.Attester]. Le CRD lui-même est propre au portail — c'est
+// exactement ce que le plugin MSE portera le jour venu (doc 12 §12.5) — mais ce
+// qu'il rapporte, « telle version tourne et elle est exploitable », ne l'est pas.
+// La conversion se fait donc ici, au plus près du décodage.
+//
+// Porté par ce client parce qu'il lit le même cluster par le même client
+// dynamique, non parce que déploiement et attestation seraient la même chose :
+// l'un dit l'intention, l'autre le constat, et c'est leur écart qui fait la
+// valeur de l'écran des environnements.
+func (c *Client) Attestations(ctx context.Context, namespace string) ([]provider.Attestation, error) {
 	items, err := c.list(ctx, c.portalData, namespace)
 	if err != nil {
 		return nil, err
 	}
 
-	states := make([]PortalData, 0, len(items))
+	states := make([]provider.Attestation, 0, len(items))
 	for _, item := range items {
 		object := unstructured.Unstructured{Object: item}
 
-		state := PortalData{Namespace: namespace, Name: object.GetName()}
-		state.Phase, _, _ = unstructured.NestedString(item, "status", "phase")
-		state.DataVersion, _, _ = unstructured.NestedString(item, "status", "dataVersion")
-		state.SchemaVersion, _, _ = unstructured.NestedString(item, "status", "schemaVersion")
+		state := provider.Attestation{Namespace: namespace, Name: object.GetName()}
+		state.State, _, _ = unstructured.NestedString(item, "status", "phase")
+		// `dataVersion` est la version de l'**image** ayant réalisé le dernier
+		// bootstrap, non celle de la release. Une release finale réutilisant
+		// l'image de sa RC, le rapprochement se fait sur `releases.image_version`
+		// et jamais sur le tag (B17, B8).
+		state.Version, _, _ = unstructured.NestedString(item, "status", "dataVersion")
+		// `Ready` est le verdict, et il est rendu ici parce que le vocabulaire
+		// qui le porte appartient au CRD. `status.schemaVersion` existe aussi
+		// mais n'est pas lu : c'est un nom de classe Doctrine, et le confondre
+		// avec une version de release est l'erreur que la relecture du CRD a
+		// corrigée.
+		state.Ready = state.State == "Ready"
 
 		states = append(states, state)
 	}

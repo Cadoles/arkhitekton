@@ -2,6 +2,7 @@ package redmine
 
 import (
 	"context"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -72,7 +73,7 @@ func TestLesVersionsSeDecodentAvecLeursQuatreConventions(t *testing.T) {
 
 	// Le nom est conservé tel quel : l'identité est l'identifiant Redmine, et
 	// normaliser à l'écriture perdrait l'information sans rien résoudre.
-	byID := map[int64]Version{}
+	byID := map[int64]provider.Version{}
 	for _, version := range versions {
 		byID[version.ID] = version
 	}
@@ -109,7 +110,7 @@ func TestLesDemandesSeDecodentSurPlusieursPages(t *testing.T) {
 	})
 
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		IssueQuery{Project: "mse-dev"})
+		provider.IssueQuery{Project: "mse-dev"})
 	if err != nil {
 		t.Fatalf("demandes: %v", err)
 	}
@@ -136,12 +137,12 @@ func TestUneDemandeSansVersionResteSansVersion(t *testing.T) {
 	})
 
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		IssueQuery{Project: "mse-dev"})
+		provider.IssueQuery{Project: "mse-dev"})
 	if err != nil {
 		t.Fatalf("demandes: %v", err)
 	}
 
-	byID := map[int64]Issue{}
+	byID := map[int64]provider.Issue{}
 	for _, issue := range issues {
 		byID[issue.ID] = issue
 	}
@@ -164,12 +165,12 @@ func TestLeDrapeauDeClotureEstReprisSansJugement(t *testing.T) {
 	})
 
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		IssueQuery{Project: "mse-dev"})
+		provider.IssueQuery{Project: "mse-dev"})
 	if err != nil {
 		t.Fatalf("demandes: %v", err)
 	}
 
-	byID := map[int64]Issue{}
+	byID := map[int64]provider.Issue{}
 	for _, issue := range issues {
 		byID[issue.ID] = issue
 	}
@@ -204,7 +205,7 @@ func TestLaRequeteDemandeTousLesStatutsEtUnTriStable(t *testing.T) {
 	defer server.Close()
 
 	if _, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		IssueQuery{Project: "mse-dev", Since: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)}); err != nil {
+		provider.IssueQuery{Project: "mse-dev", Since: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)}); err != nil {
 		t.Fatalf("demandes: %v", err)
 	}
 
@@ -231,7 +232,7 @@ func TestUnePageVideArreteLaPagination(t *testing.T) {
 	defer server.Close()
 
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		IssueQuery{Project: "mse-dev"})
+		provider.IssueQuery{Project: "mse-dev"})
 	if err != nil {
 		t.Fatalf("demandes: %v", err)
 	}
@@ -254,7 +255,7 @@ func TestUnProjetAbsentEstRefuseAvantAppel(t *testing.T) {
 	if _, err := client.ListVersions(context.Background(), ""); err == nil {
 		t.Error("ListVersions devrait refuser un projet vide")
 	}
-	if _, err := client.ListIssues(context.Background(), IssueQuery{}); err == nil {
+	if _, err := client.ListIssues(context.Background(), provider.IssueQuery{}); err == nil {
 		t.Error("ListIssues devrait refuser un projet vide")
 	}
 }

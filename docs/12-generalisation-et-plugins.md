@@ -39,7 +39,7 @@ Le nombre de fichiers important chaque client externe, hors le paquet lui-même 
 | `internal/gitea` | 6 |
 
 Les handlers travaillent déjà sur des **interfaces locales** — `ForgeReader`, `Images`,
-`Tagger`, `Forge`, `ProjectProber` — et non sur les types concrets. Mieux : le dashboard
+`Tagger`, `CommitResolver`, `ProjectProber` — et non sur les types concrets. Mieux : le dashboard
 **dégrade déjà proprement** quand un fournisseur manque.
 
 - Registre non configuré → les digests ne sont pas lus, l'écran le dit.
@@ -796,19 +796,54 @@ maintenant du contenu de table et d'amorçage, pas du code. La migration `0024`,
 `dev` : c'est assumé, une migration de données porte sur les données qui existent, et le
 champ reste libre pour un déploiement qui appellerait autrement ce qu'il ne promeut pas.
 
-#### 4. Nommer les frontières de fournisseurs
+#### 4. Nommer les frontières de fournisseurs — **fait**
 
-Écrire les interfaces, garder les implémentations actuelles comme seules réalisations.
-Aucun plugin, aucun changement fonctionnel.
+`internal/provider` porte `Tracker`, `Forge`, `TagWriter`, `RepositoryProber` et `Attester`,
+et le vocabulaire qu'ils échangent. Aucun plugin, aucun registre, aucune sélection à
+l'exécution : la configuration désigne toujours Redmine et Gitea en clair, et le binaire ne
+sait construire qu'eux.
 
-Trois sur cinq sont tractables tout de suite — `Tracker`, `Forge`, `Attester` — parce que
-ce sont des **lectures** dont le sens ne prête pas à discussion. `Deployer` est reporté :
-il exige de répondre à « que veut dire promouvoir », qui est précisément ce qu'on ne veut
-pas trancher dans l'abstrait.
+Les types qui traversent la frontière ont **déménagé** plutôt que d'être recopiés :
+`redmine.Version`, `redmine.Issue`, `gitea.Ref`, `gitea.PullRequest`, les deux `Account`
+sont devenus des types de `provider`. Les clients décodent désormais dans une structure de
+fil interne — `is_admin` chez Gitea, `admin` chez Redmine — et rendent le type de
+frontière. C'était possible sans couche d'adaptation parce que ces types étaient déjà des
+structures de domaine, distinctes du JSON reçu.
 
-**Pourquoi c'est structurant** : à partir de là, tout ajout touchant un fournisseur atterrit
-dans un endroit nommé. Sans cela, chaque nouvelle fonctionnalité recommence à mélanger les
-couches, et le coût du découplage futur augmente à chaque sprint.
+Deux déplacements dans la foulée :
+
+- `GiteaProber` quitte `internal/http` pour devenir `gitea.Prober`. Il y était le seul appel
+  à une API extérieure du paquet : la couche HTTP traduisait un échec en constat lisible
+  **et** parlait à Gitea.
+- `flux.PortalData` devient `Client.Attestations`, rendant `provider.Attestation`. Le CRD
+  reste propre au portail — c'est ce que le plugin MSE portera — mais ce qu'il rapporte,
+  « telle version tourne et elle est exploitable », ne l'est pas. `status.schemaVersion`
+  cesse d'être décodé : personne ne le lisait.
+
+**Les deux séries d'assertions** sont ce qui rend la frontière contraignante plutôt que
+décorative :
+
+```go
+var _ provider.Tracker = (*Client)(nil)   // auprès de chaque réalisation
+var _ RedmineReader = provider.Tracker(nil)  // auprès de chaque appelant
+```
+
+La seconde est la plus utile. Une méthode propre à Redmine qui entrerait dans l'interface
+étroite d'un appelant ne casserait rien à l'exécution — le client concret la porte — mais
+rendrait silencieusement le dashboard inapte à tout autre suivi. Ici, elle ne compile pas.
+
+Un renommage a suivi : `http.Forge` (qui ne portait que `ResolveCommit`) devient
+`CommitResolver`, le nom `Forge` désignant maintenant le contrat complet.
+
+**Ce qui n'y est pas** : `Deployer`, parce qu'il exige de répondre à « que veut dire
+promouvoir » et qu'une interface écrite avant cette réponse serait un calque de Flux qu'on
+croirait générique. `Exporter` non plus : le bon de livraison est un livrable contractuel
+sans source extérieure à abstraire.
+
+**Ce que ça vaut** : tout ajout touchant un fournisseur atterrit désormais dans un endroit
+nommé, et le débordement se voit à la compilation. Sans cela, chaque fonctionnalité
+recommençait à mélanger les couches, et le coût du découplage futur augmentait à chaque
+sprint.
 
 #### 5. Marqueurs et préfixes
 

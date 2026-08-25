@@ -856,7 +856,7 @@ func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler 
 	if cfg.Gitea.URL == "" || cfg.Gitea.Token == "" {
 		return handler
 	}
-	return handler.WithProbe(dashhttp.GiteaProber{
+	return handler.WithProbe(gitea.Prober{
 		URL: cfg.Gitea.URL, Token: cfg.Gitea.Token, Timeout: cfg.Gitea.Timeout,
 	})
 }

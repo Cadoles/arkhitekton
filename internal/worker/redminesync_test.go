@@ -8,25 +8,25 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
 type fakeRedmine struct {
-	versions []redmine.Version
-	issues   []redmine.Issue
-	queries  []redmine.IssueQuery
+	versions []provider.Version
+	issues   []provider.Issue
+	queries  []provider.IssueQuery
 	err      error
 }
 
-func (f *fakeRedmine) ListVersions(context.Context, string) ([]redmine.Version, error) {
+func (f *fakeRedmine) ListVersions(context.Context, string) ([]provider.Version, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.versions, nil
 }
 
-func (f *fakeRedmine) ListIssues(_ context.Context, query redmine.IssueQuery) ([]redmine.Issue, error) {
+func (f *fakeRedmine) ListIssues(_ context.Context, query provider.IssueQuery) ([]provider.Issue, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -96,8 +96,8 @@ func newSync(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) *RedmineSy
 func TestLesVersionsSontDeposeesAvantLesDemandes(t *testing.T) {
 	version := int64(805)
 	client := &fakeRedmine{
-		versions: []redmine.Version{{ID: 805, Name: "v3.2.0", Status: "open"}},
-		issues: []redmine.Issue{
+		versions: []provider.Version{{ID: 805, Name: "v3.2.0", Status: "open"}},
+		issues: []provider.Issue{
 			{ID: 1, VersionID: &version, Tracker: "Évolution", Status: "En cours"},
 		},
 	}
@@ -122,7 +122,7 @@ func TestLesVersionsSontDeposeesAvantLesDemandes(t *testing.T) {
 // Le nom est normalisé pour le rapprochement, jamais réécrit : l'identité d'une
 // version est son identifiant Redmine.
 func TestLeNomEstNormalisePourLeRapprochementSansEtreReecrit(t *testing.T) {
-	client := &fakeRedmine{versions: []redmine.Version{
+	client := &fakeRedmine{versions: []provider.Version{
 		{ID: 803, Name: "MSE 3.1.2", Status: "closed"},
 		{ID: 805, Name: "v3.2.0", Status: "open"},
 		{ID: 801, Name: "MSE3-1.5", Status: "closed"},
@@ -150,7 +150,7 @@ func TestLeNomEstNormalisePourLeRapprochementSansEtreReecrit(t *testing.T) {
 // Un statut inconnu tombe dans `todo` et n'interrompt pas la passe : les statuts de
 // l'instance changent sans prévenir, et refuser la demande perdrait le reste.
 func TestUnStatutInconnuTombeDansTodoSansInterrompre(t *testing.T) {
-	client := &fakeRedmine{issues: []redmine.Issue{
+	client := &fakeRedmine{issues: []provider.Issue{
 		{ID: 1, Tracker: "Évolution", Status: "Statut Inédit"},
 		{ID: 2, Tracker: "Évolution", Status: "En cours"},
 	}}
@@ -293,7 +293,7 @@ func TestUnePanneDeRedmineNeTuePasLaBoucle(t *testing.T) {
 // Le drapeau de clôture de Redmine est transmis tel quel, indépendamment du seau :
 // l'instance déclare `Ré-ouvert` comme clos, et les deux informations sont distinctes.
 func TestLeDrapeauDeClotureEstTransmisIndependammentDuSeau(t *testing.T) {
-	client := &fakeRedmine{issues: []redmine.Issue{
+	client := &fakeRedmine{issues: []provider.Issue{
 		{ID: 1, Tracker: "Anomalie", Status: "Ré-ouvert", StatusClosed: true},
 	}}
 	db := &fakeRedmineStore{mapping: map[string]string{"Ré-ouvert": "doing"}}

@@ -6,24 +6,24 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
 type fakeForge struct {
-	pulls      []gitea.PullRequest
+	pulls      []provider.PullRequest
 	commits    map[int64][]string
 	commitsErr error
 	since      time.Time
 }
 
-func (f *fakeForge) ListMergedPullRequests(_ context.Context, since time.Time) ([]gitea.PullRequest, error) {
+func (f *fakeForge) ListMergedPullRequests(_ context.Context, since time.Time) ([]provider.PullRequest, error) {
 	f.since = since
 	return f.pulls, nil
 }
 
-func (f *fakeForge) LoadCommitMessages(_ context.Context, pull *gitea.PullRequest) error {
+func (f *fakeForge) LoadCommitMessages(_ context.Context, pull *provider.PullRequest) error {
 	if f.commitsErr != nil {
 		return f.commitsErr
 	}
@@ -70,7 +70,7 @@ func candidates(ids ...int64) map[int64]store.NoteEntry {
 // cite une demande encore en développement désigne un travail partiel.
 func TestSeulesLesDemandesEnRevueCiteesParUnePRFusionneeSontRetenues(t *testing.T) {
 	forge := &fakeForge{
-		pulls: []gitea.PullRequest{
+		pulls: []provider.PullRequest{
 			{Number: 10, Title: "Corrige la pagination (#1234)"},
 			// Cite une demande qui n'est pas en revue : ignorée.
 			{Number: 11, Title: "wip sur #9999"},
@@ -97,7 +97,7 @@ func TestSeulesLesDemandesEnRevueCiteesParUnePRFusionneeSontRetenues(t *testing.
 // demande.
 func TestUneDemandeCiteeSeulementDansUnCommitEstRetenue(t *testing.T) {
 	forge := &fakeForge{
-		pulls:   []gitea.PullRequest{{Number: 12, Title: "Corrige la pagination"}},
+		pulls:   []provider.PullRequest{{Number: 12, Title: "Corrige la pagination"}},
 		commits: map[int64][]string{12: {"wip", "fix: borne l'offset\n\nRefs #1234"}},
 	}
 	notes := &fakeNoteStore{candidates: candidates(1234)}
@@ -115,7 +115,7 @@ func TestUneDemandeCiteeSeulementDansUnCommitEstRetenue(t *testing.T) {
 // qu'une fois.
 func TestDeuxPullRequestsPourUneDemandeNeLaComptentQuUneFois(t *testing.T) {
 	forge := &fakeForge{
-		pulls: []gitea.PullRequest{
+		pulls: []provider.PullRequest{
 			{Number: 20, Title: "Corrige #1234"},
 			{Number: 21, Title: "Suite de #1234"},
 		},
@@ -141,7 +141,7 @@ func TestDeuxPullRequestsPourUneDemandeNeLaComptentQuUneFois(t *testing.T) {
 // pour exhaustive.
 func TestDesCommitsIllisiblesRendentLaNotePartielleSansLaPerdre(t *testing.T) {
 	forge := &fakeForge{
-		pulls:      []gitea.PullRequest{{Number: 30, Title: "Corrige #1234"}},
+		pulls:      []provider.PullRequest{{Number: 30, Title: "Corrige #1234"}},
 		commitsErr: errors.New("forge injoignable"),
 	}
 	notes := &fakeNoteStore{candidates: candidates(1234)}
@@ -162,7 +162,7 @@ func TestDesCommitsIllisiblesRendentLaNotePartielleSansLaPerdre(t *testing.T) {
 // Aucune demande en revue : la forge n'est pas interrogée. Deux cents requêtes
 // pour découvrir qu'il n'y a rien à rattacher se paieraient à chaque création.
 func TestSansDemandeEnRevueLaForgeNEstPasInterrogee(t *testing.T) {
-	forge := &fakeForge{pulls: []gitea.PullRequest{{Number: 40, Title: "Corrige #1234"}}}
+	forge := &fakeForge{pulls: []provider.PullRequest{{Number: 40, Title: "Corrige #1234"}}}
 	notes := &fakeNoteStore{candidates: map[int64]store.NoteEntry{}}
 
 	result, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).

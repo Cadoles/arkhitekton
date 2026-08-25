@@ -2,6 +2,7 @@ package redmine
 
 import (
 	"context"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"os"
 	"testing"
 	"time"
@@ -72,7 +73,7 @@ func TestLiveLesVersionsSeDecodent(t *testing.T) {
 func TestLiveLesDemandesSePaginentSansDoublon(t *testing.T) {
 	client, project := liveClient(t)
 
-	issues, err := client.ListIssues(context.Background(), IssueQuery{Project: project})
+	issues, err := client.ListIssues(context.Background(), provider.IssueQuery{Project: project})
 	if err != nil {
 		t.Fatalf("demandes: %v", err)
 	}
@@ -106,13 +107,13 @@ func TestLiveLeFiltreIncrementalReduitLeVolume(t *testing.T) {
 	client, project := liveClient(t)
 	ctx := context.Background()
 
-	tout, err := client.ListIssues(ctx, IssueQuery{Project: project})
+	tout, err := client.ListIssues(ctx, provider.IssueQuery{Project: project})
 	if err != nil {
 		t.Fatalf("tout: %v", err)
 	}
 
 	// Une borne dans le futur proche : rien ne peut avoir été modifié après.
-	futur, err := client.ListIssues(ctx, IssueQuery{
+	futur, err := client.ListIssues(ctx, provider.IssueQuery{
 		Project: project,
 		Since:   time.Now().Add(24 * time.Hour),
 	})

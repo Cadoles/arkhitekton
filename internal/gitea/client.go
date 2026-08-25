@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 )
 
 /*
@@ -54,6 +56,16 @@ func (t *readOnlyTransport) RoundTrip(request *http.Request) (*http.Response, er
 	authenticated.Header.Set("Accept", "application/json")
 	return t.next.RoundTrip(authenticated)
 }
+
+// Client réalise [provider.Forge], Prober [provider.RepositoryProber], et Writer
+// [provider.TagWriter]. Les trois assertions tiennent le contrat à la
+// compilation : une frontière qu'on ne vérifie pas dérive de ses réalisations
+// sans que rien ne le dise, et c'est précisément ce qu'elle est censée empêcher.
+var (
+	_ provider.Forge            = (*Client)(nil)
+	_ provider.RepositoryProber = Prober{}
+	_ provider.TagWriter        = (*Writer)(nil)
+)
 
 // Client interroge la forge en lecture.
 type Client struct {
@@ -169,14 +181,6 @@ const pageSize = 50
 // au-delà.
 const maxRefs = 100
 
-// Ref est une branche ou un tag.
-type Ref struct {
-	Name string
-	// SHA du commit visé. Informatif : le champ `git_ref` d'une release porte le
-	// nom, la résolution en commit appartient au pipeline au moment du build.
-	SHA string
-}
-
 // DefaultBranch rend la branche par défaut du dépôt.
 //
 // C'est la valeur proposée d'office par le formulaire : le cas courant est de
@@ -198,8 +202,8 @@ func (c *Client) DefaultBranch(ctx context.Context) (string, error) {
 }
 
 // ListBranches rend les branches du dépôt, toutes pages réunies.
-func (c *Client) ListBranches(ctx context.Context) ([]Ref, bool, error) {
-	return c.listRefs(ctx, "/branches", func(body []byte) ([]Ref, error) {
+func (c *Client) ListBranches(ctx context.Context) ([]provider.Ref, bool, error) {
+	return c.listRefs(ctx, "/branches", func(body []byte) ([]provider.Ref, error) {
 		var payload []struct {
 			Name   string `json:"name"`
 			Commit struct {
@@ -209,17 +213,17 @@ func (c *Client) ListBranches(ctx context.Context) ([]Ref, bool, error) {
 		if err := json.Unmarshal(body, &payload); err != nil {
 			return nil, fmt.Errorf("gitea: liste des branches illisible: %w", err)
 		}
-		refs := make([]Ref, 0, len(payload))
+		refs := make([]provider.Ref, 0, len(payload))
 		for _, raw := range payload {
-			refs = append(refs, Ref{Name: raw.Name, SHA: raw.Commit.ID})
+			refs = append(refs, provider.Ref{Name: raw.Name, SHA: raw.Commit.ID})
 		}
 		return refs, nil
 	})
 }
 
 // ListTags rend les tags du dépôt, du plus récent au plus ancien.
-func (c *Client) ListTags(ctx context.Context) ([]Ref, bool, error) {
-	return c.listRefs(ctx, "/tags", func(body []byte) ([]Ref, error) {
+func (c *Client) ListTags(ctx context.Context) ([]provider.Ref, bool, error) {
+	return c.listRefs(ctx, "/tags", func(body []byte) ([]provider.Ref, error) {
 		var payload []struct {
 			Name   string `json:"name"`
 			Commit struct {
@@ -229,9 +233,9 @@ func (c *Client) ListTags(ctx context.Context) ([]Ref, bool, error) {
 		if err := json.Unmarshal(body, &payload); err != nil {
 			return nil, fmt.Errorf("gitea: liste des tags illisible: %w", err)
 		}
-		refs := make([]Ref, 0, len(payload))
+		refs := make([]provider.Ref, 0, len(payload))
 		for _, raw := range payload {
-			refs = append(refs, Ref{Name: raw.Name, SHA: raw.Commit.SHA})
+			refs = append(refs, provider.Ref{Name: raw.Name, SHA: raw.Commit.SHA})
 		}
 		return refs, nil
 	})
@@ -241,8 +245,8 @@ func (c *Client) ListTags(ctx context.Context) ([]Ref, bool, error) {
 //
 // Le second retour dit si la liste a été tronquée par la borne : l'appelant le
 // signale, une liste silencieusement incomplète se lisant comme exhaustive.
-func (c *Client) listRefs(ctx context.Context, path string, decode func([]byte) ([]Ref, error)) ([]Ref, bool, error) {
-	var refs []Ref
+func (c *Client) listRefs(ctx context.Context, path string, decode func([]byte) ([]provider.Ref, error)) ([]provider.Ref, bool, error) {
+	var refs []provider.Ref
 	for page := 1; ; page++ {
 		query := url.Values{}
 		query.Set("page", strconv.Itoa(page))
@@ -267,26 +271,27 @@ func (c *Client) listRefs(ctx context.Context, path string, decode func([]byte) 
 	}
 }
 
-// Account est l'identité derrière le jeton.
-type Account struct {
-	Login string `json:"login"`
-	Admin bool   `json:"is_admin"`
-}
-
 // CheckAccess vérifie le jeton et rend le compte auquel il appartient.
 //
 // Même rôle que pour Redmine : savoir qu'un jeton fonctionne sans attendre qu'un
 // formulaire s'en serve, et voir s'il appartient à un compte administrateur — un
 // jeton trop puissant reste trop puissant même inutilisé.
-func (c *Client) CheckAccess(ctx context.Context) (Account, error) {
+func (c *Client) CheckAccess(ctx context.Context) (provider.Account, error) {
 	body, err := c.get(ctx, "/user", nil)
 	if err != nil {
-		return Account{}, err
+		return provider.Account{}, err
 	}
 
-	var account Account
-	if err := json.Unmarshal(body, &account); err != nil {
-		return Account{}, fmt.Errorf("gitea: réponse de /user illisible: %w", err)
+	// Structure de fil, distincte du type de frontière : `is_admin` est un nom
+	// propre à Gitea, et l'exposer obligerait toute autre réalisation à le
+	// reprendre. L'identifiant n'est pas lu — le dashboard n'en fait rien, et
+	// `Account.ID` reste donc à zéro pour cette source.
+	var account struct {
+		Login string `json:"login"`
+		Admin bool   `json:"is_admin"`
 	}
-	return account, nil
+	if err := json.Unmarshal(body, &account); err != nil {
+		return provider.Account{}, fmt.Errorf("gitea: réponse de /user illisible: %w", err)
+	}
+	return provider.Account{Login: account.Login, Admin: account.Admin}, nil
 }

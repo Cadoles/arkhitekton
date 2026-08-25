@@ -2,18 +2,17 @@ package http
 
 import (
 	"context"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"net/http"
 
 	"golang.org/x/sync/errgroup"
-
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 )
 
 // ForgeReader est ce que la route des références attend de la forge.
 type ForgeReader interface {
 	DefaultBranch(ctx context.Context) (string, error)
-	ListBranches(ctx context.Context) ([]gitea.Ref, bool, error)
-	ListTags(ctx context.Context) ([]gitea.Ref, bool, error)
+	ListBranches(ctx context.Context) ([]provider.Ref, bool, error)
+	ListTags(ctx context.Context) ([]provider.Ref, bool, error)
 }
 
 // ForgeHandler sert les branches et les tags du dépôt de l'application.
@@ -58,7 +57,7 @@ func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
 	// liste vide.
 	var (
 		defaultBranch                    string
-		branches, tags                   []gitea.Ref
+		branches, tags                   []provider.Ref
 		branchesTruncated, tagsTruncated bool
 	)
 	group, groupCtx := errgroup.WithContext(r.Context())
@@ -92,10 +91,23 @@ func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func refViews(refs []gitea.Ref) []refVw {
+func refViews(refs []provider.Ref) []refVw {
 	views := make([]refVw, 0, len(refs))
 	for _, ref := range refs {
 		views = append(views, refVw{Name: ref.Name, SHA: ref.SHA})
 	}
 	return views
 }
+
+// Ce que ce paquet demande à la forge est un sous-ensemble de ce qu'être une
+// forge veut dire. L'assertion le prouve à la compilation, et c'est là son
+// intérêt : une méthode propre à Gitea qui entrerait dans une de ces interfaces
+// ne casserait rien à l'exécution — le client concret la porte — mais rendrait
+// silencieusement le dashboard inapte à toute autre forge. Ici, elle ne compile
+// pas (doc 12 §12.9, chantier 4).
+var (
+	_ ForgeReader    = provider.Forge(nil)
+	_ CommitResolver = provider.Forge(nil)
+	_ Tagger         = provider.TagWriter(nil)
+	_ ProjectProber  = provider.RepositoryProber(nil)
+)

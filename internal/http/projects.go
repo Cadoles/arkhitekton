@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -448,37 +446,4 @@ func projectID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
-}
-
-// GiteaProber teste un dépôt par l'API Gitea.
-//
-// Un client par appel : celui de `internal/gitea` est lié à un dépôt à sa
-// construction, et le test porte justement sur un dépôt différent de celui de la
-// configuration.
-type GiteaProber struct {
-	URL     string
-	Token   string
-	Timeout time.Duration
-}
-
-// Probe rend la branche par défaut du dépôt, ou l'erreur qui l'en empêche.
-func (p GiteaProber) Probe(ctx context.Context, repository string) (string, error) {
-	client, err := gitea.New(gitea.Options{
-		URL: p.URL, Token: p.Token, Repository: repository, Timeout: p.Timeout,
-	})
-	if err != nil {
-		return "", fmt.Errorf("client: %w", err)
-	}
-
-	branch, err := client.DefaultBranch(ctx)
-	if err != nil {
-		return "", err
-	}
-	if branch == "" {
-		// Un dépôt sans branche par défaut existe mais n'a jamais reçu de
-		// commit : le clone d'un pipeline y échouerait, et le dire ici évite de
-		// l'apprendre en cours de build.
-		return "", errors.New("le dépôt est vide : aucune branche par défaut")
-	}
-	return branch, nil
 }

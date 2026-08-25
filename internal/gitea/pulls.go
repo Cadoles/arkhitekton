@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 )
 
 /*
@@ -26,22 +28,6 @@ import (
 // pour des demandes livrées il y a deux ans.
 const maxPulls = 200
 
-// PullRequest est une PR fusionnée, réduite à ce qui sert au rapprochement.
-type PullRequest struct {
-	Number   int64
-	Title    string
-	Body     string
-	MergedAt *time.Time
-	// Commits porte les messages des commits de la PR. Renseigné par
-	// `LoadCommitMessages` : la liste des PR ne les contient pas.
-	Commits []string
-}
-
-// Reference rend `#42`, tel qu'on l'écrit dans une note.
-func (p PullRequest) Reference() string {
-	return "#" + strconv.FormatInt(p.Number, 10)
-}
-
 // ListMergedPullRequests rend les PR fusionnées, de la plus récente à la plus
 // ancienne.
 //
@@ -49,8 +35,8 @@ func (p PullRequest) Reference() string {
 // zéro lit jusqu'à `maxPulls`. La borne est appliquée ici plutôt que par l'API —
 // Gitea ne sait pas filtrer les PR sur leur date de fusion — d'où une lecture
 // qui s'arrête dès qu'elle a dépassé la date.
-func (c *Client) ListMergedPullRequests(ctx context.Context, since time.Time) ([]PullRequest, error) {
-	var pulls []PullRequest
+func (c *Client) ListMergedPullRequests(ctx context.Context, since time.Time) ([]provider.PullRequest, error) {
+	var pulls []provider.PullRequest
 
 	for page := 1; len(pulls) < maxPulls; page++ {
 		query := url.Values{}
@@ -88,7 +74,7 @@ func (c *Client) ListMergedPullRequests(ctx context.Context, since time.Time) ([
 			if !since.IsZero() && item.MergedAt != nil && !item.MergedAt.After(since) {
 				continue
 			}
-			pulls = append(pulls, PullRequest{
+			pulls = append(pulls, provider.PullRequest{
 				Number: item.Number, Title: item.Title, Body: item.Body,
 				MergedAt: item.MergedAt,
 			})
@@ -113,7 +99,7 @@ func (c *Client) ListMergedPullRequests(ctx context.Context, since time.Time) ([
 // Un échec est rendu tel quel plutôt qu'ignoré : une PR dont les commits n'ont
 // pas pu être lus peut cacher une demande, et le silence ferait passer une note
 // incomplète pour une note exhaustive.
-func (c *Client) LoadCommitMessages(ctx context.Context, pull *PullRequest) error {
+func (c *Client) LoadCommitMessages(ctx context.Context, pull *provider.PullRequest) error {
 	query := url.Values{}
 	query.Set("limit", strconv.Itoa(pageSize))
 

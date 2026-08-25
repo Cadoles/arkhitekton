@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -33,8 +33,8 @@ import (
 
 // PullReader est ce que la détection attend de la forge.
 type PullReader interface {
-	ListMergedPullRequests(ctx context.Context, since time.Time) ([]gitea.PullRequest, error)
-	LoadCommitMessages(ctx context.Context, pull *gitea.PullRequest) error
+	ListMergedPullRequests(ctx context.Context, since time.Time) ([]provider.PullRequest, error)
+	LoadCommitMessages(ctx context.Context, pull *provider.PullRequest) error
 }
 
 // NoteStore est ce que la détection attend de la base.

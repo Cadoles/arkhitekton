@@ -153,18 +153,18 @@ func (o *EnvironmentObserver) observe(
 		}
 	}
 
-	states, err := o.flux.PortalData(ctx, environment.Namespace)
+	states, err := o.flux.Attestations(ctx, environment.Namespace)
 	if err != nil {
-		// Le CRD peut être absent d'un namespace applicatif qui n'a pas encore
-		// été déployé : ce n'est pas une anomalie du dashboard.
-		o.logger.Debug("PortalData illisible", "environnement", environment.ID, "error", err)
+		// La source peut être absente d'un namespace applicatif qui n'a pas
+		// encore été déployé : ce n'est pas une anomalie du dashboard.
+		o.logger.Debug("attestation illisible", "environnement", environment.ID, "error", err)
 		return observation
 	}
 
 	for _, state := range states {
-		observation.PortalVersion = state.DataVersion
-		observation.MigrationState = state.Phase
-		if state.Ready() {
+		observation.PortalVersion = state.Version
+		observation.MigrationState = state.State
+		if state.Ready {
 			// Seul cas où l'on peut affirmer qu'une version est livrée : elle
 			// tourne, et ses migrations ont abouti.
 			observation.Resolution = "portaldata"

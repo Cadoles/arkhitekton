@@ -93,7 +93,7 @@ type ReleasesHandler struct {
 	registryProject string
 	// forge résout une référence en commit. Nil quand la forge n'est pas
 	// configurée.
-	forge Forge
+	forge CommitResolver
 	// tagger pose le tag Git. Nil quand le jeton est en lecture seule.
 	tagger Tagger
 	// weights pondère le score. Même valeur que celle du gestionnaire des tests :
@@ -127,7 +127,7 @@ func (h *ReleasesHandler) WithWeights(weights results.Weights) *ReleasesHandler 
 // commit puis poser le tag sur ce commit. Poser un tag sur une branche le
 // placerait sur ce qu'elle désigne à cet instant, et deux releases créées à une
 // minute d'intervalle pourraient viser des commits différents.
-func (h *ReleasesHandler) WithForge(forge Forge, tagger Tagger) *ReleasesHandler {
+func (h *ReleasesHandler) WithForge(forge CommitResolver, tagger Tagger) *ReleasesHandler {
 	h.forge = forge
 	h.tagger = tagger
 	return h
@@ -139,18 +139,18 @@ type Images interface {
 	Digest(ctx context.Context, repository, tag string) (string, error)
 }
 
-// Forge est ce que le handler attend de la forge pour ancrer une release.
+// CommitResolver est ce que le handler attend de la forge pour ancrer une release.
 //
 // Optionnelle : sans elle, la release est créée depuis la référence saisie et le
 // dit. Faire échouer la création parce que la forge est injoignable priverait du
 // reste de la chaîne pour un ancrage qu'on peut ajouter ensuite.
-type Forge interface {
+type CommitResolver interface {
 	ResolveCommit(ctx context.Context, ref string) (string, error)
 }
 
 // Tagger pose le tag Git d'une release (B3).
 //
-// Séparée de [Forge] : lire la forge et y écrire sont deux permissions, portées
+// Séparée de [CommitResolver] : lire la forge et y écrire sont deux permissions, portées
 // par deux clients. Nil quand le jeton ne peut pas écrire.
 type Tagger interface {
 	CreateTag(ctx context.Context, tag, commit, message string) error

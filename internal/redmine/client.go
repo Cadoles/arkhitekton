@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 )
 
 /*
@@ -81,6 +83,11 @@ func (t *readOnlyTransport) RoundTrip(request *http.Request) (*http.Response, er
 
 	return t.next.RoundTrip(authenticated)
 }
+
+// Client réalise [provider.Tracker], et cette assertion n'est pas décorative :
+// elle fait qu'une méthode retirée d'ici, ou une signature qui dérive de ce que
+// la frontière annonce, casse à la compilation plutôt qu'au premier appel.
+var _ provider.Tracker = (*Client)(nil)
 
 // Client interroge Redmine en lecture.
 type Client struct {
@@ -178,13 +185,6 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte
 	return body, nil
 }
 
-// Account est l'identité derrière la clé d'API.
-type Account struct {
-	ID    int    `json:"id"`
-	Login string `json:"login"`
-	Admin bool   `json:"admin"`
-}
-
 // CheckAccess vérifie la clé et rend le compte auquel elle appartient.
 //
 // `/users/current.json` est la lecture canonique pour valider une clé d'API : elle
@@ -195,17 +195,26 @@ type Account struct {
 // donne bien plus que ce dont le dashboard a besoin. Le transport en lecture seule
 // empêche d'en abuser depuis ici, mais une clé trop puissante reste une clé trop
 // puissante — mieux vaut le savoir et demander un compte restreint.
-func (c *Client) CheckAccess(ctx context.Context) (Account, error) {
+func (c *Client) CheckAccess(ctx context.Context) (provider.Account, error) {
 	body, err := c.get(ctx, "/users/current.json", nil)
 	if err != nil {
-		return Account{}, err
+		return provider.Account{}, err
 	}
 
+	// Structure de fil, distincte du type de frontière : les noms de champs sont
+	// ceux de Redmine, et les exposer obligerait toute autre réalisation à les
+	// reprendre.
 	var payload struct {
-		User Account `json:"user"`
+		User struct {
+			ID    int64  `json:"id"`
+			Login string `json:"login"`
+			Admin bool   `json:"admin"`
+		} `json:"user"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return Account{}, fmt.Errorf("redmine: réponse de /users/current.json illisible: %w", err)
+		return provider.Account{}, fmt.Errorf("redmine: réponse de /users/current.json illisible: %w", err)
 	}
-	return payload.User, nil
+	return provider.Account{
+		ID: payload.User.ID, Login: payload.User.Login, Admin: payload.User.Admin,
+	}, nil
 }

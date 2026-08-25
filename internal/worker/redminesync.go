@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -41,8 +41,8 @@ const cursorOverlap = time.Minute
 
 // RedmineReader est ce que la synchronisation attend du client.
 type RedmineReader interface {
-	ListVersions(ctx context.Context, project string) ([]redmine.Version, error)
-	ListIssues(ctx context.Context, query redmine.IssueQuery) ([]redmine.Issue, error)
+	ListVersions(ctx context.Context, project string) ([]provider.Version, error)
+	ListIssues(ctx context.Context, query provider.IssueQuery) ([]provider.Issue, error)
 }
 
 // RedmineStore est ce qu'elle attend de la base.
@@ -155,7 +155,7 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 	}
 
 	since := cursorSince(state.Cursor)
-	issues, err := s.client.ListIssues(ctx, redmine.IssueQuery{Project: s.project, Since: since})
+	issues, err := s.client.ListIssues(ctx, provider.IssueQuery{Project: s.project, Since: since})
 	if err != nil {
 		return err
 	}
@@ -250,3 +250,11 @@ func ForceResync(ctx context.Context, resetter interface {
 	}
 	return nil
 }
+
+// Même garde que côté HTTP : ce que le worker demande à ses sources doit rester
+// un sous-ensemble de ce que la frontière annonce, sinon le découplage futur
+// perdra en silence les appelants qui ont débordé.
+var (
+	_ RedmineReader = provider.Tracker(nil)
+	_ PullReader    = provider.Forge(nil)
+)

@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 )
 
 /*
@@ -16,44 +18,6 @@ import (
  * voie définitive et non un repli : aucun plugin webhook n'est déployable sur
  * l'instance ([B6](../../docs/02-blocages-et-decisions.md#b6)).
  */
-
-// Version est une version déclarée dans Redmine.
-//
-// `Name` est conservé tel quel. L'instance réelle en porte quatre conventions
-// simultanées — `MSE3-1.5`, `MSE 3.1.0`, `v3.2.0` — et normaliser à l'écriture
-// perdrait l'information sans rien résoudre. L'identité est `ID`, jamais le nom.
-type Version struct {
-	ID          int64
-	Name        string
-	Description string
-	// Status vaut `open`, `locked` ou `closed`.
-	Status    string
-	DueDate   *time.Time
-	UpdatedOn *time.Time
-}
-
-// Issue est une demande, réduite à ce que le dashboard affiche.
-//
-// La description n'est pas reprise : elle porte le détail métier, parfois
-// nominatif, et le dashboard renvoie vers Redmine pour la consulter. Ne pas
-// recopier ce dont on n'a pas besoin est la façon la plus simple de ne pas avoir à
-// le protéger.
-type Issue struct {
-	ID        int64
-	VersionID *int64
-	Tracker   string
-	Subject   string
-	Status    string
-	// StatusClosed est le drapeau de Redmine, repris sans jugement. La projection
-	// en `todo`/`doing`/`done`/`rejected` est une décision du dashboard, portée par
-	// une table éditable, et les deux peuvent diverger : l'instance marque
-	// `Ré-ouvert` comme clos, ce qui ressemble à une erreur de configuration.
-	StatusClosed bool
-	Priority     string
-	Assignee     string
-	DoneRatio    int
-	UpdatedOn    *time.Time
-}
 
 // redminePageSize est la taille de page demandée à Redmine.
 //
@@ -66,7 +30,7 @@ const redminePageSize = 100
 //
 // Non paginé du côté de Redmine, qui rend toutes les versions d'un projet en une
 // réponse. La borne de lecture du corps protège du cas où ce ne serait plus vrai.
-func (c *Client) ListVersions(ctx context.Context, project string) ([]Version, error) {
+func (c *Client) ListVersions(ctx context.Context, project string) ([]provider.Version, error) {
 	if project == "" {
 		return nil, fmt.Errorf("redmine: projet non renseigné")
 	}
@@ -90,9 +54,9 @@ func (c *Client) ListVersions(ctx context.Context, project string) ([]Version, e
 		return nil, fmt.Errorf("redmine: liste des versions illisible: %w", err)
 	}
 
-	versions := make([]Version, 0, len(payload.Versions))
+	versions := make([]provider.Version, 0, len(payload.Versions))
 	for _, raw := range payload.Versions {
-		versions = append(versions, Version{
+		versions = append(versions, provider.Version{
 			ID: raw.ID, Name: raw.Name, Description: raw.Description,
 			Status:    raw.Status,
 			DueDate:   parseDate(raw.DueDate),
@@ -100,15 +64,6 @@ func (c *Client) ListVersions(ctx context.Context, project string) ([]Version, e
 		})
 	}
 	return versions, nil
-}
-
-// IssueQuery borne une lecture de demandes.
-type IssueQuery struct {
-	// Project est l'identifiant ou le raccourci du projet.
-	Project string
-	// Since restreint aux demandes modifiées depuis cet instant. Zéro pour tout
-	// lire, ce qui n'arrive qu'à la première synchronisation.
-	Since time.Time
 }
 
 // ListIssues rend les demandes correspondant à la requête, toutes pages réunies.
@@ -120,12 +75,12 @@ type IssueQuery struct {
 // Le tri est imposé sur `updated_on` croissant. Sans ordre stable, une demande
 // modifiée pendant la pagination peut changer de page et échapper à la lecture —
 // et c'est précisément la demande qui vient de bouger qu'on cherche.
-func (c *Client) ListIssues(ctx context.Context, query IssueQuery) ([]Issue, error) {
+func (c *Client) ListIssues(ctx context.Context, query provider.IssueQuery) ([]provider.Issue, error) {
 	if query.Project == "" {
 		return nil, fmt.Errorf("redmine: projet non renseigné")
 	}
 
-	var issues []Issue
+	var issues []provider.Issue
 	for offset := 0; ; {
 		params := url.Values{}
 		params.Set("project_id", query.Project)
@@ -160,7 +115,7 @@ func (c *Client) ListIssues(ctx context.Context, query IssueQuery) ([]Issue, err
 	}
 }
 
-func decodeIssues(body []byte) ([]Issue, int, error) {
+func decodeIssues(body []byte) ([]provider.Issue, int, error) {
 	var payload struct {
 		TotalCount int `json:"total_count"`
 		Issues     []struct {
@@ -190,9 +145,9 @@ func decodeIssues(body []byte) ([]Issue, int, error) {
 		return nil, 0, fmt.Errorf("redmine: liste des demandes illisible: %w", err)
 	}
 
-	issues := make([]Issue, 0, len(payload.Issues))
+	issues := make([]provider.Issue, 0, len(payload.Issues))
 	for _, raw := range payload.Issues {
-		issue := Issue{
+		issue := provider.Issue{
 			ID: raw.ID, Subject: raw.Subject,
 			Tracker:      raw.Tracker.Name,
 			Status:       raw.Status.Name,
