@@ -21,6 +21,7 @@ le processus de release sans quitter l'interface.
 | [10 — Prérequis côté mse-tekton](10-prerequis-mse-tekton.md) | Modifications à apporter aux pipelines existants |
 | [11 — Environnement de développement](11-environnement-de-developpement.md) | Cluster kind, simulation de Flux, registre de test, limites du local |
 | [12 — Généralisation et plugins](12-generalisation-et-plugins.md) | Ce qui est propre au MSE, ce qui peut devenir configuration ou plugin, plan de découplage |
+| [13 — Contrat des pipelines](13-contrat-des-pipelines.md) | Ce qu'un pipeline doit honorer pour que le dashboard sache l'exploiter |
 
 ## Résumé exécutif
 
