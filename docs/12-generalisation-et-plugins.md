@@ -93,8 +93,12 @@ Légende : **C** = configuration du dashboard · **P** = configuration de pipeli
 | Normalisation `MSE 3.1.2` → `3.1.2` | `release/naming.go` | **C** — même liste |
 | `MSE3-1.5` laissé intact, ambigu | `release/naming.go` | **MSE** — décision propre à un historique |
 | Natures `pre` / `final` / `patch` | `release/`, schéma | **C** — un cycle déclaré, pas trois noms figés ([12.4](#124-la-frontière-difficile-la-sémantique)) |
-| Re-tag du même digest ([B17]) | machine à états | **G** — doctrine saine, à garder par défaut |
-| Suffixe SemVer de promotion, séparateur `_` | catalogue, `release/` | **C** — déjà en configuration |
+| Livrer bit pour bit ce qui a été validé ([B17]) | machine à états | **G** — objectif de qualité, pas une convention |
+| *Mécanisme* : une finale re-tague sa pré-release | `releases.go`, schéma | **C** — propriété du mode `retag`, pas du mot `final` |
+| Schéma de version SemVer | 12 fichiers, 4 couches | **PL** — capacité remplaçable ([12.4](#124-la-frontière-difficile-la-sémantique)) |
+| Version suivante déduite des RC existantes | `CreateReleaseButton.tsx` | **PL** — question posée au schéma |
+| Plage sans `-0` excluant les pré-releases | `flux/`, catalogue | **PL** — couple schéma × déployeur |
+| Suffixe de promotion, séparateur `_` | catalogue, `release/` | **C** — déjà en configuration, mais suppose un schéma qui sait porter un marqueur |
 | `qualif` → `testing` | catalogue `environments` | **C** — déjà en configuration |
 | Environnements `unstable/qualif/preprod/prod` | catalogue | **C** — déjà en configuration |
 | CRD `PortalData` (`mse.cnous.fr`) | `flux/client.go` | **MSE** — atteste la version déployée |
@@ -119,6 +123,11 @@ Légende : **C** = configuration du dashboard · **P** = configuration de pipeli
 systématiquement sorti les faits de déploiement du code — catalogue en ConfigMap,
 pondération du score, environnements, secrets désignés et non manipulés. C'est ce qui
 rend l'exercice réaliste.
+
+**Un point échappe pourtant à ce tri, et il est structurant** : le schéma de version.
+Ce n'est ni de la configuration ni du domaine MSE — c'est une **hypothèse ambiante**,
+répandue sur quatre couches, dont plusieurs autres lignes de ce tableau dépendent.
+Elle est traitée à part en [12.4](#124-la-frontière-difficile-la-sémantique).
 
 **Quatre éléments seulement résistent** et forment le noyau d'un plugin MSE :
 
@@ -146,7 +155,7 @@ Le même piège existe un cran plus bas, dans le vocabulaire du domaine : un mot
 peut encoder des décisions propres à une équipe, et le classer « générique » parce qu'il
 est répandu revient à imposer ces décisions à tout le monde.
 
-Quatre exemples tirés du code existant.
+Cinq exemples tirés du code existant, du plus structurant au plus fin.
 
 ### Promouvoir
 
@@ -168,11 +177,79 @@ pas la même affirmation. Le dashboard sait déjà distinguer ces deux niveaux
 (`resolution: portaldata | digest | git | unobservable`) — **c'est ce vocabulaire qu'il
 faut promouvoir en contrat de plugin**, pas une méthode `Deploy()`.
 
+### Versionner
+
+Il faut dézoomer avant de parler des natures de release, parce que **deux problèmes
+distincts** sont aujourd'hui confondus dans le code.
+
+**Le premier est le schéma de version.** Le SemVer est générique par construction, mais
+il n'est pas universel : tous les projets n'en font pas. Le voisinage immédiat en donne
+l'exemple — les tags de `mse-kustom` s'écrivent `2026.7.27-k8sunstable.1651.91a39c48b`,
+qui est du calendaire déguisé. D'autres projets numérotent leurs constructions, ou
+n'ordonnent rien du tout.
+
+**Le second est ce que l'outil en déduit.** Et là, une part est propre au MSE.
+
+L'hypothèse SemVer n'est pas cantonnée à `internal/release` : elle traverse douze
+fichiers sur quatre couches — la forge, le registre, Flux, le magasin, les écrans. Ce
+n'est pas une brique qu'on remplace, c'est une **hypothèse ambiante**.
+
+#### Ce que le SemVer donne réellement
+
+Quatre choses, et quatre seulement :
+
+- un **ordre total** entre deux versions ;
+- la notion de **pré-release** — la composante après `-` ;
+- un emplacement de **métadonnée de build** — après `+`, ou `_` dans notre convention ;
+- une **ligne de version** — le triplet `majeur.mineur.correctif`.
+
+#### Ce que nous avons bâti par-dessus, et qui ne vient pas du SemVer
+
+- qu'une release finale **re-tague** l'image d'une pré-release validée ;
+- que la promotion **écrit une métadonnée** que Flux sélectionne par plage ;
+- qu'une plage sans `-0` **exclut structurellement** les pré-releases ;
+- que la RC suivante se **déduit** des RC existantes ;
+- que le nom de version Redmine est la **base** du tag de release.
+
+Aucune de ces cinq lignes n'est une conséquence du SemVer. Ce sont des décisions de
+processus qui *s'appuient* sur lui.
+
+#### La séparation à faire
+
+Une capacité **schéma de version**, à laquelle le reste pose des questions au lieu de
+lire des champs :
+
+| Question | SemVer | Calendaire | Opaque |
+|---|---|---|---|
+| Ce tag est-il bien formé ? | oui | oui | tout l'est |
+| Quelle est sa ligne de version ? | `3.2.0` | `2026.7` | **inconnue** |
+| Est-ce une pré-release ? | oui/non | selon la convention | **inconnue** |
+| Quelle est la suivante ? | calculable | calculable | **inconnue** |
+| Comment y attacher un marqueur ? | métadonnée | suffixe | **impossible** |
+| Comment ordonner deux versions ? | précédence SemVer | ordre lexical daté | **inconnu** |
+
+La colonne « opaque » est la plus instructive : elle doit rester **utilisable**. Un projet
+dont les tags s'écrivent `build-4711` perd la suggestion de version suivante et les
+plages de sélection, mais garde tout le reste — construire, tester, noter, déployer par
+tag explicite. L'outil doit le **dire** plutôt que calculer n'importe quoi.
+
+#### Le couplage à déclarer, pas à découvrir
+
+Conséquence importante : **le schéma et le déployeur sont couplés**. Flux sélectionne par
+plage SemVer ; avec un schéma opaque, la promotion par plage est impossible et il faut
+épingler un tag explicite.
+
+Ce genre d'incompatibilité doit être **refusé à la configuration**, pas découvert au
+premier déploiement qui ne part pas. C'est la doctrine déjà tenue ailleurs — le worker
+refuse de démarrer sur un catalogue incohérent avec le cluster ([06 §6.2]) — et elle
+s'applique telle quelle à la combinaison schéma × déployeur × cycle.
+
 ### Nommer une release
 
-`pre` / `final` / `patch` ont d'abord été classés « génériques » dans ce document, au
-motif que le vocabulaire est courant. **C'est une erreur de méthode** : la fréquence d'un
-mot ne dit rien de sa généralité, et il fallait regarder ce que ces natures *font*.
+La suite découle de ce qui précède. `pre` / `final` / `patch` ont d'abord été classés
+« génériques » dans ce document, au motif que le vocabulaire est courant. **C'est une
+erreur de méthode** : la fréquence d'un mot ne dit rien de sa généralité, et il fallait
+regarder ce que ces natures *font*.
 
 Elles ne nomment pas trois vocables mais **trois points dans un espace de quatre traits
 indépendants** :
@@ -196,12 +273,17 @@ qui ne distingue rien — une seule sorte de release — doit en choisir une arb
 
 Séparer trois couches aujourd'hui fondues dans une énumération :
 
-1. **Les faits SemVer** — « ce tag porte-t-il une composante de pré-release ? » est défini
-   par la spécification, pas par nous. Reste générique, inchangé.
+1. **Le schéma de version** — « ce tag porte-t-il une composante de pré-release ? » est
+   une question posée au schéma, qui peut répondre « je ne sais pas ». Générique, et
+   remplaçable.
 2. **Les modes** — construire depuis une référence Git, ou re-taguer une release
    existante. Un jeu fermé de primitives, générique.
 3. **Le cycle** — quelles natures existent, comment elles s'appellent, quel mode et
    quelles contraintes chacune porte. **Propre au projet**, donc en configuration.
+
+Une nature qui exige une forme de tag n'est déclarable que si le schéma sait répondre :
+sur un schéma opaque, `prerelease-required` n'a pas de sens et doit être refusé à la
+configuration.
 
 Une nature devient alors une entité déclarée :
 
@@ -646,10 +728,14 @@ Le lot lourd. Déplacer l'identité : `project_id` sur `versions`, `releases`, e
 qui en dépend ; unicité `(project_id, tag)` ; routes `/projects/{p}/releases/{tag}` ;
 rôles par projet.
 
-**Le cycle de release s'y rattache** ([12.4](#124-la-frontière-difficile-la-sémantique)) :
-les natures cessent d'être une énumération en base pour devenir une déclaration par
-projet. Les deux changements touchent les mêmes tables et les mêmes écrans ; les séparer
-ferait payer deux fois la même migration.
+**Le schéma de version et le cycle de release s'y rattachent**
+([12.4](#124-la-frontière-difficile-la-sémantique)), dans cet ordre : le schéma d'abord,
+puisque le cycle lui pose ses questions. Les natures cessent alors d'être une énumération
+en base pour devenir une déclaration par projet.
+
+Les trois changements touchent les mêmes tables et les mêmes écrans ; les séparer ferait
+payer trois fois la même migration. C'est ce qui fait de ce lot le plus lourd, et le seul
+dont l'ordre interne compte.
 
 **Pourquoi si tôt** : sans lui, les plugins ne servent qu'à changer de Redmine **pour un
 projet unique**. C'est le prérequis dur de tout le reste, et le repousser rend chaque lot
@@ -737,6 +823,13 @@ première release s'est construite.
 - **Ne pas confondre courant et générique.** Un vocabulaire répandu peut encoder des
   décisions propres à une équipe. Le test n'est pas « ce mot est-il usuel » mais « quel
   comportement ce mot sélectionne-t-il, et un autre projet le voudrait-il ? ».
+- **Ne pas confondre le SemVer et ce qu'on en a tiré.** Il donne un ordre, une notion de
+  pré-release, un emplacement de métadonnée. Le re-tag d'une finale, la sélection par
+  plage et la déduction de la RC suivante sont des décisions **nôtres**, et c'est là que
+  se trouve la part MSE.
+- **Ne pas laisser une combinaison impossible s'installer.** Schéma opaque et sélection
+  par plage SemVer ne vont pas ensemble. Cela se refuse à la configuration, comme le
+  catalogue incohérent, et non au premier déploiement qui ne part pas.
 - **Ne pas dissoudre les doctrines.** [B7] et [B17] sont les meilleures décisions du
   projet. Elles doivent rester le **défaut**, et un plugin qui s'en écarte doit le
   déclarer et l'assumer à l'écran.
