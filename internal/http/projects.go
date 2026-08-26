@@ -95,6 +95,8 @@ func (h *ProjectsHandler) WithImageRegistry(registry string) *ProjectsHandler {
 type targetPayload struct {
 	Stage string `json:"stage"`
 	Image string `json:"image"`
+	// Dockerfile propre à cette image, quand il diffère de celui du projet.
+	Dockerfile string `json:"dockerfile,omitempty"`
 	// Promote dit si un re-tag propage cette image. Toujours rendu, jamais
 	// omis : un booléen absent se lit `false` côté formulaire, ce qui dirait
 	// « non promue » d'une étape sur laquelle personne ne s'est prononcé.
@@ -165,7 +167,8 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 	targets := make([]targetPayload, 0, len(project.Targets))
 	for _, target := range project.Targets {
 		targets = append(targets, targetPayload{
-			Stage: target.Stage, Image: target.Image, Promote: target.Promoted(),
+			Stage: target.Stage, Image: target.Image,
+			Dockerfile: target.Dockerfile, Promote: target.Promoted(),
 			Reference: project.Reference(target),
 		})
 	}
@@ -264,9 +267,10 @@ func targetsOf(request projectRequest) []store.Target {
 		// que la migration a rattrapées.
 		promote := target.Promote
 		targets = append(targets, store.Target{
-			Stage:   strings.TrimSpace(target.Stage),
-			Image:   strings.TrimSpace(target.Image),
-			Promote: &promote,
+			Stage:      strings.TrimSpace(target.Stage),
+			Image:      strings.TrimSpace(target.Image),
+			Dockerfile: strings.TrimSpace(target.Dockerfile),
+			Promote:    &promote,
 		})
 	}
 	return targets

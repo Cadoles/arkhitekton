@@ -30,6 +30,18 @@ type Target struct {
 	// Image est le nom court du dépôt publié — `portal-cli`. Le registre qui le
 	// préfixe vit sur le projet : il est le même pour toutes les étapes.
 	Image string `json:"image"`
+	// Dockerfile est le fichier qui construit cette image, quand il diffère de
+	// celui du projet.
+	//
+	// Ajouté parce qu'un projet réel l'a exigé : `hydra-dispatcher-mse-theme`
+	// porte `Dockerfile.dev` et `Dockerfile.prod` à sa racine, chacun produisant
+	// une image distincte, et aucun n'a d'étapes. Le modèle ne savait dire que
+	// « telle **étape** du Dockerfile du projet produit telle image », ce qui est
+	// la forme du dépôt de MSE et non une vérité générale.
+	//
+	// Vide, celui du projet s'applique. Les deux formes coexistent donc sans que
+	// l'une devienne un cas particulier de l'autre.
+	Dockerfile string `json:"dockerfile,omitempty"`
 	// Promote dit si un re-tag propage cette image. Faux pour une image que la
 	// construction publie sans qu'aucun environnement du flux ne la déploie —
 	// l'image de développement : la re-taguer en préproduction reviendrait à
@@ -58,16 +70,37 @@ func (p Project) Reference(target Target) string {
 	return registry + "/" + image
 }
 
+// DockerfileFor rend le fichier qui construit cette étape.
+//
+// Celui de l'étape quand elle en déclare un, celui du projet sinon. L'ordre n'est
+// pas arbitraire : le plus précis gagne, et un projet qui change son Dockerfile
+// par défaut ne doit pas déplacer celles qui avaient déjà choisi le leur.
+func (p Project) DockerfileFor(target Target) string {
+	if file := strings.TrimSpace(target.Dockerfile); file != "" {
+		return file
+	}
+	return p.Dockerfile
+}
+
 // Buildable rend les étapes qu'une release construit.
 //
 // Vide sans Dockerfile : un dépôt cloné par un pipeline — kustomizations,
 // campagne E2E — décrit des cibles nulle part, et en inventer une lancerait une
 // construction qui échouerait au premier `docker build`.
 func (p Project) Buildable() []Target {
-	if strings.TrimSpace(p.Dockerfile) == "" {
-		return nil
+	var buildable []Target
+	for _, target := range p.Targets {
+		// La condition porte sur le Dockerfile **résolu** et non sur celui du
+		// projet. Un dépôt peut n'en avoir aucun au niveau projet et rester
+		// parfaitement constructible : `hydra-dispatcher-mse-theme` porte
+		// `Dockerfile.dev` et `Dockerfile.prod` sur ses étapes, et exiger un
+		// fichier de projet le déclarait non constructible.
+		if strings.TrimSpace(p.DockerfileFor(target)) == "" {
+			continue
+		}
+		buildable = append(buildable, target)
 	}
-	return p.Targets
+	return buildable
 }
 
 // Promotable rend les étapes qu'un re-tag propage.
@@ -423,7 +456,10 @@ func (db *DB) RecordProjectCheck(ctx context.Context, id int64, ok bool, note st
 func normaliseTargets(targets []Target) []Target {
 	kept := make([]Target, 0, len(targets))
 	for _, target := range targets {
-		if target.Stage == "" && target.Image == "" {
+		// L'image seule suffit : une étape peut n'avoir ni cible ni Dockerfile
+		// propre — c'est le cas d'un dépôt à Dockerfile unique — mais sans nom
+		// d'image elle ne désigne rien à publier.
+		if strings.TrimSpace(target.Image) == "" {
 			continue
 		}
 		kept = append(kept, target)

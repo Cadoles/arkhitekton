@@ -115,6 +115,12 @@ export const ACTION_LABEL: Record<string, string> = {
 export type ProjectTarget = {
   stage: string
   image: string
+  /**
+   * Dockerfile propre à cette image, quand il diffère de celui du projet. Un
+   * dépôt peut en porter un par image — `Dockerfile.dev`, `Dockerfile.prod` —
+   * plutôt qu'un seul à étapes. Vide, celui du projet s'applique.
+   */
+  dockerfile?: string
   reference?: string
   /**
    * Vrai si un re-tag propage cette image vers les environnements. Faux pour une

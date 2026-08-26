@@ -509,15 +509,27 @@ function ProjectForm({
               {/* Deux champs et non un : la cible `cli` publie `portal-cli`, et
                   renommer l'une ne doit pas obliger à renommer l'autre. */}
               <span className="text-xs text-zinc-500">
-                Chaque étape constructible, et le dépôt d'image qu'elle alimente.
+                Chaque image publiée : sa cible dans le Dockerfile du projet, ou son propre Dockerfile.
               </span>
 
               {form.targets.map((target, index) => (
                 <div key={index} className="flex items-center gap-2">
+                  {/* Cible **ou** Dockerfile : un dépôt décrit ses images par
+                      les étapes d'un fichier unique, ou par un fichier chacune.
+                      Les deux champs coexistent parce que les deux formes
+                      existent, et aucune n'est un cas particulier de l'autre. */}
                   <input
                     value={target.stage}
                     onChange={(event) => setTarget(index, { ...target, stage: event.target.value })}
                     placeholder="cible"
+                    className="w-24 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+                  />
+                  <input
+                    value={target.dockerfile ?? ''}
+                    onChange={(event) =>
+                      setTarget(index, { ...target, dockerfile: event.target.value })
+                    }
+                    placeholder="Dockerfile"
                     className="w-32 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
                   />
                   <Icon name="arrow-right" className="size-3.5 text-zinc-400" />

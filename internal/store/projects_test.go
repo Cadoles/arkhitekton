@@ -359,3 +359,83 @@ func TestUneImageUniqueSeDeclareSansCible(t *testing.T) {
 		t.Errorf("référence = %q", got)
 	}
 }
+
+// Deux formes de dépôt coexistent, et aucune n'est un cas particulier de l'autre.
+//
+// Le modèle ne savait dire que « telle **étape** du Dockerfile du projet produit
+// telle image » — la forme du dépôt de MSE, prise pour une vérité générale.
+// `hydra-dispatcher-mse-theme` porte `Dockerfile.dev` et `Dockerfile.prod` à sa
+// racine : deux fichiers, deux images, aucune étape.
+func TestUneEtapePeutNommerSonPropreDockerfile(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+
+	// La forme MSE : un Dockerfile, des étapes.
+	mse := Project{
+		Slug: "mse", Repository: "vcarroy/mse", Label: "MSE",
+		ForgeURL: "https://forge.example", Dockerfile: "Dockerfile", BuildContext: ".",
+		MultiStage: true,
+		Targets: []Target{
+			{Stage: "web", Image: "portal"},
+			{Stage: "cli", Image: "portal-cli"},
+		},
+	}
+	if _, err := db.CreateProject(ctx, mse); err != nil {
+		t.Fatalf("projet à étapes: %v", err)
+	}
+
+	// La forme thème : un Dockerfile par image, aucune étape.
+	theme := Project{
+		Slug: "theme", Repository: "CNOUS/hydra-dispatcher-mse-theme", Label: "Thème",
+		ForgeURL: "https://forge.example", BuildContext: ".", MultiStage: true,
+		Targets: []Target{
+			{Image: "hydra-dispatcher-mse-theme", Dockerfile: "Dockerfile.prod"},
+			{Image: "hydra-dispatcher-mse-theme-dev", Dockerfile: "Dockerfile.dev"},
+		},
+	}
+	id, err := db.CreateProject(ctx, theme)
+	if err != nil {
+		t.Fatalf("projet à Dockerfiles: %v", err)
+	}
+
+	stored, err := db.GetProject(ctx, id)
+	if err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if len(stored.Buildable()) != 2 {
+		t.Fatalf("%d étape(s) constructible(s), attendu 2: %+v", len(stored.Buildable()), stored.Targets)
+	}
+	// Le plus précis gagne : l'étape nomme son fichier, le projet n'en a aucun.
+	if got := stored.DockerfileFor(stored.Targets[0]); got != "Dockerfile.prod" {
+		t.Errorf("Dockerfile de la première étape = %q", got)
+	}
+
+	// Et l'inverse : une étape muette retombe sur celui du projet.
+	if got := (Project{Dockerfile: "Dockerfile"}).DockerfileFor(Target{Stage: "web"}); got != "Dockerfile" {
+		t.Errorf("repli sur le Dockerfile du projet = %q", got)
+	}
+}
+
+// Une étape sans nom d'image ne publie rien : elle est écartée à l'écriture, et
+// la base la refuserait de toute façon.
+func TestUneEtapeSansImageEstEcartee(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+
+	id, err := db.CreateProject(ctx, Project{
+		Slug: "vide", Repository: "x/vide", Label: "Vide",
+		ForgeURL: "https://forge.example", Dockerfile: "Dockerfile", BuildContext: ".",
+		Targets: []Target{{Stage: "web"}, {Stage: "cli", Image: "utile"}},
+	})
+	if err != nil {
+		t.Fatalf("création: %v", err)
+	}
+
+	stored, err := db.GetProject(ctx, id)
+	if err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if len(stored.Targets) != 1 || stored.Targets[0].Image != "utile" {
+		t.Errorf("étapes conservées = %+v", stored.Targets)
+	}
+}

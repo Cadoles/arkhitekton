@@ -190,8 +190,16 @@ pipelines:
     params:
       repo-url:    { source: config, key: forge.mse.repoUrl }
       reg-project: { source: config, key: registry.project }
-      dockerfile:  { source: config, key: mse.dockerfile }
-      context:     { source: config, key: mse.buildContext }
+      # Le Dockerfile et son contexte viennent de la **déclaration du projet**, et
+      # non de la configuration du déploiement. Un dépôt peut porter un
+      # Dockerfile par image — `Dockerfile.dev` et `Dockerfile.prod` à sa racine —
+      # plutôt qu'un seul à étapes, et la configuration ne saurait en nommer
+      # qu'un. Le dashboard les renseigne par image (doc 12 §12.9, lot B).
+      #
+      # Facultatifs : un pipeline lancé à la main hors dashboard retombe sur les
+      # valeurs par défaut de la Task, qui restent celles d'un dépôt ordinaire.
+      dockerfile: { source: input }
+      context:    { source: input }
       # La référence Git à construire — branche, tag ou commit, choisie à la
       # création de la release.
       revision: { source: input, required: true, suggest: git-ref }

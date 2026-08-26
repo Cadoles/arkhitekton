@@ -1364,9 +1364,13 @@ func (h *ReleasesHandler) enqueueBuild(
 		jobID, err := h.store.Enqueue(ctx, store.JobRequest{
 			Kind: pipeline.Kind,
 			Params: map[string]string{
-				"revision":   gitRef,
-				"version":    record.Tag,
-				"tag-name":   record.Tag,
+				"revision": gitRef,
+				"version":  record.Tag,
+				"tag-name": record.Tag,
+				// Le Dockerfile de l'étape, celui du projet à défaut : un dépôt
+				// peut en porter un par image plutôt qu'un seul à étapes.
+				"dockerfile": project.DockerfileFor(target),
+				"context":    project.BuildContext,
 				"image-name": target.Image,
 				"target":     target.Stage,
 			},
