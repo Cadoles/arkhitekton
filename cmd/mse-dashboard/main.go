@@ -699,9 +699,10 @@ func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	// Le rapport est journalisé avant l'erreur : une étape peut avoir abouti
 	// pendant qu'une autre échouait, et le taire ferait croire à un amorçage
 	// entièrement raté.
-	if report.GrantsApplied > 0 || report.ProjectsApplied > 0 {
+	if report.GrantsApplied > 0 || report.ProjectsApplied > 0 || report.TrackersApplied > 0 {
 		logger.Info("amorçage appliqué",
-			"roles", report.GrantsApplied, "depots", report.ProjectsApplied)
+			"roles", report.GrantsApplied, "depots", report.ProjectsApplied,
+			"suivis", report.TrackersApplied)
 	}
 	if len(report.Skipped) > 0 {
 		logger.Info("amorçage déjà fait, étapes ignorées",
@@ -960,13 +961,18 @@ func configuredProjects(cfg config.Config) []store.Project {
 	declarations := []struct {
 		clone      string
 		label      string
+		tracker    string
 		dockerfile string
 		context    string
 		targets    []store.Target
 	}{
 		{
-			clone:      resolved["forge.mse.repoUrl"],
-			label:      "Application",
+			clone: resolved["forge.mse.repoUrl"],
+			label: "Application",
+			// Le seul des quatre à avoir un outil de suivi. Les trois autres sont
+			// des dépôts clonés par des pipelines : ils ne portent ni version ni
+			// release, donc rien à rapprocher.
+			tracker:    cfg.Redmine.Project,
 			dockerfile: resolved["mse.dockerfile"],
 			context:    resolved["mse.buildContext"],
 			targets:    targets,
@@ -998,7 +1004,8 @@ func configuredProjects(cfg config.Config) []store.Project {
 
 		projects = append(projects, store.Project{
 			Repository: repository, Label: declaration.label, ForgeURL: forgeURL,
-			Dockerfile: declaration.dockerfile, BuildContext: buildContext,
+			TrackerProject: declaration.tracker,
+			Dockerfile:     declaration.dockerfile, BuildContext: buildContext,
 			ImageRegistry: registry,
 			// Plusieurs cibles seulement là où il y en a : un Dockerfile simple
 			// coché « multi-étapes » ferait attendre une liste qui n'existe pas.

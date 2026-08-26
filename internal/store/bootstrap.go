@@ -30,6 +30,14 @@ import (
 const (
 	BootstrapGrants   = "grants"
 	BootstrapProjects = "projects"
+	// BootstrapTrackers rattache les projets déjà déclarés à leur outil de suivi.
+	//
+	// Étape distincte de `projects`, et c'est ce qui la rend utile : celle-ci a
+	// été réclamée avant que `tracker_project` n'existe, et une étape déjà
+	// réclamée n'est jamais rejouée. Sans cette seconde étape, un déploiement en
+	// place perdrait silencieusement le lien vers son suivi le jour où le code
+	// commence à l'honorer.
+	BootstrapTrackers = "trackers"
 )
 
 // Grant est un rôle déclaré avant que le sujet de son titulaire ne soit connu.
@@ -53,6 +61,7 @@ type BootstrapSpec struct {
 type BootstrapReport struct {
 	GrantsApplied   int
 	ProjectsApplied int
+	TrackersApplied int
 	Skipped         []string
 }
 
@@ -95,7 +104,45 @@ func (db *DB) Bootstrap(ctx context.Context, spec BootstrapSpec) (BootstrapRepor
 		report.Skipped = append(report.Skipped, BootstrapProjects)
 	}
 
+	applied, count, err = db.applyStep(ctx, BootstrapTrackers, func(ctx context.Context) (int, string, error) {
+		linked, err := db.seedTrackers(ctx, spec.Projects)
+		return linked, fmt.Sprintf("%d suivi(s)", linked), err
+	})
+	switch {
+	case err != nil:
+		problems = append(problems, err)
+	case applied:
+		report.TrackersApplied = count
+	default:
+		report.Skipped = append(report.Skipped, BootstrapTrackers)
+	}
+
 	return report, errors.Join(problems...)
+}
+
+// seedTrackers rattache à leur suivi les projets qui n'en déclarent aucun.
+//
+// **Ne touche qu'aux vides.** Un projet dont quelqu'un a renseigné le suivi
+// depuis l'interface garde le sien : la base fait foi, et cette étape n'est là
+// que pour ce que la migration n'a pas pu deviner — le nom du projet dans l'outil
+// de suivi ne vit que dans la configuration.
+func (db *DB) seedTrackers(ctx context.Context, projects []Project) (int, error) {
+	linked := 0
+	for _, project := range projects {
+		if strings.TrimSpace(project.TrackerProject) == "" || project.Repository == "" {
+			continue
+		}
+
+		tag, err := db.pool.Exec(ctx,
+			`update projects set tracker_project = $2, updated_at = now()
+			 where repository = $1 and coalesce(trim(tracker_project), '') = ''`,
+			project.Repository, project.TrackerProject)
+		if err != nil {
+			return linked, fmt.Errorf("rattachement du suivi de %q: %w", project.Repository, err)
+		}
+		linked += int(tag.RowsAffected())
+	}
+	return linked, nil
 }
 
 // applyStep exécute une étape si elle n'a pas déjà été appliquée.

@@ -319,3 +319,9 @@ func TestLeDrapeauDeClotureEstTransmisIndependammentDuSeau(t *testing.T) {
 // réellement présents dans le projet — `v3.2.0` et `MSE 3.1.2` y coexistent —, et
 // c'est la configuration qui la déclare depuis que `MSE ` n'est plus en dur.
 var testNames = release.NewNormalizer([]string{release.DefaultPrefix, "MSE "})
+
+// TrackedProjects rend le projet suivi de ces tests. Un seul : ils portent sur le
+// rapprochement des versions, pas sur le choix du projet.
+func (f *fakeRedmineStore) TrackedProjects(context.Context) ([]store.TrackedProject, error) {
+	return []store.TrackedProject{{ID: 1, TrackerProject: "mse-dev"}}, nil
+}

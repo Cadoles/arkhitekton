@@ -132,6 +132,15 @@ type Project struct {
 	// répéter ferait diverger la dernière au premier changement de registre.
 	ImageRegistry string
 	MultiStage    bool
+	// TrackerProject nomme ce projet dans l'outil de suivi — `mse-dev` chez
+	// Redmine. Vide, le projet n'a **aucun** suivi : ses versions sont alors
+	// celles que le dashboard déduit des tags, et rien n'attend de confirmation
+	// extérieure.
+	//
+	// Porté par le projet et non par la configuration du déploiement : celle-ci
+	// ne pouvait donner qu'une réponse pour tous, et deux projets suivis ensemble
+	// n'ont aucune raison de partager un outil — ni même d'en avoir un.
+	TrackerProject string
 	// Targets porte les étapes constructibles. Une seule entrée sans `Stage`
 	// décrit un Dockerfile à image unique : un second champ dirait la même chose
 	// d'une autre façon, et il faudrait savoir lequel fait foi.
@@ -211,7 +220,7 @@ var ErrProjectExists = errors.New("dépôt déjà déclaré")
 func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, multi_stage, targets, checked_at, check_ok,
+		        image_registry, multi_stage, tracker_project, targets, checked_at, check_ok,
 		        check_note, created_by, created_at, updated_at
 		 from projects order by label`)
 	if err != nil {
@@ -234,7 +243,7 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, multi_stage, targets, checked_at, check_ok,
+		        image_registry, multi_stage, tracker_project, targets, checked_at, check_ok,
 		        check_note, created_by, created_at, updated_at
 		 from projects where id = $1`, id)
 	if err != nil {
@@ -273,6 +282,36 @@ func SlugFor(repository string) string {
 	return strings.Trim(slugPattern.ReplaceAllString(strings.ToLower(last), "-"), "-")
 }
 
+// TrackedProject est un projet et le nom qu'il porte dans son outil de suivi.
+type TrackedProject struct {
+	ID             int64
+	TrackerProject string
+}
+
+// TrackedProjects rend les projets qui déclarent un outil de suivi.
+//
+// Les autres n'ont rien à synchroniser : leurs versions sont celles que le
+// dashboard déduit, et rien d'extérieur ne viendra les confirmer.
+func (db *DB) TrackedProjects(ctx context.Context) ([]TrackedProject, error) {
+	rows, err := db.pool.Query(ctx,
+		`select id, tracker_project from projects
+		 where coalesce(trim(tracker_project), '') <> '' order by id`)
+	if err != nil {
+		return nil, fmt.Errorf("projets suivis: %w", err)
+	}
+	defer rows.Close()
+
+	var tracked []TrackedProject
+	for rows.Next() {
+		var entry TrackedProject
+		if err := rows.Scan(&entry.ID, &entry.TrackerProject); err != nil {
+			return nil, fmt.Errorf("projets suivis: %w", err)
+		}
+		tracked = append(tracked, entry)
+	}
+	return tracked, rows.Err()
+}
+
 // ProjectBySlug rend un projet par le nom qu'il porte dans les URL.
 //
 // C'est la résolution que fait chaque requête portant un projet dans son chemin.
@@ -281,7 +320,7 @@ func SlugFor(repository string) string {
 func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, multi_stage, targets, checked_at, check_ok,
+		        image_registry, multi_stage, tracker_project, targets, checked_at, check_ok,
 		        check_note, created_by, created_at, updated_at
 		 from projects where slug = $1`, slug)
 	if err != nil {
@@ -303,7 +342,7 @@ func scanProject(rows pgx.Rows) (Project, error) {
 	var targets []byte
 	if err := rows.Scan(&project.ID, &project.Slug, &project.Repository, &project.Label,
 		&project.ForgeURL, &project.Dockerfile, &project.BuildContext,
-		&project.ImageRegistry, &project.MultiStage, &targets,
+		&project.ImageRegistry, &project.MultiStage, &project.TrackerProject, &targets,
 		&project.CheckedAt, &project.CheckOK,
 		&project.CheckNote, &project.CreatedBy, &project.CreatedAt,
 		&project.UpdatedAt); err != nil {
@@ -333,13 +372,13 @@ func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error)
 	err = db.pool.QueryRow(ctx,
 		`insert into projects (slug, repository, label, forge_url, dockerfile,
 		                       build_context, image_registry, multi_stage,
-		                       targets, created_by)
-		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		                       tracker_project, targets, created_by)
+		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 on conflict (repository) do nothing
 		 returning id`,
 		project.Slug, project.Repository, project.Label, project.ForgeURL, project.Dockerfile,
 		project.BuildContext, project.ImageRegistry, project.MultiStage,
-		targets, project.CreatedBy).Scan(&id)
+		project.TrackerProject, targets, project.CreatedBy).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// `do nothing` n'a rien rendu : le dépôt est déjà déclaré.
@@ -384,7 +423,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		`update projects
 		 set repository = $2, label = $3, forge_url = $4, dockerfile = $5,
 		     build_context = $6, image_registry = $7, multi_stage = $8,
-		     targets = $9, slug = $10,
+		     targets = $9, slug = $10, tracker_project = $11,
 		     -- Le constat ne survit qu'à un dépôt inchangé. La comparaison porte
 		     -- sur la valeur en base, encore lisible pendant l'update : une
 		     -- lecture préalable ouvrirait une fenêtre entre le constat et
@@ -396,7 +435,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		 where id = $1`,
 		project.ID, project.Repository, project.Label, project.ForgeURL,
 		project.Dockerfile, project.BuildContext, project.ImageRegistry,
-		project.MultiStage, targets, project.Slug)
+		project.MultiStage, targets, project.Slug, project.TrackerProject)
 	if err != nil {
 		// Un dépôt déjà déclaré ailleurs : deux entrées le décriraient, et rien
 		// ne dirait laquelle fait foi. L'appelant doit pouvoir le dire plutôt que

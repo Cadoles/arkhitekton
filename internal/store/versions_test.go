@@ -24,6 +24,7 @@ func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) 
 func issueOf(t *testing.T, db *DB, redmineID int64, versionRedmineID int64, tracker, status, bucket string, doneRatio int, closed bool) {
 	t.Helper()
 	if err := db.UpsertRedmineIssue(context.Background(), RedmineIssue{
+		ProjectID: testProjectID,
 		RedmineID: redmineID, VersionRedmineID: &versionRedmineID,
 		Tracker: tracker, Subject: "sujet", StatusName: status, StatusBucket: bucket,
 		DoneRatio: doneRatio, IsClosed: closed,
@@ -492,6 +493,7 @@ func TestLaBaseAccepteLesCinqSeauxEtRienDautre(t *testing.T) {
 
 	for i, bucket := range []string{BucketTodo, BucketDoing, BucketClientTest, BucketDone, BucketRejected} {
 		if err := db.UpsertRedmineIssue(ctx, RedmineIssue{
+			ProjectID: testProjectID,
 			RedmineID: int64(100 + i), Tracker: "Évolution", Subject: "s",
 			StatusName: "x", StatusBucket: bucket,
 		}); err != nil {
@@ -500,6 +502,7 @@ func TestLaBaseAccepteLesCinqSeauxEtRienDautre(t *testing.T) {
 	}
 
 	if err := db.UpsertRedmineIssue(ctx, RedmineIssue{
+		ProjectID: testProjectID,
 		RedmineID: 200, Tracker: "Évolution", Subject: "s",
 		StatusName: "x", StatusBucket: "invente",
 	}); err == nil {
@@ -1132,5 +1135,75 @@ func TestDeuxProjetsNeSeVolentPasLeursVersions(t *testing.T) {
 	}
 	if first.ID == other.ID {
 		t.Error("les deux projets partagent la même release: l'unicité du tag est restée globale")
+	}
+}
+
+// Un projet sans outil de suivi produit des versions **définitives**, jamais des
+// provisoires.
+//
+// C'est le cas de `hydra-sql-mse-theme` et `hydra-dispatcher-mse-theme` : ils
+// versionnent par tags Git, sans Redmine ni équivalent. Le dashboard leur
+// fabriquait une provisoire en attente d'une adoption qui ne serait jamais venue
+// — l'état d'anomalie devenu permanent, et un écran qui annonce indéfiniment un
+// retard sur un outil inexistant.
+func TestUnProjetSansSuiviProduitDesVersionsDefinitives(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+
+	var sansSuivi int64
+	if err := db.Pool().QueryRow(ctx,
+		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
+		 values ('theme', 'CNOUS/hydra-sql-mse-theme', 'Thème', 'https://forge.example', '.', 'test')
+		 returning id`).Scan(&sansSuivi); err != nil {
+		t.Fatalf("projet sans suivi: %v", err)
+	}
+
+	versionID, err := db.EnsureVersion(ctx, sansSuivi, "1.2.0")
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+
+	var origin, status string
+	if err := db.Pool().QueryRow(ctx,
+		`select origin, status from versions where id = $1`, versionID).Scan(&origin, &status); err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if origin != "own" {
+		t.Errorf("origine = %q, attendu own", origin)
+	}
+	// Le statut suit l'origine : une version qui se suffit à elle-même n'attend
+	// rien, et l'afficher « en attente » serait faux.
+	if status != "open" {
+		t.Errorf("statut = %q, attendu open", status)
+	}
+
+	// Et l'adoption ne doit pas la regarder : il n'y a rien à rapprocher.
+	report, err := db.AdoptPendingVersions(ctx)
+	if err != nil {
+		t.Fatalf("adoption: %v", err)
+	}
+	if len(report) != 0 {
+		t.Errorf("l'adoption a examiné une version sans suivi: %+v", report)
+	}
+}
+
+// Et le pendant : un projet suivi produit bien une provisoire, que la
+// synchronisation pourra adopter.
+func TestUnProjetSuiviProduitUneProvisoire(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.2.0")
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+
+	var origin string
+	if err := db.Pool().QueryRow(ctx,
+		`select origin from versions where id = $1`, versionID).Scan(&origin); err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if origin != "pending" {
+		t.Errorf("origine = %q, attendu pending", origin)
 	}
 }

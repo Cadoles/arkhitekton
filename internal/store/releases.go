@@ -266,8 +266,21 @@ func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (
 	// provisoire pour l'adopter. Nulle, la provisoire resterait orpheline et la
 	// version réelle s'afficherait sans aucune release.
 	err = db.pool.QueryRow(ctx,
-		`insert into versions (project_id, redmine_id, name, normalized_name, status, synced_at)
-		 values ($1, -nextval('versions_id_seq'), $2, $3, 'en-attente-de-synchronisation', now())
+		// L'origine dépend du projet, et c'est tout l'enjeu. Un projet **suivi**
+		// reçoit une provisoire, en attente que la synchronisation l'adopte. Un
+		// projet **sans suivi** reçoit une version définitive : rien ne viendra la
+		// confirmer, et la marquer « en attente » ferait de l'anomalie son état
+		// permanent.
+		//
+		// Le statut suit : `open` pour une version qui se suffit à elle-même,
+		// `en-attente-de-synchronisation` pour celle qui espère encore.
+		`insert into versions (project_id, redmine_id, name, normalized_name, origin, status, synced_at)
+		 select $1, -nextval('versions_id_seq'), $2, $3,
+		        case when suivi then 'pending' else 'own' end,
+		        case when suivi then 'en-attente-de-synchronisation' else 'open' end,
+		        now()
+		 from (select coalesce(trim(tracker_project), '') <> '' as suivi
+		       from projects where id = $1) as p
 		 returning id`, projectID, name, db.names.Normalize(name)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("création de la version provisoire %q: %w", name, err)

@@ -34,6 +34,9 @@ type RedmineVersion struct {
 
 // RedmineIssue est une demande telle que la synchronisation la dépose.
 type RedmineIssue struct {
+	// ProjectID borne le rattachement à la version : deux projets suivis peuvent
+	// porter le même identifiant Redmine.
+	ProjectID int64
 	RedmineID int64
 	// VersionRedmineID est l'identifiant Redmine de la version, pas la clé locale :
 	// la synchronisation lit Redmine et ne connaît que ses identifiants.
@@ -64,8 +67,8 @@ func (db *DB) UpsertRedmineVersion(ctx context.Context, version RedmineVersion) 
 	err := db.pool.QueryRow(ctx,
 		`insert into versions
 		     (project_id, redmine_id, name, normalized_name, description, status, due_date,
-		      redmine_updated_on, synced_at)
-		 values ($1, $2, $3, $4, nullif($5, ''), $6, $7, $8, now())
+		      redmine_updated_on, origin, synced_at)
+		 values ($1, $2, $3, $4, nullif($5, ''), $6, $7, $8, 'tracker', now())
 		 -- Le conflit porte sur le couple : le même identifiant Redmine peut être
 		 -- suivi par deux projets, et l'unicité globale les ferait s'écraser.
 		 on conflict (project_id, redmine_id) do update set
@@ -75,6 +78,7 @@ func (db *DB) UpsertRedmineVersion(ctx context.Context, version RedmineVersion) 
 		     status = excluded.status,
 		     due_date = excluded.due_date,
 		     redmine_updated_on = excluded.redmine_updated_on,
+		     origin = 'tracker',
 		     synced_at = now(),
 		     updated_at = now()
 		 returning id`,
@@ -130,8 +134,13 @@ func (db *DB) AdoptPendingVersions(ctx context.Context) ([]Adoption, error) {
 	// `for update` sur les provisoires : deux synchronisations concurrentes ne
 	// doivent pas adopter la même deux fois.
 	rows, err := tx.Query(ctx,
+		// `origin = 'pending'` et non `redmine_id < 0` : les deux coïncidaient
+		// tant qu'une version sans identifiant de suivi ne pouvait être qu'en
+		// attente. Un projet sans suivi en produit désormais qui sont
+		// **définitives**, et tenter de les adopter les rapprocherait d'un outil
+		// qui n'existe pas.
 		`select id, project_id, name, normalized_name from versions
-		 where redmine_id < 0 order by id for update`)
+		 where origin = 'pending' order by id for update`)
 	if err != nil {
 		return nil, fmt.Errorf("lecture des versions provisoires: %w", err)
 	}
@@ -308,13 +317,19 @@ func mergeVersion(ctx context.Context, tx pgx.Tx, pendingID, realID int64) (int6
 // Une version inconnue laisse `version_id` nul plutôt que de faire échouer la
 // demande. Cela arrive normalement : une demande peut viser une version d'un autre
 // projet, ou une version créée entre la lecture des versions et celle des demandes.
+//
+// Le rattachement est **borné au projet**. Deux projets suivis peuvent porter le
+// même identifiant Redmine — deux instances, ou deux projets d'une même instance —
+// et une sous-requête sans cette borne rattacherait la demande à la version de
+// l'autre.
 func (db *DB) UpsertRedmineIssue(ctx context.Context, issue RedmineIssue) error {
 	_, err := db.pool.Exec(ctx,
 		`insert into issues
 		     (redmine_id, version_id, tracker, subject, status_name, status_bucket,
 		      priority, assignee, done_ratio, is_closed, redmine_updated_on, synced_at)
 		 values ($1,
-		         (select id from versions where redmine_id = $2),
+		         (select id from versions
+		          where redmine_id = $2 and project_id = $12),
 		         $3, $4, $5, $6, nullif($7, ''), nullif($8, ''), $9, $10, $11, now())
 		 on conflict (redmine_id) do update set
 		     version_id = excluded.version_id,
@@ -331,7 +346,7 @@ func (db *DB) UpsertRedmineIssue(ctx context.Context, issue RedmineIssue) error 
 		     updated_at = now()`,
 		issue.RedmineID, issue.VersionRedmineID, issue.Tracker, issue.Subject,
 		issue.StatusName, issue.StatusBucket, issue.Priority, issue.Assignee,
-		issue.DoneRatio, issue.IsClosed, issue.UpdatedOn)
+		issue.DoneRatio, issue.IsClosed, issue.UpdatedOn, issue.ProjectID)
 	if err != nil {
 		return fmt.Errorf("enregistrement de la demande %d: %w", issue.RedmineID, err)
 	}

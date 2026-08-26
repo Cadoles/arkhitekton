@@ -525,8 +525,13 @@ func migrated(t *testing.T) *DB {
 
 	db := migratedBare(t)
 	if _, err := db.Pool().Exec(context.Background(),
-		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context, created_by)
-		 values ($1, 'vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.', 'test')`,
+		// Avec un suivi : la plupart de ces tests portent sur le rapprochement
+		// entre releases et versions d'un outil de gestion de projet, qui n'a de
+		// sens que pour un projet suivi. Le cas sans suivi a son propre test.
+		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
+		                       tracker_project, created_by)
+		 values ($1, 'vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.',
+		         'projet-suivi', 'test')`,
 		testProjectSlug); err != nil {
 		t.Fatalf("projet de test: %v", err)
 	}

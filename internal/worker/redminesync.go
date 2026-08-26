@@ -47,6 +47,9 @@ type RedmineReader interface {
 
 // RedmineStore est ce qu'elle attend de la base.
 type RedmineStore interface {
+	// TrackedProjects nomme les projets qui ont un outil de suivi. Les autres
+	// n'ont rien à lire.
+	TrackedProjects(ctx context.Context) ([]store.TrackedProject, error)
 	UpsertRedmineVersion(ctx context.Context, version store.RedmineVersion) (int64, error)
 	UpsertRedmineIssue(ctx context.Context, issue store.RedmineIssue) error
 	AdoptPendingVersions(ctx context.Context) ([]store.Adoption, error)
@@ -135,12 +138,32 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 	// Les versions sont relues en entier à chaque passe. L'API ne les filtre pas sur
 	// `updated_on`, et leur nombre est de l'ordre de la vingtaine : une lecture
 	// complète coûte une requête.
-	versions, err := s.client.ListVersions(ctx, s.project)
+	// Les projets **suivis**, et eux seuls. Un projet sans outil de suivi n'a rien
+	// à lire, et l'interroger demanderait un nom de projet qu'il ne déclare pas.
+	//
+	// Le nom vient de la base et non de la configuration : celle-ci ne pouvait
+	// donner qu'une réponse pour tous, alors que deux projets n'ont aucune raison
+	// de partager un suivi — ni même d'en avoir un.
+	tracked, err := s.store.TrackedProjects(ctx)
+	if err != nil {
+		return err
+	}
+	if len(tracked) == 0 {
+		return nil
+	}
+
+	// Un seul projet suivi aujourd'hui. Le curseur des demandes reste unique pour
+	// cette raison ; un second en exigerait un par projet, sans quoi le plus
+	// récemment ajouté n'aurait jamais son historique.
+	project := tracked[0]
+
+	versions, err := s.client.ListVersions(ctx, project.TrackerProject)
 	if err != nil {
 		return err
 	}
 	for _, version := range versions {
 		if _, err := s.store.UpsertRedmineVersion(ctx, store.RedmineVersion{
+			ProjectID:   project.ID,
 			RedmineID:   version.ID,
 			Name:        version.Name,
 			Normalized:  s.names.Normalize(version.Name),
@@ -168,7 +191,7 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 	}
 
 	since := cursorSince(state.Cursor)
-	issues, err := s.client.ListIssues(ctx, provider.IssueQuery{Project: s.project, Since: since})
+	issues, err := s.client.ListIssues(ctx, provider.IssueQuery{Project: project.TrackerProject, Since: since})
 	if err != nil {
 		return err
 	}
@@ -186,6 +209,7 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 		}
 
 		if err := s.store.UpsertRedmineIssue(ctx, store.RedmineIssue{
+			ProjectID:        project.ID,
 			RedmineID:        issue.ID,
 			VersionRedmineID: issue.VersionID,
 			Tracker:          issue.Tracker,
