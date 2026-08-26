@@ -31,7 +31,7 @@ func spec() BootstrapSpec {
 }
 
 func TestLamorcageNeSappliqueQuUneFois(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	report, err := db.Bootstrap(ctx, spec())
@@ -74,7 +74,7 @@ func TestLamorcageNeSappliqueQuUneFois(t *testing.T) {
 // le prix de « la base fait foi », et il vaut mieux qu'une variable
 // d'environnement qui redonne un rôle indéfiniment.
 func TestUneDeclarationAjouteeApresCoupNestPasReprise(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	if _, err := db.Bootstrap(ctx, spec()); err != nil {
@@ -105,7 +105,7 @@ func TestUneDeclarationAjouteeApresCoupNestPasReprise(t *testing.T) {
 // orthographié : l'utilisateur se connecte sans permission, et rien d'autre ne
 // le dit.
 func TestLesDeclarationsEnAttenteSeListent(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	if _, err := db.Bootstrap(ctx, spec()); err != nil {

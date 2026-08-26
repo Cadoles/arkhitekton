@@ -27,7 +27,9 @@ import (
 
 // SignoffStore est ce que les routes de validation attendent de la base.
 type SignoffStore interface {
-	GetRelease(ctx context.Context, tag string) (store.Release, error)
+	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
+	// BuildableProject nomme le projet dont les tags font foi. Voir currentProject.
+	BuildableProject(ctx context.Context) (store.Project, error)
 	ListSignoffs(ctx context.Context, releaseID int64) ([]store.Signoff, error)
 	SetSignoff(ctx context.Context, releaseID int64, environmentID, role, status, detail, decidedBy string) error
 	DeleteSignoff(ctx context.Context, releaseID int64, environmentID, role string) error
@@ -66,7 +68,13 @@ type environmentSignoffsVw struct {
 // « personne ne s'est prononcé » de « cet environnement n'existe pas », alors que
 // l'attente est précisément l'information utile en recette.
 func (h *SignoffsHandler) List(w http.ResponseWriter, r *http.Request) {
-	release, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -167,7 +175,13 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	release, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -220,7 +234,13 @@ func (h *SignoffsHandler) Clear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	release, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")

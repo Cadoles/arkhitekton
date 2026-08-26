@@ -20,9 +20,10 @@ func TestDeployedReleaseJoinsOnImageVersion(t *testing.T) {
 		t.Fatalf("environnement: %v", err)
 	}
 
-	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	// La finale porte le tag `1.8.0` mais l'image de sa RC.
 	if _, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
 		GitRef: "abc", ImageVersion: "1.8.0-rc3", CreatedBy: "vcarroy",
 	}); err != nil {
@@ -61,12 +62,14 @@ func TestPromotionResolvesTheAmbiguity(t *testing.T) {
 		t.Fatalf("environnement: %v", err)
 	}
 
-	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	rcID, _ := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0-rc3", Kind: "pre", State: "ready",
 		GitRef: "abc", ImageVersion: "1.8.0-rc3", CreatedBy: "vcarroy",
 	})
 	finalID, _ := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
 		GitRef: "abc", ImageVersion: "1.8.0-rc3", CreatedBy: "vcarroy",
 	})

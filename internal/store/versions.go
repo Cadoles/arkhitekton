@@ -17,6 +17,10 @@ import (
 
 // RedmineVersion est une version telle que la synchronisation la dépose.
 type RedmineVersion struct {
+	// ProjectID est le dépôt qui suit cette version. L'identifiant Redmine n'est
+	// unique qu'en son sein : deux projets peuvent suivre deux instances, ou deux
+	// projets de la même instance.
+	ProjectID int64
 	RedmineID int64
 	Name      string
 	// Normalized est la forme comparable, calculée par `release.NormalizeVersionName`.
@@ -59,10 +63,12 @@ func (db *DB) UpsertRedmineVersion(ctx context.Context, version RedmineVersion) 
 	var id int64
 	err := db.pool.QueryRow(ctx,
 		`insert into versions
-		     (redmine_id, name, normalized_name, description, status, due_date,
+		     (project_id, redmine_id, name, normalized_name, description, status, due_date,
 		      redmine_updated_on, synced_at)
-		 values ($1, $2, $3, nullif($4, ''), $5, $6, $7, now())
-		 on conflict (redmine_id) do update set
+		 values ($1, $2, $3, $4, nullif($5, ''), $6, $7, $8, now())
+		 -- Le conflit porte sur le couple : le même identifiant Redmine peut être
+		 -- suivi par deux projets, et l'unicité globale les ferait s'écraser.
+		 on conflict (project_id, redmine_id) do update set
 		     name = excluded.name,
 		     normalized_name = excluded.normalized_name,
 		     description = excluded.description,
@@ -72,8 +78,8 @@ func (db *DB) UpsertRedmineVersion(ctx context.Context, version RedmineVersion) 
 		     synced_at = now(),
 		     updated_at = now()
 		 returning id`,
-		version.RedmineID, version.Name, version.Normalized, version.Description,
-		version.Status, version.DueDate, version.UpdatedOn).Scan(&id)
+		version.ProjectID, version.RedmineID, version.Name, version.Normalized,
+		version.Description, version.Status, version.DueDate, version.UpdatedOn).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("enregistrement de la version %d: %w", version.RedmineID, err)
 	}
@@ -124,20 +130,25 @@ func (db *DB) AdoptPendingVersions(ctx context.Context) ([]Adoption, error) {
 	// `for update` sur les provisoires : deux synchronisations concurrentes ne
 	// doivent pas adopter la même deux fois.
 	rows, err := tx.Query(ctx,
-		`select id, name, normalized_name from versions
+		`select id, project_id, name, normalized_name from versions
 		 where redmine_id < 0 order by id for update`)
 	if err != nil {
 		return nil, fmt.Errorf("lecture des versions provisoires: %w", err)
 	}
 	type pending struct {
-		id         int64
-		name       string
+		id        int64
+		projectID int64
+		name      string
+		// normalized est la forme comparable. Le rapprochement se fait **dans le
+		// projet** : deux applications suivies ensemble peuvent porter le même
+		// numéro, et adopter au travers rattacherait une release à la version de
+		// l'autre — silencieusement, puisque les deux existent.
 		normalized *string
 	}
 	var pendings []pending
 	for rows.Next() {
 		var entry pending
-		if err := rows.Scan(&entry.id, &entry.name, &entry.normalized); err != nil {
+		if err := rows.Scan(&entry.id, &entry.projectID, &entry.name, &entry.normalized); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("lecture des versions provisoires: %w", err)
 		}
@@ -154,7 +165,7 @@ func (db *DB) AdoptPendingVersions(ctx context.Context) ([]Adoption, error) {
 			continue
 		}
 
-		candidates, err := realVersionsNamed(ctx, tx, *entry.normalized)
+		candidates, err := realVersionsNamed(ctx, tx, entry.projectID, *entry.normalized)
 		if err != nil {
 			return nil, err
 		}
@@ -232,11 +243,11 @@ func activeOnly(candidates []versionRef) []versionRef {
 // realVersionsNormalized est [realVersionsNamed] hors transaction, pour les
 // lectures qui n'ont pas de provisoire à verrouiller — le rattachement immédiat
 // d'une release, notamment.
-func (db *DB) realVersionsNormalized(ctx context.Context, normalized string) ([]versionRef, error) {
+func (db *DB) realVersionsNormalized(ctx context.Context, projectID int64, normalized string) ([]versionRef, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, name, status from versions
-		 where redmine_id > 0 and normalized_name = $1
-		 order by id`, normalized)
+		 where project_id = $1 and redmine_id > 0 and normalized_name = $2
+		 order by id`, projectID, normalized)
 	if err != nil {
 		return nil, fmt.Errorf("versions réelles nommées %q: %w", normalized, err)
 	}
@@ -244,11 +255,13 @@ func (db *DB) realVersionsNormalized(ctx context.Context, normalized string) ([]
 	return scanVersionRefs(rows, normalized)
 }
 
-func realVersionsNamed(ctx context.Context, tx pgx.Tx, normalized string) ([]versionRef, error) {
+func realVersionsNamed(
+	ctx context.Context, tx pgx.Tx, projectID int64, normalized string,
+) ([]versionRef, error) {
 	rows, err := tx.Query(ctx,
 		`select id, name, status from versions
-		 where redmine_id > 0 and normalized_name = $1
-		 order by id`, normalized)
+		 where project_id = $1 and redmine_id > 0 and normalized_name = $2
+		 order by id`, projectID, normalized)
 	if err != nil {
 		return nil, fmt.Errorf("versions réelles nommées %q: %w", normalized, err)
 	}

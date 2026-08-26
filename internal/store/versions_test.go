@@ -10,6 +10,7 @@ import (
 func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) int64 {
 	t.Helper()
 	id, err := db.UpsertRedmineVersion(context.Background(), RedmineVersion{
+		ProjectID: testProjectID,
 		RedmineID: redmineID, Name: name,
 		Normalized: testNames.Normalize(name),
 		Status:     status,
@@ -35,6 +36,7 @@ func issueOf(t *testing.T, db *DB, redmineID int64, versionRedmineID int64, trac
 func releaseOn(t *testing.T, db *DB, versionID int64, tag string) {
 	t.Helper()
 	if _, err := db.CreateRelease(context.Background(), Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: tag, Kind: "pre", State: "ready",
 		GitRef: "abc", ImageVersion: tag, CreatedBy: "vcarroy",
 	}); err != nil {
@@ -50,7 +52,7 @@ func TestUneVersionProvisoireEstAdopteeParLaVersionReelle(t *testing.T) {
 	ctx := context.Background()
 
 	// Une release est créée alors que la synchronisation n'a jamais tourné.
-	pendingID, err := db.EnsureVersion(ctx, "3.2.0")
+	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.2.0")
 	if err != nil {
 		t.Fatalf("version provisoire: %v", err)
 	}
@@ -98,7 +100,7 @@ func TestUneVersionCloseHomonymeNeBloquePasLAdoption(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	pendingID, err := db.EnsureVersion(ctx, "3.1.2")
+	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
 	if err != nil {
 		t.Fatalf("version provisoire: %v", err)
 	}
@@ -137,7 +139,7 @@ func TestUneVersionVerrouilleeResteCandidate(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	pendingID, _ := db.EnsureVersion(ctx, "3.1.3")
+	pendingID, _ := db.EnsureVersion(ctx, testProjectID, "3.1.3")
 	releaseOn(t, db, pendingID, "3.1.3")
 
 	redmineVersion(t, db, 810, "MSE 3.1.3", "closed")
@@ -158,7 +160,7 @@ func TestDeuxVersionsActivesHomonymesRestentIndecidables(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	pendingID, err := db.EnsureVersion(ctx, "3.1.2")
+	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
 	if err != nil {
 		t.Fatalf("version provisoire: %v", err)
 	}
@@ -202,7 +204,7 @@ func TestLAdoptionNeDependPasDeLOrdreDeLecture(t *testing.T) {
 		db := migrated(t)
 		ctx := context.Background()
 
-		pendingID, _ := db.EnsureVersion(ctx, "3.1.2")
+		pendingID, _ := db.EnsureVersion(ctx, testProjectID, "3.1.2")
 		releaseOn(t, db, pendingID, "3.1.2")
 
 		// Les deux actives : c'est le seul cas encore indécidable, et donc le seul
@@ -229,7 +231,7 @@ func TestUneProvisoireSansCorrespondanceResteSignalee(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	if _, err := db.EnsureVersion(ctx, "9.9.9"); err != nil {
+	if _, err := db.EnsureVersion(ctx, testProjectID, "9.9.9"); err != nil {
 		t.Fatalf("provisoire: %v", err)
 	}
 	redmineVersion(t, db, 805, "v3.2.0", "open")
@@ -626,7 +628,7 @@ func TestEnsureVersionRattacheAUneVersionReelleParNomNormalise(t *testing.T) {
 
 	realID := redmineVersion(t, db, 805, "v3.2.0", "open")
 
-	id, err := db.EnsureVersion(ctx, "3.2.0")
+	id, err := db.EnsureVersion(ctx, testProjectID, "3.2.0")
 	if err != nil {
 		t.Fatalf("rattachement: %v", err)
 	}
@@ -655,7 +657,7 @@ func TestEnsureVersionPrefereLaVersionActiveALHomonymeClose(t *testing.T) {
 	redmineVersion(t, db, 803, "MSE 3.1.2", "closed")
 	activeID := redmineVersion(t, db, 804, "v3.1.2", "open")
 
-	id, err := db.EnsureVersion(ctx, "3.1.2")
+	id, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
 	if err != nil {
 		t.Fatalf("rattachement: %v", err)
 	}
@@ -673,7 +675,7 @@ func TestEnsureVersionRetombeSurUneProvisoireQuandCestIndecidable(t *testing.T) 
 	redmineVersion(t, db, 803, "MSE 3.1.2", "open")
 	redmineVersion(t, db, 804, "v3.1.2", "open")
 
-	if _, err := db.EnsureVersion(ctx, "3.1.2"); err != nil {
+	if _, err := db.EnsureVersion(ctx, testProjectID, "3.1.2"); err != nil {
 		t.Fatalf("rattachement: %v", err)
 	}
 
@@ -694,6 +696,7 @@ func TestUnJobPorteSaReleaseEtSonEtat(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
 	releaseID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "building",
 		GitRef: "develop", ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
 	})
@@ -746,6 +749,7 @@ func TestLAvancementNecrasePasUnEtatDeplaceEntreTemps(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
 	releaseID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "building",
 		GitRef: "develop", ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
 	})
@@ -794,6 +798,7 @@ func TestUneReleaseNeSortDeVerifyingQueQuandToutAConclu(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
 	releaseID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "verifying",
 		GitRef: "main", GitCommit: "abc123", ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
 	})
@@ -852,10 +857,12 @@ func TestLeDecompteNeRegardeQueLaBonneRelease(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
 	mine, _ := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "verifying",
 		ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
 	})
 	other, _ := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.0-rc2", Kind: "pre", State: "verifying",
 		ImageVersion: "3.2.0-rc2", CreatedBy: "vcarroy",
 	})
@@ -900,6 +907,7 @@ func TestUneRelanceNeCompteQueSesPropresVerifications(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
 	releaseID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.0-rc1", Kind: "pre", State: "verifying",
 		GitRef: "main", GitCommit: "abc123", ImageVersion: "3.2.0-rc1", CreatedBy: "vcarroy",
 	})
@@ -961,6 +969,7 @@ func TestSeulLeDernierEssaiDUneFamilleCompte(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
 	releaseID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.0-rc3", Kind: "pre", State: "failed",
 		GitRef: "main", GitCommit: "abc123", ImageVersion: "3.2.0-rc3", CreatedBy: "vcarroy",
 	})
@@ -1018,6 +1027,7 @@ func TestUnDernierEssaiEnEchecCompte(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 805, "v3.2.0", "open")
 	releaseID, _ := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.0-rc4", Kind: "pre", State: "verifying",
 		ImageVersion: "3.2.0-rc4", CreatedBy: "vcarroy",
 	})
@@ -1048,5 +1058,79 @@ func TestUnDernierEssaiEnEchecCompte(t *testing.T) {
 	}
 	if tally.Failed != 1 || tally.Succeeded != 0 {
 		t.Errorf("décompte %+v — le dernier essai doit l'emporter", tally)
+	}
+}
+
+// Deux projets suivis ensemble portent chacun leur `3.1.2`, et rien ne doit les
+// mêler.
+//
+// C'est la raison d'être de la migration 0025, et la propriété la plus facile à
+// perdre sans s'en apercevoir : le rapprochement se fait par nom **normalisé**,
+// et une requête qui oublie le projet rattache silencieusement la release de l'un
+// à la version de l'autre. Les deux existent, aucune erreur n'est levée, et
+// l'écran affiche un périmètre qui n'est pas le sien.
+func TestDeuxProjetsNeSeVolentPasLeursVersions(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	var second int64
+	if err := db.Pool().QueryRow(ctx,
+		`insert into projects (repository, label, forge_url, dockerfile, build_context, created_by)
+		 values ('vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.', 'test')
+		 returning id`).Scan(&second); err != nil {
+		t.Fatalf("second projet: %v", err)
+	}
+
+	// Le même numéro, déclaré des deux côtés. Le même identifiant Redmine aussi :
+	// deux projets peuvent suivre deux instances, ou deux projets de la même.
+	for _, projectID := range []int64{testProjectID, second} {
+		if _, err := db.UpsertRedmineVersion(ctx, RedmineVersion{
+			ProjectID: projectID, RedmineID: 900, Name: "v3.1.2",
+			Normalized: testNames.Normalize("v3.1.2"), Status: "open",
+		}); err != nil {
+			t.Fatalf("version du projet %d: %v", projectID, err)
+		}
+	}
+
+	// Une release du premier projet doit trouver **sa** version.
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
+	if err != nil {
+		t.Fatalf("rattachement: %v", err)
+	}
+
+	var owner int64
+	if err := db.Pool().QueryRow(ctx,
+		`select project_id from versions where id = $1`, versionID).Scan(&owner); err != nil {
+		t.Fatalf("lecture du projet: %v", err)
+	}
+	if owner != testProjectID {
+		t.Errorf("version rattachée au projet %d, attendu %d", owner, testProjectID)
+	}
+
+	// Et le tag n'est unique qu'au sein d'un projet : le même `1.0.0` doit
+	// pouvoir exister des deux côtés.
+	for _, projectID := range []int64{testProjectID, second} {
+		version, err := db.EnsureVersion(ctx, projectID, "1.0.0")
+		if err != nil {
+			t.Fatalf("version 1.0.0 du projet %d: %v", projectID, err)
+		}
+		if _, err := db.CreateRelease(ctx, Release{
+			ProjectID: projectID, VersionID: version, Tag: "1.0.0",
+			Kind: "final", State: "draft", ImageVersion: "1.0.0", CreatedBy: "test",
+		}); err != nil {
+			t.Fatalf("release 1.0.0 du projet %d: %v", projectID, err)
+		}
+	}
+
+	first, err := db.GetRelease(ctx, testProjectID, "1.0.0")
+	if err != nil {
+		t.Fatalf("lecture de la release du premier projet: %v", err)
+	}
+	other, err := db.GetRelease(ctx, second, "1.0.0")
+	if err != nil {
+		t.Fatalf("lecture de la release du second projet: %v", err)
+	}
+	if first.ID == other.ID {
+		t.Error("les deux projets partagent la même release: l'unicité du tag est restée globale")
 	}
 }

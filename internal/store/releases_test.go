@@ -12,12 +12,12 @@ func TestEnsureVersionCreatesThenReuses(t *testing.T) {
 
 	// Sans la synchronisation Redmine, la table est vide et aucune release ne
 	// pourrait être créée alors que tout le reste de la chaîne fonctionne.
-	first, err := db.EnsureVersion(ctx, "1.8.0")
+	first, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	if err != nil {
 		t.Fatalf("création: %v", err)
 	}
 
-	second, err := db.EnsureVersion(ctx, "1.8.0")
+	second, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	if err != nil {
 		t.Fatalf("réutilisation: %v", err)
 	}
@@ -45,12 +45,13 @@ func TestCreateAndGetRelease(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, err := db.EnsureVersion(ctx, "1.8.0")
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
 
 	id, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0-rc1", Kind: "pre", State: "draft",
 		GitRef: "abc1234", ImageVersion: "1.8.0-rc1", CreatedBy: "vcarroy",
 	})
@@ -58,7 +59,7 @@ func TestCreateAndGetRelease(t *testing.T) {
 		t.Fatalf("création: %v", err)
 	}
 
-	release, err := db.GetRelease(ctx, "1.8.0-rc1")
+	release, err := db.GetRelease(ctx, testProjectID, "1.8.0-rc1")
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
@@ -70,7 +71,7 @@ func TestCreateAndGetRelease(t *testing.T) {
 func TestGetReleaseDistinguishesAbsence(t *testing.T) {
 	db := migrated(t)
 
-	if _, err := db.GetRelease(context.Background(), "9.9.9"); !errors.Is(err, ErrReleaseNotFound) {
+	if _, err := db.GetRelease(context.Background(), testProjectID, "9.9.9"); !errors.Is(err, ErrReleaseNotFound) {
 		t.Errorf("erreur = %v, attendu ErrReleaseNotFound", err)
 	}
 }
@@ -82,9 +83,10 @@ func TestFinalReleaseKeepsTheSourceImageVersion(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 
 	sourceID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0-rc3", Kind: "pre", State: "ready",
 		GitRef: "abc", ImageVersion: "1.8.0-rc3", CreatedBy: "vcarroy",
 	})
@@ -93,6 +95,7 @@ func TestFinalReleaseKeepsTheSourceImageVersion(t *testing.T) {
 	}
 
 	if _, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
 		GitRef: "abc", ImageVersion: "1.8.0-rc3", SourceReleaseID: &sourceID,
 		CreatedBy: "vcarroy",
@@ -100,7 +103,7 @@ func TestFinalReleaseKeepsTheSourceImageVersion(t *testing.T) {
 		t.Fatalf("finale: %v", err)
 	}
 
-	final, err := db.GetRelease(ctx, "1.8.0")
+	final, err := db.GetRelease(ctx, testProjectID, "1.8.0")
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
@@ -119,8 +122,9 @@ func TestRecordPromotion(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	releaseID, _ := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0-rc1", Kind: "pre", State: "ready",
 		GitRef: "abc", ImageVersion: "1.8.0-rc1", CreatedBy: "vcarroy",
 	})
@@ -152,8 +156,9 @@ func TestManualActionsCarryTheirAuthorAndDate(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	if _, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
 		GitRef: "abc", ImageVersion: "1.8.0-rc3", CreatedBy: "vcarroy",
 	}); err != nil {
@@ -164,7 +169,7 @@ func TestManualActionsCarryTheirAuthorAndDate(t *testing.T) {
 		t.Fatalf("actions: %v", err)
 	}
 
-	release, err := db.GetRelease(ctx, "1.8.0")
+	release, err := db.GetRelease(ctx, testProjectID, "1.8.0")
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
@@ -199,9 +204,10 @@ func TestEnvironmentHistoryFollowsWhatWasRequested(t *testing.T) {
 		t.Fatalf("environnement: %v", err)
 	}
 
-	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	for _, tag := range []string{"1.8.0-rc1", "1.8.0-rc2"} {
 		releaseID, err := db.CreateRelease(ctx, Release{
+			ProjectID: testProjectID,
 			VersionID: versionID, Tag: tag, Kind: "pre", State: "ready",
 			GitRef: "abc", ImageVersion: tag, CreatedBy: "vcarroy",
 		})
@@ -265,6 +271,7 @@ func TestLeDecompteDesConstructionsAttendToutesLesImages(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 930, "v3.3.0", "open")
 	releaseID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.3.0-rc1", Kind: "pre", State: "building",
 		ImageVersion: "3.3.0-rc1", CreatedBy: "vcarroy",
 	})
@@ -306,6 +313,7 @@ func TestUneImageEnEchecEmpecheLaConclusion(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 931, "v3.4.0", "open")
 	releaseID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.4.0-rc1", Kind: "pre", State: "building",
 		ImageVersion: "3.4.0-rc1", CreatedBy: "vcarroy",
 	})
@@ -339,6 +347,7 @@ func TestUneSerieVideNestPasConclue(t *testing.T) {
 
 	versionID := redmineVersion(t, db, 932, "v3.5.0", "open")
 	releaseID, err := db.CreateRelease(context.Background(), Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.5.0-rc1", Kind: "pre", State: "building",
 		ImageVersion: "3.5.0-rc1", CreatedBy: "vcarroy",
 	})

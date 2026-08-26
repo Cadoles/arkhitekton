@@ -13,7 +13,9 @@ import (
 
 // BenchStore est ce que les handlers de charge attendent de la base.
 type BenchStore interface {
-	GetRelease(ctx context.Context, tag string) (store.Release, error)
+	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
+	// BuildableProject nomme le projet dont les tags font foi. Voir currentProject.
+	BuildableProject(ctx context.Context) (store.Project, error)
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
 	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
 	ListScenarioMeasures(ctx context.Context, scenario, metric string, limit int) ([]store.BenchMeasure, error)
@@ -73,7 +75,13 @@ type measurePayload struct {
 
 // Bench rend les campagnes de charge d'une release, comparées à leurs baselines.
 func (h *BenchHandler) Bench(w http.ResponseWriter, r *http.Request) {
-	release, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")

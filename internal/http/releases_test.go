@@ -61,7 +61,9 @@ func (f *fakeReleaseStore) BuildableProject(context.Context) (store.Project, err
 	return fixtureProject(), nil
 }
 
-func (f *fakeReleaseStore) EnsureVersion(context.Context, string) (int64, error) { return 1, nil }
+func (f *fakeReleaseStore) EnsureVersion(context.Context, int64, string) (int64, error) {
+	return 1, nil
+}
 
 func (f *fakeReleaseStore) CreateRelease(_ context.Context, release store.Release) (int64, error) {
 	release.ID = int64(len(f.releases) + 10)
@@ -69,7 +71,7 @@ func (f *fakeReleaseStore) CreateRelease(_ context.Context, release store.Releas
 	return release.ID, nil
 }
 
-func (f *fakeReleaseStore) GetRelease(_ context.Context, tag string) (store.Release, error) {
+func (f *fakeReleaseStore) GetRelease(_ context.Context, _ int64, tag string) (store.Release, error) {
 	release, found := f.releases[tag]
 	if !found {
 		return store.Release{}, store.ErrReleaseNotFound
@@ -77,7 +79,7 @@ func (f *fakeReleaseStore) GetRelease(_ context.Context, tag string) (store.Rele
 	return release, nil
 }
 
-func (f *fakeReleaseStore) ListReleases(context.Context, int) ([]store.Release, error) {
+func (f *fakeReleaseStore) ListReleases(context.Context, int64, int) ([]store.Release, error) {
 	var releases []store.Release
 	for _, release := range f.releases {
 		releases = append(releases, release)

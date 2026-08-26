@@ -13,7 +13,11 @@ import (
 
 // Release est une release enregistrée.
 type Release struct {
-	ID        int64
+	ID int64
+	// ProjectID est le dépôt qui porte cette release. Deux projets suivis
+	// ensemble publient chacun leur `1.0.0`, et c'est lui qui les distingue :
+	// l'unicité du tag est relative au projet depuis la migration 0025.
+	ProjectID int64
 	VersionID int64
 	// Tag est l'identité de la release : `1.8.0-rc2`, `1.8.0`.
 	Tag   string
@@ -56,9 +60,10 @@ var ErrVersionNotFound = errors.New("version introuvable")
 //
 // C'est le point de jointure de l'invariant : le tag d'une release est le nom de
 // la version, éventuellement suivi d'un suffixe de pré-release (B17).
-func (db *DB) FindVersionByName(ctx context.Context, name string) (int64, error) {
+func (db *DB) FindVersionByName(ctx context.Context, projectID int64, name string) (int64, error) {
 	var id int64
-	err := db.pool.QueryRow(ctx, `select id from versions where name = $1`, name).Scan(&id)
+	err := db.pool.QueryRow(ctx,
+		`select id from versions where project_id = $1 and name = $2`, projectID, name).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, ErrVersionNotFound
@@ -73,11 +78,11 @@ func (db *DB) CreateRelease(ctx context.Context, release Release) (int64, error)
 	var id int64
 	err := db.pool.QueryRow(ctx,
 		`insert into releases (
-		     version_id, tag, kind, state, git_ref, git_commit, image_version,
+		     project_id, version_id, tag, kind, state, git_ref, git_commit, image_version,
 		     source_release_id, created_by
-		 ) values ($1, $2, $3, $4, $5, nullif($6, ''), $7, $8, $9)
+		 ) values ($1, $2, $3, $4, $5, $6, nullif($7, ''), $8, $9, $10)
 		 returning id`,
-		release.VersionID, release.Tag, release.Kind, release.State,
+		release.ProjectID, release.VersionID, release.Tag, release.Kind, release.State,
 		release.GitRef, release.GitCommit, release.ImageVersion,
 		release.SourceReleaseID, release.CreatedBy).Scan(&id)
 	if err != nil {
@@ -86,17 +91,20 @@ func (db *DB) CreateRelease(ctx context.Context, release Release) (int64, error)
 	return id, nil
 }
 
-// GetRelease rend une release par son tag.
-func (db *DB) GetRelease(ctx context.Context, tag string) (Release, error) {
+// GetRelease rend une release par son tag, dans un projet.
+//
+// Le projet n'est pas décoratif : le tag n'est unique qu'en son sein, et lire par
+// tag seul rendrait la release d'un autre projet dès qu'un second existera.
+func (db *DB) GetRelease(ctx context.Context, projectID int64, tag string) (Release, error) {
 	var release Release
 	err := db.pool.QueryRow(ctx,
-		`select id, version_id, tag, kind, state, coalesce(git_ref, ''),
+		`select id, project_id, version_id, tag, kind, state, coalesce(git_ref, ''),
 		        coalesce(git_commit, ''), image_version,
 		        source_release_id, created_by, created_at, released_at,
 		        coalesce(manual_actions_md, ''), coalesce(manual_actions_updated_by, ''),
 		        manual_actions_updated_at
-		 from releases where tag = $1`, tag).
-		Scan(&release.ID, &release.VersionID, &release.Tag, &release.Kind, &release.State,
+		 from releases where project_id = $1 and tag = $2`, projectID, tag).
+		Scan(&release.ID, &release.ProjectID, &release.VersionID, &release.Tag, &release.Kind, &release.State,
 			&release.GitRef, &release.GitCommit, &release.ImageVersion, &release.SourceReleaseID,
 			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt,
 			&release.ManualActions, &release.ManualActionsUpdatedBy, &release.ManualActionsUpdatedAt)
@@ -109,17 +117,18 @@ func (db *DB) GetRelease(ctx context.Context, tag string) (Release, error) {
 	return release, nil
 }
 
-// ListReleases rend les releases les plus récentes d'abord.
-func (db *DB) ListReleases(ctx context.Context, limit int) ([]Release, error) {
+// ListReleases rend les releases d'un projet, les plus récentes d'abord.
+func (db *DB) ListReleases(ctx context.Context, projectID int64, limit int) ([]Release, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 
 	rows, err := db.pool.Query(ctx,
-		`select id, version_id, tag, kind, state, coalesce(git_ref, ''),
+		`select id, project_id, version_id, tag, kind, state, coalesce(git_ref, ''),
 		        coalesce(git_commit, ''), image_version,
 		        source_release_id, created_by, created_at, released_at
-		 from releases order by created_at desc limit $1`, limit)
+		 from releases where project_id = $1 order by created_at desc limit $2`,
+		projectID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("liste des releases: %w", err)
 	}
@@ -128,7 +137,7 @@ func (db *DB) ListReleases(ctx context.Context, limit int) ([]Release, error) {
 	var releases []Release
 	for rows.Next() {
 		var release Release
-		if err := rows.Scan(&release.ID, &release.VersionID, &release.Tag, &release.Kind,
+		if err := rows.Scan(&release.ID, &release.ProjectID, &release.VersionID, &release.Tag, &release.Kind,
 			&release.State, &release.GitRef, &release.GitCommit, &release.ImageVersion,
 			&release.SourceReleaseID,
 			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt); err != nil {
@@ -228,8 +237,8 @@ func (db *DB) ListPromotions(ctx context.Context, releaseID int64) ([]Promotion,
 //     rattachement différé désignent la même version ;
 //  3. la création d'une provisoire à `redmine_id` négatif — le repli quand
 //     Redmine ne connaît pas encore le numéro, reconnaissable et adopté plus tard.
-func (db *DB) EnsureVersion(ctx context.Context, name string) (int64, error) {
-	id, err := db.FindVersionByName(ctx, name)
+func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error) {
+	id, err := db.FindVersionByName(ctx, projectID, name)
 	if err == nil {
 		return id, nil
 	}
@@ -241,7 +250,7 @@ func (db *DB) EnsureVersion(ctx context.Context, name string) (int64, error) {
 	// égalité le rattachement est indécidable et on retombe sur la provisoire —
 	// choisir au hasard rattacherait la release à la mauvaise version, et la
 	// provisoire, elle, reste visible et signalée.
-	candidates, err := db.realVersionsNormalized(ctx, db.names.Normalize(name))
+	candidates, err := db.realVersionsNormalized(ctx, projectID, db.names.Normalize(name))
 	if err != nil {
 		return 0, err
 	}
@@ -257,9 +266,9 @@ func (db *DB) EnsureVersion(ctx context.Context, name string) (int64, error) {
 	// provisoire pour l'adopter. Nulle, la provisoire resterait orpheline et la
 	// version réelle s'afficherait sans aucune release.
 	err = db.pool.QueryRow(ctx,
-		`insert into versions (redmine_id, name, normalized_name, status, synced_at)
-		 values (-nextval('versions_id_seq'), $1, $2, 'en-attente-de-synchronisation', now())
-		 returning id`, name, db.names.Normalize(name)).Scan(&id)
+		`insert into versions (project_id, redmine_id, name, normalized_name, status, synced_at)
+		 values ($1, -nextval('versions_id_seq'), $2, $3, 'en-attente-de-synchronisation', now())
+		 returning id`, projectID, name, db.names.Normalize(name)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("création de la version provisoire %q: %w", name, err)
 	}

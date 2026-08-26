@@ -9,8 +9,9 @@ func loadFixture(t *testing.T, db *DB) (int64, int64) {
 	t.Helper()
 	ctx := context.Background()
 
-	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	releaseID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
 		GitRef: "abc", ImageVersion: "1.8.0", CreatedBy: "vcarroy",
 	})

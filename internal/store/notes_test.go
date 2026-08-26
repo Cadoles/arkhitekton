@@ -18,6 +18,7 @@ import (
 func noteRelease(t *testing.T, db *DB, versionID int64, tag string) int64 {
 	t.Helper()
 	id, err := db.CreateRelease(context.Background(), Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: tag, Kind: "pre", State: "ready",
 		ImageVersion: tag, CreatedBy: "vcarroy",
 	})

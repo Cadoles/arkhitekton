@@ -25,10 +25,10 @@ import (
 
 // ReleaseStore est ce que les handlers de release attendent de la base.
 type ReleaseStore interface {
-	EnsureVersion(ctx context.Context, name string) (int64, error)
+	EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error)
 	CreateRelease(ctx context.Context, release store.Release) (int64, error)
-	GetRelease(ctx context.Context, tag string) (store.Release, error)
-	ListReleases(ctx context.Context, limit int) ([]store.Release, error)
+	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
+	ListReleases(ctx context.Context, projectID int64, limit int) ([]store.Release, error)
 	RecordPromotion(ctx context.Context, promotion store.Promotion) error
 	ListPromotions(ctx context.Context, releaseID int64) ([]store.Promotion, error)
 	SetManualActions(ctx context.Context, tag, markdown, author string) error
@@ -343,7 +343,13 @@ func (h *ReleasesHandler) actorsFor(ctx context.Context) actors {
 
 // List rend les releases les plus récentes.
 func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
-	releases, err := h.store.ListReleases(r.Context(), 50)
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	releases, err := h.store.ListReleases(r.Context(), currentID, 50)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des releases impossible", "")
 		return
@@ -395,7 +401,13 @@ func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *sco
 
 // Get rend une release, ses promotions et ses cibles possibles.
 func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
-	item, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -650,7 +662,13 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		record.State = string(release.StateDraft)
 		record.ImageVersion = version.Raw
 	} else {
-		source, err := h.store.GetRelease(r.Context(), request.SourceTag)
+		currentID, err := currentProject(r.Context(), h.store)
+		if err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+			return
+		}
+
+		source, err := h.store.GetRelease(r.Context(), currentID, request.SourceTag)
 		if err != nil {
 			if errors.Is(err, store.ErrReleaseNotFound) {
 				writeProblem(w, http.StatusBadRequest,
@@ -708,7 +726,13 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	versionID, err := h.store.EnsureVersion(r.Context(), version.Base)
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	versionID, err := h.store.EnsureVersion(r.Context(), currentID, version.Base)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Version indisponible", "")
 		return
@@ -811,7 +835,13 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tag := r.PathValue("tag")
-	record, err := h.store.GetRelease(r.Context(), tag)
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	record, err := h.store.GetRelease(r.Context(), currentID, tag)
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
@@ -875,7 +905,13 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tag := r.PathValue("tag")
-	record, err := h.store.GetRelease(r.Context(), tag)
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	record, err := h.store.GetRelease(r.Context(), currentID, tag)
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
@@ -973,7 +1009,13 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record, err := h.store.GetRelease(r.Context(), tag)
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	record, err := h.store.GetRelease(r.Context(), currentID, tag)
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
@@ -1061,7 +1103,13 @@ type notePayload struct {
 
 // Notes rend la note d'une release.
 func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
-	record, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	record, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -1141,7 +1189,13 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	record, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -1175,7 +1229,13 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 
 // RemoveNote retire une demande de la note.
 func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
-	record, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	record, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -1389,7 +1449,13 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -1633,7 +1699,13 @@ func (h *ReleasesHandler) UpdateActions(w http.ResponseWriter, r *http.Request) 
 
 	// La release est relue plutôt que reconstruite : l'horodatage est posé par la
 	// base, et le renvoyer depuis une valeur calculée ici les ferait diverger.
-	item, err := h.store.GetRelease(r.Context(), tag)
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	item, err := h.store.GetRelease(r.Context(), currentID, tag)
 	if err != nil {
 		writeJSON(w, http.StatusNoContent, nil)
 		return
@@ -1705,7 +1777,13 @@ type artifactPayload struct {
 
 // Exports rend les livrables déjà produits pour une release.
 func (h *ReleasesHandler) Exports(w http.ResponseWriter, r *http.Request) {
-	item, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -1766,7 +1844,13 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -1819,7 +1903,13 @@ func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 		return

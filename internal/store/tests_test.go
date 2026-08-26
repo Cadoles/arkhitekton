@@ -38,8 +38,9 @@ func saveCases(t *testing.T, db *DB, runID int64, releaseID int64, family string
 func releaseFor(t *testing.T, db *DB, tag string) int64 {
 	t.Helper()
 	ctx := context.Background()
-	versionID, _ := db.EnsureVersion(ctx, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	id, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
 		VersionID: versionID, Tag: tag, Kind: "pre", State: "ready",
 		GitRef: "abc", ImageVersion: tag, CreatedBy: "vcarroy",
 	})

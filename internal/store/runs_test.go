@@ -11,7 +11,7 @@ import (
 
 // migrated rend une base au schéma à jour. Les tests de ce fichier travaillent
 // tous sur des runs, sans dépendance à un référentiel.
-func migrated(t *testing.T) *DB {
+func migratedBare(t *testing.T) *DB {
 	t.Helper()
 
 	cfg := testDB(t)
@@ -27,6 +27,7 @@ func migrated(t *testing.T) *DB {
 		t.Fatalf("connexion: %v", err)
 	}
 	db = db.WithNormalizer(testNames)
+
 	t.Cleanup(db.Close)
 	return db
 }
@@ -503,4 +504,29 @@ func TestRunsUpdatedSinceReturnsOnlyChanges(t *testing.T) {
 // données de ces tests sont les siennes : l'instance porte `v3.1.2` et
 // `MSE 3.1.2` dans le même projet, et c'est cette coexistence que les tests
 // d'adoption examinent. Le binaire, lui, ne connaît d'office que `v`.
+// testProjectID est le projet créé par [migrated]. Constante et non variable :
+// le schéma est recréé à chaque test, et la séquence repart de un.
+const testProjectID int64 = 1
+
+// migrated rend une base au schéma à jour, avec un projet d'accueil.
+//
+// Sans lui, aucune version ni aucune release ne peut exister depuis la migration
+// 0025. Créé ici plutôt que dans chaque test : c'est un prérequis du schéma, pas
+// un sujet d'épreuve. Les tests qui **comptent** les projets — amorçage,
+// administration des dépôts — prennent [migratedBare], qui n'en pose aucun.
+//
+// L'identifiant est prévisible parce que `resetSchema` recrée le schéma : la
+// séquence repart de un.
+func migrated(t *testing.T) *DB {
+	t.Helper()
+
+	db := migratedBare(t)
+	if _, err := db.Pool().Exec(context.Background(),
+		`insert into projects (repository, label, forge_url, dockerfile, build_context, created_by)
+		 values ('vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.', 'test')`); err != nil {
+		t.Fatalf("projet de test: %v", err)
+	}
+	return db
+}
+
 var testNames = release.NewNormalizer([]string{release.DefaultPrefix, "MSE "})

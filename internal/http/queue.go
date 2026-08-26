@@ -36,7 +36,9 @@ type QueueStore interface {
 // désigne une release existante, et un champ vide oblige à aller la chercher
 // dans un autre écran pour la recopier — avec la faute de frappe qui va avec.
 type Releases interface {
-	ListReleases(ctx context.Context, limit int) ([]store.Release, error)
+	ListReleases(ctx context.Context, projectID int64, limit int) ([]store.Release, error)
+	// BuildableProject nomme le projet dont les tags font foi. Voir currentProject.
+	BuildableProject(ctx context.Context) (store.Project, error)
 }
 
 // QueueHandler expose la file et le lancement.
@@ -244,7 +246,17 @@ func (h *QueueHandler) suggestions(ctx context.Context) map[string][]option {
 
 	// Les plus récentes d'abord, et pas toutes : une liste de deux cents entrées
 	// ne se parcourt pas, et ce qu'on relance porte sur ce qui vient de sortir.
-	releases, err := h.releases.ListReleases(ctx, suggestedReleases)
+	currentID, err := currentProject(ctx, h.releases)
+	if err != nil {
+		// Un projet indéterminé ne fait pas échouer la file : les champs concernés
+		// restent en saisie libre, comme lorsque les releases sont illisibles.
+		if h.logger != nil {
+			h.logger.Error("projet courant", "error", err)
+		}
+		return proposed
+	}
+
+	releases, err := h.releases.ListReleases(ctx, currentID, suggestedReleases)
 	if err != nil {
 		// Une liste illisible ne fait pas échouer la file : les champs concernés
 		// restent en saisie libre, ce qui est le comportement d'avant.

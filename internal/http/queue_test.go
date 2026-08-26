@@ -61,7 +61,7 @@ func (f *fakeQueueStore) ClearQueueLimit(_ context.Context, kind string) error {
 func (f *fakeQueueStore) Audit(context.Context, string, string, string, map[string]any) error {
 	return nil
 }
-func (f *fakeQueueStore) ListReleases(context.Context, int) ([]store.Release, error) {
+func (f *fakeQueueStore) ListReleases(context.Context, int64, int) ([]store.Release, error) {
 	return f.releases, nil
 }
 
@@ -352,4 +352,10 @@ func TestUnNomDeParametreFantaisisteEstRefuse(t *testing.T) {
 	if accepted.Code != http.StatusAccepted {
 		t.Errorf("code %d, attendu 202", accepted.Code)
 	}
+}
+
+// BuildableProject nomme le projet d'accueil. Un seul suffit ici : ces tests
+// portent sur ce que le handler fait du projet, pas sur son choix.
+func (f *fakeQueueStore) BuildableProject(context.Context) (store.Project, error) {
+	return store.Project{ID: 1, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
 }

@@ -34,7 +34,7 @@ func project(t *testing.T, db *DB, repository string) int64 {
 }
 
 func TestUnProjetSeDeclareEtSeRelit(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
@@ -59,7 +59,7 @@ func TestUnProjetSeDeclareEtSeRelit(t *testing.T) {
 // Deux entrées pour un même dépôt décriraient la même chose, et rien ne dirait
 // laquelle fait foi.
 func TestUnDepotNeSeDeclarePasDeuxFois(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 
 	project(t, db, "CNOUS/mse")
 
@@ -79,7 +79,7 @@ func TestUnDepotNeSeDeclarePasDeuxFois(t *testing.T) {
 // faire avec elle : les projets amorcés portent le dépôt que la configuration a
 // nommé, et le corriger est le premier geste qu'on vient faire sur cet écran.
 func TestUneCorrectionEcarteLesEtapesVides(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
@@ -103,7 +103,7 @@ func TestUneCorrectionEcarteLesEtapesVides(t *testing.T) {
 }
 
 func TestLeConstatDaccesEstConserve(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
@@ -131,7 +131,7 @@ func TestLeConstatDaccesEstConserve(t *testing.T) {
 }
 
 func TestUnProjetAbsentSeDistingueDUneErreur(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	if _, err := db.GetProject(ctx, 4242); !errors.Is(err, ErrProjectNotFound) {
@@ -153,7 +153,7 @@ func TestUnProjetAbsentSeDistingueDUneErreur(t *testing.T) {
  * rendent sûr : il est rejouable, et il n'écrase rien.
  */
 func TestLamorcageEstRejouableEtNecrasePas(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	configured := []Project{
@@ -220,7 +220,7 @@ func TestLamorcageEstRejouableEtNecrasePas(t *testing.T) {
 // amorcés portent celui que la configuration a nommé, et le corriger est
 // exactement ce qu'on vient faire.
 func TestLeDepotSeCorrigeEtEffaceLeConstat(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "vcarroy/mse-test-project")
@@ -251,7 +251,7 @@ func TestLeDepotSeCorrigeEtEffaceLeConstat(t *testing.T) {
 // Modifier autre chose que le dépôt conserve le constat : le refaire à chaque
 // correction de libellé le rendrait inutile.
 func TestUneCorrectionSansChangementDeDepotGardeLeConstat(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
@@ -275,7 +275,7 @@ func TestUneCorrectionSansChangementDeDepotGardeLeConstat(t *testing.T) {
 // Deux entrées pour un même dépôt décriraient la même chose : le refus vaut
 // aussi pour une correction, et doit se distinguer d'une panne d'écriture.
 func TestUneCorrectionVersUnDepotDejaDeclareEstRefusee(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	project(t, db, "CNOUS/mse")
@@ -294,7 +294,7 @@ func TestUneCorrectionVersUnDepotDejaDeclareEstRefusee(t *testing.T) {
 // champ. L'accepter l'effacerait en silence, et le projet deviendrait une ligne
 // qui ne désigne rien.
 func TestUneCorrectionSansDepotEstRefusee(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
@@ -336,7 +336,7 @@ func TestLaReferenceCombineLeRegistreEtLimage(t *testing.T) {
 // Un Dockerfile à image unique passe par la même liste, avec une entrée sans
 // cible : c'est le cas qui n'avait aucun nom d'image du tout.
 func TestUneImageUniqueSeDeclareSansCible(t *testing.T) {
-	db := migrated(t)
+	db := migratedBare(t)
 	ctx := context.Background()
 
 	id, err := db.CreateProject(ctx, Project{

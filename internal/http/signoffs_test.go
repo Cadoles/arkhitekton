@@ -24,7 +24,7 @@ type fakeSignoffStore struct {
 	unknownEnv   bool
 }
 
-func (f *fakeSignoffStore) GetRelease(context.Context, string) (store.Release, error) {
+func (f *fakeSignoffStore) GetRelease(context.Context, int64, string) (store.Release, error) {
 	if f.releaseErr != nil {
 		return store.Release{}, f.releaseErr
 	}
@@ -264,4 +264,10 @@ func TestTousLesEnvironnementsSontRendusMemeSansAvis(t *testing.T) {
 	if response.Environments[1].Signoffs == nil {
 		t.Error("les avis d'un environnement sans avis doivent être un tableau vide")
 	}
+}
+
+// BuildableProject nomme le projet d'accueil. Un seul suffit ici : ces tests
+// portent sur ce que le handler fait du projet, pas sur son choix.
+func (f *fakeSignoffStore) BuildableProject(context.Context) (store.Project, error) {
+	return store.Project{ID: 1, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
 }

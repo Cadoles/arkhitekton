@@ -789,7 +789,14 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 
 	var releaseID int64
 	if *releaseTag != "" {
-		release, err := db.GetRelease(ctx, *releaseTag)
+		// Le tag n'est unique que dans un projet : le rejeu vise donc celui qui
+		// se construit, comme le reste du dashboard tant que les routes ne
+		// portent pas le projet.
+		project, err := db.BuildableProject(ctx)
+		if err != nil {
+			return err
+		}
+		release, err := db.GetRelease(ctx, project.ID, *releaseTag)
 		if err != nil {
 			// Refuser plutôt que rejouer tout : un tag mal orthographié
 			// déclencherait sinon un rejeu de l'historique entier, c'est-à-dire

@@ -14,7 +14,9 @@ import (
 
 // TestStore est ce que les handlers de résultats attendent de la base.
 type TestStore interface {
-	GetRelease(ctx context.Context, tag string) (store.Release, error)
+	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
+	// BuildableProject nomme le projet dont les tags font foi. Voir currentProject.
+	BuildableProject(ctx context.Context) (store.Project, error)
 	ListReleaseTestResults(ctx context.Context, releaseID int64) ([]store.TestResult, error)
 	ListTestCases(ctx context.Context, resultID int64, page store.CasePage) ([]store.TestCase, int, error)
 	DiffFamily(ctx context.Context, releaseID, previousID int64, family string) ([]store.CaseDiff, error)
@@ -89,7 +91,13 @@ type signalPayload struct {
 
 // Tests rend les rapports d'une release et le score qu'ils composent.
 func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
-	release, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -377,7 +385,13 @@ type casePayload struct {
 // — « qu'est-ce qui a changé ? » — et non « combien de tests passent ». Un
 // compteur stable peut cacher un échec résolu et un échec apparu.
 func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
-	release, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
@@ -506,7 +520,13 @@ type findingPayload struct {
 
 // Security rend le dernier audit d'une release et ses findings.
 func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
-	release, err := h.store.GetRelease(r.Context(), r.PathValue("tag"))
+	currentID, err := currentProject(r.Context(), h.store)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		return
+	}
+
+	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
