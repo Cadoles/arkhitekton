@@ -220,6 +220,9 @@ func (f *fakeReleaseStore) SetReleaseState(_ context.Context, id int64, state st
 	return nil
 }
 
+// testProjectSlug est le projet que les routes nomment dans leur chemin.
+const testProjectSlug = "test"
+
 func newFakeStore() *fakeReleaseStore {
 	return &fakeReleaseStore{
 		releases: map[string]store.Release{},
@@ -289,6 +292,12 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 
 func asRole(request *http.Request, role auth.Role) *http.Request {
 	identity := auth.Identity{Subject: "vcarroy", Username: "vcarroy", Role: role}
+	// Le projet est posé ici parce que toute requête d'un handler rattaché à un
+	// projet passe par cette porte : les routes le portent dans leur chemin, et
+	// une requête de test qui l'oublierait échouerait sur « projet non désigné »
+	// au lieu de mesurer ce qu'elle vise. Les tests qui éprouvent la résolution
+	// elle-même le remplacent après coup.
+	request.SetPathValue("project", testProjectSlug)
 	return request.WithContext(context.WithValue(request.Context(), identityKey, identity))
 }
 
@@ -1383,5 +1392,43 @@ func TestSansDeployeurLaPromotionDitQueRienNestConfigure(t *testing.T) {
 	}
 	if len(fake.promotions) != 0 {
 		t.Errorf("aucune promotion enregistrée attendue: %+v", fake.promotions)
+	}
+}
+
+// ProjectBySlug résout le projet nommé dans le chemin. Un seul ici : ces tests
+// portent sur ce que le handler fait du projet, pas sur sa résolution.
+func (f *fakeReleaseStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+	if slug != testProjectSlug {
+		return store.Project{}, store.ErrProjectNotFound
+	}
+	return store.Project{ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
+}
+
+// Un projet inconnu rend 404, jamais la release d'un autre.
+//
+// C'est ce que la migration 0025 rend possible et ce que la route rend
+// obligatoire : le tag n'est unique que dans un projet, et une URL qui en nomme
+// un qui n'existe pas doit le dire. Répondre 500 ferait chercher une panne pour
+// une adresse périmée ; répondre 200 avec la release d'ailleurs serait pire.
+func TestUnProjetInconnuNeRendPasLaReleaseDunAutre(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{ID: 42, Tag: "1.8.0", State: "ready"}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodGet, "/projects/absent/releases/1.8.0", nil)
+	request.SetPathValue("tag", "1.8.0")
+	recorder := httptest.NewRecorder()
+	// `asRole` pose le projet connu : ce test le remplace, puisque c'est
+	// justement la résolution qu'il éprouve.
+	request = asRole(request, auth.RoleViewer)
+	request.SetPathValue("project", "absent")
+
+	handler.Get(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, attendu 404: %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "1.8.0") {
+		t.Error("la réponse ne doit rien dire de la release d'un autre projet")
 	}
 }

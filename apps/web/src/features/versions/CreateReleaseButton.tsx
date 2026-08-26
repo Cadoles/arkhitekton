@@ -6,6 +6,7 @@ import { Modal } from '../../components/Modal'
 import { hasAtLeast, useSession } from '../auth/session'
 import { useCreateRelease, type ReleaseKind } from '../releases/api'
 import { useForgeRefs, type Version, type VersionRelease } from './api'
+import { projectPath } from '../../lib/project'
 
 /*
  * Création d'une release depuis le périmètre d'une version (doc 08 §8.4).
@@ -334,7 +335,7 @@ export function CreateReleaseButton({
               <p className="text-healthy-700">
                 Release{' '}
                 <Link
-                  to={`/releases/${encodeURIComponent(create.data.release.tag)}`}
+                  to={projectPath(`/releases/${encodeURIComponent(create.data.release.tag)}`)}
                   className="font-mono font-medium hover:underline"
                 >
                   {create.data.release.tag}

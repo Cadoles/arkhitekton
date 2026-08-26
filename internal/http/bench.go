@@ -14,7 +14,9 @@ import (
 // BenchStore est ce que les handlers de charge attendent de la base.
 type BenchStore interface {
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
-	// BuildableProject nomme le projet dont les tags font foi. Voir currentProject.
+	// Les deux façons de nommer un projet : par le chemin de la requête, ou à
+	// défaut par celui qui se construit. Voir internal/http/project.go.
+	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	BuildableProject(ctx context.Context) (store.Project, error)
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
 	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
@@ -75,9 +77,8 @@ type measurePayload struct {
 
 // Bench rend les campagnes de charge d'une release, comparées à leurs baselines.
 func (h *BenchHandler) Bench(w http.ResponseWriter, r *http.Request) {
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 

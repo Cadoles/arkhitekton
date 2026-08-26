@@ -359,3 +359,13 @@ func TestUnNomDeParametreFantaisisteEstRefuse(t *testing.T) {
 func (f *fakeQueueStore) BuildableProject(context.Context) (store.Project, error) {
 	return store.Project{ID: 1, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
 }
+
+// ProjectBySlug résout le projet nommé dans le chemin. Un seul ici, et il répond
+// à tout slug : ces tests portent sur ce que le handler fait du projet, pas sur
+// sa résolution.
+func (f *fakeQueueStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+	if slug != testProjectSlug {
+		return store.Project{}, store.ErrProjectNotFound
+	}
+	return store.Project{ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
+}

@@ -127,6 +127,8 @@ export type ProjectTarget = {
 
 export type Project = {
   id: number
+  /** Nom du projet dans les URL, dérivé du dépôt à la création. */
+  slug: string
   repository: string
   label: string
   forge_url: string
@@ -158,6 +160,12 @@ type ProjectsResponse = {
 
 /** Ce qu'un formulaire envoie. Le dépôt n'est modifiable qu'à la déclaration. */
 export type ProjectDraft = {
+  /**
+   * Nom du projet dans les URL : `/projects/mse/releases/1.8.0`. Vide à la
+   * création, l'API le dérive du dépôt. Modifiable ensuite — ces adresses
+   * finissent en favori, et un nom qu'on ne peut pas corriger est un nom subi.
+   */
+  slug?: string
   repository: string
   label: string
   forge_url: string

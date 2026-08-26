@@ -164,7 +164,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	authorizer := auth.NewAuthorizer(environmentPolicies())
 	authHandler := dashhttp.NewAuthHandler(
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL),
-		cfg.OIDC.SessionTTL)
+		cfg.OIDC.SessionTTL).
+		// `/me` rend le projet courant : l'interface en a besoin pour composer ses
+		// URL, et la liste des projets exige `admin` qu'elle n'a pas forcément.
+		WithProjects(db)
 	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger)
 	runsHandler := dashhttp.NewRunsHandler(db).
 		WithTektonDashboard(cfg.Tekton.DashboardURL).

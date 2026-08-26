@@ -46,6 +46,7 @@ type ReleaseStore interface {
 	// re-tag propage. Lu à chaque mise en file plutôt que mémorisé au démarrage :
 	// les étapes se modifient depuis l'administration, et une release lancée
 	// après le changement doit construire ce qui est déclaré maintenant.
+	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	BuildableProject(ctx context.Context) (store.Project, error)
 	SetReleaseState(ctx context.Context, id int64, state string) error
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
@@ -343,9 +344,8 @@ func (h *ReleasesHandler) actorsFor(ctx context.Context) actors {
 
 // List rend les releases les plus récentes.
 func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -401,9 +401,8 @@ func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *sco
 
 // Get rend une release, ses promotions et ses cibles possibles.
 func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -662,9 +661,8 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		record.State = string(release.StateDraft)
 		record.ImageVersion = version.Raw
 	} else {
-		currentID, err := currentProject(r.Context(), h.store)
-		if err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+		currentID, ok := requestProject(w, r, h.store)
+		if !ok {
 			return
 		}
 
@@ -726,9 +724,8 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -835,9 +832,8 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tag := r.PathValue("tag")
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -905,9 +901,8 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tag := r.PathValue("tag")
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -1009,9 +1004,8 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -1103,9 +1097,8 @@ type notePayload struct {
 
 // Notes rend la note d'une release.
 func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -1189,9 +1182,8 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -1229,9 +1221,8 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 
 // RemoveNote retire une demande de la note.
 func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -1449,9 +1440,8 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -1699,9 +1689,8 @@ func (h *ReleasesHandler) UpdateActions(w http.ResponseWriter, r *http.Request) 
 
 	// La release est relue plutôt que reconstruite : l'horodatage est posé par la
 	// base, et le renvoyer depuis une valeur calculée ici les ferait diverger.
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -1777,9 +1766,8 @@ type artifactPayload struct {
 
 // Exports rend les livrables déjà produits pour une release.
 func (h *ReleasesHandler) Exports(w http.ResponseWriter, r *http.Request) {
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -1844,9 +1832,8 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -1903,9 +1890,8 @@ func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 

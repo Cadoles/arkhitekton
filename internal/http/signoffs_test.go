@@ -80,6 +80,7 @@ func signoffRequestFor(t *testing.T, method, target, body string) *http.Request 
 		reader = strings.NewReader(body)
 	}
 	request := httptest.NewRequest(method, target, reader)
+	request.SetPathValue("project", testProjectSlug)
 	request.SetPathValue("tag", "1.8.0-rc1")
 	request.SetPathValue("env", "qualif")
 	identity := auth.Identity{Subject: "121", Username: "vcarroy", Role: auth.RoleOperator}
@@ -270,4 +271,13 @@ func TestTousLesEnvironnementsSontRendusMemeSansAvis(t *testing.T) {
 // portent sur ce que le handler fait du projet, pas sur son choix.
 func (f *fakeSignoffStore) BuildableProject(context.Context) (store.Project, error) {
 	return store.Project{ID: 1, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
+}
+
+// ProjectBySlug résout le projet nommé dans le chemin. Un seul ici : ces tests
+// portent sur ce que le handler fait du projet, pas sur sa résolution.
+func (f *fakeSignoffStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+	if slug != testProjectSlug {
+		return store.Project{}, store.ErrProjectNotFound
+	}
+	return store.Project{ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
 }

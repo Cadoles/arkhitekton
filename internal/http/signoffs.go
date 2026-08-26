@@ -28,7 +28,9 @@ import (
 // SignoffStore est ce que les routes de validation attendent de la base.
 type SignoffStore interface {
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
-	// BuildableProject nomme le projet dont les tags font foi. Voir currentProject.
+	// Les deux façons de nommer un projet : par le chemin de la requête, ou à
+	// défaut par celui qui se construit. Voir internal/http/project.go.
+	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	BuildableProject(ctx context.Context) (store.Project, error)
 	ListSignoffs(ctx context.Context, releaseID int64) ([]store.Signoff, error)
 	SetSignoff(ctx context.Context, releaseID int64, environmentID, role, status, detail, decidedBy string) error
@@ -68,9 +70,8 @@ type environmentSignoffsVw struct {
 // « personne ne s'est prononcé » de « cet environnement n'existe pas », alors que
 // l'attente est précisément l'information utile en recette.
 func (h *SignoffsHandler) List(w http.ResponseWriter, r *http.Request) {
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -175,9 +176,8 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 
@@ -234,9 +234,8 @@ func (h *SignoffsHandler) Clear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentID, err := currentProject(r.Context(), h.store)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Projet courant inconnu", err.Error())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
 		return
 	}
 

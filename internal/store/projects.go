@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -82,7 +83,11 @@ func (p Project) Promotable() []Target {
 
 // Project décrit un dépôt piloté.
 type Project struct {
-	ID           int64
+	ID int64
+	// Slug nomme le projet dans une URL : `/projects/mse/releases/1.8.0`. Nom
+	// d'usage et non identité — celle-ci reste l'identifiant, et le slug peut
+	// changer sans que rien ne se détache.
+	Slug         string
 	Repository   string
 	Label        string
 	ForgeURL     string
@@ -172,7 +177,7 @@ var ErrProjectExists = errors.New("dépôt déjà déclaré")
 // ListProjects rend les projets déclarés, par libellé.
 func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, repository, label, forge_url, dockerfile, build_context,
+		`select id, slug, repository, label, forge_url, dockerfile, build_context,
 		        image_registry, multi_stage, targets, checked_at, check_ok,
 		        check_note, created_by, created_at, updated_at
 		 from projects order by label`)
@@ -195,7 +200,7 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 // GetProject rend un projet.
 func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, repository, label, forge_url, dockerfile, build_context,
+		`select id, slug, repository, label, forge_url, dockerfile, build_context,
 		        image_registry, multi_stage, targets, checked_at, check_ok,
 		        check_note, created_by, created_at, updated_at
 		 from projects where id = $1`, id)
@@ -213,10 +218,57 @@ func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	return scanProject(rows)
 }
 
+// slugPattern retient ce qu'un segment d'URL accepte.
+var slugPattern = regexp.MustCompile(`[^a-z0-9-]+`)
+
+// SlugFor dérive un nom d'URL du dépôt.
+//
+// Le dernier segment, ramené aux minuscules et aux caractères qu'un chemin
+// accepte : `vcarroy/mse-test-project` donne `mse-test-project`. Même règle que
+// la migration 0026, pour qu'un projet déclaré après coup reçoive le nom qu'il
+// aurait eu s'il avait été là avant.
+//
+// L'unicité n'est pas garantie ici : deux dépôts homonymes chez deux
+// propriétaires donnent le même slug, et c'est la contrainte en base qui tranche.
+// Le dire à l'utilisateur vaut mieux que de suffixer dans son dos un nom qu'il
+// devra ensuite reconnaître.
+func SlugFor(repository string) string {
+	last := repository
+	if index := strings.LastIndex(repository, "/"); index >= 0 {
+		last = repository[index+1:]
+	}
+	return strings.Trim(slugPattern.ReplaceAllString(strings.ToLower(last), "-"), "-")
+}
+
+// ProjectBySlug rend un projet par le nom qu'il porte dans les URL.
+//
+// C'est la résolution que fait chaque requête portant un projet dans son chemin.
+// Un slug inconnu rend [ErrProjectNotFound] et non une erreur de lecture :
+// l'appelant doit répondre 404, pas 500 — une URL périmée n'est pas une panne.
+func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
+	rows, err := db.pool.Query(ctx,
+		`select id, slug, repository, label, forge_url, dockerfile, build_context,
+		        image_registry, multi_stage, targets, checked_at, check_ok,
+		        check_note, created_by, created_at, updated_at
+		 from projects where slug = $1`, slug)
+	if err != nil {
+		return Project{}, fmt.Errorf("lecture du projet %q: %w", slug, err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return Project{}, fmt.Errorf("lecture du projet %q: %w", slug, err)
+		}
+		return Project{}, ErrProjectNotFound
+	}
+	return scanProject(rows)
+}
+
 func scanProject(rows pgx.Rows) (Project, error) {
 	var project Project
 	var targets []byte
-	if err := rows.Scan(&project.ID, &project.Repository, &project.Label,
+	if err := rows.Scan(&project.ID, &project.Slug, &project.Repository, &project.Label,
 		&project.ForgeURL, &project.Dockerfile, &project.BuildContext,
 		&project.ImageRegistry, &project.MultiStage, &targets,
 		&project.CheckedAt, &project.CheckOK,
@@ -240,15 +292,19 @@ func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error)
 		return 0, fmt.Errorf("sérialisation des étapes: %w", err)
 	}
 
+	if strings.TrimSpace(project.Slug) == "" {
+		project.Slug = SlugFor(project.Repository)
+	}
+
 	var id int64
 	err = db.pool.QueryRow(ctx,
-		`insert into projects (repository, label, forge_url, dockerfile,
+		`insert into projects (slug, repository, label, forge_url, dockerfile,
 		                       build_context, image_registry, multi_stage,
 		                       targets, created_by)
-		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 on conflict (repository) do nothing
 		 returning id`,
-		project.Repository, project.Label, project.ForgeURL, project.Dockerfile,
+		project.Slug, project.Repository, project.Label, project.ForgeURL, project.Dockerfile,
 		project.BuildContext, project.ImageRegistry, project.MultiStage,
 		targets, project.CreatedBy).Scan(&id)
 	if err != nil {
@@ -287,11 +343,15 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		return fmt.Errorf("sérialisation des étapes: %w", err)
 	}
 
+	if strings.TrimSpace(project.Slug) == "" {
+		project.Slug = SlugFor(project.Repository)
+	}
+
 	tag, err := db.pool.Exec(ctx,
 		`update projects
 		 set repository = $2, label = $3, forge_url = $4, dockerfile = $5,
 		     build_context = $6, image_registry = $7, multi_stage = $8,
-		     targets = $9,
+		     targets = $9, slug = $10,
 		     -- Le constat ne survit qu'à un dépôt inchangé. La comparaison porte
 		     -- sur la valeur en base, encore lisible pendant l'update : une
 		     -- lecture préalable ouvrirait une fenêtre entre le constat et
@@ -303,7 +363,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		 where id = $1`,
 		project.ID, project.Repository, project.Label, project.ForgeURL,
 		project.Dockerfile, project.BuildContext, project.ImageRegistry,
-		project.MultiStage, targets)
+		project.MultiStage, targets, project.Slug)
 	if err != nil {
 		// Un dépôt déjà déclaré ailleurs : deux entrées le décriraient, et rien
 		// ne dirait laquelle fait foi. L'appelant doit pouvoir le dire plutôt que

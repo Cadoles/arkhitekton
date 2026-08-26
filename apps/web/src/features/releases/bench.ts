@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 import type { BenchStatus } from '../../lib/status'
+import { projectPath } from '../../lib/project'
 
 export type BenchMeasure = {
   id: number
@@ -45,7 +46,7 @@ export type Campaign = {
 export function useBench(tag: string | undefined) {
   return useQuery({
     queryKey: ['releases', tag, 'bench'],
-    queryFn: () => request<{ campaigns: Campaign[] }>(`/releases/${encodeURIComponent(tag as string)}/bench`),
+    queryFn: () => request<{ campaigns: Campaign[] }>(projectPath(`/releases/${encodeURIComponent(tag as string)}/bench`)),
     enabled: Boolean(tag),
   })
 }
@@ -56,7 +57,7 @@ export function usePinBaseline(tag: string) {
   return useMutation({
     mutationFn: (measure: number) =>
       request<{ measure_id: number }>(
-        `/releases/${encodeURIComponent(tag)}/bench/${measure}/baseline`,
+        projectPath(`/releases/${encodeURIComponent(tag)}/bench/${measure}/baseline`),
         { method: 'POST' },
       ),
     onSuccess: () => {

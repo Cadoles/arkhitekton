@@ -37,7 +37,9 @@ type QueueStore interface {
 // dans un autre écran pour la recopier — avec la faute de frappe qui va avec.
 type Releases interface {
 	ListReleases(ctx context.Context, projectID int64, limit int) ([]store.Release, error)
-	// BuildableProject nomme le projet dont les tags font foi. Voir currentProject.
+	// Les deux façons de nommer un projet : par le chemin de la requête, ou à
+	// défaut par celui qui se construit. Voir internal/http/project.go.
+	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	BuildableProject(ctx context.Context) (store.Project, error)
 }
 
@@ -246,10 +248,13 @@ func (h *QueueHandler) suggestions(ctx context.Context) map[string][]option {
 
 	// Les plus récentes d'abord, et pas toutes : une liste de deux cents entrées
 	// ne se parcourt pas, et ce qu'on relance porte sur ce qui vient de sortir.
-	currentID, err := currentProject(ctx, h.releases)
+	currentID, err := buildableProject(ctx, h.releases)
 	if err != nil {
-		// Un projet indéterminé ne fait pas échouer la file : les champs concernés
-		// restent en saisie libre, comme lorsque les releases sont illisibles.
+		// La file n'est pas propre à un projet : ses plafonds sont ceux du
+		// cluster, et son chemin ne porte donc pas de projet. Les suggestions,
+		// elles, listent des releases — d'où le repli sur le projet
+		// constructible. Un projet indéterminé ne fait pas échouer la file : les
+		// champs concernés restent en saisie libre.
 		if h.logger != nil {
 			h.logger.Error("projet courant", "error", err)
 		}

@@ -508,6 +508,9 @@ func TestRunsUpdatedSinceReturnsOnlyChanges(t *testing.T) {
 // le schéma est recréé à chaque test, et la séquence repart de un.
 const testProjectID int64 = 1
 
+// testProjectSlug est le nom que ce projet porte dans les URL.
+const testProjectSlug = "test"
+
 // migrated rend une base au schéma à jour, avec un projet d'accueil.
 //
 // Sans lui, aucune version ni aucune release ne peut exister depuis la migration
@@ -522,8 +525,9 @@ func migrated(t *testing.T) *DB {
 
 	db := migratedBare(t)
 	if _, err := db.Pool().Exec(context.Background(),
-		`insert into projects (repository, label, forge_url, dockerfile, build_context, created_by)
-		 values ('vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.', 'test')`); err != nil {
+		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context, created_by)
+		 values ($1, 'vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.', 'test')`,
+		testProjectSlug); err != nil {
 		t.Fatalf("projet de test: %v", err)
 	}
 	return db

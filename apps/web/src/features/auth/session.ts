@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { ApiError, request } from '../../lib/api'
+import { setCurrentProject } from '../../lib/project'
 
 /** Identité renvoyée par `GET /api/v1/me`. */
 export type Identity = {
@@ -7,6 +8,13 @@ export type Identity = {
   username: string
   email: string
   role: Role
+  /**
+   * Projet dont les tags font foi, tel que l'API le nomme dans ses chemins.
+   * Absent quand aucun projet constructible n'est déclaré : l'interface ne peut
+   * alors composer aucune URL de release, et il vaut mieux le voir échouer que
+   * d'interroger `/projects//releases`.
+   */
+  project?: string
 }
 
 export type Role = 'viewer' | 'operator' | 'releaser' | 'admin'
@@ -22,7 +30,13 @@ export type SessionState =
 export function useSession(): SessionState {
   const query = useQuery({
     queryKey: ['me'],
-    queryFn: () => request<Identity>('/me'),
+    queryFn: async () => {
+      const identity = await request<Identity>('/me')
+      // Retenu ici parce que c'est la seule réponse qui le porte, et qu'elle
+      // précède tout écran : les URL des releases et des versions en dépendent.
+      setCurrentProject(identity.project ?? '')
+      return identity
+    },
     // Inutile de réessayer : 401 et 403 sont des réponses, pas des pannes.
     retry: (failureCount, error) =>
       !(error instanceof ApiError && (error.isUnauthenticated || error.isForbidden)) && failureCount < 2,

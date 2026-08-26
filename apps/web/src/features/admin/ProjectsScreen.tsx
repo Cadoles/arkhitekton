@@ -29,6 +29,7 @@ import {
  */
 
 const EMPTY: ProjectDraft = {
+  slug: '',
   repository: '',
   label: '',
   forge_url: '',
@@ -123,6 +124,7 @@ function toDraft(project: Project): ProjectDraft {
     forge_url: project.forge_url,
     dockerfile: project.dockerfile,
     build_context: project.build_context,
+    slug: project.slug,
     image_registry: project.image_registry,
     multi_stage: project.multi_stage,
     targets: project.targets,
@@ -428,6 +430,22 @@ function ProjectForm({
           />
         </label>
       </div>
+
+      {/* Le nom du projet dans les URL. Laissé vide à la création, l'API le dérive
+          du dépôt — `vcarroy/mse` donne `mse`. Modifiable, parce que ces adresses
+          sont mises en favori et collées dans des tickets. */}
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-zinc-700">Nom dans les URL</span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs text-zinc-500">/projects/</span>
+          <input
+            value={form.slug ?? ''}
+            onChange={(event) => set('slug', event.target.value)}
+            placeholder="dérivé du dépôt"
+            className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+          />
+        </div>
+      </label>
 
       {form.dockerfile && (
         <>

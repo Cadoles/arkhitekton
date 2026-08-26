@@ -1075,8 +1075,8 @@ func TestDeuxProjetsNeSeVolentPasLeursVersions(t *testing.T) {
 
 	var second int64
 	if err := db.Pool().QueryRow(ctx,
-		`insert into projects (repository, label, forge_url, dockerfile, build_context, created_by)
-		 values ('vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.', 'test')
+		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context, created_by)
+		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.', 'test')
 		 returning id`).Scan(&second); err != nil {
 		t.Fatalf("second projet: %v", err)
 	}

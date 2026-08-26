@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 import type { Health, PipelineStatus } from '../../lib/status'
+import { projectPath } from '../../lib/project'
 
 export type TestResult = {
   id: number
@@ -47,7 +48,7 @@ export function useTests(tag: string | undefined) {
     queryKey: ['releases', tag, 'tests'],
     queryFn: () =>
       request<{ results: TestResult[]; score: ScoreBreakdown }>(
-        `/releases/${encodeURIComponent(tag as string)}/tests`,
+        projectPath(`/releases/${encodeURIComponent(tag as string)}/tests`),
       ),
     enabled: Boolean(tag),
   })
@@ -113,7 +114,7 @@ export function useFamily(
       if (query) params.set('q', query)
       const suffix = params.size > 0 ? `?${params}` : ''
       return request<FamilyPage>(
-        `/releases/${encodeURIComponent(tag as string)}/tests/${encodeURIComponent(family as string)}${suffix}`,
+        projectPath(`/releases/${encodeURIComponent(tag as string)}/tests/${encodeURIComponent(family as string)}${suffix}`),
       )
     },
     enabled: Boolean(tag && family),
@@ -193,7 +194,7 @@ export type SecurityReport = {
 export function useSecurity(tag: string | undefined) {
   return useQuery({
     queryKey: ['releases', tag, 'security'],
-    queryFn: () => request<SecurityReport>(`/releases/${encodeURIComponent(tag as string)}/security`),
+    queryFn: () => request<SecurityReport>(projectPath(`/releases/${encodeURIComponent(tag as string)}/security`)),
     enabled: Boolean(tag),
   })
 }

@@ -1,6 +1,7 @@
 import type { Health } from '../../lib/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
+import { projectPath } from '../../lib/project'
 
 /**
  * États d'une release, dans l'ordre du chemin construit (doc 04 §4.2).
@@ -74,7 +75,7 @@ export type Release = {
 export function useReleases() {
   return useQuery({
     queryKey: ['releases'],
-    queryFn: () => request<{ releases: Release[] }>('/releases'),
+    queryFn: () => request<{ releases: Release[] }>(projectPath('/releases')),
   })
 }
 
@@ -84,7 +85,7 @@ export function usePromote() {
   return useMutation({
     mutationFn: ({ tag, environment }: { tag: string; environment: string }) =>
       request<{ job_id: number; environment: string; tag: string }>(
-        `/releases/${encodeURIComponent(tag)}/promote/${encodeURIComponent(environment)}`,
+        projectPath(`/releases/${encodeURIComponent(tag)}/promote/${encodeURIComponent(environment)}`),
         { method: 'POST' },
       ),
     onSuccess: () => {
@@ -140,7 +141,7 @@ export type ReleaseDetail = Release & {
 export function useRelease(tag: string | undefined) {
   return useQuery({
     queryKey: ['releases', tag],
-    queryFn: () => request<ReleaseDetail>(`/releases/${encodeURIComponent(tag as string)}`),
+    queryFn: () => request<ReleaseDetail>(projectPath(`/releases/${encodeURIComponent(tag as string)}`)),
     enabled: Boolean(tag),
     // Tant qu'une exécution est en file ou en cours, la release est relue.
     //
@@ -169,7 +170,7 @@ export function useSaveManualActions(tag: string) {
 
   return useMutation({
     mutationFn: (markdown: string) =>
-      request<ManualActions>(`/releases/${encodeURIComponent(tag)}/actions`, {
+      request<ManualActions>(projectPath(`/releases/${encodeURIComponent(tag)}/actions`), {
         method: 'PUT',
         body: JSON.stringify({ markdown }),
       }),
@@ -191,7 +192,7 @@ export type Artifact = {
 export function useExports(tag: string | undefined) {
   return useQuery({
     queryKey: ['releases', tag, 'exports'],
-    queryFn: () => request<{ artifacts: Artifact[] }>(`/releases/${encodeURIComponent(tag as string)}/exports`),
+    queryFn: () => request<{ artifacts: Artifact[] }>(projectPath(`/releases/${encodeURIComponent(tag as string)}/exports`)),
     enabled: Boolean(tag),
   })
 }
@@ -208,7 +209,7 @@ export function useGenerateExport(tag: string) {
 
   return useMutation({
     mutationFn: (payload: { kind: string; format: string }) =>
-      request<{ job_id: number }>(`/releases/${encodeURIComponent(tag)}/exports`, {
+      request<{ job_id: number }>(projectPath(`/releases/${encodeURIComponent(tag)}/exports`), {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
@@ -259,7 +260,7 @@ export function useSignoffs(tag: string) {
     queryKey: ['releases', tag, 'signoffs'],
     queryFn: () =>
       request<{ environments: EnvironmentSignoffs[] }>(
-        `/releases/${encodeURIComponent(tag)}/signoffs`,
+        projectPath(`/releases/${encodeURIComponent(tag)}/signoffs`),
       ),
     enabled: Boolean(tag),
   })
@@ -279,7 +280,7 @@ export function useSetSignoff(tag: string) {
       detail: string
     }) =>
       request<void>(
-        `/releases/${encodeURIComponent(tag)}/signoffs/${encodeURIComponent(environment)}`,
+        projectPath(`/releases/${encodeURIComponent(tag)}/signoffs/${encodeURIComponent(environment)}`),
         { method: 'PUT', body: JSON.stringify(payload) },
       ),
     onSuccess: () => {
@@ -296,7 +297,7 @@ export function useClearSignoff(tag: string) {
   return useMutation({
     mutationFn: ({ environment, role }: { environment: string; role: string }) =>
       request<void>(
-        `/releases/${encodeURIComponent(tag)}/signoffs/${encodeURIComponent(environment)}?role=${encodeURIComponent(role)}`,
+        projectPath(`/releases/${encodeURIComponent(tag)}/signoffs/${encodeURIComponent(environment)}?role=${encodeURIComponent(role)}`),
         { method: 'DELETE' },
       ),
     onSuccess: () => {
@@ -335,7 +336,7 @@ export function useCreateRelease() {
       source_tag?: string
       tests_green?: boolean
     }) =>
-      request<CreatedRelease>('/releases', { method: 'POST', body: JSON.stringify(payload) }),
+      request<CreatedRelease>(projectPath('/releases'), { method: 'POST', body: JSON.stringify(payload) }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['releases'] })
       // La version gagne une release, et une finale met un re-tag en file.
@@ -358,7 +359,7 @@ export function useReleaseRelease(tag: string) {
 
   return useMutation({
     mutationFn: () =>
-      request<{ release: Release }>(`/releases/${encodeURIComponent(tag)}/release`, {
+      request<{ release: Release }>(projectPath(`/releases/${encodeURIComponent(tag)}/release`), {
         method: 'POST',
       }),
     onSuccess: () => {
@@ -395,7 +396,7 @@ export function useVerify(tag: string) {
   return useMutation({
     mutationFn: (kind: string) =>
       request<{ kind: string; job_id: number; revision: string }>(
-        `/releases/${encodeURIComponent(tag)}/verify/${encodeURIComponent(kind)}`,
+        projectPath(`/releases/${encodeURIComponent(tag)}/verify/${encodeURIComponent(kind)}`),
         { method: 'POST' },
       ),
     onSuccess: () => {
@@ -415,7 +416,7 @@ export function useRebuild(tag: string) {
   return useMutation({
     mutationFn: () =>
       request<{ release: Release; build_job_ids: number[] }>(
-        `/releases/${encodeURIComponent(tag)}/build`,
+        projectPath(`/releases/${encodeURIComponent(tag)}/build`),
         { method: 'POST' },
       ),
     onSuccess: () => {
@@ -458,7 +459,7 @@ export function useNotes(tag: string | undefined) {
       // appel — les deux se lisent ensemble, et l'écran n'a pas à composer une
       // différence que le serveur connaît.
       request<{ notes: NoteEntry[]; available: NoteEntry[]; available_error?: string }>(
-        `/releases/${encodeURIComponent(tag as string)}/notes`,
+        projectPath(`/releases/${encodeURIComponent(tag as string)}/notes`),
       ),
     enabled: Boolean(tag),
   })
@@ -470,7 +471,7 @@ export function useAddNote(tag: string) {
   return useMutation({
     mutationFn: (redmineID: number) =>
       request<{ redmine_id: number }>(
-        `/releases/${encodeURIComponent(tag)}/notes/${redmineID}`,
+        projectPath(`/releases/${encodeURIComponent(tag)}/notes/${redmineID}`),
         { method: 'POST' },
       ),
     onSuccess: () => {
@@ -484,7 +485,7 @@ export function useRemoveNote(tag: string) {
 
   return useMutation({
     mutationFn: (redmineID: number) =>
-      request<void>(`/releases/${encodeURIComponent(tag)}/notes/${redmineID}`, {
+      request<void>(projectPath(`/releases/${encodeURIComponent(tag)}/notes/${redmineID}`), {
         method: 'DELETE',
       }),
     onSuccess: () => {

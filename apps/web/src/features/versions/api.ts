@@ -1,6 +1,7 @@
 import type { ReleaseState } from '../../lib/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
+import { projectPath } from '../../lib/project'
 
 /**
  * Les seaux de la projection des statuts Redmine, dans l'ordre d'avancement.
@@ -81,7 +82,7 @@ export type SyncState = {
 export function useVersions() {
   return useQuery({
     queryKey: ['versions'],
-    queryFn: () => request<{ versions: Version[]; sync: SyncState }>('/versions'),
+    queryFn: () => request<{ versions: Version[]; sync: SyncState }>(projectPath('/versions')),
   })
 }
 
@@ -94,7 +95,7 @@ export function useVersion(id: string | undefined) {
         buckets: Record<Bucket, Issue[]>
         anomalies: Issue[]
         releases: VersionRelease[]
-      }>(`/versions/${encodeURIComponent(id as string)}`),
+      }>(projectPath(`/versions/${encodeURIComponent(id as string)}`)),
     enabled: Boolean(id),
   })
 }

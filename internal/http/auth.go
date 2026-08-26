@@ -36,6 +36,16 @@ type AuthHandler struct {
 	// secureCookies doit valoir true partout sauf en développement sur http.
 	secureCookies bool
 	sessionTTL    time.Duration
+	// projects nomme le projet courant, rendu avec l'identité. Nil quand il n'est
+	// pas branché : `/me` répond alors sans projet, et l'interface le dit plutôt
+	// que de composer des URL creuses.
+	projects projectSource
+}
+
+// WithProjects branche la résolution du projet courant sur `/me`.
+func (h *AuthHandler) WithProjects(projects projectSource) *AuthHandler {
+	h.projects = projects
+	return h
 }
 
 func NewAuthHandler(
@@ -175,12 +185,29 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	// Le projet courant accompagne l'identité, et c'est le seul endroit où toute
+	// personne connectée peut le lire : la liste des projets exige `admin`, alors
+	// que l'interface a besoin de composer ses URL dès le premier écran.
+	//
+	// Un seul projet aujourd'hui. Le jour où il y en aura plusieurs, c'est ici que
+	// le choix courant sera rendu — pas dans une seconde route à consulter.
+	payload := map[string]any{
 		"subject":  identity.Subject,
 		"username": identity.Username,
 		"email":    identity.Email,
 		"role":     identity.Role,
-	})
+	}
+	if h.projects != nil {
+		if project, err := h.projects.BuildableProject(r.Context()); err == nil {
+			payload["project"] = project.Slug
+		} else if h.logger != nil {
+			// Sans projet, l'interface ne peut composer aucune URL de release. Le
+			// dire au journal plutôt que de rendre un champ vide qui se lirait
+			// comme « pas encore chargé ».
+			h.logger.Warn("projet courant indisponible", "error", err)
+		}
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (h *AuthHandler) setSessionCookie(w http.ResponseWriter, id string) {

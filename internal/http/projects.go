@@ -106,13 +106,17 @@ type targetPayload struct {
 }
 
 type projectPayload struct {
-	ID            int64           `json:"id"`
-	Repository    string          `json:"repository"`
-	Label         string          `json:"label"`
-	ForgeURL      string          `json:"forge_url"`
-	URL           string          `json:"url"`
-	Dockerfile    string          `json:"dockerfile"`
-	BuildContext  string          `json:"build_context"`
+	ID           int64  `json:"id"`
+	Repository   string `json:"repository"`
+	Label        string `json:"label"`
+	ForgeURL     string `json:"forge_url"`
+	URL          string `json:"url"`
+	Dockerfile   string `json:"dockerfile"`
+	BuildContext string `json:"build_context"`
+	// Slug nomme le projet dans les URL : `/projects/mse/releases/1.8.0`. Rendu
+	// et modifiable — ces adresses finissent en favori, et un nom qu'on ne peut
+	// pas corriger est un nom qu'on subit.
+	Slug          string          `json:"slug"`
 	ImageRegistry string          `json:"image_registry"`
 	MultiStage    bool            `json:"multi_stage"`
 	Targets       []targetPayload `json:"targets"`
@@ -170,6 +174,7 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		ID: project.ID, Repository: project.Repository, Label: project.Label,
 		ForgeURL: project.ForgeURL, URL: repositoryURL(project.ForgeURL, project.Repository),
 		Dockerfile: project.Dockerfile, BuildContext: project.BuildContext,
+		Slug:          project.Slug,
 		ImageRegistry: project.ImageRegistry,
 		MultiStage:    project.MultiStage, Targets: targets,
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
@@ -188,11 +193,15 @@ func repositoryURL(forgeURL, repository string) string {
 }
 
 type projectRequest struct {
-	Repository    string          `json:"repository"`
-	Label         string          `json:"label"`
-	ForgeURL      string          `json:"forge_url"`
-	Dockerfile    string          `json:"dockerfile"`
-	BuildContext  string          `json:"build_context"`
+	Repository   string `json:"repository"`
+	Label        string `json:"label"`
+	ForgeURL     string `json:"forge_url"`
+	Dockerfile   string `json:"dockerfile"`
+	BuildContext string `json:"build_context"`
+	// Slug nomme le projet dans les URL : `/projects/mse/releases/1.8.0`. Rendu
+	// et modifiable — ces adresses finissent en favori, et un nom qu'on ne peut
+	// pas corriger est un nom qu'on subit.
+	Slug          string          `json:"slug"`
 	ImageRegistry string          `json:"image_registry"`
 	MultiStage    bool            `json:"multi_stage"`
 	Targets       []targetPayload `json:"targets"`
@@ -279,6 +288,7 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	id, err := h.store.CreateProject(r.Context(), store.Project{
 		Repository: request.Repository, Label: request.Label, ForgeURL: request.ForgeURL,
 		Dockerfile: request.Dockerfile, BuildContext: request.BuildContext,
+		Slug:          strings.TrimSpace(request.Slug),
 		ImageRegistry: request.ImageRegistry,
 		MultiStage:    request.MultiStage, Targets: targetsOf(request),
 		CreatedBy: identity.Subject,
@@ -324,6 +334,7 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		ID: id, Repository: request.Repository, Label: request.Label,
 		ForgeURL: request.ForgeURL, Dockerfile: request.Dockerfile,
 		BuildContext: request.BuildContext, ImageRegistry: request.ImageRegistry,
+		Slug:       strings.TrimSpace(request.Slug),
 		MultiStage: request.MultiStage, Targets: targetsOf(request),
 	})
 	if err != nil {
