@@ -368,6 +368,19 @@ alors que tous les tests unitaires passaient — leurs fixtures n'avaient pas d'
 C'est écrit ici parce qu'un pipeline conforme peut être soupçonné à tort quand l'effet
 attendu n'apparaît pas, et que la cause est alors entièrement du côté du dashboard.
 
+### Seuls les runs ordonnancés par le dashboard sont analysés
+
+Un run déclenché par webhook ou par CronJob n'a pas de job, donc pas de famille de
+pipeline connue, donc aucun descripteur lu. Constaté sur un `e2e-test-run` réel : le run
+échoue, sa Task émet bien son descripteur, et rien ne le ramasse.
+
+Ce n'est pas une négligence mais une conséquence : la famille de signal vient du catalogue,
+et le catalogue est retrouvé par le `kind` du job. Un run sans job n'a pas de `kind`.
+
+La sortie existe et n'est pas coûteuse — `runs.pipeline_name` porte le `pipelineRef`, et le
+catalogue sait déjà faire la correspondance inverse. Elle n'est pas faite, et il vaut mieux
+le lire ici que de conclure que le canal ne marche pas.
+
 ### Le résumé n'apparaît pas pendant l'exécution
 
 `##SUMMARY##` est lu — `Markers.Summaries` le rend — mais rien ne l'affiche en cours de
