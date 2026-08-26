@@ -14,8 +14,10 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -84,6 +86,13 @@ type ReleasesHandler struct {
 	// names rapproche le nom de version saisi de celui du suivi. Doit être le
 	// même que celui du store, dont il compare le résultat à une colonne.
 	names release.Normalizer
+	// deployer planifie l'acheminement d'une version vers un environnement. Il ne
+	// touche à aucun cluster : il décrit ce qu'il faut faire, et c'est la file du
+	// dashboard qui le fait (B7, doc 12 §12.9 lot A).
+	//
+	// Jamais nil : sans outil configuré, [provider.NoDeployer] refuse en disant que
+	// c'est l'outillage qui manque, et non la demande.
+	deployer provider.Deployer
 	// logger sert à dire ce qui échoue sans faire échouer l'écran. Nil-safe :
 	// `slog.Default()` par défaut, pour que les tests n'aient pas à le fournir.
 	logger *slog.Logger
@@ -183,6 +192,16 @@ const (
 // Sans appel, [release.DefaultNormalizer] s'applique. Le déploiement doit passer
 // le **même** que celui du store : ce handler compare une saisie à ce que la base
 // a stocké, et deux conventions divergentes rejetteraient une saisie correcte.
+// WithDeployer branche la planification des promotions.
+//
+// Sans appel, [provider.NoDeployer] s'applique : l'écran des releases reste
+// utilisable, et une demande de promotion répond que rien n'est configuré plutôt
+// que d'échouer sur une cause invraisemblable.
+func (h *ReleasesHandler) WithDeployer(deployer provider.Deployer) *ReleasesHandler {
+	h.deployer = deployer
+	return h
+}
+
 func (h *ReleasesHandler) WithNormalizer(names release.Normalizer) *ReleasesHandler {
 	h.names = names
 	return h
@@ -197,7 +216,7 @@ func NewReleasesHandler(
 		store: releases, catalog: pipelines, authorizer: authorizer,
 		images: images, artifacts: artifacts, imageName: imageName,
 		registryProject: registryProject, names: release.DefaultNormalizer,
-		logger: slog.Default(),
+		deployer: provider.NoDeployer{}, logger: slog.Default(),
 	}
 }
 
@@ -455,12 +474,20 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 			target.Allowed = false
 			target.Reason = "votre rôle ne permet pas de promouvoir vers cet environnement"
 		default:
-			tag, err := release.PromotionTag(item.Tag, targetOf(environment), "")
+			// La même question que la promotion elle-même, posée sans la faire :
+			// le déployeur dit s'il saurait acheminer cette version, et sous quelle
+			// référence. `Name` est vide parce que l'aperçu porte sur la release et
+			// non sur une image — la référence est la même pour toutes.
+			plan, err := h.deployer.Plan(r.Context(), provider.Deployment{
+				Target:   targetOf(environment),
+				Version:  item.Tag,
+				Artifact: item.ImageVersion,
+			})
 			if err != nil {
 				target.Allowed = false
 				target.Reason = err.Error()
 			} else {
-				target.Tag = tag
+				target.Tag = plan.Reference
 			}
 		}
 		payload.Targets = append(payload.Targets, target)
@@ -522,11 +549,22 @@ func (h *ReleasesHandler) resolveImages(
 	return images, ""
 }
 
-func targetOf(environment store.Environment) release.Target {
-	return release.Target{
-		ID:                environment.ID,
-		Suffix:            environment.PromotionSuffix,
-		AcceptsPrerelease: environment.AcceptsPrerelease,
+// targetOf traduit un environnement vers ce que la frontière du déploiement
+// attend.
+//
+// Les réglages partent dans le vocabulaire du déployeur : le suffixe et
+// l'acceptation des pré-releases n'ont de sens que pour une sélection par
+// métadonnée SemVer, et les inscrire dans le type commun les imposerait à un
+// déployeur qui procède autrement (doc 12 §12.9, lot A).
+func targetOf(environment store.Environment) provider.Target {
+	return provider.Target{
+		ID:         environment.ID,
+		Observable: environment.Observable,
+		Settings: map[string]string{
+			flux.SettingSuffix:            environment.PromotionSuffix,
+			flux.SettingAcceptsPrerelease: strconv.FormatBool(environment.AcceptsPrerelease),
+			flux.SettingKustomization:     environment.FluxKustomization,
+		},
 	}
 }
 
@@ -1385,17 +1423,48 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plan, err := release.PlanPromotion(item.Tag, item.ImageVersion, targetOf(environment), "")
+	project, err := h.store.BuildableProject(r.Context())
 	if err != nil {
-		// 409 et non 400 : la requête est bien formée, c'est la combinaison
-		// release/environnement qui n'a pas de sens.
-		writeProblem(w, http.StatusConflict, "Promotion impossible", err.Error())
+		writeProblem(w, http.StatusInternalServerError, "Images promues inconnues", err.Error())
+		return
+	}
+	targets := project.Promotable()
+
+	// Le déployeur planifie, le dashboard exécute. Une fois par image : le
+	// déployeur ne sait pas ce qu'une release contient, et lui faire porter la
+	// liste l'obligerait à connaître le modèle des projets.
+	plans := make([]provider.Plan, 0, len(targets))
+	for _, target := range targets {
+		plan, err := h.deployer.Plan(r.Context(), provider.Deployment{
+			Target:   targetOf(environment),
+			Version:  item.Tag,
+			Artifact: item.ImageVersion,
+			Name:     target.Image,
+		})
+		if err != nil {
+			if errors.Is(err, provider.ErrNoDeployment) {
+				// Aucun outil de déploiement n'est configuré. Ce n'est pas une
+				// panne, et l'afficher comme telle ferait chercher un incident là
+				// où il n'y a qu'une absence de configuration.
+				writeProblem(w, http.StatusNotImplemented, "Aucun déploiement configuré",
+					"ce dashboard ne sait acheminer aucune version vers un environnement")
+				return
+			}
+			// 409 et non 400 : la requête est bien formée, c'est la combinaison
+			// release/environnement qui n'a pas de sens.
+			writeProblem(w, http.StatusConflict, "Promotion impossible", err.Error())
+			return
+		}
+		plans = append(plans, plan)
+	}
+	if len(plans) == 0 {
+		writeProblem(w, http.StatusUnprocessableEntity, "Promotion impossible",
+			"aucune image de cette release n'est promue")
 		return
 	}
 
-	pipeline, found := h.catalog.Find(retagJobKind)
-	if !found {
-		writeProblem(w, http.StatusInternalServerError, "Catalogue incomplet", retagJobKind)
+	if _, found := h.catalog.Find(plans[0].Kind); !found {
+		writeProblem(w, http.StatusInternalServerError, "Catalogue incomplet", plans[0].Kind)
 		return
 	}
 
@@ -1403,22 +1472,11 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 	// déjà — sa clé porte le nom de l'image — mais une seule y était écrite : le
 	// portail. Ce qui suivait le portail sans être suivi, c'était `portal-cli`,
 	// et rien n'aurait dit qu'un de ses re-tags avait échoué.
-	project, err := h.store.BuildableProject(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Images promues inconnues", err.Error())
-		return
-	}
-
-	targets := project.Promotable()
-	jobIDs := make([]int64, 0, len(targets))
-	for _, target := range targets {
+	jobIDs := make([]int64, 0, len(plans))
+	for index, plan := range plans {
 		jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
-			Kind: pipeline.Kind,
-			Params: map[string]string{
-				"image-name": target.Image,
-				"old-tag":    plan.OldTag,
-				"new-tag":    plan.NewTag,
-			},
+			Kind:        plan.Kind,
+			Params:      plan.Params,
 			RequestedBy: identity.Subject,
 			ReleaseID:   &item.ID,
 			Environment: &environment.ID,
@@ -1434,7 +1492,7 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		// déployé » de « jamais promu » quand l'observation contredira l'attendu.
 		if err := h.store.RecordPromotion(r.Context(), store.Promotion{
 			ReleaseID: item.ID, EnvironmentID: environment.ID,
-			ImageName: target.Image, Tag: plan.NewTag, JobID: &jobID,
+			ImageName: targets[index].Image, Tag: plan.Reference, JobID: &jobID,
 		}); err != nil {
 			writeProblem(w, http.StatusInternalServerError, "Enregistrement de la promotion impossible", "")
 			return
@@ -1444,14 +1502,17 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 	// Consigné après l'enregistrement : ce qui compte est que le tag ait été
 	// demandé, et le tag part dès que le job est pris.
 	h.audit(r, store.AuditReleasePromote, item.Tag, map[string]any{
-		"environment": environment.ID, "tag": plan.NewTag,
-		"from": plan.OldTag, "job_ids": jobIDs,
+		"environment": environment.ID, "tag": plans[0].Reference,
+		// La version d'image dont part l'acheminement, et non un paramètre du
+		// plan : celui-ci appartient au déployeur, et le journal d'audit ne doit
+		// pas se mettre à parler son vocabulaire.
+		"from": item.ImageVersion, "job_ids": jobIDs,
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"job_ids":     jobIDs,
 		"environment": environment.ID,
-		"tag":         plan.NewTag,
+		"tag":         plans[0].Reference,
 	})
 }
 

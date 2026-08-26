@@ -932,16 +932,50 @@ il évite seulement qu'ils deviennent plus difficiles.
 À reprendre quand un second projet réel existe, parce que c'est lui qui tranchera les
 sémantiques. L'ordre reste celui-ci ; l'échéance, non.
 
-### Lot A — Le contrat des fournisseurs *(sans plugin)*
+### Lot A — Le contrat des fournisseurs *(sans plugin)* — **fait**
 
-Compléter ce que l'horizon court a commencé : `Deployer` rejoint `Tracker`, `Forge` et
-`Attester`, avec les implémentations actuelles comme seules réalisations.
+`Deployer` rejoint `Tracker`, `Forge` et `Attester`. Trois questions, aucune opération :
 
-**Ce qui reste ici** est précisément ce que l'horizon court a écarté : écrire le contrat
-de promotion en questions métier, ce qui suppose d'avoir vu un second déployeur — même
-trivial.
+- `Plan` — comment faire arriver cette version dans cet environnement, **ou pourquoi c'est
+  impossible** ;
+- `Observe` — ce qui tourne, et avec quel niveau de preuve ;
+- `Check` — si ce que `Plan` proposera aura un effet, vérifié au démarrage.
 
-**Livrable** : `internal/provider/` complet.
+Aucune ne demande au déployeur d'agir sur le cluster cible. Il **décrit**, la file du
+dashboard **fait**. Ce n'est pas une commodité : c'est ce qui garde l'action traçable,
+soumise aux mêmes droits que le reste, au lieu d'être un effet de bord enfoui dans une
+implémentation.
+
+#### Ce que la réalisation triviale a changé
+
+`provider.NoDeployer` — le déployeur d'un projet qui n'en a pas — n'est pas un bouchon de
+test : c'est le comportement exact d'un déploiement non configuré, et c'est lui qui a
+éprouvé le contrat. Une interface écrite sur une seule implémentation en épouse toujours
+la forme sans qu'on s'en aperçoive. Quatre points ont bougé en le confrontant :
+
+- **`Plan` rend une erreur nommée**, `ErrNoDeployment`, et non un plan vide. « Aucun outil
+  ne sait faire » n'est pas « la demande est fautive » : l'API répond 501 et le dit, au
+  lieu de faire chercher un incident là où il n'y a qu'une absence de configuration.
+- **`Target` ne porte plus le suffixe de promotion.** Il n'a de sens que pour une sélection
+  par métadonnée SemVer ; l'inscrire dans le type commun l'imposerait à un déployeur qui
+  procède autrement. Les réglages passent dans le vocabulaire du déployeur, qui les nomme
+  et les valide dans `Check`.
+- **`Observe` rend une résolution explicite**, jamais un zéro. `unobservable` est une
+  réponse, pas une absence de réponse.
+- **`Deployment` distingue `Version` et `Artifact`.** L'écart est le piège central de
+  B17 — une release finale porte `1.8.0` alors que son image existe sous `1.8.0-rc3` — et
+  une signature qui n'en prend qu'un le masquerait.
+
+#### Ce que ce lot ne prouve pas
+
+Un second déployeur **réel** — ArgoCD, `kubectl apply` — reste à voir. Il éprouverait ce
+que `NoDeployer` ne peut pas : la forme de `Plan{Kind, Params}` est-elle assez expressive
+pour un acheminement qui ne se réduit pas à poser un tag ? La réponse ne s'obtient pas en
+raisonnant ; elle s'obtient en en écrivant un.
+
+**Livrable** : `internal/provider/` complet, `flux.Deployer` comme seule réalisation
+réelle, et les deux appelants — observation et promotion — qui en dépendent au lieu de
+dépendre de Flux.
 
 ### Lot B — Le multi-projet et le cycle déclaré
 

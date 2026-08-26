@@ -12,6 +12,8 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -274,7 +276,13 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	})
 	return NewReleasesHandler(store, pipelines, authorizer, store.registry, store,
-		"portal", "reg.cadoles.com/vcarroy")
+		"portal", "reg.cadoles.com/vcarroy").
+		// Le déployeur GitOps, sans client : la planification n'en a pas besoin —
+		// elle compose un tag et refuse ce que la plage SemVer exclut. Sans lui,
+		// [provider.NoDeployer] refuserait toute promotion, ce qui est le
+		// comportement voulu d'un déploiement non configuré et non celui qu'on
+		// éprouve ici.
+		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, ""))
 }
 
 func asRole(request *http.Request, role auth.Role) *http.Request {
@@ -1341,5 +1349,37 @@ func TestLaRelanceALUniteNaccepteQueLesVerifications(t *testing.T) {
 	}
 	if len(fake.jobs) != 1 {
 		t.Errorf("un refus ne doit rien mettre en file: %+v", fake.jobs)
+	}
+}
+
+// Sans outil de déploiement configuré, une promotion n'est pas une panne.
+//
+// C'est le cas que la réalisation triviale du contrat rend exprimable, et la
+// raison d'être de `provider.ErrNoDeployment` : répondre « échec » ferait chercher
+// un incident là où il n'y a qu'une absence de configuration, et répondre 202
+// laisserait croire à un acheminement qui n'aura jamais lieu.
+func TestSansDeployeurLaPromotionDitQueRienNestConfigure(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{
+		ID: 42, Tag: "1.8.0", State: "ready", ImageVersion: "1.8.0-rc3",
+	}
+	handler := newReleasesHandler(t, fake).WithDeployer(provider.NoDeployer{})
+
+	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/promote/qualif", nil)
+	request.SetPathValue("tag", "1.8.0")
+	request.SetPathValue("environment", "qualif")
+	recorder := httptest.NewRecorder()
+	handler.Promote(recorder, asRole(request, auth.RoleReleaser))
+
+	if recorder.Code != http.StatusNotImplemented {
+		t.Fatalf("code = %d, attendu 501: %s", recorder.Code, recorder.Body.String())
+	}
+	// Et surtout : rien ne part en file. Une promotion refusée qui enfilerait
+	// quand même son re-tag poserait le tag sans que personne ne le déploie.
+	if len(fake.jobs) != 0 {
+		t.Errorf("aucun job attendu: %+v", fake.jobs)
+	}
+	if len(fake.promotions) != 0 {
+		t.Errorf("aucune promotion enregistrée attendue: %+v", fake.promotions)
 	}
 }

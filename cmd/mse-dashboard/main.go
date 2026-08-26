@@ -214,7 +214,11 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		WithRedmineURL(cfg.Redmine.URL).
 		// Le même normaliseur que le store, et ce n'est pas une précaution : ce
 		// handler compare une saisie à une colonne que le store a écrite.
-		WithNormalizer(versionNames(cfg))
+		WithNormalizer(versionNames(cfg)).
+		// Le même déployeur que l'observateur, et le même que celui qui a validé
+		// les environnements au démarrage : un aperçu de promotion qui répondrait
+		// autrement que la promotion elle-même serait pire que pas d'aperçu.
+		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, ""))
 
 	// La forge est optionnelle : sans jeton, le formulaire de création de release
 	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture
@@ -388,7 +392,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	}
 	logger.Info("client Flux", "namespace", cfg.Flux.Namespace, "versions", fluxClient.Versions())
 
-	environments := worker.NewEnvironmentObserver(db, fluxClient, logger)
+	// Deux dépendances distinctes bien qu'elles partagent un client : l'une dit ce
+	// que le déploiement a appliqué, l'autre ce que l'application rapporte
+	// d'elle-même. C'est leur écart qui fait la valeur de l'écran des
+	// environnements, et les confondre le ferait disparaître (B8).
+	deployer := flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
+	environments := worker.NewEnvironmentObserver(db, deployer, fluxClient, logger)
 
 	// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
 	// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux
