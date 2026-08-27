@@ -50,6 +50,20 @@ func (f *fakeAdminStore) ProjectBySlug(_ context.Context, slug string) (store.Pr
 	return store.Project{ID: 1, Slug: slug}, nil
 }
 
+func (f *fakeAdminStore) RevokeRoleIn(ctx context.Context, subject string, projectID *int64) error {
+	if projectID != nil {
+		// La portée fait partie de la trace : retirer un rôle de projet et
+		// retirer le rôle global ne doivent pas se ressembler dans les
+		// assertions.
+		if f.err != nil {
+			return f.err
+		}
+		f.revoked = append(f.revoked, fmt.Sprintf("%s@%d", subject, *projectID))
+		return nil
+	}
+	return f.RevokeRole(ctx, subject)
+}
+
 func (f *fakeAdminStore) RevokeRole(_ context.Context, subject string) error {
 	if f.err != nil {
 		return f.err

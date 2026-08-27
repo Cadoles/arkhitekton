@@ -16,6 +16,11 @@ export type UserRole = {
    *  qu'un rôle attribué à un identifiant erroné se reconnaît. */
   last_seen?: string
   sessions: number
+  /** Portée du rôle. Absente quand il vaut partout — le cas courant. Une même
+   *  personne peut donc apparaître plusieurs fois : une ligne globale, une par
+   *  projet où une exception a été posée. */
+  project?: string
+  project_label?: string
 }
 
 export type RoleCatalogue = { role: Role; permissions: string[] }
@@ -31,7 +36,7 @@ export function useGrantRole() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (payload: { subject: string; username: string; role: Role }) =>
+    mutationFn: (payload: { subject: string; username: string; role: Role; project?: string }) =>
       request<{ subject: string; sessions_closed: boolean }>('/admin/roles', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -46,8 +51,14 @@ export function useRevokeRole() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (subject: string) =>
-      request<{ subject: string }>(`/admin/roles/${encodeURIComponent(subject)}`, { method: 'DELETE' }),
+    // La portée accompagne le retrait : « retirer le rôle de quelqu'un » n'a plus
+    // de sens unique depuis qu'il peut en avoir un par projet.
+    mutationFn: ({ subject, project }: { subject: string; project?: string }) =>
+      request<{ subject: string }>(
+        `/admin/roles/${encodeURIComponent(subject)}` +
+          (project ? `?project=${encodeURIComponent(project)}` : ''),
+        { method: 'DELETE' },
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin'] })
     },

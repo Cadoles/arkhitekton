@@ -7,8 +7,10 @@ import { useSession, type Role } from '../auth/session'
 import {
   ROLE_LABEL,
   useGrantRole,
+  useProjects,
   useRevokeRole,
   useRoles,
+  type Project,
   type RoleCatalogue,
   type UserRole,
 } from './api'
@@ -46,7 +48,9 @@ function RolesCard({ roles, catalogue }: { roles: UserRole[]; catalogue: RoleCat
   const revoke = useRevokeRole()
   const [target, setTarget] = useState<UserRole | null>(null)
 
-  const admins = roles.filter((role) => role.role === 'admin').length
+  // Les globaux seuls : `admin` n'existe pas par projet, mais compter large
+  // ferait croire à tort qu'il reste un administrateur de secours.
+  const admins = roles.filter((role) => role.role === 'admin' && !role.project).length
   const me = session.kind === 'authenticated' ? session.identity.subject : ''
 
   return (
@@ -63,7 +67,7 @@ function RolesCard({ roles, catalogue }: { roles: UserRole[]; catalogue: RoleCat
             const isLastAdmin = role.role === 'admin' && admins <= 1
             return (
               <li
-                key={role.subject}
+                key={`${role.subject}:${role.project ?? ''}`}
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-200 py-2 text-sm first:border-t-0"
               >
                 <span className="min-w-40 font-medium text-zinc-900">{role.username || role.subject}</span>
@@ -71,6 +75,15 @@ function RolesCard({ roles, catalogue }: { roles: UserRole[]; catalogue: RoleCat
                 <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700">
                   {ROLE_LABEL[role.role]}
                 </span>
+
+                {/* La portée n'est montrée que lorsqu'elle restreint : « partout »
+                    sur chaque ligne globale serait du bruit sur l'immense
+                    majorité d'entre elles. */}
+                {role.project && (
+                  <span className="rounded bg-accent-100 px-1.5 py-0.5 text-xs text-accent-700">
+                    {role.project_label || role.project}
+                  </span>
+                )}
 
                 {role.subject === me && <span className="text-xs text-zinc-500">(vous)</span>}
 
@@ -126,7 +139,7 @@ function RolesCard({ roles, catalogue }: { roles: UserRole[]; catalogue: RoleCat
           challenge={target.subject === me ? target.subject : undefined}
           onCancel={() => setTarget(null)}
           onConfirm={() => {
-            revoke.mutate(target.subject)
+            revoke.mutate({ subject: target.subject, project: target.project })
             setTarget(null)
           }}
         >
@@ -155,11 +168,17 @@ function RolesCard({ roles, catalogue }: { roles: UserRole[]; catalogue: RoleCat
 
 function GrantCard({ catalogue }: { catalogue: RoleCatalogue[] }) {
   const grant = useGrantRole()
+  const projects = useProjects()
   const [subject, setSubject] = useState('')
   const [username, setUsername] = useState('')
   const [role, setRole] = useState<Role>('viewer')
+  const [project, setProject] = useState('')
 
   const selected = catalogue.find((entry) => entry.role === role)
+  // `admin` gouverne les comptes, les dépôts et la synchronisation : rien de
+  // tout cela n'appartient à un projet. Le serveur refuse ; le formulaire
+  // n'offre pas le choix plutôt que de laisser produire une erreur.
+  const scopable = role !== 'admin'
 
   return (
     <Card title="Attribuer un rôle">
@@ -167,7 +186,13 @@ function GrantCard({ catalogue }: { catalogue: RoleCatalogue[] }) {
         className="flex flex-col gap-3"
         onSubmit={(event) => {
           event.preventDefault()
-          if (subject.trim()) grant.mutate({ subject: subject.trim(), username: username.trim(), role })
+          if (!subject.trim()) return
+          grant.mutate({
+            subject: subject.trim(),
+            username: username.trim(),
+            project: scopable && project ? project : undefined,
+            role,
+          })
         }}
       >
         <div className="flex flex-wrap items-end gap-3">
@@ -201,6 +226,28 @@ function GrantCard({ catalogue }: { catalogue: RoleCatalogue[] }) {
               {catalogue.map((entry) => (
                 <option key={entry.role} value={entry.role}>
                   {ROLE_LABEL[entry.role]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* La portée. Par défaut « partout », ce que signifient toutes les
+              attributions antérieures et ce qui reste le cas courant. Un projet
+              nommé restreint le rôle à lui seul — et l'emporte alors sur le rôle
+              global de la personne, y compris pour la restreindre. */}
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Portée</span>
+            <select
+              value={project}
+              disabled={!scopable}
+              onChange={(event) => setProject(event.target.value)}
+              title={scopable ? undefined : "Le rôle d'administrateur vaut nécessairement partout"}
+              className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 disabled:opacity-50"
+            >
+              <option value="">Partout</option>
+              {(projects.data?.projects ?? []).map((entry: Project) => (
+                <option key={entry.slug} value={entry.slug}>
+                  {entry.label || entry.slug}
                 </option>
               ))}
             </select>

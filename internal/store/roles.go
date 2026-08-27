@@ -12,6 +12,14 @@ type UserRole struct {
 	Subject  string
 	Username string
 	Role     string
+	// ProjectID est la portée : nil quand le rôle vaut partout. Une même personne
+	// peut donc apparaître plusieurs fois dans la liste — une ligne globale, une
+	// par projet où une exception a été posée.
+	ProjectID *int64
+	// ProjectSlug et ProjectLabel nomment cette portée pour l'affichage. Vides
+	// pour un rôle global.
+	ProjectSlug  string
+	ProjectLabel string
 	// GrantedBy vaut `bootstrap` pour les comptes promus par la configuration au
 	// démarrage. La distinction compte : ces rôles réapparaissent au redémarrage
 	// si on les retire sans toucher à la configuration.
@@ -39,11 +47,18 @@ func (db *DB) ListUserRoles(ctx context.Context) ([]UserRole, error) {
 		`select r.subject, coalesce(r.username, ''), r.role, r.granted_by, r.granted_at,
 		        r.last_seen,
 		        (select count(*) from sessions s
-		         where s.subject = r.subject and s.expires_at > now())
+		         where s.subject = r.subject and s.expires_at > now()),
+		        r.project_id, coalesce(p.slug, ''), coalesce(p.label, '')
 		 from user_roles r
-		 -- Les plus privilégiés d'abord : c'est la liste qu'on relit pour vérifier
-		 -- qui peut livrer, et elle doit répondre sans tri manuel.
-		 order by case r.role
+		 left join projects p on p.id = r.project_id
+		 -- Les rôles globaux d'abord, puis ceux des projets : une personne peut
+		 -- désormais apparaître plusieurs fois, et lire sa portée générale avant
+		 -- ses exceptions est l'ordre dans lequel on raisonne.
+		 --
+		 -- Les plus privilégiés en tête de chaque groupe : c'est la liste qu'on
+		 -- relit pour vérifier qui peut livrer.
+		 order by (r.project_id is not null), coalesce(p.label, ''),
+		     case r.role
 		     when 'admin' then 0 when 'releaser' then 1
 		     when 'operator' then 2 else 3 end,
 		     coalesce(r.username, r.subject)`)
@@ -56,7 +71,8 @@ func (db *DB) ListUserRoles(ctx context.Context) ([]UserRole, error) {
 	for rows.Next() {
 		var role UserRole
 		if err := rows.Scan(&role.Subject, &role.Username, &role.Role,
-			&role.GrantedBy, &role.GrantedAt, &role.LastSeen, &role.Sessions); err != nil {
+			&role.GrantedBy, &role.GrantedAt, &role.LastSeen, &role.Sessions,
+			&role.ProjectID, &role.ProjectSlug, &role.ProjectLabel); err != nil {
 			return nil, fmt.Errorf("liste des rôles: %w", err)
 		}
 		roles = append(roles, role)
@@ -67,7 +83,10 @@ func (db *DB) ListUserRoles(ctx context.Context) ([]UserRole, error) {
 // CountAdmins rend le nombre d'administrateurs.
 func (db *DB) CountAdmins(ctx context.Context) (int, error) {
 	var count int
-	err := db.pool.QueryRow(ctx, `select count(*) from user_roles where role = 'admin'`).Scan(&count)
+	// Les globaux seuls : `admin` n'existe pas ailleurs — la base l'impose — mais
+	// la condition est explicite plutôt que déduite d'une contrainte.
+	err := db.pool.QueryRow(ctx,
+		`select count(*) from user_roles where role = 'admin' and project_id is null`).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("décompte des administrateurs: %w", err)
 	}
@@ -86,6 +105,15 @@ func (db *DB) CountAdmins(ctx context.Context) (int, error) {
 // pour attribuer quoi que ce soit : la seule sortie serait de modifier la
 // configuration d'amorçage et de redémarrer.
 func (db *DB) RevokeRole(ctx context.Context, subject string) error {
+	return db.RevokeRoleIn(ctx, subject, nil)
+}
+
+// RevokeRoleIn retire le rôle d'une portée : celui d'un projet, ou le global.
+//
+// La portée est obligatoire dans le raisonnement même quand elle est nulle : un
+// retrait qui effacerait toutes les lignes d'un sujet supprimerait, en voulant
+// lui retirer un projet, le rôle global qui vaut partout ailleurs.
+func (db *DB) RevokeRoleIn(ctx context.Context, subject string, projectID *int64) error {
 	transaction, err := db.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("retrait du rôle de %q: %w", subject, err)
@@ -93,8 +121,17 @@ func (db *DB) RevokeRole(ctx context.Context, subject string) error {
 	defer func() { _ = transaction.Rollback(ctx) }()
 
 	var role string
-	if err := transaction.QueryRow(ctx,
-		`select role from user_roles where subject = $1 for update`, subject).Scan(&role); err != nil {
+	var err2 error
+	if projectID == nil {
+		err2 = transaction.QueryRow(ctx,
+			`select role from user_roles where subject = $1 and project_id is null for update`,
+			subject).Scan(&role)
+	} else {
+		err2 = transaction.QueryRow(ctx,
+			`select role from user_roles where subject = $1 and project_id = $2 for update`,
+			subject, *projectID).Scan(&role)
+	}
+	if err2 != nil {
 		return ErrRoleNotFound
 	}
 
@@ -112,7 +149,14 @@ func (db *DB) RevokeRole(ctx context.Context, subject string) error {
 		}
 	}
 
-	if _, err := transaction.Exec(ctx, `delete from user_roles where subject = $1`, subject); err != nil {
+	if projectID == nil {
+		_, err = transaction.Exec(ctx,
+			`delete from user_roles where subject = $1 and project_id is null`, subject)
+	} else {
+		_, err = transaction.Exec(ctx,
+			`delete from user_roles where subject = $1 and project_id = $2`, subject, *projectID)
+	}
+	if err != nil {
 		return fmt.Errorf("retrait du rôle de %q: %w", subject, err)
 	}
 	if _, err := transaction.Exec(ctx, `delete from sessions where subject = $1`, subject); err != nil {

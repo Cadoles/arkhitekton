@@ -20,7 +20,11 @@ type AdminStore interface {
 	// SetRoleIn attribue un rôle dans un projet, ou partout quand il est nil.
 	SetRoleIn(ctx context.Context, subject, username, role string, projectID *int64, grantedBy string) error
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
-	RevokeRole(ctx context.Context, subject string) error
+	// RevokeRoleIn retire le rôle d'une portée. La portée est obligatoire dans le
+	// raisonnement même quand elle est nulle : effacer toutes les lignes d'un
+	// sujet supprimerait, en voulant lui retirer un projet, le rôle global qui
+	// vaut partout ailleurs.
+	RevokeRoleIn(ctx context.Context, subject string, projectID *int64) error
 	ListAudit(ctx context.Context, target string, limit int) ([]store.AuditEntry, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	Directory(ctx context.Context) (map[string]string, error)
@@ -38,10 +42,14 @@ type userRolePayload struct {
 	// GrantedBy vaut `bootstrap` pour les comptes promus par la configuration.
 	// L'interface le signale : retirer un tel rôle sans toucher à la
 	// configuration le fait réapparaître au redémarrage suivant.
-	GrantedBy string     `json:"granted_by"`
-	GrantedAt time.Time  `json:"granted_at"`
-	LastSeen  *time.Time `json:"last_seen,omitempty"`
-	Sessions  int        `json:"sessions"`
+	GrantedBy string    `json:"granted_by"`
+	GrantedAt time.Time `json:"granted_at"`
+	// Project nomme la portée. Vide pour un rôle global — la grande majorité.
+	Project string `json:"project,omitempty"`
+	// ProjectLabel est son libellé lisible, pour ne pas afficher un slug seul.
+	ProjectLabel string     `json:"project_label,omitempty"`
+	LastSeen     *time.Time `json:"last_seen,omitempty"`
+	Sessions     int        `json:"sessions"`
 }
 
 // Roles rend les rôles attribués et ce qu'ils permettent.
@@ -59,6 +67,7 @@ func (h *AdminHandler) Roles(w http.ResponseWriter, r *http.Request) {
 		payload = append(payload, userRolePayload{
 			Subject: role.Subject, Username: role.Username, Role: role.Role,
 			GrantedBy: who.name(role.GrantedBy), GrantedAt: role.GrantedAt,
+			Project: role.ProjectSlug, ProjectLabel: role.ProjectLabel,
 			LastSeen: role.LastSeen, Sessions: role.Sessions,
 		})
 	}
@@ -167,7 +176,23 @@ func (h *AdminHandler) Grant(w http.ResponseWriter, r *http.Request) {
 func (h *AdminHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 	subject := r.PathValue("subject")
 
-	if err := h.store.RevokeRole(r.Context(), subject); err != nil {
+	// La portée vient de la requête : retirer « le rôle de quelqu'un » n'a plus
+	// de sens unique depuis qu'il peut en avoir un par projet.
+	var projectID *int64
+	if slug := strings.TrimSpace(r.URL.Query().Get("project")); slug != "" {
+		project, err := h.store.ProjectBySlug(r.Context(), slug)
+		if err != nil {
+			if errors.Is(err, store.ErrProjectNotFound) {
+				writeProblem(w, http.StatusNotFound, "Projet inconnu", slug)
+				return
+			}
+			writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+			return
+		}
+		projectID = &project.ID
+	}
+
+	if err := h.store.RevokeRoleIn(r.Context(), subject, projectID); err != nil {
 		switch {
 		case errors.Is(err, store.ErrRoleNotFound):
 			writeProblem(w, http.StatusNotFound, "Rôle introuvable", "")
