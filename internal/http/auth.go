@@ -23,7 +23,10 @@ type Sessions interface {
 	// Appelée à la connexion : le sujet du fournisseur d'identité n'est pas
 	// connaissable avant.
 	ApplyBootstrap(ctx context.Context, subject, username string) (string, error)
-	Lookup(ctx context.Context, id string) (auth.Session, auth.Role, error)
+	// LookupRoles rend le rôle global **et** les rôles par projet. Les deux
+	// portées coexistent : un rôle de projet n'a pas de sens hors de lui, et un
+	// rôle global ne peut pas être déduit d'eux.
+	LookupRoles(ctx context.Context, id string) (auth.Session, auth.Role, map[int64]auth.Role, error)
 	Revoke(ctx context.Context, id string) error
 }
 

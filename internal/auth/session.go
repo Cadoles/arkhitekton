@@ -86,40 +86,76 @@ func (s *SessionStore) Create(ctx context.Context, subject, username, email stri
 // L'expiration est filtrée en SQL plutôt qu'en Go : une session expirée ne doit
 // pas pouvoir être retournée puis oubliée par un appelant distrait.
 func (s *SessionStore) Lookup(ctx context.Context, id string) (Session, Role, error) {
-	var (
-		session Session
-		role    *string
-	)
+	session, role, _, err := s.LookupRoles(ctx, id)
+	return session, role, err
+}
+
+// LookupRoles rend la session, le rôle global, et les rôles par projet.
+//
+// La jointure ne peut plus rendre une ligne : un sujet peut porter un rôle
+// global **et** des rôles de projet, et les fondre en une seule réponse ferait
+// perdre celui qui ne s'applique pas partout.
+//
+// Deux requêtes plutôt qu'une jointure qui multiplierait la session par ses
+// rôles : la session doit être lue même sans aucun rôle — l'utilisateur existe et
+// doit apparaître dans l'écran d'administration en attente d'attribution.
+func (s *SessionStore) LookupRoles(
+	ctx context.Context, id string,
+) (Session, Role, map[int64]Role, error) {
+	var session Session
 
 	err := s.pool.QueryRow(ctx,
 		`select s.id, s.subject, coalesce(s.username, ''), coalesce(s.email, ''),
-		        s.expires_at, coalesce(s.last_used, s.created_at), r.role
+		        s.expires_at, coalesce(s.last_used, s.created_at)
 		   from sessions s
-		   left join user_roles r on r.subject = s.subject
 		  where s.id = $1 and s.expires_at > $2`,
 		id, s.now().UTC()).
 		Scan(&session.ID, &session.Subject, &session.Username, &session.Email,
-			&session.ExpiresAt, &session.LastUsed, &role)
+			&session.ExpiresAt, &session.LastUsed)
 
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Session{}, "", ErrSessionNotFound
+		return Session{}, "", nil, ErrSessionNotFound
 	}
 	if err != nil {
-		return Session{}, "", fmt.Errorf("lecture de session: %w", err)
+		return Session{}, "", nil, fmt.Errorf("lecture de session: %w", err)
 	}
 
-	if role == nil {
+	rows, err := s.pool.Query(ctx,
+		`select role, project_id from user_roles where subject = $1`, session.Subject)
+	if err != nil {
+		return session, "", nil, fmt.Errorf("lecture des rôles: %w", err)
+	}
+	defer rows.Close()
+
+	var global Role
+	projects := map[int64]Role{}
+	for rows.Next() {
+		var raw string
+		var projectID *int64
+		if err := rows.Scan(&raw, &projectID); err != nil {
+			return session, "", nil, fmt.Errorf("lecture des rôles: %w", err)
+		}
+		parsed, err := ParseRole(raw)
+		if err != nil {
+			return session, "", nil, err
+		}
+		if projectID == nil {
+			global = parsed
+			continue
+		}
+		projects[*projectID] = parsed
+	}
+	if err := rows.Err(); err != nil {
+		return session, "", nil, fmt.Errorf("lecture des rôles: %w", err)
+	}
+
+	if global == "" && len(projects) == 0 {
 		// Authentifié mais sans rôle : l'utilisateur existe et doit apparaître
 		// dans l'écran d'administration en attente d'attribution, plutôt que de
 		// recevoir une erreur opaque suivie d'un ticket.
-		return session, "", ErrNoRole
+		return session, "", nil, ErrNoRole
 	}
-
-	parsed, err := ParseRole(*role)
-	if err != nil {
-		return session, "", err
-	}
-	return session, parsed, nil
+	return session, global, projects, nil
 }
 
 // Touch prolonge la session et note son dernier usage.
@@ -155,17 +191,42 @@ func (s *SessionStore) PurgeExpired(ctx context.Context) (int64, error) {
 
 // GrantRole attribue ou remplace le rôle d'un utilisateur.
 func (s *SessionStore) GrantRole(ctx context.Context, subject, username string, role Role, grantedBy string) error {
+	return s.GrantRoleIn(ctx, subject, username, role, nil, grantedBy)
+}
+
+// GrantRoleIn attribue un rôle dans un projet, ou partout quand il est nil.
+//
+// Deux `on conflict` plutôt qu'un : les index qui portent l'unicité sont
+// partiels — au plus un rôle global, au plus un par projet — et `on conflict`
+// exige de nommer celui qu'il vise. Une clé composite `(subject, project_id)`
+// aurait permis une seule clause, mais laissé passer plusieurs rôles globaux,
+// `null` n'étant jamais égal à `null`.
+func (s *SessionStore) GrantRoleIn(
+	ctx context.Context, subject, username string, role Role, projectID *int64, grantedBy string,
+) error {
 	if !role.Valid() {
 		return fmt.Errorf("rôle invalide %q", role)
 	}
+	// `admin` gouverne les comptes, les dépôts et la synchronisation — rien de
+	// tout cela n'appartient à un projet. La base le refuse aussi ; le dire ici
+	// rend le message lisible plutôt que de laisser remonter une contrainte.
+	if role == RoleAdmin && projectID != nil {
+		return fmt.Errorf("le rôle %q ne s'attribue pas par projet", role)
+	}
+
+	conflict := "(subject) where project_id is null"
+	if projectID != nil {
+		conflict = "(subject, project_id) where project_id is not null"
+	}
+
 	_, err := s.pool.Exec(ctx,
-		`insert into user_roles (subject, username, role, granted_by, granted_at)
-		 values ($1, $2, $3, $4, $5)
-		 on conflict (subject) do update
+		`insert into user_roles (subject, username, role, project_id, granted_by, granted_at)
+		 values ($1, $2, $3, $4, $5, $6)
+		 on conflict `+conflict+` do update
 		 set role = excluded.role, granted_by = excluded.granted_by,
 		     granted_at = excluded.granted_at,
 		     username = coalesce(excluded.username, user_roles.username)`,
-		subject, nullable(username), string(role), grantedBy, s.now().UTC())
+		subject, nullable(username), string(role), projectID, grantedBy, s.now().UTC())
 	return err
 }
 
@@ -214,12 +275,16 @@ func (s *SessionStore) ApplyBootstrap(ctx context.Context, subject, username str
 		     where identifier in (select identifier from candidate)
 		    returning role
 		)
-		insert into user_roles (subject, username, role, granted_by, granted_at)
-		select $1, nullif($2, ''), role, 'bootstrap', $3 from claimed
+		insert into user_roles (subject, username, role, project_id, granted_by, granted_at)
+		select $1, nullif($2, ''), role, null, 'bootstrap', $3 from claimed
 		-- Un rôle existant n'est jamais écrasé : un compte rétrogradé
 		-- volontairement ne doit pas redevenir administrateur à sa prochaine
 		-- connexion.
-		on conflict (subject) do nothing
+		--
+		-- La clause vise l'index partiel des rôles **globaux** : l'amorçage n'en
+		-- accorde pas d'autres, et un rôle de projet déjà posé ne doit pas
+		-- empêcher l'attribution globale qu'une déclaration réclame.
+		on conflict (subject) where project_id is null do nothing
 		returning role`
 
 	var role string

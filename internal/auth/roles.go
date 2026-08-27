@@ -73,6 +73,14 @@ type Identity struct {
 	Subject  string
 	Username string
 	Email    string
+	// Projects porte les rôles accordés **par projet**, indexés par identifiant.
+	// Vide dans le cas courant : la plupart des attributions valent partout.
+	//
+	// Un rôle de projet **remplace** le rôle global sur ce projet, dans les deux
+	// sens. C'est ce qui rend une restriction exprimable — accorder `viewer` sur
+	// un projet à quelqu'un qui est `operator` ailleurs — et une règle qui prendrait
+	// le plus élevé des deux ne le permettrait pas. Le plus spécifique gagne.
+	Projects map[int64]Role
 	Role     Role
 }
 
@@ -140,19 +148,44 @@ func PermissionsOf(role Role) []Permission {
 
 // Can indique si l'identité dispose de la permission demandée.
 func (a *Authorizer) Can(identity Identity, permission Permission) bool {
-	if !identity.Role.Valid() {
+	return a.allows(identity.Role, permission)
+}
+
+// CanIn décide dans le périmètre d'un projet.
+//
+// Le rôle du projet quand il y en a un, le rôle global sinon. Distincte de [Can]
+// et non un paramètre optionnel : une permission vérifiée sans projet là où il en
+// faudrait un passerait inaperçue, alors qu'un appel au mauvais nom se voit.
+func (a *Authorizer) CanIn(identity Identity, projectID int64, permission Permission) bool {
+	return a.allows(identity.RoleIn(projectID), permission)
+}
+
+// RoleIn rend le rôle effectif dans un projet.
+//
+// Le plus spécifique gagne, y compris pour restreindre : un `viewer` accordé sur
+// un projet l'emporte sur un `operator` global. Sans cela, une restriction serait
+// inexprimable, et il faudrait retirer le rôle global pour la poser.
+func (i Identity) RoleIn(projectID int64) Role {
+	if role, found := i.Projects[projectID]; found {
+		return role
+	}
+	return i.Role
+}
+
+func (a *Authorizer) allows(role Role, permission Permission) bool {
+	if !role.Valid() {
 		return false
 	}
 
 	if environment, isDeploy := strings.CutPrefix(string(permission), deployPrefix); isDeploy {
-		return identity.Role.rank() >= a.minRoleForDeploy(environment).rank()
+		return role.rank() >= a.minRoleForDeploy(environment).rank()
 	}
 
-	for _, role := range AllRoles {
-		if role.rank() > identity.Role.rank() {
+	for _, granted := range AllRoles {
+		if granted.rank() > role.rank() {
 			break
 		}
-		if slices.Contains(rolePermissions[role], permission) {
+		if slices.Contains(rolePermissions[granted], permission) {
 			return true
 		}
 	}

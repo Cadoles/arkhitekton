@@ -168,7 +168,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// `/me` rend le projet courant : l'interface en a besoin pour composer ses
 		// URL, et la liste des projets exige `admin` qu'elle n'a pas forcément.
 		WithProjects(db)
-	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger)
+	// Les contrôles rattachés à un projet ont besoin de traduire le nom porté par
+	// l'URL : c'est lui qui dit dans quel périmètre le rôle est vérifié.
+	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger).WithProjects(db)
 	runsHandler := dashhttp.NewRunsHandler(db).
 		WithTektonDashboard(cfg.Tekton.DashboardURL).
 		// L'annuaire traduit le sujet OIDC du demandeur en nom : c'est « qui a

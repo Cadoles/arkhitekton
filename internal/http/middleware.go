@@ -25,11 +25,22 @@ func IdentityFrom(ctx context.Context) (auth.Identity, bool) {
 type Middleware struct {
 	sessions   Sessions
 	authorizer *auth.Authorizer
-	logger     *slog.Logger
+	// projects traduit le nom porté par une URL en projet, pour les contrôles
+	// rattachés à un projet. Nil tant qu'il n'est pas branché : [Middleware.RequireIn]
+	// refuse alors tout, ce qui est le bon sens du doute — sans projet résolu, il
+	// n'y a pas de rôle à vérifier.
+	projects projectResolver
+	logger   *slog.Logger
 }
 
 func NewMiddleware(sessions Sessions, authorizer *auth.Authorizer, logger *slog.Logger) *Middleware {
 	return &Middleware{sessions: sessions, authorizer: authorizer, logger: logger}
+}
+
+// WithProjects branche la résolution des projets pour les contrôles rattachés.
+func (m *Middleware) WithProjects(projects projectResolver) *Middleware {
+	m.projects = projects
+	return m
 }
 
 // Authenticate résout la session et pose l'identité dans le contexte.
@@ -46,7 +57,7 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		session, role, err := m.sessions.Lookup(r.Context(), cookie.Value)
+		session, role, projects, err := m.sessions.LookupRoles(r.Context(), cookie.Value)
 		switch {
 		case errors.Is(err, auth.ErrNoRole):
 			m.logger.Info("utilisateur sans rôle", "subject", session.Subject, "username", session.Username)
@@ -67,6 +78,7 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 			Username: session.Username,
 			Email:    session.Email,
 			Role:     role,
+			Projects: projects,
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey, identity)))
 	})
@@ -121,8 +133,56 @@ func (m *Middleware) Require(permission auth.Permission) func(http.Handler) http
 	}
 }
 
+// RequireIn exige une permission **dans le projet que le chemin désigne**.
+//
+// Distincte de [Require] et non un paramètre : une route rattachée à un projet
+// qui vérifierait globalement accorderait sur tous les projets ce qui n'a été
+// accordé que sur un. L'écart se verrait mal en relecture ; deux noms se
+// distinguent.
+//
+// Un projet inconnu est refusé ici plutôt que par le handler : sans identifiant,
+// il n'y a pas de rôle à vérifier, et laisser passer reviendrait à décider que
+// c'est permis.
+func (m *Middleware) RequireIn(permission auth.Permission) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			identity, ok := IdentityFrom(r.Context())
+			if !ok {
+				writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+				return
+			}
+
+			if m.projects == nil {
+				m.logger.Error("contrôle par projet sans résolution branchée",
+					"permission", permission, "path", r.URL.Path)
+				writeProblem(w, http.StatusInternalServerError, "Autorisation indisponible", "")
+				return
+			}
+
+			projectID, ok := requestProject(w, r, m.projects)
+			if !ok {
+				return
+			}
+
+			if !m.authorizer.CanIn(identity, projectID, permission) {
+				m.logger.Info("permission refusée",
+					"subject", identity.Subject, "role", identity.RoleIn(projectID),
+					"projet", projectID, "permission", permission)
+				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // RequireDeploy exige la permission de promotion d'un environnement, lu dans le
-// segment de chemin indiqué.
+// segment de chemin indiqué, **dans le projet que le chemin désigne**.
+//
+// Promouvoir est le geste le plus coûteux du dashboard : il pousse une image vers
+// un environnement réel. Le vérifier globalement accorderait sur tous les projets
+// ce qui n'a été accordé que sur un — précisément ce que cette tranche existe pour
+// empêcher.
 func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -131,10 +191,23 @@ func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Han
 				writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
 				return
 			}
+			if m.projects == nil {
+				m.logger.Error("contrôle de promotion sans résolution de projet branchée",
+					"path", r.URL.Path)
+				writeProblem(w, http.StatusInternalServerError, "Autorisation indisponible", "")
+				return
+			}
+
+			projectID, ok := requestProject(w, r, m.projects)
+			if !ok {
+				return
+			}
+
 			environment := r.PathValue(pathValue)
-			if !m.authorizer.Can(identity, auth.PermDeploy(environment)) {
+			if !m.authorizer.CanIn(identity, projectID, auth.PermDeploy(environment)) {
 				m.logger.Info("promotion refusée",
-					"subject", identity.Subject, "role", identity.Role, "environment", environment)
+					"subject", identity.Subject, "role", identity.RoleIn(projectID),
+					"projet", projectID, "environment", environment)
 				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
 				return
 			}

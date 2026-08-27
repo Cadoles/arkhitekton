@@ -17,7 +17,9 @@ import (
 // AdminStore est ce que l'administration attend de la base.
 type AdminStore interface {
 	ListUserRoles(ctx context.Context) ([]store.UserRole, error)
-	SetRole(ctx context.Context, subject, username, role, grantedBy string) error
+	// SetRoleIn attribue un rôle dans un projet, ou partout quand il est nil.
+	SetRoleIn(ctx context.Context, subject, username, role string, projectID *int64, grantedBy string) error
+	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	RevokeRole(ctx context.Context, subject string) error
 	ListAudit(ctx context.Context, target string, limit int) ([]store.AuditEntry, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
@@ -82,6 +84,10 @@ type grantRequest struct {
 	Subject  string `json:"subject"`
 	Username string `json:"username"`
 	Role     string `json:"role"`
+	// Project restreint l'attribution à un projet, nommé par son slug. Vide, le
+	// rôle vaut partout — ce qui reste le cas courant, et ce que toutes les
+	// attributions antérieures signifient.
+	Project string `json:"project,omitempty"`
 }
 
 // Grant attribue un rôle.
@@ -111,8 +117,29 @@ func (h *AdminHandler) Grant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.store.SetRole(r.Context(), request.Subject,
-		strings.TrimSpace(request.Username), string(role), identity.Subject)
+	// La portée est facultative : sans elle, le rôle vaut partout, ce qui reste
+	// le cas courant. Un projet nommé restreint l'attribution à lui seul.
+	var projectID *int64
+	if slug := strings.TrimSpace(request.Project); slug != "" {
+		project, err := h.store.ProjectBySlug(r.Context(), slug)
+		if err != nil {
+			if errors.Is(err, store.ErrProjectNotFound) {
+				writeProblem(w, http.StatusNotFound, "Projet inconnu", slug)
+				return
+			}
+			writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+			return
+		}
+		projectID = &project.ID
+	}
+
+	err = h.store.SetRoleIn(r.Context(), request.Subject,
+		strings.TrimSpace(request.Username), string(role), projectID, identity.Subject)
+	if err != nil && projectID != nil && role == auth.RoleAdmin {
+		writeProblem(w, http.StatusUnprocessableEntity, "Portée impossible",
+			"le rôle d'administrateur gouverne les comptes et les dépôts, qui n'appartiennent à aucun projet")
+		return
+	}
 	if err != nil {
 		if errors.Is(err, store.ErrLastAdmin) {
 			// 409 et non 403 : la requête est légitime et l'appelant a le droit,

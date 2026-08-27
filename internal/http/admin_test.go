@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,12 +26,28 @@ func (f *fakeAdminStore) ListUserRoles(context.Context) ([]store.UserRole, error
 	return f.roles, nil
 }
 
-func (f *fakeAdminStore) SetRole(_ context.Context, subject, _, role, _ string) error {
+func (f *fakeAdminStore) SetRoleIn(
+	_ context.Context, subject, _, role string, projectID *int64, _ string,
+) error {
 	if f.err != nil {
 		return f.err
 	}
-	f.granted = append(f.granted, subject+"="+role)
+	// La portée fait partie de la trace : une attribution globale et une
+	// attribution de projet ne doivent pas se ressembler dans les assertions.
+	scope := ""
+	if projectID != nil {
+		scope = fmt.Sprintf("@%d", *projectID)
+	}
+	f.granted = append(f.granted, subject+"="+role+scope)
 	return nil
+}
+
+// ProjectBySlug résout la portée nommée dans la requête.
+func (f *fakeAdminStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+	if slug != "test" {
+		return store.Project{}, store.ErrProjectNotFound
+	}
+	return store.Project{ID: 1, Slug: slug}, nil
 }
 
 func (f *fakeAdminStore) RevokeRole(_ context.Context, subject string) error {

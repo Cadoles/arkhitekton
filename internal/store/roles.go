@@ -101,7 +101,10 @@ func (db *DB) RevokeRole(ctx context.Context, subject string) error {
 	if role == "admin" {
 		var admins int
 		if err := transaction.QueryRow(ctx,
-			`select count(*) from user_roles where role = 'admin'`).Scan(&admins); err != nil {
+			// `admin` n'existe qu'en global — la base l'impose — mais la
+			// condition est explicite : compter par mégarde un rôle de projet
+			// laisserait retirer le dernier administrateur réel.
+			`select count(*) from user_roles where role = 'admin' and project_id is null`).Scan(&admins); err != nil {
 			return fmt.Errorf("retrait du rôle de %q: %w", subject, err)
 		}
 		if admins <= 1 {
@@ -129,21 +132,49 @@ func (db *DB) RevokeRole(ctx context.Context, subject string) error {
 // Refuse la rétrogradation du dernier administrateur, pour la même raison que
 // [DB.RevokeRole].
 func (db *DB) SetRole(ctx context.Context, subject, username, role, grantedBy string) error {
+	return db.SetRoleIn(ctx, subject, username, role, nil, grantedBy)
+}
+
+// SetRoleIn attribue un rôle dans un projet, ou partout quand il est nil.
+func (db *DB) SetRoleIn(
+	ctx context.Context, subject, username, role string, projectID *int64, grantedBy string,
+) error {
 	transaction, err := db.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("attribution du rôle à %q: %w", subject, err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
+	// `admin` gouverne les comptes, les dépôts et la synchronisation — rien de
+	// tout cela n'appartient à un projet. La base le refuse aussi ; le dire ici
+	// rend le message lisible.
+	if role == "admin" && projectID != nil {
+		return fmt.Errorf("le rôle %q ne s'attribue pas par projet", role)
+	}
+
+	// Le rôle courant **de la même portée**. Lire le rôle global en accordant un
+	// rôle de projet ferait croire à une rétrogradation qui n'a pas lieu, et
+	// déclencherait la garde du dernier administrateur sur une attribution qui ne
+	// touche pas au global.
 	var current string
-	err = transaction.QueryRow(ctx,
-		`select role from user_roles where subject = $1 for update`, subject).Scan(&current)
+	if projectID == nil {
+		err = transaction.QueryRow(ctx,
+			`select role from user_roles where subject = $1 and project_id is null for update`,
+			subject).Scan(&current)
+	} else {
+		err = transaction.QueryRow(ctx,
+			`select role from user_roles where subject = $1 and project_id = $2 for update`,
+			subject, *projectID).Scan(&current)
+	}
 	known := err == nil
 
 	if known && current == "admin" && role != "admin" {
 		var admins int
 		if err := transaction.QueryRow(ctx,
-			`select count(*) from user_roles where role = 'admin'`).Scan(&admins); err != nil {
+			// `admin` n'existe qu'en global — la base l'impose — mais la
+			// condition est explicite : compter par mégarde un rôle de projet
+			// laisserait retirer le dernier administrateur réel.
+			`select count(*) from user_roles where role = 'admin' and project_id is null`).Scan(&admins); err != nil {
 			return fmt.Errorf("attribution du rôle à %q: %w", subject, err)
 		}
 		if admins <= 1 {
@@ -151,14 +182,22 @@ func (db *DB) SetRole(ctx context.Context, subject, username, role, grantedBy st
 		}
 	}
 
+	// La clause vise l'index partiel de la portée visée : les deux unicités sont
+	// portées par des index partiels distincts, et `on conflict` exige de nommer
+	// celui qu'il vise.
+	conflict := "(subject) where project_id is null"
+	if projectID != nil {
+		conflict = "(subject, project_id) where project_id is not null"
+	}
+
 	_, err = transaction.Exec(ctx,
-		`insert into user_roles (subject, username, role, granted_by, granted_at)
-		 values ($1, nullif($2, ''), $3, $4, now())
-		 on conflict (subject) do update
+		`insert into user_roles (subject, username, role, project_id, granted_by, granted_at)
+		 values ($1, nullif($2, ''), $3, $4, $5, now())
+		 on conflict `+conflict+` do update
 		 set role = excluded.role, granted_by = excluded.granted_by,
 		     granted_at = excluded.granted_at,
 		     username = coalesce(excluded.username, user_roles.username)`,
-		subject, username, role, grantedBy)
+		subject, username, role, projectID, grantedBy)
 	if err != nil {
 		return fmt.Errorf("attribution du rôle à %q: %w", subject, err)
 	}

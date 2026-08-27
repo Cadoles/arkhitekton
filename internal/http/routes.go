@@ -91,15 +91,15 @@ func NewAPIRouter(
 	// environnement, si la release peut y aller — ce qui dépend de l'identité qui
 	// demande, et se calcule donc ici plutôt que dans la page.
 	mux.Handle("GET /projects/{project}/releases", Chain(http.HandlerFunc(releases.List),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/releases/{tag}", Chain(http.HandlerFunc(releases.Get),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	// La route exige `release:create` ; la création d'une release **finale** exige
 	// davantage, et le handler le vérifie — la nature est dans le corps, pas dans
 	// le chemin, et un middleware ne peut pas la lire sans consommer la requête.
 	mux.Handle("POST /projects/{project}/releases", Chain(http.HandlerFunc(releases.Create),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseCreate)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseCreate)))
 
 	// L'environnement est dans le chemin et non dans le corps, précisément pour
 	// que l'autorisation — qui est par environnement — reste décidée ici.
@@ -111,20 +111,20 @@ func NewAPIRouter(
 	// aussi la seule transition que rien n'automatise — un pipeline vert dit que
 	// le code fonctionne, pas qu'on veut le livrer.
 	mux.Handle("POST /projects/{project}/releases/{tag}/release", Chain(http.HandlerFunc(releases.Release),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseFinal)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseFinal)))
 
 	// Relancer une construction ne crée pas de version : même permission que la
 	// création, et non celle de livrer. C'est le geste qui répare un échec
 	// d'infrastructure sans faire porter au numéro de version l'historique des
 	// pannes du cluster.
 	mux.Handle("POST /projects/{project}/releases/{tag}/build", Chain(http.HandlerFunc(releases.Rebuild),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseCreate)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseCreate)))
 
 	// Relancer une seule vérification. Même permission que la reconstruction :
 	// c'est du calcul dans le cluster, pas une livraison. Moins engageant, même :
 	// rien n'est republié, l'image ne bouge pas.
 	mux.Handle("POST /projects/{project}/releases/{tag}/verify/{kind}", Chain(http.HandlerFunc(releases.Verify),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseCreate)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseCreate)))
 
 	// La note de release se lit avec la release et s'édite comme les actions
 	// manuelles : `release:edit` et non `release:create:final`. Composer la note
@@ -132,33 +132,33 @@ func NewAPIRouter(
 	mux.Handle("GET /projects/{project}/releases/{tag}/notes", Chain(http.HandlerFunc(releases.Notes),
 		middleware.Authenticate))
 	mux.Handle("POST /projects/{project}/releases/{tag}/notes/{issue}", Chain(http.HandlerFunc(releases.AddNote),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 	mux.Handle("DELETE /projects/{project}/releases/{tag}/notes/{issue}", Chain(http.HandlerFunc(releases.RemoveNote),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 
 	// Les actions manuelles sont éditables par ceux qui produisent le livrable,
 	// pas seulement par ceux qui peuvent livrer : `release:edit` et non
 	// `release:create:final`.
 	mux.Handle("PUT /projects/{project}/releases/{tag}/actions", Chain(http.HandlerFunc(releases.UpdateActions),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 
 	// Les livrables se listent et se téléchargent en lecture ; les produire est un
 	// geste de livraison, donc `release:export`.
 	mux.Handle("GET /projects/{project}/releases/{tag}/exports", Chain(http.HandlerFunc(releases.Exports),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/releases/{tag}/exports/{artifact}/download", Chain(http.HandlerFunc(releases.Download),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("POST /projects/{project}/releases/{tag}/exports", Chain(http.HandlerFunc(releases.Export),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseExport)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseExport)))
 
 	// Les résultats de tests et le score sont en lecture pour tous : c'est la
 	// première chose qu'on vient regarder avant de décider quoi que ce soit.
 	mux.Handle("GET /projects/{project}/releases/{tag}/tests", Chain(http.HandlerFunc(tests.Tests),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/releases/{tag}/tests/{family}", Chain(http.HandlerFunc(tests.Family),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/releases/{tag}/security", Chain(http.HandlerFunc(tests.Security),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	// La validation de recette se lit sans privilège — savoir si le client a
 	// validé intéresse tout le monde. Se prononcer est en revanche une décision de
@@ -168,19 +168,19 @@ func NewAPIRouter(
 	// livrent, alors que valider et livrer sont justement les deux gestes qu'on
 	// souhaite voir accomplis par des personnes distinctes.
 	mux.Handle("GET /projects/{project}/releases/{tag}/signoffs", Chain(http.HandlerFunc(signoffs.List),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("PUT /projects/{project}/releases/{tag}/signoffs/{env}", Chain(http.HandlerFunc(signoffs.Set),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 	mux.Handle("DELETE /projects/{project}/releases/{tag}/signoffs/{env}", Chain(http.HandlerFunc(signoffs.Clear),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseEdit)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 
 	// Les campagnes de charge sont en lecture pour tous. Épingler une baseline
 	// déplace en revanche la référence de tous les verdicts suivants : c'est une
 	// décision de livraison, pas une préférence d'affichage.
 	mux.Handle("GET /projects/{project}/releases/{tag}/bench", Chain(http.HandlerFunc(benches.Bench),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("POST /projects/{project}/releases/{tag}/bench/{measure}/baseline", Chain(http.HandlerFunc(benches.PinBaseline),
-		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermReleaseFinal)))
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseFinal)))
 
 	// La vue d'ensemble est en lecture pour tous : savoir ce qui tourne où ne
 	// demande aucun privilège.
@@ -208,9 +208,9 @@ func NewAPIRouter(
 	// l'information la plus consultée, et la première qu'on vient chercher avant de
 	// décider quoi que ce soit.
 	mux.Handle("GET /projects/{project}/versions", Chain(http.HandlerFunc(versions.List),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/versions/{id}", Chain(http.HandlerFunc(versions.Get),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	// Les références du dépôt servent le formulaire de création de release. En
 	// lecture pour tous : ce sont des noms de branches, pas des secrets, et le

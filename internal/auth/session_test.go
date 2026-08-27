@@ -361,3 +361,86 @@ func TestLeRoleDeclareEstCeluiAttribue(t *testing.T) {
 		t.Errorf("rôle = %s, attendu releaser", role)
 	}
 }
+
+// Un rôle global et un rôle de projet coexistent pour le même compte.
+//
+// C'est ce que les deux index partiels garantissent : au plus un rôle global, au
+// plus un par projet. Une clé composite `(subject, project_id)` aurait laissé
+// passer plusieurs globaux, `null` n'étant jamais égal à `null`.
+func TestLesDeuxPorteesCoexistent(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	var projectID int64
+	if err := pool.QueryRow(ctx,
+		// `projects` n'est pas purgée entre les tests de ce paquet — seules les
+		// sessions, les rôles et les déclarations le sont. L'insertion est donc
+		// idempotente plutôt que de dépendre de l'ordre d'exécution.
+		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
+		 values ('theme', 'CNOUS/theme', 'Thème', 'https://forge.example', '.', 'test')
+		 on conflict (repository) do update set label = excluded.label
+		 returning id`).Scan(&projectID); err != nil {
+		t.Fatalf("projet: %v", err)
+	}
+
+	if err := store.GrantRole(ctx, "121", "vcarroy", RoleViewer, "test"); err != nil {
+		t.Fatalf("rôle global: %v", err)
+	}
+	if err := store.GrantRoleIn(ctx, "121", "vcarroy", RoleReleaser, &projectID, "test"); err != nil {
+		t.Fatalf("rôle de projet: %v", err)
+	}
+
+	session, err := store.Create(ctx, "121", "vcarroy", "v@example.fr")
+	if err != nil {
+		t.Fatalf("session: %v", err)
+	}
+
+	_, global, projects, err := store.LookupRoles(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+	if global != RoleViewer {
+		t.Errorf("rôle global = %q, attendu viewer", global)
+	}
+	if projects[projectID] != RoleReleaser {
+		t.Errorf("rôle du projet = %q, attendu releaser", projects[projectID])
+	}
+
+	// Et le remplacement reste par portée : réattribuer le global ne touche pas
+	// celui du projet.
+	if err := store.GrantRole(ctx, "121", "vcarroy", RoleOperator, "test"); err != nil {
+		t.Fatalf("réattribution globale: %v", err)
+	}
+	_, global, projects, err = store.LookupRoles(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if global != RoleOperator || projects[projectID] != RoleReleaser {
+		t.Errorf("global = %q, projet = %q", global, projects[projectID])
+	}
+}
+
+// `admin` ne s'attribue pas par projet : il gouverne les comptes, les dépôts et
+// la synchronisation, dont aucun n'appartient à un projet.
+func TestAdminNeSattribuePasParProjet(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	var projectID int64
+	if err := pool.QueryRow(ctx,
+		// `projects` n'est pas purgée entre les tests de ce paquet — seules les
+		// sessions, les rôles et les déclarations le sont. L'insertion est donc
+		// idempotente plutôt que de dépendre de l'ordre d'exécution.
+		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
+		 values ('theme', 'CNOUS/theme', 'Thème', 'https://forge.example', '.', 'test')
+		 on conflict (repository) do update set label = excluded.label
+		 returning id`).Scan(&projectID); err != nil {
+		t.Fatalf("projet: %v", err)
+	}
+
+	if err := store.GrantRoleIn(ctx, "121", "vcarroy", RoleAdmin, &projectID, "test"); err == nil {
+		t.Error("un administrateur de projet ne doit pas pouvoir être attribué")
+	}
+}

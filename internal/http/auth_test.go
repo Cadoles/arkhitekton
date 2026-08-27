@@ -57,6 +57,13 @@ func (s *stubSessions) Create(context.Context, string, string, string) (auth.Ses
 	return s.created, s.createErr
 }
 
+func (s *stubSessions) LookupRoles(
+	context.Context, string,
+) (auth.Session, auth.Role, map[int64]auth.Role, error) {
+	session, role, err := s.Lookup(context.Background(), "")
+	return session, role, nil, err
+}
+
 func (s *stubSessions) Lookup(context.Context, string) (auth.Session, auth.Role, error) {
 	return s.lookup, s.lookupRole, s.lookupErr
 }

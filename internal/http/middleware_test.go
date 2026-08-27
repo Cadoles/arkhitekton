@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
 func testMiddleware(sessions Sessions) *Middleware {
@@ -133,11 +134,24 @@ func TestRequireRejectsRequestWithoutIdentity(t *testing.T) {
 	}
 }
 
+// Un projet à résoudre pour les contrôles rattachés. Un seul, reconnu par son
+// slug : ces tests portent sur la permission, pas sur la résolution.
+type stubProjects struct{}
+
+func (stubProjects) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+	if slug != "test" {
+		return store.Project{}, store.ErrProjectNotFound
+	}
+	return store.Project{ID: 1, Slug: slug}, nil
+}
+
 func TestRequireDeployReadsEnvironmentFromPath(t *testing.T) {
-	m := testMiddleware(&stubSessions{})
+	// La promotion se vérifie désormais **dans un projet** : le chemin le porte,
+	// et le middleware refuse s'il ne peut pas le résoudre.
+	m := testMiddleware(&stubSessions{}).WithProjects(stubProjects{})
 
 	mux := http.NewServeMux()
-	mux.Handle("POST /deploy/{env}", m.RequireDeploy("env")(okHandler()))
+	mux.Handle("POST /projects/{project}/deploy/{env}", m.RequireDeploy("env")(okHandler()))
 
 	cases := []struct {
 		role     auth.Role
@@ -152,7 +166,7 @@ func TestRequireDeployReadsEnvironmentFromPath(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		req := httptest.NewRequest(http.MethodPost, "/deploy/"+c.env, nil)
+		req := httptest.NewRequest(http.MethodPost, "/projects/test/deploy/"+c.env, nil)
 		req = req.WithContext(withIdentity(req, auth.Identity{Subject: "s", Role: c.role}))
 
 		rec := httptest.NewRecorder()
@@ -250,4 +264,58 @@ func TestChainAppliesMiddlewaresInReadingOrder(t *testing.T) {
 // l'autorisation isolément.
 func withIdentity(r *http.Request, identity auth.Identity) context.Context {
 	return context.WithValue(r.Context(), identityKey, identity)
+}
+
+// Une permission accordée sur un projet ne franchit pas la frontière du suivant.
+//
+// C'est le contrôle que `RequireIn` existe pour poser : vérifier globalement
+// accorderait sur tous les projets ce qui n'a été accordé que sur un, et l'écart
+// ne se verrait qu'en constatant qu'une personne agit là où elle ne devrait pas.
+func TestRequireInNaccordeQueDansSonProjet(t *testing.T) {
+	m := testMiddleware(&stubSessions{}).WithProjects(stubProjects{})
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /projects/{project}/build",
+		m.RequireIn(auth.PermReleaseCreate)(okHandler()))
+
+	// `operator` sur le projet 1 seulement, aucun rôle global.
+	identity := auth.Identity{Subject: "s", Projects: map[int64]auth.Role{1: auth.RoleOperator}}
+
+	req := httptest.NewRequest(http.MethodPost, "/projects/test/build", nil)
+	req = req.WithContext(withIdentity(req, identity))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("le rôle du projet doit s'y appliquer: code = %d", rec.Code)
+	}
+
+	// Un projet que le résolveur ne connaît pas : 404, et surtout pas un passage.
+	req = httptest.NewRequest(http.MethodPost, "/projects/absent/build", nil)
+	req = req.WithContext(withIdentity(req, identity))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("un projet inconnu doit être refusé: code = %d", rec.Code)
+	}
+}
+
+// Sans résolution branchée, le contrôle refuse au lieu de laisser passer.
+//
+// C'est le sens du doute qui compte : un middleware mal câblé qui accorderait
+// serait une faille silencieuse, alors qu'un refus se voit au premier essai.
+func TestRequireInRefuseSansResolutionDeProjet(t *testing.T) {
+	m := testMiddleware(&stubSessions{})
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /projects/{project}/build",
+		m.RequireIn(auth.PermReleaseCreate)(okHandler()))
+
+	req := httptest.NewRequest(http.MethodPost, "/projects/test/build", nil)
+	req = req.WithContext(withIdentity(req, auth.Identity{Subject: "s", Role: auth.RoleAdmin}))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusOK {
+		t.Error("un contrôle sans résolution de projet ne doit jamais accorder")
+	}
 }
