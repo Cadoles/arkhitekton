@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
@@ -50,7 +51,7 @@ type RedmineStore interface {
 	// TrackedProjects nomme les projets qui ont un outil de suivi. Les autres
 	// n'ont rien à lire.
 	TrackedProjects(ctx context.Context) ([]store.TrackedProject, error)
-	UpsertRedmineVersion(ctx context.Context, version store.RedmineVersion) (int64, error)
+	UpsertRedmineVersion(ctx context.Context, version store.TrackedVersion) (int64, error)
 	UpsertRedmineIssue(ctx context.Context, issue store.RedmineIssue) error
 	AdoptPendingVersions(ctx context.Context) ([]store.Adoption, error)
 	StatusMapping(ctx context.Context) (map[string]string, error)
@@ -162,9 +163,12 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 		return err
 	}
 	for _, version := range versions {
-		if _, err := s.store.UpsertRedmineVersion(ctx, store.RedmineVersion{
-			ProjectID:   project.ID,
-			RedmineID:   version.ID,
+		if _, err := s.store.UpsertRedmineVersion(ctx, store.TrackedVersion{
+			ProjectID: project.ID,
+			// L'outil et l'identifiant qu'il emploie, plutôt qu'un entier dont le
+			// nom disait déjà de quel produit il venait.
+			Tool:        trackerTool,
+			ExternalID:  strconv.FormatInt(version.ID, 10),
 			Name:        version.Name,
 			Normalized:  s.names.Normalize(version.Name),
 			Description: version.Description,
@@ -209,18 +213,21 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 		}
 
 		if err := s.store.UpsertRedmineIssue(ctx, store.RedmineIssue{
-			ProjectID:        project.ID,
-			RedmineID:        issue.ID,
-			VersionRedmineID: issue.VersionID,
-			Tracker:          issue.Tracker,
-			Subject:          issue.Subject,
-			StatusName:       issue.Status,
-			StatusBucket:     bucket,
-			Priority:         issue.Priority,
-			Assignee:         issue.Assignee,
-			DoneRatio:        issue.DoneRatio,
-			IsClosed:         issue.StatusClosed,
-			UpdatedOn:        issue.UpdatedOn,
+			ProjectID: project.ID,
+			RedmineID: issue.ID,
+			// La version visée, désignée par son identifiant **dans l'outil** : le
+			// dashboard ne connaît pas encore sa clé locale au moment où il
+			// projette la demande.
+			VersionExternalID: externalRef(issue.VersionID),
+			Tracker:           issue.Tracker,
+			Subject:           issue.Subject,
+			StatusName:        issue.Status,
+			StatusBucket:      bucket,
+			Priority:          issue.Priority,
+			Assignee:          issue.Assignee,
+			DoneRatio:         issue.DoneRatio,
+			IsClosed:          issue.StatusClosed,
+			UpdatedOn:         issue.UpdatedOn,
 		}); err != nil {
 			return err
 		}
@@ -295,3 +302,22 @@ var (
 	_ RedmineReader = provider.Tracker(nil)
 	_ PullReader    = provider.Forge(nil)
 )
+
+// trackerTool nomme l'outil que ce synchroniseur interroge.
+//
+// Constante ici et non paramètre : ce paquet **est** l'implémentation Redmine.
+// Le jour où un second existera, c'est un autre type qui portera son nom, et le
+// choix se fera à la construction plutôt que par un réglage de celui-ci.
+const trackerTool = "redmine"
+
+// externalRef traduit un identifiant numérique en référence textuelle.
+//
+// Nul reste nul : une demande sans version n'en vise aucune, et `"0"` désignerait
+// une version qui n'existe pas.
+func externalRef(id *int64) *string {
+	if id == nil {
+		return nil
+	}
+	reference := strconv.FormatInt(*id, 10)
+	return &reference
+}

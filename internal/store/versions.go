@@ -15,13 +15,18 @@ import (
  * et non repli : aucun plugin webhook n'est déployable sur l'instance (B6).
  */
 
-// RedmineVersion est une version telle que la synchronisation la dépose.
-type RedmineVersion struct {
-	// ProjectID est le dépôt qui suit cette version. L'identifiant Redmine n'est
+// TrackedVersion est une version telle que la synchronisation la dépose.
+type TrackedVersion struct {
+	// Tool nomme l'outil de suivi d'où vient cette version — `redmine`. Vide
+	// quand elle n'en vient pas.
+	Tool string
+	// ExternalID est son identifiant **dans** cet outil, en texte : Redmine
+	// numérote, Jira écrit `MSE-1234`.
+	ExternalID string
+	// ProjectID est le dépôt qui suit cette version. L'identifiant externe n'est
 	// unique qu'en son sein : deux projets peuvent suivre deux instances, ou deux
 	// projets de la même instance.
 	ProjectID int64
-	RedmineID int64
 	Name      string
 	// Normalized est la forme comparable, calculée par `release.NormalizeVersionName`.
 	// Elle n'est pas unique : `MSE 3.1.2` et `v3.1.2` coexistent.
@@ -38,18 +43,19 @@ type RedmineIssue struct {
 	// porter le même identifiant Redmine.
 	ProjectID int64
 	RedmineID int64
-	// VersionRedmineID est l'identifiant Redmine de la version, pas la clé locale :
+	// VersionExternalID est l'identifiant de la version **dans l'outil**, pas la
+	// clé locale :
 	// la synchronisation lit Redmine et ne connaît que ses identifiants.
-	VersionRedmineID *int64
-	Tracker          string
-	Subject          string
-	StatusName       string
-	StatusBucket     string
-	Priority         string
-	Assignee         string
-	DoneRatio        int
-	IsClosed         bool
-	UpdatedOn        *time.Time
+	VersionExternalID *string
+	Tracker           string
+	Subject           string
+	StatusName        string
+	StatusBucket      string
+	Priority          string
+	Assignee          string
+	DoneRatio         int
+	IsClosed          bool
+	UpdatedOn         *time.Time
 }
 
 // UpsertRedmineVersion enregistre une version et rend sa clé locale.
@@ -62,30 +68,32 @@ type RedmineIssue struct {
 // réduisent au même numéro ; celle traitée en premier adopterait la provisoire, et
 // une release se retrouverait rattachée à la version close plutôt qu'à celle qui est
 // ouverte — un arbitraire invisible.
-func (db *DB) UpsertRedmineVersion(ctx context.Context, version RedmineVersion) (int64, error) {
+func (db *DB) UpsertRedmineVersion(ctx context.Context, version TrackedVersion) (int64, error) {
 	var id int64
 	err := db.pool.QueryRow(ctx,
 		`insert into versions
-		     (project_id, redmine_id, name, normalized_name, description, status, due_date,
-		      redmine_updated_on, origin, synced_at)
-		 values ($1, $2, $3, $4, nullif($5, ''), $6, $7, $8, 'tracker', now())
-		 -- Le conflit porte sur le couple : le même identifiant Redmine peut être
-		 -- suivi par deux projets, et l'unicité globale les ferait s'écraser.
-		 on conflict (project_id, redmine_id) do update set
+		     (project_id, tool, external_id, name, normalized_name, description, status, due_date,
+		      external_updated_on, origin, synced_at)
+		 values ($1, $2, $3, $4, $5, nullif($6, ''), $7, $8, $9, 'tracker', now())
+		 -- Le conflit porte sur le triplet : le même identifiant peut être suivi
+		 -- par deux projets, ou par deux outils, et une unicité plus large les
+		 -- ferait s'écraser.
+		 on conflict (project_id, tool, external_id) where external_id is not null do update set
 		     name = excluded.name,
 		     normalized_name = excluded.normalized_name,
 		     description = excluded.description,
 		     status = excluded.status,
 		     due_date = excluded.due_date,
-		     redmine_updated_on = excluded.redmine_updated_on,
+		     external_updated_on = excluded.external_updated_on,
 		     origin = 'tracker',
 		     synced_at = now(),
 		     updated_at = now()
 		 returning id`,
-		version.ProjectID, version.RedmineID, version.Name, version.Normalized,
+		version.ProjectID, version.Tool, version.ExternalID, version.Name, version.Normalized,
 		version.Description, version.Status, version.DueDate, version.UpdatedOn).Scan(&id)
 	if err != nil {
-		return 0, fmt.Errorf("enregistrement de la version %d: %w", version.RedmineID, err)
+		return 0, fmt.Errorf("enregistrement de la version %s/%s: %w",
+			version.Tool, version.ExternalID, err)
 	}
 	return id, nil
 }
@@ -255,7 +263,7 @@ func activeOnly(candidates []versionRef) []versionRef {
 func (db *DB) realVersionsNormalized(ctx context.Context, projectID int64, normalized string) ([]versionRef, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, name, status from versions
-		 where project_id = $1 and redmine_id > 0 and normalized_name = $2
+		 where project_id = $1 and origin = 'tracker' and normalized_name = $2
 		 order by id`, projectID, normalized)
 	if err != nil {
 		return nil, fmt.Errorf("versions réelles nommées %q: %w", normalized, err)
@@ -269,7 +277,7 @@ func realVersionsNamed(
 ) ([]versionRef, error) {
 	rows, err := tx.Query(ctx,
 		`select id, name, status from versions
-		 where project_id = $1 and redmine_id > 0 and normalized_name = $2
+		 where project_id = $1 and origin = 'tracker' and normalized_name = $2
 		 order by id`, projectID, normalized)
 	if err != nil {
 		return nil, fmt.Errorf("versions réelles nommées %q: %w", normalized, err)
@@ -329,7 +337,7 @@ func (db *DB) UpsertRedmineIssue(ctx context.Context, issue RedmineIssue) error 
 		      priority, assignee, done_ratio, is_closed, redmine_updated_on, synced_at)
 		 values ($1,
 		         (select id from versions
-		          where redmine_id = $2 and project_id = $12),
+		          where external_id = $2 and project_id = $12),
 		         $3, $4, $5, $6, nullif($7, ''), nullif($8, ''), $9, $10, $11, now())
 		 on conflict (redmine_id) do update set
 		     version_id = excluded.version_id,
@@ -344,7 +352,7 @@ func (db *DB) UpsertRedmineIssue(ctx context.Context, issue RedmineIssue) error 
 		     redmine_updated_on = excluded.redmine_updated_on,
 		     synced_at = now(),
 		     updated_at = now()`,
-		issue.RedmineID, issue.VersionRedmineID, issue.Tracker, issue.Subject,
+		issue.RedmineID, issue.VersionExternalID, issue.Tracker, issue.Subject,
 		issue.StatusName, issue.StatusBucket, issue.Priority, issue.Assignee,
 		issue.DoneRatio, issue.IsClosed, issue.UpdatedOn, issue.ProjectID)
 	if err != nil {
@@ -470,7 +478,7 @@ func (db *DB) AmbiguousVersions(ctx context.Context) ([]AmbiguousVersion, error)
 	rows, err := db.pool.Query(ctx,
 		`select normalized_name, array_agg(name order by name)
 		 from versions
-		 where normalized_name is not null and redmine_id > 0 and status <> 'closed'
+		 where normalized_name is not null and origin = 'tracker' and status <> 'closed'
 		 group by normalized_name
 		 having count(*) > 1
 		 order by normalized_name`)

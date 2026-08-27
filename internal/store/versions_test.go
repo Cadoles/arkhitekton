@@ -3,15 +3,15 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
 
 // redmineVersion dépose une version réelle, comme le ferait la synchronisation.
 func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) int64 {
 	t.Helper()
-	id, err := db.UpsertRedmineVersion(context.Background(), RedmineVersion{
-		ProjectID: testProjectID,
-		RedmineID: redmineID, Name: name,
+	id, err := db.UpsertRedmineVersion(context.Background(), TrackedVersion{
+		ProjectID: testProjectID, Tool: "redmine", ExternalID: fmt.Sprint(redmineID), Name: name,
 		Normalized: testNames.Normalize(name),
 		Status:     status,
 	})
@@ -24,9 +24,9 @@ func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) 
 func issueOf(t *testing.T, db *DB, redmineID int64, versionRedmineID int64, tracker, status, bucket string, doneRatio int, closed bool) {
 	t.Helper()
 	if err := db.UpsertRedmineIssue(context.Background(), RedmineIssue{
-		ProjectID: testProjectID,
-		RedmineID: redmineID, VersionRedmineID: &versionRedmineID,
-		Tracker: tracker, Subject: "sujet", StatusName: status, StatusBucket: bucket,
+		ProjectID: testProjectID, RedmineID: redmineID,
+		VersionExternalID: externalRef(versionRedmineID),
+		Tracker:           tracker, Subject: "sujet", StatusName: status, StatusBucket: bucket,
 		DoneRatio: doneRatio, IsClosed: closed,
 	}); err != nil {
 		t.Fatalf("demande %d: %v", redmineID, err)
@@ -502,8 +502,7 @@ func TestLaBaseAccepteLesCinqSeauxEtRienDautre(t *testing.T) {
 	}
 
 	if err := db.UpsertRedmineIssue(ctx, RedmineIssue{
-		ProjectID: testProjectID,
-		RedmineID: 200, Tracker: "Évolution", Subject: "s",
+		ProjectID: testProjectID, RedmineID: 200, Tracker: "Évolution", Subject: "s",
 		StatusName: "x", StatusBucket: "invente",
 	}); err == nil {
 		t.Error("un seau inventé devrait être refusé par la contrainte")
@@ -1087,8 +1086,8 @@ func TestDeuxProjetsNeSeVolentPasLeursVersions(t *testing.T) {
 	// Le même numéro, déclaré des deux côtés. Le même identifiant Redmine aussi :
 	// deux projets peuvent suivre deux instances, ou deux projets de la même.
 	for _, projectID := range []int64{testProjectID, second} {
-		if _, err := db.UpsertRedmineVersion(ctx, RedmineVersion{
-			ProjectID: projectID, RedmineID: 900, Name: "v3.1.2",
+		if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
+			ProjectID: projectID, Tool: "redmine", ExternalID: fmt.Sprint(900), Name: "v3.1.2",
 			Normalized: testNames.Normalize("v3.1.2"), Status: "open",
 		}); err != nil {
 			t.Fatalf("version du projet %d: %v", projectID, err)
@@ -1205,5 +1204,81 @@ func TestUnProjetSuiviProduitUneProvisoire(t *testing.T) {
 	}
 	if origin != "pending" {
 		t.Errorf("origine = %q, attendu pending", origin)
+	}
+}
+
+// externalRef traduit l'identifiant numérique d'une version en la référence
+// textuelle que porte désormais la colonne.
+func externalRef(id int64) *string {
+	reference := fmt.Sprint(id)
+	return &reference
+}
+
+// Une version que le dashboard s'est donnée ne porte **aucun** identifiant
+// externe, et plus un entier négatif.
+//
+// Le contournement existait pour satisfaire un `not null` sur une colonne qui
+// n'avait pas de valeur à porter : il fallait lire le signe d'un nombre pour
+// connaître une nature. `origin` dit la nature, `external_id` reste nul.
+func TestUneVersionPropreNaAucunIdentifiantExterne(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+
+	var sansSuivi int64
+	if err := db.Pool().QueryRow(ctx,
+		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
+		 values ('theme', 'CNOUS/theme', 'Thème', 'https://forge.example', '.', 'test')
+		 returning id`).Scan(&sansSuivi); err != nil {
+		t.Fatalf("projet: %v", err)
+	}
+
+	versionID, err := db.EnsureVersion(ctx, sansSuivi, "1.2.0")
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+
+	var tool string
+	var external *string
+	if err := db.Pool().QueryRow(ctx,
+		`select tool, external_id from versions where id = $1`, versionID).Scan(&tool, &external); err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if tool != "" {
+		t.Errorf("outil = %q, attendu vide", tool)
+	}
+	if external != nil {
+		t.Errorf("identifiant externe = %q, attendu nul", *external)
+	}
+}
+
+// Deux outils peuvent numéroter pareil sans se gêner : l'unicité porte sur le
+// triplet projet + outil + identifiant.
+func TestDeuxOutilsPeuventPartagerUnIdentifiant(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
+		ProjectID: testProjectID, Tool: "redmine", ExternalID: "42",
+		Name: "v1.0.0", Normalized: "1.0.0", Status: "open",
+	}); err != nil {
+		t.Fatalf("version Redmine: %v", err)
+	}
+
+	// Le même numéro, chez un autre outil. Un entier unique par projet l'aurait
+	// refusé sans qu'aucun message ne dise pourquoi.
+	if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
+		ProjectID: testProjectID, Tool: "jira", ExternalID: "42",
+		Name: "MSE-42", Normalized: "MSE-42", Status: "open",
+	}); err != nil {
+		t.Fatalf("version Jira: %v", err)
+	}
+
+	var count int
+	if err := db.Pool().QueryRow(ctx,
+		`select count(*) from versions where external_id = '42'`).Scan(&count); err != nil {
+		t.Fatalf("décompte: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("%d version(s) portant l'identifiant 42, attendu 2", count)
 	}
 }

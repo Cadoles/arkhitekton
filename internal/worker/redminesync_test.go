@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strconv"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func (f *fakeRedmine) ListIssues(_ context.Context, query provider.IssueQuery) (
 }
 
 type fakeRedmineStore struct {
-	versions  []store.RedmineVersion
+	versions  []store.TrackedVersion
 	issues    []store.RedmineIssue
 	mapping   map[string]string
 	state     store.SyncState
@@ -46,9 +47,13 @@ type fakeRedmineStore struct {
 	adopted   int
 }
 
-func (f *fakeRedmineStore) UpsertRedmineVersion(_ context.Context, version store.RedmineVersion) (int64, error) {
+func (f *fakeRedmineStore) UpsertRedmineVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
 	f.versions = append(f.versions, version)
-	return version.RedmineID, nil
+	// La clé locale, que le magasin réel rendrait. L'identifiant de l'outil est
+	// désormais du texte : le réinterpréter en entier ferait dépendre le test
+	// d'un détail que le contrat ne promet plus.
+	id, _ := strconv.ParseInt(version.ExternalID, 10, 64)
+	return id, nil
 }
 
 func (f *fakeRedmineStore) UpsertRedmineIssue(_ context.Context, issue store.RedmineIssue) error {
@@ -112,7 +117,7 @@ func TestLesVersionsSontDeposeesAvantLesDemandes(t *testing.T) {
 	if len(db.versions) != 1 || db.versions[0].Normalized != "3.2.0" {
 		t.Errorf("versions déposées: %+v", db.versions)
 	}
-	if len(db.issues) != 1 || db.issues[0].VersionRedmineID == nil {
+	if len(db.issues) != 1 || db.issues[0].VersionExternalID == nil {
 		t.Fatalf("demandes déposées: %+v", db.issues)
 	}
 	// L'adoption a lieu après le dépôt des versions, et une seule fois.

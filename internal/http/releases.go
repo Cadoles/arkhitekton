@@ -586,11 +586,11 @@ func targetOf(environment store.Environment) provider.Target {
 type createReleaseRequest struct {
 	Tag  string `json:"tag"`
 	Kind string `json:"kind"`
-	// RedmineVersion est le nom de la version visée. Facultatif : il se déduit du
+	// TrackedVersion est le nom de la version visée. Facultatif : il se déduit du
 	// tag. Fourni, il est **vérifié** — c'est le seul moyen d'attraper une release
 	// rattachée à la mauvaise version avant que la note de release ne compare des
 	// périmètres sans rapport (B17).
-	RedmineVersion string `json:"redmine_version,omitempty"`
+	TrackedVersion string `json:"redmine_version,omitempty"`
 	GitRef         string `json:"git_ref,omitempty"`
 	// SourceTag est la pré-release re-taguée. Exigé pour une release finale.
 	SourceTag string `json:"source_tag,omitempty"`
@@ -639,8 +639,8 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if request.RedmineVersion != "" {
-		if err := h.names.CheckRedmineVersion(version, request.RedmineVersion); err != nil {
+	if request.TrackedVersion != "" {
+		if err := h.names.CheckRedmineVersion(version, request.TrackedVersion); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Version Redmine incohérente", err.Error())
 			return
 		}

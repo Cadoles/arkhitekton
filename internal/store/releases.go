@@ -274,8 +274,12 @@ func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (
 		//
 		// Le statut suit : `open` pour une version qui se suffit à elle-même,
 		// `en-attente-de-synchronisation` pour celle qui espère encore.
-		`insert into versions (project_id, redmine_id, name, normalized_name, origin, status, synced_at)
-		 select $1, -nextval('versions_id_seq'), $2, $3,
+		// Ni outil ni identifiant externe : cette version n'existe que dans le
+		// dashboard. C'est ce qui remplace le `redmine_id` négatif — un nombre
+		// dont il fallait lire le signe pour connaître une nature (doc 12 §12.9,
+		// lot C).
+		`insert into versions (project_id, name, normalized_name, origin, status, synced_at)
+		 select $1, $2, $3,
 		        case when suivi then 'pending' else 'own' end,
 		        case when suivi then 'en-attente-de-synchronisation' else 'open' end,
 		        now()
