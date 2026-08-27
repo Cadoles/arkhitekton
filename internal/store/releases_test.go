@@ -27,14 +27,20 @@ func TestEnsureVersionCreatesThenReuses(t *testing.T) {
 
 	// La ligne provisoire doit être reconnaissable, pour que la synchronisation
 	// sache laquelle remplacer.
-	var redmineID int64
-	var status string
+	var origin, status string
+	var externalID *string
 	if err := db.Pool().QueryRow(ctx,
-		`select redmine_id, status from versions where id = $1`, first).Scan(&redmineID, &status); err != nil {
+		`select origin, external_id, status from versions where id = $1`, first).
+		Scan(&origin, &externalID, &status); err != nil {
 		t.Fatalf("relecture: %v", err)
 	}
-	if redmineID >= 0 {
-		t.Errorf("redmine_id = %d, attendu négatif pour une version provisoire", redmineID)
+	if origin != VersionOriginPending {
+		t.Errorf("origin = %q, attendu %q pour une version provisoire", origin, VersionOriginPending)
+	}
+	// Une provisoire n'a rien à désigner dans le suivi : c'est justement ce
+	// qu'elle attend.
+	if externalID != nil {
+		t.Errorf("external_id = %q, attendu nul", *externalID)
 	}
 	if status != "en-attente-de-synchronisation" {
 		t.Errorf("statut = %q", status)

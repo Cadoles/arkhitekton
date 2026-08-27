@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -58,8 +59,8 @@ type ReleaseStore interface {
 	ReleaseBadgesByTag(ctx context.Context) (map[string]store.ReleaseBadges, error)
 	ListNoteEntries(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
 	ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
-	LinkNoteIssue(ctx context.Context, releaseID, redmineID int64, source, pullRequest, actor string) error
-	UnlinkNoteIssue(ctx context.Context, releaseID, redmineID int64) error
+	LinkNoteIssue(ctx context.Context, releaseID int64, reference, source, pullRequest, actor string) error
+	UnlinkNoteIssue(ctx context.Context, releaseID int64, reference string) error
 	Directory(ctx context.Context) (map[string]string, error)
 	// Les deux lectures du score. Rendues ici parce que la liste des releases
 	// affiche le même chiffre que l'écran d'une release, et que deux calculs
@@ -125,11 +126,11 @@ func (h *ReleasesHandler) WithRedmineURL(url string) *ReleasesHandler {
 	return h
 }
 
-func (h *ReleasesHandler) issueURL(redmineID int64) string {
+func (h *ReleasesHandler) issueURL(reference string) string {
 	if h.redmineURL == "" {
 		return ""
 	}
-	return h.redmineURL + "/issues/" + strconv.FormatInt(redmineID, 10)
+	return h.redmineURL + "/issues/" + reference
 }
 
 // WithWeights déclare la pondération du score.
@@ -1080,15 +1081,17 @@ func imageRepository(registryProject, name string) string {
 
 // notePayload est une ligne de note de release.
 type notePayload struct {
-	RedmineID int64  `json:"redmine_id"`
-	Subject   string `json:"subject,omitempty"`
-	Tracker   string `json:"tracker,omitempty"`
-	Status    string `json:"status,omitempty"`
+	// ExternalID est l'identifiant de la demande dans le suivi, en texte : même
+	// nom et même forme que sur une version.
+	ExternalID string `json:"external_id"`
+	Subject    string `json:"subject,omitempty"`
+	Tracker    string `json:"tracker,omitempty"`
+	Status     string `json:"status,omitempty"`
 	// Anomaly range la ligne : les anomalies vont aux corrections, le reste aux
 	// nouveautés. Le tracker et non le statut : c'est la nature de la demande qui
 	// décide, pas son avancement.
 	Anomaly bool `json:"anomaly"`
-	// Known est faux tant que la synchronisation Redmine n'a pas vu la demande.
+	// Known est faux tant que la synchronisation du suivi n'a pas vu la demande.
 	// La ligne reste affichée : la masquer ferait disparaître un ajout manuel.
 	Known       bool   `json:"known"`
 	Source      string `json:"source"`
@@ -1125,15 +1128,15 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 	who := h.actorsFor(r.Context())
 
 	payload := make([]notePayload, 0, len(entries))
-	linked := make(map[int64]bool, len(entries))
+	linked := make(map[string]bool, len(entries))
 	for _, entry := range entries {
-		linked[entry.RedmineID] = true
+		linked[entry.ExternalID] = true
 		payload = append(payload, notePayload{
-			RedmineID: entry.RedmineID, Subject: entry.Subject, Tracker: entry.Tracker,
+			ExternalID: entry.ExternalID, Subject: entry.Subject, Tracker: entry.Tracker,
 			Status: entry.StatusName, Anomaly: entry.Anomaly, Known: entry.Known,
 			Source: entry.Source, PullRequest: entry.PullRequest,
 			AddedBy: who.name(entry.AddedBy),
-			URL:     h.issueURL(entry.RedmineID),
+			URL:     h.issueURL(entry.ExternalID),
 		})
 	}
 
@@ -1157,13 +1160,13 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 			"release", record.Tag, "error", err)
 	}
 	for _, issue := range issues {
-		if linked[issue.RedmineID] {
+		if linked[issue.ExternalID] {
 			continue
 		}
 		available = append(available, notePayload{
-			RedmineID: issue.RedmineID, Subject: issue.Subject, Tracker: issue.Tracker,
+			ExternalID: issue.ExternalID, Subject: issue.Subject, Tracker: issue.Tracker,
 			Status: issue.StatusName, Anomaly: issue.Anomaly, Known: true,
-			URL: h.issueURL(issue.RedmineID),
+			URL: h.issueURL(issue.ExternalID),
 		})
 	}
 
@@ -1172,6 +1175,24 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 		response["available_error"] = availableError
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// issueReference lit l'identifiant de demande porté par l'URL.
+//
+// L'identifiant vient du suivi et le dashboard ne le fabrique pas : Redmine
+// numérote, Jira écrit `MSE-1234`. On ne peut donc pas exiger un entier — mais
+// on refuse ce qui ne ressemble à aucun identifiant, pour que la faute se voie
+// ici plutôt qu'en base sous forme de ligne orpheline.
+var issueReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+
+func issueReference(w http.ResponseWriter, r *http.Request) (string, bool) {
+	reference := r.PathValue("issue")
+	if !issueReferencePattern.MatchString(reference) {
+		writeProblem(w, http.StatusBadRequest, "Demande invalide",
+			"l'identifiant de demande est vide ou contient des caractères interdits")
+		return "", false
+	}
+	return reference, true
 }
 
 // AddNote rattache une demande à la main.
@@ -1201,26 +1222,24 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redmineID, err := strconv.ParseInt(r.PathValue("issue"), 10, 64)
-	if err != nil || redmineID <= 0 {
-		writeProblem(w, http.StatusBadRequest, "Demande invalide",
-			"le numéro de demande doit être un entier positif")
+	reference, ok := issueReference(w, r)
+	if !ok {
 		return
 	}
 
-	switch err := h.store.LinkNoteIssue(r.Context(), record.ID, redmineID,
+	switch err := h.store.LinkNoteIssue(r.Context(), record.ID, reference,
 		store.NoteSourceManual, "", identity.Subject); {
 	case errors.Is(err, store.ErrNoteAlreadyLinked):
 		writeProblem(w, http.StatusConflict, "Demande déjà rattachée",
-			fmt.Sprintf("la demande #%d figure déjà dans la note de %s", redmineID, record.Tag))
+			fmt.Sprintf("la demande %s figure déjà dans la note de %s", reference, record.Tag))
 		return
 	case err != nil:
 		writeProblem(w, http.StatusInternalServerError, "Rattachement impossible", "")
 		return
 	}
 
-	h.audit(r, store.AuditReleaseNoteAdd, record.Tag, map[string]any{"redmine_id": redmineID})
-	writeJSON(w, http.StatusCreated, map[string]any{"redmine_id": redmineID})
+	h.audit(r, store.AuditReleaseNoteAdd, record.Tag, map[string]any{"issue": reference})
+	writeJSON(w, http.StatusCreated, map[string]any{"issue": reference})
 }
 
 // RemoveNote retire une demande de la note.
@@ -1240,18 +1259,17 @@ func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redmineID, err := strconv.ParseInt(r.PathValue("issue"), 10, 64)
-	if err != nil || redmineID <= 0 {
-		writeProblem(w, http.StatusBadRequest, "Demande invalide", "")
+	reference, ok := issueReference(w, r)
+	if !ok {
 		return
 	}
 
-	if err := h.store.UnlinkNoteIssue(r.Context(), record.ID, redmineID); err != nil {
+	if err := h.store.UnlinkNoteIssue(r.Context(), record.ID, reference); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Retrait impossible", "")
 		return
 	}
 
-	h.audit(r, store.AuditReleaseNoteRemove, record.Tag, map[string]any{"redmine_id": redmineID})
+	h.audit(r, store.AuditReleaseNoteRemove, record.Tag, map[string]any{"issue": reference})
 	w.WriteHeader(http.StatusNoContent)
 }
 

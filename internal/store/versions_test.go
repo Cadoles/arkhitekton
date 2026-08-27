@@ -23,8 +23,8 @@ func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) 
 
 func issueOf(t *testing.T, db *DB, redmineID int64, versionRedmineID int64, tracker, status, bucket string, doneRatio int, closed bool) {
 	t.Helper()
-	if err := db.UpsertRedmineIssue(context.Background(), RedmineIssue{
-		ProjectID: testProjectID, RedmineID: redmineID,
+	if err := db.UpsertRedmineIssue(context.Background(), TrackedIssue{
+		ProjectID: testProjectID, Tool: "redmine", ExternalID: fmt.Sprint(redmineID),
 		VersionExternalID: externalRef(versionRedmineID),
 		Tracker:           tracker, Subject: "sujet", StatusName: status, StatusBucket: bucket,
 		DoneRatio: doneRatio, IsClosed: closed,
@@ -492,17 +492,17 @@ func TestLaBaseAccepteLesCinqSeauxEtRienDautre(t *testing.T) {
 	redmineVersion(t, db, 805, "v3.2.0", "open")
 
 	for i, bucket := range []string{BucketTodo, BucketDoing, BucketClientTest, BucketDone, BucketRejected} {
-		if err := db.UpsertRedmineIssue(ctx, RedmineIssue{
+		if err := db.UpsertRedmineIssue(ctx, TrackedIssue{
 			ProjectID: testProjectID,
-			RedmineID: int64(100 + i), Tracker: "Évolution", Subject: "s",
+			Tool:      "redmine", ExternalID: fmt.Sprint(100 + i), Tracker: "Évolution", Subject: "s",
 			StatusName: "x", StatusBucket: bucket,
 		}); err != nil {
 			t.Errorf("seau %q refusé par la base: %v", bucket, err)
 		}
 	}
 
-	if err := db.UpsertRedmineIssue(ctx, RedmineIssue{
-		ProjectID: testProjectID, RedmineID: 200, Tracker: "Évolution", Subject: "s",
+	if err := db.UpsertRedmineIssue(ctx, TrackedIssue{
+		ProjectID: testProjectID, Tool: "redmine", ExternalID: "200", Tracker: "Évolution", Subject: "s",
 		StatusName: "x", StatusBucket: "invente",
 	}); err == nil {
 		t.Error("un seau inventé devrait être refusé par la contrainte")

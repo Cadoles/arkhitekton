@@ -235,7 +235,7 @@ func (db *DB) ListPromotions(ctx context.Context, releaseID int64) ([]Promotion,
 //     à une version « inconnue de Redmine » qui existait bel et bien. La règle de
 //     préférence est celle de l'adoption, pour que le rattachement immédiat et le
 //     rattachement différé désignent la même version ;
-//  3. la création d'une provisoire à `redmine_id` négatif — le repli quand
+//  3. la création d'une provisoire d'origine `pending` — le repli quand
 //     Redmine ne connaît pas encore le numéro, reconnaissable et adopté plus tard.
 func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error) {
 	id, err := db.FindVersionByName(ctx, projectID, name)

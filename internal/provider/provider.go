@@ -84,7 +84,9 @@ type Tracker interface {
 // simultanées — `MSE3-1.5`, `MSE 3.1.0`, `v3.2.0` — et normaliser à l'écriture
 // perdrait l'information sans rien résoudre. L'identité est `ID`, jamais le nom.
 type Version struct {
-	ID          int64
+	// ID est l'identifiant dans le suivi, en **texte**, pour la même raison que
+	// celui d'une demande : rien ne garantit qu'un outil numérote.
+	ID          string
 	Name        string
 	Description string
 	// Status vaut `open`, `locked` ou `closed`. Vocabulaire de Redmine, repris
@@ -103,8 +105,12 @@ type Version struct {
 // recopier ce dont on n'a pas besoin est la façon la plus simple de ne pas avoir
 // à le protéger.
 type Issue struct {
-	ID        int64
-	VersionID *int64
+	// ID est l'identifiant dans le suivi, en **texte** : Redmine numérote, Jira
+	// écrit `MSE-1234`. Un entier fermait la porte au second sans qu'aucune
+	// erreur ne le dise.
+	ID string
+	// VersionID désigne la version visée, par son identifiant dans le suivi.
+	VersionID *string
 	Tracker   string
 	Subject   string
 	Status    string

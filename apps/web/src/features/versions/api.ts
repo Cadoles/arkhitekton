@@ -29,7 +29,8 @@ export type Completion = {
 
 export type Version = {
   id: number
-  redmine_id?: number
+  /** Identifiant dans le suivi, en texte : tout outil ne numérote pas. */
+  external_id?: string
   name: string
   status: string
   due_date: string | null
@@ -44,7 +45,8 @@ export type Version = {
 }
 
 export type Issue = {
-  redmine_id: number
+  /** Identifiant dans le suivi, en texte. */
+  external_id: string
   tracker: string
   subject: string
   status_name: string

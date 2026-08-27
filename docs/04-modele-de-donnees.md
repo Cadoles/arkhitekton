@@ -135,23 +135,43 @@ l'environnement explicitement aux pipelines, sans s'appuyer sur leurs valeurs pa
 (`environment: dev` du pipeline `e2e-test` désigne l'environnement local de
 développement, hors périmètre).
 
-### Versions et demandes Redmine
+### Versions et demandes du suivi
+
+L'outil de suivi se nomme dans `tool`, et son identifiant vit dans `external_id`,
+**en texte** : Redmine numérote, un autre outil peut écrire `MSE-1234`. Un entier
+fermait la porte au second sans qu'aucune erreur ne le dise. L'identifiant est
+unique dans son outil **et dans son projet** : deux projets peuvent suivre deux
+instances, ou deux projets d'une même instance, où le même numéro désigne deux
+choses (migrations 0030 et 0031, doc 12 §12.9 lot C).
+
+`external_id` est **nul** pour une version que le dashboard s'est donnée —
+provisoire posée par `EnsureVersion`, ou version d'un projet sans suivi. C'est ce
+qui a remplacé le contournement de l'identifiant négatif : la nature d'une
+version se lit dans `origin`, jamais dans le signe d'un nombre.
 
 ```sql
 create table versions (
-  id                bigserial primary key,
-  redmine_id        bigint not null unique,
-  name              text   not null,           -- '1.8.0'
-  description       text,
-  status            text   not null,           -- open | locked | closed
-  due_date          date,
-  redmine_updated_on timestamptz,              -- pour la synchro incrémentale
-  synced_at         timestamptz not null
+  id                 bigserial primary key,
+  project_id         bigint not null references projects(id) on delete cascade,
+  tool               text   not null default '',   -- '' quand la version ne vient pas d'un suivi
+  external_id        text,                         -- identifiant dans cet outil, nul sinon
+  origin             text   not null               -- tracker | pending | own
+                     check (origin in ('tracker','pending','own')),
+  name               text   not null,              -- '1.8.0'
+  description        text,
+  status             text   not null,              -- open | locked | closed
+  due_date           date,
+  external_updated_on timestamptz,                 -- pour la synchro incrémentale
+  synced_at          timestamptz not null,
+  check ((tool = '') = (external_id is null))
 );
+create unique index on versions (project_id, tool, external_id) where external_id is not null;
 
 create table issues (
   id                 bigserial primary key,
-  redmine_id         bigint not null unique,
+  project_id         bigint not null references projects(id) on delete cascade,
+  tool               text not null default '',
+  external_id        text not null,
   version_id         bigint references versions(id) on delete set null,
   tracker            text not null,            -- 'Evolution', 'Anomalie', ...
   subject            text not null,
@@ -162,9 +182,10 @@ create table issues (
   assignee           text,
   done_ratio         int  not null default 0,
   is_closed          boolean not null default false,
-  redmine_updated_on timestamptz,
+  external_updated_on timestamptz,
   synced_at          timestamptz not null
 );
+create unique index on issues (project_id, tool, external_id);
 create index on issues (version_id, status_bucket);
 create index on issues (version_id, tracker) where is_closed = false;
 

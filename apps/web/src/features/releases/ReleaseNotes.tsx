@@ -104,7 +104,7 @@ function NoteGroup({
       </h3>
       <ul className="flex flex-col">
         {entries.map((entry) => (
-          <NoteRow key={entry.redmine_id} entry={entry} tag={tag} canEdit={canEdit} />
+          <NoteRow key={entry.external_id} entry={entry} tag={tag} canEdit={canEdit} />
         ))}
       </ul>
     </section>
@@ -123,10 +123,10 @@ function NoteRow({ entry, tag, canEdit }: { entry: NoteEntry; tag: string; canEd
           rel="noreferrer noopener"
           className="font-mono text-xs text-zinc-500 hover:underline"
         >
-          #{entry.redmine_id}
+          {entry.external_id}
         </a>
       ) : (
-        <span className="font-mono text-xs text-zinc-500">#{entry.redmine_id}</span>
+        <span className="font-mono text-xs text-zinc-500">{entry.external_id}</span>
       )}
 
       {entry.known ? (
@@ -154,9 +154,9 @@ function NoteRow({ entry, tag, canEdit }: { entry: NoteEntry; tag: string; canEd
       {canEdit && (
         <button
           type="button"
-          onClick={() => remove.mutate(entry.redmine_id)}
+          onClick={() => remove.mutate(entry.external_id)}
           disabled={remove.isPending}
-          aria-label={`Retirer la demande ${entry.redmine_id} de la note`}
+          aria-label={`Retirer la demande ${entry.external_id} de la note`}
           className="ml-auto rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-40"
         >
           Retirer
@@ -225,16 +225,20 @@ function AddNoteBody({
     const query = needle.trim().toLowerCase()
     if (query === '') return true
     return (
-      String(entry.redmine_id).includes(query) ||
+      entry.external_id.toLowerCase().includes(query) ||
       (entry.subject ?? '').toLowerCase().includes(query)
     )
   })
 
   const submitManual = (event: React.FormEvent) => {
     event.preventDefault()
-    const number = Number(manual.replace(/^#/, '').trim())
-    if (!Number.isInteger(number) || number <= 0) return
-    add.mutate(number, { onSuccess: () => setManual('') })
+    // Le croisillon est toléré à la saisie : c'est ainsi que Redmine s'écrit
+    // partout ailleurs. Il ne fait pas partie de l'identifiant.
+    const reference = manual.replace(/^#/, '').trim()
+    // La même forme que celle acceptée par le serveur : refuser ici évite un
+    // aller-retour dont la seule issue serait une erreur.
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(reference)) return
+    add.mutate(reference, { onSuccess: () => setManual('') })
   }
 
   return (
@@ -279,16 +283,16 @@ function AddNoteBody({
         <ul className="flex flex-col">
           {filtered.map((entry) => (
             <li
-              key={entry.redmine_id}
+              key={entry.external_id}
               className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-200 py-1.5 text-sm first:border-t-0"
             >
-              <span className="font-mono text-xs text-zinc-500">#{entry.redmine_id}</span>
+              <span className="font-mono text-xs text-zinc-500">{entry.external_id}</span>
               <span className="text-zinc-900">{entry.subject}</span>
               <span className="text-xs text-zinc-500">{entry.tracker}</span>
               <span className="text-xs text-zinc-500">{entry.status}</span>
               <button
                 type="button"
-                onClick={() => add.mutate(entry.redmine_id)}
+                onClick={() => add.mutate(entry.external_id)}
                 disabled={add.isPending}
                 className="ml-auto rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
               >
@@ -310,8 +314,8 @@ function AddNoteBody({
           id="note-manual"
           value={manual}
           onChange={(event) => setManual(event.target.value)}
-          placeholder="#1234"
-          className="w-24 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+          placeholder="1234"
+          className="w-32 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
         />
         <button
           type="submit"

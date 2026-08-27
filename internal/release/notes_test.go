@@ -8,18 +8,18 @@ import (
 // La convention telle qu'elle est écrite dans les titres de PR et les messages
 // de commit.
 func TestLesNumerosDeDemandeSontLusDansLeTexte(t *testing.T) {
-	cases := map[string][]int64{
-		"#1234 corrige la pagination":            {1234},
-		"Corrige la pagination (#1234)":          {1234},
-		"fix: pagination\n\nRefs #1234 et #5678": {1234, 5678},
+	cases := map[string][]string{
+		"#1234 corrige la pagination":            {"1234"},
+		"Corrige la pagination (#1234)":          {"1234"},
+		"fix: pagination\n\nRefs #1234 et #5678": {"1234", "5678"},
 		"aucun numéro ici":                       nil,
 		// Le même numéro cité deux fois désigne une seule demande.
-		"#42 puis encore #42": {42},
+		"#42 puis encore #42": {"42"},
 	}
 
 	for text, expected := range cases {
-		if got := ExtractIssueIDs(text); !reflect.DeepEqual(got, expected) {
-			t.Errorf("ExtractIssueIDs(%q) = %v, attendu %v", text, got, expected)
+		if got := ExtractIssueRefs(text); !reflect.DeepEqual(got, expected) {
+			t.Errorf("ExtractIssueRefs(%q) = %v, attendu %v", text, got, expected)
 		}
 	}
 }
@@ -42,8 +42,8 @@ func TestCeQuiRessembleAUnNumeroSansEnEtreUnEstRefuse(t *testing.T) {
 	}
 
 	for _, text := range refuses {
-		if got := ExtractIssueIDs(text); len(got) != 0 {
-			t.Errorf("ExtractIssueIDs(%q) = %v, attendu aucun", text, got)
+		if got := ExtractIssueRefs(text); len(got) != 0 {
+			t.Errorf("ExtractIssueRefs(%q) = %v, attendu aucun", text, got)
 		}
 	}
 }
@@ -51,21 +51,21 @@ func TestCeQuiRessembleAUnNumeroSansEnEtreUnEstRefuse(t *testing.T) {
 // Un nombre démesuré n'est pas une demande : le convertir déborderait, et le
 // chercher en base ne rendrait rien tout en donnant l'illusion d'un lien.
 func TestUnNumeroDemesureEstIgnore(t *testing.T) {
-	if got := ExtractIssueIDs("#123456789012345"); len(got) != 0 {
-		t.Errorf("ExtractIssueIDs = %v, attendu aucun", got)
+	if got := ExtractIssueRefs("#123456789012345"); len(got) != 0 {
+		t.Errorf("ExtractIssueRefs = %v, attendu aucun", got)
 	}
 }
 
 // Titre et commits sont lus ensemble : la convention autorise l'un ou l'autre,
 // et une PR qui cite sa demande dans un seul de ses commits doit compter.
 func TestLeTitreEtLesCommitsSontLusEnsemble(t *testing.T) {
-	got := ExtractIssueIDs(
+	got := ExtractIssueRefs(
 		"Corrige la pagination",
 		"wip",
 		"fix(pagination): borne l'offset\n\nRefs #1234",
 	)
-	if !reflect.DeepEqual(got, []int64{1234}) {
-		t.Errorf("ExtractIssueIDs = %v, attendu [1234]", got)
+	if !reflect.DeepEqual(got, []string{"1234"}) {
+		t.Errorf("ExtractIssueRefs = %v, attendu [1234]", got)
 	}
 }
 
@@ -73,8 +73,8 @@ func TestLeTitreEtLesCommitsSontLusEnsemble(t *testing.T) {
 // demandes, et le trier alphabétiquement ou numériquement perdrait cette
 // intention sans rien apporter.
 func TestLOrdreDApparitionEstConserve(t *testing.T) {
-	got := ExtractIssueIDs("Refs #99, #12, #55")
-	if !reflect.DeepEqual(got, []int64{99, 12, 55}) {
-		t.Errorf("ExtractIssueIDs = %v, attendu [99 12 55]", got)
+	got := ExtractIssueRefs("Refs #99, #12, #55")
+	if !reflect.DeepEqual(got, []string{"99", "12", "55"}) {
+		t.Errorf("ExtractIssueRefs = %v, attendu [99 12 55]", got)
 	}
 }

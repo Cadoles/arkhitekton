@@ -38,7 +38,7 @@ func (f *fakeRedmine) ListIssues(_ context.Context, query provider.IssueQuery) (
 
 type fakeRedmineStore struct {
 	versions  []store.TrackedVersion
-	issues    []store.RedmineIssue
+	issues    []store.TrackedIssue
 	mapping   map[string]string
 	state     store.SyncState
 	successes []string
@@ -56,7 +56,7 @@ func (f *fakeRedmineStore) UpsertRedmineVersion(_ context.Context, version store
 	return id, nil
 }
 
-func (f *fakeRedmineStore) UpsertRedmineIssue(_ context.Context, issue store.RedmineIssue) error {
+func (f *fakeRedmineStore) UpsertRedmineIssue(_ context.Context, issue store.TrackedIssue) error {
 	f.issues = append(f.issues, issue)
 	return nil
 }
@@ -98,14 +98,14 @@ func newSync(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) *RedmineSy
 }
 
 // Les versions avant les demandes : une demande se rattache à sa version par
-// `redmine_id`, et l'inverse laisserait sans rattachement toute demande visant une
+// son identifiant externe, et l'inverse laisserait sans rattachement toute demande visant une
 // version nouvellement créée.
 func TestLesVersionsSontDeposeesAvantLesDemandes(t *testing.T) {
-	version := int64(805)
+	version := "805"
 	client := &fakeRedmine{
-		versions: []provider.Version{{ID: 805, Name: "v3.2.0", Status: "open"}},
+		versions: []provider.Version{{ID: "805", Name: "v3.2.0", Status: "open"}},
 		issues: []provider.Issue{
-			{ID: 1, VersionID: &version, Tracker: "Évolution", Status: "En cours"},
+			{ID: "1", VersionID: &version, Tracker: "Évolution", Status: "En cours"},
 		},
 	}
 	db := &fakeRedmineStore{}
@@ -130,9 +130,9 @@ func TestLesVersionsSontDeposeesAvantLesDemandes(t *testing.T) {
 // version est son identifiant Redmine.
 func TestLeNomEstNormalisePourLeRapprochementSansEtreReecrit(t *testing.T) {
 	client := &fakeRedmine{versions: []provider.Version{
-		{ID: 803, Name: "MSE 3.1.2", Status: "closed"},
-		{ID: 805, Name: "v3.2.0", Status: "open"},
-		{ID: 801, Name: "MSE3-1.5", Status: "closed"},
+		{ID: "803", Name: "MSE 3.1.2", Status: "closed"},
+		{ID: "805", Name: "v3.2.0", Status: "open"},
+		{ID: "801", Name: "MSE3-1.5", Status: "closed"},
 	}}
 	db := &fakeRedmineStore{}
 
@@ -158,8 +158,8 @@ func TestLeNomEstNormalisePourLeRapprochementSansEtreReecrit(t *testing.T) {
 // l'instance changent sans prévenir, et refuser la demande perdrait le reste.
 func TestUnStatutInconnuTombeDansTodoSansInterrompre(t *testing.T) {
 	client := &fakeRedmine{issues: []provider.Issue{
-		{ID: 1, Tracker: "Évolution", Status: "Statut Inédit"},
-		{ID: 2, Tracker: "Évolution", Status: "En cours"},
+		{ID: "1", Tracker: "Évolution", Status: "Statut Inédit"},
+		{ID: "2", Tracker: "Évolution", Status: "En cours"},
 	}}
 	db := &fakeRedmineStore{}
 
@@ -170,15 +170,15 @@ func TestUnStatutInconnuTombeDansTodoSansInterrompre(t *testing.T) {
 	if len(db.issues) != 2 {
 		t.Fatalf("%d demandes déposées", len(db.issues))
 	}
-	byID := map[int64]store.RedmineIssue{}
+	byID := map[string]store.TrackedIssue{}
 	for _, issue := range db.issues {
-		byID[issue.RedmineID] = issue
+		byID[issue.ExternalID] = issue
 	}
-	if byID[1].StatusBucket != "todo" {
-		t.Errorf("statut inconnu projeté en %q, attendu todo", byID[1].StatusBucket)
+	if byID["1"].StatusBucket != "todo" {
+		t.Errorf("statut inconnu projeté en %q, attendu todo", byID["1"].StatusBucket)
 	}
-	if byID[2].StatusBucket != "doing" {
-		t.Errorf("statut connu projeté en %q", byID[2].StatusBucket)
+	if byID["2"].StatusBucket != "doing" {
+		t.Errorf("statut connu projeté en %q", byID["2"].StatusBucket)
 	}
 }
 
@@ -301,7 +301,7 @@ func TestUnePanneDeRedmineNeTuePasLaBoucle(t *testing.T) {
 // l'instance déclare `Ré-ouvert` comme clos, et les deux informations sont distinctes.
 func TestLeDrapeauDeClotureEstTransmisIndependammentDuSeau(t *testing.T) {
 	client := &fakeRedmine{issues: []provider.Issue{
-		{ID: 1, Tracker: "Anomalie", Status: "Ré-ouvert", StatusClosed: true},
+		{ID: "1", Tracker: "Anomalie", Status: "Ré-ouvert", StatusClosed: true},
 	}}
 	db := &fakeRedmineStore{mapping: map[string]string{"Ré-ouvert": "doing"}}
 

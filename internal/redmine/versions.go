@@ -57,7 +57,7 @@ func (c *Client) ListVersions(ctx context.Context, project string) ([]provider.V
 	versions := make([]provider.Version, 0, len(payload.Versions))
 	for _, raw := range payload.Versions {
 		versions = append(versions, provider.Version{
-			ID: raw.ID, Name: raw.Name, Description: raw.Description,
+			ID: strconv.FormatInt(raw.ID, 10), Name: raw.Name, Description: raw.Description,
 			Status:    raw.Status,
 			DueDate:   parseDate(raw.DueDate),
 			UpdatedOn: parseTime(raw.UpdatedOn),
@@ -148,7 +148,9 @@ func decodeIssues(body []byte) ([]provider.Issue, int, error) {
 	issues := make([]provider.Issue, 0, len(payload.Issues))
 	for _, raw := range payload.Issues {
 		issue := provider.Issue{
-			ID: raw.ID, Subject: raw.Subject,
+			// Redmine numérote ; la frontière parle en texte, pour qu'un outil qui
+			// écrit `MSE-1234` puisse la franchir aussi.
+			ID: strconv.FormatInt(raw.ID, 10), Subject: raw.Subject,
 			Tracker:      raw.Tracker.Name,
 			Status:       raw.Status.Name,
 			StatusClosed: raw.Status.IsClosed,
@@ -160,7 +162,7 @@ func decodeIssues(body []byte) ([]provider.Issue, int, error) {
 		// Une demande sans version est le cas courant : le rattachement à une
 		// version est un geste de planification qui n'a pas toujours eu lieu.
 		if raw.FixedVersion != nil {
-			id := raw.FixedVersion.ID
+			id := strconv.FormatInt(raw.FixedVersion.ID, 10)
 			issue.VersionID = &id
 		}
 		issues = append(issues, issue)

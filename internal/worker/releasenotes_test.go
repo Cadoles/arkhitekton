@@ -32,35 +32,35 @@ func (f *fakeForge) LoadCommitMessages(_ context.Context, pull *provider.PullReq
 }
 
 type fakeNoteStore struct {
-	candidates map[int64]store.NoteEntry
-	linked     []int64
-	sources    map[int64]string
+	candidates map[string]store.NoteEntry
+	linked     []string
+	sources    map[string]string
 }
 
-func (f *fakeNoteStore) NoteCandidates(context.Context, []string) (map[int64]store.NoteEntry, error) {
+func (f *fakeNoteStore) NoteCandidates(context.Context, int64, []string) (map[string]store.NoteEntry, error) {
 	return f.candidates, nil
 }
 
 func (f *fakeNoteStore) LinkNoteIssue(
-	_ context.Context, _, redmineID int64, source, pullRequest, _ string,
+	_ context.Context, _ int64, reference, source, pullRequest, _ string,
 ) error {
 	for _, already := range f.linked {
-		if already == redmineID {
+		if already == reference {
 			return store.ErrNoteAlreadyLinked
 		}
 	}
-	f.linked = append(f.linked, redmineID)
+	f.linked = append(f.linked, reference)
 	if f.sources == nil {
-		f.sources = map[int64]string{}
+		f.sources = map[string]string{}
 	}
-	f.sources[redmineID] = source + " " + pullRequest
+	f.sources[reference] = source + " " + pullRequest
 	return nil
 }
 
-func candidates(ids ...int64) map[int64]store.NoteEntry {
-	entries := map[int64]store.NoteEntry{}
+func candidates(ids ...string) map[string]store.NoteEntry {
+	entries := map[string]store.NoteEntry{}
 	for _, id := range ids {
-		entries[id] = store.NoteEntry{RedmineID: id, Known: true}
+		entries[id] = store.NoteEntry{ExternalID: id, Known: true}
 	}
 	return entries
 }
@@ -76,7 +76,7 @@ func TestSeulesLesDemandesEnRevueCiteesParUnePRFusionneeSontRetenues(t *testing.
 			{Number: 11, Title: "wip sur #9999"},
 		},
 	}
-	notes := &fakeNoteStore{candidates: candidates(1234, 4321)}
+	notes := &fakeNoteStore{candidates: candidates("1234", "4321")}
 
 	result, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy")
@@ -84,7 +84,7 @@ func TestSeulesLesDemandesEnRevueCiteesParUnePRFusionneeSontRetenues(t *testing.
 		t.Fatalf("détection: %v", err)
 	}
 
-	if len(notes.linked) != 1 || notes.linked[0] != 1234 {
+	if len(notes.linked) != 1 || notes.linked[0] != "1234" {
 		t.Errorf("demandes rattachées: %v — seule 1234 remplit les deux conditions", notes.linked)
 	}
 	// 4321 est en revue mais aucune PR ne la cite : elle n'est pas dans l'image.
@@ -100,13 +100,13 @@ func TestUneDemandeCiteeSeulementDansUnCommitEstRetenue(t *testing.T) {
 		pulls:   []provider.PullRequest{{Number: 12, Title: "Corrige la pagination"}},
 		commits: map[int64][]string{12: {"wip", "fix: borne l'offset\n\nRefs #1234"}},
 	}
-	notes := &fakeNoteStore{candidates: candidates(1234)}
+	notes := &fakeNoteStore{candidates: candidates("1234")}
 
 	if _, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy"); err != nil {
 		t.Fatalf("détection: %v", err)
 	}
-	if len(notes.linked) != 1 || notes.linked[0] != 1234 {
+	if len(notes.linked) != 1 || notes.linked[0] != "1234" {
 		t.Errorf("demandes rattachées: %v", notes.linked)
 	}
 }
@@ -120,7 +120,7 @@ func TestDeuxPullRequestsPourUneDemandeNeLaComptentQuUneFois(t *testing.T) {
 			{Number: 21, Title: "Suite de #1234"},
 		},
 	}
-	notes := &fakeNoteStore{candidates: candidates(1234)}
+	notes := &fakeNoteStore{candidates: candidates("1234")}
 
 	result, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy")
@@ -131,8 +131,8 @@ func TestDeuxPullRequestsPourUneDemandeNeLaComptentQuUneFois(t *testing.T) {
 		t.Errorf("%d rattachements pour une demande citée deux fois", result.Linked)
 	}
 	// La première PR rencontrée fait foi.
-	if notes.sources[1234] != "auto #20" {
-		t.Errorf("source retenue: %q", notes.sources[1234])
+	if notes.sources["1234"] != "auto #20" {
+		t.Errorf("source retenue: %q", notes.sources["1234"])
 	}
 }
 
@@ -144,7 +144,7 @@ func TestDesCommitsIllisiblesRendentLaNotePartielleSansLaPerdre(t *testing.T) {
 		pulls:      []provider.PullRequest{{Number: 30, Title: "Corrige #1234"}},
 		commitsErr: errors.New("forge injoignable"),
 	}
-	notes := &fakeNoteStore{candidates: candidates(1234)}
+	notes := &fakeNoteStore{candidates: candidates("1234")}
 
 	result, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy")
@@ -163,7 +163,7 @@ func TestDesCommitsIllisiblesRendentLaNotePartielleSansLaPerdre(t *testing.T) {
 // pour découvrir qu'il n'y a rien à rattacher se paieraient à chaque création.
 func TestSansDemandeEnRevueLaForgeNEstPasInterrogee(t *testing.T) {
 	forge := &fakeForge{pulls: []provider.PullRequest{{Number: 40, Title: "Corrige #1234"}}}
-	notes := &fakeNoteStore{candidates: map[int64]store.NoteEntry{}}
+	notes := &fakeNoteStore{candidates: map[string]store.NoteEntry{}}
 
 	result, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy")
@@ -179,7 +179,7 @@ func TestSansDemandeEnRevueLaForgeNEstPasInterrogee(t *testing.T) {
 // remonterait des demandes livrées il y a deux ans.
 func TestLaBorneDeLectureEstTransmiseALaForge(t *testing.T) {
 	forge := &fakeForge{}
-	notes := &fakeNoteStore{candidates: candidates(1)}
+	notes := &fakeNoteStore{candidates: candidates("1")}
 	since := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	if _, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).

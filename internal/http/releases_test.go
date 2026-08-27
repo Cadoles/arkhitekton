@@ -1303,11 +1303,11 @@ func (f *fakeReleaseStore) ListNoteEntries(context.Context, int64) ([]store.Note
 	return nil, nil
 }
 
-func (f *fakeReleaseStore) LinkNoteIssue(context.Context, int64, int64, string, string, string) error {
+func (f *fakeReleaseStore) LinkNoteIssue(context.Context, int64, string, string, string, string) error {
 	return nil
 }
 
-func (f *fakeReleaseStore) UnlinkNoteIssue(context.Context, int64, int64) error {
+func (f *fakeReleaseStore) UnlinkNoteIssue(context.Context, int64, string) error {
 	return nil
 }
 

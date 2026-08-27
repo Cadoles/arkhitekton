@@ -53,11 +53,11 @@ func TestLiveLesVersionsSeDecodent(t *testing.T) {
 	}
 
 	for _, version := range versions {
-		if version.ID == 0 {
+		if version.ID == "" {
 			t.Errorf("version sans identifiant: %+v", version)
 		}
 		if version.Name == "" {
-			t.Errorf("version %d sans nom", version.ID)
+			t.Errorf("version %s sans nom", version.ID)
 		}
 		switch version.Status {
 		case "open", "locked", "closed":
@@ -81,7 +81,7 @@ func TestLiveLesDemandesSePaginentSansDoublon(t *testing.T) {
 		t.Fatal("aucune demande rendue")
 	}
 
-	seen := map[int64]int{}
+	seen := map[string]int{}
 	withVersion := 0
 	for _, issue := range issues {
 		seen[issue.ID]++
@@ -89,12 +89,12 @@ func TestLiveLesDemandesSePaginentSansDoublon(t *testing.T) {
 			withVersion++
 		}
 		if issue.Tracker == "" || issue.Status == "" {
-			t.Errorf("demande %d incomplète: %+v", issue.ID, issue)
+			t.Errorf("demande %s incomplète: %+v", issue.ID, issue)
 		}
 	}
 	for id, count := range seen {
 		if count != 1 {
-			t.Errorf("demande %d rendue %d fois", id, count)
+			t.Errorf("demande %s rendue %d fois", id, count)
 		}
 	}
 	t.Logf("%d demandes, %d distinctes, %d rattachées à une version",

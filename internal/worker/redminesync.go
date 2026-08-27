@@ -52,7 +52,7 @@ type RedmineStore interface {
 	// n'ont rien à lire.
 	TrackedProjects(ctx context.Context) ([]store.TrackedProject, error)
 	UpsertRedmineVersion(ctx context.Context, version store.TrackedVersion) (int64, error)
-	UpsertRedmineIssue(ctx context.Context, issue store.RedmineIssue) error
+	UpsertRedmineIssue(ctx context.Context, issue store.TrackedIssue) error
 	AdoptPendingVersions(ctx context.Context) ([]store.Adoption, error)
 	StatusMapping(ctx context.Context) (map[string]string, error)
 	GetSyncState(ctx context.Context, source string) (store.SyncState, error)
@@ -123,7 +123,7 @@ func (s *RedmineSync) once(ctx context.Context) {
 // Sync exécute une passe complète.
 //
 // L'ordre est imposé : les versions d'abord, les demandes ensuite. Une demande se
-// rattache à sa version par `redmine_id`, et lire les demandes en premier laisserait
+// rattache à sa version par son identifiant externe, et lire les demandes en premier laisserait
 // sans rattachement toutes celles visant une version nouvellement créée.
 func (s *RedmineSync) Sync(ctx context.Context) error {
 	state, err := s.store.GetSyncState(ctx, redmineSource)
@@ -168,7 +168,7 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 			// L'outil et l'identifiant qu'il emploie, plutôt qu'un entier dont le
 			// nom disait déjà de quel produit il venait.
 			Tool:        trackerTool,
-			ExternalID:  strconv.FormatInt(version.ID, 10),
+			ExternalID:  version.ID,
 			Name:        version.Name,
 			Normalized:  s.names.Normalize(version.Name),
 			Description: version.Description,
@@ -212,13 +212,14 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 			unmapped[issue.Status]++
 		}
 
-		if err := s.store.UpsertRedmineIssue(ctx, store.RedmineIssue{
-			ProjectID: project.ID,
-			RedmineID: issue.ID,
+		if err := s.store.UpsertRedmineIssue(ctx, store.TrackedIssue{
+			ProjectID:  project.ID,
+			Tool:       trackerTool,
+			ExternalID: issue.ID,
 			// La version visée, désignée par son identifiant **dans l'outil** : le
 			// dashboard ne connaît pas encore sa clé locale au moment où il
 			// projette la demande.
-			VersionExternalID: externalRef(issue.VersionID),
+			VersionExternalID: issue.VersionID,
 			Tracker:           issue.Tracker,
 			Subject:           issue.Subject,
 			StatusName:        issue.Status,

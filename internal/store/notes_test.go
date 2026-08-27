@@ -37,7 +37,7 @@ func TestUneDemandeSeRattacheEtSeRetireDUneNote(t *testing.T) {
 	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
 	issueOf(t, db, 1234, 920, "Évolution", "En revue", BucketDoing, 100, false)
 
-	if err := db.LinkNoteIssue(ctx, releaseID, 1234, NoteSourceAuto, "#42", "vcarroy"); err != nil {
+	if err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceAuto, "#42", "vcarroy"); err != nil {
 		t.Fatalf("rattachement: %v", err)
 	}
 
@@ -61,7 +61,7 @@ func TestUneDemandeSeRattacheEtSeRetireDUneNote(t *testing.T) {
 		t.Error("une évolution n'est pas une anomalie")
 	}
 
-	if err := db.UnlinkNoteIssue(ctx, releaseID, 1234); err != nil {
+	if err := db.UnlinkNoteIssue(ctx, releaseID, "1234"); err != nil {
 		t.Fatalf("retrait: %v", err)
 	}
 	if remaining, _ := db.ListNoteEntries(ctx, releaseID); len(remaining) != 0 {
@@ -78,10 +78,10 @@ func TestUneDemandeNeSeRattachePasDeuxFois(t *testing.T) {
 	versionID := redmineVersion(t, db, 920, "v3.2.0", "open")
 	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
 
-	if err := db.LinkNoteIssue(ctx, releaseID, 1234, NoteSourceAuto, "#42", "vcarroy"); err != nil {
+	if err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceAuto, "#42", "vcarroy"); err != nil {
 		t.Fatalf("premier rattachement: %v", err)
 	}
-	err := db.LinkNoteIssue(ctx, releaseID, 1234, NoteSourceManual, "", "vcarroy")
+	err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceManual, "", "vcarroy")
 	if !errors.Is(err, ErrNoteAlreadyLinked) {
 		t.Errorf("second rattachement: %v, attendu ErrNoteAlreadyLinked", err)
 	}
@@ -97,7 +97,7 @@ func TestUneDemandeInconnueResteListee(t *testing.T) {
 	versionID := redmineVersion(t, db, 920, "v3.2.0", "open")
 	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
 
-	if err := db.LinkNoteIssue(ctx, releaseID, 9999, NoteSourceManual, "", "vcarroy"); err != nil {
+	if err := db.LinkNoteIssue(ctx, releaseID, "9999", NoteSourceManual, "", "vcarroy"); err != nil {
 		t.Fatalf("rattachement: %v", err)
 	}
 
@@ -123,7 +123,7 @@ func TestUneAnomalieEstReconnueAuPrefixeDuTracker(t *testing.T) {
 	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
 	issueOf(t, db, 1, 920, "Anomalie bloquante", "En revue", BucketDoing, 100, false)
 
-	if err := db.LinkNoteIssue(ctx, releaseID, 1, NoteSourceAuto, "#1", "vcarroy"); err != nil {
+	if err := db.LinkNoteIssue(ctx, releaseID, "1", NoteSourceAuto, "#1", "vcarroy"); err != nil {
 		t.Fatalf("rattachement: %v", err)
 	}
 	entries, _ := db.ListNoteEntries(ctx, releaseID)
@@ -155,17 +155,17 @@ func TestLeVivierRendLesDemandesDeLaVersion(t *testing.T) {
 		t.Fatalf("vivier: %v", err)
 	}
 
-	got := map[int64]bool{}
+	got := map[string]bool{}
 	for _, entry := range entries {
-		got[entry.RedmineID] = true
+		got[entry.ExternalID] = true
 	}
-	if !got[1] || !got[2] {
+	if !got["1"] || !got["2"] {
 		t.Errorf("demandes rendues: %v — la version en porte deux non rejetées", got)
 	}
-	if got[3] {
+	if got["3"] {
 		t.Error("une demande rejetée ne doit pas être proposée")
 	}
-	if got[4] {
+	if got["4"] {
 		t.Error("une demande d'une autre version ne doit pas être proposée")
 	}
 }
@@ -175,18 +175,79 @@ func TestLesCandidatesSontFiltreesParStatut(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	redmineVersion(t, db, 920, "v3.2.0", "open")
+	versionID := redmineVersion(t, db, 920, "v3.2.0", "open")
+	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
 	issueOf(t, db, 1, 920, "Évolution", "En revue", BucketDoing, 100, false)
 	issueOf(t, db, 2, 920, "Évolution", "En cours", BucketDoing, 50, false)
 
-	candidates, err := db.NoteCandidates(ctx, []string{"En revue"})
+	candidates, err := db.NoteCandidates(ctx, releaseID, []string{"En revue"})
 	if err != nil {
 		t.Fatalf("candidates: %v", err)
 	}
 	if len(candidates) != 1 {
 		t.Fatalf("%d candidate(s): %+v", len(candidates), candidates)
 	}
-	if _, ok := candidates[1]; !ok {
+	if _, ok := candidates["1"]; !ok {
 		t.Error("la demande en revue devrait être candidate")
+	}
+}
+
+// Deux projets peuvent numéroter pareil : c'est tout l'objet de la clé
+// `(project_id, tool, external_id)` posée par la migration 0031. Une jointure ou
+// un vivier qui oublie le projet ne lève aucune erreur — il affiche le sujet
+// d'un autre client sur la note du sien, et propose au rattachement une demande
+// qui n'existe pas ici.
+func TestUneNoteNeVaPasChercherLaDemandeDUnAutreProjet(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	var second int64
+	if err := db.Pool().QueryRow(ctx,
+		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
+		                       tracker_project, created_by)
+		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.',
+		         'autre-suivi', 'test')
+		 returning id`).Scan(&second); err != nil {
+		t.Fatalf("second projet: %v", err)
+	}
+
+	versionID := redmineVersion(t, db, 920, "v3.2.0", "open")
+	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
+
+	// Le numéro 1234 existe des deux côtés, avec deux sujets différents.
+	issueOf(t, db, 1234, 920, "Évolution", "En revue", BucketDoing, 100, false)
+	if err := db.UpsertRedmineIssue(ctx, TrackedIssue{
+		ProjectID: second, Tool: "redmine", ExternalID: "1234",
+		Tracker: "Anomalie", Subject: "sujet de l'autre client",
+		StatusName: "En revue", StatusBucket: BucketDoing,
+	}); err != nil {
+		t.Fatalf("demande du second projet: %v", err)
+	}
+
+	if err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceManual, "", "vcarroy"); err != nil {
+		t.Fatalf("rattachement: %v", err)
+	}
+
+	// Une seule ligne, et c'est celle du projet de la release. Deux lignes
+	// diraient que la jointure a ramené les deux demandes.
+	entries, err := db.ListNoteEntries(ctx, releaseID)
+	if err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("%d entrée(s) — la jointure ramène les demandes d'un autre projet: %+v",
+			len(entries), entries)
+	}
+	if entries[0].Subject != "sujet" || entries[0].Anomaly {
+		t.Errorf("entrée jointe: %+v — c'est la demande de l'autre client", entries[0])
+	}
+
+	// Le vivier de détection est borné de la même façon.
+	candidates, err := db.NoteCandidates(ctx, releaseID, []string{"En revue"})
+	if err != nil {
+		t.Fatalf("candidates: %v", err)
+	}
+	if len(candidates) != 1 || candidates["1234"].Subject != "sujet" {
+		t.Errorf("candidates: %+v — le vivier déborde sur l'autre projet", candidates)
 	}
 }

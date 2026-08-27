@@ -62,6 +62,11 @@ Le modèle de données **nomme le fournisseur**. Le symptôme est déjà visible
 code : une version créée sans Redmine reçoit un `redmine_id` **négatif**
 (`-nextval('versions_id_seq')`). Ce contournement dit exactement où est la couture.
 
+> **Résolu** — migrations 0028, 0030 et 0031. Les trois colonnes sont devenues
+> `(tool, external_id)`, l'identifiant en texte, l'unicité bornée au projet. La
+> nature d'une version se lit dans `origin` et non dans le signe d'un nombre. Voir
+> le [lot C](#lot-c--extraire-le-tracker).
+
 ### Le couplage par l'identité est bloquant pour le multi-projet
 
 ```sql
@@ -1002,8 +1007,42 @@ descriptive. Ce lot la rend porteuse.
 ### Lot C — Extraire le Tracker
 
 Redmine en premier plugin : le plus isolé (3 fichiers), le plus demandé.
-`versions.redmine_id` → `(tracker, external_id)`. Supprime le contournement du
+`versions.redmine_id` → `(tool, external_id)`. Supprime le contournement du
 `redmine_id` négatif.
+
+**Fait.** En deux tranches, parce que les demandes traversent bien plus de code que
+les versions.
+
+*Les versions* (migration 0030) : `tool` + `external_id`, l'identifiant en **texte**
+— Redmine numérote, un autre outil écrit `MSE-1234`, et un entier fermait la porte
+au second sans qu'aucune erreur ne le dise. La colonne se nomme `tool` et non
+`tracker` bien que ce soit le mot du contrat : `issues.tracker` existe déjà et
+désigne le *type* d'une demande (« Anomalie », « Évolution »). Les deux tables se
+joignent en permanence, et deux colonnes homonymes de sens différents dans une même
+requête sont une faute qu'on ne voit qu'en relisant à froid.
+
+*Les demandes* (migration 0031) : mêmes colonnes sur `issues`, plus un `project_id`
+que la table ne portait pas — son unicité était donc **globale**, et deux projets
+suivant deux instances se seraient écrasés au premier numéro commun. Le paramètre
+existait pourtant déjà, il bornait la recherche de la version, mais n'était pas
+conservé. `release_notes.redmine_id` devient `external_id` et ne porte **pas**
+d'outil : une note appartient à une release, donc à un projet, et c'est le projet
+qui déclare son suivi — le dupliquer ici créerait deux vérités à tenir d'accord.
+
+La borne par projet devait ensuite être posée dans les requêtes : la jointure de
+`ListNoteEntries` et le vivier de `NoteCandidates` cherchaient par le seul
+identifiant. Sans erreur levée, la note d'un client aurait affiché le sujet d'un
+autre. `NoteCandidates` prend maintenant la release plutôt qu'un identifiant de
+projet — l'appelant l'a sous la main, et un paramètre qu'on peut oublier de passer
+n'est pas une borne.
+
+Le croisillon disparaît des écrans : `#1234` est la convention de numérotation de
+Redmine, et `#MSE-1234` ne veut rien dire. Il reste toléré **à la saisie**, où il
+n'est que l'habitude de qui tape.
+
+Contrat côté fournisseur : `provider.Version.ID` et `provider.Issue.ID` sont des
+`string`, `Issue.VersionID` un `*string`. La conversion depuis les entiers de
+Redmine se fait dans la réalisation, pas dans le contrat.
 
 ### Lot D — Extraire Deployer et Attester
 

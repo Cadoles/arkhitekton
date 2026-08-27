@@ -45,21 +45,29 @@ const maxIssueNumber = 1 << 31
 // Sans doublon et dans l'ordre d'apparition : une PR qui cite `#1234` dans son
 // titre et dans trois commits désigne une seule demande, et l'ordre est celui
 // que l'auteur a écrit.
-func ExtractIssueIDs(texts ...string) []int64 {
-	var found []int64
-	seen := map[int64]bool{}
+func ExtractIssueRefs(texts ...string) []string {
+	var found []string
+	seen := map[string]bool{}
 
 	for _, text := range texts {
 		for _, match := range issueReference.FindAllStringSubmatch(text, -1) {
+			// La borne reste numérique parce que le motif l'est : `#1234` est la
+			// convention de cette équipe, et elle écarte les numéros absurdes —
+			// un `#0` ou un identifiant à huit chiffres est un faux positif.
+			//
+			// Ce que rend la fonction, en revanche, est du **texte** : c'est ce
+			// qui sera comparé aux identifiants du suivi, et tous ne numérotent
+			// pas.
 			number, err := strconv.ParseInt(match[2], 10, 64)
 			if err != nil || number <= 0 || number >= maxIssueNumber {
 				continue
 			}
-			if seen[number] {
+			reference := match[2]
+			if seen[reference] {
 				continue
 			}
-			seen[number] = true
-			found = append(found, number)
+			seen[reference] = true
+			found = append(found, reference)
 		}
 	}
 	return found

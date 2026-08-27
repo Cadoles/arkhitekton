@@ -428,20 +428,22 @@ export function useRebuild(tag: string) {
 }
 
 /*
- * Note de release : les demandes Redmine que la release apporte.
+ * Note de release : les demandes du suivi que la release apporte.
  *
  * Deux sous-ensembles à l'affichage — nouveautés et corrections — décidés par le
  * tracker de la demande et non par son statut : c'est la nature de ce qui a été
  * fait qui range la ligne, pas son avancement.
  */
 export type NoteEntry = {
-  redmine_id: number
+  /** Identifiant de la demande dans le suivi, en texte : Redmine numérote, un
+   *  autre outil peut écrire `MSE-1234`. */
+  external_id: string
   subject?: string
   tracker?: string
   status?: string
   /** Range la ligne : les anomalies aux corrections, le reste aux nouveautés. */
   anomaly: boolean
-  /** Faux tant que la synchronisation Redmine n'a pas vu la demande. La ligne
+  /** Faux tant que la synchronisation du suivi n'a pas vu la demande. La ligne
    *  reste affichée : la masquer ferait disparaître un ajout manuel. */
   known: boolean
   source: 'auto' | 'manual'
@@ -469,9 +471,9 @@ export function useAddNote(tag: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (redmineID: number) =>
-      request<{ redmine_id: number }>(
-        projectPath(`/releases/${encodeURIComponent(tag)}/notes/${redmineID}`),
+    mutationFn: (reference: string) =>
+      request<{ issue: string }>(
+        projectPath(`/releases/${encodeURIComponent(tag)}/notes/${encodeURIComponent(reference)}`),
         { method: 'POST' },
       ),
     onSuccess: () => {
@@ -484,10 +486,11 @@ export function useRemoveNote(tag: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (redmineID: number) =>
-      request<void>(projectPath(`/releases/${encodeURIComponent(tag)}/notes/${redmineID}`), {
-        method: 'DELETE',
-      }),
+    mutationFn: (reference: string) =>
+      request<void>(
+        projectPath(`/releases/${encodeURIComponent(tag)}/notes/${encodeURIComponent(reference)}`),
+        { method: 'DELETE' },
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'notes'] })
     },

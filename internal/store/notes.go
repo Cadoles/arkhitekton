@@ -25,7 +25,8 @@ var ErrNoteAlreadyLinked = errors.New("store: demande déjà rattachée à cette
 
 // NoteEntry est une ligne de note de release.
 type NoteEntry struct {
-	RedmineID   int64
+	// ExternalID est l'identifiant de la demande dans le suivi, en texte.
+	ExternalID  string
 	Source      string
 	PullRequest string
 	AddedBy     string
@@ -45,15 +46,15 @@ const (
 
 // LinkNoteIssue rattache une demande à la note d'une release.
 func (db *DB) LinkNoteIssue(
-	ctx context.Context, releaseID, redmineID int64, source, pullRequest, actor string,
+	ctx context.Context, releaseID int64, reference, source, pullRequest, actor string,
 ) error {
 	tag, err := db.pool.Exec(ctx,
-		`insert into release_notes (release_id, redmine_id, source, pull_request, added_by)
+		`insert into release_notes (release_id, external_id, source, pull_request, added_by)
 		 values ($1, $2, $3, $4, $5)
-		 on conflict (release_id, redmine_id) do nothing`,
-		releaseID, redmineID, source, pullRequest, actor)
+		 on conflict (release_id, external_id) do nothing`,
+		releaseID, reference, source, pullRequest, actor)
 	if err != nil {
-		return fmt.Errorf("rattachement de la demande %d: %w", redmineID, err)
+		return fmt.Errorf("rattachement de la demande %s: %w", reference, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNoteAlreadyLinked
@@ -62,11 +63,11 @@ func (db *DB) LinkNoteIssue(
 }
 
 // UnlinkNoteIssue retire une demande de la note d'une release.
-func (db *DB) UnlinkNoteIssue(ctx context.Context, releaseID, redmineID int64) error {
+func (db *DB) UnlinkNoteIssue(ctx context.Context, releaseID int64, reference string) error {
 	if _, err := db.pool.Exec(ctx,
-		`delete from release_notes where release_id = $1 and redmine_id = $2`,
-		releaseID, redmineID); err != nil {
-		return fmt.Errorf("retrait de la demande %d: %w", redmineID, err)
+		`delete from release_notes where release_id = $1 and external_id = $2`,
+		releaseID, reference); err != nil {
+		return fmt.Errorf("retrait de la demande %s: %w", reference, err)
 	}
 	return nil
 }
@@ -79,14 +80,21 @@ func (db *DB) UnlinkNoteIssue(ctx context.Context, releaseID, redmineID int64) e
 // perte.
 func (db *DB) ListNoteEntries(ctx context.Context, releaseID int64) ([]NoteEntry, error) {
 	rows, err := db.pool.Query(ctx,
-		`select n.redmine_id, n.source, n.pull_request, n.added_by,
-		        i.redmine_id is not null,
+		`select n.external_id, n.source, n.pull_request, n.added_by,
+		        i.external_id is not null,
 		        coalesce(i.tracker, ''), coalesce(i.subject, ''),
 		        coalesce(i.status_name, '')
 		   from release_notes n
-		   left join issues i on i.redmine_id = n.redmine_id
+		   join releases r on r.id = n.release_id
+		   -- Jointure bornee au projet de la release. Depuis la migration 0031
+		   -- un identifiant n'est unique que dans son projet : joindre sur le
+		   -- seul external_id ferait apparaitre le sujet d'une demande homonyme
+		   -- d'un autre client, et dupliquerait la ligne. (Pas de backtick ici :
+		   -- cette chaine est brute, un backtick la fermerait.)
+		   left join issues i
+		          on i.project_id = r.project_id and i.external_id = n.external_id
 		  where n.release_id = $1
-		  order by n.redmine_id`, releaseID)
+		  order by n.external_id`, releaseID)
 	if err != nil {
 		return nil, fmt.Errorf("note de la release %d: %w", releaseID, err)
 	}
@@ -95,7 +103,7 @@ func (db *DB) ListNoteEntries(ctx context.Context, releaseID int64) ([]NoteEntry
 	var entries []NoteEntry
 	for rows.Next() {
 		var entry NoteEntry
-		if err := rows.Scan(&entry.RedmineID, &entry.Source, &entry.PullRequest,
+		if err := rows.Scan(&entry.ExternalID, &entry.Source, &entry.PullRequest,
 			&entry.AddedBy, &entry.Known, &entry.Tracker, &entry.Subject,
 			&entry.StatusName); err != nil {
 			return nil, fmt.Errorf("note de la release %d: %w", releaseID, err)
@@ -113,29 +121,37 @@ func (db *DB) ListNoteEntries(ctx context.Context, releaseID int64) ([]NoteEntry
 // rapprochement avec les PR est fait par l'appelant, qui seul parle à la forge.
 //
 // Les statuts retenus sont passés en paramètre plutôt qu'écrits ici : ils
-// viennent du vocabulaire Redmine du client, qui peut le renommer sans que ce
+// viennent du vocabulaire du suivi du client, qui peut le renommer sans que ce
 // code ait à changer.
-func (db *DB) NoteCandidates(ctx context.Context, statuses []string) (map[int64]NoteEntry, error) {
+//
+// Le vivier est **borné au projet de la release**, et la borne passe par la
+// release plutôt que par un identifiant de projet en paramètre : l'appelant a la
+// release sous la main, et un paramètre qu'on peut oublier de passer rendrait
+// candidate la demande d'un autre client portant le même numéro.
+func (db *DB) NoteCandidates(
+	ctx context.Context, releaseID int64, statuses []string,
+) (map[string]NoteEntry, error) {
 	rows, err := db.pool.Query(ctx,
-		`select redmine_id, coalesce(tracker, ''), coalesce(subject, ''),
-		        coalesce(status_name, '')
-		   from issues
-		  where status_name = any($1)`, statuses)
+		`select i.external_id, coalesce(i.tracker, ''), coalesce(i.subject, ''),
+		        coalesce(i.status_name, '')
+		   from releases r
+		   join issues i on i.project_id = r.project_id
+		  where r.id = $1 and i.status_name = any($2)`, releaseID, statuses)
 	if err != nil {
 		return nil, fmt.Errorf("demandes en revue: %w", err)
 	}
 	defer rows.Close()
 
-	candidates := map[int64]NoteEntry{}
+	candidates := map[string]NoteEntry{}
 	for rows.Next() {
 		var entry NoteEntry
-		if err := rows.Scan(&entry.RedmineID, &entry.Tracker, &entry.Subject,
+		if err := rows.Scan(&entry.ExternalID, &entry.Tracker, &entry.Subject,
 			&entry.StatusName); err != nil {
 			return nil, fmt.Errorf("demandes en revue: %w", err)
 		}
 		entry.Known = true
 		entry.Anomaly = isAnomaly(entry.Tracker)
-		candidates[entry.RedmineID] = entry
+		candidates[entry.ExternalID] = entry
 	}
 	return candidates, rows.Err()
 }
@@ -151,13 +167,13 @@ func (db *DB) NoteCandidates(ctx context.Context, statuses []string) (map[int64]
 // rattachement inviterait à annoncer au client ce qui a été abandonné.
 func (db *DB) ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]NoteEntry, error) {
 	rows, err := db.pool.Query(ctx,
-		`select i.redmine_id, coalesce(i.tracker, ''), coalesce(i.subject, ''),
+		`select i.external_id, coalesce(i.tracker, ''), coalesce(i.subject, ''),
 		        coalesce(i.status_name, '')
 		   from releases r
 		   join issues i on i.version_id = r.version_id
 		  where r.id = $1
 		    and i.status_bucket <> $2
-		  order by i.tracker, i.redmine_id`, releaseID, BucketRejected)
+		  order by i.tracker, i.external_id`, releaseID, BucketRejected)
 	if err != nil {
 		return nil, fmt.Errorf("demandes de la version de la release %d: %w", releaseID, err)
 	}
@@ -166,7 +182,7 @@ func (db *DB) ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]
 	var entries []NoteEntry
 	for rows.Next() {
 		var entry NoteEntry
-		if err := rows.Scan(&entry.RedmineID, &entry.Tracker, &entry.Subject,
+		if err := rows.Scan(&entry.ExternalID, &entry.Tracker, &entry.Subject,
 			&entry.StatusName); err != nil {
 			return nil, fmt.Errorf("demandes de la version de la release %d: %w", releaseID, err)
 		}

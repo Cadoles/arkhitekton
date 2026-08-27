@@ -73,32 +73,32 @@ func TestLesVersionsSeDecodentAvecLeursQuatreConventions(t *testing.T) {
 
 	// Le nom est conservé tel quel : l'identité est l'identifiant Redmine, et
 	// normaliser à l'écriture perdrait l'information sans rien résoudre.
-	byID := map[int64]provider.Version{}
+	byID := map[string]provider.Version{}
 	for _, version := range versions {
 		byID[version.ID] = version
 	}
 
-	if byID[801].Name != "MSE3-1.5" || byID[803].Name != "MSE 3.1.2" || byID[805].Name != "v3.2.0" {
-		t.Errorf("noms altérés: %q %q %q", byID[801].Name, byID[803].Name, byID[805].Name)
+	if byID["801"].Name != "MSE3-1.5" || byID["803"].Name != "MSE 3.1.2" || byID["805"].Name != "v3.2.0" {
+		t.Errorf("noms altérés: %q %q %q", byID["801"].Name, byID["803"].Name, byID["805"].Name)
 	}
 
 	// Deux versions distinctes portent le même numéro sous deux conventions. Elles
 	// doivent rester deux lignes : les fusionner inventerait une donnée.
-	if byID[803].ID == byID[804].ID {
+	if byID["803"].ID == byID["804"].ID {
 		t.Error("MSE 3.1.2 et v3.1.2 doivent rester distinctes")
 	}
-	if byID[803].Status != "closed" || byID[804].Status != "open" {
-		t.Errorf("statuts: 803=%q 804=%q", byID[803].Status, byID[804].Status)
+	if byID["803"].Status != "closed" || byID["804"].Status != "open" {
+		t.Errorf("statuts: 803=%q 804=%q", byID["803"].Status, byID["804"].Status)
 	}
 
 	// Échéance absente et horodatage vide ne sont pas des erreurs.
-	if byID[802].DueDate != nil {
-		t.Errorf("échéance inventée pour 802: %v", byID[802].DueDate)
+	if byID["802"].DueDate != nil {
+		t.Errorf("échéance inventée pour 802: %v", byID["802"].DueDate)
 	}
-	if byID[806].UpdatedOn != nil {
-		t.Errorf("horodatage inventé pour 806: %v", byID[806].UpdatedOn)
+	if byID["806"].UpdatedOn != nil {
+		t.Errorf("horodatage inventé pour 806: %v", byID["806"].UpdatedOn)
 	}
-	if got := byID[801].DueDate; got == nil || got.Format("2006-01-02") != "2025-04-14" {
+	if got := byID["801"].DueDate; got == nil || got.Format("2006-01-02") != "2025-04-14" {
 		t.Errorf("échéance de 801: %v", got)
 	}
 }
@@ -119,13 +119,13 @@ func TestLesDemandesSeDecodentSurPlusieursPages(t *testing.T) {
 	if len(issues) != 8 {
 		t.Fatalf("%d demandes, attendu 8", len(issues))
 	}
-	seen := map[int64]int{}
+	seen := map[string]int{}
 	for _, issue := range issues {
 		seen[issue.ID]++
 	}
 	for id, count := range seen {
 		if count != 1 {
-			t.Errorf("demande %d rendue %d fois", id, count)
+			t.Errorf("demande %s rendue %d fois", id, count)
 		}
 	}
 }
@@ -142,16 +142,16 @@ func TestUneDemandeSansVersionResteSansVersion(t *testing.T) {
 		t.Fatalf("demandes: %v", err)
 	}
 
-	byID := map[int64]provider.Issue{}
+	byID := map[string]provider.Issue{}
 	for _, issue := range issues {
 		byID[issue.ID] = issue
 	}
 
-	if byID[9004].VersionID != nil {
-		t.Errorf("version inventée pour 9004: %v", *byID[9004].VersionID)
+	if byID["9004"].VersionID != nil {
+		t.Errorf("version inventée pour 9004: %v", *byID["9004"].VersionID)
 	}
-	if byID[9001].VersionID == nil || *byID[9001].VersionID != 805 {
-		t.Errorf("version de 9001: %v", byID[9001].VersionID)
+	if byID["9001"].VersionID == nil || *byID["9001"].VersionID != "805" {
+		t.Errorf("version de 9001: %v", byID["9001"].VersionID)
 	}
 }
 
@@ -170,12 +170,12 @@ func TestLeDrapeauDeClotureEstReprisSansJugement(t *testing.T) {
 		t.Fatalf("demandes: %v", err)
 	}
 
-	byID := map[int64]provider.Issue{}
+	byID := map[string]provider.Issue{}
 	for _, issue := range issues {
 		byID[issue.ID] = issue
 	}
 
-	reouverte := byID[9005]
+	reouverte := byID["9005"]
 	if reouverte.Status != "Ré-ouvert" || !reouverte.StatusClosed {
 		t.Errorf("9005: statut %q clos=%v — le drapeau de Redmine doit être conservé",
 			reouverte.Status, reouverte.StatusClosed)
@@ -183,13 +183,13 @@ func TestLeDrapeauDeClotureEstReprisSansJugement(t *testing.T) {
 
 	// Les deux trackers d'anomalie sont distincts : compter les anomalies sur
 	// l'égalité à « Anomalie » en manquerait une sur deux.
-	if byID[9002].Tracker != "Anomalie" || byID[9003].Tracker != "Anomalie (SDN4)" {
-		t.Errorf("trackers: %q et %q", byID[9002].Tracker, byID[9003].Tracker)
+	if byID["9002"].Tracker != "Anomalie" || byID["9003"].Tracker != "Anomalie (SDN4)" {
+		t.Errorf("trackers: %q et %q", byID["9002"].Tracker, byID["9003"].Tracker)
 	}
 
 	// Deux statuts ne différant que par la casse coexistent dans l'instance.
-	if byID[9008].Status != "En StandBy" {
-		t.Errorf("9008: statut %q", byID[9008].Status)
+	if byID["9008"].Status != "En StandBy" {
+		t.Errorf("9008: statut %q", byID["9008"].Status)
 	}
 }
 

@@ -16,6 +16,15 @@ import (
  */
 
 // TrackedVersion est une version telle que la synchronisation la dépose.
+// Les origines d'une version, telles que la contrainte de la migration 0028 les
+// énumère. Une version vient du suivi, a été posée en attendant que le suivi la
+// connaisse, ou appartient à un projet qui n'en a pas.
+const (
+	VersionOriginTracker = "tracker"
+	VersionOriginPending = "pending"
+	VersionOriginOwn     = "own"
+)
+
 type TrackedVersion struct {
 	// Tool nomme l'outil de suivi d'où vient cette version — `redmine`. Vide
 	// quand elle n'en vient pas.
@@ -37,12 +46,14 @@ type TrackedVersion struct {
 	UpdatedOn   *time.Time
 }
 
-// RedmineIssue est une demande telle que la synchronisation la dépose.
-type RedmineIssue struct {
+// TrackedIssue est une demande telle que la synchronisation la dépose.
+type TrackedIssue struct {
 	// ProjectID borne le rattachement à la version : deux projets suivis peuvent
 	// porter le même identifiant Redmine.
 	ProjectID int64
-	RedmineID int64
+	// Tool nomme l'outil de suivi, ExternalID l'identifiant qu'il emploie.
+	Tool       string
+	ExternalID string
 	// VersionExternalID est l'identifiant de la version **dans l'outil**, pas la
 	// clé locale :
 	// la synchronisation lit Redmine et ne connaît que ses identifiants.
@@ -60,7 +71,7 @@ type RedmineIssue struct {
 
 // UpsertRedmineVersion enregistre une version et rend sa clé locale.
 //
-// Simple, et volontairement : l'identité est le `redmine_id`. Le rapprochement avec
+// Simple, et volontairement : l'identité est le couple `(tool, external_id)`. Le rapprochement avec
 // les versions provisoires est une opération distincte ([DB.AdoptPendingVersions]),
 // exécutée après que toutes les versions ont été déposées.
 //
@@ -115,7 +126,7 @@ type Adoption struct {
 
 // AdoptPendingVersions rapproche les versions provisoires des versions réelles.
 //
-// `EnsureVersion` crée, à la création d'une release, une ligne à `redmine_id` négatif
+// `EnsureVersion` crée, à la création d'une release, une ligne d'origine `pending`
 // quand la version n'est pas encore connue — il faut bien rattacher la release à
 // quelque chose. Sans rapprochement, la version réelle s'afficherait sans aucune
 // release et la provisoire sans aucun périmètre.
@@ -142,7 +153,7 @@ func (db *DB) AdoptPendingVersions(ctx context.Context) ([]Adoption, error) {
 	// `for update` sur les provisoires : deux synchronisations concurrentes ne
 	// doivent pas adopter la même deux fois.
 	rows, err := tx.Query(ctx,
-		// `origin = 'pending'` et non `redmine_id < 0` : les deux coïncidaient
+		// `origin = 'pending'` et non un identifiant négatif : les deux coïncidaient
 		// tant qu'une version sans identifiant de suivi ne pouvait être qu'en
 		// attente. Un projet sans suivi en produit désormais qui sont
 		// **définitives**, et tenter de les adopter les rapprocherait d'un outil
@@ -318,8 +329,8 @@ func mergeVersion(ctx context.Context, tx pgx.Tx, pendingID, realID int64) (int6
 
 // UpsertRedmineIssue enregistre une demande.
 //
-// Le rattachement se fait par sous-requête sur `redmine_id` : la synchronisation ne
-// connaît que les identifiants Redmine, et résoudre la clé locale côté Go
+// Le rattachement se fait par sous-requête sur `external_id` : la synchronisation ne
+// connaît que les identifiants du suivi, et résoudre la clé locale côté Go
 // demanderait un aller-retour par demande.
 //
 // Une version inconnue laisse `version_id` nul plutôt que de faire échouer la
@@ -330,16 +341,19 @@ func mergeVersion(ctx context.Context, tx pgx.Tx, pendingID, realID int64) (int6
 // même identifiant Redmine — deux instances, ou deux projets d'une même instance —
 // et une sous-requête sans cette borne rattacherait la demande à la version de
 // l'autre.
-func (db *DB) UpsertRedmineIssue(ctx context.Context, issue RedmineIssue) error {
+func (db *DB) UpsertRedmineIssue(ctx context.Context, issue TrackedIssue) error {
 	_, err := db.pool.Exec(ctx,
 		`insert into issues
-		     (redmine_id, version_id, tracker, subject, status_name, status_bucket,
-		      priority, assignee, done_ratio, is_closed, redmine_updated_on, synced_at)
-		 values ($1,
+		     (project_id, tool, external_id, version_id, tracker, subject,
+		      status_name, status_bucket, priority, assignee, done_ratio, is_closed,
+		      external_updated_on, synced_at)
+		 values ($12, $13, $1,
 		         (select id from versions
 		          where external_id = $2 and project_id = $12),
 		         $3, $4, $5, $6, nullif($7, ''), nullif($8, ''), $9, $10, $11, now())
-		 on conflict (redmine_id) do update set
+		 -- Le conflit porte sur le triplet : deux projets, ou deux outils, peuvent
+		 -- numéroter pareil sans désigner la même demande.
+		 on conflict (project_id, tool, external_id) do update set
 		     version_id = excluded.version_id,
 		     tracker = excluded.tracker,
 		     subject = excluded.subject,
@@ -349,14 +363,15 @@ func (db *DB) UpsertRedmineIssue(ctx context.Context, issue RedmineIssue) error 
 		     assignee = excluded.assignee,
 		     done_ratio = excluded.done_ratio,
 		     is_closed = excluded.is_closed,
-		     redmine_updated_on = excluded.redmine_updated_on,
+		     external_updated_on = excluded.external_updated_on,
 		     synced_at = now(),
 		     updated_at = now()`,
-		issue.RedmineID, issue.VersionExternalID, issue.Tracker, issue.Subject,
+		issue.ExternalID, issue.VersionExternalID, issue.Tracker, issue.Subject,
 		issue.StatusName, issue.StatusBucket, issue.Priority, issue.Assignee,
-		issue.DoneRatio, issue.IsClosed, issue.UpdatedOn, issue.ProjectID)
+		issue.DoneRatio, issue.IsClosed, issue.UpdatedOn, issue.ProjectID, issue.Tool)
 	if err != nil {
-		return fmt.Errorf("enregistrement de la demande %d: %w", issue.RedmineID, err)
+		return fmt.Errorf("enregistrement de la demande %s/%s: %w",
+			issue.Tool, issue.ExternalID, err)
 	}
 	return nil
 }
@@ -506,7 +521,7 @@ func (db *DB) AmbiguousVersions(ctx context.Context) ([]AmbiguousVersion, error)
 // « en attente de synchronisation » indéfiniment sans que personne ne sache pourquoi.
 func (db *DB) PendingVersions(ctx context.Context) ([]string, error) {
 	rows, err := db.pool.Query(ctx,
-		`select name from versions where redmine_id < 0 order by name`)
+		`select name from versions where origin = 'pending' order by name`)
 	if err != nil {
 		return nil, fmt.Errorf("versions provisoires: %w", err)
 	}

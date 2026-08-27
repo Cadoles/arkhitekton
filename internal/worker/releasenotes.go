@@ -39,8 +39,8 @@ type PullReader interface {
 
 // NoteStore est ce que la détection attend de la base.
 type NoteStore interface {
-	NoteCandidates(ctx context.Context, statuses []string) (map[int64]store.NoteEntry, error)
-	LinkNoteIssue(ctx context.Context, releaseID, redmineID int64, source, pullRequest, actor string) error
+	NoteCandidates(ctx context.Context, releaseID int64, statuses []string) (map[string]store.NoteEntry, error)
+	LinkNoteIssue(ctx context.Context, releaseID int64, reference, source, pullRequest, actor string) error
 }
 
 // NoteBuilder compose la note d'une release à sa création.
@@ -82,7 +82,7 @@ func (b *NoteBuilder) Build(
 ) (NoteResult, error) {
 	var result NoteResult
 
-	candidates, err := b.store.NoteCandidates(ctx, b.statuses)
+	candidates, err := b.store.NoteCandidates(ctx, releaseID, b.statuses)
 	if err != nil {
 		return result, err
 	}
@@ -112,11 +112,11 @@ func (b *NoteBuilder) Build(
 		}
 
 		texts := append([]string{pull.Title, pull.Body}, pull.Commits...)
-		for _, redmineID := range release.ExtractIssueIDs(texts...) {
-			if _, eligible := candidates[redmineID]; !eligible {
+		for _, reference := range release.ExtractIssueRefs(texts...) {
+			if _, eligible := candidates[reference]; !eligible {
 				continue
 			}
-			err := b.store.LinkNoteIssue(ctx, releaseID, redmineID,
+			err := b.store.LinkNoteIssue(ctx, releaseID, reference,
 				store.NoteSourceAuto, pull.Reference(), actor)
 			switch {
 			case errors.Is(err, store.ErrNoteAlreadyLinked):

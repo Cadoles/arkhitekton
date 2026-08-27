@@ -168,7 +168,7 @@ function IssueList({ issues }: { issues: Issue[] }) {
     <ul className="flex flex-col">
       {issues.map((issue) => (
         <li
-          key={issue.redmine_id}
+          key={issue.external_id}
           className="border-t border-zinc-200 py-1.5 text-sm first:border-t-0"
         >
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -179,10 +179,10 @@ function IssueList({ issues }: { issues: Issue[] }) {
                 rel="noreferrer noopener"
                 className="font-mono text-xs text-zinc-500 hover:underline"
               >
-                #{issue.redmine_id}
+                {issue.external_id}
               </a>
             ) : (
-              <span className="font-mono text-xs text-zinc-500">#{issue.redmine_id}</span>
+              <span className="font-mono text-xs text-zinc-500">{issue.external_id}</span>
             )}
             <span className="text-zinc-900">{issue.subject}</span>
           </div>

@@ -18,12 +18,14 @@ var ErrVersionNotFoundByID = errors.New("version introuvable")
 // §4.5) : par nombre de demandes, lisible mais une grosse demande vaut une petite ;
 // pondérée par `done_ratio`, plus fine mais tributaire de la rigueur de saisie.
 type VersionSummary struct {
-	ID        int64
-	RedmineID int64
-	Name      string
-	Status    string
-	DueDate   *time.Time
-	SyncedAt  time.Time
+	ID int64
+	// ExternalID est l'identifiant de la version dans le suivi, vide quand elle
+	// n'en vient pas.
+	ExternalID string
+	Name       string
+	Status     string
+	DueDate    *time.Time
+	SyncedAt   time.Time
 
 	// Pending marque une version provisoire, créée par une release avant que la
 	// synchronisation ne connaisse la version réelle.
@@ -166,7 +168,7 @@ func (db *DB) GetVersionSummary(ctx context.Context, id int64) (VersionSummary, 
 // lignes l'une par l'autre, et chaque compte serait faux d'un facteur égal au nombre
 // de lignes de l'autre table.
 const versionSummaryQuery = `
-	select v.id, v.redmine_id, v.name, v.status, v.due_date, v.synced_at,
+	select v.id, coalesce(v.external_id, ''), v.origin, v.name, v.status, v.due_date, v.synced_at,
 	       counts.counted, counts.done, counts.weighted, counts.anomalies,
 	       releases.total
 	from versions v
@@ -190,20 +192,23 @@ const versionSummaryQuery = `
 
 func scanVersionSummary(rows pgx.Rows) (VersionSummary, error) {
 	var summary VersionSummary
-	if err := rows.Scan(&summary.ID, &summary.RedmineID, &summary.Name, &summary.Status,
+	var origin string
+	if err := rows.Scan(&summary.ID, &summary.ExternalID, &origin, &summary.Name, &summary.Status,
 		&summary.DueDate, &summary.SyncedAt, &summary.Counted, &summary.Done,
 		&summary.WeightedDone, &summary.OpenAnomalies, &summary.Releases); err != nil {
 		return VersionSummary{}, fmt.Errorf("lecture d'une version: %w", err)
 	}
-	// Un identifiant négatif est la marque d'une provisoire, posée par
-	// `EnsureVersion` faute de connaître la version réelle.
-	summary.Pending = summary.RedmineID < 0
+	// La provisoire se lit dans `origin` depuis la migration 0028. Elle se
+	// déduisait auparavant du signe de `redmine_id` — un entier négatif qui
+	// n'existait que pour tenir un `not null`, et qu'il fallait savoir lire.
+	summary.Pending = origin == VersionOriginPending
 	return summary, nil
 }
 
 // VersionIssue est une demande dans le périmètre d'une version.
 type VersionIssue struct {
-	RedmineID  int64
+	// ExternalID est l'identifiant de la demande dans le suivi, en texte.
+	ExternalID string
 	Tracker    string
 	Subject    string
 	StatusName string
@@ -223,11 +228,11 @@ type VersionIssue struct {
 // on sait qu'elle existe.
 func (db *DB) ListVersionIssues(ctx context.Context, versionID int64) ([]VersionIssue, error) {
 	rows, err := db.pool.Query(ctx,
-		`select redmine_id, tracker, subject, status_name, status_bucket,
+		`select external_id, tracker, subject, status_name, status_bucket,
 		        coalesce(priority, ''), coalesce(assignee, ''), done_ratio, is_closed
 		 from issues
 		 where version_id = $1
-		 order by tracker, redmine_id`, versionID)
+		 order by tracker, external_id`, versionID)
 	if err != nil {
 		return nil, fmt.Errorf("demandes de la version %d: %w", versionID, err)
 	}
@@ -236,7 +241,7 @@ func (db *DB) ListVersionIssues(ctx context.Context, versionID int64) ([]Version
 	var issues []VersionIssue
 	for rows.Next() {
 		var issue VersionIssue
-		if err := rows.Scan(&issue.RedmineID, &issue.Tracker, &issue.Subject,
+		if err := rows.Scan(&issue.ExternalID, &issue.Tracker, &issue.Subject,
 			&issue.StatusName, &issue.Bucket, &issue.Priority, &issue.Assignee,
 			&issue.DoneRatio, &issue.IsClosed); err != nil {
 			return nil, fmt.Errorf("demandes de la version %d: %w", versionID, err)

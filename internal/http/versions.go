@@ -63,12 +63,12 @@ func completionOf(summary store.VersionSummary) completionVw {
 }
 
 type versionVw struct {
-	ID        int64      `json:"id"`
-	RedmineID int64      `json:"redmine_id,omitempty"`
-	Name      string     `json:"name"`
-	Status    string     `json:"status"`
-	DueDate   *time.Time `json:"due_date"`
-	SyncedAt  time.Time  `json:"synced_at"`
+	ID         int64      `json:"id"`
+	ExternalID string     `json:"external_id,omitempty"`
+	Name       string     `json:"name"`
+	Status     string     `json:"status"`
+	DueDate    *time.Time `json:"due_date"`
+	SyncedAt   time.Time  `json:"synced_at"`
 	// Pending marque une version provisoire : une release s'y rattache, mais la
 	// synchronisation n'a pas trouvé la version Redmine correspondante.
 	Pending    bool         `json:"pending"`
@@ -87,12 +87,12 @@ func (h *VersionsHandler) view(summary store.VersionSummary) versionVw {
 		Completion: completionOf(summary), OpenAnomalies: summary.OpenAnomalies,
 		Releases: summary.Releases,
 	}
-	// L'identifiant négatif d'une provisoire est un détail d'implémentation : le
-	// transmettre inviterait le client à construire un lien Redmine vers rien.
-	if !summary.Pending {
-		view.RedmineID = summary.RedmineID
+	// Une provisoire, ou une version d'un projet sans suivi, n'a pas
+	// d'identifiant externe : le client n'a alors aucun lien à construire.
+	if !summary.Pending && summary.ExternalID != "" {
+		view.ExternalID = summary.ExternalID
 		if h.redmineURL != "" {
-			view.URL = h.redmineURL + "/versions/" + strconv.FormatInt(summary.RedmineID, 10)
+			view.URL = h.redmineURL + "/versions/" + summary.ExternalID
 		}
 	}
 	return view
@@ -127,7 +127,7 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 type issueVw struct {
-	RedmineID  int64  `json:"redmine_id"`
+	ExternalID string `json:"external_id"`
 	Tracker    string `json:"tracker"`
 	Subject    string `json:"subject"`
 	StatusName string `json:"status_name"`
@@ -177,13 +177,13 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	anomalies := make([]issueVw, 0)
 	for _, issue := range issues {
 		view := issueVw{
-			RedmineID: issue.RedmineID, Tracker: issue.Tracker, Subject: issue.Subject,
+			ExternalID: issue.ExternalID, Tracker: issue.Tracker, Subject: issue.Subject,
 			StatusName: issue.StatusName, Bucket: issue.Bucket, Priority: issue.Priority,
 			Assignee: issue.Assignee, DoneRatio: issue.DoneRatio,
 			IsClosed: issue.IsClosed, Anomaly: issue.Anomaly,
 		}
 		if h.redmineURL != "" {
-			view.URL = h.redmineURL + "/issues/" + strconv.FormatInt(issue.RedmineID, 10)
+			view.URL = h.redmineURL + "/issues/" + issue.ExternalID
 		}
 
 		if bucket, known := buckets[issue.Bucket]; known {
