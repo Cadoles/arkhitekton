@@ -42,12 +42,16 @@ type ReleaseStore interface {
 	ListEnvironmentViews(ctx context.Context) ([]store.EnvironmentView, error)
 	LatestPromotions(ctx context.Context) (map[string]store.EnvironmentPromotion, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
-	// BuildableProject dit quelles images une release construit et lesquelles un
-	// re-tag propage. Lu à chaque mise en file plutôt que mémorisé au démarrage :
-	// les étapes se modifient depuis l'administration, et une release lancée
-	// après le changement doit construire ce qui est déclaré maintenant.
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
-	BuildableProject(ctx context.Context) (store.Project, error)
+	// GetProject dit quelles images une release construit et lesquelles un re-tag
+	// propage. Lu à chaque mise en file plutôt que mémorisé au démarrage : les
+	// étapes se modifient depuis l'administration, et une release lancée après le
+	// changement doit construire ce qui est déclaré maintenant.
+	//
+	// Par identifiant, celui que la route porte : chercher « le projet
+	// constructible » supposait qu'il n'y en ait qu'un, ce qu'un second projet
+	// déclaré rend faux (doc 12 §12.9, lot B).
+	GetProject(ctx context.Context, id int64) (store.Project, error)
 	SetReleaseState(ctx context.Context, id int64, state string) error
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
@@ -759,7 +763,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		// Jamais d'une branche quand le commit est connu : reconstruire la même
 		// release six mois plus tard doit produire la même image (B17).
 		buildRef := buildReference(record, request.GitRef)
-		jobIDs, buildErr := h.enqueueBuild(r.Context(), releaseID, record, buildRef, identity.Subject)
+		jobIDs, buildErr := h.enqueueBuild(r.Context(), currentID, releaseID, record, buildRef, identity.Subject)
 		switch {
 		case buildErr != nil:
 			// La release est créée : le dire, plutôt que de laisser croire à un
@@ -803,7 +807,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// aucune ImagePolicy ne peut le retenir, et la release n'est promouvable nulle
 	// part alors que son image est prête (B17).
 	if record.ImageVersion != record.Tag {
-		jobIDs, err := h.enqueueRetag(r.Context(), releaseID, record, identity.Subject)
+		jobIDs, err := h.enqueueRetag(r.Context(), currentID, releaseID, record, identity.Subject)
 		if err != nil {
 			// La release est créée : le dire, plutôt que de laisser croire à un
 			// échec de création. Le re-tag se relance.
@@ -932,7 +936,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobIDs, err := h.enqueueBuild(r.Context(), record.ID, record, record.GitRef, identity.Subject)
+	jobIDs, err := h.enqueueBuild(r.Context(), currentID, record.ID, record, record.GitRef, identity.Subject)
 	if err != nil {
 		writeProblem(w, http.StatusUnprocessableEntity, "Reconstruction impossible", err.Error())
 		return
@@ -1343,7 +1347,8 @@ func buildReference(record store.Release, requested string) string {
 // produirait une release que rien ne pourrait conclure — le décompte attendrait
 // une image qui n'a jamais été demandée.
 func (h *ReleasesHandler) enqueueBuild(
-	ctx context.Context, releaseID int64, record store.Release, gitRef, subject string,
+	ctx context.Context, projectID, releaseID int64,
+	record store.Release, gitRef, subject string,
 ) ([]int64, error) {
 	pipeline, found := h.catalog.Find("build")
 	if !found {
@@ -1353,7 +1358,7 @@ func (h *ReleasesHandler) enqueueBuild(
 		return nil, errors.New("aucune référence Git à construire")
 	}
 
-	project, err := h.store.BuildableProject(ctx)
+	project, err := h.store.GetProject(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1390,14 +1395,14 @@ func (h *ReleasesHandler) enqueueBuild(
 // Une exécution par image promue — l'image de développement n'en est pas : aucun
 // environnement du flux de promotion ne la déploie.
 func (h *ReleasesHandler) enqueueRetag(
-	ctx context.Context, releaseID int64, record store.Release, subject string,
+	ctx context.Context, projectID, releaseID int64, record store.Release, subject string,
 ) ([]int64, error) {
 	pipeline, found := h.catalog.Find(retagJobKind)
 	if !found {
 		return nil, errors.New("catalogue sans pipeline de re-tag")
 	}
 
-	project, err := h.store.BuildableProject(ctx)
+	project, err := h.store.GetProject(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1483,7 +1488,7 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := h.store.BuildableProject(r.Context())
+	project, err := h.store.GetProject(r.Context(), currentID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Images promues inconnues", err.Error())
 		return

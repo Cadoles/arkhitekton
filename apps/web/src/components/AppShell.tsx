@@ -5,6 +5,7 @@ import { Skeleton } from './primitives'
 import { useTheme } from '../lib/theme'
 import { logout } from '../lib/api'
 import { roleLabel, useSession } from '../features/auth/session'
+import { currentProject, projects, selectProject } from '../lib/project'
 
 /*
  * Coquille de l'application : barre supérieure et navigation.
@@ -26,6 +27,43 @@ const NAV: NavEntry[] = [
   { to: '/runs', label: 'Exécutions', icon: 'beaker' },
   { to: '/admin', label: 'Administration', icon: 'cog' },
 ]
+
+/**
+ * Choix du projet dont les écrans de releases et de versions parlent.
+ *
+ * Rendu seulement au-delà d'un projet : proposer un choix entre une seule option
+ * est du bruit, et l'immense majorité des déploiements n'en aura qu'un.
+ *
+ * Le changement recharge la page plutôt que d'invalider les requêtes une à une.
+ * C'est brutal et c'est assumé : le projet courant est lu dans un module, hors de
+ * tout arbre React, et une invalidation partielle laisserait des écrans montrant
+ * les données de l'ancien projet sous les URL du nouveau — un écart bien pire
+ * qu'un rechargement.
+ */
+function ProjectPicker() {
+  const choices = projects()
+  if (choices.length < 2) return null
+
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <span className="sr-only">Projet</span>
+      <select
+        value={currentProject()}
+        onChange={(event) => {
+          selectProject(event.target.value)
+          window.location.reload()
+        }}
+        className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
+      >
+        {choices.map((choice) => (
+          <option key={choice.slug} value={choice.slug}>
+            {choice.label || choice.slug}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
 
 function ThemeToggle() {
   const { isDark, toggle } = useTheme()
@@ -123,6 +161,7 @@ export function AppShell() {
           </div>
 
           <div className="ml-auto flex items-center gap-3">
+            <ProjectPicker />
             <SessionBadge />
             <ThemeToggle />
           </div>

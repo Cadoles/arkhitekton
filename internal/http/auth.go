@@ -36,14 +36,14 @@ type AuthHandler struct {
 	// secureCookies doit valoir true partout sauf en développement sur http.
 	secureCookies bool
 	sessionTTL    time.Duration
-	// projects nomme le projet courant, rendu avec l'identité. Nil quand il n'est
-	// pas branché : `/me` répond alors sans projet, et l'interface le dit plutôt
-	// que de composer des URL creuses.
-	projects projectSource
+	// projects énumère les projets déclarés, rendus avec l'identité. Nil quand il
+	// n'est pas branché : `/me` répond alors sans liste, et l'interface le dit
+	// plutôt que de composer des URL creuses.
+	projects projectLister
 }
 
 // WithProjects branche la résolution du projet courant sur `/me`.
-func (h *AuthHandler) WithProjects(projects projectSource) *AuthHandler {
+func (h *AuthHandler) WithProjects(projects projectLister) *AuthHandler {
 	h.projects = projects
 	return h
 }
@@ -198,14 +198,24 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"role":     identity.Role,
 	}
 	if h.projects != nil {
-		if project, err := h.projects.BuildableProject(r.Context()); err == nil {
-			payload["project"] = project.Slug
-		} else if h.logger != nil {
-			// Sans projet, l'interface ne peut composer aucune URL de release. Le
-			// dire au journal plutôt que de rendre un champ vide qui se lirait
-			// comme « pas encore chargé ».
-			h.logger.Warn("projet courant indisponible", "error", err)
+		// La **liste**, et non un projet unique. `/me` rendait « le projet
+		// constructible », ce qui supposait qu'il n'y en ait qu'un : déclarer un
+		// second faisait échouer la résolution, et l'interface se retrouvait sans
+		// aucune URL composable — tout l'écran des releases avec.
+		//
+		// C'est aussi ce que le multi-projet veut dire côté interface : le choix
+		// appartient à qui regarde, pas au dashboard.
+		projects, err := h.projects.ListProjects(r.Context())
+		if err != nil && h.logger != nil {
+			h.logger.Warn("liste des projets indisponible", "error", err)
 		}
+		visible := make([]map[string]string, 0, len(projects))
+		for _, project := range projects {
+			visible = append(visible, map[string]string{
+				"slug": project.Slug, "label": project.Label,
+			})
+		}
+		payload["projects"] = visible
 	}
 	writeJSON(w, http.StatusOK, payload)
 }

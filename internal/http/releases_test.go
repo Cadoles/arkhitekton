@@ -54,6 +54,12 @@ func fixtureProject() store.Project {
 	}
 }
 
+// GetProject rend le projet que la route désigne. Un seul ici : ces tests
+// portent sur ce que le handler fait du projet, pas sur son choix.
+func (f *fakeReleaseStore) GetProject(context.Context, int64) (store.Project, error) {
+	return fixtureProject(), nil
+}
+
 func (f *fakeReleaseStore) BuildableProject(context.Context) (store.Project, error) {
 	if f.project != nil {
 		return *f.project, nil

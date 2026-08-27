@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
+import { currentProject } from '../../lib/project'
 
 export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
@@ -78,8 +79,12 @@ type QueueResponse = {
 
 export function useQueue() {
   return useQuery({
-    queryKey: ['queue'],
-    queryFn: () => request<QueueResponse>('/queue'),
+    queryKey: ['queue', currentProject()],
+    // Le projet accompagne la lecture : la file elle-même est celle du cluster,
+    // mais ses suggestions listent des releases, qui n'existent que dans un
+    // projet. Sans lui, les champs concernés restent en saisie libre.
+    queryFn: () =>
+      request<QueueResponse>(`/queue?project=${encodeURIComponent(currentProject())}`),
     // La file bouge en permanence, et son intérêt est précisément de dire ce qui
     // se passe maintenant. Deux secondes suivent le rythme de l'ordonnanceur.
     refetchInterval: 2000,
@@ -95,7 +100,7 @@ export function useLaunch() {
     onSuccess: () => {
       // La file est rafraîchie sans attendre le prochain intervalle : voir son
       // job apparaître est ce qui confirme que le lancement a été pris.
-      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+      void queryClient.invalidateQueries({ queryKey: ['queue', currentProject()] })
     },
   })
 }
@@ -106,7 +111,7 @@ export function useCancel() {
   return useMutation({
     mutationFn: (id: number) => request<{ state: string }>(`/queue/${id}/cancel`, { method: 'POST' }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+      void queryClient.invalidateQueries({ queryKey: ['queue', currentProject()] })
     },
   })
 }
@@ -131,7 +136,7 @@ export function useSetLimit() {
             body: JSON.stringify({ max_concurrent: max }),
           }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+      void queryClient.invalidateQueries({ queryKey: ['queue', currentProject()] })
     },
   })
 }

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { ApiError, request } from '../../lib/api'
-import { setCurrentProject } from '../../lib/project'
+import { setProjects, type ProjectChoice } from '../../lib/project'
 
 /** Identité renvoyée par `GET /api/v1/me`. */
 export type Identity = {
@@ -9,12 +9,12 @@ export type Identity = {
   email: string
   role: Role
   /**
-   * Projet dont les tags font foi, tel que l'API le nomme dans ses chemins.
-   * Absent quand aucun projet constructible n'est déclaré : l'interface ne peut
-   * alors composer aucune URL de release, et il vaut mieux le voir échouer que
-   * d'interroger `/projects//releases`.
+   * Projets lisibles, tels que l'API les nomme dans ses chemins. Vide quand
+   * aucun n'est déclaré : l'interface ne peut alors composer aucune URL de
+   * release, et il vaut mieux le voir échouer que d'interroger
+   * `/projects//releases`.
    */
-  project?: string
+  projects?: ProjectChoice[]
 }
 
 export type Role = 'viewer' | 'operator' | 'releaser' | 'admin'
@@ -32,9 +32,9 @@ export function useSession(): SessionState {
     queryKey: ['me'],
     queryFn: async () => {
       const identity = await request<Identity>('/me')
-      // Retenu ici parce que c'est la seule réponse qui le porte, et qu'elle
+      // Retenus ici parce que c'est la seule réponse qui les porte, et qu'elle
       // précède tout écran : les URL des releases et des versions en dépendent.
-      setCurrentProject(identity.project ?? '')
+      setProjects(identity.projects ?? [])
       return identity
     },
     // Inutile de réessayer : 401 et 403 sont des réponses, pas des pannes.

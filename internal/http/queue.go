@@ -211,7 +211,7 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"queues":      queues,
 		"kinds":       kinds,
-		"suggestions": h.suggestions(r.Context()),
+		"suggestions": h.suggestions(r.Context(), r.URL.Query().Get("project")),
 		// Le plafond global, toutes files confondues. Il prime sur les plafonds
 		// par type : sans lui, sept files à cinq places autoriseraient
 		// trente-cinq exécutions simultanées.
@@ -230,7 +230,7 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 // chez la forge, l'appel coûte des secondes, et le client les demande déjà pour
 // le formulaire de création de release. Les recharger ici les ferait payer à
 // chaque rafraîchissement de la file, toutes les deux secondes.
-func (h *QueueHandler) suggestions(ctx context.Context) map[string][]option {
+func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string][]option {
 	proposed := map[string][]option{}
 
 	environments := make([]option, 0, len(h.catalog.Environments))
@@ -248,15 +248,20 @@ func (h *QueueHandler) suggestions(ctx context.Context) map[string][]option {
 
 	// Les plus récentes d'abord, et pas toutes : une liste de deux cents entrées
 	// ne se parcourt pas, et ce qu'on relance porte sur ce qui vient de sortir.
-	currentID, err := buildableProject(ctx, h.releases)
+	// La file n'est pas propre à un projet : ses plafonds sont ceux du cluster, et
+	// son chemin ne porte donc pas de projet. Les suggestions, elles, listent des
+	// **releases**, qui n'existent que dans un projet — d'où le projet en requête.
+	//
+	// Déduit auparavant du seul dépôt constructible, ce qui a cessé d'être une
+	// question décidable dès qu'un second a été déclaré : les suggestions
+	// disparaissaient alors entièrement (doc 12 §12.9, lot B).
+	//
+	// Absent, les champs concernés restent en saisie libre. Une file utilisable
+	// sans suggestions vaut mieux qu'une file en erreur.
+	currentID, err := h.projectOf(ctx, slug)
 	if err != nil {
-		// La file n'est pas propre à un projet : ses plafonds sont ceux du
-		// cluster, et son chemin ne porte donc pas de projet. Les suggestions,
-		// elles, listent des releases — d'où le repli sur le projet
-		// constructible. Un projet indéterminé ne fait pas échouer la file : les
-		// champs concernés restent en saisie libre.
 		if h.logger != nil {
-			h.logger.Error("projet courant", "error", err)
+			h.logger.Warn("suggestions sans projet", "projet", slug, "error", err)
 		}
 		return proposed
 	}
@@ -296,6 +301,22 @@ func (h *QueueHandler) suggestions(ctx context.Context) map[string][]option {
 	}
 
 	return proposed
+}
+
+// projectOf résout le projet des suggestions.
+//
+// Le slug quand la requête en porte un, le dépôt constructible sinon — ce dernier
+// reste juste tant qu'il n'y en a qu'un, et rend une erreur dès qu'il y en a
+// plusieurs plutôt que d'en choisir un au hasard.
+func (h *QueueHandler) projectOf(ctx context.Context, slug string) (int64, error) {
+	if slug == "" {
+		return buildableProject(ctx, h.releases)
+	}
+	project, err := h.releases.ProjectBySlug(ctx, slug)
+	if err != nil {
+		return 0, err
+	}
+	return project.ID, nil
 }
 
 // suggestedReleases borne la liste proposée.

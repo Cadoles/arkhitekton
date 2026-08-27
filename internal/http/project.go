@@ -27,9 +27,26 @@ import (
  * (doc 12 §12.9, lot B).
  */
 
-// projectSource est ce que les handlers savent tous faire : nommer un projet.
-type projectSource interface {
+// projectResolver traduit le nom porté par une URL en projet.
+//
+// Séparé de [projectSource] : la résolution par chemin est ce dont **tous** les
+// handlers rattachés à un projet ont besoin, alors que le repli sur le projet
+// constructible ne concerne plus que ceux qui n'ont pas de chemin à leur
+// disposition. Les fondre obligerait les premiers à porter une méthode qu'ils
+// n'appellent pas.
+type projectResolver interface {
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
+}
+
+// projectLister énumère les projets déclarés, pour que l'interface propose un
+// choix plutôt que d'en subir un.
+type projectLister interface {
+	ListProjects(ctx context.Context) ([]store.Project, error)
+}
+
+// projectSource sait en plus nommer le projet qui se construit.
+type projectSource interface {
+	projectResolver
 	BuildableProject(ctx context.Context) (store.Project, error)
 }
 
@@ -38,7 +55,7 @@ type projectSource interface {
 // Écrit la réponse et rend `false` quand il n'y en a pas : 404 sur un slug
 // inconnu — une URL périmée n'est pas une panne, et répondre 500 ferait chercher
 // un incident.
-func requestProject(w http.ResponseWriter, r *http.Request, source projectSource) (int64, bool) {
+func requestProject(w http.ResponseWriter, r *http.Request, source projectResolver) (int64, bool) {
 	slug := r.PathValue("project")
 	if slug == "" {
 		writeProblem(w, http.StatusBadRequest, "Projet non désigné",
