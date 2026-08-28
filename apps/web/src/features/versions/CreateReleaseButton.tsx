@@ -127,7 +127,7 @@ export function CreateReleaseButton({
       kind,
       // Le nom Redmine n'est transmis que s'il en est un : celui d'une provisoire
       // vient d'un tag, et le vérifier contre lui-même ne vérifierait rien.
-      redmine_version: version.pending || kind === 'patch' ? undefined : version.name,
+      tracked_version: version.pending || kind === 'patch' ? undefined : version.name,
       // Le git_ref n'accompagne qu'une pré-release : c'est elle qui se construit
       // depuis une branche ou un tag. Une finale est un re-tag — son origine Git
       // est celle de sa RC source.

@@ -32,12 +32,12 @@ export function SyncPanel() {
 
   if (!data.configured) {
     return (
-      <Card title="Synchronisation Redmine">
+      <Card title="Synchronisation du suivi">
         {/* Non configuré et jamais synchronisé n'appellent pas la même réaction :
             le second ferait chercher une panne. */}
         <EmptyState>
-          Redmine n'est pas configuré. Renseignez <span className="font-mono">REDMINE_URL</span> et{' '}
-          <span className="font-mono">REDMINE_API_KEY</span> pour renseigner les versions et les
+          Aucun suivi n'est configuré. Renseignez <span className="font-mono">TRACKER_URL</span>{' '}
+          et <span className="font-mono">TRACKER_API_KEY</span> pour renseigner les versions et les
           demandes.
         </EmptyState>
       </Card>
@@ -45,7 +45,7 @@ export function SyncPanel() {
   }
 
   return (
-    <Card title="Synchronisation Redmine" action={<ResyncButton />}>
+    <Card title="Synchronisation du suivi" action={<ResyncButton />}>
       <SyncSummary data={data} />
       <UnmappedStatuses data={data} />
       <MappingTable data={data} />

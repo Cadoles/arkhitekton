@@ -57,7 +57,7 @@ Usage:
   mse-dashboard reprocess Rejoue les résultats depuis les artefacts bruts
 
 Diagnostic:
-  mse-dashboard check-redmine  Vérifie l'accès Redmine et s'arrête (lecture seule)
+  mse-dashboard check-tracker  Vérifie l'accès au suivi et s'arrête (lecture seule)
 
 Options de reprocess:
   --release <tag>  Limite le rejeu à une release (défaut: tout l'historique)
@@ -101,7 +101,7 @@ func run() error {
 		return runMigrate(ctx, cfg, logger)
 	case config.RoleReprocess:
 		return runReprocess(ctx, cfg, logger, os.Args[2:])
-	case config.RoleCheckRedmine:
+	case config.RoleCheckTracker:
 		return runCheckRedmine(ctx, cfg, logger)
 	default:
 		fmt.Fprint(os.Stderr, usage)
@@ -218,7 +218,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// Même pondération que le gestionnaire des tests : la pastille de la
 		// liste et l'écran d'une release affichent le même chiffre.
 		WithWeights(dashhttp.ScoreWeights(pipelines.ScoreWeights())).
-		WithRedmineURL(cfg.Redmine.URL).
+		WithTrackerURL(cfg.Tracker.URL).
 		// Le même normaliseur que le store, et ce n'est pas une précaution : ce
 		// handler compare une saisie à une colonne que le store a écrite.
 		WithNormalizer(versionNames(cfg)).
@@ -231,10 +231,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture
 	// seule par transport, comme celui de Redmine.
 	var forgeReader dashhttp.ForgeReader
-	if cfg.Gitea.Configured() {
+	if cfg.Forge.Configured() {
 		forgeClient, err := gitea.New(gitea.Options{
-			URL: cfg.Gitea.URL, Token: cfg.Gitea.Token,
-			Repository: cfg.Gitea.Repository, Timeout: cfg.Gitea.Timeout,
+			URL: cfg.Forge.URL, Token: cfg.Forge.Token,
+			Repository: cfg.Forge.Repository, Timeout: cfg.Forge.Timeout,
 		})
 		if err != nil {
 			return fmt.Errorf("client Gitea: %w", err)
@@ -249,15 +249,15 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// réelle le dirait. Un jeton en lecture seule produit donc une réserve à
 		// la première release, pas un échec au démarrage.
 		writer, err := gitea.NewWriter(gitea.Options{
-			URL: cfg.Gitea.URL, Token: cfg.Gitea.Token,
-			Repository: cfg.Gitea.Repository, Timeout: cfg.Gitea.Timeout,
+			URL: cfg.Forge.URL, Token: cfg.Forge.Token,
+			Repository: cfg.Forge.Repository, Timeout: cfg.Forge.Timeout,
 		})
 		if err != nil {
 			return fmt.Errorf("client Gitea en écriture: %w", err)
 		}
 		releasesHandler = releasesHandler.WithForge(forgeClient, writer)
 
-		logger.Info("forge configurée", "url", cfg.Gitea.URL, "repo", cfg.Gitea.Repository)
+		logger.Info("forge configurée", "url", cfg.Forge.URL, "repo", cfg.Forge.Repository)
 	} else {
 		logger.Warn("forge non configurée",
 			"raison", "GITEA_URL, GITEA_TOKEN ou GITEA_REPO absent",
@@ -273,8 +273,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			dashhttp.NewSignoffsHandler(db),
 			// L'URL de Redmine sert à construire les liens sortants. Absente, les
 			// liens sont omis plutôt que rendus cassés.
-			dashhttp.NewVersionsHandler(db, cfg.Redmine.URL),
-			dashhttp.NewSyncAdminHandler(db, cfg.Redmine.Configured()),
+			dashhttp.NewVersionsHandler(db, cfg.Tracker.URL),
+			dashhttp.NewSyncAdminHandler(db, cfg.Tracker.Configured()),
 			dashhttp.NewForgeHandler(forgeReader),
 			dashhttp.NewAdminHandler(db),
 			// Le test d'accès emploie le jeton de la forge, avec un client par
@@ -530,18 +530,18 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// forge et la base. Sans forge configurée, la tâche n'est pas
 			// enregistrée et les jobs de note échouent en le disant — plutôt que
 			// de composer des notes vides sans expliquer pourquoi.
-			if cfg.Gitea.Configured() {
+			if cfg.Forge.Configured() {
 				forgeClient, err := gitea.New(gitea.Options{
-					URL: cfg.Gitea.URL, Token: cfg.Gitea.Token,
-					Repository: cfg.Gitea.Repository, Timeout: cfg.Gitea.Timeout,
+					URL: cfg.Forge.URL, Token: cfg.Forge.Token,
+					Repository: cfg.Forge.Repository, Timeout: cfg.Forge.Timeout,
 				})
 				if err != nil {
 					return fmt.Errorf("client Gitea du worker: %w", err)
 				}
 				scheduler.Handle(worker.NewNoteBuilder(
-					forgeClient, db, cfg.Redmine.ReviewStatuses, logger))
+					forgeClient, db, cfg.Tracker.ReviewStatuses, logger))
 				logger.Info("note de release",
-					"statuts_en_revue", cfg.Redmine.ReviewStatuses)
+					"statuts_en_revue", cfg.Tracker.ReviewStatuses)
 			} else {
 				logger.Warn("forge non configurée: les notes de release ne seront pas composées")
 			}
@@ -572,18 +572,18 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// La synchronisation vit sous le bail comme le reste : deux workers
 			// interrogeant la même instance doubleraient la charge sur un service
 			// tiers pour un résultat identique.
-			if cfg.Redmine.Configured() {
+			if cfg.Tracker.Configured() {
 				client, err := redmine.New(redmine.Options{
-					URL: cfg.Redmine.URL, APIKey: cfg.Redmine.APIKey,
-					Timeout: cfg.Redmine.Timeout,
+					URL: cfg.Tracker.URL, APIKey: cfg.Tracker.APIKey,
+					Timeout: cfg.Tracker.Timeout,
 				})
 				if err != nil {
 					return fmt.Errorf("client Redmine: %w", err)
 				}
-				sync := worker.NewRedmineSync(db, client, cfg.Redmine.Project, logger).
+				sync := worker.NewTrackerSync(db, client, cfg.Tracker.Project, logger).
 					WithNormalizer(versionNames(cfg))
-				logger.Info("synchronisation Redmine active",
-					"url", cfg.Redmine.URL, "project", cfg.Redmine.Project)
+				logger.Info("synchronisation du suivi active",
+					"url", cfg.Tracker.URL, "project", cfg.Tracker.Project)
 				go func() { errs <- sync.Run(leadingCtx) }()
 			} else {
 				logger.Warn("synchronisation Redmine inactive",
@@ -619,7 +619,7 @@ func schedulerConfig(cfg config.Config) map[string]string {
 	// Les deux autres dépôts ne suivent pas : `mse-kustom` et `mse-tests-e2e`
 	// sont d'autres dépôts, pas d'autres vues du même.
 	appRepo := envOr("FORGE_MSE_REPO_URL",
-		cfg.Gitea.CloneURL(os.Getenv("FORGE_SSH_PORT")))
+		cfg.Forge.CloneURL(os.Getenv("FORGE_SSH_PORT")))
 	if appRepo == "" {
 		appRepo = "ssh://git@forge.cadoles.com:2222/CNOUS/mse.git"
 	}
@@ -884,9 +884,9 @@ func portee(releaseTag string) string {
 // appartient, et son drapeau `admin`.
 func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	client, err := redmine.New(redmine.Options{
-		URL:     cfg.Redmine.URL,
-		APIKey:  cfg.Redmine.APIKey,
-		Timeout: cfg.Redmine.Timeout,
+		URL:     cfg.Tracker.URL,
+		APIKey:  cfg.Tracker.APIKey,
+		Timeout: cfg.Tracker.Timeout,
 	})
 	if err != nil {
 		return fmt.Errorf("client Redmine: %w", err)
@@ -898,8 +898,8 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 	}
 
 	logger.Info("accès Redmine vérifié",
-		"url", cfg.Redmine.URL,
-		"project", cfg.Redmine.Project,
+		"url", cfg.Tracker.URL,
+		"project", cfg.Tracker.Project,
 		"login", account.Login,
 		"user_id", account.ID,
 		// Signalé parce qu'il mérite d'être vu : une clé d'administrateur donne
@@ -922,14 +922,14 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 // `secrets` dans sa RBAC et ne doit pas l'avoir (doc 07 §7.3).
 func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
-		WithDeployKey(cfg.Gitea.DeployKey, cfg.Gitea.URL).
+		WithDeployKey(cfg.Forge.DeployKey, cfg.Forge.URL).
 		WithImageRegistry(cfg.Registry.Project)
 
-	if cfg.Gitea.URL == "" || cfg.Gitea.Token == "" {
+	if cfg.Forge.URL == "" || cfg.Forge.Token == "" {
 		return handler
 	}
 	return handler.WithProbe(gitea.Prober{
-		URL: cfg.Gitea.URL, Token: cfg.Gitea.Token, Timeout: cfg.Gitea.Timeout,
+		URL: cfg.Forge.URL, Token: cfg.Forge.Token, Timeout: cfg.Forge.Timeout,
 	})
 }
 
@@ -997,7 +997,7 @@ func configuredProjects(cfg config.Config) []store.Project {
 			// Le seul des quatre à avoir un outil de suivi. Les trois autres sont
 			// des dépôts clonés par des pipelines : ils ne portent ni version ni
 			// release, donc rien à rapprocher.
-			tracker:    cfg.Redmine.Project,
+			tracker:    cfg.Tracker.Project,
 			dockerfile: resolved["mse.dockerfile"],
 			context:    resolved["mse.buildContext"],
 			targets:    targets,

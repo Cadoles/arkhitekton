@@ -19,23 +19,23 @@ type VersionStore interface {
 	GetSyncState(ctx context.Context, source string) (store.SyncState, error)
 }
 
-// VersionsHandler sert les versions Redmine et leur avancement.
+// VersionsHandler sert les versions du suivi et leur avancement.
 type VersionsHandler struct {
 	store VersionStore
-	// redmineURL sert à construire les liens sortants. Vide, les liens sont omis
+	// trackerURL sert à construire les liens sortants. Vide, les liens sont omis
 	// plutôt que rendus cassés.
-	redmineURL string
+	trackerURL string
 }
 
-func NewVersionsHandler(versions VersionStore, redmineURL string) *VersionsHandler {
-	return &VersionsHandler{store: versions, redmineURL: redmineURL}
+func NewVersionsHandler(versions VersionStore, trackerURL string) *VersionsHandler {
+	return &VersionsHandler{store: versions, trackerURL: trackerURL}
 }
 
 // completionVw porte les deux mesures de complétion (doc 04 §4.5).
 //
 // Les deux sont transmises parce qu'elles ne disent pas la même chose : par nombre de
 // demandes, lisible mais une grosse demande vaut une petite ; pondérée par
-// `done_ratio`, plus fine mais tributaire de la rigueur de saisie dans Redmine.
+// `done_ratio`, plus fine mais tributaire de la rigueur de saisie dans le suivi.
 //
 // Le calcul est fait ici et non dans le navigateur : c'est une règle métier (doc 04),
 // et la dupliquer côté client la ferait diverger — la même erreur que les seuils de
@@ -70,7 +70,7 @@ type versionVw struct {
 	DueDate    *time.Time `json:"due_date"`
 	SyncedAt   time.Time  `json:"synced_at"`
 	// Pending marque une version provisoire : une release s'y rattache, mais la
-	// synchronisation n'a pas trouvé la version Redmine correspondante.
+	// synchronisation n'a pas trouvé la version correspondante dans le suivi.
 	Pending    bool         `json:"pending"`
 	Completion completionVw `json:"completion"`
 	// OpenAnomalies est compté à part et n'entre pas dans la complétion : une version
@@ -91,8 +91,8 @@ func (h *VersionsHandler) view(summary store.VersionSummary) versionVw {
 	// d'identifiant externe : le client n'a alors aucun lien à construire.
 	if !summary.Pending && summary.ExternalID != "" {
 		view.ExternalID = summary.ExternalID
-		if h.redmineURL != "" {
-			view.URL = h.redmineURL + "/versions/" + summary.ExternalID
+		if h.trackerURL != "" {
+			view.URL = h.trackerURL + "/versions/" + summary.ExternalID
 		}
 	}
 	return view
@@ -111,7 +111,7 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		payload = append(payload, h.view(summary))
 	}
 
-	// L'âge des données accompagne la liste : Redmine peut ne pas répondre, et un
+	// L'âge des données accompagne la liste : le suivi peut ne pas répondre, et un
 	// écran qui affiche des chiffres sans dire de quand ils datent est trompeur
 	// (doc 08 §8.2).
 	state, err := h.store.GetSyncState(r.Context(), "redmine")
@@ -182,8 +182,8 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 			Assignee: issue.Assignee, DoneRatio: issue.DoneRatio,
 			IsClosed: issue.IsClosed, Anomaly: issue.Anomaly,
 		}
-		if h.redmineURL != "" {
-			view.URL = h.redmineURL + "/issues/" + issue.ExternalID
+		if h.trackerURL != "" {
+			view.URL = h.trackerURL + "/issues/" + issue.ExternalID
 		}
 
 		if bucket, known := buckets[issue.Bucket]; known {

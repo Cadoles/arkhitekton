@@ -3,7 +3,6 @@ package gitea
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,11 +25,14 @@ import (
  * celui-ci.
  */
 
-// ErrWriteForbidden signale une tentative d'écriture sur la forge.
-var ErrWriteForbidden = errors.New("gitea: écriture interdite, cet accès est en lecture seule")
-
-// ErrNotConfigured signale l'absence d'URL, de jeton ou de dépôt.
-var ErrNotConfigured = errors.New("gitea: accès non configuré")
+// Les issues du contrat, enveloppées pour que le journal nomme l'outil et que
+// `errors.Is` reconnaisse l'issue (doc 12 §12.9, lot E).
+var (
+	// ErrWriteForbidden signale une tentative d'écriture sur la forge.
+	ErrWriteForbidden = fmt.Errorf("gitea: %w", provider.ErrWriteForbidden)
+	// ErrNotConfigured signale l'absence d'URL, de jeton ou de dépôt.
+	ErrNotConfigured = fmt.Errorf("gitea: %w", provider.ErrNotConfigured)
+)
 
 var readMethods = map[string]bool{
 	http.MethodGet:  true,

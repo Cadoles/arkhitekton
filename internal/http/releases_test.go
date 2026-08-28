@@ -435,7 +435,7 @@ func TestCreateRefusesAMismatchedRedmineVersion(t *testing.T) {
 	fake := newFakeStore()
 	handler := newReleasesHandler(t, fake)
 
-	body := `{"tag":"1.8.0-rc1","kind":"pre","redmine_version":"1.9.0"}`
+	body := `{"tag":"1.8.0-rc1","kind":"pre","tracked_version":"1.9.0"}`
 	request := httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(body))
 	recorder := httptest.NewRecorder()
 

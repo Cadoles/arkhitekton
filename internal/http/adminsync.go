@@ -11,7 +11,7 @@ import (
 )
 
 /*
- * Administration de la synchronisation Redmine.
+ * Administration de la synchronisation du suivi.
  *
  * Trois choses à surveiller, et aucune n'est une panne du dashboard :
  *
@@ -20,7 +20,7 @@ import (
  *   - les versions dont plusieurs noms se réduisent au même numéro, qui empêchent
  *     de rattacher une release automatiquement ;
  *   - les versions provisoires jamais adoptées, symptôme d'une faute de frappe dans
- *     un tag ou d'une version absente de Redmine.
+ *     un tag ou d'une version absente du suivi.
  *
  * Les afficher est ce qui les rend corrigeables. Les taire les laisserait fausser
  * l'écran des versions en silence.
@@ -47,7 +47,7 @@ type SyncAdminHandler struct {
 
 // NewSyncAdminHandler construit le handler.
 //
-// `configured` vient de la configuration : sans clé Redmine, l'écran doit dire « non
+// `configured` vient de la configuration : sans clé de suivi, l'écran doit dire « non
 // configuré » plutôt que « jamais synchronisé », qui ferait chercher une panne.
 func NewSyncAdminHandler(admin SyncAdminStore, configured bool) *SyncAdminHandler {
 	return &SyncAdminHandler{store: admin, configured: configured}
@@ -118,7 +118,7 @@ func orEmptyStrings(values []string) []string {
 
 // Resync efface le curseur pour que la passe suivante relise tout.
 //
-// N'interroge pas Redmine ici : la synchronisation vit dans le `worker`, sous le bail
+// N'interroge pas le suivi ici : la synchronisation vit dans le `worker`, sous le bail
 // de leader, et l'`api` n'a pas de chemin vers elle. Effacer le curseur est le signal,
 // et la passe suivante — au plus tard cinq minutes après — relira l'ensemble.
 func (h *SyncAdminHandler) Resync(w http.ResponseWriter, r *http.Request) {

@@ -40,14 +40,14 @@ const syncInterval = 5 * time.Minute
 // — plutôt que d'en perdre une définitivement.
 const cursorOverlap = time.Minute
 
-// RedmineReader est ce que la synchronisation attend du client.
-type RedmineReader interface {
+// TrackerReader est ce que la synchronisation attend du client.
+type TrackerReader interface {
 	ListVersions(ctx context.Context, project string) ([]provider.Version, error)
 	ListIssues(ctx context.Context, query provider.IssueQuery) ([]provider.Issue, error)
 }
 
-// RedmineStore est ce qu'elle attend de la base.
-type RedmineStore interface {
+// TrackerStore est ce qu'elle attend de la base.
+type TrackerStore interface {
 	// TrackedProjects nomme les projets qui ont un outil de suivi. Les autres
 	// n'ont rien à lire.
 	TrackedProjects(ctx context.Context) ([]store.TrackedProject, error)
@@ -60,10 +60,10 @@ type RedmineStore interface {
 	RecordSyncFailure(ctx context.Context, source, message string) error
 }
 
-// RedmineSync projette les versions et les demandes en base.
-type RedmineSync struct {
-	store   RedmineStore
-	client  RedmineReader
+// TrackerSync projette les versions et les demandes en base.
+type TrackerSync struct {
+	store   TrackerStore
+	client  TrackerReader
 	project string
 	// names calcule la forme comparable écrite en base. Doit être **la même** que
 	// celle du store : deux normaliseurs divergents rendraient une release
@@ -73,15 +73,15 @@ type RedmineSync struct {
 	now    func() time.Time
 }
 
-func NewRedmineSync(db RedmineStore, client RedmineReader, project string, logger *slog.Logger) *RedmineSync {
-	return &RedmineSync{
+func NewTrackerSync(db TrackerStore, client TrackerReader, project string, logger *slog.Logger) *TrackerSync {
+	return &TrackerSync{
 		store: db, client: client, project: project,
 		names: release.DefaultNormalizer, logger: logger, now: time.Now,
 	}
 }
 
 // WithNormalizer déclare les préfixes retirés pour comparer deux noms de version.
-func (s *RedmineSync) WithNormalizer(names release.Normalizer) *RedmineSync {
+func (s *TrackerSync) WithNormalizer(names release.Normalizer) *TrackerSync {
 	s.names = names
 	return s
 }
@@ -92,7 +92,7 @@ func (s *RedmineSync) WithNormalizer(names release.Normalizer) *RedmineSync {
 // ne doit pas emporter l'ordonnanceur ni l'observation, qui n'ont rien à voir. Il est
 // consigné dans `sync_state`, où l'interface le lit pour dire « données vieilles de
 // tant, dernière tentative en échec ».
-func (s *RedmineSync) Run(ctx context.Context) error {
+func (s *TrackerSync) Run(ctx context.Context) error {
 	// Un premier passage immédiat : au démarrage, l'écran des versions serait vide
 	// jusqu'au premier battement.
 	s.once(ctx)
@@ -110,9 +110,9 @@ func (s *RedmineSync) Run(ctx context.Context) error {
 	}
 }
 
-func (s *RedmineSync) once(ctx context.Context) {
+func (s *TrackerSync) once(ctx context.Context) {
 	if err := s.Sync(ctx); err != nil {
-		s.logger.Error("synchronisation Redmine", "error", err)
+		s.logger.Error("synchronisation du suivi", "error", err)
 		// L'enregistrement de l'échec ne doit pas masquer l'échec lui-même.
 		if recordErr := s.store.RecordSyncFailure(ctx, redmineSource, err.Error()); recordErr != nil {
 			s.logger.Error("enregistrement de l'échec de synchronisation", "error", recordErr)
@@ -125,7 +125,7 @@ func (s *RedmineSync) once(ctx context.Context) {
 // L'ordre est imposé : les versions d'abord, les demandes ensuite. Une demande se
 // rattache à sa version par son identifiant externe, et lire les demandes en premier laisserait
 // sans rattachement toutes celles visant une version nouvellement créée.
-func (s *RedmineSync) Sync(ctx context.Context) error {
+func (s *TrackerSync) Sync(ctx context.Context) error {
 	state, err := s.store.GetSyncState(ctx, redmineSource)
 	if err != nil {
 		return err
@@ -239,7 +239,7 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 			"status", status, "issues", count, "bucket_par_defaut", "todo")
 	}
 
-	s.logger.Info("synchronisation Redmine",
+	s.logger.Info("synchronisation du suivi",
 		"versions", len(versions), "demandes", len(issues),
 		"incrementale", !since.IsZero(), "statuts_non_projetes", len(unmapped))
 
@@ -250,7 +250,7 @@ func (s *RedmineSync) Sync(ctx context.Context) error {
 //
 // Une ambiguïté est un avertissement et non une erreur : elle vient du nommage côté
 // client, pas d'une défaillance du dashboard, et la synchronisation doit aboutir.
-func (s *RedmineSync) reportAdoptions(adoptions []store.Adoption) {
+func (s *TrackerSync) reportAdoptions(adoptions []store.Adoption) {
 	for _, adoption := range adoptions {
 		if adoption.Ambiguous {
 			s.logger.Warn("version provisoire revendiquée par plusieurs versions Redmine",
@@ -300,7 +300,7 @@ func ForceResync(ctx context.Context, resetter interface {
 // un sous-ensemble de ce que la frontière annonce, sinon le découplage futur
 // perdra en silence les appelants qui ont débordé.
 var (
-	_ RedmineReader = provider.Tracker(nil)
+	_ TrackerReader = provider.Tracker(nil)
 	_ PullReader    = provider.Forge(nil)
 )
 

@@ -10,7 +10,7 @@ import (
  * Dérivation de l'URL de clonage à partir de la configuration de la forge.
  *
  * Le dépôt de l'application est nommé à deux endroits qui doivent dire la même
- * chose : `GITEA_REPO`, que le dashboard interroge par l'API pour proposer les
+ * chose : `FORGE_REPO`, que le dashboard interroge par l'API pour proposer les
  * branches, et l'URL de clonage que les Tasks reçoivent en `repo-url`. Les tenir
  * séparés laissait basculer l'un sans l'autre — on désignait alors un dépôt de
  * test dans le formulaire pendant que les pipelines continuaient de construire
@@ -28,12 +28,12 @@ const DefaultForgeSSHPort = "2222"
 
 // CloneURL rend l'URL SSH de clonage du dépôt applicatif.
 //
-// Construite depuis l'hôte de `GITEA_URL` et le chemin de `GITEA_REPO`, pour que
+// Construite depuis l'hôte de `FORGE_URL` et le chemin de `FORGE_REPO`, pour que
 // désigner un dépôt dans la configuration suffise à ce que les pipelines le
 // construisent. Rend une chaîne vide si la forge n'est pas configurée : l'appelant
 // retombe alors sur sa valeur par défaut, ce qui préserve le fonctionnement d'un
 // déploiement qui n'a jamais renseigné la forge.
-func (c GiteaConfig) CloneURL(sshPort string) string {
+func (c ForgeConfig) CloneURL(sshPort string) string {
 	if !c.Configured() {
 		return ""
 	}

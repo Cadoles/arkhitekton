@@ -194,7 +194,7 @@ func CheckKind(version Version, kind Kind) error {
 	return nil
 }
 
-// CheckRedmineVersion vérifie la jointure avec Redmine.
+// CheckTrackedVersion vérifie la jointure avec Redmine.
 //
 // `tag de release = nom de version Redmine [+ suffixe de pré-release]`. Une RC
 // `3.2.0-rc1` se rattache donc à la version Redmine `3.2.0` : c'est ce qui relie
@@ -203,7 +203,7 @@ func CheckKind(version Version, kind Kind) error {
 // La comparaison est normalisée ([Normalizer.Normalize]) et non stricte.
 // L'égalité exacte, telle que B8 et B17 la posaient, rejetait toute release
 // réelle : les versions de l'instance s'appellent `v3.2.0`, jamais `3.2.0`.
-func (n Normalizer) CheckRedmineVersion(version Version, redmineName string) error {
+func (n Normalizer) CheckTrackedVersion(version Version, redmineName string) error {
 	if !n.SameVersion(version, redmineName) {
 		return fmt.Errorf(
 			"le tag %q se rattache à la version %q, or la version Redmine visée est %q",

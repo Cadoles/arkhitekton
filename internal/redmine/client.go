@@ -3,7 +3,6 @@ package redmine
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,10 +37,10 @@ import (
 // Cette erreur n'est pas un cas d'exécution normal à traiter : c'est le signe
 // qu'un appelant a été écrit contre le contrat de ce paquet. Elle porte la méthode
 // et le chemin pour que la faute soit trouvable, sans jamais porter la clé.
-var ErrWriteForbidden = errors.New("redmine: écriture interdite, cet accès est en lecture seule")
+var ErrWriteForbidden = fmt.Errorf("redmine: %w", provider.ErrWriteForbidden)
 
 // ErrNotConfigured signale l'absence d'URL ou de clé d'API.
-var ErrNotConfigured = errors.New("redmine: accès non configuré")
+var ErrNotConfigured = fmt.Errorf("redmine: %w", provider.ErrNotConfigured)
 
 // readOnlyTransport interdit l'écriture et porte l'authentification.
 //

@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"net/url"
 	"strings"
 	"time"
@@ -26,11 +27,10 @@ import (
  * automate ne devrait pouvoir faire (B3).
  */
 
-// ErrTagExists signale un tag déjà posé.
-//
-// Distinct d'une erreur d'écriture : reposer un tag après un échec partiel est un
-// cas normal, et l'appelant doit pouvoir continuer plutôt que de s'arrêter.
-var ErrTagExists = errors.New("gitea: le tag existe déjà")
+// ErrTagExists signale un tag déjà posé. Enveloppe l'issue du contrat : reposer
+// un tag après un échec partiel est un cas normal, et l'appelant doit pouvoir le
+// reconnaître sans savoir à quelle forge il parle.
+var ErrTagExists = fmt.Errorf("gitea: %w", provider.ErrTagExists)
 
 var writeMethods = map[string]bool{
 	http.MethodGet:  true,

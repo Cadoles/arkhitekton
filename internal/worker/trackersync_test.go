@@ -88,12 +88,12 @@ func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newSync(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) *RedmineSync {
+func newSync(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) *TrackerSync {
 	t.Helper()
 	if db.mapping == nil {
 		db.mapping = map[string]string{"En cours": "doing", "Fermé": "done", "Rejeté": "rejected"}
 	}
-	return NewRedmineSync(db, client, "mse-dev", quietLogger()).
+	return NewTrackerSync(db, client, "mse-dev", quietLogger()).
 		WithNormalizer(testNames)
 }
 

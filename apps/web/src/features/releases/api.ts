@@ -331,7 +331,7 @@ export function useCreateRelease() {
     mutationFn: (payload: {
       tag: string
       kind: ReleaseKind
-      redmine_version?: string
+      tracked_version?: string
       git_ref?: string
       source_tag?: string
       tests_green?: boolean

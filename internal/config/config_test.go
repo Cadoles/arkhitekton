@@ -214,3 +214,80 @@ func TestSansDeclarationSeulVEstRetire(t *testing.T) {
 		t.Errorf("préfixes par défaut = %q", prefixes)
 	}
 }
+
+// Le renommage du lot E doit se voir au démarrage, pas à l'usage.
+//
+// Une variable héritée laissée en place ne produirait aucune erreur : la forge
+// serait « non configurée », état parfaitement valide où le formulaire retombe
+// sur la saisie libre, et le suivi cesserait simplement de se synchroniser.
+// Deux dégradations silencieuses que personne ne relierait au renommage.
+func TestUneVariableRenommeeEmpecheLeDemarrage(t *testing.T) {
+	env := validAPIEnv()
+	env["GITEA_TOKEN"] = "jeton"
+	setEnv(t, env)
+
+	_, err := Load(RoleAPI)
+	if err == nil {
+		t.Fatal("une variable retirée doit empêcher le démarrage")
+	}
+	// Le message doit nommer le remplaçant : dire seulement « inconnue »
+	// obligerait à chercher dans le code ce par quoi la remplacer.
+	if !strings.Contains(err.Error(), "GITEA_TOKEN") ||
+		!strings.Contains(err.Error(), "FORGE_TOKEN") {
+		t.Errorf("message %q — il doit nommer l'ancienne et la nouvelle", err)
+	}
+}
+
+// Toutes signalées d'un coup : corriger une configuration en découvrant ses
+// fautes une par une demande autant de redémarrages.
+func TestToutesLesVariablesRenommeesSontSignaleesEnsemble(t *testing.T) {
+	env := validAPIEnv()
+	env["GITEA_URL"] = "https://forge.example"
+	env["REDMINE_API_KEY"] = "clef"
+	setEnv(t, env)
+
+	_, err := Load(RoleAPI)
+	if err == nil {
+		t.Fatal("deux variables retirées doivent empêcher le démarrage")
+	}
+	for _, name := range []string{"GITEA_URL", "FORGE_URL", "REDMINE_API_KEY", "TRACKER_API_KEY"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("message %q — %s manque", err, name)
+		}
+	}
+}
+
+// Une variable héritée vide compte quand même : c'est une déclaration, et sa
+// présence dans un fichier d'environnement dit que quelqu'un croit encore
+// configurer quelque chose avec.
+func TestUneVariableRenommeeVideCompteAussi(t *testing.T) {
+	env := validAPIEnv()
+	env["REDMINE_PROJECT"] = ""
+	setEnv(t, env)
+
+	if _, err := Load(RoleAPI); err == nil {
+		t.Error("une variable retirée, même vide, doit empêcher le démarrage")
+	}
+}
+
+// Le nouveau vocabulaire, lui, est accepté sans réserve.
+func TestLeNouveauVocabulaireEstAccepte(t *testing.T) {
+	env := validAPIEnv()
+	env["FORGE_URL"] = "https://forge.example"
+	env["FORGE_TOKEN"] = "jeton"
+	env["FORGE_REPO"] = "CNOUS/mse"
+	env["TRACKER_URL"] = "https://suivi.example"
+	env["TRACKER_API_KEY"] = "clef"
+	setEnv(t, env)
+
+	cfg, err := Load(RoleAPI)
+	if err != nil {
+		t.Fatalf("configuration refusée: %v", err)
+	}
+	if !cfg.Forge.Configured() {
+		t.Error("la forge devrait être configurée")
+	}
+	if cfg.Tracker.URL != "https://suivi.example" {
+		t.Errorf("URL du suivi = %q", cfg.Tracker.URL)
+	}
+}

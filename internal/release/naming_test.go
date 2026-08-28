@@ -55,16 +55,16 @@ func TestUneReleaseSeRattacheAUneVersionPrefixee(t *testing.T) {
 		t.Fatalf("analyse: %v", err)
 	}
 
-	if err := mseNames.CheckRedmineVersion(version, "v3.2.0"); err != nil {
+	if err := mseNames.CheckTrackedVersion(version, "v3.2.0"); err != nil {
 		t.Errorf("une RC 3.2.0-rc1 doit se rattacher à la version Redmine v3.2.0: %v", err)
 	}
-	if err := mseNames.CheckRedmineVersion(version, "MSE 3.2.0"); err != nil {
+	if err := mseNames.CheckTrackedVersion(version, "MSE 3.2.0"); err != nil {
 		t.Errorf("et à MSE 3.2.0: %v", err)
 	}
 
 	// Une version réellement différente reste refusée : la normalisation assouplit
 	// la forme, pas le fond.
-	if err := mseNames.CheckRedmineVersion(version, "v3.3.0"); err == nil {
+	if err := mseNames.CheckTrackedVersion(version, "v3.3.0"); err == nil {
 		t.Error("3.2.0-rc1 ne doit pas se rattacher à v3.3.0")
 	}
 }

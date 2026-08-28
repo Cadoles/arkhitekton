@@ -93,7 +93,7 @@ pas forcément la même garde.
 **Vérifier une clé sans rien écrire :**
 
 ```bash
-mse-dashboard check-redmine
+mse-dashboard check-tracker
 ```
 
 Rôle de diagnostic qui lit `/users/current.json` puis s'arrête. Il n'exige ni base, ni

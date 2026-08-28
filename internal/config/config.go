@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -31,8 +32,8 @@ type Config struct {
 	Tekton   TektonConfig
 	Flux     FluxConfig
 	Registry RegistryConfig
-	Redmine  RedmineConfig
-	Gitea    GiteaConfig
+	Tracker  TrackerConfig
+	Forge    ForgeConfig
 	Versions VersionsConfig
 	Results  ResultsConfig
 }
@@ -65,7 +66,7 @@ type VersionsConfig struct {
 	NamePrefixes []string
 }
 
-// GiteaConfig porte l'accès en lecture à la forge.
+// ForgeConfig porte l'accès en lecture à la forge.
 //
 // **Lecture seule**, appliquée par le transport de `internal/gitea` comme pour
 // Redmine. Sert au formulaire de création de release : proposer les branches et
@@ -74,7 +75,7 @@ type VersionsConfig struct {
 //
 // Poser un tag ou publier une release Gitea restera un client distinct et une
 // décision explicite, pas un assouplissement de celui-ci.
-type GiteaConfig struct {
+type ForgeConfig struct {
 	URL string
 	// Token ne doit apparaître ni dans un log, ni dans un message d'erreur, ni
 	// dans une URL. Il ouvre la forge entière au nom de son détenteur : demander
@@ -96,11 +97,11 @@ type GiteaConfig struct {
 
 // Configured dit si l'accès est renseigné. L'absence est un état normal : le
 // formulaire retombe sur la saisie libre et le dit.
-func (c GiteaConfig) Configured() bool {
+func (c ForgeConfig) Configured() bool {
 	return c.URL != "" && c.Token != "" && c.Repository != ""
 }
 
-// RedmineConfig porte l'accès en lecture aux demandes et aux versions.
+// TrackerConfig porte l'accès en lecture aux demandes et aux versions.
 //
 // **Lecture seule, et l'instance visée est la production.** Le dashboard consulte
 // les versions et les demandes ; il n'en crée ni n'en modifie aucune. Créer une
@@ -111,7 +112,7 @@ func (c GiteaConfig) Configured() bool {
 // `internal/redmine` refuse toute méthode autre que GET et HEAD avant d'atteindre
 // le réseau. Une clé de production circule ici, sur une base sans sauvegarde à
 // notre disposition — la garantie devait être structurelle.
-type RedmineConfig struct {
+type TrackerConfig struct {
 	URL string
 	// APIKey ne doit apparaître ni dans un log, ni dans un message d'erreur, ni
 	// dans une URL. Elle est transmise en en-tête `X-Redmine-API-Key`, jamais en
@@ -132,7 +133,7 @@ type RedmineConfig struct {
 //
 // L'absence est un état normal, pas une erreur : le dashboard tourne sans Redmine,
 // les écrans qui en dépendent affichant un état dégradé explicite (doc 08 §8.2).
-func (c RedmineConfig) Configured() bool {
+func (c TrackerConfig) Configured() bool {
 	return c.URL != "" && c.APIKey != ""
 }
 
@@ -177,14 +178,14 @@ const (
 	// ponctuel, lancé à la main après correction d'un parseur : il n'a pas
 	// vocation à tourner en permanence, d'où l'absence de Deployment.
 	RoleReprocess Role = "reprocess"
-	// RoleCheckRedmine vérifie l'accès à Redmine et s'arrête. Rôle de diagnostic,
+	// RoleCheckTracker vérifie l'accès à Redmine et s'arrête. Rôle de diagnostic,
 	// lancé à la main après avoir déposé une clé.
 	//
 	// Il existe parce que la clé visée est celle de la **production** : la seule
 	// façon de savoir si elle fonctionne, sans lui, serait d'attendre qu'un écran
 	// s'en serve. Une vérification explicite en lecture évite d'apprendre par une
 	// panne qu'une clé était révoquée.
-	RoleCheckRedmine Role = "check-redmine"
+	RoleCheckTracker Role = "check-tracker"
 )
 
 type HTTPConfig struct {
@@ -319,40 +320,90 @@ func Load(role Role) (Config, error) {
 			// d'équipe — se déclare, et le déploiement MSE le fait.
 			NamePrefixes: prefixesOr("VERSION_NAME_PREFIXES", []string{release.DefaultPrefix}),
 		},
-		Redmine: RedmineConfig{
+		Tracker: TrackerConfig{
 			// Les statuts qui rendent une demande éligible à la note de release.
 			// Configurables parce que le vocabulaire appartient au client : il
 			// peut renommer « En revue » sans qu'aucun code ait à changer.
-			ReviewStatuses: listOr("REDMINE_REVIEW_STATUSES", []string{"En revue"}),
-			URL:            strings.TrimRight(os.Getenv("REDMINE_URL"), "/"),
-			APIKey:         os.Getenv("REDMINE_API_KEY"),
-			Project:        os.Getenv("REDMINE_PROJECT"),
-			Timeout:        durationOr("REDMINE_TIMEOUT", 15*time.Second),
+			ReviewStatuses: listOr("TRACKER_REVIEW_STATUSES", []string{"En revue"}),
+			URL:            strings.TrimRight(os.Getenv("TRACKER_URL"), "/"),
+			APIKey:         os.Getenv("TRACKER_API_KEY"),
+			Project:        os.Getenv("TRACKER_PROJECT"),
+			Timeout:        durationOr("TRACKER_TIMEOUT", 15*time.Second),
 		},
-		Gitea: GiteaConfig{
-			URL:        strings.TrimRight(os.Getenv("GITEA_URL"), "/"),
+		Forge: ForgeConfig{
+			URL:        strings.TrimRight(os.Getenv("FORGE_URL"), "/"),
 			DeployKey:  strings.TrimSpace(os.Getenv("PIPELINE_GIT_PUBLIC_KEY")),
-			Token:      os.Getenv("GITEA_TOKEN"),
-			Repository: os.Getenv("GITEA_REPO"),
-			Timeout:    durationOr("GITEA_TIMEOUT", 10*time.Second),
+			Token:      os.Getenv("FORGE_TOKEN"),
+			Repository: os.Getenv("FORGE_REPO"),
+			Timeout:    durationOr("FORGE_TIMEOUT", 10*time.Second),
 		},
 	}
 
 	return cfg, cfg.validate()
 }
 
+// renamedVariables associe chaque variable d'environnement retirée à celle qui
+// la remplace.
+//
+// La configuration nommait les produits — `GITEA_TOKEN`, `REDMINE_API_KEY` —
+// comme le schéma les nommait avant les lots C et D. Le vocabulaire est
+// désormais celui des frontières : une forge, un suivi (doc 12 §12.9, lot E).
+//
+// Le renommage est **refusé bruyamment** plutôt qu'absorbé. Un déploiement resté
+// sur l'ancien nom se retrouverait avec une forge « non configurée » — un état
+// valide, que le dashboard traite en retombant sur la saisie libre — et personne
+// ne ferait le lien avec le renommage. Le suivi, lui, cesserait simplement de se
+// synchroniser. Deux dégradations silencieuses, que le démarrage doit empêcher.
+var renamedVariables = map[string]string{
+	"GITEA_URL":               "FORGE_URL",
+	"GITEA_TOKEN":             "FORGE_TOKEN",
+	"GITEA_REPO":              "FORGE_REPO",
+	"GITEA_TIMEOUT":           "FORGE_TIMEOUT",
+	"REDMINE_URL":             "TRACKER_URL",
+	"REDMINE_API_KEY":         "TRACKER_API_KEY",
+	"REDMINE_PROJECT":         "TRACKER_PROJECT",
+	"REDMINE_TIMEOUT":         "TRACKER_TIMEOUT",
+	"REDMINE_REVIEW_STATUSES": "TRACKER_REVIEW_STATUSES",
+}
+
+// checkRenamed refuse de démarrer sur une variable retirée.
+//
+// Vérifié quel que soit le rôle : une variable héritée est une faute de
+// configuration, indépendamment de ce que le processus s'apprête à faire.
+func checkRenamed() []error {
+	// Trié, pour que deux démarrages sur la même configuration rendent le même
+	// message. Une liste dont l'ordre change à chaque exécution se relit mal.
+	legacy := make([]string, 0, len(renamedVariables))
+	for name := range renamedVariables {
+		if _, present := os.LookupEnv(name); present {
+			legacy = append(legacy, name)
+		}
+	}
+	sort.Strings(legacy)
+
+	problems := make([]error, 0, len(legacy))
+	for _, name := range legacy {
+		problems = append(problems, fmt.Errorf(
+			"%s n'existe plus, employer %s — la configuration ne nomme plus les "+
+				"produits mais les frontières", name, renamedVariables[name]))
+	}
+	return problems
+}
+
 func (c Config) validate() error {
 	var problems []error
+
+	problems = append(problems, checkRenamed()...)
 
 	// La base est requise par tous les rôles de service : `migrate` l'applique,
 	// `api`, `worker` et `reprocess` la lisent.
 	//
-	// `check-redmine` en est exempt, et c'est sa raison d'être : vérifier une clé
+	// `check-tracker` en est exempt, et c'est sa raison d'être : vérifier une clé
 	// doit être possible depuis un poste qui n'a accès ni à la base ni au cluster.
 	// Exiger un DSN ferait échouer le diagnostic pour une dépendance dont il ne se
 	// sert pas, ce qui est exactement le genre de contrainte qui pousse à
 	// contourner l'outil.
-	if c.Role != RoleCheckRedmine {
+	if c.Role != RoleCheckTracker {
 		if strings.TrimSpace(c.Database.DSN) == "" {
 			problems = append(problems, errors.New("DATABASE_URL est requis"))
 		}
@@ -373,12 +424,12 @@ func (c Config) validate() error {
 		// Le stockage suffit : le rejeu lit le brut et écrit en base, sans
 		// toucher au cluster ni créer le moindre run.
 		problems = append(problems, c.validateStorage()...)
-	case RoleCheckRedmine:
+	case RoleCheckTracker:
 		// Ni base, ni stockage, ni cluster : ce rôle ne fait qu'une lecture HTTP.
 		// L'exiger davantage empêcherait de vérifier une clé depuis un poste qui
 		// n'a pas accès au reste.
-		if !c.Redmine.Configured() {
-			problems = append(problems, errors.New("REDMINE_URL et REDMINE_API_KEY sont requis"))
+		if !c.Tracker.Configured() {
+			problems = append(problems, errors.New("TRACKER_URL et TRACKER_API_KEY sont requis"))
 		}
 	case RoleWorker:
 		problems = append(problems, c.validateStorage()...)
@@ -390,7 +441,7 @@ func (c Config) validate() error {
 		}
 	default:
 		problems = append(problems, fmt.Errorf(
-			"rôle inconnu %q (attendu: api, worker, migrate, reprocess, check-redmine)", c.Role))
+			"rôle inconnu %q (attendu: api, worker, migrate, reprocess, check-tracker)", c.Role))
 	}
 
 	return errors.Join(problems...)

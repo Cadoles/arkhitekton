@@ -1092,6 +1092,36 @@ dont les migrations ont échoué.
 Le plus intriqué (6 fichiers) : références, tags, PR, et la composition de note qui mêle
 forge et suivi. À faire en dernier pour cette raison.
 
+**Fait**, et la prévision était fausse sur le point principal : la composition de note
+n'était pas intriquée. Elle passait déjà par `provider.PullRequest` et une interface
+étroite, et les lots précédents avaient fait le reste. Ce qui restait était ailleurs, et
+tenait en deux points.
+
+*Les issues étaient nommées par leur réalisation.* `gitea.ErrTagExists`,
+`gitea.ErrWriteForbidden`, `redmine.ErrNotConfigured` : chaque paquet portait les
+siennes, et un appelant qui voulait les interpréter devait importer la réalisation. Le
+gestionnaire HTTP comparait littéralement contre `gitea.ErrTagExists` — une frontière
+traversée pour une seule comparaison, et un second forgeron aurait rendu une erreur que
+ce code n'aurait pas reconnue : la pose de tag aurait échoué en « erreur interne » là où
+elle avait simplement déjà été faite. Les trois issues vivent maintenant dans le contrat,
+les réalisations les enveloppant pour que le journal nomme l'outil et qu'`errors.Is`
+reconnaisse l'issue. `internal/gitea` n'est plus importé que par le câblage.
+
+*La configuration nommait les produits.* `GITEA_TOKEN`, `REDMINE_API_KEY`,
+`config.GiteaConfig`, `RedmineSync`, le rôle `check-redmine`, et jusqu'au champ
+`redmine_version` du corps de création de release. Même faute que `versions.redmine_id`
+avant le lot C, à ceci près qu'elle était visible par l'exploitant. Le vocabulaire est
+désormais celui des frontières — `FORGE_*`, `TRACKER_*` — et les anciens noms sont
+**refusés au démarrage**, en nommant leur remplaçant. C'est le point qui comptait : une
+variable héritée laissée en place ne produirait aucune erreur, la forge serait
+« non configurée » — état parfaitement valide — et le suivi cesserait simplement de se
+synchroniser. Deux dégradations silencieuses que personne n'aurait reliées au renommage.
+
+Ce qui reste, et qui est nommé dans le code : `ReleasesHandler.issueURL` compose
+`<base>/issues/<id>`, qui est le chemin de Redmine. Un second suivi l'écrirait autrement.
+C'est la dernière chose que cette frontière ne sait pas encore demander à sa
+réalisation — le contrat rend des identifiants, pas des liens.
+
 ### Lot F — Bibliothèque de pipelines
 
 **Fait par l'horizon court** pour l'essentiel : contrat publié, noyau livré dans le

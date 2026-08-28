@@ -16,7 +16,7 @@ import (
  *
  * Deux conditions, et les deux comptent :
  *
- *   * la demande est **en revue** côté Redmine — son code est écrit et relu ;
+ *   * la demande est **en revue** dans le suivi — son code est écrit et relu ;
  *   * une pull request **fusionnée** la cite, dans son titre ou l'un de ses
  *     messages de commit.
  *
@@ -48,7 +48,7 @@ type NoteBuilder struct {
 	forge  PullReader
 	store  NoteStore
 	logger *slog.Logger
-	// statuses énumère les statuts Redmine qui rendent une demande éligible.
+	// statuses énumère les statuts du suivi qui rendent une demande éligible.
 	// Configurables : le vocabulaire appartient au client, qui peut renommer
 	// « En revue » sans que ce code ait à changer.
 	statuses []string
@@ -138,7 +138,7 @@ func (b *NoteBuilder) Build(
 
 // KindReleaseNotes est la nature de job qui compose une note de release.
 //
-// Absente du catalogue : ce travail lit Redmine, la forge et la base, et n'a
+// Absente du catalogue : ce travail lit le suivi, la forge et la base, et n'a
 // aucune raison de traverser Tekton. Il passe malgré tout par la file — comme
 // les exports — pour son ordonnancement et sa trace : la composition interroge
 // jusqu'à deux cents pull requests, et la faire dans la requête de création

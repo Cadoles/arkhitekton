@@ -41,8 +41,50 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
+)
+
+/*
+ * Les issues que toute réalisation partage.
+ *
+ * Chaque paquet portait les siennes — `gitea.ErrTagExists`,
+ * `redmine.ErrNotConfigured`, `gitea.ErrWriteForbidden` — et un appelant qui
+ * voulait les interpréter devait donc importer la réalisation. Le gestionnaire
+ * HTTP comparait littéralement contre `gitea.ErrTagExists` : une frontière
+ * traversée pour une seule comparaison, et un second forgeron aurait rendu une
+ * erreur que ce code n'aurait pas reconnue — la pose de tag aurait échoué en
+ * « erreur interne » là où elle avait simplement déjà été faite
+ * (doc 12 §12.9, lot E).
+ *
+ * Les réalisations les **enveloppent** plutôt que de les rendre nues : le
+ * message conserve le nom de l'outil, qui est ce qu'on veut lire dans un
+ * journal, tandis que `errors.Is` reconnaît l'issue, qui est ce dont le code a
+ * besoin.
+ */
+var (
+	// ErrNotConfigured signale qu'une source n'a pas de quoi être jointe.
+	//
+	// Pas une panne : une forge ou un suivi non configurés sont une installation
+	// valide, où le dashboard retombe sur la saisie libre et le dit à l'écran.
+	// L'appelant doit pouvoir faire cette différence.
+	ErrNotConfigured = errors.New("accès non configuré")
+
+	// ErrWriteForbidden signale une écriture tentée par un accès en lecture.
+	//
+	// Le dashboard sépare lire et écrire en deux clients porteurs de deux
+	// permissions (B3). Cette erreur est le garde-fou du premier : elle se
+	// déclenche dans le transport, avant tout appel réseau, et signale une faute
+	// de câblage plutôt qu'un refus du serveur distant.
+	ErrWriteForbidden = errors.New("écriture interdite, cet accès est en lecture seule")
+
+	// ErrTagExists signale un tag déjà posé.
+	//
+	// Distinct d'une erreur d'écriture : reposer un tag après un échec partiel
+	// est un cas **normal**, et l'appelant doit pouvoir continuer plutôt que de
+	// s'arrêter.
+	ErrTagExists = errors.New("le tag existe déjà")
 )
 
 // Account est l'identité derrière une clé d'accès.

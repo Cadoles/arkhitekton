@@ -15,7 +15,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
@@ -101,9 +100,9 @@ type ReleasesHandler struct {
 	// logger sert à dire ce qui échoue sans faire échouer l'écran. Nil-safe :
 	// `slog.Default()` par défaut, pour que les tests n'aient pas à le fournir.
 	logger *slog.Logger
-	// redmineURL sert à construire les liens vers les demandes d'une note. Vide,
+	// trackerURL sert à construire les liens vers les demandes d'une note. Vide,
 	// les liens sont omis plutôt que rendus morts.
-	redmineURL string
+	trackerURL string
 	// registryProject préfixe les images publiées. Sert à nommer à l'audit celles
 	// qu'il doit analyser lors d'une relance — il analyse une image **déjà
 	// publiée**, jamais une reconstruction (B17).
@@ -119,17 +118,21 @@ type ReleasesHandler struct {
 	weights results.Weights
 }
 
-// WithRedmineURL branche les liens vers les demandes.
-func (h *ReleasesHandler) WithRedmineURL(url string) *ReleasesHandler {
-	h.redmineURL = url
+// WithTrackerURL branche les liens vers les demandes.
+//
+// Le chemin `/issues/` reste celui de Redmine : un second suivi le composerait
+// autrement, et c'est la dernière chose que cette frontière ne sait pas encore
+// demander à sa réalisation (doc 12 §12.9, lot E).
+func (h *ReleasesHandler) WithTrackerURL(url string) *ReleasesHandler {
+	h.trackerURL = url
 	return h
 }
 
 func (h *ReleasesHandler) issueURL(reference string) string {
-	if h.redmineURL == "" {
+	if h.trackerURL == "" {
 		return ""
 	}
-	return h.redmineURL + "/issues/" + reference
+	return h.trackerURL + "/issues/" + reference
 }
 
 // WithWeights déclare la pondération du score.
@@ -586,7 +589,7 @@ type createReleaseRequest struct {
 	// tag. Fourni, il est **vérifié** — c'est le seul moyen d'attraper une release
 	// rattachée à la mauvaise version avant que la note de release ne compare des
 	// périmètres sans rapport (B17).
-	TrackedVersion string `json:"redmine_version,omitempty"`
+	TrackedVersion string `json:"tracked_version,omitempty"`
 	GitRef         string `json:"git_ref,omitempty"`
 	// SourceTag est la pré-release re-taguée. Exigé pour une release finale.
 	SourceTag string `json:"source_tag,omitempty"`
@@ -636,8 +639,8 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if request.TrackedVersion != "" {
-		if err := h.names.CheckRedmineVersion(version, request.TrackedVersion); err != nil {
-			writeProblem(w, http.StatusBadRequest, "Version Redmine incohérente", err.Error())
+		if err := h.names.CheckTrackedVersion(version, request.TrackedVersion); err != nil {
+			writeProblem(w, http.StatusBadRequest, "Version de suivi incohérente", err.Error())
 			return
 		}
 	}
@@ -1092,7 +1095,7 @@ type notePayload struct {
 	Source      string `json:"source"`
 	PullRequest string `json:"pull_request,omitempty"`
 	AddedBy     string `json:"added_by"`
-	// URL vers la demande dans Redmine. Vide quand Redmine n'est pas configuré :
+	// URL vers la demande dans le suivi. Vide quand aucun suivi n'est configuré :
 	// un lien mort vaut moins que pas de lien.
 	URL string `json:"url,omitempty"`
 }
@@ -1308,7 +1311,7 @@ func (h *ReleasesHandler) tagRelease(ctx context.Context, tag, commit string) (b
 	switch {
 	case err == nil:
 		return true, nil
-	case errors.Is(err, gitea.ErrTagExists):
+	case errors.Is(err, provider.ErrTagExists):
 		// Reposer un tag après une reprise est normal. Il désigne déjà ce qu'il
 		// faut, et le signaler suffit.
 		return true, []string{"le tag " + tag + " existait déjà sur la forge et n'a pas été modifié"}

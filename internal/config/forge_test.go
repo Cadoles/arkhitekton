@@ -3,7 +3,7 @@ package config
 import "testing"
 
 // Désigner un dépôt dans la configuration doit suffire à ce que les pipelines le
-// construisent. C'est la propriété qui manquait : `GITEA_REPO` basculait sur le
+// construisent. C'est la propriété qui manquait : `FORGE_REPO` basculait sur le
 // dépôt de test pendant que les Tasks continuaient de cloner l'application réelle.
 func TestCloneURLSuitLeDepotConfigure(t *testing.T) {
 	cases := []struct {
@@ -33,7 +33,7 @@ func TestCloneURLSuitLeDepotConfigure(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		cfg := GiteaConfig{URL: c.url, Token: "x", Repository: c.repo}
+		cfg := ForgeConfig{URL: c.url, Token: "x", Repository: c.repo}
 		if got := cfg.CloneURL(c.port); got != c.want {
 			t.Errorf("CloneURL(%q, %q, port=%q) = %q, attendu %q",
 				c.url, c.repo, c.port, got, c.want)
@@ -45,7 +45,7 @@ func TestCloneURLSuitLeDepotConfigure(t *testing.T) {
 // bancale : l'appelant retombe sur sa valeur par défaut, et un déploiement qui
 // n'a jamais renseigné la forge continue de fonctionner.
 func TestSansForgeLaDerivationSabstient(t *testing.T) {
-	for _, cfg := range []GiteaConfig{
+	for _, cfg := range []ForgeConfig{
 		{},
 		{URL: "https://forge.cadoles.com"},
 		{Token: "x", Repository: "a/b"},
