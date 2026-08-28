@@ -4,7 +4,14 @@ import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primiti
 import { formatDateTime } from '../../lib/format'
 import { SignoffPanel } from '../releases/SignoffPanel'
 import { TestsPanel } from '../releases/TestsPanel'
-import { describe, useEnvironment, type DeployedRelease, type EnvironmentDetail, type FlowStep } from './api'
+import {
+  describe,
+  promotionSuffix,
+  useEnvironment,
+  type DeployedRelease,
+  type EnvironmentDetail,
+  type FlowStep,
+} from './api'
 
 /*
  * Vue détaillée d'un environnement.
@@ -105,6 +112,7 @@ const TONE = {
 } as const
 
 function StateCard({ environment }: { environment: EnvironmentDetail }) {
+  const suffix = promotionSuffix(environment)
   const summary = describe(environment)
   const tone = TONE[summary.tone]
 
@@ -112,9 +120,11 @@ function StateCard({ environment }: { environment: EnvironmentDetail }) {
     <Card
       title="État constaté"
       action={
-        <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-500">
-          {environment.promotion_suffix}
-        </span>
+        suffix && (
+          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-500">
+            {suffix}
+          </span>
+        )
       }
     >
       <p className={`flex items-start gap-2 text-sm ${tone.text}`}>
@@ -135,10 +145,10 @@ function StateCard({ environment }: { environment: EnvironmentDetail }) {
             <dd className="text-zinc-900">{environment.migration_state}</dd>
           </>
         )}
-        {environment.flux_state && (
+        {environment.declared_state && (
           <>
-            <dt className="text-zinc-500">Flux</dt>
-            <dd className="text-zinc-900">{environment.flux_state}</dd>
+            <dt className="text-zinc-500">Déployeur</dt>
+            <dd className="text-zinc-900">{environment.declared_state}</dd>
           </>
         )}
         <dt className="text-zinc-500">Namespace</dt>

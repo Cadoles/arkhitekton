@@ -121,7 +121,7 @@ chaîne :
 ```
 
 Les étapes 2 et 3 sont ce qui alimente `environment_observations.git_*`, l'étape 4 le
-`flux_state`, l'étape 7 le `portal_version` — les trois sources croisées du modèle.
+`declared_state`, l'étape 7 le `portal_version` — les trois sources croisées du modèle.
 
 ### Piloter, pas seulement rejouer
 

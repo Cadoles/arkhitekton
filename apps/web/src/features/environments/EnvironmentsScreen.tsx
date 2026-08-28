@@ -5,7 +5,7 @@ import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { usePromote, useReleases, type Release } from '../releases/api'
-import { describe, useEnvironments, type Environment } from './api'
+import { describe, promotionSuffix, useEnvironments, type Environment } from './api'
 
 /*
  * Vue d'ensemble des environnements.
@@ -64,6 +64,7 @@ const TONE = {
 function EnvironmentCard({ environment, releases }: { environment: Environment; releases: Release[] }) {
   const summary = describe(environment)
   const tone = TONE[summary.tone]
+  const suffix = promotionSuffix(environment)
 
   return (
     <Card
@@ -77,12 +78,11 @@ function EnvironmentCard({ environment, releases }: { environment: Environment; 
           <Link to={`/environments/${environment.id}`} className="hover:underline">
             {environment.label}
           </Link>
-          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs font-normal text-zinc-500">
-            {/* Le suffixe est affiché parce qu'il ne se devine pas : Flux connaît
-                `qualif` sous le nom `testing`, et c'est ce nom-là qui part dans le
-                tag. Le cacher rendrait toute vérification impossible. */}
-            {environment.promotion_suffix}
-          </span>
+          {suffix && (
+            <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs font-normal text-zinc-500">
+              {suffix}
+            </span>
+          )}
         </span>
       }
     >
@@ -104,10 +104,10 @@ function EnvironmentCard({ environment, releases }: { environment: Environment; 
             <dd className="text-zinc-900">{environment.migration_state}</dd>
           </>
         )}
-        {environment.flux_state && (
+        {environment.declared_state && (
           <>
-            <dt className="text-zinc-500">Flux</dt>
-            <dd className="text-zinc-900">{environment.flux_state}</dd>
+            <dt className="text-zinc-500">Déployeur</dt>
+            <dd className="text-zinc-900">{environment.declared_state}</dd>
           </>
         )}
         {environment.observed_at && (
@@ -131,6 +131,7 @@ function EnvironmentCard({ environment, releases }: { environment: Environment; 
 }
 
 function PromotePanel({ environment, releases }: { environment: Environment; releases: Release[] }) {
+  const suffix = promotionSuffix(environment)
   const [selected, setSelected] = useState('')
   const [confirming, setConfirming] = useState(false)
   const promote = usePromote()
@@ -170,10 +171,12 @@ function PromotePanel({ environment, releases }: { environment: Environment; rel
           <p>
             Environnement <span className="font-medium text-zinc-900">{environment.label}</span>
           </p>
-          <p className="text-zinc-500">
-            Le tag <span className="font-mono">{environment.promotion_suffix}</span> sera poussé dans le registre. Le
-            déploiement suivra la réconciliation de Flux.
-          </p>
+          {suffix && (
+            <p className="text-zinc-500">
+              Le tag <span className="font-mono">{suffix}</span> sera poussé dans le registre. Le
+              déploiement suivra la réconciliation du déployeur.
+            </p>
+          )}
         </ConfirmDialog>
       )}
       <label className="sr-only" htmlFor={`promote-${environment.id}`}>

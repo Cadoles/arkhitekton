@@ -71,16 +71,29 @@ type Catalog struct {
 // désigne `qualif` sous le nom `testing`. Coder cette correspondance reviendrait
 // à promouvoir vers le mauvais environnement au premier oubli (B13).
 type Environment struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	// PromotionSuffix est la métadonnée SemVer attendue par Flux. Vérifiée au
-	// démarrage contre les ImagePolicy réelles : une erreur ici ne produit aucun
-	// échec visible, seulement une promotion sans effet.
-	PromotionSuffix   string `json:"promotionSuffix"`
-	AcceptsPrerelease bool   `json:"acceptsPrerelease"`
-	Rank              int    `json:"rank"`
-	Namespace         string `json:"namespace"`
-	FluxKustomization string `json:"fluxKustomization,omitempty"`
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Rank      int    `json:"rank"`
+	Namespace string `json:"namespace"`
+	// Deployer porte ce dont l'outil de déploiement a besoin, dans **son**
+	// vocabulaire et sans que le catalogue le connaisse.
+	//
+	// Trois champs nommés vivaient ici jusqu'au lot D — `promotionSuffix`,
+	// `acceptsPrerelease`, `fluxKustomization` —, et le dernier disait son
+	// origine dans son nom. Les deux premiers la disaient moins fort mais tout
+	// autant : une métadonnée SemVer retenue par une plage n'a de sens que pour
+	// une sélection par plage, et rien de tout cela ne s'applique à un déployeur
+	// qui procède autrement.
+	//
+	// La validation, surtout, **exigeait** un `promotionSuffix` non vide sur
+	// chaque environnement. Un projet sans outil de déploiement ne pouvait donc
+	// pas déclarer un environnement — le catalogue imposait Flux à qui n'en
+	// avait pas (doc 12 §12.9, lot D).
+	//
+	// Chaînes plutôt qu'un type : c'est ce qu'une configuration transporte, et la
+	// validation revient au déployeur, qui seul sait ce que ces clés veulent
+	// dire. Le prix d'une frontière que l'on veut franchissable.
+	Deployer map[string]string `json:"deployer,omitempty"`
 	// Observable vaut false pour la production, dans un cluster indépendant.
 	Observable *bool `json:"observable,omitempty"`
 	Visible    *bool `json:"visible,omitempty"`
@@ -325,22 +338,16 @@ func (c *Catalog) validate() error {
 		problems = append(problems, errors.New("le catalogue ne déclare aucun pipeline"))
 	}
 
-	suffixes := make(map[string]string, len(c.Environments))
 	ranks := make(map[int]string, len(c.Environments))
 	for _, environment := range c.Environments {
-		if strings.TrimSpace(environment.ID) == "" || strings.TrimSpace(environment.PromotionSuffix) == "" {
-			problems = append(problems, fmt.Errorf(
-				"environnement %q: id et promotionSuffix sont requis", environment.ID))
+		if strings.TrimSpace(environment.ID) == "" {
+			problems = append(problems, errors.New("un environnement est déclaré sans id"))
 		}
-		// Deux environnements partageant un suffixe promouvraient au même
-		// endroit : l'un des deux ne serait jamais déployé, sans erreur.
-		if other, clash := suffixes[environment.PromotionSuffix]; clash {
-			problems = append(problems, fmt.Errorf(
-				"environnements %q et %q partagent le suffixe %q",
-				other, environment.ID, environment.PromotionSuffix))
-		}
-		suffixes[environment.PromotionSuffix] = environment.ID
-
+		// Ce que le catalogue ne vérifie **plus** : que le suffixe de promotion
+		// existe et soit unique. C'est une règle du déployeur — deux
+		// environnements partageant un suffixe promouvraient au même endroit —,
+		// et elle est vérifiée par lui, contre les politiques réelles du
+		// cluster, ce qui est plus fort qu'une comparaison de chaînes.
 		if other, clash := ranks[environment.Rank]; clash {
 			problems = append(problems, fmt.Errorf(
 				"environnements %q et %q partagent le rang %d", other, environment.ID, environment.Rank))

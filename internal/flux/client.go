@@ -1,5 +1,9 @@
-// Package flux lit ce que Flux publie : sélection d'image, rapprochement, et
-// l'état applicatif que porte le CRD PortalData.
+// Package flux lit ce que Flux publie : sélection d'image et rapprochement.
+//
+// Il ne lit **plus** l'état applicatif : celui-ci vit dans `internal/portaldata`
+// depuis le lot D. Flux dit l'intention — le tag qu'une Kustomization a retenu —,
+// le portail dit le constat, et les fondre dans un client faisait échouer le
+// déployeur sur un cluster dépourvu du CRD du portail (doc 12 §12.9).
 //
 // Le dashboard n'écrit jamais rien ici. Il **demande** une promotion en poussant
 // un tag sur le registre, et Flux décide ensuite ; tout ce paquet sert à constater
@@ -23,10 +27,9 @@ import (
 const (
 	imageGroup     = "image.toolkit.fluxcd.io"
 	kustomizeGroup = "kustomize.toolkit.fluxcd.io"
-	portalGroup    = "mse.cnous.fr"
 )
 
-// Client lit les objets Flux et PortalData.
+// Client lit les objets Flux.
 //
 // Il emploie le client dynamique et **découvre la version servie** au lieu de la
 // coder. La raison n'est pas théorique : `kustomize.toolkit.fluxcd.io/v1` est
@@ -40,7 +43,6 @@ type Client struct {
 
 	imagePolicies  schema.GroupVersionResource
 	kustomizations schema.GroupVersionResource
-	portalData     schema.GroupVersionResource
 
 	// Namespace des objets Flux. Distinct de celui des pipelines : Flux vit dans
 	// `flux-system`.
@@ -73,7 +75,6 @@ func Open(config *rest.Config, namespace string) (*Client, error) {
 	}{
 		{&client.imagePolicies, imageGroup, "ImagePolicy"},
 		{&client.kustomizations, kustomizeGroup, "Kustomization"},
-		{&client.portalData, portalGroup, "PortalData"},
 	} {
 		mapping, err := mapper.RESTMapping(schema.GroupKind{Group: entry.group, Kind: entry.kind})
 		if err != nil {
@@ -108,7 +109,6 @@ func (c *Client) Versions() map[string]string {
 	return map[string]string{
 		"imagepolicies":  c.imagePolicies.GroupVersion().String(),
 		"kustomizations": c.kustomizations.GroupVersion().String(),
-		"portaldata":     c.portalData.GroupVersion().String(),
 	}
 }
 

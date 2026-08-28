@@ -79,26 +79,36 @@ Colonnes techniques omises pour la lisibilité : chaque table porte
 
 ### Référentiel
 
+Les réglages propres à l'outil de déploiement vivent dans une carte que le
+dashboard **transporte sans la lire** : trois colonnes les portaient jusqu'à la
+migration 0033, et elles nommaient Flux dans un schéma que tout projet doit
+pouvoir remplir. Seul `internal/flux` connaît ses clés — `promotionSuffix`,
+`acceptsPrerelease`, `kustomization` — et c'est lui qui les valide, contre les
+politiques réelles du cluster (doc 12 §12.9, lot D).
+
 ```sql
 -- Environnements : table de configuration, pas de constantes en dur (cf. B13)
 create table environments (
   id              text primary key,           -- 'unstable', 'qualif', 'preprod', 'prod'
   label           text not null,              -- 'Pré-production'
   aliases         text[] not null default '{}', -- LECTURE : anciens noms reconnus en entrée
-  promotion_suffix text not null,             -- ÉCRITURE : métadonnée SemVer attendue par Flux
-  accepts_prerelease boolean not null,        -- l'ImagePolicy sélectionne-t-elle les RC ?
   rank            int  not null,              -- ordre dans le flux de promotion
   namespace       text not null,              -- namespace Kubernetes
-  flux_kustomization text,                    -- nom de la Kustomization à observer
+  -- Réglages du déployeur, dans SON vocabulaire. Une carte de chaînes : c'est
+  -- ce qu'une configuration transporte, et la contrainte le vérifie.
+  deployer_settings jsonb not null default '{}'::jsonb
+                    check (not jsonb_path_exists(
+                        deployer_settings, '$.* ? (@.type() <> "string")')),
   security_policy text,                       -- clé dans policies/severity.yaml
   observable      boolean not null default true, -- false pour prod (cluster séparé, cf. B8)
   visible         boolean not null default true,
-  unique (rank),
-  unique (promotion_suffix)
+  unique (rank)
+  -- L'unicité des suffixes de promotion n'est plus une contrainte du schéma :
+  -- c'est une règle du déployeur, vérifiée par `flux.CheckPromotionTargets`.
 );
 ```
 
-| id | libellé | `promotion_suffix` | tag produit | RC | rang |
+| id | libellé | `promotionSuffix` | tag produit | RC | rang |
 |---|---|---|---|:--:|---|
 | `unstable` | Unstable | `unstable` | `1.8.0-rc1_unstable` | ● | 1 |
 | `qualif` | Qualification | **`testing`** | `1.8.0-rc1_testing` | ● | 2 |
@@ -109,19 +119,20 @@ La frontière RC / release finale se situe **entre `preprod` et `prod`** : les t
 premiers environnements reçoivent des pré-releases, seule la production exige une version
 stable.
 
-`accepts_prerelease` n'est pas une préférence d'affichage : une plage SemVer sans
+`acceptsPrerelease` n'est pas une préférence d'affichage : une plage SemVer sans
 composante de pré-release (`>=0.0.0`) ne sélectionne aucune RC. Promouvoir une
 pré-release vers `prod` produirait un tag valide, poussé sans erreur, que Flux
 ignorerait — un échec silencieux. Le dashboard refuse donc l'opération en amont, et
-vérifie au démarrage que ce champ correspond à la plage réellement configurée dans
+vérifie au démarrage que ce réglage correspond à la plage réellement configurée dans
 l'`ImagePolicy` ([B7](02-blocages-et-decisions.md#b7)).
 
-**`aliases` et `promotion_suffix` ne sont pas redondants** — ils vont dans des directions
+**`aliases` et `promotionSuffix` ne sont pas redondants** — ils vont dans des directions
 opposées ([B13](02-blocages-et-decisions.md#b13)). `aliases` traduit une valeur héritée
-rencontrée *en entrée* ; `promotion_suffix` produit le suffixe de tag *en sortie*, celui
+rencontrée *en entrée* ; `promotionSuffix` produit le suffixe de tag *en sortie*, celui
 sur lequel Flux route le déploiement. Une erreur sur le premier affiche un mauvais
-libellé, une erreur sur le second **promeut vers le mauvais environnement** : d'où la
-contrainte d'unicité et la vérification au démarrage contre les `ImagePolicy` du cluster.
+libellé, une erreur sur le second **promeut vers le mauvais environnement** : d'où
+l'unicité exigée et la vérification au démarrage contre les `ImagePolicy` du cluster,
+toutes deux portées par le déployeur depuis le lot D.
 
 Le tag de promotion est produit par un gabarit configurable, de défaut
 `{version}_{suffix}` : `+` est interdit dans un tag OCI, l'underscore est le séparateur
@@ -308,8 +319,10 @@ create table environment_observations (
   migration_state text,                        -- statut rapporté par PortalData
   -- Recoupement : ce que le cluster exécute réellement
   images          jsonb,                       -- [{workload, container, image, digest}]
-  -- Recoupement : où en est Flux
-  flux_state      text,
+  -- Recoupement : ce que l'outil de déploiement DÉCLARE avoir appliqué. Une
+  -- intention, jamais un constat — d'où le nom, repris du contrat de
+  -- fournisseur (`ResolutionDeclared`) plutôt que de l'outil (migration 0032).
+  declared_state  text,
   -- Recoupement : ce que Flux a commité dans mse-kustom (lisible sans le cluster)
   git_tag         text,
   git_commit      text,

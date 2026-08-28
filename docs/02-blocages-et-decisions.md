@@ -259,8 +259,8 @@ environnements est une image, quatre tags.
 sous son ancien nom. Le dashboard affiche `qualif` et écrit `testing`. Ce n'est pas un
 alias de lecture pour compatibilité, c'est une correspondance **de sortie**, utilisée
 pour construire un tag : s'en tromper promeut vers le mauvais environnement, ou vers
-aucun. Elle est donc portée par un champ dédié, `promotion_suffix`, et non par la liste
-générique d'alias — voir [B13](#b13).
+aucun. Elle est donc portée par un réglage dédié du déployeur, `promotionSuffix`, et non
+par la liste générique d'alias — voir [B13](#b13).
 
 **Conséquences.**
 
@@ -309,8 +309,8 @@ s'écrit sans `-0`, ce qui rend une RC structurellement inéligible.
 **Conséquence pour le dashboard.** Promouvoir une RC vers la production produirait un tag
 valide, poussé sans erreur, que Flux ignorerait — un **échec silencieux**, le pire mode
 de défaillance possible pour une opération de release. Le dashboard ne s'en remet donc
-pas à Flux pour refuser : la table `environments` porte un champ `accepts_prerelease`, et
-la promotion est refusée en amont, avec un message explicite.
+pas à Flux pour refuser : l'environnement porte un réglage `acceptsPrerelease`, et la
+promotion est refusée en amont, avec un message explicite.
 
 Ce champ est vérifié au démarrage contre la plage réellement configurée dans
 l'`ImagePolicy` correspondante. Une divergence entre les deux est exactement ce qui
@@ -701,7 +701,7 @@ périmètre volontairement réduit, à ne pas élargir.
   | Sens | Champ | Usage |
   |---|---|---|
   | **Lecture** — traduire une valeur héritée rencontrée en entrée | `aliases text[]` | `testing` lu dans un paramètre de pipeline est reconnu comme `qualif` |
-  | **Écriture** — produire le suffixe attendu par Flux | `promotion_suffix text` | promouvoir vers `qualif` écrit `+testing` dans le tag |
+  | **Écriture** — produire le suffixe attendu par Flux | `deployer_settings ->> 'promotionSuffix'` | promouvoir vers `qualif` écrit `+testing` dans le tag |
 
   Deux champs et non un seul, parce que les erreurs qu'ils causent n'ont pas la même
   gravité : une lecture ratée affiche un libellé faux, une écriture ratée **promeut vers

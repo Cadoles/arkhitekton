@@ -107,3 +107,50 @@ func TestGuardReportsUnrecognisedPatterns(t *testing.T) {
 		t.Errorf("le message n'explique pas que le motif n'est pas exploitable: %v", err)
 	}
 }
+
+// La règle reprise du catalogue au lot D : deux environnements ne peuvent pas
+// partager un suffixe.
+//
+// Elle vivait dans la validation du catalogue, où elle imposait un concept de
+// Flux à tout catalogue — y compris à celui d'un projet sans déployeur, qui ne
+// pouvait alors déclarer aucun environnement. Elle appartient au déployeur qui
+// sélectionne par suffixe, et à lui seul.
+func TestDeuxEnvironnementsNePeuventPartagerUnSuffixe(t *testing.T) {
+	environments := []Environment{
+		{ID: "qualif", PromotionSuffix: "testing", AcceptsPrerelease: true, Observable: true},
+		{ID: "preprod", PromotionSuffix: "testing", AcceptsPrerelease: true, Observable: true},
+	}
+
+	err := CheckPromotionTargets(environments, nil)
+	if err == nil {
+		t.Fatal("deux environnements au même suffixe: l'un ne serait jamais déployé")
+	}
+	if !strings.Contains(err.Error(), "partagent le suffixe") {
+		t.Errorf("message: %v — il doit nommer le conflit", err)
+	}
+}
+
+// Un environnement sans suffixe ne peut pas être atteint par **ce** déployeur :
+// il sélectionne par métadonnée SemVer et ne saurait pas quoi pousser. Le
+// refuser ici plutôt que dans le catalogue est ce qui laisse un autre déployeur
+// accepter le même environnement.
+func TestUnEnvironnementSansSuffixeEstRefuseParCeDeployeur(t *testing.T) {
+	err := CheckPromotionTargets([]Environment{{ID: "dev", Observable: true}}, nil)
+	if err == nil {
+		t.Fatal("un environnement sans suffixe doit être refusé par un déployeur qui en a besoin")
+	}
+}
+
+// Le conflit se voit même sur des environnements non observables : deux
+// environnements homonymes se marchent dessus indépendamment de notre capacité à
+// lire leurs politiques.
+func TestLeConflitDeSuffixeSeVoitHorsDePortee(t *testing.T) {
+	environments := []Environment{
+		{ID: "prod", PromotionSuffix: "prod", Observable: false},
+		{ID: "prod-bis", PromotionSuffix: "prod", Observable: false},
+	}
+
+	if err := CheckPromotionTargets(environments, nil); err == nil {
+		t.Error("le conflit ne dépend pas de l'observabilité")
+	}
+}

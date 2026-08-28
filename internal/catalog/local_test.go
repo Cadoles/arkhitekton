@@ -36,13 +36,16 @@ func TestShippedCatalogParses(t *testing.T) {
 	if qualif == nil {
 		t.Fatal("environnement qualif absent")
 	}
-	if qualif.PromotionSuffix != "testing" {
-		t.Errorf("suffixe de qualif = %q, attendu testing", qualif.PromotionSuffix)
+	// Le suffixe vit sous `deployer:` depuis le lot D : le catalogue le
+	// transporte sans le lire, et seul le déployeur le nomme.
+	if qualif.Deployer["promotionSuffix"] != "testing" {
+		t.Errorf("suffixe de qualif = %q, attendu testing",
+			qualif.Deployer["promotionSuffix"])
 	}
 
 	for _, environment := range catalog.Environments {
 		if environment.ID == "prod" {
-			if environment.AcceptsPrerelease {
+			if environment.Deployer["acceptsPrerelease"] != "false" {
 				t.Error("la production ne doit pas accepter les pré-releases")
 			}
 			if environment.IsObservable() {

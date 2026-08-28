@@ -38,8 +38,34 @@ type Environment struct {
 // indépendant — sont **exclus de la vérification** : leurs `ImagePolicy` vivent
 // dans un cluster que le dashboard ne voit pas, et les exiger ici ferait échouer
 // le démarrage sur une absence normale.
+//  3. **Suffixe partagé** — deux environnements promouvant au même endroit.
+//     L'un des deux ne serait jamais déployé, sans qu'aucune erreur ne le dise.
+//     Cette règle vivait dans la validation du catalogue jusqu'au lot D ; elle
+//     y imposait un concept de Flux à tout catalogue, y compris à ceux d'un
+//     projet sans déployeur. Elle appartient ici.
 func CheckPromotionTargets(environments []Environment, policies []ImagePolicy) error {
 	var problems []error
+
+	suffixes := make(map[string]string, len(environments))
+	for _, environment := range environments {
+		// Vérifiée sur **tous** les environnements, observables ou non : deux
+		// environnements homonymes se marchent dessus indépendamment de notre
+		// capacité à lire leurs politiques.
+		if environment.PromotionSuffix == "" {
+			problems = append(problems, fmt.Errorf(
+				"environnement %q: aucun suffixe de promotion déclaré — ce déployeur "+
+					"sélectionne par métadonnée SemVer et ne saurait pas quoi pousser",
+				environment.ID))
+			continue
+		}
+		if other, clash := suffixes[environment.PromotionSuffix]; clash {
+			problems = append(problems, fmt.Errorf(
+				"environnements %q et %q partagent le suffixe %q — l'un des deux ne "+
+					"serait jamais déployé",
+				other, environment.ID, environment.PromotionSuffix))
+		}
+		suffixes[environment.PromotionSuffix] = environment.ID
+	}
 
 	for _, environment := range environments {
 		if !environment.Observable {

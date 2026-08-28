@@ -236,10 +236,14 @@ func newFakeStore() *fakeReleaseStore {
 		objects:  map[string]string{},
 		deployed: map[string]store.DeployedRelease{},
 		environments: []store.Environment{
-			{ID: "qualif", Label: "Qualification", PromotionSuffix: "testing",
-				AcceptsPrerelease: true, Rank: 2, Observable: true, Visible: true},
-			{ID: "prod", Label: "Production", PromotionSuffix: "prod",
-				AcceptsPrerelease: false, Rank: 4, Observable: false, Visible: true},
+			{ID: "qualif", Label: "Qualification", Rank: 2, Observable: true, Visible: true,
+				DeployerSettings: map[string]string{
+					"promotionSuffix": "testing", "acceptsPrerelease": "true",
+				}},
+			{ID: "prod", Label: "Production", Rank: 4, Observable: false, Visible: true,
+				DeployerSettings: map[string]string{
+					"promotionSuffix": "prod", "acceptsPrerelease": "false",
+				}},
 		},
 	}
 }

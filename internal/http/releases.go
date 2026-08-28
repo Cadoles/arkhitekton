@@ -15,7 +15,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
@@ -565,22 +564,18 @@ func (h *ReleasesHandler) resolveImages(
 	return images, ""
 }
 
-// targetOf traduit un environnement vers ce que la frontière du déploiement
-// attend.
+// targetOf traduit un environnement déclaré vers ce que la frontière attend.
 //
-// Les réglages partent dans le vocabulaire du déployeur : le suffixe et
-// l'acceptation des pré-releases n'ont de sens que pour une sélection par
-// métadonnée SemVer, et les inscrire dans le type commun les imposerait à un
-// déployeur qui procède autrement (doc 12 §12.9, lot A).
+// Une **copie**, et c'est tout l'objet du lot D : les réglages du déployeur
+// traversent le dashboard sans qu'il les lise. Cette fonction nommait
+// auparavant les trois clés de Flux — elle imposait donc son vocabulaire à
+// quiconque en aurait branché un autre, dans un paquet qui n'a aucune raison de
+// connaître un outil de déploiement (doc 12 §12.9, lot D).
 func targetOf(environment store.Environment) provider.Target {
 	return provider.Target{
 		ID:         environment.ID,
 		Observable: environment.Observable,
-		Settings: map[string]string{
-			flux.SettingSuffix:            environment.PromotionSuffix,
-			flux.SettingAcceptsPrerelease: strconv.FormatBool(environment.AcceptsPrerelease),
-			flux.SettingKustomization:     environment.FluxKustomization,
-		},
+		Settings:   environment.DeployerSettings,
 	}
 }
 
@@ -1600,10 +1595,18 @@ func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
 }
 
 type environmentPayload struct {
-	ID     string `json:"id"`
-	Label  string `json:"label"`
-	Rank   int    `json:"rank"`
-	Suffix string `json:"promotion_suffix"`
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Rank  int    `json:"rank"`
+	// DeployerSettings est rendu tel quel, dans le vocabulaire du déployeur.
+	//
+	// L'interface en affiche le suffixe de promotion, et ce n'est pas décoratif :
+	// il ne se devine pas — Flux connaît `qualif` sous le nom `testing` —, et une
+	// confirmation qui ne dirait pas quel tag va partir demanderait d'approuver à
+	// l'aveugle. Une carte plutôt qu'un champ nommé : un déployeur qui n'a pas de
+	// suffixe n'affiche rien, au lieu d'afficher un vide qui ressemble à une
+	// donnée manquante (doc 12 §12.9, lot D).
+	DeployerSettings map[string]string `json:"deployer_settings,omitempty"`
 	// Observable distingue « on ne peut pas savoir » de « on ne sait pas encore ».
 	// La production vit dans un cluster indépendant : ni PortalData, ni Deployment,
 	// ni statut Flux n'y sont lisibles. Afficher « inconnu » y ferait croire à une
@@ -1615,7 +1618,7 @@ type environmentPayload struct {
 	Sensitive      bool           `json:"sensitive"`
 	PortalVersion  string         `json:"portal_version,omitempty"`
 	MigrationState string         `json:"migration_state,omitempty"`
-	FluxState      string         `json:"flux_state,omitempty"`
+	DeclaredState  string         `json:"declared_state,omitempty"`
 	Resolution     string         `json:"resolution,omitempty"`
 	ObservedAt     string         `json:"observed_at,omitempty"`
 	CanDeploy      bool           `json:"can_deploy"`
@@ -1649,18 +1652,18 @@ func (h *ReleasesHandler) Environments(w http.ResponseWriter, r *http.Request) {
 	payload := make([]environmentPayload, 0, len(views))
 	for _, view := range views {
 		entry := environmentPayload{
-			ID:         view.Environment.ID,
-			Label:      view.Environment.Label,
-			Rank:       view.Environment.Rank,
-			Suffix:     view.Environment.PromotionSuffix,
-			Observable: view.Environment.Observable,
-			Sensitive:  h.authorizer.Sensitive(view.Environment.ID),
-			CanDeploy:  h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
+			ID:               view.Environment.ID,
+			Label:            view.Environment.Label,
+			Rank:             view.Environment.Rank,
+			DeployerSettings: view.Environment.DeployerSettings,
+			Observable:       view.Environment.Observable,
+			Sensitive:        h.authorizer.Sensitive(view.Environment.ID),
+			CanDeploy:        h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
 		}
 		if view.Observation != nil {
 			entry.PortalVersion = view.Observation.PortalVersion
 			entry.MigrationState = view.Observation.MigrationState
-			entry.FluxState = view.Observation.FluxState
+			entry.DeclaredState = view.Observation.DeclaredState
 			entry.Resolution = view.Observation.Resolution
 		}
 		if view.ObservedAt != nil {
@@ -2019,20 +2022,20 @@ func (h *ReleasesHandler) Environment(w http.ResponseWriter, r *http.Request) {
 
 	identity, _ := IdentityFrom(r.Context())
 	payload := map[string]any{
-		"id":               view.Environment.ID,
-		"label":            view.Environment.Label,
-		"rank":             view.Environment.Rank,
-		"promotion_suffix": view.Environment.PromotionSuffix,
-		"namespace":        view.Environment.Namespace,
-		"observable":       view.Environment.Observable,
-		"sensitive":        h.authorizer.Sensitive(view.Environment.ID),
-		"can_deploy":       h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
+		"id":                view.Environment.ID,
+		"label":             view.Environment.Label,
+		"rank":              view.Environment.Rank,
+		"deployer_settings": view.Environment.DeployerSettings,
+		"namespace":         view.Environment.Namespace,
+		"observable":        view.Environment.Observable,
+		"sensitive":         h.authorizer.Sensitive(view.Environment.ID),
+		"can_deploy":        h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
 	}
 
 	if view.Observation != nil {
 		payload["portal_version"] = view.Observation.PortalVersion
 		payload["migration_state"] = view.Observation.MigrationState
-		payload["flux_state"] = view.Observation.FluxState
+		payload["declared_state"] = view.Observation.DeclaredState
 		payload["resolution"] = view.Observation.Resolution
 	}
 	if view.ObservedAt != nil {

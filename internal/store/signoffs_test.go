@@ -14,10 +14,14 @@ import (
 func environmentsFor(t *testing.T, db *DB) {
 	t.Helper()
 	flow := []Environment{
-		{ID: "unstable", Label: "Unstable", PromotionSuffix: "unstable", AcceptsPrerelease: true, Rank: 1, Namespace: "mse-unstable", Observable: true, Visible: true},
-		{ID: "qualif", Label: "Qualification", PromotionSuffix: "testing", AcceptsPrerelease: true, Rank: 2, Namespace: "mse-qualif", Observable: true, Visible: true},
-		{ID: "preprod", Label: "Préproduction", PromotionSuffix: "preprod", AcceptsPrerelease: true, Rank: 3, Namespace: "mse-preprod", Observable: true, Visible: true},
-		{ID: "prod", Label: "Production", PromotionSuffix: "prod", AcceptsPrerelease: false, Rank: 4, Namespace: "mse-prod", Observable: true, Visible: true},
+		{ID: "unstable", Label: "Unstable",
+			DeployerSettings: map[string]string{"promotionSuffix": "unstable", "acceptsPrerelease": "true"}, Rank: 1, Namespace: "mse-unstable", Observable: true, Visible: true},
+		{ID: "qualif", Label: "Qualification",
+			DeployerSettings: map[string]string{"promotionSuffix": "testing", "acceptsPrerelease": "true"}, Rank: 2, Namespace: "mse-qualif", Observable: true, Visible: true},
+		{ID: "preprod", Label: "Préproduction",
+			DeployerSettings: map[string]string{"promotionSuffix": "preprod", "acceptsPrerelease": "true"}, Rank: 3, Namespace: "mse-preprod", Observable: true, Visible: true},
+		{ID: "prod", Label: "Production",
+			DeployerSettings: map[string]string{"promotionSuffix": "prod", "acceptsPrerelease": "false"}, Rank: 4, Namespace: "mse-prod", Observable: true, Visible: true},
 	}
 	for _, environment := range flow {
 		if err := db.UpsertEnvironment(context.Background(), environment); err != nil {

@@ -136,8 +136,11 @@ func TestRecordPromotion(t *testing.T) {
 	})
 
 	if err := db.UpsertEnvironment(ctx, Environment{
-		ID: "qualif", Label: "Qualification", PromotionSuffix: "testing",
-		AcceptsPrerelease: true, Rank: 2, Namespace: "mse-dev", Observable: true, Visible: true,
+		ID: "qualif", Label: "Qualification",
+		DeployerSettings: map[string]string{
+			"promotionSuffix": "testing", "acceptsPrerelease": "true",
+		},
+		Rank: 2, Namespace: "mse-dev", Observable: true, Visible: true,
 	}); err != nil {
 		t.Fatalf("environnement: %v", err)
 	}
@@ -204,8 +207,11 @@ func TestEnvironmentHistoryFollowsWhatWasRequested(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.UpsertEnvironment(ctx, Environment{
-		ID: "qualif", Label: "Qualification", PromotionSuffix: "testing",
-		AcceptsPrerelease: true, Rank: 2, Namespace: "mse-dev", Observable: true, Visible: true,
+		ID: "qualif", Label: "Qualification",
+		DeployerSettings: map[string]string{
+			"promotionSuffix": "testing", "acceptsPrerelease": "true",
+		},
+		Rank: 2, Namespace: "mse-dev", Observable: true, Visible: true,
 	}); err != nil {
 		t.Fatalf("environnement: %v", err)
 	}

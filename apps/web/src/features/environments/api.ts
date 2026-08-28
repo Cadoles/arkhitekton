@@ -23,14 +23,17 @@ export type Environment = {
   id: string
   label: string
   rank: number
-  promotion_suffix: string
+  /** Les réglages de l'outil de déploiement, dans **son** vocabulaire. Rendus
+   *  tels quels par l'API : le dashboard les transporte sans les lire, et un
+   *  projet sans déployeur n'en a aucun. */
+  deployer_settings?: Record<string, string>
   observable: boolean
   /** Reçoit ce qui part chez l'utilisateur final : la confirmation exige alors
    *  de ressaisir le numéro de version. */
   sensitive: boolean
   portal_version?: string
   migration_state?: string
-  flux_state?: string
+  declared_state?: string
   resolution?: Resolution
   observed_at?: string
   can_deploy: boolean
@@ -145,14 +148,14 @@ export type EnvironmentDetail = {
   id: string
   label: string
   rank: number
-  promotion_suffix: string
+  deployer_settings?: Record<string, string>
   namespace: string
   observable: boolean
   sensitive: boolean
   can_deploy: boolean
   portal_version?: string
   migration_state?: string
-  flux_state?: string
+  declared_state?: string
   resolution?: Resolution
   observed_at?: string
   flow: FlowStep[]
@@ -170,4 +173,22 @@ export function useEnvironment(id: string | undefined) {
     enabled: Boolean(id),
     refetchInterval: 15000,
   })
+}
+
+/*
+ * Le suffixe de promotion, quand le déployeur en déclare un.
+ *
+ * Affiché parce qu'il ne se devine pas : Flux connaît `qualif` sous le nom
+ * `testing`, et c'est ce nom-là qui part dans le tag. Le cacher rendrait toute
+ * vérification impossible, et une confirmation qui ne le dirait pas demanderait
+ * d'approuver à l'aveugle.
+ *
+ * Rendu `undefined` plutôt que chaîne vide quand il n'y en a pas : un
+ * environnement d'un projet sans déployeur n'affiche alors **rien**, au lieu
+ * d'une pastille vide qui ressemble à une donnée manquante.
+ */
+export function promotionSuffix(
+  environment: { deployer_settings?: Record<string, string> },
+): string | undefined {
+  return environment.deployer_settings?.promotionSuffix || undefined
 }

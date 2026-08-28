@@ -69,7 +69,7 @@ func queueHandler(fake *fakeQueueStore) *QueueHandler {
 	return NewQueueHandler(fake, &catalog.Catalog{
 		MaxConcurrentRuns: 10,
 		Environments: []catalog.Environment{
-			{ID: "dev", Label: "Unstable", PromotionSuffix: "dev", Rank: 1},
+			{ID: "dev", Label: "Unstable", Deployer: map[string]string{"promotionSuffix": "dev"}, Rank: 1},
 		},
 		Pipelines: []catalog.Pipeline{
 			{

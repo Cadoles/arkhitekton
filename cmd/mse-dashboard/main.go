@@ -27,6 +27,8 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/portaldata"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
@@ -397,12 +399,33 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	}
 	logger.Info("client Flux", "namespace", cfg.Flux.Namespace, "versions", fluxClient.Versions())
 
-	// Deux dépendances distinctes bien qu'elles partagent un client : l'une dit ce
-	// que le déploiement a appliqué, l'autre ce que l'application rapporte
-	// d'elle-même. C'est leur écart qui fait la valeur de l'écran des
+	// Deux dépendances distinctes, et depuis le lot D deux clients distincts :
+	// l'une dit ce que le déploiement a appliqué, l'autre ce que l'application
+	// rapporte d'elle-même. C'est leur écart qui fait la valeur de l'écran des
 	// environnements, et les confondre le ferait disparaître (B8).
+	//
+	// L'attestation est **facultative** : un cluster sans le CRD du portail est
+	// une configuration valide — c'est le cas de tout projet qui n'est pas le
+	// MSE —, et le dashboard y retombe sur ce que le déploiement déclare. Tant
+	// qu'un seul client résolvait les deux, cette absence faisait échouer le
+	// démarrage sur une dépendance principale parfaitement installée.
+	var attester provider.Attester = provider.NoAttester{}
+	switch portalClient, err := portaldata.Open(cluster.RESTConfig); {
+	case errors.Is(err, portaldata.ErrAbsent):
+		logger.Info("aucune source d'attestation dans ce cluster",
+			"consequence", "l'état des environnements sera celui que le déployeur déclare")
+	case err != nil:
+		return err
+	default:
+		attester = portalClient
+		// `api_version` et non `version` : le logger porte déjà un attribut
+		// `version` — celui du binaire —, et deux clés homonymes dans un même
+		// enregistrement le rendent illisible.
+		logger.Info("source d'attestation", "api_version", portalClient.Version())
+	}
+
 	deployer := flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
-	environments := worker.NewEnvironmentObserver(db, deployer, fluxClient, logger)
+	environments := worker.NewEnvironmentObserver(db, deployer, attester, logger)
 
 	// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
 	// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux

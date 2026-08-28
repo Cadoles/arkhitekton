@@ -248,3 +248,25 @@ type Attestation struct {
 	// pas, et rien d'autre ne le signale (B8).
 	Ready bool
 }
+
+// NoAttester est l'attestation d'un projet où rien n'atteste.
+//
+// Pas un bouchon de test, au même titre que [NoDeployer] : c'est le comportement
+// exact d'un déploiement dont les applications ne rapportent rien d'elles-mêmes,
+// c'est-à-dire de tout projet qui n'est pas le portail MSE. La réalisation
+// **prouve le contrat** — une interface écrite sur une seule source en épouse la
+// forme sans qu'on s'en aperçoive.
+//
+// Ce qu'elle a confirmé : `Attestations` devait pouvoir rendre une liste vide
+// sans erreur. Un contrat qui aurait exigé « rends l'attestation » aurait obligé
+// l'absence à se déclarer en panne, et l'écran des environnements aurait affiché
+// une erreur là où il n'y a qu'un projet sans portail — ce que le dashboard doit
+// au contraire traiter en retombant sur ce que le déploiement déclare (B8).
+type NoAttester struct{}
+
+var _ Attester = NoAttester{}
+
+// Attestations n'atteste rien, et ce n'est pas une erreur.
+func (NoAttester) Attestations(context.Context, string) ([]Attestation, error) {
+	return nil, nil
+}

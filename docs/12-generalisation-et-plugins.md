@@ -1050,6 +1050,43 @@ Flux + `PortalData`, séparés. C'est ici que le contrat de [12.4](#124-la-front
 est mis à l'épreuve : le premier `Deployer` alternatif — même trivial, « aucun
 déployeur » — vaut plus que dix pages de conception.
 
+**Fait.** Trois coutures, et l'épreuve a effectivement fait tomber plus que la
+séparation annoncée.
+
+*L'attestation quitte le client Flux* (`internal/portaldata`). Un seul client
+résolvait les trois CRD d'un coup et **échouait si l'un manquait** : un cluster
+sans le CRD du portail — c'est-à-dire tout cluster qui n'est pas celui du MSE —
+ne pouvait donc pas avoir de déployeur, alors que Flux y était parfaitement
+installé. La dépendance facultative faisait échouer la dépendance principale.
+Elle est désormais optionnelle et se déclare absente par une erreur nommée, le
+dashboard retombant sur ce que le déploiement déclare. `provider.NoAttester`
+double `NoDeployer` : c'est elle qui a confirmé que `Attestations` devait pouvoir
+rendre une liste vide **sans erreur**, faute de quoi l'absence se serait déclarée
+en panne.
+
+*Les réglages du déployeur deviennent opaques* (migration 0033). Trois colonnes
+— `promotion_suffix`, `accepts_prerelease`, `flux_kustomization` — nommaient
+Flux dans le catalogue, dans le schéma, dans le worker et dans l'API. Le
+catalogue **exigeait** de surcroît un `promotionSuffix` non vide sur chaque
+environnement : un projet sans outil de déploiement ne pouvait déclarer aucun
+environnement. Elles deviennent une carte que le dashboard transporte sans la
+lire ; seul `internal/flux` nomme ses clés, et la règle d'unicité des suffixes a
+suivi, du catalogue vers le garde-fou du déployeur — où elle est confrontée aux
+politiques réelles du cluster, ce qui est plus fort qu'une comparaison de
+chaînes. Ajouter un second déployeur n'ajoute plus de colonne.
+
+*`flux_state` devient `declared_state`* (migration 0032). Même faute que
+`versions.redmine_id`, même correction : la colonne porte ce que la donnée est —
+une intention, au sens de `provider.ResolutionDeclared` — et non de quel produit
+elle vient. `portal_version` et `migration_state` gardent leur nom : « portal » y
+désigne la source de l'attestation, pas l'outil de déploiement.
+
+Ce que le lot a mis au jour en chemin : **l'observateur d'environnements n'avait
+aucun test**. Toute la hiérarchie des preuves de [B8] — l'écart entre ce qu'un
+déployeur déclare et ce qu'une application atteste — reposait sur du code que
+rien ne tenait, y compris le cas qui compte le plus, celui d'une image déployée
+dont les migrations ont échoué.
+
 ### Lot E — Extraire la Forge
 
 Le plus intriqué (6 fichiers) : références, tags, PR, et la composition de note qui mêle

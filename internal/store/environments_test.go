@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 )
 
@@ -14,8 +15,9 @@ func TestDeployedReleaseJoinsOnImageVersion(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.UpsertEnvironment(ctx, Environment{
-		ID: "prod", Label: "Production", PromotionSuffix: "prod",
-		Rank: 4, Namespace: "mse-prod", Observable: true, Visible: true,
+		ID: "prod", Label: "Production",
+		DeployerSettings: map[string]string{"promotionSuffix": "prod"},
+		Rank:             4, Namespace: "mse-prod", Observable: true, Visible: true,
 	}); err != nil {
 		t.Fatalf("environnement: %v", err)
 	}
@@ -56,8 +58,9 @@ func TestPromotionResolvesTheAmbiguity(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.UpsertEnvironment(ctx, Environment{
-		ID: "prod", Label: "Production", PromotionSuffix: "prod",
-		Rank: 4, Namespace: "mse-prod", Observable: true, Visible: true,
+		ID: "prod", Label: "Production",
+		DeployerSettings: map[string]string{"promotionSuffix": "prod"},
+		Rank:             4, Namespace: "mse-prod", Observable: true, Visible: true,
 	}); err != nil {
 		t.Fatalf("environnement: %v", err)
 	}
@@ -121,8 +124,9 @@ func TestAnUnknownDeployedVersionIsReported(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.UpsertEnvironment(ctx, Environment{
-		ID: "prod", Label: "Production", PromotionSuffix: "prod",
-		Rank: 4, Namespace: "mse-prod", Observable: true, Visible: true,
+		ID: "prod", Label: "Production",
+		DeployerSettings: map[string]string{"promotionSuffix": "prod"},
+		Rank:             4, Namespace: "mse-prod", Observable: true, Visible: true,
 	}); err != nil {
 		t.Fatalf("environnement: %v", err)
 	}
@@ -144,13 +148,91 @@ func TestAnUnobservedEnvironmentHasNoDeployedRelease(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.UpsertEnvironment(ctx, Environment{
-		ID: "prod", Label: "Production", PromotionSuffix: "prod",
-		Rank: 4, Namespace: "mse-prod", Observable: false, Visible: true,
+		ID: "prod", Label: "Production",
+		DeployerSettings: map[string]string{"promotionSuffix": "prod"},
+		Rank:             4, Namespace: "mse-prod", Observable: false, Visible: true,
 	}); err != nil {
 		t.Fatalf("environnement: %v", err)
 	}
 
 	if _, err := db.DeployedRelease(ctx, "prod"); !errors.Is(err, ErrNoDeployedRelease) {
 		t.Errorf("erreur = %v, attendu ErrNoDeployedRelease", err)
+	}
+}
+
+// Les réglages du déployeur font l'aller-retour sans être lus.
+//
+// C'est le mécanisme que le lot D a introduit à la place de trois colonnes
+// nommées par Flux, et il est silencieux quand il échoue : une carte mal
+// décodée rendrait un environnement sans suffixe, et le déployeur refuserait de
+// démarrer en accusant la configuration plutôt que le magasin.
+func TestLesReglagesDuDeployeurFontLAllerRetourTelsQuels(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	settings := map[string]string{
+		"promotionSuffix":   "testing",
+		"acceptsPrerelease": "true",
+		"kustomization":     "portal-testing",
+		// Une clé qu'aucun déployeur d'aujourd'hui ne connaît : le magasin la
+		// transporte quand même, sans quoi la frontière ne serait ouverte qu'aux
+		// réglages déjà prévus.
+		"inconnueDuDashboard": "valeur",
+	}
+
+	if err := db.UpsertEnvironment(ctx, Environment{
+		ID: "qualif", Label: "Qualification", DeployerSettings: settings,
+		Rank: 2, Namespace: "mse-dev", Observable: true, Visible: true,
+	}); err != nil {
+		t.Fatalf("environnement: %v", err)
+	}
+
+	environments, err := db.ListEnvironments(ctx)
+	if err != nil {
+		t.Fatalf("relecture: %v", err)
+	}
+	if len(environments) != 1 {
+		t.Fatalf("%d environnement(s)", len(environments))
+	}
+	if !maps.Equal(environments[0].DeployerSettings, settings) {
+		t.Errorf("réglages relus %v, déposés %v",
+			environments[0].DeployerSettings, settings)
+	}
+}
+
+// Un environnement sans déployeur porte une carte vide, jamais un nil qui
+// obligerait chaque lecteur à se garder.
+func TestUnEnvironnementSansDeployeurPorteUneCarteVide(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if err := db.UpsertEnvironment(ctx, Environment{
+		ID: "recette", Label: "Recette", Rank: 1, Namespace: "app-recette",
+		Observable: true, Visible: true,
+	}); err != nil {
+		t.Fatalf("environnement: %v", err)
+	}
+
+	environments, _ := db.ListEnvironments(ctx)
+	if len(environments) != 1 || environments[0].DeployerSettings == nil {
+		t.Errorf("réglages %v — attendu une carte vide", environments[0].DeployerSettings)
+	}
+	if len(environments[0].DeployerSettings) != 0 {
+		t.Errorf("réglages inventés: %v", environments[0].DeployerSettings)
+	}
+}
+
+// La carte ne porte que des chaînes. Une valeur d'un autre type traverserait le
+// décodage Go sans erreur pour échouer chez le déployeur, loin de sa cause :
+// la contrainte la refuse à l'écriture.
+func TestLaCarteDeReglagesNAccepteQueDesChaines(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if _, err := db.Pool().Exec(ctx,
+		`insert into environments (id, label, rank, namespace, deployer_settings, observable, visible)
+		 values ('dev', 'Dev', 1, 'mse-dev', '{"acceptsPrerelease": true}'::jsonb, true, true)`,
+	); err == nil {
+		t.Error("un booléen JSON devrait être refusé par la contrainte")
 	}
 }

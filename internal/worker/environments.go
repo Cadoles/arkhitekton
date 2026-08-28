@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -50,24 +48,21 @@ func NewEnvironmentObserver(
 
 // targetOf traduit un environnement déclaré vers ce que la frontière attend.
 //
-// Les réglages propres au déployeur sont passés dans **son** vocabulaire : le
-// suffixe de promotion et l'acceptation des pré-releases n'ont de sens que pour
-// une sélection par métadonnée SemVer, et les inscrire dans le type commun les
-// imposerait à un déployeur qui procède autrement.
+// Une **copie**, et c'est tout l'objet du lot D : les réglages du déployeur
+// traversent le dashboard sans qu'il les lise. Cette fonction nommait
+// auparavant les trois clés de Flux — elle imposait donc son vocabulaire à
+// quiconque en aurait branché un autre, dans un paquet qui n'a aucune raison de
+// connaître un outil de déploiement (doc 12 §12.9, lot D).
 func targetOf(environment store.Environment) provider.Target {
 	return provider.Target{
 		ID:         environment.ID,
 		Observable: environment.Observable,
-		Settings: map[string]string{
-			flux.SettingSuffix:            environment.PromotionSuffix,
-			flux.SettingAcceptsPrerelease: strconv.FormatBool(environment.AcceptsPrerelease),
-			flux.SettingKustomization:     environment.FluxKustomization,
-		},
+		Settings:   environment.DeployerSettings,
 	}
 }
 
-// SyncEnvironments écrit en base les environnements déclarés, puis vérifie que
-// leurs suffixes de promotion correspondent aux ImagePolicy réelles.
+// SyncEnvironments écrit en base les environnements déclarés, puis les soumet au
+// déployeur pour qu'il dise s'il saura les atteindre.
 //
 // L'ordre compte : la table est d'abord alignée sur la configuration, ensuite
 // seulement confrontée au cluster. L'inverse validerait un état que le prochain
@@ -75,15 +70,13 @@ func targetOf(environment store.Environment) provider.Target {
 func (o *EnvironmentObserver) SyncEnvironments(ctx context.Context, declared []catalog.Environment) error {
 	for _, environment := range declared {
 		record := store.Environment{
-			ID:                environment.ID,
-			Label:             environment.Label,
-			PromotionSuffix:   environment.PromotionSuffix,
-			AcceptsPrerelease: environment.AcceptsPrerelease,
-			Rank:              environment.Rank,
-			Namespace:         environment.Namespace,
-			FluxKustomization: environment.FluxKustomization,
-			Observable:        environment.IsObservable(),
-			Visible:           environment.IsVisible(),
+			ID:               environment.ID,
+			Label:            environment.Label,
+			Rank:             environment.Rank,
+			Namespace:        environment.Namespace,
+			DeployerSettings: environment.Deployer,
+			Observable:       environment.IsObservable(),
+			Visible:          environment.IsVisible(),
 		}
 		if err := o.store.UpsertEnvironment(ctx, record); err != nil {
 			return err
@@ -93,11 +86,9 @@ func (o *EnvironmentObserver) SyncEnvironments(ctx context.Context, declared []c
 	targets := make([]provider.Target, 0, len(declared))
 	for _, environment := range declared {
 		targets = append(targets, targetOf(store.Environment{
-			ID:                environment.ID,
-			PromotionSuffix:   environment.PromotionSuffix,
-			AcceptsPrerelease: environment.AcceptsPrerelease,
-			FluxKustomization: environment.FluxKustomization,
-			Observable:        environment.IsObservable(),
+			ID:               environment.ID,
+			DeployerSettings: environment.Deployer,
+			Observable:       environment.IsObservable(),
 		}))
 	}
 
@@ -167,7 +158,7 @@ func (o *EnvironmentObserver) observe(
 		o.logger.Error("lecture de l'état du déployeur",
 			"environnement", environment.ID, "error", err)
 	} else {
-		observation.FluxState = declared.State
+		observation.DeclaredState = declared.State
 		observation.Resolution = string(declared.Resolution)
 	}
 
