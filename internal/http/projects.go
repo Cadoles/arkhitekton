@@ -123,10 +123,18 @@ type projectPayload struct {
 	// Slug nomme le projet dans les URL : `/projects/mse/releases/1.8.0`. Rendu
 	// et modifiable — ces adresses finissent en favori, et un nom qu'on ne peut
 	// pas corriger est un nom qu'on subit.
-	Slug          string          `json:"slug"`
-	ImageRegistry string          `json:"image_registry"`
-	MultiStage    bool            `json:"multi_stage"`
-	Targets       []targetPayload `json:"targets"`
+	Slug          string `json:"slug"`
+	ImageRegistry string `json:"image_registry"`
+	// RegistrySecret nomme le secret autorisant à pousser vers ce registre. Vide
+	// vaut celui du déploiement.
+	//
+	// **Un nom, jamais un identifiant.** Le secret lui-même est provisionné par
+	// le déploiement — par Vault en production —, et le dashboard se contente de
+	// le désigner : faire entrer un mot de passe de registre par ce formulaire le
+	// ferait transiter par le navigateur et l'API (doc 07 §7.3, doc 12 §12.7).
+	RegistrySecret string          `json:"registry_secret"`
+	MultiStage     bool            `json:"multi_stage"`
+	Targets        []targetPayload `json:"targets"`
 	// CheckedAt absent : aucun test n'a eu lieu. État distinct d'un test qui a
 	// échoué, et qui ne doit pas se lire comme lui.
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
@@ -193,9 +201,10 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		ID: project.ID, Repository: project.Repository, Label: project.Label,
 		ForgeURL: project.ForgeURL, URL: repositoryURL(project.ForgeURL, project.Repository),
 		Dockerfile: project.Dockerfile, BuildContext: project.BuildContext,
-		Slug:          project.Slug,
-		ImageRegistry: project.ImageRegistry,
-		MultiStage:    project.MultiStage, Targets: targets,
+		Slug:           project.Slug,
+		ImageRegistry:  project.ImageRegistry,
+		RegistrySecret: project.RegistrySecret,
+		MultiStage:     project.MultiStage, Targets: targets,
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
 		DeployKey: project.DeployKeyPublic, DeployKeyCreatedAt: project.DeployKeyCreatedAt,
@@ -222,10 +231,11 @@ type projectRequest struct {
 	// Slug nomme le projet dans les URL : `/projects/mse/releases/1.8.0`. Rendu
 	// et modifiable — ces adresses finissent en favori, et un nom qu'on ne peut
 	// pas corriger est un nom qu'on subit.
-	Slug          string          `json:"slug"`
-	ImageRegistry string          `json:"image_registry"`
-	MultiStage    bool            `json:"multi_stage"`
-	Targets       []targetPayload `json:"targets"`
+	Slug           string          `json:"slug"`
+	ImageRegistry  string          `json:"image_registry"`
+	RegistrySecret string          `json:"registry_secret"`
+	MultiStage     bool            `json:"multi_stage"`
+	Targets        []targetPayload `json:"targets"`
 }
 
 // repositoryPattern borne la forme d'un dépôt.
@@ -310,9 +320,10 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	id, err := h.store.CreateProject(r.Context(), store.Project{
 		Repository: request.Repository, Label: request.Label, ForgeURL: request.ForgeURL,
 		Dockerfile: request.Dockerfile, BuildContext: request.BuildContext,
-		Slug:          strings.TrimSpace(request.Slug),
-		ImageRegistry: request.ImageRegistry,
-		MultiStage:    request.MultiStage, Targets: targetsOf(request),
+		Slug:           strings.TrimSpace(request.Slug),
+		ImageRegistry:  request.ImageRegistry,
+		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
+		MultiStage:     request.MultiStage, Targets: targetsOf(request),
 		CreatedBy: identity.Subject,
 	})
 	if err != nil {
@@ -398,8 +409,9 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		ID: id, Repository: request.Repository, Label: request.Label,
 		ForgeURL: request.ForgeURL, Dockerfile: request.Dockerfile,
 		BuildContext: request.BuildContext, ImageRegistry: request.ImageRegistry,
-		Slug:       strings.TrimSpace(request.Slug),
-		MultiStage: request.MultiStage, Targets: targetsOf(request),
+		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
+		Slug:           strings.TrimSpace(request.Slug),
+		MultiStage:     request.MultiStage, Targets: targetsOf(request),
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {

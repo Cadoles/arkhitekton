@@ -100,6 +100,11 @@ type ProjectKeys interface {
 	// clé propre. L'absence est un cas normal — un projet déclaré avant le lot G,
 	// ou dont la pose a échoué — et le run retombe alors sur la clé partagée.
 	DeployKeySecret(ctx context.Context, projectID int64) (string, bool, error)
+	// RegistrySecret rend le secret **désigné** par le projet pour pousser ses
+	// images, et faux quand il n'en désigne aucun. Désigné et non créé : un
+	// identifiant de registre vient d'un humain, et le déploiement le
+	// provisionne (migration 0038).
+	RegistrySecret(ctx context.Context, projectID int64) (string, bool, error)
 }
 
 // WithProjectKeys branche les clés de déploiement par projet.
@@ -486,8 +491,8 @@ func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
 	}
 }
 
-// settingsFor rend les réglages du run, la clé de déploiement remplacée par
-// celle du projet quand il en a une.
+// settingsFor rend les réglages du run, ceux du projet remplaçant ceux du
+// déploiement quand il en désigne.
 //
 // Une **copie** superposée à la configuration globale, jamais une écriture dans
 // celle-ci : la carte est partagée par tous les runs, et y écrire ferait porter
@@ -503,23 +508,42 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) map[string]s
 		return s.config
 	}
 
-	secret, found, err := s.deployKeys.DeployKeySecret(ctx, *job.ProjectID)
-	if err != nil {
-		// Un échec de lecture ne fait pas échouer le run : il le fait partir avec
-		// la clé partagée, ce qui est l'état d'avant. Le signaler suffit — et
-		// c'est le seul endroit où l'écart se verrait.
-		s.logger.Error("clé de déploiement du projet",
-			"job", job.ID, "projet", *job.ProjectID, "error", err)
-		return s.config
+	// Deux réglages, lus séparément : un projet peut avoir sa clé sans désigner
+	// de registre, et l'inverse. Les traiter ensemble ferait perdre l'un quand
+	// l'autre manque.
+	overrides := map[string]string{}
+	for _, lookup := range []struct {
+		key  string
+		read func(context.Context, int64) (string, bool, error)
+		what string
+	}{
+		{"pipeline.gitSecret", s.deployKeys.DeployKeySecret, "clé de déploiement"},
+		{"pipeline.registrySecret", s.deployKeys.RegistrySecret, "secret de registre"},
+	} {
+		secret, found, err := lookup.read(ctx, *job.ProjectID)
+		if err != nil {
+			// Un échec de lecture ne fait pas échouer le run : il le fait partir
+			// avec le secret partagé, ce qui est l'état d'avant. Le signaler
+			// suffit — et c'est le seul endroit où l'écart se verrait.
+			s.logger.Error(lookup.what+" du projet",
+				"job", job.ID, "projet", *job.ProjectID, "error", err)
+			continue
+		}
+		if found {
+			overrides[lookup.key] = secret
+		}
 	}
-	if !found {
+	if len(overrides) == 0 {
 		return s.config
 	}
 
+	// Une **copie** superposée, jamais une écriture dans la carte partagée.
 	settings := make(map[string]string, len(s.config))
 	for key, value := range s.config {
 		settings[key] = value
 	}
-	settings["pipeline.gitSecret"] = secret
+	for key, value := range overrides {
+		settings[key] = value
+	}
 	return settings
 }

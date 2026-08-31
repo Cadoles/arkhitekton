@@ -38,6 +38,7 @@ const EMPTY: ProjectDraft = {
   dockerfile: '',
   build_context: '.',
   image_registry: '',
+  registry_secret: '',
   multi_stage: false,
   targets: [],
 }
@@ -128,6 +129,7 @@ function toDraft(project: Project): ProjectDraft {
     build_context: project.build_context,
     slug: project.slug,
     image_registry: project.image_registry,
+    registry_secret: project.registry_secret,
     multi_stage: project.multi_stage,
     targets: project.targets,
   }
@@ -465,6 +467,24 @@ function ProjectForm({
               placeholder="reg.cadoles.com/cnous-mse"
               className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
             />
+          </label>
+
+          {/* Un **nom** de secret, jamais un identifiant. Le secret lui-même est
+              provisionné par le déploiement — par Vault en production — et le
+              dashboard se contente de le désigner : faire entrer un mot de passe
+              de registre ici le ferait transiter par le navigateur et l'API. */}
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Secret de poussée</span>
+            <input
+              value={form.registry_secret}
+              onChange={(event) => set('registry_secret', event.target.value)}
+              placeholder="celui du déploiement"
+              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+            />
+            <span className="text-xs text-zinc-500">
+              Le nom d'un secret déjà présent dans le namespace des pipelines. Vide, les runs
+              emploient celui du déploiement.
+            </span>
           </label>
 
           <label className="flex items-center gap-2 text-sm text-zinc-700">

@@ -628,7 +628,7 @@ traçabilité Git qui vont avec.
 | Modèles de volume, classe de stockage | non | le déploiement |
 | `Pipeline` / `Task` de **référence**, par pile | **oui** — un projet déclare sa pile | le dashboard |
 | `Secret` de clé de déploiement, par projet | **oui** — on déclare un projet | le dashboard |
-| `Secret` de registre, par projet | **oui** — un projet publie ailleurs | le dashboard |
+| `Secret` de registre, par projet | **oui** — un projet publie ailleurs | le déploiement, **désigné** par le dashboard — voir plus bas |
 | Liste des secrets montables | **oui** — dérivée des précédents | le dashboard |
 | `PipelineRun` | **oui** *(déjà)* | le dashboard |
 
@@ -1169,8 +1169,8 @@ contrats de fournisseurs, et c'est le moins cher de tous depuis qu'il se réduit
 déplacer des manifestes et à écrire un contrat. À prendre tôt si un second projet se
 présente avant que le lot B ne soit fini.
 
-**Première tranche faite : une clé de déploiement par projet.** Le reste — secrets de
-registre, implémentations de référence par pile — est nommé plus bas.
+**Deux tranches faites : la clé de déploiement, puis le secret de registre.** Reste les
+implémentations de référence par pile, nommées plus bas.
 
 La RBAC accorde `create`, `patch` et `delete` sur les Secrets, **sans** `get` ni `list`.
 La restriction n'est pas un compromis, elle produit la garantie : n'ayant aucun moyen de
@@ -1210,6 +1210,36 @@ Le rattachement se **dérive** de la release dans le magasin plutôt que d'être
 aux huit sites qui enfilent des jobs : exiger de chacun qu'il y pense garantissait qu'un
 l'oublierait, et le run serait parti avec la clé partagée sans qu'aucune erreur ne le
 dise.
+
+#### Le secret de registre : désigné, non créé
+
+`image_registry` était déjà par projet ; le secret qui autorise à y pousser était resté
+global. Publier ailleurs demandait donc des identifiants que ce secret-là ne porte pas, et
+le run échouait au `push` **après** avoir construit l'image.
+
+La table ci-dessus confiait ce secret au dashboard, comme la clé de déploiement. **Ce
+n'est pas ce qui a été fait**, et la ligne a été corrigée.
+
+La différence entre les deux tient en un mot : une clé de déploiement, le dashboard
+l'**engendre**. Aucune matière ne vient d'un humain, rien ne traverse le navigateur, et la
+moitié privée naît dans le processus qui l'écrit. Un identifiant de registre, lui, vient
+d'un humain. Le faire entrer dans un `Secret` depuis l'interface le ferait transiter par
+le navigateur et l'API — l'exposition que [12.7](#127-posture-dopérateur) nomme elle-même
+« réelle » —, et l'API tourne sans jeton de cluster, délibérément.
+
+Les deux seules façons de l'y faire arriver seraient de lui accorder ce jeton, ou de
+garder l'identifiant en base : la première défait la décision prise à la tranche
+précédente, la seconde viole la règle « jamais en base » de la même section. Aucune des
+deux ne vaut la commodité d'un formulaire.
+
+Le projet **désigne** donc un secret que le déploiement provisionne — par `ExternalSecret`
+adossé à Vault en production, ce que §12.7 exige de garder comme chemin de premier rang.
+C'est doc 07 §7.3 appliquée sans aménagement : le dashboard désigne, il ne distribue pas.
+
+Bénéfice qui n'était pas cherché : le secret désigné est **déjà** déclaré montable par le
+déploiement, comme `regcred` l'est. Aucune entrée à ajouter à la liste des secrets
+montables, donc aucun nom étranger à y faire entrer — ce que la garantie structurelle de
+la tranche précédente interdit précisément.
 
 ### Jalon de vérification
 

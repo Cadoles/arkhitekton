@@ -133,7 +133,15 @@ type Project struct {
 	// par étape — les images d'une application vont au même endroit, et les
 	// répéter ferait diverger la dernière au premier changement de registre.
 	ImageRegistry string
-	MultiStage    bool
+	// RegistrySecret nomme le secret autorisant à pousser vers ce registre. Vide
+	// vaut celui du déploiement.
+	//
+	// **Désigné, non créé** : un identifiant de registre vient d'un humain, et le
+	// faire entrer dans un Secret depuis l'interface le ferait transiter par le
+	// navigateur et l'API — laquelle tourne sans jeton de cluster. Le déploiement
+	// le provisionne, le projet le nomme (migration 0038, doc 07 §7.3).
+	RegistrySecret string
+	MultiStage     bool
 	// TrackerProject nomme ce projet dans l'outil de suivi — `mse-dev` chez
 	// Redmine. Vide, le projet n'a **aucun** suivi : ses versions sont alors
 	// celles que le dashboard déduit des tags, et rien n'attend de confirmation
@@ -236,7 +244,8 @@ var ErrProjectExists = errors.New("dépôt déjà déclaré")
 func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, multi_stage, tracker_project, targets, checked_at, check_ok,
+		        image_registry, registry_secret, multi_stage, tracker_project, targets,
+		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
 		        created_by, created_at, updated_at
 		 from projects order by label`)
@@ -260,7 +269,8 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, multi_stage, tracker_project, targets, checked_at, check_ok,
+		        image_registry, registry_secret, multi_stage, tracker_project, targets,
+		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
 		        created_by, created_at, updated_at
 		 from projects where id = $1`, id)
@@ -338,7 +348,8 @@ func (db *DB) TrackedProjects(ctx context.Context) ([]TrackedProject, error) {
 func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, multi_stage, tracker_project, targets, checked_at, check_ok,
+		        image_registry, registry_secret, multi_stage, tracker_project, targets,
+		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
 		        created_by, created_at, updated_at
 		 from projects where slug = $1`, slug)
@@ -361,7 +372,8 @@ func scanProject(rows pgx.Rows) (Project, error) {
 	var targets []byte
 	if err := rows.Scan(&project.ID, &project.Slug, &project.Repository, &project.Label,
 		&project.ForgeURL, &project.Dockerfile, &project.BuildContext,
-		&project.ImageRegistry, &project.MultiStage, &project.TrackerProject, &targets,
+		&project.ImageRegistry, &project.RegistrySecret, &project.MultiStage,
+		&project.TrackerProject, &targets,
 		&project.CheckedAt, &project.CheckOK,
 		&project.CheckNote, &project.DeployKeyPublic, &project.DeployKeyCreatedAt,
 		&project.DeployKeyActive,
@@ -392,14 +404,14 @@ func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error)
 	var id int64
 	err = db.pool.QueryRow(ctx,
 		`insert into projects (slug, repository, label, forge_url, dockerfile,
-		                       build_context, image_registry, multi_stage,
-		                       tracker_project, targets, created_by)
-		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		                       build_context, image_registry, registry_secret,
+		                       multi_stage, tracker_project, targets, created_by)
+		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 on conflict (repository) do nothing
 		 returning id`,
 		project.Slug, project.Repository, project.Label, project.ForgeURL, project.Dockerfile,
-		project.BuildContext, project.ImageRegistry, project.MultiStage,
-		project.TrackerProject, targets, project.CreatedBy).Scan(&id)
+		project.BuildContext, project.ImageRegistry, project.RegistrySecret,
+		project.MultiStage, project.TrackerProject, targets, project.CreatedBy).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// `do nothing` n'a rien rendu : le dépôt est déjà déclaré.
@@ -444,7 +456,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		`update projects
 		 set repository = $2, label = $3, forge_url = $4, dockerfile = $5,
 		     build_context = $6, image_registry = $7, multi_stage = $8,
-		     targets = $9, slug = $10, tracker_project = $11,
+		     targets = $9, slug = $10, tracker_project = $11, registry_secret = $12,
 		     -- Le constat ne survit qu'à un dépôt inchangé. La comparaison porte
 		     -- sur la valeur en base, encore lisible pendant l'update : une
 		     -- lecture préalable ouvrirait une fenêtre entre le constat et
@@ -456,7 +468,8 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		 where id = $1`,
 		project.ID, project.Repository, project.Label, project.ForgeURL,
 		project.Dockerfile, project.BuildContext, project.ImageRegistry,
-		project.MultiStage, targets, project.Slug, project.TrackerProject)
+		project.MultiStage, targets, project.Slug, project.TrackerProject,
+		project.RegistrySecret)
 	if err != nil {
 		// Un dépôt déjà déclaré ailleurs : deux entrées le décriraient, et rien
 		// ne dirait laquelle fait foi. L'appelant doit pouvoir le dire plutôt que
@@ -665,4 +678,23 @@ func (db *DB) ActivateDeployKey(ctx context.Context, projectID int64, active boo
 		return ErrProjectNotFound
 	}
 	return nil
+}
+
+// RegistrySecret rend le secret de registre désigné par un projet.
+//
+// Faux quand il n'en désigne aucun : le run emploie alors celui du déploiement,
+// qui est le cas de tous les projets qui publient au même endroit.
+func (db *DB) RegistrySecret(ctx context.Context, projectID int64) (string, bool, error) {
+	var name string
+	err := db.pool.QueryRow(ctx,
+		`select registry_secret from projects where id = $1`, projectID).Scan(&name)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return "", false, nil
+	case err != nil:
+		return "", false, fmt.Errorf("secret de registre du projet %d: %w", projectID, err)
+	case name == "":
+		return "", false, nil
+	}
+	return name, true, nil
 }
