@@ -1,6 +1,7 @@
 package flux
 
 import (
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 	"strings"
 	"testing"
 )
@@ -152,5 +153,33 @@ func TestLeConflitDeSuffixeSeVoitHorsDePortee(t *testing.T) {
 
 	if err := CheckPromotionTargets(environments, nil); err == nil {
 		t.Error("le conflit ne dépend pas de l'observabilité")
+	}
+}
+
+// Le couplage schéma × déployeur, refusé plutôt que découvert.
+//
+// Ce déployeur promeut en écrivant une métadonnée dans le tag, que la plage
+// d'une ImagePolicy retient. Un schéma qui ne sait pas où la poser rend la
+// promotion impossible — et l'échec serait le plus coûteux qui soit : le tag
+// partirait, le registre l'accepterait, Flux l'ignorerait, et la promotion
+// paraîtrait réussie (B7, doc 12 §12.4).
+func TestUnSchemaOpaqueEstRefuseParCeDeployeur(t *testing.T) {
+	err := NewDeployer(nil, DefaultPromotionKind, "").CheckScheme(version.Opaque{})
+	if err == nil {
+		t.Fatal("un schéma sans marqueur doit être refusé: la promotion serait sans effet")
+	}
+	// Le message doit dire *pourquoi*, sans quoi on cherchera du côté du
+	// registre ou des politiques.
+	if !strings.Contains(err.Error(), "marqueur") {
+		t.Errorf("message %q — il doit nommer ce qui manque", err)
+	}
+}
+
+// Le SemVer convient, et la question est posée au schéma plutôt que déduite de
+// son nom : c'est ce qui fera accepter un schéma calendaire, le jour où il
+// existera, sans que cette ligne change.
+func TestUnSchemaQuiSaitMarquerEstAccepte(t *testing.T) {
+	if err := NewDeployer(nil, DefaultPromotionKind, "").CheckScheme(version.SemVer{}); err != nil {
+		t.Errorf("schéma SemVer refusé: %v", err)
 	}
 }

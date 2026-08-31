@@ -7,6 +7,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 /*
@@ -42,6 +43,8 @@ func (f *fakeDeployer) Observe(
 }
 
 func (f *fakeDeployer) Check(context.Context, []provider.Target) error { return nil }
+
+func (f *fakeDeployer) CheckScheme(version.Scheme) error { return nil }
 
 type fakeAttester struct {
 	states []provider.Attestation

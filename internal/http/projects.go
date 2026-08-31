@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 /*
@@ -67,6 +69,10 @@ type ProjectsHandler struct {
 	// keys pose la clé d'un projet dans le cluster. Nil quand le dashboard n'a
 	// pas d'accès au cluster : la déclaration reste alors possible, et le projet
 	// emploie la clé partagée.
+	// deployer sert à refuser un schéma de version qu'il ne saurait pas
+	// acheminer. Nil quand aucun déployeur n'est configuré : tout schéma est
+	// alors acceptable, puisque rien ne promeut.
+	deployer provider.Deployer
 	forgeURL string
 	// imageRegistry est le registre proposé par défaut à la déclaration. Celui de
 	// la configuration : c'est là que publient les projets existants, et le
@@ -76,6 +82,12 @@ type ProjectsHandler struct {
 
 func NewProjectsHandler(projects ProjectStore) *ProjectsHandler {
 	return &ProjectsHandler{store: projects}
+}
+
+// WithDeployer branche le refus des schémas incompatibles.
+func (h *ProjectsHandler) WithDeployer(deployer provider.Deployer) *ProjectsHandler {
+	h.deployer = deployer
+	return h
 }
 
 // WithProbe branche le test d'accès.
@@ -132,9 +144,13 @@ type projectPayload struct {
 	// le déploiement — par Vault en production —, et le dashboard se contente de
 	// le désigner : faire entrer un mot de passe de registre par ce formulaire le
 	// ferait transiter par le navigateur et l'API (doc 07 §7.3, doc 12 §12.7).
-	RegistrySecret string          `json:"registry_secret"`
-	MultiStage     bool            `json:"multi_stage"`
-	Targets        []targetPayload `json:"targets"`
+	RegistrySecret string `json:"registry_secret"`
+	// VersionScheme nomme la forme des tags. Un schéma opaque reste utilisable :
+	// il perd la suggestion de version suivante et la sélection par plage, et
+	// l'écran doit le dire plutôt que de calculer n'importe quoi.
+	VersionScheme string          `json:"version_scheme"`
+	MultiStage    bool            `json:"multi_stage"`
+	Targets       []targetPayload `json:"targets"`
 	// CheckedAt absent : aucun test n'a eu lieu. État distinct d'un test qui a
 	// échoué, et qui ne doit pas se lire comme lui.
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
@@ -204,6 +220,7 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		Slug:           project.Slug,
 		ImageRegistry:  project.ImageRegistry,
 		RegistrySecret: project.RegistrySecret,
+		VersionScheme:  project.VersionScheme,
 		MultiStage:     project.MultiStage, Targets: targets,
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
@@ -231,11 +248,13 @@ type projectRequest struct {
 	// Slug nomme le projet dans les URL : `/projects/mse/releases/1.8.0`. Rendu
 	// et modifiable — ces adresses finissent en favori, et un nom qu'on ne peut
 	// pas corriger est un nom qu'on subit.
-	Slug           string          `json:"slug"`
-	ImageRegistry  string          `json:"image_registry"`
-	RegistrySecret string          `json:"registry_secret"`
-	MultiStage     bool            `json:"multi_stage"`
-	Targets        []targetPayload `json:"targets"`
+	Slug           string `json:"slug"`
+	ImageRegistry  string `json:"image_registry"`
+	RegistrySecret string `json:"registry_secret"`
+	// VersionScheme nomme la forme des tags de ce projet. Vide vaut `semver`.
+	VersionScheme string          `json:"version_scheme"`
+	MultiStage    bool            `json:"multi_stage"`
+	Targets       []targetPayload `json:"targets"`
 }
 
 // repositoryPattern borne la forme d'un dépôt.
@@ -284,6 +303,27 @@ func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projec
 		request.ImageRegistry = h.imageRegistry
 	}
 
+	// Le couplage schéma × déployeur est refusé **ici**, à la configuration, et
+	// non découvert au premier déploiement qui ne part pas.
+	//
+	// C'est le mode de défaillance que doc 12 §12.4 désigne : Flux sélectionne
+	// par plage SemVer, et avec un schéma opaque le tag de promotion serait
+	// poussé, accepté par le registre, ignoré par Flux — la promotion paraîtrait
+	// réussie et rien ne bougerait.
+	request.VersionScheme = strings.TrimSpace(request.VersionScheme)
+	scheme, err := version.For(request.VersionScheme)
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Schéma de version inconnu", err.Error())
+		return request, false
+	}
+	if h.deployer != nil {
+		if err := h.deployer.CheckScheme(scheme); err != nil {
+			writeProblem(w, http.StatusBadRequest,
+				"Schéma de version incompatible avec le déployeur", err.Error())
+			return request, false
+		}
+	}
+
 	return request, true
 }
 
@@ -323,6 +363,7 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Slug:           strings.TrimSpace(request.Slug),
 		ImageRegistry:  request.ImageRegistry,
 		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
+		VersionScheme:  strings.TrimSpace(request.VersionScheme),
 		MultiStage:     request.MultiStage, Targets: targetsOf(request),
 		CreatedBy: identity.Subject,
 	})
@@ -410,6 +451,7 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		ForgeURL: request.ForgeURL, Dockerfile: request.Dockerfile,
 		BuildContext: request.BuildContext, ImageRegistry: request.ImageRegistry,
 		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
+		VersionScheme:  strings.TrimSpace(request.VersionScheme),
 		Slug:           strings.TrimSpace(request.Slug),
 		MultiStage:     request.MultiStage, Targets: targetsOf(request),
 	})

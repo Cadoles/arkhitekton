@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"errors"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 /*
@@ -63,6 +65,20 @@ type Deployer interface {
 	// effet : l'écart ne se verrait sinon qu'en constatant qu'un environnement ne
 	// bouge jamais (doc 06 §6.2).
 	Check(ctx context.Context, targets []Target) error
+
+	// CheckScheme dit si ce déployeur sait acheminer des versions écrites selon
+	// ce schéma.
+	//
+	// **Le schéma et le déployeur sont couplés**, et le couplage doit être
+	// refusé à la configuration plutôt que découvert au premier déploiement qui
+	// ne part pas (doc 12 §12.4). Flux sélectionne par plage SemVer ; avec un
+	// schéma opaque, la promotion par plage est impossible, et rien ne le dirait
+	// — le tag serait poussé, ignoré, et la promotion paraîtrait réussie.
+	//
+	// Posée dans le contrat et non en interface optionnelle : tout déployeur a
+	// une réponse, fût-elle « tout me va », et la rendre facultative ferait
+	// oublier la question au prochain.
+	CheckScheme(scheme version.Scheme) error
 }
 
 // Target est un environnement, vu du dashboard.
@@ -195,6 +211,10 @@ func (NoDeployer) Plan(context.Context, Deployment) (Plan, error) {
 func (NoDeployer) Observe(context.Context, Target) (Observation, error) {
 	return Observation{Resolution: ResolutionUnobservable}, nil
 }
+
+// CheckScheme accepte tout : n'acheminant rien, ce déployeur n'a aucune exigence
+// sur la forme des versions. C'est la réponse d'un projet qui déploie à la main.
+func (NoDeployer) CheckScheme(version.Scheme) error { return nil }
 
 // Check accepte tout : sans outil de déploiement, aucun environnement ne peut
 // être en désaccord avec lui.

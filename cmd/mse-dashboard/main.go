@@ -939,7 +939,12 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
 		WithDeployKey(cfg.Forge.DeployKey, cfg.Forge.URL).
-		WithImageRegistry(cfg.Registry.Project)
+		WithImageRegistry(cfg.Registry.Project).
+		// Le même déployeur que celui qui promeut, et sans client : la question
+		// posée — « sais-tu acheminer ce schéma ? » — ne demande pas le cluster,
+		// et un aperçu qui répondrait autrement que la promotion elle-même serait
+		// pire que pas d'aperçu.
+		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, ""))
 
 	if cfg.Forge.URL == "" || cfg.Forge.Token == "" {
 		return handler

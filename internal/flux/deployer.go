@@ -6,6 +6,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 /*
@@ -138,6 +139,43 @@ func (d *Deployer) Observe(ctx context.Context, target provider.Target) (provide
 	}
 	return observation, nil
 }
+
+// CheckScheme refuse un schéma auquel ce déployeur ne peut pas attacher de
+// marqueur.
+//
+// Ce déployeur promeut en **écrivant une métadonnée** dans le tag, que la plage
+// d'une ImagePolicy retient ensuite. Un schéma qui ne sait pas où poser cette
+// métadonnée rend la promotion impossible — et l'échec serait le plus coûteux
+// qui soit : le tag partirait, le registre l'accepterait, Flux l'ignorerait, et
+// la promotion paraîtrait réussie (B7).
+//
+// La question est posée au schéma plutôt que déduite de son nom : c'est ce qui
+// fait qu'un schéma calendaire, le jour où il existera, sera accepté sans que
+// cette ligne change — il sait suffixer, donc il convient.
+func (d *Deployer) CheckScheme(scheme version.Scheme) error {
+	// Un tag sonde, jamais poussé : on demande au schéma s'il **sait** poser un
+	// marqueur, pas ce qu'il produirait.
+	probe, err := scheme.Parse(probeTag)
+	if err != nil {
+		// Le schéma refuse jusqu'à un tag canonique : il ne peut pas décrire les
+		// versions que ce déployeur achemine.
+		return fmt.Errorf(
+			"le schéma %q ne reconnaît pas une version de la forme %q, "+
+				"que ce déployeur doit savoir écrire: %w", scheme.ID(), probeTag, err)
+	}
+
+	if _, err := scheme.Mark(probe.Raw, "prod"); err != nil {
+		return fmt.Errorf(
+			"le schéma %q ne sait pas attacher de marqueur de promotion, "+
+				"or ce déployeur sélectionne par métadonnée: une promotion "+
+				"produirait un tag que rien ne retiendrait (%w)", scheme.ID(), err)
+	}
+	return nil
+}
+
+// probeTag est la version canonique servant à interroger un schéma. Jamais
+// poussée : elle ne sert qu'à savoir si le schéma sait répondre.
+const probeTag = "1.0.0"
 
 // Check confronte les environnements déclarés aux ImagePolicy réelles.
 //

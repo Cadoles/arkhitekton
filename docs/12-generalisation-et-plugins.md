@@ -1004,6 +1004,38 @@ suivant plus cher.
 **Attention** : la table `projects` existe déjà (migration 0021) mais n'est que
 descriptive. Ce lot la rend porteuse.
 
+**L'identité : faite.** `project_id` sur les versions, les releases, les demandes et les
+jobs ; unicité `(project_id, tag)` ; routes `/projects/{p}/…` ; rôles par projet et écran
+d'attribution.
+
+**Le schéma de version : fait** (migration 0039). Le SemVer n'était pas une brique mais
+une **hypothèse ambiante**, codée dans `internal/release` et supposée acquise partout
+ailleurs. Il devient une capacité à qui l'on pose six questions — bien formé, ligne de
+version, pré-release, marqueur, ordre — dont **chacune peut rester sans réponse**.
+
+C'est le schéma `opaque` qui prouve le contrat, et il devait rester *utilisable* : un
+projet dont les tags s'écrivent `build-4711` perd la suggestion de version suivante et la
+sélection par plage, mais garde tout le reste. Confronté à l'ignorance, le contrat a dû
+rendre chaque question faillible plutôt que de rendre des zéros — un `Base` vide et un
+`false` de pré-release auraient été indiscernables de réponses affirmatives, et c'est
+ainsi qu'on promeut en production un tag que personne n'a validé. D'où
+`Version.Prereleased()` à deux retours.
+
+Le calendaire, que [12.4](#124-la-frontière-difficile-la-sémantique) cite, n'est pas
+écrit : aucun projet déclaré n'en emploie, et l'écrire d'avance reviendrait à deviner une
+convention. Il s'ajoutera contre un cas réel.
+
+**Le couplage schéma × déployeur est refusé à la configuration**, ce que §12.4 réclamait
+explicitement. `provider.Deployer` porte désormais la question, et le déployeur Flux
+refuse un schéma auquel il ne sait pas attacher de marqueur : sans cela, le tag de
+promotion serait poussé, accepté par le registre, ignoré par Flux — la promotion
+paraîtrait réussie et rien ne bougerait. La question est posée **au schéma** et non
+déduite de son nom, ce qui fera accepter le calendaire sans que cette ligne change.
+
+**Le cycle de release : reste à faire.** Les natures sont encore
+`check (kind in ('pre','final','patch'))` en base — trois noms pour deux comportements,
+et l'impossibilité d'en déclarer un quatrième.
+
 ### Lot C — Extraire le Tracker
 
 Redmine en premier plugin : le plus isolé (3 fichiers), le plus demandé.
