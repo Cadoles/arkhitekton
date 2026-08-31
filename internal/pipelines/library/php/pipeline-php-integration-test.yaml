@@ -1,0 +1,174 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: php-integration-test
+spec:
+  params:
+    # URL PUT pré-signée des résultats, fournie par le dashboard. Vide, la
+    # publication est ignorée : un run déclenché par CronJob n'a personne pour lui
+    # en délivrer une, et doit continuer de tourner (B14).
+    - name: results-upload-url
+      default: ""
+    - name: mse-repo
+    - name: mse-kustom-repo
+    - name: mse-revision
+    - name: mse-kustom-revision
+    - name: overlay-location
+    - name: reg-project
+    # Sans défaut, donc obligatoire : ce pipeline déploie une image **déjà
+    # publiée**, il n'en construit plus.
+    #
+    # Reconstruire ici produisait un artefact différent de celui que la release
+    # a publié — horodatages, ordre des couches, et un tag dérivé de la branche
+    # plutôt que de la version. Les tests d'intégration portaient donc sur une
+    # image que personne ne livrera : le principe du re-tag de B17, appliqué à
+    # l'intégration comme il l'a été à l'audit.
+    - name: image-tag
+      description: Tag des images portal et portal-cli à déployer.
+    - name: consumer-image
+      default: portal-cli
+      description: >
+        Nom de la seconde image. `portal-cli` depuis la migration FrankenPHP —
+        elle sert les consumers Messenger, les cronjobs et les jobs. Le paramètre
+        reste réglable pour qu'une kustomization de test puisse en nommer une autre.
+    - name: dev-image
+      default: portal-dev
+      description: >
+        Nom de l'image de développement. Les overlays `dev` et `pipeline` de
+        `mse-kustom` y font tourner le job de bootstrap : sans substitution, il
+        tirerait `portal-dev:latest` au lieu de la version testée, et le jeu de
+        données serait chargé par une autre version que celle qu'on éprouve.
+    - name: minio-host
+    - name: minio-bucket
+    - name: integration-debug
+      default: "false"
+    - name: integration-timeout
+      default: 20m
+    - name: immutable-delete-allowlist
+      default: ""
+    - name: apply-strategy
+      default: "server-side-apply"
+
+  workspaces:
+    - name: mse
+    - name: kustomization
+    - name: git-credentials
+    - name: dockerconfig
+
+  tasks:
+    - name: git-clone-mse
+      displayName: Clone mse
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: mse
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.mse-repo)
+        - name: revision
+          value: $(params.mse-revision)
+
+    - name: git-clone-kustomization
+      displayName: Clone mse kustom
+      runAfter: ["git-clone-mse"]
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: kustomization
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.mse-kustom-repo)
+        - name: revision
+          value: $(params.mse-kustom-revision)
+
+    - name: deploy-mse-namespace
+      displayName: Deploy mse
+      runAfter: ["git-clone-kustomization"]
+      taskRef:
+        name: deploy-mse
+      workspaces:
+        - name: kustomization
+          workspace: kustomization
+        - name: dockerconfig
+          workspace: dockerconfig
+      params:
+        - name: namespace
+          value: mse-pipeline
+        - name: replace-image-mapping
+          # Les trois images publiées par la construction, au même tag. Une
+          # entrée qui ne correspond à rien dans la kustomization déployée est
+          # simplement ignorée : c'est ce qui permet de garder la liste complète
+          # ici, qu'on déploie le vrai portail ou une kustomization de test qui
+          # n'en utilise que deux.
+          value: "{images: [
+            {name: 'reg.cadoles.com/cnous-mse/portal', newName: '$(params.reg-project)/portal', newTag: '$(params.image-tag)'},
+            {name: 'reg.cadoles.com/cnous-mse/$(params.consumer-image)', newName: '$(params.reg-project)/$(params.consumer-image)', newTag: '$(params.image-tag)'},
+            {name: 'reg.cadoles.com/cnous-mse/$(params.dev-image)', newName: '$(params.reg-project)/$(params.dev-image)', newTag: '$(params.image-tag)'}
+            ]}"
+        - name: overlay-location
+          value: $(params.overlay-location)
+        - name: reset-data
+          value: "true"
+        - name: immutable-delete-allowlist
+          value: $(params.immutable-delete-allowlist)
+        - name: apply-strategy
+          value: $(params.apply-strategy)
+
+    - name: run-integration-tests
+      displayName: Run integration tests
+      runAfter: ["deploy-mse-namespace"]
+      taskRef:
+        name: integration-test
+      workspaces:
+        - name: source
+          workspace: mse
+      params:
+        - name: namespace
+          value: mse-pipeline
+        - name: pipeline-run-name
+          value: $(context.pipelineRun.name)
+        - name: minio-host
+          value: $(params.minio-host)
+        - name: minio-bucket
+          value: $(params.minio-bucket)
+        - name: debug
+          value: $(params.integration-debug)
+        - name: timeout
+          value: $(params.integration-timeout)
+
+  finally:
+    # En `finally`, et non après `run-integration-tests` : un test en échec fait
+    # sortir sa task en erreur, et une publication qui la suivrait ne
+    # s'exécuterait pas. Le rapport serait perdu exactement dans le cas où il
+    # sert. Même raison que dans `php-static-tests`.
+    - name: save-results
+      displayName: Publish test results
+      taskRef:
+        name: publish-artifact
+      workspaces:
+        - name: source
+          workspace: mse
+      params:
+        - name: path
+          value: test-results
+        # Le répertoire entier, en archive : la Task y écrit sous
+        # `test-results/integration/`, et c'est ce chemin qui nomme la famille
+        # pour le lecteur.
+        - name: mode
+          value: archive
+        - name: upload-url
+          value: $(params.results-upload-url)

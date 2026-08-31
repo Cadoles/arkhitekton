@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/pipelines"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
@@ -148,9 +149,13 @@ type projectPayload struct {
 	// VersionScheme nomme la forme des tags. Un schéma opaque reste utilisable :
 	// il perd la suggestion de version suivante et la sélection par plage, et
 	// l'écran doit le dire plutôt que de calculer n'importe quoi.
-	VersionScheme string          `json:"version_scheme"`
-	MultiStage    bool            `json:"multi_stage"`
-	Targets       []targetPayload `json:"targets"`
+	VersionScheme string `json:"version_scheme"`
+	// Stack nomme la pile dont la bibliothèque de référence est posée. Vide :
+	// le projet apporte ses propres pipelines, ce qui est parfaitement valide —
+	// le normatif est le contrat, pas la bibliothèque.
+	Stack      string          `json:"stack"`
+	MultiStage bool            `json:"multi_stage"`
+	Targets    []targetPayload `json:"targets"`
 	// CheckedAt absent : aucun test n'a eu lieu. État distinct d'un test qui a
 	// échoué, et qui ne doit pas se lire comme lui.
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
@@ -221,6 +226,7 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		ImageRegistry:  project.ImageRegistry,
 		RegistrySecret: project.RegistrySecret,
 		VersionScheme:  project.VersionScheme,
+		Stack:          project.Stack,
 		MultiStage:     project.MultiStage, Targets: targets,
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
@@ -252,9 +258,12 @@ type projectRequest struct {
 	ImageRegistry  string `json:"image_registry"`
 	RegistrySecret string `json:"registry_secret"`
 	// VersionScheme nomme la forme des tags de ce projet. Vide vaut `semver`.
-	VersionScheme string          `json:"version_scheme"`
-	MultiStage    bool            `json:"multi_stage"`
-	Targets       []targetPayload `json:"targets"`
+	VersionScheme string `json:"version_scheme"`
+	// Stack nomme la pile dont la bibliothèque de référence sera posée. Vide :
+	// le projet apporte ses propres pipelines.
+	Stack      string          `json:"stack"`
+	MultiStage bool            `json:"multi_stage"`
+	Targets    []targetPayload `json:"targets"`
 }
 
 // repositoryPattern borne la forme d'un dépôt.
@@ -324,6 +333,16 @@ func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projec
 		}
 	}
 
+	// La pile est refusée à la déclaration si aucune bibliothèque ne la couvre.
+	// L'apprendre ici plutôt qu'au premier lancement évite de constater qu'un
+	// pipeline est introuvable sans savoir pourquoi — et le message dit quoi
+	// faire : un projet dont la pile n'est pas couverte écrit les siens.
+	request.Stack = strings.TrimSpace(request.Stack)
+	if _, err := pipelines.For(request.Stack); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Pile inconnue", err.Error())
+		return request, false
+	}
+
 	return request, true
 }
 
@@ -364,6 +383,7 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ImageRegistry:  request.ImageRegistry,
 		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
 		VersionScheme:  strings.TrimSpace(request.VersionScheme),
+		Stack:          strings.TrimSpace(request.Stack),
 		MultiStage:     request.MultiStage, Targets: targetsOf(request),
 		CreatedBy: identity.Subject,
 	})
@@ -452,6 +472,7 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		BuildContext: request.BuildContext, ImageRegistry: request.ImageRegistry,
 		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
 		VersionScheme:  strings.TrimSpace(request.VersionScheme),
+		Stack:          strings.TrimSpace(request.Stack),
 		Slug:           strings.TrimSpace(request.Slug),
 		MultiStage:     request.MultiStage, Targets: targetsOf(request),
 	})

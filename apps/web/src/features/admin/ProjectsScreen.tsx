@@ -39,6 +39,7 @@ const EMPTY: ProjectDraft = {
   build_context: '.',
   image_registry: '',
   registry_secret: '',
+  stack: '',
   multi_stage: false,
   targets: [],
 }
@@ -130,6 +131,7 @@ function toDraft(project: Project): ProjectDraft {
     slug: project.slug,
     image_registry: project.image_registry,
     registry_secret: project.registry_secret,
+    stack: project.stack,
     multi_stage: project.multi_stage,
     targets: project.targets,
   }
@@ -484,6 +486,24 @@ function ProjectForm({
             <span className="text-xs text-zinc-500">
               Le nom d'un secret déjà présent dans le namespace des pipelines. Vide, les runs
               emploient celui du déploiement.
+            </span>
+          </label>
+
+          {/* La pile décide de la bibliothèque de référence que le dashboard
+              pose — les Task propres à un langage. Vide est la valeur normale
+              d'un projet qui apporte les siennes : le normatif est le contrat
+              des pipelines, pas la bibliothèque. */}
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Pile</span>
+            <input
+              value={form.stack}
+              onChange={(event) => set('stack', event.target.value)}
+              placeholder="aucune"
+              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+            />
+            <span className="text-xs text-zinc-500">
+              Le dashboard posera les pipelines de référence de cette pile. Laisser vide si le
+              projet apporte les siens.
             </span>
           </label>
 

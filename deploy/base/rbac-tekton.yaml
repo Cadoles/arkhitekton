@@ -11,9 +11,15 @@
 #     le motif d'origine à la lettre (doc 12 §12.7).
 #   - `pods/exec` : la collecte de logs passe par `pods/log`, jamais par une
 #     exécution dans un conteneur.
-#   - toute écriture sur `pipelines` et `tasks` : elles appartiennent à
-#     `mse-tekton`. Le dashboard crée des PipelineRun qui les référencent, il ne
-#     les modifie pas.
+#   - l'écriture sur les `pipelines` et `tasks` du **noyau** : construire et
+#     re-taguer arrivent avec le binaire, par sa kustomization, comme le Job de
+#     migration. Le dashboard ne les modifie pas à l'exécution.
+#
+#     Il écrit en revanche les implémentations de **référence** — les Task d'une
+#     pile, posées quand un projet la déclare (doc 12 §12.6, lot G). Il ne pose
+#     que ce qu'il nomme, marque ce qu'il possède, et n'adopte jamais une
+#     définition qu'un tiers maintient : sur un cluster où `mse-tekton` a déjà
+#     posé les siennes, il constate et se retire.
 #
 # Ce fichier porte un namespace en dur, différent de celui du reste du dépôt.
 # C'est la raison pour laquelle aucun transformateur `namespace:` n'est déclaré
@@ -29,7 +35,11 @@ rules:
   # démarrage contre ce qui existe réellement dans le cluster.
   - apiGroups: ["tekton.dev"]
     resources: ["pipelines", "tasks"]
-    verbs: ["get", "list", "watch"]
+    # `create` et `update` pour la bibliothèque de référence ; pas `delete` :
+    # retirer un pipeline que des runs référencent encore les rendrait
+    # inexplicables, et retirer une pile est un geste assez rare pour rester
+    # manuel.
+    verbs: ["get", "list", "watch", "create", "update"]
   # Pilotage des exécutions. `patch` sert uniquement à poser
   # `spec.status: Cancelled` ; `delete` au nettoyage des runs créés par le
   # dashboard.

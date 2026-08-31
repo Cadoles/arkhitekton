@@ -1,0 +1,100 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: phpstan
+spec:
+  description: >
+    Analyse statique PHPStan.
+
+    PHPStan ne produit qu'un format de sortie à la fois. Plutôt que de l'exécuter
+    deux fois — l'analyse est le coût dominant, pas le rendu — la task produit le
+    JSON et en dérive l'affichage lisible. La sortie humaine y gagne : un
+    "fichier:ligne: message" par violation est plus exploitable dans un log qu'un
+    tableau ASCII tronqué.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: output-dir
+      default: test-results/phpstan
+      description: Répertoire des artefacts, relatif au workspace source.
+    - name: configuration
+      default: phpstan-pipeline.neon
+
+  results:
+    - name: summary
+      description: Nombre de violations, ex. "12 violations".
+
+  steps:
+    - name: exec
+      image: php:8.4-alpine
+      script: |
+        #!/usr/bin/env sh
+        set -eu -o pipefail
+
+        cd $(workspaces.source.path)
+
+        OUT="$(params.output-dir)"
+        mkdir -p "${OUT}"
+
+        VERSION=$(vendor/bin/phpstan --version 2>/dev/null \
+          | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true)
+
+        # Une violation fait sortir PHPStan en erreur. C'est un résultat, pas une
+        # panne : le descripteur doit être émis dans les deux cas, et le code de
+        # sortie propagé en fin de script.
+        set +e
+        vendor/bin/phpstan analyse \
+          --configuration "$(params.configuration)" \
+          --no-progress \
+          --memory-limit 512M \
+          --error-format=json > "${OUT}/phpstan.json"
+        RC=$?
+        set -e
+
+        # Rendu lisible et décompte dérivés du JSON, en une passe. Renvoie -1 si le
+        # rapport est absent ou illisible — distinct de zéro violation.
+        COUNT=$(php -r '
+          [$script, $reportPath, $logPath] = $argv;
+          $report = is_readable($reportPath)
+              ? json_decode(file_get_contents($reportPath), true)
+              : null;
+          if (!is_array($report)) {
+              file_put_contents($logPath, "phpstan: rapport JSON absent ou invalide\n");
+              echo "-1";
+              exit(0);
+          }
+          $lines = [];
+          foreach (($report["files"] ?? []) as $file => $info) {
+              foreach (($info["messages"] ?? []) as $message) {
+                  $lines[] = sprintf("%s:%s: %s",
+                      $file, $message["line"] ?? "?", $message["message"] ?? "");
+              }
+          }
+          foreach (($report["errors"] ?? []) as $error) {
+              $lines[] = "general: " . $error;
+          }
+          file_put_contents($logPath,
+              $lines ? implode("\n", $lines) . "\n" : "Aucune violation.\n");
+          $totals = $report["totals"] ?? [];
+          echo (int) (($totals["file_errors"] ?? 0) + ($totals["errors"] ?? 0));
+        ' "${OUT}/phpstan.json" "${OUT}/phpstan.log")
+
+        cat "${OUT}/phpstan.log"
+
+        if [ "${COUNT}" = "-1" ]; then
+          STATUS=error
+          SUMMARY="rapport illisible"
+        else
+          STATUS=ok
+          SUMMARY="${COUNT} violations"
+        fi
+
+        printf '%s' "${SUMMARY}" > "$(results.summary.path)"
+
+        printf '##MSE-META## {"tool":"phpstan","scanner":"static","version":"%s","format":"phpstan-json","output":"phpstan.json","exit_code":%d,"status":"%s"}\n' \
+          "${VERSION}" "${RC}" "${STATUS}"
+        printf '##MSE-SUMMARY## %s\n' "${SUMMARY}"
+
+        exit ${RC}

@@ -1,0 +1,147 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: integration-test
+spec:
+  workspaces:
+    - name: source
+  results:
+    - name: summary
+      description: PHPUnit summary line (e.g. "OK (123 tests, 456 assertions)")
+  params:
+    - name: namespace
+    - name: pipeline-run-name
+      default: ""
+      description: PipelineRun name, used to suffix the uploaded log object
+    - name: deployment-name
+      default: portal
+    - name: container-name
+      default: portal-php-fpm84
+    - name: testsuite
+      default: integration
+    - name: debug
+      default: "false"
+    - name: rollout-timeout
+      default: 300s
+    - name: timeout
+      default: 20m
+    - name: retry-on-exit-137
+      default: "true"
+    - name: max-retries
+      default: "1"
+    - name: retry-delay-seconds
+      default: "10"
+    - name: minio-host
+      default: ""
+    - name: minio-bucket
+      default: ""
+    - name: minio-path
+      default: /integration-tests/phpunit
+    - name: junit-pod-path
+      default: /tmp/junit-integration.xml
+      description: >
+        Chemin où PHPUnit écrit son rapport JUnit dans le pod applicatif. Vide
+        désactive la production du rapport.
+  steps:
+    - name: integration-test
+      image: reg.cadoles.com/cnous-mse/tekton-mse-manager:v1.1.1
+      # L'échec ne stoppe plus la Task : l'étape suivante doit tourner
+      # **surtout** quand celle-ci a échoué, puisque c'est elle qui dit si l'outil
+      # a conclu. Le code de sortie est conservé par Tekton et l'étape `report`
+      # s'en ressaisit — la Task échoue donc toujours quand les tests échouent.
+      onError: continue
+      command:
+        - /usr/local/bin/tekton-mse-manager
+      args:
+        - integration-test
+        - --namespace
+        - $(params.namespace)
+        - --deployment
+        - $(params.deployment-name)
+        - --container
+        - $(params.container-name)
+        - --testsuite
+        - $(params.testsuite)
+        - --debug=$(params.debug)
+        - --rollout-timeout
+        - $(params.rollout-timeout)
+        - --timeout
+        - $(params.timeout)
+        - --retry-on-exit-137=$(params.retry-on-exit-137)
+        - --max-retries
+        - $(params.max-retries)
+        - --retry-delay
+        - $(params.retry-delay-seconds)s
+        - --log-file
+        - $(workspaces.source.path)/integration-tests-logs/phpunit.log
+        # Le rapport JUnit est produit dans le pod applicatif puis rapatrié dans le
+        # workspace : c'est lui que le dashboard parse pour le détail test par test,
+        # le log restant destiné à la lecture directe.
+        - --junit-pod-path
+        - $(params.junit-pod-path)
+        - --junit-file
+        - $(workspaces.source.path)/test-results/integration/junit.xml
+        - --summary-file
+        - $(results.summary.path)
+        - --pipeline-run-name
+        - $(params.pipeline-run-name)
+        - --minio-host
+        - $(params.minio-host)
+        - --minio-bucket
+        - $(params.minio-bucket)
+        - --minio-path
+        - $(params.minio-path)
+      env:
+        - name: MINIO_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: MINIO_USER
+        - name: MINIO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: MINIO_PASSWORD
+
+    # Le descripteur d'exécution, sans lequel un outil mort avant de commencer ne
+    # se distingue pas d'une suite qui passe : les deux ne publient aucun échec.
+    #
+    # Étape séparée, et non repli dans la précédente : celle-ci exécute un binaire
+    # compilé dont on ne connaît pas le shell, et l'envelopper dans un `script`
+    # dépendrait d'une hypothèse invérifiable ici.
+    - name: report
+      image: reg.cadoles.com/dh/alpine/curl:8.17.0
+      script: |
+        #!/usr/bin/env sh
+        set -u
+
+        JUNIT="$(workspaces.source.path)/test-results/integration/junit.xml"
+        RC=$(cat "$(steps.step-integration-test.exitCode.path)" 2>/dev/null || echo 1)
+
+        # Le rapport fait foi, et non le code de sortie : PHPUnit sort en échec
+        # dès qu'un test échoue, ce qui est un **succès** de l'outil. Ce qui
+        # distingue un outil qui n'a pas conclu est l'absence de rapport.
+        # Même règle que `unit-test`, pour que les deux familles se lisent
+        # pareil.
+        if [ -s "${JUNIT}" ]; then
+          STATUS=ok
+        else
+          STATUS=error
+        fi
+
+        SUMMARY=$(cat "$(results.summary.path)" 2>/dev/null || true)
+        if [ -z "${SUMMARY}" ]; then
+          SUMMARY="aucun rapport JUnit produit"
+        fi
+
+        # `phpunit-integration` et non `phpunit` : c'est le nom sous lequel
+        # l'ingestion des artefacts range ce rapport. Deux noms feraient
+        # apparaître le même outil deux fois sur l'écran d'une release, conforme
+        # sous l'un et jamais mesuré sous l'autre.
+        printf '##MSE-META## {"tool":"phpunit-integration","scanner":"integration","format":"junit-xml","output":"junit.xml","exit_code":%d,"status":"%s"}\n' \
+          "${RC}" "${STATUS}"
+        printf '##MSE-SUMMARY## %s\n' "${SUMMARY}"
+
+        # Le code de sortie de l'étape précédente est rendu tel quel : sans cela,
+        # `onError: continue` transformerait chaque échec de tests en succès.
+        exit "${RC}"

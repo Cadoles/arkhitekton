@@ -19,6 +19,12 @@ import (
 	"syscall"
 	"time"
 
+	"k8s.io/client-go/discovery"
+
+	"k8s.io/client-go/dynamic"
+
+	"k8s.io/client-go/restmapper"
+
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
@@ -28,6 +34,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
+	pipelinelib "forge.cadoles.com/vcarroy/mse-dashboard/internal/pipelines"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/portaldata"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
@@ -580,6 +587,19 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				errs <- worker.NewKeyReconciler(db, keys, logger).Run(leadingCtx)
 			}()
 
+			// Les bibliothèques de référence, posées pour les piles que les
+			// projets déclarent. Sous le bail comme le reste : deux workers qui
+			// poseraient la même définition se la réécriraient l'un l'autre.
+			if installer, err := libraryInstaller(cluster, cfg); err != nil {
+				logger.Warn("bibliothèques de pipelines indisponibles",
+					"raison", err,
+					"consequence", "les projets emploieront les pipelines déjà présents")
+			} else {
+				go func() {
+					errs <- worker.NewLibraryReconciler(db, installer, logger).Run(leadingCtx)
+				}()
+			}
+
 			// Redmine est optionnel : sans clé, le dashboard tourne et les écrans
 			// de versions le disent. Faire échouer le worker priverait
 			// l'ordonnancement et l'observation d'un accès qu'ils n'utilisent pas.
@@ -1089,4 +1109,32 @@ func projectKeys(
 	logger.Info("clés de déploiement par projet",
 		"namespace", namespace, "comptes_de_service", accounts)
 	return deploykeys.NewIssuer(owner, mounter)
+}
+
+// libraryInstaller ouvre de quoi poser les bibliothèques de référence.
+//
+// La découverte des versions servies est refaite ici plutôt qu'empruntée au
+// client Tekton : celui-ci est typé, alors que la pose manipule des manifestes
+// quelconques par le client dynamique. Les deux parlent au même cluster, avec la
+// même résolution.
+func libraryInstaller(
+	cluster *tekton.Client, cfg config.Config,
+) (*pipelinelib.Installer, error) {
+	dynamicClient, err := dynamic.NewForConfig(cluster.RESTConfig)
+	if err != nil {
+		return nil, fmt.Errorf("client dynamique: %w", err)
+	}
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(cluster.RESTConfig)
+	if err != nil {
+		return nil, fmt.Errorf("client de découverte: %w", err)
+	}
+
+	resources, err := restmapper.GetAPIGroupResources(discoveryClient)
+	if err != nil && len(resources) == 0 {
+		return nil, fmt.Errorf("découverte des API du cluster: %w", err)
+	}
+
+	return pipelinelib.NewInstaller(dynamicClient,
+		restmapper.NewDiscoveryRESTMapper(resources), cfg.Tekton.Namespace), nil
 }

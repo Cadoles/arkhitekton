@@ -1,0 +1,79 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: unit-test
+spec:
+  description: >
+    Exécute la suite de tests unitaires PHPUnit.
+
+    Produit un rapport JUnit XML en plus du log texte. Le texte reste destiné à la
+    lecture directe dans les logs Tekton ; le XML est ce qu'une interface parse pour
+    afficher le détail test par test. Aucun des deux ne remplace l'autre.
+
+    Émet également, sur stdout, un descripteur d'exécution et une ligne de résumé.
+    Le descripteur est produit ici et non déduit en aval parce que seul le processus
+    qui lance l'outil peut distinguer « l'outil a échoué » de « l'outil n'a rien
+    trouvé » — un rapport absent et un rapport vide se ressemblent, mais ne disent
+    pas la même chose.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: output-dir
+      default: test-results/unit
+      description: Répertoire des artefacts, relatif au workspace source.
+
+  results:
+    - name: summary
+      description: Ligne de résumé PHPUnit, ex. "OK (123 tests, 456 assertions)".
+
+  steps:
+    - name: exec
+      image: php:8.4-alpine
+      script: |
+        #!/usr/bin/env sh
+        set -eu -o pipefail
+
+        apk add --no-cache libxml2-dev rabbitmq-c-dev pcre-dev $PHPIZE_DEPS
+        pecl install redis amqp
+
+        docker-php-ext-install soap bcmath
+        docker-php-ext-enable redis.so amqp.so
+
+        cd $(workspaces.source.path)
+
+        OUT="$(params.output-dir)"
+        mkdir -p "${OUT}"
+
+        VERSION=$(php vendor/bin/phpunit --version 2>/dev/null \
+          | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true)
+
+        # errexit est levé le temps de l'exécution : un échec de test est un résultat,
+        # pas une panne, et le descripteur doit être émis dans les deux cas. Le code
+        # de sortie est propagé en fin de script.
+        set +e
+        php -d memory_limit=1024M vendor/bin/phpunit \
+          --testsuite unit \
+          --log-junit "${OUT}/junit.xml" \
+          | tee "${OUT}/phpunit.log"
+        RC=$?
+        set -e
+
+        # Même motif que celui appliqué par tekton-mse-manager aux tests
+        # d'intégration : une seule règle de lecture pour les deux familles.
+        SUMMARY=$(grep -E '^[[:space:]]*(OK \(|OK, but|Tests: )' "${OUT}/phpunit.log" \
+          | tail -n1 | sed 's/^[[:space:]]*//' || true)
+
+        STATUS=ok
+        if [ ! -s "${OUT}/junit.xml" ]; then
+          STATUS=error
+        fi
+
+        printf '%s' "${SUMMARY}" > "$(results.summary.path)"
+
+        printf '##MSE-META## {"tool":"phpunit","scanner":"unit","version":"%s","format":"junit-xml","output":"junit.xml","exit_code":%d,"status":"%s"}\n' \
+          "${VERSION}" "${RC}" "${STATUS}"
+        printf '##MSE-SUMMARY## %s\n' "${SUMMARY}"
+
+        exit ${RC}

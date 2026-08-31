@@ -1,0 +1,92 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: php-unit-tests
+spec:
+  description: >
+    Tests unitaires de l'application.
+
+    Séparé de `php-static-tests` : les deux répondent à des questions
+    différentes — « le code fait-il ce qu'on attend » et « le code est-il
+    écrit proprement » — et les mêler donnait un seul verdict pour deux
+    signaux que le score pondère séparément. Un cs-fixer non conforme faisait
+    échouer le même run que des tests verts.
+
+    Le découpage a un coût assumé : les deux pipelines clonent et installent
+    les dépendances chacun de leur côté. C'est le prix d'exécutions
+    indépendantes, relançables l'une sans l'autre.
+
+  params:
+    - name: repo-url
+    - name: revision
+    # URL PUT pré-signée des résultats, fournie par le dashboard. Vide, la
+    # publication est ignorée : un run déclenché par webhook n'a personne pour lui
+    # en délivrer une, et doit continuer de tourner.
+    - name: results-upload-url
+      default: ""
+
+  workspaces:
+    - name: shared-data
+    - name: git-credentials
+
+  tasks:
+    - name: git-clone
+      displayName: Clone mse
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+
+    - name: composer-install
+      displayName: Install composer dependencies
+      runAfter: ["git-clone"]
+      taskRef:
+        name: composer-install
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: install-dev-dependencies
+          value: "true"
+
+    - name: run-unit-tests
+      displayName: Run unit tests
+      runAfter: ["composer-install"]
+      taskRef:
+        name: unit-test
+      workspaces:
+        - name: source
+          workspace: shared-data
+
+  finally:
+    # En `finally` : un test en échec fait sortir sa task en erreur, et une
+    # publication placée après elle ne s'exécuterait pas. Le rapport serait perdu
+    # exactement dans le cas où il sert.
+    - name: save-results
+      displayName: Publish test results
+      taskRef:
+        name: publish-artifact
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: path
+          value: test-results
+        # Les trois familles écrivent sous `test-results/` et le nombre de fichiers
+        # dépend de ce qui a tourné : une archive, sous une clé unique par run.
+        - name: mode
+          value: archive
+        - name: upload-url
+          value: $(params.results-upload-url)

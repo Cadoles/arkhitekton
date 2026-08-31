@@ -1224,8 +1224,8 @@ contrats de fournisseurs, et c'est le moins cher de tous depuis qu'il se réduit
 déplacer des manifestes et à écrire un contrat. À prendre tôt si un second projet se
 présente avant que le lot B ne soit fini.
 
-**Deux tranches faites : la clé de déploiement, puis le secret de registre.** Reste les
-implémentations de référence par pile, nommées plus bas.
+**Trois tranches faites : la clé de déploiement, le secret de registre, puis les
+bibliothèques de référence.**
 
 La RBAC accorde `create`, `patch` et `delete` sur les Secrets, **sans** `get` ni `list`.
 La restriction n'est pas un compromis, elle produit la garantie : n'ayant aucun moyen de
@@ -1265,6 +1265,38 @@ Le rattachement se **dérive** de la release dans le magasin plutôt que d'être
 aux huit sites qui enfilent des jobs : exiger de chacun qu'il y pense garantissait qu'un
 l'oublierait, et le run serait parti avec la clé partagée sans qu'aucune erreur ne le
 dise.
+
+#### Les bibliothèques de référence : posées, jamais adoptées
+
+Le noyau — construire, re-taguer — arrive avec le binaire, par sa kustomization. Les
+implémentations de **référence** supposent une pile : un projet Go n'a que faire des Tasks
+PHP, et les livrer d'office poserait des définitions inutiles dans le namespace. Elles
+s'installent donc quand un projet **déclare sa pile**, ce qui est exactement le critère de
+[12.7](#127-posture-dopérateur).
+
+La bibliothèque est **embarquée dans le binaire** : rien n'est téléchargé, rien n'est
+résolu à l'exécution, et sa version est celle du dashboard qui la pose. Ce n'est ni un
+gestionnaire de paquets ni un mécanisme d'extension.
+
+*Une seule pile, et c'est délibéré.* `php` est extraite de ce qui tourne réellement — les
+Tasks et Pipelines de `mse-tekton`, éprouvés par des mois d'exécution. Écrire d'avance une
+bibliothèque Node ou Go reviendrait à deviner un lanceur de tests, des chemins de sortie
+et une émission de marqueurs : du code qui compile et des verdicts faux, la faute que
+[12.4](#124-la-frontière-difficile-la-sémantique) décrit. Un projet dont la pile n'est pas
+couverte **écrit les siens** et n'a que le contrat de doc 13 à honorer — c'est ce que
+« installables et forkables » veut dire.
+
+*La règle de propriété a produit un bénéfice qui n'était pas cherché.* Le dashboard ne
+pose que ce qu'il nomme et n'adopte jamais ce qui existe. Sur le cluster de développement,
+où `mse-tekton` possède déjà les sept définitions, il l'a constaté et s'est retiré :
+
+> définitions laissées à leur propriétaire — `php-integration-test`, `php-static-tests`,
+> `php-unit-tests`, `cs-fixer`, `integration-test`, `phpstan`, `unit-test`
+
+Aucune n'a été écrasée, et aucun conflit ne s'installe avec la kustomization qui les
+réapplique. Ce mécanisme sert l'**autonomie** — une instance neuve, sans dépôt de
+pipelines préexistant — sans rien casser là où un dépôt existe. Ce qu'il pose lui-même, il
+le met à jour ; ce qui appartient à un tiers, il le laisse.
 
 #### Le secret de registre : désigné, non créé
 

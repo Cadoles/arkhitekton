@@ -159,6 +159,9 @@ export type Project = {
    *  Un **nom**, jamais un identifiant — le secret est provisionné par le
    *  déploiement, le dashboard se contente de le désigner. */
   registry_secret: string
+  /** Pile dont la bibliothèque de référence est posée. Vide : le projet apporte
+   *  ses propres pipelines, ce qui est parfaitement valide. */
+  stack: string
   multi_stage: boolean
   targets: ProjectTarget[]
   /** Absent : aucun test n'a eu lieu. État distinct d'un test qui a échoué. */
@@ -202,6 +205,7 @@ export type ProjectDraft = {
   build_context: string
   image_registry: string
   registry_secret: string
+  stack: string
   multi_stage: boolean
   targets: ProjectTarget[]
 }
