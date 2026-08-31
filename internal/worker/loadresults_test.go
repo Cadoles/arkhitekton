@@ -24,6 +24,13 @@ func (f *fakeLoadStore) SaveLoadResult(
 ) (int64, error) {
 	f.saved = append(f.saved, result)
 	f.measures = append(f.measures, measures)
+	// Le faux doit modéliser la base : après enregistrement, le scénario existe.
+	// Sans cela `TestIngestIsIdempotent` passait pour une mauvaise raison — la
+	// garde n'était jamais réellement franchie.
+	if f.known == nil {
+		f.known = map[string]bool{}
+	}
+	f.known[result.Scenario] = true
 	return int64(len(f.saved)), nil
 }
 
@@ -178,5 +185,44 @@ func TestSummariseNamesTheFailedThresholds(t *testing.T) {
 	// Savoir *quel* seuil a lâché est ce qui décide de la suite.
 	if !strings.Contains(releases.saved[0].Summary, "p(95)<500") {
 		t.Errorf("résumé = %q", releases.saved[0].Summary)
+	}
+}
+
+// Le contrat publie `load` comme nom de famille ; les Tasks du MSE écrivent
+// sous `k6`, du nom de l'outil. Les deux doivent être lus.
+//
+// Sans cela, un projet qui suit la convention documentée ne voit rien : l'écran
+// de charge reste vide et rien ne dit que le répertoire n'a jamais été ouvert
+// (doc 12 §12.9, lot F).
+func TestLeRepertoireDeFamillePublieEstLuPourLaCharge(t *testing.T) {
+	objects := fakeObjects{
+		"raw/load-test-2/load/panier-summary.json": summaryJSON,
+	}
+	releases, ingester := newIngester(objects)
+
+	if err := ingester.Ingest(context.Background(), LoadRun{ID: 1, Name: "load-test-2", JobID: 9}); err != nil {
+		t.Fatalf("ingestion: %v", err)
+	}
+	if len(releases.saved) != 1 {
+		t.Fatalf("%d campagne(s) — le répertoire publié par le contrat n'est pas lu",
+			len(releases.saved))
+	}
+}
+
+// Les deux répertoires cohabitent sans se doubler : un run qui publierait sous
+// les deux noms produirait deux fois la même campagne, donc une tendance fausse.
+func TestLesDeuxRepertoiresDeChargeNeSeDoublentPas(t *testing.T) {
+	objects := fakeObjects{
+		"raw/load-test-3/k6/panier-summary.json":   summaryJSON,
+		"raw/load-test-3/load/panier-summary.json": summaryJSON,
+	}
+	releases, ingester := newIngester(objects)
+
+	if err := ingester.Ingest(context.Background(), LoadRun{ID: 1, Name: "load-test-3", JobID: 9}); err != nil {
+		t.Fatalf("ingestion: %v", err)
+	}
+	if len(releases.saved) != 1 {
+		t.Errorf("%d campagne(s) pour un même scénario — l'historique serait faux",
+			len(releases.saved))
 	}
 }

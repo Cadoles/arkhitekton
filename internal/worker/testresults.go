@@ -95,6 +95,15 @@ func recognise(name string) (artifactKind, bool) {
 	case (dir == "cs-fixer" || dir == "csfixer") && json:
 		return artifactKind{results.FamilyStatic, "cs-fixer", results.ParseCSFixer}, true
 
+	// `e2e/` manquait, et c'est le contrat publié qui le réclamait. Les Tasks du
+	// MSE écrivent sous `mocha/`, si bien que la règle de nom suffisait ici ; un
+	// projet qui suit la convention documentée et nomme son rapport
+	// `test-results/e2e/report.json` n'était en revanche **pas reconnu du tout**.
+	// Le silence est le pire des résultats : l'écran des tests reste vide, et
+	// rien ne dit que la famille n'a jamais été lue (doc 12 §12.9, lot F).
+	case dir == "e2e" && json:
+		return artifactKind{results.FamilyE2E, "cypress", results.ParseMochawesome}, true
+
 	// À défaut de répertoire parlant, le nom du fichier. Ces règles couvrent les
 	// rapports publiés à plat, hors de la convention `test-results/`.
 	case strings.Contains(base, "phpstan") && json:

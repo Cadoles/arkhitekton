@@ -244,3 +244,57 @@ func TestDeuxFamillesDansUneMemeArchiveNeSeConfondentPas(t *testing.T) {
 		t.Errorf("même outil %q — la seconde ingestion serait ignorée", unit.tool)
 	}
 }
+
+// Le contrat publié doit être vrai pour les six familles, pas pour quatre.
+//
+// C'est la raison d'être du lot F : « le normatif est le contrat, pas
+// l'implémentation » (doc 12 §12.6). Les Tasks du MSE écrivent leur rapport
+// Cypress sous `mocha/`, si bien que la règle de nom suffisait ; un projet qui
+// suit la convention documentée et écrit `test-results/e2e/report.json`
+// n'était **pas reconnu du tout**.
+//
+// Le silence est le pire des résultats : l'écran des tests reste vide, la
+// famille `e2e` n'est jamais mesurée, et rien ne dit pourquoi. C'est exactement
+// ce que doc 13 annonce comme le mode de défaillance à éviter.
+func TestLeRepertoireDeFamillePubliéEstReconnu(t *testing.T) {
+	cases := map[string]struct {
+		family results.Family
+		tool   string
+	}{
+		// Le nom du rapport ne dit rien : seul le répertoire le range.
+		"test-results/e2e/report.json": {results.FamilyE2E, "cypress"},
+		// La convention de l'outil reste lue : la retirer casserait les runs
+		// existants du MSE.
+		"test-results/mocha/mochawesome.json": {results.FamilyE2E, "cypress"},
+	}
+
+	for name, expected := range cases {
+		kind, known := recognise(name)
+		if !known {
+			t.Errorf("recognise(%q) non reconnu — le contrat l'annonce pourtant", name)
+			continue
+		}
+		if kind.family != expected.family || kind.tool != expected.tool {
+			t.Errorf("recognise(%q) = %s/%s, attendu %s/%s",
+				name, kind.family, kind.tool, expected.family, expected.tool)
+		}
+	}
+}
+
+// Pour l'analyse statique, le répertoire de famille ne suffit pas : PHPStan et
+// php-cs-fixer produisent deux formats JSON différents, et le parseur ne se
+// devine pas. Le nom du fichier prend alors le relais — c'est ce que le contrat
+// doit exiger, plutôt que de laisser croire que `static/` suffit.
+func TestSousStaticLOutilDoitResterIdentifiable(t *testing.T) {
+	kind, known := recognise("test-results/static/phpstan.json")
+	if !known || kind.family != results.FamilyStatic || kind.tool != "phpstan" {
+		t.Errorf("recognise = %s/%s/%v — le nom doit désigner l'outil",
+			kind.family, kind.tool, known)
+	}
+
+	// Sans outil identifiable, rien n'est deviné : mieux vaut ignorer que
+	// choisir un parseur au hasard et rendre des violations fausses.
+	if _, known := recognise("test-results/static/report.json"); known {
+		t.Error("un rapport statique sans outil identifiable ne doit pas être deviné")
+	}
+}

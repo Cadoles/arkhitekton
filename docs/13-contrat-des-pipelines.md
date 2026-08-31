@@ -227,14 +227,26 @@ qui produit du JUnit avec un autre langage est exploitable sans rien ajouter.
 
 ### Convention d'arborescence
 
-Dans une archive, le **répertoire** nomme la famille :
+Le **répertoire** range le rapport. Il porte le nom de la famille, ou celui de l'outil
+quand le parseur en dépend :
 
 ```
-test-results/unit/junit.xml
-test-results/integration/junit.xml
-test-results/phpstan/report.json
-test-results/cs-fixer/report.json
+test-results/unit/junit.xml            famille
+test-results/integration/junit.xml     famille
+test-results/e2e/report.json           famille
+test-results/phpstan/report.json       outil  — la famille est `static`
+test-results/cs-fixer/report.json      outil  — la famille est `static`
+k6/panier-summary.json                 outil  — la famille est `load`
+load/panier-summary.json               famille
 ```
+
+**Pourquoi les deux.** Une famille suffit quand elle n'a qu'un format : `e2e` est du
+Mochawesome, `load` est un résumé k6, et le répertoire dit tout. `static` en porte deux —
+PHPStan et php-cs-fixer produisent des JSON différents —, et `test-results/static/`
+seul ne dirait pas lequel lire. Là, l'outil doit rester identifiable, par le répertoire ou
+par le nom du fichier : `test-results/static/phpstan.json` fonctionne, un
+`test-results/static/report.json` est **ignoré** plutôt que deviné. Choisir un parseur au
+hasard rendrait des violations fausses, ce qui est pire que pas de violations.
 
 Le répertoire est consulté **avant** le nom du fichier. C'est délibéré : toutes les Tasks
 nomment leur rapport `junit.xml`, et se fier au nom faisait tomber le rapport
@@ -243,6 +255,13 @@ mesurée, et son échec rapporté comme un échec unitaire.
 
 Un fichier non reconnu est ignoré en silence : une archive contient aussi des journaux et
 des captures, et échouer dessus perdrait les rapports qui l'accompagnent.
+
+> **Écart corrigé au lot F.** Cette section annonçait « le répertoire nomme la famille »
+> alors que trois familles sur six ne l'honoraient pas : `e2e` et `load` n'étaient
+> reconnues que par le nom de fichier ou le répertoire d'outil que les Tasks du MSE
+> emploient. Un projet suivant cette page à la lettre n'obtenait **rien**, sans message —
+> le mode de défaillance que §13.9 nomme précisément. Les deux répertoires de famille sont
+> désormais lus, ceux d'outil restant acceptés.
 
 ---
 

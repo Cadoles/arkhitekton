@@ -1131,6 +1131,29 @@ Ne restent ici que les **implémentations de référence par pile** — les Task
 posées à la demande quand un projet déclare la sienne. Elles relèvent des ressources
 dynamiques, donc du lot G.
 
+**Vérifié, et le contrat n'était pas vrai.** « Le normatif est le contrat, pas
+l'implémentation » ([12.6](#126-architecture-de-pipelines)) : encore faut-il que
+l'implémentation l'honore. Doc 13 annonçait que le répertoire nomme la famille ; trois
+familles sur six ne le respectaient pas.
+
+`e2e` et `load` n'étaient reconnues que par le nom du fichier, ou par le répertoire
+d'**outil** que les Tasks du MSE emploient — `mocha/`, `k6/`. Les pipelines du MSE
+fonctionnaient donc parfaitement, ce qui est exactement pourquoi l'écart ne s'était jamais
+vu : il ne se manifeste que pour le second projet, celui que tout ce document existe pour
+rendre possible. Un projet écrivant `test-results/e2e/report.json` — la convention
+publiée — n'obtenait **rien**, sans message. Écran vide, famille jamais mesurée, aucune
+trace : le mode de défaillance que doc 13 §13.9 nomme lui-même comme celui à éviter.
+
+Les répertoires de famille sont désormais lus, ceux d'outil restant acceptés pour ne pas
+casser l'existant. Le cas de `static` est tranché explicitement plutôt que masqué : deux
+outils y produisent deux formats JSON, le répertoire de famille seul ne dit pas lequel
+lire, et un rapport dont l'outil n'est pas identifiable est **ignoré** au lieu d'être
+deviné — un parseur choisi au hasard rendrait des violations fausses.
+
+Trouvé en chemin : le faux magasin des tests de charge ne modélisait pas la garde
+d'idempotence de la base, si bien que `TestIngestIsIdempotent` passait sans jamais la
+franchir. La déduplication ne repose plus sur un read-after-write dans la boucle.
+
 ### Lot G — Propriété des ressources dynamiques
 
 Ce que le dashboard est seul à savoir : clés de déploiement par projet, secrets de

@@ -47,6 +47,14 @@ type LoadIngester struct {
 	logger  *slog.Logger
 }
 
+// loadDirectories énumère les répertoires où un résumé de charge peut vivre.
+//
+// `load` est le nom de la famille, celui que le contrat publie ; `k6` est le nom
+// de l'outil, celui que les Tasks du MSE emploient. Les deux sont lus : retirer
+// le second casserait les runs existants, refuser le premier démentirait le
+// contrat.
+var loadDirectories = []string{"load", "k6"}
+
 func NewLoadIngester(releases LoadStore, objects Objects, logger *slog.Logger) *LoadIngester {
 	return &LoadIngester{store: releases, objects: objects, metrics: bench.DefaultMetrics, logger: logger}
 }
@@ -57,10 +65,19 @@ func NewLoadIngester(releases LoadStore, objects Objects, logger *slog.Logger) *
 // parce qu'un informer resynchronise son cache. Réenregistrer produirait des
 // points d'historique en double, c'est-à-dire une tendance fausse.
 func (i *LoadIngester) Ingest(ctx context.Context, run LoadRun) error {
-	prefix := "raw/" + run.Name + "/k6/"
-	objects, err := i.objects.List(ctx, prefix)
-	if err != nil {
-		return fmt.Errorf("résumés du run %q: %w", run.Name, err)
+	// Deux répertoires, et c'est le contrat publié qui l'impose. Les Tasks du MSE
+	// écrivent sous `k6/`, du nom de l'outil ; le contrat annonce que le
+	// répertoire nomme la **famille**, donc `load/`. Un projet qui suit la
+	// convention documentée n'était pas lu du tout, et l'écran de charge restait
+	// vide sans que rien ne dise pourquoi (doc 12 §12.9, lot F).
+	var objects []ObjectRef
+	for _, directory := range loadDirectories {
+		prefix := "raw/" + run.Name + "/" + directory + "/"
+		found, err := i.objects.List(ctx, prefix)
+		if err != nil {
+			return fmt.Errorf("résumés du run %q: %w", run.Name, err)
+		}
+		objects = append(objects, found...)
 	}
 	if len(objects) == 0 {
 		// Un run de charge sans résumé n'est pas une anomalie de l'ingesteur : le
@@ -71,17 +88,31 @@ func (i *LoadIngester) Ingest(ctx context.Context, run LoadRun) error {
 
 	exclusive, concurrent := false, 0
 	if run.JobID != 0 {
-		exclusive, concurrent, err = i.store.StartConditions(ctx, run.JobID)
+		conditions, count, err := i.store.StartConditions(ctx, run.JobID)
 		if err != nil && !errors.Is(err, store.ErrJobNotFound) {
 			return err
 		}
+		exclusive, concurrent = conditions, count
 	}
+
+	// Un scénario ne s'enregistre qu'une fois par passe. La garde d'idempotence
+	// est `LoadResultExists`, mais elle interroge la base : s'y fier **dans** la
+	// boucle ferait dépendre la justesse d'un read-after-write, et deux objets
+	// désignant le même scénario — le même résumé publié sous `k6/` et sous
+	// `load/` — produiraient deux points d'historique, c'est-à-dire une tendance
+	// fausse.
+	seen := make(map[string]bool, len(objects))
 
 	var failures []string
 	for _, object := range objects {
 		if !strings.HasSuffix(object.Key, ".json") {
 			continue
 		}
+		scenario := bench.ScenarioFromKey(object.Key)
+		if seen[scenario] {
+			continue
+		}
+		seen[scenario] = true
 		if err := i.ingestOne(ctx, run, object, exclusive, concurrent); err != nil {
 			// Un résumé illisible n'empêche pas d'enregistrer les autres : une
 			// campagne à quatre scénarios ne doit pas être perdue en entier parce
