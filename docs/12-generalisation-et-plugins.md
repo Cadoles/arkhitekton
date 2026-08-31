@@ -1169,6 +1169,48 @@ contrats de fournisseurs, et c'est le moins cher de tous depuis qu'il se réduit
 déplacer des manifestes et à écrire un contrat. À prendre tôt si un second projet se
 présente avant que le lot B ne soit fini.
 
+**Première tranche faite : une clé de déploiement par projet.** Le reste — secrets de
+registre, implémentations de référence par pile — est nommé plus bas.
+
+La RBAC accorde `create`, `patch` et `delete` sur les Secrets, **sans** `get` ni `list`.
+La restriction n'est pas un compromis, elle produit la garantie : n'ayant aucun moyen de
+demander au cluster si un Secret lui appartient, le dashboard lit sa propriété dans sa
+base — `projects.deploy_key_public` renseignée — et **refuse d'adopter** un Secret
+homonyme qu'il n'a pas créé. La rotation, elle, remplace, parce que la base atteste que
+la clé est nôtre.
+
+*Où la pose s'exécute.* Pas dans l'API : elle tourne avec
+`automountServiceAccountToken: false`, délibérément, parce que c'est la surface exposée.
+Lui accorder un jeton de cluster pour la commodité d'une pose synchrone à la déclaration
+aurait été un recul de sécurité déguisé en fonctionnalité. L'API **demande** en base ; le
+worker réalise, sous le bail. C'est ce qui a donné au lot sa boucle de réconciliation :
+un projet sans clé en reçoit une, une rotation demandée s'exécute, un redémarrage
+rattrape ce qu'une panne a interrompu.
+
+*La liste des secrets montables.* `enforce-mountable-secrets` est ce qui empêche
+réellement une Task de se servir dans le namespace, et devenir propriétaire de secrets
+rend responsable de ce qui peut les monter. Le dashboard n'ajoute que des noms qu'il
+dérive lui-même d'un slug — la garantie est structurelle, ces méthodes ne prennent jamais
+un nom de secret — et ne retire jamais une entrée qu'il n'a pas posée. Elle est tenue sur
+**chaque** compte de service que le catalogue nomme : n'en tenir qu'un rendrait la clé
+montable pour certains pipelines d'un projet et pas pour les autres.
+
+*Ce que la mise en service a failli casser.* Poser une clé et l'**employer** sont deux
+instants séparés par un geste humain que rien n'automatise : la coller dans les réglages
+du dépôt, côté forge. La première version basculait les six projets déclarés sur une clé
+que la forge ignorait — le prochain build aurait échoué au clone, sur un dépôt qui
+fonctionnait la veille, avec un message désignant le dépôt et non la clé. Exactement le
+mode de défaillance que ce lot existe pour supprimer, reproduit par sa propre mise en
+service. D'où `deploy_key_active`, faux par défaut : c'est à celui qui a collé la clé de
+dire qu'elle y est.
+
+*Trouvé en chemin.* La file était restée aveugle au multi-projet du lot B — un job ne
+portait pas son projet, et l'ordonnanceur ne pouvait donc pas savoir quelle clé monter.
+Le rattachement se **dérive** de la release dans le magasin plutôt que d'être renseigné
+aux huit sites qui enfilent des jobs : exiger de chacun qu'il y pense garantissait qu'un
+l'oublierait, et le run serait parti avec la clé partagée sans qu'aucune erreur ne le
+dise.
+
 ### Jalon de vérification
 
 Le projet est agnostique le jour où **une instance tourne sans plugin MSE** sur un projet

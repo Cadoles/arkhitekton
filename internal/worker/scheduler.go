@@ -83,7 +83,29 @@ type Scheduler struct {
 	// instance identifie la base. Entre dans le nom des runs pour qu'une remise à
 	// zéro ne produise pas d'homonymes de PipelineRun restés dans le cluster.
 	instance string
-	logger   *slog.Logger
+	// deployKeys rend le nom du secret portant la clé de déploiement d'un projet.
+	// Nil quand aucune clé par projet n'est en service : les runs montent alors
+	// la clé partagée, comme avant le lot G.
+	deployKeys ProjectKeys
+	logger     *slog.Logger
+}
+
+// ProjectKeys dit quel secret porte la clé de déploiement d'un projet.
+//
+// Interface étroite plutôt que le magasin entier : l'ordonnanceur n'a besoin
+// que de cette réponse, et lui donner accès aux projets l'inviterait à en lire
+// autre chose.
+type ProjectKeys interface {
+	// DeployKeySecret rend le nom du secret, et faux quand le projet n'a pas de
+	// clé propre. L'absence est un cas normal — un projet déclaré avant le lot G,
+	// ou dont la pose a échoué — et le run retombe alors sur la clé partagée.
+	DeployKeySecret(ctx context.Context, projectID int64) (string, bool, error)
+}
+
+// WithProjectKeys branche les clés de déploiement par projet.
+func (s *Scheduler) WithProjectKeys(keys ProjectKeys) *Scheduler {
+	s.deployKeys = keys
+	return s
 }
 
 // WithInstance déclare l'identité de la base.
@@ -225,7 +247,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 	// résolus et les autres non.
 	resolved := pipeline
 	if err == nil {
-		resolved, err = pipeline.ResolveSecrets(s.config)
+		resolved, err = pipeline.ResolveSecrets(s.settingsFor(ctx, job))
 	}
 	if err != nil {
 		s.logger.Error("paramètres du job", "job", job.ID, "error", err)
@@ -462,4 +484,42 @@ func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
 	if err := s.queue.FinishJob(ctx, jobID, store.JobFailed, final); err != nil {
 		s.logger.Error("conclusion du job abandonné", "job", jobID, "error", err)
 	}
+}
+
+// settingsFor rend les réglages du run, la clé de déploiement remplacée par
+// celle du projet quand il en a une.
+//
+// Une **copie** superposée à la configuration globale, jamais une écriture dans
+// celle-ci : la carte est partagée par tous les runs, et y écrire ferait porter
+// au job suivant la clé du précédent — un dépôt construit avec la clé d'un autre
+// client, sans qu'aucune erreur ne le signale.
+//
+// L'absence de clé propre retombe sur la clé partagée. C'est le comportement
+// d'avant le lot G, et il reste le bon pour un projet déclaré avant lui : refuser
+// de lancer parce qu'aucune clé n'a été posée bloquerait un dashboard qui
+// fonctionnait la veille.
+func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) map[string]string {
+	if s.deployKeys == nil || job.ProjectID == nil {
+		return s.config
+	}
+
+	secret, found, err := s.deployKeys.DeployKeySecret(ctx, *job.ProjectID)
+	if err != nil {
+		// Un échec de lecture ne fait pas échouer le run : il le fait partir avec
+		// la clé partagée, ce qui est l'état d'avant. Le signaler suffit — et
+		// c'est le seul endroit où l'écart se verrait.
+		s.logger.Error("clé de déploiement du projet",
+			"job", job.ID, "projet", *job.ProjectID, "error", err)
+		return s.config
+	}
+	if !found {
+		return s.config
+	}
+
+	settings := make(map[string]string, len(s.config))
+	for key, value := range s.config {
+		settings[key] = value
+	}
+	settings["pipeline.gitSecret"] = secret
+	return settings
 }

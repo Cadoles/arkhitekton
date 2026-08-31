@@ -79,6 +79,12 @@ type JobRequest struct {
 	RequestedBy string
 	ReleaseID   *int64
 	Environment *string
+	// ProjectID rattache le job à son dépôt. Nil pour ce qui n'en vise aucun.
+	//
+	// L'ordonnanceur s'en sert pour monter la clé de déploiement du projet
+	// plutôt que la clé partagée : sans lui, il ne peut que retomber sur celle-ci
+	// et annuler le bénéfice de la séparation (migration 0035, doc 12 §12.7).
+	ProjectID *int64
 }
 
 // Job est un job de la file.
@@ -99,6 +105,10 @@ type Job struct {
 	// ReleaseID rattache le job à une release. Renseigné pour les promotions et
 	// les exports, dont l'exécution part de la release et non de paramètres.
 	ReleaseID *int64
+	// ProjectID rattache le job à son dépôt. Nil pour les jobs antérieurs à la
+	// migration 0035 qui ne visaient aucune release : leur en inventer un
+	// rendrait un historique faux plutôt qu'incomplet.
+	ProjectID *int64
 	// ConcurrentAtStart est le nombre de runs constatés au moment de la
 	// réservation. Renseigné par `ClaimNext` seule : c'est le seul instant où
 	// l'information existe, et c'est elle qui décide si une mesure de charge est
@@ -121,11 +131,19 @@ func (db *DB) Enqueue(ctx context.Context, request JobRequest) (int64, error) {
 
 	var id int64
 	err = db.pool.QueryRow(ctx,
-		`insert into jobs (kind, priority, state, params, requested_by, release_id, environment_id)
-		 values ($1, $2, 'queued', $3, $4, $5, $6)
+		// Le projet se **dérive** de la release quand l'appelant ne l'a pas
+		// donné. Huit sites enfilent des jobs, et exiger de chacun qu'il pense au
+		// projet garantissait qu'un l'oublierait : le run serait alors parti avec
+		// la clé partagée, sans erreur, ce qui est précisément l'écart que le lot
+		// G ferme. Ici, la règle est écrite une fois.
+		`insert into jobs (kind, priority, state, params, requested_by, release_id,
+		                   environment_id, project_id)
+		 values ($1, $2, 'queued', $3, $4, $5, $6,
+		         coalesce($7, (select project_id from releases where id = $5)))
 		 returning id`,
 		request.Kind, request.Priority, params,
-		request.RequestedBy, request.ReleaseID, request.Environment).Scan(&id)
+		request.RequestedBy, request.ReleaseID, request.Environment,
+		request.ProjectID).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("mise en file de %q: %w", request.Kind, err)
 	}
@@ -176,7 +194,7 @@ func (db *DB) ClaimNext(
 		    select kind from jobs where state = 'running'
 		)
 		select j.id, j.kind, j.priority, j.params, j.requested_by,
-		       j.requested_at, j.attempt, j.release_id,
+		       j.requested_at, j.attempt, j.release_id, j.project_id,
 		       -- Constat des conditions de démarrage, relevé **ici** et pas plus
 		       -- tard : minutes après, plus rien ne dit ce qui tournait au moment
 		       -- de la mesure. La CTE running est calculée avant la réservation,
@@ -197,7 +215,7 @@ func (db *DB) ClaimNext(
 	err = transaction.QueryRow(ctx, query, limits.Global, kinds, perKind, limits.Default).Scan(
 		&job.ID, &job.Kind, &job.Priority, &params,
 		&job.RequestedBy, &job.RequestedAt, &job.Attempt, &job.ReleaseID,
-		&job.ConcurrentAtStart)
+		&job.ProjectID, &job.ConcurrentAtStart)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return job, ErrJobNotFound

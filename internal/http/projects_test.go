@@ -23,10 +23,29 @@ import (
  */
 
 type fakeProjectStore struct {
-	projects map[int64]store.Project
-	next     int64
-	checks   []bool
-	audits   []string
+	projects  map[int64]store.Project
+	next      int64
+	checks    []bool
+	audits    []string
+	rotations []int64
+}
+
+func (f *fakeProjectStore) ActivateDeployKey(_ context.Context, id int64, active bool) error {
+	project, known := f.projects[id]
+	if !known {
+		return store.ErrProjectNotFound
+	}
+	project.DeployKeyActive = active
+	f.projects[id] = project
+	return nil
+}
+
+func (f *fakeProjectStore) RequestKeyRotation(_ context.Context, id int64) error {
+	if _, known := f.projects[id]; !known {
+		return store.ErrProjectNotFound
+	}
+	f.rotations = append(f.rotations, id)
+	return nil
 }
 
 func newFakeProjectStore() *fakeProjectStore {

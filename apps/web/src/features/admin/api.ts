@@ -161,6 +161,14 @@ export type Project = {
   checked_at?: string
   check_ok?: boolean
   check_note?: string
+  /** Moitié **publique** de la clé propre au projet. Absente tant que le worker
+   *  ne l'a pas posée : le projet emploie alors la clé partagée. La moitié
+   *  privée n'apparaît jamais, ni ici ni ailleurs. */
+  deploy_key?: string
+  deploy_key_created_at?: string
+  /** La clé ouvre vraiment le dépôt : quelqu'un l'a collée dans ses réglages.
+   *  Faux, les pipelines montent la clé partagée — qui, elle, fonctionne. */
+  deploy_key_active: boolean
   created_by: string
 }
 
@@ -243,6 +251,47 @@ export function useProbeProject() {
     onSuccess: () => {
       // Le constat est enregistré côté serveur : le relire est ce qui met la
       // liste à jour, plutôt que de tenir un état parallèle qui divergerait.
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+/*
+ * Demande le remplacement de la clé d'un projet.
+ *
+ * Une **demande** : l'API n'a pas d'accès au cluster, et c'est le worker qui
+ * pose. L'ancienne clé reste valable jusque-là, si bien qu'une rotation ne casse
+ * aucun clone en cours — mais l'écran doit dire « demandée », pas « faite ».
+ */
+export function useRotateDeployKey() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) =>
+      request<{ requested: boolean }>(`/projects/${id}/deploy-key`, { method: 'POST' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+/*
+ * Déclare que la clé d'un projet ouvre son dépôt.
+ *
+ * Le seul geste de la chaîne que le dashboard ne peut pas faire : coller la
+ * moitié publique dans les réglages du dépôt appartient à un humain. Tant qu'il
+ * ne l'a pas dit, les pipelines montent la clé partagée.
+ */
+export function useActivateDeployKey() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, active }: { id: number; active: boolean }) =>
+      request<{ active: boolean }>(`/projects/${id}/deploy-key/active`, {
+        method: 'POST',
+        body: JSON.stringify({ active }),
+      }),
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
   })

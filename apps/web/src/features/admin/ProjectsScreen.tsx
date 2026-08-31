@@ -8,6 +8,8 @@ import {
   useDeleteProject,
   useProbeProject,
   useProjects,
+  useActivateDeployKey,
+  useRotateDeployKey,
   useSaveProject,
   type Project,
   type ProjectDraft,
@@ -132,12 +134,13 @@ function toDraft(project: Project): ProjectDraft {
 }
 
 /**
- * La clé de déploiement, à coller dans les réglages de chaque dépôt.
+ * La clé **partagée** du déploiement, repli des projets qui n'ont pas la leur.
  *
- * C'est la moitié **publique** de celle que les pipelines présentent au clone :
- * l'afficher n'expose rien. Une seule clé pour tous les dépôts, et non une par
- * projet — en générer demanderait au dashboard le droit d'écrire des secrets,
- * qu'il n'a pas et ne doit pas avoir.
+ * C'est la moitié publique de celle que les pipelines présentent au clone :
+ * l'afficher n'expose rien. Elle a longtemps été la seule — le dashboard n'avait
+ * pas le droit d'écrire des secrets. Depuis le lot G il l'a, sans celui de les
+ * lire, et chaque projet reçoit la sienne ; celle-ci ne sert plus qu'aux projets
+ * déclarés avant, ou dont la pose n'a pas encore eu lieu.
  */
 function DeployKeyCard({ deployKey }: { deployKey: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -157,8 +160,8 @@ function DeployKeyCard({ deployKey }: { deployKey: string }) {
   return (
     <Card title="Clé de déploiement">
       <p className="mb-3 text-sm text-zinc-600">
-        À ajouter dans les clés de déploiement de chaque dépôt piloté — en lecture seule : les
-        pipelines clonent, ils ne poussent pas. La même clé sert pour tous.
+        Le repli des dépôts qui n'ont pas encore reçu leur propre clé. En lecture seule : les
+        pipelines clonent, ils ne poussent pas.
       </p>
 
       <div className="flex items-start gap-2">
@@ -297,6 +300,8 @@ function ProjectRow({
           {project.check_note}
         </p>
       )}
+
+      <ProjectKey project={project} />
 
       {confirming && (
         <ConfirmDialog
@@ -636,5 +641,118 @@ function Reference({ registry, image }: { registry: string; image?: string }) {
     <span className="truncate font-mono text-xs text-zinc-500" title={`${prefix}/${name}`}>
       {prefix}/{name}
     </span>
+  )
+}
+
+/**
+ * La clé de déploiement propre à un projet.
+ *
+ * Moitié **publique** : l'afficher n'expose rien, c'est précisément ce qu'on
+ * colle dans les réglages du dépôt. La moitié privée n'a jamais quitté le
+ * cluster et n'est disponible nulle part — pas même pour l'administrateur.
+ *
+ * Tant qu'aucune clé n'a été posée, l'écran le dit et renvoie à la clé partagée
+ * plutôt que d'afficher un vide qu'on prendrait pour une panne.
+ */
+function ProjectKey({ project }: { project: Project }) {
+  const rotate = useRotateDeployKey()
+  const activate = useActivateDeployKey()
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [confirming, setConfirming] = useState(false)
+
+  if (!project.deploy_key) {
+    return (
+      <p className="text-xs text-zinc-500">
+        Pas encore de clé propre — ce dépôt emploie la clé partagée ci-dessus. La sienne sera
+        posée au prochain passage du worker.
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-start gap-2">
+        <code className="min-w-0 flex-1 break-all rounded-md border border-zinc-200 bg-zinc-100 px-2 py-1 font-mono text-[11px] text-zinc-900">
+          {project.deploy_key}
+        </code>
+        <button
+          type="button"
+          onClick={() => {
+            void copyText(project.deploy_key as string).then((done) =>
+              setState(done ? 'copied' : 'failed'),
+            )
+          }}
+          className="flex shrink-0 items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+        >
+          <Icon name={state === 'copied' ? 'check' : 'link'} className="size-3.5" />
+          {state === 'copied' ? 'Copiée' : 'Copier'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          disabled={rotate.isPending}
+          className="shrink-0 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+        >
+          Remplacer
+        </button>
+      </div>
+
+      {/* L'activation est le seul geste que le dashboard ne peut pas faire :
+          coller la clé dans les réglages du dépôt appartient à un humain. Tant
+          qu'il ne l'a pas dit, monter cette clé ferait échouer le clone. */}
+      {project.deploy_key_active ? (
+        <p className="flex items-center gap-1.5 text-xs text-ok-700">
+          <Icon name="check" className="size-3.5" />
+          Employée par les pipelines de ce dépôt.
+          <button
+            type="button"
+            onClick={() => activate.mutate({ id: project.id, active: false })}
+            className="underline hover:no-underline"
+          >
+            Revenir à la clé partagée
+          </button>
+        </p>
+      ) : (
+        <p className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+          Pas encore employée — collez-la dans les clés de déploiement du dépôt, puis
+          <button
+            type="button"
+            onClick={() => activate.mutate({ id: project.id, active: true })}
+            disabled={activate.isPending}
+            className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+          >
+            confirmez qu'elle y est
+          </button>
+        </p>
+      )}
+
+      {state === 'failed' && (
+        <p className="text-xs text-critical-700">
+          Le navigateur a refusé la copie — sélectionnez le texte à la main.
+        </p>
+      )}
+
+      {confirming && (
+        <ConfirmDialog
+          title="Remplacer la clé de ce dépôt ?"
+          confirmLabel="Remplacer"
+          pending={rotate.isPending}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            rotate.mutate(project.id)
+            setConfirming(false)
+          }}
+        >
+          <p>
+            Une nouvelle paire sera engendrée pour{' '}
+            <span className="font-mono text-zinc-900">{project.repository}</span>.
+          </p>
+          <p className="text-zinc-500">
+            L'ancienne clé cessera d'ouvrir le dépôt dès que la nouvelle sera posée : il faudra la
+            remplacer dans les réglages du dépôt, sans quoi les pipelines échoueront au clone.
+          </p>
+        </ConfirmDialog>
+      )}
+    </div>
   )
 }

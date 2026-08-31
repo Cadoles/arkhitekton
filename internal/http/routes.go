@@ -231,6 +231,17 @@ func NewAPIRouter(
 	mux.Handle("POST /projects/{id}/probe", Chain(http.HandlerFunc(projects.Probe),
 		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
 
+	// La rotation d'une clé de déploiement est une action sortante : l'ancienne
+	// devient caduque à l'instant même, et le dépôt cesse d'être clonable tant
+	// que la nouvelle n'y est pas collée. `POST` et contrôle CSRF.
+	mux.Handle("POST /projects/{id}/deploy-key", Chain(http.HandlerFunc(projects.RotateDeployKey),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
+
+	// L'activation dit que la clé a été collée dans la forge. Elle change ce que
+	// les pipelines montent : `POST` et contrôle CSRF.
+	mux.Handle("POST /projects/{id}/deploy-key/active", Chain(http.HandlerFunc(projects.ActivateDeployKey),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
+
 	mux.Handle("GET /forge/refs", Chain(http.HandlerFunc(forge.Refs),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
 

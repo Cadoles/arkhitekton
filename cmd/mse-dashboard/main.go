@@ -23,6 +23,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/deploykeys"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
@@ -260,7 +261,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		logger.Info("forge configurée", "url", cfg.Forge.URL, "repo", cfg.Forge.Repository)
 	} else {
 		logger.Warn("forge non configurée",
-			"raison", "GITEA_URL, GITEA_TOKEN ou GITEA_REPO absent",
+			"raison", "FORGE_URL, FORGE_TOKEN ou FORGE_REPO absent",
 			"consequence", "le git_ref des releases se saisira à la main")
 	}
 
@@ -518,7 +519,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			scheduler := worker.NewSchedulerFromCatalog(
 				db, cluster, pipelines, resolved, logger).
 				WithUploads(storage).
-				WithInstance(instance)
+				WithInstance(instance).
+				// La clé de déploiement du projet remplace la clé partagée au
+				// moment de composer le run. Un projet sans clé propre retombe
+				// sur la partagée : c'est l'état d'avant le lot G, et le bon
+				// pour un projet déclaré avant lui.
+				WithProjectKeys(db)
 
 			// Les livrables passent par la file comme le reste, mais sont
 			// produits ici : générer un bon de livraison lit la base et écrit un
@@ -564,6 +570,15 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			go func() { errs <- scheduler.Run(leadingCtx) }()
 			go func() { errs <- environments.Run(leadingCtx) }()
 			go func() { errs <- purger.Run(leadingCtx) }()
+
+			// La pose des clés de déploiement. Sous le bail comme le reste : deux
+			// workers qui poseraient la même clé se la remplaceraient l'un
+			// l'autre, et la moitié publique enregistrée ne serait plus celle du
+			// Secret déposé.
+			keys := projectKeys(cluster, cfg, pipelines, logger)
+			go func() {
+				errs <- worker.NewKeyReconciler(db, keys, logger).Run(leadingCtx)
+			}()
 
 			// Redmine est optionnel : sans clé, le dashboard tourne et les écrans
 			// de versions le disent. Faire échouer le worker priverait
@@ -916,10 +931,11 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 
 // projectsHandler assemble la déclaration des dépôts pilotés.
 //
-// La clé de déploiement affichée est la moitié **publique** de celle que les
-// pipelines présentent au clone : c'est ce qu'on colle dans les réglages d'un
-// dépôt. Elle vient de la configuration et non du secret — le dashboard n'a pas
-// `secrets` dans sa RBAC et ne doit pas l'avoir (doc 07 §7.3).
+// Deux clés y coexistent, et la distinction est le sujet du lot G. La clé de la
+// **configuration** est celle du déploiement, partagée par tous les dépôts ; elle
+// reste affichée aux projets qui n'en ont pas reçu d'autre. La clé **par projet**
+// est posée par le worker : l'API tourne sans jeton de cluster, délibérément,
+// parce que c'est la surface exposée (doc 12 §12.7).
 func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
 		WithDeployKey(cfg.Forge.DeployKey, cfg.Forge.URL).
@@ -1042,4 +1058,30 @@ func configuredProjects(cfg config.Config) []store.Project {
 		})
 	}
 	return projects
+}
+
+// projectKeys ouvre de quoi poser une clé de déploiement par projet.
+//
+// Appelé depuis le rôle `api`, parce que c'est lui qui déclare les projets — et
+// non le worker, qui n'en voit que les jobs. Les deux partagent le même compte
+// de service, donc la même Role : le droit d'écrire un Secret sans pouvoir en
+// lire aucun est déjà accordé (doc 12 §12.7).
+//
+// **Rend nil plutôt qu'une erreur.** Un dashboard sans accès au cluster reste
+// parfaitement utilisable : les projets s'y déclarent, et emploient la clé
+// partagée du déploiement. Faire échouer le démarrage sur une dépendance qui ne
+// sert qu'à une fonction serait le même défaut que celui corrigé au lot D, où
+// l'attestation absente empêchait le déployeur d'exister.
+func projectKeys(
+	cluster *tekton.Client, cfg config.Config, pipelines *catalog.Catalog, logger *slog.Logger,
+) *deploykeys.Issuer {
+	namespace := cfg.Tekton.Namespace
+	owner := deploykeys.NewOwner(cluster.Kube, namespace)
+	// Tous les comptes que le catalogue emploie : n'en tenir qu'un rendrait la
+	// clé montable pour certains pipelines du projet et pas pour les autres.
+	accounts := pipelines.ServiceAccounts()
+	mounter := deploykeys.NewMounter(cluster.Kube, namespace, accounts...)
+	logger.Info("clés de déploiement par projet",
+		"namespace", namespace, "comptes_de_service", accounts)
+	return deploykeys.NewIssuer(owner, mounter)
 }

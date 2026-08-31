@@ -739,3 +739,31 @@ func (p Pipeline) ResolveSecrets(config map[string]string) (Pipeline, error) {
 
 	return resolved, nil
 }
+
+// ServiceAccounts rend les comptes de service que les pipelines emploient.
+//
+// Trié et dédoublonné. Sert au lot G : la clé d'un projet doit être montable par
+// **chacun** d'eux, faute de quoi elle le serait pour certains de ses pipelines
+// et pas pour les autres — et l'échec désignerait le clone plutôt que le
+// montage.
+//
+// Le compte par défaut, celui qu'un pipeline qui n'en nomme aucun emploie, est
+// rendu sous le nom `default` : c'est ainsi que Kubernetes le nomme, et c'est
+// bien lui qu'il faudra autoriser.
+func (c *Catalog) ServiceAccounts() []string {
+	seen := map[string]bool{}
+	for _, pipeline := range c.Pipelines {
+		name := strings.TrimSpace(pipeline.ServiceAccountName)
+		if name == "" {
+			name = "default"
+		}
+		seen[name] = true
+	}
+
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}

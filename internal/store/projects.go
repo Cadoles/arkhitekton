@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/deploykeys"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -150,9 +152,23 @@ type Project struct {
 	CheckedAt *time.Time
 	CheckOK   *bool
 	CheckNote string
-	CreatedBy string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// DeployKeyActive dit que la clé a été collée dans les réglages du dépôt et
+	// ouvre donc vraiment celui-ci. Faux tant que personne ne l'a affirmé : une
+	// clé posée mais inconnue de la forge n'ouvre rien, et l'employer d'office
+	// ferait échouer au clone un dépôt qui fonctionnait (migration 0037).
+	DeployKeyActive bool
+	// DeployKeyPublic est la **moitié publique** de la clé de déploiement du
+	// projet. Vide tant qu'aucune clé n'a été posée.
+	//
+	// Elle est aussi le registre de propriété du Secret qui porte l'autre
+	// moitié : la RBAC du dashboard ne lui permet pas de lire les secrets, donc
+	// il ne peut pas demander au cluster si celui d'un projet lui appartient. Il
+	// le lit ici (migration 0034, doc 12 §12.7).
+	DeployKeyPublic    string
+	DeployKeyCreatedAt *time.Time
+	CreatedBy          string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // ErrProjectNotFound signale un projet absent.
@@ -221,7 +237,8 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
 		        image_registry, multi_stage, tracker_project, targets, checked_at, check_ok,
-		        check_note, created_by, created_at, updated_at
+		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
+		        created_by, created_at, updated_at
 		 from projects order by label`)
 	if err != nil {
 		return nil, fmt.Errorf("liste des projets: %w", err)
@@ -244,7 +261,8 @@ func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
 		        image_registry, multi_stage, tracker_project, targets, checked_at, check_ok,
-		        check_note, created_by, created_at, updated_at
+		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
+		        created_by, created_at, updated_at
 		 from projects where id = $1`, id)
 	if err != nil {
 		return Project{}, fmt.Errorf("lecture du projet %d: %w", id, err)
@@ -321,7 +339,8 @@ func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
 		        image_registry, multi_stage, tracker_project, targets, checked_at, check_ok,
-		        check_note, created_by, created_at, updated_at
+		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
+		        created_by, created_at, updated_at
 		 from projects where slug = $1`, slug)
 	if err != nil {
 		return Project{}, fmt.Errorf("lecture du projet %q: %w", slug, err)
@@ -344,7 +363,9 @@ func scanProject(rows pgx.Rows) (Project, error) {
 		&project.ForgeURL, &project.Dockerfile, &project.BuildContext,
 		&project.ImageRegistry, &project.MultiStage, &project.TrackerProject, &targets,
 		&project.CheckedAt, &project.CheckOK,
-		&project.CheckNote, &project.CreatedBy, &project.CreatedAt,
+		&project.CheckNote, &project.DeployKeyPublic, &project.DeployKeyCreatedAt,
+		&project.DeployKeyActive,
+		&project.CreatedBy, &project.CreatedAt,
 		&project.UpdatedAt); err != nil {
 		return Project{}, fmt.Errorf("lecture d'un projet: %w", err)
 	}
@@ -504,4 +525,144 @@ func normaliseTargets(targets []Target) []Target {
 		kept = append(kept, target)
 	}
 	return kept
+}
+
+// SetDeployKey enregistre la moitié publique de la clé d'un projet.
+//
+// Écrite **après** que le Secret a été déposé dans le cluster, jamais avant :
+// cette colonne est le registre de propriété, et l'inscrire d'abord ferait
+// croire à une clé posée si le dépôt échouait ensuite. Une rotation ultérieure
+// remplacerait alors un Secret qui n'existe pas, ou pire, celui d'un tiers.
+func (db *DB) SetDeployKey(ctx context.Context, projectID int64, public string) error {
+	_, err := db.pool.Exec(ctx,
+		// La demande de rotation est effacée dans le même geste : la laisser
+		// ferait reposer une clé à chaque tour de la boucle.
+		`update projects
+		 set deploy_key_public = $2, deploy_key_created_at = now(),
+		     deploy_key_rotate_requested_at = null, updated_at = now()
+		 where id = $1`, projectID, public)
+	if err != nil {
+		return fmt.Errorf("clé du projet %d: %w", projectID, err)
+	}
+	return nil
+}
+
+// ClearDeployKey oublie la clé d'un projet.
+//
+// Rend le projet à l'état « aucune clé » : une pose ultérieure refusera d'adopter
+// un Secret homonyme, ce qui est le comportement voulu — si l'on a oublié la clé,
+// on ne peut plus affirmer que le Secret est le nôtre.
+func (db *DB) ClearDeployKey(ctx context.Context, projectID int64) error {
+	_, err := db.pool.Exec(ctx,
+		`update projects
+		 set deploy_key_public = '', deploy_key_created_at = null, updated_at = now()
+		 where id = $1`, projectID)
+	if err != nil {
+		return fmt.Errorf("oubli de la clé du projet %d: %w", projectID, err)
+	}
+	return nil
+}
+
+// DeployKeySecret rend le nom du secret portant la clé d'un projet.
+//
+// Faux quand le projet n'a pas de clé propre. La réponse se lit dans
+// `deploy_key_public` et non dans le cluster : la RBAC du dashboard ne lui
+// permet pas d'y lire un secret, et c'est cette colonne qui fait foi sur la
+// propriété (migration 0034).
+func (db *DB) DeployKeySecret(ctx context.Context, projectID int64) (string, bool, error) {
+	var slug, public string
+	err := db.pool.QueryRow(ctx,
+		// `deploy_key_active` et non la seule présence de la clé : entre la pose
+		// et l'instant où quelqu'un la colle dans la forge, elle n'ouvre rien.
+		// L'employer d'office ferait échouer au clone un dépôt qui fonctionnait
+		// la veille (migration 0037).
+		`select slug, deploy_key_public from projects
+		 where id = $1 and deploy_key_active`, projectID).
+		Scan(&slug, &public)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return "", false, nil
+	case err != nil:
+		return "", false, fmt.Errorf("clé du projet %d: %w", projectID, err)
+	case public == "":
+		return "", false, nil
+	}
+	return deploykeys.SecretName(slug), true, nil
+}
+
+// RequestKeyRotation demande le remplacement de la clé d'un projet.
+//
+// Une demande et non un remplacement : l'API tourne sans jeton de cluster, et
+// lui en donner un pour la commodité d'une pose synchrone serait un recul de
+// sécurité — c'est la surface exposée. Le worker, qui a déjà le cluster et le
+// bail de leader, la réalise (migration 0034).
+func (db *DB) RequestKeyRotation(ctx context.Context, projectID int64) error {
+	tag, err := db.pool.Exec(ctx,
+		`update projects set deploy_key_rotate_requested_at = now(), updated_at = now()
+		 where id = $1`, projectID)
+	if err != nil {
+		return fmt.Errorf("demande de rotation pour le projet %d: %w", projectID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrProjectNotFound
+	}
+	return nil
+}
+
+// PendingKey décrit un projet dont la clé est à poser.
+type PendingKey struct {
+	ID   int64
+	Slug string
+	// Known dit si le dashboard possède déjà la clé de ce projet. C'est ce qui
+	// distingue une rotation — le Secret est nôtre, on le remplace — d'une
+	// première pose, où un Secret homonyme viendrait forcément d'ailleurs et ne
+	// doit pas être adopté.
+	Known bool
+}
+
+// ProjectsAwaitingKey rend les projets qu'il reste à pourvoir.
+//
+// Deux cas réunis, parce que la boucle les traite de la même façon : celui qui
+// n'a aucune clé, et celui dont une rotation a été demandée. Un redémarrage
+// après panne rattrape les deux sans qu'on ait à distinguer ce qui avait été
+// interrompu.
+func (db *DB) ProjectsAwaitingKey(ctx context.Context) ([]PendingKey, error) {
+	rows, err := db.pool.Query(ctx,
+		`select id, slug, deploy_key_public <> ''
+		 from projects
+		 where deploy_key_public = '' or deploy_key_rotate_requested_at is not null
+		 order by id`)
+	if err != nil {
+		return nil, fmt.Errorf("projets sans clé: %w", err)
+	}
+	defer rows.Close()
+
+	var pending []PendingKey
+	for rows.Next() {
+		var entry PendingKey
+		if err := rows.Scan(&entry.ID, &entry.Slug, &entry.Known); err != nil {
+			return nil, fmt.Errorf("projets sans clé: %w", err)
+		}
+		pending = append(pending, entry)
+	}
+	return pending, rows.Err()
+}
+
+// ActivateDeployKey déclare que la clé d'un projet ouvre son dépôt.
+//
+// Le geste que rien n'automatise : coller la moitié publique dans les réglages
+// du dépôt appartient à un humain, et lui seul peut dire que c'est fait. Tant
+// qu'il ne l'a pas dit, les pipelines montent la clé partagée — ce qui marche —
+// plutôt qu'une clé neuve que la forge ignore.
+func (db *DB) ActivateDeployKey(ctx context.Context, projectID int64, active bool) error {
+	tag, err := db.pool.Exec(ctx,
+		`update projects set deploy_key_active = $2, updated_at = now() where id = $1`,
+		projectID, active)
+	if err != nil {
+		return fmt.Errorf("activation de la clé du projet %d: %w", projectID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrProjectNotFound
+	}
+	return nil
 }

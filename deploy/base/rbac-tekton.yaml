@@ -2,8 +2,13 @@
 #
 # La liste suit doc 07 §7.3. Ce qui en est absent l'est volontairement :
 #
-#   - `secrets` : le dashboard n'a aucune raison de lire les secrets de Tekton,
-#     et ce namespace en contient (registre, clé SSH de déploiement, MinIO).
+#   - la **lecture** des secrets : le dashboard n'a aucune raison de lire ceux de
+#     Tekton, et ce namespace en contient (registre, clé SSH partagée, MinIO). Il
+#     en crée en revanche depuis le lot G — une clé de déploiement par projet —,
+#     et en RBAC Kubernetes les verbes sont indépendants : `create`, `patch` et
+#     `delete` s'accordent sans `get` ni `list`. Un rôle qui possède ce qu'il
+#     crée sans rien pouvoir lire du namespace est donc exprimable, et il honore
+#     le motif d'origine à la lettre (doc 12 §12.7).
 #   - `pods/exec` : la collecte de logs passe par `pods/log`, jamais par une
 #     exécution dans un conteneur.
 #   - toute écriture sur `pipelines` et `tasks` : elles appartiennent à
@@ -38,6 +43,30 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log"]
     verbs: ["get", "list", "watch"]
+  # Écriture des secrets que le dashboard **possède** : une clé de déploiement
+  # par projet, dont il ne conserve que la moitié publique.
+  #
+  # Sans `get` ni `list`, et c'est structurant plutôt que décoratif : n'ayant
+  # aucun moyen de demander au cluster si un secret lui appartient, le dashboard
+  # lit sa propriété dans sa base — `projects.deploy_key_public` — et refuse
+  # d'adopter un secret préexistant. La restriction produit la garantie.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "patch", "update", "delete"]
+  # La liste des secrets montables du compte de service des pipelines.
+  #
+  # `kubernetes.io/enforce-mountable-secrets: "true"` est ce qui empêche
+  # réellement une Task de se servir dans le namespace. En devenant propriétaire
+  # de secrets, le dashboard devient responsable de ce qui peut les monter : il
+  # n'ajoute que les noms qu'il dérive lui-même d'un projet, et ne retire jamais
+  # une entrée qu'il n'a pas posée.
+  #
+  # `get` est ici accordé : un compte de service n'est pas un secret, et sans
+  # lui la liste ne pourrait être modifiée qu'en l'écrasant — ce qui élaguerait
+  # les identifiants du déploiement.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "update", "patch"]
   # Diagnostic d'un run qui ne démarre pas : PVC non lié, image non tirée, quota
   # atteint. Sans les events, l'interface ne peut afficher que « en attente ».
   - apiGroups: [""]

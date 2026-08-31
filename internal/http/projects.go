@@ -34,6 +34,8 @@ type ProjectStore interface {
 	UpdateProject(ctx context.Context, project store.Project) error
 	DeleteProject(ctx context.Context, id int64) error
 	RecordProjectCheck(ctx context.Context, id int64, ok bool, note string) error
+	RequestKeyRotation(ctx context.Context, projectID int64) error
+	ActivateDeployKey(ctx context.Context, projectID int64, active bool) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
@@ -53,16 +55,19 @@ type ProjectsHandler struct {
 	// répond alors qu'il ne peut pas conclure, ce qui vaut mieux qu'un échec
 	// qu'on prendrait pour un défaut d'accès.
 	prober ProjectProber
-	// deployKey est la **moitié publique** de la clé que les pipelines
-	// présentent au clone. Publique, donc affichable : c'est précisément ce
-	// qu'on va coller dans les réglages du dépôt.
+	// deployKey est la clé **partagée**, celle du déploiement, affichée aux
+	// projets qui n'en ont pas encore reçu une propre.
 	//
-	// Elle vient de la configuration et non du secret : le dashboard n'a pas
-	// `secrets` dans sa RBAC et ne doit pas l'avoir (doc 07 §7.3). Une clé par
-	// projet demanderait de les créer, donc ce droit ; une seule clé ajoutée à
-	// plusieurs dépôts fait le même travail sans l'exiger.
+	// Elle vient de la configuration. Elle a longtemps été la seule : le
+	// dashboard n'avait pas `secrets` dans sa RBAC, et une clé par projet
+	// aurait demandé de les créer. Le lot G lui accorde ce droit sans lui donner
+	// la lecture, et `keys` pose désormais une clé par projet — celle-ci reste
+	// le repli pour les projets déclarés avant (doc 12 §12.7).
 	deployKey string
-	forgeURL  string
+	// keys pose la clé d'un projet dans le cluster. Nil quand le dashboard n'a
+	// pas d'accès au cluster : la déclaration reste alors possible, et le projet
+	// emploie la clé partagée.
+	forgeURL string
 	// imageRegistry est le registre proposé par défaut à la déclaration. Celui de
 	// la configuration : c'est là que publient les projets existants, et le
 	// resaisir à chaque déclaration inviterait la faute de frappe.
@@ -127,7 +132,18 @@ type projectPayload struct {
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
 	CheckOK   *bool      `json:"check_ok,omitempty"`
 	CheckNote string     `json:"check_note,omitempty"`
-	CreatedBy string     `json:"created_by"`
+	// DeployKey est la moitié **publique** de la clé propre au projet. Vide quand
+	// il n'en a pas : l'écran affiche alors la clé partagée, en le disant.
+	//
+	// La moitié privée n'apparaît jamais ici, ni ailleurs. Elle est écrite une
+	// fois dans un Secret et n'en ressort plus (doc 07 §7.3).
+	DeployKey          string     `json:"deploy_key,omitempty"`
+	DeployKeyCreatedAt *time.Time `json:"deploy_key_created_at,omitempty"`
+	// DeployKeyActive dit que la clé ouvre vraiment le dépôt. Faux tant que
+	// personne n'a collé la moitié publique dans ses réglages : les pipelines
+	// montent alors la clé partagée, qui elle fonctionne.
+	DeployKeyActive bool   `json:"deploy_key_active"`
+	CreatedBy       string `json:"created_by"`
 }
 
 // List rend les projets, la clé de déploiement et la forge par défaut.
@@ -182,6 +198,8 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		MultiStage:    project.MultiStage, Targets: targets,
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
+		DeployKey: project.DeployKeyPublic, DeployKeyCreatedAt: project.DeployKeyCreatedAt,
+		DeployKeyActive: project.DeployKeyActive,
 	}
 }
 
@@ -309,7 +327,49 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectSet, request.Repository,
 		map[string]any{"label": request.Label})
 
+	// La clé du projet est posée par le worker, qui seul parle au cluster. Le
+	// projet est utilisable immédiatement : en attendant, ses pipelines montent
+	// la clé partagée du déploiement.
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+// RotateDeployKey demande le remplacement de la clé d'un projet.
+//
+// Une **demande**, réalisée par le worker. L'API tourne sans jeton de cluster —
+// `automountServiceAccountToken: false`, délibérément, parce que c'est la
+// surface exposée — et lui en accorder un pour la commodité d'une pose synchrone
+// serait un recul de sécurité déguisé en fonctionnalité (doc 12 §12.7).
+//
+// L'ancienne clé reste valable jusqu'à ce que la nouvelle soit posée : la
+// rotation ne casse donc pas les clones en cours, et l'écran dit qu'elle est
+// demandée plutôt que faite.
+func (h *ProjectsHandler) RotateDeployKey(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	id, ok := projectID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := h.store.RequestKeyRotation(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeProblem(w, http.StatusNotFound, "Projet introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Demande impossible", "")
+		return
+	}
+
+	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectSet,
+		strconv.FormatInt(id, 10), map[string]any{"deploy_key": "rotation demandée"})
+
+	// 202 et non 200 : la clé n'est pas encore remplacée, et répondre 200
+	// laisserait croire qu'on peut déjà la coller dans la forge.
+	writeJSON(w, http.StatusAccepted, map[string]any{"requested": true})
 }
 
 // Update remplace la description d'un projet.
@@ -461,4 +521,50 @@ func projectID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// ActivateDeployKey déclare que la clé d'un projet ouvre son dépôt.
+//
+// Le seul geste de toute la chaîne que le dashboard ne peut pas faire : coller
+// la moitié publique dans les réglages du dépôt appartient à un humain, et lui
+// seul peut affirmer que c'est fait. Tant qu'il ne l'a pas dit, les pipelines
+// montent la clé partagée — qui fonctionne — plutôt qu'une clé neuve que la
+// forge ignore.
+func (h *ProjectsHandler) ActivateDeployKey(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	id, ok := projectID(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Active bool `json:"active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		return
+	}
+
+	if err := h.store.ActivateDeployKey(r.Context(), id, body.Active); err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeProblem(w, http.StatusNotFound, "Projet introuvable", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Activation impossible", "")
+		return
+	}
+
+	state := "désactivée"
+	if body.Active {
+		state = "activée"
+	}
+	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectSet,
+		strconv.FormatInt(id, 10), map[string]any{"deploy_key": state})
+
+	writeJSON(w, http.StatusOK, map[string]any{"active": body.Active})
 }
