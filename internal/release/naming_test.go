@@ -1,6 +1,10 @@
 package release
 
-import "testing"
+import (
+	"testing"
+
+	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
+)
 
 // mseNames est la convention du déploiement MSE : `v` du versionnement
 // sémantique, `MSE ` du client. Déclarée ici parce que ces tests portent sur des
@@ -50,7 +54,7 @@ func TestLaNormalisationNestPasInjective(t *testing.T) {
 
 // L'égalité stricte, telle que B8 et B17 la posaient, rejetait toute release réelle.
 func TestUneReleaseSeRattacheAUneVersionPrefixee(t *testing.T) {
-	version, err := ParseVersion("3.2.0-rc1")
+	version, err := versionpkg.SemVer{}.Parse("3.2.0-rc1")
 	if err != nil {
 		t.Fatalf("analyse: %v", err)
 	}

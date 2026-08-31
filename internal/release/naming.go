@@ -3,6 +3,8 @@ package release
 import (
 	"sort"
 	"strings"
+
+	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 /*
@@ -130,6 +132,6 @@ func startsWithDigit(value string) bool {
 // La comparaison porte sur la version de base : une pré-release `3.2.0-rc1` se
 // rattache à la version `3.2.0`, ce qui est ce qui relie une RC à son périmètre
 // fonctionnel.
-func (n Normalizer) SameVersion(version Version, redmineName string) bool {
+func (n Normalizer) SameVersion(version versionpkg.Version, redmineName string) bool {
 	return n.Normalize(version.Base) == n.Normalize(redmineName)
 }

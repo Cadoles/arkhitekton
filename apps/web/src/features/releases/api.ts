@@ -20,7 +20,26 @@ export type ReleaseState =
   | 'released'
   | 'failed'
   | 'cancelled'
-export type ReleaseKind = 'pre' | 'final' | 'patch'
+/**
+ * La nature d'une release, telle que **le projet la déclare**.
+ *
+ * Une chaîne libre et non une union : `pre | final | patch` était le cycle du
+ * MSE, et un projet en `alpha` / `beta` / `ga` n'entrait dans aucune des trois
+ * cases. Le jeu vient désormais de l'API (doc 12 §12.4).
+ */
+export type ReleaseKind = string
+
+/** Une nature déclarée, telle que l'écran de création la propose. */
+export type ReleaseKindSpec = {
+  id: string
+  label: string
+  /** `build` construit depuis une référence Git, `retag` reprend l'image d'une
+   *  release existante. C'est le mode et non le nom qui porte B17. */
+  mode: 'build' | 'retag'
+  /** Nature dont celle-ci reprend l'image. Vide : n'importe quelle release
+   *  antérieure convient. */
+  source?: string
+}
 
 /**
  * Cible de promotion, telle que le serveur la juge.
@@ -75,7 +94,8 @@ export type Release = {
 export function useReleases() {
   return useQuery({
     queryKey: ['releases'],
-    queryFn: () => request<{ releases: Release[] }>(projectPath('/releases')),
+    queryFn: () =>
+      request<{ releases: Release[]; kinds: ReleaseKindSpec[] }>(projectPath('/releases')),
   })
 }
 

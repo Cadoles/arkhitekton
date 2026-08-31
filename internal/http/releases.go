@@ -20,6 +20,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 // ReleaseStore est ce que les handlers de release attendent de la base.
@@ -351,10 +352,11 @@ func (h *ReleasesHandler) actorsFor(ctx context.Context) actors {
 
 // List rend les releases les plus récentes.
 func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
-	currentID, ok := requestProject(w, r, h.store)
-	if !ok {
+	project, err := requestProjectRecord(w, r, h.store)
+	if err != nil {
 		return
 	}
+	currentID := project.ID
 
 	releases, err := h.store.ListReleases(r.Context(), currentID, 50)
 	if err != nil {
@@ -382,7 +384,43 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 		entry.Score = h.scoreDigest(r.Context(), item.ID)
 		payload = append(payload, entry)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"releases": payload})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"releases": payload,
+		// Le cycle accompagne la liste : l'écran de création était piloté par
+		// une liste en dur — `pre` / `final` / `patch` — qui n'aurait rien
+		// proposé à un projet en `alpha` / `beta` / `ga`. Il le lit désormais
+		// (doc 12 §12.4).
+		"kinds": kindsPayload(project.ReleaseKinds),
+	})
+}
+
+// releaseKindPayload décrit une nature déclarée, telle que l'écran de création la
+// propose.
+//
+// `Mode` et `Source` y figurent parce que le formulaire s'en sert : une nature
+// en re-tag demande une release source et non une référence Git, et sans cette
+// information l'écran redemanderait les deux.
+type releaseKindPayload struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Mode  string `json:"mode"`
+	// Source nomme la nature dont celle-ci reprend l'image. Vide, n'importe
+	// quelle release antérieure convient.
+	Source string `json:"source,omitempty"`
+}
+
+func kindsPayload(cycle release.Cycle) []releaseKindPayload {
+	payload := make([]releaseKindPayload, 0, len(cycle))
+	for _, spec := range cycle {
+		label := spec.Label
+		if label == "" {
+			label = spec.ID
+		}
+		payload = append(payload, releaseKindPayload{
+			ID: spec.ID, Label: label, Mode: string(spec.Mode), Source: spec.Source,
+		})
+	}
+	return payload
 }
 
 // scoreDigest rend le score d'une release, ou rien.
@@ -617,52 +655,66 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	version, err := release.ParseVersion(request.Tag)
+	// Le projet décide de la forme de ses tags et de ses natures : les deux se
+	// lisent avant toute validation, puisque c'est lui qui dit ce qui est valide.
+	project, err := requestProjectRecord(w, r, h.store)
+	if err != nil {
+		return
+	}
+	scheme, err := version.For(project.VersionScheme)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Schéma de version illisible", "")
+		return
+	}
+
+	parsed, err := scheme.Parse(request.Tag)
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "Tag invalide", err.Error())
 		return
 	}
 
-	kind := release.Kind(request.Kind)
-	if err := release.CheckKind(version, kind); err != nil {
+	spec, err := project.ReleaseKinds.Find(request.Kind)
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Nature de release inconnue", err.Error())
+		return
+	}
+	if err := release.CheckTag(spec, parsed); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Nature de release incohérente", err.Error())
 		return
 	}
 
-	// Livrer une version finale est une décision d'une autre portée que produire
-	// une RC : elle engage ce qui part chez l'utilisateur. La route exige
-	// `release:create`, la nature exige davantage.
-	if kind != release.KindPre && !h.authorizer.Can(identity, auth.PermReleaseFinal) {
-		writeProblem(w, http.StatusForbidden,
-			"Permission insuffisante", "la création d'une release finale exige le rôle releaser")
+	// La permission est celle que la **nature déclare**, et non celle qu'un nom
+	// suggère. Livrer engage ce qui part chez l'utilisateur : la route exige
+	// `release:create`, la nature peut exiger davantage.
+	if spec.Permission != "" && !h.authorizer.Can(identity, auth.Permission(spec.Permission)) {
+		writeProblem(w, http.StatusForbidden, "Permission insuffisante",
+			fmt.Sprintf("créer une release %q exige la permission %q", spec.ID, spec.Permission))
 		return
 	}
 
 	if request.TrackedVersion != "" {
-		if err := h.names.CheckTrackedVersion(version, request.TrackedVersion); err != nil {
+		if err := h.names.CheckTrackedVersion(parsed, request.TrackedVersion); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Version de suivi incohérente", err.Error())
 			return
 		}
 	}
 
 	record := store.Release{
-		Tag: version.Raw, Kind: string(kind), GitRef: request.GitRef,
+		Tag: parsed.Raw, Kind: spec.ID, GitRef: request.GitRef,
 		CreatedBy: identity.Subject,
 	}
 	var warnings []string
 
-	if kind == release.KindPre {
+	if spec.Mode == release.ModeBuild {
 		// L'image n'existe pas encore : elle portera le tag lui-même, et c'est
 		// `build-image` qui fera passer la release en `ready`.
+		//
+		// Le branchement porte sur le **mode** et non sur un nom de nature. C'est
+		// ce qui faisait que `pre` et `patch` demandaient deux branches pour un
+		// seul comportement — construire depuis du code — et qu'une quatrième
+		// nature aurait demandé une troisième branche (doc 12 §12.4).
 		record.State = string(release.StateDraft)
-		record.ImageVersion = version.Raw
-	} else if kind == release.KindPatch {
-		// Un patch se construit comme une pré-release : il corrige une version
-		// livrée, donc il y a du code nouveau à compiler. Le distinguer d'une
-		// finale — qui, elle, ne fait que re-taguer — est ce qui évite de lui
-		// réclamer une RC source qui n'existe pas.
-		record.State = string(release.StateDraft)
-		record.ImageVersion = version.Raw
+		record.ImageVersion = parsed.Raw
 	} else {
 		currentID, ok := requestProject(w, r, h.store)
 		if !ok {
@@ -713,7 +765,9 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// `tagged` est une variable locale et non un champ du handler : celui-ci est
 	// partagé par toutes les requêtes, et deux créations simultanées liraient le
 	// drapeau l'une de l'autre.
-	if kind != release.KindFinal {
+	// Le mode et non le nom : seule une nature qui **construit** part d'une
+	// référence Git, et c'est elle qui mérite un tag et un commit d'ancrage.
+	if spec.Mode == release.ModeBuild {
 		commit, resolveWarnings := h.anchorCommit(r.Context(), request.GitRef)
 		record.GitCommit = commit
 		warnings = append(warnings, resolveWarnings...)
@@ -722,17 +776,22 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 			// Le tag est posé pour les humains et pour la traçabilité ; la
 			// construction, elle, part du commit. Son échec est donc une réserve
 			// et n'empêche pas de construire.
-			_, tagWarnings := h.tagRelease(r.Context(), version.Raw, commit)
+			_, tagWarnings := h.tagRelease(r.Context(), parsed.Raw, commit)
 			warnings = append(warnings, tagWarnings...)
 		}
 	}
 
-	currentID, ok := requestProject(w, r, h.store)
-	if !ok {
-		return
+	currentID := project.ID
+
+	// La ligne de version, quand le schéma la connaît. Sur un schéma opaque elle
+	// est vide, et le tag entier sert alors de nom : c'est ce que le projet a
+	// écrit, et l'inventer serait pire que de le reprendre.
+	line := parsed.Base
+	if line == "" {
+		line = parsed.Raw
 	}
 
-	versionID, err := h.store.EnsureVersion(r.Context(), currentID, version.Base)
+	versionID, err := h.store.EnsureVersion(r.Context(), currentID, line)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Version indisponible", "")
 		return
@@ -758,7 +817,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// elle restait `draft` indéfiniment : le pipeline existait dans le cluster,
 	// mais rien ne le déclenchait, et l'écran affichait un brouillon que personne
 	// ne savait faire avancer.
-	if record.State == string(release.StateDraft) && kind != release.KindFinal {
+	if record.State == string(release.StateDraft) && spec.Mode == release.ModeBuild {
 		// Jamais d'une branche quand le commit est connu : reconstruire la même
 		// release six mois plus tard doit produire la même image (B17).
 		buildRef := buildReference(record, request.GitRef)
@@ -919,11 +978,19 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Une release finale n'a rien à construire : c'est un re-tag, et son image est
-	// celle de sa RC source.
-	if record.Kind == string(release.KindFinal) {
+	// Une release en mode re-tag n'a rien à construire : son image est celle de
+	// sa source. La règle porte sur le **mode** et non sur un nom de nature —
+	// c'est ainsi que B17 vaut pour toute nature qui déclare `retag`, quel que
+	// soit le vocabulaire du projet.
+	project, err := requestProjectRecord(w, r, h.store)
+	if err != nil {
+		return
+	}
+	if spec, err := project.ReleaseKinds.Find(record.Kind); err == nil &&
+		spec.Mode == release.ModeRetag {
 		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
-			"une release finale est un re-tag: son image est celle de sa pré-release source")
+			fmt.Sprintf("une release %q reprend l'image de sa source: la reconstruire "+
+				"produirait une image que personne n'a testée", spec.ID))
 		return
 	}
 

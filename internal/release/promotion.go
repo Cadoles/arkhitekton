@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 // DefaultTagTemplate compose le tag de promotion.
@@ -59,12 +61,16 @@ func PromotionTag(releaseTag string, target Target, template string) (string, er
 		return "", fmt.Errorf("environnement %q: aucun suffixe de promotion", target.ID)
 	}
 
-	parsed, err := ParseVersion(version)
+	parsed, err := versionpkg.SemVer{}.Parse(version)
 	if err != nil {
 		return "", fmt.Errorf("tag de release %q: %w", version, err)
 	}
 
-	if parsed.IsPrerelease() && !target.AcceptsPrerelease {
+	// `known` est ignoré ici, et c'est correct : ce chemin n'est atteint que
+	// depuis un déployeur qui a déjà refusé les schémas incapables de répondre
+	// ([flux.Deployer.CheckScheme]). Un schéma muet ne promeut pas par plage.
+	prerelease, _ := parsed.Prereleased()
+	if prerelease && !target.AcceptsPrerelease {
 		return "", fmt.Errorf(
 			"l'environnement %q n'accepte pas les pré-releases: promouvoir %q y produirait un tag "+
 				"que Flux ignorerait, sans erreur ni déploiement",

@@ -18,22 +18,10 @@ package release
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
-)
 
-// Kind distingue les trois natures de release.
-type Kind string
-
-const (
-	// KindPre est une pré-release — `1.8.0-rc1`. Destinée aux environnements de
-	// test, jusqu'en pré-production incluse.
-	KindPre Kind = "pre"
-	// KindFinal est la release livrable — `1.8.0`.
-	KindFinal Kind = "final"
-	// KindPatch corrige une version déjà livrée — `1.8.1`.
-	KindPatch Kind = "patch"
+	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 // State est l'état d'une release.
@@ -130,70 +118,6 @@ func (e ErrInvalidTransition) Error() string {
 	return fmt.Sprintf("transition refusée: %s → %s", e.From, e.To)
 }
 
-// semverPattern couvre la forme retenue : `MAJOR.MINOR.PATCH` avec pré-release
-// facultative. Les métadonnées de build (`+…`) sont volontairement absentes — le
-// séparateur retenu pour la promotion est l'underscore, la grammaire des tags OCI
-// excluant le `+` (B7).
-var semverPattern = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$`)
-
-// Version est un tag de release décomposé.
-type Version struct {
-	Raw string
-	// Base est la version sans pré-release : `1.8.0` pour `1.8.0-rc1`. C'est
-	// elle qui doit correspondre au nom de la version Redmine.
-	Base string
-	// Prerelease est vide pour une release finale.
-	Prerelease string
-}
-
-// IsPrerelease dit si le tag porte une composante de pré-release.
-func (v Version) IsPrerelease() bool { return v.Prerelease != "" }
-
-// ParseVersion décompose un tag de release.
-//
-// Refuser plutôt que tolérer : un tag hors forme casserait la jointure avec
-// Redmine et la sélection Flux, et il vaut mieux le dire à la création que le
-// découvrir en constatant qu'un environnement ne bouge pas.
-func ParseVersion(tag string) (Version, error) {
-	matches := semverPattern.FindStringSubmatch(strings.TrimSpace(tag))
-	if matches == nil {
-		return Version{}, fmt.Errorf(
-			"tag %q invalide: forme attendue MAJEUR.MINEUR.CORRECTIF[-prerelease]", tag)
-	}
-
-	return Version{
-		Raw:        matches[0],
-		Base:       fmt.Sprintf("%s.%s.%s", matches[1], matches[2], matches[3]),
-		Prerelease: matches[4],
-	}, nil
-}
-
-// CheckKind vérifie que la nature annoncée correspond à la forme du tag.
-//
-// L'erreur que cela attrape est banale et coûteuse : créer `1.8.0-rc1` en
-// déclarant une release finale, puis constater que la production ne la prend
-// jamais — sa plage SemVer excluant les pré-releases, Flux l'ignore sans rien
-// dire (B7).
-func CheckKind(version Version, kind Kind) error {
-	switch kind {
-	case KindPre:
-		if !version.IsPrerelease() {
-			return fmt.Errorf(
-				"le tag %q n'a pas de composante de pré-release: une pré-release s'écrit par exemple %s-rc1",
-				version.Raw, version.Base)
-		}
-	case KindFinal, KindPatch:
-		if version.IsPrerelease() {
-			return fmt.Errorf(
-				"le tag %q porte une composante de pré-release %q: une release %s s'écrit %s",
-				version.Raw, version.Prerelease, kind, version.Base)
-		}
-	default:
-		return fmt.Errorf("nature de release inconnue %q", kind)
-	}
-	return nil
-}
-
 // CheckTrackedVersion vérifie la jointure avec Redmine.
 //
 // `tag de release = nom de version Redmine [+ suffixe de pré-release]`. Une RC
@@ -203,7 +127,7 @@ func CheckKind(version Version, kind Kind) error {
 // La comparaison est normalisée ([Normalizer.Normalize]) et non stricte.
 // L'égalité exacte, telle que B8 et B17 la posaient, rejetait toute release
 // réelle : les versions de l'instance s'appellent `v3.2.0`, jamais `3.2.0`.
-func (n Normalizer) CheckTrackedVersion(version Version, redmineName string) error {
+func (n Normalizer) CheckTrackedVersion(version versionpkg.Version, redmineName string) error {
 	if !n.SameVersion(version, redmineName) {
 		return fmt.Errorf(
 			"le tag %q se rattache à la version %q, or la version Redmine visée est %q",

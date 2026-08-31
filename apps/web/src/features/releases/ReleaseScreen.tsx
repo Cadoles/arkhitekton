@@ -564,7 +564,11 @@ function RebuildAction({ release }: { release: ReleaseDetail }) {
   const canBuild =
     session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
 
-  if (release.state !== 'failed' || release.kind === 'final' || !canBuild) return null
+  // Le serveur refuse la reconstruction d'une nature en re-tag et le dit ; ici,
+  // seul l'état compte. Masquer selon le nom `final` aurait laissé le bouton sur
+  // la nature `ga` d'un autre projet, et l'aurait retiré à un `final` qui
+  // construit.
+  if (release.state !== 'failed' || !canBuild) return null
 
   const stage = failedStage(release.jobs ?? [])
   const title =

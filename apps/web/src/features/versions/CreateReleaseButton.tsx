@@ -4,7 +4,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { Modal } from '../../components/Modal'
 import { hasAtLeast, useSession } from '../auth/session'
-import { useCreateRelease, type ReleaseKind } from '../releases/api'
+import { useCreateRelease, useReleases, type ReleaseKind } from '../releases/api'
 import { useForgeRefs, type Version, type VersionRelease } from './api'
 import { projectPath } from '../../lib/project'
 
@@ -30,11 +30,18 @@ import { projectPath } from '../../lib/project'
 // nom de branche légitime ne commence ainsi.
 const CUSTOM_REF = '__custom__'
 
-const KINDS: { value: ReleaseKind; label: string; hint: string }[] = [
-  { value: 'pre', label: 'Pré-release', hint: 'construite puis testée, jusqu’en pré-production' },
-  { value: 'final', label: 'Finale', hint: 're-tag bit à bit d’une pré-release validée' },
-  { value: 'patch', label: 'Patch', hint: 'corrige une version déjà livrée' },
-]
+/**
+ * Ce que fait chaque mode, dit à l'utilisateur.
+ *
+ * Le **mode** est un jeu fermé — deux primitives que le dashboard sait
+ * exécuter — alors que les natures sont déclarées par le projet. C'est donc le
+ * seul endroit où un texte peut être écrit d'avance sans rien supposer du
+ * vocabulaire de qui l'emploie.
+ */
+const MODE_HINTS: Record<string, string> = {
+  build: 'construite depuis une référence Git, puis testée',
+  retag: 're-tag bit à bit de l’image d’une release existante',
+}
 
 /**
  * Numéro suggéré depuis le nom de la version.
@@ -71,7 +78,9 @@ export function CreateReleaseButton({
   const create = useCreateRelease()
 
   const [open, setOpen] = useState(false)
-  const [kind, setKind] = useState<ReleaseKind>('pre')
+  // La première nature déclarée : le projet range son cycle dans l'ordre où
+  // il veut le voir proposé.
+  const [kind, setKind] = useState<ReleaseKind>('')
   const [tag, setTag] = useState('')
   // '' = suivre la branche par défaut du dépôt ; CUSTOM_REF = saisie libre.
   const [refChoice, setRefChoice] = useState('')
@@ -83,13 +92,23 @@ export function CreateReleaseButton({
   const base = useMemo(() => suggestedBase(version.name), [version.name])
   const refs = useForgeRefs(open)
 
+  // Le cycle vient du projet. Vide tant que la liste n'est pas chargée : le
+  // formulaire ne propose alors rien plutôt que d'inventer des natures.
+  const cycle = useReleases().data?.kinds ?? []
+  const selected = cycle.find((entry) => entry.id === kind) ?? cycle[0]
+  const buildMode = selected?.mode === 'build'
+
   // La branche par défaut du dépôt tient lieu de choix tant que l'utilisateur n'a
   // rien sélectionné : c'est le cas courant, et il ne doit demander aucun geste.
   const forgeReady = refs.data?.configured === true
   const defaultBranch = refs.data?.default_branch ?? ''
   const refValue =
     refChoice === CUSTOM_REF || !forgeReady ? customRef : refChoice || defaultBranch
-  const sources = releases.filter((release) => release.kind === 'pre')
+  // La source d'un re-tag : les releases de la nature que la déclaration
+  // désigne, ou toutes si elle n'en désigne aucune.
+  const sources = releases.filter(
+    (release) => !selected?.source || release.kind === selected.source,
+  )
 
   // Le rôle décide de ce qui est proposé, pas de ce qui est permis : masquer une
   // action interdite évite un clic qui échouera, la décision reste au serveur.
@@ -102,7 +121,10 @@ export function CreateReleaseButton({
     setKind(next)
     // Le tag suit la nature tant qu'il n'a pas été édité à la main — le
     // recalculer après une saisie écraserait ce que l'utilisateur vient de taper.
-    setTag(next === 'pre' ? nextPrerelease(base, releases) : base)
+    // Une nature qui construit et exige une pré-release reçoit le numéro
+    // suivant ; les autres reprennent la ligne de version telle quelle.
+    const spec = cycle.find((entry) => entry.id === next)
+    setTag(spec?.mode === 'build' ? nextPrerelease(base, releases) : base)
   }
 
   const openForm = () => {
@@ -127,13 +149,13 @@ export function CreateReleaseButton({
       kind,
       // Le nom Redmine n'est transmis que s'il en est un : celui d'une provisoire
       // vient d'un tag, et le vérifier contre lui-même ne vérifierait rien.
-      tracked_version: version.pending || kind === 'patch' ? undefined : version.name,
+      tracked_version: version.pending ? undefined : version.name,
       // Le git_ref n'accompagne qu'une pré-release : c'est elle qui se construit
       // depuis une branche ou un tag. Une finale est un re-tag — son origine Git
       // est celle de sa RC source.
-      git_ref: kind === 'pre' && refValue.trim() !== '' ? refValue.trim() : undefined,
-      source_tag: kind === 'pre' ? undefined : sourceTag,
-      tests_green: kind === 'pre' ? undefined : testsGreen,
+      git_ref: buildMode && refValue.trim() !== '' ? refValue.trim() : undefined,
+      source_tag: buildMode ? undefined : sourceTag,
+      tests_green: buildMode ? undefined : testsGreen,
     })
   }
 
@@ -166,28 +188,34 @@ export function CreateReleaseButton({
           >
             <fieldset className="flex flex-wrap gap-2">
               <legend className="mb-1 text-sm text-zinc-500">Nature</legend>
-              {KINDS.map((option) => {
-                const locked = option.value !== 'pre' && !canFinal
+              {cycle.map((option) => {
+                // Le verrou est indicatif : le serveur décide, et la nature y
+                // porte sa propre permission. Ici, seul le mode `retag` est
+                // supposé livrable — une approximation assumée, qui évite un
+                // clic voué à un 403 sans jamais autoriser quoi que ce soit.
+                const locked = option.mode === 'retag' && !canFinal
                 return (
                   <label
-                    key={option.value}
+                    key={option.id}
                     className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
-                      kind === option.value ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200'
+                      selected?.id === option.id ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200'
                     } ${locked ? 'opacity-50' : 'cursor-pointer'}`}
                     title={locked ? 'Livrer exige le rôle releaser.' : undefined}
                   >
                     <input
                       type="radio"
                       name="kind"
-                      value={option.value}
-                      checked={kind === option.value}
-                      onChange={() => selectKind(option.value)}
+                      value={option.id}
+                      checked={selected?.id === option.id}
+                      onChange={() => selectKind(option.id)}
                       disabled={locked}
                       className="mt-0.5"
                     />
                     <span>
                       <span className="block font-medium text-zinc-900">{option.label}</span>
-                      <span className="block text-xs text-zinc-500">{option.hint}</span>
+                      <span className="block text-xs text-zinc-500">
+                        {MODE_HINTS[option.mode] ?? ''}
+                      </span>
                     </span>
                   </label>
                 )
@@ -203,7 +231,7 @@ export function CreateReleaseButton({
               />
             </label>
 
-            {kind === 'pre' && (
+            {buildMode && (
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="min-w-24 text-zinc-500">Branche ou tag</span>
 
@@ -270,7 +298,7 @@ export function CreateReleaseButton({
               </div>
             )}
 
-            {kind !== 'pre' && (
+            {!buildMode && (
               <>
                 <label className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="min-w-24 text-zinc-500">Pré-release source</span>
@@ -308,7 +336,7 @@ export function CreateReleaseButton({
             <div className="flex items-center gap-2">
               <button
                 type="submit"
-                disabled={create.isPending || tag.trim() === '' || (kind !== 'pre' && sourceTag === '')}
+                disabled={create.isPending || tag.trim() === '' || (!buildMode && sourceTag === '')}
                 className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Créer
@@ -362,21 +390,21 @@ export function CreateReleaseButton({
           // La ressaisie pour ce qui engage une livraison : une finale ou un patch
           // met un re-tag en file vers le registre — action sortante (doc 08 §8.5).
           // Une pré-release ne crée qu'un brouillon local : confirmation simple.
-          challenge={kind === 'pre' ? undefined : tag.trim()}
+          challenge={buildMode ? undefined : tag.trim()}
           onConfirm={submit}
           onCancel={() => setConfirming(false)}
           pending={create.isPending}
         >
           <p>
-            {KINDS.find((option) => option.value === kind)?.label} pour la version{' '}
+            {selected?.label} pour la version{' '}
             <span className="font-mono">{version.name}</span>
-            {kind === 'pre' && refValue.trim() && (
+            {buildMode && refValue.trim() && (
               <>
                 {' '}
                 — construite depuis <span className="font-mono">{refValue.trim()}</span>
               </>
             )}
-            {kind !== 'pre' && sourceTag && (
+            {!buildMode && sourceTag && (
               <>
                 {' '}
                 — re-tag de <span className="font-mono">{sourceTag}</span>

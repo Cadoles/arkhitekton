@@ -14,6 +14,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -1411,7 +1412,13 @@ func (f *fakeReleaseStore) ProjectBySlug(_ context.Context, slug string) (store.
 	if slug != testProjectSlug {
 		return store.Project{}, store.ErrProjectNotFound
 	}
-	return store.Project{ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
+	// Le cycle par défaut, comme la vraie lecture le fait : sans lui le faux
+	// décrirait un projet dont aucune release n'est créable, et les tests
+	// échoueraient sur un état que la base ne produit jamais.
+	return store.Project{
+		ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile",
+		ReleaseKinds: release.DefaultCycle(),
+	}, nil
 }
 
 // Un projet inconnu rend 404, jamais la release d'un autre.

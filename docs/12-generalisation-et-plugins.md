@@ -1032,9 +1032,32 @@ promotion serait poussé, accepté par le registre, ignoré par Flux — la prom
 paraîtrait réussie et rien ne bougerait. La question est posée **au schéma** et non
 déduite de son nom, ce qui fera accepter le calendaire sans que cette ligne change.
 
-**Le cycle de release : reste à faire.** Les natures sont encore
-`check (kind in ('pre','final','patch'))` en base — trois noms pour deux comportements,
-et l'impossibilité d'en déclarer un quatrième.
+**Le cycle de release : fait** (migration 0040). Les natures étaient
+`check (kind in ('pre','final','patch'))` — trois noms pour **deux** comportements, et
+l'impossibilité d'en déclarer un quatrième. Un projet en `alpha` / `beta` / `ga`
+n'entrait dans aucune des trois cases ; un projet qui ne distingue rien devait en choisir
+une arbitrairement.
+
+Trois couches séparées, comme [12.4](#124-la-frontière-difficile-la-sémantique) le
+demandait : le **schéma** répond de la forme, les **modes** sont un jeu fermé de deux
+primitives — construire depuis du code, re-taguer une image existante —, et le **cycle**
+déclare quelles natures existent, avec quel mode, quelle contrainte de tag et quelle
+permission.
+
+Le gain annoncé s'est vérifié : [B17] cesse d'être une propriété de la valeur `final`
+pour devenir une propriété du **mode** `retag`. Les six branchements du gestionnaire de
+création ne citent plus aucune nature, et la règle vaut pour tout projet quel que soit son
+vocabulaire. Un projet dont la nature livrable s'appelle `ga` est protégé sans qu'une
+ligne change.
+
+Le couplage nature × schéma est refusé à la configuration, comme celui du déployeur : sur
+un schéma opaque, `prerelease-required` n'est jamais vérifiable, et une release créée en
+la croyant tenue partirait dans un environnement qui l'exclut.
+
+*Défaut introduit puis corrigé.* Le défaut de la colonne `release_kinds` était `'[]'`,
+que sa propre contrainte rejetait aussitôt : toute insertion n'énumérant pas la colonne —
+un test, une reprise, un script d'exploitation — échouait sur une contrainte que l'auteur
+n'avait pas vue passer. Le défaut d'une colonne doit être une valeur **utilisable**.
 
 ### Lot C — Extraire le Tracker
 

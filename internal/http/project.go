@@ -75,6 +75,35 @@ func requestProject(w http.ResponseWriter, r *http.Request, source projectResolv
 	return project.ID, true
 }
 
+// requestProjectRecord rend le projet **entier** désigné par le chemin.
+//
+// Distinct de [requestProject], qui n'en rend que la clé : depuis que le schéma
+// de version et le cycle de release sont déclarés par projet, la création d'une
+// release a besoin de la ligne et non de son identifiant. Les deux coexistent
+// parce que la plupart des lectures n'ont besoin que de la clé, et charger le
+// projet entier partout ferait payer une jointure pour rien.
+func requestProjectRecord(
+	w http.ResponseWriter, r *http.Request, source projectResolver,
+) (store.Project, error) {
+	slug := r.PathValue("project")
+	if slug == "" {
+		writeProblem(w, http.StatusBadRequest, "Projet non désigné",
+			"cette route attend un projet dans son chemin")
+		return store.Project{}, errors.New("projet non désigné")
+	}
+
+	project, err := source.ProjectBySlug(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeProblem(w, http.StatusNotFound, "Projet inconnu", slug)
+			return store.Project{}, err
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+		return store.Project{}, err
+	}
+	return project, nil
+}
+
 // buildableProject rend le projet qui se construit.
 //
 // Repli des lectures qui n'ont pas de projet dans leur chemin. Un seul
