@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
@@ -43,36 +43,30 @@ const MODE_HINTS: Record<string, string> = {
   retag: 're-tag bit à bit de l’image d’une release existante',
 }
 
-/**
- * Numéro suggéré depuis le nom de la version.
+/*
+ * Ce que ce formulaire ne calcule plus.
  *
- * Simple suggestion de saisie : le préfixe `v` ou `MSE ` est retiré pour proposer
- * `3.2.0-rc1` plutôt que `v3.2.0-rc1`. La vérification de jointure, elle, est
- * faite par le serveur avec la vraie normalisation — celle-ci n'en est pas une
- * copie, juste un confort qui peut se tromper sans conséquence.
+ * Il composait le tag proposé lui-même : il retirait les préfixes `v` et `MSE `,
+ * puis suffixait `-rc<N>` en cherchant le rang le plus haut. Deux règles que le
+ * serveur possède — la convention de nommage est configurable depuis le
+ * chantier 5, la forme des pré-releases appartient au schéma de version depuis
+ * le lot B — et qui n'avaient plus aucune raison d'être justes ici.
+ *
+ * Une suggestion fausse n'est pas dramatique, le champ reste modifiable. Mais
+ * elle **enseigne** une convention à qui découvre l'outil, et c'est ainsi qu'une
+ * hypothèse ambiante se réinstalle.
  */
-function suggestedBase(versionName: string): string {
-  return versionName.trim().replace(/^(mse\s+|v(?=\d))/i, '')
-}
-
-// Le prochain numéro de RC libre, déduit des releases déjà produites : proposer
-// `-rc1` alors que `-rc3` existe ferait échouer la création pour cause de doublon,
-// avec une erreur que le formulaire aurait pu éviter.
-function nextPrerelease(base: string, releases: VersionRelease[]): string {
-  let highest = 0
-  for (const release of releases) {
-    const match = release.tag.match(new RegExp(`^${base.replaceAll('.', '\\.')}-rc(\\d+)$`))
-    if (match) highest = Math.max(highest, Number(match[1]))
-  }
-  return `${base}-rc${highest + 1}`
-}
 
 export function CreateReleaseButton({
   version,
   releases,
+  suggestions,
 }: {
   version: Version
   releases: VersionRelease[]
+  /** Tag proposé par nature, calculé par le serveur. Une nature absente de cette
+   *  carte n'a pas de suggestion : le schéma du projet ne sait rien en dire. */
+  suggestions: Record<string, string>
 }) {
   const session = useSession()
   const create = useCreateRelease()
@@ -89,7 +83,6 @@ export function CreateReleaseButton({
   const [testsGreen, setTestsGreen] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
-  const base = useMemo(() => suggestedBase(version.name), [version.name])
   const refs = useForgeRefs(open)
 
   // Le cycle vient du projet. Vide tant que la liste n'est pas chargée : le
@@ -121,15 +114,16 @@ export function CreateReleaseButton({
     setKind(next)
     // Le tag suit la nature tant qu'il n'a pas été édité à la main — le
     // recalculer après une saisie écraserait ce que l'utilisateur vient de taper.
-    // Une nature qui construit et exige une pré-release reçoit le numéro
-    // suivant ; les autres reprennent la ligne de version telle quelle.
-    const spec = cycle.find((entry) => entry.id === next)
-    setTag(spec?.mode === 'build' ? nextPrerelease(base, releases) : base)
+    // Le tag vient du serveur, qui connaît le schéma du projet. Absent, la
+    // saisie reste libre : un schéma opaque ne propose rien, et inventer un
+    // numéro serait pire que de laisser l'utilisateur écrire le sien.
+    setTag(suggestions[next] ?? '')
   }
 
   const openForm = () => {
     setOpen(true)
-    setTag(nextPrerelease(base, releases))
+    // La suggestion de la première nature du cycle, qui est celle présélectionnée.
+    setTag(suggestions[selected?.id ?? ''] ?? '')
   }
 
   // La fermeture efface le résultat de la dernière création : dans une carte il

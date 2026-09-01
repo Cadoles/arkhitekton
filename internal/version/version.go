@@ -25,6 +25,7 @@
 //	Ce tag est-il bien formé ?       oui           tout l'est
 //	Quelle est sa ligne de version ? `3.2.0`       inconnue
 //	Est-ce une pré-release ?         oui/non       inconnue
+//	Quelle est la suivante ?         calculable    inconnue
 //	Comment y attacher un marqueur ? métadonnée    impossible
 //	Comment ordonner deux versions ? précédence    inconnu
 //
@@ -101,6 +102,17 @@ type Scheme interface {
 	// [ErrUnsupported]. Sans lui, l'interface affiche l'ordre de création plutôt
 	// qu'un ordre de version, et le dit.
 	Compare(a, b string) (int, error)
+
+	// NextPrerelease propose la pré-release suivante d'une ligne de version, au
+	// vu de celles qui existent déjà, ou rend [ErrUnsupported].
+	//
+	// C'est la sixième question du tableau de doc 12 §12.4, et elle manquait.
+	// L'interface y répondait elle-même, en codant `-rc<N>` : la convention du
+	// MSE, imposée à tout projet dont les pré-releases s'écrivent autrement. Une
+	// suggestion fausse n'est pas dramatique — le champ reste modifiable — mais
+	// elle **enseigne** une convention à qui découvre l'outil, et c'est ainsi
+	// qu'une hypothèse ambiante se réinstalle.
+	NextPrerelease(base string, existing []string) (string, error)
 }
 
 // Schemes énumère les schémas déclarables, dans l'ordre où l'écran les propose.
@@ -246,6 +258,51 @@ func compareNumbers(a, b string) int {
 	return strings.Compare(a, b)
 }
 
+// NextPrerelease propose `<base>-rc<N+1>`.
+//
+// La convention `rc` est celle du projet et non du SemVer, qui n'impose rien de
+// la composante de pré-release. Elle est portée ici plutôt que dans l'interface
+// parce que c'est le schéma qui sait **où** cette composante se place ; le jour
+// où un projet en voudra une autre, ce sera un schéma de plus, pas un formulaire
+// à corriger.
+func (s SemVer) NextPrerelease(base string, existing []string) (string, error) {
+	if _, err := s.Parse(base); err != nil {
+		return "", err
+	}
+
+	highest := 0
+	for _, tag := range existing {
+		parsed, err := s.Parse(tag)
+		if err != nil || parsed.Base != base {
+			continue
+		}
+		if number, ok := rcNumber(parsed.Prerelease); ok && number > highest {
+			highest = number
+		}
+	}
+	return fmt.Sprintf("%s-rc%d", base, highest+1), nil
+}
+
+// rcNumber lit le rang d'une pré-release `rcN`.
+//
+// Les autres formes sont ignorées plutôt que refusées : un projet peut porter
+// `1.8.0-beta1` dans son historique, et s'en offusquer ferait échouer une
+// suggestion pour une release qui existe légitimement.
+func rcNumber(prerelease string) (int, bool) {
+	digits, found := strings.CutPrefix(prerelease, "rc")
+	if !found || digits == "" {
+		return 0, false
+	}
+	number := 0
+	for _, character := range digits {
+		if character < '0' || character > '9' {
+			return 0, false
+		}
+		number = number*10 + int(character-'0')
+	}
+	return number, true
+}
+
 // Opaque est le schéma qui n'affirme rien.
 //
 // Il **doit rester utilisable**, et c'est lui qui prouve le contrat : un schéma
@@ -275,6 +332,12 @@ func (Opaque) Parse(tag string) (Version, error) {
 // l'aveugle produirait un tag que le projet n'a pas choisi.
 func (Opaque) Mark(string, string) (string, error) {
 	return "", fmt.Errorf("%w: attacher un marqueur de promotion", ErrUnsupported)
+}
+
+// NextPrerelease refuse : sans grammaire, la « suivante » n'existe pas. Proposer
+// `-rc1` enseignerait une convention que le projet n'a pas choisie.
+func (Opaque) NextPrerelease(string, []string) (string, error) {
+	return "", fmt.Errorf("%w: proposer la version suivante", ErrUnsupported)
 }
 
 // Compare refuse : deux tags opaques n'ont pas d'ordre connu. Un tri lexical

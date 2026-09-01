@@ -19,6 +19,9 @@ var ErrVersionNotFoundByID = errors.New("version introuvable")
 // pondérée par `done_ratio`, plus fine mais tributaire de la rigueur de saisie.
 type VersionSummary struct {
 	ID int64
+	// ProjectID rattache la version à son dépôt. Nécessaire pour savoir quel
+	// schéma de version et quel cycle de release s'y appliquent.
+	ProjectID int64
 	// ExternalID est l'identifiant de la version dans le suivi, vide quand elle
 	// n'en vient pas.
 	ExternalID string
@@ -124,9 +127,18 @@ const anomalyTrackerPrefix = "Anomalie"
 //
 // Les versions closes sans aucune demande ni release ne sont pas masquées : elles
 // existent dans Redmine, et les cacher ferait douter de l'exhaustivité de l'écran.
-func (db *DB) ListVersionSummaries(ctx context.Context) ([]VersionSummary, error) {
+// ListVersionSummaries rend les versions **d'un projet**.
+//
+// Bornée au projet depuis que le dashboard en pilote plusieurs. Elle ne l'était
+// pas : la route `/projects/{p}/versions` passait son projet, et la requête
+// l'ignorait — un projet sans aucune version affichait les vingt du voisin, sans
+// qu'aucune erreur ne le dise. C'est le pire mode de défaillance du
+// multi-projet, celui où l'écran d'un client montre les données d'un autre.
+func (db *DB) ListVersionSummaries(ctx context.Context, projectID int64) ([]VersionSummary, error) {
 	rows, err := db.pool.Query(ctx, versionSummaryQuery+`
-		 order by v.due_date desc nulls last, v.name desc`, anomalyTrackerPrefix, OpenBuckets)
+		   and v.project_id = $3
+		 order by v.due_date desc nulls last, v.name desc`,
+		anomalyTrackerPrefix, OpenBuckets, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("liste des versions: %w", err)
 	}
@@ -168,7 +180,7 @@ func (db *DB) GetVersionSummary(ctx context.Context, id int64) (VersionSummary, 
 // lignes l'une par l'autre, et chaque compte serait faux d'un facteur égal au nombre
 // de lignes de l'autre table.
 const versionSummaryQuery = `
-	select v.id, coalesce(v.external_id, ''), v.origin, v.name, v.status, v.due_date, v.synced_at,
+	select v.id, v.project_id, coalesce(v.external_id, ''), v.origin, v.name, v.status, v.due_date, v.synced_at,
 	       counts.counted, counts.done, counts.weighted, counts.anomalies,
 	       releases.total
 	from versions v
@@ -193,7 +205,7 @@ const versionSummaryQuery = `
 func scanVersionSummary(rows pgx.Rows) (VersionSummary, error) {
 	var summary VersionSummary
 	var origin string
-	if err := rows.Scan(&summary.ID, &summary.ExternalID, &origin, &summary.Name, &summary.Status,
+	if err := rows.Scan(&summary.ID, &summary.ProjectID, &summary.ExternalID, &origin, &summary.Name, &summary.Status,
 		&summary.DueDate, &summary.SyncedAt, &summary.Counted, &summary.Done,
 		&summary.WeightedDone, &summary.OpenAnomalies, &summary.Releases); err != nil {
 		return VersionSummary{}, fmt.Errorf("lecture d'une version: %w", err)

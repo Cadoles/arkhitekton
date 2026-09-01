@@ -168,3 +168,46 @@ func TestLaDeclarationDeSchemaSeResout(t *testing.T) {
 		}
 	}
 }
+
+// La sixième question du tableau, celle qui manquait.
+//
+// L'interface y répondait elle-même en codant `-rc<N>` : la convention du MSE,
+// imposée à tout projet dont les pré-releases s'écrivent autrement. Une
+// suggestion fausse n'est pas dramatique — le champ reste modifiable — mais elle
+// **enseigne** une convention, et c'est ainsi qu'une hypothèse ambiante se
+// réinstalle.
+func TestLaPrereleaseSuivanteSeDeduitDeCellesQuiExistent(t *testing.T) {
+	scheme := SemVer{}
+
+	// Aucune : la première.
+	got, err := scheme.NextPrerelease("1.8.0", nil)
+	if err != nil || got != "1.8.0-rc1" {
+		t.Errorf("première = %q (%v)", got, err)
+	}
+
+	// La suivante se déduit du rang le plus haut, et non du nombre de releases :
+	// proposer `-rc3` parce qu'il y en a trois échouerait si `rc5` existe.
+	existing := []string{"1.8.0-rc1", "1.8.0-rc5", "1.8.0-rc2"}
+	if got, err := scheme.NextPrerelease("1.8.0", existing); err != nil || got != "1.8.0-rc6" {
+		t.Errorf("suivante = %q (%v)", got, err)
+	}
+
+	// Les autres lignes ne comptent pas : `1.9.0-rc4` ne dit rien de `1.8.0`.
+	if got, _ := scheme.NextPrerelease("1.8.0", []string{"1.9.0-rc4"}); got != "1.8.0-rc1" {
+		t.Errorf("ligne voisine prise en compte: %q", got)
+	}
+
+	// Une pré-release d'une autre forme est ignorée plutôt que refusée : un
+	// historique peut porter `1.8.0-beta1` légitimement.
+	if got, _ := scheme.NextPrerelease("1.8.0", []string{"1.8.0-beta1"}); got != "1.8.0-rc1" {
+		t.Errorf("forme étrangère: %q", got)
+	}
+}
+
+// Le schéma opaque refuse : sans grammaire, la « suivante » n'existe pas, et
+// proposer `-rc1` enseignerait une convention que le projet n'a pas choisie.
+func TestLeSchemaOpaqueNeProposeAucuneSuivante(t *testing.T) {
+	if _, err := (Opaque{}).NextPrerelease("build-4711", nil); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("suivante: %v, attendu ErrUnsupported", err)
+	}
+}

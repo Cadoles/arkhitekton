@@ -281,7 +281,11 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			dashhttp.NewSignoffsHandler(db),
 			// L'URL de Redmine sert à construire les liens sortants. Absente, les
 			// liens sont omis plutôt que rendus cassés.
-			dashhttp.NewVersionsHandler(db, cfg.Tracker.URL),
+			dashhttp.NewVersionsHandler(db, cfg.Tracker.URL).
+				// Le même normaliseur que le magasin : c'est lui qui décide ce
+				// qu'est la ligne de version d'un nom comme `MSE 3.1.0`, et le
+				// tag proposé au formulaire en dépend.
+				WithNormalizer(versionNames(cfg)),
 			dashhttp.NewSyncAdminHandler(db, cfg.Tracker.Configured()),
 			dashhttp.NewForgeHandler(forgeReader),
 			dashhttp.NewAdminHandler(db),

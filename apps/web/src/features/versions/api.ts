@@ -79,6 +79,10 @@ export type SyncState = {
   last_ok: string | null
   last_error?: string
   ever_ran: boolean
+  /** Le projet déclare un outil de suivi. Faux, ses versions viennent de ses
+   *  tags : dire « aucune version dans le projet Redmine » à un projet qui n'a
+   *  jamais eu de Redmine enverrait chercher une panne inexistante. */
+  tracked: boolean
 }
 
 export function useVersions() {
@@ -97,6 +101,11 @@ export function useVersion(id: string | undefined) {
         buckets: Record<Bucket, Issue[]>
         anomalies: Issue[]
         releases: VersionRelease[]
+        /** Tag proposé par nature, calculé par le serveur : il connaît le
+         *  schéma de version du projet, sa convention de nommage et les
+         *  releases déjà produites. Vide pour une nature dont le schéma ne sait
+         *  rien proposer — l'écran laisse alors la saisie libre. */
+        suggested_tags: Record<string, string>
       }>(projectPath(`/versions/${encodeURIComponent(id as string)}`)),
     enabled: Boolean(id),
   })

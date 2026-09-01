@@ -79,7 +79,7 @@ func TestUneVersionProvisoireEstAdopteeParLaVersionReelle(t *testing.T) {
 		t.Errorf("provisoires subsistantes: %v", pendings)
 	}
 
-	summaries, err := db.ListVersionSummaries(ctx)
+	summaries, err := db.ListVersionSummaries(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("versions: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestLesDemandesRejeteesSortentDuCalcul(t *testing.T) {
 	issueOf(t, db, 2, 805, "Évolution", "En cours", "doing", 50, false)
 	issueOf(t, db, 3, 805, "Évolution", "Rejeté", "rejected", 0, true)
 
-	summary, err := db.ListVersionSummaries(ctx)
+	summary, err := db.ListVersionSummaries(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("versions: %v", err)
 	}
@@ -1280,5 +1280,51 @@ func TestDeuxOutilsPeuventPartagerUnIdentifiant(t *testing.T) {
 	}
 	if count != 2 {
 		t.Errorf("%d version(s) portant l'identifiant 42, attendu 2", count)
+	}
+}
+
+// La liste des versions est bornée à son projet.
+//
+// Elle ne l'était pas : la route `/projects/{p}/versions` passait son projet et
+// la requête l'ignorait. Un projet sans aucune version affichait celles du
+// voisin, sans qu'aucune erreur ne le dise — le pire mode de défaillance du
+// multi-projet, celui où l'écran d'un client montre les données d'un autre.
+func TestLaListeDesVersionsNeDeborteSurAucunAutreProjet(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	var second int64
+	if err := db.Pool().QueryRow(ctx,
+		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
+		                       tracker_project, created_by)
+		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.',
+		         'autre-suivi', 'test')
+		 returning id`).Scan(&second); err != nil {
+		t.Fatalf("second projet: %v", err)
+	}
+
+	redmineVersion(t, db, 900, "v3.1.0", "open")
+	if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
+		ProjectID: second, Tool: "redmine", ExternalID: "901", Name: "v9.9.9",
+		Normalized: testNames.Normalize("v9.9.9"), Status: "open",
+	}); err != nil {
+		t.Fatalf("version du second projet: %v", err)
+	}
+
+	summaries, err := db.ListVersionSummaries(ctx, testProjectID)
+	if err != nil {
+		t.Fatalf("liste: %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].Name != "v3.1.0" {
+		t.Fatalf("versions rendues: %+v — celles d'un autre projet débordent", summaries)
+	}
+	if summaries[0].ProjectID != testProjectID {
+		t.Errorf("projet de la version = %d", summaries[0].ProjectID)
+	}
+
+	// Et réciproquement : le second projet ne voit que la sienne.
+	others, _ := db.ListVersionSummaries(ctx, second)
+	if len(others) != 1 || others[0].Name != "v9.9.9" {
+		t.Errorf("versions du second projet: %+v", others)
 	}
 }

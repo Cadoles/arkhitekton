@@ -53,7 +53,13 @@ export function VersionScreen() {
               <Icon name="external" className="size-3.5 text-zinc-400" />
             </a>
           )}
-          {data && <CreateReleaseButton version={data.version} releases={data.releases} />}
+          {data && (
+            <CreateReleaseButton
+              version={data.version}
+              releases={data.releases}
+              suggestions={data.suggested_tags}
+            />
+          )}
         </div>
       </div>
 

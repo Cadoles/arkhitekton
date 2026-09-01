@@ -26,7 +26,7 @@ export function VersionsScreen() {
         <>
           <SyncBanner sync={data.sync} />
 
-          <VersionLists versions={data.versions} everRan={data.sync.ever_ran} />
+          <VersionLists versions={data.versions} sync={data.sync} />
         </>
       )}
     </div>
@@ -47,7 +47,7 @@ export function VersionsScreen() {
  * Le critère est « non close » et non « ouverte » : une version verrouillée n'accepte
  * plus de demande mais n'est pas terminée.
  */
-function VersionLists({ versions, everRan }: { versions: Version[]; everRan: boolean }) {
+function VersionLists({ versions, sync }: { versions: Version[]; sync: SyncState }) {
   const [showClosed, setShowClosed] = useState(false)
 
   const active = versions.filter((version) => version.status !== 'closed')
@@ -57,9 +57,14 @@ function VersionLists({ versions, everRan }: { versions: Version[]; everRan: boo
     return (
       <Card title="Versions">
         <EmptyState>
-          {everRan
-            ? 'Aucune version déclarée dans le projet Redmine.'
-            : "La synchronisation Redmine n'a pas encore tourné."}
+          {!sync.tracked
+            ? // Un projet sans suivi tire ses versions de ses tags : il n'y a
+              // aucune synchronisation à attendre, et le dire évite de chercher
+              // une panne qui n'existe pas.
+              'Ce projet ne déclare aucun outil de suivi. Ses versions apparaîtront avec ses premières releases.'
+            : sync.ever_ran
+              ? 'Aucune version déclarée dans le suivi de ce projet.'
+              : "La synchronisation du suivi n'a pas encore tourné."}
         </EmptyState>
       </Card>
     )
@@ -114,11 +119,15 @@ function VersionLists({ versions, everRan }: { versions: Version[]; everRan: boo
  * restent valides, seulement vieillissantes — et tout va bien.
  */
 function SyncBanner({ sync }: { sync: SyncState }) {
+  // Rien à dire d'une synchronisation qui n'existe pas : un projet sans suivi
+  // n'attend aucune passe, et un bandeau permanent serait un reproche.
+  if (!sync.tracked) return null
+
   if (!sync.ever_ran) {
     return (
       <p className="flex items-start gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
         <Icon name="clock" className="mt-0.5 size-4 shrink-0" />
-        La synchronisation Redmine n'a jamais tourné. Les versions apparaîtront à sa première passe.
+        La synchronisation du suivi n'a jamais tourné. Les versions apparaîtront à sa première passe.
       </p>
     )
   }

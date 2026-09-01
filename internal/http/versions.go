@@ -5,18 +5,25 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 // VersionStore est ce que les routes de versions attendent de la base.
 type VersionStore interface {
-	ListVersionSummaries(ctx context.Context) ([]store.VersionSummary, error)
+	ListVersionSummaries(ctx context.Context, projectID int64) ([]store.VersionSummary, error)
+	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	GetVersionSummary(ctx context.Context, id int64) (store.VersionSummary, error)
 	ListVersionIssues(ctx context.Context, versionID int64) ([]store.VersionIssue, error)
 	ListVersionReleases(ctx context.Context, versionID int64) ([]store.VersionRelease, error)
 	GetSyncState(ctx context.Context, source string) (store.SyncState, error)
+	// GetProject sert au tag proposé : c'est le projet qui déclare son schéma de
+	// version et son cycle, donc ce qu'un formulaire doit proposer.
+	GetProject(ctx context.Context, id int64) (store.Project, error)
 }
 
 // VersionsHandler sert les versions du suivi et leur avancement.
@@ -25,10 +32,20 @@ type VersionsHandler struct {
 	// trackerURL sert à construire les liens sortants. Vide, les liens sont omis
 	// plutôt que rendus cassés.
 	trackerURL string
+	// names normalise les noms de version. Le même normaliseur que le magasin :
+	// c'est lui qui décide ce qu'est la ligne de version d'un nom comme
+	// `MSE 3.1.0`, et l'interface en portait une copie approximative.
+	names release.Normalizer
 }
 
 func NewVersionsHandler(versions VersionStore, trackerURL string) *VersionsHandler {
 	return &VersionsHandler{store: versions, trackerURL: trackerURL}
+}
+
+// WithNormalizer déclare la convention de nommage des versions.
+func (h *VersionsHandler) WithNormalizer(names release.Normalizer) *VersionsHandler {
+	h.names = names
+	return h
 }
 
 // completionVw porte les deux mesures de complétion (doc 04 §4.5).
@@ -100,7 +117,12 @@ func (h *VersionsHandler) view(summary store.VersionSummary) versionVw {
 
 // List rend les versions et leur avancement.
 func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
-	summaries, err := h.store.ListVersionSummaries(r.Context())
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
+		return
+	}
+
+	summaries, err := h.store.ListVersionSummaries(r.Context(), currentID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des versions impossible", "")
 		return
@@ -120,9 +142,17 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tracked := false
+	if project, err := h.store.GetProject(r.Context(), currentID); err == nil {
+		tracked = strings.TrimSpace(project.TrackerProject) != ""
+	}
+
+	sync := syncStateView(state)
+	sync.Tracked = tracked
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"versions": payload,
-		"sync":     syncStateView(state),
+		"sync":     sync,
 	})
 }
 
@@ -227,6 +257,14 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		"buckets":   buckets,
 		"anomalies": anomalies,
 		"releases":  releasePayload,
+		// Le tag proposé au formulaire de création, calculé **ici**.
+		//
+		// L'interface le composait elle-même : elle retirait les préfixes `v` et
+		// `MSE ` — devenus configurables au chantier 5 — et suffixait `-rc<N>`,
+		// la convention du MSE. Deux règles que le serveur possède, recopiées
+		// dans un formulaire, et qui n'avaient plus aucune raison d'y être
+		// justes.
+		"suggested_tags": h.suggestedTags(r.Context(), summary, releases),
 	})
 }
 
@@ -240,6 +278,14 @@ type syncStateVw struct {
 	// Configured dit si la synchronisation a jamais tourné. Faux avec une base vide
 	// distingue « pas encore synchronisé » de « synchronisé, rien à afficher ».
 	EverRan bool `json:"ever_ran"`
+	// Tracked dit si le projet **déclare** un outil de suivi.
+	//
+	// Sans lui, l'interface ne pouvait pas distinguer « le suivi n'a pas encore
+	// tourné » de « ce projet n'en a pas », et affichait « Aucune version
+	// déclarée dans le projet Redmine » à un projet qui n'a jamais eu de
+	// Redmine. C'est exactement le trou que le jalon de vérification interdit :
+	// l'interface doit **le dire proprement** (doc 12 §12.9).
+	Tracked bool `json:"tracked"`
 }
 
 func syncStateView(state store.SyncState) syncStateVw {
@@ -247,4 +293,49 @@ func syncStateView(state store.SyncState) syncStateVw {
 		LastRun: state.LastRun, LastOK: state.LastOK,
 		LastError: state.LastError, EverRan: state.LastRun != nil,
 	}
+}
+
+// suggestedTags propose un tag par nature déclarée.
+//
+// Vide quand le schéma ne sait pas répondre — un projet opaque n'a aucune
+// « suivante » —, et l'interface propose alors une saisie libre plutôt qu'un
+// numéro inventé.
+func (h *VersionsHandler) suggestedTags(
+	ctx context.Context, summary store.VersionSummary, releases []store.VersionRelease,
+) map[string]string {
+	project, err := h.store.GetProject(ctx, summary.ProjectID)
+	if err != nil {
+		return nil
+	}
+	scheme, err := version.For(project.VersionScheme)
+	if err != nil {
+		return nil
+	}
+
+	// La ligne de version, normalisée par la convention du projet : `MSE 3.1.0`
+	// et `v3.1.0` désignent la même, et c'est le normaliseur qui le sait.
+	base := h.names.Normalize(summary.Name)
+
+	existing := make([]string, 0, len(releases))
+	for _, item := range releases {
+		existing = append(existing, item.Tag)
+	}
+
+	suggestions := map[string]string{}
+	for _, spec := range project.ReleaseKinds {
+		switch spec.Tag {
+		case release.TagPrereleaseRequired:
+			if next, err := scheme.NextPrerelease(base, existing); err == nil {
+				suggestions[spec.ID] = next
+			}
+		default:
+			// Les natures qui interdisent ou n'exigent rien reprennent la ligne
+			// telle quelle : c'est ce qu'une finale porte, et le seul choix qui
+			// n'invente rien pour les autres.
+			if _, err := scheme.Parse(base); err == nil {
+				suggestions[spec.ID] = base
+			}
+		}
+	}
+	return suggestions
 }
