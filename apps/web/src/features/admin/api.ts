@@ -162,6 +162,13 @@ export type Project = {
   /** Pile dont la bibliothèque de référence est posée. Vide : le projet apporte
    *  ses propres pipelines, ce qui est parfaitement valide. */
   stack: string
+  /** Nom du projet dans l'outil de suivi. Vide : aucun suivi, et ses versions se
+   *  déclarent à la main.
+   *
+   *  Doit figurer dans le formulaire **et** être renvoyé avec le projet : le
+   *  champ était absent des deux, et enregistrer un libellé effaçait donc la
+   *  déclaration, arrêtant la synchronisation sans un mot. */
+  tracker_project: string
   multi_stage: boolean
   targets: ProjectTarget[]
   /** Absent : aucun test n'a eu lieu. État distinct d'un test qui a échoué. */
@@ -206,6 +213,7 @@ export type ProjectDraft = {
   image_registry: string
   registry_secret: string
   stack: string
+  tracker_project: string
   multi_stage: boolean
   targets: ProjectTarget[]
 }

@@ -274,3 +274,75 @@ func TestLaClePubliqueEstRendueAvecLesProjets(t *testing.T) {
 		t.Error("la sonde est annoncée alors qu'aucune n'est branchée")
 	}
 }
+
+// La déclaration de suivi survit à une modification du projet.
+//
+// Elle n'y survivait pas, et c'est la panne la plus coûteuse rencontrée sur cet
+// écran : le formulaire ne portait pas `tracker_project`, l'update l'écrivait
+// quand même — donc à la valeur vide —, et **enregistrer le libellé d'un projet
+// effaçait sa déclaration de suivi**. La synchronisation s'arrêtait alors sans
+// un mot : plus de projet suivi, donc plus rien à faire, donc aucune erreur.
+//
+// Constaté en production locale : le projet MSE avait perdu son `mse-dev` en
+// éditant son libellé, et l'écran des versions proposait de déclarer une version
+// à la main comme s'il n'avait jamais eu de Redmine.
+func TestLaDeclarationDeSuiviSurvitAUneModification(t *testing.T) {
+	projects := newFakeProjectStore()
+	handler := NewProjectsHandler(projects)
+
+	recorder := createProject(t, handler, `{
+		"repository": "vcarroy/app", "label": "App",
+		"tracker_project": "mse-dev", "dockerfile": "Dockerfile"
+	}`)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("création: %d %s", recorder.Code, recorder.Body)
+	}
+	if projects.projects[1].TrackerProject != "mse-dev" {
+		t.Fatalf("suivi à la création: %q", projects.projects[1].TrackerProject)
+	}
+
+	// Le geste qui effaçait tout : renommer le projet.
+	update := httptest.NewRequest(http.MethodPut, "/projects/1", strings.NewReader(`{
+		"repository": "vcarroy/app", "label": "Application",
+		"tracker_project": "mse-dev", "dockerfile": "Dockerfile"
+	}`))
+	update.SetPathValue("id", "1")
+	recorder = httptest.NewRecorder()
+	handler.Update(recorder, asAdmin(update))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("mise à jour: %d %s", recorder.Code, recorder.Body)
+	}
+	if got := projects.projects[1].TrackerProject; got != "mse-dev" {
+		t.Errorf("suivi après modification: %q — la synchronisation s'arrêterait", got)
+	}
+}
+
+// Le suivi est **rendu** avec le projet, sans quoi le formulaire ne pourrait pas
+// le repréciser : il repartirait vide à chaque édition, et le champ vide
+// effacerait la déclaration aussi sûrement que son absence.
+func TestLeSuiviEstRenduAvecLeProjet(t *testing.T) {
+	projects := newFakeProjectStore()
+	handler := NewProjectsHandler(projects)
+
+	if recorder := createProject(t, handler, `{
+		"repository": "vcarroy/app", "label": "App", "tracker_project": "mse-dev"
+	}`); recorder.Code != http.StatusCreated {
+		t.Fatalf("création: %d", recorder.Code)
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.List(recorder, asAdmin(httptest.NewRequest(http.MethodGet, "/projects", nil)))
+
+	var payload struct {
+		Projects []struct {
+			TrackerProject string `json:"tracker_project"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("corps illisible: %v", err)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].TrackerProject != "mse-dev" {
+		t.Errorf("suivi rendu: %+v", payload.Projects)
+	}
+}

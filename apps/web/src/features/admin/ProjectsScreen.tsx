@@ -40,6 +40,7 @@ const EMPTY: ProjectDraft = {
   image_registry: '',
   registry_secret: '',
   stack: '',
+  tracker_project: '',
   multi_stage: false,
   targets: [],
 }
@@ -132,6 +133,7 @@ function toDraft(project: Project): ProjectDraft {
     image_registry: project.image_registry,
     registry_secret: project.registry_secret,
     stack: project.stack,
+    tracker_project: project.tracker_project,
     multi_stage: project.multi_stage,
     targets: project.targets,
   }
@@ -486,6 +488,26 @@ function ProjectForm({
             <span className="text-xs text-zinc-500">
               Le nom d'un secret déjà présent dans le namespace des pipelines. Vide, les runs
               emploient celui du déploiement.
+            </span>
+          </label>
+
+          {/* Le suivi décide d'où viennent les versions du projet. Le champ est
+              indispensable au formulaire : sans lui, l'enregistrement écrivait
+              une valeur vide et effaçait la déclaration — la synchronisation
+              s'arrêtait alors sans un mot, et l'écran des versions proposait
+              d'en déclarer à la main comme si le projet n'avait jamais eu de
+              suivi. */}
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Projet dans l'outil de suivi</span>
+            <input
+              value={form.tracker_project}
+              onChange={(event) => set('tracker_project', event.target.value)}
+              placeholder="aucun"
+              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+            />
+            <span className="text-xs text-zinc-500">
+              Son identifiant dans Redmine. Vide, ce projet n'a aucun suivi : ses versions se
+              déclarent à la main.
             </span>
           </label>
 

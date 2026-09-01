@@ -153,9 +153,12 @@ type projectPayload struct {
 	// Stack nomme la pile dont la bibliothèque de référence est posée. Vide :
 	// le projet apporte ses propres pipelines, ce qui est parfaitement valide —
 	// le normatif est le contrat, pas la bibliothèque.
-	Stack      string          `json:"stack"`
-	MultiStage bool            `json:"multi_stage"`
-	Targets    []targetPayload `json:"targets"`
+	Stack string `json:"stack"`
+	// TrackerProject nomme ce projet dans l'outil de suivi. Vide : aucun suivi,
+	// et ses versions se déclarent à la main.
+	TrackerProject string          `json:"tracker_project"`
+	MultiStage     bool            `json:"multi_stage"`
+	Targets        []targetPayload `json:"targets"`
 	// CheckedAt absent : aucun test n'a eu lieu. État distinct d'un test qui a
 	// échoué, et qui ne doit pas se lire comme lui.
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
@@ -227,6 +230,7 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		RegistrySecret: project.RegistrySecret,
 		VersionScheme:  project.VersionScheme,
 		Stack:          project.Stack,
+		TrackerProject: project.TrackerProject,
 		MultiStage:     project.MultiStage, Targets: targets,
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
@@ -261,9 +265,18 @@ type projectRequest struct {
 	VersionScheme string `json:"version_scheme"`
 	// Stack nomme la pile dont la bibliothèque de référence sera posée. Vide :
 	// le projet apporte ses propres pipelines.
-	Stack      string          `json:"stack"`
-	MultiStage bool            `json:"multi_stage"`
-	Targets    []targetPayload `json:"targets"`
+	Stack string `json:"stack"`
+	// TrackerProject nomme ce projet dans l'outil de suivi. Vide : aucun suivi,
+	// et ses versions se déclarent à la main.
+	//
+	// **Absent de ce formulaire jusqu'ici**, alors que la colonne existe depuis
+	// le lot C : la seule façon de la renseigner était l'amorçage, qui ne passe
+	// qu'une fois. Pire, `UpdateProject` l'écrivait quand même — donc à la
+	// valeur vide —, et enregistrer le libellé d'un projet effaçait sa
+	// déclaration de suivi. La synchronisation s'arrêtait alors sans un mot.
+	TrackerProject string          `json:"tracker_project"`
+	MultiStage     bool            `json:"multi_stage"`
+	Targets        []targetPayload `json:"targets"`
 }
 
 // repositoryPattern borne la forme d'un dépôt.
@@ -384,6 +397,7 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
 		VersionScheme:  strings.TrimSpace(request.VersionScheme),
 		Stack:          strings.TrimSpace(request.Stack),
+		TrackerProject: strings.TrimSpace(request.TrackerProject),
 		MultiStage:     request.MultiStage, Targets: targetsOf(request),
 		CreatedBy: identity.Subject,
 	})
@@ -473,6 +487,7 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
 		VersionScheme:  strings.TrimSpace(request.VersionScheme),
 		Stack:          strings.TrimSpace(request.Stack),
+		TrackerProject: strings.TrimSpace(request.TrackerProject),
 		Slug:           strings.TrimSpace(request.Slug),
 		MultiStage:     request.MultiStage, Targets: targetsOf(request),
 	})
