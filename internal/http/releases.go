@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
@@ -700,7 +702,16 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	record := store.Release{
-		Tag: parsed.Raw, Kind: spec.ID, GitRef: request.GitRef,
+		// Le projet, sans quoi la clé étrangère refuse l'insertion : la valeur
+		// zéro d'un `int64` n'est pas nulle, c'est l'identifiant 0, qui ne
+		// désigne aucun projet.
+		//
+		// Il manquait depuis que la migration 0025 a rattaché les releases à leur
+		// projet. Personne ne l'a vu parce que l'échec se lisait « cette release
+		// existe peut-être déjà » : le gestionnaire traduisait toute erreur de la
+		// base en conflit, et le message envoyait chercher un doublon.
+		ProjectID: project.ID,
+		Tag:       parsed.Raw, Kind: spec.ID, GitRef: request.GitRef,
 		CreatedBy: identity.Subject,
 	}
 	var warnings []string
@@ -800,7 +811,18 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	releaseID, err := h.store.CreateRelease(r.Context(), record)
 	if err != nil {
-		writeProblem(w, http.StatusConflict, "Création impossible", "cette release existe peut-être déjà")
+		// Le doublon est distingué du reste. Traduire **toute** erreur de la base
+		// en conflit a coûté cher : une clé étrangère violée se lisait « cette
+		// release existe peut-être déjà », ce qui fait chercher un doublon
+		// inexistant pendant que la vraie cause reste invisible.
+		if isDuplicate(err) {
+			writeProblem(w, http.StatusConflict, "Release déjà créée",
+				fmt.Sprintf("le tag %q existe déjà dans ce projet", record.Tag))
+			return
+		}
+		h.logger.Error("création d'une release",
+			"tag", record.Tag, "projet", project.Slug, "error", err)
+		writeProblem(w, http.StatusInternalServerError, "Création impossible", "")
 		return
 	}
 
@@ -2167,4 +2189,14 @@ func observedVersion(view store.EnvironmentView) string {
 		return ""
 	}
 	return view.Observation.PortalVersion
+}
+
+// isDuplicate reconnaît la violation d'unicité de PostgreSQL.
+//
+// Le code plutôt que le message : celui-ci est localisé par le serveur, et un
+// `strings.Contains` sur du texte anglais casserait sur une base configurée
+// autrement.
+func isDuplicate(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -373,5 +374,70 @@ func TestUneSerieVideNestPasConclue(t *testing.T) {
 	}
 	if tally.Done() {
 		t.Error("une série vide ne doit pas être conclue")
+	}
+}
+
+// Une release appartient à son projet, et la base l'exige.
+//
+// Le gestionnaire de création ne renseignait pas `ProjectID` depuis que la
+// migration 0025 a rattaché les releases à leur projet. La valeur zéro d'un
+// `int64` n'est pas nulle : c'est l'identifiant 0, qui ne désigne aucun projet,
+// et la clé étrangère refusait l'insertion.
+//
+// Personne ne l'a vu parce que l'échec se lisait « cette release existe peut-être
+// déjà » — le gestionnaire traduisait toute erreur de la base en conflit. Le
+// message envoyait chercher un doublon pendant que la vraie cause restait
+// invisible.
+func TestUneReleaseSansProjetEstRefuseeParLaBase(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.2.1")
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+
+	_, err = db.CreateRelease(ctx, Release{
+		VersionID: versionID, Tag: "3.2.1-rc1", Kind: "pre", State: "draft",
+		ImageVersion: "3.2.1-rc1", CreatedBy: "vcarroy",
+	})
+	if err == nil {
+		t.Fatal("une release sans projet doit être refusée: rien ne dirait à qui elle appartient")
+	}
+
+	// Avec son projet, elle passe : c'est la seule différence.
+	if _, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
+		VersionID: versionID, Tag: "3.2.1-rc1", Kind: "pre", State: "draft",
+		ImageVersion: "3.2.1-rc1", CreatedBy: "vcarroy",
+	}); err != nil {
+		t.Fatalf("release avec projet refusée: %v", err)
+	}
+}
+
+// Le doublon est une violation d'unicité, et non n'importe quelle erreur : c'est
+// ce que le gestionnaire doit pouvoir distinguer pour rendre un 409 plutôt qu'un
+// 500 muet.
+func TestUnTagDejaPrisDansLeProjetEstUnDoublon(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "3.2.1")
+	release := Release{
+		ProjectID: testProjectID,
+		VersionID: versionID, Tag: "3.2.1-rc1", Kind: "pre", State: "draft",
+		ImageVersion: "3.2.1-rc1", CreatedBy: "vcarroy",
+	}
+
+	if _, err := db.CreateRelease(ctx, release); err != nil {
+		t.Fatalf("première création: %v", err)
+	}
+
+	_, err := db.CreateRelease(ctx, release)
+	if err == nil {
+		t.Fatal("le même tag deux fois dans un projet doit être refusé")
+	}
+	if !strings.Contains(err.Error(), "23505") && !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("erreur %v — attendu une violation d'unicité", err)
 	}
 }
