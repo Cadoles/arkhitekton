@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -21,6 +22,11 @@ type VersionStore interface {
 	ListVersionIssues(ctx context.Context, versionID int64) ([]store.VersionIssue, error)
 	ListVersionReleases(ctx context.Context, versionID int64) ([]store.VersionRelease, error)
 	GetSyncState(ctx context.Context, source string) (store.SyncState, error)
+	// EnsureVersion crée la version d'un projet, ou rend celle qui porte déjà ce
+	// nom. Idempotente par nom, ce qui est le bon comportement pour une
+	// déclaration manuelle : demander une version qui existe doit y mener.
+	EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error)
+	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	// GetProject sert au tag proposé : c'est le projet qui déclare son schéma de
 	// version et son cycle, donc ce qu'un formulaire doit proposer.
 	GetProject(ctx context.Context, id int64) (store.Project, error)
@@ -338,4 +344,80 @@ func (h *VersionsHandler) suggestedTags(
 		}
 	}
 	return suggestions
+}
+
+// Create déclare une version à la main.
+//
+// # Pourquoi cette route existe
+//
+// Un projet **sans suivi** n'avait aucun moyen de démarrer. Ses versions
+// naissaient de `EnsureVersion` à la création d'une release ; mais le formulaire
+// de création vit sur l'écran **d'une version**, qui n'existait pas. Écran vide,
+// aucun bouton, aucune issue — le jalon de vérification bloqué à sa première
+// étape (doc 12 §12.9).
+//
+// # Pourquoi elle refuse sur un projet suivi
+//
+// Les versions d'un projet suivi appartiennent à son outil : c'est lui qui fait
+// autorité, et le dashboard n'y écrit jamais. Une version créée ici serait une
+// provisoire que la synchronisation chercherait à adopter, sans jamais y
+// parvenir — elle resterait signalée « en attente » indéfiniment, ce qui est
+// exactement l'anomalie que `PendingVersions` existe pour faire remonter.
+func (h *VersionsHandler) Create(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		return
+	}
+
+	project, err := requestProjectRecord(w, r, h.store)
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(project.TrackerProject) != "" {
+		writeProblem(w, http.StatusConflict, "Projet suivi",
+			"les versions de ce projet viennent de son outil de suivi, qui en fait "+
+				"autorité: en déclarer une ici resterait en attente d'une adoption "+
+				"qui n'arriverait jamais")
+		return
+	}
+
+	var request struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		return
+	}
+
+	name := strings.TrimSpace(request.Name)
+	if name == "" {
+		writeProblem(w, http.StatusBadRequest, "Nom de version vide",
+			"une version se désigne par son numéro, par exemple 1.8.0")
+		return
+	}
+
+	// La forme est vérifiée contre le schéma du projet. Un schéma opaque accepte
+	// tout, ce qui est sa réponse : refuser ici imposerait une convention que le
+	// projet n'a pas déclarée.
+	scheme, err := version.For(project.VersionScheme)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Schéma de version illisible", "")
+		return
+	}
+	if _, err := scheme.Parse(h.names.Normalize(name)); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Nom de version invalide", err.Error())
+		return
+	}
+
+	id, err := h.store.EnsureVersion(r.Context(), project.ID, name)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Création impossible", "")
+		return
+	}
+
+	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditVersionDeclare, name,
+		map[string]any{"projet": project.Slug, "id": id})
+
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "name": name})
 }

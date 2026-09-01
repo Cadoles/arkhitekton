@@ -45,7 +45,11 @@ const (
 	// Déclarer un dépôt dit ce que le dashboard pilote, et le retirer le lui
 	// retire. Le test d'accès est consigné aussi : c'est la trace qui dit depuis
 	// quand on savait qu'un dépôt était injoignable.
-	AuditProjectSet       = "project.set"
+	AuditProjectSet = "project.set"
+	// Déclarer une version à la main n'arrive que sur un projet sans suivi :
+	// ailleurs, l'outil de suivi en fait autorité. La trace dit qui a décidé
+	// qu'un périmètre existait, ce qu'aucune synchronisation ne dira à sa place.
+	AuditVersionDeclare   = "version.declare"
 	AuditProjectRemove    = "project.remove"
 	AuditProjectProbe     = "project.probe"
 	AuditArtifactGenerate = "artifact.generate"

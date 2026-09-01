@@ -193,3 +193,26 @@ export function useForgeRefs(enabled: boolean) {
     retry: false,
   })
 }
+
+/*
+ * Déclare une version à la main.
+ *
+ * La seule voie d'entrée d'un projet **sans suivi** : ses versions ne viennent
+ * d'aucun outil extérieur, et sans elle son écran restait vide sans qu'aucun
+ * bouton n'y mène. Refusée par le serveur sur un projet suivi, dont l'outil fait
+ * autorité.
+ */
+export function useDeclareVersion() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (name: string) =>
+      request<{ id: number; name: string }>(projectPath('/versions'), {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['versions'] })
+    },
+  })
+}

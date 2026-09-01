@@ -3,21 +3,37 @@ import { Link } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
-import { useVersions, type Completion, type SyncState, type Version } from './api'
+import {
+  useDeclareVersion,
+  useVersions,
+  type Completion,
+  type SyncState,
+  type Version,
+} from './api'
 
 /*
- * Liste des versions déclarées dans Redmine.
+ * Liste des versions d'un projet.
  *
- * L'âge des données est affiché avec elles : Redmine est un service tiers qui peut ne
- * pas répondre, et un écran qui montre des chiffres sans dire de quand ils datent est
- * trompeur (doc 08 §8.2).
+ * Deux origines, et l'écran doit les distinguer. Un projet **suivi** tire ses
+ * versions de son outil, qui en fait autorité : l'âge des données est affiché
+ * avec elles, parce qu'un service tiers peut ne pas répondre et qu'un écran qui
+ * montre des chiffres sans dire de quand ils datent est trompeur (doc 08 §8.2).
+ *
+ * Un projet **sans suivi** les déclare lui-même. Rien ne les confirmera, rien
+ * n'est à attendre, et c'est ici qu'on les crée — sans ce bouton, son écran
+ * restait vide sans qu'aucune issue n'y mène : ses versions naissaient à la
+ * création d'une release, dont le formulaire vit sur l'écran d'une version qui
+ * n'existait pas.
  */
 export function VersionsScreen() {
   const { data, isPending, error, refetch } = useVersions()
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold text-zinc-900">Versions</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-semibold text-zinc-900">Versions</h1>
+        {data && !data.sync.tracked && <DeclareVersionButton />}
+      </div>
 
       {isPending && <Skeleton className="h-64 w-full" />}
       {error && <ErrorState message="Les versions n'ont pas pu être chargées." onRetry={() => void refetch()} />}
@@ -251,5 +267,75 @@ export function CompletionBar({ completion }: { completion: Completion }) {
         {completion.done}/{completion.counted} — {percent} %
       </span>
     </div>
+  )
+}
+
+/**
+ * Déclarer une version, sur un projet qui n'a pas d'outil de suivi.
+ *
+ * N'apparaît que là : ailleurs, les versions viennent de l'outil, et le serveur
+ * refuse la déclaration manuelle. Proposer le bouton partout ferait cliquer vers
+ * un refus dont la raison est structurelle.
+ */
+function DeclareVersionButton() {
+  const declare = useDeclareVersion()
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    const trimmed = name.trim()
+    if (trimmed === '') return
+    declare.mutate(trimmed, {
+      onSuccess: () => {
+        setName('')
+        setOpen(false)
+      },
+    })
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700"
+      >
+        Déclarer une version
+      </button>
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+      <input
+        autoFocus
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder="1.8.0"
+        aria-label="Numéro de la version"
+        className="w-40 rounded-md border border-zinc-300 bg-white px-2 py-1.5 font-mono text-sm text-zinc-900"
+      />
+      <button
+        type="submit"
+        disabled={declare.isPending || name.trim() === ''}
+        className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-40"
+      >
+        Déclarer
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(false)
+          setName('')
+        }}
+        className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+      >
+        Annuler
+      </button>
+      {declare.isError && (
+        <p className="w-full text-sm text-critical-700">{(declare.error as Error).message}</p>
+      )}
+    </form>
   )
 }

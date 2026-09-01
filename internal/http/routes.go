@@ -209,6 +209,12 @@ func NewAPIRouter(
 	// décider quoi que ce soit.
 	mux.Handle("GET /projects/{project}/versions", Chain(http.HandlerFunc(versions.List),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
+	// Déclarer une version à la main : la seule voie d'entrée d'un projet sans
+	// suivi, dont les versions ne viennent d'aucun outil extérieur. `POST` et
+	// contrôle CSRF, comme toute écriture.
+	mux.Handle("POST /projects/{project}/versions", Chain(http.HandlerFunc(versions.Create),
+		middleware.Authenticate, middleware.Require(auth.PermReleaseCreate), middleware.CSRF))
+
 	mux.Handle("GET /projects/{project}/versions/{id}", Chain(http.HandlerFunc(versions.Get),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
