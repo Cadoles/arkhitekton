@@ -182,3 +182,50 @@ func TestLeNomSaisiEstConserveTelQuel(t *testing.T) {
 		t.Errorf("nom rendu %q, créé %v", payload.Name, projects.created)
 	}
 }
+
+// Le drapeau qui décide de l'affichage du bouton.
+//
+// Le refus côté serveur était testé, l'émission du drapeau ne l'était pas : un
+// `tracked` absent du corps rendrait `!data.sync.tracked` vrai côté interface, et
+// le bouton apparaîtrait sur un projet suivi — exactement ce qu'il ne doit pas
+// faire. Le serveur refuserait ensuite, mais l'utilisateur aurait cliqué vers un
+// mur.
+func TestLaListeDitSiLeProjetEstSuivi(t *testing.T) {
+	cases := map[string]struct {
+		tracker string
+		want    bool
+	}{
+		"projet suivi":      {tracker: "mse-dev", want: true},
+		"projet sans suivi": {tracker: "", want: false},
+	}
+
+	for name, expected := range cases {
+		projects := untracked()
+		projects.project.TrackerProject = expected.tracker
+
+		handler := NewVersionsHandler(projects, "").
+			WithNormalizer(release.NewNormalizer([]string{release.DefaultPrefix}))
+
+		request := httptest.NewRequest(http.MethodGet, "/projects/app/versions", nil)
+		request.SetPathValue("project", "app")
+		recorder := httptest.NewRecorder()
+		handler.List(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s: code %d: %s", name, recorder.Code, recorder.Body)
+		}
+
+		var payload struct {
+			Sync struct {
+				Tracked bool `json:"tracked"`
+			} `json:"sync"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("%s: corps illisible: %v", name, err)
+		}
+		if payload.Sync.Tracked != expected.want {
+			t.Errorf("%s: tracked = %v, attendu %v — le bouton s'afficherait à tort",
+				name, payload.Sync.Tracked, expected.want)
+		}
+	}
+}
