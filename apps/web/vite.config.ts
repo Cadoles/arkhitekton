@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -16,6 +16,27 @@ export default defineConfig({
   build: {
     outDir: '../../internal/web/dist',
     emptyOutDir: true,
+  },
+
+  /*
+   * Les tests d'interface.
+   *
+   * Ils existent parce que quatre défauts consécutifs ont été trouvés à la main,
+   * dans des chemins que rien n'exerçait : un formulaire qui soumettait son état
+   * initial plutôt que ce qu'il affichait, un bouton visible là où il ne devait
+   * pas l'être. Aucun n'était détectable autrement qu'en cliquant.
+   *
+   * `jsdom` plutôt qu'un vrai navigateur : ces composants ne dépendent ni de la
+   * mise en page ni du rendu, seulement de ce qu'ils envoient et de ce qu'ils
+   * montrent. Un navigateur coûterait des minutes pour la même réponse.
+   */
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.ts'],
+    // Les tests vivent auprès de ce qu'ils éprouvent : un fichier déplacé
+    // emmène ses tests, et leur absence se voit dans le même répertoire.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
 
   server: {

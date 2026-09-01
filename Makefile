@@ -104,7 +104,7 @@ vuln: ## Recherche de vulnérabilités dans les dépendances
 # Cible unique reproduisant ce que la CI vérifie : un développeur doit pouvoir
 # constater localement l'échec qu'il obtiendrait en intégration. La promesse ne
 # tient que si aucune des cibles appelées ne modifie l'arbre de travail.
-check: lint test ## Ce que la CI vérifie
+check: lint test web-check ## Ce que la CI vérifie
 
 clean: ## Supprime les artefacts de build
 	rm -rf bin/
@@ -124,9 +124,10 @@ web: ## Construit l'interface dans internal/web/dist
 web-dev: ## Sert l'interface en développement, API relayée vers :8080
 	npm --prefix $(WEB) run dev
 
-web-check: ## Formatage, typage et analyse statique de l'interface
+web-check: ## Typage, analyse statique et tests de l'interface
 	npm --prefix $(WEB) run typecheck
 	npm --prefix $(WEB) run lint
+	npm --prefix $(WEB) run test
 
 # --- Environnement de développement -------------------------------------------
 
