@@ -72,8 +72,16 @@ export function CreateReleaseButton({
   const create = useCreateRelease()
 
   const [open, setOpen] = useState(false)
-  // La première nature déclarée : le projet range son cycle dans l'ordre où
-  // il veut le voir proposé.
+  // La nature **choisie**, vide tant que l'utilisateur n'a rien coché. La nature
+  // effective est `selected`, qui retombe sur la première déclarée : le projet
+  // range son cycle dans l'ordre où il veut le voir proposé.
+  //
+  // Les deux ne doivent jamais être confondues à la soumission. Elles l'ont
+  // été : le formulaire envoyait `kind`, donc la chaîne vide tant qu'on n'avait
+  // pas cliqué un bouton radio, alors que l'écran montrait la première nature
+  // cochée. Créer une release sans toucher au choix affiché échouait sur
+  // « nature de release inconnue », en désignant une valeur que l'utilisateur
+  // n'avait jamais vue.
   const [kind, setKind] = useState<ReleaseKind>('')
   const [tag, setTag] = useState('')
   // '' = suivre la branche par défaut du dépôt ; CUSTOM_REF = saisie libre.
@@ -140,7 +148,9 @@ export function CreateReleaseButton({
     setConfirming(false)
     create.mutate({
       tag: tag.trim(),
-      kind,
+      // `selected.id` et non `kind` : c'est la nature **affichée comme cochée**,
+      // et l'écran ne doit jamais soumettre autre chose que ce qu'il montre.
+      kind: selected?.id ?? '',
       // Le nom Redmine n'est transmis que s'il en est un : celui d'une provisoire
       // vient d'un tag, et le vérifier contre lui-même ne vérifierait rien.
       tracked_version: version.pending ? undefined : version.name,
@@ -330,7 +340,14 @@ export function CreateReleaseButton({
             <div className="flex items-center gap-2">
               <button
                 type="submit"
-                disabled={create.isPending || tag.trim() === '' || (!buildMode && sourceTag === '')}
+                disabled={
+                create.isPending ||
+                tag.trim() === '' ||
+                // Sans cycle chargé, aucune nature n'est soumettable : la liste
+                // vient du serveur, et l'envoyer vide échouerait à coup sûr.
+                !selected ||
+                (!buildMode && sourceTag === '')
+              }
                 className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Créer

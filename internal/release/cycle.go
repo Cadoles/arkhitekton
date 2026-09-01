@@ -110,19 +110,33 @@ func DefaultCycle() Cycle {
 var ErrUnknownKind = errors.New("nature de release inconnue")
 
 // Find rend la nature déclarée sous cet identifiant.
+//
+// L'identifiant vide est distingué : c'est un appelant qui n'a rien choisi, pas
+// une nature mal orthographiée, et le dire ainsi évite un message citant des
+// guillemets vides. Le cas s'est produit — un formulaire soumettait son état
+// initial plutôt que la nature qu'il affichait cochée.
 func (c Cycle) Find(id string) (KindSpec, error) {
+	if strings.TrimSpace(id) == "" {
+		return KindSpec{}, fmt.Errorf("%w: aucune nature n'a été indiquée (déclarées: %s)",
+			ErrUnknownKind, strings.Join(c.ids(), ", "))
+	}
+
 	for _, spec := range c {
 		if spec.ID == id {
 			return spec, nil
 		}
 	}
+	return KindSpec{}, fmt.Errorf("%w %q (déclarées: %s)",
+		ErrUnknownKind, id, strings.Join(c.ids(), ", "))
+}
 
+// ids énumère les natures déclarées, pour les nommer dans un message d'erreur.
+func (c Cycle) ids() []string {
 	declared := make([]string, 0, len(c))
 	for _, spec := range c {
 		declared = append(declared, spec.ID)
 	}
-	return KindSpec{}, fmt.Errorf("%w %q (déclarées: %s)",
-		ErrUnknownKind, id, strings.Join(declared, ", "))
+	return declared
 }
 
 // Validate refuse un cycle incohérent, ou incompatible avec le schéma.

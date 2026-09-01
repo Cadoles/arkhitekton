@@ -166,3 +166,24 @@ func TestLaVerificationDeFormeSeTaitQuandLeSchemaIgnore(t *testing.T) {
 		t.Errorf("une RC doit être acceptée: %v", err)
 	}
 }
+
+// Une nature vide n'est pas une nature mal orthographiée : c'est un appelant qui
+// n'a rien choisi, et le message doit le dire plutôt que de citer des guillemets
+// vides.
+//
+// Le cas s'est produit : le formulaire de création soumettait son état initial
+// — la chaîne vide — plutôt que la nature qu'il affichait cochée. L'erreur
+// désignait une valeur que l'utilisateur n'avait jamais vue.
+func TestUneNatureVideEstDistingueeDUneNatureInconnue(t *testing.T) {
+	_, err := DefaultCycle().Find("")
+	if !errors.Is(err, ErrUnknownKind) {
+		t.Fatalf("erreur %v, attendu ErrUnknownKind", err)
+	}
+	if !strings.Contains(err.Error(), "aucune nature") {
+		t.Errorf("message %q — il doit dire que rien n'a été choisi", err)
+	}
+	// Et il nomme quand même ce qui existe : c'est ce qui permet de corriger.
+	if !strings.Contains(err.Error(), "pre") {
+		t.Errorf("message %q — il doit nommer les natures déclarées", err)
+	}
+}
