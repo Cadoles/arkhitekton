@@ -1,8 +1,11 @@
 # 14. Déclencheurs et automatisations
 
 > **Objet** — rendre configurable ce qui s'enchaîne après un fait : lancer des pipelines,
-> poser un statut, appeler un webhook. Aujourd'hui la chaîne est écrite en Go, la même
-> pour tous les projets.
+> poser un statut, appeler un webhook. Aujourd'hui la chaîne est écrite en Go, la même pour
+> tous les projets.
+>
+> Les **causes** sont extensibles au même titre que les conséquences : un plugin déclare les
+> faits qu'il sait observer, et le noyau n'a pas à les connaître.
 
 ---
 
@@ -44,12 +47,18 @@ C'est aussi ce qui donne le critère de réussite du chantier, et il est brutal 
 
 ### Événement
 
-Un **fait**, au passé, avec une charge utile. Émis par le dashboard aux points qu'il connaît
-déjà. Jamais un ordre : `release.built` dit qu'une construction s'est terminée, il ne dit
-pas quoi faire.
+Un **fait**, au passé, avec une charge utile. Jamais un ordre : `release.built` dit qu'une
+construction s'est terminée, il ne dit pas quoi faire.
 
 La distinction n'est pas cosmétique. Un événement est **rejouable** — on peut le relire, le
 réémettre, l'archiver — là qu'un ordre ne l'est pas.
+
+Les faits viennent de **deux sources**, et la seconde est ce qui rend le mécanisme
+réellement extensible.
+
+#### Les faits du noyau
+
+Ce que le dashboard sait déjà, aux points où il le sait déjà :
 
 | Événement | Émis quand | Charge |
 |---|---|---|
@@ -60,9 +69,43 @@ réémettre, l'archiver — là qu'un ordre ne l'est pas.
 | `release.promoted` | une promotion aboutit | + `environment` |
 | `pipeline.finished` | tout run se termine | kind, `outcome`, job, release |
 
-Six, et pas davantage au départ. `pipeline.finished` est le générique dont les autres sont
-des commodités : un projet qui veut réagir à une famille précise le fait par une condition
+Six, et pas davantage. `pipeline.finished` est le générique dont les autres sont des
+commodités : un projet qui veut réagir à une famille précise le fait par une condition
 plutôt que par un septième type.
+
+#### Les faits déclarés par un plugin
+
+Un plugin déclare les faits qu'il sait observer, et le dashboard n'a pas à les connaître.
+Un plugin de forge annonce ainsi une demande de fusion ouverte ; un plugin de suivi, une
+version publiée ou une demande fermée.
+
+C'est la moitié manquante de l'extensibilité. Sans elle, on peut brancher n'importe quelle
+**conséquence** sur un jeu de **causes** figé — et le jour où quelqu'un veut réagir à un
+fait que le dashboard ne produit pas, il faut à nouveau modifier le noyau. C'est exactement
+la limite qu'on cherche à lever.
+
+**Les types sont préfixés par l'identifiant du plugin.** `gitea.pull_request.opened`, jamais
+`pull_request.opened`. Deux plugins de forge coexisteront, et une réaction doit dire lequel
+elle écoute : un type nu deviendrait ambigu au premier ajout, et l'ambiguïté se
+manifesterait par un plan qui part sur le fait d'un autre.
+
+Le descripteur d'un plugin gagne donc, à côté de ses champs et de ses actions, la
+déclaration de ses faits :
+
+```
+Événement    gitea.pull_request.opened
+Libellé      « Demande de fusion ouverte »
+Charge       number, title, author, source_branch, target_branch, sha
+```
+
+Les champs de la charge sont **déclarés** et non libres, pour la même raison que les champs
+de configuration le sont : c'est ce qui permet à l'éditeur de proposer les appariements
+possibles et aux gabarits d'être validés à l'enregistrement, plutôt que de découvrir à
+l'exécution qu'on interpole une clé qui n'existe pas.
+
+Un fait dont le plugin est désactivé sur l'instance n'apparaît pas dans l'éditeur, et une
+réaction qui l'écoutait ne se déclenche plus — sans être effacée, et en le disant. Même
+règle que pour les réglages : éteindre n'est pas supprimer.
 
 ### Réaction
 
@@ -142,7 +185,96 @@ la validation des champs.
 
 ---
 
-## 14.4 Ce qui ne bouge pas : la machine à états
+## 14.4 D'où viennent les faits d'un plugin
+
+Déclarer un fait est facile. Le **produire** est le vrai sujet, et l'exemple donné le dit
+sans le dire : « lorsqu'**il en détecte** une nouvelle ». Détecter, pas recevoir. Deux
+mécanismes très différents se cachent derrière ce mot.
+
+### Sonde plutôt que réception
+
+| | Sonde | Réception |
+|---|---|---|
+| Sens | le dashboard interroge | la forge pousse |
+| Latence | l'intervalle | immédiate |
+| Surface exposée | aucune | **un point d'entrée public, non authentifié par nature** |
+| Machinerie | existe déjà | à écrire : signature, anti-rejeu, corrélation |
+| Dépend de | rien côté client | un droit d'administration sur le dépôt |
+
+**La sonde d'abord**, pour trois raisons qui tiennent ensemble.
+
+La machinerie existe. `TrackerSync` fait exactement cela depuis le lot C : un curseur par
+projet, un intervalle, une lecture incrémentale avec recouvrement, un échec isolé par
+projet. La table `sync_state` porte déjà `(source, project_id)` depuis la migration 0043 —
+une sonde de forge y écrit sous `gitea.pull_requests` sans qu'aucune table soit ajoutée.
+
+La réception ajoute une **surface exposée**, et c'est une décision d'une autre nature qu'un
+point d'extension. Un endpoint que la forge peut appeler est un endpoint que n'importe qui
+peut appeler ; il demande une signature partagée, une fenêtre anti-rejeu, et un chemin qui
+contourne l'authentification OIDC de tout le reste. Cela mérite sa propre décision, pas
+d'être emporté dans celle-ci.
+
+Enfin, [B6] a déjà tranché ce débat pour le suivi : aucun greffon de webhook n'est
+déployable sur l'instance Redmine du client, et l'interrogation périodique y est la voie
+**définitive** et non un repli. La forge est plus accueillante, mais rien n'oblige à
+diverger tant que la sonde suffit.
+
+### Le contrat d'une sonde
+
+Une sonde est une fonction, et le plugin la fournit :
+
+```
+Sonde(ctx, connexion, curseur) → (faits, nouveau curseur, erreur)
+```
+
+Trois obligations, et chacune corrige une panne connue :
+
+**1. Le fait porte sa propre clé de déduplication.** Le plugin est le seul à savoir ce qui
+identifie ses faits — pour une demande de fusion, son numéro dans le dépôt. Le moteur ne
+peut pas la deviner, et la dériver de la lecture serait faux : la sonde relit une fenêtre de
+recouvrement à chaque passe, comme `TrackerSync` le fait sur une minute pour ne pas perdre
+une modification à cheval sur deux secondes. Sans clé stable, **chaque passe renotifierait**.
+
+**2. La date du fait est celle du fait, pas de la lecture.** Une sonde qui rattrape trois
+jours d'histoire doit produire des événements datés de ces trois jours, sinon tout paraît
+avoir eu lieu à l'instant et l'ordre est perdu.
+
+**3. La première passe n'émet rien.** Elle **établit le curseur** et s'arrête là.
+
+La troisième est la moins évidente et la plus coûteuse à découvrir : sans elle, activer une
+sonde sur un dépôt qui porte quatre cents demandes de fusion émet quatre cents faits, donc
+déclenche quatre cents plans, donc envoie quatre cents notifications. Une activation ne doit
+rien réveiller du passé.
+
+### Isolation et charge
+
+Chaque sonde tourne **par projet**, avec la connexion résolue de son plugin — donc son
+serveur et sa clé, superposés comme le reste (§12.5). L'échec de l'une ne suspend pas les
+autres : c'est la règle que la synchronisation du suivi vient d'apprendre, et il n'y a pas
+de raison de la réapprendre ici.
+
+La charge se compte : *nombre de projets × nombre de sondes × fréquence*. Un plancher
+d'intervalle est imposé par le déploiement, et chaque sonde déclare le sien au-dessus. Une
+sonde qui interroge une forge tierce toutes les dix secondes pour trente projets est un déni
+de service involontaire.
+
+### La preuve du contrat
+
+**La synchronisation du suivi est la première sonde.** Elle produirait
+`redmine.version.created`, `redmine.issue.closed` — ce qu'elle observe déjà sans rien en
+faire d'autre que projeter en base.
+
+C'est le même argument qu'au §14.1 : un contrat de sonde écrit sur la seule sonde Gitea en
+épouserait la forme sans qu'on s'en aperçoive. Écrit sur deux réalisations dont l'une existe
+et tourne depuis des mois, il a une chance d'être juste.
+
+La migration n'est pas indispensable au premier jour — la sonde Gitea seule suffit à livrer
+le besoin. Mais tant qu'elle n'a pas eu lieu, le contrat reste **hypothétique**, et le
+document doit le dire plutôt que de laisser croire qu'il est éprouvé.
+
+---
+
+## 14.5 Ce qui ne bouge pas : la machine à états
 
 **Règle porteuse : le moteur de plans n'écrit jamais l'état d'une release.**
 
@@ -166,7 +298,7 @@ réalisable dès la deuxième tranche.
 
 ---
 
-## 14.5 Livraison au plus juste, et l'idempotence
+## 14.6 Livraison au plus juste, et l'idempotence
 
 Le piège le plus coûteux de ce chantier n'est ni le modèle ni l'interface. C'est celui-ci :
 
@@ -180,7 +312,9 @@ règles structurelles :
 
 1. **Les événements sont persistés avec une clé de déduplication** dérivée du fait lui-même
    — `release.built:<release_id>:<job_id>` — insérés en `on conflict do nothing`. Réémettre
-   le même fait ne crée rien.
+   le même fait ne crée rien. Pour un fait de plugin, **c'est le plugin qui fournit la
+   clé** : lui seul sait ce qui identifie ses faits, et une sonde relit une fenêtre de
+   recouvrement à chaque passe (§14.4).
 2. **Une exécution de plan est unique par (réaction, événement)**, tenue par un index. Deux
    workers, ou deux redélivrances, produisent une exécution.
 3. **Les actions portent une clé d'idempotence** dans leur requête sortante, pour que le
@@ -190,7 +324,7 @@ règles structurelles :
 
 ---
 
-## 14.6 Sécurité
+## 14.7 Sécurité
 
 Cette section n'est pas un appendice : c'est ce qui décide si le chantier est
 raisonnable.
@@ -243,25 +377,49 @@ Déclarer une réaction, c'est faire émettre des appels au nom de l'instance et
 pipelines. C'est `admin`, comme les plugins — et non `release:edit`, qui appartient à ceux
 qui conduisent une livraison.
 
+### Ce qu'une sonde peut faire de travers
+
+Une sonde ne sort pas vers une cible saisie par un utilisateur — elle interroge le serveur
+déjà configuré du plugin, celui que la forge ou le suivi déclare. Le risque n'est donc pas
+la SSRF mais la **charge** et la **fuite par la charge utile**.
+
+**La charge.** *Projets × sondes × fréquence*, et le multiplicande est une machine qui n'est
+pas la nôtre. Un plancher d'intervalle vient du déploiement, chaque sonde déclare le sien
+au-dessus, et un échec répété espace les tentatives au lieu de s'entêter.
+
+**La charge utile.** Un fait de plugin porte ce que le plugin y met, et un titre de demande
+de fusion contient parfois ce qu'un développeur pressé y a collé. Cette charge finira dans
+un corps de webhook, donc chez un tiers. La règle du gabarit vaut ici aussi, dans l'autre
+sens : les champs déclarés sont les seuls interpolables, et une sonde qui rendrait un champ
+non déclaré le voit **écarté**, pas transmis.
+
 ### L'interrupteur
 
-Un interrupteur global d'arrêt des automatisations, et un par réaction. Quand une
-configuration part en boucle un vendredi soir, la première chose dont on a besoin est de
+Un interrupteur global d'arrêt des automatisations, un par réaction, et un par sonde. Quand
+une configuration part en boucle un vendredi soir, la première chose dont on a besoin est de
 l'arrêter sans redéployer.
+
+Les trois sont distincts à dessein : couper une sonde qui martèle une forge tierce ne doit
+pas suspendre les plans déclenchés par les faits du noyau.
 
 ---
 
-## 14.7 Schéma
+## 14.8 Schéma
 
-Quatre tables. Les noms suivent l'usage du dépôt : le français pour le domaine, l'anglais
-pour ce qui vient de l'infrastructure.
+Quatre tables, et **aucune pour les curseurs de sondes**. Les noms suivent l'usage du
+dépôt : le français pour le domaine, l'anglais pour ce qui vient de l'infrastructure.
 
 ```sql
 -- Les faits. Persistés parce qu'ils sont rejouables, et parce que la
 -- déduplication a besoin d'une trace.
 events (
   id, type, project_id, subject, payload jsonb,
-  occurred_at, depth,
+  occurred_at,                   -- l'instant du **fait**, jamais celui de sa lecture
+  depth,                         -- profondeur d'enchaînement, contre les boucles
+  -- `source` distingue le noyau d'un plugin. Rendu explicite plutôt que
+  -- déduit du préfixe du type : un plugin retiré d'une version laisse des
+  -- faits qu'on doit encore savoir lire et attribuer.
+  source text,                   -- '' pour le noyau, l'identifiant du plugin sinon
   dedup_key text unique          -- « release.built:42:1381 »
 )
 
@@ -299,17 +457,30 @@ actions et le catalogue des pipelines — une action inconnue ou une famille abs
 refusée à la saisie, jamais découverte à l'exécution. C'est la règle déjà appliquée aux
 champs de plugins.
 
+**Les curseurs de sondes n'ajoutent aucune table.** `sync_state` porte déjà
+`(source, project_id)` depuis la migration 0043, avec sa dernière tentative, son dernier
+succès et son dernier message d'erreur. Une sonde de forge y écrit sous
+`gitea.pull_requests` comme la synchronisation du suivi y écrit sous `redmine`.
+
+Ce n'est pas une économie opportuniste : ces deux mécanismes **sont** la même chose — une
+lecture périodique, incrémentale, bornée par un curseur, par projet — et leur donner deux
+tables aurait été le signe qu'on n'avait pas vu qu'elles n'en faisaient qu'une.
+
 ---
 
-## 14.8 Où le code se pose
+## 14.9 Où le code se pose
 
 ```
 internal/event/       le vocabulaire des faits, leurs types, leur clé de déduplication
 internal/plan/        le modèle de plan, sa validation, son avancement — sans I/O
 internal/action/      le registre des actions internes et leur contrat
 internal/webhook/     le client sortant et son transport à cible contrôlée
-internal/worker/      la boucle qui consomme les événements et fait avancer les plans
+internal/worker/      deux boucles : les sondes qui produisent, le moteur qui consomme
 ```
+
+`internal/plugin` gagne deux déclarations à côté de ses champs : les **actions** qu'un
+plugin fournit, et les **faits** qu'il sait observer. Rien d'autre ne bouge dans ce paquet —
+c'est un registre à la compilation, et deux listes de plus n'en changent pas la nature.
 
 `internal/plan` **sans entrées-sorties** est délibéré, et c'est le même geste que pour
 `internal/release` : l'avancement d'un plan — quelle étape est réglée, quel geste part
@@ -317,13 +488,18 @@ ensuite, que faire d'un échec — est de la logique de décision. Elle s'éprou
 sans cluster, ce qui est la seule façon d'avoir confiance dans un moteur qu'on ne verra
 tourner en entier que rarement.
 
-La boucle vit dans le `worker`, **sous le bail de leader**, comme tout ce qui sort. L'`api`
-ne fait que lire et écrire des déclarations : elle tourne sans jeton de cluster,
-délibérément, parce que c'est la surface exposée (§12.7).
+**Deux boucles dans le worker, et non une.** Les sondes produisent des faits ; le moteur les
+consomme et fait avancer les plans. Les fondre donnerait un tour de boucle dont la durée
+dépend à la fois d'une forge tierce et de l'exécution d'un plan — une forge lente
+retarderait alors la conclusion d'une étape, pour aucune raison de fond.
+
+Les deux vivent **sous le bail de leader**, comme tout ce qui sort. L'`api` ne fait que lire
+et écrire des déclarations : elle tourne sans jeton de cluster, délibérément, parce que
+c'est la surface exposée (§12.7).
 
 ---
 
-## 14.9 L'interface
+## 14.10 L'interface
 
 ### Déclarer
 
@@ -339,6 +515,19 @@ reste visible en lecture seule pour qui veut le relire ou le recopier.
 La forme du modèle rend cet éditeur possible : des étapes et des gestes parallèles se
 dessinent en colonnes empilées. Un DAG libre aurait demandé un éditeur de graphe, et c'est
 la seconde raison de ne pas en faire un.
+
+**L'éditeur se compose à partir des registres**, jamais d'une liste écrite dans l'interface.
+Le choix de l'événement énumère les faits du noyau et ceux des plugins actifs sur ce projet ;
+choisir un fait détermine les champs appariables et les variables de gabarit disponibles,
+puisque la charge est déclarée (§14.2) ; le choix d'un geste énumère les actions du registre
+et les familles du catalogue.
+
+C'est ce qui évite l'écran qui accepte tout et échoue à l'exécution — et c'est la même règle
+que pour les champs de plugins, où le serveur décrit et le navigateur affiche.
+
+**Un fait dont le plugin a été éteint depuis** ne disparaît pas de la réaction qui l'écoute :
+elle s'affiche inerte, en le disant. L'effacer silencieusement ferait perdre une
+configuration pour une extinction peut-être temporaire.
 
 ### Constater
 
@@ -358,9 +547,9 @@ et ce sont deux corrections différentes.
 
 ---
 
-## 14.10 Le découpage
+## 14.11 Le découpage
 
-Cinq tranches. Chacune se termine sur quelque chose de vérifiable, et la troisième est le
+Six tranches. Chacune se termine sur quelque chose de vérifiable, et la troisième est le
 point de non-retour.
 
 ### Tranche 1 — Les faits, sans personne pour les écouter
@@ -392,43 +581,71 @@ sont refusées.
 C'est la tranche qui fait sortir des requêtes du cluster au nom de l'instance. Elle ne part
 pas avant que la précédente soit tenue.
 
-### Tranche 4 — L'interface
+### Tranche 4 — Les sondes, et les faits de plugin
+
+Le contrat de sonde, sa boucle, et la sonde `gitea.pull_request.opened` — celle qui a motivé
+la demande.
+
+Trois choses s'éprouvent ici, et aucune ne s'éprouve à la lecture du code : qu'une
+activation **n'émet rien du passé**, qu'une seconde passe sur la même fenêtre de
+recouvrement **ne renotifie pas**, et qu'une forge injoignable **n'empêche pas** les autres
+projets d'avancer. Ce sont trois tests, et ils valent la tranche à eux seuls.
+
+La synchronisation du suivi devient la seconde sonde — ou ne le devient pas, et le contrat
+reste alors calqué sur une seule réalisation. Le §14.4 dit pourquoi c'est un compromis et
+non un détail d'ordonnancement.
+
+### Tranche 5 — L'interface
 
 L'éditeur structuré, la vue des exécutions, le fil des faits.
 
-### Tranche 5 — Les actions de plugin
+Elle vient après les sondes, et non avant : un éditeur écrit sur les seuls faits du noyau
+n'aurait pas à afficher de types préfixés, ni de charge déclarée par un tiers, ni de fait
+dont le plugin est éteint. Il faudrait le reprendre.
 
-Le registre s'ouvre. Rien ne l'exige avant qu'un plugin réel ait quelque chose à déclarer :
-l'écrire d'avance produirait un point d'extension calqué sur les trois actions internes,
-qu'on croirait général (§12.4).
+### Tranche 6 — Les actions de plugin
 
----
+Le registre s'ouvre dans l'autre sens. Rien ne l'exige avant qu'un plugin réel ait une action
+à fournir : l'écrire d'avance produirait un point d'extension calqué sur les trois actions
+internes, qu'on croirait général (§12.4).
 
-## 14.11 Ce que ce chantier coûte, et l'alternative
-
-Il est plus gros que les précédents : cinq tranches, deux boucles de worker, un éditeur de
-graphe simplifié, et une surface sortante nouvelle à sécuriser. Le dire d'emblée est plus
-utile que de le découvrir à la troisième.
-
-**Une version courte existe**, si le besoin réel est plus étroit que l'énoncé. Les tranches
-1 et 3, sans moteur de plans : des réactions **à un seul geste**, sans étapes ni parallélisme
-ni conditions. « Sur `release.verified`, appeler ce webhook. » Cela couvre la notification,
-le statut Gitea et le commentaire — donc les trois exemples donnés — pour une fraction du
-coût, et sans toucher à la chaîne existante.
-
-Ce qu'elle ne couvre pas : « trois builds en parallèle, puis quatre tests si les builds ont
-réussi ». Si cet enchaînement-là est le vrai besoin, la version longue est la bonne. Si
-c'est une illustration, la version courte livre l'essentiel en deux tranches et laisse la
-porte ouverte : les événements et les actions sont les mêmes, seul le moteur manque.
+**Les faits de plugin, eux, sont en tranche 4 et non ici** — ils sont la moitié qui a été
+demandée, et celle sans laquelle les causes resteraient figées.
 
 ---
 
-## 14.12 Décisions à prendre avant d'écrire
+## 14.12 Ce que ce chantier coûte
 
-| # | Question | Recommandation |
+**Version longue retenue.** Six tranches, deux boucles de worker, un éditeur de graphe
+simplifié, une surface sortante à sécuriser, et un contrat de sonde. Le dire d'emblée est
+plus utile que de le découvrir à la quatrième.
+
+Deux tranches sont des **portes** plutôt que des livraisons, et il faut les traiter comme
+telles :
+
+- la **tranche 2** décide si le modèle de plan tient : si la chaîne de vérification n'y
+  entre pas, on s'arrête et on révise, avant toute interface ;
+- la **tranche 4** décide si le contrat de sonde tient : si la sonde Gitea ne s'y coule pas
+  sans le tordre, c'est que le contrat a été écrit trop tôt.
+
+Le reste est du travail ordinaire, et son coût est proportionné à ce qu'il livre.
+
+**Ce qui n'est pas dans le périmètre**, et qu'il vaut mieux nommer que laisser croire
+acquis : la réception de webhooks entrants (§14.4), l'écriture dans le suivi (§14.3), et un
+langage d'expressions dans les conditions (§14.2). Chacun est une décision à part, aucun
+n'est fermé pour toujours.
+
+---
+
+## 14.13 Décisions à prendre avant d'écrire
+
+| # | Question | Réponse |
 |---|---|---|
-| 1 | Version longue (moteur de plans) ou courte (réaction à un geste) ? | dépend du besoin réel derrière l'exemple — à trancher |
-| 2 | Les actions internes ont-elles besoin d'écrire dans le suivi ? | **non** en l'état : ouvrir le transport Redmine est une décision à part |
-| 3 | Les plans peuvent-ils écrire l'état d'une release ? | **non**, et c'est structurel (§14.4) |
-| 4 | Le déploiement autorise-t-il des cibles de webhook privées ? | par une variable explicite, refusé par défaut |
-| 5 | Un plan peut-il être défini au niveau de l'instance, et hérité ? | oui, même partage que les plugins : défauts globaux, écarts par projet |
+| 1 | Version longue ou courte ? | **longue** — tranché |
+| 2 | Les plugins déclarent-ils leurs propres faits ? | **oui** — tranché ; par sonde, types préfixés, charge déclarée (§14.4) |
+| 3 | Les actions internes écrivent-elles dans le suivi ? | **non** en l'état : ouvrir le transport Redmine est une décision à part |
+| 4 | Les plans peuvent-ils écrire l'état d'une release ? | **non**, et c'est structurel (§14.5) |
+| 5 | Le déploiement autorise-t-il des cibles de webhook privées ? | par une variable explicite, refusé par défaut |
+| 6 | Un plan peut-il être défini au niveau de l'instance, et hérité ? | oui, même partage que les plugins : défauts globaux, écarts par projet |
+| 7 | La synchronisation du suivi devient-elle une sonde ? | souhaitable — c'est ce qui éprouve le contrat sur deux réalisations plutôt qu'une (§14.4) |
+| 8 | Quel plancher d'intervalle pour les sondes ? | à fixer au déploiement ; une minute est un point de départ raisonnable |
