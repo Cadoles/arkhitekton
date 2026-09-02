@@ -197,6 +197,9 @@ pipelines:
   - kind: build
     pipelineRef: build-image
     label: Construction d'image
+    # Ce que ce pipeline laisse derrière lui. Le dashboard en lit les digests et
+    # les rattache à la release ; un re-tag pourra les reprendre bit à bit.
+    produces: [image]
     # `parallel` : deux constructions de versions différentes ne se gênent pas,
     # elles écrivent sous des tags distincts. La sérialisation du registre ne
     # concerne que le re-tag, où deux manifestes visent le même dépôt.
@@ -247,6 +250,10 @@ pipelines:
   - kind: retag
     pipelineRef: retag-image
     label: Re-tag d'image
+    # Une image, comme `build` — et c'est ce que le drapeau `verification` ne
+    # savait pas dire : il n'avait que deux valeurs pour trois situations, et
+    # `retag` tombait dans la même case qu'un pipeline qui ne produit rien.
+    produces: [image]
     # Le registre supporte mal deux re-tags simultanés sur le même dépôt : les
     # sérialiser coûte quelques secondes et évite des manifestes concurrents.
     maxConcurrent: 1
@@ -322,6 +329,14 @@ pipelines:
   - kind: e2e-tests
     pipelineRef: e2e-test
     label: Tests E2E
+    # La ligne qui a motivé cette déclaration. Trois artefacts publiés, et
+    # `verification: false` — non parce qu'elle ne produirait pas de résultats,
+    # mais parce que le drapeau parlait d'**enchaînement** : une campagne E2E
+    # vise un environnement partagé et ne part pas d'office après un build.
+    #
+    # Les deux axes sont désormais nommés séparément. Ses rapports sont lus, et
+    # elle reste lancée à la demande.
+    produces: [results]
     # Une campagne E2E s'exécute contre un environnement partagé : deux
     # exécutions simultanées se fausseraient mutuellement.
     # Une seule à la fois : elle déploie ou mesure une cible unique, et deux

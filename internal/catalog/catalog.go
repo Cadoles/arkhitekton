@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -105,6 +106,52 @@ func (e Environment) IsObservable() bool { return e.Observable == nil || *e.Obse
 // IsVisible rend la valeur effective, l'absence valant « visible ».
 func (e Environment) IsVisible() bool { return e.Visible == nil || *e.Visible }
 
+/*
+ * Ce qu'un pipeline laisse derrière lui.
+ *
+ * Le catalogue classait par un booléen, `verification`, dont le commentaire disait
+ * deux choses : « une construction réussie enchaîne ce pipeline » **et** « il est
+ * relançable seul ». Deux propriétés indépendantes, un seul drapeau — et le
+ * catalogue en service portait déjà la ligne où elles divergent : `e2e-tests`
+ * publie trois artefacts et déclare `verification: false`, parce que le drapeau
+ * exprime l'enchaînement et qu'une campagne E2E vise un environnement partagé.
+ *
+ * `Produces` nomme le second axe, celui que `verification` ne disait que par
+ * corrélation. C'est ce qui rend le contrat de doc 13 **vérifiable** : un
+ * pipeline qui annonce des résultats et n'en publie aucun devient une rupture
+ * qu'on peut désigner, au lieu d'un écran vide dont rien ne dit la cause
+ * (doc 12 §12.6, doc 13 §13.1).
+ *
+ * Le mot « famille » n'était pas disponible : il désigne déjà une famille de
+ * résultats de tests — `unit`, `static`, `e2e` — et s'en resservir un niveau plus
+ * haut aurait produit deux sens du même mot, à demeure.
+ */
+
+// Product nomme une chose qu'un pipeline produit.
+//
+// Jeu **fermé** : ce sont les issues que le dashboard sait lire, et en ajouter une
+// demande du code — un lecteur, un écran — pas une ligne de configuration.
+type Product string
+
+const (
+	// ProductImage : le pipeline publie des images, dont le dashboard lit les
+	// digests et qu'un re-tag pourra reprendre.
+	ProductImage Product = "image"
+	// ProductResults : le pipeline publie des rapports conformes à doc 13 —
+	// familles, marqueurs, artefacts pré-signés.
+	ProductResults Product = "results"
+	// ProductNone : le pipeline ne rend que son verdict. Un déploiement, une
+	// migration, un nettoyage.
+	//
+	// Déclaré explicitement plutôt que représenté par une liste vide : « ce
+	// pipeline ne produit rien » et « personne n'a répondu à la question » sont
+	// deux choses différentes, et seule la seconde doit être refusée.
+	ProductNone Product = "none"
+)
+
+// products énumère les valeurs admises, pour les nommer dans un message.
+var products = []Product{ProductImage, ProductResults, ProductNone}
+
 // Pipeline décrit un pipeline lançable.
 type Pipeline struct {
 	// Kind est l'identifiant employé par le dashboard. Distinct de PipelineRef :
@@ -126,7 +173,18 @@ type Pipeline struct {
 	// Porté par chaque pipeline plutôt que par une liste en tête du catalogue :
 	// une liste peut nommer une famille absente, et l'ordre d'enchaînement
 	// deviendrait une seconde vérité à côté de l'ordre de déclaration.
+	//
+	// **Ne dit plus que l'enchaînement.** Ce qu'un pipeline produit se déclare
+	// désormais dans `Produces`, et les deux axes cessent d'être confondus. Ce
+	// drapeau disparaîtra le jour où l'enchaînement deviendra un plan déclaré
+	// (doc 14).
 	Verification bool `json:"verification,omitempty"`
+	// Produces énumère ce que le pipeline laisse derrière lui.
+	//
+	// Une **liste** et non une valeur : un pipeline qui construit une image puis
+	// lance ses tests dans la foulée rend les deux, et n'a pas à être coupé en
+	// deux pour entrer dans le modèle.
+	Produces []Product `json:"produces,omitempty"`
 	// MaxConcurrent borne la file de ce type. Zéro vaut DefaultKindConcurrency :
 	// un type nouveau démarre parallélisable, ce qui est le cas courant, et
 	// s'exclut en le déclarant plutôt qu'en l'oubliant.
@@ -320,10 +378,40 @@ func Parse(content []byte) (*Catalog, error) {
 		catalog.MaxConcurrentRuns = DefaultMaxConcurrentRuns
 	}
 
+	// La déduction vient **avant** la validation : elle comble ce qui se déduit
+	// sans risque, et laisse la validation refuser le reste.
+	catalog.deduceProducts()
+
 	if err := catalog.validate(); err != nil {
 		return nil, err
 	}
 	return &catalog, nil
+}
+
+// deduceProducts complète les pipelines dont le produit se déduit sans ambiguïté.
+//
+// Une seule règle, et c'est délibérément peu : `verification: true` implique la
+// publication de rapports — la validation l'exige déjà, un pipeline enchaîné sans
+// artefact ayant un verdict qui n'atteint jamais le dashboard.
+//
+// # Ce qui n'est pas déduit, et pourquoi
+//
+// Le reste demande une réponse humaine, parce que le catalogue ne porte aucun
+// signal qui le dise. `build` et `retag` publient des images ; ni l'un ni l'autre
+// ne déclare d'artefact, et rien ne les distingue structurellement d'un pipeline
+// qui déploie. Les deviner par leur **nom** rétablirait la convention de nommage
+// que cette déclaration existe pour supprimer.
+//
+// Et le cas qui décide : `e2e-tests` publie trois artefacts avec
+// `verification: false`. Une déduction qui le rangerait dans « rien » perpétuerait
+// exactement la confusion qu'on corrige. Il vaut mieux exiger la réponse.
+func (c *Catalog) deduceProducts() {
+	for index, pipeline := range c.Pipelines {
+		if len(pipeline.Produces) > 0 || !pipeline.Verification {
+			continue
+		}
+		c.Pipelines[index].Produces = []Product{ProductResults}
+	}
 }
 
 var kindPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
@@ -387,6 +475,7 @@ func (p Pipeline) validate() []error {
 		problems = append(problems, fmt.Errorf(
 			"kind %q: une vérification doit déclarer au moins un artefact", p.Kind))
 	}
+	problems = append(problems, p.validateProducts()...)
 	if p.MaxConcurrent < 0 {
 		problems = append(problems, fmt.Errorf(
 			"kind %q: maxConcurrent doit être >= 1 (ou absent), vaut %d", p.Kind, p.MaxConcurrent))
@@ -463,6 +552,97 @@ func (p Pipeline) validate() []error {
 	}
 
 	return problems
+}
+
+// validateProducts refuse un produit absent, inconnu, ou en contradiction avec ce
+// que le pipeline déclare par ailleurs.
+//
+// **L'absence est refusée au démarrage**, et c'est la doctrine du dépôt : une
+// configuration incomplète découverte au premier clic se manifeste sur
+// l'opération la plus rare, alors qu'un refus au démarrage est une erreur de
+// déploiement, visible immédiatement et par la bonne personne.
+//
+// Le prix de la laisser passer est connu : sans produit déclaré, le dashboard ne
+// sait pas si un run muet est un pipeline qui n'avait rien à dire ou un pipeline
+// en rupture de contrat. C'est précisément le diagnostic qu'on cherche à rendre
+// possible.
+func (p Pipeline) validateProducts() []error {
+	if len(p.Produces) == 0 {
+		return []error{fmt.Errorf(
+			"kind %q: `produces` est requis (%s) — ce qu'un pipeline laisse "+
+				"derrière lui ne se devine pas, et le déduire de son nom "+
+				"rétablirait la convention que cette déclaration remplace",
+			p.Kind, joinProducts(products))}
+	}
+
+	var problems []error
+	seen := map[Product]bool{}
+
+	for _, product := range p.Produces {
+		switch product {
+		case ProductImage, ProductResults, ProductNone:
+		default:
+			problems = append(problems, fmt.Errorf(
+				"kind %q: produit %q inconnu (admis: %s)",
+				p.Kind, product, joinProducts(products)))
+			continue
+		}
+		if seen[product] {
+			problems = append(problems, fmt.Errorf(
+				"kind %q: produit %q déclaré deux fois", p.Kind, product))
+		}
+		seen[product] = true
+	}
+
+	// « Rien » ne se cumule pas : un pipeline qui déclare `none` à côté d'un autre
+	// produit se contredit, et rien ne dit laquelle des deux moitiés croire.
+	if seen[ProductNone] && len(seen) > 1 {
+		problems = append(problems, fmt.Errorf(
+			"kind %q: %q ne se cumule pas avec un autre produit", p.Kind, ProductNone))
+	}
+
+	// Des résultats annoncés sans artefact déclaré ne remonteraient jamais : le
+	// run tourne, conclut, et l'écran reste vide. Même contrôle que pour une
+	// vérification, désormais adossé au produit plutôt qu'au drapeau.
+	if seen[ProductResults] && len(p.Uploads) == 0 {
+		problems = append(problems, fmt.Errorf(
+			"kind %q: annonce des résultats sans déclarer d'artefact — son verdict "+
+				"n'atteindrait jamais le dashboard", p.Kind))
+	}
+
+	// L'écart inverse est refusé lui aussi : des artefacts publiés que rien ne
+	// vient lire. C'est le cas qu'`e2e-tests` illustrait — trois artefacts, et un
+	// drapeau disant « pas une vérification » parce qu'il parlait d'autre chose.
+	if !seen[ProductResults] && len(p.Uploads) > 0 {
+		problems = append(problems, fmt.Errorf(
+			"kind %q: déclare %d artefact(s) sans annoncer %q — ils seraient "+
+				"publiés puis jamais lus", p.Kind, len(p.Uploads), ProductResults))
+	}
+
+	return problems
+}
+
+func joinProducts(list []Product) string {
+	names := make([]string, 0, len(list))
+	for _, product := range list {
+		names = append(names, string(product))
+	}
+	return strings.Join(names, ", ")
+}
+
+// Yields dit si le pipeline produit cette chose.
+func (p Pipeline) Yields(product Product) bool {
+	return slices.Contains(p.Produces, product)
+}
+
+// Yields dit si le type nommé produit cette chose.
+//
+// Rendue par le catalogue et non calculée par l'appelant : c'est la question que
+// posent l'ingestion, les faits et la validation d'un plan, et trois façons de la
+// poser finiraient par diverger.
+func (c *Catalog) Yields(kind string, product Product) bool {
+	pipeline, found := c.Find(kind)
+	return found && pipeline.Yields(product)
 }
 
 // Concurrency rend le plafond effectif d'un type.

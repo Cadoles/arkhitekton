@@ -48,6 +48,7 @@ pipelines:
   - kind: build
     pipelineRef: build-image
     label: Construction
+    produces: [image]
 `
 
 	parsed, err := catalog.Parse([]byte(catalogue))

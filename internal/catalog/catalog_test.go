@@ -10,6 +10,7 @@ import (
 const minimal = `
 pipelines:
   - kind: static-tests
+    produces: [none]
     pipelineRef: php-static-tests
     label: Tests statiques
     params:
@@ -37,6 +38,7 @@ func TestUnknownFieldIsRejected(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
   - kind: static-tests
+    produces: [none]
     pipelineRef: php-static-tests
     serviceAccount: tekton-kubectl
 `))
@@ -64,8 +66,10 @@ func TestDuplicateKindIsRejected(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
   - kind: build
+    produces: [image]
     pipelineRef: build-image
   - kind: build
+    produces: [image]
     pipelineRef: build-image-bis
 `))
 	if err == nil || !strings.Contains(err.Error(), "deux fois") {
@@ -77,6 +81,7 @@ func TestWorkspaceNeedsExactlyOneSource(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
   - kind: build
+    produces: [image]
     pipelineRef: build-image
     workspaces:
       - name: sans-source
@@ -88,6 +93,7 @@ pipelines:
 	_, err = Parse([]byte(`
 pipelines:
   - kind: build
+    produces: [image]
     pipelineRef: build-image
     workspaces:
       - name: deux-sources
@@ -110,6 +116,7 @@ func TestParamSourcesAreChecked(t *testing.T) {
 		_, err := Parse([]byte(`
 pipelines:
   - kind: build
+    produces: [image]
     pipelineRef: build-image
     params:
       ` + params + `
@@ -124,6 +131,7 @@ func TestRequiredInputsAreListed(t *testing.T) {
 	catalog, err := Parse([]byte(`
 pipelines:
   - kind: build
+    produces: [image]
     pipelineRef: build-image
     params:
       revision: { source: input, required: true }
@@ -289,6 +297,7 @@ func TestValidateAgainstDetectsMisnamedWorkspace(t *testing.T) {
 	catalog, err := Parse([]byte(`
 pipelines:
   - kind: audit
+    produces: [none]
     pipelineRef: security-audit
     workspaces:
       - name: shared-data
@@ -334,6 +343,7 @@ func TestUneVerificationSansArtefactEstRefusee(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
   - kind: unit-tests
+    produces: [none]
     pipelineRef: php-unit-tests
     verification: true
 `))
@@ -351,8 +361,211 @@ func TestUnPipelineNonEnchaineNaPasBesoinDArtefact(t *testing.T) {
 	if _, err := Parse([]byte(`
 pipelines:
   - kind: build
+    produces: [image]
     pipelineRef: build-image
 `)); err != nil {
 		t.Fatalf("un pipeline ordinaire sans artefact doit être accepté: %v", err)
+	}
+}
+
+/*
+ * Ce qu'un pipeline produit.
+ *
+ * La déclaration remplace un booléen qui disait deux choses — « enchaîné après une
+ * construction » et « relançable seul » — et dont le catalogue en service portait
+ * déjà la ligne où elles divergent.
+ */
+
+// Le produit est exigé, et le message nomme les valeurs admises.
+//
+// Refusé au démarrage plutôt que déduit du nom : deviner que `build` produit une
+// image parce qu'il s'appelle `build` rétablirait la convention de nommage que
+// cette déclaration existe pour supprimer.
+func TestLeProduitEstExigeALaDeclaration(t *testing.T) {
+	_, err := Parse([]byte(`
+pipelines:
+  - kind: deploy-recette
+    pipelineRef: deploy
+    label: Déploiement
+`))
+	if err == nil {
+		t.Fatal("un pipeline sans produit doit être refusé")
+	}
+	for _, attendu := range []string{"produces", "image", "results", "none"} {
+		if !strings.Contains(err.Error(), attendu) {
+			t.Errorf("message %q — il doit mentionner %q", err, attendu)
+		}
+	}
+}
+
+// Un pipeline qui ne produit rien le déclare, plutôt que de laisser la liste vide.
+//
+// « Ce pipeline ne produit rien » et « personne n'a répondu » sont deux choses
+// différentes, et seule la seconde doit être refusée.
+func TestRienEstUneReponseQuiSeDeclare(t *testing.T) {
+	parsed, err := Parse([]byte(`
+pipelines:
+  - kind: deploy-recette
+    pipelineRef: deploy
+    label: Déploiement
+    produces: [none]
+`))
+	if err != nil {
+		t.Fatalf("analyse: %v", err)
+	}
+	if !parsed.Yields("deploy-recette", ProductNone) {
+		t.Error("le produit déclaré n'est pas rendu")
+	}
+	if parsed.Yields("deploy-recette", ProductResults) {
+		t.Error("un produit non déclaré est rendu")
+	}
+}
+
+// Un pipeline peut produire les deux : construire une image puis lancer ses
+// tests. C'est la raison d'être de la liste — le couper en deux pour entrer dans
+// le modèle serait le modèle qui dicte le pipeline.
+func TestUnPipelinePeutProduireLesDeux(t *testing.T) {
+	parsed, err := Parse([]byte(`
+pipelines:
+  - kind: build-and-test
+    pipelineRef: build-and-test
+    label: Construction et tests
+    produces: [image, results]
+    params:
+      reports-upload-url: { source: input }
+    uploads:
+      reports: { param: reports-upload-url, artifact: reports.tar.gz }
+`))
+	if err != nil {
+		t.Fatalf("analyse: %v", err)
+	}
+	if !parsed.Yields("build-and-test", ProductImage) ||
+		!parsed.Yields("build-and-test", ProductResults) {
+		t.Error("les deux produits doivent être rendus")
+	}
+}
+
+// La déduction couvre ce qui ne fait aucun doute, et rien de plus.
+//
+// `verification: true` implique déjà la publication de rapports — la validation
+// l'exige. Le reste demande une réponse humaine, et c'est ce qui a fait apparaître
+// `e2e-tests` : trois artefacts publiés sous un drapeau qui disait « non ».
+func TestLaDeductionNeCouvreQueLaVerification(t *testing.T) {
+	parsed, err := Parse([]byte(`
+pipelines:
+  - kind: unit-tests
+    pipelineRef: unit
+    label: Tests unitaires
+    verification: true
+    params:
+      reports-upload-url: { source: input }
+    uploads:
+      reports: { param: reports-upload-url, artifact: reports.tar.gz }
+`))
+	if err != nil {
+		t.Fatalf("analyse: %v", err)
+	}
+	if !parsed.Yields("unit-tests", ProductResults) {
+		t.Error("une vérification déduit son produit")
+	}
+
+	// Un pipeline sans drapeau ne se déduit pas : il est refusé.
+	if _, err := Parse([]byte(`
+pipelines:
+  - kind: retag
+    pipelineRef: retag-image
+    label: Re-tag
+`)); err == nil {
+		t.Error("un pipeline hors vérification doit déclarer son produit")
+	}
+}
+
+// Une déclaration explicite l'emporte sur la déduction : c'est ce qui permet de
+// corriger un catalogue sans retirer le drapeau, qui sert encore à l'enchaînement.
+func TestLaDeclarationExpliciteLEmporteSurLaDeduction(t *testing.T) {
+	parsed, err := Parse([]byte(`
+pipelines:
+  - kind: build-and-verify
+    pipelineRef: build-and-verify
+    label: Construction vérifiée
+    verification: true
+    produces: [image, results]
+    params:
+      reports-upload-url: { source: input }
+    uploads:
+      reports: { param: reports-upload-url, artifact: reports.tar.gz }
+`))
+	if err != nil {
+		t.Fatalf("analyse: %v", err)
+	}
+	if !parsed.Yields("build-and-verify", ProductImage) {
+		t.Error("la déduction a écrasé la déclaration")
+	}
+}
+
+// Les deux incohérences que la déclaration rend détectables, et qui étaient
+// jusqu'ici invisibles : des résultats annoncés que rien ne publie, et des
+// artefacts publiés que rien n'annonce.
+func TestLesIncoherencesEntreProduitEtArtefactsSontRefusees(t *testing.T) {
+	// Annoncés sans artefact : le run tourne, conclut, et l'écran reste vide.
+	_, err := Parse([]byte(`
+pipelines:
+  - kind: unit-tests
+    pipelineRef: unit
+    label: Tests unitaires
+    produces: [results]
+`))
+	if err == nil || !strings.Contains(err.Error(), "artefact") {
+		t.Errorf("résultats sans artefact: %v", err)
+	}
+
+	// Publiés sans être annoncés : c'est exactement l'état d'`e2e-tests` avant
+	// cette correction — trois artefacts, et rien qui dise qu'on les lit.
+	_, err = Parse([]byte(`
+pipelines:
+  - kind: e2e-tests
+    pipelineRef: e2e
+    label: Tests E2E
+    produces: [none]
+    params:
+      reports-upload-url: { source: input }
+    uploads:
+      reports: { param: reports-upload-url, artifact: reports.tar.gz }
+`))
+	if err == nil || !strings.Contains(err.Error(), "jamais lus") {
+		t.Errorf("artefacts sans produit annoncé: %v", err)
+	}
+}
+
+// Un produit inventé est refusé, et le message nomme les valeurs admises : le jeu
+// est fermé, chacune supposant un lecteur écrit en Go.
+func TestUnProduitInconnuEstRefuse(t *testing.T) {
+	_, err := Parse([]byte(`
+pipelines:
+  - kind: bench
+    pipelineRef: bench
+    label: Charge
+    produces: [metrics]
+`))
+	if err == nil || !strings.Contains(err.Error(), "metrics") {
+		t.Fatalf("produit inconnu: %v", err)
+	}
+	if !strings.Contains(err.Error(), "results") {
+		t.Errorf("message %q — il doit nommer les produits admis", err)
+	}
+}
+
+// « Rien » ne se cumule pas : la déclaration se contredirait, et rien ne dirait
+// laquelle des deux moitiés croire.
+func TestRienNeSeCumulePasAvecUnAutreProduit(t *testing.T) {
+	_, err := Parse([]byte(`
+pipelines:
+  - kind: build
+    pipelineRef: build-image
+    label: Construction
+    produces: [image, none]
+`))
+	if err == nil || !strings.Contains(err.Error(), "cumule") {
+		t.Errorf("produits contradictoires: %v", err)
 	}
 }
