@@ -100,6 +100,26 @@ func (db *DB) TestResultExists(ctx context.Context, runID int64, tool string) (b
 	return exists, nil
 }
 
+// RunHasResults dit si un run a laissé le moindre résultat.
+//
+// La question porte sur le run entier et non sur un outil, parce que c'est
+// l'écart au **contrat** qu'elle sert à constater : un pipeline qui annonce des
+// résultats et n'en laisse aucun n'a pas honoré doc 13, et l'écran restera vide
+// sans que rien n'en dise la cause.
+//
+// Elle couvre les trois voies d'entrée d'un résultat — les rapports ingérés, les
+// audits normalisés, et les `na` déduits d'un marqueur —, ce qu'un compteur tenu
+// par un seul ingesteur ne saurait pas faire.
+func (db *DB) RunHasResults(ctx context.Context, runID int64) (bool, error) {
+	var exists bool
+	err := db.pool.QueryRow(ctx,
+		`select exists(select 1 from test_results where run_id = $1)`, runID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("résultats du run %d: %w", runID, err)
+	}
+	return exists, nil
+}
+
 // ListReleaseTestResults rend les rapports d'une release.
 func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]TestResult, error) {
 	rows, err := db.pool.Query(ctx,

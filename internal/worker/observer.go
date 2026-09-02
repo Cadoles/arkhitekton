@@ -226,7 +226,69 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 	if err := s.ingestTests(ctx, id, run, release); err != nil {
 		return err
 	}
-	return s.ingestSecurity(ctx, id, run, release)
+	if err := s.ingestSecurity(ctx, id, run, release); err != nil {
+		return err
+	}
+
+	// Le contrôle du contrat vient **après** les trois ingestions : c'est leur
+	// résultat cumulé qu'il constate, et le faire avant reviendrait à conclure au
+	// silence sur des rapports pas encore lus.
+	s.checkResultsContract(ctx, id, run)
+	return nil
+}
+
+// checkResultsContract signale un pipeline qui annonce des résultats et n'en
+// laisse aucun.
+//
+// C'est le mode de défaillance que doc 12 §12.6 nommait sans pouvoir y remédier :
+// « un pipeline qui ne l'honore pas produit un écran vide, et rien ne dira
+// pourquoi ». Le catalogue déclarant désormais ce que chaque pipeline produit,
+// l'écart entre l'annonce et le constat devient nommable.
+//
+// **Un signalement, pas un échec.** Le run a tourné et son statut est vrai ; c'est
+// la remontée qui manque. Le faire échouer rendrait la release inexploitable pour
+// un défaut de publication, alors que la bonne réaction est de corriger le
+// pipeline — ou sa déclaration.
+//
+// Son affichage viendra avec les faits : `pipeline.finished` portera ce constat,
+// et l'écran d'un run pourra le dire au lieu de rester muet (doc 14). D'ici là, il
+// vit dans le journal, où il désigne au moins la cause.
+func (s *runSink) checkResultsContract(ctx context.Context, runID int64, run tekton.Run) {
+	if s.catalog == nil || run.JobID == 0 || !run.Status.Terminal() {
+		return
+	}
+	// Un run annulé n'a rien promis : il n'a pas eu le temps de publier, et le
+	// signaler enverrait chercher un défaut de pipeline là où quelqu'un a
+	// simplement interrompu.
+	if run.Status != tekton.StatusSucceeded {
+		return
+	}
+
+	job, err := s.db.GetJob(ctx, run.JobID)
+	if err != nil {
+		s.logger.Error("famille d'un run terminé", "run", run.Name, "job", run.JobID, "error", err)
+		return
+	}
+	if !s.catalog.Yields(job.Kind, catalog.ProductResults) {
+		return
+	}
+
+	found, err := s.db.RunHasResults(ctx, runID)
+	if err != nil {
+		s.logger.Error("résultats d'un run terminé", "run", run.Name, "error", err)
+		return
+	}
+	if found {
+		return
+	}
+
+	s.logger.Warn("contrat de pipeline non honoré",
+		"run", run.Name, "kind", job.Kind,
+		"attendu", "des résultats de tests, annoncés par `produces: [results]`",
+		"constate", "aucun résultat enregistré pour ce run",
+		"consequence", "l'écran de cette release restera vide sur cette famille",
+		"piste", "artefacts non publiés, chemins hors du contrat doc 13 §13.4, "+
+			"ou déclaration `produces` à corriger")
 }
 
 // releaseOf rend la release que ce run vérifie, s'il en vérifie une.

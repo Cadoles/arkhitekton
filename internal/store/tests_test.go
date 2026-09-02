@@ -457,3 +457,47 @@ func TestLeFiltreVoitLaSuiteEtLeNom(t *testing.T) {
 		t.Errorf("filtre par nom: %d cas, total %d", len(byName), total)
 	}
 }
+
+// La question que pose le contrôle du contrat : ce run a-t-il laissé quoi que ce
+// soit ?
+//
+// Portée sur le run entier et non sur un outil, parce que c'est l'écart au
+// contrat qu'elle sert à constater — un pipeline qui annonce des résultats et
+// n'en laisse aucun produit un écran vide dont rien ne dit la cause (doc 13
+// §13.1). Elle doit donc voir un résultat quelle que soit la voie par laquelle il
+// est entré.
+func TestUnRunSansLeMoindreResultatSeReconnait(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	muet := testRun(t, db, "run-muet")
+	has, err := db.RunHasResults(ctx, muet)
+	if err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+	if has {
+		t.Error("un run sans résultat s'annonce pourvu")
+	}
+
+	// Un seul résultat suffit : la question n'est pas « combien » mais « quelque
+	// chose est-il remonté ». Un pipeline qui publie une famille sur trois est un
+	// autre problème, que le score porte déjà.
+	parlant := testRun(t, db, "run-parlant")
+	release := releaseFor(t, db, "1.8.0-rc9")
+	saveCases(t, db, parlant, release, "unit", []TestCase{
+		{Name: "un cas", Status: "passed"},
+	})
+
+	has, err = db.RunHasResults(ctx, parlant)
+	if err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+	if !has {
+		t.Error("un run pourvu s'annonce muet")
+	}
+
+	// Et la réponse est bien **par run** : celui d'à côté reste muet.
+	if has, _ := db.RunHasResults(ctx, muet); has {
+		t.Error("le résultat d'un run déborde sur un autre")
+	}
+}
