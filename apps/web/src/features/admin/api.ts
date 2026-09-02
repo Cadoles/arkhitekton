@@ -264,13 +264,34 @@ export function useProbeProject() {
 
   return useMutation({
     mutationFn: (id: number) =>
-      request<{ ok: boolean; note: string }>(`/projects/${id}/probe`, { method: 'POST' }),
+      request<ProbeResult>(`/projects/${id}/probe`, { method: 'POST' }),
     onSuccess: () => {
       // Le constat est enregistré côté serveur : le relire est ce qui met la
       // liste à jour, plutôt que de tenir un état parallèle qui divergerait.
+      // C'est aussi ce qui fait remonter le sort de la clé, que ce même test
+      // vient de constater.
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
   })
+}
+
+/**
+ * Ce qu'un test d'accès a constaté.
+ *
+ * Deux constats distincts : le dashboard **lit-il** ce dépôt, et la clé de
+ * déploiement du projet y **est-elle posée** ? Le premier se fait par jeton et en
+ * HTTPS, le second lit ce que la forge déclare de ses clés.
+ */
+export type ProbeResult = {
+  ok: boolean
+  note: string
+  /**
+   * Trois états, pas deux. `null` veut dire « la question n'a pas pu être
+   * posée » — jeton sans droit d'administration sur le dépôt, ou clé pas encore
+   * produite — et ce n'est pas « la clé est absente ».
+   */
+  key_present: boolean | null
+  key_note: string
 }
 
 /*
@@ -292,24 +313,3 @@ export function useRotateDeployKey() {
   })
 }
 
-/*
- * Déclare que la clé d'un projet ouvre son dépôt.
- *
- * Le seul geste de la chaîne que le dashboard ne peut pas faire : coller la
- * moitié publique dans les réglages du dépôt appartient à un humain. Tant qu'il
- * ne l'a pas dit, les pipelines montent la clé partagée.
- */
-export function useActivateDeployKey() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: ({ id, active }: { id: number; active: boolean }) =>
-      request<{ active: boolean }>(`/projects/${id}/deploy-key/active`, {
-        method: 'POST',
-        body: JSON.stringify({ active }),
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
-    },
-  })
-}

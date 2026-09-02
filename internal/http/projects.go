@@ -48,7 +48,7 @@ type ProjectStore interface {
 // d'être testé ici est la traduction d'un échec en constat lisible, pas le client
 // HTTP qui le produit.
 type ProjectProber interface {
-	Probe(ctx context.Context, repository string) (string, error)
+	Probe(ctx context.Context, repository, publicKey string) (provider.Probe, error)
 }
 
 // ProjectsHandler expose la déclaration des dépôts.
@@ -89,9 +89,9 @@ func (h *ProjectsHandler) WithProbe(prober ProjectProber) *ProjectsHandler {
 //
 // Remplace `WithDeployKey`, qui portait aussi la moitié publique d'une clé
 // **partagée** par tous les projets. Elle n'existe plus : chaque projet a la
-// sienne, posée par le worker et activée depuis son écran. Une clé unique ajoutée
-// à plusieurs dépôts faisait de sa révocation une panne pour tout le monde, et ne
-// disait rien de qui clonait quoi.
+// sienne, posée par le worker, et sa présence dans le dépôt est constatée par le
+// test d'accès. Une clé unique ajoutée à plusieurs dépôts faisait de sa
+// révocation une panne pour tout le monde, et ne disait rien de qui clonait quoi.
 func (h *ProjectsHandler) WithForgeURL(forgeURL string) *ProjectsHandler {
 	h.forgeURL = strings.TrimRight(forgeURL, "/")
 	return h
@@ -164,8 +164,13 @@ type projectPayload struct {
 	// fois dans un Secret et n'en ressort plus (doc 07 §7.3).
 	DeployKey          string     `json:"deploy_key,omitempty"`
 	DeployKeyCreatedAt *time.Time `json:"deploy_key_created_at,omitempty"`
-	// DeployKeyActive dit que la clé ouvre vraiment le dépôt : quelqu'un a collé
-	// sa moitié publique dans les réglages du dépôt.
+	// DeployKeyActive dit que la clé ouvre vraiment le dépôt : sa moitié publique
+	// figure dans les clés de déploiement de la forge.
+	//
+	// **Constaté** par le test d'accès, non déclaré par un humain : une
+	// confirmation manuelle restait vraie après qu'on avait retiré la clé du
+	// dépôt, et les pipelines échouaient alors sur une erreur SSH que rien ne
+	// rattachait à l'écran qui affirmait le contraire (B8).
 	//
 	// Faux, **rien ne construit**. Il n'y a plus de clé partagée sur laquelle
 	// retomber : elle faisait de sa révocation une panne pour tous les projets à
@@ -574,12 +579,12 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	branch, probeErr := h.prober.Probe(r.Context(), project.Repository)
+	probe, probeErr := h.prober.Probe(r.Context(), project.Repository, project.DeployKeyPublic)
 	note := ""
 	if probeErr != nil {
 		note = probeErr.Error()
 	} else {
-		note = "branche par défaut : " + branch
+		note = "branche par défaut : " + probe.DefaultBranch
 	}
 
 	if err := h.store.RecordProjectCheck(r.Context(), id, probeErr == nil, note); err != nil {
@@ -587,12 +592,35 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Le sort de la clé, **constaté** et non déclaré.
+	//
+	// Il était confirmé à la main : quelqu'un collait la moitié publique dans les
+	// réglages du dépôt, puis venait le dire. Une intention, donc, avec le défaut
+	// des intentions (B8) — elle restait vraie après qu'on avait retiré la clé du
+	// dépôt, et les pipelines échouaient sur une erreur SSH que rien ne rattachait
+	// à l'écran qui affirmait le contraire.
+	//
+	// Le silence est respecté : quand la question n'a pas pu être posée, l'état
+	// précédent est **laissé tel quel**. L'écraser à faux couperait les
+	// constructions d'un projet dont la clé est peut-être en place, pour la seule
+	// raison que le jeton n'a pas le droit de lire les clés du dépôt.
+	if probe.KeyPresent != nil {
+		if err := h.store.ActivateDeployKey(r.Context(), id, *probe.KeyPresent); err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Constat de la clé impossible", "")
+			return
+		}
+	}
+
 	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectProbe, project.Repository,
-		map[string]any{"ok": probeErr == nil})
+		map[string]any{"ok": probeErr == nil, "cle_presente": probe.KeyPresent})
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   probeErr == nil,
 		"note": note,
+		// Trois états rendus tels quels : `null` veut dire « la question n'a pas
+		// pu être posée », ce que l'écran doit dire autrement qu'une absence.
+		"key_present": probe.KeyPresent,
+		"key_note":    probe.KeyNote,
 	})
 }
 
@@ -603,50 +631,4 @@ func projectID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
-}
-
-// ActivateDeployKey déclare que la clé d'un projet ouvre son dépôt.
-//
-// Le seul geste de toute la chaîne que le dashboard ne peut pas faire : coller
-// la moitié publique dans les réglages du dépôt appartient à un humain, et lui
-// seul peut affirmer que c'est fait. Tant qu'il ne l'a pas dit, les pipelines
-// montent la clé partagée — qui fonctionne — plutôt qu'une clé neuve que la
-// forge ignore.
-func (h *ProjectsHandler) ActivateDeployKey(w http.ResponseWriter, r *http.Request) {
-	identity, ok := IdentityFrom(r.Context())
-	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
-		return
-	}
-
-	id, ok := projectID(w, r)
-	if !ok {
-		return
-	}
-
-	var body struct {
-		Active bool `json:"active"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
-		return
-	}
-
-	if err := h.store.ActivateDeployKey(r.Context(), id, body.Active); err != nil {
-		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet introuvable", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Activation impossible", "")
-		return
-	}
-
-	state := "désactivée"
-	if body.Active {
-		state = "activée"
-	}
-	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectSet,
-		strconv.FormatInt(id, 10), map[string]any{"deploy_key": state})
-
-	writeJSON(w, http.StatusOK, map[string]any{"active": body.Active})
 }

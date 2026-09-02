@@ -727,12 +727,17 @@ func (db *DB) ProjectsAwaitingKey(ctx context.Context) ([]PendingKey, error) {
 	return pending, rows.Err()
 }
 
-// ActivateDeployKey déclare que la clé d'un projet ouvre son dépôt.
+// ActivateDeployKey enregistre que la clé d'un projet ouvre son dépôt.
 //
-// Le geste que rien n'automatise : coller la moitié publique dans les réglages
-// du dépôt appartient à un humain, et lui seul peut dire que c'est fait. Tant
-// qu'il ne l'a pas dit, les pipelines montent la clé partagée — ce qui marche —
-// plutôt qu'une clé neuve que la forge ignore.
+// **Un constat, pas une déclaration.** Le seul appelant est le test d'accès, qui
+// vient de lire les clés de déploiement de la forge et d'y trouver — ou non —
+// celle du projet. Coller la moitié publique reste un geste humain ; le
+// *confirmer* n'en est plus un.
+//
+// La distinction est celle de B8, et elle a un effet concret : une confirmation
+// manuelle restait vraie après qu'on avait retiré la clé du dépôt, et les
+// pipelines échouaient alors sur une erreur SSH que rien ne rattachait à l'écran
+// qui affirmait le contraire.
 func (db *DB) ActivateDeployKey(ctx context.Context, projectID int64, active bool) error {
 	tag, err := db.pool.Exec(ctx,
 		`update projects set deploy_key_active = $2, updated_at = now() where id = $1`,

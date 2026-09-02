@@ -209,18 +209,44 @@ type Forge interface {
 	CheckAccess(ctx context.Context) (Account, error)
 }
 
-// RepositoryProber teste l'accès à un dépôt **arbitraire** et rend sa branche
-// par défaut.
+// Probe est ce qu'un test d'accès a constaté.
+//
+// Deux constats distincts, et c'est le sujet du type : le dashboard **lit-il** ce
+// dépôt, et sa clé de déploiement y **est-elle posée** ? Le premier se fait par
+// jeton et en HTTPS, le second regarde ce que la forge déclare. Les confondre
+// ferait lire un test vert comme une garantie de clone, ce qu'il n'a jamais été.
+type Probe struct {
+	// DefaultBranch est la branche par défaut du dépôt.
+	DefaultBranch string
+	// KeyPresent dit si la moitié publique figure dans les clés de déploiement du
+	// dépôt.
+	//
+	// **Trois états, pas deux.** Nil veut dire « la question n'a pas pu être
+	// posée » — jeton sans droit d'administration sur le dépôt, forge qui n'expose
+	// pas ses clés, ou clé pas encore produite — et ce n'est pas la même chose que
+	// « la clé est absente ». Répondre faux dans ce cas ferait couper les
+	// constructions d'un projet dont la clé est peut-être en place.
+	KeyPresent *bool
+	// KeyNote dit ce que la question a répondu, surtout quand elle n'a pas
+	// conclu : sans elle, un `nil` renverrait chercher au hasard.
+	KeyNote string
+}
+
+// RepositoryProber teste l'accès à un dépôt **arbitraire**.
 //
 // Hors de [Forge], et pas par commodité : une Forge est liée à un dépôt à sa
 // construction, alors que le test porte justement sur un dépôt qu'on vient de
 // déclarer et dont on ne sait pas encore s'il est joignable. Les fondre
 // obligerait à construire un client pour découvrir qu'on ne peut pas.
 type RepositoryProber interface {
-	// Probe rend la branche par défaut, ou l'erreur qui l'en empêche. Un dépôt
+	// Probe rend le constat, ou l'erreur qui empêche d'accéder au dépôt. Un dépôt
 	// sans branche par défaut existe mais n'a jamais reçu de commit : c'est un
 	// échec, parce que le clone d'un pipeline y échouerait plus tard.
-	Probe(ctx context.Context, repository string) (string, error)
+	//
+	// `publicKey` est la moitié publique attendue dans les clés de déploiement.
+	// Vide, la question n'est pas posée : le projet n'a pas encore de clé, et
+	// chercher une clé vide rendrait toujours « absente ».
+	Probe(ctx context.Context, repository, publicKey string) (Probe, error)
 }
 
 // TagWriter pose un tag Git (B3).

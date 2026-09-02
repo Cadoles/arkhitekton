@@ -130,13 +130,14 @@ function ProjectRow({
 
         {/* La clé de déploiement : le seul état dont l'absence **empêche de
             construire** depuis que la clé partagée a été retirée. Il mérite donc
-            de se voir depuis la liste, sans ouvrir chaque projet. */}
+            de se voir depuis la liste, sans ouvrir chaque projet. Constaté par le
+            test d'accès, jamais affirmé à la main. */}
         {!project.deploy_key_active && (
           <span
             className="rounded border border-critical-500 bg-critical-50 px-1.5 py-0.5 text-xs text-critical-700"
-            title="Les constructions de ce projet refuseront de partir"
+            title="Les constructions de ce projet refuseront de partir — testez l'accès une fois la clé collée dans le dépôt"
           >
-            clé inactive
+            clé absente du dépôt
           </span>
         )}
 
@@ -147,7 +148,7 @@ function ProjectRow({
             onClick={() => probe.mutate(project.id)}
             title={
               probeConfigured
-                ? "Vérifie que le dashboard lit ce dépôt par l'API Gitea"
+                ? "Lit ce dépôt par l'API de la forge, et y cherche la clé de déploiement du projet"
                 : "La forge n'est pas configurée : le test ne peut pas conclure"
             }
             className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
@@ -173,6 +174,20 @@ function ProjectRow({
       {project.check_note && (
         <p className={`text-xs ${project.check_ok ? 'text-zinc-500' : 'text-critical-700'}`}>
           {project.check_note}
+        </p>
+      )}
+
+      {/* Le verdict sur la clé, rendu par le test qu'on vient de lancer.
+          Affiché en plus du badge : celui-ci ne connaît que deux états — présente
+          ou non — alors que le test peut n'avoir pas conclu, et « je ne sais
+          pas » se corrige autrement qu'une absence. */}
+      {probe.data && (
+        <p
+          className={`text-xs ${
+            probe.data.key_present === false ? 'text-critical-700' : 'text-zinc-500'
+          }`}
+        >
+          {probe.data.key_note}
         </p>
       )}
 

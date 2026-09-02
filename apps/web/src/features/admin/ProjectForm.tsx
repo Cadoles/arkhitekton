@@ -4,7 +4,6 @@ import { Icon } from '../../components/Icon'
 import { copyText } from '../../lib/clipboard'
 import { formatDateTime } from '../../lib/format'
 import {
-  useActivateDeployKey,
   useRotateDeployKey,
   useSaveProject,
   type Project,
@@ -438,17 +437,27 @@ function Reference({ registry, image }: { registry: string; image?: string }) {
  * plutôt que d'afficher un vide qu'on prendrait pour une panne.
  */
 
+/**
+ * La clé de déploiement d'un projet, et l'état constaté de sa pose.
+ *
+ * Le sort de la clé n'est plus **déclaré** mais **constaté** : le test d'accès
+ * lit les clés de déploiement du dépôt et y cherche celle du projet. Il y avait
+ * là un bouton « confirmez qu'elle y est » — une intention, avec le défaut des
+ * intentions : elle restait vraie après qu'on avait retiré la clé du dépôt, et
+ * les pipelines échouaient alors sur une erreur SSH que rien ne rattachait à
+ * l'écran qui affirmait le contraire.
+ */
 export function ProjectKey({ project }: { project: Project }) {
   const rotate = useRotateDeployKey()
-  const activate = useActivateDeployKey()
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [confirming, setConfirming] = useState(false)
 
   if (!project.deploy_key) {
     return (
       <p className="text-xs text-zinc-500">
-        Pas encore de clé propre — ce dépôt emploie la clé partagée ci-dessus. La sienne sera
-        posée au prochain passage du worker.
+        Pas encore de clé propre — elle sera posée au prochain passage du worker. Tant
+        qu'elle n'est pas en place dans le dépôt, les constructions de ce projet refusent
+        de partir : il n'y a plus de clé partagée sur laquelle retomber.
       </p>
     )
   }
@@ -481,32 +490,20 @@ export function ProjectKey({ project }: { project: Project }) {
         </button>
       </div>
 
-      {/* L'activation est le seul geste que le dashboard ne peut pas faire :
-          coller la clé dans les réglages du dépôt appartient à un humain. Tant
-          qu'il ne l'a pas dit, monter cette clé ferait échouer le clone. */}
+      {/* Constaté, jamais affirmé : c'est « Tester l'accès » qui lit les clés du
+          dépôt et tranche. Le dashboard ne peut toujours pas coller la clé —
+          cela appartient à un humain — mais il n'a plus besoin qu'on le lui
+          confirme. */}
       {project.deploy_key_active ? (
         <p className="flex items-center gap-1.5 text-xs text-ok-700">
           <Icon name="check" className="size-3.5" />
-          Employée par les pipelines de ce dépôt.
-          <button
-            type="button"
-            onClick={() => activate.mutate({ id: project.id, active: false })}
-            className="underline hover:no-underline"
-          >
-            Revenir à la clé partagée
-          </button>
+          En place dans le dépôt : les pipelines de ce projet l'emploient.
         </p>
       ) : (
-        <p className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
-          Pas encore employée — collez-la dans les clés de déploiement du dépôt, puis
-          <button
-            type="button"
-            onClick={() => activate.mutate({ id: project.id, active: true })}
-            disabled={activate.isPending}
-            className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
-          >
-            confirmez qu'elle y est
-          </button>
+        <p className="text-xs text-zinc-500">
+          Pas encore constatée dans le dépôt — collez-la dans ses clés de déploiement, puis
+          lancez « Tester l'accès ». Tant qu'elle n'y est pas, les constructions de ce
+          projet refusent de partir.
         </p>
       )}
 

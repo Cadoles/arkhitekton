@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -116,14 +117,33 @@ func (f *fakeProjectStore) Audit(_ context.Context, _, action, _ string, _ map[s
 	return nil
 }
 
-type fakeProber struct{ err error }
-
-func (p fakeProber) Probe(context.Context, string) (string, error) {
-	if p.err != nil {
-		return "", p.err
-	}
-	return "main", nil
+type fakeProber struct {
+	err error
+	// keyPresent porte les trois états du constat sur la clé. Nil est le défaut,
+	// et c'est délibéré : « la question n'a pas pu être posée » doit être le cas
+	// qu'un test oublie de configurer, pas « la clé est absente ».
+	keyPresent *bool
+	// vuePublicKey retient la clé que le handler a transmise : c'est elle qui
+	// décide de ce que la forge est allée chercher.
+	vuePublicKey *string
 }
+
+func (p fakeProber) Probe(_ context.Context, _, publicKey string) (provider.Probe, error) {
+	if p.vuePublicKey != nil {
+		*p.vuePublicKey = publicKey
+	}
+	if p.err != nil {
+		return provider.Probe{}, p.err
+	}
+	return provider.Probe{
+		DefaultBranch: "main",
+		KeyPresent:    p.keyPresent,
+		KeyNote:       "constat de test",
+	}, nil
+}
+
+func vrai() *bool { valeur := true; return &valeur }
+func faux() *bool { valeur := false; return &valeur }
 
 func asAdmin(request *http.Request) *http.Request {
 	return request.WithContext(context.WithValue(request.Context(), identityKey,
@@ -345,5 +365,103 @@ func TestLeSuiviEstRenduAvecLeProjet(t *testing.T) {
 	}
 	if len(payload.Projects) != 1 || payload.Projects[0].TrackerProject != "mse-dev" {
 		t.Errorf("suivi rendu: %+v", payload.Projects)
+	}
+}
+
+/*
+ * Le constat sur la clé de déploiement.
+ *
+ * Il remplace une confirmation humaine — « collez-la dans le dépôt, puis dites
+ * que c'est fait ». Une intention, avec le défaut des intentions (B8) : elle
+ * restait vraie après qu'on avait retiré la clé du dépôt, et les pipelines
+ * échouaient alors sur une erreur SSH que rien ne rattachait à l'écran qui
+ * affirmait le contraire.
+ */
+
+// projetAvecCle déclare un projet dont le worker a déjà posé la clé.
+func projetAvecCle(t *testing.T, fake *fakeProjectStore, active bool) {
+	t.Helper()
+	fake.projects[1] = store.Project{
+		ID: 1, Repository: "CNOUS/mse", Slug: "mse", Label: "mse",
+		DeployKeyPublic: "ssh-ed25519 AAAAC3Nz mse-dashboard",
+		DeployKeyActive: active,
+	}
+	fake.next = 2
+}
+
+// Le test transmet la clé du projet : c'est elle que la forge doit chercher.
+func TestLeTestCherIcheLaCleDuProjet(t *testing.T) {
+	fake := newFakeProjectStore()
+	projetAvecCle(t, fake, false)
+
+	var vue string
+	handler := NewProjectsHandler(fake).
+		WithProbe(fakeProber{keyPresent: vrai(), vuePublicKey: &vue})
+
+	if code := probe(t, handler, "1").Code; code != http.StatusOK {
+		t.Fatalf("code %d", code)
+	}
+	if vue != "ssh-ed25519 AAAAC3Nz mse-dashboard" {
+		t.Errorf("clé transmise = %q", vue)
+	}
+}
+
+// Trouvée dans le dépôt, la clé devient employée — sans que personne l'affirme.
+func TestUneCleTrouveeDansLeDepotDevientEmployee(t *testing.T) {
+	fake := newFakeProjectStore()
+	projetAvecCle(t, fake, false)
+	handler := NewProjectsHandler(fake).WithProbe(fakeProber{keyPresent: vrai()})
+
+	if code := probe(t, handler, "1").Code; code != http.StatusOK {
+		t.Fatalf("code %d", code)
+	}
+	if !fake.projects[1].DeployKeyActive {
+		t.Error("la clé constatée présente n'a pas été retenue")
+	}
+}
+
+// Absente du dépôt, elle cesse de l'être — c'est le cas qu'une confirmation
+// manuelle ne savait pas rattraper : elle restait vraie indéfiniment.
+func TestUneCleRetireeDuDepotCesseDetreEmployee(t *testing.T) {
+	fake := newFakeProjectStore()
+	projetAvecCle(t, fake, true)
+	handler := NewProjectsHandler(fake).WithProbe(fakeProber{keyPresent: faux()})
+
+	if code := probe(t, handler, "1").Code; code != http.StatusOK {
+		t.Fatalf("code %d", code)
+	}
+	if fake.projects[1].DeployKeyActive {
+		t.Error("la clé absente du dépôt est toujours annoncée employée")
+	}
+}
+
+// Le silence ne renverse rien.
+//
+// Quand la question n'a pas pu être posée — jeton sans droit d'administration sur
+// le dépôt —, l'état précédent est laissé tel quel. L'écraser à faux couperait
+// les constructions d'un projet dont la clé est peut-être en place, pour la seule
+// raison que le dashboard n'a pas le droit de lire les clés du dépôt.
+func TestUneQuestionSansReponseNeRenverseRien(t *testing.T) {
+	fake := newFakeProjectStore()
+	projetAvecCle(t, fake, true)
+	handler := NewProjectsHandler(fake).WithProbe(fakeProber{})
+
+	recorder := probe(t, handler, "1")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("code %d", recorder.Code)
+	}
+	if !fake.projects[1].DeployKeyActive {
+		t.Error("un constat sans réponse a renversé l'état précédent")
+	}
+
+	// Et l'écran reçoit `null`, qu'il doit dire autrement qu'une absence.
+	var payload struct {
+		KeyPresent *bool `json:"key_present"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("corps illisible: %v", err)
+	}
+	if payload.KeyPresent != nil {
+		t.Errorf("key_present = %v, attendu null", *payload.KeyPresent)
 	}
 }

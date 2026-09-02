@@ -274,10 +274,10 @@ func NewAPIRouter(
 	mux.Handle("POST /projects/{id}/deploy-key", Chain(http.HandlerFunc(projects.RotateDeployKey),
 		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
 
-	// L'activation dit que la clé a été collée dans la forge. Elle change ce que
-	// les pipelines montent : `POST` et contrôle CSRF.
-	mux.Handle("POST /projects/{id}/deploy-key/active", Chain(http.HandlerFunc(projects.ActivateDeployKey),
-		middleware.Authenticate, middleware.Require(auth.PermAdmin), middleware.CSRF))
+	// L'activation d'une clé n'a plus de route : elle était déclarée à la main, et
+	// elle est désormais **constatée** par le test d'accès, qui lit les clés de
+	// déploiement du dépôt. Une intention pouvait rester vraie après qu'on avait
+	// retiré la clé de la forge ; un constat, non (B8).
 
 	mux.Handle("GET /forge/refs", Chain(http.HandlerFunc(forge.Refs),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
