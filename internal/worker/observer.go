@@ -51,6 +51,12 @@ type runSink struct {
 	// l'enchaînement s'éprouve sans base : c'est de la logique de décision — quoi
 	// lancer, avec quelle révision — et elle mérite d'être testée seule.
 	verification Enqueuer
+	// pipelines dit si une famille du catalogue s'applique à un projet. Nil : tout
+	// s'applique, ce qui est le comportement d'avant la table `project_pipelines`.
+	//
+	// Extrait en interface pour la même raison que `verification` : décider quoi
+	// enchaîner est de la logique, et elle s'éprouve sans base.
+	pipelines ProjectPipelines
 	// releases porte l'avancement d'état. Extrait comme `verification` : c'est
 	// l'écriture conditionnelle qui rend l'enchaînement idempotent, et elle
 	// mérite d'être éprouvée sans base.
@@ -132,7 +138,10 @@ const buildJobKind = "build"
 
 // NewRunSink rend l'adaptateur consommé par l'observateur Tekton.
 func NewRunSink(db *store.DB) *runSink {
-	return &runSink{db: db, verification: db, releases: db, logger: slog.Default()}
+	return &runSink{
+		db: db, verification: db, releases: db, pipelines: db,
+		logger: slog.Default(),
+	}
 }
 
 // WithLoadIngester branche l'ingestion des campagnes de charge.
@@ -636,6 +645,18 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 			continue
 		}
 
+		// Ce que le **projet** déclare vérifier. Le catalogue dit ce que
+		// l'instance sait lancer, ce qui n'est pas la même question : un projet
+		// sans campagne de charge voyait `load-tests` s'enchaîner, échouer faute
+		// de scénario, et laisser sa release attendre un verdict qui ne viendrait
+		// jamais.
+		if !s.pipelineApplies(ctx, linked.ProjectID, kind) {
+			s.logger.Info("vérification non enchaînée",
+				"release", linked.Tag, "kind", kind,
+				"raison", "le projet ne déclare pas cette famille")
+			continue
+		}
+
 		// Les valeurs sortent de ce que le catalogue déclare vouloir : `revision`,
 		// `app-revision` et `mse-revision` désignent la même chose sous trois noms
 		// hérités de pipelines écrits séparément, et c'est leur `suggest: git-ref`
@@ -656,6 +677,11 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 			Params:      params,
 			RequestedBy: verificationRequester,
 			ReleaseID:   &linked.ReleaseID,
+			// Le projet, sans quoi la vérification part **sans** et monte le
+			// secret du déploiement au lieu de la clé du projet. Elle clone comme
+			// la construction : l'oublier annulait la séparation des clés pour la
+			// moitié des runs d'une release.
+			ProjectID: &linked.ProjectID,
 		})
 		if err != nil {
 			s.logger.Error("mise en file d'une vérification",
@@ -669,6 +695,60 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 	}
 
 	return launched
+}
+
+// ProjectPipelines dit si une famille du catalogue s'applique à un projet.
+//
+// Interface étroite plutôt que le magasin entier : l'observateur n'a besoin que
+// de cette réponse, et lui donner accès aux projets l'inviterait à en lire autre
+// chose.
+type ProjectPipelines interface {
+	PipelineEnabled(ctx context.Context, projectID int64, kind string) (bool, error)
+}
+
+// WithProjectPipelines branche les familles déclarées par projet.
+func (s *runSink) WithProjectPipelines(pipelines ProjectPipelines) *runSink {
+	s.pipelines = pipelines
+	return s
+}
+
+// pipelineApplies dit si une famille s'enchaîne pour ce projet.
+//
+// Une lecture en échec **laisse passer** : la construction a réussi, et priver
+// une release de ses vérifications parce que la base a hoqueté une seconde serait
+// pire que d'en lancer une que le projet aurait désactivée. Le journal le dit.
+func (s *runSink) pipelineApplies(ctx context.Context, projectID int64, kind string) bool {
+	if s.pipelines == nil || projectID == 0 {
+		return true
+	}
+
+	enabled, err := s.pipelines.PipelineEnabled(ctx, projectID, kind)
+	if err != nil {
+		s.logger.Error("familles déclarées du projet",
+			"projet", projectID, "kind", kind, "error", err)
+		return true
+	}
+	return enabled
+}
+
+// applicableKinds rend les familles de vérification que ce projet déclare.
+//
+// La **même** question que celle posée au lancement, et c'est ce qui compte : si
+// les deux divergeaient, une release attendrait un verdict qui n'a jamais été
+// demandé, ou conclurait sans avoir attendu celui qui l'était.
+func (s *runSink) applicableKinds(ctx context.Context, projectID int64) []string {
+	all := s.catalog.VerificationKinds()
+	if s.pipelines == nil || projectID == 0 {
+		return all
+	}
+
+	kinds := make([]string, 0, len(all))
+	for _, kind := range all {
+		if s.pipelineApplies(ctx, projectID, kind) {
+			kinds = append(kinds, kind)
+		}
+	}
+	return kinds
 }
 
 // verificationRequester est l'auteur inscrit sur les jobs enchaînés.
@@ -723,8 +803,12 @@ func (s *runSink) concludeVerification(ctx context.Context, linked store.JobRele
 		return nil
 	}
 
+	// Le décompte porte sur les familles que **ce projet** vérifie, et non sur
+	// toutes celles du catalogue. Compter une famille qu'il ne lance pas laisserait
+	// la release en `verifying` pour l'éternité, à attendre un verdict que
+	// personne n'a demandé.
 	tally, err := s.db.CountVerifications(
-		ctx, linked.ReleaseID, s.catalog.VerificationKinds(), buildJobKind)
+		ctx, linked.ReleaseID, s.applicableKinds(ctx, linked.ProjectID), buildJobKind)
 	if err != nil {
 		return err
 	}

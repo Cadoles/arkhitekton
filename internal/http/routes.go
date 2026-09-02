@@ -16,6 +16,7 @@ func NewAPIRouter(
 	releases *ReleasesHandler, benches *BenchHandler, tests *TestsHandler,
 	signoffs *SignoffsHandler, versions *VersionsHandler, syncAdmin *SyncAdminHandler,
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
+	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
 	middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
@@ -204,6 +205,36 @@ func NewAPIRouter(
 	mux.Handle("GET /admin/audit", Chain(http.HandlerFunc(admin.Audit),
 		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
 
+	// Les réglages de plugins exigent `admin`, aux deux portées. Ils portent des
+	// clés d'API — scellées, mais dont l'écriture engage les appels sortants du
+	// dashboard — et décident de mécanismes entiers : désactiver l'attestation
+	// change ce que l'écran des environnements affirme.
+	//
+	// La portée projet est administrée elle aussi, et non déléguée au rôle du
+	// projet : `RequireIn` accorderait le réglage d'un suivi à qui n'a que la
+	// livraison sur ce projet, ce qui n'est pas la même responsabilité.
+	mux.Handle("GET /admin/plugins", Chain(http.HandlerFunc(plugins.List),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+	mux.Handle("PUT /admin/plugins/{plugin}", Chain(http.HandlerFunc(plugins.Set),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+
+	mux.Handle("GET /projects/{project}/plugins", Chain(http.HandlerFunc(plugins.ProjectList),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+	mux.Handle("PUT /projects/{project}/plugins/{plugin}", Chain(http.HandlerFunc(plugins.SetProject),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	// Le retrait rend le projet à l'héritage de l'instance. Distinct d'une
+	// désactivation, d'où un verbe distinct : « rien de particulier à dire » n'est
+	// pas « non ».
+	mux.Handle("DELETE /projects/{project}/plugins/{plugin}", Chain(http.HandlerFunc(plugins.ClearProject),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+
+	// Les familles du registre qu'un projet retient. Administration : désactiver
+	// une vérification change ce qu'une release aura traversé avant d'être livrée.
+	mux.Handle("GET /projects/{project}/pipelines", Chain(http.HandlerFunc(projectPipelines.List),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+	mux.Handle("PUT /projects/{project}/pipelines/{kind}", Chain(http.HandlerFunc(projectPipelines.Set),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+
 	// Les versions se lisent sans privilège : le périmètre d'une version est
 	// l'information la plus consultée, et la première qu'on vient chercher avant de
 	// décider quoi que ce soit.
@@ -257,11 +288,16 @@ func NewAPIRouter(
 	// Changer la projection d'un statut déplace un taux de complétion affiché au
 	// client, et relancer une synchronisation complète sollicite un service tiers :
 	// deux gestes qui relèvent de l'administration, pas de la consultation.
-	mux.Handle("GET /admin/sync", Chain(http.HandlerFunc(syncAdmin.State),
+	//
+	// **Sous le projet** depuis que le suivi est un plugin réglé par projet. Tout
+	// ce que ces routes portent lui appartient — son curseur, sa projection, ses
+	// versions ambiguës — et le vocabulaire projeté appartient au client, pas à
+	// l'instance.
+	mux.Handle("GET /projects/{project}/sync", Chain(http.HandlerFunc(syncAdmin.State),
 		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
-	mux.Handle("POST /admin/sync/redmine/resync", Chain(http.HandlerFunc(syncAdmin.Resync),
+	mux.Handle("POST /projects/{project}/sync/redmine/resync", Chain(http.HandlerFunc(syncAdmin.Resync),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
-	mux.Handle("PUT /admin/sync/redmine/mapping/{status}", Chain(http.HandlerFunc(syncAdmin.SetMapping),
+	mux.Handle("PUT /projects/{project}/sync/redmine/mapping/{status}", Chain(http.HandlerFunc(syncAdmin.SetMapping),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 
 	return mux

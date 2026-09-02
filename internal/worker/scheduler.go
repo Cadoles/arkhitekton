@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"time"
 
@@ -97,8 +98,9 @@ type Scheduler struct {
 // autre chose.
 type ProjectKeys interface {
 	// DeployKeySecret rend le nom du secret, et faux quand le projet n'a pas de
-	// clé propre. L'absence est un cas normal — un projet déclaré avant le lot G,
-	// ou dont la pose a échoué — et le run retombe alors sur la clé partagée.
+	// clé propre active. L'absence **empêche le run** : il n'y a plus de clé
+	// partagée sur laquelle retomber, et construire avec celle d'un autre projet
+	// est précisément ce qu'on a voulu rendre impossible.
 	DeployKeySecret(ctx context.Context, projectID int64) (string, bool, error)
 	// RegistrySecret rend le secret **désigné** par le projet pour pousser ses
 	// images, et faux quand il n'en désigne aucun. Désigné et non créé : un
@@ -252,7 +254,10 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 	// résolus et les autres non.
 	resolved := pipeline
 	if err == nil {
-		resolved, err = pipeline.ResolveSecrets(s.settingsFor(ctx, job))
+		var settings map[string]string
+		if settings, err = s.settingsFor(ctx, job); err == nil {
+			resolved, err = pipeline.ResolveSecrets(settings)
+		}
 	}
 	if err != nil {
 		s.logger.Error("paramètres du job", "job", job.ID, "error", err)
@@ -499,51 +504,59 @@ func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
 // au job suivant la clé du précédent — un dépôt construit avec la clé d'un autre
 // client, sans qu'aucune erreur ne le signale.
 //
-// L'absence de clé propre retombe sur la clé partagée. C'est le comportement
-// d'avant le lot G, et il reste le bon pour un projet déclaré avant lui : refuser
-// de lancer parce qu'aucune clé n'a été posée bloquerait un dashboard qui
-// fonctionnait la veille.
-func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) map[string]string {
+// # Un projet sans clé propre ne construit plus
+//
+// L'absence de clé retombait sur une clé **partagée**, celle du déploiement. Ce
+// repli est retiré : une clé unique ajoutée à plusieurs dépôts fait de sa
+// révocation une panne pour tous à la fois, et ne dit rien de qui a cloné quoi.
+//
+// Le refus est donc explicite, et son message nomme le geste qui manque — coller
+// la moitié publique dans les réglages du dépôt, puis le déclarer. Sans lui, le
+// clone échouerait dans le pipeline avec une erreur SSH, très loin de sa cause.
+//
+// Le secret de registre garde son repli, et ce n'est pas une incohérence : il est
+// **désigné** et non créé, provisionné par le déploiement pour toute l'instance,
+// et un projet qui n'en désigne pas de particulier pousse légitimement là où
+// poussent les autres.
+func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) (map[string]string, error) {
 	if s.deployKeys == nil || job.ProjectID == nil {
-		return s.config
+		return s.config, nil
 	}
 
 	// Deux réglages, lus séparément : un projet peut avoir sa clé sans désigner
 	// de registre, et l'inverse. Les traiter ensemble ferait perdre l'un quand
 	// l'autre manque.
 	overrides := map[string]string{}
-	for _, lookup := range []struct {
-		key  string
-		read func(context.Context, int64) (string, bool, error)
-		what string
-	}{
-		{"pipeline.gitSecret", s.deployKeys.DeployKeySecret, "clé de déploiement"},
-		{"pipeline.registrySecret", s.deployKeys.RegistrySecret, "secret de registre"},
-	} {
-		secret, found, err := lookup.read(ctx, *job.ProjectID)
-		if err != nil {
-			// Un échec de lecture ne fait pas échouer le run : il le fait partir
-			// avec le secret partagé, ce qui est l'état d'avant. Le signaler
-			// suffit — et c'est le seul endroit où l'écart se verrait.
-			s.logger.Error(lookup.what+" du projet",
-				"job", job.ID, "projet", *job.ProjectID, "error", err)
-			continue
-		}
-		if found {
-			overrides[lookup.key] = secret
-		}
+
+	gitSecret, found, err := s.deployKeys.DeployKeySecret(ctx, *job.ProjectID)
+	switch {
+	case err != nil:
+		// Une lecture en échec ne se déguise pas en absence de clé : le message
+		// enverrait activer une clé qui existe peut-être déjà. La reprise couvre
+		// le cas transitoire, et le plafond de tentatives conclut sinon.
+		return nil, fmt.Errorf("lecture de la clé de déploiement du projet %d: %w",
+			*job.ProjectID, err)
+	case !found:
+		return nil, fmt.Errorf(
+			"le projet %d n'a pas de clé de déploiement active: coller sa moitié "+
+				"publique dans les réglages du dépôt, puis la déclarer active depuis "+
+				"l'écran du projet", *job.ProjectID)
 	}
-	if len(overrides) == 0 {
-		return s.config
+	overrides["pipeline.gitSecret"] = gitSecret
+
+	registrySecret, found, err := s.deployKeys.RegistrySecret(ctx, *job.ProjectID)
+	if err != nil {
+		// Celui-ci ne fait pas échouer le run : le secret du déploiement reste
+		// valable, et c'est là que poussent les projets qui n'en désignent pas.
+		s.logger.Error("secret de registre du projet",
+			"job", job.ID, "projet", *job.ProjectID, "error", err)
+	} else if found {
+		overrides["pipeline.registrySecret"] = registrySecret
 	}
 
 	// Une **copie** superposée, jamais une écriture dans la carte partagée.
 	settings := make(map[string]string, len(s.config))
-	for key, value := range s.config {
-		settings[key] = value
-	}
-	for key, value := range overrides {
-		settings[key] = value
-	}
-	return settings
+	maps.Copy(settings, s.config)
+	maps.Copy(settings, overrides)
+	return settings, nil
 }

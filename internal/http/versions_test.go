@@ -44,7 +44,7 @@ func (f *fakeVersionStore) ListVersionReleases(context.Context, int64) ([]store.
 	return nil, nil
 }
 
-func (f *fakeVersionStore) GetSyncState(context.Context, string) (store.SyncState, error) {
+func (f *fakeVersionStore) GetSyncState(context.Context, string, int64) (store.SyncState, error) {
 	return store.SyncState{}, nil
 }
 

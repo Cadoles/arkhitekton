@@ -38,6 +38,15 @@ const (
 	// place perdrait silencieusement le lien vers son suivi le jour où le code
 	// commence à l'honorer.
 	BootstrapTrackers = "trackers"
+	// BootstrapPlugins fait passer la configuration des plugins de
+	// l'environnement à la base.
+	//
+	// Même raison que `trackers` : l'URL et la clé d'un suivi étaient des
+	// variables du déploiement, et deviennent des réglages. Sans cette étape, un
+	// déploiement en place verrait sa synchronisation s'arrêter le jour où le
+	// code lit les réglages plutôt que la configuration — une panne muette, la
+	// même que celle qui a motivé l'étape précédente.
+	BootstrapPlugins = "plugins"
 )
 
 // Grant est un rôle déclaré avant que le sujet de son titulaire ne soit connu.
@@ -51,6 +60,19 @@ type Grant struct {
 type BootstrapSpec struct {
 	Grants   []Grant
 	Projects []Project
+	// Plugins porte les réglages déduits de la configuration, **secrets déjà
+	// scellés**.
+	//
+	// Scellés par l'appelant et non ici : ce magasin n'a pas la clé, et c'est
+	// délibéré — il ne doit pas pouvoir rendre du clair, même par erreur d'appel.
+	Plugins []PluginSettings
+	// TrackerPluginID nomme le plugin de suivi auquel rattacher les projets qui
+	// en déclarent un.
+	//
+	// Passé plutôt que codé : le registre vit dans `internal/plugin`, et écrire
+	// « redmine » ici ferait du magasin un second endroit qui connaît les noms de
+	// plugins — donc un endroit où le renommer serait oublié.
+	TrackerPluginID string
 }
 
 // BootstrapReport dit ce que l'amorçage a fait, étape par étape.
@@ -62,6 +84,7 @@ type BootstrapReport struct {
 	GrantsApplied   int
 	ProjectsApplied int
 	TrackersApplied int
+	PluginsApplied  int
 	Skipped         []string
 }
 
@@ -115,6 +138,19 @@ func (db *DB) Bootstrap(ctx context.Context, spec BootstrapSpec) (BootstrapRepor
 		report.TrackersApplied = count
 	default:
 		report.Skipped = append(report.Skipped, BootstrapTrackers)
+	}
+
+	applied, count, err = db.applyStep(ctx, BootstrapPlugins, func(ctx context.Context) (int, string, error) {
+		posed, err := db.seedPlugins(ctx, spec.Plugins, spec.TrackerPluginID)
+		return posed, fmt.Sprintf("%d réglage(s)", posed), err
+	})
+	switch {
+	case err != nil:
+		problems = append(problems, err)
+	case applied:
+		report.PluginsApplied = count
+	default:
+		report.Skipped = append(report.Skipped, BootstrapPlugins)
 	}
 
 	return report, errors.Join(problems...)

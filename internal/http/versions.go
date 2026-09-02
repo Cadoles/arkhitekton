@@ -21,7 +21,7 @@ type VersionStore interface {
 	GetVersionSummary(ctx context.Context, id int64) (store.VersionSummary, error)
 	ListVersionIssues(ctx context.Context, versionID int64) ([]store.VersionIssue, error)
 	ListVersionReleases(ctx context.Context, versionID int64) ([]store.VersionRelease, error)
-	GetSyncState(ctx context.Context, source string) (store.SyncState, error)
+	GetSyncState(ctx context.Context, source string, projectID int64) (store.SyncState, error)
 	// EnsureVersion crée la version d'un projet, ou rend celle qui porte déjà ce
 	// nom. Idempotente par nom, ce qui est le bon comportement pour une
 	// déclaration manuelle : demander une version qui existe doit y mener.
@@ -142,7 +142,10 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	// L'âge des données accompagne la liste : le suivi peut ne pas répondre, et un
 	// écran qui affiche des chiffres sans dire de quand ils datent est trompeur
 	// (doc 08 §8.2).
-	state, err := h.store.GetSyncState(r.Context(), "redmine")
+	// L'état du **projet consulté**, et non celui de l'instance : deux projets
+	// suivis peuvent viser deux serveurs, et afficher l'âge des données de l'un
+	// sur l'écran de l'autre dirait « à jour » d'un suivi en panne.
+	state, err := h.store.GetSyncState(r.Context(), "redmine", currentID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture de l'état de synchronisation impossible", "")
 		return

@@ -155,7 +155,7 @@ func TestUnDepotMalformeEstRefuse(t *testing.T) {
 // dont la valeur va de soi n'apprend rien.
 func TestLesDefautsSontDeduits(t *testing.T) {
 	fake := newFakeProjectStore()
-	handler := NewProjectsHandler(fake).WithDeployKey("", "https://forge.example.fr")
+	handler := NewProjectsHandler(fake).WithForgeURL("https://forge.example.fr")
 
 	if code := createProject(t, handler, `{"repository":"CNOUS/mse"}`).Code; code != http.StatusCreated {
 		t.Fatalf("code %d", code)
@@ -249,28 +249,29 @@ func TestUnTestReussiConsigneLaBranche(t *testing.T) {
 	}
 }
 
-// La clé publique est affichée telle quelle : c'est ce qu'on colle dans les
-// réglages d'un dépôt. Sa moitié privée, elle, ne quitte jamais le secret.
-func TestLaClePubliqueEstRendueAvecLesProjets(t *testing.T) {
+// Aucune clé **partagée** n'est plus rendue avec les projets.
+//
+// Elle l'était, et l'écran l'affichait aux projets qui n'avaient pas encore la
+// leur. La laisser aujourd'hui serait pire qu'inutile : elle inviterait à la
+// coller dans un dépôt, alors que plus rien ne la monte — le run refuse de partir
+// sans la clé du projet.
+func TestAucuneClePartageeNestRendueAvecLesProjets(t *testing.T) {
 	handler := NewProjectsHandler(newFakeProjectStore()).
-		WithDeployKey("ssh-ed25519 AAAAC3Nz dashboard", "https://forge.example.fr")
+		WithForgeURL("https://forge.example.fr")
 
 	recorder := httptest.NewRecorder()
 	handler.List(recorder, httptest.NewRequest(http.MethodGet, "/projects", nil))
 
-	var payload struct {
-		DeployKey       string `json:"deploy_key"`
-		ProbeConfigured bool   `json:"probe_configured"`
-	}
+	var payload map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("réponse illisible: %v", err)
 	}
-	if payload.DeployKey != "ssh-ed25519 AAAAC3Nz dashboard" {
-		t.Errorf("clé = %q", payload.DeployKey)
+	if _, present := payload["deploy_key"]; present {
+		t.Errorf("une clé partagée est encore rendue: %v", payload["deploy_key"])
 	}
 	// Sans sonde, l'écran doit pouvoir désactiver le bouton plutôt que de
 	// laisser cliquer sur un test qui ne conclura pas.
-	if payload.ProbeConfigured {
+	if configured, _ := payload["probe_configured"].(bool); configured {
 		t.Error("la sonde est annoncée alors qu'aucune n'est branchée")
 	}
 }

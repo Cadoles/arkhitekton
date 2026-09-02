@@ -11,7 +11,8 @@ import {
 } from '../versions/api'
 
 /*
- * État de la synchronisation Redmine, et ce qui demande une décision humaine.
+ * État de la synchronisation du suivi d'un projet, et ce qui demande une décision
+ * humaine.
  *
  * Trois signaux, et aucun n'est une panne du dashboard :
  *
@@ -23,9 +24,15 @@ import {
  *     un tag ou d'une version absente de Redmine.
  *
  * Les afficher est ce qui les rend corrigeables.
+ *
+ * # Pourquoi ce panneau a quitté l'administration générale
+ *
+ * Tout ce qu'il montre appartient à un projet : son curseur, sa projection, ses
+ * versions ambiguës. Il était global parce qu'un seul projet était suivi — et le
+ * vocabulaire projeté, « En revue », appartient au client et non à l'instance.
  */
-export function SyncPanel() {
-  const { data, isPending } = useSyncAdmin()
+export function SyncPanel({ project }: { project: string }) {
+  const { data, isPending } = useSyncAdmin(project)
 
   if (isPending) return <Skeleton className="h-48 w-full" />
   if (!data) return null
@@ -36,27 +43,26 @@ export function SyncPanel() {
         {/* Non configuré et jamais synchronisé n'appellent pas la même réaction :
             le second ferait chercher une panne. */}
         <EmptyState>
-          Aucun suivi n'est configuré. Renseignez <span className="font-mono">TRACKER_URL</span>{' '}
-          et <span className="font-mono">TRACKER_API_KEY</span> pour renseigner les versions et les
-          demandes.
+          Ce projet ne déclare aucun outil de suivi. Ses versions se déclarent à la main.
+          Pour en rattacher un, renseignez le plugin de suivi dans l'onglet Plugins.
         </EmptyState>
       </Card>
     )
   }
 
   return (
-    <Card title="Synchronisation du suivi" action={<ResyncButton />}>
+    <Card title="Synchronisation du suivi" action={<ResyncButton project={project} />}>
       <SyncSummary data={data} />
-      <UnmappedStatuses data={data} />
-      <MappingTable data={data} />
+      <UnmappedStatuses data={data} project={project} />
+      <MappingTable data={data} project={project} />
       <AmbiguousVersions data={data} />
       <PendingVersions data={data} />
     </Card>
   )
 }
 
-function ResyncButton() {
-  const resync = useForceResync()
+function ResyncButton({ project }: { project: string }) {
+  const resync = useForceResync(project)
 
   return (
     <div className="flex items-center gap-2">
@@ -111,7 +117,7 @@ const BUCKETS: { value: Bucket; label: string }[] = [
  * workflow du client et changent sans prévenir ; un ajout non projeté ferait dériver
  * le taux de complétion sans que rien ne le signale.
  */
-function UnmappedStatuses({ data }: { data: SyncAdmin }) {
+function UnmappedStatuses({ data, project }: { data: SyncAdmin; project: string }) {
   if (data.unmapped.length === 0) return null
 
   return (
@@ -131,6 +137,7 @@ function UnmappedStatuses({ data }: { data: SyncAdmin }) {
             status={entry.status_name}
             issues={entry.issues}
             current={undefined}
+            project={project}
           />
         ))}
       </ul>
@@ -151,7 +158,7 @@ function UnmappedStatuses({ data }: { data: SyncAdmin }) {
  * des lignes déjà tranchées. La justification des choix d'amorçage vit dans la
  * migration, à côté des valeurs qu'elle pose.
  */
-function MappingTable({ data }: { data: SyncAdmin }) {
+function MappingTable({ data, project }: { data: SyncAdmin; project: string }) {
   const [open, setOpen] = useState(false)
 
   const statuses = Object.keys(data.mapping).sort((a, b) => a.localeCompare(b, 'fr'))
@@ -187,6 +194,7 @@ function MappingTable({ data }: { data: SyncAdmin }) {
               key={`${status}:${data.mapping[status]}`}
               status={status}
               current={data.mapping[status]}
+              project={project}
             />
           ))}
         </ul>
@@ -199,12 +207,14 @@ function StatusRow({
   status,
   issues,
   current,
+  project,
 }: {
   status: string
   issues?: number
   current: Bucket | undefined
+  project: string
 }) {
-  const setBucket = useSetStatusBucket()
+  const setBucket = useSetStatusBucket(project)
   const [bucket, setLocal] = useState<Bucket>(current ?? 'todo')
 
   return (

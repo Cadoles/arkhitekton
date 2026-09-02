@@ -36,7 +36,34 @@ type Config struct {
 	Forge    ForgeConfig
 	Versions VersionsConfig
 	Results  ResultsConfig
+	Secrets  SecretsConfig
 }
+
+// SecretsConfig porte la clé qui scelle les valeurs sensibles des réglages.
+//
+// Elle vit dans l'environnement et non dans la base — c'est tout l'intérêt : une
+// sauvegarde de la base ne dit rien sans elle. Le corollaire est qu'elle doit
+// être sauvegardée **ailleurs**, faute de quoi une restauration rend des réglages
+// que plus rien n'ouvre.
+//
+// Son absence n'empêche pas de démarrer. Elle rend impossible l'enregistrement
+// d'un champ sensible, ce que l'interface dit à l'endroit où on le saisit :
+// refuser de démarrer punirait un déploiement qui n'a encore aucun réglage à
+// protéger, et le message serait lu loin de la personne qui peut agir.
+type SecretsConfig struct {
+	// Key est la clé courante, en base64 de 32 octets : `openssl rand -base64 32`.
+	// Elle ne doit apparaître ni dans un log, ni dans un message d'erreur.
+	Key string
+	// RetiredKeys porte les clés remplacées, qui n'ouvrent plus que l'existant.
+	//
+	// Une rotation se fait en deux temps — la nouvelle scelle, l'ancienne ouvre —
+	// parce que les valeurs déjà en base ne se re-scellent qu'au fil des
+	// écritures. Retirer l'ancienne trop tôt les rendrait illisibles.
+	RetiredKeys []string
+}
+
+// Configured dit si le scellement est possible.
+func (c SecretsConfig) Configured() bool { return strings.TrimSpace(c.Key) != "" }
 
 // ResultsConfig porte la lecture des résultats laissés par les pipelines.
 type ResultsConfig struct {
@@ -84,15 +111,6 @@ type ForgeConfig struct {
 	// Repository au format `owner/nom` — `CNOUS/mse`.
 	Repository string
 	Timeout    time.Duration
-	// DeployKey est la **moitié publique** de la clé que les pipelines présentent
-	// au clone. Publique, donc affichable sans précaution : c'est précisément ce
-	// qu'on colle dans les réglages d'un dépôt.
-	//
-	// Elle est ici et non lue dans le secret : le dashboard n'a pas `secrets`
-	// dans sa RBAC et ne doit pas l'avoir (doc 07 §7.3). Une clé par projet
-	// demanderait de les créer, donc ce droit ; une seule clé ajoutée à plusieurs
-	// dépôts fait le même travail sans l'exiger.
-	DeployKey string
 }
 
 // Configured dit si l'accès est renseigné. L'absence est un état normal : le
@@ -330,9 +348,12 @@ func Load(role Role) (Config, error) {
 			Project:        os.Getenv("TRACKER_PROJECT"),
 			Timeout:        durationOr("TRACKER_TIMEOUT", 15*time.Second),
 		},
+		Secrets: SecretsConfig{
+			Key:         strings.TrimSpace(os.Getenv("SECRETS_KEY")),
+			RetiredKeys: listOr("SECRETS_RETIRED_KEYS", nil),
+		},
 		Forge: ForgeConfig{
 			URL:        strings.TrimRight(os.Getenv("FORGE_URL"), "/"),
-			DeployKey:  strings.TrimSpace(os.Getenv("PIPELINE_GIT_PUBLIC_KEY")),
 			Token:      os.Getenv("FORGE_TOKEN"),
 			Repository: os.Getenv("FORGE_REPO"),
 			Timeout:    durationOr("FORGE_TIMEOUT", 10*time.Second),
@@ -366,6 +387,19 @@ var renamedVariables = map[string]string{
 	"REDMINE_REVIEW_STATUSES": "TRACKER_REVIEW_STATUSES",
 }
 
+// removedVariables associe chaque variable supprimée à la raison de sa
+// suppression.
+//
+// Distinctes des renommées : il n'y a pas de remplaçante à indiquer, seulement un
+// mécanisme qui n'existe plus. Le refus reste bruyant pour la même raison —
+// laisser la variable en place ferait croire à un déploiement qu'il configure
+// quelque chose, alors que plus rien ne la lit.
+var removedVariables = map[string]string{
+	"PIPELINE_GIT_PUBLIC_KEY": "la clé de déploiement partagée n'existe plus: " +
+		"chaque projet a la sienne, posée par le dashboard et activée depuis " +
+		"l'écran du projet",
+}
+
 // checkRenamed refuse de démarrer sur une variable retirée.
 //
 // Vérifié quel que soit le rôle : une variable héritée est une faute de
@@ -386,6 +420,18 @@ func checkRenamed() []error {
 		problems = append(problems, fmt.Errorf(
 			"%s n'existe plus, employer %s — la configuration ne nomme plus les "+
 				"produits mais les frontières", name, renamedVariables[name]))
+	}
+
+	removed := make([]string, 0, len(removedVariables))
+	for name := range removedVariables {
+		if _, present := os.LookupEnv(name); present {
+			removed = append(removed, name)
+		}
+	}
+	sort.Strings(removed)
+	for _, name := range removed {
+		problems = append(problems, fmt.Errorf("%s n'existe plus: %s",
+			name, removedVariables[name]))
 	}
 	return problems
 }
@@ -520,6 +566,19 @@ func (c Config) Redacted() Config {
 	out.Storage.SecretKey = redact(c.Storage.SecretKey)
 	out.OIDC.ClientSecret = redact(c.OIDC.ClientSecret)
 	out.Registry.Password = redact(c.Registry.Password)
+	out.Tracker.APIKey = redact(c.Tracker.APIKey)
+	out.Forge.Token = redact(c.Forge.Token)
+	out.Secrets.Key = redact(c.Secrets.Key)
+	// Les clés retirées sont masquées une à une plutôt que remplacées par une
+	// liste vide : leur **nombre** dit où en est une rotation, et c'est justement
+	// ce qu'on vient lire dans un journal de démarrage.
+	if len(c.Secrets.RetiredKeys) > 0 {
+		retired := make([]string, len(c.Secrets.RetiredKeys))
+		for index, key := range c.Secrets.RetiredKeys {
+			retired[index] = redact(key)
+		}
+		out.Secrets.RetiredKeys = retired
+	}
 	return out
 }
 

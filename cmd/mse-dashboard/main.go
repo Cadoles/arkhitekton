@@ -167,6 +167,17 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 
+	cipher, err := openCipher(cfg, logger)
+	if err != nil {
+		return err
+	}
+	// Les lignes manquantes des plugins embarqués, à chaque démarrage. L'amorçage
+	// ne les pose qu'une fois : un plugin apparu dans une version ultérieure
+	// n'aurait jamais de ligne, et l'écran l'afficherait sans état.
+	if err := db.EnsurePlugins(ctx, pluginIDs()); err != nil {
+		logger.Error("amorçage des plugins", "error", err)
+	}
+
 	// En base et non en mémoire : deux répliques d'api sans affinité de session
 	// servent `/auth/login` et `/auth/callback` par des instances différentes, et
 	// l'état de transition serait introuvable une fois sur deux.
@@ -286,14 +297,22 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 				// qu'est la ligne de version d'un nom comme `MSE 3.1.0`, et le
 				// tag proposé au formulaire en dépend.
 				WithNormalizer(versionNames(cfg)),
-			dashhttp.NewSyncAdminHandler(db, cfg.Tracker.Configured()),
+			dashhttp.NewSyncAdminHandler(db),
 			dashhttp.NewForgeHandler(forgeReader),
 			dashhttp.NewAdminHandler(db),
 			// Le test d'accès emploie le jeton de la forge, avec un client par
 			// dépôt : celui de la configuration est lié au sien, et le test porte
 			// justement sur un autre. Sans jeton, l'écran le dit plutôt que de
 			// rendre un échec qu'on prendrait pour un défaut de droits.
-			projectsHandler(cfg, db), middleware),
+			projectsHandler(cfg, db),
+			// Le chiffreur peut être nil : sans clé, les réglages se lisent et
+			// s'activent, seule l'écriture d'un champ sensible est refusée — avec
+			// un message qui nomme la variable, à l'endroit où on le saisit.
+			dashhttp.NewPluginsHandler(db, cipher, logger),
+			// Le même catalogue que la file : l'écran montre ce que l'instance
+			// sait lancer, et un second chargement pourrait montrer autre chose.
+			dashhttp.NewProjectPipelinesHandler(db, pipelines, logger),
+			middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
@@ -355,6 +374,16 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 	defer db.Close()
+
+	// Le worker **ouvre** les champs sensibles des réglages, il n'en scelle
+	// aucun : c'est lui qui présente une clé d'API au suivi à chaque passe.
+	cipher, err := openCipher(cfg, logger)
+	if err != nil {
+		return err
+	}
+	if err := db.EnsurePlugins(ctx, pluginIDs()); err != nil {
+		logger.Error("amorçage des plugins", "error", err)
+	}
 
 	// `versions.normalized_name` est une colonne dérivée : changer les préfixes
 	// configurés la rend obsolète, et le rapprochement comparerait alors une forme
@@ -604,31 +633,17 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				}()
 			}
 
-			// Redmine est optionnel : sans clé, le dashboard tourne et les écrans
-			// de versions le disent. Faire échouer le worker priverait
-			// l'ordonnancement et l'observation d'un accès qu'ils n'utilisent pas.
+			// La synchronisation du suivi. Elle démarre toujours, et c'est le
+			// changement : la connexion n'est plus une configuration globale mais
+			// un réglage de plugin **par projet**, résolu à chaque passe. Un
+			// projet mal réglé consigne son propre échec sans priver les autres.
 			//
-			// La synchronisation vit sous le bail comme le reste : deux workers
-			// interrogeant la même instance doubleraient la charge sur un service
-			// tiers pour un résultat identique.
-			if cfg.Tracker.Configured() {
-				client, err := redmine.New(redmine.Options{
-					URL: cfg.Tracker.URL, APIKey: cfg.Tracker.APIKey,
-					Timeout: cfg.Tracker.Timeout,
-				})
-				if err != nil {
-					return fmt.Errorf("client Redmine: %w", err)
-				}
-				sync := worker.NewTrackerSync(db, client, cfg.Tracker.Project, logger).
-					WithNormalizer(versionNames(cfg))
-				logger.Info("synchronisation du suivi active",
-					"url", cfg.Tracker.URL, "project", cfg.Tracker.Project)
-				go func() { errs <- sync.Run(leadingCtx) }()
-			} else {
-				logger.Warn("synchronisation Redmine inactive",
-					"raison", "REDMINE_URL ou REDMINE_API_KEY absent",
-					"consequence", "les versions et les demandes ne seront pas renseignées")
-			}
+			// Elle vit sous le bail comme le reste : deux workers interrogeant la
+			// même instance doubleraient la charge sur un service tiers pour un
+			// résultat identique.
+			sync := worker.NewTrackerSync(db, trackerConnector(cfg), cipher, logger).
+				WithNormalizer(versionNames(cfg))
+			go func() { errs <- sync.Run(leadingCtx) }()
 
 			// La première erreur l'emporte : une boucle morte doit faire perdre
 			// le bail plutôt que de laisser l'autre tourner à moitié.
@@ -755,18 +770,30 @@ func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	}
 	defer db.Close()
 
+	cipher, err := openCipher(cfg, logger)
+	if err != nil {
+		return err
+	}
+	plugins, err := configuredPlugins(cfg, cipher, logger)
+	if err != nil {
+		return err
+	}
+
 	report, err := db.Bootstrap(ctx, store.BootstrapSpec{
-		Grants:   configuredGrants(cfg),
-		Projects: configuredProjects(cfg),
+		Grants:          configuredGrants(cfg),
+		Projects:        configuredProjects(cfg),
+		Plugins:         plugins,
+		TrackerPluginID: trackerPluginID,
 	})
 
 	// Le rapport est journalisé avant l'erreur : une étape peut avoir abouti
 	// pendant qu'une autre échouait, et le taire ferait croire à un amorçage
 	// entièrement raté.
-	if report.GrantsApplied > 0 || report.ProjectsApplied > 0 || report.TrackersApplied > 0 {
+	if report.GrantsApplied > 0 || report.ProjectsApplied > 0 ||
+		report.TrackersApplied > 0 || report.PluginsApplied > 0 {
 		logger.Info("amorçage appliqué",
 			"roles", report.GrantsApplied, "depots", report.ProjectsApplied,
-			"suivis", report.TrackersApplied)
+			"suivis", report.TrackersApplied, "plugins", report.PluginsApplied)
 	}
 	if len(report.Skipped) > 0 {
 		logger.Info("amorçage déjà fait, étapes ignorées",
@@ -955,14 +982,14 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 
 // projectsHandler assemble la déclaration des dépôts pilotés.
 //
-// Deux clés y coexistent, et la distinction est le sujet du lot G. La clé de la
-// **configuration** est celle du déploiement, partagée par tous les dépôts ; elle
-// reste affichée aux projets qui n'en ont pas reçu d'autre. La clé **par projet**
-// est posée par le worker : l'API tourne sans jeton de cluster, délibérément,
-// parce que c'est la surface exposée (doc 12 §12.7).
+// Une seule clé désormais, celle du projet, posée par le worker : l'API tourne
+// sans jeton de cluster, délibérément, parce que c'est la surface exposée
+// (doc 12 §12.7). La clé **partagée** qui coexistait avec elle a été retirée —
+// une clé unique ajoutée à plusieurs dépôts fait de sa révocation une panne pour
+// tous à la fois, et ne dit rien de qui a cloné quoi.
 func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
-		WithDeployKey(cfg.Forge.DeployKey, cfg.Forge.URL).
+		WithForgeURL(cfg.Forge.URL).
 		WithImageRegistry(cfg.Registry.Project).
 		// Le même déployeur que celui qui promeut, et sans client : la question
 		// posée — « sais-tu acheminer ce schéma ? » — ne demande pas le cluster,

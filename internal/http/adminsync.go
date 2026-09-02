@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,7 +12,7 @@ import (
 )
 
 /*
- * Administration de la synchronisation du suivi.
+ * Administration de la synchronisation du suivi, **par projet**.
  *
  * Trois choses à surveiller, et aucune n'est une panne du dashboard :
  *
@@ -24,62 +25,90 @@ import (
  *
  * Les afficher est ce qui les rend corrigeables. Les taire les laisserait fausser
  * l'écran des versions en silence.
+ *
+ * # Pourquoi cet écran a quitté l'administration générale
+ *
+ * Tout ce qu'il montre appartient à un projet : le curseur, la projection des
+ * statuts, les versions ambiguës. Il était global parce qu'un seul projet était
+ * suivi — et le vocabulaire projeté, « En revue », appartient au client, pas à
+ * l'instance. Le laisser commun ferait qu'un statut déclaré pour un client
+ * déplacerait un taux de complétion affiché à un autre.
  */
 
 // SyncAdminStore est ce que l'administration de la synchronisation attend de la base.
 type SyncAdminStore interface {
-	GetSyncState(ctx context.Context, source string) (store.SyncState, error)
-	ResetSyncCursor(ctx context.Context, source string) error
-	UnmappedStatuses(ctx context.Context) ([]store.UnmappedStatus, error)
-	AmbiguousVersions(ctx context.Context) ([]store.AmbiguousVersion, error)
-	PendingVersions(ctx context.Context) ([]string, error)
-	StatusMapping(ctx context.Context) (map[string]string, error)
-	SetStatusBucket(ctx context.Context, statusName, bucket string) error
-	ReprojectIssues(ctx context.Context) (int64, error)
+	GetSyncState(ctx context.Context, source string, projectID int64) (store.SyncState, error)
+	ResetSyncCursor(ctx context.Context, source string, projectID int64) error
+	UnmappedStatuses(ctx context.Context, projectID int64) ([]store.UnmappedStatus, error)
+	AmbiguousVersions(ctx context.Context, projectID int64) ([]store.AmbiguousVersion, error)
+	PendingVersions(ctx context.Context, projectID int64) ([]string, error)
+	StatusMapping(ctx context.Context, projectID int64) (map[string]string, error)
+	SetStatusBucket(ctx context.Context, projectID int64, statusName, bucket string) error
+	ReprojectIssues(ctx context.Context, projectID int64) (int64, error)
+	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
 // SyncAdminHandler expose l'état des synchronisations et leurs correctifs.
 type SyncAdminHandler struct {
-	store      SyncAdminStore
-	configured bool
+	store SyncAdminStore
 }
 
 // NewSyncAdminHandler construit le handler.
 //
-// `configured` vient de la configuration : sans clé de suivi, l'écran doit dire « non
-// configuré » plutôt que « jamais synchronisé », qui ferait chercher une panne.
-func NewSyncAdminHandler(admin SyncAdminStore, configured bool) *SyncAdminHandler {
-	return &SyncAdminHandler{store: admin, configured: configured}
+// Il ne reçoit plus de drapeau « configuré » : la configuration du suivi est
+// désormais un réglage de plugin, propre au projet, et c'est la déclaration du
+// projet qui dit si le suivi le concerne. Un drapeau global répondrait pour tous.
+func NewSyncAdminHandler(admin SyncAdminStore) *SyncAdminHandler {
+	return &SyncAdminHandler{store: admin}
+}
+
+// project résout le projet du chemin.
+func (h *SyncAdminHandler) project(w http.ResponseWriter, r *http.Request) (store.Project, bool) {
+	project, err := h.store.ProjectBySlug(r.Context(), strings.TrimSpace(r.PathValue("project")))
+	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeProblem(w, http.StatusNotFound, "Projet inconnu", "")
+			return store.Project{}, false
+		}
+		writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+		return store.Project{}, false
+	}
+	return project, true
 }
 
 // State rend l'état de la synchronisation et ce qui demande une décision humaine.
 func (h *SyncAdminHandler) State(w http.ResponseWriter, r *http.Request) {
-	state, err := h.store.GetSyncState(r.Context(), "redmine")
+	project, ok := h.project(w, r)
+	if !ok {
+		return
+	}
+
+	state, err := h.store.GetSyncState(r.Context(), "redmine", project.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture de l'état impossible", "")
 		return
 	}
 
-	unmapped, err := h.store.UnmappedStatuses(r.Context())
+	unmapped, err := h.store.UnmappedStatuses(r.Context(), project.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des statuts impossible", "")
 		return
 	}
 
-	ambiguous, err := h.store.AmbiguousVersions(r.Context())
+	ambiguous, err := h.store.AmbiguousVersions(r.Context(), project.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des versions impossible", "")
 		return
 	}
 
-	pending, err := h.store.PendingVersions(r.Context())
+	pending, err := h.store.PendingVersions(r.Context(), project.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des versions provisoires impossible", "")
 		return
 	}
 
-	mapping, err := h.store.StatusMapping(r.Context())
+	mapping, err := h.store.StatusMapping(r.Context(), project.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture de la projection impossible", "")
 		return
@@ -100,7 +129,11 @@ func (h *SyncAdminHandler) State(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configured": h.configured,
+		// « Configuré » se lit désormais sur le projet : il déclare son suivi, ou
+		// non. Sans cette distinction, l'écran dirait « jamais synchronisé » d'un
+		// projet qui n'a simplement pas de suivi, et enverrait chercher une panne.
+		"configured": strings.TrimSpace(project.TrackerProject) != "",
+		"project":    project.Slug,
 		"sync":       syncStateView(state),
 		"unmapped":   unmappedPayload,
 		"ambiguous":  ambiguousPayload,
@@ -122,12 +155,19 @@ func orEmptyStrings(values []string) []string {
 // de leader, et l'`api` n'a pas de chemin vers elle. Effacer le curseur est le signal,
 // et la passe suivante — au plus tard cinq minutes après — relira l'ensemble.
 func (h *SyncAdminHandler) Resync(w http.ResponseWriter, r *http.Request) {
-	if err := h.store.ResetSyncCursor(r.Context(), "redmine"); err != nil {
+	project, ok := h.project(w, r)
+	if !ok {
+		return
+	}
+
+	// Borné au projet : relire l'ensemble sollicite un service tiers, et rien ne
+	// justifie de faire porter à un client le doute qu'on a sur un autre.
+	if err := h.store.ResetSyncCursor(r.Context(), "redmine", project.ID); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Réinitialisation impossible", "")
 		return
 	}
 
-	h.audit(r, "sync.redmine.reset", "redmine", nil)
+	h.audit(r, "sync.redmine.reset", project.Slug, nil)
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		// Le message dit l'attente : sans lui, un utilisateur qui ne voit rien
@@ -149,6 +189,11 @@ type statusMappingRequest struct {
 // elle, la nouvelle règle ne vaudrait que pour les demandes modifiées ensuite dans
 // Redmine, et l'écran mélangerait deux règles sans le dire.
 func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
+	project, ok := h.project(w, r)
+	if !ok {
+		return
+	}
+
 	statusName := strings.TrimSpace(r.PathValue("status"))
 	if statusName == "" {
 		writeProblem(w, http.StatusBadRequest, "Statut absent", "")
@@ -166,12 +211,15 @@ func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.SetStatusBucket(r.Context(), statusName, request.Bucket); err != nil {
+	if err := h.store.SetStatusBucket(r.Context(), project.ID, statusName, request.Bucket); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
 		return
 	}
 
-	moved, err := h.store.ReprojectIssues(r.Context())
+	// Bornée au projet, comme la déclaration : réappliquer la projection de l'un
+	// ne doit pas déplacer les demandes de l'autre, dont le vocabulaire n'est pas
+	// le même.
+	moved, err := h.store.ReprojectIssues(r.Context(), project.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Réapplication impossible", "")
 		return
@@ -179,7 +227,7 @@ func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
 
 	// Le journal porte le déplacement : changer la projection d'un statut déplace un
 	// taux de complétion affiché au client, ce qui mérite une trace.
-	h.audit(r, "sync.redmine.mapping", statusName, map[string]any{
+	h.audit(r, "sync.redmine.mapping", project.Slug+"/"+statusName, map[string]any{
 		"bucket": request.Bucket, "issues_moved": moved,
 	})
 

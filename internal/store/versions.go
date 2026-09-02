@@ -376,13 +376,31 @@ func (db *DB) UpsertRedmineIssue(ctx context.Context, issue TrackedIssue) error 
 	return nil
 }
 
-// StatusMapping rend la projection statut → seau.
+// StatusMapping rend la projection statut → seau d'un projet.
 //
 // Chargée en bloc et non interrogée par demande : trente et un statuts tiennent en
 // mémoire, et une requête par demande multiplierait les allers-retours par le nombre
 // de demandes synchronisées.
-func (db *DB) StatusMapping(ctx context.Context) (map[string]string, error) {
-	rows, err := db.pool.Query(ctx, `select status_name, bucket from issue_status_mapping`)
+//
+// Superposée depuis la migration 0043 : un **défaut d'instance** — les lignes
+// sans projet, posées par l'amorçage — et les **écarts** d'un projet, qui
+// l'emportent.
+//
+// Les deux, et non l'un ou l'autre. Une projection strictement par projet ferait
+// naître chaque projet sans aucune règle, et son taux de complétion compterait
+// toutes ses demandes comme non commencées. Une projection strictement commune
+// ferait qu'un statut déclaré pour un client déplacerait un chiffre affiché à un
+// autre — « En revue » ne veut pas dire la même chose chez deux clients.
+//
+// `distinct on` retient la ligne du projet quand elle existe : l'ordre place les
+// lignes non nulles en tête, et PostgreSQL garde la première de chaque nom.
+func (db *DB) StatusMapping(ctx context.Context, projectID int64) (map[string]string, error) {
+	rows, err := db.pool.Query(ctx,
+		`select distinct on (status_name) status_name, bucket
+		 from issue_status_mapping
+		 where project_id = $1 or project_id is null
+		 order by status_name, project_id nulls last`,
+		projectID)
 	if err != nil {
 		return nil, fmt.Errorf("projection des statuts: %w", err)
 	}
@@ -411,14 +429,20 @@ type UnmappedStatus struct {
 // apparaît ici, donc dans l'écran d'administration. Les statuts Redmine sont propres
 // au workflow du client et changent sans prévenir ; un ajout non projeté ferait
 // dériver le taux de complétion sans que rien ne le signale.
-func (db *DB) UnmappedStatuses(ctx context.Context) ([]UnmappedStatus, error) {
+func (db *DB) UnmappedStatuses(ctx context.Context, projectID int64) ([]UnmappedStatus, error) {
+	// Un statut est projeté s'il l'est **pour ce projet ou par défaut**. Ne
+	// regarder que les lignes du projet signalerait comme non projetés les trente
+	// et un statuts que l'amorçage couvre, et l'écran crierait sans raison — un
+	// écran d'administration qui crie sans raison cesse d'être lu.
 	rows, err := db.pool.Query(ctx,
 		`select i.status_name, count(*)
 		 from issues i
-		 left join issue_status_mapping m on m.status_name = i.status_name
-		 where m.status_name is null
+		 left join issue_status_mapping m
+		        on m.status_name = i.status_name
+		       and (m.project_id = i.project_id or m.project_id is null)
+		 where m.status_name is null and i.project_id = $1
 		 group by i.status_name
-		 order by count(*) desc, i.status_name`)
+		 order by count(*) desc, i.status_name`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("statuts non projetés: %w", err)
 	}
@@ -435,13 +459,22 @@ func (db *DB) UnmappedStatuses(ctx context.Context) ([]UnmappedStatus, error) {
 	return unmapped, rows.Err()
 }
 
-// SetStatusBucket déclare ou corrige la projection d'un statut.
-func (db *DB) SetStatusBucket(ctx context.Context, statusName, bucket string) error {
+// SetStatusBucket déclare ou corrige la projection d'un statut dans un projet.
+//
+// Écrit toujours une ligne **du projet**, jamais le défaut de l'instance : une
+// décision prise sur un écran de projet ne doit pas déplacer un chiffre affiché
+// à un autre client.
+func (db *DB) SetStatusBucket(ctx context.Context, projectID int64, statusName, bucket string) error {
 	_, err := db.pool.Exec(ctx,
-		`insert into issue_status_mapping (status_name, bucket) values ($1, $2)
-		 on conflict (status_name) do update
-		 set bucket = excluded.bucket, updated_at = now()`,
-		statusName, bucket)
+		// Le prédicat accompagne la cible du conflit : l'unicité par projet est un
+		// index **partiel**, et PostgreSQL ne l'infère qu'à cette condition. Sans
+		// lui, l'écriture échoue sur « no unique or exclusion constraint », un
+		// message qui ne désigne pas la cause.
+		`insert into issue_status_mapping (project_id, status_name, bucket)
+		 values ($1, $2, $3)
+		 on conflict (project_id, status_name) where project_id is not null
+		 do update set bucket = excluded.bucket, updated_at = now()`,
+		projectID, statusName, bucket)
 	if err != nil {
 		return fmt.Errorf("projection du statut %q: %w", statusName, err)
 	}
@@ -454,18 +487,32 @@ func (db *DB) SetStatusBucket(ctx context.Context, statusName, bucket string) er
 // vaudrait que pour les demandes modifiées ensuite dans Redmine, et l'écran
 // afficherait un mélange des deux règles sans le dire. Rend le nombre de demandes
 // déplacées.
-func (db *DB) ReprojectIssues(ctx context.Context) (int64, error) {
+func (db *DB) ReprojectIssues(ctx context.Context, projectID int64) (int64, error) {
 	// L'auto-jointure permet la jointure externe sur la table mise à jour :
 	// PostgreSQL n'accepte pas un `left join` directement sur la cible d'un
 	// `update`. Le `coalesce` porte la règle du seau par défaut, la même qu'à
 	// l'insertion — la diviser en deux endroits la ferait diverger.
+	//
+	// Bornée au projet : réappliquer la projection de l'un ne doit pas toucher
+	// aux demandes de l'autre, dont le vocabulaire n'est pas le même.
+	//
+	// La superposition est celle de [DB.StatusMapping], reprise dans un
+	// sous-select : la règle appliquée ici doit être **exactement** celle que
+	// l'écran affiche, sinon la réapplication déplacerait des demandes vers des
+	// seaux que personne n'a déclarés.
 	tag, err := db.pool.Exec(ctx,
 		`update issues i
 		 set status_bucket = coalesce(m.bucket, 'todo'), updated_at = now()
 		 from issues source
-		 left join issue_status_mapping m on m.status_name = source.status_name
+		 left join (
+		     select distinct on (status_name) status_name, bucket
+		     from issue_status_mapping
+		     where project_id = $1 or project_id is null
+		     order by status_name, project_id nulls last
+		 ) m on m.status_name = source.status_name
 		 where source.id = i.id
-		   and i.status_bucket <> coalesce(m.bucket, 'todo')`)
+		   and i.project_id = $1
+		   and i.status_bucket <> coalesce(m.bucket, 'todo')`, projectID)
 	if err != nil {
 		return 0, fmt.Errorf("réapplication de la projection: %w", err)
 	}
@@ -489,14 +536,17 @@ type AmbiguousVersion struct {
 //
 // Ne subsistent donc que les cas réellement indécidables : deux versions actives
 // portant le même numéro.
-func (db *DB) AmbiguousVersions(ctx context.Context) ([]AmbiguousVersion, error) {
+func (db *DB) AmbiguousVersions(ctx context.Context, projectID int64) ([]AmbiguousVersion, error) {
+	// Bornée au projet : deux projets peuvent légitimement porter chacun une
+	// `3.1.0`, et les regrouper inventerait une ambiguïté qui n'existe pas.
 	rows, err := db.pool.Query(ctx,
 		`select normalized_name, array_agg(name order by name)
 		 from versions
 		 where normalized_name is not null and origin = 'tracker' and status <> 'closed'
+		   and project_id = $1
 		 group by normalized_name
 		 having count(*) > 1
-		 order by normalized_name`)
+		 order by normalized_name`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("versions ambiguës: %w", err)
 	}
@@ -519,9 +569,10 @@ func (db *DB) AmbiguousVersions(ctx context.Context) ([]AmbiguousVersion, error)
 // rattachée à une version que Redmine ne connaît pas — faute de frappe dans le tag,
 // version supprimée, ou ambiguïté de nommage. Le signaler évite qu'un écran affiche
 // « en attente de synchronisation » indéfiniment sans que personne ne sache pourquoi.
-func (db *DB) PendingVersions(ctx context.Context) ([]string, error) {
+func (db *DB) PendingVersions(ctx context.Context, projectID int64) ([]string, error) {
 	rows, err := db.pool.Query(ctx,
-		`select name from versions where origin = 'pending' order by name`)
+		`select name from versions
+		 where origin = 'pending' and project_id = $1 order by name`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("versions provisoires: %w", err)
 	}

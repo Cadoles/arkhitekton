@@ -12,6 +12,10 @@ import (
 )
 
 type fakeSyncStore struct {
+	// tracked dit si le projet déclare un suivi. C'est ce que « configuré »
+	// signifie depuis que la connexion est un réglage de projet : un drapeau
+	// global répondait pour tout le monde.
+	tracked   bool
 	state     store.SyncState
 	unmapped  []store.UnmappedStatus
 	ambiguous []store.AmbiguousVersion
@@ -23,38 +27,58 @@ type fakeSyncStore struct {
 	audit     []string
 }
 
-func (f *fakeSyncStore) GetSyncState(context.Context, string) (store.SyncState, error) {
+func (f *fakeSyncStore) GetSyncState(context.Context, string, int64) (store.SyncState, error) {
 	return f.state, nil
 }
 
-func (f *fakeSyncStore) ResetSyncCursor(context.Context, string) error {
+func (f *fakeSyncStore) ResetSyncCursor(context.Context, string, int64) error {
 	f.reset++
 	return nil
 }
 
-func (f *fakeSyncStore) UnmappedStatuses(context.Context) ([]store.UnmappedStatus, error) {
+func (f *fakeSyncStore) UnmappedStatuses(context.Context, int64) ([]store.UnmappedStatus, error) {
 	return f.unmapped, nil
 }
 
-func (f *fakeSyncStore) AmbiguousVersions(context.Context) ([]store.AmbiguousVersion, error) {
+func (f *fakeSyncStore) AmbiguousVersions(context.Context, int64) ([]store.AmbiguousVersion, error) {
 	return f.ambiguous, nil
 }
 
-func (f *fakeSyncStore) PendingVersions(context.Context) ([]string, error) {
+func (f *fakeSyncStore) PendingVersions(context.Context, int64) ([]string, error) {
 	return f.pending, nil
 }
 
-func (f *fakeSyncStore) StatusMapping(context.Context) (map[string]string, error) {
+func (f *fakeSyncStore) StatusMapping(context.Context, int64) (map[string]string, error) {
 	return f.mapping, nil
 }
 
-func (f *fakeSyncStore) SetStatusBucket(_ context.Context, statusName, bucket string) error {
+func (f *fakeSyncStore) SetStatusBucket(_ context.Context, _ int64, statusName, bucket string) error {
 	f.set = append(f.set, statusName+"="+bucket)
 	return nil
 }
 
-func (f *fakeSyncStore) ReprojectIssues(context.Context) (int64, error) {
+func (f *fakeSyncStore) ReprojectIssues(context.Context, int64) (int64, error) {
 	return f.moved, nil
+}
+
+// ProjectBySlug résout le projet du chemin. Le suivi qu'il déclare — ou pas — est
+// ce que l'écran lit désormais pour dire « configuré ».
+func (f *fakeSyncStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+	if slug != "mse" {
+		return store.Project{}, store.ErrProjectNotFound
+	}
+	project := store.Project{ID: 7, Slug: "mse"}
+	if f.tracked {
+		project.TrackerProject = "mse-dev"
+	}
+	return project, nil
+}
+
+// syncRequest compose une requête portant le projet dans son chemin.
+func syncRequest(method, path, body string) *http.Request {
+	request := adminRequest(method, path, body)
+	request.SetPathValue("project", "mse")
+	return request
 }
 
 func (f *fakeSyncStore) Audit(_ context.Context, _, action, target string, _ map[string]any) error {
@@ -72,6 +96,7 @@ func (f *fakeSyncStore) Audit(_ context.Context, _, action, target string, _ map
 // l'arbitrage du client étaient ainsi inaccessibles.
 func TestLEtatPorteLaProjectionCompleteEtPasSeulementLesInconnus(t *testing.T) {
 	fake := &fakeSyncStore{
+		tracked: true,
 		mapping: map[string]string{
 			"Livré":         "doing",
 			"Prêt à livrer": "doing",
@@ -82,10 +107,10 @@ func TestLEtatPorteLaProjectionCompleteEtPasSeulementLesInconnus(t *testing.T) {
 		// Aucun statut inconnu : la situation réelle après l'amorçage.
 		unmapped: nil,
 	}
-	handler := NewSyncAdminHandler(fake, true)
+	handler := NewSyncAdminHandler(fake)
 
 	recorder := httptest.NewRecorder()
-	handler.State(recorder, adminRequest(http.MethodGet, "/admin/sync", ""))
+	handler.State(recorder, syncRequest(http.MethodGet, "/projects/mse/sync", ""))
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("code %d", recorder.Code)
@@ -121,13 +146,17 @@ func TestLEtatPorteLaProjectionCompleteEtPasSeulementLesInconnus(t *testing.T) {
 	}
 }
 
-// Sans clé, l'écran doit dire « non configuré » et non « jamais synchronisé », qui
-// ferait chercher une panne.
-func TestSansCleLEtatDitNonConfigure(t *testing.T) {
-	handler := NewSyncAdminHandler(&fakeSyncStore{}, false)
+// Un projet **sans suivi déclaré** doit dire « non configuré » et non « jamais
+// synchronisé », qui ferait chercher une panne.
+//
+// La question a changé de nature : elle portait sur la clé de l'instance, elle
+// porte désormais sur ce que le projet déclare. Un projet qui n'a pas de suivi
+// n'est pas en panne de synchronisation — il n'en attend aucune.
+func TestUnProjetSansSuiviDitNonConfigure(t *testing.T) {
+	handler := NewSyncAdminHandler(&fakeSyncStore{})
 
 	recorder := httptest.NewRecorder()
-	handler.State(recorder, adminRequest(http.MethodGet, "/admin/sync", ""))
+	handler.State(recorder, syncRequest(http.MethodGet, "/projects/mse/sync", ""))
 
 	var response struct {
 		Configured bool `json:"configured"`
@@ -144,10 +173,10 @@ func TestSansCleLEtatDitNonConfigure(t *testing.T) {
 // déplacé : sans cela la nouvelle règle ne vaudrait que pour les demandes modifiées
 // ensuite dans Redmine, et l'écran mélangerait deux règles sans le dire.
 func TestDeclarerUnStatutReappliqueEtRendLeNombreDeplace(t *testing.T) {
-	fake := &fakeSyncStore{moved: 17}
-	handler := NewSyncAdminHandler(fake, true)
+	fake := &fakeSyncStore{tracked: true, moved: 17}
+	handler := NewSyncAdminHandler(fake)
 
-	request := adminRequest(http.MethodPut, "/admin/sync/redmine/mapping/Livr%C3%A9", `{"bucket":"done"}`)
+	request := syncRequest(http.MethodPut, "/projects/mse/sync/redmine/mapping/Livr%C3%A9", `{"bucket":"done"}`)
 	request.SetPathValue("status", "Livré")
 	recorder := httptest.NewRecorder()
 	handler.SetMapping(recorder, request)
@@ -180,9 +209,9 @@ func TestDeclarerUnStatutReappliqueEtRendLeNombreDeplace(t *testing.T) {
 func TestUnSeauInventeEstRefuse(t *testing.T) {
 	for _, bucket := range []string{"", "termine", "DONE", "en-cours"} {
 		fake := &fakeSyncStore{}
-		handler := NewSyncAdminHandler(fake, true)
+		handler := NewSyncAdminHandler(fake)
 
-		request := adminRequest(http.MethodPut, "/admin/sync/redmine/mapping/X", `{"bucket":"`+bucket+`"}`)
+		request := syncRequest(http.MethodPut, "/projects/mse/sync/redmine/mapping/X", `{"bucket":"`+bucket+`"}`)
 		request.SetPathValue("status", "X")
 		recorder := httptest.NewRecorder()
 		handler.SetMapping(recorder, request)
@@ -201,10 +230,10 @@ func TestUnSeauInventeEstRefuse(t *testing.T) {
 // utilisateur qui ne voit rien changer relancerait en boucle.
 func TestLaResynchronisationEffaceLeCurseurEtAnnonceLAttente(t *testing.T) {
 	fake := &fakeSyncStore{}
-	handler := NewSyncAdminHandler(fake, true)
+	handler := NewSyncAdminHandler(fake)
 
 	recorder := httptest.NewRecorder()
-	handler.Resync(recorder, adminRequest(http.MethodPost, "/admin/sync/redmine/resync", ""))
+	handler.Resync(recorder, syncRequest(http.MethodPost, "/projects/mse/sync/redmine/resync", ""))
 
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("code %d", recorder.Code)

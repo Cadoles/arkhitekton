@@ -60,11 +60,13 @@ func TestLamorcageNeSappliqueQuUneFois(t *testing.T) {
 	if report.GrantsApplied != 0 || report.ProjectsApplied != 0 {
 		t.Errorf("rapport = %+v: une étape a été rejouée", report)
 	}
-	// Trois étapes : rôles, dépôts, et le rattachement des suivis — cette
-	// dernière ajoutée après coup, précisément parce qu'une étape déjà réclamée
-	// n'est jamais rejouée.
-	if len(report.Skipped) != 3 {
-		t.Errorf("étapes ignorées = %v, attendu les trois", report.Skipped)
+	// Quatre étapes : rôles, dépôts, le rattachement des suivis, et les réglages
+	// de plugins. Les deux dernières ont été ajoutées après coup, précisément
+	// parce qu'une étape déjà réclamée n'est jamais rejouée : sans elles, un
+	// déploiement en place perdrait silencieusement ce que le code s'est mis à
+	// lire ailleurs.
+	if len(report.Skipped) != 4 {
+		t.Errorf("étapes ignorées = %v, attendu les quatre", report.Skipped)
 	}
 
 	remaining, _ := db.ListProjects(ctx)

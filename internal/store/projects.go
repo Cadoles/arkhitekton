@@ -334,7 +334,11 @@ func SlugFor(repository string) string {
 
 // TrackedProject est un projet et le nom qu'il porte dans son outil de suivi.
 type TrackedProject struct {
-	ID             int64
+	ID int64
+	// Slug nomme le projet côté dashboard. Rendu parce que la synchronisation
+	// journalise et échoue **par projet** depuis qu'il peut y en avoir plusieurs :
+	// un message qui ne dit pas lequel n'aide personne.
+	Slug           string
 	TrackerProject string
 }
 
@@ -344,7 +348,7 @@ type TrackedProject struct {
 // dashboard déduit, et rien d'extérieur ne viendra les confirmer.
 func (db *DB) TrackedProjects(ctx context.Context) ([]TrackedProject, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, tracker_project from projects
+		`select id, slug, tracker_project from projects
 		 where coalesce(trim(tracker_project), '') <> '' order by id`)
 	if err != nil {
 		return nil, fmt.Errorf("projets suivis: %w", err)
@@ -354,7 +358,7 @@ func (db *DB) TrackedProjects(ctx context.Context) ([]TrackedProject, error) {
 	var tracked []TrackedProject
 	for rows.Next() {
 		var entry TrackedProject
-		if err := rows.Scan(&entry.ID, &entry.TrackerProject); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.Slug, &entry.TrackerProject); err != nil {
 			return nil, fmt.Errorf("projets suivis: %w", err)
 		}
 		tracked = append(tracked, entry)

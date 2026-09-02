@@ -112,8 +112,12 @@ export function useVersion(id: string | undefined) {
 }
 
 export type SyncAdmin = {
-  /** Faux sans clé Redmine : l'écran doit dire « non configuré » et non « jamais
-   *  synchronisé », qui ferait chercher une panne. */
+  /** Faux quand le projet ne déclare aucun suivi : l'écran doit dire « non
+   *  configuré » et non « jamais synchronisé », qui ferait chercher une panne.
+   *
+   *  La question porte sur le **projet** et non sur l'instance : la connexion est
+   *  un réglage de plugin, et deux projets n'ont aucune raison de partager un
+   *  suivi — ni même d'en avoir un. */
   configured: boolean
   sync: SyncState
   unmapped: { status_name: string; issues: number }[]
@@ -122,21 +126,25 @@ export type SyncAdmin = {
   mapping: Record<string, Bucket>
 }
 
-export function useSyncAdmin() {
+export function useSyncAdmin(project: string) {
   return useQuery({
-    queryKey: ['admin', 'sync'],
-    queryFn: () => request<SyncAdmin>('/admin/sync'),
+    queryKey: ['projects', project, 'sync'],
+    queryFn: () => request<SyncAdmin>(`/projects/${encodeURIComponent(project)}/sync`),
+    enabled: project !== '',
   })
 }
 
-export function useForceResync() {
+export function useForceResync(project: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: () =>
-      request<{ message: string }>('/admin/sync/redmine/resync', { method: 'POST' }),
+      request<{ message: string }>(
+        `/projects/${encodeURIComponent(project)}/sync/redmine/resync`,
+        { method: 'POST' },
+      ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'sync'] })
+      void queryClient.invalidateQueries({ queryKey: ['projects', project, 'sync'] })
     },
   })
 }
@@ -148,17 +156,17 @@ export function useForceResync() {
  * et rend le nombre déplacé. Sans cela, la nouvelle règle ne vaudrait que pour les
  * demandes modifiées ensuite dans Redmine, et l'écran mélangerait deux règles.
  */
-export function useSetStatusBucket() {
+export function useSetStatusBucket(project: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: ({ status, bucket }: { status: string; bucket: Bucket }) =>
       request<{ issues_moved: number }>(
-        `/admin/sync/redmine/mapping/${encodeURIComponent(status)}`,
+        `/projects/${encodeURIComponent(project)}/sync/redmine/mapping/${encodeURIComponent(status)}`,
         { method: 'PUT', body: JSON.stringify({ bucket }) },
       ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'sync'] })
+      void queryClient.invalidateQueries({ queryKey: ['projects', project, 'sync'] })
       void queryClient.invalidateQueries({ queryKey: ['versions'] })
     },
   })

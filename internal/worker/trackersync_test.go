@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,14 +38,16 @@ func (f *fakeRedmine) ListIssues(_ context.Context, query provider.IssueQuery) (
 }
 
 type fakeRedmineStore struct {
-	versions  []store.TrackedVersion
-	issues    []store.TrackedIssue
-	mapping   map[string]string
-	state     store.SyncState
-	successes []string
-	failures  []string
-	adoptions []store.Adoption
-	adopted   int
+	pluginConfig map[string]string
+	pluginErr    error
+	versions     []store.TrackedVersion
+	issues       []store.TrackedIssue
+	mapping      map[string]string
+	state        store.SyncState
+	successes    []string
+	failures     []string
+	adoptions    []store.Adoption
+	adopted      int
 }
 
 func (f *fakeRedmineStore) UpsertRedmineVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
@@ -66,23 +69,51 @@ func (f *fakeRedmineStore) AdoptPendingVersions(context.Context) ([]store.Adopti
 	return f.adoptions, nil
 }
 
-func (f *fakeRedmineStore) StatusMapping(context.Context) (map[string]string, error) {
+func (f *fakeRedmineStore) StatusMapping(context.Context, int64) (map[string]string, error) {
 	return f.mapping, nil
 }
 
-func (f *fakeRedmineStore) GetSyncState(context.Context, string) (store.SyncState, error) {
+func (f *fakeRedmineStore) GetSyncState(context.Context, string, int64) (store.SyncState, error) {
 	return f.state, nil
 }
 
-func (f *fakeRedmineStore) RecordSyncSuccess(_ context.Context, _, cursor string) error {
+func (f *fakeRedmineStore) RecordSyncSuccess(_ context.Context, _ string, _ int64, cursor string) error {
 	f.successes = append(f.successes, cursor)
 	return nil
 }
 
-func (f *fakeRedmineStore) RecordSyncFailure(_ context.Context, _, message string) error {
+func (f *fakeRedmineStore) RecordSyncFailure(_ context.Context, _ string, _ int64, message string) error {
 	f.failures = append(f.failures, message)
 	return nil
 }
+
+// ResolvedPlugin rend la connexion du projet, clé **scellée** comme en base.
+func (f *fakeRedmineStore) ResolvedPlugin(_ context.Context, _ int64, _ string) (store.PluginSettings, error) {
+	if f.pluginErr != nil {
+		return store.PluginSettings{}, f.pluginErr
+	}
+	config := f.pluginConfig
+	if config == nil {
+		config = map[string]string{
+			"url": "https://redmine.example.fr", "api_key": "scellée", "project": "mse-dev",
+		}
+	}
+	return store.PluginSettings{PluginID: "redmine", Enabled: true, Config: config}, nil
+}
+
+// openerDeTest ouvre en retirant le préfixe de scellement : de quoi vérifier que
+// la valeur descellée est bien celle qui atteint le client, sans faire dépendre
+// ces tests d'un vrai chiffrement.
+type openerDeTest struct{ err error }
+
+func (o openerDeTest) Open(sealed string) (string, error) {
+	if o.err != nil {
+		return "", o.err
+	}
+	return strings.TrimPrefix(sealed, "scellé:"), nil
+}
+
+func (o openerDeTest) Configured() bool { return true }
 
 func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -93,7 +124,8 @@ func newSync(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) *TrackerSy
 	if db.mapping == nil {
 		db.mapping = map[string]string{"En cours": "doing", "Fermé": "done", "Rejeté": "rejected"}
 	}
-	return NewTrackerSync(db, client, "mse-dev", quietLogger()).
+	connect := func(TrackerConnection) (TrackerReader, error) { return client, nil }
+	return NewTrackerSync(db, connect, openerDeTest{}, quietLogger()).
 		WithNormalizer(testNames)
 }
 
@@ -328,5 +360,5 @@ var testNames = release.NewNormalizer([]string{release.DefaultPrefix, "MSE "})
 // TrackedProjects rend le projet suivi de ces tests. Un seul : ils portent sur le
 // rapprochement des versions, pas sur le choix du projet.
 func (f *fakeRedmineStore) TrackedProjects(context.Context) ([]store.TrackedProject, error) {
-	return []store.TrackedProject{{ID: 1, TrackerProject: "mse-dev"}}, nil
+	return []store.TrackedProject{{ID: 1, Slug: "mse", TrackerProject: "mse-dev"}}, nil
 }

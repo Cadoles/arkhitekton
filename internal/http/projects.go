@@ -58,18 +58,6 @@ type ProjectsHandler struct {
 	// répond alors qu'il ne peut pas conclure, ce qui vaut mieux qu'un échec
 	// qu'on prendrait pour un défaut d'accès.
 	prober ProjectProber
-	// deployKey est la clé **partagée**, celle du déploiement, affichée aux
-	// projets qui n'en ont pas encore reçu une propre.
-	//
-	// Elle vient de la configuration. Elle a longtemps été la seule : le
-	// dashboard n'avait pas `secrets` dans sa RBAC, et une clé par projet
-	// aurait demandé de les créer. Le lot G lui accorde ce droit sans lui donner
-	// la lecture, et `keys` pose désormais une clé par projet — celle-ci reste
-	// le repli pour les projets déclarés avant (doc 12 §12.7).
-	deployKey string
-	// keys pose la clé d'un projet dans le cluster. Nil quand le dashboard n'a
-	// pas d'accès au cluster : la déclaration reste alors possible, et le projet
-	// emploie la clé partagée.
 	// deployer sert à refuser un schéma de version qu'il ne saurait pas
 	// acheminer. Nil quand aucun déployeur n'est configuré : tout schéma est
 	// alors acceptable, puisque rien ne promeut.
@@ -97,9 +85,14 @@ func (h *ProjectsHandler) WithProbe(prober ProjectProber) *ProjectsHandler {
 	return h
 }
 
-// WithDeployKey déclare la clé publique à présenter, et la forge par défaut.
-func (h *ProjectsHandler) WithDeployKey(key, forgeURL string) *ProjectsHandler {
-	h.deployKey = strings.TrimSpace(key)
+// WithForgeURL déclare la forge proposée par défaut à la déclaration.
+//
+// Remplace `WithDeployKey`, qui portait aussi la moitié publique d'une clé
+// **partagée** par tous les projets. Elle n'existe plus : chaque projet a la
+// sienne, posée par le worker et activée depuis son écran. Une clé unique ajoutée
+// à plusieurs dépôts faisait de sa révocation une panne pour tout le monde, et ne
+// disait rien de qui clonait quoi.
+func (h *ProjectsHandler) WithForgeURL(forgeURL string) *ProjectsHandler {
 	h.forgeURL = strings.TrimRight(forgeURL, "/")
 	return h
 }
@@ -164,16 +157,19 @@ type projectPayload struct {
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
 	CheckOK   *bool      `json:"check_ok,omitempty"`
 	CheckNote string     `json:"check_note,omitempty"`
-	// DeployKey est la moitié **publique** de la clé propre au projet. Vide quand
-	// il n'en a pas : l'écran affiche alors la clé partagée, en le disant.
+	// DeployKey est la moitié **publique** de la clé propre au projet. Vide tant
+	// que le worker ne l'a pas posée.
 	//
 	// La moitié privée n'apparaît jamais ici, ni ailleurs. Elle est écrite une
 	// fois dans un Secret et n'en ressort plus (doc 07 §7.3).
 	DeployKey          string     `json:"deploy_key,omitempty"`
 	DeployKeyCreatedAt *time.Time `json:"deploy_key_created_at,omitempty"`
-	// DeployKeyActive dit que la clé ouvre vraiment le dépôt. Faux tant que
-	// personne n'a collé la moitié publique dans ses réglages : les pipelines
-	// montent alors la clé partagée, qui elle fonctionne.
+	// DeployKeyActive dit que la clé ouvre vraiment le dépôt : quelqu'un a collé
+	// sa moitié publique dans les réglages du dépôt.
+	//
+	// Faux, **rien ne construit**. Il n'y a plus de clé partagée sur laquelle
+	// retomber : elle faisait de sa révocation une panne pour tous les projets à
+	// la fois, et ne disait rien de qui clonait quoi.
 	DeployKeyActive bool   `json:"deploy_key_active"`
 	CreatedBy       string `json:"created_by"`
 }
@@ -195,12 +191,8 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"projects": payload,
-		// Vide quand la clé n'est pas configurée. L'écran le dit plutôt que
-		// d'afficher un champ vide qu'on prendrait pour une clé absente du
-		// trousseau.
-		"deploy_key": h.deployKey,
-		"forge_url":  h.forgeURL,
+		"projects":  payload,
+		"forge_url": h.forgeURL,
 		// Proposé à la déclaration : c'est là que publient les projets existants.
 		"image_registry": h.imageRegistry,
 		// Le test ne prouve que l'accès **du dashboard**, par jeton et en HTTPS.

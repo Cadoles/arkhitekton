@@ -278,14 +278,20 @@ type SyncState struct {
 	LastError string
 }
 
-// GetSyncState rend l'état d'une source, ou un état vide si elle n'a jamais tourné.
-func (db *DB) GetSyncState(ctx context.Context, source string) (SyncState, error) {
+// GetSyncState rend l'état d'une source pour un projet, ou un état vide si elle
+// n'a jamais tourné.
+//
+// Par projet depuis la migration 0043. Un curseur unique avançait sur le premier
+// projet lu, et le second reprenait depuis un instant où **il** n'avait rien lu :
+// son historique était sauté, définitivement et sans message.
+func (db *DB) GetSyncState(ctx context.Context, source string, projectID int64) (SyncState, error) {
 	state := SyncState{Source: source}
 	var cursor, lastError *string
 
 	err := db.pool.QueryRow(ctx,
-		`select cursor, last_run, last_ok, last_error from sync_state where source = $1`,
-		source).Scan(&cursor, &state.LastRun, &state.LastOK, &lastError)
+		`select cursor, last_run, last_ok, last_error from sync_state
+		 where source = $1 and project_id = $2`,
+		source, projectID).Scan(&cursor, &state.LastRun, &state.LastOK, &lastError)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Jamais synchronisé n'est pas une erreur : c'est l'état au premier
@@ -303,15 +309,15 @@ func (db *DB) GetSyncState(ctx context.Context, source string) (SyncState, error
 	return state, nil
 }
 
-// RecordSyncSuccess avance le curseur et efface l'erreur précédente.
-func (db *DB) RecordSyncSuccess(ctx context.Context, source, cursor string) error {
+// RecordSyncSuccess avance le curseur d'un projet et efface l'erreur précédente.
+func (db *DB) RecordSyncSuccess(ctx context.Context, source string, projectID int64, cursor string) error {
 	_, err := db.pool.Exec(ctx,
-		`insert into sync_state (source, cursor, last_run, last_ok, last_error, updated_at)
-		 values ($1, nullif($2, ''), now(), now(), null, now())
-		 on conflict (source) do update set
+		`insert into sync_state (source, project_id, cursor, last_run, last_ok, last_error, updated_at)
+		 values ($1, $2, nullif($3, ''), now(), now(), null, now())
+		 on conflict (source, project_id) do update set
 		     cursor = excluded.cursor, last_run = excluded.last_run,
 		     last_ok = excluded.last_ok, last_error = null, updated_at = now()`,
-		source, cursor)
+		source, projectID, cursor)
 	if err != nil {
 		return fmt.Errorf("enregistrement de la synchronisation %q: %w", source, err)
 	}
@@ -323,25 +329,27 @@ func (db *DB) RecordSyncSuccess(ctx context.Context, source, cursor string) erro
 // Le curseur est laissé en place à dessein : l'avancer après un échec sauterait la
 // fenêtre non lue, et les demandes modifiées pendant celle-ci ne seraient jamais
 // reprises. Mieux vaut relire deux fois que perdre.
-func (db *DB) RecordSyncFailure(ctx context.Context, source, message string) error {
+func (db *DB) RecordSyncFailure(ctx context.Context, source string, projectID int64, message string) error {
 	_, err := db.pool.Exec(ctx,
-		`insert into sync_state (source, last_run, last_error, updated_at)
-		 values ($1, now(), $2, now())
-		 on conflict (source) do update set
+		`insert into sync_state (source, project_id, last_run, last_error, updated_at)
+		 values ($1, $2, now(), $3, now())
+		 on conflict (source, project_id) do update set
 		     last_run = excluded.last_run, last_error = excluded.last_error,
 		     updated_at = now()`,
-		source, message)
+		source, projectID, message)
 	if err != nil {
 		return fmt.Errorf("enregistrement de l'échec de synchronisation %q: %w", source, err)
 	}
 	return nil
 }
 
-// ResetSyncCursor efface le curseur pour forcer une lecture complète.
-func (db *DB) ResetSyncCursor(ctx context.Context, source string) error {
+// ResetSyncCursor efface le curseur d'un projet pour forcer une lecture complète.
+func (db *DB) ResetSyncCursor(ctx context.Context, source string, projectID int64) error {
 	_, err := db.pool.Exec(ctx,
-		`insert into sync_state (source, cursor, updated_at) values ($1, null, now())
-		 on conflict (source) do update set cursor = null, updated_at = now()`, source)
+		`insert into sync_state (source, project_id, cursor, updated_at)
+		 values ($1, $2, null, now())
+		 on conflict (source, project_id) do update set cursor = null, updated_at = now()`,
+		source, projectID)
 	if err != nil {
 		return fmt.Errorf("réinitialisation du curseur %q: %w", source, err)
 	}

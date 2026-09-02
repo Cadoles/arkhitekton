@@ -471,6 +471,12 @@ type JobReleaseContext struct {
 	// construit. Le commit prime : la branche a pu bouger depuis le build (B17).
 	GitRef    string
 	GitCommit string
+	// ProjectID est le dépôt de la release.
+	//
+	// Rendu parce que les vérifications enchaînées **clonent** elles aussi : sans
+	// lui, elles partaient sans projet et montaient le secret du déploiement, ce
+	// qui annulait la séparation des clés pour la moitié des runs d'une release.
+	ProjectID int64
 }
 
 // ErrJobWithoutRelease signale un job qui ne porte aucune release.
@@ -488,11 +494,11 @@ func (db *DB) JobRelease(ctx context.Context, jobID int64) (JobReleaseContext, e
 	var entry JobReleaseContext
 	err := db.pool.QueryRow(ctx,
 		`select j.kind, r.id, r.tag, r.state,
-		        coalesce(r.git_ref, ''), coalesce(r.git_commit, '')
+		        coalesce(r.git_ref, ''), coalesce(r.git_commit, ''), r.project_id
 		 from jobs j join releases r on r.id = j.release_id
 		 where j.id = $1`, jobID).
 		Scan(&entry.Kind, &entry.ReleaseID, &entry.Tag, &entry.State,
-			&entry.GitRef, &entry.GitCommit)
+			&entry.GitRef, &entry.GitCommit, &entry.ProjectID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return JobReleaseContext{}, ErrJobWithoutRelease

@@ -13,9 +13,16 @@ import { EnvironmentScreen } from './features/environments/EnvironmentScreen'
 import { ReleasesScreen } from './features/releases/ReleasesScreen'
 import { ReleaseScreen } from './features/releases/ReleaseScreen'
 import { AdminLayout } from './features/admin/AdminLayout'
-import { SyncPanel } from './features/admin/SyncPanel'
 import { UsersScreen } from './features/admin/UsersScreen'
 import { ProjectsScreen } from './features/admin/ProjectsScreen'
+import { ProjectLayout } from './features/admin/ProjectLayout'
+import {
+  ProjectGeneralScreen,
+  ProjectPipelinesScreen,
+  ProjectPluginsScreen,
+  ProjectSyncScreen,
+} from './features/admin/ProjectTabs'
+import { PluginsScreen } from './features/admin/PluginsScreen'
 import { AuditScreen } from './features/admin/AuditScreen'
 import { VersionsScreen } from './features/versions/VersionsScreen'
 
@@ -102,18 +109,36 @@ export const routes: RouteObject[] = [
       { path: 'queue', element: <Navigate to="/runs/queue" replace /> },
 
       /*
-       * Trois sujets sous une coquille commune : la synchronisation Redmine, les
-       * rôles, le journal d'audit. Ils n'ont ni la même fréquence de consultation
-       * ni le même lecteur, et empilés ils faisaient une page qu'on parcourait au
-       * lieu de la lire.
+       * L'administration, sous une coquille commune : les projets, les plugins de
+       * l'instance, les rôles, le journal d'audit. Ces sujets n'ont ni la même
+       * fréquence de consultation ni le même lecteur, et empilés ils faisaient une
+       * page qu'on parcourait au lieu de la lire.
+       *
+       * Chaque projet a sa page, avec ses propres sous-onglets : ses paramètres,
+       * ses plugins, ses pipelines, l'état de son suivi. C'est la conséquence de
+       * ce que les plugins servent d'abord les spécificités d'un projet — les
+       * régler ailleurs qu'auprès de lui ferait chercher au mauvais endroit.
        */
       {
         path: 'admin',
         element: <AdminLayout />,
         children: [
-          { index: true, element: <SyncPanel /> },
+          { index: true, element: <ProjectsScreen /> },
+          { path: 'plugins', element: <PluginsScreen /> },
           { path: 'users', element: <UsersScreen /> },
+          // Conservée : l'onglet Projets était à cette adresse, et les liens
+          // partagés ne se corrigent pas d'eux-mêmes.
           { path: 'projects', element: <ProjectsScreen /> },
+          {
+            path: 'projects/:slug',
+            element: <ProjectLayout />,
+            children: [
+              { index: true, element: <ProjectGeneralScreen /> },
+              { path: 'plugins', element: <ProjectPluginsScreen /> },
+              { path: 'pipelines', element: <ProjectPipelinesScreen /> },
+              { path: 'sync', element: <ProjectSyncScreen /> },
+            ],
+          },
           { path: 'logs', element: <AuditScreen /> },
         ],
       },

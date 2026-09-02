@@ -71,7 +71,7 @@ func TestUneVersionProvisoireEstAdopteeParLaVersionReelle(t *testing.T) {
 	}
 
 	// La provisoire a disparu, et la release a suivi.
-	pendings, err := db.PendingVersions(ctx)
+	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestUneVersionCloseHomonymeNeBloquePasLAdoption(t *testing.T) {
 	}
 
 	// La provisoire a disparu et la release suit la version ouverte.
-	pendings, err := db.PendingVersions(ctx)
+	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestDeuxVersionsActivesHomonymesRestentIndecidables(t *testing.T) {
 	}
 
 	// La provisoire subsiste, donc reste signalée.
-	pendings, err := db.PendingVersions(ctx)
+	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestDeuxVersionsActivesHomonymesRestentIndecidables(t *testing.T) {
 		t.Errorf("provisoires: %v", pendings)
 	}
 
-	ambiguous, err := db.AmbiguousVersions(ctx)
+	ambiguous, err := db.AmbiguousVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("ambiguïtés: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestUneProvisoireSansCorrespondanceResteSignalee(t *testing.T) {
 		t.Errorf("aucune adoption attendue: %+v", report)
 	}
 
-	pendings, err := db.PendingVersions(ctx)
+	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestUnStatutNonProjeteSeSignale(t *testing.T) {
 	redmineVersion(t, db, 805, "v3.2.0", "open")
 	issueOf(t, db, 1, 805, "Évolution", "Statut Inédit", "todo", 0, false)
 
-	unmapped, err := db.UnmappedStatuses(ctx)
+	unmapped, err := db.UnmappedStatuses(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("statuts non projetés: %v", err)
 	}
@@ -341,10 +341,10 @@ func TestUnStatutNonProjeteSeSignale(t *testing.T) {
 	}
 
 	// Une fois déclaré, il disparaît de la liste et la réapplication le déplace.
-	if err := db.SetStatusBucket(ctx, "Statut Inédit", "done"); err != nil {
+	if err := db.SetStatusBucket(ctx, testProjectID, "Statut Inédit", "done"); err != nil {
 		t.Fatalf("projection: %v", err)
 	}
-	moved, err := db.ReprojectIssues(ctx)
+	moved, err := db.ReprojectIssues(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("réapplication: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestUnStatutNonProjeteSeSignale(t *testing.T) {
 func TestLesStatutsDeLInstanceSontTousProjetes(t *testing.T) {
 	db := migrated(t)
 
-	mapping, err := db.StatusMapping(context.Background())
+	mapping, err := db.StatusMapping(context.Background(), testProjectID)
 	if err != nil {
 		t.Fatalf("projection: %v", err)
 	}
@@ -403,14 +403,14 @@ func TestUnEchecNAvancePasLeCurseur(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	if err := db.RecordSyncSuccess(ctx, "redmine", "2026-08-01T00:00:00Z"); err != nil {
+	if err := db.RecordSyncSuccess(ctx, "redmine", testProjectID, "2026-08-01T00:00:00Z"); err != nil {
 		t.Fatalf("succès: %v", err)
 	}
-	if err := db.RecordSyncFailure(ctx, "redmine", "Redmine injoignable"); err != nil {
+	if err := db.RecordSyncFailure(ctx, "redmine", testProjectID, "Redmine injoignable"); err != nil {
 		t.Fatalf("échec: %v", err)
 	}
 
-	state, err := db.GetSyncState(ctx, "redmine")
+	state, err := db.GetSyncState(ctx, "redmine", testProjectID)
 	if err != nil {
 		t.Fatalf("état: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestUnEchecNAvancePasLeCurseur(t *testing.T) {
 func TestUneSourceJamaisSynchroniseeRendUnEtatVide(t *testing.T) {
 	db := migrated(t)
 
-	state, err := db.GetSyncState(context.Background(), "redmine")
+	state, err := db.GetSyncState(context.Background(), "redmine", testProjectID)
 	if err != nil {
 		t.Fatalf("état: %v", err)
 	}
@@ -639,7 +639,7 @@ func TestEnsureVersionRattacheAUneVersionReelleParNomNormalise(t *testing.T) {
 	}
 
 	// Aucune provisoire ne doit être née de ce rattachement.
-	pendings, err := db.PendingVersions(ctx)
+	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
 	}
@@ -681,7 +681,7 @@ func TestEnsureVersionRetombeSurUneProvisoireQuandCestIndecidable(t *testing.T) 
 		t.Fatalf("rattachement: %v", err)
 	}
 
-	pendings, err := db.PendingVersions(ctx)
+	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
 	}
