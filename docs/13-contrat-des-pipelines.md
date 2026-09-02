@@ -27,6 +27,27 @@ Un pipeline parle au dashboard par quatre canaux, et rien d'autre.
 Aucun autre chemin n'existe. Un pipeline n'appelle pas l'API du dashboard, ne connaît pas
 sa base, et n'a pas besoin d'identifiants pour publier ([B14]).
 
+### Ce que le pipeline annonce produire
+
+Les quatre canaux disent **par où** un pipeline parle. Le catalogue dit **ce qu'il en
+sortira**, par une déclaration `produit` — une liste, parce qu'un pipeline qui construit
+puis teste rend les deux :
+
+| Produit | Ce que le dashboard en attend |
+|---|---|
+| `image` | des images publiées, dont il lit les digests |
+| `résultats` | des rapports conformes à §13.3 et §13.4 : familles, marqueurs, artefacts |
+| `aucun` | rien d'autre que le statut Tekton |
+
+**C'est ce qui rend ce contrat vérifiable.** Sans la déclaration, un pipeline qui n'honore
+pas §13.4 produit un écran vide et rien n'en dit la cause — le mode de défaillance que
+§13.9 nomme. Avec elle, l'écart entre ce qui est annoncé et ce qui est publié devient une
+rupture de contrat que le dashboard peut désigner.
+
+La déclaration remplace le drapeau `verification`, qui disait deux choses à la fois :
+« enchaîné après une construction » et « relançable seul ». La première devient une affaire
+de plan déclaré (doc 14 §14.3) ; la seconde n'était qu'une conséquence du produit.
+
 ---
 
 ## 13.2 Paramètres
@@ -415,3 +436,17 @@ le flux d'événements — un travail de diffusion, distinct de celui d'ingestio
 [B14]: 02-blocages-et-decisions.md#b14
 [B17]: 02-blocages-et-decisions.md#b17
 [P10]: 10-prerequis-mse-tekton.md
+
+### Le catalogue ne dit pas encore ce qu'un pipeline produit
+
+`produit` est décrit en §13.1 et n'existe pas encore dans le schéma du catalogue, qui porte
+à sa place `verification: bool`. La déclaration est la première tranche du chantier de
+doc 14, et jusqu'à ce qu'elle soit posée, la vérifiabilité annoncée en §13.1 reste une
+intention.
+
+Le catalogue en service contient déjà la ligne qui montre pourquoi elle est nécessaire :
+`e2e-tests` déclare trois artefacts et `verification: false`. Le drapeau y dit « non » parce
+qu'il exprime l'enchaînement — une campagne E2E vise un environnement partagé et ne part pas
+d'office après une construction — pendant que l'ingestion, elle, se fie aux `uploads`
+déclarés. Deux axes indépendants dont un seul est nommé, et la ligne où ils divergent est
+déjà en production.

@@ -183,6 +183,93 @@ Un plugin de messagerie déclarerait ainsi `mattermost.post` avec un champ `cana
 hériterait sans rien écrire de la configuration par projet, du scellement des secrets et de
 la validation des champs.
 
+### Ce qu'un pipeline produit
+
+Un geste de type pipeline ne dit encore rien de ce qui en sortira. Or un pipeline de
+construction publie des **images**, un pipeline de test publie des **résultats formalisés**
+selon le contrat de doc 13 — et ces deux issues ne se lisent, ne se rattachent ni ne
+s'affichent de la même façon.
+
+#### Le mot « famille » n'est pas libre
+
+Il désigne déjà, dans doc 13 et dans tout le code, une **famille de résultats de tests** :
+`unit`, `static`, `e2e`, `load`, `security`, `integration`. S'en resservir pour classer les
+pipelines produirait deux sens du même mot à un niveau d'écart, et la confusion serait
+permanente.
+
+La déclaration porte donc sur le **produit** : ce que le pipeline laisse derrière lui.
+C'est plus juste que de le classer, d'ailleurs — un pipeline qui construit *et* teste
+n'entre dans aucune catégorie, mais rend parfaitement compte de ses deux produits.
+
+| Produit | Ce que le dashboard en fait |
+|---|---|
+| `image` | lit les digests publiés, les rattache à la release, autorise le re-tag |
+| `résultats` | lit les rapports selon doc 13 : familles, marqueurs, artefacts pré-signés |
+| `aucun` | ne retient que le verdict — un déploiement, une migration, un nettoyage |
+
+`produit` est une **liste**, pas une valeur. Un pipeline qui construit une image puis lance
+ses tests unitaires dans la foulée déclare les deux, et n'a pas à être coupé en deux pour
+entrer dans le modèle.
+
+#### Ce que cela remplace, et non ce que cela double
+
+Le catalogue porte aujourd'hui `verification: bool`, dont le commentaire dit deux choses :
+« une construction réussie enchaîne ce pipeline » **et** « il est relançable seul depuis
+l'écran d'une release ». Deux propriétés, un booléen.
+
+Doc 14 en emporte la première : l'enchaînement devient un **plan**, déclaré. Ne reste que la
+seconde, qui n'est pas une propriété d'enchaînement mais de produit — on relance seul ce
+dont on veut relire les résultats.
+
+**Le catalogue réel montre déjà la fêlure.** Sept types y sont déclarés ; six publient
+quelque chose ; et l'un d'eux dément le drapeau :
+
+| kind | `verification` | publie des rapports |
+|---|---|---|
+| `build` | non | non |
+| `retag` | non | non |
+| `unit-tests` | oui | oui |
+| `static-tests` | oui | oui |
+| `integration-tests` | oui | oui |
+| `security-audit` | oui | oui |
+| **`e2e-tests`** | **non** | **oui** |
+
+`e2e-tests` publie trois artefacts et n'est pas une « vérification ». Le drapeau y dit
+« non » parce qu'il exprime *l'enchaînement* — une campagne E2E s'exécute contre un
+environnement partagé, elle ne part pas d'office après un build —, pendant que l'ingestion,
+elle, se fie aux `uploads` déclarés. Deux axes indépendants, dont un seul est nommé : la
+ligne où ils divergent existe déjà, dans le déploiement en service.
+
+#### Ce que la déclaration achète
+
+**Le contrat de doc 13 devient vérifiable.** Doc 12 §12.6 le disait sans pouvoir y remédier :
+« un pipeline qui ne l'honore pas produit un écran vide, et rien ne dira pourquoi ». Un
+pipeline qui déclare `résultats` et n'en publie aucun est désormais en **rupture de
+contrat**, nommable et signalable — au lieu d'un écran vide qu'on met une demi-journée à
+diagnostiquer.
+
+**Les faits sont typés.** `pipeline.finished` ne porte pas la même charge selon le produit :
+des digests d'un côté, des familles et un score de l'autre. Sans la déclaration, l'éditeur
+de réaction ne saurait pas quoi proposer d'apparier, et un gabarit interpolerait une clé
+absente.
+
+**Un plan se valide.** « Ces gestes construisent, ceux-là vérifient » cesse d'être une
+convention de nommage — `*-tests` — pour devenir une propriété lue. Un plan qui attend des
+résultats d'un pipeline qui n'en produit pas est refusé à l'enregistrement.
+
+**L'interface groupe.** Le catalogue et les pipelines activés par projet se rangent par ce
+qu'ils font, plutôt que par l'ordre du fichier.
+
+#### La migration
+
+Le défaut se déduit sans rien casser : `verification: true` vaut `produit: [résultats]`,
+et le type `build` — la seule constante en dur de l'ordonnanceur, `buildJobKind` — vaut
+`produit: [image]`. Le reste vaut `[aucun]`.
+
+Restent deux cas que la déduction ne couvre pas, et c'est très bien qu'ils se voient :
+`e2e-tests`, dont le produit est `résultats` malgré son drapeau, et `retag`, qui produit une
+image sans être une construction. Les corriger est une ligne de catalogue chacun.
+
 ---
 
 ## 14.4 D'où viennent les faits d'un plugin
@@ -549,10 +636,20 @@ et ce sont deux corrections différentes.
 
 ## 14.11 Le découpage
 
-Six tranches. Chacune se termine sur quelque chose de vérifiable, et la troisième est le
+Sept tranches. Chacune se termine sur quelque chose de vérifiable, et la quatrième est le
 point de non-retour.
 
-### Tranche 1 — Les faits, sans personne pour les écouter
+### Tranche 1 — Ce que les pipelines produisent
+
+`produit` dans le catalogue, la déduction depuis `verification`, et les deux corrections
+qu'elle laisse voir — `e2e-tests` et `retag`.
+
+Elle vient en premier parce que tout le reste s'y adosse : un fait `pipeline.finished` ne
+porte pas la même charge selon le produit, et l'écrire avant de savoir le distinguer
+obligerait à y revenir. Elle se livre seule, sans rien changer au comportement, et rend déjà
+service — la rupture du contrat de doc 13 devient signalable.
+
+### Tranche 2 — Les faits, sans personne pour les écouter
 
 Émettre les six événements, les persister, les afficher. **Aucun comportement ne change.**
 
@@ -560,7 +657,7 @@ Livrable pauvre en apparence, décisif en réalité : il éprouve que les points
 les bons et que la déduplication tient à travers un redémarrage du worker. On les découvre
 faux ici, où la correction ne coûte rien, plutôt qu'après avoir écrit un éditeur.
 
-### Tranche 2 — Le moteur, et la preuve
+### Tranche 3 — Le moteur, et la preuve
 
 `internal/plan`, la boucle du worker, l'enfilement des gestes de type pipeline.
 
@@ -572,7 +669,7 @@ réécrits pour l'occasion.
 Si cette tranche n'aboutit pas, le modèle est trop pauvre. On l'apprend avant d'avoir écrit
 une ligne d'interface, et c'est tout l'intérêt de l'ordre choisi.
 
-### Tranche 3 — Les actions sortantes
+### Tranche 4 — Les actions sortantes
 
 `webhook`, `forge.status`, `forge.comment`, et le transport à cible contrôlée avec ses
 tests — y compris ceux qui vérifient qu'une adresse de métadonnées cloud et une redirection
@@ -581,7 +678,7 @@ sont refusées.
 C'est la tranche qui fait sortir des requêtes du cluster au nom de l'instance. Elle ne part
 pas avant que la précédente soit tenue.
 
-### Tranche 4 — Les sondes, et les faits de plugin
+### Tranche 5 — Les sondes, et les faits de plugin
 
 Le contrat de sonde, sa boucle, et la sonde `gitea.pull_request.opened` — celle qui a motivé
 la demande.
@@ -595,7 +692,7 @@ La synchronisation du suivi devient la seconde sonde — ou ne le devient pas, e
 reste alors calqué sur une seule réalisation. Le §14.4 dit pourquoi c'est un compromis et
 non un détail d'ordonnancement.
 
-### Tranche 5 — L'interface
+### Tranche 6 — L'interface
 
 L'éditeur structuré, la vue des exécutions, le fil des faits.
 
@@ -603,29 +700,29 @@ Elle vient après les sondes, et non avant : un éditeur écrit sur les seuls fa
 n'aurait pas à afficher de types préfixés, ni de charge déclarée par un tiers, ni de fait
 dont le plugin est éteint. Il faudrait le reprendre.
 
-### Tranche 6 — Les actions de plugin
+### Tranche 7 — Les actions de plugin
 
 Le registre s'ouvre dans l'autre sens. Rien ne l'exige avant qu'un plugin réel ait une action
 à fournir : l'écrire d'avance produirait un point d'extension calqué sur les trois actions
 internes, qu'on croirait général (§12.4).
 
-**Les faits de plugin, eux, sont en tranche 4 et non ici** — ils sont la moitié qui a été
+**Les faits de plugin, eux, sont en tranche 5 et non ici** — ils sont la moitié qui a été
 demandée, et celle sans laquelle les causes resteraient figées.
 
 ---
 
 ## 14.12 Ce que ce chantier coûte
 
-**Version longue retenue.** Six tranches, deux boucles de worker, un éditeur de graphe
+**Version longue retenue.** Sept tranches, deux boucles de worker, un éditeur de graphe
 simplifié, une surface sortante à sécuriser, et un contrat de sonde. Le dire d'emblée est
-plus utile que de le découvrir à la quatrième.
+plus utile que de le découvrir à la cinquième.
 
 Deux tranches sont des **portes** plutôt que des livraisons, et il faut les traiter comme
 telles :
 
-- la **tranche 2** décide si le modèle de plan tient : si la chaîne de vérification n'y
+- la **tranche 3** décide si le modèle de plan tient : si la chaîne de vérification n'y
   entre pas, on s'arrête et on révise, avant toute interface ;
-- la **tranche 4** décide si le contrat de sonde tient : si la sonde Gitea ne s'y coule pas
+- la **tranche 5** décide si le contrat de sonde tient : si la sonde Gitea ne s'y coule pas
   sans le tordre, c'est que le contrat a été écrit trop tôt.
 
 Le reste est du travail ordinaire, et son coût est proportionné à ce qu'il livre.
@@ -643,6 +740,7 @@ n'est fermé pour toujours.
 |---|---|---|
 | 1 | Version longue ou courte ? | **longue** — tranché |
 | 2 | Les plugins déclarent-ils leurs propres faits ? | **oui** — tranché ; par sonde, types préfixés, charge déclarée (§14.4) |
+| 2 bis | Comment classer les pipelines ? | par leur **produit**, en liste — `image`, `résultats`, `aucun`. « Famille » est déjà pris par les résultats de tests (§14.3) |
 | 3 | Les actions internes écrivent-elles dans le suivi ? | **non** en l'état : ouvrir le transport Redmine est une décision à part |
 | 4 | Les plans peuvent-ils écrire l'état d'une release ? | **non**, et c'est structurel (§14.5) |
 | 5 | Le déploiement autorise-t-il des cibles de webhook privées ? | par une variable explicite, refusé par défaut |
