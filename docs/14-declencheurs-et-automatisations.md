@@ -506,6 +506,26 @@ Une réaction qui veut refléter l'issue s'écrit donc avec un **état en dur** 
 **appariement sur `outcome`** : deux réactions, une par issue. Le modèle sait déjà le faire,
 et l'aide du champ le dit maintenant.
 
+##### Puis sur la vraie forge
+
+La correction faite, le geste a été repassé sur `forge.cadoles.com`, dépôt privé
+`vcarroy/mse-test-project`, commit `c1f8f8cd` — sur autorisation explicite, un statut ne se
+retirant pas :
+
+```
+contexte    mse-dashboard/verification-live
+état        success
+description Release verification-live-2026-09-03 construite
+```
+
+Relu par l'API, hors du test qui l'a posé. Le contexte et le tag sont surchargeables par
+l'environnement pour cette raison : sur une forge jetable ils peuvent ressembler à un vrai
+contrôle, sur un dépôt réel ils doivent s'annoncer comme une vérification plutôt que de se
+faire passer pour un verdict de CI que personne n'a demandé.
+
+Le jeton de déploiement porte donc bien `write:repository` — ce que rien n'avait établi
+jusque-là.
+
 `make test-live` rejoue l'ensemble. Les vérifications de boucle demandent en plus un
 `TEST_DATABASE_URL` **jetable** : elles remettent le schéma à zéro.
 

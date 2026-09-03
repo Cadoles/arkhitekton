@@ -134,7 +134,19 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 		t.Fatalf("plugin du projet: %v", err)
 	}
 
-	const contexte = "mse-dashboard/vérifications"
+	// Le contexte et le tag sont surchargeables. Sur une forge jetable ils peuvent
+	// ressembler à un vrai contrôle ; sur un dépôt réel, un statut ne se retire
+	// pas, et il doit s'annoncer pour ce qu'il est — une vérification — plutôt que
+	// de se faire passer pour un verdict de CI que personne n'a demandé.
+	contexte := os.Getenv("GITEA_STATUS_CONTEXT")
+	if contexte == "" {
+		contexte = "mse-dashboard/vérifications"
+	}
+	tag := os.Getenv("GITEA_STATUS_TAG")
+	if tag == "" {
+		tag = "1.8.0-rc1"
+	}
+
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Statut sur construction conclue",
 		EventType: string(event.ReleaseBuilt), Enabled: true,
@@ -171,7 +183,7 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 	// faits a déjà été éprouvée par la sonde, et la refaire ici lierait ce test à
 	// la disponibilité de Redmine.
 	fait := event.ReleaseBuiltAt(time.Now().UTC(), projectID, 42, 900,
-		"1.8.0-rc1", event.Succeeded, commit)
+		tag, event.Succeeded, commit)
 	neuf, err := db.RecordEvent(ctx, fait)
 	if err != nil {
 		t.Fatalf("écriture du fait: %v", err)
@@ -218,10 +230,10 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 	if pose.State != "success" {
 		t.Errorf("état %q, attendu success", pose.State)
 	}
-	if !strings.Contains(pose.Description, "1.8.0-rc1") {
+	if !strings.Contains(pose.Description, tag) {
 		t.Errorf("description %q — elle doit porter le tag interpolé", pose.Description)
 	}
-	if !strings.Contains(pose.TargetURL, "1.8.0-rc1") {
+	if !strings.Contains(pose.TargetURL, tag) {
 		t.Errorf("lien %q — il doit porter le tag interpolé", pose.TargetURL)
 	}
 	t.Logf("statut relu sur %s: %s / %s — %q",
