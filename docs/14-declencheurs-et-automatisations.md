@@ -436,8 +436,36 @@ aiguillage débranché — « rien ne part » se démontre trop facilement quand
 partir. Effacer un fait déjà constaté place la base dans l'état exact où elle serait si cette
 version venait d'être déclarée : la passe suivante le voit neuf, et déclenche.
 
-`make test-live` rejoue les deux vérifications. Celle de la boucle demande en plus un
-`TEST_DATABASE_URL` **jetable** : elle remet le schéma à zéro.
+#### L'appel sortant, pour de vrai
+
+Le dernier maillon a suivi : un fait Redmine réel déclenche une réaction dont le geste
+`webhook` **part effectivement**, vers un récepteur local monté par le test. La chaîne est
+entière — vrai PostgreSQL, vrais faits, vrai transport, vrai TCP — et rien ne quitte la
+machine. Viser une messagerie d'équipe ferait publier des noms de version chez un tiers pour
+prouver une propriété qui se prouve ici.
+
+Ce que l'appel reçu établit :
+
+- le gabarit est **lié** — `{"version":"{name}"}` est arrivé en `{"version":"MSE3-1.5"}` ;
+- le jeton **désigné** est descellé et posé en en-tête ;
+- il n'est **nulle part dans le corps**. C'est §14.7 rendue observable : un champ sensible
+  est désigné, jamais interpolé ;
+- l'exécution et son geste concluent en `succeeded`.
+
+**Les deux garde-fous du transport sont éprouvés séparément**, et il le fallait : ils ne
+protègent pas de la même chose, et le premier masque le second quand on les laisse ensemble.
+
+| Réglage | Refus obtenu |
+|---|---|
+| défaut de production | `cible en clair: http://… — la charge et son jeton traverseraient le réseau en clair` |
+| clair autorisé, cible privée non | `cible refusée: 127.0.0.1 (boucle locale)` |
+
+Le second est celui qui compte : il juge l'**adresse résolue**, et c'est la défense contre la
+falsification de requête côté serveur. Un test qui aurait laissé les deux gardes en place
+aurait conclu « refusé » sans jamais l'atteindre.
+
+`make test-live` rejoue l'ensemble. Les vérifications de boucle demandent en plus un
+`TEST_DATABASE_URL` **jetable** : elles remettent le schéma à zéro.
 
 #### Ce que le contrat a absorbé sans se tordre
 

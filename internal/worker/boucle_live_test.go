@@ -2,7 +2,14 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +19,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/secrets"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/webhook"
 )
 
 /*
@@ -97,9 +105,18 @@ func (g *gesteCompteur) Run(
 	return nil, nil
 }
 
-// TestLiveLaBoucleCompleteSurUneVraieBase fait tourner sonde, base et aiguillage
-// ensemble.
-func TestLiveLaBoucleCompleteSurUneVraieBase(t *testing.T) {
+// harnais porte ce qu'un test de bout en bout doit monter.
+type harnais struct {
+	db             *store.DB
+	cipher         *secrets.Cipher
+	projectID      int64
+	trackerProject string
+	sonde          Probe
+}
+
+// monterHarnais assemble base, projet, plugin et sonde comme le ferait `main`.
+func monterHarnais(t *testing.T) harnais {
+	t.Helper()
 	if os.Getenv("REDMINE_LIVE") != "1" {
 		t.Skip("REDMINE_LIVE non défini: vérification contre l'instance réelle ignorée")
 	}
@@ -148,6 +165,26 @@ func TestLiveLaBoucleCompleteSurUneVraieBase(t *testing.T) {
 		t.Fatalf("réglages du projet: %v", err)
 	}
 
+	sonde := NewRedmineProbe(NewTrackerSync(db,
+		func(connection TrackerConnection) (TrackerReader, error) {
+			return redmine.New(redmine.Options{
+				URL: connection.URL, APIKey: connection.APIKey, Timeout: 30 * time.Second,
+			})
+		}, quietLogger()))
+
+	return harnais{
+		db: db, cipher: cipher, projectID: projectID,
+		trackerProject: trackerProject, sonde: sonde,
+	}
+}
+
+// TestLiveLaBoucleCompleteSurUneVraieBase fait tourner sonde, base et aiguillage
+// ensemble.
+func TestLiveLaBoucleCompleteSurUneVraieBase(t *testing.T) {
+	h := monterHarnais(t)
+	ctx := context.Background()
+	db, projectID, sonde := h.db, h.projectID, h.sonde
+
 	// Une réaction sur les versions déclarées. C'est elle qui aurait tiré vingt
 	// fois si l'amorçage avait jeté ses faits.
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
@@ -164,14 +201,7 @@ func TestLiveLaBoucleCompleteSurUneVraieBase(t *testing.T) {
 	engine := NewEngine(db, compteur, quietLogger())
 	dispatcher := NewDispatcher(db, engine, quietLogger())
 
-	sonde := NewRedmineProbe(NewTrackerSync(db,
-		func(connection TrackerConnection) (TrackerReader, error) {
-			return redmine.New(redmine.Options{
-				URL: connection.URL, APIKey: connection.APIKey, Timeout: 30 * time.Second,
-			})
-		}, quietLogger()))
-
-	runner := NewProbeRunner(db, cipher, time.Minute, quietLogger(), sonde).
+	runner := NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), sonde).
 		WithDispatcher(dispatcher)
 
 	/*
@@ -278,3 +308,300 @@ func oublier(t *testing.T, db *store.DB, factType string) {
 // cleDeChiffrementDeTest scelle la clé d'API le temps du test. Sans valeur en
 // dehors : elle est régénérée à chaque exécution du schéma.
 const cleDeChiffrementDeTest = "sN0Xk1t2Qv8yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sQ="
+
+/*
+ * Un appel sortant qui part vraiment.
+ *
+ * # Où il va, et pourquoi pas ailleurs
+ *
+ * Vers un récepteur local, monté par le test. La chaîne est entière — vrai
+ * PostgreSQL, vrais faits Redmine, vrai `webhook.Client`, vrai TCP, vraie
+ * réponse — mais **rien ne quitte la machine**. Viser une messagerie d'équipe ou
+ * un service public ferait publier des noms de version chez un tiers pour prouver
+ * une propriété qui se prouve ici.
+ *
+ * Conséquence assumée : le transport tourne avec `AllowPrivate` et
+ * `AllowInsecure`, sans quoi il refuserait la boucle locale. Le second cas de ce
+ * test remet le garde-fou à son défaut et vérifie qu'il refuse — les deux moitiés
+ * comptent.
+ */
+
+// recepteur retient l'appel qu'il reçoit.
+type recepteur struct {
+	server  *httptest.Server
+	mu      sync.Mutex
+	appels  int
+	methode string
+	typeMIM string
+	auth    string
+	corps   string
+}
+
+func nouveauRecepteur(t *testing.T) *recepteur {
+	t.Helper()
+	r := &recepteur{}
+	r.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		corps, _ := io.ReadAll(req.Body)
+		r.mu.Lock()
+		r.appels++
+		r.methode = req.Method
+		r.typeMIM = req.Header.Get("Content-Type")
+		r.auth = req.Header.Get("Authorization")
+		r.corps = string(corps)
+		r.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(r.server.Close)
+	return r
+}
+
+func (r *recepteur) vu() (int, string, string, string, string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.appels, r.methode, r.typeMIM, r.auth, r.corps
+}
+
+// resolveurDeTest ouvre un champ sensible désigné, comme le fait `main`.
+type resolveurDeTest struct {
+	db     *store.DB
+	cipher *secrets.Cipher
+}
+
+func (r resolveurDeTest) ResolveSecret(
+	ctx context.Context, projectID *int64, reference string,
+) (string, error) {
+	pluginID, field, found := strings.Cut(reference, ".")
+	if !found || projectID == nil {
+		return "", fmt.Errorf("désignation %q invalide", reference)
+	}
+	settings, err := r.db.ResolvedPlugin(ctx, *projectID, pluginID)
+	if err != nil {
+		return "", err
+	}
+	return r.cipher.Open(settings.Config[field])
+}
+
+// jetonFabrique n'est le secret de personne : il sert à vérifier qu'un jeton
+// **désigné** est descellé, posé en en-tête, et n'atteint jamais le corps.
+const jetonFabrique = "jeton-fabrique-pour-ce-test-uniquement"
+
+func TestLiveUnAppelSortantPartVraiment(t *testing.T) {
+	h := monterHarnais(t)
+	ctx := context.Background()
+	db, projectID, sonde := h.db, h.projectID, h.sonde
+
+	// Un plugin qui porte un champ sensible, avec une valeur fabriquée. C'est le
+	// jeton que le geste **désignera** — jamais une clé réelle : la faire sortir
+	// vers un serveur de test serait exactement ce que la règle interdit.
+	scelle, err := h.cipher.Seal(jetonFabrique)
+	if err != nil {
+		t.Fatalf("scellement du jeton: %v", err)
+	}
+	if err := db.SetPluginSettings(ctx, store.PluginSettings{
+		PluginID: "gitea", Enabled: true,
+		Config: map[string]string{"url": "https://forge.example.fr", "token": scelle},
+	}, "test"); err != nil {
+		t.Fatalf("plugin porteur du jeton: %v", err)
+	}
+
+	recu := nouveauRecepteur(t)
+
+	if _, err := db.SaveReaction(ctx, reaction.Reaction{
+		ProjectID: projectID, Name: "Appel sortant réel",
+		EventType: redmineVersionCreated, Enabled: true,
+		Plan: plan.Plan{Stages: []plan.Stage{{
+			Gestes: []plan.Geste{{
+				Kind: plan.GesteAction, Ref: "webhook",
+				Params: map[string]string{
+					"url": recu.server.URL,
+					// Le gabarit est lié à la charge du fait : `{name}` doit
+					// devenir un vrai nom de version.
+					"body":        `{"version":"{name}","statut":"{status}"}`,
+					"auth_header": "Authorization",
+					"auth_secret": "gitea.token",
+				},
+			}},
+		}}},
+	}, "test"); err != nil {
+		t.Fatalf("réaction: %v", err)
+	}
+
+	// Le vrai runner d'actions, avec le vrai transport. Les deux autorisations
+	// sont celles qu'un déploiement local déclare, et `main` les journalise en
+	// avertissement quand elles sont posées.
+	actions := NewActionRunner(webhook.New(webhook.Options{
+		AllowPrivate: true, AllowInsecure: true, Timeout: 10 * time.Second,
+	}), resolveurDeTest{db: db, cipher: h.cipher}, quietLogger())
+
+	engine := NewEngine(db, gesteRouter{actions: actions}, quietLogger())
+	runner := NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), sonde).
+		WithDispatcher(NewDispatcher(db, engine, quietLogger()))
+
+	runner.sweep(ctx, sonde) // amorçage : rien ne part
+	if appels, _, _, _, _ := recu.vu(); appels != 0 {
+		t.Fatalf("%d appels à l'amorçage, attendu aucun", appels)
+	}
+
+	// Un fait redevient neuf, et la réaction part pour de bon.
+	oublier(t, db, redmineVersionCreated)
+	runner.sweep(ctx, sonde)
+
+	appels, methode, typeMIM, auth, corps := recu.vu()
+	if appels != 1 {
+		t.Fatalf("%d appels reçus, attendu 1", appels)
+	}
+	if methode != http.MethodPost {
+		t.Errorf("méthode %q", methode)
+	}
+	if !strings.Contains(typeMIM, "application/json") {
+		t.Errorf("type de contenu %q", typeMIM)
+	}
+
+	// Le jeton est descellé et posé en en-tête.
+	if auth != jetonFabrique {
+		t.Errorf("en-tête d'authentification %q, attendu le jeton descellé", auth)
+	}
+	// Et il n'est **nulle part** dans le corps. C'est la règle de doc 14 §14.7
+	// rendue observable : un champ sensible est désigné, jamais interpolé.
+	if strings.Contains(corps, jetonFabrique) {
+		t.Error("le jeton a fui dans le corps de l'appel")
+	}
+
+	// Le gabarit a été lié : `{name}` n'est plus littéral.
+	var charge map[string]string
+	if err := json.Unmarshal([]byte(corps), &charge); err != nil {
+		t.Fatalf("corps illisible (%q): %v", corps, err)
+	}
+	if charge["version"] == "" || strings.Contains(charge["version"], "{") {
+		t.Errorf("version rendue %q — le gabarit n'a pas été lié", charge["version"])
+	}
+	t.Logf("appel reçu: POST, version %q, statut %q", charge["version"], charge["statut"])
+
+	// L'exécution conclut, et son geste aussi.
+	executions, err := db.ListPlanRuns(ctx, projectID, 0)
+	if err != nil {
+		t.Fatalf("exécutions: %v", err)
+	}
+	if len(executions) != 1 {
+		t.Fatalf("%d exécutions, attendu 1", len(executions))
+	}
+	if executions[0].State != "succeeded" {
+		t.Errorf("exécution %q, attendue conclue", executions[0].State)
+	}
+	if len(executions[0].Steps) != 1 || executions[0].Steps[0].State != "succeeded" {
+		t.Errorf("gestes = %+v", executions[0].Steps)
+	}
+}
+
+// Les deux garde-fous du transport sont vivants dans la chaîne réelle.
+//
+// Le test précédent les a désarmés pour viser la boucle locale — ce qu'un
+// déploiement local déclare en connaissance de cause. Celui-ci les rearme, un à
+// la fois, parce qu'ils ne protègent pas de la même chose :
+//
+//   - **le clair** refuse `http://`, quelle que soit la cible. Une charge de
+//     webhook porte un tag, parfois un titre de demande, et le jeton qui
+//     l'authentifie ;
+//   - **la cible privée** refuse la boucle locale et les réseaux internes, en
+//     jugeant l'**adresse résolue**. C'est la défense contre la falsification de
+//     requête côté serveur, et c'est la plus importante des deux.
+//
+// Les éprouver ensemble ne prouverait que le premier : il s'applique le premier,
+// et masquerait le second.
+func TestLiveLesGardeFousDuTransportRefusent(t *testing.T) {
+	h := monterHarnais(t)
+	ctx := context.Background()
+	db, projectID, sonde := h.db, h.projectID, h.sonde
+
+	recu := nouveauRecepteur(t)
+
+	if _, err := db.SaveReaction(ctx, reaction.Reaction{
+		ProjectID: projectID, Name: "Appel vers la boucle locale",
+		EventType: redmineVersionCreated, Enabled: true,
+		Plan: plan.Plan{Stages: []plan.Stage{{
+			Gestes: []plan.Geste{{
+				Kind: plan.GesteAction, Ref: "webhook",
+				Params: map[string]string{"url": recu.server.URL},
+			}},
+		}}},
+	}, "test"); err != nil {
+		t.Fatalf("réaction: %v", err)
+	}
+
+	// L'amorçage une seule fois : les deux phases partagent la base et le curseur,
+	// et relire Redmine deux fois ne prouverait rien de plus.
+	amorcer := func(options webhook.Options) *ProbeRunner {
+		actions := NewActionRunner(webhook.New(options),
+			resolveurDeTest{db: db, cipher: h.cipher}, quietLogger())
+		return NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), sonde).
+			WithDispatcher(NewDispatcher(db,
+				NewEngine(db, gesteRouter{actions: actions}, quietLogger()), quietLogger()))
+	}
+
+	phases := []struct {
+		nom     string
+		options webhook.Options
+		attendu string
+	}{
+		{
+			nom:     "le défaut de production refuse le clair",
+			options: webhook.Options{Timeout: 10 * time.Second},
+			attendu: "clair",
+		},
+		{
+			// Le clair autorisé, la cible privée non : c'est le contrôle
+			// d'adresse qui doit parler cette fois, et lui seul.
+			nom:     "le clair autorisé, la cible privée reste refusée",
+			options: webhook.Options{AllowInsecure: true, Timeout: 10 * time.Second},
+			attendu: "",
+		},
+	}
+
+	// La première passe amorce sans déclencher ; chaque phase rend ensuite un fait
+	// neuf pour faire partir exactement une exécution.
+	amorcer(phases[0].options).sweep(ctx, sonde)
+
+	for index, phase := range phases {
+		t.Run(phase.nom, func(t *testing.T) {
+			oublier(t, db, redmineVersionCreated)
+			amorcer(phase.options).sweep(ctx, sonde)
+
+			if appels, _, _, _, _ := recu.vu(); appels != 0 {
+				t.Fatalf("%d appels reçus: le garde-fou a laissé passer", appels)
+			}
+
+			executions, err := db.ListPlanRuns(ctx, projectID, 0)
+			if err != nil {
+				t.Fatalf("exécutions: %v", err)
+			}
+			if len(executions) != index+1 {
+				t.Fatalf("%d exécutions, attendu %d", len(executions), index+1)
+			}
+			// La plus récente d'abord : c'est celle de cette phase.
+			derniere := executions[0]
+			if derniere.State != "failed" {
+				t.Errorf("exécution %q, attendue échouée", derniere.State)
+			}
+			if len(derniere.Steps) != 1 {
+				t.Fatalf("gestes = %+v", derniere.Steps)
+			}
+			// Le motif doit se lire : « échoué » sans raison obligerait à relancer
+			// pour comprendre qu'il s'agit d'un refus délibéré et non d'une panne
+			// du destinataire.
+			motif := derniere.Steps[0].Detail
+			t.Logf("refus consigné: %s", motif)
+			if motif == "" {
+				t.Fatal("aucun motif consigné pour le refus")
+			}
+			if phase.attendu != "" && !strings.Contains(motif, phase.attendu) {
+				t.Errorf("motif %q — attendu qu'il nomme %q", motif, phase.attendu)
+			}
+			// Le refus d'une cible privée ne doit pas se déguiser en refus du
+			// clair : ce sont deux protections distinctes, et les confondre ferait
+			// croire la seconde éprouvée alors que la première l'a masquée.
+			if phase.attendu == "" && strings.Contains(motif, "clair") {
+				t.Errorf("motif %q — c'est le refus du clair, pas celui de la cible", motif)
+			}
+		})
+	}
+}
