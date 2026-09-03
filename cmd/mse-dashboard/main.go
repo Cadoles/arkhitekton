@@ -692,27 +692,26 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				}()
 			}
 
-			// La synchronisation du suivi. Elle démarre toujours, et c'est le
-			// changement : la connexion n'est plus une configuration globale mais
-			// un réglage de plugin **par projet**, résolu à chaque passe. Un
-			// projet mal réglé consigne son propre échec sans priver les autres.
+			// La synchronisation du suivi. Elle ne porte plus sa boucle : elle est
+			// devenue une **sonde**, et c'est la boucle commune qui résout ses
+			// réglages, desselle sa clé, tient son curseur et isole ses échecs.
 			//
-			// Elle vit sous le bail comme le reste : deux workers interrogeant la
-			// même instance doubleraient la charge sur un service tiers pour un
-			// résultat identique.
-			sync := worker.NewTrackerSync(db, trackerConnector(cfg), cipher, logger).
+			// La projection n'a pas bougé — versions, adoptions, demandes et leurs
+			// seaux. Ce qui s'ajoute, ce sont les faits qu'elle constate au
+			// passage, et sur lesquels une réaction peut désormais se brancher.
+			tracker := worker.NewTrackerSync(db, trackerConnector(cfg), logger).
 				WithNormalizer(versionNames(cfg))
-			go func() { errs <- sync.Run(leadingCtx) }()
 
 			// Les sondes, qui produisent les faits d'un plugin. Sous le bail comme
-			// le reste : deux workers interrogeant la même forge doubleraient la
-			// charge sur un service tiers pour un résultat identique.
+			// le reste : deux workers interrogeant la même instance doubleraient
+			// la charge sur un service tiers pour un résultat identique.
 			//
 			// Une sonde n'est interrogée que pour les projets dont le plugin est
-			// actif, et sa première passe n'émet rien — une activation ne réveille
-			// pas le passé (doc 14 §14.4).
+			// actif, chacune à sa cadence, et sa première passe ne déclenche rien —
+			// une activation ne réveille pas le passé (doc 14 §14.4).
 			probes := worker.NewProbeRunner(db, cipher, cfg.Probes.Interval, logger,
-				worker.NewGiteaPullProbe(cfg.Forge.Timeout)).
+				worker.NewGiteaPullProbe(cfg.Forge.Timeout),
+				worker.NewRedmineProbe(tracker)).
 				WithDispatcher(dispatcher)
 			go func() { errs <- probes.Run(leadingCtx) }()
 

@@ -1,0 +1,133 @@
+package worker
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+)
+
+/*
+ * Les faits que le suivi constate.
+ *
+ * Ce que la migration ajoute au produit — jusqu'ici, la synchronisation projetait
+ * en base et personne ne pouvait s'y brancher.
+ */
+
+func instant(moment time.Time) *time.Time { return &moment }
+
+// Les versions et les demandes closes deviennent des faits ; le reste, non.
+func TestLeSuiviConstateLesVersionsEtLesDemandesCloses(t *testing.T) {
+	echeance := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	client := &fakeRedmine{
+		versions: []provider.Version{
+			{ID: "805", Name: "v3.2.0", Status: "open", DueDate: &echeance,
+				UpdatedOn: instant(time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC))},
+		},
+		issues: []provider.Issue{
+			{ID: "1", Tracker: "Anomalie", Status: "Fermé", StatusClosed: true,
+				UpdatedOn: instant(time.Date(2026, 9, 2, 9, 0, 0, 0, time.UTC))},
+			// Ouverte : elle se projette, mais ne constate rien. Un fait par
+			// changement de statut ferait du fil des faits un journal de saisie.
+			{ID: "2", Tracker: "Évolution", Status: "En cours"},
+		},
+	}
+	db := &fakeRedmineStore{}
+
+	facts, _, err := passe(t, client, db)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	parType := map[string]int{}
+	for _, fact := range facts {
+		parType[string(fact.Type)]++
+		if err := fact.Validate(); err != nil {
+			t.Errorf("fait %q invalide: %v", fact.Type, err)
+		}
+		// La date du **fait**, celle du suivi — jamais celle de la lecture. Une
+		// sonde qui rattrape trois jours doit produire des faits datés de ces
+		// trois jours, sinon l'ordre est perdu.
+		if fact.OccurredAt.After(time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)) {
+			t.Errorf("fait %q daté de la lecture: %v", fact.Type, fact.OccurredAt)
+		}
+	}
+
+	if parType[redmineVersionCreated] != 1 {
+		t.Errorf("%d faits de version, attendu 1", parType[redmineVersionCreated])
+	}
+	if parType[redmineIssueClosed] != 1 {
+		t.Errorf("%d faits de clôture, attendu 1 — la demande ouverte n'en produit pas",
+			parType[redmineIssueClosed])
+	}
+}
+
+// La clé de déduplication ne bouge pas d'une passe à l'autre.
+//
+// C'est elle qui porte la sémantique de « created » : chaque passe relit toutes
+// les versions, et seule l'unicité de la clé fait qu'une version déjà vue n'est
+// pas reconstatée. Une clé qui varierait — parce qu'elle porterait la date de
+// mise à jour, par exemple — redéclencherait à chaque modification.
+func TestLaCleDUnFaitDuSuiviNeBougePasDUnePasseALautre(t *testing.T) {
+	version := provider.Version{ID: "805", Name: "v3.2.0", Status: "open"}
+	client := &fakeRedmine{versions: []provider.Version{version}}
+
+	premiere, _, err := passe(t, client, &fakeRedmineStore{})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	// La version change de statut et de date : elle reste la même version.
+	client.versions[0].Status = "closed"
+	client.versions[0].UpdatedOn = instant(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC))
+	seconde, _, err := passe(t, client, &fakeRedmineStore{})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	if len(premiere) != 1 || len(seconde) != 1 {
+		t.Fatalf("faits = %d puis %d", len(premiere), len(seconde))
+	}
+	if premiere[0].DedupKey != seconde[0].DedupKey {
+		t.Errorf("clés %q puis %q — la version serait reconstatée",
+			premiere[0].DedupKey, seconde[0].DedupKey)
+	}
+}
+
+// La clé porte le projet du suivi : deux instances peuvent numéroter pareil.
+//
+// Sans lui, la version 805 de deux clients différents serait le même fait, et le
+// second ne se déclencherait jamais.
+func TestLaCleDUnFaitDuSuiviPorteSonProjet(t *testing.T) {
+	client := &fakeRedmine{versions: []provider.Version{{ID: "805", Name: "v3.2.0"}}}
+	sync := newSync(t, client, &fakeRedmineStore{})
+
+	un, _, err := sync.Observe(context.Background(), 1, "projet-un", client, "curseur")
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	deux, _, err := sync.Observe(context.Background(), 2, "projet-deux", client, "curseur")
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	if un[0].DedupKey == deux[0].DedupKey {
+		t.Errorf("deux projets partagent la clé %q", un[0].DedupKey)
+	}
+}
+
+// Un plugin actif sans identifiant de projet est nommé, pas ignoré.
+func TestLaSondeDuSuiviRefuseUnProjetSansIdentifiant(t *testing.T) {
+	sonde := NewRedmineProbe(NewTrackerSync(&fakeRedmineStore{},
+		func(TrackerConnection) (TrackerReader, error) { return &fakeRedmine{}, nil },
+		quietLogger()))
+
+	_, _, err := sonde.Poll(context.Background(),
+		store.Project{ID: 1, Slug: "mse"}, map[string]string{"url": "https://r.fr"}, "")
+
+	if err == nil {
+		t.Fatal("un suivi actif sans projet doit se dire")
+	}
+}

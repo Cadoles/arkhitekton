@@ -376,6 +376,64 @@ C'est le même argument qu'au §14.1 : un contrat de sonde écrit sur la seule s
 épouserait la forme sans qu'on s'en aperçoive. Écrit sur deux réalisations dont l'une existe
 et tourne depuis des mois, il a une chance d'être juste.
 
+#### Ce que la migration a effectivement révélé
+
+**Elle a eu lieu.** Le contrat n'est plus hypothétique, et il n'a pas tenu tel quel : la
+seconde réalisation a mis au jour deux manques, tous deux corrigés.
+
+**1. La cadence appartenait à la boucle, pas à la sonde.** Le suivi se relit toutes les cinq
+minutes — une saisie humaine ne va pas plus vite —, une forge se regarde plus souvent. Une
+cadence unique aurait forcé les deux à s'accorder, et la plus lente aurait fait la loi. Une
+sonde déclare désormais son `Schedule`, au-dessus du plancher du déploiement. Le document
+l'avait pourtant annoncé — « chaque sonde déclare le sien au-dessus » — et le code ne l'avait
+pas fait ; personne ne s'en était aperçu, parce qu'avec une seule sonde la distinction ne se
+voit pas.
+
+**2. L'amorçage jetait ses faits au lieu de les retenir, et c'était un défaut.** La règle
+disait « la première passe n'émet rien ». Elle suffisait tant que toute sonde **filtrait sur
+son curseur** : la sonde Gitea ne rend que les demandes ouvertes depuis, et ne les revoit
+jamais.
+
+Le suivi rend un **instantané** — l'API de Redmine ne filtre pas les versions sur
+`updated_on`, elles sont relues en entier à chaque passe. Jetés à l'amorçage sans être
+retenus, ces faits seraient revenus neufs au tour suivant, et l'auraient tous déclenché.
+« Une activation ne réveille pas le passé » n'aurait été vrai que d'un tour.
+
+La règle est donc devenue : la première passe **enregistre sans aiguiller**. C'est la
+formulation juste — ce qu'on veut taire est la *notification*, pas le *constat*.
+
+Ce défaut était présent depuis la tranche 5 et invisible avec une seule réalisation. C'est
+exactement ce que la garde de §14.1 cherchait à provoquer, appliqué au contrat de sonde.
+
+#### Ce que le contrat a absorbé sans se tordre
+
+Tout le reste, et il faut le dire aussi : réglages du plugin par projet, descellement de la
+clé, curseur dans `sync_state`, isolation des échecs, activation par projet. La
+synchronisation en portait sa propre version, écrite six mois plus tôt ; il n'en reste rien.
+
+La mesure la plus nette est l'interface `TrackerStore` : **neuf méthodes avant, quatre
+après**. Ce qui reste est le travail propre au suivi — déposer des versions, adopter les
+provisoires, projeter des demandes, lire une correspondance de statuts.
+
+Une seule chose a dû être ajoutée au contrat, et c'est une correction de sa **description**
+plutôt que de sa forme : une sonde peut persister ses **propres** données. Elle ne persiste
+pas ses *faits* — cela reste le travail de la boucle —, mais lui interdire toute écriture
+aurait demandé un second mécanisme pour faire tourner exactement la même boucle.
+
+#### Ce que le suivi constate désormais
+
+`redmine.version.created` et `redmine.issue.closed`, comme annoncé. Deux, et pas davantage :
+ce sont des **événements**, quelque chose est arrivé une fois. Une demande qui change de
+statut n'en est pas un — elle en change dix fois, et un fait par changement ferait du fil des
+faits un journal de saisie.
+
+La sémantique de « created » ne vient pas d'un drapeau rendu par le magasin mais de la
+**clé de déduplication** : chaque passe reconstate toutes les versions, et seule l'unicité de
+la clé fait qu'une version déjà vue n'est pas réémise. C'est cette forme — un instantané
+rendu en entier, dédupliqué par clé — que le contrat ne connaissait pas.
+
+---
+
 La migration n'est pas indispensable au premier jour — la sonde Gitea seule suffit à livrer
 le besoin. Mais tant qu'elle n'a pas eu lieu, le contrat reste **hypothétique**, et le
 document doit le dire plutôt que de laisser croire qu'il est éprouvé.

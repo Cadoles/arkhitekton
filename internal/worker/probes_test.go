@@ -31,8 +31,9 @@ type fakeProbe struct {
 	seen map[string]string
 }
 
-func (p *fakeProbe) PluginID() string { return "gitea" }
-func (p *fakeProbe) Source() string   { return "gitea.pull_requests" }
+func (p *fakeProbe) PluginID() string   { return "gitea" }
+func (p *fakeProbe) Source() string     { return "gitea.pull_requests" }
+func (p *fakeProbe) Schedule() Schedule { return Schedule{} }
 
 func (p *fakeProbe) Poll(
 	_ context.Context, project store.Project, _ map[string]string, cursor string,
@@ -54,7 +55,11 @@ type fakeProbeStore struct {
 	cursors  map[string]string
 	// facts retient les clés émises, comme la base : c'est l'unicité qu'on
 	// éprouve, et un tableau ne dirait pas si un doublon a été écarté.
-	facts    map[string]event.Event
+	facts map[string]event.Event
+	// nouveaux compte les faits **neufs**, c'est-à-dire ceux que la boucle
+	// aiguillerait. Le total ne suffit pas à le dire : une passe qui réécrit dix
+	// fois le même fait laisse une carte d'un seul élément.
+	nouveaux int
 	failures []string
 	disabled bool
 }
@@ -111,6 +116,7 @@ func (f *fakeProbeStore) RecordEvent(_ context.Context, fact event.Event) (bool,
 		return false, nil
 	}
 	f.facts[fact.DedupKey] = fact
+	f.nouveaux++
 	return true, nil
 }
 
@@ -140,11 +146,13 @@ func runnerDeSonde(t *testing.T, store *fakeProbeStore, probe Probe) *ProbeRunne
  * 1. Une activation ne réveille pas le passé.
  */
 
-// La première passe **établit le curseur et n'émet rien**.
+// La première passe **établit le curseur et ne déclenche rien**.
 //
 // Sans cette règle, activer une sonde sur un dépôt qui porte quatre cents
-// demandes de fusion émettrait quatre cents faits — donc autant de plans, donc
-// autant de notifications.
+// demandes de fusion enverrait quatre cents notifications.
+//
+// Elle **retient** pourtant ce qu'elle voit, et c'est une correction apportée par
+// la migration du suivi : voir le test suivant.
 func TestUneActivationNeReveillePasLePasse(t *testing.T) {
 	base := newFakeProbeStore(projetDeTest(1, "mse"))
 	probe := &fakeProbe{
@@ -152,14 +160,49 @@ func TestUneActivationNeReveillePasLePasse(t *testing.T) {
 		cursor: "2026-09-03T10:00:00Z",
 	}
 
-	runnerDeSonde(t, base, probe).once(context.Background())
+	runnerDeSonde(t, base, probe).sweep(context.Background(), probe)
 
-	if len(base.facts) != 0 {
-		t.Errorf("%d faits émis à l'activation, attendu aucun", len(base.facts))
+	if len(base.facts) != 2 {
+		t.Errorf("%d faits retenus à l'activation, attendu 2", len(base.facts))
 	}
-	// Mais le curseur est bien posé : la passe suivante repartira de là.
+	// Le curseur est posé : la passe suivante repartira de là.
 	if base.cursors[curseurCle("gitea.pull_requests", 1)] != "2026-09-03T10:00:00Z" {
 		t.Errorf("curseur = %q", base.cursors[curseurCle("gitea.pull_requests", 1)])
+	}
+}
+
+// Une sonde qui rend un **instantané** ne déclenche pas après son amorçage.
+//
+// # Le défaut que la seconde réalisation a révélé
+//
+// L'amorçage jetait ses faits. Cela suffisait tant que toute sonde filtrait sur
+// son curseur : la sonde Gitea ne rend que les demandes ouvertes depuis, et ne les
+// revoit jamais.
+//
+// La synchronisation du suivi relit **toutes** les versions à chaque passe —
+// l'API de Redmine ne les filtre pas. Jetés à l'amorçage sans être retenus, ces
+// faits revenaient neufs au tour suivant et déclenchaient tout ce que l'amorçage
+// prétendait taire. « Une activation ne réveille pas le passé » n'était vrai que
+// d'un tour.
+func TestUnInstantaneNeDeclenchePasApresSonAmorcage(t *testing.T) {
+	base := newFakeProbeStore(projetDeTest(1, "mse"))
+	// Une sonde d'instantané : les mêmes faits à chaque passe, indépendamment du
+	// curseur. C'est exactement ce que fait la lecture des versions.
+	probe := &fakeProbe{
+		facts:  []event.Event{faitDeSonde("redmine.version:mse:803"), faitDeSonde("redmine.version:mse:805")},
+		cursor: "2026-09-03T10:00:00Z",
+	}
+	runner := runnerDeSonde(t, base, probe)
+
+	runner.sweep(context.Background(), probe) // amorçage
+	apresAmorcage := base.nouveaux
+
+	runner.sweep(context.Background(), probe) // le tour suivant revoit tout
+
+	if base.nouveaux != apresAmorcage {
+		t.Errorf("%d faits neufs après l'amorçage, attendu aucun — "+
+			"l'instantané a redéclenché ce que l'amorçage devait taire",
+			base.nouveaux-apresAmorcage)
 	}
 }
 
@@ -170,12 +213,12 @@ func TestLaPasseSuivanteEmet(t *testing.T) {
 	runner := runnerDeSonde(t, base, probe)
 
 	// Amorçage.
-	runner.once(context.Background())
+	runner.sweep(context.Background(), probe)
 
 	// Une demande de fusion s'ouvre.
 	probe.facts = []event.Event{faitDeSonde("gitea.pr:mse:412")}
 	probe.cursor = "2026-09-03T11:00:00Z"
-	runner.once(context.Background())
+	runner.sweep(context.Background(), probe)
 
 	if len(base.facts) != 1 {
 		t.Fatalf("%d faits émis, attendu 1", len(base.facts))
@@ -202,13 +245,13 @@ func TestUneSecondePasseSurLaMemeFenetreNeRenotifiePas(t *testing.T) {
 	probe := &fakeProbe{cursor: "2026-09-03T10:00:00Z"}
 	runner := runnerDeSonde(t, base, probe)
 
-	runner.once(context.Background()) // amorçage
+	runner.sweep(context.Background(), probe) // amorçage
 
 	probe.facts = []event.Event{faitDeSonde("gitea.pr:mse:412")}
-	runner.once(context.Background())
+	runner.sweep(context.Background(), probe)
 	// La fenêtre de recouvrement fait revoir le même fait.
-	runner.once(context.Background())
-	runner.once(context.Background())
+	runner.sweep(context.Background(), probe)
+	runner.sweep(context.Background(), probe)
 
 	if len(base.facts) != 1 {
 		t.Errorf("%d faits enregistrés après trois passes, attendu 1", len(base.facts))
@@ -229,10 +272,10 @@ func TestUneForgeInjoignableNarretePasLesAutresProjets(t *testing.T) {
 	probe := &fakeProbe{errFor: "casse", cursor: "2026-09-03T10:00:00Z"}
 	runner := runnerDeSonde(t, base, probe)
 
-	runner.once(context.Background()) // amorçage des deux
+	runner.sweep(context.Background(), probe) // amorçage des deux
 
 	probe.facts = []event.Event{faitDeSonde("gitea.pr:sain:1")}
-	runner.once(context.Background())
+	runner.sweep(context.Background(), probe)
 
 	// Le projet sain a bien émis.
 	if len(base.facts) != 1 {
@@ -260,7 +303,7 @@ func TestUnPluginEteintNestPasInterroge(t *testing.T) {
 	base.disabled = true
 	probe := &fakeProbe{cursor: "x"}
 
-	runnerDeSonde(t, base, probe).once(context.Background())
+	runnerDeSonde(t, base, probe).sweep(context.Background(), probe)
 
 	if len(probe.seen) != 0 {
 		t.Errorf("la sonde a été interrogée pour un plugin éteint: %v", probe.seen)
@@ -278,7 +321,7 @@ func TestLesChampsScellesSontOuvertsAvantDatteindreLaSonde(t *testing.T) {
 	var vu map[string]string
 	probe := &lecteurDeConfig{cible: &vu}
 	NewProbeRunner(base, openerDeTest{}, time.Minute, quietLogger(), probe).
-		once(context.Background())
+		sweep(context.Background(), probe)
 
 	if vu["token"] != "jeton" {
 		t.Errorf("jeton transmis = %q, attendu descellé", vu["token"])
@@ -291,8 +334,9 @@ func TestLesChampsScellesSontOuvertsAvantDatteindreLaSonde(t *testing.T) {
 // lecteurDeConfig retient la configuration reçue.
 type lecteurDeConfig struct{ cible *map[string]string }
 
-func (l *lecteurDeConfig) PluginID() string { return "gitea" }
-func (l *lecteurDeConfig) Source() string   { return "gitea.pull_requests" }
+func (l *lecteurDeConfig) PluginID() string   { return "gitea" }
+func (l *lecteurDeConfig) Source() string     { return "gitea.pull_requests" }
+func (l *lecteurDeConfig) Schedule() Schedule { return Schedule{} }
 func (l *lecteurDeConfig) Poll(
 	_ context.Context, _ store.Project, config map[string]string, _ string,
 ) ([]event.Event, string, error) {
@@ -307,5 +351,27 @@ func TestLePlancherDIntervalleEstImpose(t *testing.T) {
 
 	if runner.interval < minProbeInterval {
 		t.Errorf("intervalle = %s, plancher %s", runner.interval, minProbeInterval)
+	}
+}
+
+// Une sonde déclare sa cadence, et le plancher du déploiement reste au-dessus.
+//
+// Le suivi se relit toutes les cinq minutes — une saisie humaine ne va pas plus
+// vite —, une forge se regarde plus souvent. Une cadence unique obligerait les
+// deux à s'accorder, et la plus lente ferait la loi.
+func TestChaqueSondeDeclareSaCadenceAuDessusDuPlancher(t *testing.T) {
+	// La sonde du suivi demande cinq minutes : au-dessus du plancher, respectées.
+	if got := NewRedmineProbe(nil).Schedule(); got.Interval != syncInterval {
+		t.Errorf("cadence du suivi = %s, attendu %s", got.Interval, syncInterval)
+	}
+	// Et elle réclame une passe immédiate : elle remplit un écran, qui serait vide
+	// pendant cinq minutes après chaque démarrage.
+	if !NewRedmineProbe(nil).Schedule().Eager {
+		t.Error("la sonde du suivi doit réclamer une passe immédiate")
+	}
+	// La sonde de la forge ne constate que : aucune passe d'emblée, sans quoi un
+	// redémarrage en boucle martèlerait une machine tierce.
+	if NewGiteaPullProbe(0).Schedule().Eager {
+		t.Error("une sonde qui ne fait que constater ne part pas d'emblée")
 	}
 }

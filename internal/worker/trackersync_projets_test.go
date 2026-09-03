@@ -5,7 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -16,17 +18,33 @@ import (
  * Le défaut qu'elle corrige était documenté et assumé : un curseur unique avançait
  * sur le premier projet lu, et le second reprenait depuis un instant où **il**
  * n'avait rien lu. Son historique était sauté, définitivement, sans message.
+ *
+ * # Ces tests pilotent maintenant la boucle des sondes
+ *
+ * Et c'est le cœur de la migration. Les propriétés qu'ils tiennent — un curseur
+ * par projet, une connexion par projet, un échec isolé, une clé descellée avant
+ * l'appel — n'appartiennent plus au suivi : elles appartiennent à `ProbeRunner`,
+ * qui les tient pour **toutes** les sources.
+ *
+ * Les assertions n'ont pas changé. Ce qui a changé, c'est qui les honore — et
+ * c'est la seule preuve qui vaille que le contrat a absorbé cette source.
  */
 
-// multiStore rend deux projets suivis et retient ce que chacun a écrit.
+// multiStore rend deux projets et retient ce que chacun a écrit.
+//
+// Il réalise les deux contrats à la fois : celui de la boucle — projets,
+// réglages, curseurs, faits — et celui de la projection — versions, demandes,
+// adoptions, correspondance des statuts.
 type multiStore struct {
 	fakeRedmineStore
-	// configs porte la connexion résolue de chaque projet.
+	// configs porte la connexion résolue de chaque projet, clé **scellée** comme
+	// en base.
 	configs map[int64]map[string]string
 	// cursors retient le curseur enregistré par projet, et c'est le cœur du sujet.
 	cursors  map[int64]string
 	failures map[int64]string
 	mappings map[int64]map[string]string
+	faits    map[string]event.Event
 }
 
 func newMultiStore() *multiStore {
@@ -41,11 +59,12 @@ func newMultiStore() *multiStore {
 			1: {"En cours": "doing"},
 			2: {"En cours": "done"},
 		},
+		faits: map[string]event.Event{},
 	}
 }
 
-func (m *multiStore) TrackedProjects(context.Context) ([]store.TrackedProject, error) {
-	return []store.TrackedProject{
+func (m *multiStore) ListProjects(context.Context) ([]store.Project, error) {
+	return []store.Project{
 		{ID: 1, Slug: "un", TrackerProject: "projet-un"},
 		{ID: 2, Slug: "deux", TrackerProject: "projet-deux"},
 	}, nil
@@ -59,6 +78,10 @@ func (m *multiStore) StatusMapping(_ context.Context, projectID int64) (map[stri
 	return m.mappings[projectID], nil
 }
 
+func (m *multiStore) GetSyncState(_ context.Context, source string, projectID int64) (store.SyncState, error) {
+	return store.SyncState{Source: source, Cursor: m.cursors[projectID]}, nil
+}
+
 func (m *multiStore) RecordSyncSuccess(_ context.Context, _ string, projectID int64, cursor string) error {
 	m.cursors[projectID] = cursor
 	return nil
@@ -67,6 +90,28 @@ func (m *multiStore) RecordSyncSuccess(_ context.Context, _ string, projectID in
 func (m *multiStore) RecordSyncFailure(_ context.Context, _ string, projectID int64, message string) error {
 	m.failures[projectID] = message
 	return nil
+}
+
+func (m *multiStore) RecordEvent(_ context.Context, fact event.Event) (bool, error) {
+	if err := fact.Validate(); err != nil {
+		return false, err
+	}
+	if _, known := m.faits[fact.DedupKey]; known {
+		return false, nil
+	}
+	m.faits[fact.DedupKey] = fact
+	return true, nil
+}
+
+// sondeDuSuivi assemble la sonde et sa boucle sur un magasin donné.
+func sondeDuSuivi(
+	t *testing.T, db *multiStore, opener SecretOpener,
+	connect TrackerConnector,
+) (*ProbeRunner, Probe) {
+	t.Helper()
+	sonde := NewRedmineProbe(
+		NewTrackerSync(db, connect, quietLogger()).WithNormalizer(testNames))
+	return NewProbeRunner(db, opener, time.Minute, quietLogger(), sonde), sonde
 }
 
 // Chaque projet avance son propre curseur.
@@ -78,11 +123,8 @@ func TestChaqueProjetAvanceSonPropreCurseur(t *testing.T) {
 	client := &fakeRedmine{versions: []provider.Version{{ID: "1", Name: "v1.0.0", Status: "open"}}}
 
 	connect := func(TrackerConnection) (TrackerReader, error) { return client, nil }
-	sync := NewTrackerSync(db, connect, openerDeTest{}, quietLogger()).WithNormalizer(testNames)
-
-	if err := sync.Sync(context.Background()); err != nil {
-		t.Fatalf("synchronisation: %v", err)
-	}
+	runner, sonde := sondeDuSuivi(t, db, openerDeTest{}, connect)
+	runner.sweep(context.Background(), sonde)
 
 	if len(db.cursors) != 2 {
 		t.Fatalf("curseurs enregistrés = %v, attendu un par projet", db.cursors)
@@ -104,11 +146,8 @@ func TestChaqueProjetInterrogeSonPropreServeur(t *testing.T) {
 		vues = append(vues, connection)
 		return &fakeRedmine{}, nil
 	}
-	sync := NewTrackerSync(db, connect, openerDeTest{}, quietLogger()).WithNormalizer(testNames)
-
-	if err := sync.Sync(context.Background()); err != nil {
-		t.Fatalf("synchronisation: %v", err)
-	}
+	runner, sonde := sondeDuSuivi(t, db, openerDeTest{}, connect)
+	runner.sweep(context.Background(), sonde)
 
 	if len(vues) != 2 {
 		t.Fatalf("%d connexions, attendu 2", len(vues))
@@ -116,9 +155,10 @@ func TestChaqueProjetInterrogeSonPropreServeur(t *testing.T) {
 	if vues[0].URL == vues[1].URL {
 		t.Errorf("les deux projets visent le même serveur: %q", vues[0].URL)
 	}
-	// La clé est **descellée** avant d'atteindre le client : le contraire
-	// enverrait une enveloppe en guise de clé d'API, et le suivi répondrait 401
-	// sans que le message désigne le scellement.
+	// La clé est **descellée** avant d'atteindre le client. Ce n'est plus le suivi
+	// qui l'ouvre mais la boucle, pour toutes les sondes — et la garantie est la
+	// même : le contraire enverrait une enveloppe en guise de clé d'API, et le
+	// suivi répondrait 401 sans que le message désigne le scellement.
 	for _, connection := range vues {
 		if strings.HasPrefix(connection.APIKey, "scellé:") {
 			t.Errorf("clé encore scellée: %q", connection.APIKey)
@@ -144,20 +184,20 @@ func TestLEchecDUnProjetNArretePasLesSuivants(t *testing.T) {
 		}
 		return &fakeRedmine{}, nil
 	}
-	sync := NewTrackerSync(db, connect, openerDeTest{}, quietLogger()).WithNormalizer(testNames)
+	runner, sonde := sondeDuSuivi(t, db, openerDeTest{}, connect)
+	runner.sweep(context.Background(), sonde)
 
-	err := sync.Sync(context.Background())
-	if err == nil {
-		t.Fatal("l'échec doit remonter")
+	consigné, présent := db.failures[1]
+	if !présent {
+		t.Fatal("l'échec du premier projet n'a pas été consigné")
 	}
-	// Le message nomme le projet : sans lui, « redmine injoignable » ne dirait pas
-	// lequel des deux.
-	if !strings.Contains(err.Error(), "un") {
-		t.Errorf("message %q — il doit nommer le projet en échec", err)
+	if !strings.Contains(consigné, "injoignable") {
+		t.Errorf("motif consigné %q — il doit porter la panne", consigné)
 	}
-
-	if _, consigné := db.failures[1]; !consigné {
-		t.Error("l'échec du premier projet n'a pas été consigné")
+	// Le curseur du projet en panne n'avance pas : la passe suivante reverra la
+	// fenêtre qu'il a ratée.
+	if db.cursors[1] != "" {
+		t.Errorf("curseur du projet en panne = %q, attendu inchangé", db.cursors[1])
 	}
 	if db.cursors[2] == "" {
 		t.Error("le second projet n'a pas été synchronisé")
@@ -175,18 +215,21 @@ func TestUneCleIllisibleSeDitSansCiterLaValeur(t *testing.T) {
 	db := newMultiStore()
 	connect := func(TrackerConnection) (TrackerReader, error) { return &fakeRedmine{}, nil }
 
-	sync := NewTrackerSync(db, connect,
-		openerDeTest{err: errors.New("déchiffrement refusé")}, quietLogger())
+	runner, sonde := sondeDuSuivi(t, db,
+		openerDeTest{err: errors.New("déchiffrement refusé")}, connect)
+	runner.sweep(context.Background(), sonde)
 
-	err := sync.Sync(context.Background())
-	if err == nil {
-		t.Fatal("une clé illisible doit faire échouer la passe")
+	motif, présent := db.failures[1]
+	if !présent {
+		t.Fatal("une clé illisible doit faire échouer la passe du projet")
 	}
-	if !strings.Contains(err.Error(), "clé d'API") {
-		t.Errorf("message %q — il doit désigner la clé", err)
+	// Le champ est nommé : sans lui, « déchiffrement refusé » ne dirait pas quoi
+	// aller regarder.
+	if !strings.Contains(motif, "api_key") {
+		t.Errorf("motif %q — il doit désigner le champ", motif)
 	}
-	if strings.Contains(err.Error(), "clé-un") {
-		t.Errorf("message %q — il cite la valeur", err)
+	if strings.Contains(motif, "clé-un") {
+		t.Errorf("motif %q — il cite la valeur", motif)
 	}
 }
 
@@ -204,12 +247,48 @@ func TestLIdentifiantDuSuiviRetombeSurLaColonne(t *testing.T) {
 		vues = append(vues, connection)
 		return &fakeRedmine{}, nil
 	}
-	sync := NewTrackerSync(db, connect, openerDeTest{}, quietLogger()).WithNormalizer(testNames)
+	runner, sonde := sondeDuSuivi(t, db, openerDeTest{}, connect)
+	runner.sweep(context.Background(), sonde)
 
-	if err := sync.Sync(context.Background()); err != nil {
-		t.Fatalf("synchronisation: %v", err)
-	}
 	if len(vues) == 0 || vues[0].Project != "projet-un" {
 		t.Errorf("projet visé = %+v", vues)
 	}
+}
+
+// Un plugin actif sans identifiant de projet le dit, plutôt que de se taire.
+//
+// # Un comportement que la migration a changé, délibérément
+//
+// Avant, un projet sans suivi était simplement absent de `TrackedProjects` : la
+// boucle ne le voyait pas. Maintenant la boucle voit **tous** les projets et
+// s'appuie sur l'activation du plugin. Or activer Redmine sur un projet est une
+// intention ; la taire laisserait un écran des versions vide sans que rien ne
+// dise pourquoi.
+func TestUnSuiviActifSansProjetSeDit(t *testing.T) {
+	db := newMultiStore()
+	db.configs[1] = map[string]string{"url": "https://redmine.un.fr", "api_key": "scellé:clé"}
+
+	connect := func(TrackerConnection) (TrackerReader, error) { return &fakeRedmine{}, nil }
+	runner, sonde := sondeDuSuivi(t, db, openerDeTest{}, connect)
+
+	// Le projet 1 n'a plus d'identifiant nulle part : ni dans le réglage, ni dans
+	// la colonne.
+	projetsSansSuivi := &multiStoreSansColonne{multiStore: db}
+	runner.store = projetsSansSuivi
+	runner.sweep(context.Background(), sonde)
+
+	motif, présent := db.failures[1]
+	if !présent {
+		t.Fatal("un plugin actif sans identifiant de projet doit être consigné")
+	}
+	if !strings.Contains(motif, "identifiant de projet") {
+		t.Errorf("motif %q — il doit nommer ce qui manque", motif)
+	}
+}
+
+// multiStoreSansColonne rend les mêmes projets, sans leur identifiant de suivi.
+type multiStoreSansColonne struct{ *multiStore }
+
+func (m *multiStoreSansColonne) ListProjects(context.Context) ([]store.Project, error) {
+	return []store.Project{{ID: 1, Slug: "un"}}, nil
 }

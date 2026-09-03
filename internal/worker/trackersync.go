@@ -2,13 +2,12 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
-	"strings"
 	"time"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -20,9 +19,29 @@ import (
  * Interrogation périodique incrémentale. C'est la voie définitive et non un repli :
  * aucun plugin webhook n'est déployable sur l'instance (B6), donc rien ne peut nous
  * prévenir d'un changement.
+ *
+ * # Ce qui reste ici, et ce qui est parti
+ *
+ * La **projection** reste : lire les versions, les déposer, adopter les
+ * provisoires, projeter les demandes sur leurs seaux. C'est le travail propre de
+ * ce paquet, et il n'a pas bougé.
+ *
+ * La **boucle** est partie. Elle vit dans `probes.go`, avec celle de la forge :
+ * résoudre les réglages du plugin, desceller la clé, lire et avancer le curseur,
+ * isoler l'échec d'un projet. Les deux sources faisaient exactement cela, chacune
+ * à sa façon — et la seconde version était la copie de la première, écrite six
+ * mois plus tard sans le savoir.
+ *
+ * Ce que la migration a rapporté est consigné en doc 14 §14.11 : deux manques du
+ * contrat que la seule sonde Gitea ne pouvait pas révéler.
  */
 
 // redmineSource nomme la source dans `sync_state`.
+//
+// **Inchangé, et c'est délibéré.** Les curseurs des projets sont écrits sous ce
+// nom depuis le lot C. Le renommer en aurait fait repartir chacun de zéro, donc
+// relire l'intégralité de l'historique d'une instance qui n'est pas la nôtre —
+// pour une amélioration cosmétique.
 const redmineSource = "redmine"
 
 // syncInterval borne la fréquence d'interrogation.
@@ -32,6 +51,17 @@ const redmineSource = "redmine"
 // pour des données identiques. Plus rarement rendrait l'écran des versions
 // visiblement en retard sur Redmine, où l'utilisateur vient de saisir.
 const syncInterval = 5 * time.Minute
+
+// Les faits que le suivi constate au passage.
+//
+// Deux, et pas davantage. Ce sont ceux que doc 14 §14.4 avait nommés, et ils ont
+// en commun d'être des **événements** — quelque chose est arrivé une fois. Une
+// demande qui change de statut n'en est pas un : elle en change dix fois, et un
+// fait par changement ferait du fil des faits un journal de saisie.
+const (
+	redmineVersionCreated = "redmine.version.created"
+	redmineIssueClosed    = "redmine.issue.closed"
+)
 
 // cursorOverlap est la marge retirée au curseur à chaque lecture.
 //
@@ -71,21 +101,18 @@ type TrackerConnection struct {
 // en servir qu'un seul.
 type TrackerConnector func(TrackerConnection) (TrackerReader, error)
 
-// TrackerStore est ce qu'elle attend de la base.
+// TrackerStore est ce que la projection attend de la base.
+//
+// **Quatre méthodes, contre neuf avant la migration.** Les cinq qui manquent —
+// les projets suivis, les réglages du plugin, le curseur, ses deux issues — sont
+// passées à la boucle des sondes, qui les tient pour toutes les sources. C'est la
+// mesure la plus nette de ce que le contrat a absorbé : ce qui reste ici est le
+// travail propre au suivi, et rien d'autre.
 type TrackerStore interface {
-	// TrackedProjects nomme les projets qui ont un outil de suivi. Les autres
-	// n'ont rien à lire.
-	TrackedProjects(ctx context.Context) ([]store.TrackedProject, error)
-	// ResolvedPlugin rend les réglages effectifs d'un plugin pour un projet,
-	// **champs sensibles encore scellés**.
-	ResolvedPlugin(ctx context.Context, projectID int64, pluginID string) (store.PluginSettings, error)
 	UpsertRedmineVersion(ctx context.Context, version store.TrackedVersion) (int64, error)
 	UpsertRedmineIssue(ctx context.Context, issue store.TrackedIssue) error
 	AdoptPendingVersions(ctx context.Context) ([]store.Adoption, error)
 	StatusMapping(ctx context.Context, projectID int64) (map[string]string, error)
-	GetSyncState(ctx context.Context, source string, projectID int64) (store.SyncState, error)
-	RecordSyncSuccess(ctx context.Context, source string, projectID int64, cursor string) error
-	RecordSyncFailure(ctx context.Context, source string, projectID int64, message string) error
 }
 
 // SecretOpener déscelle les champs sensibles des réglages.
@@ -102,7 +129,6 @@ type SecretOpener interface {
 type TrackerSync struct {
 	store   TrackerStore
 	connect TrackerConnector
-	secrets SecretOpener
 	// names calcule la forme comparable écrite en base. Doit être **la même** que
 	// celle du store : deux normaliseurs divergents rendraient une release
 	// incapable de trouver sa version, sans le moindre message.
@@ -112,10 +138,13 @@ type TrackerSync struct {
 }
 
 func NewTrackerSync(
-	db TrackerStore, connect TrackerConnector, opener SecretOpener, logger *slog.Logger,
+	db TrackerStore, connect TrackerConnector, logger *slog.Logger,
 ) *TrackerSync {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &TrackerSync{
-		store: db, connect: connect, secrets: opener,
+		store: db, connect: connect,
 		names: release.DefaultNormalizer, logger: logger, now: time.Now,
 	}
 }
@@ -126,117 +155,19 @@ func (s *TrackerSync) WithNormalizer(names release.Normalizer) *TrackerSync {
 	return s
 }
 
-// Run synchronise jusqu'à annulation.
+// Observe exécute une passe complète pour un projet, et rend ce qu'elle constate.
 //
-// Un échec ne fait pas tomber la boucle : Redmine est un service tiers, et sa panne
-// ne doit pas emporter l'ordonnanceur ni l'observation, qui n'ont rien à voir. Il est
-// consigné dans `sync_state`, où l'interface le lit pour dire « données vieilles de
-// tant, dernière tentative en échec ».
-func (s *TrackerSync) Run(ctx context.Context) error {
-	// Un premier passage immédiat : au démarrage, l'écran des versions serait vide
-	// jusqu'au premier battement.
-	s.once(ctx)
-
-	ticker := time.NewTicker(syncInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			s.once(ctx)
-		}
-	}
-}
-
-func (s *TrackerSync) once(ctx context.Context) {
-	if err := s.Sync(ctx); err != nil {
-		s.logger.Error("synchronisation du suivi", "error", err)
-	}
-}
-
-// Sync synchronise chaque projet suivi, indépendamment des autres.
-//
-// L'échec d'un projet **n'arrête pas** les suivants : deux projets peuvent viser
-// deux instances Redmine, et la panne de l'une ne dit rien de l'autre. Chacun
-// consigne son propre état, ce que l'écran du projet lit.
-//
-// Les projets **suivis**, et eux seuls : un projet sans outil de suivi n'a rien à
-// lire, et l'interroger demanderait un nom de projet qu'il ne déclare pas.
-func (s *TrackerSync) Sync(ctx context.Context) error {
-	tracked, err := s.store.TrackedProjects(ctx)
-	if err != nil {
-		return err
-	}
-
-	var problems []error
-	for _, project := range tracked {
-		if err := s.syncProject(ctx, project); err != nil {
-			problems = append(problems, fmt.Errorf("projet %q: %w", project.Slug, err))
-			// L'enregistrement de l'échec ne doit pas masquer l'échec lui-même.
-			if recordErr := s.store.RecordSyncFailure(
-				ctx, redmineSource, project.ID, err.Error()); recordErr != nil {
-				s.logger.Error("enregistrement de l'échec de synchronisation",
-					"projet", project.Slug, "error", recordErr)
-			}
-		}
-	}
-	return errors.Join(problems...)
-}
-
-// connectionFor résout la connexion d'un projet à partir des réglages du plugin.
-//
-// C'est ici que la clé d'API est **descellée**, et le seul endroit : elle
-// n'existe en clair que le temps de construire le client, dans un processus qui
-// n'expose aucun port.
-func (s *TrackerSync) connectionFor(ctx context.Context, project store.TrackedProject) (TrackerConnection, error) {
-	settings, err := s.store.ResolvedPlugin(ctx, project.ID, trackerTool)
-	if err != nil {
-		return TrackerConnection{}, err
-	}
-
-	apiKey, err := s.secrets.Open(settings.Config["api_key"])
-	if err != nil {
-		// Le message ne cite pas la valeur, et pour cause : c'est justement celle
-		// qu'on n'a pas su ouvrir.
-		return TrackerConnection{}, fmt.Errorf("clé d'API du suivi illisible: %w", err)
-	}
-
-	// L'identifiant du projet dans le suivi vient du réglage, et retombe sur la
-	// colonne `tracker_project` : elle a précédé les plugins, elle est juste, et
-	// un déploiement dont l'amorçage n'aurait pas tourné ne doit pas cesser de se
-	// synchroniser pour autant.
-	trackerProject := settings.Config["project"]
-	if strings.TrimSpace(trackerProject) == "" {
-		trackerProject = project.TrackerProject
-	}
-
-	return TrackerConnection{
-		URL: settings.Config["url"], APIKey: apiKey, Project: trackerProject,
-	}, nil
-}
-
-// syncProject exécute une passe complète pour un projet.
+// Appelée par la sonde, qui lui apporte le client déjà connecté et le curseur.
+// Elle ne décide ni de son moment, ni de ce qu'il advient de ses faits.
 //
 // L'ordre est imposé : les versions d'abord, les demandes ensuite. Une demande se
-// rattache à sa version par son identifiant externe, et lire les demandes en premier laisserait
-// sans rattachement toutes celles visant une version nouvellement créée.
-func (s *TrackerSync) syncProject(ctx context.Context, project store.TrackedProject) error {
-	connection, err := s.connectionFor(ctx, project)
-	if err != nil {
-		return err
-	}
-	client, err := s.connect(connection)
-	if err != nil {
-		return err
-	}
-
-	state, err := s.store.GetSyncState(ctx, redmineSource, project.ID)
-	if err != nil {
-		return err
-	}
-
+// rattache à sa version par son identifiant externe, et lire les demandes en
+// premier laisserait sans rattachement toutes celles visant une version
+// nouvellement créée.
+func (s *TrackerSync) Observe(
+	ctx context.Context, projectID int64, trackerProject string,
+	client TrackerReader, cursor string,
+) ([]event.Event, string, error) {
 	// L'instant est capturé **avant** la lecture, et c'est ce qui rend le curseur
 	// sûr : le prendre après ferait du temps de lecture un angle mort, les demandes
 	// modifiées pendant celle-ci n'étant ni dans cette passe ni dans la suivante.
@@ -245,13 +176,18 @@ func (s *TrackerSync) syncProject(ctx context.Context, project store.TrackedProj
 	// Les versions sont relues en entier à chaque passe. L'API ne les filtre pas sur
 	// `updated_on`, et leur nombre est de l'ordre de la vingtaine : une lecture
 	// complète coûte une requête.
-	versions, err := client.ListVersions(ctx, connection.Project)
+	//
+	// C'est aussi ce qui fait de cette sonde un **instantané** plutôt qu'un flux,
+	// et ce qui a révélé le défaut d'amorçage corrigé dans `probes.go`.
+	versions, err := client.ListVersions(ctx, trackerProject)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
+
+	facts := make([]event.Event, 0, len(versions))
 	for _, version := range versions {
 		if _, err := s.store.UpsertRedmineVersion(ctx, store.TrackedVersion{
-			ProjectID: project.ID,
+			ProjectID: projectID,
 			// L'outil et l'identifiant qu'il emploie, plutôt qu'un entier dont le
 			// nom disait déjà de quel produit il venait.
 			Tool:        trackerTool,
@@ -263,8 +199,9 @@ func (s *TrackerSync) syncProject(ctx context.Context, project store.TrackedProj
 			DueDate:     version.DueDate,
 			UpdatedOn:   version.UpdatedOn,
 		}); err != nil {
-			return err
+			return nil, "", err
 		}
+		facts = append(facts, versionCreatedFact(trackerProject, version, startedAt))
 	}
 
 	// L'adoption vient après le dépôt de **toutes** les versions : c'est ce qui la
@@ -272,19 +209,19 @@ func (s *TrackerSync) syncProject(ctx context.Context, project store.TrackedProj
 	// numéro.
 	adoptions, err := s.store.AdoptPendingVersions(ctx)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 	s.reportAdoptions(adoptions)
 
-	mapping, err := s.store.StatusMapping(ctx, project.ID)
+	mapping, err := s.store.StatusMapping(ctx, projectID)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 
-	since := cursorSince(state.Cursor)
-	issues, err := client.ListIssues(ctx, provider.IssueQuery{Project: connection.Project, Since: since})
+	since := cursorSince(cursor)
+	issues, err := client.ListIssues(ctx, provider.IssueQuery{Project: trackerProject, Since: since})
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 
 	unmapped := map[string]int{}
@@ -300,7 +237,7 @@ func (s *TrackerSync) syncProject(ctx context.Context, project store.TrackedProj
 		}
 
 		if err := s.store.UpsertRedmineIssue(ctx, store.TrackedIssue{
-			ProjectID:  project.ID,
+			ProjectID:  projectID,
 			Tool:       trackerTool,
 			ExternalID: issue.ID,
 			// La version visée, désignée par son identifiant **dans l'outil** : le
@@ -317,23 +254,105 @@ func (s *TrackerSync) syncProject(ctx context.Context, project store.TrackedProj
 			IsClosed:          issue.StatusClosed,
 			UpdatedOn:         issue.UpdatedOn,
 		}); err != nil {
-			return err
+			return nil, "", err
+		}
+		if issue.StatusClosed {
+			facts = append(facts, issueClosedFact(trackerProject, issue, startedAt))
 		}
 	}
 
 	for status, count := range unmapped {
 		s.logger.Warn("statut Redmine sans projection déclarée",
-			"projet", project.TrackerProject, "status", status,
+			"projet", trackerProject, "status", status,
 			"issues", count, "bucket_par_defaut", "todo")
 	}
 
 	s.logger.Info("synchronisation du suivi",
-		"projet", project.TrackerProject,
+		"projet", trackerProject,
 		"versions", len(versions), "demandes", len(issues),
 		"incrementale", !since.IsZero(), "statuts_non_projetes", len(unmapped))
 
-	return s.store.RecordSyncSuccess(ctx, redmineSource, project.ID,
-		startedAt.Format(time.RFC3339))
+	return facts, startedAt.Format(time.RFC3339), nil
+}
+
+// versionCreatedFact constate qu'une version existe dans le suivi.
+//
+// # Pourquoi « created » sur une lecture qui rend tout
+//
+// Chaque passe relit l'intégralité des versions, et produit donc un fait par
+// version à chaque tour. Ce n'est pas un gaspillage : la **clé de déduplication**
+// porte la version et rien d'autre, si bien qu'une version déjà vue n'est écrite
+// qu'une fois. La création est donc déduite de l'unicité, sans que le magasin ait
+// à dire si son écriture a inséré ou mis à jour.
+//
+// C'est cette forme — un instantané rendu en entier, dédupliqué par clé — que le
+// contrat de sonde ne connaissait pas avant cette migration.
+func versionCreatedFact(
+	trackerProject string, version provider.Version, fallback time.Time,
+) event.Event {
+	payload := map[string]string{
+		"version_id": version.ID,
+		"name":       version.Name,
+		"status":     version.Status,
+	}
+	// Une échéance absente reste absente. La rendre sous forme de chaîne vide
+	// ferait qu'un appariement `due_date=` la reconnaîtrait, alors que l'absence
+	// d'échéance n'est pas une échéance.
+	if version.DueDate != nil {
+		payload["due_date"] = version.DueDate.Format(time.DateOnly)
+	}
+
+	return event.Event{
+		Type:    redmineVersionCreated,
+		Subject: version.Name,
+		Payload: payload,
+		// La date de mise à jour dans le suivi, faute de mieux : Redmine ne rend
+		// pas la date de création d'une version. Elle vaut celle du fait le jour
+		// où il est neuf, et c'est le seul jour où il compte.
+		OccurredAt: orNow(version.UpdatedOn, fallback),
+		DedupKey:   redmineVersionCreated + ":" + trackerProject + ":" + version.ID,
+	}
+}
+
+// issueClosedFact constate qu'une demande est close.
+//
+// La clé ne porte pas le statut : une demande rouverte puis reclose ne produit pas
+// un second fait. C'est délibéré — le fait dit « cette demande a été close », pas
+// « elle vient de l'être », et une équipe qui rouvre pour corriger un libellé
+// n'a pas à renvoyer une notification de livraison.
+func issueClosedFact(
+	trackerProject string, issue provider.Issue, fallback time.Time,
+) event.Event {
+	payload := map[string]string{
+		"issue_id": issue.ID,
+		"subject":  issue.Subject,
+		"tracker":  issue.Tracker,
+		"status":   issue.Status,
+	}
+	if issue.VersionID != nil {
+		payload["version_id"] = *issue.VersionID
+	}
+
+	return event.Event{
+		Type:       redmineIssueClosed,
+		Subject:    "#" + issue.ID,
+		Payload:    payload,
+		OccurredAt: orNow(issue.UpdatedOn, fallback),
+		DedupKey:   redmineIssueClosed + ":" + trackerProject + ":" + issue.ID,
+	}
+}
+
+// orNow rend la date du suivi, ou celle de la passe à défaut.
+//
+// Une date absente ne doit pas produire un fait daté de l'an zéro : le fil des
+// faits est ordonné par elle, et un tel fait s'y enterrerait sous tout le reste.
+// L'instant de la passe est une approximation honnête — c'est le moment où on
+// l'a constaté, faute de savoir quand il a eu lieu.
+func orNow(moment *time.Time, fallback time.Time) time.Time {
+	if moment == nil || moment.IsZero() {
+		return fallback
+	}
+	return *moment
 }
 
 // reportAdoptions journalise le rapprochement des versions provisoires.

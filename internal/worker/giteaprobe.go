@@ -44,6 +44,12 @@ func NewGiteaPullProbe(timeout time.Duration) Probe {
 
 func (p giteaPullProbe) PluginID() string { return "gitea" }
 
+// Schedule : la cadence du déploiement, et aucune passe d'emblée.
+//
+// Cette sonde ne remplit aucun écran — elle constate. Un redémarrage en boucle ne
+// doit pas se traduire par une rafale d'appels vers une forge tierce.
+func (p giteaPullProbe) Schedule() Schedule { return Schedule{} }
+
 // Source nomme le curseur dans `sync_state`.
 //
 // Propre à la sonde et non au plugin : Gitea pourrait en porter d'autres — les

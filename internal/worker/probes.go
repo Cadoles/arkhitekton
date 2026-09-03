@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
@@ -47,11 +48,36 @@ import (
  *     synchronisation du suivi vient d'apprendre.
  */
 
+// Schedule dit quand une sonde veut être interrogée.
+//
+// Déclaré par la sonde et non imposé par la boucle : le suivi bouge au rythme
+// d'une saisie humaine et se relit toutes les cinq minutes, une forge se regarde
+// plus souvent. Une cadence unique servirait mal les deux — et le plancher du
+// déploiement reste au-dessus de tout (doc 14 §14.4).
+type Schedule struct {
+	// Interval est la période souhaitée. Relevée au plancher du déploiement : une
+	// sonde ne peut pas demander à interroger une machine tierce plus souvent que
+	// ce que l'exploitation a autorisé.
+	Interval time.Duration
+	// Eager demande une passe immédiate au démarrage.
+	//
+	// Faux par défaut, et c'est le bon défaut : une sonde qui ne fait que
+	// constater n'a rien à rattraper, et un redémarrage en boucle martèlerait une
+	// machine qui n'est pas la nôtre. Vrai pour une source qui **remplit un
+	// écran** — celui des versions serait vide jusqu'au premier battement.
+	Eager bool
+}
+
 // Probe observe une source extérieure et rend les faits qu'elle y voit.
 //
-// Une interface étroite : la sonde ne persiste rien, ne déduplique rien, ne date
-// rien de son propre chef. Elle lit et rapporte ; la boucle décide de ce qui
-// s'écrit.
+// Une interface étroite : la sonde ne persiste **pas ses faits**, ne les
+// déduplique pas, ne les date pas de son propre chef. Elle lit et rapporte ; la
+// boucle décide de ce qui s'écrit et de ce qui déclenche.
+//
+// Ce qu'elle fait de ses **propres** données ne regarde pas la boucle. La
+// synchronisation du suivi projette des versions et des demandes dans ses tables
+// au passage : c'est son travail, et le lui interdire aurait demandé un second
+// mécanisme pour faire tourner exactement la même boucle.
 type Probe interface {
 	// PluginID dit de quel plugin la sonde tient sa connexion et son activation.
 	// Un plugin éteint — sur l'instance ou sur le projet — n'est pas interrogé.
@@ -60,6 +86,8 @@ type Probe interface {
 	// plugin : un plugin peut en porter plusieurs, et un curseur partagé ferait
 	// que l'une avance celui de l'autre.
 	Source() string
+	// Schedule dit à quelle cadence interroger, et s'il faut le faire d'emblée.
+	Schedule() Schedule
 	// Poll rend les faits survenus depuis le curseur, et le curseur suivant.
 	//
 	// Les faits portent leur **propre** clé de déduplication et leur **propre**
@@ -124,10 +152,9 @@ func NewProbeRunner(
 
 // Run interroge les sondes jusqu'à annulation.
 //
-// Aucun passage immédiat au démarrage, contrairement à la synchronisation du
-// suivi : celle-ci remplit un écran qui serait vide sans elle, alors qu'une sonde
-// ne fait que constater. Attendre un intervalle évite qu'un redémarrage en
-// boucle martèle une forge tierce.
+// Une boucle **par sonde**, chacune à sa cadence. Un tour commun obligerait la
+// plus lente et la plus rapide à s'accorder, et le suivi — cinq minutes — ferait
+// alors la loi d'une forge qu'on veut regarder plus souvent.
 func (r *ProbeRunner) Run(ctx context.Context) error {
 	if len(r.probes) == 0 {
 		// Rien à interroger. On ne tourne pas dans le vide : la boucle rendrait
@@ -136,40 +163,67 @@ func (r *ProbeRunner) Run(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	ticker := time.NewTicker(r.interval)
+	var pending sync.WaitGroup
+	for _, probe := range r.probes {
+		pending.Add(1)
+		go func(probe Probe) {
+			defer pending.Done()
+			r.loop(ctx, probe)
+		}(probe)
+	}
+	pending.Wait()
+	return ctx.Err()
+}
+
+// loop fait tourner une sonde à sa cadence.
+func (r *ProbeRunner) loop(ctx context.Context, probe Probe) {
+	schedule := probe.Schedule()
+	// Le plancher du déploiement l'emporte : une sonde déclare sa cadence
+	// au-dessus de lui, jamais en dessous.
+	interval := schedule.Interval
+	if interval < r.interval {
+		interval = r.interval
+	}
+
+	// Une passe immédiate seulement si la sonde la réclame. Une source qui remplit
+	// un écran la veut ; une source qui ne fait que constater n'a rien à
+	// rattraper, et l'attente évite qu'un redémarrage en boucle martèle une
+	// machine tierce.
+	if schedule.Eager {
+		r.sweep(ctx, probe)
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		case <-ticker.C:
-			r.once(ctx)
+			r.sweep(ctx, probe)
 		}
 	}
 }
 
-// once fait un tour de toutes les sondes, sur tous les projets.
-func (r *ProbeRunner) once(ctx context.Context) {
+// sweep passe une sonde sur tous les projets.
+func (r *ProbeRunner) sweep(ctx context.Context, probe Probe) {
 	projects, err := r.store.ListProjects(ctx)
 	if err != nil {
 		r.logger.Error("projets à sonder", "error", err)
 		return
 	}
 
-	for _, probe := range r.probes {
-		for _, project := range projects {
-			// L'échec d'un projet **n'arrête pas** les suivants : deux projets
-			// peuvent viser deux forges, et la panne de l'une ne dit rien de
-			// l'autre.
-			if err := r.pollOne(ctx, probe, project); err != nil {
-				r.logger.Error("sonde",
-					"source", probe.Source(), "projet", project.Slug, "error", err)
-				if recordErr := r.store.RecordSyncFailure(
-					ctx, probe.Source(), project.ID, err.Error()); recordErr != nil {
-					r.logger.Error("enregistrement de l'échec d'une sonde",
-						"source", probe.Source(), "projet", project.Slug, "error", recordErr)
-				}
+	for _, project := range projects {
+		// L'échec d'un projet **n'arrête pas** les suivants : deux projets peuvent
+		// viser deux serveurs, et la panne de l'un ne dit rien de l'autre.
+		if err := r.pollOne(ctx, probe, project); err != nil {
+			r.logger.Error("sonde",
+				"source", probe.Source(), "projet", project.Slug, "error", err)
+			if recordErr := r.store.RecordSyncFailure(
+				ctx, probe.Source(), project.ID, err.Error()); recordErr != nil {
+				r.logger.Error("enregistrement de l'échec d'une sonde",
+					"source", probe.Source(), "projet", project.Slug, "error", recordErr)
 			}
 		}
 	}
@@ -202,19 +256,25 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 		return err
 	}
 
-	// **La première passe n'émet rien.** Elle établit le curseur et s'arrête.
+	// **La première passe ne déclenche rien.**
 	//
 	// C'est la règle la moins évidente et la plus coûteuse à découvrir : sans
 	// elle, activer une sonde sur un dépôt qui porte quatre cents demandes de
-	// fusion émettrait quatre cents faits — donc autant de plans, donc autant de
-	// notifications. Une activation ne réveille pas le passé.
-	if state.Cursor == "" {
-		r.logger.Info("sonde amorcée, aucun fait émis",
-			"source", probe.Source(), "projet", project.Slug,
-			"faits_ignores", len(facts),
-			"raison", "une activation ne réveille pas le passé")
-		return r.store.RecordSyncSuccess(ctx, probe.Source(), project.ID, cursor)
-	}
+	// fusion enverrait quatre cents notifications. Une activation ne réveille pas
+	// le passé.
+	//
+	// # Elle enregistre pourtant, et c'est une correction
+	//
+	// La passe d'amorçage **écrit** les faits, sans les aiguiller. Les jeter
+	// aurait suffi tant que toute sonde filtrait sur son curseur — la sonde Gitea
+	// ne rend que les demandes ouvertes depuis, et ne les revoit pas.
+	//
+	// Une sonde qui rend un **instantané** casse cette hypothèse : le suivi relit
+	// toutes les versions à chaque passe, parce que l'API de Redmine ne les filtre
+	// pas. Jetés à l'amorçage sans être retenus, ces faits seraient neufs à la
+	// passe suivante — et la déclencheraient tous. « Une activation ne réveille
+	// pas le passé » n'aurait été vrai que d'un tour.
+	priming := state.Cursor == ""
 
 	emitted := 0
 	for _, fact := range facts {
@@ -227,16 +287,23 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 			// n'avance pas non plus, et la passe suivante le reverra.
 			return fmt.Errorf("fait %q: %w", fact.Type, err)
 		}
-		if recorded {
-			emitted++
-			// Sur un fait **neuf** seulement : la fenêtre de recouvrement fait
-			// revoir les mêmes demandes à chaque passe, et déclencher sur chacune
-			// enverrait une notification par tour.
-			r.dispatcher.Dispatch(ctx, fact)
+		if !recorded || priming {
+			continue
 		}
+		emitted++
+		// Sur un fait **neuf** seulement : la fenêtre de recouvrement fait revoir
+		// les mêmes demandes à chaque passe, et déclencher sur chacune enverrait
+		// une notification par tour.
+		r.dispatcher.Dispatch(ctx, fact)
 	}
 
-	if emitted > 0 {
+	switch {
+	case priming:
+		r.logger.Info("sonde amorcée, aucune réaction déclenchée",
+			"source", probe.Source(), "projet", project.Slug,
+			"faits_retenus", len(facts),
+			"raison", "une activation ne réveille pas le passé")
+	case emitted > 0:
 		r.logger.Info("faits constatés par sonde",
 			"source", probe.Source(), "projet", project.Slug,
 			"emis", emitted, "lus", len(facts))

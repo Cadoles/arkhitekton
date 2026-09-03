@@ -226,6 +226,33 @@ func Registry() []Descriptor {
 		{
 			ID: "redmine", Kind: KindTracker, Label: "Redmine",
 			Summary: "Versions, demandes et avancement lus dans une instance Redmine.",
+			// Deux faits, et pas davantage. Ils ont en commun d'être des
+			// **événements** — quelque chose est arrivé une fois. Une demande qui
+			// change de statut n'en est pas un : elle en change dix fois, et un
+			// fait par changement ferait du fil des faits un journal de saisie.
+			Events: []EventSpec{
+				{
+					Suffix: "version.created",
+					Label:  "Version déclarée dans le suivi",
+					Payload: []Field{
+						{Name: "version_id", Label: "Identifiant"},
+						{Name: "name", Label: "Nom"},
+						{Name: "status", Label: "Statut"},
+						{Name: "due_date", Label: "Échéance"},
+					},
+				},
+				{
+					Suffix: "issue.closed",
+					Label:  "Demande close",
+					Payload: []Field{
+						{Name: "issue_id", Label: "Numéro"},
+						{Name: "subject", Label: "Sujet"},
+						{Name: "tracker", Label: "Type"},
+						{Name: "status", Label: "Statut"},
+						{Name: "version_id", Label: "Version visée"},
+					},
+				},
+			},
 			// La connexion est déclarée aux deux portées. Globalement, elle sert
 			// de défaut au déploiement mono-client — celui qui existe. Au niveau
 			// d'un projet, elle permet à un second client d'avoir son serveur sans

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -37,17 +38,19 @@ func (f *fakeRedmine) ListIssues(_ context.Context, query provider.IssueQuery) (
 	return f.issues, nil
 }
 
+// fakeRedmineStore ne porte plus que la projection.
+//
+// Cinq méthodes ont disparu de cette fixture au passage — projets suivis,
+// réglages du plugin, curseur, ses deux issues. Elles vivent dans `multiStore`,
+// qui pilote la boucle. C'est la mesure la plus concrète de ce que la migration a
+// déplacé.
 type fakeRedmineStore struct {
-	pluginConfig map[string]string
-	pluginErr    error
-	versions     []store.TrackedVersion
-	issues       []store.TrackedIssue
-	mapping      map[string]string
-	state        store.SyncState
-	successes    []string
-	failures     []string
-	adoptions    []store.Adoption
-	adopted      int
+	versions  []store.TrackedVersion
+	issues    []store.TrackedIssue
+	mapping   map[string]string
+	state     store.SyncState
+	adoptions []store.Adoption
+	adopted   int
 }
 
 func (f *fakeRedmineStore) UpsertRedmineVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
@@ -71,34 +74,6 @@ func (f *fakeRedmineStore) AdoptPendingVersions(context.Context) ([]store.Adopti
 
 func (f *fakeRedmineStore) StatusMapping(context.Context, int64) (map[string]string, error) {
 	return f.mapping, nil
-}
-
-func (f *fakeRedmineStore) GetSyncState(context.Context, string, int64) (store.SyncState, error) {
-	return f.state, nil
-}
-
-func (f *fakeRedmineStore) RecordSyncSuccess(_ context.Context, _ string, _ int64, cursor string) error {
-	f.successes = append(f.successes, cursor)
-	return nil
-}
-
-func (f *fakeRedmineStore) RecordSyncFailure(_ context.Context, _ string, _ int64, message string) error {
-	f.failures = append(f.failures, message)
-	return nil
-}
-
-// ResolvedPlugin rend la connexion du projet, clé **scellée** comme en base.
-func (f *fakeRedmineStore) ResolvedPlugin(_ context.Context, _ int64, _ string) (store.PluginSettings, error) {
-	if f.pluginErr != nil {
-		return store.PluginSettings{}, f.pluginErr
-	}
-	config := f.pluginConfig
-	if config == nil {
-		config = map[string]string{
-			"url": "https://redmine.example.fr", "api_key": "scellée", "project": "mse-dev",
-		}
-	}
-	return store.PluginSettings{PluginID: "redmine", Enabled: true, Config: config}, nil
 }
 
 // openerDeTest ouvre en retirant le préfixe de scellement : de quoi vérifier que
@@ -125,8 +100,18 @@ func newSync(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) *TrackerSy
 		db.mapping = map[string]string{"En cours": "doing", "Fermé": "done", "Rejeté": "rejected"}
 	}
 	connect := func(TrackerConnection) (TrackerReader, error) { return client, nil }
-	return NewTrackerSync(db, connect, openerDeTest{}, quietLogger()).
-		WithNormalizer(testNames)
+	return NewTrackerSync(db, connect, quietLogger()).WithNormalizer(testNames)
+}
+
+// passe exécute une passe de projection, comme la sonde le ferait.
+//
+// Elle remplace l'ancien `Sync` : la boucle est partie dans `probes.go`, et ce
+// qui reste ici est la projection seule. Les assertions n'ont pas changé — c'est
+// tout l'intérêt.
+func passe(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) ([]event.Event, string, error) {
+	t.Helper()
+	sync := newSync(t, client, db)
+	return sync.Observe(context.Background(), 1, "mse-dev", client, db.state.Cursor)
 }
 
 // Les versions avant les demandes : une demande se rattache à sa version par
@@ -142,7 +127,7 @@ func TestLesVersionsSontDeposeesAvantLesDemandes(t *testing.T) {
 	}
 	db := &fakeRedmineStore{}
 
-	if err := newSync(t, client, db).Sync(context.Background()); err != nil {
+	if _, _, err := passe(t, client, db); err != nil {
 		t.Fatalf("synchronisation: %v", err)
 	}
 
@@ -168,7 +153,7 @@ func TestLeNomEstNormalisePourLeRapprochementSansEtreReecrit(t *testing.T) {
 	}}
 	db := &fakeRedmineStore{}
 
-	if err := newSync(t, client, db).Sync(context.Background()); err != nil {
+	if _, _, err := passe(t, client, db); err != nil {
 		t.Fatalf("synchronisation: %v", err)
 	}
 
@@ -195,7 +180,7 @@ func TestUnStatutInconnuTombeDansTodoSansInterrompre(t *testing.T) {
 	}}
 	db := &fakeRedmineStore{}
 
-	if err := newSync(t, client, db).Sync(context.Background()); err != nil {
+	if _, _, err := passe(t, client, db); err != nil {
 		t.Fatalf("synchronisation: %v", err)
 	}
 
@@ -225,15 +210,16 @@ func TestLeCurseurEstPrisAvantLaLecture(t *testing.T) {
 	debut := time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)
 	sync.now = func() time.Time { return debut }
 
-	if err := sync.Sync(context.Background()); err != nil {
+	// Le curseur est **rendu** plutôt qu'écrit : depuis la migration, c'est la
+	// boucle des sondes qui le persiste. Ce que la projection doit tenir, c'est
+	// l'instant qu'elle choisit — et il reste celui d'avant la lecture.
+	_, cursor, err := sync.Observe(context.Background(), 1, "mse-dev", client, "")
+	if err != nil {
 		t.Fatalf("synchronisation: %v", err)
 	}
 
-	if len(db.successes) != 1 {
-		t.Fatalf("%d curseurs enregistrés", len(db.successes))
-	}
-	if got := db.successes[0]; got != debut.Format(time.RFC3339) {
-		t.Errorf("curseur %q, attendu %q", got, debut.Format(time.RFC3339))
+	if cursor != debut.Format(time.RFC3339) {
+		t.Errorf("curseur %q, attendu %q", cursor, debut.Format(time.RFC3339))
 	}
 }
 
@@ -246,7 +232,7 @@ func TestLeCurseurEstRepriseAvecUneMargeDeRecouvrement(t *testing.T) {
 	client := &fakeRedmine{}
 	db := &fakeRedmineStore{state: store.SyncState{Cursor: precedent.Format(time.RFC3339)}}
 
-	if err := newSync(t, client, db).Sync(context.Background()); err != nil {
+	if _, _, err := passe(t, client, db); err != nil {
 		t.Fatalf("synchronisation: %v", err)
 	}
 
@@ -267,7 +253,7 @@ func TestUnCurseurIllisibleFaitToutRelire(t *testing.T) {
 		client := &fakeRedmine{}
 		db := &fakeRedmineStore{state: store.SyncState{Cursor: cursor}}
 
-		if err := newSync(t, client, db).Sync(context.Background()); err != nil {
+		if _, _, err := passe(t, client, db); err != nil {
 			t.Fatalf("curseur %q: %v", cursor, err)
 		}
 		if len(client.queries) != 1 {
@@ -282,50 +268,50 @@ func TestUnCurseurIllisibleFaitToutRelire(t *testing.T) {
 
 // Un échec est consigné et le curseur n'avance pas : l'avancer sauterait la fenêtre
 // non lue.
-func TestUnEchecEstConsigneSansAvancerLeCurseur(t *testing.T) {
+func TestUnEchecNavancePasLeCurseur(t *testing.T) {
 	client := &fakeRedmine{err: errors.New("Redmine injoignable")}
 	db := &fakeRedmineStore{}
 
-	newSync(t, client, db).once(context.Background())
+	facts, cursor, err := newSync(t, client, db).
+		Observe(context.Background(), 1, "mse-dev", client, "")
 
-	if len(db.failures) != 1 {
-		t.Fatalf("%d échecs consignés", len(db.failures))
+	if err == nil {
+		t.Fatal("une panne du suivi doit faire échouer la passe")
 	}
-	if len(db.successes) != 0 {
-		t.Errorf("le curseur a avancé malgré l'échec: %v", db.successes)
+	// Aucun curseur rendu : la boucle n'a donc rien à avancer, et la passe
+	// suivante reverra la fenêtre non lue. C'est la même garantie qu'avant la
+	// migration, obtenue en ne rendant rien plutôt qu'en n'écrivant rien.
+	if cursor != "" {
+		t.Errorf("curseur rendu malgré l'échec: %q", cursor)
+	}
+	if len(facts) != 0 {
+		t.Errorf("%d faits rendus malgré l'échec", len(facts))
 	}
 }
 
 // Une panne de Redmine ne doit pas emporter la boucle : c'est un service tiers, et sa
 // panne n'a rien à voir avec l'ordonnancement ou l'observation.
-func TestUnePanneDeRedmineNeTuePasLaBoucle(t *testing.T) {
+//
+// # Ce test a changé de sujet, et c'est le signe que la migration a pris
+//
+// Il pilotait `TrackerSync.Run`, sa propre boucle, sa propre isolation des
+// échecs. Celle-ci n'existe plus : c'est `ProbeRunner` qui la tient, pour toutes
+// les sources, et `TestUneForgeInjoignableNarretePasLesAutresProjets` l'éprouve.
+//
+// Ce qui reste à la charge du suivi est ce qui est vérifié ici : **remonter**
+// l'erreur, pour que la boucle ait quelque chose à isoler.
+func TestUnePanneDeRedmineRemonteALaBoucle(t *testing.T) {
 	client := &fakeRedmine{err: errors.New("502 Bad Gateway")}
 	db := &fakeRedmineStore{}
-	sync := newSync(t, client, db)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- sync.Run(ctx) }()
+	_, _, err := newSync(t, client, db).
+		Observe(context.Background(), 1, "mse-dev", client, "")
 
-	// Le premier passage immédiat doit avoir consigné l'échec sans rendre la main.
-	deadline := time.After(2 * time.Second)
-	for {
-		if len(db.failures) > 0 {
-			break
-		}
-		select {
-		case err := <-done:
-			t.Fatalf("la boucle s'est arrêtée sur un échec de Redmine: %v", err)
-		case <-deadline:
-			t.Fatal("aucun échec consigné")
-		default:
-			time.Sleep(10 * time.Millisecond)
-		}
+	if err == nil {
+		t.Fatal("la panne doit remonter, sans quoi la boucle croirait la passe réussie")
 	}
-
-	cancel()
-	if err := <-done; !errors.Is(err, context.Canceled) {
-		t.Errorf("arrêt sur %v, attendu context.Canceled", err)
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("message %q — il doit porter ce que le suivi a répondu", err)
 	}
 }
 
@@ -337,7 +323,7 @@ func TestLeDrapeauDeClotureEstTransmisIndependammentDuSeau(t *testing.T) {
 	}}
 	db := &fakeRedmineStore{mapping: map[string]string{"Ré-ouvert": "doing"}}
 
-	if err := newSync(t, client, db).Sync(context.Background()); err != nil {
+	if _, _, err := passe(t, client, db); err != nil {
 		t.Fatalf("synchronisation: %v", err)
 	}
 
@@ -356,9 +342,3 @@ func TestLeDrapeauDeClotureEstTransmisIndependammentDuSeau(t *testing.T) {
 // réellement présents dans le projet — `v3.2.0` et `MSE 3.1.2` y coexistent —, et
 // c'est la configuration qui la déclare depuis que `MSE ` n'est plus en dur.
 var testNames = release.NewNormalizer([]string{release.DefaultPrefix, "MSE "})
-
-// TrackedProjects rend le projet suivi de ces tests. Un seul : ils portent sur le
-// rapprochement des versions, pas sur le choix du projet.
-func (f *fakeRedmineStore) TrackedProjects(context.Context) ([]store.TrackedProject, error) {
-	return []store.TrackedProject{{ID: 1, Slug: "mse", TrackerProject: "mse-dev"}}, nil
-}
