@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -178,4 +179,54 @@ func seal(cipher *secrets.Cipher, value, what string) (string, error) {
 		return "", fmt.Errorf("scellement de %s: %w", what, err)
 	}
 	return sealed, nil
+}
+
+// secretResolver ouvre un champ sensible désigné par un geste d'action.
+//
+// La désignation s'écrit `plugin.champ` — `redmine.api_key`. C'est le seul chemin
+// par lequel un secret atteint un appel sortant : il ne passe ni par un gabarit,
+// ni par le corps, ni par un journal (doc 14 §14.7).
+type secretResolver struct {
+	store  *store.DB
+	cipher *secrets.Cipher
+}
+
+// ResolveSecret rend la valeur en clair d'un champ désigné.
+//
+// Le message d'erreur ne cite jamais la valeur — c'est précisément celle qu'on
+// n'a pas su ouvrir — et nomme la désignation, qui est publique.
+func (r secretResolver) ResolveSecret(
+	ctx context.Context, projectID *int64, reference string,
+) (string, error) {
+	pluginID, field, found := strings.Cut(reference, ".")
+	if !found || pluginID == "" || field == "" {
+		return "", fmt.Errorf("désignation %q attendue sous la forme `plugin.champ`", reference)
+	}
+
+	descriptor, err := plugin.Get(pluginID)
+	if err != nil {
+		return "", err
+	}
+
+	// Un champ **non déclaré sensible** est refusé plutôt qu'ouvert. Sans ce
+	// contrôle, une désignation pourrait extraire une valeur ordinaire par un
+	// chemin conçu pour les secrets — et l'écran, lui, ne montrerait rien.
+	scope := plugin.ScopeProject
+	if projectID == nil {
+		scope = plugin.ScopeGlobal
+	}
+	if !descriptor.IsSecret(scope, field) && !descriptor.IsSecret(plugin.ScopeGlobal, field) {
+		return "", fmt.Errorf("le champ %q du plugin %q n'est pas déclaré sensible",
+			field, pluginID)
+	}
+
+	if projectID == nil {
+		return "", fmt.Errorf("désignation %q hors d'un projet", reference)
+	}
+
+	settings, err := r.store.ResolvedPlugin(ctx, *projectID, pluginID)
+	if err != nil {
+		return "", err
+	}
+	return r.cipher.Open(settings.Config[field])
 }

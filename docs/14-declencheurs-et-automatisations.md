@@ -671,12 +671,19 @@ une ligne d'interface, et c'est tout l'intérêt de l'ordre choisi.
 
 ### Tranche 4 — Les actions sortantes
 
-`webhook`, `forge.status`, `forge.comment`, et le transport à cible contrôlée avec ses
-tests — y compris ceux qui vérifient qu'une adresse de métadonnées cloud et une redirection
-sont refusées.
+Le transport à cible contrôlée et ses tests — y compris ceux qui vérifient qu'une adresse
+de métadonnées cloud et une redirection sont refusées —, le registre des actions, et
+`webhook`.
 
 C'est la tranche qui fait sortir des requêtes du cluster au nom de l'instance. Elle ne part
 pas avant que la précédente soit tenue.
+
+**`forge.status` est déclarée et pas encore exécutée ; `forge.comment` n'est pas déclarée.**
+Les deux demandent un client d'écriture vers la forge, et la seconde demande surtout un
+**numéro de demande de fusion** — que rien ne fournit dans un plan déclenché par une
+release. Ce numéro arrivera avec `gitea.pull_request.opened`, et l'action prendra alors son
+sens en même temps que sa source. L'écrire d'avance produirait un paramètre que personne ne
+sait renseigner.
 
 ### Tranche 5 — Les sondes, et les faits de plugin
 

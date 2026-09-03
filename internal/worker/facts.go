@@ -206,8 +206,16 @@ func (s *runSink) WithEngine(engine *Engine) *runSink {
 // Le runner est lié au sink : il a besoin du catalogue et de la file, que le sink
 // porte déjà. Les assembler ici plutôt que dans `main` évite d'exposer ces deux
 // dépendances une seconde fois.
-func NewVerificationEngine(sink *runSink, plans PlanStore, logger *slog.Logger) *Engine {
-	return NewEngine(plans, verificationRunner{sink: sink}, logger)
+func NewVerificationEngine(
+	sink *runSink, plans PlanStore, actions GesteRunner, logger *slog.Logger,
+) *Engine {
+	// L'aiguillage entre les deux natures de geste vit hors du moteur : celui-ci
+	// n'a pas à connaître la différence entre un pipeline, qui devient un job, et
+	// une action, qui sort du cluster.
+	return NewEngine(plans, gesteRouter{
+		pipelines: verificationRunner{sink: sink},
+		actions:   actions,
+	}, logger)
 }
 
 // planStateOf traduit l'issue d'un job dans le vocabulaire des plans.

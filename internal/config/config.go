@@ -37,6 +37,30 @@ type Config struct {
 	Versions VersionsConfig
 	Results  ResultsConfig
 	Secrets  SecretsConfig
+	Webhooks WebhookConfig
+}
+
+// WebhookConfig borne ce qu'un appel sortant configurable peut atteindre.
+//
+// Les deux autorisations sont **fausses par défaut**, et c'est le bon défaut :
+// une URL saisie dans l'interface devient une requête émise depuis le cluster,
+// par un processus qui porte un jeton de compte de service. Ouvrir d'office
+// reviendrait à offrir une falsification de requête côté serveur (doc 14 §14.7).
+type WebhookConfig struct {
+	// AllowPrivate autorise les cibles privées et la boucle locale. Un
+	// déploiement local en a besoin ; une production, non.
+	//
+	// Ne rouvre jamais le lien-local : les métadonnées d'instance ne sont pas une
+	// cible qu'un déploiement veut atteindre.
+	AllowPrivate bool
+	// AllowInsecure autorise `http://`. La charge porte le tag d'une release et
+	// le jeton qui l'authentifie ; en clair, tout cela traverse un réseau
+	// lisible.
+	AllowInsecure bool
+	// Timeout borne un appel. Un destinataire lent ne doit pas retenir le moteur
+	// de plans : les gestes d'une étape partent ensemble, et un appel suspendu
+	// bloquerait la conclusion de l'étape.
+	Timeout time.Duration
 }
 
 // SecretsConfig porte la clé qui scelle les valeurs sensibles des réglages.
@@ -347,6 +371,11 @@ func Load(role Role) (Config, error) {
 			APIKey:         os.Getenv("TRACKER_API_KEY"),
 			Project:        os.Getenv("TRACKER_PROJECT"),
 			Timeout:        durationOr("TRACKER_TIMEOUT", 15*time.Second),
+		},
+		Webhooks: WebhookConfig{
+			AllowPrivate:  boolOr("WEBHOOK_ALLOW_PRIVATE", false),
+			AllowInsecure: boolOr("WEBHOOK_ALLOW_INSECURE", false),
+			Timeout:       durationOr("WEBHOOK_TIMEOUT", 15*time.Second),
 		},
 		Secrets: SecretsConfig{
 			Key:         strings.TrimSpace(os.Getenv("SECRETS_KEY")),

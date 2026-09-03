@@ -43,6 +43,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/webhook"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
 )
 
@@ -562,7 +563,24 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			//
 			// Assemblé après le sink parce qu'il en dépend : le runner a besoin du
 			// catalogue et de la file, que le sink porte déjà.
-			sink = sink.WithEngine(worker.NewVerificationEngine(sink, db, logger))
+			// Les appels sortants, avec leur transport à cible contrôlée. Les
+			// autorisations viennent du déploiement et sont fausses par défaut :
+			// une URL saisie dans l'interface est émise depuis le cluster.
+			actions := worker.NewActionRunner(
+				webhook.New(webhook.Options{
+					AllowPrivate:  cfg.Webhooks.AllowPrivate,
+					AllowInsecure: cfg.Webhooks.AllowInsecure,
+					Timeout:       cfg.Webhooks.Timeout,
+				}),
+				secretResolver{store: db, cipher: cipher}, logger)
+			if cfg.Webhooks.AllowPrivate || cfg.Webhooks.AllowInsecure {
+				logger.Warn("appels sortants élargis",
+					"cibles_privees", cfg.Webhooks.AllowPrivate,
+					"clair", cfg.Webhooks.AllowInsecure,
+					"consequence", "une réaction mal réglée peut atteindre le réseau interne")
+			}
+
+			sink = sink.WithEngine(worker.NewVerificationEngine(sink, db, actions, logger))
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
 			// Les URLs d'écriture des artefacts sont minées ici : le layout de
