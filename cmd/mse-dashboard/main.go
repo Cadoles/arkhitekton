@@ -317,6 +317,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// répondre à « pourquoi rien ne s'est passé ? », question qui n'a de
 			// sens qu'une fois qu'on peut voir ce qui a bien été constaté.
 			dashhttp.NewEventsHandler(db),
+			// Le même catalogue que la file : l'éditeur propose ce que l'instance
+			// sait lancer, et un second chargement pourrait proposer autre chose.
+			dashhttp.NewReactionsHandler(db, pipelines, logger),
 			middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de

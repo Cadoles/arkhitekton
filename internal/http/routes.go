@@ -17,7 +17,7 @@ func NewAPIRouter(
 	signoffs *SignoffsHandler, versions *VersionsHandler, syncAdmin *SyncAdminHandler,
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
 	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
-	events *EventsHandler, middleware *Middleware,
+	events *EventsHandler, reactions *ReactionsHandler, middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -289,6 +289,26 @@ func NewAPIRouter(
 	// réel sous les yeux plutôt que par précaution ici (doc 14 §14.4).
 	mux.Handle("GET /projects/{project}/events", Chain(http.HandlerFunc(events.List),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
+
+	// Les réactions déclarées. `admin`, comme les plugins et pour la même raison :
+	// déclarer une réaction fait émettre des appels au nom de l'instance et lance
+	// des pipelines. Ce n'est pas la même responsabilité que conduire une
+	// livraison, et `release:edit` l'accorderait à qui ne l'a pas (doc 14 §14.7).
+	mux.Handle("GET /projects/{project}/reactions", Chain(http.HandlerFunc(reactions.List),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+	mux.Handle("POST /projects/{project}/reactions", Chain(http.HandlerFunc(reactions.Save),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	mux.Handle("PUT /projects/{project}/reactions/{reaction}", Chain(http.HandlerFunc(reactions.Save),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	mux.Handle("DELETE /projects/{project}/reactions/{reaction}", Chain(http.HandlerFunc(reactions.Delete),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+
+	// Ce que cette version sait faire : les faits écoutables, les gestes
+	// disponibles, les conditions. L'éditeur ne code aucune liste — une liste
+	// écrite dans l'interface divergerait du binaire au premier ajout, et l'écart
+	// se verrait par un geste qu'on peut choisir et que rien n'exécute.
+	mux.Handle("GET /admin/automations/catalogue", Chain(http.HandlerFunc(reactions.Catalogue),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
 
 	mux.Handle("GET /forge/refs", Chain(http.HandlerFunc(forge.Refs),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
