@@ -405,6 +405,25 @@ formulation juste — ce qu'on veut taire est la *notification*, pas le *constat
 Ce défaut était présent depuis la tranche 5 et invisible avec une seule réalisation. C'est
 exactement ce que la garde de §14.1 cherchait à provoquer, appliqué au contrat de sonde.
 
+#### Mesuré contre l'instance réelle
+
+Le défaut ci-dessus n'est pas une déduction. Passé sur `dproj.cnous.fr`, projet `mse-dev`,
+en lecture seule :
+
+| Passe | Faits rendus | Dont clés déjà vues |
+|---|---|---|
+| amorçage (sans curseur) | **58** — 20 versions, 38 clôtures | — |
+| passe suivante (avec curseur) | **20** — les versions, relues en entier | **20** |
+
+Les vingt versions reviennent à chaque passe, comme prévu : l'API ne les filtre pas. Leurs
+clés sont stables, donc aucune ne se reconstate. **Avant la correction**, l'amorçage les
+jetait sans les retenir — et la passe suivante en aurait fait vingt faits neufs, donc vingt
+déclenchements, cinq minutes après l'activation.
+
+Le coût de l'amorçage est au passage rassurant : cinquante-huit lignes, pas quatre cents.
+
+`make test-live` rejoue la vérification.
+
 #### Ce que le contrat a absorbé sans se tordre
 
 Tout le reste, et il faut le dire aussi : réglages du plugin par projet, descellement de la

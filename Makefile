@@ -44,6 +44,26 @@ build: ## Compile le binaire
 test: ## Exécute les tests (les tests d'intégration sont ignorés sans TEST_DATABASE_URL)
 	$(GO) test $(GO_PKGS)
 
+# Les identifiants viennent de **votre** environnement et ne sont pas lus ici :
+# ce sont ceux d'une instance de production, et une cible qui irait les chercher
+# toute seule en ferait une commande à lancer par distraction.
+#
+# En développement ils vivent dans `deploy/overlays/local/secrets/dashboard.env`
+# — hors dépôt — sous leurs noms de configuration :
+#
+#   set -a; . deploy/overlays/local/secrets/dashboard.env; set +a
+#   REDMINE_LIVE=1 REDMINE_URL=$$TRACKER_URL REDMINE_PROJECT=$$TRACKER_PROJECT \
+#     REDMINE_API_KEY=$$TRACKER_API_KEY make test-live
+#
+# -count=1 désactive le cache : un test « cached » n'a interrogé personne.
+test-live: ## Vérifications contre les instances réelles (REDMINE_LIVE=1, GITEA_LIVE=1)
+	@if [ "$$REDMINE_LIVE" != "1" ] && [ "$$GITEA_LIVE" != "1" ]; then \
+		echo "aucune vérification réelle demandée."; \
+		echo "  REDMINE_LIVE=1 REDMINE_URL=… REDMINE_API_KEY=… REDMINE_PROJECT=… make test-live"; \
+		exit 1; \
+	fi
+	$(GO) test -count=1 -run Live -v $(GO_PKGS)
+
 # -p 1 sérialise les paquets : les tests de `store` réinitialisent le schéma, et
 # rien ne garantirait l'ordre avec ceux qui en dépendent.
 # -count=1 désactive le cache : un test d'intégration « cached » n'a rien vérifié.
