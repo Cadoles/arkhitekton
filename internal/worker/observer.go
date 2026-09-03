@@ -699,88 +699,32 @@ func toLogSteps(steps []tekton.Step) []logs.Step {
 // launchVerification met en file les tests d'une release construite, et rend le
 // nombre effectivement enfilé.
 //
+// **Passe désormais par un plan.** Ce qui était une boucle écrite à la main est
+// devenu la composition d'un plan — une étape, N gestes parallèles — et son
+// exécution. La boucle était déjà un plan ; elle n'était simplement pas déclarée,
+// donc pas modifiable sans recompiler (doc 14 §14.1).
+//
 // Les échecs de mise en file sont consignés et non propagés : la construction a
 // réussi, et perdre ce fait parce qu'un test n'a pas pu être enfilé serait pire
 // que de le signaler. Le nombre rendu décide de l'état — zéro test enfilé ne doit
 // pas laisser la release en attente d'une vérification qui ne viendra pas.
 func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleaseContext) int {
-	// Les tests portent sur ce qui a été construit, donc sur le commit — jamais
-	// sur la branche d'où il vient, qui a pu bouger depuis (B17).
-	revision := linked.GitCommit
-	if revision == "" {
-		revision = linked.GitRef
-	}
-	if revision == "" {
-		s.logger.Warn("vérification non lancée",
-			"release", linked.Tag, "raison", "aucune référence Git sur la release")
-		return 0
-	}
-
 	if s.catalog == nil {
 		s.logger.Warn("vérification non lancée",
 			"release", linked.Tag, "raison", "catalogue non branché sur l'observateur")
 		return 0
 	}
 
-	launched := 0
-	for _, kind := range s.catalog.VerificationKinds() {
-		pipeline, found := s.catalog.Find(kind)
-		if !found {
-			s.logger.Warn("famille de vérification absente du catalogue",
-				"release", linked.Tag, "kind", kind)
-			continue
-		}
-
-		// Ce que le **projet** déclare vérifier. Le catalogue dit ce que
-		// l'instance sait lancer, ce qui n'est pas la même question : un projet
-		// sans campagne de charge voyait `load-tests` s'enchaîner, échouer faute
-		// de scénario, et laisser sa release attendre un verdict qui ne viendrait
-		// jamais.
-		if !s.pipelineApplies(ctx, linked.ProjectID, kind) {
-			s.logger.Info("vérification non enchaînée",
-				"release", linked.Tag, "kind", kind,
-				"raison", "le projet ne déclare pas cette famille")
-			continue
-		}
-
-		// Les valeurs sortent de ce que le catalogue déclare vouloir : `revision`,
-		// `app-revision` et `mse-revision` désignent la même chose sous trois noms
-		// hérités de pipelines écrits séparément, et c'est leur `suggest: git-ref`
-		// commun qui le dit. Tous valent le commit construit — c'est lui qu'on
-		// vérifie, pas la branche dont il vient.
-		params, missing := pipeline.VerificationInputs(revision, linked.Tag, s.registryProject)
-		if missing != "" {
-			// Un paramètre requis qu'on ne sait pas renseigner ferait échouer le
-			// run à l'ordonnancement : ne pas l'enfiler du tout est plus honnête,
-			// et le journal dit lequel manque.
-			s.logger.Warn("famille de vérification non lançable",
-				"release", linked.Tag, "kind", kind, "parametre_manquant", missing)
-			continue
-		}
-
-		id, err := s.verification.Enqueue(ctx, store.JobRequest{
-			Kind:        pipeline.Kind,
-			Params:      params,
-			RequestedBy: verificationRequester,
-			ReleaseID:   &linked.ReleaseID,
-			// Le projet, sans quoi la vérification part **sans** et monte le
-			// secret du déploiement au lieu de la clé du projet. Elle clone comme
-			// la construction : l'oublier annulait la séparation des clés pour la
-			// moitié des runs d'une release.
-			ProjectID: &linked.ProjectID,
-		})
-		if err != nil {
-			s.logger.Error("mise en file d'une vérification",
-				"release", linked.Tag, "kind", kind, "error", err)
-			continue
-		}
-
-		launched++
-		s.logger.Info("vérification lancée",
-			"release", linked.Tag, "kind", kind, "job", id, "revision", revision)
+	sujet := s.verificationPlan(ctx, linked.ProjectID)
+	if sujet.Empty() {
+		// Un projet qui n'enchaîne rien est une configuration légitime. Le dire
+		// ici évite que l'appelant attende un verdict que personne ne rendra.
+		s.logger.Info("aucune vérification à enchaîner",
+			"release", linked.Tag, "projet", linked.ProjectID)
+		return 0
 	}
 
-	return launched
+	return s.runVerificationPlan(ctx, linked, sujet)
 }
 
 // ProjectPipelines dit si une famille du catalogue s'applique à un projet.
