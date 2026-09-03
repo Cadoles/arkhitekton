@@ -312,6 +312,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// Le même catalogue que la file : l'écran montre ce que l'instance
 			// sait lancer, et un second chargement pourrait montrer autre chose.
 			dashhttp.NewProjectPipelinesHandler(db, pipelines, logger),
+			// Le fil des faits, en lecture. Rien n'y réagit encore : il sert à
+			// répondre à « pourquoi rien ne s'est passé ? », question qui n'a de
+			// sens qu'une fois qu'on peut voir ce qui a bien été constaté.
+			dashhttp.NewEventsHandler(db),
 			middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
@@ -549,7 +553,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithCatalog(pipelines, resolved["registry.project"]).
 				// Sans l'identité de la base, un run resté dans le cluster après
 				// une remise à zéro conclut le job homonyme de la base courante.
-				WithInstance(instance)
+				WithInstance(instance).
+				// L'émission des faits. Personne n'y réagit encore : cette
+				// tranche les pose et éprouve que la déduplication tient à
+				// travers un redémarrage du worker, pendant que l'erreur ne
+				// coûte rien (doc 14).
+				WithEvents(db)
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
 			// Les URLs d'écriture des artefacts sont minées ici : le layout de

@@ -17,6 +17,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
@@ -38,6 +39,9 @@ type ReleaseStore interface {
 	ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]store.EnvironmentHistory, error)
 	DeployedRelease(ctx context.Context, environmentID string) (store.DeployedRelease, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
+	// RecordEvent consigne un fait constaté (doc 14). Rend `false` quand il était
+	// déjà connu, ce qui n'est pas une erreur.
+	RecordEvent(ctx context.Context, fact event.Event) (bool, error)
 	ListArtifacts(ctx context.Context, releaseID int64) ([]store.Artifact, error)
 	GetArtifact(ctx context.Context, id int64) (store.Artifact, error)
 	ListEnvironments(ctx context.Context) ([]store.Environment, error)
@@ -829,6 +833,13 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.audit(r, store.AuditReleaseCreate, record.Tag, map[string]any{
 		"kind": record.Kind, "image_version": record.ImageVersion, "source": request.SourceTag,
 	})
+	// Le premier fait de la vie d'une release. Émis dès l'insertion, avant les
+	// mises en file qui suivent : celles-ci peuvent échouer sans que la release
+	// cesse d'exister, et un fait qui attendrait leur succès manquerait
+	// précisément les créations qui ont mal tourné.
+	h.emit(r, event.ReleaseCreatedAt(
+		time.Now(), currentID, releaseID,
+		record.Tag, record.Kind, record.GitRef, line))
 
 	who := h.actorsFor(r.Context())
 	response := map[string]any{
@@ -910,7 +921,8 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 // `release:create:final` et non `release:edit` : valider engage ce qui partira
 // chez l'utilisateur, au même titre que produire une release finale.
 func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
-	if _, ok := IdentityFrom(r.Context()); !ok {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
 		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
 		return
 	}
@@ -959,6 +971,10 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 	h.audit(r, store.AuditReleaseRelease, tag, map[string]any{
 		"from": record.State, "image_version": record.ImageVersion,
 	})
+	// Après l'écriture conditionnelle : c'est elle qui rend la validation unique,
+	// et le fait en hérite. Une seconde tentative reçoit un 409 et n'émet rien.
+	h.emit(r, event.ReleaseReleasedAt(
+		time.Now(), currentID, record.ID, tag, identity.Subject))
 
 	record.State = string(release.StateReleased)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -1874,6 +1890,29 @@ func (h *ReleasesHandler) audit(r *http.Request, action, target string, payload 
 	}
 	if err := h.store.Audit(r.Context(), identity.Subject, action, target, payload); err != nil {
 		slog.Default().Error("journal d'audit", "action", action, "target", target, "err", err)
+	}
+}
+
+// emit consigne un fait sans faire échouer la requête qui l'a produit.
+//
+// Le geste de l'utilisateur a abouti : la release est créée, ou validée. Rendre
+// une erreur parce que le fait n'a pas pu être écrit ferait croire à un échec de
+// l'action, et inviterait à la refaire — sur une release qui existe déjà.
+//
+// **Il n'y a pas de filet ici**, contrairement au worker : l'observateur
+// redélivre les runs terminés et réémet donc ce qu'il a perdu, alors qu'un geste
+// humain ne se rejoue pas. Un fait perdu l'est définitivement. Acceptable tant
+// que rien n'y réagit ; à traiter quand le moteur arrivera (doc 14 §14.6).
+func (h *ReleasesHandler) emit(r *http.Request, fact event.Event) {
+	recorded, err := h.store.RecordEvent(r.Context(), fact)
+	if err != nil {
+		slog.Default().Error("émission d'un fait",
+			"type", fact.Type, "sujet", fact.Subject, "err", err)
+		return
+	}
+	if !recorded {
+		slog.Default().Debug("fait déjà connu, non réémis",
+			"type", fact.Type, "sujet", fact.Subject)
 	}
 }
 

@@ -7,6 +7,7 @@ import { RunsScreen } from './features/runs/RunsScreen'
 import { ExecutionsLayout } from './features/runs/ExecutionsLayout'
 import { QueueScreen } from './features/queue/QueueScreen'
 import { QueueSettingsScreen } from './features/queue/QueueSettingsScreen'
+import { EventsScreen } from './features/runs/EventsScreen'
 import { EnvironmentsScreen } from './features/environments/EnvironmentsScreen'
 import { HistoryScreen } from './features/environments/HistoryScreen'
 import { EnvironmentScreen } from './features/environments/EnvironmentScreen'
@@ -95,6 +96,7 @@ export const routes: RouteObject[] = [
         children: [
           { index: true, element: <RunsScreen /> },
           { path: 'queue', element: <QueueScreen /> },
+          { path: 'events', element: <EventsScreen /> },
           { path: 'settings', element: <QueueSettingsScreen /> },
         ],
       },

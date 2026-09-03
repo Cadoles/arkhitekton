@@ -13,6 +13,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
@@ -65,7 +66,14 @@ type runSink struct {
 	// rattaché à un job : les identifiants de jobs repartent à 1 sur une base
 	// neuve, et un run resté dans le cluster conclurait son homonyme.
 	instance string
-	logger   *slog.Logger
+	// events enregistre les faits constatés. Nil : l'observation continue et le
+	// fil reste vide — personne n'y réagit encore (doc 14).
+	events EventRecorder
+	// now date les faits. Remplaçable pour que l'émission s'éprouve sans horloge :
+	// un fait porte l'instant où il s'est produit, et c'est une valeur qu'un test
+	// doit pouvoir fixer.
+	now    func() time.Time
+	logger *slog.Logger
 }
 
 // WithInstance déclare l'identité de la base.
@@ -140,7 +148,7 @@ const buildJobKind = "build"
 func NewRunSink(db *store.DB) *runSink {
 	return &runSink{
 		db: db, verification: db, releases: db, pipelines: db,
-		logger: slog.Default(),
+		now: time.Now, logger: slog.Default(),
 	}
 }
 
@@ -234,6 +242,11 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 	// résultat cumulé qu'il constate, et le faire avant reviendrait à conclure au
 	// silence sur des rapports pas encore lus.
 	s.checkResultsContract(ctx, id, run)
+
+	// Le fait générique, émis en dernier : il annonce un run **terminé et
+	// dépouillé**, et l'émettre avant les ingestions ferait réagir une future
+	// réaction sur des résultats pas encore lus.
+	s.emitPipelineFinished(ctx, id, run, release)
 	return nil
 }
 
@@ -496,6 +509,12 @@ func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobStat
 		// Une promotion réussie ne rend pas une release « prête » : elle la
 		// déploie quelque part, et les tests qui suivront ne concluent rien tant
 		// que personne ne les a lus.
+		//
+		// Elle constitue en revanche un **fait**, et c'est toute la différence
+		// entre faire avancer un état et constater qu'il s'est passé quelque
+		// chose. La clé porte le job : une même release se promeut plusieurs fois
+		// vers le même environnement.
+		s.emitReleasePromoted(ctx, linked, jobState)
 		return nil
 	}
 }
@@ -580,6 +599,11 @@ func (s *runSink) advanceRelease(
 
 	s.logger.Info("release avancée par sa construction",
 		"release", linked.Tag, "de", linked.State, "vers", string(target))
+
+	// Le fait est émis **ici**, après l'écriture conditionnelle : une seule
+	// livraison la gagne, et le fait hérite ainsi de son idempotence. L'émettre
+	// avant en produirait un par redélivrance, que seule la clé rattraperait.
+	s.emitReleaseBuilt(ctx, linked, jobState)
 
 	if target != release.StateVerifying {
 		return nil
@@ -902,5 +926,10 @@ func (s *runSink) concludeVerification(ctx context.Context, linked store.JobRele
 	s.logger.Info("vérification conclue",
 		"release", linked.Tag, "vers", string(target),
 		"reussies", tally.Succeeded, "echouees", tally.Failed)
+
+	// Après l'écriture conditionnelle, comme pour la construction. La clé porte le
+	// job qui a conclu — la dernière vérification à rendre son verdict — de sorte
+	// qu'une reprise, qui conclut à nouveau, produise bien un second fait.
+	s.emitReleaseVerified(ctx, linked, target, s.applicableKinds(ctx, linked.ProjectID))
 	return nil
 }

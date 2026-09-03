@@ -17,7 +17,7 @@ func NewAPIRouter(
 	signoffs *SignoffsHandler, versions *VersionsHandler, syncAdmin *SyncAdminHandler,
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
 	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
-	middleware *Middleware,
+	events *EventsHandler, middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -278,6 +278,17 @@ func NewAPIRouter(
 	// elle est désormais **constatée** par le test d'accès, qui lit les clés de
 	// déploiement du dépôt. Une intention pouvait rester vraie après qu'on avait
 	// retiré la clé de la forge ; un constat, non (B8).
+
+	// Le fil des faits d'un projet. En lecture, avec la permission de lecture
+	// ordinaire : un fait dit ce qui est arrivé au projet — une construction
+	// conclue, une promotion aboutie — et le savoir ne demande aucun privilège.
+	//
+	// Ce ne sera plus vrai le jour où des faits de plugin porteront la charge
+	// d'une forge tierce : le titre d'une demande de fusion en dit plus qu'un
+	// numéro de version. La permission sera à revoir à ce moment-là, avec le cas
+	// réel sous les yeux plutôt que par précaution ici (doc 14 §14.4).
+	mux.Handle("GET /projects/{project}/events", Chain(http.HandlerFunc(events.List),
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	mux.Handle("GET /forge/refs", Chain(http.HandlerFunc(forge.Refs),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))

@@ -463,10 +463,19 @@ func (db *DB) MarkReleased(ctx context.Context, id int64, from string) (bool, er
 // JobReleaseContext décrit la release qu'un job fait avancer.
 type JobReleaseContext struct {
 	ReleaseID int64
+	// JobID est le job lui-même.
+	//
+	// Rendu parce que les faits en ont besoin pour se déduplique : une release se
+	// reconstruit, et « la construction de cette release » ne suffit pas à
+	// identifier laquelle. Le job, si.
+	JobID int64
 	// Kind est la nature du job — `build`, `promote` — et non celle de la release.
 	Kind  string
 	Tag   string
 	State string
+	// Environment nomme l'environnement visé par une promotion. Vide pour les
+	// autres natures, qui n'en visent aucun.
+	Environment string
 	// GitRef et GitCommit servent à enchaîner les vérifications sur ce qui a été
 	// construit. Le commit prime : la branche a pu bouger depuis le build (B17).
 	GitRef    string
@@ -493,11 +502,12 @@ var ErrJobWithoutRelease = errors.New("job sans release rattachée")
 func (db *DB) JobRelease(ctx context.Context, jobID int64) (JobReleaseContext, error) {
 	var entry JobReleaseContext
 	err := db.pool.QueryRow(ctx,
-		`select j.kind, r.id, r.tag, r.state,
+		`select j.id, j.kind, coalesce(j.environment_id, ''), r.id, r.tag, r.state,
 		        coalesce(r.git_ref, ''), coalesce(r.git_commit, ''), r.project_id
 		 from jobs j join releases r on r.id = j.release_id
 		 where j.id = $1`, jobID).
-		Scan(&entry.Kind, &entry.ReleaseID, &entry.Tag, &entry.State,
+		Scan(&entry.JobID, &entry.Kind, &entry.Environment,
+			&entry.ReleaseID, &entry.Tag, &entry.State,
 			&entry.GitRef, &entry.GitCommit, &entry.ProjectID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

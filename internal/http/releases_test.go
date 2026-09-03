@@ -12,6 +12,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
@@ -28,12 +29,16 @@ type fakeReleaseStore struct {
 	promotions   []store.Promotion
 	history      []store.EnvironmentHistory
 	audit        []string
-	actions      map[string]string
-	deployed     map[string]store.DeployedRelease
-	artifacts    []store.Artifact
-	objects      map[string]string
-	registry     Images
-	states       map[int64]string
+	// facts porte les faits émis, indexés par leur clé de déduplication : c'est
+	// la structure de la base, et un tableau ne dirait pas si un doublon a été
+	// écarté.
+	facts     map[string]event.Event
+	actions   map[string]string
+	deployed  map[string]store.DeployedRelease
+	artifacts []store.Artifact
+	objects   map[string]string
+	registry  Images
+	states    map[int64]string
 	// project décrit ce que la release construit. Nil, la fixture ci-dessous
 	// s'applique : les tests portent sur le nombre d'exécutions enfilées et sur
 	// leurs paramètres, pas sur le contenu de la table.
@@ -150,6 +155,22 @@ func (f *fakeReleaseStore) DeployedRelease(_ context.Context, environmentID stri
 func (f *fakeReleaseStore) Audit(_ context.Context, _, action, target string, _ map[string]any) error {
 	f.audit = append(f.audit, action+":"+target)
 	return nil
+}
+
+// RecordEvent retient les faits émis, et applique la même déduplication que la
+// base : c'est elle que les tests d'émission éprouvent.
+func (f *fakeReleaseStore) RecordEvent(_ context.Context, fact event.Event) (bool, error) {
+	if err := fact.Validate(); err != nil {
+		return false, err
+	}
+	if f.facts == nil {
+		f.facts = map[string]event.Event{}
+	}
+	if _, known := f.facts[fact.DedupKey]; known {
+		return false, nil
+	}
+	f.facts[fact.DedupKey] = fact
+	return true, nil
 }
 
 func (f *fakeReleaseStore) ListArtifacts(_ context.Context, releaseID int64) ([]store.Artifact, error) {
