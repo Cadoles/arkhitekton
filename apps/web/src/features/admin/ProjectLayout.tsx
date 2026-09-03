@@ -8,10 +8,10 @@ import { useProjects, type Project } from './api'
  * La page d'un projet.
  *
  * Le réglage d'un projet vivait dans une ligne dépliée de la liste. Il n'y tient
- * plus : à ses paramètres généraux se sont ajoutés ses plugins, ses pipelines et
- * l'état de son suivi — quatre sujets qui n'ont ni la même fréquence de
- * consultation ni le même lecteur, et qui empilés faisaient un formulaire qu'on
- * parcourait au lieu de le lire.
+ * plus : à ses paramètres généraux se sont ajoutés ses plugins, ses pipelines,
+ * ses automatisations et l'état de son suivi — cinq sujets qui n'ont ni la même
+ * fréquence de consultation ni le même lecteur, et qui empilés faisaient un
+ * formulaire qu'on parcourait au lieu de le lire.
  *
  * Chacun a donc son adresse. Ces adresses finissent en favori, et c'est le slug
  * qui les porte plutôt que l'identifiant : il est stable, lisible, et déjà celui
@@ -34,6 +34,11 @@ const TABS = (slug: string): SubTab[] => [
     to: `/admin/projects/${slug}/pipelines`,
     label: 'Pipelines',
     icon: <Icon name="queue" className="size-4" />,
+  },
+  {
+    to: `/admin/projects/${slug}/automations`,
+    label: 'Automatisations',
+    icon: <Icon name="beaker" className="size-4" />,
   },
   {
     to: `/admin/projects/${slug}/sync`,

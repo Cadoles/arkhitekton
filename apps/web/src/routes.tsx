@@ -8,6 +8,7 @@ import { ExecutionsLayout } from './features/runs/ExecutionsLayout'
 import { QueueScreen } from './features/queue/QueueScreen'
 import { QueueSettingsScreen } from './features/queue/QueueSettingsScreen'
 import { EventsScreen } from './features/runs/EventsScreen'
+import { AutomationsScreen } from './features/admin/AutomationsScreen'
 import { EnvironmentsScreen } from './features/environments/EnvironmentsScreen'
 import { HistoryScreen } from './features/environments/HistoryScreen'
 import { EnvironmentScreen } from './features/environments/EnvironmentScreen'
@@ -138,6 +139,7 @@ export const routes: RouteObject[] = [
               { index: true, element: <ProjectGeneralScreen /> },
               { path: 'plugins', element: <ProjectPluginsScreen /> },
               { path: 'pipelines', element: <ProjectPipelinesScreen /> },
+              { path: 'automations', element: <AutomationsScreen /> },
               { path: 'sync', element: <ProjectSyncScreen /> },
             ],
           },
