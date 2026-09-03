@@ -260,3 +260,102 @@ func (db *DB) FinishPlanRun(ctx context.Context, runID int64, state string) (boo
 	}
 	return tag.RowsAffected() > 0, nil
 }
+
+// PlanRunSummary est une exécution et ses gestes, telle que l'écran la lit.
+type PlanRunSummary struct {
+	PlanRun
+	Steps []PlanStep
+}
+
+// maxPlanRunPage borne la lecture.
+//
+// Une vue d'exécutions se parcourt : on vient y chercher ce qui vient de se
+// passer, pas l'historique entier. La borne évite qu'un projet ancien rende une
+// page que le navigateur met une seconde à peindre.
+const maxPlanRunPage = 100
+
+// ListPlanRuns rend les exécutions d'un projet, de la plus récente à la plus
+// ancienne, avec leurs gestes.
+//
+// Deux requêtes et non une jointure : une jointure rendrait une ligne par geste,
+// et recomposer les exécutions côté Go depuis un produit aplati coûterait plus de
+// code que la seconde requête n'économise d'aller-retour.
+func (db *DB) ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]PlanRunSummary, error) {
+	if limit <= 0 || limit > maxPlanRunPage {
+		limit = maxPlanRunPage
+	}
+
+	const query = `
+		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at
+		from plan_runs
+		where project_id = $1
+		order by created_at desc, id desc
+		limit $2`
+
+	rows, err := db.pool.Query(ctx, query, projectID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("exécutions du projet %d: %w", projectID, err)
+	}
+	defer rows.Close()
+
+	summaries := make([]PlanRunSummary, 0, limit)
+	ids := make([]int64, 0, limit)
+	for rows.Next() {
+		var (
+			run     PlanRun
+			encoded []byte
+		)
+		if err := rows.Scan(&run.ID, &run.Trigger, &run.EventKey, &run.ProjectID,
+			&run.ReleaseID, &encoded, &run.Context, &run.State, &run.CreatedAt); err != nil {
+			return nil, fmt.Errorf("lecture d'une exécution: %w", err)
+		}
+		if err := json.Unmarshal(encoded, &run.Plan); err != nil {
+			return nil, fmt.Errorf("plan de l'exécution %d illisible: %w", run.ID, err)
+		}
+		summaries = append(summaries, PlanRunSummary{PlanRun: run})
+		ids = append(ids, run.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return summaries, nil
+	}
+
+	steps, err := db.planStepsFor(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for index := range summaries {
+		summaries[index].Steps = steps[summaries[index].ID]
+	}
+	return summaries, nil
+}
+
+// planStepsFor rend les gestes de plusieurs exécutions, indexés par exécution.
+func (db *DB) planStepsFor(ctx context.Context, runIDs []int64) (map[int64][]PlanStep, error) {
+	const query = `
+		select run_id, id, stage, position, kind, ref, state, job_id, detail
+		from plan_steps where run_id = any($1)
+		order by run_id, stage, position`
+
+	rows, err := db.pool.Query(ctx, query, runIDs)
+	if err != nil {
+		return nil, fmt.Errorf("gestes des exécutions: %w", err)
+	}
+	defer rows.Close()
+
+	steps := map[int64][]PlanStep{}
+	for rows.Next() {
+		var (
+			runID int64
+			step  PlanStep
+		)
+		if err := rows.Scan(&runID, &step.ID, &step.Stage, &step.Position, &step.Kind,
+			&step.Ref, &step.State, &step.JobID, &step.Detail); err != nil {
+			return nil, fmt.Errorf("lecture d'un geste: %w", err)
+		}
+		steps[runID] = append(steps[runID], step)
+	}
+	return steps, rows.Err()
+}

@@ -320,6 +320,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// Le même catalogue que la file : l'éditeur propose ce que l'instance
 			// sait lancer, et un second chargement pourrait proposer autre chose.
 			dashhttp.NewReactionsHandler(db, pipelines, logger),
+			// Ce qu'une réaction a réellement fait. Un moteur qu'on ne peut pas
+			// déboguer est pire qu'un comportement figé (doc 14 §14.10).
+			dashhttp.NewPlanRunsHandler(db),
 			middleware),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de

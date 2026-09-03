@@ -17,7 +17,8 @@ func NewAPIRouter(
 	signoffs *SignoffsHandler, versions *VersionsHandler, syncAdmin *SyncAdminHandler,
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
 	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
-	events *EventsHandler, reactions *ReactionsHandler, middleware *Middleware,
+	events *EventsHandler, reactions *ReactionsHandler, planRuns *PlanRunsHandler,
+	middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -288,6 +289,17 @@ func NewAPIRouter(
 	// numéro de version. La permission sera à revoir à ce moment-là, avec le cas
 	// réel sous les yeux plutôt que par précaution ici (doc 14 §14.4).
 	mux.Handle("GET /projects/{project}/events", Chain(http.HandlerFunc(events.List),
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
+
+	// Les exécutions de plan, en lecture ordinaire.
+	//
+	// C'est la même question que « pourquoi mes tests n'ont pas démarré », et la
+	// chaîne de vérification passe désormais par ici : la réserver à
+	// l'administration ferait payer un privilège pour un diagnostic ordinaire.
+	//
+	// Le **détail** d'un geste — l'extrait de réponse d'un tiers — est masqué aux
+	// non-administrateurs par le handler, qui le dit plutôt que de le taire.
+	mux.Handle("GET /projects/{project}/plan-runs", Chain(http.HandlerFunc(planRuns.List),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	// Les réactions déclarées. `admin`, comme les plugins et pour la même raison :
