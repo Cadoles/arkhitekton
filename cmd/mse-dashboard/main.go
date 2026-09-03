@@ -580,7 +580,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 					"consequence", "une réaction mal réglée peut atteindre le réseau interne")
 			}
 
-			sink = sink.WithEngine(worker.NewVerificationEngine(sink, db, actions, logger))
+			engine := worker.NewVerificationEngine(sink, db, actions, logger)
+			// L'aiguillage : ce qui relie un fait constaté aux réactions qu'un
+			// projet a déclarées. Sans lui, les faits s'écrivent et personne n'y
+			// réagit — l'état des tranches 2 à 5.
+			dispatcher := worker.NewDispatcher(db, engine, logger)
+			sink = sink.WithEngine(engine).WithDispatcher(dispatcher)
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
 			// Les URLs d'écriture des artefacts sont minées ici : le layout de
@@ -694,7 +699,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// actif, et sa première passe n'émet rien — une activation ne réveille
 			// pas le passé (doc 14 §14.4).
 			probes := worker.NewProbeRunner(db, cipher, cfg.Probes.Interval, logger,
-				worker.NewGiteaPullProbe(cfg.Forge.Timeout))
+				worker.NewGiteaPullProbe(cfg.Forge.Timeout)).
+				WithDispatcher(dispatcher)
 			go func() { errs <- probes.Run(leadingCtx) }()
 
 			// La première erreur l'emporte : une boucle morte doit faire perdre

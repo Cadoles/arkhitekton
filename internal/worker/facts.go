@@ -94,6 +94,23 @@ func (s *runSink) emit(ctx context.Context, fact event.Event) {
 		return
 	}
 	s.logger.Info("fait constaté", "type", fact.Type, "sujet", fact.Subject)
+
+	// L'aiguillage n'est appelé **que sur un fait neuf**. C'est la première des
+	// deux bornes qui empêchent une redélivrance de rejouer des appels sortants ;
+	// la seconde est l'unicité par (déclencheur, fait) de `plan_runs`.
+	//
+	// Deux bornes pour la même garantie, parce que celle-ci décide d'appels qui
+	// sortent du cluster au nom de l'instance.
+	s.dispatcher.Dispatch(ctx, fact)
+}
+
+// WithDispatcher branche l'aiguillage des faits vers les réactions déclarées.
+//
+// Optionnel comme le reste : sans lui, les faits sont constatés et personne n'y
+// réagit — l'état des tranches 2 à 5.
+func (s *runSink) WithDispatcher(dispatcher *Dispatcher) *runSink {
+	s.dispatcher = dispatcher
+	return s
 }
 
 // factOutcome traduit l'issue d'un run dans le vocabulaire des faits.

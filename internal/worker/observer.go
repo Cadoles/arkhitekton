@@ -73,6 +73,9 @@ type runSink struct {
 	// engine fait avancer les exécutions de plan. Nil : rien ne s'enchaîne, et le
 	// journal le dit — un enchaînement muet serait pire qu'une release en attente.
 	engine *Engine
+	// dispatcher déclenche les réactions déclarées d'un fait neuf. Nil : les faits
+	// sont constatés et personne n'y réagit.
+	dispatcher *Dispatcher
 	// now date les faits. Remplaçable pour que l'émission s'éprouve sans horloge :
 	// un fait porte l'instant où il s'est produit, et c'est une valeur qu'un test
 	// doit pouvoir fixer.

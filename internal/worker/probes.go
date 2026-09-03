@@ -89,12 +89,21 @@ const minProbeInterval = time.Minute
 
 // ProbeRunner fait tourner les sondes de tous les projets.
 type ProbeRunner struct {
-	store    ProbeStore
-	secrets  SecretOpener
-	probes   []Probe
-	interval time.Duration
-	logger   *slog.Logger
-	now      func() time.Time
+	store   ProbeStore
+	secrets SecretOpener
+	probes  []Probe
+	// dispatcher déclenche les réactions déclarées d'un fait neuf. Nil : les
+	// faits sont constatés et personne n'y réagit.
+	dispatcher *Dispatcher
+	interval   time.Duration
+	logger     *slog.Logger
+	now        func() time.Time
+}
+
+// WithDispatcher branche l'aiguillage des faits vers les réactions déclarées.
+func (r *ProbeRunner) WithDispatcher(dispatcher *Dispatcher) *ProbeRunner {
+	r.dispatcher = dispatcher
+	return r
 }
 
 func NewProbeRunner(
@@ -220,6 +229,10 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 		}
 		if recorded {
 			emitted++
+			// Sur un fait **neuf** seulement : la fenêtre de recouvrement fait
+			// revoir les mêmes demandes à chaque passe, et déclencher sur chacune
+			// enverrait une notification par tour.
+			r.dispatcher.Dispatch(ctx, fact)
 		}
 	}
 
