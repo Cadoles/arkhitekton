@@ -93,7 +93,9 @@ describe("l'éditeur d'automatisations", () => {
     // désigner par son rang est fragile, mais le désigner par son libellé le
     // serait davantage — l'option vide qui l'amorce n'a pas de nom stable.
     const listes = await screen.findAllByRole('combobox')
-    await userEvent.selectOptions(listes[listes.length - 1], 'action:webhook')
+    const ajout = listes.at(-1)
+    if (!ajout) throw new Error("aucun sélecteur d'ajout de geste")
+    await userEvent.selectOptions(ajout, 'action:webhook')
 
     // Rien ne précède la première étape : un geste conditionné à l'échec n'y
     // partirait jamais, et le serveur le refuse. L'écran ne le propose donc pas.
