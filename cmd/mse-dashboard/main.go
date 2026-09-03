@@ -636,7 +636,17 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				auth.NewDBFlowStore(db.Pool(), 10*time.Minute),
 				logger)
 
-			errs := make(chan error, 5)
+			// Une place par boucle, et pas moins : seule la **première** erreur est
+			// lue — une boucle morte doit faire perdre le bail plutôt que de
+			// laisser l'autre tourner à moitié — et les suivantes ne sont donc
+			// jamais dépilées.
+			//
+			// Sur un canal saturé, elles bloqueraient leur goroutine pour toujours,
+			// y compris à l'arrêt où chacune rend `ctx.Err()`. Le processus
+			// sortirait quand même, mais en laissant derrière lui des boucles qui
+			// n'ont jamais pu se conclure — et un profil de goroutines qui accuse
+			// une fuite là où il n'y a qu'un canal trop court.
+			errs := make(chan error, 8)
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
 			go func() { errs <- environments.Run(leadingCtx) }()
@@ -675,6 +685,17 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			sync := worker.NewTrackerSync(db, trackerConnector(cfg), cipher, logger).
 				WithNormalizer(versionNames(cfg))
 			go func() { errs <- sync.Run(leadingCtx) }()
+
+			// Les sondes, qui produisent les faits d'un plugin. Sous le bail comme
+			// le reste : deux workers interrogeant la même forge doubleraient la
+			// charge sur un service tiers pour un résultat identique.
+			//
+			// Une sonde n'est interrogée que pour les projets dont le plugin est
+			// actif, et sa première passe n'émet rien — une activation ne réveille
+			// pas le passé (doc 14 §14.4).
+			probes := worker.NewProbeRunner(db, cipher, cfg.Probes.Interval, logger,
+				worker.NewGiteaPullProbe(cfg.Forge.Timeout))
+			go func() { errs <- probes.Run(leadingCtx) }()
 
 			// La première erreur l'emporte : une boucle morte doit faire perdre
 			// le bail plutôt que de laisser l'autre tourner à moitié.

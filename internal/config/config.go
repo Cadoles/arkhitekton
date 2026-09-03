@@ -38,6 +38,16 @@ type Config struct {
 	Results  ResultsConfig
 	Secrets  SecretsConfig
 	Webhooks WebhookConfig
+	Probes   ProbeConfig
+}
+
+// ProbeConfig borne l'interrogation des sources extérieures.
+//
+// La charge se compte : *projets × sondes × fréquence*, et le multiplicande est
+// une machine qui n'est pas la nôtre. Un plancher est appliqué à la construction
+// de la boucle — déclarer dix secondes ne les obtient pas.
+type ProbeConfig struct {
+	Interval time.Duration
 }
 
 // WebhookConfig borne ce qu'un appel sortant configurable peut atteindre.
@@ -371,6 +381,9 @@ func Load(role Role) (Config, error) {
 			APIKey:         os.Getenv("TRACKER_API_KEY"),
 			Project:        os.Getenv("TRACKER_PROJECT"),
 			Timeout:        durationOr("TRACKER_TIMEOUT", 15*time.Second),
+		},
+		Probes: ProbeConfig{
+			Interval: durationOr("PROBE_INTERVAL", 5*time.Minute),
 		},
 		Webhooks: WebhookConfig{
 			AllowPrivate:  boolOr("WEBHOOK_ALLOW_PRIVATE", false),

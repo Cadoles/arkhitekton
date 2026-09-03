@@ -699,6 +699,12 @@ La synchronisation du suivi devient la seconde sonde — ou ne le devient pas, e
 reste alors calqué sur une seule réalisation. Le §14.4 dit pourquoi c'est un compromis et
 non un détail d'ordonnancement.
 
+> **Où en est le contrat.** Il est écrit et éprouvé sur une seule réalisation, la sonde
+> Gitea. La synchronisation du suivi **n'a pas migré** : elle garde sa boucle, son curseur
+> et son isolation par projet, qui sont les mêmes mécanismes sous un autre nom. Tant qu'elle
+> n'aura pas migré, le contrat reste **hypothétique** — il n'a pas eu à absorber une seconde
+> forme, et rien ne dit qu'il le pourrait sans se tordre.
+
 ### Tranche 6 — L'interface
 
 L'éditeur structuré, la vue des exécutions, le fil des faits.

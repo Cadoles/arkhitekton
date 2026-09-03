@@ -343,7 +343,10 @@ func TestLeProjetNeVoitQueCeQuIlPeutDecider(t *testing.T) {
 	if slices.Contains(ids, "portaldata") {
 		t.Error("un plugin éteint sur l'instance est proposé au projet")
 	}
-	if slices.Contains(ids, "gitea") {
+	// `flux` vaut nécessairement pour toute l'instance : son namespace n'est pas
+	// une propriété d'un projet, et prétendre le contraire afficherait un
+	// interrupteur qui ne fait rien.
+	if slices.Contains(ids, "flux") {
 		t.Error("un plugin qui vaut pour l'instance est proposé au projet")
 	}
 	if !slices.Contains(ids, "redmine") || !slices.Contains(ids, "bon-de-livraison") {
@@ -366,11 +369,16 @@ func TestUnProjetNePeutPasRallumerCeQueLInstanceAEteint(t *testing.T) {
 }
 
 // Un plugin qui vaut pour l'instance ne se règle pas par projet.
+//
+// `flux` en est un : le namespace où vivent ses objets n'est pas une propriété
+// d'un projet. `gitea`, lui, a cessé d'en être un le jour où il s'est mis à
+// observer — surveiller les demandes de fusion d'un dépôt est bien une décision
+// de projet, même quand la connexion vaut pour toute l'instance.
 func TestUnPluginDInstanceNeSeReglePasParProjet(t *testing.T) {
 	handler := pluginsHandlerWith(t, newFakePluginStore(), cleDeTest)
 
 	recorder := putPlugin(t, handler.SetProject,
-		"/projects/mse/plugins/gitea", "gitea", `{"enabled":false}`)
+		"/projects/mse/plugins/flux", "flux", `{"enabled":false}`)
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("code %d, attendu 409 — %s", recorder.Code, recorder.Body.String())
 	}

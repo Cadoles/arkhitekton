@@ -106,6 +106,28 @@ type Field struct {
 	Placeholder string `json:"placeholder,omitempty"`
 }
 
+// EventSpec déclare un fait qu'un plugin sait observer.
+//
+// C'est la moitié manquante de l'extensibilité : sans elle, on branche n'importe
+// quelle **conséquence** sur un jeu de **causes** figé, et réagir à un fait que le
+// noyau ne produit pas demande à nouveau de modifier le noyau (doc 14 §14.2).
+type EventSpec struct {
+	// Suffix est le type **sans** son préfixe : `pull_request.opened`.
+	//
+	// Déclaré nu et préfixé par [Descriptor.EventType] : un plugin qui écrirait
+	// son type entier pourrait oublier le préfixe, et deux plugins de forge
+	// produiraient alors des faits indiscernables.
+	Suffix string `json:"suffix"`
+	Label  string `json:"label"`
+	// Payload énumère les champs de la charge.
+	//
+	// **Déclarés et non libres**, pour la même raison que les champs de
+	// configuration : c'est ce qui permet à l'éditeur de proposer les appariements
+	// possibles et aux gabarits d'être validés à l'enregistrement, plutôt que de
+	// découvrir à l'exécution qu'on interpole une clé qui n'existe pas.
+	Payload []Field `json:"payload"`
+}
+
 // Descriptor déclare un plugin et ses réglages.
 type Descriptor struct {
 	ID    string `json:"id"`
@@ -122,6 +144,11 @@ type Descriptor struct {
 	// projet sans rien avoir à régler — le bon de livraison est dans ce cas, on
 	// veut seulement dire s'il s'applique.
 	Project []Field `json:"project"`
+	// Events énumère les faits que ce plugin sait observer.
+	//
+	// Vide pour un plugin qui n'observe rien : le bon de livraison produit des
+	// livrables, il ne constate pas.
+	Events []EventSpec `json:"events,omitempty"`
 	// PerProject dit qu'un projet décide de son activation.
 	//
 	// Faux pour ce qui vaut nécessairement pour toute l'instance : le namespace de
@@ -184,7 +211,20 @@ func Registry() []Descriptor {
 		},
 		{
 			ID: "gitea", Kind: KindForge, Label: "Gitea",
-			Summary: "Branches, tags et références proposés au formulaire de release.",
+			Summary: "Branches, tags et références proposés au formulaire de release, " +
+				"et détection des demandes de fusion ouvertes.",
+			Events: []EventSpec{{
+				Suffix: "pull_request.opened",
+				Label:  "Demande de fusion ouverte",
+				Payload: []Field{
+					{Name: "number", Label: "Numéro"},
+					{Name: "title", Label: "Titre"},
+					{Name: "author", Label: "Auteur"},
+					{Name: "source_branch", Label: "Branche source"},
+					{Name: "target_branch", Label: "Branche cible"},
+					{Name: "url", Label: "Lien", Type: FieldURL},
+				},
+			}},
 			Global: []Field{
 				{
 					Name: "url", Label: "URL de la forge", Type: FieldURL,
@@ -196,10 +236,15 @@ func Registry() []Descriptor {
 						"jeton complet ouvre la forge entière au nom de son détenteur.",
 				},
 			},
-			// Pas de portée projet : le dépôt d'un projet est déjà déclaré dans ses
+			// Pas de **réglage** par projet : le dépôt est déjà déclaré dans ses
 			// paramètres généraux, et le redemander ici ferait deux endroits où le
 			// corriger — donc un endroit où oublier.
-			PerProject: false,
+			//
+			// Mais bien une **activation** par projet, depuis que ce plugin observe :
+			// surveiller les demandes de fusion d'un dépôt est une décision de
+			// projet, même quand la connexion vaut pour toute l'instance. Un projet
+			// qui n'en veut pas doit pouvoir le dire sans priver les autres.
+			PerProject: true,
 		},
 		{
 			ID: "flux", Kind: KindDeployer, Label: "Flux",
@@ -258,6 +303,35 @@ func Get(id string) (Descriptor, error) {
 	}
 	return Descriptor{}, fmt.Errorf("%w %q (embarqués: %s)",
 		ErrUnknown, id, strings.Join(known, ", "))
+}
+
+// EventType compose le type complet d'un fait de ce plugin.
+//
+// `gitea` + `pull_request.opened` donne `gitea.pull_request.opened`. Deux plugins
+// de forge coexisteront, et une réaction doit dire lequel elle écoute : un type nu
+// deviendrait ambigu au premier ajout, et l'ambiguïté se manifesterait par un plan
+// qui part sur le fait d'un autre.
+func (d Descriptor) EventType(spec EventSpec) string {
+	return d.ID + "." + spec.Suffix
+}
+
+// Observes dit si le plugin déclare au moins un fait.
+func (d Descriptor) Observes() bool { return len(d.Events) > 0 }
+
+// EventTypes énumère les types complets déclarés par tous les plugins embarqués.
+//
+// Sert à l'éditeur, qui propose les faits appariables, et à la validation d'une
+// réaction : un type qu'aucun plugin ne déclare est refusé à l'enregistrement
+// plutôt que de rester silencieux pour toujours.
+func EventTypes() []string {
+	var types []string
+	for _, descriptor := range Registry() {
+		for _, spec := range descriptor.Events {
+			types = append(types, descriptor.EventType(spec))
+		}
+	}
+	sort.Strings(types)
+	return types
 }
 
 // Fields rend les champs d'une portée.
