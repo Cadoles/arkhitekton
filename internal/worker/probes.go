@@ -251,20 +251,32 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 func (r *ProbeRunner) openSecrets(
 	pluginID string, sealed map[string]string,
 ) (map[string]string, error) {
+	return openPluginSecrets(r.secrets, pluginID, sealed)
+}
+
+// openPluginSecrets desselle la configuration d'un plugin, pour qui en a besoin.
+//
+// Partagée entre les sondes et les actions de plugin depuis que les deux
+// atteignent la même frontière avec la même connexion. En écrire deux versions
+// ferait deux endroits où décider ce qu'on fait d'un champ qu'on n'a pas su
+// ouvrir — et le second finirait par le laisser passer vide.
+func openPluginSecrets(
+	opener SecretOpener, pluginID string, sealed map[string]string,
+) (map[string]string, error) {
 	config := make(map[string]string, len(sealed))
 	for name, value := range sealed {
 		if !secretField(pluginID, name) {
 			config[name] = value
 			continue
 		}
-		if r.secrets == nil || !r.secrets.Configured() {
+		if opener == nil || !opener.Configured() {
 			if strings.TrimSpace(value) == "" {
 				continue
 			}
 			return nil, fmt.Errorf(
 				"le champ %q est scellé et le scellement n'est pas configuré", name)
 		}
-		opened, err := r.secrets.Open(value)
+		opened, err := opener.Open(value)
 		if err != nil {
 			// Le message ne cite pas la valeur, et pour cause : c'est celle qu'on
 			// n'a pas su ouvrir.

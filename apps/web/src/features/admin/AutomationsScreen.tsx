@@ -445,7 +445,9 @@ function PlanEditor({
               <option value="">ajouter un geste…</option>
               {catalogue.gestes.map((choice) => (
                 <option key={`${choice.kind}:${choice.ref}`} value={`${choice.kind}:${choice.ref}`}>
-                  {choice.label} ({choice.kind === 'action' ? 'action' : 'pipeline'})
+                  {/* La source distingue deux gestes de même libellé : « Statut de
+                      commit » ne parle pas à la même forge selon le plugin. */}
+                  {choice.label} ({choice.source ?? (choice.kind === 'action' ? 'action' : 'pipeline')})
                 </option>
               ))}
             </select>
@@ -532,8 +534,20 @@ function GesteRow({
               })
             }
             placeholder={field.placeholder}
+            /* Une liste de suggestions, et non un sélecteur fermé : le serveur
+               laisse un gabarit traverser un jeu fermé, parce qu'un état qui
+               reflète l'issue du fait ne peut pas s'écrire en dur. Un `select`
+               interdirait `{outcome}` que le moteur accepte. */
+            list={field.options ? `${field.name}-options` : undefined}
             className="rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-xs text-zinc-900"
           />
+          {field.options && (
+            <datalist id={`${field.name}-options`}>
+              {field.options.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+          )}
           {field.help && <span className="text-zinc-500">{field.help}</span>}
         </label>
       ))}

@@ -2,6 +2,7 @@ package action
 
 import (
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 )
@@ -26,8 +27,51 @@ func TestChaqueActionSeDecritAssezPourEtreEditee(t *testing.T) {
 		}
 	}
 
-	if !ids[Webhook] || !ids[ForgeStatus] {
+	if !ids[Webhook] {
 		t.Errorf("actions déclarées = %v", ids)
+	}
+}
+
+// Le registre s'ouvre dans l'autre sens : un plugin déclare ses gestes comme il
+// déclare ses faits, et l'appelant ne voit qu'une liste.
+//
+// Ce que ce test tient est la jonction : sans elle, on branche n'importe quelle
+// cause sur un jeu de conséquences figé.
+func TestLesActionsDUnPluginRejoignentLeRegistre(t *testing.T) {
+	found := false
+	for _, descriptor := range All() {
+		if descriptor.Plugin == "" {
+			continue
+		}
+		found = true
+		// Préfixée par son plugin : deux forges déclarant `status` produiraient
+		// sinon des gestes indiscernables.
+		if !strings.HasPrefix(descriptor.ID, descriptor.Plugin+".") {
+			t.Errorf("action %q du plugin %q: référence non préfixée",
+				descriptor.ID, descriptor.Plugin)
+		}
+		// Aucun champ sensible, et c'est structurel : une action de plugin parle à
+		// sa propre frontière, déjà réglée. Elle ne désigne aucun jeton, et ne peut
+		// donc pas servir à en faire sortir un vers une cible saisie ailleurs.
+		for _, field := range descriptor.Fields {
+			if field.SecretRef {
+				t.Errorf("action %q: le champ %q désigne un secret",
+					descriptor.ID, field.Name)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("aucun plugin ne déclare d'action — la jonction n'est pas branchée")
+	}
+
+	// Résolue par le registre réuni, sans que l'appelant ait à savoir d'où elle
+	// vient.
+	descriptor, err := Get("gitea.status")
+	if err != nil {
+		t.Fatalf("gitea.status: %v", err)
+	}
+	if descriptor.Plugin != "gitea" {
+		t.Errorf("plugin = %q", descriptor.Plugin)
 	}
 }
 
@@ -91,12 +135,23 @@ func TestLaFormeDeLURLEstVerifieeALaSaisie(t *testing.T) {
 	}
 }
 
-// L'état d'un statut de commit est un jeu fermé côté forge : une valeur inventée
-// serait refusée par elle, au moment le moins utile.
-func TestUnEtatDeStatutInventeEstRefuse(t *testing.T) {
-	status, _ := Get(ForgeStatus)
+// Un jeu fermé se vérifie ici plutôt que chez le destinataire : une valeur
+// inventée serait refusée par la forge, au moment le moins utile.
+//
+// La liste vient du descripteur du plugin et non d'une condition sur
+// l'identifiant : c'est ce qui permettra à une seconde forge d'avoir ses propres
+// états sans modifier ce paquet.
+func TestUneValeurHorsDuJeuFermeEstRefusee(t *testing.T) {
+	status, err := Get("gitea.status")
+	if err != nil {
+		t.Fatalf("gitea.status: %v", err)
+	}
 
-	err := status.Validate(map[string]string{"state": "vert", "context": "dashboard"})
+	base := map[string]string{"commit": "abc1234", "context": "dashboard"}
+	invalide := maps.Clone(base)
+	invalide["state"] = "vert"
+
+	err = status.Validate(invalide)
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("%v", err)
 	}
@@ -104,12 +159,26 @@ func TestUnEtatDeStatutInventeEstRefuse(t *testing.T) {
 		t.Errorf("message %q — il doit nommer les états admis", err)
 	}
 
-	for _, state := range StatusStates {
-		if err := status.Validate(map[string]string{
-			"state": state, "context": "dashboard",
-		}); err != nil {
+	for _, state := range []string{"pending", "success", "failure", "error"} {
+		params := maps.Clone(base)
+		params["state"] = state
+		if err := status.Validate(params); err != nil {
 			t.Errorf("état %q refusé: %v", state, err)
 		}
+	}
+}
+
+// Un jeu fermé ne doit pas interdire le gabarit qui le remplira.
+//
+// Sans cette exception, un état ne pourrait s'écrire qu'en dur, et une réaction
+// qui veut refléter l'issue du fait déclencheur deviendrait deux réactions.
+func TestUnGabaritTraverseUnJeuFerme(t *testing.T) {
+	status, _ := Get("gitea.status")
+
+	if err := status.Validate(map[string]string{
+		"commit": "{git_commit}", "state": "{outcome}", "context": "dashboard",
+	}); err != nil {
+		t.Errorf("gabarit refusé sur un champ à jeu fermé: %v", err)
 	}
 }
 

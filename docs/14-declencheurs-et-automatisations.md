@@ -164,8 +164,14 @@ Trois, tirées de ce qui a été demandé, et pas une de plus :
 | Action | Fait | Notes |
 |---|---|---|
 | `webhook` | un POST JSON vers une URL | c'est aussi la notification de messagerie — Mattermost, Slack et le reste sont des webhooks, et leur donner une action dédiée serait trois fois le même code |
-| `forge.status` | pose un statut de commit | Gitea expose `POST /repos/{o}/{r}/statuses/{sha}` |
-| `forge.comment` | publie un commentaire | sur la demande de fusion rattachée, quand il y en a une |
+| `gitea.status` | pose un statut de commit | **action de plugin** — Gitea expose `POST /repos/{o}/{r}/statuses/{sha}` |
+| `gitea.comment` | publie un commentaire | **action de plugin** — sur la demande de fusion que le fait désigne |
+
+**Les deux dernières ont changé de camp**, et c'est le résultat de la tranche 7. Elles
+s'appelaient `forge.status` et `forge.comment`, et vivaient dans le registre interne. Poser
+un statut de commit est un geste de **forge** : le déclarer dans le noyau faisait qu'ajouter
+une seconde forge aurait demandé de modifier `internal/action`. Le renommage est sans coût —
+elles étaient déclarées et rien ne les exécutait.
 
 **Ce qui n'y est pas, et pourquoi.** Écrire dans le suivi — commenter une demande Redmine —
 n'est pas une action manquante mais une **décision non prise** : le transport de
@@ -182,6 +188,21 @@ fournit, avec leurs paramètres décrits de la même façon.
 Un plugin de messagerie déclarerait ainsi `mattermost.post` avec un champ `canal`, et
 hériterait sans rien écrire de la configuration par projet, du scellement des secrets et de
 la validation des champs.
+
+**Une propriété structurelle est apparue à l'écriture** : une action de plugin ne peut
+déclarer aucun champ sensible. Une action interne en **désigne** un — l'appel sortant nomme
+le jeton à poser dans son en-tête — parce qu'elle parle à un destinataire quelconque. Une
+action de plugin parle à *sa* frontière, dont la connexion est déjà réglée et scellée : elle
+n'a rien à demander. La conséquence vaut d'être dite, parce qu'elle ferme une surface sans
+qu'on ait eu à la garder : **une action de plugin ne peut pas servir à faire sortir un secret
+vers une cible choisie dans un formulaire**, puisqu'elle ne choisit pas sa cible.
+
+Un champ peut en revanche déclarer un **jeu fermé** de valeurs — l'état d'un statut de commit
+vaut `pending`, `success`, `failure` ou `error`. La liste vient du plugin et non d'une
+condition écrite dans le validateur : c'est ce qui permet à une seconde forge d'avoir son
+propre vocabulaire. Un gabarit traverse ce jeu sans être refusé, sans quoi un état qui
+reflète l'issue du fait déclencheur ne pourrait s'écrire qu'en dur — et une réaction en
+deviendrait deux.
 
 ### Ce qu'un pipeline produit
 
@@ -721,6 +742,25 @@ internes, qu'on croirait général (§12.4).
 
 **Les faits de plugin, eux, sont en tranche 5 et non ici** — ils sont la moitié qui a été
 demandée, et celle sans laquelle les causes resteraient figées.
+
+#### Ce que la condition attendait, et qui est arrivé
+
+La garde ci-dessus a été respectée : le point d'extension n'a **pas** été écrit d'avance. Il
+l'a été le jour où deux actions réelles l'attendaient — `forge.status`, déclarée en tranche 4
+et jamais exécutée faute d'un client d'écriture ; `forge.comment`, qui n'était même pas
+déclarée parce qu'elle demandait un numéro de demande de fusion que seule la sonde de la
+tranche 5 pouvait fournir. Les deux sont devenues `gitea.status` et `gitea.comment`, et le
+plugin qui observait sait maintenant agir.
+
+Ce que ce calendrier a évité se voit dans le résultat : la déclaration d'une action de plugin
+n'est pas la copie de celle d'une action interne. Elle n'a **pas** de champ sensible, et elle
+a un **jeu fermé** — deux écarts qu'une abstraction écrite en tranche 4, sur les seules
+actions internes, n'aurait ni prévus ni permis.
+
+**Ce qui reste ouvert.** L'écriture dans le suivi n'a pas bougé : le transport de
+`internal/redmine` refuse toujours toute méthode autre que GET et HEAD, et c'est le même
+choix documenté qu'en §14.3. Un plugin peut désormais déclarer une action — le chemin
+existe — mais la décision d'ouvrir cette clé-là n'est pas prise.
 
 ---
 

@@ -128,6 +128,59 @@ type EventSpec struct {
 	Payload []Field `json:"payload"`
 }
 
+// ActionField déclare un paramètre attendu par une action de plugin.
+//
+// Distinct de [Field], et pas par étourderie : un réglage de plugin se saisit une
+// fois pour un projet et vaut pour tout ce qu'il fait, tandis qu'un paramètre
+// d'action se saisit **par geste** et admet des gabarits liés à la charge du fait.
+// Les fondre donnerait un type dont la moitié des champs n'aurait pas de sens
+// selon l'endroit où on le lit.
+type ActionField struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Help  string `json:"help,omitempty"`
+	// Required : la valeur doit être là, éventuellement après interpolation.
+	Required bool `json:"required,omitempty"`
+	// Template dit que la valeur admet des variables `{clé}`, liées à la charge
+	// du fait déclencheur.
+	Template bool `json:"template,omitempty"`
+	// OneOf ferme le jeu des valeurs acceptées.
+	//
+	// Déclaré par le plugin plutôt que codé dans la validation : l'état d'un
+	// statut de commit est un vocabulaire de **forge**, et l'écrire ailleurs
+	// ferait qu'une seconde forge aux états différents demanderait de modifier
+	// le validateur pour ajouter un plugin.
+	OneOf       []string `json:"one_of,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty"`
+}
+
+// ActionSpec déclare un geste qu'un plugin sait mettre en œuvre.
+//
+// Le pendant de [EventSpec], et la moitié qui manquait : un plugin qui constate
+// sans pouvoir agir laisse toute **conséquence** au noyau, et brancher une
+// nouvelle façon d'agir redemande alors de modifier celui-ci — exactement ce que
+// la déclaration des faits avait corrigé dans l'autre sens (doc 14 §14.2).
+//
+// # Aucun champ sensible, et c'est structurel
+//
+// Une action interne **désigne** un jeton, parce qu'elle parle à un destinataire
+// quelconque. Une action de plugin parle à **sa** frontière, dont la connexion est
+// déjà réglée et scellée : elle n'a rien à demander. La conséquence vaut d'être
+// dite — une action de plugin ne peut pas servir à faire sortir un secret vers une
+// cible choisie dans un formulaire, puisqu'elle ne choisit pas sa cible.
+type ActionSpec struct {
+	// Suffix est la référence **sans** son préfixe : `status`, `comment`.
+	//
+	// Préfixée par [Descriptor.ActionRef], comme les faits le sont par
+	// [Descriptor.EventType] : deux forges déclarant `status` produiraient sinon
+	// des gestes indiscernables.
+	Suffix string `json:"suffix"`
+	Label  string `json:"label"`
+	// Summary dit ce que l'action fait, en une phrase, dans l'éditeur.
+	Summary string        `json:"summary"`
+	Fields  []ActionField `json:"fields"`
+}
+
 // Descriptor déclare un plugin et ses réglages.
 type Descriptor struct {
 	ID    string `json:"id"`
@@ -149,6 +202,13 @@ type Descriptor struct {
 	// Vide pour un plugin qui n'observe rien : le bon de livraison produit des
 	// livrables, il ne constate pas.
 	Events []EventSpec `json:"events,omitempty"`
+	// Actions énumère les gestes que ce plugin sait mettre en œuvre.
+	//
+	// Vide pour un plugin qui ne fait que constater. Observer et agir sont deux
+	// capacités séparées : un attesteur dit ce qui tourne sans rien pouvoir
+	// changer, et lui prêter des actions par symétrie afficherait des gestes que
+	// rien n'exécute.
+	Actions []ActionSpec `json:"actions,omitempty"`
 	// PerProject dit qu'un projet décide de son activation.
 	//
 	// Faux pour ce qui vaut nécessairement pour toute l'instance : le namespace de
@@ -212,7 +272,61 @@ func Registry() []Descriptor {
 		{
 			ID: "gitea", Kind: KindForge, Label: "Gitea",
 			Summary: "Branches, tags et références proposés au formulaire de release, " +
-				"et détection des demandes de fusion ouvertes.",
+				"détection des demandes de fusion ouvertes, et retour vers la forge.",
+			Actions: []ActionSpec{
+				{
+					Suffix: "status", Label: "Statut de commit",
+					Summary: "Pose un statut sur un commit, visible dans la forge à côté " +
+						"de la demande de fusion.",
+					Fields: []ActionField{
+						{
+							Name: "commit", Label: "Commit", Required: true, Template: true,
+							Help: "Le SHA visé. `{git_commit}` pour celui de la " +
+								"construction qui vient de conclure.",
+							Placeholder: "{git_commit}",
+						},
+						{
+							Name: "state", Label: "État", Required: true,
+							OneOf:       []string{"pending", "success", "failure", "error"},
+							Help:        "Le vocabulaire de la forge, et il est fermé.",
+							Placeholder: "success",
+						},
+						{
+							Name: "context", Label: "Contexte", Required: true,
+							Help: "Le nom sous lequel le statut apparaît. Deux gestes " +
+								"partageant ce nom se remplacent : c'est ainsi qu'un " +
+								"`pending` devient un `success`.",
+							Placeholder: "mse-dashboard/vérifications",
+						},
+						{
+							Name: "description", Label: "Description", Template: true,
+							Help: "Une ligne, avec des variables `{tag}`, `{outcome}`.",
+						},
+						{
+							Name: "target_url", Label: "Lien", Template: true,
+							Help: "Où mène le statut depuis la forge. Vide, il ne mène " +
+								"nulle part et oblige à revenir ici à la main.",
+						},
+					},
+				},
+				{
+					Suffix: "comment", Label: "Commentaire sur une demande de fusion",
+					Summary: "Ajoute un commentaire à une demande de fusion. Le numéro " +
+						"vient du fait qui l'a fait connaître.",
+					Fields: []ActionField{
+						{
+							Name: "number", Label: "Numéro", Required: true, Template: true,
+							Help: "`{number}`, tel que le fait « demande de fusion " +
+								"ouverte » le porte.",
+							Placeholder: "{number}",
+						},
+						{
+							Name: "body", Label: "Message", Required: true, Template: true,
+							Help: "Markdown, avec les variables de la charge du fait.",
+						},
+					},
+				},
+			},
 			Events: []EventSpec{{
 				Suffix: "pull_request.opened",
 				Label:  "Demande de fusion ouverte",
@@ -231,9 +345,11 @@ func Registry() []Descriptor {
 					Placeholder: "https://forge.example.fr",
 				},
 				{
-					Name: "token", Label: "Jeton de lecture", Type: FieldText, Secret: true,
-					Help: "Une portée `read:repository` suffit et vaut mieux : un " +
-						"jeton complet ouvre la forge entière au nom de son détenteur.",
+					Name: "token", Label: "Jeton", Type: FieldText, Secret: true,
+					Help: "Une portée `read:repository` suffit pour lire et observer, " +
+						"et vaut mieux : un jeton complet ouvre la forge entière au " +
+						"nom de son détenteur. `write:repository` n'est nécessaire " +
+						"que pour poser des tags, des statuts ou des commentaires.",
 				},
 			},
 			// Pas de **réglage** par projet : le dépôt est déjà déclaré dans ses
@@ -332,6 +448,35 @@ func EventTypes() []string {
 	}
 	sort.Strings(types)
 	return types
+}
+
+// ActionRef rend la référence complète d'une action, préfixée par le plugin.
+func (d Descriptor) ActionRef(spec ActionSpec) string {
+	return d.ID + "." + spec.Suffix
+}
+
+// Acts dit si le plugin déclare au moins une action.
+func (d Descriptor) Acts() bool { return len(d.Actions) > 0 }
+
+// FindAction retrouve le plugin qui déclare une référence d'action.
+//
+// La connaissance du préfixe vit ici, avec celle qui le pose : chercher un point
+// dans la référence et prendre ce qui précède est un découpage qu'un appelant
+// referait à sa façon, et `forge.status` — une action interne d'une version
+// antérieure — ressemble alors à une action du plugin `forge`.
+//
+// Rendue sans consulter l'activation du plugin : un plan **figé** dans une
+// exécution doit rester lisible même après extinction, et c'est à l'appelant de
+// décider si ce qu'il fait de la réponse demande un plugin allumé.
+func FindAction(ref string) (Descriptor, ActionSpec, bool) {
+	for _, descriptor := range Registry() {
+		for _, spec := range descriptor.Actions {
+			if descriptor.ActionRef(spec) == ref {
+				return descriptor, spec, true
+			}
+		}
+	}
+	return Descriptor{}, ActionSpec{}, false
 }
 
 // Fields rend les champs d'une portée.

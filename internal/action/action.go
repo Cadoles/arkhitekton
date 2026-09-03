@@ -10,17 +10,25 @@
 // C'est le même partage que pour `internal/plugin` : la déclaration d'un côté,
 // l'exécution de l'autre.
 //
-// # Trois actions, et pas une de plus
+// # Une action interne, et les autres viennent des plugins
 //
-// Elles sortent de ce qui a été demandé (doc 14 §14.3). La notification de
-// messagerie n'en est pas une quatrième : Mattermost, Slack et le reste sont des
-// webhooks, et leur donner une action dédiée serait trois fois le même code sous
-// trois noms.
+// [Registry] n'en déclare qu'une : l'appel sortant. C'est ce qui reste quand on
+// retire ce qui appartient à une frontière — poser un statut de commit est un
+// geste de **forge**, et le déclarer ici ferait qu'ajouter une seconde forge
+// demanderait de modifier ce paquet.
 //
-// Ce qui n'y est pas et qu'il vaut mieux nommer : écrire dans le suivi. Le
-// transport de `internal/redmine` refuse structurellement toute méthode autre que
-// GET et HEAD, et c'est un choix documenté — pris parce que la clé visée est celle
-// de la production du client. L'ouvrir est un chantier à part.
+// La notification de messagerie n'est pas une seconde action : Mattermost, Slack
+// et le reste sont des webhooks, et leur donner une action dédiée serait trois
+// fois le même code sous trois noms.
+//
+// [All] réunit les deux registres. C'est cette liste-là que voient l'éditeur et
+// la validation ; la distinction entre une action du noyau et une action de
+// plugin ne les regarde pas.
+//
+// Ce qui n'y est toujours pas et qu'il vaut mieux nommer : écrire dans le suivi.
+// Le transport de `internal/redmine` refuse structurellement toute méthode autre
+// que GET et HEAD, et c'est un choix documenté — pris parce que la clé visée est
+// celle de la production du client. L'ouvrir est un chantier à part.
 package action
 
 import (
@@ -30,6 +38,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 )
 
 // Field déclare un paramètre attendu par une action.
@@ -53,8 +63,10 @@ type Field struct {
 	// C'est la règle de doc 14 §14.7 rendue structurelle : un champ sensible n'est
 	// jamais une variable de gabarit. Il ne peut être que désigné, et le moteur
 	// le pose comme en-tête sans jamais le rendre lisible.
-	SecretRef   bool   `json:"secret_ref,omitempty"`
-	Placeholder string `json:"placeholder,omitempty"`
+	SecretRef bool `json:"secret_ref,omitempty"`
+	// OneOf ferme le jeu des valeurs acceptées. Vide, la valeur est libre.
+	OneOf       []string `json:"one_of,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty"`
 }
 
 // Descriptor déclare une action.
@@ -64,15 +76,15 @@ type Descriptor struct {
 	// Summary dit ce qu'elle fait, en une phrase, dans l'éditeur.
 	Summary string  `json:"summary"`
 	Fields  []Field `json:"fields"`
+	// Plugin nomme le plugin qui fournit l'action, vide pour une action du noyau.
+	//
+	// Rendu à l'éditeur pour qu'il puisse dire d'où vient un geste, et lu par
+	// l'exécution pour savoir à qui le confier.
+	Plugin string `json:"plugin,omitempty"`
 }
 
-// Identifiants des actions internes.
-const (
-	// Webhook émet un POST JSON vers une URL.
-	Webhook = "webhook"
-	// ForgeStatus pose un statut de commit sur la forge.
-	ForgeStatus = "forge.status"
-)
+// Webhook émet un POST JSON vers une URL. Seule action du noyau.
+const Webhook = "webhook"
 
 // Registry énumère les actions internes.
 //
@@ -109,42 +121,71 @@ func Registry() []Descriptor {
 				},
 			},
 		},
-		{
-			ID: ForgeStatus, Label: "Statut de commit",
-			Summary: "Pose un statut sur le commit construit, visible dans la forge " +
-				"à côté de la demande de fusion.",
-			Fields: []Field{
-				{
-					Name: "state", Label: "État", Required: true,
-					Help:        "`pending`, `success`, `failure` ou `error`.",
-					Placeholder: "success",
-				},
-				{
-					Name: "context", Label: "Contexte", Required: true,
-					Help:        "Le nom sous lequel le statut apparaît dans la forge.",
-					Placeholder: "mse-dashboard/vérifications",
-				},
-				{
-					Name: "description", Label: "Description", Template: true,
-					Help: "Une ligne, avec des variables `{tag}`, `{outcome}`.",
-				},
-			},
-		},
 	}
 
 	sort.Slice(descriptors, func(i, j int) bool { return descriptors[i].ID < descriptors[j].ID })
 	return descriptors
 }
 
+// All réunit les actions du noyau et celles que les plugins déclarent.
+//
+// # Le registre ouvert dans l'autre sens
+//
+// Les plugins déclaraient déjà les faits qu'ils observent ; ils déclarent
+// maintenant les gestes qu'ils savent faire. Sans cette moitié, on branche
+// n'importe quelle **cause** sur un jeu de **conséquences** figé, et agir sur une
+// frontière que le noyau ne connaît pas redemande de modifier le noyau.
+//
+// # Sans filtrer sur l'activation
+//
+// Un plugin éteint garde ses actions dans cette liste. C'est délibéré : la
+// validation d'un plan **figé** dans une exécution doit rester possible après
+// extinction, sans quoi une vue d'historique perdrait ses libellés. C'est à
+// l'éditeur d'écarter ce qui ne se déclencherait pas — il le fait déjà pour les
+// faits, et pour la même raison.
+func All() []Descriptor {
+	descriptors := Registry()
+	for _, provider := range plugin.Registry() {
+		for _, spec := range provider.Actions {
+			descriptors = append(descriptors, fromPlugin(provider, spec))
+		}
+	}
+
+	sort.Slice(descriptors, func(i, j int) bool { return descriptors[i].ID < descriptors[j].ID })
+	return descriptors
+}
+
+// fromPlugin traduit la déclaration d'un plugin en descripteur d'action.
+//
+// La traduction est étroite, et le champ qu'elle n'a pas à porter dit pourquoi :
+// [Field.SecretRef] reste faux. Une action de plugin parle à sa propre frontière,
+// dont la connexion est déjà scellée ; elle ne désigne aucun jeton, et ne peut
+// donc pas servir à en faire sortir un vers une cible saisie dans un formulaire.
+func fromPlugin(provider plugin.Descriptor, spec plugin.ActionSpec) Descriptor {
+	fields := make([]Field, 0, len(spec.Fields))
+	for _, field := range spec.Fields {
+		fields = append(fields, Field{
+			Name: field.Name, Label: field.Label, Help: field.Help,
+			Required: field.Required, Template: field.Template,
+			OneOf: field.OneOf, Placeholder: field.Placeholder,
+		})
+	}
+
+	return Descriptor{
+		ID: provider.ActionRef(spec), Label: spec.Label, Summary: spec.Summary,
+		Fields: fields, Plugin: provider.ID,
+	}
+}
+
 // ErrUnknown signale une action qu'aucun descripteur ne déclare.
 var ErrUnknown = errors.New("action inconnue")
 
-// Get rend le descripteur d'une action.
+// Get rend le descripteur d'une action, du noyau ou d'un plugin.
 //
 // L'erreur nomme celles qui existent : chercher laquelle dans le code source
 // n'est pas une réponse à donner à qui lit un message d'API.
 func Get(id string) (Descriptor, error) {
-	registry := Registry()
+	registry := All()
 	for _, descriptor := range registry {
 		if descriptor.ID == id {
 			return descriptor, nil
@@ -155,7 +196,7 @@ func Get(id string) (Descriptor, error) {
 	for _, descriptor := range registry {
 		known = append(known, descriptor.ID)
 	}
-	return Descriptor{}, fmt.Errorf("%w %q (internes: %s)",
+	return Descriptor{}, fmt.Errorf("%w %q (déclarées: %s)",
 		ErrUnknown, id, strings.Join(known, ", "))
 }
 
@@ -198,13 +239,13 @@ func (d Descriptor) Validate(params map[string]string) error {
 		if value == "" {
 			continue
 		}
-		problems = append(problems, field.validate(d.ID, value)...)
+		problems = append(problems, field.validate(value)...)
 	}
 
 	return errors.Join(problems...)
 }
 
-func (f Field) validate(action, value string) []error {
+func (f Field) validate(value string) []error {
 	var problems []error
 
 	// L'URL est vérifiée dans sa forme, pas dans sa cible : celle-ci est jugée au
@@ -223,12 +264,20 @@ func (f Field) validate(action, value string) []error {
 		}
 	}
 
-	// L'état d'un statut de commit est un jeu fermé côté forge : une valeur
-	// inventée serait refusée par elle, au moment le moins utile.
-	if action == ForgeStatus && f.Name == "state" && !validStatusState(value) {
+	// Un jeu fermé se vérifie ici plutôt que chez le destinataire : l'état d'un
+	// statut de commit appartient au vocabulaire de la forge, et une valeur
+	// inventée serait refusée par elle — au moment le moins utile.
+	//
+	// La liste vient du descripteur et non d'une condition sur l'identifiant de
+	// l'action : c'est ce qui permet à un second plugin de forge d'avoir ses
+	// propres états sans que ce paquet ait à le connaître.
+	//
+	// Sauté quand la valeur porte un gabarit : ce qu'elle vaudra dépend de la
+	// charge du fait, et refuser `{outcome}` ici obligerait à écrire l'état en dur.
+	if len(f.OneOf) > 0 && !strings.Contains(value, "{") && !slices.Contains(f.OneOf, value) {
 		problems = append(problems, fmt.Errorf(
-			"%w: %s vaut pending, success, failure ou error, reçu %q",
-			ErrInvalid, f.Label, value))
+			"%w: %s vaut %s, reçu %q",
+			ErrInvalid, f.Label, strings.Join(f.OneOf, ", "), value))
 	}
 
 	// Un gabarit dont une accolade n'est pas fermée produirait une valeur
@@ -239,13 +288,6 @@ func (f Field) validate(action, value string) []error {
 	}
 
 	return problems
-}
-
-// StatusStates énumère les états qu'une forge accepte pour un statut de commit.
-var StatusStates = []string{"pending", "success", "failure", "error"}
-
-func validStatusState(value string) bool {
-	return slices.Contains(StatusStates, value)
 }
 
 // Expand remplace les variables `{clé}` par la charge du fait.

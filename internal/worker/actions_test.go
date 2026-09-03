@@ -230,17 +230,55 @@ func TestUnRefusDuDestinataireFaitEchouerLeGesteEnLeDisant(t *testing.T) {
 	}
 }
 
-// Une action déclarée mais pas encore mise en œuvre est refusée nommément :
-// rendre « parti » sur un geste que personne n'exécute serait pire.
-func TestUneActionDeclareeMaisNonExecuteeEstRefuseeNommement(t *testing.T) {
+// Une action de plugin sur un déploiement qui ne les a pas branchées est refusée
+// nommément : rendre « parti » sur un geste que personne n'exécute serait pire.
+func TestUneActionDePluginNonBrancheeEstRefuseeNommement(t *testing.T) {
 	_, err := runnerFor(t, nil).Run(context.Background(), store.PlanRun{}, plan.Geste{
-		Kind: plan.GesteAction, Ref: action.ForgeStatus,
-		Params: map[string]string{"state": "success", "context": "dashboard"},
+		Kind: plan.GesteAction, Ref: "gitea.status",
+		Params: map[string]string{
+			"commit": "abc1234", "state": "success", "context": "dashboard",
+		},
 	})
 
-	if err == nil || !strings.Contains(err.Error(), "pas encore") {
-		t.Fatalf("%v", err)
+	if err == nil || !strings.Contains(err.Error(), "gitea") {
+		t.Fatalf("%v — le refus doit nommer le plugin attendu", err)
 	}
+}
+
+// Le partage se lit dans le descripteur, jamais dans un découpage de la
+// référence.
+//
+// C'est le piège que ce test tient : `forge.status` — action interne d'une
+// version antérieure — porte un point et ressemble à s'y méprendre à une action
+// du plugin `forge`. La confier au runner de plugins la ferait échouer sur
+// « aucun plugin ne déclare », message qui envoie chercher au mauvais endroit.
+func TestUnPointDansUneReferenceNeFaitPasUnPlugin(t *testing.T) {
+	var confie bool
+	runner := runnerFor(t, nil).WithPlugins(gesteRunnerFunc(
+		func(context.Context, store.PlanRun, plan.Geste) (*int64, error) {
+			confie = true
+			return nil, nil
+		}))
+
+	_, err := runner.Run(context.Background(), store.PlanRun{}, plan.Geste{
+		Kind: plan.GesteAction, Ref: "forge.status",
+	})
+
+	if confie {
+		t.Error("une action inconnue a été confiée au runner de plugins")
+	}
+	if err == nil || !errors.Is(err, action.ErrUnknown) {
+		t.Fatalf("%v, attendu ErrUnknown", err)
+	}
+}
+
+// gesteRunnerFunc adapte une fonction en [GesteRunner].
+type gesteRunnerFunc func(context.Context, store.PlanRun, plan.Geste) (*int64, error)
+
+func (f gesteRunnerFunc) Run(
+	ctx context.Context, run store.PlanRun, geste plan.Geste,
+) (*int64, error) {
+	return f(ctx, run, geste)
 }
 
 // L'aiguillage sépare les deux natures : le moteur n'a pas à connaître la

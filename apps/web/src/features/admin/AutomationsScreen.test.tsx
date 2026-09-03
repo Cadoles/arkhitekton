@@ -37,6 +37,21 @@ const catalogue = {
       fields: [{ name: 'url', label: 'URL', required: true }],
     },
     { kind: 'pipeline', ref: 'unit-tests', label: 'Tests unitaires' },
+    {
+      kind: 'action',
+      ref: 'gitea.status',
+      label: 'Statut de commit',
+      source: 'gitea',
+      summary: 'Pose un statut sur un commit.',
+      fields: [
+        {
+          name: 'state',
+          label: 'État',
+          required: true,
+          options: ['pending', 'success', 'failure', 'error'],
+        },
+      ],
+    },
   ],
   when: ['success', 'failure', 'always'],
 }
@@ -81,6 +96,32 @@ describe("l'éditeur d'automatisations", () => {
 
     expect(await screen.findByRole('option', { name: 'Appel sortant (action)' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Tests unitaires (pipeline)' })).toBeInTheDocument()
+    // Le geste d'un plugin est annoncé par sa source : « Statut de commit » ne
+    // parle pas à la même forge selon le plugin qui le fournit.
+    expect(screen.getByRole('option', { name: 'Statut de commit (gitea)' })).toBeInTheDocument()
+  })
+
+  it('suggère un jeu fermé sans interdire le gabarit qui le remplira', async () => {
+    armer([])
+    render(<AutomationsScreen />)
+
+    await userEvent.click(await screen.findByRole('button', { name: /Déclarer une réaction/ }))
+
+    const listes = await screen.findAllByRole('combobox')
+    const ajout = listes.at(-1)
+    if (!ajout) throw new Error("aucun sélecteur d'ajout de geste")
+    await userEvent.selectOptions(ajout, 'action:gitea.status')
+
+    // Une saisie libre adossée à des suggestions, et non un sélecteur fermé : le
+    // serveur laisse un gabarit traverser un jeu fermé, parce qu'un état qui
+    // reflète l'issue du fait ne peut pas s'écrire en dur. Un `select` interdirait
+    // `{outcome}` que le moteur accepte.
+    // Un `input` adossé à une `datalist` porte le rôle `combobox` : c'est
+    // précisément la saisie libre suggérée qu'on veut ici.
+    const champ = screen.getByRole('combobox', { name: /État/ })
+    await userEvent.type(champ, '{{outcome}')
+    expect(champ).toHaveValue('{outcome}')
+    expect(champ).toHaveAttribute('list')
   })
 
   it("n'offre pas la condition d'échec sur la première étape", async () => {

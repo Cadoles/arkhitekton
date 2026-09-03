@@ -67,13 +67,17 @@ func NewPluginsHandler(plugins PluginStore, cipher *secrets.Cipher, logger *slog
 
 // fieldPayload décrit un champ à l'écran qui le saisit.
 type fieldPayload struct {
-	Name        string `json:"name"`
-	Label       string `json:"label"`
-	Type        string `json:"type"`
-	Help        string `json:"help,omitempty"`
-	Required    bool   `json:"required,omitempty"`
-	Secret      bool   `json:"secret,omitempty"`
-	Placeholder string `json:"placeholder,omitempty"`
+	Name     string `json:"name"`
+	Label    string `json:"label"`
+	Type     string `json:"type"`
+	Help     string `json:"help,omitempty"`
+	Required bool   `json:"required,omitempty"`
+	Secret   bool   `json:"secret,omitempty"`
+	// Options ferme le jeu des valeurs acceptées, quand il l'est. L'écran en fait
+	// une liste plutôt qu'une saisie libre : le refus arrive alors avant l'envoi,
+	// et non depuis la forge au moment le moins utile.
+	Options     []string `json:"options,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty"`
 }
 
 // pluginPayload est un plugin et son état à une portée.

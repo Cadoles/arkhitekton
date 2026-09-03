@@ -43,10 +43,16 @@ type SecretResolver interface {
 	ResolveSecret(ctx context.Context, projectID *int64, reference string) (string, error)
 }
 
-// ActionRunner met en œuvre les actions internes d'un plan.
+// ActionRunner met en œuvre les actions d'un plan.
+//
+// Celles du noyau lui-même ; celles d'un plugin sont confiées au runner dédié,
+// dont les dépendances n'ont rien de commun avec les siennes (voir
+// `pluginactions.go`). L'entrée reste unique parce que le contrôle qui précède —
+// résoudre le descripteur et revalider les paramètres — vaut pour les deux.
 type ActionRunner struct {
 	webhooks *webhook.Client
 	secrets  SecretResolver
+	plugins  GesteRunner
 	logger   *slog.Logger
 }
 
@@ -57,6 +63,15 @@ func NewActionRunner(
 		logger = slog.Default()
 	}
 	return &ActionRunner{webhooks: webhooks, secrets: secrets, logger: logger}
+}
+
+// WithPlugins branche la mise en œuvre des actions déclarées par les plugins.
+//
+// Optionnelle, et l'absence se dit : un déploiement assemblé sans elle refuse le
+// geste par son nom plutôt que de le rendre « parti ».
+func (r *ActionRunner) WithPlugins(plugins GesteRunner) *ActionRunner {
+	r.plugins = plugins
+	return r
 }
 
 // Run met en œuvre un geste d'action.
@@ -78,14 +93,25 @@ func (r *ActionRunner) Run(
 		return nil, err
 	}
 
+	// Une action de plugin part par l'autre chemin. Le partage se lit dans le
+	// descripteur plutôt que dans un découpage de la référence : `forge.status`,
+	// action interne d'une version antérieure, ressemble à s'y méprendre à une
+	// action du plugin `forge`.
+	if descriptor.Plugin != "" {
+		if r.plugins == nil {
+			return nil, fmt.Errorf(
+				"les actions du plugin %q ne sont pas configurées", descriptor.Plugin)
+		}
+		return r.plugins.Run(ctx, run, geste)
+	}
+
 	switch geste.Ref {
 	case action.Webhook:
 		return nil, r.postWebhook(ctx, run, geste)
 	default:
-		// `forge.status` est déclarée et n'est pas encore mise en œuvre : elle
-		// demande un client d'écriture vers la forge, qui viendra avec les faits
-		// de plugin. Refuser nommément vaut mieux que rendre « parti » sur un
-		// geste que personne n'exécute.
+		// Une action que le registre déclare et que rien n'exécute. Refuser
+		// nommément vaut mieux que rendre « parti » : les deux ont divergé, et le
+		// dire est la seule façon de s'en apercevoir.
 		return nil, fmt.Errorf("action %q déclarée mais pas encore exécutée", geste.Ref)
 	}
 }
@@ -232,9 +258,9 @@ func (r gesteRouter) Run(
 	}
 }
 
-// ActionIDs énumère les actions internes, pour la validation d'un plan.
+// ActionIDs énumère les actions disponibles, pour la validation d'un plan.
 func ActionIDs() []string {
-	registry := action.Registry()
+	registry := action.All()
 	ids := make([]string, 0, len(registry))
 	for _, descriptor := range registry {
 		ids = append(ids, descriptor.ID)

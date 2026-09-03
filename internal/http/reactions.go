@@ -248,6 +248,11 @@ type gesteChoice struct {
 	// décrit par son libellé.
 	Summary string         `json:"summary,omitempty"`
 	Fields  []fieldPayload `json:"fields,omitempty"`
+	// Source nomme le plugin qui fournit le geste. Vide pour le noyau.
+	//
+	// Rendu pour la même raison que sur un fait : deux gestes peuvent porter le
+	// même libellé — « Statut de commit » — et ne pas parler à la même forge.
+	Source string `json:"source,omitempty"`
 }
 
 // Catalogue rend ce que cette version sait faire.
@@ -278,11 +283,17 @@ func (h *ReactionsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gestes := make([]gesteChoice, 0, 8)
-	for _, descriptor := range action.Registry() {
+	for _, descriptor := range action.All() {
+		// Une action dont le plugin est éteint n'apparaît pas, exactement comme un
+		// fait qu'il n'observe plus : un geste qu'on peut choisir et qui refusera
+		// de partir est pire qu'une absence.
+		if descriptor.Plugin != "" && !settings[descriptor.Plugin].Enabled {
+			continue
+		}
 		gestes = append(gestes, gesteChoice{
 			Kind: string(plan.GesteAction), Ref: descriptor.ID,
 			Label: descriptor.Label, Summary: descriptor.Summary,
-			Fields: actionFields(descriptor),
+			Fields: actionFields(descriptor), Source: descriptor.Plugin,
 		})
 	}
 	if h.catalog != nil {
@@ -341,7 +352,7 @@ func actionFields(descriptor action.Descriptor) []fieldPayload {
 		fields = append(fields, fieldPayload{
 			Name: field.Name, Label: field.Label, Type: "text", Help: field.Help,
 			Required: field.Required, Secret: field.SecretRef,
-			Placeholder: field.Placeholder,
+			Options: field.OneOf, Placeholder: field.Placeholder,
 		})
 	}
 	return fields
@@ -378,9 +389,27 @@ func (h *ReactionsHandler) checkRefs(ctx context.Context, entry reaction.Reactio
 				ref, strings.Join(h.catalog.Kinds(), ", ")))
 		}
 	}
+	// Les réglages sont relus ici plutôt que passés depuis `liveEventTypes` : ce
+	// chemin est celui d'un enregistrement, pas d'un affichage, et une seconde
+	// lecture y coûte moins qu'un paramètre de plus à faire circuler.
+	settings, err := h.store.PluginSettingsAll(ctx)
+	if err != nil {
+		return err
+	}
 	for _, ref := range actions {
-		if _, err := action.Get(ref); err != nil {
+		descriptor, err := action.Get(ref)
+		if err != nil {
 			problems = append(problems, err)
+			continue
+		}
+		// Un geste dont le plugin est éteint est refusé à l'enregistrement, comme
+		// un fait qu'aucun plugin actif ne produit. La symétrie n'est pas
+		// esthétique : dans les deux cas la réaction serait déclarée, visible, et
+		// sans effet — et c'est ce qu'on ne veut pas laisser croire.
+		if descriptor.Plugin != "" && !settings[descriptor.Plugin].Enabled {
+			problems = append(problems, fmt.Errorf(
+				"le geste %q vient du plugin %q, qui est éteint pour cette instance : "+
+					"il ne partirait pas", ref, descriptor.Plugin))
 		}
 	}
 

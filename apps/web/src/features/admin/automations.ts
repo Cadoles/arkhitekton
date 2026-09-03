@@ -55,6 +55,9 @@ export type GesteChoice = {
   ref: string
   label: string
   summary?: string
+  /** Vide pour un geste du noyau, l'identifiant du plugin qui le fournit sinon.
+   *  Deux gestes peuvent porter le même libellé et ne pas parler à la même forge. */
+  source?: string
   fields?: {
     name: string
     label: string
@@ -62,6 +65,9 @@ export type GesteChoice = {
     required?: boolean
     /** Désigne un champ sensible d'un plugin ; n'en porte jamais le contenu. */
     secret?: boolean
+    /** Le jeu fermé des valeurs acceptées, quand il l'est. Proposé en suggestions
+     *  et non en sélecteur : un gabarit doit pouvoir le traverser. */
+    options?: string[]
     placeholder?: string
   }[]
 }

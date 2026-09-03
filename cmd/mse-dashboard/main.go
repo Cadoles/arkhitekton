@@ -578,7 +578,14 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 					AllowInsecure: cfg.Webhooks.AllowInsecure,
 					Timeout:       cfg.Webhooks.Timeout,
 				}),
-				secretResolver{store: db, cipher: cipher}, logger)
+				secretResolver{store: db, cipher: cipher}, logger).
+				// Les gestes qu'un plugin fournit. Ils n'empruntent pas le
+				// transport ci-dessus : leur cible n'est pas saisie dans un
+				// formulaire mais lue dans la configuration du plugin, et le
+				// contrôle d'adresse existe précisément parce qu'ailleurs elle
+				// l'est. Le jeton est celui du plugin, ouvert le temps de l'appel.
+				WithPlugins(worker.NewPluginActionRunner(
+					db, cipher, cfg.Forge.Timeout, logger))
 			if cfg.Webhooks.AllowPrivate || cfg.Webhooks.AllowInsecure {
 				logger.Warn("appels sortants élargis",
 					"cibles_privees", cfg.Webhooks.AllowPrivate,
