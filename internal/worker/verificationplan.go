@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -78,105 +79,74 @@ func (s *runSink) verificationPlan(ctx context.Context, projectID int64) plan.Pl
 	}}}
 }
 
-// runVerificationPlan exécute le plan de vérification et rend le nombre de gestes
-// effectivement partis.
+// Clés du contexte d'exécution d'un plan de vérification.
 //
-// Synchrone, comme l'était la boucle qu'il remplace. La bascule vers le moteur
-// asynchrone — qui consomme les faits et persiste l'avancement — est la suite du
-// chantier ; ce qui compte à ce stade est que le **modèle** décide de ce qui
-// part, et non plus une boucle écrite à la main.
+// Nommées plutôt qu'écrites en clair aux deux bouts : le plan les pose, le runner
+// les lit, et deux orthographes produiraient un geste sans paramètres dont rien
+// ne dirait pourquoi.
+const (
+	contextRevision = "revision"
+	contextTag      = "tag"
+)
+
+// verificationTrigger nomme le déclencheur intégré de la chaîne de vérification.
 //
-// Le décompte est rendu parce que l'appelant en dépend : une release dont aucune
-// vérification n'a pu partir rejoint `ready` plutôt que d'attendre indéfiniment un
-// verdict que personne ne rendra.
-func (s *runSink) runVerificationPlan(
-	ctx context.Context, linked store.JobReleaseContext, sujet plan.Plan,
-) int {
-	// Les tests portent sur ce qui a été construit, donc sur le commit — jamais
-	// sur la branche d'où il vient, qui a pu bouger depuis (B17).
-	revision := linked.GitCommit
-	if revision == "" {
-		revision = linked.GitRef
+// `builtin:` le distingue des réactions déclarées, qui porteront `reaction:<id>`.
+// Les deux partagent la même unicité par fait, et c'est ce qui permettra à une
+// réaction déclarée de coexister avec celle-ci sans que l'une bloque l'autre.
+const verificationTrigger = "builtin:verification"
+
+// verificationRunner met en œuvre un geste de vérification.
+//
+// Réalise [GesteRunner]. Le moteur ne connaît pas la différence entre un pipeline
+// et une action : il demande, et retient l'identifiant du job qu'on lui rend.
+type verificationRunner struct{ sink *runSink }
+
+func (r verificationRunner) Run(
+	ctx context.Context, run store.PlanRun, geste plan.Geste,
+) (*int64, error) {
+	if geste.Kind != plan.GestePipeline {
+		// Les actions arrivent avec la tranche suivante. Refuser nommément vaut
+		// mieux que de rendre « parti » sur un geste que personne n'exécute.
+		return nil, fmt.Errorf("geste %q: les actions ne sont pas encore exécutées", geste.Ref)
 	}
-	if revision == "" {
-		s.logger.Warn("vérification non lancée",
-			"release", linked.Tag, "raison", "aucune référence Git sur la release")
-		return 0
-	}
 
-	launched := 0
-	progress := plan.Start(sujet)
-
-	for {
-		steps := progress.Next()
-		if len(steps) == 0 {
-			return launched
-		}
-
-		for _, step := range steps {
-			state := plan.Skipped
-			if step.Run {
-				if s.enqueueGeste(ctx, linked, step.Geste, revision) {
-					launched++
-					// `succeeded` dit ici « parti », et non « conclu ». C'est le
-					// pis-aller d'une exécution synchrone : l'avancement ne survit
-					// pas à l'appel, et personne ne viendra le corriger. Le moteur
-					// asynchrone rendra cet état vrai — c'est même sa raison
-					// d'être.
-					state = plan.Succeeded
-				} else {
-					state = plan.Failed
-				}
-			}
-			progress, _ = progress.Mark(step.Position, state)
-		}
-	}
-}
-
-// enqueueGeste enfile un geste de type pipeline, et dit s'il est parti.
-func (s *runSink) enqueueGeste(
-	ctx context.Context, linked store.JobReleaseContext, geste plan.Geste, revision string,
-) bool {
-	pipeline, found := s.catalog.Find(geste.Ref)
+	pipeline, found := r.sink.catalog.Find(geste.Ref)
 	if !found {
-		s.logger.Warn("geste sans famille au catalogue",
-			"release", linked.Tag, "geste", geste.Ref)
-		return false
+		return nil, fmt.Errorf("famille %q absente du catalogue", geste.Ref)
 	}
 
 	// Les valeurs sortent de ce que le catalogue déclare vouloir : `revision`,
 	// `app-revision` et `mse-revision` désignent la même chose sous trois noms
 	// hérités de pipelines écrits séparément, et c'est leur `suggest: git-ref`
 	// commun qui le dit. Tous valent le commit construit — c'est lui qu'on
-	// vérifie, pas la branche dont il vient.
-	params, missing := pipeline.VerificationInputs(revision, linked.Tag, s.registryProject)
+	// vérifie, pas la branche dont il vient (B17).
+	params, missing := pipeline.VerificationInputs(
+		run.Context[contextRevision], run.Context[contextTag], r.sink.registryProject)
 	if missing != "" {
 		// Un paramètre requis qu'on ne sait pas renseigner ferait échouer le run à
 		// l'ordonnancement : ne pas l'enfiler du tout est plus honnête, et le
-		// journal dit lequel manque.
-		s.logger.Warn("famille de vérification non lançable",
-			"release", linked.Tag, "kind", geste.Ref, "parametre_manquant", missing)
-		return false
+		// motif dit lequel manque.
+		return nil, fmt.Errorf("paramètre %q non renseignable", missing)
 	}
 
-	id, err := s.verification.Enqueue(ctx, store.JobRequest{
+	id, err := r.sink.verification.Enqueue(ctx, store.JobRequest{
 		Kind:        pipeline.Kind,
 		Params:      params,
 		RequestedBy: verificationRequester,
-		ReleaseID:   &linked.ReleaseID,
+		ReleaseID:   run.ReleaseID,
 		// Le projet, sans quoi la vérification part **sans** et monte le secret du
 		// déploiement au lieu de la clé du projet. Elle clone comme la
 		// construction : l'oublier annulait la séparation des clés pour la moitié
 		// des runs d'une release.
-		ProjectID: &linked.ProjectID,
+		ProjectID: run.ProjectID,
 	})
 	if err != nil {
-		s.logger.Error("mise en file d'une vérification",
-			"release", linked.Tag, "kind", geste.Ref, "error", err)
-		return false
+		return nil, err
 	}
 
-	s.logger.Info("vérification lancée",
-		"release", linked.Tag, "kind", geste.Ref, "job", id, "revision", revision)
-	return true
+	r.sink.logger.Info("vérification lancée",
+		"release", run.Context[contextTag], "kind", geste.Ref, "job", id,
+		"revision", run.Context[contextRevision])
+	return &id, nil
 }

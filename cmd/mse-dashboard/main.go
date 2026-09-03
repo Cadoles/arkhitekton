@@ -554,11 +554,15 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// Sans l'identité de la base, un run resté dans le cluster après
 				// une remise à zéro conclut le job homonyme de la base courante.
 				WithInstance(instance).
-				// L'émission des faits. Personne n'y réagit encore : cette
-				// tranche les pose et éprouve que la déduplication tient à
-				// travers un redémarrage du worker, pendant que l'erreur ne
-				// coûte rien (doc 14).
+				// L'émission des faits (doc 14).
 				WithEvents(db)
+
+			// Le moteur de plans, qui enchaîne les vérifications d'une
+			// construction réussie et conclut leurs gestes à la fin de leur job.
+			//
+			// Assemblé après le sink parce qu'il en dépend : le runner a besoin du
+			// catalogue et de la file, que le sink porte déjà.
+			sink = sink.WithEngine(worker.NewVerificationEngine(sink, db, logger))
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
 			// Les URLs d'écriture des artefacts sont minées ici : le layout de

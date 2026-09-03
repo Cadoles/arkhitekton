@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
@@ -69,6 +70,9 @@ type runSink struct {
 	// events enregistre les faits constatés. Nil : l'observation continue et le
 	// fil reste vide — personne n'y réagit encore (doc 14).
 	events EventRecorder
+	// engine fait avancer les exécutions de plan. Nil : rien ne s'enchaîne, et le
+	// journal le dit — un enchaînement muet serait pire qu'une release en attente.
+	engine *Engine
 	// now date les faits. Remplaçable pour que l'émission s'éprouve sans horloge :
 	// un fait porte l'instant où il s'est produit, et c'est une valeur qu'un test
 	// doit pouvoir fixer.
@@ -499,6 +503,15 @@ func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobStat
 		}
 		return err
 	}
+	// Le geste que ce job mettait en œuvre, s'il venait d'un plan. Avant la
+	// conclusion d'état : c'est l'avancement du plan qui fera partir l'étape
+	// suivante, et le retarder ferait attendre un tour à la chaîne.
+	//
+	// Sans effet pour la plupart des jobs, qui ne viennent d'aucun plan.
+	if s.engine != nil {
+		s.engine.Advance(ctx, jobID, planStateOf(jobState))
+	}
+
 	// Deux natures font avancer une release, et pas de la même façon.
 	switch {
 	case linked.Kind == buildJobKind:
@@ -715,6 +728,24 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 		return 0
 	}
 
+	if s.engine == nil {
+		s.logger.Warn("vérification non lancée",
+			"release", linked.Tag, "raison", "moteur de plans non branché")
+		return 0
+	}
+
+	// Les tests portent sur ce qui a été construit, donc sur le commit — jamais
+	// sur la branche d'où il vient, qui a pu bouger depuis (B17).
+	revision := linked.GitCommit
+	if revision == "" {
+		revision = linked.GitRef
+	}
+	if revision == "" {
+		s.logger.Warn("vérification non lancée",
+			"release", linked.Tag, "raison", "aucune référence Git sur la release")
+		return 0
+	}
+
 	sujet := s.verificationPlan(ctx, linked.ProjectID)
 	if sujet.Empty() {
 		// Un projet qui n'enchaîne rien est une configuration légitime. Le dire
@@ -724,7 +755,20 @@ func (s *runSink) launchVerification(ctx context.Context, linked store.JobReleas
 		return 0
 	}
 
-	return s.runVerificationPlan(ctx, linked, sujet)
+	// La clé du fait déclencheur porte le job de construction : une release se
+	// reconstruit, et chaque construction ouvre sa propre exécution. Une clé sur
+	// la seule release ferait que la seconde ne lancerait rien.
+	return s.engine.Trigger(ctx, store.PlanRun{
+		Trigger:   verificationTrigger,
+		EventKey:  event.ReleaseBuiltKey(linked.ReleaseID, linked.JobID),
+		ProjectID: &linked.ProjectID,
+		ReleaseID: &linked.ReleaseID,
+		Plan:      sujet,
+		Context: map[string]string{
+			contextRevision: revision,
+			contextTag:      linked.Tag,
+		},
+	})
 }
 
 // ProjectPipelines dit si une famille du catalogue s'applique à un projet.

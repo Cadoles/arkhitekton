@@ -2,9 +2,11 @@ package worker
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
@@ -187,4 +189,36 @@ func (s *runSink) emitReleasePromoted(ctx context.Context, linked store.JobRelea
 	s.emit(ctx, event.ReleasePromotedAt(
 		s.at(), linked.ProjectID, linked.ReleaseID, linked.JobID,
 		linked.Tag, linked.Environment))
+}
+
+// WithEngine branche le moteur d'exécution des plans.
+//
+// C'est lui qui enchaîne les vérifications d'une construction réussie, et qui
+// conclut leurs gestes à la fin de leur job. Sans lui, rien ne s'enchaîne — et
+// `launchVerification` le dit plutôt que de rendre zéro en silence.
+func (s *runSink) WithEngine(engine *Engine) *runSink {
+	s.engine = engine
+	return s
+}
+
+// NewVerificationEngine assemble le moteur qui enchaîne les vérifications.
+//
+// Le runner est lié au sink : il a besoin du catalogue et de la file, que le sink
+// porte déjà. Les assembler ici plutôt que dans `main` évite d'exposer ces deux
+// dépendances une seconde fois.
+func NewVerificationEngine(sink *runSink, plans PlanStore, logger *slog.Logger) *Engine {
+	return NewEngine(plans, verificationRunner{sink: sink}, logger)
+}
+
+// planStateOf traduit l'issue d'un job dans le vocabulaire des plans.
+//
+// Une annulation vaut un échec pour un plan : ce qui suivait ne doit pas partir,
+// et il n'y a pas d'état « interrompu » dans le modèle. La nuance existe dans le
+// job et dans le fait `pipeline.finished` ; la perdre ici ne coûte rien, parce
+// que la seule question posée à cet endroit est « la suite part-elle ? ».
+func planStateOf(jobState string) plan.State {
+	if jobState == store.JobSucceeded {
+		return plan.Succeeded
+	}
+	return plan.Failed
 }

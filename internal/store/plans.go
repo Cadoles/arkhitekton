@@ -1,0 +1,262 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
+)
+
+/*
+ * L'exécution des plans.
+ *
+ * Ce magasin ne décide de rien : `internal/plan` dit quel geste part ensuite, et
+ * cette couche se contente de retenir ce qui a été décidé. La séparation est la
+ * même que pour `internal/release` et pour la même raison — l'avancement est de la
+ * logique, et une logique mêlée à du SQL ne s'éprouve qu'avec une base.
+ */
+
+// PlanRun est une exécution de plan.
+type PlanRun struct {
+	ID int64
+	// Trigger nomme ce qui a déclenché : `builtin:<nom>` ou `reaction:<id>`.
+	Trigger string
+	// EventKey est la clé du fait déclencheur.
+	EventKey  string
+	ProjectID *int64
+	ReleaseID *int64
+	Plan      plan.Plan
+	// Context est la charge du fait déclencheur. Elle lie les paramètres des
+	// gestes : le plan nomme, l'exécution résout.
+	Context   map[string]string
+	State     string
+	CreatedAt time.Time
+}
+
+// PlanStep est le sort d'un geste.
+type PlanStep struct {
+	ID       int64
+	Stage    int
+	Position int
+	Kind     string
+	Ref      string
+	State    string
+	JobID    *int64
+	Detail   string
+}
+
+// États d'une exécution de plan. Les mêmes valeurs que celles de `internal/plan`,
+// écrites ici parce que la base ne dépend pas de ce paquet pour ses contraintes.
+const (
+	PlanRunning   = "running"
+	PlanSucceeded = "succeeded"
+	PlanFailed    = "failed"
+)
+
+// ErrPlanRunNotFound signale une exécution absente.
+var ErrPlanRunNotFound = errors.New("exécution de plan introuvable")
+
+// CreatePlanRun ouvre une exécution, ou rend celle qui existe déjà.
+//
+// Le second retour dit laquelle des deux : `false` pour une exécution qui
+// existait. Ce n'est **pas une erreur** — c'est le cas nominal d'une
+// redélivrance, et le traiter comme un échec ferait journaliser une panne à
+// chaque redémarrage du worker.
+//
+// Les gestes sont créés dans la même transaction que l'exécution : une exécution
+// sans ses gestes serait une ligne que rien ne fait avancer, et il faudrait un
+// balai pour la retrouver.
+func (db *DB) CreatePlanRun(ctx context.Context, run PlanRun) (PlanRun, bool, error) {
+	encoded, err := json.Marshal(run.Plan)
+	if err != nil {
+		return PlanRun{}, false, fmt.Errorf("plan illisible: %w", err)
+	}
+
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return PlanRun{}, false, fmt.Errorf("ouverture d'une exécution de plan: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var id int64
+	err = tx.QueryRow(ctx,
+		`insert into plan_runs (trigger, event_key, project_id, release_id, plan, context)
+		 values ($1, $2, $3, $4, $5, $6)
+		 on conflict (trigger, event_key) do nothing
+		 returning id`,
+		run.Trigger, run.EventKey, run.ProjectID, run.ReleaseID, encoded,
+		orEmptyContext(run.Context)).Scan(&id)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Déjà ouverte. On rend celle qui existe, pour que l'appelant puisse la
+		// faire avancer plutôt que de repartir de zéro.
+		existing, err := db.PlanRunByEvent(ctx, run.Trigger, run.EventKey)
+		return existing, false, err
+	case err != nil:
+		return PlanRun{}, false, fmt.Errorf("ouverture d'une exécution de plan: %w", err)
+	}
+
+	for stage, step := range run.Plan.Stages {
+		for position, geste := range step.Gestes {
+			if _, err := tx.Exec(ctx,
+				`insert into plan_steps (run_id, stage, position, kind, ref)
+				 values ($1, $2, $3, $4, $5)`,
+				id, stage, position, string(geste.Kind), geste.Ref); err != nil {
+				return PlanRun{}, false, fmt.Errorf("gestes de l'exécution %d: %w", id, err)
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return PlanRun{}, false, fmt.Errorf("ouverture d'une exécution de plan: %w", err)
+	}
+
+	run.ID = id
+	run.State = PlanRunning
+	return run, true, nil
+}
+
+// PlanRunByEvent rend l'exécution ouverte pour un fait.
+func (db *DB) PlanRunByEvent(ctx context.Context, trigger, eventKey string) (PlanRun, error) {
+	const query = `
+		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at
+		from plan_runs where trigger = $1 and event_key = $2`
+
+	return db.scanPlanRun(ctx, query, trigger, eventKey)
+}
+
+// PlanRunByID rend une exécution par son identifiant.
+func (db *DB) PlanRunByID(ctx context.Context, id int64) (PlanRun, error) {
+	const query = `
+		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at
+		from plan_runs where id = $1`
+
+	return db.scanPlanRun(ctx, query, id)
+}
+
+func (db *DB) scanPlanRun(ctx context.Context, query string, args ...any) (PlanRun, error) {
+	var (
+		run     PlanRun
+		encoded []byte
+	)
+	err := db.pool.QueryRow(ctx, query, args...).Scan(
+		&run.ID, &run.Trigger, &run.EventKey, &run.ProjectID, &run.ReleaseID,
+		&encoded, &run.Context, &run.State, &run.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return PlanRun{}, ErrPlanRunNotFound
+		}
+		return PlanRun{}, fmt.Errorf("lecture d'une exécution de plan: %w", err)
+	}
+	if err := json.Unmarshal(encoded, &run.Plan); err != nil {
+		return PlanRun{}, fmt.Errorf("plan de l'exécution %d illisible: %w", run.ID, err)
+	}
+	return run, nil
+}
+
+// PlanSteps rend les gestes d'une exécution, dans l'ordre du plan.
+func (db *DB) PlanSteps(ctx context.Context, runID int64) ([]PlanStep, error) {
+	const query = `
+		select id, stage, position, kind, ref, state, job_id, detail
+		from plan_steps where run_id = $1
+		order by stage, position`
+
+	rows, err := db.pool.Query(ctx, query, runID)
+	if err != nil {
+		return nil, fmt.Errorf("gestes de l'exécution %d: %w", runID, err)
+	}
+	defer rows.Close()
+
+	var steps []PlanStep
+	for rows.Next() {
+		var step PlanStep
+		if err := rows.Scan(&step.ID, &step.Stage, &step.Position, &step.Kind,
+			&step.Ref, &step.State, &step.JobID, &step.Detail); err != nil {
+			return nil, fmt.Errorf("lecture d'un geste: %w", err)
+		}
+		steps = append(steps, step)
+	}
+	return steps, rows.Err()
+}
+
+// MarkPlanStep écrit le sort d'un geste.
+//
+// `job` rattache le geste au job enfilé, et n'est renseigné qu'au départ d'un
+// geste de type pipeline. C'est ce rattachement qui permettra, à la conclusion du
+// job, de retrouver le geste qui l'attendait.
+func (db *DB) MarkPlanStep(
+	ctx context.Context, runID int64, stage, position int, state string,
+	job *int64, detail string,
+) error {
+	const query = `
+		update plan_steps
+		set state = $4,
+		    job_id = coalesce($5, job_id),
+		    detail = $6,
+		    started_at  = case when $4 = 'running' then now() else started_at end,
+		    finished_at = case when $4 in ('succeeded','failed','skipped') then now() else finished_at end
+		where run_id = $1 and stage = $2 and position = $3`
+
+	tag, err := db.pool.Exec(ctx, query, runID, stage, position, state, job, detail)
+	if err != nil {
+		return fmt.Errorf("marquage du geste %d/%d de l'exécution %d: %w",
+			stage, position, runID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: geste %d/%d absent de l'exécution %d",
+			ErrPlanRunNotFound, stage, position, runID)
+	}
+	return nil
+}
+
+// PlanStepForJob retrouve le geste qu'un job met en œuvre.
+//
+// Rend [ErrPlanRunNotFound] quand aucun geste n'attend ce job — le cas courant :
+// la plupart des jobs ne viennent d'aucun plan.
+func (db *DB) PlanStepForJob(ctx context.Context, jobID int64) (int64, PlanStep, error) {
+	const query = `
+		select run_id, id, stage, position, kind, ref, state, job_id, detail
+		from plan_steps where job_id = $1`
+
+	var (
+		runID int64
+		step  PlanStep
+	)
+	err := db.pool.QueryRow(ctx, query, jobID).Scan(
+		&runID, &step.ID, &step.Stage, &step.Position, &step.Kind,
+		&step.Ref, &step.State, &step.JobID, &step.Detail)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, PlanStep{}, ErrPlanRunNotFound
+		}
+		return 0, PlanStep{}, fmt.Errorf("geste du job %d: %w", jobID, err)
+	}
+	return runID, step, nil
+}
+
+func orEmptyContext(context map[string]string) map[string]string {
+	if context == nil {
+		return map[string]string{}
+	}
+	return context
+}
+
+// FinishPlanRun conclut une exécution.
+//
+// Écriture conditionnée à l'état `running` : deux conclusions concurrentes — deux
+// gestes terminant en même temps — ne doivent pas produire deux conclusions, et
+// c'est la base qui tranche plutôt qu'un verrou en mémoire.
+func (db *DB) FinishPlanRun(ctx context.Context, runID int64, state string) (bool, error) {
+	tag, err := db.pool.Exec(ctx,
+		`update plan_runs set state = $2, finished_at = now()
+		 where id = $1 and state = $3`, runID, state, PlanRunning)
+	if err != nil {
+		return false, fmt.Errorf("conclusion de l'exécution %d: %w", runID, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}

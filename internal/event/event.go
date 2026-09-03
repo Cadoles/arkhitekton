@@ -188,6 +188,16 @@ func ReleaseCreatedAt(
 	}
 }
 
+// ReleaseBuiltKey rend la clé du fait d'une construction conclue.
+//
+// Exportée parce qu'un second appelant en a besoin : le moteur de plans ouvre son
+// exécution sur **ce fait-là**, et deux façons de le nommer produiraient une
+// exécution par redélivrance. La clé du fait et celle de l'exécution qu'il
+// déclenche doivent être la même chaîne, composée au même endroit.
+func ReleaseBuiltKey(releaseID, jobID int64) string {
+	return key(string(ReleaseBuilt), id(releaseID), id(jobID))
+}
+
 // ReleaseBuiltAt rend le fait d'une construction conclue.
 //
 // Clé sur la release **et le job** : une release se reconstruit — c'est le geste
@@ -200,7 +210,7 @@ func ReleaseBuiltAt(
 	return Event{
 		Type: ReleaseBuilt, ProjectID: &projectID, Subject: tag,
 		OccurredAt: at,
-		DedupKey:   key(string(ReleaseBuilt), id(releaseID), id(jobID)),
+		DedupKey:   ReleaseBuiltKey(releaseID, jobID),
 		Payload: map[string]string{
 			"release_id": id(releaseID), "tag": tag,
 			"outcome": string(outcome), "job_id": id(jobID), "git_commit": commit,

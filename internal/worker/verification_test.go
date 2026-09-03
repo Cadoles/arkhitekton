@@ -95,6 +95,9 @@ func sinkFor(store *fakeVerificationStore, pipelines *catalog.Catalog) *runSink 
 		registryProject: "reg.cadoles.com/vcarroy",
 	}
 	sink.verification = store
+	// Le moteur de plans, sur un magasin en mémoire : l'enchaînement passe
+	// désormais par lui, et le juge doit l'exercer plutôt que de le contourner.
+	sink.engine = NewVerificationEngine(sink, newFakePlanStore(), quietLogger())
 	return sink
 }
 
