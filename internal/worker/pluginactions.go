@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -76,7 +77,7 @@ func NewPluginActionRunner(
 func (r *PluginActionRunner) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
-	descriptor, _, found := plugin.FindAction(geste.Ref)
+	descriptor, spec, found := plugin.FindAction(geste.Ref)
 	if !found {
 		return nil, fmt.Errorf("aucun plugin ne déclare l'action %q", geste.Ref)
 	}
@@ -108,9 +109,16 @@ func (r *PluginActionRunner) Run(
 		return nil, fmt.Errorf("projet de l'exécution: %w", err)
 	}
 
+	// Les gabarits sont liés **puis** revérifiés. Voir [verifierJeuxFermes] : un
+	// jeu fermé validé avant interpolation ne dit rien de ce qui en sortira.
+	params := lierParams(spec, geste.Params, run.Context)
+	if err := verifierJeuxFermes(spec, geste.Params, params); err != nil {
+		return nil, err
+	}
+
 	switch descriptor.ID {
 	case "gitea":
-		return nil, r.runGitea(ctx, run, geste, project, config)
+		return nil, r.runGitea(ctx, run, geste.Ref, params, project, config)
 	default:
 		// Un plugin qui déclare une action sans que personne ne la mette en œuvre.
 		// Refuser nommément vaut mieux que rendre « parti » : le registre et
@@ -126,10 +134,68 @@ const (
 	giteaCommentRef = "gitea.comment"
 )
 
+// lierParams remplace les gabarits par la charge du fait déclencheur.
+func lierParams(
+	spec plugin.ActionSpec, declares, contexte map[string]string,
+) map[string]string {
+	params := make(map[string]string, len(spec.Fields))
+	for _, field := range spec.Fields {
+		params[field.Name] = action.Expand(declares[field.Name], contexte)
+	}
+	return params
+}
+
+// verifierJeuxFermes refuse une valeur interpolée hors du jeu déclaré.
+//
+// # Pourquoi ce contrôle-ci ne pouvait pas se faire plus tôt
+//
+// À l'enregistrement, un champ à jeu fermé laisse passer un gabarit : ce qu'il
+// vaudra dépend de la charge du fait, et le refuser obligerait à écrire l'état en
+// dur. Mais la valeur **produite** n'a alors été vérifiée par personne.
+//
+// C'est un défaut constaté contre une vraie forge, et pas une précaution
+// théorique. Le gabarit naturel — `state: {outcome}` — rend `succeeded`, parce
+// que c'est le vocabulaire d'un fait ; la forge, elle, dit `success`. Gitea a
+// **accepté** l'appel et stocké l'état tel quel : un statut hors de son propre
+// vocabulaire, qu'aucune interface ne sait afficher, sans le moindre message.
+//
+// Un destinataire indulgent est le pire des cas : rien n'échoue, et rien ne
+// marche. Le geste échoue donc ici, en nommant ce qui est admis.
+//
+// # Deux vocabulaires, et aucune traduction
+//
+// L'issue d'un fait et l'état d'un statut de forge ne se correspondent pas, et
+// aucune table ne les rapproche : elle serait à tenir, et ne vaudrait que pour
+// cette forge-ci. Une réaction qui veut refléter l'issue s'écrit avec un état en
+// dur et un appariement sur `outcome` — ce que le modèle sait déjà faire.
+func verifierJeuxFermes(spec plugin.ActionSpec, declares, params map[string]string) error {
+	for _, field := range spec.Fields {
+		if len(field.OneOf) == 0 {
+			continue
+		}
+		value := strings.TrimSpace(params[field.Name])
+		if value == "" || slices.Contains(field.OneOf, value) {
+			continue
+		}
+
+		// Le gabarit d'origine est cité quand il en portait un : sans lui, « reçu
+		// "succeeded" » n'apprend pas d'où la valeur vient.
+		origine := strings.TrimSpace(declares[field.Name])
+		if origine != value {
+			return fmt.Errorf("%s vaut %q après interpolation de %q, "+
+				"or le destinataire n'admet que %s",
+				field.Label, value, origine, strings.Join(field.OneOf, ", "))
+		}
+		return fmt.Errorf("%s vaut %q, or le destinataire n'admet que %s",
+			field.Label, value, strings.Join(field.OneOf, ", "))
+	}
+	return nil
+}
+
 // runGitea met en œuvre les actions de la forge.
 func (r *PluginActionRunner) runGitea(
-	ctx context.Context, run store.PlanRun, geste plan.Geste,
-	project store.Project, config map[string]string,
+	ctx context.Context, run store.PlanRun, ref string,
+	params map[string]string, project store.Project, config map[string]string,
 ) error {
 	url := strings.TrimSpace(config["url"])
 	token := strings.TrimSpace(config["token"])
@@ -149,29 +215,25 @@ func (r *PluginActionRunner) runGitea(
 		return err
 	}
 
-	switch geste.Ref {
+	switch ref {
 	case giteaStatusRef:
-		commit := r.expand(geste, run, "commit")
+		commit := params["commit"]
 		if commit == "" {
 			return fmt.Errorf("le commit visé est vide après interpolation : " +
 				"le fait déclencheur ne porte pas la variable nommée")
 		}
-		if err := writer.SetCommitStatus(ctx, commit,
-			r.expand(geste, run, "state"),
-			r.expand(geste, run, "context"),
-			r.expand(geste, run, "description"),
-			r.expand(geste, run, "target_url"),
-		); err != nil {
+		if err := writer.SetCommitStatus(ctx, commit, params["state"],
+			params["context"], params["description"], params["target_url"]); err != nil {
 			return err
 		}
 		r.logger.Info("statut de commit posé",
 			"execution", run.ID, "projet", project.Slug,
-			"contexte", geste.Params["context"], "etat", r.expand(geste, run, "state"))
+			"contexte", params["context"], "etat", params["state"])
 		return nil
 
 	case giteaCommentRef:
-		raw := r.expand(geste, run, "number")
-		number, err := strconv.Atoi(strings.TrimSpace(raw))
+		raw := strings.TrimSpace(params["number"])
+		number, err := strconv.Atoi(raw)
 		if err != nil {
 			// Le cas courant, et il vaut d'être dit ainsi : une réaction branchée
 			// sur `release.built` n'a pas de `{number}`, le gabarit reste littéral,
@@ -179,7 +241,7 @@ func (r *PluginActionRunner) runGitea(
 			return fmt.Errorf("le numéro de demande de fusion vaut %q après "+
 				"interpolation : ce fait porte-t-il bien la variable nommée ?", raw)
 		}
-		if err := writer.CommentOnPullRequest(ctx, number, r.expand(geste, run, "body")); err != nil {
+		if err := writer.CommentOnPullRequest(ctx, number, params["body"]); err != nil {
 			return err
 		}
 		r.logger.Info("commentaire posté",
@@ -187,11 +249,6 @@ func (r *PluginActionRunner) runGitea(
 		return nil
 
 	default:
-		return fmt.Errorf("action %q inconnue du plugin \"gitea\"", geste.Ref)
+		return fmt.Errorf("action %q inconnue du plugin \"gitea\"", ref)
 	}
-}
-
-// expand lie un paramètre à la charge du fait déclencheur.
-func (r *PluginActionRunner) expand(geste plan.Geste, run store.PlanRun, name string) string {
-	return action.Expand(geste.Params[name], run.Context)
 }

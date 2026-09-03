@@ -314,8 +314,12 @@ func Registry() []Descriptor {
 						},
 						{
 							Name: "state", Label: "État", Required: true,
-							OneOf:       []string{"pending", "success", "failure", "error"},
-							Help:        "Le vocabulaire de la forge, et il est fermé.",
+							OneOf: []string{"pending", "success", "failure", "error"},
+							Help: "Le vocabulaire de la forge, et il est fermé. Ce " +
+								"n'est **pas** celui d'un fait : `{outcome}` rend " +
+								"`succeeded`, que la forge accepte sans savoir " +
+								"l'afficher. Pour refléter l'issue, écrire l'état en " +
+								"dur et apparier la réaction sur `outcome`.",
 							Placeholder: "success",
 						},
 						{

@@ -464,6 +464,48 @@ Le second est celui qui compte : il juge l'**adresse résolue**, et c'est la dé
 falsification de requête côté serveur. Un test qui aurait laissé les deux gardes en place
 aurait conclu « refusé » sans jamais l'atteindre.
 
+#### Une action de plugin qui écrit sur une forge
+
+Dernier maillon : `gitea.status`, contre un **Gitea monté pour l'occasion**. Un statut de
+commit est visible par d'autres et ne se retire pas ; le prouver sur le dépôt d'une équipe
+laisserait une trace de test sur un vrai commit. Le serveur, son API, le jeton et le commit
+sont réels — seule l'adresse change.
+
+Le test **relit le statut par l'API** plutôt que de se contenter du code de retour, et c'est
+ce qui a payé.
+
+##### Le défaut que cette relecture a révélé
+
+Le gabarit naturel pour refléter l'issue d'une construction s'écrit `state: {outcome}`. Il
+rend `succeeded` — le vocabulaire d'un **fait**. La forge, elle, dit `success`.
+
+**Gitea a accepté l'appel et stocké `succeeded` tel quel.** Un statut hors de son propre
+vocabulaire, qu'aucune interface ne sait afficher, et pas un message. Un destinataire
+indulgent est le pire des cas : rien n'échoue, et rien ne marche.
+
+Rien ne l'attrapait. La validation à l'enregistrement laisse délibérément passer un gabarit
+sur un champ à jeu fermé — sinon l'état ne pourrait s'écrire qu'en dur (§14.3) — et personne
+ne revérifiait la valeur **produite**.
+
+Le jeu fermé est donc revérifié **après interpolation**, au moment de l'exécution :
+
+```
+État vaut "succeeded" après interpolation de "{outcome}",
+or le destinataire n'admet que pending, success, failure, error
+```
+
+Les trois éléments du diagnostic y sont : ce qu'on a obtenu, d'où ça vient, ce qui est admis.
+
+##### Deux vocabulaires, et aucune traduction
+
+Aucune table ne rapproche l'issue d'un fait de l'état d'un statut de forge. Elle serait à
+tenir, et ne vaudrait que pour cette forge-ci — c'est le même refus qu'au §12.5 pour les
+statuts d'un suivi.
+
+Une réaction qui veut refléter l'issue s'écrit donc avec un **état en dur** et un
+**appariement sur `outcome`** : deux réactions, une par issue. Le modèle sait déjà le faire,
+et l'aide du champ le dit maintenant.
+
 `make test-live` rejoue l'ensemble. Les vérifications de boucle demandent en plus un
 `TEST_DATABASE_URL` **jetable** : elles remettent le schéma à zéro.
 
