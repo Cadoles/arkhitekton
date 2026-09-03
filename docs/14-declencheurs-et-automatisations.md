@@ -422,7 +422,22 @@ déclenchements, cinq minutes après l'activation.
 
 Le coût de l'amorçage est au passage rassurant : cinquante-huit lignes, pas quatre cents.
 
-`make test-live` rejoue la vérification.
+**La boucle entière a ensuite tourné sur un vrai PostgreSQL**, schéma migré, aiguillage
+branché, réaction déclarée sur `redmine.version.created` :
+
+| Étape | Faits en base | Exécutions ouvertes |
+|---|---|---|
+| amorçage | 58 écrits, curseur posé | **0** |
+| passe suivante | 58, inchangé | 0 |
+| après oubli d'un fait | 58 | **1** |
+
+La troisième ligne n'est pas décorative. Sans elle, les deux premières se satisferaient d'un
+aiguillage débranché — « rien ne part » se démontre trop facilement quand rien ne *peut*
+partir. Effacer un fait déjà constaté place la base dans l'état exact où elle serait si cette
+version venait d'être déclarée : la passe suivante le voit neuf, et déclenche.
+
+`make test-live` rejoue les deux vérifications. Celle de la boucle demande en plus un
+`TEST_DATABASE_URL` **jetable** : elle remet le schéma à zéro.
 
 #### Ce que le contrat a absorbé sans se tordre
 

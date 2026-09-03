@@ -62,6 +62,10 @@ test-live: ## Vérifications contre les instances réelles (REDMINE_LIVE=1, GITE
 		echo "  REDMINE_LIVE=1 REDMINE_URL=… REDMINE_API_KEY=… REDMINE_PROJECT=… make test-live"; \
 		exit 1; \
 	fi
+	@if [ -n "$$TEST_DATABASE_URL" ]; then \
+		echo "ATTENTION: la boucle complète fait 'drop schema public cascade' sur"; \
+		echo "TEST_DATABASE_URL. Cette base doit être jetable."; \
+	fi
 	$(GO) test -count=1 -run Live -v $(GO_PKGS)
 
 # -p 1 sérialise les paquets : les tests de `store` réinitialisent le schéma, et
