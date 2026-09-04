@@ -70,6 +70,9 @@ type GesteRunner interface {
 type Engine struct {
 	store  PlanStore
 	runner GesteRunner
+	// stages est prévenu du règlement d'une étape à rôle. Nil : les plans
+	// s'exécutent sans que rien n'en dépende au-dehors.
+	stages StageSink
 	logger *slog.Logger
 }
 
@@ -163,6 +166,13 @@ func (e *Engine) advance(ctx context.Context, run store.PlanRun) int {
 		return 0
 	}
 
+	// Avant de faire partir la suite : prévenir de ce qui vient de se régler.
+	//
+	// L'ordre compte. Une release doit passer en `verifying` **avant** que ses
+	// tests ne soient enfilés, sans quoi le premier test conclu trouverait une
+	// release encore en construction et sa transition serait refusée.
+	e.notifyStages(ctx, run, progress)
+
 	started := 0
 	for _, step := range progress.Next() {
 		if !step.Run {
@@ -201,6 +211,52 @@ func (e *Engine) advance(ctx context.Context, run store.PlanRun) int {
 		e.concludeIfSettled(ctx, run)
 	}
 	return started
+}
+
+// StageSink est prévenu qu'une étape portant un rôle vient de se régler.
+//
+// C'est l'ancrage du cycle de vie d'une release dans le plan (doc 15 §15.3). Le
+// moteur ne sait rien des releases : il dit « l'étape de construction s'est
+// réglée ainsi », et ce qu'on en fait ne le regarde pas.
+type StageSink interface {
+	StageSettled(ctx context.Context, run store.PlanRun,
+		role plan.Role, outcome plan.State)
+}
+
+// WithStages branche l'observateur des étapes à rôle.
+func (e *Engine) WithStages(sink StageSink) *Engine {
+	e.stages = sink
+	return e
+}
+
+// notifyStages prévient de chaque étape à rôle déjà réglée.
+//
+// # Sans mémoire de ce qui a déjà été annoncé
+//
+// La même étape est donc annoncée à chaque avancement. C'est délibéré : tenir
+// une marque de « déjà prévenu » demanderait une colonne, et l'oublier une seule
+// fois laisserait une release bloquée sans que rien ne le dise.
+//
+// La répétition est sans effet parce que le destinataire écrit **sous
+// condition** — `AdvanceReleaseState(depuis, vers)` ne réussit qu'une fois. C'est
+// la même idempotence que l'ancienne conclusion de construction, obtenue au même
+// endroit.
+func (e *Engine) notifyStages(ctx context.Context, run store.PlanRun, progress plan.Progress) {
+	if e.stages == nil {
+		return
+	}
+	for index, stage := range progress.Plan.Stages {
+		if stage.Role == "" {
+			// Une étape sans rôle ne touche à rien. C'est ce qui rend une étape de
+			// notification inoffensive pour le cycle de vie d'une release.
+			continue
+		}
+		outcome, settled := progress.StageOutcome(index)
+		if !settled {
+			continue
+		}
+		e.stages.StageSettled(ctx, run, stage.Role, outcome)
+	}
 }
 
 // mark écrit le sort d'un geste sans interrompre l'avancement des autres.

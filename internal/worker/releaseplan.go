@@ -7,8 +7,11 @@ import (
 	"strconv"
 	"strings"
 
+	"log/slog"
+
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -178,16 +181,31 @@ func buildParams(geste plan.Geste, context map[string]string) map[string]string 
 	return params
 }
 
-// releaseRunner met en œuvre les gestes du plan d'une release.
+// ReleaseRunner met en œuvre les gestes du plan d'une release.
 //
 // Les deux natures de pipeline passent par lui : construire et vérifier ne
 // diffèrent que par la façon de composer leurs paramètres, et les séparer en
 // deux runners aurait demandé au moteur de savoir laquelle il tient.
-type releaseRunner struct {
-	sink *runSink
+// Il prend [Enqueuer] plutôt qu'un `runSink`, et c'est ce qui permet à l'API
+// comme au worker de construire le même runner : ouvrir le plan d'une release est
+// une écriture en base, pas un ordonnancement. L'ordonnanceur reste unique, dans
+// le worker.
+type ReleaseRunner struct {
+	catalog *catalog.Catalog
+	queue   Enqueuer
+	logger  *slog.Logger
 }
 
-func (r releaseRunner) Run(
+func NewReleaseRunner(
+	registry *catalog.Catalog, queue Enqueuer, logger *slog.Logger,
+) *ReleaseRunner {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &ReleaseRunner{catalog: registry, queue: queue, logger: logger}
+}
+
+func (r *ReleaseRunner) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
 	if geste.Kind != plan.GestePipeline {
@@ -197,7 +215,7 @@ func (r releaseRunner) Run(
 			geste.Ref)
 	}
 
-	pipeline, found := r.sink.catalog.Find(geste.Ref)
+	pipeline, found := r.catalog.Find(geste.Ref)
 	if !found {
 		return nil, fmt.Errorf("famille %q absente du catalogue", geste.Ref)
 	}
@@ -221,7 +239,7 @@ func (r releaseRunner) Run(
 		}
 	}
 
-	id, err := r.sink.verification.Enqueue(ctx, store.JobRequest{
+	id, err := r.queue.Enqueue(ctx, store.JobRequest{
 		Kind:        pipeline.Kind,
 		Params:      params,
 		RequestedBy: verificationRequester,
@@ -232,8 +250,84 @@ func (r releaseRunner) Run(
 		return nil, err
 	}
 
-	r.sink.logger.Info("geste de release lancé",
+	r.logger.Info("geste de release lancé",
 		"release", run.Context[contextTag], "kind", geste.Ref,
 		"geste", strings.TrimSpace(geste.Label), "job", id)
 	return &id, nil
+}
+
+// ReleaseStates est ce que le cycle de vie attend de la base.
+type ReleaseStates interface {
+	AdvanceReleaseState(ctx context.Context, releaseID int64, from, to string) (bool, error)
+}
+
+// ReleaseLifecycle avance une release au rythme des étapes de son plan.
+//
+// # Ce qu'il remplace
+//
+// Le décompte des constructions. L'observateur comptait les builds d'une release
+// — `CountBuilds` — pour savoir si la dernière venait de conclure, parce qu'il
+// était appelé une fois par image sans rien savoir de l'ensemble.
+//
+// L'étape **est** cet ensemble. Son règlement dit exactement ce que le décompte
+// cherchait à établir, et le dit sans requête : le moteur tient déjà l'état de
+// chaque geste.
+//
+// # Idempotent par construction
+//
+// `StageSettled` est appelé à chaque avancement, sur toutes les étapes déjà
+// réglées — le moteur ne tient pas de marque de « déjà annoncé ». La répétition
+// est sans effet parce que la transition est **conditionnée à l'état de départ** :
+// une seule livraison la gagne, les suivantes n'écrivent rien.
+type ReleaseLifecycle struct {
+	releases ReleaseStates
+	logger   *slog.Logger
+}
+
+func NewReleaseLifecycle(releases ReleaseStates, logger *slog.Logger) *ReleaseLifecycle {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &ReleaseLifecycle{releases: releases, logger: logger}
+}
+
+func (l *ReleaseLifecycle) StageSettled(
+	ctx context.Context, run store.PlanRun, role plan.Role, outcome plan.State,
+) {
+	if run.ReleaseID == nil {
+		return
+	}
+
+	// Une étape entièrement sautée n'a rien tenté, et ne dit donc rien de la
+	// release. Le cas se produit quand la construction a échoué : les tests sont
+	// sautés, et la release est déjà `failed` par l'étape d'avant.
+	var from, to string
+	switch {
+	case role == plan.RoleBuild && outcome == plan.Succeeded:
+		from, to = string(release.StateBuilding), string(release.StateVerifying)
+	case role == plan.RoleBuild && outcome == plan.Failed:
+		from, to = string(release.StateBuilding), string(release.StateFailed)
+	case role == plan.RoleTest && outcome == plan.Succeeded:
+		from, to = string(release.StateVerifying), string(release.StateReady)
+	case role == plan.RoleTest && outcome == plan.Failed:
+		from, to = string(release.StateVerifying), string(release.StateFailed)
+	default:
+		return
+	}
+
+	advanced, err := l.releases.AdvanceReleaseState(ctx, *run.ReleaseID, from, to)
+	if err != nil {
+		l.logger.Error("avancement d'une release par son plan",
+			"execution", run.ID, "release", *run.ReleaseID, "vers", to, "error", err)
+		return
+	}
+	if !advanced {
+		// Le cas courant d'une répétition, et non une anomalie : l'étape est
+		// annoncée à chaque avancement du plan.
+		l.logger.Debug("release déjà avancée", "execution", run.ID,
+			"release", *run.ReleaseID, "de", from, "vers", to)
+		return
+	}
+	l.logger.Info("release avancée par son plan", "execution", run.ID,
+		"release", *run.ReleaseID, "etape", role, "de", from, "vers", to)
 }

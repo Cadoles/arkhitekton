@@ -1,10 +1,12 @@
 package worker
 
 import (
+	"context"
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -206,5 +208,98 @@ func TestUnProjetSansRienARendUnPlanVide(t *testing.T) {
 
 	if !sujet.Empty() {
 		t.Errorf("plan = %+v, attendu vide", sujet)
+	}
+}
+
+// avancementsDeTest retient les transitions demandées.
+type avancementsDeTest struct {
+	demandes []string
+	etat     string
+}
+
+func (a *avancementsDeTest) AdvanceReleaseState(
+	_ context.Context, _ int64, from, to string,
+) (bool, error) {
+	a.demandes = append(a.demandes, from+"->"+to)
+	if a.etat != from {
+		// Conditionnée à l'état de départ, comme en base : une répétition
+		// n'écrit rien.
+		return false, nil
+	}
+	a.etat = to
+	return true, nil
+}
+
+func executionDeRelease() store.PlanRun {
+	id := int64(7)
+	return store.PlanRun{ID: 1, ReleaseID: &id}
+}
+
+// Le règlement d'une étape avance la release, et remplace le décompte des builds.
+func TestLeReglementDuneEtapeAvanceLaRelease(t *testing.T) {
+	suivi := &avancementsDeTest{etat: string(release.StateBuilding)}
+	cycle := NewReleaseLifecycle(suivi, quietLogger())
+	ctx := context.Background()
+
+	cycle.StageSettled(ctx, executionDeRelease(), plan.RoleBuild, plan.Succeeded)
+	if suivi.etat != string(release.StateVerifying) {
+		t.Fatalf("état = %q, attendu verifying", suivi.etat)
+	}
+
+	cycle.StageSettled(ctx, executionDeRelease(), plan.RoleTest, plan.Succeeded)
+	if suivi.etat != string(release.StateReady) {
+		t.Errorf("état = %q, attendu ready", suivi.etat)
+	}
+}
+
+// La même étape annoncée dix fois n'avance la release qu'une.
+//
+// Le moteur ne tient aucune marque de « déjà annoncé » : il réannonce toutes les
+// étapes réglées à chaque avancement. L'idempotence vient de l'écriture
+// conditionnelle, et c'est elle qu'on éprouve ici.
+func TestUneEtapeReannonceeNavancePasDeuxFois(t *testing.T) {
+	suivi := &avancementsDeTest{etat: string(release.StateBuilding)}
+	cycle := NewReleaseLifecycle(suivi, quietLogger())
+	ctx := context.Background()
+
+	for range 10 {
+		cycle.StageSettled(ctx, executionDeRelease(), plan.RoleBuild, plan.Succeeded)
+	}
+
+	if suivi.etat != string(release.StateVerifying) {
+		t.Errorf("état = %q", suivi.etat)
+	}
+	// Dix demandes, un seul avancement : c'est la base qui tranche, pas le moteur.
+	if len(suivi.demandes) != 10 {
+		t.Errorf("%d demandes, attendu 10", len(suivi.demandes))
+	}
+}
+
+// Une étape sautée ne touche à rien.
+//
+// Le cas se produit quand la construction a échoué : les tests sont sautés, et la
+// release est déjà `failed` par l'étape d'avant. La faire retomber ailleurs
+// écraserait un état déjà juste.
+func TestUneEtapeSauteeNeTouchePasALaRelease(t *testing.T) {
+	suivi := &avancementsDeTest{etat: string(release.StateFailed)}
+	cycle := NewReleaseLifecycle(suivi, quietLogger())
+
+	cycle.StageSettled(context.Background(), executionDeRelease(),
+		plan.RoleTest, plan.Skipped)
+
+	if len(suivi.demandes) != 0 {
+		t.Errorf("transitions demandées = %v, attendu aucune", suivi.demandes)
+	}
+}
+
+// Un plan sans release ne touche à rien : une réaction déclarée n'a pas à
+// déplacer un cycle de vie qui ne la concerne pas.
+func TestUnPlanSansReleaseNavanceRien(t *testing.T) {
+	suivi := &avancementsDeTest{etat: string(release.StateBuilding)}
+	NewReleaseLifecycle(suivi, quietLogger()).StageSettled(
+		context.Background(), store.PlanRun{ID: 2}, plan.RoleBuild, plan.Succeeded)
+
+	if len(suivi.demandes) != 0 {
+		t.Errorf("transitions demandées = %v", suivi.demandes)
 	}
 }
