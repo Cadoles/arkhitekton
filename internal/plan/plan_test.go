@@ -376,3 +376,77 @@ func TestLaConditionAbsenteVautSucces(t *testing.T) {
 		t.Errorf("condition = %q", got)
 	}
 }
+
+/*
+ * Le rôle d'une étape.
+ *
+ * C'est l'ancrage du cycle de vie d'une release dans le plan (doc 15 §15.3).
+ */
+
+// Une étape sans rôle ne participe pas au cycle de vie.
+//
+// C'est le défaut, et c'est ce qui rend une étape de notification inoffensive :
+// un webhook injoignable ne doit pas faire échouer une release.
+func TestUneEtapeSansRoleNestPasUnAncrage(t *testing.T) {
+	sujet := Plan{Stages: []Stage{
+		{Role: RoleBuild, Gestes: []Geste{{Kind: GestePipeline, Ref: "build"}}},
+		{Label: "Prévenir", Gestes: []Geste{{Kind: GesteAction, Ref: "webhook"}}},
+	}}
+	if err := sujet.Validate(); err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	if got := sujet.LastWithRole(RoleBuild); got != 0 {
+		t.Errorf("étape de construction = %d, attendu 0", got)
+	}
+	// Aucune étape de test : le cycle de vie n'a pas d'ancrage pour cette
+	// transition, et l'appelant doit pouvoir le constater plutôt que de viser
+	// l'étape 0 par défaut.
+	if got := sujet.LastWithRole(RoleTest); got != -1 {
+		t.Errorf("étape de test = %d, attendu -1", got)
+	}
+}
+
+// La **dernière** étape d'un rôle fait foi.
+//
+// Un plan peut construire en deux temps — une image de base, puis l'application
+// au-dessus. C'est la conclusion du dernier temps qui dit que la construction est
+// faite ; viser le premier avancerait la release trop tôt.
+func TestLaDerniereEtapeDunRoleFaitFoi(t *testing.T) {
+	sujet := Plan{Stages: []Stage{
+		{Role: RoleBuild, Gestes: []Geste{{Kind: GestePipeline, Ref: "build-base"}}},
+		{Role: RoleBuild, Gestes: []Geste{{Kind: GestePipeline, Ref: "build-app"}}},
+		{Role: RoleTest, Gestes: []Geste{{Kind: GestePipeline, Ref: "unit-tests"}}},
+	}}
+	if err := sujet.Validate(); err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	if got := sujet.LastWithRole(RoleBuild); got != 1 {
+		t.Errorf("étape de construction = %d, attendu la seconde", got)
+	}
+	if got := sujet.LastWithRole(RoleTest); got != 2 {
+		t.Errorf("étape de test = %d", got)
+	}
+}
+
+// Un rôle inventé est refusé à l'enregistrement.
+//
+// Ignoré, il donnerait une étape qui s'exécute sans jamais faire avancer la
+// release — donc une release bloquée en construction sans que rien ne le dise.
+func TestUnRoleInconnuEstRefuse(t *testing.T) {
+	err := Plan{Stages: []Stage{
+		{Role: "deploiement", Gestes: []Geste{{Kind: GestePipeline, Ref: "build"}}},
+	}}.Validate()
+
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("%v, attendu ErrInvalid", err)
+	}
+	// Le message nomme les rôles connus : les chercher dans le code source n'est
+	// pas une réponse à donner à qui lit un message d'API.
+	for _, attendu := range []string{"deploiement", "build", "test"} {
+		if !strings.Contains(err.Error(), attendu) {
+			t.Errorf("message %q — il doit porter %q", err, attendu)
+		}
+	}
+}

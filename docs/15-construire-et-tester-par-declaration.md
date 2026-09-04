@@ -92,12 +92,65 @@ Ma recommandation : **quatre faits du noyau** — `version.created`, `release.cr
 `release.promoted`, `release.released` — et non deux. La règle reste la même ; c'est son
 application à ces deux-là qui diffère.
 
+**Tranché : quatre faits.** `version.created`, `release.created`, `release.promoted`,
+`release.released`.
+
 ### Ce que la réduction impose ailleurs
 
 `release.verified` ne servait pas qu'à déclencher : il faisait **avancer l'état de la
-release** de `verifying` vers `ready`. Sans lui, c'est la **conclusion du plan** qui avance
-la release. Le moteur sait quand un plan se termine et avec quelle issue ; il faut brancher
-la machine à états dessus. C'est le seul point où la réduction n'est pas gratuite.
+release** de `verifying` vers `ready`.
+
+Ma première proposition — « c'est la conclusion du plan qui avance la release » — était
+**fausse**, et il vaut mieux dire pourquoi. Elle confondait *l'automatisation est terminée*
+avec *la release est vérifiée*. Ajoutez une troisième étape de notification, et un webhook
+en échec ferait échouer la release. L'ancrage doit être plus précis que « le plan ».
+
+### L'ancrage : le rôle d'une étape
+
+Une étape déclare ce qu'elle **est** :
+
+```yaml
+stages:
+  - role: build
+    label: Construire
+    gestes: [build(portal), build(portal-cli), build(portal-dev)]
+  - role: test
+    label: Vérifier
+    gestes: [unit-tests, static-tests, e2e-tests]
+  - label: Prévenir          # sans rôle
+    gestes: [webhook]
+```
+
+- la conclusion de la dernière étape `build` fait passer `building` → `verifying` ou
+  `failed` ;
+- la conclusion de la dernière étape `test` fait passer `verifying` → `ready` ou `failed` ;
+- **une étape sans rôle ne touche à rien**. C'est elle qui répare le défaut ci-dessus : une
+  notification qui échoue n'a jamais à faire échouer une release.
+
+#### Pourquoi l'étape, et pas un geste composite
+
+La proposition initiale était de grouper les pipelines dans un geste `build` et un geste
+`test`, dont l'exécution avancerait le statut. **Le mécanisme est le bon** — un point
+d'ancrage nommé, plus fin que « le plan » — et c'est celui retenu. Seul son emplacement
+change, pour une raison de modèle.
+
+Un geste composite introduirait une **imbrication** : une étape contient des gestes, et un
+geste contiendrait des pipelines. Or l'étape *est déjà* le groupe : elle rassemble des gestes
+parallèles, et le moteur calcule déjà sa conclusion. Le geste composite referait, un niveau
+plus bas, ce que l'étape fait déjà — et doc 14 avait gardé le modèle plat délibérément.
+
+Le rôle est donc **un champ sur l'étape**, et rien d'autre ne bouge : ni le moteur, ni la
+table des exécutions, ni l'écran des exécutions.
+
+À l'écran, l'éditeur présentera bien deux blocs « Construction » et « Vérification » comme
+demandé — c'est une question de rendu, pas de structure.
+
+#### Le rôle est vérifié, pas cru sur parole
+
+Une étape `role: build` dont un geste ne produit pas d'artefact est **refusée à
+l'enregistrement**. Sans ce contrôle, ajouter une action à une étape de construction
+changerait silencieusement le cycle de vie d'une release. Le catalogue déclare déjà
+`produces` : le contrôle est une comparaison, pas une heuristique.
 
 ---
 
@@ -174,13 +227,20 @@ résultats (doc 13) — mais il **cesse d'être l'axe de pondération**.
 Conséquence directe et voulue : deux campagnes E2E distinctes pèsent chacune leur poids, ce
 que le modèle actuel ne sait pas exprimer.
 
-### Un drapeau à lever
+### Un drapeau levé
 
 Les poids actuels — 25/20/20/10/15/10 — sont désignés dans le code comme **« la pondération
-acceptée par le client (B11) »**. Les rendre libres par projet ne casse rien
-techniquement, mais **déplace une valeur contractuelle vers une saisie d'interface**. Il faut
-que ce soit une décision assumée, pas un effet de bord : je ne l'implémenterai pas sans un
-accord explicite là-dessus.
+acceptée par le client (B11) »**. Les rendre libres par projet **déplace une valeur
+contractuelle vers une saisie d'interface**.
+
+**Tranché : la saisie passe en formulaire.** Deux conséquences à tenir, puisque la décision
+est prise en connaissance de cause :
+
+- les poids d'origine restent le **défaut** d'un projet qui n'a rien saisi, et ce défaut
+  garde sa référence à B11. Personne ne perd la pondération convenue en ne faisant rien ;
+- un plan **figé** garde les poids qui ont servi à calculer son score. Rejouer le score d'une
+  release livrée il y a six mois avec les poids d'aujourd'hui réécrirait un chiffre qui a
+  été communiqué.
 
 ---
 
@@ -234,10 +294,11 @@ telles, et si elles ne passent pas on révise avant d'aller plus loin.
 
 ## 15.10 Décisions à prendre avant d'écrire
 
-| # | Question | Ma recommandation |
+| # | Question | Réponse |
 |---|---|---|
-| 1 | Deux faits du noyau, ou quatre ? | **quatre** : garder `release.promoted` et `release.released`, qui sont des décisions hors plan et le cas d'usage principal des notifications (§15.3) |
-| 2 | Les poids du score deviennent-ils une saisie par projet ? | **à confirmer explicitement** : c'est une valeur contractuelle B11 qu'on déplace vers l'interface (§15.6) |
-| 3 | Un geste dont l'artefact manque échoue-t-il ou est-il sauté ? | **échoue**, en nommant l'artefact : un test sauté en silence se lit comme un test passé (§15.4) |
-| 4 | La colonne `targets` est-elle retirée tout de suite ? | **non** : conservée non lue le temps d'un déploiement, pour pouvoir revenir en arrière sans migration inverse (§15.8) |
-| 5 | Un projet sans automatisation déclarée construit-il encore ? | **non**, et c'est le sens du chantier — mais la migration §15.8 fait qu'aucun projet existant n'y arrive par surprise |
+| 1 | Deux faits du noyau, ou quatre ? | **quatre** — tranché. `release.promoted` et `release.released` restent : décisions hors plan, et cas d'usage principal des notifications (§15.3) |
+| 2 | Les poids du score deviennent-ils une saisie par projet ? | **oui** — tranché, en connaissance de la portée contractuelle. Défaut B11 conservé, poids figés dans un plan exécuté (§15.6) |
+| 3 | Comment la release avance-t-elle sans `release.verified` ? | par le **rôle d'une étape**, `build` ou `test`. Pas par la conclusion du plan, qui ferait échouer une release sur une notification ratée (§15.3) |
+| 4 | Un geste dont l'artefact manque échoue-t-il ou est-il sauté ? | **échoue**, en nommant l'artefact : un test sauté en silence se lit comme un test passé (§15.4) |
+| 5 | La colonne `targets` est-elle retirée tout de suite ? | **non** : conservée non lue le temps d'un déploiement, pour pouvoir revenir en arrière sans migration inverse (§15.8) |
+| 6 | Un projet sans automatisation déclarée construit-il encore ? | **non**, et c'est le sens du chantier — mais la migration §15.8 fait qu'aucun projet existant n'y arrive par surprise |

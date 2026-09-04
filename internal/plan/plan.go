@@ -107,9 +107,48 @@ func (g Geste) Name() string {
 }
 
 // Stage est un jeu de gestes exécutés en parallèle.
+// Role dit ce qu'une étape **est**, pour ce qui en dépend au-dehors.
+//
+// # Pourquoi l'étape porte cela
+//
+// La vie d'une release avance à deux moments : quand elle est construite, et
+// quand elle est vérifiée. Il faut donc un point d'ancrage nommé dans le plan.
+//
+// « La conclusion du plan » n'en est pas un : elle confond *l'automatisation est
+// terminée* avec *la release est vérifiée*. Un plan qui finirait par une
+// notification ferait alors échouer la release sur un webhook injoignable.
+//
+// Un geste composite — un geste `build` contenant des pipelines — n'en est pas un
+// non plus, et pour une raison de modèle : l'étape **est déjà** le groupe. Elle
+// rassemble des gestes parallèles et le moteur calcule déjà sa conclusion. Un
+// niveau d'imbrication de plus referait ce qu'elle fait (doc 15 §15.3).
+//
+// # Une étape sans rôle ne touche à rien
+//
+// C'est le défaut par lequel on entre, et c'est ce qui rend une étape de
+// notification inoffensive pour le cycle de vie d'une release.
+type Role string
+
+const (
+	// RoleBuild produit les artefacts d'une release.
+	RoleBuild Role = "build"
+	// RoleTest rend un verdict sur ces artefacts.
+	RoleTest Role = "test"
+)
+
+// Roles énumère les rôles connus, pour l'éditeur et la validation.
+func Roles() []Role { return []Role{RoleBuild, RoleTest} }
+
 type Stage struct {
 	// Label nomme l'étape à l'écran. Facultatif.
-	Label  string  `json:"label,omitempty"`
+	Label string `json:"label,omitempty"`
+	// Role rattache l'étape au cycle de vie d'une release. Vide : l'étape
+	// s'exécute sans rien y changer.
+	//
+	// Ce paquet vérifie que la valeur est connue. Que les gestes de l'étape
+	// produisent bien ce que le rôle annonce se vérifie **à l'enregistrement**,
+	// contre le catalogue — que ce paquet ne connaît pas, délibérément.
+	Role   Role    `json:"role,omitempty"`
 	Gestes []Geste `json:"gestes"`
 }
 
@@ -153,11 +192,44 @@ func (p Plan) Validate() error {
 				"%w: l'étape %d ne porte aucun geste", ErrInvalid, index+1))
 			continue
 		}
+		problems = append(problems, stage.validateRole(index)...)
 		for rank, geste := range stage.Gestes {
 			problems = append(problems, geste.validate(index, rank)...)
 		}
 	}
 	return errors.Join(problems...)
+}
+
+// validateRole refuse un rôle que ce paquet ne connaît pas.
+func (s Stage) validateRole(index int) []error {
+	if s.Role == "" || slices.Contains(Roles(), s.Role) {
+		return nil
+	}
+
+	known := make([]string, 0, len(Roles()))
+	for _, role := range Roles() {
+		known = append(known, string(role))
+	}
+	// Un rôle inventé serait ignoré par le cycle de vie, et l'étape s'exécuterait
+	// sans jamais faire avancer la release. Le refuser à l'enregistrement évite
+	// une release qui reste en construction sans que rien ne le dise.
+	return []error{fmt.Errorf("%w: l'étape %d porte le rôle %q (connus: %s)",
+		ErrInvalid, index+1, s.Role, strings.Join(known, ", "))}
+}
+
+// LastWithRole rend l'indice de la dernière étape portant ce rôle, ou -1.
+//
+// La **dernière**, et non la première : un plan peut construire en deux temps —
+// une image de base, puis l'application au-dessus — et c'est la conclusion du
+// dernier de ces temps qui dit que la construction est faite.
+func (p Plan) LastWithRole(role Role) int {
+	found := -1
+	for index, stage := range p.Stages {
+		if stage.Role == role {
+			found = index
+		}
+	}
+	return found
 }
 
 func (g Geste) validate(stage, rank int) []error {
