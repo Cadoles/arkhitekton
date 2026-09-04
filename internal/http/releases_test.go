@@ -14,15 +14,22 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
 )
 
 // fakeReleaseStore remplace la base : les décisions testées ici sont celles du
 // handler, et les faire dépendre d'un PostgreSQL les rendrait plus lentes sans
 // les rendre plus sûres.
 type fakeReleaseStore struct {
+	// planRuns et planSteps portent les exécutions ouvertes par la création
+	// d'une release. Voir plus bas : c'est le plan qui met en file désormais.
+	planRuns  map[int64]store.PlanRun
+	planSteps map[int64][]store.PlanStep
+
 	releases     map[string]store.Release
 	environments []store.Environment
 	jobs         []store.JobRequest
@@ -319,7 +326,14 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		// [provider.NoDeployer] refuserait toute promotion, ce qui est le
 		// comportement voulu d'un déploiement non configuré et non celui qu'on
 		// éprouve ici.
-		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, ""))
+		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, "")).
+		// Le planificateur **réel**, sur le même faux magasin. Un substitut ici
+		// ferait passer ces tests sans rien dire de ce que la création met
+		// réellement en file.
+		WithPlans(worker.NewReleasePlanner(
+			worker.NewEngine(store, worker.NewReleaseRunner(pipelines, store, quietLogger()),
+				quietLogger()),
+			pipelines, nil, "reg.cadoles.com/vcarroy", quietLogger()))
 }
 
 func asRole(request *http.Request, role auth.Role) *http.Request {
@@ -938,17 +952,20 @@ func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
 	}
 
 	var response struct {
-		BuildJobIDs []int64 `json:"build_job_ids"`
-		Release     struct {
+		// Un **compte**, et non une liste d'identifiants. La création ouvre
+		// désormais un plan : ce qui part est une étape, dont les gestes se lisent
+		// sur l'écran des exécutions plutôt que dans cette réponse.
+		BuildJobs int `json:"build_jobs"`
+		Release   struct {
 			State string `json:"state"`
 		} `json:"release"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("réponse illisible: %v", err)
 	}
-	if len(response.BuildJobIDs) != len(fixtureProject().Buildable()) {
-		t.Errorf("%d identifiant(s) de construction rendus, attendu %d",
-			len(response.BuildJobIDs), len(fixtureProject().Buildable()))
+	if response.BuildJobs != len(fixtureProject().Buildable()) {
+		t.Errorf("%d construction(s) rendues, attendu %d",
+			response.BuildJobs, len(fixtureProject().Buildable()))
 	}
 	if response.Release.State != "building" {
 		t.Errorf("état rendu %q, attendu building", response.Release.State)
@@ -1433,13 +1450,21 @@ func (f *fakeReleaseStore) ProjectBySlug(_ context.Context, slug string) (store.
 	if slug != testProjectSlug {
 		return store.Project{}, store.ErrProjectNotFound
 	}
-	// Le cycle par défaut, comme la vraie lecture le fait : sans lui le faux
-	// décrirait un projet dont aucune release n'est créable, et les tests
-	// échoueraient sur un état que la base ne produit jamais.
-	return store.Project{
-		ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile",
-		ReleaseKinds: release.DefaultCycle(),
-	}, nil
+	// **Le même projet que `GetProject`**, et c'est une correction.
+	//
+	// Ce faux rendait ici un projet sans cibles, et le projet complet par
+	// `GetProject` — deux réponses pour une seule ligne de la base. L'écart ne se
+	// voyait pas tant que la construction lisait par `GetProject` ; depuis que le
+	// plan d'une release est composé à partir du projet servi par la route, il
+	// décide de ce qui se construit, et un faux incohérent ferait passer des
+	// tests sur un projet qui n'existe pas.
+	//
+	// Le cycle par défaut est posé comme la vraie lecture le fait : sans lui le
+	// faux décrirait un projet dont aucune release n'est créable.
+	project := fixtureProject()
+	project.Slug = slug
+	project.ReleaseKinds = release.DefaultCycle()
+	return project, nil
 }
 
 // Un projet inconnu rend 404, jamais la release d'un autre.
@@ -1469,4 +1494,96 @@ func TestUnProjetInconnuNeRendPasLaReleaseDunAutre(t *testing.T) {
 	if strings.Contains(recorder.Body.String(), "1.8.0") {
 		t.Error("la réponse ne doit rien dire de la release d'un autre projet")
 	}
+}
+
+/*
+ * Le magasin de plans du faux store.
+ *
+ * La création d'une release ouvre désormais **son plan**, et c'est lui qui met
+ * les constructions en file (doc 15 §15.2). Le faux store porte donc, en plus de
+ * la file, de quoi ouvrir une exécution — sans quoi ces tests éprouveraient un
+ * planificateur nul plutôt que le chemin réel.
+ *
+ * En mémoire et volontairement pauvre : ce qui s'éprouve ici est ce qui **part
+ * en file**, pas la mécanique du moteur, qui a ses propres tests.
+ */
+
+func (f *fakeReleaseStore) CreatePlanRun(
+	_ context.Context, run store.PlanRun,
+) (store.PlanRun, bool, error) {
+	if f.planRuns == nil {
+		f.planRuns = map[int64]store.PlanRun{}
+		f.planSteps = map[int64][]store.PlanStep{}
+	}
+	// L'unicité par (déclencheur, fait), comme en base : une redélivrance rend
+	// l'exécution existante plutôt que d'en ouvrir une seconde.
+	for _, known := range f.planRuns {
+		if known.Trigger == run.Trigger && known.EventKey == run.EventKey {
+			return known, false, nil
+		}
+	}
+
+	run.ID = int64(len(f.planRuns) + 1)
+	run.State = store.PlanRunning
+	f.planRuns[run.ID] = run
+	for stage, etape := range run.Plan.Stages {
+		for position := range etape.Gestes {
+			f.planSteps[run.ID] = append(f.planSteps[run.ID], store.PlanStep{
+				Stage: stage, Position: position, State: string(plan.Pending),
+			})
+		}
+	}
+	return run, true, nil
+}
+
+func (f *fakeReleaseStore) PlanRunByID(_ context.Context, id int64) (store.PlanRun, error) {
+	run, found := f.planRuns[id]
+	if !found {
+		return store.PlanRun{}, store.ErrPlanRunNotFound
+	}
+	return run, nil
+}
+
+func (f *fakeReleaseStore) PlanSteps(_ context.Context, runID int64) ([]store.PlanStep, error) {
+	return f.planSteps[runID], nil
+}
+
+func (f *fakeReleaseStore) MarkPlanStep(
+	_ context.Context, runID int64, stage, position int,
+	state string, job *int64, detail string,
+) error {
+	for index, step := range f.planSteps[runID] {
+		if step.Stage == stage && step.Position == position {
+			f.planSteps[runID][index].State = state
+			f.planSteps[runID][index].JobID = job
+			f.planSteps[runID][index].Detail = detail
+			return nil
+		}
+	}
+	return nil
+}
+
+func (f *fakeReleaseStore) PlanStepForJob(
+	_ context.Context, jobID int64,
+) (int64, store.PlanStep, error) {
+	for runID, steps := range f.planSteps {
+		for _, step := range steps {
+			if step.JobID != nil && *step.JobID == jobID {
+				return runID, step, nil
+			}
+		}
+	}
+	return 0, store.PlanStep{}, store.ErrPlanRunNotFound
+}
+
+func (f *fakeReleaseStore) FinishPlanRun(
+	_ context.Context, runID int64, state string,
+) (bool, error) {
+	run, found := f.planRuns[runID]
+	if !found || run.State != store.PlanRunning {
+		return false, nil
+	}
+	run.State = state
+	f.planRuns[runID] = run
+	return true, nil
 }

@@ -174,13 +174,22 @@ func key(parts ...string) string {
 //
 // Clé sur la release seule : une release n'est créée qu'une fois, et un second
 // appel serait un doublon que la contrainte d'unicité refuse déjà en amont.
+// ReleaseCreatedKey rend la clé du fait d'une release déclarée.
+//
+// Exportée pour que l'ouverture du plan et l'émission du fait composent la
+// **même** clé : c'est elle qui rend l'exécution unique par release, et deux
+// orthographes en ouvriraient deux (doc 15 §15.2).
+func ReleaseCreatedKey(releaseID int64) string {
+	return key(string(ReleaseCreated), id(releaseID))
+}
+
 func ReleaseCreatedAt(
 	at time.Time, projectID, releaseID int64, tag, kind, gitRef, version string,
 ) Event {
 	return Event{
 		Type: ReleaseCreated, ProjectID: &projectID, Subject: tag,
 		OccurredAt: at,
-		DedupKey:   key(string(ReleaseCreated), id(releaseID)),
+		DedupKey:   ReleaseCreatedKey(releaseID),
 		Payload: map[string]string{
 			"release_id": id(releaseID), "tag": tag, "kind": kind,
 			"git_ref": gitRef, "version": version,

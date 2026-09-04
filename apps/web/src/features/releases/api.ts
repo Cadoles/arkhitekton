@@ -435,7 +435,9 @@ export function useRebuild(tag: string) {
 
   return useMutation({
     mutationFn: () =>
-      request<{ release: Release; build_job_ids: number[] }>(
+      // Un compte, et non des identifiants : la reconstruction ouvre un plan, et
+      // ses gestes se consultent sur l'écran des exécutions.
+      request<{ release: Release; build_jobs: number }>(
         projectPath(`/releases/${encodeURIComponent(tag)}/build`),
         { method: 'POST' },
       ),

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -330,4 +331,89 @@ func (l *ReleaseLifecycle) StageSettled(
 	}
 	l.logger.Info("release avancée par son plan", "execution", run.ID,
 		"release", *run.ReleaseID, "etape", role, "de", from, "vers", to)
+}
+
+// ReleasePlanner ouvre le plan d'une release.
+//
+// # Pourquoi côté API
+//
+// La création d'une release est une décision humaine, servie par l'`api`. Ouvrir
+// son plan **là** conserve ce que faisait `enqueueBuild` : la personne qui crée
+// la release sait tout de suite si la construction est partie, plutôt que de
+// l'apprendre au tour de boucle suivant d'un worker.
+//
+// Et cela ne duplique aucun ordonnanceur : ouvrir un plan écrit une exécution et
+// met des jobs en file. C'est ce que l'API faisait déjà. Le worker garde
+// l'exclusivité de ce qui **sort** — créer les PipelineRun — et de l'avancement.
+type ReleasePlanner struct {
+	engine    *Engine
+	catalog   *catalog.Catalog
+	pipelines ProjectPipelines
+	registry  string
+	logger    *slog.Logger
+}
+
+func NewReleasePlanner(
+	engine *Engine, registry *catalog.Catalog, pipelines ProjectPipelines,
+	registryProject string, logger *slog.Logger,
+) *ReleasePlanner {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &ReleasePlanner{
+		engine: engine, catalog: registry, pipelines: pipelines,
+		registry: registryProject, logger: logger,
+	}
+}
+
+// OpenReleasePlan compose le plan d'une release et le fait partir.
+//
+// Rend le nombre de gestes effectivement partis. L'appelant en dépend : une
+// release dont rien n'est parti ne doit pas être annoncée « en construction ».
+func (p *ReleasePlanner) OpenReleasePlan(
+	ctx context.Context, project store.Project, record store.Release, revision string,
+) int {
+	if p == nil || p.engine == nil {
+		return 0
+	}
+	if strings.TrimSpace(revision) == "" {
+		// Rien ne part sans référence. Construire « ce que la branche désigne à
+		// cet instant » est exactement ce que l'invariant de version interdit, et
+		// une révision vide produirait un clone sur le défaut du pipeline — donc
+		// une image dont personne ne saurait dire d'où elle vient (B17).
+		p.logger.Warn("aucune construction lancée",
+			"release", record.Tag, "raison", "aucune référence Git à construire")
+		return 0
+	}
+
+	sujet := releasePlan(p.catalog, project, func(kind string) bool {
+		if p.pipelines == nil {
+			return true
+		}
+		enabled, err := p.pipelines.PipelineEnabled(ctx, project.ID, kind)
+		if err != nil {
+			// Une lecture impossible ne doit pas retirer une vérification : mieux
+			// vaut l'enchaîner et la voir échouer que la sauter en silence.
+			p.logger.Error("familles déclarées du projet",
+				"projet", project.ID, "kind", kind, "error", err)
+			return true
+		}
+		return enabled
+	})
+	if sujet.Empty() {
+		p.logger.Info("aucun plan pour cette release",
+			"release", record.Tag, "projet", project.Slug)
+		return 0
+	}
+
+	projectID := project.ID
+	releaseID := record.ID
+	return p.engine.Trigger(ctx, store.PlanRun{
+		Trigger:   releaseTrigger,
+		EventKey:  event.ReleaseCreatedKey(record.ID),
+		ProjectID: &projectID,
+		ReleaseID: &releaseID,
+		Plan:      sujet,
+		Context:   releaseContext(record, revision, p.registry),
+	})
 }

@@ -230,7 +230,7 @@ func NewVerificationEngine(
 	// n'a pas à connaître la différence entre un pipeline, qui devient un job, et
 	// une action, qui sort du cluster.
 	return NewEngine(plans, gesteRouter{
-		pipelines: verificationRunner{sink: sink},
+		pipelines: NewReleaseRunner(sink.catalog, sink.verification, logger),
 		actions:   actions,
 	}, logger)
 }

@@ -89,16 +89,49 @@ func verificationCatalog() *catalog.Catalog {
 	}
 }
 
+// sinkFor monte l'observateur pour les tests qui pilotent encore l'ancien
+// chemin.
+//
+// TODO(doc 15, tranche 1) : ces tests visent `concludeVerification` et
+// `advanceRelease`, devenus du code mort depuis que le plan d'une release porte
+// la construction et la vérification. Ils restent à repointer sur le plan, comme
+// l'ont été ceux de `launchVerification` juste au-dessus.
 func sinkFor(store *fakeVerificationStore, pipelines *catalog.Catalog) *runSink {
 	sink := &runSink{
 		logger: quietLogger(), catalog: pipelines,
 		registryProject: "reg.cadoles.com/vcarroy",
 	}
 	sink.verification = store
-	// Le moteur de plans, sur un magasin en mémoire : l'enchaînement passe
-	// désormais par lui, et le juge doit l'exercer plutôt que de le contourner.
 	sink.engine = NewVerificationEngine(sink, newFakePlanStore(), nil, quietLogger())
 	return sink
+}
+
+// planifie ouvre le plan d'une release et rend le nombre de gestes partis.
+//
+// # Ces tests ont changé de pilote, pas d'assertions
+//
+// Ils appelaient `launchVerification`, qui composait la moitié aval de la chaîne
+// dans l'observateur. Cette moitié est devenue **l'étape de vérification du plan
+// d'une release** (doc 15 §15.2), et c'est elle qu'ils exercent désormais.
+//
+// Le projet ne déclare **aucune cible** : l'étape de construction est donc vide,
+// l'étape de vérification devient la première, et elle part immédiatement — ce
+// que faisait `launchVerification` appelée sur une construction déjà conclue.
+// C'est la même situation, exprimée dans le modèle plutôt qu'à côté.
+func planifie(
+	t *testing.T, queue *fakeVerificationStore, pipelines *catalog.Catalog,
+	tag, revision string,
+) int {
+	t.Helper()
+
+	planner := NewReleasePlanner(
+		NewEngine(newFakePlanStore(),
+			NewReleaseRunner(pipelines, queue, quietLogger()), quietLogger()),
+		pipelines, nil, "reg.cadoles.com/vcarroy", quietLogger())
+
+	return planner.OpenReleasePlan(context.Background(),
+		store.Project{ID: 1, Slug: "mse"},
+		store.Release{ID: 7, Tag: tag}, revision)
 }
 
 // Une construction réussie enchaîne les vérifications sur **le commit
@@ -106,12 +139,8 @@ func sinkFor(store *fakeVerificationStore, pipelines *catalog.Catalog) *runSink 
 // le build, et les tests porteraient alors sur autre chose que l'image (B17).
 func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 	fake := &fakeVerificationStore{}
-	sink := sinkFor(fake, verificationCatalog())
 
-	launched := sink.launchVerification(context.Background(), store.JobReleaseContext{
-		ReleaseID: 7, Tag: "3.2.0-rc1",
-		GitRef: "main", GitCommit: "abc123def456",
-	})
+	launched := planifie(t, fake, verificationCatalog(), "3.2.0-rc1", "abc123def456")
 
 	if launched != 4 {
 		t.Fatalf("%d vérifications lancées, attendu 4", launched)
@@ -185,11 +214,10 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 // mieux que de ne rien lancer.
 func TestSansCommitLaVerificationRetombeSurLaReference(t *testing.T) {
 	fake := &fakeVerificationStore{}
-	sink := sinkFor(fake, verificationCatalog())
 
-	launched := sink.launchVerification(context.Background(), store.JobReleaseContext{
-		ReleaseID: 7, Tag: "3.2.0-rc1", GitRef: "main",
-	})
+	// La référence tient lieu de révision : c'est l'appelant qui a déjà fait le
+	// repli, et le plan ne connaît qu'une révision.
+	launched := planifie(t, fake, verificationCatalog(), "3.2.0-rc1", "main")
 
 	if launched != 4 {
 		t.Fatalf("%d vérifications lancées", launched)
@@ -205,10 +233,8 @@ func TestSansCommitLaVerificationRetombeSurLaReference(t *testing.T) {
 // un run qui échouera au clone.
 func TestSansReferenceAucuneVerificationNePart(t *testing.T) {
 	fake := &fakeVerificationStore{}
-	sink := sinkFor(fake, verificationCatalog())
 
-	if launched := sink.launchVerification(context.Background(),
-		store.JobReleaseContext{ReleaseID: 7, Tag: "3.2.0-rc1"}); launched != 0 {
+	if launched := planifie(t, fake, verificationCatalog(), "3.2.0-rc1", ""); launched != 0 {
 		t.Errorf("%d vérifications lancées, attendu 0", launched)
 	}
 	if len(fake.enqueued) != 0 {
@@ -220,11 +246,8 @@ func TestSansReferenceAucuneVerificationNePart(t *testing.T) {
 // et perdre ce fait parce qu'un test n'a pas pu être enfilé serait pire.
 func TestUnEchecDeMiseEnFileNeFaitPasEchouerLaConclusion(t *testing.T) {
 	fake := &fakeVerificationStore{enqueueEr: errors.New("file indisponible")}
-	sink := sinkFor(fake, verificationCatalog())
 
-	if launched := sink.launchVerification(context.Background(), store.JobReleaseContext{
-		ReleaseID: 7, Tag: "3.2.0-rc1", GitCommit: "abc123",
-	}); launched != 0 {
+	if launched := planifie(t, fake, verificationCatalog(), "3.2.0-rc1", "abc123"); launched != 0 {
 		t.Errorf("%d vérifications lancées malgré l'échec", launched)
 	}
 }
@@ -234,11 +257,8 @@ func TestUnEchecDeMiseEnFileNeFaitPasEchouerLaConclusion(t *testing.T) {
 // runs, ce qui est bien pire que de ne pas enchaîner.
 func TestSansCatalogueRienNePart(t *testing.T) {
 	fake := &fakeVerificationStore{}
-	sink := sinkFor(fake, nil)
 
-	if launched := sink.launchVerification(context.Background(), store.JobReleaseContext{
-		ReleaseID: 7, Tag: "3.2.0-rc1", GitCommit: "abc123",
-	}); launched != 0 {
+	if launched := planifie(t, fake, nil, "3.2.0-rc1", "abc123"); launched != 0 {
 		t.Errorf("%d vérifications lancées sans catalogue", launched)
 	}
 }
@@ -280,49 +300,39 @@ func (f *fakeVerificationStore) JobRelease(_ context.Context, jobID int64) (stor
 // parce que le lancement précédait le contrôle de transition.
 func TestUneConstructionNeLanceSesVerificationsQuUneFois(t *testing.T) {
 	fake := &fakeVerificationStore{state: "building"}
-	sink := sinkFor(fake, verificationCatalog())
-	sink.releases = fake
+	pipelines := verificationCatalog()
 
-	linked := store.JobReleaseContext{
-		ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "build",
-		State: "building", GitCommit: "abc123",
+	// Un seul planificateur, donc un seul magasin de plans : c'est lui qui porte
+	// l'unicité par (déclencheur, fait), comme la table `plan_runs`.
+	planner := NewReleasePlanner(
+		NewEngine(newFakePlanStore(),
+			NewReleaseRunner(pipelines, fake, quietLogger()), quietLogger()),
+		pipelines, nil, "reg.cadoles.com/vcarroy", quietLogger())
+
+	ouvrir := func() int {
+		return planner.OpenReleasePlan(context.Background(),
+			store.Project{ID: 1, Slug: "mse"},
+			store.Release{ID: 7, Tag: "3.2.0-rc1"}, "abc123")
 	}
 
-	// Première conclusion : la release avance et les tests partent.
-	if err := sink.advanceRelease(context.Background(), linked, store.JobSucceeded); err != nil {
-		t.Fatalf("première conclusion: %v", err)
-	}
-	if fake.state != "verifying" {
-		t.Fatalf("état %q, attendu verifying", fake.state)
-	}
-	premier := len(fake.enqueued)
-	if premier != 4 {
+	if premier := ouvrir(); premier != 4 {
 		t.Fatalf("%d vérifications lancées, attendu 4", premier)
 	}
 
-	// Redélivrances : l'état lu est resté `building` côté appelant, mais la base
-	// est passée à `verifying`. Rien ne doit repartir.
-	for i := 0; i < 3; i++ {
-		if err := sink.advanceRelease(context.Background(), linked, store.JobSucceeded); err != nil {
-			t.Fatalf("redélivrance %d: %v", i, err)
+	// Redélivrances. L'unicité ne vient plus d'un contrôle de transition écrit à
+	// la main mais de l'exécution elle-même : `CreatePlanRun` rend celle qui
+	// existe, et ses gestes ne sont plus en attente.
+	for i := range 3 {
+		if reparti := ouvrir(); reparti != 0 {
+			t.Errorf("redélivrance %d: %d geste(s) reparti(s)", i, reparti)
 		}
 	}
-	if len(fake.enqueued) != premier {
-		t.Errorf("%d vérifications au total, attendu %d — les redélivrances en ont relancé",
-			len(fake.enqueued), premier)
+
+	if len(fake.enqueued) != 4 {
+		t.Errorf("%d vérifications au total, attendu 4 — les redélivrances ont relancé",
+			len(fake.enqueued))
 	}
 }
-
-// Le défaut qui a produit deux jeux de vérifications pour une seule
-// construction : la table des transitions autorise `failed -> verifying`, pour
-// qu'un opérateur puisse reprendre une release après un échec. La conclusion de
-// construction empruntait ce chemin comme n'importe quel autre.
-//
-// Déroulé constaté : la construction réussit, la release passe en `verifying`,
-// l'audit échoue, la release retombe en `failed`. Le worker redémarre,
-// l'informer redélivre la construction terminée, et la conclusion relance tout.
-//
-// Une conclusion de construction ne vaut que depuis `building`.
 func TestUneConstructionNeConclutRienDepuisUneReleaseDejaEchouee(t *testing.T) {
 	fake := &fakeVerificationStore{state: "failed"}
 	sink := sinkFor(fake, verificationCatalog())

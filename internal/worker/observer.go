@@ -515,24 +515,24 @@ func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobStat
 		s.engine.Advance(ctx, jobID, planStateOf(jobState))
 	}
 
-	// Deux natures font avancer une release, et pas de la même façon.
-	switch {
-	case linked.Kind == buildJobKind:
-		return s.advanceRelease(ctx, linked, jobState)
-	case s.isVerificationKind(linked.Kind):
-		return s.concludeVerification(ctx, linked)
-	default:
-		// Une promotion réussie ne rend pas une release « prête » : elle la
-		// déploie quelque part, et les tests qui suivront ne concluent rien tant
-		// que personne ne les a lus.
-		//
-		// Elle constitue en revanche un **fait**, et c'est toute la différence
-		// entre faire avancer un état et constater qu'il s'est passé quelque
-		// chose. La clé porte le job : une même release se promeut plusieurs fois
-		// vers le même environnement.
+	// Construire et vérifier ne passent plus par ici.
+	//
+	// Les deux sont devenues des **étapes du plan** de la release, et c'est le
+	// règlement de l'étape qui avance l'état (doc 15 §15.3). Ce que cela retire
+	// vaut d'être nommé : la construction ne se compte plus job par job — l'étape
+	// *est* le décompte — et les vérifications ne se concluent plus par un
+	// second décompte de familles, tenu ailleurs et qui devait rester d'accord
+	// avec le premier.
+	//
+	// Reste ce qu'aucun plan ne cause : une promotion. Elle ne rend pas une
+	// release « prête » — elle la déploie quelque part, et les tests qui suivront
+	// ne concluent rien tant que personne ne les a lus. Elle constitue en
+	// revanche un **fait**, et c'est toute la différence entre faire avancer un
+	// état et constater qu'il s'est passé quelque chose.
+	if linked.Kind != buildJobKind && !s.isVerificationKind(linked.Kind) {
 		s.emitReleasePromoted(ctx, linked, jobState)
-		return nil
 	}
+	return nil
 }
 
 // advanceRelease fait suivre à une release la conclusion de sa construction.

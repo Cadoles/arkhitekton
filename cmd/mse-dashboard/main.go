@@ -251,7 +251,16 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// Le même déployeur que l'observateur, et le même que celui qui a validé
 		// les environnements au démarrage : un aperçu de promotion qui répondrait
 		// autrement que la promotion elle-même serait pire que pas d'aperçu.
-		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, ""))
+		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, "")).
+		// L'ouverture du plan d'une release, à sa création.
+		//
+		// Un moteur côté `api`, et ce n'est pas un second ordonnanceur : ouvrir un
+		// plan écrit une exécution et met des jobs en file, ce que ce handler
+		// faisait déjà. Le worker garde l'exclusivité de ce qui **sort** — créer
+		// les PipelineRun — et de l'avancement des gestes conclus.
+		WithPlans(worker.NewReleasePlanner(
+			worker.NewEngine(db, worker.NewReleaseRunner(pipelines, db, logger), logger),
+			pipelines, db, cfg.Registry.Project, logger))
 
 	// La forge est optionnelle : sans jeton, le formulaire de création de release
 	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture
@@ -605,7 +614,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 					"consequence", "une réaction mal réglée peut atteindre le réseau interne")
 			}
 
-			engine := worker.NewVerificationEngine(sink, db, actions, logger)
+			// Le moteur, et l'ancrage du cycle de vie sur les étapes à rôle :
+			// c'est le règlement d'une étape qui avance la release, là où
+			// l'observateur comptait les constructions job par job (doc 15 §15.3).
+			engine := worker.NewVerificationEngine(sink, db, actions, logger).
+				WithStages(worker.NewReleaseLifecycle(db, logger))
 			// L'aiguillage : ce qui relie un fait constaté aux réactions qu'un
 			// projet a déclarées. Sans lui, les faits s'écrivent et personne n'y
 			// réagit — l'état des tranches 2 à 5.

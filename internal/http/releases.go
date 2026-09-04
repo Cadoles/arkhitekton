@@ -78,10 +78,27 @@ type ReleaseStore interface {
 }
 
 // ReleasesHandler expose les releases, leur création et leur promotion.
+// ReleasePlanner ouvre le plan d'une release.
+//
+// Interface déclarée ici plutôt qu'un import de `internal/worker` : les deux
+// paquets sont frères, reliés par `main`, et faire dépendre l'api du worker lui
+// ferait porter l'observateur Tekton, l'ordonnanceur et les sondes pour une
+// seule méthode.
+type ReleasePlanner interface {
+	// OpenReleasePlan compose le plan d'une release et le fait partir. Rend le
+	// nombre de gestes effectivement partis.
+	OpenReleasePlan(ctx context.Context, project store.Project,
+		record store.Release, revision string) int
+}
+
 type ReleasesHandler struct {
 	store      ReleaseStore
 	catalog    *catalog.Catalog
 	authorizer *auth.Authorizer
+	// plans ouvre le plan d'une release. Nil : aucune construction ne part, et
+	// la création le dit en avertissement plutôt que d'annoncer une release en
+	// construction qui ne l'est pas.
+	plans ReleasePlanner
 	// images résout les digests. Nil quand le registre n'est pas configuré : le
 	// dashboard reste utilisable sans lui, l'écran affiche alors les tags sans
 	// leurs digests et le dit.
@@ -219,6 +236,12 @@ func (h *ReleasesHandler) WithDeployer(deployer provider.Deployer) *ReleasesHand
 
 func (h *ReleasesHandler) WithNormalizer(names release.Normalizer) *ReleasesHandler {
 	h.names = names
+	return h
+}
+
+// WithPlans branche l'ouverture du plan d'une release.
+func (h *ReleasesHandler) WithPlans(plans ReleasePlanner) *ReleasesHandler {
+	h.plans = plans
 	return h
 }
 
@@ -854,16 +877,26 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		// Jamais d'une branche quand le commit est connu : reconstruire la même
 		// release six mois plus tard doit produire la même image (B17).
 		buildRef := buildReference(record, request.GitRef)
-		jobIDs, buildErr := h.enqueueBuild(r.Context(), currentID, releaseID, record, buildRef, identity.Subject)
+		// **Le plan de la release**, et non plus une boucle sur ses cibles.
+		//
+		// La même chose part — un job par image — mais elle part comme une étape
+		// d'un plan dont la suivante enchaîne les vérifications. L'aller-retour
+		// par le fait `release.built`, qui reliait cette boucle-ci à une seconde
+		// dans l'observateur, disparaît avec elle (doc 15 §15.2).
+		started := 0
+		if h.plans != nil {
+			started = h.plans.OpenReleasePlan(r.Context(), project, record, buildRef)
+		}
 		switch {
-		case buildErr != nil:
-			// La release est créée : le dire, plutôt que de laisser croire à un
-			// échec de création. La construction se relance depuis la file.
+		case started == 0:
+			// Rien n'est parti. La release est créée : le dire, plutôt que de
+			// laisser croire à un échec de création — et ne **pas** l'annoncer en
+			// construction, ce qu'elle n'est pas.
 			warnings = append(warnings,
-				"la release est créée mais la construction n'a pas pu être mise en file: "+buildErr.Error())
+				"la release est créée mais aucune construction n'a pu être mise en file")
 			response["warnings"] = warnings
 		default:
-			response["build_job_ids"] = jobIDs
+			response["build_jobs"] = started
 			// L'état suit la mise en file et non la fin du pipeline : `building`
 			// signifie « construction demandée », ce qui est exactement ce qu'on
 			// sait à cet instant.
@@ -994,8 +1027,7 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 // autre commit, et deux images porteraient alors le même numéro sans être la même
 // chose (B17).
 func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
-	identity, ok := IdentityFrom(r.Context())
-	if !ok {
+	if _, ok := IdentityFrom(r.Context()); !ok {
 		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
 		return
 	}
@@ -1040,9 +1072,21 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobIDs, err := h.enqueueBuild(r.Context(), currentID, record.ID, record, record.GitRef, identity.Subject)
-	if err != nil {
-		writeProblem(w, http.StatusUnprocessableEntity, "Reconstruction impossible", err.Error())
+	// La reconstruction ouvre **le même plan** que la création, et c'est
+	// nécessaire : enfiler hors plan laisserait la release en construction pour
+	// toujours, puisque c'est le règlement de l'étape qui l'avance désormais.
+	project, projectErr := h.store.GetProject(r.Context(), currentID)
+	if projectErr != nil {
+		writeProblem(w, http.StatusInternalServerError, "Reconstruction impossible", "")
+		return
+	}
+	started := 0
+	if h.plans != nil {
+		started = h.plans.OpenReleasePlan(r.Context(), project, record, record.GitRef)
+	}
+	if started == 0 {
+		writeProblem(w, http.StatusUnprocessableEntity, "Reconstruction impossible",
+			"aucune construction n'a pu être mise en file")
 		return
 	}
 
@@ -1061,12 +1105,12 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.audit(r, store.AuditReleaseRebuild, tag, map[string]any{
-		"from": record.State, "git_ref": record.GitRef, "jobs": jobIDs,
+		"from": record.State, "git_ref": record.GitRef, "jobs": started,
 	})
 
 	record.State = string(release.StateBuilding)
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"release": toReleasePayload(record, "", h.actorsFor(r.Context())), "build_job_ids": jobIDs,
+		"release": toReleasePayload(record, "", h.actorsFor(r.Context())), "build_jobs": started,
 	})
 }
 
