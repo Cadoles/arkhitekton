@@ -407,6 +407,32 @@ func (p Progress) stageFailed(stage int) bool {
 	return slices.Contains(p.States[stage], Failed)
 }
 
+// StageOutcome rend l'issue d'une étape réglée.
+//
+// Le second retour vaut faux tant qu'elle bouge encore. C'est ce qui permet au
+// moteur de prévenir le cycle de vie d'une release **au moment où la
+// construction se conclut**, sans attendre la fin du plan — un plan peut porter
+// une étape de notification après, qui n'a rien à voir avec l'état de la release
+// (doc 15 §15.3).
+//
+// Une étape entièrement sautée est réglée, et n'a pas échoué : elle n'a rien
+// tenté. La distinction est celle de [Progress.stageFailed], et elle vaut ici
+// pour la même raison — une construction sautée ne doit pas faire échouer une
+// release, elle doit la laisser où elle est.
+func (p Progress) StageOutcome(stage int) (State, bool) {
+	if stage < 0 || stage >= len(p.States) || !p.stageSettled(stage) {
+		return Pending, false
+	}
+	if p.stageFailed(stage) {
+		return Failed, true
+	}
+	if slices.Contains(p.States[stage], Succeeded) {
+		return Succeeded, true
+	}
+	// Ni échec ni réussite : tout a été sauté.
+	return Skipped, true
+}
+
 // Done dit que le plan n'a plus rien à faire.
 func (p Progress) Done() bool {
 	_, found := p.current()

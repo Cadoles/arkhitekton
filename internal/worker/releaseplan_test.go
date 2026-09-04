@@ -1,0 +1,210 @@
+package worker
+
+import (
+	"testing"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+)
+
+/*
+ * La porte de doc 15.
+ *
+ * La question est unique : **construire puis vérifier entre-t-il dans un plan
+ * unique ?** Ces tests y répondent sur la forme du plan composé, avant qu'une
+ * ligne d'éditeur ait été écrite.
+ *
+ * Ce qu'ils tiennent n'est pas la mise en file — le runner s'en charge — mais la
+ * structure : deux étapes, leurs rôles, et la séparation entre ce que le geste
+ * fixe et ce que le contexte lie.
+ */
+
+// catalogueDeTest rend un catalogue portant une construction et deux
+// vérifications.
+func catalogueDeTest(t *testing.T) *catalog.Catalog {
+	t.Helper()
+
+	const source = `
+pipelines:
+  - kind: build
+    pipelineRef: build-image
+    label: Construction
+    produces: [image]
+  - kind: unit-tests
+    pipelineRef: unit-tests
+    label: Tests unitaires
+    verification: true
+    produces: [results]
+    params:
+      revision: { source: input, required: true, suggest: git-ref }
+    uploads:
+      results:
+        param: results-upload-url
+        artifact: unit-tests.xml
+        family: unit
+        format: junit
+  - kind: e2e-tests
+    pipelineRef: e2e-tests
+    label: Tests E2E
+    verification: true
+    produces: [results]
+    params:
+      revision: { source: input, required: true, suggest: git-ref }
+    uploads:
+      results:
+        param: results-upload-url
+        artifact: e2e-tests.xml
+        family: e2e
+        format: junit
+`
+	registry, err := catalog.Parse([]byte(source))
+	if err != nil {
+		t.Fatalf("catalogue: %v", err)
+	}
+	return registry
+}
+
+func projetDeuxImages() store.Project {
+	return store.Project{
+		ID: 1, Slug: "mse", Repository: "CNOUS/mse",
+		Dockerfile: "Dockerfile", BuildContext: ".",
+		MultiStage: true,
+		Targets: []store.Target{
+			{Stage: "web", Image: "portal"},
+			{Stage: "cli", Image: "portal-cli"},
+		},
+	}
+}
+
+// La porte : les deux moitiés de la chaîne entrent dans un plan unique.
+func TestConstruireEtVerifierEntrentDansUnPlanUnique(t *testing.T) {
+	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(), nil)
+
+	if err := sujet.Validate(); err != nil {
+		t.Fatalf("le plan composé doit être valide: %v", err)
+	}
+	if len(sujet.Stages) != 2 {
+		t.Fatalf("%d étape(s), attendu construire puis vérifier", len(sujet.Stages))
+	}
+
+	// Les rôles sont l'ancrage du cycle de vie : sans eux, rien ne ferait avancer
+	// la release une fois `release.verified` retiré.
+	if sujet.Stages[0].Role != plan.RoleBuild {
+		t.Errorf("rôle de la première étape = %q", sujet.Stages[0].Role)
+	}
+	if sujet.Stages[1].Role != plan.RoleTest {
+		t.Errorf("rôle de la seconde étape = %q", sujet.Stages[1].Role)
+	}
+	if sujet.LastWithRole(plan.RoleBuild) != 0 || sujet.LastWithRole(plan.RoleTest) != 1 {
+		t.Errorf("ancrages = %d et %d",
+			sujet.LastWithRole(plan.RoleBuild), sujet.LastWithRole(plan.RoleTest))
+	}
+
+	// Un geste par image : les trois images de MSE cessent d'être une boucle dans
+	// l'API pour devenir des gestes lisibles et relançables.
+	if len(sujet.Stages[0].Gestes) != 2 {
+		t.Fatalf("%d geste(s) de construction, attendu un par cible",
+			len(sujet.Stages[0].Gestes))
+	}
+	libelles := []string{sujet.Stages[0].Gestes[0].Label, sujet.Stages[0].Gestes[1].Label}
+	if libelles[0] != "portal" || libelles[1] != "portal-cli" {
+		t.Errorf("libellés = %v — ils distinguent deux gestes de même référence", libelles)
+	}
+
+	// La vérification part **si la construction a réussi**. C'est cette condition
+	// qui remplace le fait `release.built` : la même chose, sans aller-retour par
+	// le fil des faits.
+	for _, geste := range sujet.Stages[1].Gestes {
+		if geste.Condition() != plan.WhenSuccess {
+			t.Errorf("geste %q conditionné en %q, attendu %q",
+				geste.Ref, geste.Condition(), plan.WhenSuccess)
+		}
+	}
+}
+
+// Le geste porte ce que la déclaration fixe, le contexte ce qui dépend du fait.
+//
+// C'est la séparation qui rend un plan réutilisable d'une release à l'autre : un
+// plan qui figerait la révision ne servirait qu'une fois.
+func TestLeGesteFixeLimageEtLeContexteLieLaRevision(t *testing.T) {
+	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(), nil)
+	geste := sujet.Stages[0].Gestes[0]
+
+	// Rien de ce qui dépend de la release n'est dans le geste.
+	for _, interdit := range []string{"revision", "version", "tag-name"} {
+		if _, present := geste.Params[interdit]; present {
+			t.Errorf("le geste fige %q, qui dépend de la release", interdit)
+		}
+	}
+	if geste.Params["image-name"] != "portal" || geste.Params["target"] != "web" {
+		t.Errorf("paramètres du geste = %v", geste.Params)
+	}
+
+	contexte := releaseContext(
+		store.Release{ID: 42, Tag: "3.2.0-rc8"}, "c1f8f8cd", "reg.example.fr/mse")
+	params := buildParams(geste, contexte)
+
+	if params["revision"] != "c1f8f8cd" {
+		t.Errorf("révision liée = %q", params["revision"])
+	}
+	if params["version"] != "3.2.0-rc8" || params["tag-name"] != "3.2.0-rc8" {
+		t.Errorf("tag lié = %v", params)
+	}
+	// Et ce que le geste fixait est toujours là.
+	if params["image-name"] != "portal" {
+		t.Errorf("l'image du geste a été perdue: %v", params)
+	}
+}
+
+// Un geste ne peut pas redéfinir la révision construite.
+//
+// Sans cette règle, deux gestes d'une même release pourraient viser deux commits
+// et publier deux images sous le même tag — l'invariant de version tomberait sans
+// le moindre message (B17).
+func TestUnGesteNePeutPasRedefinirLaRevision(t *testing.T) {
+	geste := plan.Geste{
+		Kind: plan.GestePipeline, Ref: buildKind,
+		Params: map[string]string{"image-name": "portal", "revision": "un-autre-commit"},
+	}
+	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "le-bon-commit", "reg")
+
+	if got := buildParams(geste, contexte)["revision"]; got != "le-bon-commit" {
+		t.Errorf("révision = %q — le contexte doit l'emporter sur le geste", got)
+	}
+}
+
+// Ce que le projet ne vérifie pas ne s'enchaîne pas.
+//
+// Un projet sans campagne E2E voyait le pipeline s'enchaîner, échouer faute de
+// scénario, et laisser sa release attendre un verdict qui ne viendrait jamais.
+func TestUneFamilleNonActiveeNestPasEnchainee(t *testing.T) {
+	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(),
+		func(kind string) bool { return kind != "e2e-tests" })
+
+	if len(sujet.Stages) != 2 {
+		t.Fatalf("%d étape(s)", len(sujet.Stages))
+	}
+	for _, geste := range sujet.Stages[1].Gestes {
+		if geste.Ref == "e2e-tests" {
+			t.Error("une famille non activée par le projet a été enchaînée")
+		}
+	}
+	if len(sujet.Stages[1].Gestes) != 1 {
+		t.Errorf("%d vérification(s), attendu la seule activée", len(sujet.Stages[1].Gestes))
+	}
+}
+
+// Un projet qui ne construit rien et ne vérifie rien rend un plan vide.
+//
+// C'est une configuration légitime, distincte d'un plan invalide : l'appelant
+// conclut tout de suite plutôt que d'attendre un verdict que personne ne rendra.
+func TestUnProjetSansRienARendUnPlanVide(t *testing.T) {
+	sujet := releasePlan(catalogueDeTest(t),
+		store.Project{ID: 2, Slug: "vide"},
+		func(string) bool { return false })
+
+	if !sujet.Empty() {
+		t.Errorf("plan = %+v, attendu vide", sujet)
+	}
+}
