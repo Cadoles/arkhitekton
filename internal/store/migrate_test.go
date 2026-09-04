@@ -266,3 +266,61 @@ func TestWaitForDatabaseHonoursCancellation(t *testing.T) {
 		t.Errorf("annulation non honorée: %s", elapsed)
 	}
 }
+
+// Une base migrée n'a plus rien en attente.
+//
+// C'est la condition de sortie de [WaitForSchema] : sans elle, l'`api` et le
+// `worker` attendraient indéfiniment un schéma pourtant complet.
+func TestUneBaseMigreeNaPlusDeMigrationEnAttente(t *testing.T) {
+	cfg := testDB(t)
+	resetSchema(t, cfg)
+
+	ctx := context.Background()
+	if err := Migrate(ctx, cfg, discardLogger()); err != nil {
+		t.Fatalf("migration: %v", err)
+	}
+
+	pending, err := PendingMigrations(ctx, cfg)
+	if err != nil {
+		t.Fatalf("migrations en attente: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Errorf("%d migration(s) en attente après migration: %v", len(pending), pending)
+	}
+
+	// Et l'attente rend la main tout de suite.
+	if err := WaitForSchema(ctx, cfg, 5*time.Second, discardLogger()); err != nil {
+		t.Errorf("attente sur un schéma à jour: %v", err)
+	}
+}
+
+// Une base vierge est en retard, et l'attente le dit en nommant ce qui manque.
+//
+// Le cas réel : le Job de migration et le pod applicatif démarrent ensemble, et
+// rien ne garantit l'ordre. Sans cette attente, le worker se réconciliait contre
+// un schéma incomplet — une vingtaine de `relation "plan_steps" does not exist`
+// à chaque déploiement.
+func TestUneBaseNonMigreeEstSignaleeEnRetard(t *testing.T) {
+	cfg := testDB(t)
+	resetSchema(t, cfg)
+
+	ctx := context.Background()
+	pending, err := PendingMigrations(ctx, cfg)
+	if err != nil {
+		t.Fatalf("migrations en attente: %v", err)
+	}
+	if len(pending) == 0 {
+		t.Fatal("une base vierge doit avoir des migrations en attente")
+	}
+
+	// L'attente échoue sur une borne courte, et son message nomme une migration
+	// manquante : « schéma en retard » seul enverrait lire les journaux du Job
+	// sans savoir quoi y chercher.
+	err = WaitForSchema(ctx, cfg, 3*time.Second, discardLogger())
+	if err == nil {
+		t.Fatal("l'attente doit échouer sur une base non migrée")
+	}
+	if !strings.Contains(err.Error(), pending[0]) {
+		t.Errorf("message %q — il doit nommer une migration en attente", err)
+	}
+}

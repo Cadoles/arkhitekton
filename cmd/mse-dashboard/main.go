@@ -127,6 +127,12 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err := store.WaitForDatabase(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
+	// Puis le **schéma**, et pas seulement la connexion : le Job de migration
+	// démarre en même temps que ce pod, et servir des requêtes contre un schéma
+	// incomplet rendrait des 500 sur des tables qui vont exister.
+	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
+		return err
+	}
 
 	db, err := openStore(ctx, cfg)
 	if err != nil {
@@ -377,6 +383,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	logger.Info("démarrage", "role", cfg.Role, "namespace", cfg.Tekton.Namespace)
 
 	if err := store.WaitForDatabase(ctx, cfg.Database, startupWait, logger); err != nil {
+		return err
+	}
+	// Puis le schéma. Le worker se réconcilie au démarrage — il rattrape les runs
+	// conclus pendant son absence — et cette réconciliation touche des tables que
+	// le Job de migration n'a peut-être pas encore créées.
+	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
 

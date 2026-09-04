@@ -24,6 +24,10 @@ LOCAL_IMAGE := $(IMAGE_REPO):dev
 KIND_CLUSTER ?= mse
 OVERLAY ?= deploy/overlays/local
 
+# Namespace où vivent les Secrets montés par les pipelines — dont les clés de
+# déploiement par projet. Distinct de celui du dashboard.
+TEKTON_NAMESPACE ?= mse-tekton-pipelines
+
 PG_TEST_NAME := pg-mse-dashboard-test
 PG_TEST_PORT := 15432
 PG_TEST_DSN  := postgres://postgres:t3st@127.0.0.1:$(PG_TEST_PORT)/mse?sslmode=disable
@@ -197,6 +201,35 @@ manifests: ## Rend et analyse les manifests de l'overlay
 # le tag `dev` étant mutable, cette cible doit forcer un redémarrage, et l'oubli
 # de ce redémarrage donne un cluster qui tourne sur du code ancien en affichant
 # des manifests à jour.
+# Réparation ponctuelle des clés de déploiement écrites avant le correctif.
+#
+# Elles ne portaient que `ssh-privatekey`, nom imposé par le type
+# `kubernetes.io/ssh-auth` et que SSH ne lit pas : le workspace `ssh-directory`
+# est recopié dans `~/.ssh`, où seul `id_ed25519` est chargé. Toutes les
+# constructions échouaient en « Permission denied (publickey) ».
+#
+# Pourquoi côté opérateur et non dans le dashboard : celui-ci n'a pas `get` sur
+# les Secrets (doc 07 §7.3), il ne peut donc pas relire une clé pour la recopier
+# sous un second nom. Sa seule reprise possible serait une **rotation**, qui
+# obligerait à recoller autant de clés publiques que de projets. `kubectl`, lui,
+# lit — et la clé ne change pas.
+#
+# Sans effet sur un secret déjà réparé, et sans effet sur les projets créés après
+# le correctif.
+deploy-keys-repair: ## Ajoute id_ed25519 aux clés de déploiement antérieures au correctif
+	@for secret in $$(kubectl -n $(TEKTON_NAMESPACE) get secrets \
+	    -l app.kubernetes.io/managed-by=mse-dashboard -o name); do \
+	  if kubectl -n $(TEKTON_NAMESPACE) get $$secret \
+	      -o jsonpath='{.data.id_ed25519}' | grep -q .; then \
+	    echo "$$secret: déjà réparé"; \
+	    continue; \
+	  fi; \
+	  key=$$(kubectl -n $(TEKTON_NAMESPACE) get $$secret -o jsonpath='{.data.ssh-privatekey}'); \
+	  if [ -z "$$key" ]; then echo "$$secret: aucune clé privée, ignoré"; continue; fi; \
+	  kubectl -n $(TEKTON_NAMESPACE) patch $$secret --type merge \
+	    -p "{\"data\":{\"id_ed25519\":\"$$key\"}}" >/dev/null && echo "$$secret: réparé"; \
+	done
+
 deploy: kind-load manifests ## Déploie sur kind (overlay local, sans Skaffold)
 	@# Un Job est immuable : l'`apply` qui suit échoue sur « field is immutable »
 	@# tant que le précédent n'a pas disparu. `--wait` seul n'a pas suffi — la

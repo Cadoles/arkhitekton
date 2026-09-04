@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // enregistre le pilote "pgx"
@@ -134,6 +135,90 @@ func discardLogger() *slog.Logger {
 
 // waitDelay borne l'attente entre deux tentatives de connexion.
 const waitDelay = 2 * time.Second
+
+// PendingMigrations rend les migrations que ce binaire embarque et que la base
+// n'a pas encore.
+//
+// Vide, le schéma est celui que ce binaire attend.
+func PendingMigrations(ctx context.Context, cfg config.DatabaseConfig) ([]string, error) {
+	state, err := MigrationState(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	var pending []string
+	for _, migration := range state {
+		if !migration.Applied {
+			pending = append(pending, migration.Name)
+		}
+	}
+	return pending, nil
+}
+
+// WaitForSchema attend que la base porte les migrations de ce binaire.
+//
+// # Pourquoi une attente, et pas seulement la connexion
+//
+// La migration est un **Job**, délibérément — un initContainer s'exécuterait une
+// fois par réplique et deux `goose up` concurrents se marcheraient dessus (voir
+// `deploy/base/job-migrate.yaml`). La contrepartie est qu'aucun ordre n'est
+// garanti entre ce Job et les pods applicatifs : ils démarrent ensemble.
+//
+// [WaitForDatabase] ne suffit donc pas. Un worker peut se connecter à une base
+// **joignable mais pas encore migrée**, et sa réconciliation de démarrage
+// s'exécute alors contre un schéma incomplet. C'est ce qui a été constaté :
+// une vingtaine de `relation "plan_steps" does not exist` à chaque déploiement,
+// le temps que le Job passe.
+//
+// Rien n'en restait cassé — les faits suivants s'écrivaient normalement — mais
+// un journal de démarrage rempli d'erreurs attendues apprend à ignorer les
+// erreurs, et c'est ainsi qu'une vraie panne passe inaperçue.
+//
+// # Attendre plutôt que migrer soi-même
+//
+// L'`api` et le `worker` pourraient appliquer les migrations eux-mêmes. Ce serait
+// rouvrir précisément ce que le Job a fermé : deux répliques d'`api` migreraient
+// en parallèle. Ils attendent donc, et c'est le Job qui écrit.
+func WaitForSchema(
+	ctx context.Context, cfg config.DatabaseConfig, timeout time.Duration, logger *slog.Logger,
+) error {
+	deadline := time.Now().Add(timeout)
+	attempt := 0
+
+	for {
+		attempt++
+		pending, err := PendingMigrations(ctx, cfg)
+		switch {
+		case err != nil:
+			// Une lecture impossible n'est pas un schéma en retard. On réessaie,
+			// puis on rend l'erreur telle quelle : elle dit autre chose.
+			if time.Now().After(deadline) {
+				return fmt.Errorf("état du schéma illisible après %s: %w",
+					timeout, redactError(err, cfg.DSN))
+			}
+		case len(pending) == 0:
+			if attempt > 1 {
+				logger.Info("schéma à jour", "tentatives", attempt)
+			}
+			return nil
+		case time.Now().After(deadline):
+			// Le message nomme ce qui manque : « schéma en retard » seul
+			// enverrait lire les journaux du Job sans savoir quoi y chercher.
+			return fmt.Errorf(
+				"schéma incomplet après %s, %d migration(s) en attente: %s",
+				timeout, len(pending), strings.Join(pending, ", "))
+		default:
+			logger.Info("schéma en retard, attente du Job de migration",
+				"tentative", attempt, "en_attente", len(pending), "délai", waitDelay)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(waitDelay):
+		}
+	}
+}
 
 // WaitForDatabase attend que PostgreSQL accepte des connexions.
 //

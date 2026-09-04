@@ -60,7 +60,20 @@ func TestChaqueGenerationRendUneClefDistincte(t *testing.T) {
 // Le Secret déposé porte la matière sous la clé qu'attend Tekton, et rien
 // d'autre. Un type ou un nom de champ erroné produirait un montage vide, et le
 // clone échouerait comme si le dépôt était inaccessible.
-func TestLeSecretPorteLaMatiereSousLaCleAttendueParTekton(t *testing.T) {
+// Le Secret doit porter la clé sous le nom que **SSH** lit, pas seulement sous
+// celui que le type impose.
+//
+// # Ce test disait l'inverse, et il passait
+//
+// Il exigeait un unique champ, `ssh-privatekey`, en le nommant « la clé attendue
+// par Tekton ». C'était vrai du **type** `kubernetes.io/ssh-auth` et faux du
+// workspace `ssh-directory`, qui est recopié dans `~/.ssh` où OpenSSH ne charge
+// que `id_ed25519` ou `id_rsa`.
+//
+// Conséquence : toutes les constructions échouaient en `Permission denied
+// (publickey)` depuis le passage aux clés par projet, la clé publique étant
+// pourtant bien déclarée sur le dépôt. Le test vert avait figé l'erreur.
+func TestLeSecretPorteLaMatiereSousLeNomQueSSHLit(t *testing.T) {
 	kube := fake.NewSimpleClientset()
 	owner := NewOwner(kube, "mse-tekton-pipelines")
 
@@ -81,13 +94,24 @@ func TestLeSecretPorteLaMatiereSousLaCleAttendueParTekton(t *testing.T) {
 	if secret.Type != corev1.SecretTypeSSHAuth {
 		t.Errorf("type %q, attendu %q", secret.Type, corev1.SecretTypeSSHAuth)
 	}
+	// Le nom imposé par le type, pour que l'objet reste typé.
 	if len(secret.Data[corev1.SSHAuthPrivateKey]) == 0 {
 		t.Errorf("champ %q vide", corev1.SSHAuthPrivateKey)
 	}
+	// Et celui que SSH lit. C'est celui-ci qui manquait.
+	if len(secret.Data[PrivateKeyFile]) == 0 {
+		t.Fatalf("champ %q absent: SSH ne chargerait aucune identité", PrivateKeyFile)
+	}
+	// La même matière sous les deux noms : deux clés distinctes voudraient dire
+	// que l'une des deux n'ouvre rien.
+	if string(secret.Data[PrivateKeyFile]) != string(secret.Data[corev1.SSHAuthPrivateKey]) {
+		t.Error("les deux champs portent des clés différentes")
+	}
 	// La moitié publique n'a rien à faire dans le Secret : le dashboard la garde
 	// en base, et la dupliquer créerait deux vérités à tenir d'accord.
-	if len(secret.Data) != 1 {
-		t.Errorf("le secret porte %d champs, attendu la seule moitié privée", len(secret.Data))
+	if len(secret.Data) != 2 {
+		t.Errorf("le secret porte %d champs, attendu la seule moitié privée "+
+			"sous ses deux noms", len(secret.Data))
 	}
 	if secret.Labels["app.kubernetes.io/managed-by"] != ManagedBy {
 		t.Errorf("étiquettes %v — la propriété doit être lisible", secret.Labels)
@@ -146,6 +170,11 @@ func TestUneRotationRemplaceLaClefQuandLaBaseLAtteste(t *testing.T) {
 
 	secret, _ := kube.CoreV1().Secrets("mse-tekton-pipelines").
 		Get(ctx, SecretName("mon-projet"), metav1.GetOptions{})
+	if len(secret.Data[PrivateKeyFile]) == 0 {
+		t.Fatalf("champ %q absent après rotation: la nouvelle clé ne servirait à rien",
+			PrivateKeyFile)
+	}
+
 	signer, err := ssh.ParsePrivateKey(secret.Data[corev1.SSHAuthPrivateKey])
 	if err != nil {
 		t.Fatalf("clé relue illisible: %v", err)

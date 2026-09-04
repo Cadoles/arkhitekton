@@ -55,6 +55,45 @@ import (
 // l'objet et qui le supprimera.
 const ManagedBy = "mse-dashboard"
 
+// PrivateKeyFile est le nom sous lequel la clé est déposée dans le Secret.
+//
+// # Ce nom-là, et pas un autre
+//
+// Le workspace `ssh-directory` de la Task `git-clone` est **recopié tel quel dans
+// `~/.ssh`**. OpenSSH n'y charge que les identités qu'il connaît — `id_ed25519`,
+// `id_rsa` — ou celles qu'un `config` désigne. Un fichier nommé autrement est
+// présent et ignoré.
+//
+// C'est le défaut qui a fait échouer toutes les constructions après le passage
+// aux clés par projet : le Secret ne portait que `ssh-privatekey`, le nom imposé
+// par le **type** `kubernetes.io/ssh-auth`. Ce nom est juste pour le type, et
+// muet pour SSH. La clé partagée qu'il remplaçait portait `id_ed25519`, et c'est
+// pour cela qu'elle fonctionnait.
+//
+// Symptôme, pour qui le reverrait : `git-init` prévient « appears to need SSH
+// authentication but no SSH credentials have been provided », puis la forge
+// répond `Permission denied (publickey)` — alors même que la clé publique est
+// bien déclarée sur le dépôt.
+const PrivateKeyFile = "id_ed25519"
+
+// secretData compose le contenu du Secret.
+//
+// La clé est déposée **deux fois**, sous les deux noms. Ce n'est pas une
+// hésitation :
+//
+//   - `ssh-privatekey` est exigé par le type `kubernetes.io/ssh-auth`, qu'on
+//     garde pour que l'objet reste typé et reconnaissable ;
+//   - [PrivateKeyFile] est celui que SSH lit une fois le workspace recopié.
+//
+// Les deux désignent la même matière, donc la même portée : rien n'est exposé de
+// plus qu'avec un seul fichier.
+func secretData(private []byte) map[string][]byte {
+	return map[string][]byte{
+		corev1.SSHAuthPrivateKey: private,
+		PrivateKeyFile:           private,
+	}
+}
+
 // ErrNameTaken signale qu'un Secret porte déjà le nom que le projet réclame.
 //
 // Ce n'est pas une erreur d'écriture : c'est le refus d'adopter. Le Secret
@@ -149,10 +188,7 @@ func (o *Owner) Create(ctx context.Context, slug, comment string, known bool) (s
 			},
 		},
 		Type: corev1.SecretTypeSSHAuth,
-		Data: map[string][]byte{
-			// La clé attendue par Tekton pour un secret `kubernetes.io/ssh-auth`.
-			corev1.SSHAuthPrivateKey: pair.Private,
-		},
+		Data: secretData(pair.Private),
 	}
 
 	secrets := o.kube.CoreV1().Secrets(o.namespace)
