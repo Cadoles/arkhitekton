@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
@@ -80,13 +79,19 @@ func (p redmineProbe) Poll(
 		trackerProject = strings.TrimSpace(project.TrackerProject)
 	}
 	if trackerProject == "" {
-		// Nommé plutôt que passé sous silence. Avant la migration, un projet sans
-		// suivi était simplement absent de la liste ; ici le plugin a été **allumé
-		// pour ce projet**, ce qui est une intention. La taire laisserait un écran
-		// des versions vide sans que rien ne dise pourquoi.
-		return nil, "", fmt.Errorf(
-			"le plugin %q est actif sur ce projet sans identifiant de projet dans le suivi",
-			trackerTool)
+		// **Pas une erreur**, et c'est une correction.
+		//
+		// J'avais fait de ce cas un échec nommé, en le prenant pour une intention
+		// contrariée : « le plugin est allumé, donc quelqu'un veut suivre ce
+		// projet ». Le journal de production a montré le contraire — le plugin est
+		// activé au niveau de l'**instance**, et quatre projets sur cinq n'ont
+		// simplement pas de correspondance dans le suivi. Le cas normal criait
+		// donc toutes les cinq minutes, pour chacun d'eux.
+		//
+		// Un projet sans identifiant de suivi n'a rien à lire. C'est exactement ce
+		// que `TrackedProjects` exprimait avant la migration, et le perdre était
+		// une régression de jugement, pas de code.
+		return nil, cursor, nil
 	}
 
 	client, err := p.sync.connect(TrackerConnection{

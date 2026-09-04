@@ -310,11 +310,20 @@ func (db *DB) GetSyncState(ctx context.Context, source string, projectID int64) 
 }
 
 // RecordSyncSuccess avance le curseur d'un projet et efface l'erreur précédente.
+// Le prédicat `where project_id is not null` n'est pas décoratif : `sync_state`
+// porte deux index uniques **partiels** — un par projet, un pour ce qui n'en vise
+// aucun — et PostgreSQL refuse un `on conflict` qui ne reprend pas celui de
+// l'index visé. Sans lui, l'écriture échoue en 42P10 : « no unique or exclusion
+// constraint matching the ON CONFLICT specification ».
+//
+// Constaté en production, sur le journal du worker : chaque passe de sonde
+// échouait à consigner son état, et l'écran ne pouvait donc jamais dire
+// « dernière tentative en échec ».
 func (db *DB) RecordSyncSuccess(ctx context.Context, source string, projectID int64, cursor string) error {
 	_, err := db.pool.Exec(ctx,
 		`insert into sync_state (source, project_id, cursor, last_run, last_ok, last_error, updated_at)
 		 values ($1, $2, nullif($3, ''), now(), now(), null, now())
-		 on conflict (source, project_id) do update set
+		 on conflict (source, project_id) where project_id is not null do update set
 		     cursor = excluded.cursor, last_run = excluded.last_run,
 		     last_ok = excluded.last_ok, last_error = null, updated_at = now()`,
 		source, projectID, cursor)
@@ -333,7 +342,7 @@ func (db *DB) RecordSyncFailure(ctx context.Context, source string, projectID in
 	_, err := db.pool.Exec(ctx,
 		`insert into sync_state (source, project_id, last_run, last_error, updated_at)
 		 values ($1, $2, now(), $3, now())
-		 on conflict (source, project_id) do update set
+		 on conflict (source, project_id) where project_id is not null do update set
 		     last_run = excluded.last_run, last_error = excluded.last_error,
 		     updated_at = now()`,
 		source, projectID, message)
@@ -348,7 +357,7 @@ func (db *DB) ResetSyncCursor(ctx context.Context, source string, projectID int6
 	_, err := db.pool.Exec(ctx,
 		`insert into sync_state (source, project_id, cursor, updated_at)
 		 values ($1, $2, null, now())
-		 on conflict (source, project_id) do update set cursor = null, updated_at = now()`,
+		 on conflict (source, project_id) where project_id is not null do update set cursor = null, updated_at = now()`,
 		source, projectID)
 	if err != nil {
 		return fmt.Errorf("réinitialisation du curseur %q: %w", source, err)

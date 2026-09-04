@@ -118,16 +118,34 @@ func TestLaCleDUnFaitDuSuiviPorteSonProjet(t *testing.T) {
 	}
 }
 
-// Un plugin actif sans identifiant de projet est nommé, pas ignoré.
-func TestLaSondeDuSuiviRefuseUnProjetSansIdentifiant(t *testing.T) {
+// Un projet sans identifiant de suivi est ignoré, en silence.
+//
+// # Une correction de jugement
+//
+// Ce test exigeait l'inverse : que la sonde **refuse** nommément, au motif qu'un
+// plugin allumé sur un projet est une intention. Le journal de production a
+// montré que non — le plugin est activé au niveau de l'instance, et la plupart
+// des projets n'ont pas de correspondance dans le suivi. Le cas normal criait
+// donc toutes les cinq minutes, pour chacun d'eux.
+func TestUnProjetSansIdentifiantDeSuiviEstIgnore(t *testing.T) {
 	sonde := NewRedmineProbe(NewTrackerSync(&fakeRedmineStore{},
-		func(TrackerConnection) (TrackerReader, error) { return &fakeRedmine{}, nil },
+		func(TrackerConnection) (TrackerReader, error) {
+			t.Error("aucune connexion ne doit être ouverte")
+			return &fakeRedmine{}, nil
+		},
 		quietLogger()))
 
-	_, _, err := sonde.Poll(context.Background(),
-		store.Project{ID: 1, Slug: "mse"}, map[string]string{"url": "https://r.fr"}, "")
+	facts, cursor, err := sonde.Poll(context.Background(),
+		store.Project{ID: 1, Slug: "mse"}, map[string]string{"url": "https://r.fr"}, "curseur")
 
-	if err == nil {
-		t.Fatal("un suivi actif sans projet doit se dire")
+	if err != nil {
+		t.Fatalf("%v — l'absence de suivi n'est pas une panne", err)
+	}
+	if len(facts) != 0 {
+		t.Errorf("%d fait(s) rendus", len(facts))
+	}
+	// Le curseur est rendu inchangé : rien n'a été lu, donc rien n'a avancé.
+	if cursor != "curseur" {
+		t.Errorf("curseur = %q, attendu inchangé", cursor)
 	}
 }

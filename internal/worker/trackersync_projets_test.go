@@ -255,34 +255,24 @@ func TestLIdentifiantDuSuiviRetombeSurLaColonne(t *testing.T) {
 	}
 }
 
-// Un plugin actif sans identifiant de projet le dit, plutôt que de se taire.
+// Un projet sans identifiant de suivi ne consigne aucun échec.
 //
-// # Un comportement que la migration a changé, délibérément
-//
-// Avant, un projet sans suivi était simplement absent de `TrackedProjects` : la
-// boucle ne le voyait pas. Maintenant la boucle voit **tous** les projets et
-// s'appuie sur l'activation du plugin. Or activer Redmine sur un projet est une
-// intention ; la taire laisserait un écran des versions vide sans que rien ne
-// dise pourquoi.
-func TestUnSuiviActifSansProjetSeDit(t *testing.T) {
+// Il n'a rien à lire, ce qui n'est pas une panne. Consigner un échec ferait dire
+// à l'écran d'administration que la synchronisation est en erreur sur un projet
+// qui n'utilise simplement pas de suivi.
+func TestUnProjetSansIdentifiantDeSuiviNeConsignePasDechec(t *testing.T) {
 	db := newMultiStore()
 	db.configs[1] = map[string]string{"url": "https://redmine.un.fr", "api_key": "scellé:clé"}
 
 	connect := func(TrackerConnection) (TrackerReader, error) { return &fakeRedmine{}, nil }
 	runner, sonde := sondeDuSuivi(t, db, openerDeTest{}, connect)
 
-	// Le projet 1 n'a plus d'identifiant nulle part : ni dans le réglage, ni dans
-	// la colonne.
 	projetsSansSuivi := &multiStoreSansColonne{multiStore: db}
 	runner.store = projetsSansSuivi
 	runner.sweep(context.Background(), sonde)
 
-	motif, présent := db.failures[1]
-	if !présent {
-		t.Fatal("un plugin actif sans identifiant de projet doit être consigné")
-	}
-	if !strings.Contains(motif, "identifiant de projet") {
-		t.Errorf("motif %q — il doit nommer ce qui manque", motif)
+	if motif, présent := db.failures[1]; présent {
+		t.Errorf("échec consigné %q — l'absence de suivi n'en est pas un", motif)
 	}
 }
 
