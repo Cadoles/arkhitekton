@@ -7,7 +7,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 )
@@ -163,41 +162,6 @@ func (s *runSink) emitPipelineFinished(ctx context.Context, runID int64, run tek
 		run.Name, job.Kind, factOutcome(run.Status), releaseID))
 }
 
-// emitReleaseBuilt constate la conclusion d'une construction.
-//
-// Appelé après la transition d'état, qui est l'endroit où la conclusion devient
-// vraie une seule fois.
-func (s *runSink) emitReleaseBuilt(
-	ctx context.Context, linked store.JobReleaseContext, jobState string,
-) {
-	s.emit(ctx, event.ReleaseBuiltAt(
-		s.at(), linked.ProjectID, linked.ReleaseID, linked.JobID,
-		linked.Tag, jobOutcome(jobState), linked.GitCommit))
-}
-
-// emitReleaseVerified constate qu'une release a reçu tous ses verdicts.
-func (s *runSink) emitReleaseVerified(
-	ctx context.Context, linked store.JobReleaseContext, target release.State, kinds []string,
-) {
-	outcome := event.Succeeded
-	if target != release.StateReady {
-		outcome = event.Failed
-	}
-
-	s.emit(ctx, event.ReleaseVerifiedAt(
-		s.at(), linked.ProjectID, linked.ReleaseID, linked.JobID,
-		linked.Tag, outcome, kinds))
-}
-
-// emitReleasePromoted constate qu'une promotion a abouti.
-//
-// **Le re-tag a réussi**, ce qui est un constat et non l'intention de le
-// demander. Ce que le déployeur en fait ensuite est une autre affaire, et c'est
-// l'écran des environnements qui la raconte (B8).
-//
-// Une promotion échouée n'émet rien de particulier : `pipeline.finished` la porte
-// déjà, avec son issue. Ajouter `release.promoted` en échec inventerait un fait
-// dont le nom dirait le contraire de ce qui s'est passé.
 func (s *runSink) emitReleasePromoted(ctx context.Context, linked store.JobReleaseContext, jobState string) {
 	if jobState != store.JobSucceeded || linked.Environment == "" {
 		return

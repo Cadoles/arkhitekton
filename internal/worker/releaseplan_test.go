@@ -303,3 +303,55 @@ func TestUnPlanSansReleaseNavanceRien(t *testing.T) {
 		t.Errorf("transitions demandées = %v", suivi.demandes)
 	}
 }
+
+// Une étape de construction encore en cours n'avance pas la release.
+//
+// # La propriété que le décompte des builds tenait
+//
+// Une release construit plusieurs images. Tant que la dernière n'a pas conclu,
+// elle reste en construction — l'observateur le tenait par `CountBuilds`, un
+// décompte en base relu à chaque conclusion.
+//
+// L'étape le tient sans requête : elle n'est **réglée** que lorsque tous ses
+// gestes le sont, et [plan.Progress.StageOutcome] ne rend rien avant.
+func TestUneConstructionPartielleNAvancePasLaRelease(t *testing.T) {
+	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(), nil)
+	progress := plan.Start(sujet)
+
+	// La première image a conclu, la seconde tourne encore.
+	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 0}, plan.Succeeded)
+	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 1}, plan.Running)
+
+	if _, settled := progress.StageOutcome(0); settled {
+		t.Fatal("une étape dont un geste tourne encore ne doit pas être réglée")
+	}
+
+	// La seconde conclut : l'étape est réglée, et seulement alors.
+	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 1}, plan.Succeeded)
+	outcome, settled := progress.StageOutcome(0)
+	if !settled || outcome != plan.Succeeded {
+		t.Errorf("issue = %q, réglée = %v", outcome, settled)
+	}
+}
+
+// Une image en échec conclut l'étape sans attendre les autres.
+//
+// Attendre ferait tourner des constructions dont on sait déjà que le résultat ne
+// servira pas, et retarderait d'autant le moment où l'écran dit ce qui ne va pas.
+func TestUneImageEnEchecFaitEchouerLetapeDesQuelleEstReglee(t *testing.T) {
+	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(), nil)
+	progress := plan.Start(sujet)
+
+	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 0}, plan.Failed)
+	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 1}, plan.Succeeded)
+
+	outcome, settled := progress.StageOutcome(0)
+	if !settled {
+		t.Fatal("l'étape doit être réglée")
+	}
+	// Un échec l'emporte sur une réussite : l'image manquante manque, quelle que
+	// soit la réussite des autres.
+	if outcome != plan.Failed {
+		t.Errorf("issue = %q, attendu échouée", outcome)
+	}
+}

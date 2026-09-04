@@ -52,7 +52,13 @@ import (
  */
 
 // Clés du contexte d'exécution du plan d'une release.
+//
+// Nommées plutôt qu'écrites en clair aux deux bouts : le plan les pose, le runner
+// les lit, et deux orthographes produiraient un geste sans paramètres dont rien
+// ne dirait pourquoi.
 const (
+	contextRevision  = "revision"
+	contextTag       = "tag"
 	contextReleaseID = "release_id"
 	contextRegistry  = "registry"
 )
@@ -68,6 +74,21 @@ const releaseTrigger = "builtin:release"
 // En dur dans cette tranche, comme la composition elle-même : c'est ce que la
 // déclaration retirera.
 const buildKind = "build"
+
+// ProjectPipelines dit ce qu'un projet déclare vérifier.
+//
+// Interface étroite plutôt que le magasin entier : la composition n'a besoin que
+// de cette réponse, et lui donner accès aux projets l'inviterait à en lire autre
+// chose.
+type ProjectPipelines interface {
+	PipelineEnabled(ctx context.Context, projectID int64, kind string) (bool, error)
+}
+
+// verificationRequester nomme le demandeur des jobs qu'un plan enfile.
+//
+// Distinct d'un identifiant humain : ces jobs ne sont demandés par personne, et
+// afficher le nom de qui a créé la release ferait croire à un lancement manuel.
+const verificationRequester = "system:plan"
 
 // releasePlan compose le plan d'une release : construire, puis vérifier.
 //
