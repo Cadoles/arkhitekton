@@ -19,11 +19,22 @@ export type TestResult = {
 }
 
 export type SignalScore = {
+  /** Identifie le composant : le geste qui a mesuré — `geste:1.0` — ou la
+   *  famille, pour une release antérieure aux plans. C'est elle, et non le
+   *  signal, qui distingue deux campagnes de même nature. */
+  key: string
+  /** Le nom du composant, dans les mots de qui l'a déclaré. */
+  label: string
+  /** La **nature** de ce qui est mesuré. Sert à choisir une icône ; deux
+   *  composants peuvent la partager. */
   signal: string
   value: number
   /** Poids **effectif**, après redistribution des signaux non mesurés. C'est lui
    *  qui explique la contribution réelle au score. */
   weight: number
+  /** Poids saisi, avant redistribution. Sans lui une pondération ne se relit
+   *  pas : « 33 » ne dit pas si quelqu'un a écrit 20 ou 40. */
+  declared: number
   measured: boolean
   detail?: string
   /** Verdict du signal, rendu par le serveur. L'interface ne dérive aucun
@@ -37,9 +48,9 @@ export type ScoreBreakdown = {
   measured: boolean
   health: Health | 'na'
   signals: SignalScore[]
-  /** Signaux sortis du calcul. Affichés tels quels : le lecteur doit savoir sur
-   *  quoi porte le score qu'il lit — un 100 sur trois signaux n'est pas un 100
-   *  sur six (B11). */
+  /** Les **clés** des composants sortis du calcul. Affichées telles quelles : le
+   *  lecteur doit savoir sur quoi porte le score qu'il lit — un 100 sur trois
+   *  composants n'est pas un 100 sur six (B11). */
   redistributed: string[]
 }
 

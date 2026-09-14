@@ -88,6 +88,31 @@ type Geste struct {
 	// la révision construite, le tag — est lié par le moteur au moment de partir :
 	// un plan qui figerait ces valeurs ne servirait qu'une fois.
 	Params map[string]string `json:"params,omitempty"`
+	// Weight est le poids de ce geste dans le score de qualité d'une release.
+	//
+	// # Sur le geste, et plus sur le signal
+	//
+	// Le score pesait **six signaux** de poids fixes, et deux campagnes E2E
+	// distinctes ne pouvaient donc pas peser chacune la sienne : elles se
+	// confondaient dans une famille unique. Le signal ne disparaît pas — il reste
+	// ce qui dit au lecteur de rapports quoi extraire (doc 13) — mais il cesse
+	// d'être l'axe de pondération (doc 15 §15.6).
+	//
+	// # Pointeur, et pourquoi
+	//
+	// Trois états, pas deux. Absent : le geste prend le poids d'origine de son
+	// signal, celui que le client a accepté (B11) — personne ne perd la
+	// pondération convenue en ne saisissant rien. Zéro : le geste est
+	// **délibérément** hors du score, ce qui est une décision et pas un oubli.
+	// Une valeur : elle s'applique.
+	//
+	// # Figé avec le plan, sans machinerie
+	//
+	// `plan_runs.plan` porte le plan tel qu'il était à l'ouverture. Le poids y est
+	// donc figé avec le reste : rejouer le score d'une release livrée il y a six
+	// mois emploie les poids de ce jour-là, et non ceux d'aujourd'hui. Un chiffre
+	// communiqué ne se réécrit pas.
+	Weight *float64 `json:"weight,omitempty"`
 }
 
 // Condition rend la règle effective, l'absence valant [WhenSuccess].
@@ -193,6 +218,7 @@ func (p Plan) Validate() error {
 			continue
 		}
 		problems = append(problems, stage.validateRole(index)...)
+		problems = append(problems, stage.validateWeights(index)...)
 		for rank, geste := range stage.Gestes {
 			problems = append(problems, geste.validate(index, rank)...)
 		}
@@ -217,6 +243,14 @@ func (s Stage) validateRole(index int) []error {
 		ErrInvalid, index+1, s.Role, strings.Join(known, ", "))}
 }
 
+// ReleaseTrigger nomme le déclencheur du plan d'une release.
+//
+// Ici plutôt que dans le worker, depuis que deux paquets ont besoin de le
+// composer : celui qui ouvre l'exécution, et celui qui la **retrouve** pour lire
+// les poids figés d'un score. Deux orthographes désigneraient deux exécutions,
+// et le score se calculerait sur un plan qui n'a pas tourné.
+const ReleaseTrigger = "builtin:release"
+
 // Refs rend ce qu'un plan désigne, par nature de geste.
 //
 // Une fonction du paquet plutôt qu'une méthode d'une réaction : depuis que
@@ -235,6 +269,30 @@ func Refs(p Plan) (pipelines, actions []string) {
 		}
 	}
 	return pipelines, actions
+}
+
+// validateWeights refuse un poids là où rien ne le lirait.
+//
+// Le score d'une release se calcule sur les gestes de son étape de
+// **vérification** : c'est la seule qui mesure quelque chose. Un poids posé
+// ailleurs — sur une construction, sur une notification — serait enregistré,
+// affiché, et sans effet. Le refuser vaut mieux que le laisser croire.
+func (s Stage) validateWeights(index int) []error {
+	if s.Role == RoleTest {
+		return nil
+	}
+
+	var problems []error
+	for rank, geste := range s.Gestes {
+		if geste.Weight == nil {
+			continue
+		}
+		problems = append(problems, fmt.Errorf(
+			"%w: étape %d, geste %d: un poids ne pèse qu'au score d'une étape de "+
+				"rôle %q (celle-ci porte %q)",
+			ErrInvalid, index+1, rank+1, RoleTest, s.Role))
+	}
+	return problems
 }
 
 // LastWithRole rend l'indice de la dernière étape portant ce rôle, ou -1.
@@ -287,6 +345,15 @@ func (g Geste) validate(stage, rank int) []error {
 		problems = append(problems, fmt.Errorf(
 			"%w: %s: condition %q sur la première étape — rien ne la précède, "+
 				"ce geste ne partirait jamais", ErrInvalid, where, WhenFailure))
+	}
+
+	// Un poids négatif ferait *baisser* le score quand le geste réussit, et le
+	// monter quand il échoue. La renormalisation le rendrait de surcroît
+	// incalculable dès que la somme des poids mesurés atteint zéro.
+	if g.Weight != nil && *g.Weight < 0 {
+		problems = append(problems, fmt.Errorf(
+			"%w: %s: poids négatif (%v) — un geste ne peut pas retrancher du score",
+			ErrInvalid, where, *g.Weight))
 	}
 
 	return problems

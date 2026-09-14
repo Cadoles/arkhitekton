@@ -3,7 +3,6 @@ package results
 import (
 	"fmt"
 	"math"
-	"sort"
 )
 
 /*
@@ -49,6 +48,11 @@ type Weights map[Signal]float64
 // Présente en code comme **repli**, pas comme référence : sans elle, une
 // ConfigMap absente rendrait tout score incalculable, ce qui est pire qu'un score
 // calculé selon la pondération d'origine et affiché avec son détail.
+//
+// Depuis que le poids se déclare sur le geste (doc 15 §15.6), elle sert surtout
+// de **défaut par signal** : un geste qui ne dit rien pèse ce que son signal
+// pesait avant que quiconque puisse le changer. Personne ne perd la pondération
+// convenue en ne saisissant rien.
 func DefaultWeights() Weights {
 	return Weights{
 		SignalUnit:        25,
@@ -60,9 +64,65 @@ func DefaultWeights() Weights {
 	}
 }
 
-// Measure est la valeur d'un signal.
+// SignalOf rend le signal qu'une famille de résultats alimente.
+//
+// La famille dit d'où sort le chiffre, le signal dit comment le noter. Les deux
+// noms coexistaient déjà dans l'interface ; la correspondance, elle, vivait
+// implicitement dans une liste d'appels — et devenait fausse dès qu'un geste
+// choisissait sa famille au lieu de la subir.
+func SignalOf(family Family) (Signal, bool) {
+	switch family {
+	case FamilyUnit:
+		return SignalUnit, true
+	case FamilyIntegration:
+		return SignalIntegration, true
+	case FamilyE2E:
+		return SignalE2E, true
+	case FamilyStatic:
+		return SignalCode, true
+	case FamilySecurity:
+		return SignalSecurity, true
+	case FamilyLoad:
+		return SignalPerformance, true
+	default:
+		return "", false
+	}
+}
+
+// WeightOf rend le poids d'un geste : celui qu'il déclare, sinon celui de son
+// signal.
+//
+// Le pointeur porte trois états, et c'est pour cela qu'il en est un. Absent : le
+// défaut du signal s'applique. Zéro : le geste est délibérément hors du score.
+// Une valeur : elle s'applique.
+func WeightOf(declared *float64, signal Signal) float64 {
+	if declared != nil {
+		return *declared
+	}
+	return DefaultWeights()[signal]
+}
+
+// Measure est la valeur d'un composant du score.
 type Measure struct {
+	// Key identifie le composant, et c'est ce qui a changé d'axe.
+	//
+	// Le signal faisait l'identité : six composants, un par nature, et deux
+	// campagnes E2E distinctes se confondaient donc dans un seul. La clé est
+	// désormais le **geste** qui a mesuré — `geste:1.0` — ou, pour une release
+	// antérieure aux plans, la famille faute de mieux — `signal:unit`
+	// (doc 15 §15.6).
+	Key string
+	// Label nomme le composant à l'écran, dans les mots de qui l'a déclaré.
+	Label string
+	// Signal dit **comment** mesurer, et plus comment pondérer. Il reste ce qui
+	// relie un rapport à sa règle de notation (doc 13).
 	Signal Signal
+	// Weight est le poids déclaré de ce composant.
+	//
+	// Porté par la mesure et non cherché dans une table : c'est ce qui permet à
+	// deux gestes de même signal de peser différemment, et c'est tout l'objet du
+	// changement.
+	Weight float64
 	// Value vaut 0 à 100. Ignorée quand Measured est faux.
 	Value float64
 	// Measured distingue « mesuré à zéro » de « non mesuré ». Les deux affichent
@@ -73,6 +133,13 @@ type Measure struct {
 	Detail string
 }
 
+// SignalKey rend la clé d'un composant identifié par son seul signal.
+//
+// Le repli des releases qui n'ont pas de plan — celles d'avant doc 15 §15.2. Leur
+// score reste calculable, et c'est la seule raison pour laquelle cette forme
+// existe encore.
+func SignalKey(signal Signal) string { return "signal:" + string(signal) }
+
 // Breakdown est le score et sa décomposition.
 type Breakdown struct {
 	// Score vaut 0 à 100, arrondi à l'entier. Nul quand rien n'est mesuré — et
@@ -81,80 +148,97 @@ type Breakdown struct {
 	Score    int
 	Measured bool
 	Signals  []SignalScore
-	// Redistributed liste les signaux sortis du calcul. Affiché tel quel : le
-	// lecteur doit savoir sur quoi porte le score qu'il lit.
-	Redistributed []Signal
+	// Redistributed liste les composants sortis du calcul, par leur clé. Affiché
+	// tel quel : le lecteur doit savoir sur quoi porte le score qu'il lit.
+	Redistributed []string
 }
 
-// SignalScore est la contribution d'un signal.
+// SignalScore est la contribution d'un composant.
 type SignalScore struct {
+	// Key et Label identifient le composant. Le signal les accompagne parce qu'il
+	// dit la nature de ce qui a été mesuré, et sert encore à choisir une icône.
+	Key    string
+	Label  string
 	Signal Signal
 	Value  float64
 	// Weight est le poids **effectif**, après redistribution. Distinct du poids
 	// déclaré : c'est lui qui explique la contribution réelle.
-	Weight   float64
+	Weight float64
+	// Declared est le poids tel qu'il a été saisi, avant redistribution. Rendu
+	// parce qu'un poids effectif seul ne permet pas de relire une pondération :
+	// « 33 » ne dit pas si quelqu'un a écrit 20 ou 40.
+	Declared float64
 	Measured bool
 	Detail   string
 }
 
 // Score calcule le score pondéré et sa décomposition.
-func Score(measures []Measure, weights Weights) Breakdown {
-	if len(weights) == 0 {
-		weights = DefaultWeights()
-	}
-
+//
+// Les poids voyagent avec les mesures : un composant sait ce qu'il pèse, et deux
+// composants de même signal peuvent donc peser différemment. La table des poids
+// a disparu de la signature pour cette raison — la chercher par signal était
+// exactement ce qui empêchait deux campagnes E2E de compter séparément.
+//
+// **L'ordre des mesures est conservé.** C'est celui de la déclaration, donc celui
+// que l'écran doit montrer : un plan qui lance l'audit en premier l'affiche en
+// premier, et le trier ici imposerait un ordre que personne n'a demandé.
+func Score(measures []Measure) Breakdown {
 	var totalWeight float64
 	for _, measure := range measures {
 		if measure.Measured {
-			totalWeight += weights[measure.Signal]
+			totalWeight += measure.Weight
 		}
 	}
 
 	breakdown := Breakdown{}
 
+	// `totalWeight` nul couvre deux cas d'un coup : rien n'a été mesuré, ou tout
+	// ce qui l'a été pèse zéro. Dans les deux, aucun score n'est calculable — et
+	// rendre zéro serait un jugement, le plus sévère possible sur une release
+	// qu'on n'a pas évaluée.
 	if totalWeight == 0 {
-		// Aucun signal mesuré : pas de score. Rendre zéro serait un jugement, et
-		// ce serait le plus sévère possible sur une release qu'on n'a pas évaluée.
 		for _, measure := range measures {
-			breakdown.Signals = append(breakdown.Signals, SignalScore{
-				Signal: measure.Signal, Detail: measure.Detail,
-			})
-			breakdown.Redistributed = append(breakdown.Redistributed, measure.Signal)
+			breakdown.Signals = append(breakdown.Signals, retire(measure))
+			breakdown.Redistributed = append(breakdown.Redistributed, measure.Key)
 		}
-		sortSignals(breakdown.Signals)
-		sortSignalNames(breakdown.Redistributed)
 		return breakdown
 	}
 
 	var weighted float64
 	for _, measure := range measures {
-		declared := weights[measure.Signal]
-
 		if !measure.Measured {
-			breakdown.Signals = append(breakdown.Signals, SignalScore{
-				Signal: measure.Signal, Detail: measure.Detail,
-			})
-			breakdown.Redistributed = append(breakdown.Redistributed, measure.Signal)
+			breakdown.Signals = append(breakdown.Signals, retire(measure))
+			breakdown.Redistributed = append(breakdown.Redistributed, measure.Key)
 			continue
 		}
 
-		// Le poids effectif est la part du signal dans ce qui a été mesuré. C'est
-		// la redistribution : elle se fait par renormalisation, sans réattribuer
-		// arbitrairement le poids manquant à un voisin.
-		effective := declared / totalWeight * 100
-		weighted += measure.Value * declared / totalWeight
+		// Le poids effectif est la part du composant dans ce qui a été mesuré.
+		// C'est la redistribution : elle se fait par renormalisation, sans
+		// réattribuer arbitrairement le poids manquant à un voisin.
+		effective := measure.Weight / totalWeight * 100
+		weighted += measure.Value * measure.Weight / totalWeight
 
 		breakdown.Signals = append(breakdown.Signals, SignalScore{
-			Signal: measure.Signal, Value: measure.Value,
-			Weight: effective, Measured: true, Detail: measure.Detail,
+			Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
+			Value: measure.Value, Weight: effective, Declared: measure.Weight,
+			Measured: true, Detail: measure.Detail,
 		})
 	}
 
 	breakdown.Score = int(math.Round(weighted))
 	breakdown.Measured = true
-	sortSignals(breakdown.Signals)
-	sortSignalNames(breakdown.Redistributed)
 	return breakdown
+}
+
+// retire rend la ligne d'un composant sorti du calcul.
+//
+// Son poids déclaré est conservé : c'est ce qui permet de lire « ce geste aurait
+// pesé 20 » sur un pipeline qui n'a pas tourné, plutôt qu'une case muette.
+func retire(measure Measure) SignalScore {
+	return SignalScore{
+		Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
+		Declared: measure.Weight, Detail: measure.Detail,
+	}
 }
 
 // FromReport rend la mesure d'un signal à partir d'un rapport de tests.
@@ -288,21 +372,10 @@ func healthFromValue(value float64) string {
 	}
 }
 
-// signalOrder fixe l'ordre d'affichage. Celui de la maquette, et non
-// l'alphabétique : il va du plus structurant au plus contextuel.
-var signalOrder = map[Signal]int{
-	SignalUnit: 0, SignalIntegration: 1, SignalE2E: 2,
-	SignalCode: 3, SignalSecurity: 4, SignalPerformance: 5,
-}
-
-func sortSignals(signals []SignalScore) {
-	sort.SliceStable(signals, func(i, j int) bool {
-		return signalOrder[signals[i].Signal] < signalOrder[signals[j].Signal]
-	})
-}
-
-func sortSignalNames(signals []Signal) {
-	sort.SliceStable(signals, func(i, j int) bool {
-		return signalOrder[signals[i]] < signalOrder[signals[j]]
-	})
-}
+// Ce qui a disparu ici : le tri par signal.
+//
+// Il imposait l'ordre de la maquette — unitaires, intégration, E2E, code,
+// sécurité, performance — parce que le signal faisait l'identité et qu'une carte
+// Go n'a pas d'ordre. Le composant est désormais un geste, et les gestes
+// **arrivent dans l'ordre du plan** : celui que quelqu'un a déclaré, et donc
+// celui qu'il s'attend à lire. Trier ici l'écraserait.

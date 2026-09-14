@@ -76,7 +76,11 @@ const (
 //
 // Distinct de `builtin:verification`, qu'il remplace : celui-ci couvrait la
 // moitié aval de la chaîne, celui-ci la porte entière.
-const releaseTrigger = "builtin:release"
+//
+// Défini dans `plan` depuis que l'API doit **retrouver** cette exécution pour
+// lire les poids figés d'un score : deux orthographes désigneraient deux
+// exécutions, et le score se calculerait sur un plan qui n'a pas tourné.
+const releaseTrigger = plan.ReleaseTrigger
 
 // verificationRequester nomme le demandeur des jobs qu'un plan enfile.
 //

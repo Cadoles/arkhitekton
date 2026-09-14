@@ -18,6 +18,16 @@ export type Geste = {
   /** `success` par défaut. Relatif à l'issue de l'étape précédente. */
   when?: 'success' | 'failure' | 'always'
   params?: Record<string, string>
+  /** Le poids de ce geste dans le score de qualité d'une release.
+   *
+   *  Trois états, et c'est pour cela que l'absence compte. Indéfini : le geste
+   *  pèse ce que son signal pesait avant que quiconque puisse le changer (B11).
+   *  Zéro : il est délibérément hors du score. Une valeur : elle s'applique.
+   *
+   *  N'a de sens que dans une étape de vérification — le serveur refuse ailleurs,
+   *  parce qu'un poids qu'on saisit et que rien ne lit est pire qu'un champ
+   *  absent. */
+  weight?: number
 }
 
 /** Une étape : des gestes exécutés en parallèle.

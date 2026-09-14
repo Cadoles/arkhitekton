@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/bench"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -33,34 +34,20 @@ type TestStore interface {
 // TestsHandler expose les résultats de tests et le score de qualité.
 type TestsHandler struct {
 	store TestStore
-	// weights vient de la configuration. La pondération du score a été acceptée
-	// par le client et reste ajustable : la coder ici obligerait à redéployer pour
-	// la changer, ce qui reviendrait à la figer (B11).
-	weights results.Weights
+	// catalog sert à nommer la famille d'un geste qui n'a **rien** produit : sans
+	// lui, un pipeline qui n'a pas tourné n'aurait ni signal ni poids par défaut,
+	// et sa case disparaîtrait au lieu de dire qu'elle attend.
+	catalog *catalog.Catalog
 }
 
-// NewTestsHandler assemble le handler. La pondération est reçue sous forme
-// générique — elle vient d'un YAML — et convertie ici : c'est la frontière entre
-// la configuration et la règle de calcul.
-func NewTestsHandler(tests TestStore, weights map[string]float64) *TestsHandler {
-	return &TestsHandler{store: tests, weights: ScoreWeights(weights)}
-}
-
-// ScoreWeights convertit la pondération du catalogue, ou rend celle par défaut.
+// NewTestsHandler assemble le handler.
 //
-// Exportée parce que deux gestionnaires en ont besoin : celui des tests pour
-// l'écran d'une release, celui des releases pour la pastille de la liste.
-// Convertir deux fois aurait suffi à les faire diverger le jour où le repli
-// change.
-func ScoreWeights(weights map[string]float64) results.Weights {
-	converted := results.Weights{}
-	for signal, weight := range weights {
-		converted[results.Signal(signal)] = weight
-	}
-	if len(converted) == 0 {
-		converted = results.DefaultWeights()
-	}
-	return converted
+// La pondération n'est plus reçue ici : elle se déclare sur les gestes de
+// l'automatisation, et le plan figé d'une release la porte (doc 15 §15.6). Ce qui
+// reste de la pondération du catalogue est le **défaut par signal**, dans
+// `results.DefaultWeights`.
+func NewTestsHandler(tests TestStore, registry *catalog.Catalog) *TestsHandler {
+	return &TestsHandler{store: tests, catalog: registry}
 }
 
 type testResultPayload struct {
@@ -79,11 +66,22 @@ type testResultPayload struct {
 }
 
 type signalPayload struct {
+	// Key identifie le composant : le geste qui a mesuré — `geste:1.0` — ou la
+	// famille, pour une release antérieure aux plans. C'est elle qui rend l'écran
+	// dynamique : une case par composant rendu, et non six cases écrites d'avance.
+	Key string `json:"key"`
+	// Label le nomme, dans les mots de qui l'a déclaré.
+	Label string `json:"label"`
+	// Signal dit la **nature** de ce qui est mesuré, et sert encore à choisir une
+	// icône. Il a cessé d'être l'identité : deux gestes peuvent le partager.
 	Signal string  `json:"signal"`
 	Value  float64 `json:"value"`
 	// Weight est le poids **effectif**, après redistribution des signaux non
 	// mesurés. C'est lui qui explique la contribution réelle au score.
-	Weight   float64 `json:"weight"`
+	Weight float64 `json:"weight"`
+	// Declared est le poids saisi, avant redistribution. Sans lui, une pondération
+	// ne se relit pas : « 33 » ne dit pas si quelqu'un a écrit 20 ou 40.
+	Declared float64 `json:"declared"`
 	Measured bool    `json:"measured"`
 	Detail   string  `json:"detail,omitempty"`
 	// Health est le verdict du signal — `healthy`, `warn`, `critique` ou `na`.
@@ -133,8 +131,9 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 	signals := make([]signalPayload, 0, len(breakdown.Signals))
 	for _, signal := range breakdown.Signals {
 		signals = append(signals, signalPayload{
+			Key: signal.Key, Label: signal.Label,
 			Signal: string(signal.Signal), Value: signal.Value, Weight: signal.Weight,
-			Measured: signal.Measured, Detail: signal.Detail,
+			Declared: signal.Declared, Measured: signal.Measured, Detail: signal.Detail,
 			// Le verdict d'un signal vient du serveur comme celui du score : le
 			// dériver côté client en ferait un second avis, divergent au premier
 			// changement de seuil (B11).
@@ -142,9 +141,10 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	redistributed := make([]string, 0, len(breakdown.Redistributed))
-	for _, signal := range breakdown.Redistributed {
-		redistributed = append(redistributed, string(signal))
+	// Déjà des chaînes : ce sont les clés des composants sortis du calcul.
+	redistributed := breakdown.Redistributed
+	if redistributed == nil {
+		redistributed = []string{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -198,7 +198,7 @@ func worstStatus(a, b string) string {
 func (h *TestsHandler) score(
 	ctx context.Context, releaseID int64, reports []store.TestResult,
 ) (results.Breakdown, error) {
-	return computeScore(ctx, h.store, releaseID, reports, h.weights)
+	return computeScore(ctx, h.store, releaseID, reports, h.catalog)
 }
 
 // scoreStore est ce dont le calcul du score a besoin.
@@ -216,8 +216,37 @@ type scoreStore interface {
 
 func computeScore(
 	ctx context.Context, source scoreStore, releaseID int64,
-	reports []store.TestResult, weights results.Weights,
+	reports []store.TestResult, registry *catalog.Catalog,
 ) (results.Breakdown, error) {
+	// Les gestes d'abord : c'est l'axe voulu, et le seul qui sache séparer deux
+	// campagnes de même nature.
+	measures, err := gesteMeasures(ctx, source, releaseID, reports, registry)
+	if err != nil {
+		return results.Breakdown{}, err
+	}
+
+	if measures == nil {
+		// La release n'a pas de plan. Elle est antérieure à doc 15 §15.2, ou ses
+		// tests ont été lancés à la main depuis la file. Son score se calcule par
+		// **famille**, comme avant — le perdre serait pire que le calculer sur un
+		// axe qui n'existe plus.
+		if measures, err = familyMeasures(ctx, source, releaseID, reports); err != nil {
+			return results.Breakdown{}, err
+		}
+	}
+
+	return results.Score(measures), nil
+}
+
+// familyMeasures rend un composant par famille, pour une release sans plan.
+//
+// Chaque famille est cherchée explicitement plutôt que dérivée d'une boucle sur
+// les rapports : une famille absente doit produire une mesure « non exécutée », et
+// une boucle sur ce qui existe ne produirait rien du tout — donc un score calculé
+// sur un sous-ensemble silencieux.
+func familyMeasures(
+	ctx context.Context, source scoreStore, releaseID int64, reports []store.TestResult,
+) ([]results.Measure, error) {
 	// Le dernier rapport de chaque **outil**, puis la somme par famille.
 	//
 	// Retenir un seul rapport par famille perdait les familles à plusieurs
@@ -230,8 +259,6 @@ func computeScore(
 	seenTool := map[string]bool{}
 
 	for _, report := range reports {
-		// La liste est antichronologique : le premier rencontré pour un couple
-		// famille/outil est le plus récent, les suivants sont son historique.
 		key := report.Family + "/" + report.Tool
 		if seenTool[key] {
 			continue
@@ -245,8 +272,6 @@ func computeScore(
 		combined.Failed += report.Failed
 		combined.Skipped += report.Skipped
 		combined.Flaky += report.Flaky
-		// Le statut le plus sévère l'emporte : deux outils d'une même famille
-		// rendent un verdict commun, et le plus clément masquerait l'autre.
 		combined.Status = worstStatus(combined.Status, report.Status)
 		byFamily[report.Family] = combined
 	}
@@ -258,7 +283,7 @@ func computeScore(
 		staticViolations = byFamily[string(results.FamilyStatic)].Failed
 	}
 
-	measures := []results.Measure{
+	brutes := []results.Measure{
 		results.FromReport(results.SignalUnit,
 			byFamily[string(results.FamilyUnit)], seen[string(results.FamilyUnit)]),
 		results.FromReport(results.SignalIntegration,
@@ -270,17 +295,39 @@ func computeScore(
 
 	security, err := securityMeasure(ctx, source, releaseID)
 	if err != nil {
-		return results.Breakdown{}, err
+		return nil, err
 	}
-	measures = append(measures, security)
+	brutes = append(brutes, security)
 
 	performance, err := benchMeasure(ctx, source, releaseID)
 	if err != nil {
-		return results.Breakdown{}, err
+		return nil, err
 	}
-	measures = append(measures, performance)
+	brutes = append(brutes, performance)
 
-	return results.Score(measures, weights), nil
+	// L'identité et le poids, que les fonctions de mesure ne posent pas : elles
+	// disent ce qui a été mesuré, pas ce que cela vaut dans le score.
+	measures := make([]results.Measure, 0, len(brutes))
+	for _, measure := range brutes {
+		measure.Key = results.SignalKey(measure.Signal)
+		measure.Label = signalLabels[measure.Signal]
+		measure.Weight = results.WeightOf(nil, measure.Signal)
+		measures = append(measures, measure)
+	}
+	return measures, nil
+}
+
+// signalLabels nomme les composants du repli par famille, en français.
+//
+// Écrits ici parce qu'ils n'ont pas de déclaration : ce sont des natures, pas des
+// gestes. Un geste, lui, porte le libellé que quelqu'un lui a donné.
+var signalLabels = map[results.Signal]string{
+	results.SignalUnit:        "Tests unitaires",
+	results.SignalIntegration: "Tests d'intégration",
+	results.SignalE2E:         "Tests E2E",
+	results.SignalCode:        "Qualité du code",
+	results.SignalSecurity:    "Sécurité",
+	results.SignalPerformance: "Performance",
 }
 
 // securityMeasure rend le signal de sécurité du dernier audit.

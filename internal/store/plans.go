@@ -471,3 +471,57 @@ func (db *DB) RunResults(ctx context.Context, jobID int64) (map[string]string, e
 	}
 	return results, nil
 }
+
+/*
+ * Le geste qui a produit un résultat.
+ *
+ * Le score se pèse désormais par geste et non par signal (doc 15 §15.6). Il faut
+ * donc savoir, pour chaque rapport d'une release, de quel geste il vient — et la
+ * chaîne existe déjà, sans rien ajouter au schéma : un résultat porte son run, un
+ * run porte son job, et un geste est le seul à porter ce job.
+ */
+
+// GesteRef désigne un geste par sa place dans le plan figé.
+//
+// Sa position, et non son libellé : deux gestes peuvent le partager, et un plan
+// renommé ne doit pas orpheliner ce qu'il a mesuré. C'est la même clé que
+// `plan_steps` et `plan_artifacts`.
+type GesteRef struct {
+	Stage    int
+	Position int
+}
+
+// ResultGestes rend, pour chaque résultat d'une release, le geste qui l'a produit.
+//
+// Indexé par l'identifiant du **résultat** et non par run : c'est cette clé que
+// portent les audits de sécurité et les campagnes de charge, qui doivent se
+// rattacher au même geste que les rapports de tests.
+//
+// Un résultat sans geste n'apparaît pas : il vient d'un lancement manuel depuis
+// la file, qu'aucun plan n'a causé. Il compte dans les écrans de tests, pas dans
+// le score d'une release — le score porte sur ce que l'automatisation a mesuré.
+func (db *DB) ResultGestes(ctx context.Context, releaseID int64) (map[int64]GesteRef, error) {
+	const query = `
+		select r.id, s.stage, s.position
+		from test_results r
+		join runs p on p.id = r.run_id
+		join plan_steps s on s.job_id = p.job_id
+		where r.release_id = $1`
+
+	rows, err := db.pool.Query(ctx, query, releaseID)
+	if err != nil {
+		return nil, fmt.Errorf("gestes des résultats de la release %d: %w", releaseID, err)
+	}
+	defer rows.Close()
+
+	gestes := map[int64]GesteRef{}
+	for rows.Next() {
+		var id int64
+		var ref GesteRef
+		if err := rows.Scan(&id, &ref.Stage, &ref.Position); err != nil {
+			return nil, err
+		}
+		gestes[id] = ref
+	}
+	return gestes, rows.Err()
+}

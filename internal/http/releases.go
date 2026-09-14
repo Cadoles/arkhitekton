@@ -136,10 +136,11 @@ type ReleasesHandler struct {
 	forge CommitResolver
 	// tagger pose le tag Git. Nil quand le jeton est en lecture seule.
 	tagger Tagger
-	// weights pondère le score. Même valeur que celle du gestionnaire des tests :
-	// la pastille de la liste et l'écran d'une release doivent afficher le même
-	// chiffre.
-	weights results.Weights
+	// scoreCatalog sert au score, et pour la même raison que dans le gestionnaire
+	// des tests : nommer la famille d'un geste qui n'a rien produit. La pastille
+	// de la liste et l'écran d'une release doivent afficher le même chiffre, donc
+	// partir du même catalogue.
+	scoreCatalog *catalog.Catalog
 }
 
 // WithTrackerURL branche les liens vers les demandes.
@@ -159,9 +160,14 @@ func (h *ReleasesHandler) issueURL(reference string) string {
 	return h.trackerURL + "/issues/" + reference
 }
 
-// WithWeights déclare la pondération du score.
-func (h *ReleasesHandler) WithWeights(weights results.Weights) *ReleasesHandler {
-	h.weights = weights
+// WithScoreCatalog branche le catalogue employé par le score.
+//
+// Remplace `WithWeights` : la pondération ne vient plus de la configuration mais
+// des gestes de l'automatisation, figés dans le plan de chaque release
+// (doc 15 §15.6). Le catalogue reste nécessaire pour nommer ce qu'un geste
+// mesurerait s'il avait tourné.
+func (h *ReleasesHandler) WithScoreCatalog(registry *catalog.Catalog) *ReleasesHandler {
+	h.scoreCatalog = registry
 	return h
 }
 
@@ -462,7 +468,7 @@ func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *sco
 	if err != nil {
 		return nil
 	}
-	breakdown, err := computeScore(ctx, h.store, releaseID, reports, h.weights)
+	breakdown, err := computeScore(ctx, h.store, releaseID, reports, h.scoreCatalog)
 	if err != nil {
 		return nil
 	}

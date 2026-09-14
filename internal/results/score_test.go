@@ -2,8 +2,23 @@ package results
 
 import "testing"
 
+// measured rend une mesure au poids **par défaut de son signal**.
+//
+// C'est ce que produit un geste qui ne déclare rien : la pondération acceptée par
+// le client reste le repli, et ces tests continuent donc de porter sur elle.
 func measured(signal Signal, value float64) Measure {
-	return Measure{Signal: signal, Value: value, Measured: true}
+	return Measure{
+		Key: SignalKey(signal), Signal: signal, Weight: WeightOf(nil, signal),
+		Value: value, Measured: true,
+	}
+}
+
+// absente rend une mesure non exécutée, au poids par défaut de son signal.
+func absente(signal Signal) Measure {
+	return Measure{
+		Key: SignalKey(signal), Signal: signal, Weight: WeightOf(nil, signal),
+		Detail: "non exécuté",
+	}
 }
 
 func TestScoreIsWeighted(t *testing.T) {
@@ -14,7 +29,7 @@ func TestScoreIsWeighted(t *testing.T) {
 		measured(SignalCode, 100),
 		measured(SignalSecurity, 100),
 		measured(SignalPerformance, 100),
-	}, DefaultWeights())
+	})
 
 	if breakdown.Score != 100 || !breakdown.Measured {
 		t.Errorf("score = %d", breakdown.Score)
@@ -27,11 +42,11 @@ func TestUnmeasuredSignalsAreRedistributedAndNamed(t *testing.T) {
 	breakdown := Score([]Measure{
 		measured(SignalUnit, 100),
 		measured(SignalIntegration, 100),
-		{Signal: SignalE2E, Detail: "non exécuté"},
-		{Signal: SignalCode, Detail: "non exécuté"},
-		{Signal: SignalSecurity, Detail: "non exécuté"},
-		{Signal: SignalPerformance, Detail: "non exécuté"},
-	}, DefaultWeights())
+		absente(SignalE2E),
+		absente(SignalCode),
+		absente(SignalSecurity),
+		absente(SignalPerformance),
+	})
 
 	if breakdown.Score != 100 {
 		t.Errorf("score = %d, attendu 100 sur ce qui est mesuré", breakdown.Score)
@@ -53,8 +68,8 @@ func TestUnmeasuredSignalsAreRedistributedAndNamed(t *testing.T) {
 // qu'on n'a pas évaluée.
 func TestNothingMeasuredIsNotAZero(t *testing.T) {
 	breakdown := Score([]Measure{
-		{Signal: SignalUnit}, {Signal: SignalSecurity},
-	}, DefaultWeights())
+		absente(SignalUnit), absente(SignalSecurity),
+	})
 
 	if breakdown.Measured {
 		t.Error("un score non mesuré ne doit pas se déclarer mesuré")
@@ -132,7 +147,7 @@ func TestBreakdownAlwaysCarriesEverySignal(t *testing.T) {
 	breakdown := Score([]Measure{
 		measured(SignalUnit, 90),
 		{Signal: SignalE2E, Detail: "non exécuté"},
-	}, DefaultWeights())
+	})
 
 	if len(breakdown.Signals) != 2 {
 		t.Errorf("%d signal(aux) rendus, attendu 2", len(breakdown.Signals))
@@ -147,7 +162,7 @@ func TestBreakdownAlwaysCarriesEverySignal(t *testing.T) {
 // La pondération vient d'une ConfigMap : une absente ne doit pas rendre tout
 // score incalculable.
 func TestAbsentWeightsFallBackToTheAcceptedOnes(t *testing.T) {
-	breakdown := Score([]Measure{measured(SignalUnit, 80)}, nil)
+	breakdown := Score([]Measure{measured(SignalUnit, 80)})
 	if !breakdown.Measured || breakdown.Score != 80 {
 		t.Errorf("score = %+v", breakdown)
 	}
@@ -162,5 +177,115 @@ func TestStaticIsGradedByThreshold(t *testing.T) {
 	}
 	if FromStatic(0, false).Measured {
 		t.Error("une analyse non exécutée ne doit pas être mesurée")
+	}
+}
+
+/*
+ * Le poids porté par la mesure.
+ *
+ * Le changement d'axe de doc 15 §15.6 tient dans une propriété : deux composants
+ * de **même signal** peuvent peser différemment. La table des poids par signal ne
+ * savait pas l'exprimer, et c'est pour cela qu'elle a disparu de la signature.
+ */
+
+// Deux campagnes E2E pèsent chacune la sienne.
+//
+// Le cas que le modèle précédent ne savait pas dire : elles se confondaient dans
+// un signal unique, et aucune pondération ne pouvait les séparer.
+func TestDeuxComposantsDeMemeSignalPesentChacunLeSien(t *testing.T) {
+	breakdown := Score([]Measure{
+		{Key: "geste:1.0", Label: "E2E portail", Signal: SignalE2E,
+			Weight: 90, Value: 100, Measured: true},
+		{Key: "geste:1.1", Label: "E2E back-office", Signal: SignalE2E,
+			Weight: 10, Value: 0, Measured: true},
+	})
+
+	// 90 % à 100 et 10 % à 0. Un axe par signal aurait fondu les deux en une
+	// seule valeur, et ce score serait 50.
+	if breakdown.Score != 90 {
+		t.Errorf("score = %d, attendu 90", breakdown.Score)
+	}
+	if len(breakdown.Signals) != 2 {
+		t.Fatalf("%d composant(s), attendu deux", len(breakdown.Signals))
+	}
+	// Et ils restent distincts à l'affichage : c'est la clé qui les sépare, pas
+	// le signal qu'ils partagent.
+	if breakdown.Signals[0].Key == breakdown.Signals[1].Key {
+		t.Errorf("clé partagée %q", breakdown.Signals[0].Key)
+	}
+}
+
+// Un poids nul retire le composant du score sans le retirer de l'écran.
+//
+// C'est une décision — « ce pipeline ne note pas » — et pas un oubli. La case
+// reste, avec son détail : la faire disparaître ferait croire qu'il n'a pas
+// tourné.
+func TestUnPoidsNulSortDuCalculSansSortirDeLecran(t *testing.T) {
+	breakdown := Score([]Measure{
+		{Key: "geste:1.0", Signal: SignalUnit, Weight: 100, Value: 80, Measured: true},
+		{Key: "geste:1.1", Signal: SignalE2E, Weight: 0, Value: 0, Measured: true},
+	})
+
+	if breakdown.Score != 80 {
+		t.Errorf("score = %d, attendu 80 — le composant à poids nul ne doit pas peser",
+			breakdown.Score)
+	}
+	if len(breakdown.Signals) != 2 {
+		t.Errorf("%d composant(s) — celui à poids nul a disparu de l'écran",
+			len(breakdown.Signals))
+	}
+}
+
+// L'ordre des composants est celui de la déclaration.
+//
+// Le tri par signal imposait celui de la maquette. Un plan qui lance l'audit en
+// premier doit l'afficher en premier : c'est l'ordre que quelqu'un a écrit.
+func TestLordreDesComposantsEstCeluiDeLaDeclaration(t *testing.T) {
+	breakdown := Score([]Measure{
+		{Key: "geste:1.0", Signal: SignalSecurity, Weight: 10, Value: 100, Measured: true},
+		{Key: "geste:1.1", Signal: SignalUnit, Weight: 10, Value: 100, Measured: true},
+	})
+
+	if breakdown.Signals[0].Signal != SignalSecurity {
+		t.Errorf("premier composant = %q, attendu celui déclaré en premier",
+			breakdown.Signals[0].Signal)
+	}
+}
+
+// Un composant sorti du calcul garde son poids déclaré.
+//
+// Sans lui, un pipeline qui n'a pas tourné afficherait une case muette. Avec, il
+// dit ce qu'il aurait pesé.
+func TestUnComposantNonMesureGardeSonPoidsDeclare(t *testing.T) {
+	breakdown := Score([]Measure{
+		{Key: "geste:1.0", Signal: SignalUnit, Weight: 25, Value: 100, Measured: true},
+		{Key: "geste:1.1", Signal: SignalE2E, Weight: 40, Detail: "non exécuté"},
+	})
+
+	for _, composant := range breakdown.Signals {
+		if composant.Key != "geste:1.1" {
+			continue
+		}
+		if composant.Declared != 40 {
+			t.Errorf("poids déclaré = %v, attendu 40", composant.Declared)
+		}
+		if composant.Weight != 0 {
+			t.Errorf("poids effectif = %v, attendu nul — il n'a pas pesé", composant.Weight)
+		}
+	}
+}
+
+// Le poids d'un geste muet est celui que son signal pesait (B11).
+//
+// Personne ne perd la pondération convenue en ne saisissant rien.
+func TestUnGesteSansPoidsPrendCeluiDeSonSignal(t *testing.T) {
+	if got := WeightOf(nil, SignalUnit); got != 25 {
+		t.Errorf("poids par défaut des tests unitaires = %v, attendu 25", got)
+	}
+	// Zéro déclaré n'est pas « rien déclaré » : c'est une décision, et le repli ne
+	// doit pas l'écraser.
+	zero := 0.0
+	if got := WeightOf(&zero, SignalUnit); got != 0 {
+		t.Errorf("poids nul déclaré = %v — le défaut l'a écrasé", got)
 	}
 }

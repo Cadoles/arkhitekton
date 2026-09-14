@@ -243,7 +243,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		db, pipelines, authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project).
 		// Même pondération que le gestionnaire des tests : la pastille de la
 		// liste et l'écran d'une release affichent le même chiffre.
-		WithWeights(dashhttp.ScoreWeights(pipelines.ScoreWeights())).
+		WithScoreCatalog(pipelines).
 		WithTrackerURL(cfg.Tracker.URL).
 		// Le même normaliseur que le store, et ce n'est pas une précaution : ce
 		// handler compare une saisie à une colonne que le store a écrite.
@@ -305,7 +305,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			releasesHandler, dashhttp.NewBenchHandler(db),
 			// La pondération du score vient du catalogue : elle a été acceptée par
 			// le client et reste ajustable sans redéploiement (B11).
-			dashhttp.NewTestsHandler(db, pipelines.ScoreWeights()),
+			dashhttp.NewTestsHandler(db, pipelines),
 			dashhttp.NewSignoffsHandler(db),
 			// L'URL de Redmine sert à construire les liens sortants. Absente, les
 			// liens sont omis plutôt que rendus cassés.

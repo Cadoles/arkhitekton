@@ -590,6 +590,7 @@ function PlanEditor({
                 fields={fields}
                 geste={geste}
                 first={index === 0}
+                scoring={stage.role === 'test'}
                 onChange={(next) =>
                   setStage(index, {
                     ...stage,
@@ -669,6 +670,7 @@ function GesteRow({
   fields,
   geste,
   first,
+  scoring = false,
   onChange,
   onRemove,
 }: {
@@ -678,6 +680,9 @@ function GesteRow({
   /** Première étape : rien ne la précède, et une condition d'échec n'y partirait
    *  jamais — le serveur la refuse. */
   first: boolean
+  /** Étape de vérification : ce geste note la release, et son poids se saisit.
+   *  Ailleurs, rien ne lirait ce poids et le serveur le refuse. */
+  scoring?: boolean
   onChange: (geste: Geste) => void
   onRemove: () => void
 }) {
@@ -733,6 +738,35 @@ function GesteRow({
           <code>{`{artifacts.${geste.label || 'nom'}.image}`}</code>
         </span>
       </label>
+
+      {scoring && (
+        <label className="flex flex-col gap-0.5 text-xs">
+          <span className="text-zinc-700">Poids au score</span>
+          <input
+            type="number"
+            min={0}
+            value={geste.weight ?? ''}
+            onChange={(change) =>
+              onChange({
+                ...geste,
+                // Vide **efface** le poids plutôt que de le mettre à zéro : les
+                // deux ne disent pas la même chose. Absent, le geste pèse ce que
+                // sa nature pesait (B11) ; zéro, il ne note délibérément rien.
+                weight: change.target.value === '' ? undefined : Number(change.target.value),
+              })
+            }
+            placeholder="pondération d'origine"
+            className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-xs text-zinc-900"
+          />
+          <span className="text-zinc-500">
+            {geste.weight === undefined
+              ? "Laissé vide : ce geste pèse ce que sa nature pesait dans la pondération d'origine."
+              : geste.weight === 0
+                ? 'Zéro : ce geste tourne et ne note pas la release.'
+                : 'Les poids sont relatifs entre eux, et figés dans le plan de chaque release.'}
+          </span>
+        </label>
+      )}
 
       {choice?.fields?.map((field) => (
         <label key={field.name} className="flex flex-col gap-0.5 text-xs">

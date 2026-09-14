@@ -450,3 +450,69 @@ func TestUnRoleInconnuEstRefuse(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * Le poids d'un geste (doc 15 §15.6).
+ */
+
+func poids(value float64) *float64 { return &value }
+
+// Un poids négatif est refusé.
+//
+// Il ferait *baisser* le score quand le geste réussit, et le monter quand il
+// échoue.
+func TestUnPoidsNegatifEstRefuse(t *testing.T) {
+	sujet := Plan{Stages: []Stage{{
+		Role: RoleTest,
+		Gestes: []Geste{{
+			Kind: GestePipeline, Ref: "unit-tests", Weight: poids(-5),
+		}},
+	}}}
+
+	err := sujet.Validate()
+	if err == nil {
+		t.Fatal("un poids négatif a été accepté")
+	}
+	if !strings.Contains(err.Error(), "négatif") {
+		t.Errorf("motif %q — il doit nommer la faute", err)
+	}
+}
+
+// Un poids posé hors d'une étape de vérification est refusé.
+//
+// Il serait enregistré, affiché, et sans effet : le score d'une release se
+// calcule sur les gestes de son étape de vérification, la seule qui mesure
+// quelque chose.
+func TestUnPoidsHorsDuneEtapeDeVerificationEstRefuse(t *testing.T) {
+	for _, role := range []Role{RoleBuild, ""} {
+		sujet := Plan{Stages: []Stage{{
+			Role: role,
+			Gestes: []Geste{{
+				Kind: GestePipeline, Ref: "build", Weight: poids(20),
+			}},
+		}}}
+
+		err := sujet.Validate()
+		if err == nil {
+			t.Errorf("rôle %q: un poids a été accepté là où rien ne le lirait", role)
+			continue
+		}
+		if !strings.Contains(err.Error(), string(RoleTest)) {
+			t.Errorf("rôle %q: motif %q — il doit dire où un poids compte", role, err)
+		}
+	}
+}
+
+// Un poids nul est une décision, et se valide.
+func TestUnPoidsNulSeValide(t *testing.T) {
+	sujet := Plan{Stages: []Stage{{
+		Role: RoleTest,
+		Gestes: []Geste{{
+			Kind: GestePipeline, Ref: "unit-tests", Weight: poids(0),
+		}},
+	}}}
+
+	if err := sujet.Validate(); err != nil {
+		t.Errorf("un poids nul a été refusé: %v", err)
+	}
+}
