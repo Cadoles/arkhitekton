@@ -23,6 +23,8 @@ le processus de release sans quitter l'interface.
 | [12 — Généralisation et plugins](12-generalisation-et-plugins.md) | Ce qui est propre au MSE, ce qui peut devenir configuration ou plugin, plan de découplage |
 | [13 — Contrat des pipelines](13-contrat-des-pipelines.md) | Ce qu'un pipeline doit honorer pour que le dashboard sache l'exploiter |
 | [14 — Déclencheurs et automatisations](14-declencheurs-et-automatisations.md) | Rendre déclarable ce qui s'enchaîne après un fait, et laisser les plugins déclarer leurs propres faits |
+| [15 — Construire et tester par déclaration](15-construire-et-tester-par-declaration.md) | Sortir du code la décision de quoi construire et quoi tester, pour la poser dans l'onglet automatisation |
+| [16 — Le plugin MSE](16-plugin-mse.md) | Rassembler environnements, Flux et `PortalData` dans un plugin, et garder une instance cohérente sans lui |
 
 ## Résumé exécutif
 
