@@ -38,20 +38,10 @@ type VersionsHandler struct {
 	// trackerURL sert à construire les liens sortants. Vide, les liens sont omis
 	// plutôt que rendus cassés.
 	trackerURL string
-	// names normalise les noms de version. Le même normaliseur que le magasin :
-	// c'est lui qui décide ce qu'est la ligne de version d'un nom comme
-	// `MSE 3.1.0`, et l'interface en portait une copie approximative.
-	names release.Normalizer
 }
 
 func NewVersionsHandler(versions VersionStore, trackerURL string) *VersionsHandler {
 	return &VersionsHandler{store: versions, trackerURL: trackerURL}
-}
-
-// WithNormalizer déclare la convention de nommage des versions.
-func (h *VersionsHandler) WithNormalizer(names release.Normalizer) *VersionsHandler {
-	h.names = names
-	return h
 }
 
 // completionVw porte les deux mesures de complétion (doc 04 §4.5).
@@ -321,9 +311,8 @@ func (h *VersionsHandler) suggestedTags(
 		return nil
 	}
 
-	// La ligne de version, normalisée par la convention du projet : `MSE 3.1.0`
-	// et `v3.1.0` désignent la même, et c'est le normaliseur qui le sait.
-	base := h.names.Normalize(summary.Name)
+	// La ligne de version, normalisée : `v3.1.0` et `3.1.0` désignent la même.
+	base := release.NormalizeVersionName(summary.Name)
 
 	existing := make([]string, 0, len(releases))
 	for _, item := range releases {
@@ -408,7 +397,7 @@ func (h *VersionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusInternalServerError, "Schéma de version illisible", "")
 		return
 	}
-	if _, err := scheme.Parse(h.names.Normalize(name)); err != nil {
+	if _, err := scheme.Parse(release.NormalizeVersionName(name)); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Nom de version invalide", err.Error())
 		return
 	}

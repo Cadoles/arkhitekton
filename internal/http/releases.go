@@ -111,9 +111,6 @@ type ReleasesHandler struct {
 	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
 	// le jour où le portail se scinde.
 	imageName string
-	// names rapproche le nom de version saisi de celui du suivi. Doit être le
-	// même que celui du store, dont il compare le résultat à une colonne.
-	names release.Normalizer
 	// deployer planifie l'acheminement d'une version vers un environnement. Il ne
 	// touche à aucun cluster : il décrit ce qu'il faut faire, et c'est la file du
 	// dashboard qui le fait (B7, doc 12 §12.9 lot A).
@@ -244,11 +241,6 @@ const (
 	exportParamFormat   = "export-format"
 )
 
-// WithNormalizer déclare les préfixes retirés pour comparer deux noms de version.
-//
-// Sans appel, [release.DefaultNormalizer] s'applique. Le déploiement doit passer
-// le **même** que celui du store : ce handler compare une saisie à ce que la base
-// a stocké, et deux conventions divergentes rejetteraient une saisie correcte.
 // WithDeployer branche la planification des promotions.
 //
 // Sans appel, [provider.NoDeployer] s'applique : l'écran des releases reste
@@ -256,11 +248,6 @@ const (
 // que d'échouer sur une cause invraisemblable.
 func (h *ReleasesHandler) WithDeployer(deployer provider.Deployer) *ReleasesHandler {
 	h.deployer = deployer
-	return h
-}
-
-func (h *ReleasesHandler) WithNormalizer(names release.Normalizer) *ReleasesHandler {
-	h.names = names
 	return h
 }
 
@@ -278,8 +265,8 @@ func NewReleasesHandler(
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
 		images: images, artifacts: artifacts, imageName: imageName,
-		registryProject: registryProject, names: release.DefaultNormalizer,
-		deployer: provider.NoDeployer{}, logger: slog.Default(),
+		registryProject: registryProject,
+		deployer:        provider.NoDeployer{}, logger: slog.Default(),
 	}
 }
 
@@ -691,7 +678,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if request.TrackedVersion != "" {
-		if err := h.names.CheckTrackedVersion(parsed, request.TrackedVersion); err != nil {
+		if err := release.CheckTrackedVersion(parsed, request.TrackedVersion); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Version de suivi incohérente", err.Error())
 			return
 		}

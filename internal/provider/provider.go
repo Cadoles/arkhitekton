@@ -122,9 +122,9 @@ type Tracker interface {
 
 // Version est une version déclarée dans le suivi.
 //
-// `Name` est conservé tel quel. L'instance réelle en porte quatre conventions
-// simultanées — `MSE3-1.5`, `MSE 3.1.0`, `v3.2.0` — et normaliser à l'écriture
-// perdrait l'information sans rien résoudre. L'identité est `ID`, jamais le nom.
+// `Name` est conservé tel quel. Un suivi porte souvent plusieurs conventions
+// simultanées — `MSE3-1.5`, `MSE 3.1.0`, `v3.2.0` chez le MSE — et normaliser à
+// l'écriture perdrait l'information sans rien résoudre. L'identité est `ID`, jamais le nom.
 type Version struct {
 	// ID est l'identifiant dans le suivi, en **texte**, pour la même raison que
 	// celui d'une demande : rien ne garantit qu'un outil numérote.

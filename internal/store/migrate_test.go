@@ -103,7 +103,7 @@ func TestMigrateCreatesKeyConstraints(t *testing.T) {
 
 	for _, table := range []string{
 		"environments", "versions", "issues", "releases", "release_images",
-		"image_promotions", "jobs", "runs", "task_runs", "deployments",
+		"image_promotions", "jobs", "runs", "task_runs",
 		"environment_observations", "test_results", "test_cases", "artifacts",
 		"user_roles", "sessions", "audit_log", "sync_state",
 	} {
@@ -118,22 +118,11 @@ func TestMigrateCreatesKeyConstraints(t *testing.T) {
 			t.Errorf("table %s absente après migration", table)
 		}
 	}
-
-	// Un environnement ne peut avoir qu'un déploiement courant. La contrainte
-	// est dans le schéma pour que le code applicatif ne puisse pas la contourner.
-	var indexExists bool
-	if err := db.Pool().QueryRow(ctx,
-		"select exists (select 1 from pg_indexes where indexname = 'deployments_current_idx')").
-		Scan(&indexExists); err != nil {
-		t.Fatalf("interrogation des index: %v", err)
-	}
-	if !indexExists {
-		t.Error("index unique partiel deployments_current_idx absent")
-	}
 }
 
 // Une migration qui ne sait pas s'annuler se découvre au pire moment. Le test
 // applique puis annule tout, ce qui exerce chaque bloc `-- +goose Down`.
+
 func TestMigrationsRollBackCleanly(t *testing.T) {
 	cfg := testDB(t)
 	resetSchema(t, cfg)

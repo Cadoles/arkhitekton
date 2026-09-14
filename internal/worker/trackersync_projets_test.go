@@ -110,7 +110,7 @@ func sondeDuSuivi(
 ) (*ProbeRunner, Probe) {
 	t.Helper()
 	sonde := NewRedmineProbe(
-		NewTrackerSync(db, connect, quietLogger()).WithNormalizer(testNames))
+		NewTrackerSync(db, connect, quietLogger()))
 	return NewProbeRunner(db, opener, time.Minute, quietLogger(), sonde), sonde
 }
 

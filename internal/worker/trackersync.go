@@ -134,12 +134,8 @@ type SecretOpener interface {
 type TrackerSync struct {
 	store   TrackerStore
 	connect TrackerConnector
-	// names calcule la forme comparable écrite en base. Doit être **la même** que
-	// celle du store : deux normaliseurs divergents rendraient une release
-	// incapable de trouver sa version, sans le moindre message.
-	names  release.Normalizer
-	logger *slog.Logger
-	now    func() time.Time
+	logger  *slog.Logger
+	now     func() time.Time
 }
 
 func NewTrackerSync(
@@ -150,14 +146,8 @@ func NewTrackerSync(
 	}
 	return &TrackerSync{
 		store: db, connect: connect,
-		names: release.DefaultNormalizer, logger: logger, now: time.Now,
+		logger: logger, now: time.Now,
 	}
-}
-
-// WithNormalizer déclare les préfixes retirés pour comparer deux noms de version.
-func (s *TrackerSync) WithNormalizer(names release.Normalizer) *TrackerSync {
-	s.names = names
-	return s
 }
 
 // Observe exécute une passe complète pour un projet, et rend ce qu'elle constate.
@@ -198,7 +188,7 @@ func (s *TrackerSync) Observe(
 			Tool:        trackerTool,
 			ExternalID:  version.ID,
 			Name:        version.Name,
-			Normalized:  s.names.Normalize(version.Name),
+			Normalized:  release.NormalizeVersionName(version.Name),
 			Description: version.Description,
 			Status:      version.Status,
 			DueDate:     version.DueDate,

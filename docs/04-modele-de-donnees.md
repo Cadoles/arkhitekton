@@ -264,6 +264,10 @@ create table image_promotions (
 
 -- Une « promotion » : le dashboard re-tague, Flux déploie. L'opération est
 -- asynchrone et le dashboard la suit sans la piloter (cf. B7).
+--
+-- Table retirée par la migration 0050 : elle n'a jamais été alimentée. Le suivi
+-- s'est fait par `image_promotions` (ce qui est demandé) et
+-- `environment_observations` (ce qui est constaté) — voir doc 16 §16.1.
 create table deployments (
   id             bigserial primary key,
   environment_id text   not null references environments(id),

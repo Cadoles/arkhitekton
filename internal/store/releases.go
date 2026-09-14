@@ -250,7 +250,7 @@ func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (
 	// égalité le rattachement est indécidable et on retombe sur la provisoire —
 	// choisir au hasard rattacherait la release à la mauvaise version, et la
 	// provisoire, elle, reste visible et signalée.
-	candidates, err := db.realVersionsNormalized(ctx, projectID, db.names.Normalize(name))
+	candidates, err := db.realVersionsNormalized(ctx, projectID, release.NormalizeVersionName(name))
 	if err != nil {
 		return 0, err
 	}
@@ -285,7 +285,7 @@ func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (
 		        now()
 		 from (select coalesce(trim(tracker_project), '') <> '' as suivi
 		       from projects where id = $1) as p
-		 returning id`, projectID, name, db.names.Normalize(name)).Scan(&id)
+		 returning id`, projectID, name, release.NormalizeVersionName(name)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("création de la version provisoire %q: %w", name, err)
 	}

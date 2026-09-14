@@ -39,7 +39,6 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
@@ -134,7 +133,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 
-	db, err := openStore(ctx, cfg)
+	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}
@@ -246,9 +245,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		WithScoreCatalog(pipelines).
 		WithArtifactReader(db).
 		WithTrackerURL(cfg.Tracker.URL).
-		// Le même normaliseur que le store, et ce n'est pas une précaution : ce
-		// handler compare une saisie à une colonne que le store a écrite.
-		WithNormalizer(versionNames(cfg)).
 		// Le même déployeur que l'observateur, et le même que celui qui a validé
 		// les environnements au démarrage : un aperçu de promotion qui répondrait
 		// autrement que la promotion elle-même serait pire que pas d'aperçu.
@@ -310,11 +306,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			dashhttp.NewSignoffsHandler(db),
 			// L'URL de Redmine sert à construire les liens sortants. Absente, les
 			// liens sont omis plutôt que rendus cassés.
-			dashhttp.NewVersionsHandler(db, cfg.Tracker.URL).
-				// Le même normaliseur que le magasin : c'est lui qui décide ce
-				// qu'est la ligne de version d'un nom comme `MSE 3.1.0`, et le
-				// tag proposé au formulaire en dépend.
-				WithNormalizer(versionNames(cfg)),
+			dashhttp.NewVersionsHandler(db, cfg.Tracker.URL),
 			dashhttp.NewSyncAdminHandler(db),
 			dashhttp.NewForgeHandler(forgeReader),
 			dashhttp.NewAdminHandler(db),
@@ -403,7 +395,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
-	db, err := openStore(ctx, cfg)
+	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}
@@ -419,9 +411,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		logger.Error("amorçage des plugins", "error", err)
 	}
 
-	// `versions.normalized_name` est une colonne dérivée : changer les préfixes
-	// configurés la rend obsolète, et le rapprochement comparerait alors une forme
-	// calculée avec les nouveaux à une forme écrite avec les anciens. Le worker
+	// `versions.normalized_name` est une colonne dérivée : changer la règle de
+	// normalisation la rend obsolète, et le rapprochement comparerait alors une
+	// forme calculée avec la nouvelle règle à une forme écrite avec l'ancienne. Le worker
 	// est seul à le faire — l'api tourne à plusieurs répliques, et trois
 	// renormalisations concurrentes écriraient la même chose trois fois.
 	corrected, err := db.RenormalizeVersions(ctx)
@@ -429,8 +421,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 	if corrected > 0 {
-		logger.Info("noms de version renormalisés",
-			"corrigees", corrected, "prefixes", versionNames(cfg).Prefixes())
+		logger.Info("noms de version renormalisés", "corrigees", corrected)
 	}
 
 	storage, err := blob.Open(ctx, cfg.Storage)
@@ -746,8 +737,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// La projection n'a pas bougé — versions, adoptions, demandes et leurs
 			// seaux. Ce qui s'ajoute, ce sont les faits qu'elle constate au
 			// passage, et sur lesquels une réaction peut désormais se brancher.
-			tracker := worker.NewTrackerSync(db, trackerConnector(cfg), logger).
-				WithNormalizer(versionNames(cfg))
+			tracker := worker.NewTrackerSync(db, trackerConnector(cfg), logger)
 
 			// Les sondes, qui produisent les faits d'un plugin. Sous le bail comme
 			// le reste : deux workers interrogeant la même instance doubleraient
@@ -881,7 +871,7 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 // faire porter un pour la seule étape qui en a besoin étendrait sa durée de vie à
 // tout le Job.
 func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	db, err := openStore(ctx, cfg)
+	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}
@@ -988,7 +978,7 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 		return err
 	}
 
-	db, err := openStore(ctx, cfg)
+	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}
@@ -1120,25 +1110,6 @@ func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler 
 	return handler.WithProbe(gitea.Prober{
 		URL: cfg.Forge.URL, Token: cfg.Forge.Token, Timeout: cfg.Forge.Timeout,
 	})
-}
-
-// openStore ouvre le pool et lui applique la convention de nommage des versions.
-//
-// Un point d'ouverture unique et non quatre : la forme normalisée est une colonne,
-// et un binaire qui l'écrirait avec d'autres préfixes que celui qui la lit
-// rendrait le rapprochement muet. Une ouverture qui oublierait le normaliseur ne
-// casserait rien à la compilation — d'où le passage obligé.
-func openStore(ctx context.Context, cfg config.Config) (*store.DB, error) {
-	db, err := store.Open(ctx, cfg.Database)
-	if err != nil {
-		return nil, err
-	}
-	return db.WithNormalizer(versionNames(cfg)), nil
-}
-
-// versionNames construit le normaliseur déclaré par la configuration.
-func versionNames(cfg config.Config) release.Normalizer {
-	return release.NewNormalizer(cfg.Versions.NamePrefixes)
 }
 
 // configuredProjects rend les dépôts que la configuration désigne.

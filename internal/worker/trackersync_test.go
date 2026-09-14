@@ -12,7 +12,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -117,7 +116,7 @@ func newSync(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) *TrackerSy
 		db.mapping = map[string]string{"En cours": "doing", "Fermé": "done", "Rejeté": "rejected"}
 	}
 	connect := func(TrackerConnection) (TrackerReader, error) { return client, nil }
-	return NewTrackerSync(db, connect, quietLogger()).WithNormalizer(testNames)
+	return NewTrackerSync(db, connect, quietLogger())
 }
 
 // passe exécute une passe de projection, comme la sonde le ferait.
@@ -175,11 +174,11 @@ func TestLeNomEstNormalisePourLeRapprochementSansEtreReecrit(t *testing.T) {
 	}
 
 	expected := map[string]string{
-		"MSE 3.1.2": "3.1.2",
-		"v3.2.0":    "3.2.0",
-		// Convention historique laissée intacte : rien dans les données ne dit si
-		// « MSE3-1.5 » se lit 1.5 ou 3.1.5.
-		"MSE3-1.5": "MSE3-1.5",
+		"v3.2.0": "3.2.0",
+		// Seul `v` est retiré (doc 16 §16.3) : les conventions historiques du suivi
+		// restent intactes, et ne se rattachent à aucun tag.
+		"MSE 3.1.2": "MSE 3.1.2",
+		"MSE3-1.5":  "MSE3-1.5",
 	}
 	for _, version := range db.versions {
 		if want := expected[version.Name]; version.Normalized != want {
@@ -354,8 +353,3 @@ func TestLeDrapeauDeClotureEstTransmisIndependammentDuSeau(t *testing.T) {
 		t.Errorf("seau %q, attendu doing", db.issues[0].StatusBucket)
 	}
 }
-
-// testNames est la convention du déploiement MSE. Ces tests portent sur des noms
-// réellement présents dans le projet — `v3.2.0` et `MSE 3.1.2` y coexistent —, et
-// c'est la configuration qui la déclare depuis que `MSE ` n'est plus en dur.
-var testNames = release.NewNormalizer([]string{release.DefaultPrefix, "MSE "})

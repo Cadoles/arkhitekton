@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 )
 
 // redmineVersion dépose une version réelle, comme le ferait la synchronisation.
@@ -12,7 +14,7 @@ func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) 
 	t.Helper()
 	id, err := db.UpsertRedmineVersion(context.Background(), TrackedVersion{
 		ProjectID: testProjectID, Tool: "redmine", ExternalID: fmt.Sprint(redmineID), Name: name,
-		Normalized: testNames.Normalize(name),
+		Normalized: release.NormalizeVersionName(name),
 		Status:     status,
 	})
 	if err != nil {
@@ -94,7 +96,7 @@ func TestUneVersionProvisoireEstAdopteeParLaVersionReelle(t *testing.T) {
 	}
 }
 
-// Le cas réel : `MSE 3.1.2` est close — ancien système de versionnement — et `v3.1.2`
+// Un numéro repris : `3.1.2` est close — ancien système de versionnement — et `v3.1.2`
 // ouverte. Une release visant ce numéro vise la version active, et l'adoption doit
 // donc aboutir plutôt que déclarer une ambiguïté.
 func TestUneVersionCloseHomonymeNeBloquePasLAdoption(t *testing.T) {
@@ -107,7 +109,7 @@ func TestUneVersionCloseHomonymeNeBloquePasLAdoption(t *testing.T) {
 	}
 	releaseOn(t, db, pendingID, "3.1.2")
 
-	redmineVersion(t, db, 803, "MSE 3.1.2", "closed")
+	redmineVersion(t, db, 803, "3.1.2", "closed")
 	redmineVersion(t, db, 804, "v3.1.2", "open")
 
 	report, err := db.AdoptPendingVersions(ctx)
@@ -143,7 +145,7 @@ func TestUneVersionVerrouilleeResteCandidate(t *testing.T) {
 	pendingID, _ := db.EnsureVersion(ctx, testProjectID, "3.1.3")
 	releaseOn(t, db, pendingID, "3.1.3")
 
-	redmineVersion(t, db, 810, "MSE 3.1.3", "closed")
+	redmineVersion(t, db, 810, "3.1.3", "closed")
 	redmineVersion(t, db, 811, "v3.1.3", "locked")
 
 	report, err := db.AdoptPendingVersions(ctx)
@@ -167,7 +169,7 @@ func TestDeuxVersionsActivesHomonymesRestentIndecidables(t *testing.T) {
 	}
 	releaseOn(t, db, pendingID, "3.1.2")
 
-	redmineVersion(t, db, 803, "MSE 3.1.2", "open")
+	redmineVersion(t, db, 803, "3.1.2", "open")
 	redmineVersion(t, db, 804, "v3.1.2", "open")
 
 	report, err := db.AdoptPendingVersions(ctx)
@@ -201,7 +203,7 @@ func TestDeuxVersionsActivesHomonymesRestentIndecidables(t *testing.T) {
 
 // L'adoption ne doit pas dépendre de l'ordre de lecture des versions.
 func TestLAdoptionNeDependPasDeLOrdreDeLecture(t *testing.T) {
-	for _, ordre := range [][]string{{"MSE 3.1.2", "v3.1.2"}, {"v3.1.2", "MSE 3.1.2"}} {
+	for _, ordre := range [][]string{{"3.1.2", "v3.1.2"}, {"v3.1.2", "3.1.2"}} {
 		db := migrated(t)
 		ctx := context.Background()
 
@@ -648,7 +650,7 @@ func TestEnsureVersionRattacheAUneVersionReelleParNomNormalise(t *testing.T) {
 	}
 }
 
-// La même préférence que l'adoption : entre l'homonyme close de l'ancien système et la
+// La même préférence que l'adoption : entre une homonyme close et la
 // version active, la release va à l'active. Les deux chemins — rattachement immédiat et
 // adoption différée — doivent désigner la même version, sans quoi le résultat dépendrait
 // du moment où la release est créée.
@@ -656,7 +658,7 @@ func TestEnsureVersionPrefereLaVersionActiveALHomonymeClose(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	redmineVersion(t, db, 803, "MSE 3.1.2", "closed")
+	redmineVersion(t, db, 803, "V3.1.2", "closed")
 	activeID := redmineVersion(t, db, 804, "v3.1.2", "open")
 
 	id, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
@@ -674,7 +676,7 @@ func TestEnsureVersionRetombeSurUneProvisoireQuandCestIndecidable(t *testing.T) 
 	db := migrated(t)
 	ctx := context.Background()
 
-	redmineVersion(t, db, 803, "MSE 3.1.2", "open")
+	redmineVersion(t, db, 803, "V3.1.2", "open")
 	redmineVersion(t, db, 804, "v3.1.2", "open")
 
 	if _, err := db.EnsureVersion(ctx, testProjectID, "3.1.2"); err != nil {
@@ -1088,7 +1090,7 @@ func TestDeuxProjetsNeSeVolentPasLeursVersions(t *testing.T) {
 	for _, projectID := range []int64{testProjectID, second} {
 		if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
 			ProjectID: projectID, Tool: "redmine", ExternalID: fmt.Sprint(900), Name: "v3.1.2",
-			Normalized: testNames.Normalize("v3.1.2"), Status: "open",
+			Normalized: release.NormalizeVersionName("v3.1.2"), Status: "open",
 		}); err != nil {
 			t.Fatalf("version du projet %d: %v", projectID, err)
 		}
@@ -1306,7 +1308,7 @@ func TestLaListeDesVersionsNeDeborteSurAucunAutreProjet(t *testing.T) {
 	redmineVersion(t, db, 900, "v3.1.0", "open")
 	if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
 		ProjectID: second, Tool: "redmine", ExternalID: "901", Name: "v9.9.9",
-		Normalized: testNames.Normalize("v9.9.9"), Status: "open",
+		Normalized: release.NormalizeVersionName("v9.9.9"), Status: "open",
 	}); err != nil {
 		t.Fatalf("version du second projet: %v", err)
 	}

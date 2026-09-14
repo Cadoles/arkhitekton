@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 )
 
 // migrated rend une base au schéma à jour. Les tests de ce fichier travaillent
@@ -26,8 +24,6 @@ func migratedBare(t *testing.T) *DB {
 	if err != nil {
 		t.Fatalf("connexion: %v", err)
 	}
-	db = db.WithNormalizer(testNames)
-
 	t.Cleanup(db.Close)
 	return db
 }
@@ -500,10 +496,6 @@ func TestRunsUpdatedSinceReturnsOnlyChanges(t *testing.T) {
 	}
 }
 
-// testNames est la convention du déploiement MSE, déclarée ici parce que les
-// données de ces tests sont les siennes : l'instance porte `v3.1.2` et
-// `MSE 3.1.2` dans le même projet, et c'est cette coexistence que les tests
-// d'adoption examinent. Le binaire, lui, ne connaît d'office que `v`.
 // testProjectID est le projet créé par [migrated]. Constante et non variable :
 // le schéma est recréé à chaque test, et la séquence repart de un.
 const testProjectID int64 = 1
@@ -537,5 +529,3 @@ func migrated(t *testing.T) *DB {
 	}
 	return db
 }
-
-var testNames = release.NewNormalizer([]string{release.DefaultPrefix, "MSE "})

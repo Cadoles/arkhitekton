@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -38,7 +39,7 @@ type TrackedVersion struct {
 	ProjectID int64
 	Name      string
 	// Normalized est la forme comparable, calculée par `release.NormalizeVersionName`.
-	// Elle n'est pas unique : `MSE 3.1.2` et `v3.1.2` coexistent.
+	// Elle n'est pas unique : `3.1.2` et `v3.1.2` peuvent coexister.
 	Normalized  string
 	Description string
 	Status      string
@@ -75,7 +76,7 @@ type TrackedIssue struct {
 // les versions provisoires est une opération distincte ([DB.AdoptPendingVersions]),
 // exécutée après que toutes les versions ont été déposées.
 //
-// Les mêler serait dépendant de l'ordre d'itération. `MSE 3.1.2` et `v3.1.2` se
+// Les mêler serait dépendant de l'ordre d'itération. `3.1.2` et `v3.1.2` se
 // réduisent au même numéro ; celle traitée en premier adopterait la provisoire, et
 // une release se retrouverait rattachée à la version close plutôt qu'à celle qui est
 // ouverte — un arbitraire invisible.
@@ -527,10 +528,9 @@ type AmbiguousVersion struct {
 
 // AmbiguousVersions rend les numéros portés par plusieurs versions **actives**.
 //
-// Le filtre sur les actives est ce qui rend cet écran utile. L'instance porte deux
-// numéros repris — `MSE 3.1.1`/`v3.1.1` et `MSE 3.1.2`/`v3.1.2` — mais dans chaque
-// paire l'ancienne est close, et l'adoption sait alors trancher en faveur de la
-// version active. Les signaler serait deux avertissements permanents pour une
+// Le filtre sur les actives est ce qui rend cet écran utile. Un numéro repris
+// — `3.1.2` close et `v3.1.2` ouverte — se tranche en faveur de la version
+// active. Les signaler serait deux avertissements permanents pour une
 // situation qui n'exige aucune décision, et un écran d'administration qui crie sans
 // raison cesse d'être lu.
 //
@@ -589,12 +589,12 @@ func (db *DB) PendingVersions(ctx context.Context, projectID int64) ([]string, e
 	return names, rows.Err()
 }
 
-// RenormalizeVersions réaligne la colonne normalisée sur les préfixes configurés.
+// RenormalizeVersions réaligne la colonne normalisée sur la règle en vigueur.
 //
 // `versions.normalized_name` est une colonne **dérivée**, écrite au moment de la
-// synchronisation. Changer les préfixes rend donc obsolètes toutes les lignes déjà
-// écrites, et le rapprochement se ferait alors entre une forme calculée avec les
-// nouveaux préfixes et une forme stockée avec les anciens : une release cesserait
+// synchronisation. Changer la règle rend donc obsolètes toutes les lignes déjà
+// écrites, et le rapprochement se ferait alors entre une forme calculée avec la
+// nouvelle règle et une forme stockée avec l'ancienne : une release cesserait
 // de trouver sa version, sans le moindre message.
 //
 // La synchronisation Redmine finirait par les réécrire, mais seulement à son
@@ -624,7 +624,7 @@ func (db *DB) RenormalizeVersions(ctx context.Context) (int, error) {
 			rows.Close()
 			return 0, fmt.Errorf("lecture d'une version à renormaliser: %w", err)
 		}
-		if wanted := db.names.Normalize(name); wanted != normalized {
+		if wanted := release.NormalizeVersionName(name); wanted != normalized {
 			corrections = append(corrections, correction{id: id, normalized: wanted})
 		}
 	}

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -72,8 +71,7 @@ func (f *fakeVersionStore) Audit(_ context.Context, _, action, _ string, _ map[s
 func declareVersion(t *testing.T, store *fakeVersionStore, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
-	handler := NewVersionsHandler(store, "").
-		WithNormalizer(release.NewNormalizer([]string{release.DefaultPrefix}))
+	handler := NewVersionsHandler(store, "")
 
 	request := httptest.NewRequest(http.MethodPost, "/projects/app/versions",
 		strings.NewReader(body))
@@ -203,8 +201,7 @@ func TestLaListeDitSiLeProjetEstSuivi(t *testing.T) {
 		projects := untracked()
 		projects.project.TrackerProject = expected.tracker
 
-		handler := NewVersionsHandler(projects, "").
-			WithNormalizer(release.NewNormalizer([]string{release.DefaultPrefix}))
+		handler := NewVersionsHandler(projects, "")
 
 		request := httptest.NewRequest(http.MethodGet, "/projects/app/versions", nil)
 		request.SetPathValue("project", "app")

@@ -12,10 +12,10 @@ import (
 func TestCheckRedmineVersionTiesPrereleaseToItsScope(t *testing.T) {
 	rc, _ := versionpkg.SemVer{}.Parse("1.8.0-rc3")
 
-	if err := DefaultNormalizer.CheckTrackedVersion(rc, "1.8.0"); err != nil {
+	if err := CheckTrackedVersion(rc, "1.8.0"); err != nil {
 		t.Errorf("une RC doit se rattacher à sa version de base: %v", err)
 	}
-	if err := DefaultNormalizer.CheckTrackedVersion(rc, "1.7.0"); err == nil {
+	if err := CheckTrackedVersion(rc, "1.7.0"); err == nil {
 		t.Error("un rattachement à la mauvaise version doit être refusé")
 	}
 }

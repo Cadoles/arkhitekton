@@ -297,3 +297,24 @@ déplace presque rien, elle **conditionne**, et c'est ce qui dit si le reste vau
 | 8 | Où se déclarent les environnements et leur sensibilité ? | dans le **catalogue**, section lue par le plugin : ils y sont déjà, et y sont confrontés au cluster au démarrage — à confirmer |
 | 9 | Quelle page d'accueil sans le plugin ? | **Releases** — à confirmer |
 | 10 | Les validations de recette partent-elles avec le plugin ? | **oui** : elles portent sur une release **dans un environnement** (§16.7, couture 5) |
+
+---
+
+## 16.11 Tranche 1 — ce que l'écriture a tranché
+
+**Le réglage a disparu avec le préfixe.** Retirer `MSE ` laissait `v` comme seule valeur, et
+`v` est déjà le défaut. La variable `VERSION_NAME_PREFIXES`, la liste de préfixes
+configurable et son injection dans le magasin, les handlers et la synchronisation ne servaient
+plus qu'à transporter une constante. Ils sont retirés : `release.NormalizeVersionName` est
+redevenue une fonction.
+
+Doc 12 §12.9 (chantier 5) en avait fait une valeur injectée pour une raison précise : les
+préfixes venaient de la configuration, et une fonction libre aurait permis de normaliser sans
+eux. Sans configuration, cette raison tombe.
+
+**Les tests d'adoption portaient la convention `MSE `.** Les paires ambiguës étaient
+`MSE 3.1.2` close et `v3.1.2` ouverte. Elles deviennent `3.1.2` et `v3.1.2`, qui se réduisent
+toujours au même numéro : le cas éprouvé — une version close homonyme ne bloque pas
+l'adoption, deux actives restent indécidables — est inchangé.
+
+**`deployments` est supprimée par la migration 0050**, qui sait la recréer en retour arrière.

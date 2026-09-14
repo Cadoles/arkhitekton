@@ -124,11 +124,11 @@ func (e ErrInvalidTransition) Error() string {
 // `3.2.0-rc1` se rattache donc à la version Redmine `3.2.0` : c'est ce qui relie
 // une pré-release à son périmètre fonctionnel.
 //
-// La comparaison est normalisée ([Normalizer.Normalize]) et non stricte.
+// La comparaison est normalisée ([NormalizeVersionName]) et non stricte.
 // L'égalité exacte, telle que B8 et B17 la posaient, rejetait toute release
 // réelle : les versions de l'instance s'appellent `v3.2.0`, jamais `3.2.0`.
-func (n Normalizer) CheckTrackedVersion(version versionpkg.Version, redmineName string) error {
-	if !n.SameVersion(version, redmineName) {
+func CheckTrackedVersion(version versionpkg.Version, redmineName string) error {
+	if !SameVersion(version, redmineName) {
 		return fmt.Errorf(
 			"le tag %q se rattache à la version %q, or la version Redmine visée est %q",
 			version.Raw, version.Base, strings.TrimSpace(redmineName))
