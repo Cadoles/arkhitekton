@@ -488,3 +488,53 @@ requête nouvelle, et le cas n'existe dans aucun catalogue déployé.
 cases restent celles de la maquette — six tuiles par signal. Les rendre dynamiques est la
 tranche 6, et le faire ici aurait mélangé un changement de calcul avec un changement de
 rendu.
+
+---
+
+## 15.15 Ce que l'écran a tranché à l'écriture
+
+### La section « images » ne listait pas ce qu'on croyait
+
+Elle ne dérivait **pas** de la colonne `targets`, contrairement à ce que §15.7 supposait.
+Elle prenait **un seul dépôt** — `registry.image` dans la configuration — et le déclinait en
+ses tags : construction, release, promotions.
+
+Le défaut était donc pire que décrit. Un projet qui publie trois images n'en voyait qu'une,
+sans que rien ne dise que les deux autres existaient.
+
+### Le contrôle de digest a été conservé, et élargi
+
+Cette section avait une raison d'être que §15.7 ne nommait pas : elle prouvait qu'une
+promotion n'avait pas reconstruit, en comparant le digest du tag promu à celui du tag
+d'origine (B17). La remplacer sans reprendre ce contrôle aurait perdu une garantie de
+livraison pour gagner un affichage.
+
+Il vaut maintenant pour **chaque image produite**, et non pour le seul dépôt configuré.
+
+### Le `kind` d'un artefact ne sert pas à l'écran
+
+Le relevé attribue à chaque résultat le `produces` du **pipeline**, si bien qu'un `tag`
+porte `kind: image`. Cette imprécision avait été signalée en tranche 2 ; l'écran la tranche
+en se fiant au **nom** du résultat, qui est juste, et non à `kind`, qui est descriptif.
+
+Seul un artefact nommé `image` se voit chercher un digest. Corriger le relevé demanderait au
+catalogue une déclaration par résultat qu'il ne porte pas, pour un gain nul.
+
+### Trois tables de l'interface ont disparu
+
+`signal → pipeline`, `pipeline → signaux`, `signal → famille de rapports`. Elles disaient ce
+que le serveur sait depuis que le score se pèse par geste : un composant porte le geste qui
+l'a produit, donc sa famille de pipeline et sa famille de rapports.
+
+Elles devenaient **fausses** dès qu'un projet déclarait deux campagnes de même nature : elles
+ne relancent pas le même pipeline, et une table indexée par signal ne pouvait pas le dire.
+
+### Un défaut introduit puis corrigé dans la même tranche
+
+`redistributed` portait des noms de signaux ; il porte désormais des **clés** de composant.
+Le bandeau « non mesurés : … » les traduisait par une table de libellés indexée par signal,
+et aurait donc affiché `geste:1.0`. Les libellés viennent maintenant des composants
+eux-mêmes.
+
+C'est le prix d'un changement d'axe qui traverse la frontière HTTP : les deux bouts se
+compilent, et seule la lecture attrape ce genre d'écart.
