@@ -431,3 +431,60 @@ fait croire qu'on y modifie ce qui se construit.
 
 Ce qui reste à faire un jour : donner à la promotion sa propre déclaration. Ce n'est pas ce
 chantier-ci, et l'y ajouter l'aurait fait déborder.
+
+---
+
+## 15.14 Ce que le score par geste a tranché à l'écriture
+
+La §15.6 posait le principe : le poids se déclare sur le geste, le score se calcule sur les
+gestes. Quatre choses ont été décidées en l'écrivant.
+
+### Le poids voyage avec la mesure
+
+`Score(measures, weights)` cherchait le poids d'une mesure **dans une table indexée par
+signal**. C'était exactement ce qui empêchait deux campagnes E2E de compter séparément : deux
+mesures de même signal trouvaient forcément le même poids.
+
+La table a donc disparu de la signature. Une mesure porte son poids, et le calcul n'a plus
+d'avis sur d'où il vient. `DefaultWeights` survit, réduite à ce qu'elle est vraiment : le
+**défaut par signal** d'un geste qui ne déclare rien.
+
+### Le rattachement n'a rien demandé au schéma
+
+Un résultat porte son run, un run porte son job, et un geste est le seul à porter ce job.
+Une requête suffit — `ResultGestes` — et elle rattache d'un coup les rapports de tests, les
+audits de sécurité et les campagnes de charge, puisque tous passent par `test_results`.
+
+Conséquence qui n'était pas cherchée et qu'on garde : **un résultat qu'aucun geste n'a
+produit n'entre pas au score**. Il vient d'un lancement manuel depuis la file, et le compter
+ferait noter une release sur une exécution que son automatisation n'a pas demandée.
+
+### Les poids figés n'ont demandé aucune machinerie
+
+`plan_runs.plan` porte déjà le plan tel qu'il était à l'ouverture. Le poids étant un champ du
+geste, il y est figé avec le reste. Rejouer le score d'une release livrée il y a six mois
+emploie les poids de ce jour-là, sans table d'historique ni copie.
+
+### Trois états de poids, et pourquoi le pointeur
+
+| Saisie | Ce que ça veut dire |
+|---|---|
+| vide | le geste pèse ce que sa nature pesait (B11). Personne ne perd la pondération convenue en ne saisissant rien |
+| `0` | le geste tourne et **ne note pas**. C'est une décision, et sa case reste affichée |
+| une valeur | elle s'applique, relativement aux autres |
+
+Un `float64` nu aurait confondu les deux premiers, et vider un champ aurait retiré le geste
+du score au lieu de lui rendre son défaut.
+
+### Deux limites assumées
+
+**L'audit et la campagne de charge se lisent « le plus récent de la release »**, puis se
+rattachent au geste qui les a produits. Deux gestes de sécurité dans un même plan ne
+seraient donc pas notés séparément : le second se déclarerait non mesuré, en le disant,
+plutôt que d'afficher la valeur du premier sous son nom. C'est la seule forme **vraie** sans
+requête nouvelle, et le cas n'existe dans aucun catalogue déployé.
+
+**L'écran n'a pas bougé.** Les composants portent désormais une clé et un libellé, et les
+cases restent celles de la maquette — six tuiles par signal. Les rendre dynamiques est la
+tranche 6, et le faire ici aurait mélangé un changement de calcul avec un changement de
+rendu.
