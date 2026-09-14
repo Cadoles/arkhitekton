@@ -197,10 +197,6 @@ func (s *runSink) WithSecurityIngester(ingester *SecurityIngester) *runSink {
 func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 	run = s.disown(run)
 
-	if err := s.finishJob(ctx, run); err != nil {
-		return err
-	}
-
 	id, err := s.db.UpsertRun(ctx, store.RunRecord{
 		Name:        run.Name,
 		Namespace:   run.Namespace,
@@ -252,7 +248,20 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 	// dépouillé**, et l'émettre avant les ingestions ferait réagir une future
 	// réaction sur des résultats pas encore lus.
 	s.emitPipelineFinished(ctx, id, run, release)
-	return nil
+
+	// La conclusion du job vient **après** l'enregistrement du run, et l'ordre
+	// porte une décision.
+	//
+	// Elle le précédait, sans raison écrite. Depuis que la conclusion d'un geste
+	// relève les artefacts du run — ses résultats Tekton —, cet ordre les rendait
+	// introuvables : le relevé relisait une ligne que l'enregistrement n'avait pas
+	// encore écrite. Constaté sur le cluster, trois constructions réussies et
+	// aucun artefact retenu.
+	//
+	// La règle générale est celle des ingestions ci-dessus : **la conséquence suit
+	// le constat**. Conclure d'abord faisait réagir sur ce qui n'était pas encore
+	// écrit.
+	return s.finishJob(ctx, run)
 }
 
 // checkResultsContract signale un pipeline qui annonce des résultats et n'en
