@@ -8,7 +8,7 @@
 // propriété qui permettra d'y accrocher des réactions sans que le noyau ait à les
 // connaître (doc 14 §14.2).
 //
-// # Quatre faits, et la règle qui les choisit
+// # Trois faits, et la règle qui les choisit
 //
 // **Un fait du noyau existe quand quelque chose arrive qu'aucun plan n'a causé**
 // (doc 15 §15.3). Ce qu'un plan provoque lui appartient : il n'a pas à ressortir
@@ -20,13 +20,16 @@
 // avancer son état ; le troisième était le générique d'un run, et `when: failure`
 // sur une étape couvre ce qu'on lui demandait.
 //
-// Restent quatre points d'entrée : une version déclarée dans le suivi, une
-// release déclarée, une promotion aboutie, une recette validée. Les deux
-// dernières auraient pu tomber sous la même règle ; elles n'en relèvent pas,
-// parce qu'elles sont des **décisions humaines** prises hors de toute
-// automatisation — et les deux moments où une équipe veut être prévenue.
+// Restent trois points d'entrée : une version déclarée dans le suivi, une
+// release déclarée, une recette validée. La dernière aurait pu tomber sous la
+// même règle ; elle n'en relève pas, parce qu'elle est une **décision humaine**
+// prise hors de toute automatisation.
 //
-// Le type `Outcome` est parti avec eux : aucun des quatre ne se termine d'une
+// La promotion aboutie en est sortie sur un autre motif : c'est le plugin MSE qui
+// définit ce qu'est une promotion, et c'est lui qui la constate, sous
+// `mse.release.promoted` (doc 16 §16.7).
+//
+// Le type `Outcome` est parti avec eux : aucun des trois ne se termine d'une
 // façon ou d'une autre. Un point d'entrée **arrive**, il ne conclut pas — ce qui
 // conclut, ce sont les étapes d'un plan, et leur issue se lit dans l'exécution.
 //
@@ -81,12 +84,6 @@ const (
 	// ReleaseReleased : une release est validée pour livraison. La seule
 	// transition que rien n'automatise.
 	ReleaseReleased Type = "release.released"
-	// ReleasePromoted : une promotion aboutit.
-	//
-	// **Le re-tag a réussi**, ce qui est un constat et non l'intention de le
-	// demander. Ce que le déployeur en fait ensuite est une autre affaire, et
-	// c'est l'écran des environnements qui la raconte (B8).
-	ReleasePromoted Type = "release.promoted"
 )
 
 // Event est un fait constaté.
@@ -253,25 +250,6 @@ func ReleaseReleasedAt(at time.Time, projectID, releaseID int64, tag, by string)
 		DedupKey:   key(string(ReleaseReleased), id(releaseID)),
 		Payload: map[string]string{
 			"release_id": id(releaseID), "tag": tag, "released_by": by,
-		},
-	}
-}
-
-// ReleasePromotedAt rend le fait d'une promotion aboutie.
-//
-// Clé sur le job : une même release se promeut plusieurs fois vers le même
-// environnement — une reprise après un re-tag manqué —, et chaque aboutissement
-// est un fait.
-func ReleasePromotedAt(
-	at time.Time, projectID, releaseID, jobID int64, tag, environment string,
-) Event {
-	return Event{
-		Type: ReleasePromoted, ProjectID: &projectID, Subject: tag,
-		OccurredAt: at,
-		DedupKey:   key(string(ReleasePromoted), id(jobID)),
-		Payload: map[string]string{
-			"release_id": id(releaseID), "tag": tag,
-			"environment": environment, "job_id": id(jobID),
 		},
 	}
 }

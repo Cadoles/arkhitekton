@@ -13,7 +13,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"

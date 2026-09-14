@@ -58,7 +58,7 @@ export const EVENT_LABEL: Record<string, string> = {
   'version.created': 'Version déclarée dans le suivi',
   'release.created': 'Release déclarée',
   'release.released': 'Release validée',
-  'release.promoted': 'Promotion aboutie',
+  'mse.release.promoted': 'Promotion aboutie',
 
   /* Les faits retirés par la réduction (doc 15 §15.3). Plus personne ne les émet,
    * mais le fil est une **histoire** : les lignes déjà écrites restent, et les
@@ -66,6 +66,8 @@ export const EVENT_LABEL: Record<string, string> = {
   'release.built': 'Construction conclue',
   'release.verified': 'Vérifications conclues',
   'pipeline.finished': 'Exécution terminée',
+  /* Devenu `mse.release.promoted` quand la promotion est passée au plugin (doc 16). */
+  'release.promoted': 'Promotion aboutie',
 }
 
 /** L'issue portée par la charge, quand la question se pose. */

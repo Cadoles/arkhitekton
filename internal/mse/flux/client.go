@@ -1,6 +1,6 @@
 // Package flux lit ce que Flux publie : sélection d'image et rapprochement.
 //
-// Il ne lit **plus** l'état applicatif : celui-ci vit dans `internal/portaldata`
+// Il ne lit **plus** l'état applicatif : celui-ci vit dans `internal/mse/portaldata`
 // depuis le lot D. Flux dit l'intention — le tag qu'une Kustomization a retenu —,
 // le portail dit le constat, et les fondre dans un client faisait échouer le
 // déployeur sur un cluster dépourvu du CRD du portail (doc 12 §12.9).

@@ -1,4 +1,4 @@
-package release
+package flux
 
 import (
 	"fmt"
@@ -8,6 +8,15 @@ import (
 	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
+/*
+ * La règle de formation d'un tag de promotion.
+ *
+ * Elle vivait dans `internal/release`, un paquet du noyau, alors que son seul
+ * appelant était ce déployeur : le suffixe par environnement, l'underscore et le
+ * refus des pré-releases sont des conventions de Flux et de ses ImagePolicy, pas
+ * du cycle de vie d'une release (doc 16 §16.4).
+ */
+
 // DefaultTagTemplate compose le tag de promotion.
 //
 // Le gabarit est configurable plutôt que codé : `+` est exclu de la grammaire des
@@ -15,8 +24,8 @@ import (
 // convention évolue, le séparateur reste un paramètre (B7).
 const DefaultTagTemplate = "{version}_{suffix}"
 
-// Target décrit l'environnement visé par une promotion.
-type Target struct {
+// PromotionTarget décrit l'environnement visé par une promotion.
+type PromotionTarget struct {
 	ID string
 	// Suffix est la métadonnée SemVer attendue par Flux — `testing` pour la
 	// qualification, dont Flux ignore le nom courant.
@@ -52,7 +61,7 @@ var ociTag = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$`)
 //     que de s'en remettre à un silence.
 //  2. **Tag hors grammaire OCI.** Le registre le refuserait, mais plus tard et
 //     avec un message qui parle de manifeste.
-func PromotionTag(releaseTag string, target Target, template string) (string, error) {
+func PromotionTag(releaseTag string, target PromotionTarget, template string) (string, error) {
 	version := strings.TrimSpace(releaseTag)
 	if version == "" {
 		return "", fmt.Errorf("aucune version d'image à promouvoir")
@@ -68,7 +77,7 @@ func PromotionTag(releaseTag string, target Target, template string) (string, er
 
 	// `known` est ignoré ici, et c'est correct : ce chemin n'est atteint que
 	// depuis un déployeur qui a déjà refusé les schémas incapables de répondre
-	// ([flux.Deployer.CheckScheme]). Un schéma muet ne promeut pas par plage.
+	// ([Deployer.CheckScheme]). Un schéma muet ne promeut pas par plage.
 	prerelease, _ := parsed.Prereleased()
 	if prerelease && !target.AcceptsPrerelease {
 		return "", fmt.Errorf(
@@ -114,7 +123,7 @@ type PromotionPlan struct {
 // registre. Ils coïncident pour une pré-release et divergent pour toute finale
 // produite par re-tag. Confondre les deux donne soit un re-tag d'une image
 // inexistante, soit un tag de promotion que Flux ignore.
-func PlanPromotion(releaseTag, imageVersion string, target Target, template string) (PromotionPlan, error) {
+func PlanPromotion(releaseTag, imageVersion string, target PromotionTarget, template string) (PromotionPlan, error) {
 	source := strings.TrimSpace(imageVersion)
 	if source == "" {
 		// Sans image dans le registre, il n'y a rien à re-taguer. Le dire ici

@@ -3,9 +3,9 @@ package flux
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
@@ -18,9 +18,8 @@ import (
  * cluster cible — la production vit d'ailleurs dans un cluster qu'il ne voit pas.
  *
  * Ce que ce type ajoute au client : il **répond aux questions** du contrat, là où
- * le client se contente de lire des objets. La planification vient de
- * `internal/release`, qui la tenait déjà ; elle n'est pas réécrite ici, seulement
- * exposée sous la forme que la frontière demande (doc 12 §12.9, lot A).
+ * le client se contente de lire des objets. La planification est dans
+ * `promotion.go`, à côté : c'est une convention de Flux (doc 16 §16.4).
  */
 
 // Réglages qu'un environnement doit porter pour ce déployeur.
@@ -79,15 +78,15 @@ var _ provider.Deployer = (*Deployer)(nil)
 //
 // Le refus est l'essentiel : une pré-release vers un environnement dont la plage
 // SemVer les exclut produirait un tag valide, poussé sans erreur, que Flux
-// ignorerait. `release.PromotionTag` porte cette règle et la rend telle quelle.
+// ignorerait. [PromotionTag] porte cette règle et la rend telle quelle.
 func (d *Deployer) Plan(_ context.Context, request provider.Deployment) (provider.Plan, error) {
-	target := release.Target{
+	target := PromotionTarget{
 		ID:                request.Target.ID,
 		Suffix:            request.Target.Setting(SettingSuffix, ""),
 		AcceptsPrerelease: request.Target.Setting(SettingAcceptsPrerelease, "") == "true",
 	}
 
-	plan, err := release.PlanPromotion(request.Version, request.Artifact, target, d.template)
+	plan, err := PlanPromotion(request.Version, request.Artifact, target, d.template)
 	if err != nil {
 		return provider.Plan{}, err
 	}
@@ -149,9 +148,13 @@ func (d *Deployer) Observe(ctx context.Context, target provider.Target) (provide
 // qui soit : le tag partirait, le registre l'accepterait, Flux l'ignorerait, et
 // la promotion paraîtrait réussie (B7).
 //
-// La question est posée au schéma plutôt que déduite de son nom : c'est ce qui
-// fait qu'un schéma calendaire, le jour où il existera, sera accepté sans que
-// cette ligne change — il sait suffixer, donc il convient.
+// # Le SemVer, et lui seul
+//
+// Le schéma était interrogé par une méthode `Mark` de son interface, pour qu'un
+// schéma calendaire puisse un jour convenir sans que ce contrôle change. Ce
+// déployeur n'existe que pour le MSE, dont les tags sont SemVer : la question
+// posée au noyau pour un cas qui n'arrivera pas a été retirée, et le marqueur est
+// posé ici, par la règle qui l'utilise (doc 16 §16.4).
 func (d *Deployer) CheckScheme(scheme version.Scheme) error {
 	// Un tag sonde, jamais poussé : on demande au schéma s'il **sait** poser un
 	// marqueur, pas ce qu'il produirait.
@@ -164,13 +167,31 @@ func (d *Deployer) CheckScheme(scheme version.Scheme) error {
 				"que ce déployeur doit savoir écrire: %w", scheme.ID(), probeTag, err)
 	}
 
-	if _, err := scheme.Mark(probe.Raw, "prod"); err != nil {
+	if _, semver := scheme.(version.SemVer); !semver {
 		return fmt.Errorf(
 			"le schéma %q ne sait pas attacher de marqueur de promotion, "+
-				"or ce déployeur sélectionne par métadonnée: une promotion "+
-				"produirait un tag que rien ne retiendrait (%w)", scheme.ID(), err)
+				"or ce déployeur sélectionne par métadonnée SemVer: une promotion "+
+				"produirait un tag que rien ne retiendrait", scheme.ID())
+	}
+	if _, err := Mark(probe.Raw, "prod"); err != nil {
+		return fmt.Errorf("le schéma %q ne sait pas marquer %q: %w", scheme.ID(), probe.Raw, err)
 	}
 	return nil
+}
+
+// Mark suffixe un tag SemVer de son marqueur, séparé par un underscore.
+//
+// Underscore et non `+` : la grammaire des tags OCI exclut le second, alors que
+// le SemVer le réserve à la métadonnée de build.
+func Mark(tag, marker string) (string, error) {
+	parsed, err := version.SemVer{}.Parse(tag)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(marker) == "" {
+		return parsed.Raw, nil
+	}
+	return parsed.Raw + "_" + marker, nil
 }
 
 // probeTag est la version canonique servant à interroger un schéma. Jamais

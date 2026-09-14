@@ -27,20 +27,20 @@ import (
 // instant fixe la date des faits d'exemple.
 var instant = time.Date(2026, 9, 2, 14, 30, 0, 0, time.UTC)
 
-// Le catalogue offre exactement les quatre faits du noyau.
+// Le catalogue offre exactement les trois faits du noyau.
 //
 // La réduction de doc 15 §15.3 en a retiré trois — `release.built`,
 // `release.verified`, `pipeline.finished`. Les laisser ici les aurait laissés
 // choisissables dans l'éditeur, pour des réactions que plus rien ne déclenche.
-func TestLeCatalogueOffreLesQuatreFaitsDuNoyau(t *testing.T) {
+func TestLeCatalogueOffreLesTroisFaitsDuNoyau(t *testing.T) {
 	attendus := map[string]bool{
 		string(event.VersionCreated): true, string(event.ReleaseCreated): true,
-		string(event.ReleasePromoted): true, string(event.ReleaseReleased): true,
+		string(event.ReleaseReleased): true,
 	}
 
 	for _, choice := range coreEventChoices() {
 		if !attendus[choice.Type] {
-			t.Errorf("fait %q offert — il n'est pas des quatre du noyau", choice.Type)
+			t.Errorf("fait %q offert — il n'est pas des trois du noyau", choice.Type)
 		}
 		delete(attendus, choice.Type)
 		if choice.Label == "" {
@@ -69,8 +69,6 @@ func TestChaqueChampAnnonceExisteDansLaCharge(t *testing.T) {
 			instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0").Payload,
 		string(event.ReleaseReleased): event.ReleaseReleasedAt(
 			instant, 7, 42, "1.8.0", "vcarroy").Payload,
-		string(event.ReleasePromoted): event.ReleasePromotedAt(
-			instant, 7, 42, 1400, "1.8.0", "preprod").Payload,
 	}
 
 	for _, choice := range coreEventChoices() {

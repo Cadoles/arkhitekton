@@ -396,8 +396,6 @@ func coreEventChoices() []eventChoice {
 			Fields: []string{"release_id", "tag", "kind", "git_ref", "version"}},
 		{Type: string(event.ReleaseReleased), Label: "Release validée",
 			Fields: []string{"release_id", "tag", "released_by"}},
-		{Type: string(event.ReleasePromoted), Label: "Promotion aboutie",
-			Fields: []string{"release_id", "tag", "environment", "job_id"}},
 	}
 }
 

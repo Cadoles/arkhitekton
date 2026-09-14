@@ -53,20 +53,6 @@ func TestLaCleDUneVersionPorteLaLigneLocale(t *testing.T) {
 	}
 }
 
-// Une promotion reprise est un **fait distinct**, et sa clé le dit.
-//
-// Une même release se promeut plusieurs fois vers le même environnement — une
-// reprise après un re-tag manqué. Une clé sur la seule release ferait taire
-// toutes les promotions après la première.
-func TestUneRepriseDePromotionEstUnFaitDistinct(t *testing.T) {
-	premiere := ReleasePromotedAt(instant, 7, 42, 1400, "1.8.0", "preprod")
-	reprise := ReleasePromotedAt(instant, 7, 42, 1402, "1.8.0", "preprod")
-
-	if premiere.DedupKey == reprise.DedupKey {
-		t.Errorf("clé partagée %q — la reprise serait muette", premiere.DedupKey)
-	}
-}
-
 // Deux faits de nature différente ne se confondent jamais, même sur le même
 // objet : la clé porte le type.
 func TestDeuxNaturesNeSeConfondentPas(t *testing.T) {
@@ -149,16 +135,18 @@ func TestTousLesConstructeursProduisentDesFaitsValides(t *testing.T) {
  * La règle n'est pas vérifiable par une machine ; le **compte** l'est. Ce test ne
  * dit pas qu'un cinquième fait serait faux, il dit qu'il ne doit pas arriver sans
  * qu'on l'ait décidé.
+ *
+ * `release.promoted` en est sorti à son tour : c'est le plugin MSE qui définit ce
+ * qu'est une promotion, c'est donc lui qui la constate (doc 16 §16.7).
  */
-func TestLeNoyauNeCompteQueQuatreFaits(t *testing.T) {
+func TestLeNoyauNeCompteQueTroisFaits(t *testing.T) {
 	attendus := map[Type]bool{
-		VersionCreated: true, ReleaseCreated: true,
-		ReleasePromoted: true, ReleaseReleased: true,
+		VersionCreated: true, ReleaseCreated: true, ReleaseReleased: true,
 	}
 
 	for _, fait := range tousLesFaits() {
 		if !attendus[fait.Type] {
-			t.Errorf("fait %q hors des quatre du noyau — un plan le cause-t-il ?", fait.Type)
+			t.Errorf("fait %q hors des trois du noyau — un plan le cause-t-il ?", fait.Type)
 		}
 		delete(attendus, fait.Type)
 	}
@@ -186,6 +174,5 @@ func tousLesFaits() []Event {
 		VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", &echeance),
 		ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0"),
 		ReleaseReleasedAt(instant, 7, 42, "1.8.0", "vcarroy"),
-		ReleasePromotedAt(instant, 7, 42, 1400, "1.8.0", "preprod"),
 	}
 }

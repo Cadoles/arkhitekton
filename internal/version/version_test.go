@@ -65,24 +65,6 @@ func TestLOrdreSemVerNestPasLexical(t *testing.T) {
 	}
 }
 
-// Le marqueur se pose en underscore : la grammaire des tags OCI exclut le `+`
-// que le SemVer réserve à la métadonnée de build (B7).
-func TestLeMarqueurSemVerSePoseEnUnderscore(t *testing.T) {
-	got, err := SemVer{}.Mark("1.8.0-rc1", "testing")
-	if err != nil {
-		t.Fatalf("marquage: %v", err)
-	}
-	if got != "1.8.0-rc1_testing" {
-		t.Errorf("tag marqué = %q", got)
-	}
-
-	// Sans marqueur, le tag ressort inchangé plutôt que suffixé d'un underscore
-	// orphelin, que le registre accepterait sans que rien ne le sélectionne.
-	if got, _ := (SemVer{}).Mark("1.8.0", ""); got != "1.8.0" {
-		t.Errorf("tag sans marqueur = %q", got)
-	}
-}
-
 /*
  * Le schéma opaque, et c'est lui qui prouve le contrat.
  *
@@ -132,13 +114,9 @@ func TestLeSchemaOpaqueNaffirmeJamaisQuUnTagEstFinal(t *testing.T) {
 	}
 }
 
-// Les deux questions auxquelles il refuse de répondre. Une réponse inventée —
-// un ordre lexical, un marqueur collé au hasard — serait affichée comme si elle
-// était la bonne.
+// Une question à laquelle il refuse de répondre. Une réponse inventée — un ordre
+// lexical — serait affichée comme si elle était la bonne.
 func TestLeSchemaOpaqueRefuseCeQuIlIgnore(t *testing.T) {
-	if _, err := (Opaque{}).Mark("build-4711", "testing"); !errors.Is(err, ErrUnsupported) {
-		t.Errorf("marquage: %v, attendu ErrUnsupported", err)
-	}
 	if _, err := (Opaque{}).Compare("build-4711", "build-4712"); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("comparaison: %v, attendu ErrUnsupported", err)
 	}

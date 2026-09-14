@@ -175,11 +175,26 @@ func TestUnSchemaOpaqueEstRefuseParCeDeployeur(t *testing.T) {
 	}
 }
 
-// Le SemVer convient, et la question est posée au schéma plutôt que déduite de
-// son nom : c'est ce qui fera accepter un schéma calendaire, le jour où il
-// existera, sans que cette ligne change.
+// Le SemVer convient : c'est la grammaire que les ImagePolicy sélectionnent.
 func TestUnSchemaQuiSaitMarquerEstAccepte(t *testing.T) {
 	if err := NewDeployer(nil, DefaultPromotionKind, "").CheckScheme(version.SemVer{}); err != nil {
 		t.Errorf("schéma SemVer refusé: %v", err)
+	}
+}
+
+// Le marqueur se pose en underscore : la grammaire des tags OCI exclut le `+`
+// que le SemVer réserve à la métadonnée de build (B7).
+func TestLeMarqueurSePoseEnUnderscore(t *testing.T) {
+	got, err := Mark("1.8.0-rc1", "testing")
+	if err != nil {
+		t.Fatalf("marquage: %v", err)
+	}
+	if got != "1.8.0-rc1_testing" {
+		t.Errorf("tag marqué = %q", got)
+	}
+	// Sans marqueur, le tag ressort inchangé plutôt que suffixé d'un underscore
+	// orphelin, que le registre accepterait sans que rien ne le sélectionne.
+	if got, _ := Mark("1.8.0", ""); got != "1.8.0" {
+		t.Errorf("tag sans marqueur = %q", got)
 	}
 }

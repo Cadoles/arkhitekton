@@ -58,11 +58,14 @@ type ProjectsHandler struct {
 	// répond alors qu'il ne peut pas conclure, ce qui vaut mieux qu'un échec
 	// qu'on prendrait pour un défaut d'accès.
 	prober ProjectProber
-	// deployer sert à refuser un schéma de version qu'il ne saurait pas
-	// acheminer. Nil quand aucun déployeur n'est configuré : tout schéma est
-	// alors acceptable, puisque rien ne promeut.
-	deployer provider.Deployer
-	forgeURL string
+	// schemeCheck refuse un schéma de version qu'un plugin ne saurait pas
+	// acheminer. Nil : tout schéma est acceptable, puisque rien ne promeut.
+	//
+	// Une fonction et non un déployeur : le noyau n'a pas à savoir qui promeut,
+	// seulement qu'une configuration de projet peut être refusée par qui le fait
+	// (doc 16 §16.7, couture 8).
+	schemeCheck func(context.Context, version.Scheme) error
+	forgeURL    string
 	// imageRegistry est le registre proposé par défaut à la déclaration. Celui de
 	// la configuration : c'est là que publient les projets existants, et le
 	// resaisir à chaque déclaration inviterait la faute de frappe.
@@ -73,9 +76,9 @@ func NewProjectsHandler(projects ProjectStore) *ProjectsHandler {
 	return &ProjectsHandler{store: projects}
 }
 
-// WithDeployer branche le refus des schémas incompatibles.
-func (h *ProjectsHandler) WithDeployer(deployer provider.Deployer) *ProjectsHandler {
-	h.deployer = deployer
+// WithSchemeCheck branche le refus des schémas qu'un plugin ne sait pas acheminer.
+func (h *ProjectsHandler) WithSchemeCheck(check func(context.Context, version.Scheme) error) *ProjectsHandler {
+	h.schemeCheck = check
 	return h
 }
 
@@ -335,8 +338,8 @@ func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projec
 		writeProblem(w, http.StatusBadRequest, "Schéma de version inconnu", err.Error())
 		return request, false
 	}
-	if h.deployer != nil {
-		if err := h.deployer.CheckScheme(scheme); err != nil {
+	if h.schemeCheck != nil {
+		if err := h.schemeCheck(r.Context(), scheme); err != nil {
 			writeProblem(w, http.StatusBadRequest,
 				"Schéma de version incompatible avec le déployeur", err.Error())
 			return request, false

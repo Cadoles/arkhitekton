@@ -404,6 +404,20 @@ func Registry() []Descriptor {
 					Placeholder: "flux-system",
 				},
 			},
+			// La promotion est un fait du plugin et non du noyau : c'est lui qui
+			// définit ce qu'est une promotion, donc lui qui la constate.
+			Events: []EventSpec{
+				{
+					Suffix: "release.promoted",
+					Label:  "Promotion aboutie",
+					Payload: []Field{
+						{Name: "release_id", Label: "Release"},
+						{Name: "tag", Label: "Tag"},
+						{Name: "environment", Label: "Environnement"},
+						{Name: "job_id", Label: "Job"},
+					},
+				},
+			},
 			// Pour toute l'instance : les environnements ne sont pas une propriété
 			// d'un projet. Éteint, l'instance n'a ni onglet Environnements, ni
 			// promotion, ni observation (doc 16 §16.8).

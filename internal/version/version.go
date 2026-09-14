@@ -92,12 +92,6 @@ type Scheme interface {
 	ID() string
 	// Parse décompose un tag, ou refuse celui qui n'a pas la forme attendue.
 	Parse(tag string) (Version, error)
-	// Mark attache un marqueur de promotion au tag, ou rend [ErrUnsupported].
-	//
-	// C'est la question qui décide de la compatibilité avec un déployeur : celui
-	// qui sélectionne par métadonnée a besoin d'y écrire, et un schéma qui ne
-	// sait pas en attacher rend cette promotion impossible.
-	Mark(tag, marker string) (string, error)
 	// Compare ordonne deux tags — négatif, nul, positif — ou rend
 	// [ErrUnsupported]. Sans lui, l'interface affiche l'ordre de création plutôt
 	// qu'un ordre de version, et le dit.
@@ -175,22 +169,6 @@ func (SemVer) Parse(tag string) (Version, error) {
 		Prerelease:      matches[4],
 		KnowsPrerelease: true,
 	}, nil
-}
-
-// Mark suffixe le tag de son marqueur, séparé par un underscore.
-//
-// Underscore et non `+` : la grammaire des tags OCI exclut le second, alors que
-// le SemVer le réserve à la métadonnée de build. La convention est donc du
-// projet, pas du schéma — mais c'est le schéma qui sait où elle se pose.
-func (s SemVer) Mark(tag, marker string) (string, error) {
-	version, err := s.Parse(tag)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(marker) == "" {
-		return version.Raw, nil
-	}
-	return version.Raw + "_" + marker, nil
 }
 
 // Compare ordonne par précédence SemVer.
@@ -326,12 +304,6 @@ func (Opaque) Parse(tag string) (Version, error) {
 	}
 	// `Base` reste vide et `KnowsPrerelease` faux : le tag ne se décompose pas.
 	return Version{Raw: trimmed}, nil
-}
-
-// Mark refuse : attacher un marqueur suppose une grammaire, et l'appliquer à
-// l'aveugle produirait un tag que le projet n'a pas choisi.
-func (Opaque) Mark(string, string) (string, error) {
-	return "", fmt.Errorf("%w: attacher un marqueur de promotion", ErrUnsupported)
 }
 
 // NextPrerelease refuse : sans grammaire, la « suivante » n'existe pas. Proposer

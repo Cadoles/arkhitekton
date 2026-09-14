@@ -358,3 +358,41 @@ PortalData et l'observation suivent. L'interface et les routes suivent immédiat
 **Ce qui ne l'est pas encore.** `CheckScheme` s'applique toujours à la configuration d'un
 projet (couture 8) et la suggestion `environment` du formulaire de lancement lit toujours le
 catalogue (couture 9) : ce sont les tranches 3 et 5.
+
+---
+
+## 16.13 Tranche 3a — ce que l'écriture a tranché
+
+**La tranche 3 part en deux commits.** La première déplace ce qui se déplace sans toucher aux
+écrans : paquets, règle de promotion, contrôle du schéma, fait de promotion. La seconde (3b)
+emporte l'observation et les handlers d'environnement, et retire `Deployer` et `Attester` —
+elle demande un point d'entrée de routes dans le routeur du noyau.
+
+**`internal/flux` et `internal/portaldata` deviennent `internal/mse/flux` et
+`internal/mse/portaldata`.** `internal/mse` porte ce qui est propre au plugin sans être un
+client : pour l'instant, le fait de promotion.
+
+**La règle de promotion rejoint Flux.** `PlanPromotion`, `PromotionTag` et le gabarit quittent
+`internal/release` pour `internal/mse/flux`. `Target` y devient `PromotionTarget`, pour ne pas
+se confondre avec la cible du déployeur.
+
+**`Mark` quitte l'interface `version.Scheme`.** Elle n'existait que pour que ce déployeur pose
+la question à un schéma calendaire qui n'existe pas. `CheckScheme` accepte le SemVer et refuse
+le reste, et le marqueur underscore est posé par `flux.Mark`.
+
+**Le noyau ne connaît plus de déployeur pour valider un projet.** `ProjectsHandler` reçoit une
+fonction `WithSchemeCheck`. `main` la branche sur le déployeur Flux, et elle ne refuse rien
+quand le module est éteint. Elle suit l'interrupteur à chaque requête, comme les routes.
+
+**`release.promoted` devient `mse.release.promoted`** (décision 7) :
+
+- le noyau compte trois faits ;
+- le descripteur `mse` déclare le fait et sa charge, et l'éditeur de réactions le propose
+  seulement quand le module est allumé ;
+- le worker l'émet par un crochet `WithPromotionFacts`, branché au démarrage si le module est
+  allumé ;
+- le fait porte `Source` `mse`.
+
+**Les réactions suivent, les faits passés restent.** La migration 0052 renomme le type des
+réactions déclarées sur `release.promoted`. Les faits déjà écrits gardent leur type : le fil
+est une histoire, et le front garde leur libellé.

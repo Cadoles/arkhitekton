@@ -1,15 +1,15 @@
-package release
+package flux
 
 import (
 	"strings"
 	"testing"
 )
 
-func targets() (unstable, qualif, prod Target) {
-	return Target{ID: "unstable", Suffix: "unstable", AcceptsPrerelease: true},
+func targets() (unstable, qualif, prod PromotionTarget) {
+	return PromotionTarget{ID: "unstable", Suffix: "unstable", AcceptsPrerelease: true},
 		// Le piège de B7 : Flux désigne la qualification sous son ancien nom.
-		Target{ID: "qualif", Suffix: "testing", AcceptsPrerelease: true},
-		Target{ID: "prod", Suffix: "prod", AcceptsPrerelease: false}
+		PromotionTarget{ID: "qualif", Suffix: "testing", AcceptsPrerelease: true},
+		PromotionTarget{ID: "prod", Suffix: "prod", AcceptsPrerelease: false}
 }
 
 func TestPromotionTagUsesTheFluxSuffixNotTheEnvironmentName(t *testing.T) {
@@ -87,7 +87,7 @@ func TestPromotionRefusesUnusableInputs(t *testing.T) {
 	if _, err := PromotionTag("", unstable, ""); err == nil {
 		t.Error("une version vide doit être refusée")
 	}
-	if _, err := PromotionTag("1.8.0", Target{ID: "sans-suffixe"}, ""); err == nil {
+	if _, err := PromotionTag("1.8.0", PromotionTarget{ID: "sans-suffixe"}, ""); err == nil {
 		t.Error("un environnement sans suffixe doit être refusé")
 	}
 }
@@ -135,7 +135,7 @@ func TestPlanPromotionCarriesBothTags(t *testing.T) {
 // promotion depuis cette version lui interdirait la production — la plage SemVer
 // de la production excluant les pré-releases (B7, B17).
 func TestPlanPromotionComposesFromTheReleaseTagAndRetagsFromTheImage(t *testing.T) {
-	prod := Target{ID: "prod", Suffix: "prod", AcceptsPrerelease: false}
+	prod := PromotionTarget{ID: "prod", Suffix: "prod", AcceptsPrerelease: false}
 
 	plan, err := PlanPromotion("1.8.0", "1.8.0-rc3", prod, "")
 	if err != nil {
@@ -151,7 +151,7 @@ func TestPlanPromotionComposesFromTheReleaseTagAndRetagsFromTheImage(t *testing.
 }
 
 func TestPlanPromotionRefusesAReleaseWithoutImage(t *testing.T) {
-	if _, err := PlanPromotion("1.8.0", "", Target{ID: "unstable", Suffix: "unstable"}, ""); err == nil {
+	if _, err := PlanPromotion("1.8.0", "", PromotionTarget{ID: "unstable", Suffix: "unstable"}, ""); err == nil {
 		t.Error("une release sans image ne peut pas être promue")
 	}
 }

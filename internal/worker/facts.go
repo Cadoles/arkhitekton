@@ -111,14 +111,28 @@ func (s *runSink) WithDispatcher(dispatcher *Dispatcher) *runSink {
 	return s
 }
 
+// PromotionFacts compose le fait d'une promotion aboutie.
+//
+// Apporté par le plugin qui promeut : le noyau sait qu'un job rattaché à un
+// environnement a conclu, pas ce que cela signifie (doc 16 §16.7).
+type PromotionFacts interface {
+	Promoted(at time.Time, linked store.JobReleaseContext) event.Event
+}
+
+// WithPromotionFacts branche la constatation des promotions.
+//
+// Sans elle, aucune promotion n'est constatée : c'est l'état d'une instance sans
+// le plugin MSE, où rien ne promeut.
+func (s *runSink) WithPromotionFacts(facts PromotionFacts) *runSink {
+	s.promotions = facts
+	return s
+}
+
 func (s *runSink) emitReleasePromoted(ctx context.Context, linked store.JobReleaseContext, jobState string) {
-	if jobState != store.JobSucceeded || linked.Environment == "" {
+	if s.promotions == nil || jobState != store.JobSucceeded || linked.Environment == "" {
 		return
 	}
-
-	s.emit(ctx, event.ReleasePromotedAt(
-		s.at(), linked.ProjectID, linked.ReleaseID, linked.JobID,
-		linked.Tag, linked.Environment))
+	s.emit(ctx, s.promotions.Promoted(s.at(), linked))
 }
 
 // WithEngine branche le moteur d'exécution des plans.

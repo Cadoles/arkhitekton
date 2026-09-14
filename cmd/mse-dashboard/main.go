@@ -30,19 +30,21 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/deploykeys"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/portaldata"
 	pipelinelib "forge.cadoles.com/vcarroy/mse-dashboard/internal/pipelines"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/portaldata"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
+	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/webhook"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
 )
@@ -321,7 +323,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// dépôt : celui de la configuration est lié au sien, et le test porte
 			// justement sur un autre. Sans jeton, l'écran le dit plutôt que de
 			// rendre un échec qu'on prendrait pour un défaut de droits.
-			projectsHandler(cfg, db),
+			projectsHandler(cfg, db, modules),
 			// Le chiffreur peut être nil : sans clé, les réglages se lisent et
 			// s'activent, seule l'écriture d'un champ sensible est refusée — avec
 			// un message qui nomme la variable, à l'endroit où on le saisit.
@@ -491,15 +493,15 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
-	mse := pluginSettings[plugin.ModuleMSE]
+	mseSettings := pluginSettings[plugin.ModuleMSE]
 	var environments *worker.EnvironmentObserver
-	if !mse.Enabled {
+	if !mseSettings.Enabled {
 		logger.Info("module MSE inactif",
 			"consequence", "ni Flux, ni PortalData, ni observation des environnements")
 	} else {
 		// Le namespace vient du réglage du plugin, et la configuration ne sert
 		// plus que de repli : l'administration l'affichait sans qu'il serve.
-		namespace := strings.TrimSpace(mse.Config["namespace"])
+		namespace := strings.TrimSpace(mseSettings.Config["namespace"])
 		if namespace == "" {
 			namespace = cfg.Flux.Namespace
 		}
@@ -627,6 +629,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithInstance(instance).
 				// L'émission des faits (doc 14).
 				WithEvents(db)
+			// Une promotion n'est constatée que si le plugin qui promeut est là.
+			if mseSettings.Enabled {
+				sink.WithPromotionFacts(mse.Facts{})
+			}
 
 			// Le moteur de plans, qui enchaîne les vérifications d'une
 			// construction réussie et conclut leurs gestes à la fin de leur job.
@@ -1129,15 +1135,20 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 // (doc 12 §12.7). La clé **partagée** qui coexistait avec elle a été retirée —
 // une clé unique ajoutée à plusieurs dépôts fait de sa révocation une panne pour
 // tous à la fois, et ne dit rien de qui a cloné quoi.
-func projectsHandler(cfg config.Config, db *store.DB) *dashhttp.ProjectsHandler {
+func projectsHandler(cfg config.Config, db *store.DB, modules *dashhttp.Modules) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
 		WithForgeURL(cfg.Forge.URL).
 		WithImageRegistry(cfg.Registry.Project).
 		// Le même déployeur que celui qui promeut, et sans client : la question
-		// posée — « sais-tu acheminer ce schéma ? » — ne demande pas le cluster,
-		// et un aperçu qui répondrait autrement que la promotion elle-même serait
-		// pire que pas d'aperçu.
-		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, ""))
+		// posée — « sais-tu acheminer ce schéma ? » — ne demande pas le cluster.
+		// Posée seulement quand le plugin MSE est allumé : sans lui, rien ne
+		// promeut, et aucun schéma n'a à être refusé.
+		WithSchemeCheck(func(ctx context.Context, scheme versionpkg.Scheme) error {
+			if !modules.Enabled(ctx, plugin.ModuleMSE) {
+				return nil
+			}
+			return flux.NewDeployer(nil, flux.DefaultPromotionKind, "").CheckScheme(scheme)
+		})
 
 	if cfg.Forge.URL == "" || cfg.Forge.Token == "" {
 		return handler

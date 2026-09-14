@@ -1,7 +1,7 @@
 // Package portaldata lit ce que les applications du portail rapportent
 // d'elles-mêmes, par le CRD `PortalData`.
 //
-// Séparé de `internal/flux` par le lot D (doc 12 §12.9), et la séparation n'est
+// Séparé de `internal/mse/flux` par le lot D (doc 12 §12.9), et la séparation n'est
 // pas un rangement. Les deux paquets répondaient à deux questions différentes
 // depuis un seul client : Flux dit **l'intention** — le tag qu'une Kustomization
 // a retenu —, le portail dit le **constat** — telle version tourne, et ses
