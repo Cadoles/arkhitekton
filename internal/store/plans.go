@@ -359,3 +359,115 @@ func (db *DB) planStepsFor(ctx context.Context, runIDs []int64) (map[int64][]Pla
 	}
 	return steps, rows.Err()
 }
+
+/*
+ * Les artefacts qu'une exécution a produits.
+ *
+ * # D'où ils viennent
+ *
+ * Des **résultats Tekton** du run qui a mis le geste en œuvre. L'observation les
+ * projette déjà sur `runs` ; cette table les rattache au geste qui les a rendus,
+ * ce que la projection d'un run ne sait pas faire — elle ignore les plans.
+ *
+ * # Pourquoi les recopier plutôt que les joindre
+ *
+ * Un PipelineRun est ramassé par Tekton, et sa projection peut être purgée avec
+ * lui. Les artefacts d'une release livrée doivent survivre à ce ménage : ce sont
+ * eux qui disent quelle image porte le numéro qu'on a communiqué.
+ */
+
+// PlanArtifact est ce qu'un geste a laissé derrière lui.
+type PlanArtifact struct {
+	Stage    int
+	Position int
+	// Name est le nom du résultat rendu par le pipeline : `image`, `tag`.
+	Name string
+	// Kind reprend le vocabulaire de `produces` du catalogue. Vide quand le
+	// pipeline n'en déclare aucun.
+	Kind      string
+	Reference string
+}
+
+// RecordPlanArtifacts enregistre ce qu'un geste a produit.
+//
+// Rappelable sans effet : une redélivrance réécrit la même référence plutôt que
+// d'empiler. L'observateur redélivre les runs terminés, et c'est la règle plutôt
+// que l'exception.
+func (db *DB) RecordPlanArtifacts(
+	ctx context.Context, runID int64, releaseID *int64, artifacts []PlanArtifact,
+) error {
+	if len(artifacts) == 0 {
+		return nil
+	}
+
+	const query = `
+		insert into plan_artifacts (run_id, stage, position, name, kind, reference, release_id)
+		values ($1, $2, $3, $4, $5, $6, $7)
+		on conflict (run_id, stage, position, name) do update
+		set kind = excluded.kind, reference = excluded.reference`
+
+	batch := &pgx.Batch{}
+	for _, artifact := range artifacts {
+		batch.Queue(query, runID, artifact.Stage, artifact.Position,
+			artifact.Name, artifact.Kind, artifact.Reference, releaseID)
+	}
+
+	results := db.pool.SendBatch(ctx, batch)
+	defer results.Close()
+	for range artifacts {
+		if _, err := results.Exec(); err != nil {
+			return fmt.Errorf("enregistrement des artefacts de l'exécution %d: %w", runID, err)
+		}
+	}
+	return nil
+}
+
+// PlanArtifacts rend ce qu'une exécution a produit jusqu'ici.
+func (db *DB) PlanArtifacts(ctx context.Context, runID int64) ([]PlanArtifact, error) {
+	rows, err := db.pool.Query(ctx,
+		`select stage, position, name, kind, reference
+		 from plan_artifacts where run_id = $1
+		 order by stage, position, name`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("artefacts de l'exécution %d: %w", runID, err)
+	}
+	defer rows.Close()
+
+	var artifacts []PlanArtifact
+	for rows.Next() {
+		var entry PlanArtifact
+		if err := rows.Scan(&entry.Stage, &entry.Position,
+			&entry.Name, &entry.Kind, &entry.Reference); err != nil {
+			return nil, fmt.Errorf("artefacts de l'exécution %d: %w", runID, err)
+		}
+		artifacts = append(artifacts, entry)
+	}
+	return artifacts, rows.Err()
+}
+
+// RunResults rend les résultats Tekton du run d'un job.
+//
+// Vide quand le job n'a pas de run, ou que son pipeline n'a rien rendu : les deux
+// sont des cas normaux, et les distinguer n'apporterait rien à l'appelant — il
+// n'a d'artefacts à enregistrer ni dans un cas ni dans l'autre.
+func (db *DB) RunResults(ctx context.Context, jobID int64) (map[string]string, error) {
+	rows, err := db.pool.Query(ctx,
+		`select coalesce(results, '{}'::jsonb) from runs where job_id = $1`, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("résultats du job %d: %w", jobID, err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	var raw []byte
+	if err := rows.Scan(&raw); err != nil {
+		return nil, fmt.Errorf("résultats du job %d: %w", jobID, err)
+	}
+	results := map[string]string{}
+	if err := json.Unmarshal(raw, &results); err != nil {
+		return nil, fmt.Errorf("résultats du job %d: %w", jobID, err)
+	}
+	return results, nil
+}

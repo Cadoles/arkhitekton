@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -55,6 +56,19 @@ type PlanStore interface {
 	FinishPlanRun(ctx context.Context, runID int64, state string) (bool, error)
 }
 
+// ArtifactStore est ce que le moteur attend pour porter les artefacts.
+//
+// Séparé de [PlanStore] et **optionnel** : un moteur sans lui exécute les plans
+// exactement comme avant, et c'est ce qui permet aux tests du modèle de ne pas
+// monter une base pour éprouver un enchaînement.
+type ArtifactStore interface {
+	// RunResults rend ce que le pipeline d'un job a rendu comme résultats.
+	RunResults(ctx context.Context, jobID int64) (map[string]string, error)
+	RecordPlanArtifacts(ctx context.Context, runID int64,
+		releaseID *int64, artifacts []store.PlanArtifact) error
+	PlanArtifacts(ctx context.Context, runID int64) ([]store.PlanArtifact, error)
+}
+
 // GesteRunner met en œuvre un geste.
 //
 // Extrait en interface parce que les deux natures de geste n'ont rien en commun :
@@ -73,7 +87,12 @@ type Engine struct {
 	// stages est prévenu du règlement d'une étape à rôle. Nil : les plans
 	// s'exécutent sans que rien n'en dépende au-dehors.
 	stages StageSink
-	logger *slog.Logger
+	// artifacts porte ce que les gestes produisent. Nil : aucun artefact n'est
+	// retenu, et `{artifacts.…}` reste littéral dans les gestes qui suivent.
+	artifacts ArtifactStore
+	// products dit ce qu'une famille du catalogue laisse derrière elle.
+	products func(ref string) string
+	logger   *slog.Logger
 }
 
 func NewEngine(plans PlanStore, runner GesteRunner, logger *slog.Logger) *Engine {
@@ -154,7 +173,69 @@ func (e *Engine) Advance(ctx context.Context, jobID int64, state plan.State) {
 		e.logger.Error("exécution d'un geste conclu", "execution", runID, "error", err)
 		return
 	}
+
+	// Ce que le geste a produit, **avant** de faire partir la suite : l'étape
+	// suivante peut le viser, et le relever après elle la ferait partir sur un
+	// artefact qui n'existe pas encore.
+	if state == plan.Succeeded {
+		e.collectArtifacts(ctx, run, step, jobID)
+	}
+
 	e.advance(ctx, run)
+}
+
+// collectArtifacts retient ce qu'un geste vient de produire.
+//
+// # Les résultats du pipeline, tels quels
+//
+// Chaque résultat Tekton devient un artefact portant son nom : `image`, `tag`.
+// Aucune traduction, aucune sélection — le pipeline dit ce qu'il rend, et le plan
+// le retient. Choisir ici lesquels sont « de vrais artefacts » demanderait une
+// seconde déclaration à tenir d'accord avec celle du pipeline.
+//
+// # Un relevé qui échoue n'arrête pas le plan
+//
+// Le geste a réussi ; perdre ce fait parce qu'on n'a pas su lire ses résultats
+// serait pire que de continuer sans eux. L'étape suivante échouera alors
+// nommément sur l'artefact manquant, ce qui est un diagnostic, là où une
+// exécution arrêtée ici n'en serait pas un.
+func (e *Engine) collectArtifacts(
+	ctx context.Context, run store.PlanRun, step store.PlanStep, jobID int64,
+) {
+	if e.artifacts == nil {
+		return
+	}
+
+	results, err := e.artifacts.RunResults(ctx, jobID)
+	if err != nil {
+		e.logger.Error("résultats d'un geste conclu",
+			"execution", run.ID, "job", jobID, "error", err)
+		return
+	}
+	if len(results) == 0 {
+		return
+	}
+
+	kind := ""
+	if e.products != nil {
+		kind = e.products(step.Ref)
+	}
+
+	produced := make([]store.PlanArtifact, 0, len(results))
+	for name, reference := range results {
+		produced = append(produced, store.PlanArtifact{
+			Stage: step.Stage, Position: step.Position,
+			Name: name, Kind: kind, Reference: reference,
+		})
+	}
+
+	if err := e.artifacts.RecordPlanArtifacts(ctx, run.ID, run.ReleaseID, produced); err != nil {
+		e.logger.Error("artefacts d'un geste conclu",
+			"execution", run.ID, "job", jobID, "error", err)
+		return
+	}
+	e.logger.Info("artefacts relevés", "execution", run.ID,
+		"geste", step.Ref, "artefacts", len(produced))
 }
 
 // advance fait partir ce qui peut partir, et conclut l'exécution si elle est
@@ -172,6 +253,11 @@ func (e *Engine) advance(ctx context.Context, run store.PlanRun) int {
 	// tests ne soient enfilés, sans quoi le premier test conclu trouverait une
 	// release encore en construction et sa transition serait refusée.
 	e.notifyStages(ctx, run, progress)
+
+	// Ce que les étapes déjà conclues ont produit, ajouté au contexte. C'est ce
+	// qui permet à un geste de test de viser l'image que la construction vient de
+	// publier : `{artifacts.portal.image}`.
+	run.Context = e.withArtifacts(ctx, run, progress.Plan)
 
 	started := 0
 	for _, step := range progress.Next() {
@@ -223,6 +309,16 @@ type StageSink interface {
 		role plan.Role, outcome plan.State)
 }
 
+// WithArtifacts branche le relevé de ce que les gestes produisent.
+//
+// `products` traduit une référence de catalogue en nature d'artefact — le
+// `produces` d'un pipeline. Le moteur ne connaît pas le catalogue, et le lui
+// donner l'inviterait à décider de ce qui se lance.
+func (e *Engine) WithArtifacts(artifacts ArtifactStore, products func(ref string) string) *Engine {
+	e.artifacts, e.products = artifacts, products
+	return e
+}
+
 // WithStages branche l'observateur des étapes à rôle.
 func (e *Engine) WithStages(sink StageSink) *Engine {
 	e.stages = sink
@@ -257,6 +353,68 @@ func (e *Engine) notifyStages(ctx context.Context, run store.PlanRun, progress p
 		}
 		e.stages.StageSettled(ctx, run, stage.Role, outcome)
 	}
+}
+
+// withArtifacts ajoute au contexte ce que les gestes conclus ont produit.
+//
+// # La forme : `artifacts.<geste>.<nom>`
+//
+// La clé est le **libellé** du geste producteur, pas sa position : c'est lui
+// qu'on lit dans l'éditeur, et `{artifacts.portal.image}` se comprend là où
+// `{artifacts.0.0.image}` demanderait de compter les étapes.
+//
+// Trois gestes de construction portant la même référence de catalogue sont ainsi
+// distingués par leur libellé — c'est précisément pour cela que la composition
+// d'un plan de release le renseigne avec le nom de l'image.
+//
+// # Une recherche, pas un langage
+//
+// Le contexte gagne des clés ; `action.Expand` fait le reste. Pas d'opérateur,
+// pas de condition, pas d'appel — la promesse de doc 14 §14.2 tient (doc 15
+// §15.4).
+func (e *Engine) withArtifacts(
+	ctx context.Context, run store.PlanRun, sujet plan.Plan,
+) map[string]string {
+	if e.artifacts == nil {
+		return run.Context
+	}
+
+	produced, err := e.artifacts.PlanArtifacts(ctx, run.ID)
+	if err != nil {
+		// Sans eux, un geste qui vise un artefact échouera nommément. C'est un
+		// meilleur diagnostic qu'une exécution arrêtée ici.
+		e.logger.Error("artefacts d'une exécution", "execution", run.ID, "error", err)
+		return run.Context
+	}
+	if len(produced) == 0 {
+		return run.Context
+	}
+
+	enrichi := make(map[string]string, len(run.Context)+len(produced))
+	maps.Copy(enrichi, run.Context)
+	for _, artifact := range produced {
+		libelle := gesteLabelAt(sujet, artifact.Stage, artifact.Position)
+		if libelle == "" {
+			continue
+		}
+		enrichi["artifacts."+libelle+"."+artifact.Name] = artifact.Reference
+	}
+	return enrichi
+}
+
+// gesteLabelAt lit le libellé d'un geste dans le plan figé.
+//
+// Le plan **figé**, et non le catalogue courant : un geste renommé depuis ne doit
+// pas rendre introuvable ce qu'il a produit sous son ancien nom.
+func gesteLabelAt(sujet plan.Plan, stage, position int) string {
+	if stage < 0 || stage >= len(sujet.Stages) {
+		return ""
+	}
+	gestes := sujet.Stages[stage].Gestes
+	if position < 0 || position >= len(gestes) {
+		return ""
+	}
+	return gestes[position].Label
 }
 
 // mark écrit le sort d'un geste sans interrompre l'avancement des autres.

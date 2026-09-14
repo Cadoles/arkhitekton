@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
@@ -145,7 +146,10 @@ func TestLeGesteFixeLimageEtLeContexteLieLaRevision(t *testing.T) {
 
 	contexte := releaseContext(
 		store.Release{ID: 42, Tag: "3.2.0-rc8"}, "c1f8f8cd", "reg.example.fr/mse")
-	params := buildParams(geste, contexte)
+	params, err := buildParams(geste, contexte)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
 
 	if params["revision"] != "c1f8f8cd" {
 		t.Errorf("révision liée = %q", params["revision"])
@@ -171,7 +175,11 @@ func TestUnGesteNePeutPasRedefinirLaRevision(t *testing.T) {
 	}
 	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "le-bon-commit", "reg")
 
-	if got := buildParams(geste, contexte)["revision"]; got != "le-bon-commit" {
+	params, err := buildParams(geste, contexte)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if got := params["revision"]; got != "le-bon-commit" {
 		t.Errorf("révision = %q — le contexte doit l'emporter sur le geste", got)
 	}
 }
@@ -353,5 +361,71 @@ func TestUneImageEnEchecFaitEchouerLetapeDesQuelleEstReglee(t *testing.T) {
 	// soit la réussite des autres.
 	if outcome != plan.Failed {
 		t.Errorf("issue = %q, attendu échouée", outcome)
+	}
+}
+
+/*
+ * Le passage d'un artefact d'une étape à l'autre.
+ *
+ * La seconde porte de doc 15. La question : un geste de test peut-il viser ce que
+ * la construction vient de publier, sans langage d'expressions ?
+ */
+
+// Un gabarit d'artefact est lié au contexte, comme les autres.
+func TestUnGesteViseLartefactDunePrecedenteEtape(t *testing.T) {
+	geste := plan.Geste{
+		Kind: plan.GestePipeline, Ref: buildKind,
+		Params: map[string]string{"image": "{artifacts.portal.image}"},
+	}
+	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
+	contexte["artifacts.portal.image"] = "reg.example.fr/portal:1.0.0"
+
+	params, err := buildParams(geste, contexte)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if params["image"] != "reg.example.fr/portal:1.0.0" {
+		t.Errorf("image = %q", params["image"])
+	}
+}
+
+// Un artefact qui n'a pas été produit fait échouer le geste, en le nommant.
+//
+// Parti avec son gabarit littéral, le pipeline clonerait, échouerait au `pull`,
+// et le motif parlerait d'un dépôt introuvable — à mille lieues de la cause. Doc
+// 15 §15.4 : un test qui ne tourne pas en silence se lit comme un test passé.
+func TestUnArtefactAbsentFaitEchouerLeGesteEnLeNommant(t *testing.T) {
+	geste := plan.Geste{
+		Kind: plan.GestePipeline, Ref: buildKind,
+		Params: map[string]string{"image": "{artifacts.portal.image}"},
+	}
+	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
+
+	_, err := buildParams(geste, contexte)
+	if err == nil {
+		t.Fatal("un artefact absent doit faire échouer le geste")
+	}
+	if !strings.Contains(err.Error(), "artifacts.portal.image") {
+		t.Errorf("motif %q — il doit nommer l'artefact manquant", err)
+	}
+}
+
+// Les autres variables non résolues restent littérales, et c'est délibéré.
+//
+// Un `{tag}` visible dans un message se remarque et se corrige. Un artefact, lui,
+// désigne quelque chose qui devait exister : son absence est une erreur de plan.
+func TestUneVariableOrdinaireNonResolueNeFaitPasEchouer(t *testing.T) {
+	geste := plan.Geste{
+		Kind: plan.GestePipeline, Ref: buildKind,
+		Params: map[string]string{"note": "construit depuis {branche}"},
+	}
+	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
+
+	params, err := buildParams(geste, contexte)
+	if err != nil {
+		t.Fatalf("%v — seule une référence d'artefact doit être exigée", err)
+	}
+	if params["note"] != "construit depuis {branche}" {
+		t.Errorf("note = %q", params["note"])
 	}
 }

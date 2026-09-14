@@ -3,12 +3,12 @@ package worker
 import (
 	"context"
 	"fmt"
-	"maps"
 	"strconv"
 	"strings"
 
 	"log/slog"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/action"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
@@ -193,14 +193,54 @@ func releaseContext(release store.Release, revision, registryProject string) map
 // impose. L'ordre compte : un geste ne doit pas pouvoir redéfinir la révision
 // construite, sans quoi deux gestes d'une même release pourraient viser deux
 // commits et publier deux images sous le même tag.
-func buildParams(geste plan.Geste, context map[string]string) map[string]string {
+func buildParams(geste plan.Geste, context map[string]string) (map[string]string, error) {
 	params := make(map[string]string, len(geste.Params)+4)
-	maps.Copy(params, geste.Params)
+	for name, value := range geste.Params {
+		// Les gabarits sont liés au contexte, qui porte la charge du fait **et**
+		// ce que les étapes précédentes ont produit : `{artifacts.portal.image}`.
+		params[name] = action.Expand(value, context)
+	}
+
+	if manquant := artefactNonResolu(params); manquant != "" {
+		// Refusé plutôt que parti avec un gabarit littéral. Un pipeline qui
+		// recevrait `{artifacts.portal.image}` comme image clonerait, échouerait
+		// au `docker pull`, et le motif parlerait d'un dépôt introuvable — à
+		// mille lieues de la cause.
+		//
+		// Doc 15 §15.4 tranche dans ce sens : un test qui ne tourne pas en
+		// silence se lit comme un test passé.
+		return nil, fmt.Errorf("l'artefact %s n'a pas été produit par une étape "+
+			"précédente", manquant)
+	}
 
 	params["revision"] = context[contextRevision]
 	params["version"] = context[contextTag]
 	params["tag-name"] = context[contextTag]
-	return params
+	return params, nil
+}
+
+// artefactNonResolu rend la première référence d'artefact restée littérale.
+//
+// Seulement `{artifacts.…}` : les autres variables restent littérales quand elles
+// ne sont pas dans la charge, et c'est délibéré — un `{tag}` visible dans un
+// message se remarque et se corrige. Un artefact, lui, désigne quelque chose qui
+// devait exister : son absence est une erreur de plan, pas de gabarit.
+func artefactNonResolu(params map[string]string) string {
+	for _, value := range params {
+		reste := value
+		for {
+			debut := strings.Index(reste, "{artifacts.")
+			if debut < 0 {
+				break
+			}
+			fin := strings.IndexByte(reste[debut:], '}')
+			if fin < 0 {
+				break
+			}
+			return reste[debut+1 : debut+fin]
+		}
+	}
+	return ""
 }
 
 // ReleaseRunner met en œuvre les gestes du plan d'une release.
@@ -244,7 +284,10 @@ func (r *ReleaseRunner) Run(
 
 	var params map[string]string
 	if geste.Ref == buildKind {
-		params = buildParams(geste, run.Context)
+		var err error
+		if params, err = buildParams(geste, run.Context); err != nil {
+			return nil, err
+		}
 	} else {
 		// Les valeurs sortent de ce que le catalogue déclare vouloir :
 		// `revision`, `app-revision` et `mse-revision` désignent la même chose
@@ -437,4 +480,29 @@ func (p *ReleasePlanner) OpenReleasePlan(
 		Plan:      sujet,
 		Context:   releaseContext(record, revision, p.registry),
 	})
+}
+
+// ProductOf rend la nature de ce qu'une famille du catalogue laisse derrière
+// elle.
+//
+// Le **premier** produit déclaré, et vide quand la famille n'en déclare aucun ou
+// déclare `none`. Un pipeline qui construit puis teste en rend deux ; retenir le
+// premier suffit à nommer la nature de ses artefacts, et choisir par artefact
+// demanderait au catalogue une déclaration par résultat qu'il ne porte pas.
+func ProductOf(registry *catalog.Catalog) func(ref string) string {
+	return func(ref string) string {
+		if registry == nil {
+			return ""
+		}
+		pipeline, found := registry.Find(ref)
+		if !found {
+			return ""
+		}
+		for _, product := range pipeline.Produces {
+			if product != catalog.ProductNone {
+				return string(product)
+			}
+		}
+		return ""
+	}
 }

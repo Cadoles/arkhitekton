@@ -259,7 +259,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// faisait déjà. Le worker garde l'exclusivité de ce qui **sort** — créer
 		// les PipelineRun — et de l'avancement des gestes conclus.
 		WithPlans(worker.NewReleasePlanner(
-			worker.NewEngine(db, worker.NewReleaseRunner(pipelines, db, logger), logger),
+			worker.NewEngine(db, worker.NewReleaseRunner(pipelines, db, logger), logger).
+				WithArtifacts(db, worker.ProductOf(pipelines)),
 			pipelines, db, cfg.Registry.Project, logger))
 
 	// La forge est optionnelle : sans jeton, le formulaire de création de release
@@ -618,7 +619,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// c'est le règlement d'une étape qui avance la release, là où
 			// l'observateur comptait les constructions job par job (doc 15 §15.3).
 			engine := worker.NewVerificationEngine(sink, db, actions, logger).
-				WithStages(worker.NewReleaseLifecycle(db, logger))
+				WithStages(worker.NewReleaseLifecycle(db, logger)).
+				// Ce que les gestes produisent, relevé à leur conclusion et offert
+				// aux étapes suivantes sous `{artifacts.<geste>.<nom>}`.
+				WithArtifacts(db, worker.ProductOf(pipelines))
 			// L'aiguillage : ce qui relie un fait constaté aux réactions qu'un
 			// projet a déclarées. Sans lui, les faits s'écrivent et personne n'y
 			// réagit — l'état des tranches 2 à 5.
