@@ -17,7 +17,7 @@ func NewAPIRouter(
 	signoffs *SignoffsHandler, versions *VersionsHandler, syncAdmin *SyncAdminHandler,
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
 	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
-	events *EventsHandler, reactions *ReactionsHandler, planRuns *PlanRunsHandler,
+	events *EventsHandler, reactions *AutomationsHandler, planRuns *PlanRunsHandler,
 	middleware *Middleware,
 ) http.Handler {
 	mux := http.NewServeMux()
@@ -313,6 +313,20 @@ func NewAPIRouter(
 	mux.Handle("PUT /projects/{project}/reactions/{reaction}", Chain(http.HandlerFunc(reactions.Save),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 	mux.Handle("DELETE /projects/{project}/reactions/{reaction}", Chain(http.HandlerFunc(reactions.Delete),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+
+	// L'automatisation d'une release : ce que le projet construit, puis vérifie.
+	// `admin` pour la même raison, et une de plus — vider cette déclaration fait
+	// qu'un projet cesse de construire, ce qui ne se rattrape pas en la
+	// réécrivant : les releases créées entre-temps sont parties sans rien.
+	//
+	// Pas de DELETE : vider l'automatisation est un PUT d'un plan sans étape.
+	// Effacer la ligne la ferait recomposer depuis les cibles au redémarrage
+	// suivant, et « ce projet ne construit plus » redeviendrait « ce projet
+	// construit ses trois images » sans que personne ne l'ait demandé.
+	mux.Handle("GET /projects/{project}/automation", Chain(http.HandlerFunc(reactions.Automation),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+	mux.Handle("PUT /projects/{project}/automation", Chain(http.HandlerFunc(reactions.SaveAutomation),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 
 	// Ce que cette version sait faire : les faits écoutables, les gestes

@@ -50,6 +50,10 @@ type fakeReleaseStore struct {
 	// s'applique : les tests portent sur le nombre d'exécutions enfilées et sur
 	// leurs paramètres, pas sur le contenu de la table.
 	project *store.Project
+	// pipelines est le catalogue que le handler emploie. Le magasin le porte
+	// parce qu'il doit rendre l'automatisation du projet, et que celle-ci se
+	// compose depuis les familles déclarées.
+	pipelines *catalog.Catalog
 }
 
 // fixtureProject reproduit ce que l'amorçage installe : trois étapes, dont une
@@ -71,6 +75,20 @@ func fixtureProject() store.Project {
 // portent sur ce que le handler fait du projet, pas sur son choix.
 func (f *fakeReleaseStore) GetProject(context.Context, int64) (store.Project, error) {
 	return fixtureProject(), nil
+}
+
+// ReleaseAutomation rend ce que la reprise aurait composé pour ce projet.
+//
+// Le plan d'une release est **lu** et non plus composé à son ouverture (doc 15
+// §15.5). Rendre un plan vide ici ferait constater à ces tests que rien ne part,
+// sans que rien ne dise que c'est la déclaration qui manque.
+func (f *fakeReleaseStore) ReleaseAutomation(
+	_ context.Context, projectID int64,
+) (store.ReleaseAutomation, error) {
+	return store.ReleaseAutomation{
+		ProjectID: projectID,
+		Plan:      worker.DefaultAutomation(f.pipelines, fixtureProject(), nil),
+	}, nil
 }
 
 func (f *fakeReleaseStore) BuildableProject(context.Context) (store.Project, error) {
@@ -306,7 +324,28 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	t.Helper()
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
 		{Kind: "retag", PipelineRef: "retag-image"},
-		{Kind: "build", PipelineRef: "build-image"},
+		{
+			Kind: "build", PipelineRef: "build-image",
+			Produces: []catalog.Product{catalog.ProductImage},
+			// Les paramètres réels de la famille. Le plan d'une release ne pose
+			// plus la révision ni le tag en clair : il lit ce que le catalogue
+			// déclare vouloir (doc 15 §15.5). Un catalogue de test muet ferait
+			// partir des constructions sans révision, ce que ces tests vérifient
+			// justement.
+			Params: map[string]catalog.Param{
+				"revision": {Source: catalog.SourceInput, Required: true,
+					Suggest: catalog.SuggestGitRef},
+				"version": {Source: catalog.SourceInput, Required: true,
+					Suggest: catalog.SuggestReleaseTag},
+				"tag-name": {Source: catalog.SourceInput, Required: true,
+					Suggest: catalog.SuggestReleaseTag},
+				"image-name": {Source: catalog.SourceInput, Required: true,
+					Suggest: catalog.SuggestImageName},
+				"target":     {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestBuildTarget},
+				"dockerfile": {Source: catalog.SourceInput},
+				"context":    {Source: catalog.SourceInput},
+			},
+		},
 		{
 			Kind: "unit-tests", PipelineRef: "php-unit-tests", Verification: true,
 			Params: map[string]catalog.Param{
@@ -316,6 +355,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 			},
 		},
 	}}
+	store.pipelines = pipelines
 	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	})
@@ -333,7 +373,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		WithPlans(worker.NewReleasePlanner(
 			worker.NewEngine(store, worker.NewReleaseRunner(pipelines, store, quietLogger()),
 				quietLogger()),
-			pipelines, nil, "reg.cadoles.com/vcarroy", quietLogger()))
+			pipelines, store, "reg.cadoles.com/vcarroy", quietLogger()))
 }
 
 func asRole(request *http.Request, role auth.Role) *http.Request {

@@ -217,6 +217,26 @@ func (s Stage) validateRole(index int) []error {
 		ErrInvalid, index+1, s.Role, strings.Join(known, ", "))}
 }
 
+// Refs rend ce qu'un plan désigne, par nature de geste.
+//
+// Une fonction du paquet plutôt qu'une méthode d'une réaction : depuis que
+// l'automatisation d'une release porte un plan elle aussi, la question « que
+// désigne ce plan ? » se pose des deux côtés, et deux réponses divergeraient au
+// premier ajout de nature.
+func Refs(p Plan) (pipelines, actions []string) {
+	for _, stage := range p.Stages {
+		for _, geste := range stage.Gestes {
+			switch geste.Kind {
+			case GestePipeline:
+				pipelines = append(pipelines, geste.Ref)
+			case GesteAction:
+				actions = append(actions, geste.Ref)
+			}
+		}
+	}
+	return pipelines, actions
+}
+
 // LastWithRole rend l'indice de la dernière étape portant ce rôle, ou -1.
 //
 // La **dernière**, et non la première : un plan peut construire en deux temps —

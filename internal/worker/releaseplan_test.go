@@ -34,6 +34,32 @@ pipelines:
     pipelineRef: build-image
     label: Construction
     produces: [image]
+    # Les paramètres réels de la famille, et c'est ce que la tranche 4 exige : le
+    # plan ne pose plus la révision ni le tag en clair, il lit ce que le catalogue
+    # déclare vouloir. Un catalogue de test muet ferait passer cette lecture pour
+    # correcte alors qu'elle ne rendrait rien.
+    params:
+      revision:   { source: input, required: true, suggest: git-ref }
+      version:    { source: input, required: true, suggest: release-tag }
+      tag-name:   { source: input, required: true, suggest: release-tag }
+      image-name: { source: input, required: true, suggest: image-name, label: Dépôt publié }
+      target:     { source: input, required: true, suggest: build-target }
+      dockerfile: { source: input }
+      context:    { source: input }
+  - kind: security-audit
+    pipelineRef: audit
+    label: Audit de sécurité
+    verification: true
+    produces: [results]
+    params:
+      # Une **référence** d'image : l'analyse porte sur ce que la construction a
+      # publié, et le geste peut viser l'artefact plutôt que la recomposer.
+      portal-image: { source: input, required: true, suggest: image, image: portal }
+    uploads:
+      results:
+        param: results-upload-url
+        artifact: audit.json
+        family: security
   - kind: unit-tests
     pipelineRef: unit-tests
     label: Tests unitaires
@@ -68,6 +94,16 @@ pipelines:
 	return registry
 }
 
+// pipelineDeTest rend une famille du catalogue de test.
+func pipelineDeTest(t *testing.T, kind string) catalog.Pipeline {
+	t.Helper()
+	pipeline, found := catalogueDeTest(t).Find(kind)
+	if !found {
+		t.Fatalf("famille %q absente du catalogue de test", kind)
+	}
+	return pipeline
+}
+
 func projetDeuxImages() store.Project {
 	return store.Project{
 		ID: 1, Slug: "mse", Repository: "CNOUS/mse",
@@ -82,7 +118,7 @@ func projetDeuxImages() store.Project {
 
 // La porte : les deux moitiés de la chaîne entrent dans un plan unique.
 func TestConstruireEtVerifierEntrentDansUnPlanUnique(t *testing.T) {
-	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(), nil)
+	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(), nil)
 
 	if err := sujet.Validate(); err != nil {
 		t.Fatalf("le plan composé doit être valide: %v", err)
@@ -131,7 +167,7 @@ func TestConstruireEtVerifierEntrentDansUnPlanUnique(t *testing.T) {
 // C'est la séparation qui rend un plan réutilisable d'une release à l'autre : un
 // plan qui figerait la révision ne servirait qu'une fois.
 func TestLeGesteFixeLimageEtLeContexteLieLaRevision(t *testing.T) {
-	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(), nil)
+	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(), nil)
 	geste := sujet.Stages[0].Gestes[0]
 
 	// Rien de ce qui dépend de la release n'est dans le geste.
@@ -146,7 +182,7 @@ func TestLeGesteFixeLimageEtLeContexteLieLaRevision(t *testing.T) {
 
 	contexte := releaseContext(
 		store.Release{ID: 42, Tag: "3.2.0-rc8"}, "c1f8f8cd", "reg.example.fr/mse")
-	params, err := buildParams(geste, contexte)
+	params, err := gesteParams(pipelineDeTest(t, buildKind), geste, contexte)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -171,11 +207,14 @@ func TestLeGesteFixeLimageEtLeContexteLieLaRevision(t *testing.T) {
 func TestUnGesteNePeutPasRedefinirLaRevision(t *testing.T) {
 	geste := plan.Geste{
 		Kind: plan.GestePipeline, Ref: buildKind,
-		Params: map[string]string{"image-name": "portal", "revision": "un-autre-commit"},
+		Params: map[string]string{
+			"image-name": "portal", "target": "web",
+			"revision": "un-autre-commit",
+		},
 	}
 	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "le-bon-commit", "reg")
 
-	params, err := buildParams(geste, contexte)
+	params, err := gesteParams(pipelineDeTest(t, buildKind), geste, contexte)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -189,7 +228,7 @@ func TestUnGesteNePeutPasRedefinirLaRevision(t *testing.T) {
 // Un projet sans campagne E2E voyait le pipeline s'enchaîner, échouer faute de
 // scénario, et laisser sa release attendre un verdict qui ne viendrait jamais.
 func TestUneFamilleNonActiveeNestPasEnchainee(t *testing.T) {
-	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(),
+	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(),
 		func(kind string) bool { return kind != "e2e-tests" })
 
 	if len(sujet.Stages) != 2 {
@@ -200,8 +239,10 @@ func TestUneFamilleNonActiveeNestPasEnchainee(t *testing.T) {
 			t.Error("une famille non activée par le projet a été enchaînée")
 		}
 	}
-	if len(sujet.Stages[1].Gestes) != 1 {
-		t.Errorf("%d vérification(s), attendu la seule activée", len(sujet.Stages[1].Gestes))
+	// Les deux autres familles du catalogue restent, et c'est ce qui prouve que le
+	// filtre porte sur une famille et non sur l'étape entière.
+	if len(sujet.Stages[1].Gestes) != 2 {
+		t.Errorf("%d vérification(s), attendu les deux activées", len(sujet.Stages[1].Gestes))
 	}
 }
 
@@ -210,7 +251,7 @@ func TestUneFamilleNonActiveeNestPasEnchainee(t *testing.T) {
 // C'est une configuration légitime, distincte d'un plan invalide : l'appelant
 // conclut tout de suite plutôt que d'attendre un verdict que personne ne rendra.
 func TestUnProjetSansRienARendUnPlanVide(t *testing.T) {
-	sujet := releasePlan(catalogueDeTest(t),
+	sujet := DefaultAutomation(catalogueDeTest(t),
 		store.Project{ID: 2, Slug: "vide"},
 		func(string) bool { return false })
 
@@ -323,7 +364,7 @@ func TestUnPlanSansReleaseNavanceRien(t *testing.T) {
 // L'étape le tient sans requête : elle n'est **réglée** que lorsque tous ses
 // gestes le sont, et [plan.Progress.StageOutcome] ne rend rien avant.
 func TestUneConstructionPartielleNAvancePasLaRelease(t *testing.T) {
-	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(), nil)
+	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(), nil)
 	progress := plan.Start(sujet)
 
 	// La première image a conclu, la seconde tourne encore.
@@ -347,7 +388,7 @@ func TestUneConstructionPartielleNAvancePasLaRelease(t *testing.T) {
 // Attendre ferait tourner des constructions dont on sait déjà que le résultat ne
 // servira pas, et retarderait d'autant le moment où l'écran dit ce qui ne va pas.
 func TestUneImageEnEchecFaitEchouerLetapeDesQuelleEstReglee(t *testing.T) {
-	sujet := releasePlan(catalogueDeTest(t), projetDeuxImages(), nil)
+	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(), nil)
 	progress := plan.Start(sujet)
 
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 0}, plan.Failed)
@@ -374,18 +415,20 @@ func TestUneImageEnEchecFaitEchouerLetapeDesQuelleEstReglee(t *testing.T) {
 // Un gabarit d'artefact est lié au contexte, comme les autres.
 func TestUnGesteViseLartefactDunePrecedenteEtape(t *testing.T) {
 	geste := plan.Geste{
-		Kind: plan.GestePipeline, Ref: buildKind,
-		Params: map[string]string{"image": "{artifacts.portal.image}"},
+		Kind: plan.GestePipeline, Ref: "security-audit",
+		Params: map[string]string{"portal-image": "{artifacts.portal.image}"},
 	}
 	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
 	contexte["artifacts.portal.image"] = "reg.example.fr/portal:1.0.0"
 
-	params, err := buildParams(geste, contexte)
+	params, err := gesteParams(pipelineDeTest(t, "security-audit"), geste, contexte)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	if params["image"] != "reg.example.fr/portal:1.0.0" {
-		t.Errorf("image = %q", params["image"])
+	// L'artefact l'emporte sur le repli : sans déclaration, l'exécution aurait
+	// recomposé `reg/portal:1.0.0`, ce qui vaut même quand personne ne l'a publié.
+	if params["portal-image"] != "reg.example.fr/portal:1.0.0" {
+		t.Errorf("image = %q", params["portal-image"])
 	}
 }
 
@@ -396,12 +439,12 @@ func TestUnGesteViseLartefactDunePrecedenteEtape(t *testing.T) {
 // 15 §15.4 : un test qui ne tourne pas en silence se lit comme un test passé.
 func TestUnArtefactAbsentFaitEchouerLeGesteEnLeNommant(t *testing.T) {
 	geste := plan.Geste{
-		Kind: plan.GestePipeline, Ref: buildKind,
-		Params: map[string]string{"image": "{artifacts.portal.image}"},
+		Kind: plan.GestePipeline, Ref: "security-audit",
+		Params: map[string]string{"portal-image": "{artifacts.portal.image}"},
 	}
 	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
 
-	_, err := buildParams(geste, contexte)
+	_, err := gesteParams(pipelineDeTest(t, "security-audit"), geste, contexte)
 	if err == nil {
 		t.Fatal("un artefact absent doit faire échouer le geste")
 	}
@@ -417,11 +460,15 @@ func TestUnArtefactAbsentFaitEchouerLeGesteEnLeNommant(t *testing.T) {
 func TestUneVariableOrdinaireNonResolueNeFaitPasEchouer(t *testing.T) {
 	geste := plan.Geste{
 		Kind: plan.GestePipeline, Ref: buildKind,
-		Params: map[string]string{"note": "construit depuis {branche}"},
+		Params: map[string]string{
+			"note": "construit depuis {branche}",
+			// Les requis, sans quoi le refus porterait sur eux et non sur la note.
+			"image-name": "portal", "target": "web",
+		},
 	}
 	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
 
-	params, err := buildParams(geste, contexte)
+	params, err := gesteParams(pipelineDeTest(t, buildKind), geste, contexte)
 	if err != nil {
 		t.Fatalf("%v — seule une référence d'artefact doit être exigée", err)
 	}

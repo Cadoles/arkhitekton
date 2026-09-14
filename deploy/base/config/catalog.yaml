@@ -214,8 +214,22 @@ pipelines:
       #
       # Facultatifs : un pipeline lancé à la main hors dashboard retombe sur les
       # valeurs par défaut de la Task, qui restent celles d'un dépôt ordinaire.
-      dockerfile: { source: input }
-      context:    { source: input }
+      #
+      # Libellé, aide et exemple : ces quatre paramètres se **saisissent** depuis
+      # l'onglet automatisation, et un champ nommé `image-name` sans explication
+      # est un champ qu'on remplit de travers (doc 15 §15.5).
+      dockerfile:
+        source: input
+        label: Dockerfile
+        help: >-
+          Chemin du fichier qui construit cette image, depuis la racine du dépôt.
+          Vide : celui du projet.
+        placeholder: ./Dockerfile
+      context:
+        source: input
+        label: Contexte de construction
+        help: Répertoire envoyé au moteur de build. Presque toujours la racine.
+        placeholder: "."
       # La référence Git à construire — branche, tag ou commit, choisie à la
       # création de la release.
       revision: { source: input, required: true, suggest: git-ref }
@@ -229,8 +243,24 @@ pipelines:
       # Le dépôt publié et la cible du Dockerfile qui l'alimente. Deux paramètres
       # et non un : la correspondance appartient à l'appelant, et une cible
       # renommée ne doit pas obliger à renommer un dépôt du registre.
-      image-name: { source: input, required: true, suggest: image-name }
-      target: { source: input, required: true, suggest: build-target }
+      image-name:
+        source: input
+        required: true
+        suggest: image-name
+        label: Dépôt publié
+        help: >-
+          Nom court du dépôt d'image, sans le registre ni le tag. C'est aussi le
+          nom sous lequel les étapes suivantes désigneront ce qu'il produit.
+        placeholder: portal
+      target:
+        source: input
+        required: true
+        suggest: build-target
+        label: Cible du Dockerfile
+        help: >-
+          Étape `AS <nom>` qui produit cette image. Sur un Dockerfile sans
+          étapes, la dernière.
+        placeholder: web
     workspaces:
       - name: git-credentials
         secret: { configKey: pipeline.gitSecret }

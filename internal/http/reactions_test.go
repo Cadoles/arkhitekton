@@ -2,10 +2,13 @@ package http
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 )
 
 /*
@@ -90,6 +93,94 @@ func TestChaqueChampAnnonceExisteDansLaCharge(t *testing.T) {
 				t.Errorf("fait %q: la charge porte %q et l'éditeur ne le propose pas",
 					choice.Type, champ)
 			}
+		}
+	}
+}
+
+/*
+ * Le rôle d'une étape, vérifié et pas cru sur parole.
+ *
+ * Sans ce contrôle, le cycle de vie d'une release changerait par accident :
+ * ajouter une notification à l'étape de construction ferait que le passage en
+ * vérification dépendrait d'un webhook (doc 15 §15.3).
+ */
+
+// catalogueDesRoles rend un catalogue portant une construction et un test.
+func catalogueDesRoles() *catalog.Catalog {
+	return &catalog.Catalog{Pipelines: []catalog.Pipeline{
+		{Kind: "build", PipelineRef: "build-image",
+			Produces: []catalog.Product{catalog.ProductImage}},
+		{Kind: "unit-tests", PipelineRef: "unit", Verification: true,
+			Produces: []catalog.Product{catalog.ProductResults}},
+	}}
+}
+
+func etape(role plan.Role, gestes ...plan.Geste) plan.Plan {
+	return plan.Plan{Stages: []plan.Stage{{Role: role, Gestes: gestes}}}
+}
+
+func pipelineGeste(ref string) plan.Geste {
+	return plan.Geste{Kind: plan.GestePipeline, Ref: ref}
+}
+
+// Une étape de construction dont le geste ne produit pas d'image est refusée.
+func TestUneEtapeDeConstructionExigeUnGesteQuiProduitUneImage(t *testing.T) {
+	handler := &AutomationsHandler{catalog: catalogueDesRoles()}
+
+	err := handler.checkRoles(etape(plan.RoleBuild, pipelineGeste("unit-tests")))
+	if err == nil {
+		t.Fatal("un pipeline de test a été admis dans une étape de construction")
+	}
+	// Le message doit dire ce qui manquait **et** ce que le pipeline produit :
+	// sans le second, on cherche l'erreur dans le rôle plutôt que dans le geste.
+	for _, attendu := range []string{"build", "unit-tests", "image", "results"} {
+		if !strings.Contains(err.Error(), attendu) {
+			t.Errorf("motif %q — il doit porter %q", err, attendu)
+		}
+	}
+}
+
+// Une action dans une étape à rôle est refusée.
+//
+// Le cas le plus insidieux : un webhook en échec ferait échouer la release,
+// alors qu'il n'a rien à dire de sa qualité.
+func TestUneActionNentrePasDansUneEtapeARole(t *testing.T) {
+	handler := &AutomationsHandler{catalog: catalogueDesRoles()}
+
+	err := handler.checkRoles(etape(plan.RoleTest,
+		plan.Geste{Kind: plan.GesteAction, Ref: "webhook"}))
+	if err == nil {
+		t.Fatal("une action a été admise dans une étape à rôle")
+	}
+	if !strings.Contains(err.Error(), "qualité") {
+		t.Errorf("motif %q — il doit dire pourquoi c'est refusé", err)
+	}
+}
+
+// Une étape **sans rôle** porte ce qu'elle veut.
+//
+// C'est elle qui permet de prévenir une équipe sans mettre en jeu l'état de la
+// release : le défaut que le rôle sur l'étape corrige.
+func TestUneEtapeSansRolePorteCeQuelleVeut(t *testing.T) {
+	handler := &AutomationsHandler{catalog: catalogueDesRoles()}
+
+	err := handler.checkRoles(etape("",
+		plan.Geste{Kind: plan.GesteAction, Ref: "webhook"},
+		pipelineGeste("unit-tests")))
+	if err != nil {
+		t.Errorf("une étape sans rôle a été refusée: %v", err)
+	}
+}
+
+// Les deux rôles admettent ce qui leur correspond.
+func TestChaqueRoleAdmetCeQuiLuiCorrespond(t *testing.T) {
+	handler := &AutomationsHandler{catalog: catalogueDesRoles()}
+
+	for role, ref := range map[plan.Role]string{
+		plan.RoleBuild: "build", plan.RoleTest: "unit-tests",
+	} {
+		if err := handler.checkRoles(etape(role, pipelineGeste(ref))); err != nil {
+			t.Errorf("rôle %q avec %q refusé: %v", role, ref, err)
 		}
 	}
 }

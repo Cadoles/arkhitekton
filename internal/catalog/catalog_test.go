@@ -569,3 +569,125 @@ pipelines:
 		t.Errorf("produits contradictoires: %v", err)
 	}
 }
+
+/*
+ * Ce qu'une déclaration peut renseigner, et ce que l'exécution impose.
+ *
+ * La distinction existait, écrite en Go : le plan d'une release posait
+ * `revision`, `version` et `tag-name` **après** les paramètres du geste, pour
+ * qu'une déclaration ne puisse pas les changer (B17). Elle vaut pour tout
+ * pipeline, et le catalogue la disait déjà par ses `suggest`.
+ */
+
+// parseDeTest rend un catalogue ou fait échouer le test.
+func parseDeTest(t *testing.T, source string) *Catalog {
+	t.Helper()
+	parsed, err := Parse([]byte(source))
+	if err != nil {
+		t.Fatalf("catalogue: %v", err)
+	}
+	return parsed
+}
+
+// Les paramètres que l'exécution impose ne sont pas proposés à la saisie.
+//
+// Les proposer inviterait à fixer une révision qui serait écrasée — pire qu'une
+// absence : on croirait l'avoir fixée.
+func TestUneDeclarationNeSeVoitPasOffrirCeQueLExecutionImpose(t *testing.T) {
+	registry := parseDeTest(t, `
+pipelines:
+  - kind: build
+    pipelineRef: build-image
+    label: Construction
+    produces: [image]
+    params:
+      revision:   { source: input, required: true, suggest: git-ref }
+      version:    { source: input, required: true, suggest: release-tag }
+      image-name: { source: input, required: true, suggest: image-name }
+      target:     { source: input, required: true, suggest: build-target }
+      dockerfile: { source: input }
+`)
+	pipeline, _ := registry.Find("build")
+
+	offerts := map[string]bool{}
+	for _, input := range pipeline.Declared() {
+		offerts[input.Name] = true
+	}
+
+	for _, impose := range []string{"revision", "version"} {
+		if offerts[impose] {
+			t.Errorf("%q est offert à la saisie alors que l'exécution l'impose", impose)
+		}
+	}
+	for _, declare := range []string{"image-name", "target", "dockerfile"} {
+		if !offerts[declare] {
+			t.Errorf("%q n'est pas offert — personne ne pourra le renseigner", declare)
+		}
+	}
+}
+
+// Une référence d'image est un **repli**, et non une imposition.
+//
+// C'est ce qui permet à un geste de test de viser l'artefact qu'une étape de
+// construction a réellement produit — `{artifacts.portal.image}` — plutôt qu'une
+// référence recomposée qui peut désigner une image que personne n'a publiée.
+func TestUneReferenceDImageEstUnRepliQuUneDeclarationPeutPrendre(t *testing.T) {
+	registry := parseDeTest(t, `
+pipelines:
+  - kind: security-audit
+    pipelineRef: audit
+    label: Audit
+    produces: [results]
+    params:
+      portal-image: { source: input, required: true, suggest: image, image: portal }
+      report-url:   { source: input }
+    uploads:
+      report-url: { param: report-url, artifact: report.json, family: security }
+`)
+	pipeline, _ := registry.Find("security-audit")
+
+	input := pipeline.Inputs()[0]
+	if input.Origin() != OriginFallback {
+		t.Errorf("origine = %q, attendue %q", input.Origin(), OriginFallback)
+	}
+	// Et le repli reste calculable : un geste qui ne déclare rien reçoit ce que
+	// le registre et le tag composent, comme avant la déclaration.
+	if got := input.FromContext("abc123", "1.8.0", "vcarroy"); got == "" {
+		t.Error("le repli ne rend rien — un geste sans déclaration n'aurait pas d'image")
+	}
+}
+
+// Un paramètre sans libellé retombe sur son nom.
+//
+// Un catalogue écrit avant cette tranche reste saisissable : il est plus sec,
+// pas muet. Un champ sans étiquette est un champ qu'on ne remplit pas.
+func TestUnParametreSansLibelleRetombeSurSonNom(t *testing.T) {
+	registry := parseDeTest(t, `
+pipelines:
+  - kind: build
+    pipelineRef: build-image
+    label: Construction
+    produces: [image]
+    params:
+      target:     { source: input, required: true, suggest: build-target }
+      image-name:
+        source: input
+        required: true
+        suggest: image-name
+        label: Dépôt publié
+        help: Nom court, sans le registre.
+`)
+	pipeline, _ := registry.Find("build")
+
+	par := map[string]Input{}
+	for _, input := range pipeline.Declared() {
+		par[input.Name] = input
+	}
+
+	if par["target"].Label != "target" {
+		t.Errorf("libellé de repli = %q, attendu le nom", par["target"].Label)
+	}
+	if par["image-name"].Label != "Dépôt publié" || par["image-name"].Help == "" {
+		t.Errorf("le libellé déclaré n'est pas rendu: %+v", par["image-name"])
+	}
+}

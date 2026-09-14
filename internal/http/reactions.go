@@ -43,31 +43,33 @@ import (
  * qu'on peut choisir et que rien n'exécute.
  */
 
-// ReactionStore est ce que les réactions attendent de la base.
-type ReactionStore interface {
+// AutomationStore est ce que les automatisations attendent de la base.
+type AutomationStore interface {
 	ListReactions(ctx context.Context, projectID int64) ([]reaction.Reaction, error)
 	GetReaction(ctx context.Context, projectID, id int64) (reaction.Reaction, error)
 	SaveReaction(ctx context.Context, entry reaction.Reaction, actor string) (int64, error)
 	DeleteReaction(ctx context.Context, projectID, id int64) error
+	ReleaseAutomation(ctx context.Context, projectID int64) (store.ReleaseAutomation, error)
+	SaveReleaseAutomation(ctx context.Context, entry store.ReleaseAutomation, actor string) error
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	PluginSettingsAll(ctx context.Context) (map[string]store.PluginSettings, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// ReactionsHandler expose les réactions et le catalogue de l'éditeur.
-type ReactionsHandler struct {
-	store   ReactionStore
+// AutomationsHandler expose les réactions et le catalogue de l'éditeur.
+type AutomationsHandler struct {
+	store   AutomationStore
 	catalog *catalog.Catalog
 	logger  *slog.Logger
 }
 
-func NewReactionsHandler(
-	reactions ReactionStore, pipelines *catalog.Catalog, logger *slog.Logger,
-) *ReactionsHandler {
+func NewAutomationsHandler(
+	reactions AutomationStore, pipelines *catalog.Catalog, logger *slog.Logger,
+) *AutomationsHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &ReactionsHandler{store: reactions, catalog: pipelines, logger: logger}
+	return &AutomationsHandler{store: reactions, catalog: pipelines, logger: logger}
 }
 
 type reactionPayload struct {
@@ -88,7 +90,7 @@ type reactionPayload struct {
 }
 
 // List rend les réactions d'un projet.
-func (h *ReactionsHandler) List(w http.ResponseWriter, r *http.Request) {
+func (h *AutomationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
 		return
@@ -135,7 +137,7 @@ type reactionRequest struct {
 }
 
 // Save crée ou remplace une réaction.
-func (h *ReactionsHandler) Save(w http.ResponseWriter, r *http.Request) {
+func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
 		return
@@ -202,7 +204,7 @@ func (h *ReactionsHandler) Save(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete retire une réaction.
-func (h *ReactionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
+func (h *AutomationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
 		return
@@ -248,6 +250,9 @@ type gesteChoice struct {
 	// décrit par son libellé.
 	Summary string         `json:"summary,omitempty"`
 	Fields  []fieldPayload `json:"fields,omitempty"`
+	// Produces énumère ce que le pipeline laisse derrière lui, dans le vocabulaire
+	// du catalogue. Vide pour une action, qui ne produit rien d'observable.
+	Produces []string `json:"produces,omitempty"`
 	// Source nomme le plugin qui fournit le geste. Vide pour le noyau.
 	//
 	// Rendu pour la même raison que sur un fait : deux gestes peuvent porter le
@@ -260,7 +265,7 @@ type gesteChoice struct {
 // L'écran ne code aucune liste : il demande, et compose son formulaire. Une liste
 // écrite dans l'interface divergerait du binaire au premier ajout, et l'écart se
 // verrait par un geste qu'on peut choisir et que rien n'exécute.
-func (h *ReactionsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
+func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.store.PluginSettingsAll(r.Context())
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des plugins impossible", "")
@@ -304,6 +309,16 @@ func (h *ReactionsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 			}
 			gestes = append(gestes, gesteChoice{
 				Kind: string(plan.GestePipeline), Ref: pipeline.Kind, Label: pipeline.Label,
+				// Les paramètres qu'un pipeline demande, avec leurs libellés. Ils
+				// n'étaient pas rendus tant qu'un plan de release était composé en
+				// Go : personne n'avait à lire un nom de paramètre. Déclarer la
+				// construction renverse cela (doc 15 §15.5).
+				Fields: pipelineFields(pipeline),
+				// Ce que le pipeline produit, pour que l'éditeur sache dans quelle
+				// étape il a le droit d'aller. Le serveur refuse de toute façon, mais
+				// un formulaire qui laisse choisir puis refuse est un formulaire
+				// qu'on apprend à contourner.
+				Produces: produces(pipeline),
 			})
 		}
 	}
@@ -312,7 +327,59 @@ func (h *ReactionsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 		"events": events,
 		"gestes": gestes,
 		"when":   []string{string(plan.WhenSuccess), string(plan.WhenFailure), string(plan.WhenAlways)},
+		// Les rôles d'étape, et ce que chacun exige de ses gestes. L'éditeur
+		// présente deux blocs — « Construction », « Vérification » — et doit
+		// pouvoir dire lequel accepte quoi sans coder la table.
+		"roles": roleChoices(),
 	})
+}
+
+// roleChoice décrit un rôle d'étape pour l'éditeur.
+type roleChoice struct {
+	Role string `json:"role"`
+	// Label est le titre du bloc dans l'éditeur.
+	Label string `json:"label"`
+	// Requires est le produit qu'un geste doit déclarer pour y entrer.
+	Requires string `json:"requires"`
+	// Advances dit ce que la conclusion de cette étape fait à la release.
+	Advances string `json:"advances"`
+}
+
+func roleChoices() []roleChoice {
+	return []roleChoice{
+		{
+			Role: string(plan.RoleBuild), Label: "Construction",
+			Requires: string(catalog.ProductImage),
+			Advances: "la release passe en vérification, ou échoue",
+		},
+		{
+			Role: string(plan.RoleTest), Label: "Vérification",
+			Requires: string(catalog.ProductResults),
+			Advances: "la release devient prête, ou échoue",
+		},
+	}
+}
+
+// pipelineFields rend les paramètres qu'une déclaration peut renseigner.
+func pipelineFields(pipeline catalog.Pipeline) []fieldPayload {
+	declared := pipeline.Declared()
+	fields := make([]fieldPayload, 0, len(declared))
+	for _, input := range declared {
+		fields = append(fields, fieldPayload{
+			Name: input.Name, Label: input.Label, Type: "text",
+			Help: input.Help, Required: input.Required,
+			Placeholder: input.Placeholder,
+		})
+	}
+	return fields
+}
+
+func produces(pipeline catalog.Pipeline) []string {
+	names := make([]string, 0, len(pipeline.Produces))
+	for _, product := range pipeline.Produces {
+		names = append(names, string(product))
+	}
+	return names
 }
 
 // coreEventChoices énumère les faits du noyau, avec leurs champs appariables.
@@ -359,7 +426,7 @@ func actionFields(descriptor action.Descriptor) []fieldPayload {
  */
 
 // checkRefs refuse une réaction dont une référence ne désigne rien.
-func (h *ReactionsHandler) checkRefs(ctx context.Context, entry reaction.Reaction) error {
+func (h *AutomationsHandler) checkRefs(ctx context.Context, entry reaction.Reaction) error {
 	var problems []error
 
 	live, err := h.liveEventTypes(ctx)
@@ -372,7 +439,29 @@ func (h *ReactionsHandler) checkRefs(ctx context.Context, entry reaction.Reactio
 			entry.EventType, strings.Join(live, ", ")))
 	}
 
-	pipelines, actions := entry.Refs()
+	// Un rôle sur l'étape d'une **réaction** n'a pas de sens et serait ignoré :
+	// ce sont les étapes du plan d'une release qui font avancer son état, et une
+	// réaction ne vise aucune release en particulier.
+	for index, stage := range entry.Plan.Stages {
+		if stage.Role != "" {
+			problems = append(problems, fmt.Errorf(
+				"l'étape %d d'une réaction porte le rôle %q : un rôle ne fait avancer "+
+					"que l'automatisation d'une release", index+1, stage.Role))
+		}
+	}
+
+	problems = append(problems, h.checkPlanRefs(ctx, entry.Plan))
+	return errors.Join(problems...)
+}
+
+// checkPlanRefs refuse un plan dont un geste ne désigne rien d'exécutable.
+//
+// Partagé par les réactions et l'automatisation d'une release : les deux portent
+// la même structure, et deux contrôles divergeraient au premier ajout.
+func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan) error {
+	var problems []error
+
+	pipelines, actions := plan.Refs(entry)
 	for _, ref := range pipelines {
 		if h.catalog == nil {
 			problems = append(problems, fmt.Errorf(
@@ -412,7 +501,7 @@ func (h *ReactionsHandler) checkRefs(ctx context.Context, entry reaction.Reactio
 	// Les paramètres d'une action sont validés contre son descripteur : une URL
 	// malformée ou un gabarit mal apparié se corrige devant le formulaire, pas
 	// devant une chaîne arrêtée.
-	for _, stage := range entry.Plan.Stages {
+	for _, stage := range entry.Stages {
 		for _, geste := range stage.Gestes {
 			if geste.Kind != plan.GesteAction {
 				continue
@@ -435,7 +524,7 @@ func (h *ReactionsHandler) checkRefs(ctx context.Context, entry reaction.Reactio
 // Ceux du noyau, plus ceux des plugins **actifs** : un fait dont le plugin est
 // éteint ne sera jamais produit, et l'accepter donnerait une réaction qui ne part
 // jamais sans qu'on sache pourquoi.
-func (h *ReactionsHandler) liveEventTypes(ctx context.Context) ([]string, error) {
+func (h *AutomationsHandler) liveEventTypes(ctx context.Context) ([]string, error) {
 	settings, err := h.store.PluginSettingsAll(ctx)
 	if err != nil {
 		return nil, err
@@ -456,7 +545,7 @@ func (h *ReactionsHandler) liveEventTypes(ctx context.Context) ([]string, error)
 	return types, nil
 }
 
-func (h *ReactionsHandler) project(w http.ResponseWriter, r *http.Request) (store.Project, bool) {
+func (h *AutomationsHandler) project(w http.ResponseWriter, r *http.Request) (store.Project, bool) {
 	project, err := h.store.ProjectBySlug(r.Context(),
 		strings.TrimSpace(r.PathValue("project")))
 	if err != nil {
@@ -470,7 +559,7 @@ func (h *ReactionsHandler) project(w http.ResponseWriter, r *http.Request) (stor
 	return project, true
 }
 
-func (h *ReactionsHandler) audit(r *http.Request, name, target string, payload map[string]any) {
+func (h *AutomationsHandler) audit(r *http.Request, name, target string, payload map[string]any) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
 		return

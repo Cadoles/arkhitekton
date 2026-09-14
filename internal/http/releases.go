@@ -1505,69 +1505,6 @@ func buildReference(record store.Release, requested string) string {
 	return requested
 }
 
-// enqueueBuild met en file la construction des images d'une release.
-//
-// `version` porte le tag SemVer et prime sur `tag-name` : la Task
-// `generate-image-tag` s'en sert tel quel plutôt que de le dériver de la branche,
-// et le même tag part en `--build-arg VERSION` pour être inscrit dans
-// `/app/version.txt`. C'est ce qui rend l'image identifiable par ce qu'elle
-// rapporte d'elle-même (B17, P10).
-//
-// Une référence Git vide est refusée ici plutôt que transmise : le clone
-// échouerait en cours de pipeline, plusieurs minutes plus tard, sur un message
-// qui ne désignerait pas la cause.
-// Une exécution par image, et non une pour toutes. Le pipeline n'en construit
-// qu'une : c'est l'appelant qui décide combien il en lance, et c'est ce qui
-// permet à chacune d'échouer et de se relancer séparément.
-//
-// Les mises en file sont indépendantes, mais l'échec de la première interrompt :
-// laisser partir deux constructions quand la troisième n'a pas pu être enfilée
-// produirait une release que rien ne pourrait conclure — le décompte attendrait
-// une image qui n'a jamais été demandée.
-func (h *ReleasesHandler) enqueueBuild(
-	ctx context.Context, projectID, releaseID int64,
-	record store.Release, gitRef, subject string,
-) ([]int64, error) {
-	pipeline, found := h.catalog.Find("build")
-	if !found {
-		return nil, errors.New("catalogue sans pipeline build")
-	}
-	if strings.TrimSpace(gitRef) == "" {
-		return nil, errors.New("aucune référence Git à construire")
-	}
-
-	project, err := h.store.GetProject(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	targets := project.Buildable()
-	jobs := make([]int64, 0, len(targets))
-	for _, target := range targets {
-		jobID, err := h.store.Enqueue(ctx, store.JobRequest{
-			Kind: pipeline.Kind,
-			Params: map[string]string{
-				"revision": gitRef,
-				"version":  record.Tag,
-				"tag-name": record.Tag,
-				// Le Dockerfile de l'étape, celui du projet à défaut : un dépôt
-				// peut en porter un par image plutôt qu'un seul à étapes.
-				"dockerfile": project.DockerfileFor(target),
-				"context":    project.BuildContext,
-				"image-name": target.Image,
-				"target":     target.Stage,
-			},
-			RequestedBy: subject,
-			ReleaseID:   &releaseID,
-		})
-		if err != nil {
-			return jobs, fmt.Errorf("construction de %s: %w", target.Image, err)
-		}
-		jobs = append(jobs, jobID)
-	}
-	return jobs, nil
-}
-
 // enqueueRetag met en file le re-tag d'une release vers son propre tag.
 //
 // Une exécution par image promue — l'image de développement n'en est pas : aucun

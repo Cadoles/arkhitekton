@@ -335,7 +335,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			dashhttp.NewEventsHandler(db),
 			// Le même catalogue que la file : l'éditeur propose ce que l'instance
 			// sait lancer, et un second chargement pourrait proposer autre chose.
-			dashhttp.NewReactionsHandler(db, pipelines, logger),
+			dashhttp.NewAutomationsHandler(db, pipelines, logger),
 			// Ce qu'une réaction a réellement fait. Un moteur qu'on ne peut pas
 			// déboguer est pire qu'un comportement figé (doc 14 §14.10).
 			dashhttp.NewPlanRunsHandler(db),
@@ -462,6 +462,23 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return fmt.Errorf("catalogue incompatible avec le cluster:\n%w", err)
 	}
 	logger.Info("catalogue validé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
+
+	// Les projets qui n'ont jamais déclaré leur automatisation la reçoivent,
+	// composée depuis leurs cibles. Sans elle, tous cesseraient de construire au
+	// déploiement de cette version (doc 15 §15.8).
+	//
+	// **Après la validation du catalogue**, et pas avant : la reprise compose des
+	// gestes qui désignent des familles, et les figer depuis un catalogue en
+	// désaccord avec le cluster écrirait en base des plans qui ne partiront
+	// jamais. Une reprise ne repasse pas.
+	//
+	// Ici et pas dans l'`api`, pour la même raison que la renormalisation :
+	// celle-ci tourne à plusieurs répliques, et trois reprises concurrentes
+	// écriraient la même chose trois fois. L'`api` lit la déclaration, elle ne la
+	// compose pas.
+	if err := worker.NewAutomationReprise(db, pipelines, logger).Run(ctx); err != nil {
+		return err
+	}
 
 	// Le client Flux découvre les versions d'API servies au lieu de les coder :
 	// `kustomize.toolkit.fluxcd.io/v1` est stable depuis Flux 2.0, alors que

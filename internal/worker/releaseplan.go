@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -32,12 +33,20 @@ import (
  * sur les familles, dans l'observateur. Deux boucles dans deux fichiers, reliées
  * par un fait intermédiaire, là où il y avait un plan non déclaré.
  *
- * # Composé, pas encore déclaré
+ * # Déclaré, et plus composé
  *
- * Cette tranche compose le plan **en Go**, depuis la colonne `targets` et le
- * catalogue. C'est délibéré : elle prouve que le modèle porte l'enchaînement,
- * sans rien changer à ce qu'un projet a saisi. La déclaration vient ensuite, et
- * n'aura qu'à produire le même objet.
+ * Le plan était composé ici, en Go, depuis la colonne `targets` et le catalogue.
+ * Il est désormais **lu** : le projet le déclare depuis l'onglet automatisation,
+ * et ce fichier ne connaît plus ni cible, ni famille particulière (doc 15 §15.5).
+ *
+ * Ce que cela retire est visible à l'œil : la famille `build` n'apparaît plus
+ * nulle part, et le `if geste.Ref == "build"` qui aiguillait deux façons de
+ * renseigner les paramètres non plus. Les trois paramètres qu'il posait en clair
+ * — `revision`, `version`, `tag-name` — étaient la recopie de ce que le catalogue
+ * déclarait déjà par ses `suggest`.
+ *
+ * La composition survit à un seul endroit, `automationreprise.go`, où elle dote
+ * d'une automatisation les projets qui n'en ont jamais déclaré.
  *
  * # Ce que le geste porte, et ce que le contexte porte
  *
@@ -69,110 +78,11 @@ const (
 // moitié aval de la chaîne, celui-ci la porte entière.
 const releaseTrigger = "builtin:release"
 
-// buildKind est la famille du catalogue qui construit.
-//
-// En dur dans cette tranche, comme la composition elle-même : c'est ce que la
-// déclaration retirera.
-const buildKind = "build"
-
-// ProjectPipelines dit ce qu'un projet déclare vérifier.
-//
-// Interface étroite plutôt que le magasin entier : la composition n'a besoin que
-// de cette réponse, et lui donner accès aux projets l'inviterait à en lire autre
-// chose.
-type ProjectPipelines interface {
-	PipelineEnabled(ctx context.Context, projectID int64, kind string) (bool, error)
-}
-
 // verificationRequester nomme le demandeur des jobs qu'un plan enfile.
 //
 // Distinct d'un identifiant humain : ces jobs ne sont demandés par personne, et
 // afficher le nom de qui a créé la release ferait croire à un lancement manuel.
 const verificationRequester = "system:plan"
-
-// releasePlan compose le plan d'une release : construire, puis vérifier.
-//
-// Rend un plan **vide** quand rien ne s'applique — ni cible à construire, ni
-// famille à vérifier. L'appelant conclut alors tout de suite plutôt que
-// d'attendre un verdict que personne ne rendra.
-func releasePlan(
-	registry *catalog.Catalog, project store.Project, enabled func(kind string) bool,
-) plan.Plan {
-	if registry == nil {
-		return plan.Plan{}
-	}
-
-	var stages []plan.Stage
-	if build := buildStage(registry, project); len(build.Gestes) > 0 {
-		stages = append(stages, build)
-	}
-	if test := testStage(registry, enabled); len(test.Gestes) > 0 {
-		stages = append(stages, test)
-	}
-	if len(stages) == 0 {
-		return plan.Plan{}
-	}
-	return plan.Plan{Stages: stages}
-}
-
-// buildStage compose l'étape de construction depuis les cibles du projet.
-//
-// Un geste par cible, et c'est le point : les trois images de MSE cessent d'être
-// une boucle dans l'API pour devenir trois gestes lisibles, relançables et
-// — bientôt — déclarés.
-func buildStage(registry *catalog.Catalog, project store.Project) plan.Stage {
-	pipeline, found := registry.Find(buildKind)
-	if !found {
-		return plan.Stage{}
-	}
-
-	targets := project.Buildable()
-	gestes := make([]plan.Geste, 0, len(targets))
-	for _, target := range targets {
-		gestes = append(gestes, plan.Geste{
-			Kind: plan.GestePipeline, Ref: pipeline.Kind,
-			// Le libellé est le nom de l'image : c'est lui qui distingue trois
-			// gestes portant la même référence de catalogue, à l'écran comme dans
-			// la carte des artefacts qui viendra.
-			Label: target.Image,
-			Params: map[string]string{
-				"image-name": target.Image,
-				"target":     target.Stage,
-				"dockerfile": project.DockerfileFor(target),
-				"context":    project.BuildContext,
-			},
-		})
-	}
-
-	return plan.Stage{Role: plan.RoleBuild, Label: "Construire", Gestes: gestes}
-}
-
-// testStage compose l'étape de vérification.
-//
-// `enabled` dit ce que le **projet** vérifie. Le catalogue dit ce que l'instance
-// sait lancer, ce qui n'est pas la même question : un projet sans campagne de
-// charge voyait `load-tests` s'enchaîner, échouer faute de scénario, et laisser
-// sa release attendre un verdict qui ne viendrait jamais.
-func testStage(registry *catalog.Catalog, enabled func(kind string) bool) plan.Stage {
-	var gestes []plan.Geste
-	for _, kind := range registry.VerificationKinds() {
-		pipeline, found := registry.Find(kind)
-		if !found {
-			continue
-		}
-		if enabled != nil && !enabled(kind) {
-			continue
-		}
-		gestes = append(gestes, plan.Geste{
-			Kind: plan.GestePipeline, Ref: pipeline.Kind, Label: pipeline.Label,
-			// `when` reste au défaut — succès de l'étape précédente. C'est ce qui
-			// remplace le fait `release.built` : la condition d'étape dit la même
-			// chose, sans aller-retour par le fil des faits.
-		})
-	}
-
-	return plan.Stage{Role: plan.RoleTest, Label: "Vérifier", Gestes: gestes}
-}
 
 // releaseContext compose le contexte d'exécution du plan d'une release.
 //
@@ -187,13 +97,31 @@ func releaseContext(release store.Release, revision, registryProject string) map
 	}
 }
 
-// buildParams compose les paramètres d'un geste de construction.
+// gesteParams compose les paramètres d'un geste du plan d'une release.
 //
-// Ceux du geste d'abord — ce que la déclaration fixe — puis ceux que le contexte
-// impose. L'ordre compte : un geste ne doit pas pouvoir redéfinir la révision
-// construite, sans quoi deux gestes d'une même release pourraient viser deux
-// commits et publier deux images sous le même tag.
-func buildParams(geste plan.Geste, context map[string]string) (map[string]string, error) {
+// # Trois origines, et le catalogue les dit déjà
+//
+// Ce qu'un geste **déclare** d'abord, gabarits liés au contexte. Puis, pour
+// chaque entrée que le pipeline demande, l'une des trois règles que porte
+// [catalog.Input.Origin] :
+//
+//   - le contexte **impose** la révision et le tag. Une déclaration ne peut pas
+//     les changer : deux gestes d'une même release qui viseraient deux commits
+//     publieraient deux images sous le même tag (B17) ;
+//   - une référence d'image est un **repli** — la déclaration l'emporte quand
+//     elle vise l'artefact qu'une construction a réellement produit ;
+//   - le reste n'est renseigné que par la déclaration.
+//
+// # Ce que cela remplace
+//
+// Deux chemins vivaient ici, aiguillés par `geste.Ref == "build"` : l'un posait
+// `revision`, `version` et `tag-name` en clair, l'autre appelait
+// `VerificationInputs`. Les trois noms en clair étaient la recopie de ce que le
+// catalogue déclarait déjà par ses `suggest` — la famille `build` cesse donc
+// d'être un cas particulier de ce fichier.
+func gesteParams(
+	pipeline catalog.Pipeline, geste plan.Geste, context map[string]string,
+) (map[string]string, error) {
 	params := make(map[string]string, len(geste.Params)+4)
 	for name, value := range geste.Params {
 		// Les gabarits sont liés au contexte, qui porte la charge du fait **et**
@@ -213,9 +141,29 @@ func buildParams(geste plan.Geste, context map[string]string) (map[string]string
 			"précédente", manquant)
 	}
 
-	params["revision"] = context[contextRevision]
-	params["version"] = context[contextTag]
-	params["tag-name"] = context[contextTag]
+	for _, input := range pipeline.Inputs() {
+		fourni := input.FromContext(
+			context[contextRevision], context[contextTag], context[contextRegistry])
+
+		switch input.Origin() {
+		case catalog.OriginContext:
+			params[input.Name] = fourni
+		case catalog.OriginFallback:
+			if strings.TrimSpace(params[input.Name]) == "" {
+				params[input.Name] = fourni
+			}
+		case catalog.OriginDeclared:
+			// Rien à fournir : seule la déclaration le renseigne.
+		}
+
+		if input.Required && strings.TrimSpace(params[input.Name]) == "" {
+			// Un paramètre requis qu'on ne sait pas renseigner ferait échouer le
+			// run à l'ordonnancement, sur un message qui ne désigne pas la cause.
+			// Ne pas l'enfiler du tout est plus honnête.
+			return nil, fmt.Errorf("paramètre %q non renseigné par la déclaration "+
+				"ni par l'exécution", input.Name)
+		}
+	}
 	return params, nil
 }
 
@@ -282,26 +230,9 @@ func (r *ReleaseRunner) Run(
 		return nil, fmt.Errorf("famille %q absente du catalogue", geste.Ref)
 	}
 
-	var params map[string]string
-	if geste.Ref == buildKind {
-		var err error
-		if params, err = buildParams(geste, run.Context); err != nil {
-			return nil, err
-		}
-	} else {
-		// Les valeurs sortent de ce que le catalogue déclare vouloir :
-		// `revision`, `app-revision` et `mse-revision` désignent la même chose
-		// sous trois noms hérités de pipelines écrits séparément.
-		var missing string
-		params, missing = pipeline.VerificationInputs(
-			run.Context[contextRevision], run.Context[contextTag],
-			run.Context[contextRegistry])
-		if missing != "" {
-			// Un paramètre requis qu'on ne sait pas renseigner ferait échouer le
-			// run à l'ordonnancement : ne pas l'enfiler du tout est plus honnête,
-			// et le motif dit lequel manque.
-			return nil, fmt.Errorf("paramètre %q non renseignable", missing)
-		}
+	params, err := gesteParams(pipeline, geste, run.Context)
+	if err != nil {
+		return nil, err
 	}
 
 	id, err := r.queue.Enqueue(ctx, store.JobRequest{
@@ -410,22 +341,30 @@ func (l *ReleaseLifecycle) StageSettled(
 // met des jobs en file. C'est ce que l'API faisait déjà. Le worker garde
 // l'exclusivité de ce qui **sort** — créer les PipelineRun — et de l'avancement.
 type ReleasePlanner struct {
-	engine    *Engine
-	catalog   *catalog.Catalog
-	pipelines ProjectPipelines
-	registry  string
-	logger    *slog.Logger
+	engine      *Engine
+	catalog     *catalog.Catalog
+	automations Automations
+	registry    string
+	logger      *slog.Logger
+}
+
+// Automations rend le plan qu'un projet a déclaré.
+//
+// Interface étroite plutôt que le magasin entier : ouvrir le plan d'une release
+// n'a besoin que de cette réponse.
+type Automations interface {
+	ReleaseAutomation(ctx context.Context, projectID int64) (store.ReleaseAutomation, error)
 }
 
 func NewReleasePlanner(
-	engine *Engine, registry *catalog.Catalog, pipelines ProjectPipelines,
+	engine *Engine, registry *catalog.Catalog, automations Automations,
 	registryProject string, logger *slog.Logger,
 ) *ReleasePlanner {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &ReleasePlanner{
-		engine: engine, catalog: registry, pipelines: pipelines,
+		engine: engine, catalog: registry, automations: automations,
 		registry: registryProject, logger: logger,
 	}
 }
@@ -450,23 +389,25 @@ func (p *ReleasePlanner) OpenReleasePlan(
 		return 0
 	}
 
-	sujet := releasePlan(p.catalog, project, func(kind string) bool {
-		if p.pipelines == nil {
-			return true
-		}
-		enabled, err := p.pipelines.PipelineEnabled(ctx, project.ID, kind)
-		if err != nil {
-			// Une lecture impossible ne doit pas retirer une vérification : mieux
-			// vaut l'enchaîner et la voir échouer que la sauter en silence.
-			p.logger.Error("familles déclarées du projet",
-				"projet", project.ID, "kind", kind, "error", err)
-			return true
-		}
-		return enabled
-	})
+	// Le plan **déclaré**, et plus composé ici.
+	//
+	// Ce que cela retire : la boucle sur `targets`, le filtre sur les familles
+	// activées, le drapeau `verification`. Un projet qui produit un binaire ou une
+	// archive entre par la même porte, sans que ce fichier connaisse sa forme
+	// (doc 15 §15.5).
+	sujet, err := p.declaredPlan(ctx, project)
+	if err != nil {
+		// Une lecture impossible n'ouvre **rien**. Composer un repli ferait
+		// construire autre chose que ce que le projet déclare, sous le tag d'une
+		// release — et personne ne saurait que ce n'est pas la bonne.
+		p.logger.Error("lecture de l'automatisation",
+			"release", record.Tag, "projet", project.Slug, "error", err)
+		return 0
+	}
 	if sujet.Empty() {
 		p.logger.Info("aucun plan pour cette release",
-			"release", record.Tag, "projet", project.Slug)
+			"release", record.Tag, "projet", project.Slug,
+			"raison", "le projet ne déclare aucune automatisation")
 		return 0
 	}
 
@@ -480,6 +421,29 @@ func (p *ReleasePlanner) OpenReleasePlan(
 		Plan:      sujet,
 		Context:   releaseContext(record, revision, p.registry),
 	})
+}
+
+// declaredPlan rend le plan que le projet a déclaré.
+//
+// Une automatisation absente rend un plan vide et **aucune erreur** : c'est
+// l'état d'un projet neuf, que la reprise du worker remplira à son prochain
+// démarrage. Le traiter en panne enverrait chercher un défaut là où il n'y a
+// qu'une déclaration à écrire.
+func (p *ReleasePlanner) declaredPlan(
+	ctx context.Context, project store.Project,
+) (plan.Plan, error) {
+	if p.automations == nil {
+		return plan.Plan{}, nil
+	}
+
+	entry, err := p.automations.ReleaseAutomation(ctx, project.ID)
+	if errors.Is(err, store.ErrNoAutomation) {
+		return plan.Plan{}, nil
+	}
+	if err != nil {
+		return plan.Plan{}, err
+	}
+	return entry.Plan, nil
 }
 
 // ProductOf rend la nature de ce qu'une famille du catalogue laisse derrière

@@ -137,17 +137,10 @@ func oneOf(value, expected string) bool {
 // référence existe **à l'enregistrement**, plutôt que de laisser la découverte au
 // moment où le geste devait partir.
 func (r Reaction) Refs() (pipelines, actions []string) {
-	for _, stage := range r.Plan.Stages {
-		for _, geste := range stage.Gestes {
-			switch geste.Kind {
-			case plan.GestePipeline:
-				pipelines = append(pipelines, geste.Ref)
-			case plan.GesteAction:
-				actions = append(actions, geste.Ref)
-			}
-		}
-	}
-	return pipelines, actions
+	// Délégué au plan depuis que l'automatisation d'une release en porte un aussi
+	// (doc 15 §15.5) : la question « que désigne ce plan ? » n'appartient pas plus
+	// à une réaction qu'à une automatisation.
+	return plan.Refs(r.Plan)
 }
 
 // Trigger nomme le déclencheur d'une exécution issue de cette réaction.

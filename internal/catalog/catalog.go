@@ -238,6 +238,26 @@ type Param struct {
 	// obligeait à modifier le Go pour tout pipeline nommant autrement ses
 	// paramètres.
 	Image string `json:"image,omitempty"`
+	// Label, Help et Placeholder rendent le paramètre **saisissable**.
+	//
+	// # Pourquoi ils arrivent maintenant
+	//
+	// Tant qu'un plan de release était composé en Go, personne n'avait à lire un
+	// nom de paramètre : `buildStage` écrivait `image-name` et `target` en clair.
+	// Déclarer la construction depuis l'onglet automatisation renverse cela — un
+	// humain choisit un pipeline et doit renseigner ce qu'il demande, sans lire
+	// le catalogue (doc 15 §15.5).
+	//
+	// C'est exactement ce que `plugin.ActionField` fait déjà pour les actions. La
+	// symétrie est voulue : les deux natures de geste se saisissent dans le même
+	// formulaire, et rien ne justifierait qu'une action s'explique et qu'un
+	// pipeline se devine.
+	//
+	// Facultatifs. Sans libellé, le nom du paramètre en tient lieu : un catalogue
+	// existant reste utilisable, il est seulement plus sec.
+	Label       string `json:"label,omitempty"`
+	Help        string `json:"help,omitempty"`
+	Placeholder string `json:"placeholder,omitempty"`
 }
 
 // Sources reconnues.
@@ -280,6 +300,50 @@ type Input struct {
 	Required bool
 	Suggest  string
 	Image    string
+	// Label retombe sur le nom quand le catalogue n'en déclare pas : un
+	// formulaire avec un champ sans étiquette est un champ qu'on ne remplit pas.
+	Label       string
+	Help        string
+	Placeholder string
+}
+
+// Origin dit **qui renseigne** un paramètre dans le plan d'une release.
+//
+// La distinction existait, écrite en Go : `buildParams` posait `revision`,
+// `version` et `tag-name` après les paramètres du geste, pour qu'une déclaration
+// ne puisse pas les changer. Elle vaut pour tout pipeline, et le catalogue la
+// disait déjà par ses `suggest` — il suffisait de la lire.
+type Origin string
+
+const (
+	// OriginContext : l'exécution l'impose, une déclaration ne peut pas le
+	// changer. La révision construite et le tag de la release, et rien d'autre :
+	// deux gestes d'une même release qui viseraient deux commits publieraient
+	// deux images sous le même tag (B17).
+	OriginContext Origin = "context"
+	// OriginFallback : l'exécution le renseigne **à défaut** de déclaration.
+	//
+	// La référence d'une image publiée. Sans déclaration, elle se recompose
+	// depuis le registre et le tag, comme avant ; une déclaration peut viser
+	// l'artefact qu'une étape de construction a réellement produit —
+	// `{artifacts.portal.image}` — ce qui est plus vrai et échoue quand rien ne
+	// l'a produit (doc 15 §15.4).
+	OriginFallback Origin = "fallback"
+	// OriginDeclared : seule une déclaration le renseigne. Le dépôt à publier, la
+	// cible du Dockerfile, l'environnement visé.
+	OriginDeclared Origin = "declared"
+)
+
+// Origin classe ce paramètre.
+func (i Input) Origin() Origin {
+	switch i.Suggest {
+	case SuggestGitRef, SuggestReleaseTag:
+		return OriginContext
+	case SuggestImage:
+		return OriginFallback
+	default:
+		return OriginDeclared
+	}
 }
 
 // Upload déclare un artefact attendu.
@@ -724,25 +788,49 @@ func (p Pipeline) VerificationInputs(revision, tag, registry string) (map[string
 			continue
 		}
 
-		var value string
-		switch input.Suggest {
-		case SuggestGitRef:
-			value = revision
-		case SuggestReleaseTag:
-			value = tag
-		case SuggestImage:
-			// La vérification analyse les images **publiées** par la construction,
-			// jamais une reconstruction : elle produirait un artefact différent de
-			// celui qui sera déployé, et le verdict porterait à côté (B17).
-			value = images.Reference(registry, input.Image, tag)
-		}
-
+		value := input.FromContext(revision, tag, registry)
 		if value == "" {
 			return nil, input.Name
 		}
 		params[input.Name] = value
 	}
 	return params, ""
+}
+
+// FromContext rend la valeur que l'exécution d'une release donne à ce paramètre.
+//
+// Vide quand elle n'en donne aucune : c'est alors à la déclaration de le
+// renseigner, et [Input.Origin] dit lequel des deux a le dernier mot.
+func (i Input) FromContext(revision, tag, registry string) string {
+	switch i.Suggest {
+	case SuggestGitRef:
+		return revision
+	case SuggestReleaseTag:
+		return tag
+	case SuggestImage:
+		// La vérification analyse les images **publiées** par la construction,
+		// jamais une reconstruction : elle produirait un artefact différent de
+		// celui qui sera déployé, et le verdict porterait à côté (B17).
+		return images.Reference(registry, i.Image, tag)
+	default:
+		return ""
+	}
+}
+
+// Declared rend les entrées qu'une déclaration peut renseigner.
+//
+// Tout sauf celles que l'exécution impose : les proposer inviterait à saisir une
+// révision qui serait écrasée, ce qui est pire qu'une absence — on croirait
+// l'avoir fixée.
+func (p Pipeline) Declared() []Input {
+	var declared []Input
+	for _, input := range p.Inputs() {
+		if input.Origin() == OriginContext {
+			continue
+		}
+		declared = append(declared, input)
+	}
+	return declared
 }
 
 // Inputs rend tous les paramètres saisis au lancement, requis ou non.
@@ -757,9 +845,14 @@ func (p Pipeline) Inputs() []Input {
 		if param.Source != SourceInput {
 			continue
 		}
+		label := param.Label
+		if strings.TrimSpace(label) == "" {
+			label = name
+		}
 		inputs = append(inputs, Input{
 			Name: name, Required: param.Required,
 			Suggest: param.Suggest, Image: param.Image,
+			Label: label, Help: param.Help, Placeholder: param.Placeholder,
 		})
 	}
 	// Les requis d'abord, puis l'ordre alphabétique : une map Go n'a pas d'ordre,

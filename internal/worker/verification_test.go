@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 )
@@ -124,14 +125,30 @@ func planifie(
 ) int {
 	t.Helper()
 
+	projet := store.Project{ID: 1, Slug: "mse"}
+
 	planner := NewReleasePlanner(
 		NewEngine(newFakePlanStore(),
 			NewReleaseRunner(pipelines, queue, quietLogger()), quietLogger()),
-		pipelines, nil, "reg.cadoles.com/vcarroy", quietLogger())
+		pipelines,
+		// L'automatisation que la reprise aurait composée pour ce projet. Le plan
+		// est désormais **lu** et non composé à l'ouverture (doc 15 §15.5) : passer
+		// nil rendrait un plan vide, et ces tests constateraient zéro geste parti
+		// sans que rien ne dise que c'est la lecture qui manque.
+		automatisationDeTest{plan: DefaultAutomation(pipelines, projet, nil)},
+		"reg.cadoles.com/vcarroy", quietLogger())
 
-	return planner.OpenReleasePlan(context.Background(),
-		store.Project{ID: 1, Slug: "mse"},
+	return planner.OpenReleasePlan(context.Background(), projet,
 		store.Release{ID: 7, Tag: tag}, revision)
+}
+
+// automatisationDeTest rend un plan déjà déclaré.
+type automatisationDeTest struct{ plan plan.Plan }
+
+func (a automatisationDeTest) ReleaseAutomation(
+	context.Context, int64,
+) (store.ReleaseAutomation, error) {
+	return store.ReleaseAutomation{Plan: a.plan}, nil
 }
 
 // Une construction réussie enchaîne les vérifications sur **le commit
@@ -302,16 +319,19 @@ func TestUneConstructionNeLanceSesVerificationsQuUneFois(t *testing.T) {
 	fake := &fakeVerificationStore{state: "building"}
 	pipelines := verificationCatalog()
 
+	projet := store.Project{ID: 1, Slug: "mse"}
+
 	// Un seul planificateur, donc un seul magasin de plans : c'est lui qui porte
 	// l'unicité par (déclencheur, fait), comme la table `plan_runs`.
 	planner := NewReleasePlanner(
 		NewEngine(newFakePlanStore(),
 			NewReleaseRunner(pipelines, fake, quietLogger()), quietLogger()),
-		pipelines, nil, "reg.cadoles.com/vcarroy", quietLogger())
+		pipelines,
+		automatisationDeTest{plan: DefaultAutomation(pipelines, projet, nil)},
+		"reg.cadoles.com/vcarroy", quietLogger())
 
 	ouvrir := func() int {
-		return planner.OpenReleasePlan(context.Background(),
-			store.Project{ID: 1, Slug: "mse"},
+		return planner.OpenReleasePlan(context.Background(), projet,
 			store.Release{ID: 7, Tag: "3.2.0-rc1"}, "abc123")
 	}
 
