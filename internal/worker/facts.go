@@ -8,7 +8,6 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 )
 
 /*
@@ -112,56 +111,6 @@ func (s *runSink) WithDispatcher(dispatcher *Dispatcher) *runSink {
 	return s
 }
 
-// factOutcome traduit l'issue d'un run dans le vocabulaire des faits.
-//
-// Une traduction et non un emprunt : les états de Tekton décrivent un objet du
-// cluster, les issues d'un fait décrivent ce qui est arrivé au projet. Les
-// confondre ferait entrer `PipelineRunTimeout` dans une charge que des réactions
-// appareillent.
-func factOutcome(status tekton.Status) event.Outcome {
-	switch status {
-	case tekton.StatusSucceeded:
-		return event.Succeeded
-	case tekton.StatusCancelled:
-		return event.Cancelled
-	default:
-		return event.Failed
-	}
-}
-
-// jobOutcome traduit l'issue d'un job.
-func jobOutcome(state string) event.Outcome {
-	switch state {
-	case store.JobSucceeded:
-		return event.Succeeded
-	case store.JobCancelled:
-		return event.Cancelled
-	default:
-		return event.Failed
-	}
-}
-
-// emitPipelineFinished constate qu'un run s'est terminé.
-//
-// Le fait générique, émis pour **tout** run terminé — y compris ceux qui ne
-// visent aucune release. Sa clé porte le run et non le job : un job en échec est
-// remis en file, et ses tentatives sont autant de runs distincts.
-func (s *runSink) emitPipelineFinished(ctx context.Context, runID int64, run tekton.Run, releaseID *int64) {
-	if s.events == nil || !run.Status.Terminal() || run.JobID == 0 {
-		return
-	}
-
-	job, err := s.db.GetJob(ctx, run.JobID)
-	if err != nil {
-		s.logger.Error("job d'un run terminé", "run", run.Name, "job", run.JobID, "error", err)
-		return
-	}
-
-	s.emit(ctx, event.PipelineFinishedAt(
-		s.at(), job.ProjectID, runID, run.JobID,
-		run.Name, job.Kind, factOutcome(run.Status), releaseID))
-}
-
 func (s *runSink) emitReleasePromoted(ctx context.Context, linked store.JobReleaseContext, jobState string) {
 	if jobState != store.JobSucceeded || linked.Environment == "" {
 		return
@@ -202,9 +151,9 @@ func NewVerificationEngine(
 // planStateOf traduit l'issue d'un job dans le vocabulaire des plans.
 //
 // Une annulation vaut un échec pour un plan : ce qui suivait ne doit pas partir,
-// et il n'y a pas d'état « interrompu » dans le modèle. La nuance existe dans le
-// job et dans le fait `pipeline.finished` ; la perdre ici ne coûte rien, parce
-// que la seule question posée à cet endroit est « la suite part-elle ? ».
+// et il n'y a pas d'état « interrompu » dans le modèle. La nuance subsiste sur le
+// job, qui la porte et l'affiche ; la perdre ici ne coûte rien, parce que la seule
+// question posée à cet endroit est « la suite part-elle ? ».
 func planStateOf(jobState string) plan.State {
 	if jobState == store.JobSucceeded {
 		return plan.Succeeded

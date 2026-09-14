@@ -58,10 +58,15 @@ const syncInterval = 5 * time.Minute
 // en commun d'être des **événements** — quelque chose est arrivé une fois. Une
 // demande qui change de statut n'en est pas un : elle en change dix fois, et un
 // fait par changement ferait du fil des faits un journal de saisie.
-const (
-	redmineVersionCreated = "redmine.version.created"
-	redmineIssueClosed    = "redmine.issue.closed"
-)
+//
+// # Un seul des deux porte le préfixe du plugin
+//
+// La version est devenue un fait du **noyau** — `version.created` —, parce que
+// tous les suivis déposent leurs versions dans la même table et qu'une réaction
+// déclarée dessus n'a pas à être réécrite quand le client change d'outil
+// (doc 15 §15.3). La demande n'a pas d'équivalent au noyau : elle reste un fait
+// de Redmine, et son nom le dit.
+const redmineIssueClosed = "redmine.issue.closed"
 
 // cursorOverlap est la marge retirée au curseur à chaque lecture.
 //
@@ -186,7 +191,7 @@ func (s *TrackerSync) Observe(
 
 	facts := make([]event.Event, 0, len(versions))
 	for _, version := range versions {
-		if _, err := s.store.UpsertRedmineVersion(ctx, store.TrackedVersion{
+		versionID, err := s.store.UpsertRedmineVersion(ctx, store.TrackedVersion{
 			ProjectID: projectID,
 			// L'outil et l'identifiant qu'il emploie, plutôt qu'un entier dont le
 			// nom disait déjà de quel produit il venait.
@@ -198,10 +203,11 @@ func (s *TrackerSync) Observe(
 			Status:      version.Status,
 			DueDate:     version.DueDate,
 			UpdatedOn:   version.UpdatedOn,
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, "", err
 		}
-		facts = append(facts, versionCreatedFact(trackerProject, version, startedAt))
+		facts = append(facts, versionCreatedFact(versionID, version, startedAt))
 	}
 
 	// L'adoption vient après le dépôt de **toutes** les versions : c'est ce qui la
@@ -287,31 +293,23 @@ func (s *TrackerSync) Observe(
 //
 // C'est cette forme — un instantané rendu en entier, dédupliqué par clé — que le
 // contrat de sonde ne connaissait pas avant cette migration.
+//
+// # La clé porte la version locale, et c'est ce qui a changé
+//
+// Elle portait le projet du suivi et l'identifiant Redmine. Depuis que le fait
+// est du noyau, elle porte la **ligne déposée** : deux suivis branchés sur le
+// même projet ne constatent plus deux fois la même version, et une instance qui
+// changerait d'outil ne reconstaterait pas tout son historique.
 func versionCreatedFact(
-	trackerProject string, version provider.Version, fallback time.Time,
+	versionID int64, version provider.Version, fallback time.Time,
 ) event.Event {
-	payload := map[string]string{
-		"version_id": version.ID,
-		"name":       version.Name,
-		"status":     version.Status,
-	}
-	// Une échéance absente reste absente. La rendre sous forme de chaîne vide
-	// ferait qu'un appariement `due_date=` la reconnaîtrait, alors que l'absence
-	// d'échéance n'est pas une échéance.
-	if version.DueDate != nil {
-		payload["due_date"] = version.DueDate.Format(time.DateOnly)
-	}
-
-	return event.Event{
-		Type:    redmineVersionCreated,
-		Subject: version.Name,
-		Payload: payload,
+	return event.VersionCreatedAt(
 		// La date de mise à jour dans le suivi, faute de mieux : Redmine ne rend
 		// pas la date de création d'une version. Elle vaut celle du fait le jour
 		// où il est neuf, et c'est le seul jour où il compte.
-		OccurredAt: orNow(version.UpdatedOn, fallback),
-		DedupKey:   redmineVersionCreated + ":" + trackerProject + ":" + version.ID,
-	}
+		orNow(version.UpdatedOn, fallback),
+		versionID, version.Name, version.Status,
+		trackerTool, version.ID, version.DueDate)
 }
 
 // issueClosedFact constate qu'une demande est close.

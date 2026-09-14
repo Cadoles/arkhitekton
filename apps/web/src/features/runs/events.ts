@@ -15,10 +15,12 @@ import { currentProject, projectPath } from '../../lib/project'
 
 export type ProjectEvent = {
   id: number
-  /** `release.built`, `pipeline.finished`… Préfixé de son plugin quand il n'est
-   *  pas du noyau. */
+  /** `release.created`, `gitea.pull_request.opened`… Préfixé de son plugin quand
+   *  il n'est pas du noyau. */
   type: string
-  /** Vide pour le noyau, l'identifiant du plugin sinon. */
+  /** Qui l'a constaté : l'identifiant du plugin, ou vide quand le noyau l'a
+   *  constaté lui-même. Ce n'est pas tout à fait le préfixe du type —
+   *  `version.created` est du noyau et porte pourtant la sonde qui l'a vu. */
   source?: string
   /** Ce sur quoi porte le fait, dans le vocabulaire de l'écran : un tag, un nom
    *  de run. */
@@ -50,14 +52,19 @@ export function useProjectEvents() {
 /** Ce que chaque type de fait désigne, en français.
  *
  *  Un type absent de la table s'affiche **tel quel** plutôt que de disparaître :
- *  les faits d'un plugin arriveront avec leurs propres libellés, et une table
+ *  les faits d'un plugin arrivent avec leurs propres libellés, et une table
  *  fermée les rendrait muets. */
 export const EVENT_LABEL: Record<string, string> = {
+  'version.created': 'Version déclarée dans le suivi',
   'release.created': 'Release déclarée',
-  'release.built': 'Construction conclue',
-  'release.verified': 'Vérifications conclues',
   'release.released': 'Release validée',
   'release.promoted': 'Promotion aboutie',
+
+  /* Les faits retirés par la réduction (doc 15 §15.3). Plus personne ne les émet,
+   * mais le fil est une **histoire** : les lignes déjà écrites restent, et les
+   * retirer d'ici les ferait s'afficher en brut. */
+  'release.built': 'Construction conclue',
+  'release.verified': 'Vérifications conclues',
   'pipeline.finished': 'Exécution terminée',
 }
 

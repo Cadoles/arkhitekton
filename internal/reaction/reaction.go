@@ -33,7 +33,7 @@ type Reaction struct {
 	ID        int64  `json:"id"`
 	ProjectID int64  `json:"-"`
 	Name      string `json:"name"`
-	// EventType est le fait écouté : `release.verified`, ou
+	// EventType est le fait écouté : `release.created`, ou
 	// `gitea.pull_request.opened` pour un fait de plugin.
 	EventType string `json:"event_type"`
 	Enabled   bool   `json:"enabled"`

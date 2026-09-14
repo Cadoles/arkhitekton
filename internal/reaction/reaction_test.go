@@ -16,7 +16,7 @@ func planDeTest() plan.Plan {
 
 func sujet(match map[string]string) Reaction {
 	return Reaction{
-		Name: "Prévenir l'équipe", EventType: "release.verified",
+		Name: "Prévenir l'équipe", EventType: "release.created",
 		Enabled: true, Match: match, Plan: planDeTest(),
 	}
 }

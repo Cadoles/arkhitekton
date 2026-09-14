@@ -2,11 +2,33 @@
 //
 // # Un fait, jamais un ordre
 //
-// `release.built` dit qu'une construction s'est terminée ; il ne dit pas quoi
-// faire. La distinction n'est pas cosmétique : un fait est **rejouable** — on peut
-// le relire, le réémettre, l'archiver — là qu'un ordre ne l'est pas, et c'est
-// cette propriété qui permettra d'y accrocher des réactions sans que le noyau ait
-// à les connaître (doc 14 §14.2).
+// `release.created` dit qu'une release a été déclarée ; il ne dit pas quoi faire.
+// La distinction n'est pas cosmétique : un fait est **rejouable** — on peut le
+// relire, le réémettre, l'archiver — là qu'un ordre ne l'est pas, et c'est cette
+// propriété qui permettra d'y accrocher des réactions sans que le noyau ait à les
+// connaître (doc 14 §14.2).
+//
+// # Quatre faits, et la règle qui les choisit
+//
+// **Un fait du noyau existe quand quelque chose arrive qu'aucun plan n'a causé**
+// (doc 15 §15.3). Ce qu'un plan provoque lui appartient : il n'a pas à ressortir
+// dans le fil des faits pour y rentrer aussitôt par une réaction.
+//
+// Trois faits ont été retirés sur cette règle — `release.built`,
+// `release.verified`, `pipeline.finished`. Les deux premiers étaient des étapes
+// du plan d'une release, et c'est désormais le **rôle de l'étape** qui fait
+// avancer son état ; le troisième était le générique d'un run, et `when: failure`
+// sur une étape couvre ce qu'on lui demandait.
+//
+// Restent quatre points d'entrée : une version déclarée dans le suivi, une
+// release déclarée, une promotion aboutie, une recette validée. Les deux
+// dernières auraient pu tomber sous la même règle ; elles n'en relèvent pas,
+// parce qu'elles sont des **décisions humaines** prises hors de toute
+// automatisation — et les deux moments où une équipe veut être prévenue.
+//
+// Le type `Outcome` est parti avec eux : aucun des quatre ne se termine d'une
+// façon ou d'une autre. Un point d'entrée **arrive**, il ne conclut pas — ce qui
+// conclut, ce sont les étapes d'un plan, et leur issue se lit dans l'exécution.
 //
 // # Ce paquet n'émet rien
 //
@@ -20,15 +42,15 @@
 //
 // # Pourquoi la déduplication est le cœur du paquet
 //
-// L'observateur **redélivre** les runs terminés : resynchronisation de l'informer,
-// redémarrage du worker. Le code s'en garde déjà explicitement, et le commentaire
-// d'`advanceRelease` raconte le jour où cinq paires de tests sont parties pour une
-// seule construction.
+// L'observateur **redélivre** les runs terminés : resynchronisation de
+// l'informer, redémarrage du worker. Les sondes font pire encore — celle du suivi
+// relit l'intégralité des versions à chaque passe, parce que l'API de Redmine ne
+// les filtre pas.
 //
-// Un fait sans clé stable serait donc réémis à chaque redélivrance. Aujourd'hui
-// personne ne les écoute et cela ne coûterait rien ; le jour où une réaction
-// enverra une notification, cela en enverrait une par redémarrage du worker. La
-// règle doit être posée maintenant, pendant qu'elle est gratuite à vérifier.
+// Un fait sans clé stable serait donc réémis à chaque tour. Aujourd'hui personne
+// ne les écoute et cela ne coûterait rien ; le jour où une réaction enverra une
+// notification, cela en enverrait une par redémarrage du worker. La règle doit
+// être posée maintenant, pendant qu'elle est gratuite à vérifier.
 package event
 
 import (
@@ -40,20 +62,22 @@ import (
 
 // Type nomme un fait.
 //
-// Les types du noyau sont nus — `release.built` — là où ceux d'un plugin seront
+// Les types du noyau sont nus — `release.created` — là où ceux d'un plugin seront
 // préfixés par son identifiant : `gitea.pull_request.opened`. Deux plugins de
 // forge coexisteront, et une réaction doit pouvoir dire lequel elle écoute.
 type Type string
 
 const (
+	// VersionCreated : une version apparaît dans le suivi du projet.
+	//
+	// Du noyau bien qu'observé par un plugin, et c'est délibéré : tous les suivis
+	// déposent leurs versions dans la même table, et une réaction déclarée sur
+	// « une version existe » n'a pas à être réécrite quand le client change de
+	// Redmine pour autre chose. Le plugin qui l'a constaté reste nommé par
+	// [Event.Source].
+	VersionCreated Type = "version.created"
 	// ReleaseCreated : une release est déclarée. Le premier fait de sa vie.
 	ReleaseCreated Type = "release.created"
-	// ReleaseBuilt : la construction d'une release se conclut, quelle qu'en soit
-	// l'issue — `outcome` la porte.
-	ReleaseBuilt Type = "release.built"
-	// ReleaseVerified : toutes les vérifications d'une release ont rendu leur
-	// verdict.
-	ReleaseVerified Type = "release.verified"
 	// ReleaseReleased : une release est validée pour livraison. La seule
 	// transition que rien n'automatise.
 	ReleaseReleased Type = "release.released"
@@ -63,35 +87,21 @@ const (
 	// demander. Ce que le déployeur en fait ensuite est une autre affaire, et
 	// c'est l'écran des environnements qui la raconte (B8).
 	ReleasePromoted Type = "release.promoted"
-	// PipelineFinished : un run se termine, quel qu'il soit.
-	//
-	// Le générique dont les autres sont des commodités. Un projet qui veut
-	// réagir à une famille précise le fait par une condition sur `kind`, plutôt
-	// que par un type de plus.
-	PipelineFinished Type = "pipeline.finished"
-)
-
-// Outcome dit comment un fait s'est terminé, quand la question se pose.
-//
-// Un champ de la charge et non un type d'événement : `release.built.failed`
-// obligerait toute réaction à s'abonner deux fois pour suivre une construction,
-// et le jour où une troisième issue apparaît, trois fois.
-type Outcome string
-
-const (
-	Succeeded Outcome = "succeeded"
-	Failed    Outcome = "failed"
-	Cancelled Outcome = "cancelled"
 )
 
 // Event est un fait constaté.
 type Event struct {
 	Type Type
-	// Source distingue le noyau d'un plugin. Vide pour le noyau.
+	// Source nomme **qui l'a constaté** : le plugin qui l'a observé, ou rien
+	// quand le noyau l'a constaté lui-même.
 	//
-	// Explicite plutôt que déduit du préfixe du type : un plugin retiré d'une
-	// version laisse des faits qu'on doit encore savoir attribuer, et les
-	// reconnaître à leur nom demanderait de connaître les plugins disparus.
+	// Ce n'est donc pas tout à fait la même chose que le préfixe du type, et
+	// `version.created` est l'exception qui le montre : un fait du noyau, observé
+	// par la sonde d'un plugin, qui porte son identifiant sans porter son préfixe.
+	//
+	// Explicite plutôt que déduit du nom : un plugin retiré d'une version laisse
+	// des faits qu'on doit encore savoir attribuer, et les reconnaître à leur type
+	// demanderait de connaître les plugins disparus.
 	Source string
 	// ProjectID rattache le fait à son projet. Nil pour un fait qui n'en vise
 	// aucun — un run lancé sans projet, antérieur à la migration 0035.
@@ -170,10 +180,44 @@ func key(parts ...string) string {
  * chaque appelant, c'est-à-dire à l'endroit où elle se trompe.
  */
 
-// ReleaseCreatedAt rend le fait d'une release déclarée.
+// VersionCreatedAt rend le fait d'une version apparue dans le suivi.
 //
-// Clé sur la release seule : une release n'est créée qu'une fois, et un second
-// appel serait un doublon que la contrainte d'unicité refuse déjà en amont.
+// # La clé porte la version **locale**, et pas celle du suivi
+//
+// C'est ce qui rend le fait indépendant de l'outil qui l'a observé. Une instance
+// qui migrerait de Redmine vers autre chose reconstaterait sinon tout son
+// historique sous des identifiants neufs — et déclencherait une notification par
+// version.
+//
+// Elle vaut aussi comme garde contre la forme de cette sonde : le suivi relit
+// l'intégralité des versions à chaque passe, parce que l'API de Redmine ne les
+// filtre pas. C'est l'unicité de la clé, et elle seule, qui fait qu'une version
+// déjà vue n'est pas reconstatée — le magasin n'a pas à dire si son écriture a
+// inséré ou mis à jour.
+func VersionCreatedAt(
+	at time.Time, versionID int64, name, status, tool, externalID string, dueDate *time.Time,
+) Event {
+	payload := map[string]string{
+		"version_id": id(versionID), "name": name, "status": status,
+		// L'outil et son identifiant : ce qui permet de remonter à la fiche, et de
+		// distinguer deux suivis branchés sur le même projet.
+		"tool": tool, "external_id": externalID,
+	}
+	// Une échéance absente reste absente. La rendre sous forme de chaîne vide
+	// ferait qu'un appariement `due_date=` la reconnaîtrait, alors que l'absence
+	// d'échéance n'est pas une échéance.
+	if dueDate != nil {
+		payload["due_date"] = dueDate.Format(time.DateOnly)
+	}
+
+	return Event{
+		Type: VersionCreated, Subject: name,
+		OccurredAt: at,
+		DedupKey:   key(string(VersionCreated), id(versionID)),
+		Payload:    payload,
+	}
+}
+
 // ReleaseCreatedKey rend la clé du fait d'une release déclarée.
 //
 // Exportée pour que l'ouverture du plan et l'émission du fait composent la
@@ -183,6 +227,10 @@ func ReleaseCreatedKey(releaseID int64) string {
 	return key(string(ReleaseCreated), id(releaseID))
 }
 
+// ReleaseCreatedAt rend le fait d'une release déclarée.
+//
+// Clé sur la release seule : une release n'est créée qu'une fois, et un second
+// appel serait un doublon que la contrainte d'unicité refuse déjà en amont.
 func ReleaseCreatedAt(
 	at time.Time, projectID, releaseID int64, tag, kind, gitRef, version string,
 ) Event {
@@ -193,56 +241,6 @@ func ReleaseCreatedAt(
 		Payload: map[string]string{
 			"release_id": id(releaseID), "tag": tag, "kind": kind,
 			"git_ref": gitRef, "version": version,
-		},
-	}
-}
-
-// ReleaseBuiltKey rend la clé du fait d'une construction conclue.
-//
-// Exportée parce qu'un second appelant en a besoin : le moteur de plans ouvre son
-// exécution sur **ce fait-là**, et deux façons de le nommer produiraient une
-// exécution par redélivrance. La clé du fait et celle de l'exécution qu'il
-// déclenche doivent être la même chaîne, composée au même endroit.
-func ReleaseBuiltKey(releaseID, jobID int64) string {
-	return key(string(ReleaseBuilt), id(releaseID), id(jobID))
-}
-
-// ReleaseBuiltAt rend le fait d'une construction conclue.
-//
-// Clé sur la release **et le job** : une release se reconstruit — c'est le geste
-// qui répare un échec d'infrastructure sans faire porter au numéro de version
-// l'historique des pannes du cluster —, et chaque construction est un fait
-// distinct. Une clé sur la seule release ferait taire toutes les suivantes.
-func ReleaseBuiltAt(
-	at time.Time, projectID, releaseID, jobID int64, tag string, outcome Outcome, commit string,
-) Event {
-	return Event{
-		Type: ReleaseBuilt, ProjectID: &projectID, Subject: tag,
-		OccurredAt: at,
-		DedupKey:   ReleaseBuiltKey(releaseID, jobID),
-		Payload: map[string]string{
-			"release_id": id(releaseID), "tag": tag,
-			"outcome": string(outcome), "job_id": id(jobID), "git_commit": commit,
-		},
-	}
-}
-
-// ReleaseVerifiedAt rend le fait d'une release dont les vérifications ont conclu.
-//
-// Clé sur la release et le job **qui a conclu** — la dernière vérification à
-// rendre son verdict. Une release relancée conclut à nouveau, et la clé change
-// avec le job : sans cela, la seconde conclusion serait silencieuse et une
-// réaction ne verrait jamais qu'une reprise a réussi.
-func ReleaseVerifiedAt(
-	at time.Time, projectID, releaseID, jobID int64, tag string, outcome Outcome, kinds []string,
-) Event {
-	return Event{
-		Type: ReleaseVerified, ProjectID: &projectID, Subject: tag,
-		OccurredAt: at,
-		DedupKey:   key(string(ReleaseVerified), id(releaseID), id(jobID)),
-		Payload: map[string]string{
-			"release_id": id(releaseID), "tag": tag,
-			"outcome": string(outcome), "kinds": strings.Join(kinds, ","),
 		},
 	}
 }
@@ -275,31 +273,6 @@ func ReleasePromotedAt(
 			"release_id": id(releaseID), "tag": tag,
 			"environment": environment, "job_id": id(jobID),
 		},
-	}
-}
-
-// PipelineFinishedAt rend le fait d'un run terminé.
-//
-// Clé sur le **run** et non sur le job : un job en échec est remis en file, et
-// ses tentatives sont autant de runs distincts. Une clé sur le job ferait
-// disparaître toutes les tentatives après la première.
-func PipelineFinishedAt(
-	at time.Time, projectID *int64, runID, jobID int64,
-	runName, kind string, outcome Outcome, releaseID *int64,
-) Event {
-	payload := map[string]string{
-		"run": runName, "run_id": id(runID), "kind": kind,
-		"outcome": string(outcome), "job_id": id(jobID),
-	}
-	if releaseID != nil {
-		payload["release_id"] = id(*releaseID)
-	}
-
-	return Event{
-		Type: PipelineFinished, ProjectID: projectID, Subject: runName,
-		OccurredAt: at,
-		DedupKey:   key(string(PipelineFinished), id(runID)),
-		Payload:    payload,
 	}
 }
 

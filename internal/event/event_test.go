@@ -20,67 +20,61 @@ var instant = time.Date(2026, 9, 2, 14, 30, 0, 0, time.UTC)
  */
 
 // Le même fait, constaté deux fois, porte la même clé.
+//
+// La sonde du suivi rend un **instantané** : elle relit toutes les versions à
+// chaque passe, parce que l'API de Redmine ne les filtre pas. C'est donc le cas
+// nominal, et non un incident de redélivrance.
 func TestLeMemeFaitPorteLaMemeCle(t *testing.T) {
-	premier := ReleaseBuiltAt(instant, 7, 42, 1381, "1.8.0-rc1", Succeeded, "abc123")
-	// Une redélivrance survient plus tard, et rien d'autre ne change.
-	second := ReleaseBuiltAt(instant.Add(time.Hour), 7, 42, 1381, "1.8.0-rc1", Succeeded, "abc123")
+	premier := VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", nil)
+	// La passe suivante relit la même version, plus tard, et son statut a changé.
+	second := VersionCreatedAt(instant.Add(time.Hour), 805, "v3.2.0", "closed", "redmine", "412", nil)
 
 	if premier.DedupKey != second.DedupKey {
-		t.Errorf("clés %q et %q — une redélivrance doit être reconnue",
+		t.Errorf("clés %q et %q — une version déjà vue serait reconstatée",
 			premier.DedupKey, second.DedupKey)
 	}
 }
 
-// Une reconstruction est un **fait distinct**, et sa clé le dit.
+// La clé d'une version porte la ligne **locale**, pas l'identifiant du suivi.
 //
-// C'est le geste qui répare un échec d'infrastructure sans faire porter au numéro
-// de version l'historique des pannes du cluster. Une clé sur la seule release
-// ferait taire toutes les constructions après la première.
-func TestUneReconstructionEstUnFaitDistinct(t *testing.T) {
-	premiere := ReleaseBuiltAt(instant, 7, 42, 1381, "1.8.0-rc1", Failed, "abc123")
-	reprise := ReleaseBuiltAt(instant, 7, 42, 1402, "1.8.0-rc1", Succeeded, "abc123")
+// C'est ce qui rend le fait indépendant de l'outil : deux suivis branchés sur le
+// même projet ne constatent pas deux fois la même version, et une instance qui
+// changerait d'outil ne reconstaterait pas tout son historique.
+func TestLaCleDUneVersionPorteLaLigneLocale(t *testing.T) {
+	redmine := VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", nil)
+	autre := VersionCreatedAt(instant, 805, "v3.2.0", "open", "jira", "MSE-9", nil)
+
+	if redmine.DedupKey != autre.DedupKey {
+		t.Errorf("clés %q et %q — la même version serait constatée deux fois",
+			redmine.DedupKey, autre.DedupKey)
+	}
+	if !strings.Contains(redmine.DedupKey, "805") {
+		t.Errorf("clé %q — elle doit porter la version locale", redmine.DedupKey)
+	}
+}
+
+// Une promotion reprise est un **fait distinct**, et sa clé le dit.
+//
+// Une même release se promeut plusieurs fois vers le même environnement — une
+// reprise après un re-tag manqué. Une clé sur la seule release ferait taire
+// toutes les promotions après la première.
+func TestUneRepriseDePromotionEstUnFaitDistinct(t *testing.T) {
+	premiere := ReleasePromotedAt(instant, 7, 42, 1400, "1.8.0", "preprod")
+	reprise := ReleasePromotedAt(instant, 7, 42, 1402, "1.8.0", "preprod")
 
 	if premiere.DedupKey == reprise.DedupKey {
-		t.Errorf("clé partagée %q — la seconde construction serait muette", premiere.DedupKey)
-	}
-}
-
-// Une reprise de vérification conclut à nouveau, et le fait doit repartir.
-//
-// La clé porte le job **qui a conclu** — la dernière vérification à rendre son
-// verdict. Sans cela, un essai réussi après un échec ne produirait rien, et une
-// réaction ne verrait jamais qu'une release s'est relevée.
-func TestUneRepriseDeVerificationProduitUnSecondFait(t *testing.T) {
-	echec := ReleaseVerifiedAt(instant, 7, 42, 900, "1.8.0-rc1", Failed, []string{"unit"})
-	reprise := ReleaseVerifiedAt(instant, 7, 42, 950, "1.8.0-rc1", Succeeded, []string{"unit"})
-
-	if echec.DedupKey == reprise.DedupKey {
-		t.Errorf("clé partagée %q — la reprise serait muette", echec.DedupKey)
-	}
-}
-
-// Les tentatives d'un job sont autant de runs, donc autant de faits.
-//
-// Un job en échec est remis en file : une clé portant le job ferait disparaître
-// toutes les tentatives après la première, alors que chacune est un run distinct
-// avec son propre journal.
-func TestLesTentativesDUnJobSontDesFaitsDistincts(t *testing.T) {
-	premiere := PipelineFinishedAt(instant, projet(7), 501, 1381, "mse-unit-1", "unit-tests", Failed, nil)
-	seconde := PipelineFinishedAt(instant, projet(7), 502, 1381, "mse-unit-2", "unit-tests", Succeeded, nil)
-
-	if premiere.DedupKey == seconde.DedupKey {
-		t.Errorf("clé partagée %q — la seconde tentative serait muette", premiere.DedupKey)
+		t.Errorf("clé partagée %q — la reprise serait muette", premiere.DedupKey)
 	}
 }
 
 // Deux faits de nature différente ne se confondent jamais, même sur le même
 // objet : la clé porte le type.
 func TestDeuxNaturesNeSeConfondentPas(t *testing.T) {
-	built := ReleaseBuiltAt(instant, 7, 42, 1381, "1.8.0-rc1", Succeeded, "abc")
-	verified := ReleaseVerifiedAt(instant, 7, 42, 1381, "1.8.0-rc1", Succeeded, nil)
+	created := ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0")
+	released := ReleaseReleasedAt(instant, 7, 42, "1.8.0-rc1", "vcarroy")
 
-	if built.DedupKey == verified.DedupKey {
-		t.Errorf("clé partagée %q entre deux natures", built.DedupKey)
+	if created.DedupKey == released.DedupKey {
+		t.Errorf("clé partagée %q entre deux natures", created.DedupKey)
 	}
 }
 
@@ -93,7 +87,7 @@ func TestDeuxNaturesNeSeConfondentPas(t *testing.T) {
 // Le contrôle qui compte : sans lui, l'insertion réussirait et le défaut ne se
 // verrait qu'une fois une réaction branchée, très loin d'ici.
 func TestUnFaitSansCleEstRefuse(t *testing.T) {
-	fait := ReleaseBuiltAt(instant, 7, 42, 1381, "1.8.0-rc1", Succeeded, "abc")
+	fait := ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0")
 	fait.DedupKey = ""
 
 	err := fait.Validate()
@@ -121,15 +115,7 @@ func TestUnFaitSansInstantEstRefuse(t *testing.T) {
 // Une garde contre l'oubli : ajouter un constructeur sans lui donner de clé
 // passerait sinon inaperçu jusqu'à la première émission réelle.
 func TestTousLesConstructeursProduisentDesFaitsValides(t *testing.T) {
-	release := int64(42)
-	faits := []Event{
-		ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0"),
-		ReleaseBuiltAt(instant, 7, 42, 1381, "1.8.0-rc1", Succeeded, "abc"),
-		ReleaseVerifiedAt(instant, 7, 42, 1381, "1.8.0-rc1", Succeeded, []string{"unit"}),
-		ReleaseReleasedAt(instant, 7, 42, "1.8.0", "vcarroy"),
-		ReleasePromotedAt(instant, 7, 42, 1400, "1.8.0", "preprod"),
-		PipelineFinishedAt(instant, projet(7), 501, 1381, "mse-unit-1", "unit-tests", Succeeded, &release),
-	}
+	faits := tousLesFaits()
 
 	for _, fait := range faits {
 		if err := fait.Validate(); err != nil {
@@ -138,8 +124,12 @@ func TestTousLesConstructeursProduisentDesFaitsValides(t *testing.T) {
 		if fait.Subject == "" {
 			t.Errorf("fait %q sans sujet — l'écran n'aurait rien à afficher", fait.Type)
 		}
+		// Aucun constructeur ne renseigne la source : c'est la boucle des sondes
+		// qui nomme le plugin qui a constaté, et le faire ici aussi donnerait deux
+		// endroits où elle peut diverger.
 		if fait.Source != "" {
-			t.Errorf("fait %q: source %q, attendue vide pour le noyau", fait.Type, fait.Source)
+			t.Errorf("fait %q: source %q, attendue vide — c'est la sonde qui la pose",
+				fait.Type, fait.Source)
 		}
 		if fait.Depth != 0 {
 			t.Errorf("fait %q: profondeur %d, attendue nulle — rien ne réagit encore",
@@ -148,17 +138,54 @@ func TestTousLesConstructeursProduisentDesFaitsValides(t *testing.T) {
 	}
 }
 
-// Un run sans release ne s'invente pas de rattachement : la charge n'en porte
-// simplement pas, et une valeur nulle textuelle désignerait la release 0.
-func TestUnRunSansReleaseNInventePasDeRattachement(t *testing.T) {
-	fait := PipelineFinishedAt(instant, nil, 501, 1381, "mse-unit-1", "unit-tests", Succeeded, nil)
-
-	if _, present := fait.Payload["release_id"]; present {
-		t.Errorf("rattachement inventé: %v", fait.Payload)
+/*
+ * La réduction de doc 15 §15.3.
+ *
+ * Un fait du noyau existe quand **quelque chose arrive qu'aucun plan n'a causé**.
+ * Trois faits sont tombés sur cette règle : `release.built`, `release.verified`,
+ * `pipeline.finished` — des étapes internes, qui ressortaient dans le fil pour y
+ * rentrer aussitôt.
+ *
+ * La règle n'est pas vérifiable par une machine ; le **compte** l'est. Ce test ne
+ * dit pas qu'un cinquième fait serait faux, il dit qu'il ne doit pas arriver sans
+ * qu'on l'ait décidé.
+ */
+func TestLeNoyauNeCompteQueQuatreFaits(t *testing.T) {
+	attendus := map[Type]bool{
+		VersionCreated: true, ReleaseCreated: true,
+		ReleasePromoted: true, ReleaseReleased: true,
 	}
-	if fait.ProjectID != nil {
-		t.Error("projet inventé sur un run qui n'en vise aucun")
+
+	for _, fait := range tousLesFaits() {
+		if !attendus[fait.Type] {
+			t.Errorf("fait %q hors des quatre du noyau — un plan le cause-t-il ?", fait.Type)
+		}
+		delete(attendus, fait.Type)
+	}
+	for manquant := range attendus {
+		t.Errorf("le fait %q n'a plus de constructeur", manquant)
 	}
 }
 
-func projet(id int64) *int64 { return &id }
+// Une version sans échéance n'en porte pas une vide.
+//
+// Un appariement `due_date=` reconnaîtrait la chaîne vide, alors que l'absence
+// d'échéance n'est pas une échéance.
+func TestUneVersionSansEcheanceNEnPortePasUneVide(t *testing.T) {
+	fait := VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", nil)
+
+	if _, present := fait.Payload["due_date"]; present {
+		t.Errorf("échéance inventée: %v", fait.Payload)
+	}
+}
+
+// tousLesFaits rend un exemplaire de chaque constructeur du noyau.
+func tousLesFaits() []Event {
+	echeance := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	return []Event{
+		VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", &echeance),
+		ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0"),
+		ReleaseReleasedAt(instant, 7, 42, "1.8.0", "vcarroy"),
+		ReleasePromotedAt(instant, 7, 42, 1400, "1.8.0", "preprod"),
+	}
+}

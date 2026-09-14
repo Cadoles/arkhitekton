@@ -139,7 +139,7 @@ func TestLiveLesFaitsDuSuiviSontValides(t *testing.T) {
 	t.Logf("projet %q: %d versions, %d demandes lues", project,
 		len(magasin.versions), len(magasin.issues))
 	t.Logf("faits d'un amorçage: %d au total — %d versions, %d clôtures",
-		len(facts), parType[redmineVersionCreated], parType[redmineIssueClosed])
+		len(facts), parType[string(event.VersionCreated)], parType[redmineIssueClosed])
 }
 
 // Une seconde passe ne reconstate pas ce que la première a vu.

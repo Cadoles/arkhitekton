@@ -244,11 +244,6 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 	// silence sur des rapports pas encore lus.
 	s.checkResultsContract(ctx, id, run)
 
-	// Le fait générique, émis en dernier : il annonce un run **terminé et
-	// dépouillé**, et l'émettre avant les ingestions ferait réagir une future
-	// réaction sur des résultats pas encore lus.
-	s.emitPipelineFinished(ctx, id, run, release)
-
 	// La conclusion du job vient **après** l'enregistrement du run, et l'ordre
 	// porte une décision.
 	//
@@ -277,9 +272,10 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 // un défaut de publication, alors que la bonne réaction est de corriger le
 // pipeline — ou sa déclaration.
 //
-// Son affichage viendra avec les faits : `pipeline.finished` portera ce constat,
-// et l'écran d'un run pourra le dire au lieu de rester muet (doc 14). D'ici là, il
-// vit dans le journal, où il désigne au moins la cause.
+// **Il vit dans le journal, et nulle part ailleurs.** Il devait ressortir par
+// `pipeline.finished` ; ce fait est parti avec la réduction de doc 15 §15.3, et
+// rien ne l'a remplacé. L'écart reste donc entier : l'écran d'un run ne dit
+// toujours pas pourquoi il est vide, et c'est au journal qu'il faut aller.
 func (s *runSink) checkResultsContract(ctx context.Context, runID int64, run tekton.Run) {
 	if s.catalog == nil || run.JobID == 0 || !run.Status.Terminal() {
 		return

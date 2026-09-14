@@ -24,7 +24,7 @@ function armer(runs: unknown[], detailsVisible = true) {
 const executionEchouee = {
   id: 3,
   trigger: 'reaction:12',
-  event_key: 'release.verified:42:900',
+  event_key: 'release.created:42',
   state: 'failed',
   created_at: '2026-09-03T11:00:00Z',
   context: { tag: '1.8.0-rc1', outcome: 'failed' },

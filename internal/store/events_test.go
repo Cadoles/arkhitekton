@@ -20,9 +20,9 @@ import (
 
 func faitDeTest(cle string) event.Event {
 	return event.Event{
-		Type: event.ReleaseBuilt, ProjectID: ptr(testProjectID),
+		Type: event.ReleaseCreated, ProjectID: ptr(testProjectID),
 		Subject:    "1.8.0-rc1",
-		Payload:    map[string]string{"tag": "1.8.0-rc1", "outcome": "succeeded"},
+		Payload:    map[string]string{"tag": "1.8.0-rc1", "kind": "pre"},
 		OccurredAt: time.Date(2026, 9, 2, 14, 0, 0, 0, time.UTC),
 		DedupKey:   cle,
 	}
@@ -35,7 +35,7 @@ func TestUneRedelivranceNecritRien(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	recorded, err := db.RecordEvent(ctx, faitDeTest("release.built:42:1381"))
+	recorded, err := db.RecordEvent(ctx, faitDeTest("release.created:42"))
 	if err != nil {
 		t.Fatalf("première émission: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestUneRedelivranceNecritRien(t *testing.T) {
 	}
 
 	// La redélivrance. Le fait est le même ; seule l'heure de lecture a changé.
-	repete := faitDeTest("release.built:42:1381")
+	repete := faitDeTest("release.created:42")
 	repete.OccurredAt = repete.OccurredAt.Add(time.Hour)
 	recorded, err = db.RecordEvent(ctx, repete)
 	if err != nil {
@@ -78,7 +78,7 @@ func TestDeuxFaitsDistinctsCoexistent(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	for _, cle := range []string{"release.built:42:1381", "release.built:42:1402"} {
+	for _, cle := range []string{"release.created:42", "release.created:43"} {
 		if _, err := db.RecordEvent(ctx, faitDeTest(cle)); err != nil {
 			t.Fatalf("émission %q: %v", cle, err)
 		}
@@ -89,7 +89,7 @@ func TestDeuxFaitsDistinctsCoexistent(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if len(events) != 2 {
-		t.Errorf("%d faits, attendu 2 — une reconstruction est un fait distinct", len(events))
+		t.Errorf("%d faits, attendu 2 — deux releases sont deux faits", len(events))
 	}
 }
 
@@ -147,7 +147,7 @@ func TestLaChargeTraverseEtLeFilResteAuProjet(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	if _, err := db.RecordEvent(ctx, faitDeTest("release.built:42:1381")); err != nil {
+	if _, err := db.RecordEvent(ctx, faitDeTest("release.created:42")); err != nil {
 		t.Fatalf("émission: %v", err)
 	}
 
@@ -158,7 +158,7 @@ func TestLaChargeTraverseEtLeFilResteAuProjet(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("%d faits", len(events))
 	}
-	if events[0].Payload["tag"] != "1.8.0-rc1" || events[0].Payload["outcome"] != "succeeded" {
+	if events[0].Payload["tag"] != "1.8.0-rc1" || events[0].Payload["kind"] != "pre" {
 		t.Errorf("charge = %v", events[0].Payload)
 	}
 	if events[0].Source != "" {

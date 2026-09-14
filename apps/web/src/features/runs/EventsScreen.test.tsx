@@ -26,10 +26,36 @@ describe("le fil des faits d'un projet", () => {
     vi.unstubAllGlobals()
   })
 
-  it('affiche un fait du noyau avec son libellé et son issue', async () => {
+  it('affiche un fait du noyau avec son libellé, et la sonde qui l’a vu', async () => {
     armer([
       {
         id: 1,
+        // Du noyau, et pourtant constaté par un plugin : tous les suivis
+        // déposent leurs versions dans la même table, donc le fait ne porte pas
+        // leur préfixe (doc 15 §15.3). La source dit quand même qui l'a vu.
+        type: 'version.created',
+        source: 'redmine',
+        subject: 'v3.2.0',
+        payload: { name: 'v3.2.0', status: 'open', tool: 'redmine' },
+        occurred_at: '2026-09-02T14:00:00Z',
+        depth: 0,
+      },
+    ])
+
+    render(<EventsScreen />)
+
+    expect(await screen.findByText('Version déclarée dans le suivi')).toBeInTheDocument()
+    expect(screen.getByText('v3.2.0')).toBeInTheDocument()
+    expect(screen.getByText('redmine')).toBeInTheDocument()
+  })
+
+  it('garde lisible un fait que plus personne n’émet', async () => {
+    armer([
+      {
+        id: 4,
+        // `release.built` est parti avec la réduction des faits. Les lignes déjà
+        // écrites restent : le fil est une **histoire**, et l'afficher en brut
+        // rendrait illisible tout ce qui précède la réduction.
         type: 'release.built',
         subject: '1.8.0-rc1',
         payload: { outcome: 'succeeded', tag: '1.8.0-rc1' },
@@ -41,7 +67,6 @@ describe("le fil des faits d'un projet", () => {
     render(<EventsScreen />)
 
     expect(await screen.findByText('Construction conclue')).toBeInTheDocument()
-    expect(screen.getByText('1.8.0-rc1')).toBeInTheDocument()
     expect(screen.getByText('réussi')).toBeInTheDocument()
   })
 

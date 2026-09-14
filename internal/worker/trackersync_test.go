@@ -3,9 +3,9 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -51,14 +51,31 @@ type fakeRedmineStore struct {
 	state     store.SyncState
 	adoptions []store.Adoption
 	adopted   int
+	// locales attribue une clé locale par identité, comme le fait l'unicité du
+	// magasin réel. Voir le commentaire d'`UpsertRedmineVersion` ci-dessous.
+	locales map[string]int64
 }
 
+// UpsertRedmineVersion rend une clé locale **par identité**, et c'est ce qui fait
+// de cette fixture un modèle fidèle.
+//
+// Elle rendait l'identifiant de l'outil réinterprété en entier. La version 805 de
+// deux projets recevait donc la même clé locale — impossible en base, où
+// l'unicité porte sur `(project_id, tool, external_id)`. Le fait `version.created`
+// étant désormais dédupliqué sur cette clé, la fixture aurait fait passer pour
+// partagé un fait que le magasin réel distingue.
 func (f *fakeRedmineStore) UpsertRedmineVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
 	f.versions = append(f.versions, version)
-	// La clé locale, que le magasin réel rendrait. L'identifiant de l'outil est
-	// désormais du texte : le réinterpréter en entier ferait dépendre le test
-	// d'un détail que le contrat ne promet plus.
-	id, _ := strconv.ParseInt(version.ExternalID, 10, 64)
+
+	if f.locales == nil {
+		f.locales = map[string]int64{}
+	}
+	identite := fmt.Sprintf("%d/%s/%s", version.ProjectID, version.Tool, version.ExternalID)
+	if id, connue := f.locales[identite]; connue {
+		return id, nil
+	}
+	id := int64(len(f.locales) + 1)
+	f.locales[identite] = id
 	return id, nil
 }
 

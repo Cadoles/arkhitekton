@@ -2,9 +2,11 @@ package worker
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -55,8 +57,8 @@ func TestLeSuiviConstateLesVersionsEtLesDemandesCloses(t *testing.T) {
 		}
 	}
 
-	if parType[redmineVersionCreated] != 1 {
-		t.Errorf("%d faits de version, attendu 1", parType[redmineVersionCreated])
+	if parType[string(event.VersionCreated)] != 1 {
+		t.Errorf("%d faits de version, attendu 1", parType[string(event.VersionCreated)])
 	}
 	if parType[redmineIssueClosed] != 1 {
 		t.Errorf("%d faits de clôture, attendu 1 — la demande ouverte n'en produit pas",
@@ -73,8 +75,12 @@ func TestLeSuiviConstateLesVersionsEtLesDemandesCloses(t *testing.T) {
 func TestLaCleDUnFaitDuSuiviNeBougePasDUnePasseALautre(t *testing.T) {
 	version := provider.Version{ID: "805", Name: "v3.2.0", Status: "open"}
 	client := &fakeRedmine{versions: []provider.Version{version}}
+	// **Le même magasin** pour les deux passes, comme en production : la clé porte
+	// désormais la ligne locale, et deux magasins neufs prouveraient seulement que
+	// deux compteurs partis de zéro donnent le même nombre.
+	db := &fakeRedmineStore{}
 
-	premiere, _, err := passe(t, client, &fakeRedmineStore{})
+	premiere, _, err := passe(t, client, db)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -82,7 +88,7 @@ func TestLaCleDUnFaitDuSuiviNeBougePasDUnePasseALautre(t *testing.T) {
 	// La version change de statut et de date : elle reste la même version.
 	client.versions[0].Status = "closed"
 	client.versions[0].UpdatedOn = instant(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC))
-	seconde, _, err := passe(t, client, &fakeRedmineStore{})
+	seconde, _, err := passe(t, client, db)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -96,11 +102,19 @@ func TestLaCleDUnFaitDuSuiviNeBougePasDUnePasseALautre(t *testing.T) {
 	}
 }
 
-// La clé porte le projet du suivi : deux instances peuvent numéroter pareil.
+// Deux projets ne partagent pas la clé, et ce n'est plus pour la même raison.
 //
-// Sans lui, la version 805 de deux clients différents serait le même fait, et le
-// second ne se déclencherait jamais.
-func TestLaCleDUnFaitDuSuiviPorteSonProjet(t *testing.T) {
+// # Ce que le passage au noyau a déplacé
+//
+// La clé portait le projet du suivi, parce que deux instances Redmine numérotent
+// chacune à partir de 1. Elle porte désormais la **ligne locale**, dont l'unicité
+// est `(project_id, tool, external_id)` — le projet y est donc encore, mais une
+// fois, et du côté du dashboard.
+//
+// Ce que cela gagne : `version.created` est devenu un fait du noyau (doc 15
+// §15.3), et sa clé ne dépend plus de l'outil qui l'a observé. Une instance qui
+// changerait de suivi ne reconstaterait pas tout son historique.
+func TestDeuxProjetsNePartagentPasLaCleDUneVersion(t *testing.T) {
 	client := &fakeRedmine{versions: []provider.Version{{ID: "805", Name: "v3.2.0"}}}
 	sync := newSync(t, client, &fakeRedmineStore{})
 
@@ -115,6 +129,34 @@ func TestLaCleDUnFaitDuSuiviPorteSonProjet(t *testing.T) {
 
 	if un[0].DedupKey == deux[0].DedupKey {
 		t.Errorf("deux projets partagent la clé %q", un[0].DedupKey)
+	}
+	// Et le nom du projet dans le suivi n'y est pour rien : le mettre dans la clé
+	// ferait qu'un projet renommé chez le client reconstaterait ses versions.
+	for _, nom := range []string{"projet-un", "projet-deux"} {
+		if strings.Contains(un[0].DedupKey, nom) || strings.Contains(deux[0].DedupKey, nom) {
+			t.Errorf("clés %q / %q — elles portent le projet du suivi",
+				un[0].DedupKey, deux[0].DedupKey)
+		}
+	}
+}
+
+// La charge nomme l'outil et l'identifiant qu'il emploie.
+//
+// C'est ce que la clé a cessé de porter, et il faut bien que ça vive quelque
+// part : sans eux, un fait du noyau ne permettrait plus de remonter à la fiche
+// dont il parle.
+func TestLaChargeDUneVersionNommeLOutilEtSonIdentifiant(t *testing.T) {
+	client := &fakeRedmine{versions: []provider.Version{{ID: "805", Name: "v3.2.0"}}}
+
+	facts, _, err := passe(t, client, &fakeRedmineStore{})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if len(facts) != 1 {
+		t.Fatalf("%d faits", len(facts))
+	}
+	if facts[0].Payload["tool"] != trackerTool || facts[0].Payload["external_id"] != "805" {
+		t.Errorf("charge = %v", facts[0].Payload)
 	}
 }
 

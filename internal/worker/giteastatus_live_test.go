@@ -149,12 +149,12 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Statut sur construction conclue",
-		EventType: string(event.ReleaseBuilt), Enabled: true,
+		EventType: string(event.ReleaseCreated), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{
 			Gestes: []plan.Geste{{
 				Kind: plan.GesteAction, Ref: "gitea.status",
 				Params: map[string]string{
-					"commit": "{git_commit}",
+					"commit": "{git_ref}",
 					// En dur, et c'est le bon usage : l'issue d'un fait et l'état
 					// d'un statut de forge sont deux vocabulaires distincts. Une
 					// réaction qui veut refléter l'issue s'apparie sur `outcome`.
@@ -182,8 +182,8 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 	// Le fait déclencheur passe par le vrai chemin d'écriture : la provenance des
 	// faits a déjà été éprouvée par la sonde, et la refaire ici lierait ce test à
 	// la disponibilité de Redmine.
-	fait := event.ReleaseBuiltAt(time.Now().UTC(), projectID, 42, 900,
-		tag, event.Succeeded, commit)
+	fait := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 42,
+		tag, "pre", commit, "1.8.0")
 	neuf, err := db.RecordEvent(ctx, fait)
 	if err != nil {
 		t.Fatalf("écriture du fait: %v", err)
@@ -273,12 +273,12 @@ func TestLiveUnPluginEteintNecritPasSurLaForge(t *testing.T) {
 	const contexte = "mse-dashboard/ne-doit-pas-apparaitre"
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Statut sur plugin éteint",
-		EventType: string(event.ReleaseBuilt), Enabled: true,
+		EventType: string(event.ReleaseCreated), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{
 			Gestes: []plan.Geste{{
 				Kind: plan.GesteAction, Ref: "gitea.status",
 				Params: map[string]string{
-					"commit": "{git_commit}", "state": "success", "context": contexte,
+					"commit": "{git_ref}", "state": "success", "context": contexte,
 				},
 			}},
 		}}},
@@ -291,8 +291,8 @@ func TestLiveUnPluginEteintNecritPasSurLaForge(t *testing.T) {
 	dispatcher := NewDispatcher(db,
 		NewEngine(db, gesteRouter{actions: actions}, quietLogger()), quietLogger())
 
-	fait := event.ReleaseBuiltAt(time.Now().UTC(), projectID, 43, 901,
-		"1.8.0-rc2", event.Succeeded, commit)
+	fait := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 43,
+		"1.8.0-rc2", "pre", commit, "1.8.0")
 	if _, err := db.RecordEvent(ctx, fait); err != nil {
 		t.Fatalf("écriture du fait: %v", err)
 	}
@@ -327,15 +327,23 @@ func TestLiveUnPluginEteintNecritPasSurLaForge(t *testing.T) {
 //
 // # Le défaut que la vérification réelle a révélé
 //
-// Le gabarit naturel — refléter l'issue du fait — s'écrit `state: {outcome}`. Il
-// rend `succeeded`, parce que c'est le vocabulaire d'un fait ; la forge, elle, dit
-// `success`. Gitea a **accepté** l'appel et stocké l'état tel quel : un statut hors
-// de son propre vocabulaire, qu'aucune interface ne sait afficher, et pas un
-// message.
+// Le gabarit fautif s'écrivait `state: {outcome}` : refléter l'issue du fait,
+// qui rend `succeeded` parce que c'est le vocabulaire d'un fait, là où la forge
+// dit `success`. Gitea a **accepté** l'appel et stocké l'état tel quel : un
+// statut hors de son propre vocabulaire, qu'aucune interface ne sait afficher, et
+// pas un message.
 //
 // Un destinataire indulgent est le pire des cas — rien n'échoue, et rien ne
 // marche. Le jeu fermé est donc revérifié après interpolation, et le geste échoue
 // en nommant ce qui est admis.
+//
+// # Pourquoi le gabarit du test a changé
+//
+// `outcome` n'existe plus : il vivait sur `release.built`, retiré par la
+// réduction des faits (doc 15 §15.3). Le piège, lui, n'a pas bougé — **tout**
+// champ de charge interpolé dans un paramètre à jeu fermé le tend. Le test le
+// tend donc avec `{kind}`, qui rend `pre` : une valeur parfaitement légitime pour
+// une release, et que Gitea n'a aucune raison d'admettre comme état.
 func TestLiveUnEtatHorsVocabulaireNatteintPasLaForge(t *testing.T) {
 	url, token, repo, commit := forgeLocale(t)
 	db := baseJetable(t)
@@ -364,12 +372,12 @@ func TestLiveUnEtatHorsVocabulaireNatteintPasLaForge(t *testing.T) {
 	const contexte = "mse-dashboard/vocabulaire-invalide"
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Statut reflétant l'issue",
-		EventType: string(event.ReleaseBuilt), Enabled: true,
+		EventType: string(event.ReleaseCreated), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{
 			Gestes: []plan.Geste{{
 				Kind: plan.GesteAction, Ref: "gitea.status",
 				Params: map[string]string{
-					"commit": "{git_commit}", "state": "{outcome}", "context": contexte,
+					"commit": "{git_ref}", "state": "{kind}", "context": contexte,
 				},
 			}},
 		}}},
@@ -382,8 +390,8 @@ func TestLiveUnEtatHorsVocabulaireNatteintPasLaForge(t *testing.T) {
 	dispatcher := NewDispatcher(db,
 		NewEngine(db, gesteRouter{actions: actions}, quietLogger()), quietLogger())
 
-	fait := event.ReleaseBuiltAt(time.Now().UTC(), projectID, 44, 902,
-		"1.8.0-rc3", event.Succeeded, commit)
+	fait := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 44,
+		"1.8.0-rc3", "pre", commit, "1.8.0")
 	if _, err := db.RecordEvent(ctx, fait); err != nil {
 		t.Fatalf("écriture du fait: %v", err)
 	}
@@ -408,7 +416,7 @@ func TestLiveUnEtatHorsVocabulaireNatteintPasLaForge(t *testing.T) {
 	t.Logf("refus consigné: %s", motif)
 	// Le message doit porter les trois éléments du diagnostic : ce qu'on a obtenu,
 	// d'où ça vient, et ce qui est admis.
-	for _, attendu := range []string{"succeeded", "{outcome}", "success"} {
+	for _, attendu := range []string{"pre", "{kind}", "success"} {
 		if !strings.Contains(motif, attendu) {
 			t.Errorf("motif %q — il doit porter %q", motif, attendu)
 		}

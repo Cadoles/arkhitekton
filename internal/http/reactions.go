@@ -323,18 +323,14 @@ func (h *ReactionsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 // alignée.
 func coreEventChoices() []eventChoice {
 	return []eventChoice{
+		{Type: string(event.VersionCreated), Label: "Version déclarée dans le suivi",
+			Fields: []string{"version_id", "name", "status", "tool", "external_id", "due_date"}},
 		{Type: string(event.ReleaseCreated), Label: "Release déclarée",
 			Fields: []string{"release_id", "tag", "kind", "git_ref", "version"}},
-		{Type: string(event.ReleaseBuilt), Label: "Construction conclue",
-			Fields: []string{"release_id", "tag", "outcome", "job_id", "git_commit"}},
-		{Type: string(event.ReleaseVerified), Label: "Vérifications conclues",
-			Fields: []string{"release_id", "tag", "outcome", "kinds"}},
 		{Type: string(event.ReleaseReleased), Label: "Release validée",
 			Fields: []string{"release_id", "tag", "released_by"}},
 		{Type: string(event.ReleasePromoted), Label: "Promotion aboutie",
 			Fields: []string{"release_id", "tag", "environment", "job_id"}},
-		{Type: string(event.PipelineFinished), Label: "Exécution terminée",
-			Fields: []string{"run", "run_id", "kind", "outcome", "job_id", "release_id"}},
 	}
 }
 

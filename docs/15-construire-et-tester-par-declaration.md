@@ -302,3 +302,63 @@ telles, et si elles ne passent pas on révise avant d'aller plus loin.
 | 4 | Un geste dont l'artefact manque échoue-t-il ou est-il sauté ? | **échoue**, en nommant l'artefact : un test sauté en silence se lit comme un test passé (§15.4) |
 | 5 | La colonne `targets` est-elle retirée tout de suite ? | **non** : conservée non lue le temps d'un déploiement, pour pouvoir revenir en arrière sans migration inverse (§15.8) |
 | 6 | Un projet sans automatisation déclarée construit-il encore ? | **non**, et c'est le sens du chantier — mais la migration §15.8 fait qu'aucun projet existant n'y arrive par surprise |
+
+---
+
+## 15.11 Ce que la réduction a tranché à l'écriture
+
+La §15.3 disait quels faits partent. Trois questions restaient ouvertes, tranchées en
+écrivant la tranche 3.
+
+### `version.created` est du noyau, et pourtant observé par un plugin
+
+La sonde du suivi le produit. Il aurait donc pu rester `redmine.version.created`, préfixé
+comme le veut doc 14. Il ne l'est pas, pour une raison qui tient en une phrase : **tous les
+suivis déposent leurs versions dans la même table**, et une réaction déclarée sur « une
+version existe » n'a pas à être réécrite le jour où le client change d'outil.
+
+Deux conséquences.
+
+`Event.Source` change de sens. Il disait « du noyau, ou de tel plugin » ; il dit désormais
+**qui l'a constaté**. Un fait du noyau peut porter `redmine`. Ce n'est plus le préfixe du
+type écrit deux fois, et l'écran des faits le montre : `version.created` s'affiche avec sa
+sonde.
+
+La clé de déduplication porte la **ligne locale**, `version.created:<id>`, et non plus le
+projet du suivi et l'identifiant Redmine. C'est ce qui rend le fait indépendant de l'outil :
+une instance qui migrerait ne reconstaterait pas tout son historique sous des identifiants
+neufs — et n'enverrait pas une notification par version. L'outil et son identifiant vivent
+dans la charge, où ils servent à remonter à la fiche.
+
+La demande close, elle, reste `redmine.issue.closed` : elle n'a pas d'équivalent au noyau, et
+rien ne justifie de l'y faire monter.
+
+### Le type `Outcome` part avec les faits qui le portaient
+
+Aucun des quatre faits restants ne se termine d'une façon ou d'une autre. Un point d'entrée
+**arrive** ; ce qui conclut, ce sont les étapes d'un plan, et leur issue se lit dans
+l'exécution.
+
+Cela retire une capacité qu'il vaut mieux nommer : `state: {outcome}` sur un statut de forge
+n'a plus de source. Une réaction qui veut refléter une issue devra la lire là où elle est —
+sur l'exécution —, ce qu'aucune action ne sait faire aujourd'hui. C'est acceptable parce que
+la condition d'étape `when: failure` couvre le besoin **à l'intérieur** d'un plan, qui est
+là où il se pose.
+
+### Le contrat de résultats perd son seul débouché
+
+`checkResultsContract` signale un pipeline qui annonce des résultats et n'en laisse aucun.
+Son affichage devait passer par `pipeline.finished`. Ce fait est parti, et rien ne l'a
+remplacé : le signalement vit dans le journal, et l'écran d'un run ne dit toujours pas
+pourquoi il est vide.
+
+L'écart était déjà ouvert — il n'est pas créé ici, il est **reconduit**. Il se refermera avec
+l'écran d'une release (tranche 6), qui a de toute façon à dire ce que chaque geste a produit.
+
+### Ce qui n'a pas eu besoin d'être fait
+
+Aucune migration. Une réaction déclarée sur un fait retiré reste lisible en base et cesse
+simplement de se déclencher — c'est le comportement que 0047 documentait pour un plugin
+disparu, et l'écran l'affiche **inerte, en le disant**. La base de développement n'en portait
+aucune ; le fil, lui, garde ses lignes, et l'interface garde leurs libellés pour que
+l'histoire d'avant la réduction reste lisible.

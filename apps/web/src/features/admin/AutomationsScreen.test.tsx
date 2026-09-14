@@ -17,9 +17,9 @@ import { AutomationsScreen } from './AutomationsScreen'
 const catalogue = {
   events: [
     {
-      type: 'release.verified',
-      label: 'Vérifications conclues',
-      fields: ['release_id', 'tag', 'outcome'],
+      type: 'release.created',
+      label: 'Release déclarée',
+      fields: ['release_id', 'tag', 'kind'],
     },
     {
       type: 'gitea.pull_request.opened',
@@ -82,7 +82,7 @@ describe("l'éditeur d'automatisations", () => {
 
     // Les deux viennent du catalogue : celui du noyau et celui du plugin, ce
     // dernier annoncé par sa source.
-    expect(await screen.findByRole('option', { name: 'Vérifications conclues' })).toBeInTheDocument()
+    expect(await screen.findByRole('option', { name: 'Release déclarée' })).toBeInTheDocument()
     expect(
       screen.getByRole('option', { name: 'Demande de fusion ouverte (gitea)' }),
     ).toBeInTheDocument()
@@ -113,14 +113,15 @@ describe("l'éditeur d'automatisations", () => {
     await userEvent.selectOptions(ajout, 'action:gitea.status')
 
     // Une saisie libre adossée à des suggestions, et non un sélecteur fermé : le
-    // serveur laisse un gabarit traverser un jeu fermé, parce qu'un état qui
-    // reflète l'issue du fait ne peut pas s'écrire en dur. Un `select` interdirait
-    // `{outcome}` que le moteur accepte.
+    // serveur laisse un gabarit traverser un jeu fermé, parce qu'un état tiré de
+    // la charge du fait ne peut pas s'écrire en dur. Un `select` interdirait
+    // `{kind}` que le moteur accepte — quitte à le refuser après interpolation,
+    // ce qui est le travail du serveur et non celui du formulaire.
     // Un `input` adossé à une `datalist` porte le rôle `combobox` : c'est
     // précisément la saisie libre suggérée qu'on veut ici.
     const champ = screen.getByRole('combobox', { name: /État/ })
-    await userEvent.type(champ, '{{outcome}')
-    expect(champ).toHaveValue('{outcome}')
+    await userEvent.type(champ, '{{kind}')
+    expect(champ).toHaveValue('{kind}')
     expect(champ).toHaveAttribute('list')
   })
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/reaction"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
@@ -189,7 +190,7 @@ func TestLiveLaBoucleCompleteSurUneVraieBase(t *testing.T) {
 	// fois si l'amorçage avait jeté ses faits.
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Prévenir sur nouvelle version",
-		EventType: redmineVersionCreated, Enabled: true,
+		EventType: string(event.VersionCreated), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{
 			Gestes: []plan.Geste{{Kind: plan.GesteAction, Ref: "webhook"}},
 		}}},
@@ -259,7 +260,7 @@ func TestLiveLaBoucleCompleteSurUneVraieBase(t *testing.T) {
 	 * partir. On efface un fait déjà constaté, ce qui est exactement l'état où
 	 * l'on serait si cette version venait d'être déclarée.
 	 */
-	oublier(t, db, redmineVersionCreated)
+	oublier(t, db, string(event.VersionCreated))
 	runner.sweep(ctx, sonde)
 
 	if len(compteur.partis) == 0 {
@@ -408,7 +409,7 @@ func TestLiveUnAppelSortantPartVraiment(t *testing.T) {
 
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Appel sortant réel",
-		EventType: redmineVersionCreated, Enabled: true,
+		EventType: string(event.VersionCreated), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{
 			Gestes: []plan.Geste{{
 				Kind: plan.GesteAction, Ref: "webhook",
@@ -443,7 +444,7 @@ func TestLiveUnAppelSortantPartVraiment(t *testing.T) {
 	}
 
 	// Un fait redevient neuf, et la réaction part pour de bon.
-	oublier(t, db, redmineVersionCreated)
+	oublier(t, db, string(event.VersionCreated))
 	runner.sweep(ctx, sonde)
 
 	appels, methode, typeMIM, auth, corps := recu.vu()
@@ -517,7 +518,7 @@ func TestLiveLesGardeFousDuTransportRefusent(t *testing.T) {
 
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Appel vers la boucle locale",
-		EventType: redmineVersionCreated, Enabled: true,
+		EventType: string(event.VersionCreated), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{
 			Gestes: []plan.Geste{{
 				Kind: plan.GesteAction, Ref: "webhook",
@@ -563,7 +564,7 @@ func TestLiveLesGardeFousDuTransportRefusent(t *testing.T) {
 
 	for index, phase := range phases {
 		t.Run(phase.nom, func(t *testing.T) {
-			oublier(t, db, redmineVersionCreated)
+			oublier(t, db, string(event.VersionCreated))
 			amorcer(phase.options).sweep(ctx, sonde)
 
 			if appels, _, _, _, _ := recu.vu(); appels != 0 {

@@ -226,21 +226,21 @@ func Registry() []Descriptor {
 		{
 			ID: "redmine", Kind: KindTracker, Label: "Redmine",
 			Summary: "Versions, demandes et avancement lus dans une instance Redmine.",
-			// Deux faits, et pas davantage. Ils ont en commun d'être des
-			// **événements** — quelque chose est arrivé une fois. Une demande qui
-			// change de statut n'en est pas un : elle en change dix fois, et un
-			// fait par changement ferait du fil des faits un journal de saisie.
+			// Un seul fait propre au plugin, et c'est un retrait assumé.
+			//
+			// La sonde en constate bien deux, mais la version est passée au
+			// **noyau** — `version.created`, sans préfixe — parce que tous les
+			// suivis déposent leurs versions dans la même table, et qu'une réaction
+			// déclarée dessus n'a pas à être réécrite le jour où le client change
+			// d'outil (doc 15 §15.3). La déclarer ici en plus la ferait apparaître
+			// deux fois dans l'éditeur, dont une qui ne se déclencherait jamais.
+			//
+			// La demande close reste ici : elle n'a pas d'équivalent au noyau. Et
+			// c'est un **événement** — quelque chose est arrivé une fois. Une
+			// demande qui change de statut n'en est pas un : elle en change dix
+			// fois, et un fait par changement ferait du fil des faits un journal de
+			// saisie.
 			Events: []EventSpec{
-				{
-					Suffix: "version.created",
-					Label:  "Version déclarée dans le suivi",
-					Payload: []Field{
-						{Name: "version_id", Label: "Identifiant"},
-						{Name: "name", Label: "Nom"},
-						{Name: "status", Label: "Statut"},
-						{Name: "due_date", Label: "Échéance"},
-					},
-				},
 				{
 					Suffix: "issue.closed",
 					Label:  "Demande close",
