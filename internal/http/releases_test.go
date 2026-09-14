@@ -1587,3 +1587,46 @@ func (f *fakeReleaseStore) FinishPlanRun(
 	f.planRuns[runID] = run
 	return true, nil
 }
+
+// Le plan d'une release vise l'identifiant que l'insertion a rendu.
+//
+// # Le défaut que ce test aurait attrapé
+//
+// `record` est composé **avant** d'être écrit : son `ID` vaut zéro jusqu'à ce
+// que l'insertion le rende. Passer `record` tel quel à l'ouverture du plan faisait
+// désigner une release inexistante — l'exécution échouait sur la clé étrangère,
+// avec une clé de fait `release.created:0`, et la release restait en brouillon
+// sans qu'aucune construction ne parte.
+//
+// Rien ne l'attrapait : les tests existants vérifiaient ce qui arrive **dans la
+// file**, où l'identifiant de release ne se lit pas.
+func TestLePlanViseLidentifiantRenduParLinsertion(t *testing.T) {
+	fake := newFakeStore()
+	forge := &fakeForge{commit: "abc123def456"}
+	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
+
+	recorder := httptest.NewRecorder()
+	handler.Create(recorder, asRole(
+		httptest.NewRequest(http.MethodPost, "/releases",
+			strings.NewReader(`{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)),
+		auth.RoleReleaser))
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	if len(fake.planRuns) != 1 {
+		t.Fatalf("%d exécution(s) de plan, attendu 1", len(fake.planRuns))
+	}
+	for _, run := range fake.planRuns {
+		if run.ReleaseID == nil || *run.ReleaseID == 0 {
+			t.Errorf("release visée = %v — zéro désigne une release inexistante",
+				run.ReleaseID)
+		}
+		// La clé du fait porte le même identifiant : deux orthographes ouvriraient
+		// deux exécutions pour une seule release.
+		if strings.HasSuffix(run.EventKey, ":0") {
+			t.Errorf("clé du fait %q — elle porte un identifiant nul", run.EventKey)
+		}
+	}
+}

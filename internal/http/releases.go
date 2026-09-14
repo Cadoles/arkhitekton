@@ -853,6 +853,19 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// L'identifiant rendu par l'insertion est reporté sur l'enregistrement.
+	//
+	// Sans cela `record.ID` reste à zéro — il a été composé **avant** d'être
+	// écrit — et tout ce qui suit désigne la release par un identifiant qui
+	// n'existe pas. Constaté en production : l'ouverture du plan échouait sur
+	// `plan_runs_release_id_fkey`, avec une clé de fait `release.created:0`, et la
+	// release restait en brouillon sans qu'aucune construction ne parte.
+	//
+	// L'ancienne mise en file prenait `releaseID` en paramètre explicite, ce qui
+	// masquait le piège. Le corriger ici plutôt qu'à chaque appelant : il n'y a
+	// qu'un endroit où l'identifiant devient connu.
+	record.ID = releaseID
+
 	h.audit(r, store.AuditReleaseCreate, record.Tag, map[string]any{
 		"kind": record.Kind, "image_version": record.ImageVersion, "source": request.SourceTag,
 	})
