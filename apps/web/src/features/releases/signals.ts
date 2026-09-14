@@ -1,12 +1,20 @@
 import type { ReleaseJob } from './api'
 
 /*
- * Ce qui relie un signal du score aux pipelines qui le mesurent.
+ * Ce qui reste ici après le passage au score par geste.
  *
- * La correspondance n'est pas de un à un, et c'est le point : `php-static-tests`
- * exécute PHPStan, PHP-CS-Fixer **et** les tests unitaires. Un run de cette
- * famille fait donc bouger deux signaux, et n'en montrer qu'un laisserait
- * l'autre au repos pendant qu'il est justement en train d'être mesuré.
+ * Trois tables vivaient dans ce fichier — signal → pipeline, pipeline → signaux,
+ * signal → famille de rapports. Elles disaient ce que le serveur sait désormais :
+ * un composant du score porte le geste qui l'a produit, donc sa famille de
+ * pipeline et sa famille de rapports (doc 15 §15.6).
+ *
+ * Elles devenaient fausses dès qu'un projet déclarait deux campagnes de même
+ * nature : elles ne relancent pas le même pipeline, et une table indexée par
+ * signal ne pouvait pas le dire.
+ *
+ * Ne subsistent que les libellés de pipeline — employés par le bouton de
+ * relance — et la question « une construction est-elle en cours ? », qui ne porte
+ * sur aucun signal.
  */
 
 export const KIND_LABEL: Record<string, string> = {
@@ -17,73 +25,17 @@ export const KIND_LABEL: Record<string, string> = {
   'e2e-tests': 'Tests E2E',
 }
 
-/**
- * Les signaux qu'un pipeline mesure.
+/** Le job en file ou en cours qui remesure ce composant, s'il y en a un.
  *
- * Un à un depuis que l'analyse statique et les tests unitaires ont chacun leur
- * pipeline. Auparavant `static-tests` en mesurait deux : relancer pour un
- * cs-fixer non conforme rejouait les tests unitaires, et les deux tuiles
- * s'animaient pour une seule chose à remesurer.
- */
-const KIND_SIGNALS: Record<string, string[]> = {
-  'static-tests': ['code'],
-  'unit-tests': ['unit'],
-  'security-audit': ['security'],
-  'integration-tests': ['integration'],
-  'e2e-tests': ['e2e'],
-}
-
-/** Le pipeline à relancer pour remesurer un signal. */
-const SIGNAL_KIND: Record<string, string> = {
-  code: 'static-tests',
-  unit: 'unit-tests',
-  security: 'security-audit',
-  integration: 'integration-tests',
-}
-
-/**
- * La famille à relancer pour remesurer ce signal, s'il en existe une.
- *
- * `e2e` et `performance` n'en ont pas : le premier vise un environnement déployé
- * et non une release, le second se mesure par une campagne de charge que le
- * dashboard ne déclenche pas. Proposer un bouton qui ne mène nulle part vaut
- * moins que ne rien proposer.
- */
-export function kindForSignal(signal: string): string | undefined {
-  return SIGNAL_KIND[signal]
-}
-
-/** Le job en file ou en cours qui mesure ce signal, s'il y en a un. */
-export function runningJobFor(signal: string, jobs: ReleaseJob[]): ReleaseJob | undefined {
+ *  Sur la **famille de pipeline** du geste, rendue par le serveur, et non sur une
+ *  table signal → pipeline écrite ici. Celle-ci existait en trois exemplaires et
+ *  devenait fausse dès qu'un projet déclarait deux campagnes de même nature :
+ *  elles ne relancent pas le même pipeline (doc 15 §15.6). */
+export function runningJobFor(ref: string | undefined, jobs: ReleaseJob[]): ReleaseJob | undefined {
+  if (!ref) return undefined
   return jobs.find(
-    (job) =>
-      (job.state === 'queued' || job.state === 'running') &&
-      (KIND_SIGNALS[job.kind] ?? []).includes(signal),
+    (job) => job.kind === ref && (job.state === 'queued' || job.state === 'running'),
   )
-}
-
-/** Vrai si un pipeline mesurant ce signal est en file ou en cours. */
-export function signalIsRunning(signal: string, jobs: ReleaseJob[]): boolean {
-  return runningJobFor(signal, jobs) !== undefined
-}
-
-/**
- * La famille de rapports d'un signal.
- *
- * Distincte du signal : `code` est mesuré par la famille `static`, et les deux
- * noms coexistent parce que l'un pèse au score quand l'autre range des rapports.
- */
-export function familyForSignal(signal: string): string | undefined {
-  switch (signal) {
-    case 'unit':
-    case 'integration':
-    case 'e2e':
-      return signal
-    case 'code':
-      return 'static'
-    default:
-      return undefined
-  }
 }
 
 /**

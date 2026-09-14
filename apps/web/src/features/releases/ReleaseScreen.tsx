@@ -19,7 +19,7 @@ import {
   useRelease,
   useReleaseRelease,
   usePromote,
-  type Image,
+  type ProducedArtifact,
   type PromotionTarget,
   type ReleaseDetail,
   type ReleaseJob,
@@ -67,11 +67,11 @@ export function ReleaseScreen() {
               celui qui dit s'il faut ouvrir le reste. */}
           <TestsPanel tag={data.tag} jobs={data.jobs ?? []} />
 
-          {/* L'état technique d'abord — quelles images existent, où elles
+          {/* L'état technique d'abord — ce que l'automatisation a produit, où il
               tournent — puis le contenu fonctionnel. On vient sur cet écran pour
               savoir où en est la release ; ce qu'elle apporte se relit ensuite,
               au moment de rédiger ce qui part chez le client. */}
-          <Images release={data} />
+          <Artifacts release={data} />
           <Deployment release={data} />
 
           <ReleaseNotes release={data} />
@@ -193,21 +193,32 @@ const KIND_LABEL: Record<string, string> = {
   patch: 'Correctif',
 }
 
-function Images({ release }: { release: ReleaseDetail }) {
-  const images = release.images ?? []
-  // Le digest de référence est celui de l'image construite, en tête de liste.
-  const reference = images[0]?.digest
+/*
+ * Ce que l'automatisation a produit.
+ *
+ * La section listait des « images » : un seul dépôt, celui que la configuration
+ * nomme, décliné en ses tags. Elle liste maintenant ce que les gestes ont
+ * réellement rendu — trois constructions, trois lignes, nommées par le geste
+ * (doc 15 §15.7). Un projet qui produit un binaire y voit son binaire.
+ */
+function Artifacts({ release }: { release: ReleaseDetail }) {
+  const artifacts = release.artifacts ?? []
 
   return (
-    <CollapsibleSection title="Images" count={images.length}>
-      {release.images_error && <p className="mb-3 text-sm text-zinc-500">{release.images_error}</p>}
+    <CollapsibleSection title="Artefacts" count={artifacts.length}>
+      {release.artifacts_note && (
+        <p className="mb-3 text-sm text-zinc-500">{release.artifacts_note}</p>
+      )}
 
-      {images.length === 0 ? (
-        <EmptyState>Aucune image connue pour cette release.</EmptyState>
+      {artifacts.length === 0 ? (
+        <EmptyState>
+          Aucun artefact relevé. L&apos;automatisation n&apos;a rien produit pour cette
+          release, ou ses constructions n&apos;ont pas encore conclu.
+        </EmptyState>
       ) : (
         <ul className="flex flex-col gap-2">
-          {images.map((image) => (
-            <ImageRow key={image.tag} image={image} reference={reference} />
+          {artifacts.map((artifact, index) => (
+            <ArtifactRow key={`${artifact.geste}/${artifact.name}/${index}`} artifact={artifact} />
           ))}
         </ul>
       )}
@@ -215,29 +226,36 @@ function Images({ release }: { release: ReleaseDetail }) {
   )
 }
 
-function ImageRow({ image, reference }: { image: Image; reference?: string }) {
-  // Un digest différent de celui de l'image construite signale une image
-  // reconstruite entre-temps : ce qui est déployé n'est plus ce qui a été validé.
-  const diverged = Boolean(reference && image.digest && image.digest !== reference)
-
+function ArtifactRow({ artifact }: { artifact: ProducedArtifact }) {
   return (
     <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border border-zinc-200 px-3 py-2 text-sm">
+      {/* Le geste d'abord : c'est lui qui distingue trois constructions partageant
+          la même référence de catalogue, et c'est aussi le nom que les étapes
+          suivantes emploient — `{artifacts.portal.image}`. */}
+      {artifact.geste && (
+        <span className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs text-zinc-600">
+          {artifact.geste}
+        </span>
+      )}
+      <span className="text-xs text-zinc-500">{artifact.name}</span>
+
       {/* La référence complète : c'est ce qu'on copie pour tirer l'image ou
           l'inspecter. Le nom court seul ne désigne rien — deux projets du même
-          registre portent un `portal` — et obligeait à reconstituer le préfixe
-          de tête. */}
-      <span className="font-mono text-zinc-900">
-        {image.reference ?? image.repository}:{image.tag}
-      </span>
-      {image.digest ? (
-        <span className={`font-mono text-xs ${diverged ? 'text-critical-700' : 'text-zinc-500'}`}>{image.digest}</span>
-      ) : (
-        <span className="text-xs text-zinc-500">tag non poussé</span>
+          registre portent un `portal`. */}
+      <span className="font-mono text-zinc-900">{artifact.reference}</span>
+
+      {artifact.digest && (
+        <span
+          className={`font-mono text-xs ${artifact.diverged ? 'text-critical-700' : 'text-zinc-500'}`}
+        >
+          {artifact.digest}
+        </span>
       )}
-      {diverged && (
+
+      {artifact.diverged && (
         <span className="flex items-center gap-1 text-critical-700">
           <Icon name="alert" className="size-3.5" />
-          digest différent de l'image construite
+          un tag promu porte un autre digest : l&apos;image a été reconstruite
         </span>
       )}
     </li>

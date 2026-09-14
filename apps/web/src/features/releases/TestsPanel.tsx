@@ -3,7 +3,7 @@ import { Skeleton } from '../../components/primitives'
 import { HealthGauge } from './HealthGauge'
 import { SignalGrid, Spinner } from './SignalGrid'
 import { buildIsRunning } from './signals'
-import { SIGNAL_LABEL, useTests, type ScoreBreakdown } from './tests'
+import { useTests, type ScoreBreakdown } from './tests'
 import type { ReleaseJob } from './api'
 
 /*
@@ -78,8 +78,8 @@ function ScoreCard({
             // Zéro serait un jugement, et le plus sévère possible sur une release
             // qu'on n'a pas regardée.
             <p className="text-sm text-zinc-500">
-              Aucun signal n&apos;a été mesuré pour cette release : il n&apos;y a pas de score, ce
-              qui n&apos;est pas la même chose qu&apos;un score de zéro.
+              Rien n&apos;a été mesuré pour cette release : il n&apos;y a pas de score, ce qui
+              n&apos;est pas la même chose qu&apos;un score de zéro.
             </p>
           )}
 
@@ -88,10 +88,15 @@ function ScoreCard({
             <p className="flex items-start gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-600">
               <Icon name="alert" className="mt-0.5 size-4 shrink-0 text-warn-700" />
               <span>
-                Score calculé sur {score.signals.length - score.redistributed.length} signal(aux)
+                Score calculé sur {score.signals.length - score.redistributed.length} composant(s)
                 sur {score.signals.length}. Non mesurés :{' '}
-                {score.redistributed.map((signal) => SIGNAL_LABEL[signal] ?? signal).join(', ')}.
-                Leur poids a été redistribué sur le reste.
+                {/* Les libellés viennent des composants eux-mêmes : `redistributed`
+                    porte des **clés** de geste — `geste:1.0` — et les afficher en
+                    brut nommerait une position au lieu d'un pipeline. */}
+                {score.redistributed
+                  .map((key) => score.signals.find((entry) => entry.key === key)?.label ?? key)
+                  .join(', ')}
+                . Leur poids a été redistribué sur le reste.
               </span>
             </p>
           )}

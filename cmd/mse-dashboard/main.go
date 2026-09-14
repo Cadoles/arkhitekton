@@ -244,6 +244,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// Même pondération que le gestionnaire des tests : la pastille de la
 		// liste et l'écran d'une release affichent le même chiffre.
 		WithScoreCatalog(pipelines).
+		WithArtifactReader(db).
 		WithTrackerURL(cfg.Tracker.URL).
 		// Le même normaliseur que le store, et ce n'est pas une précaution : ce
 		// handler compare une saisie à une colonne que le store a écrite.

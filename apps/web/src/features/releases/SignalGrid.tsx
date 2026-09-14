@@ -7,22 +7,56 @@ import { useVerify, type ReleaseJob } from './api'
 import { BenchDetail } from './BenchDetail'
 import { FamilyDetail } from './FamilyDetail'
 import { SecurityDetail } from './SecurityDetail'
-import { familyForSignal, KIND_LABEL, kindForSignal, runningJobFor } from './signals'
-import { SIGNAL_LABEL, type SignalScore } from './tests'
+import { KIND_LABEL, runningJobFor } from './signals'
+import { type SignalScore } from './tests'
 
 /*
- * Les signaux du score, en tuiles — repris de la maquette.
+ * Les composants du score, en tuiles.
  *
- * La maquette en montrait quatre : qualité du code, tests, bench, sécurité. Le
- * modèle porté ici en compte six, les trois familles de tests y étant distinctes.
- * C'est plus fin, et le regrouper pour tenir en quatre tuiles perdrait ce que
- * l'API rend : une release dont les tests unitaires passent et dont les E2E
- * échouent n'est pas dans le même état qu'une release à moitié testée.
+ * # Une case par geste, et plus six cases écrites d'avance
  *
- * La grille passe donc à trois colonnes au lieu de quatre, et la grammaire de la
- * tuile — bordure colorée par le verdict, icône du signal à gauche, icône du
- * verdict à droite, valeur en chiffres — reste celle de la maquette.
+ * La grille rendait six tuiles fixes, une par signal. Un projet qui ne déclare
+ * ni campagne E2E ni tests de charge en voyait donc deux affichant « non
+ * mesuré » — une absence qui se lit comme un manque, alors que personne ne les
+ * avait demandées.
+ *
+ * Elle rend maintenant **ce que le serveur envoie** : un composant par geste de
+ * vérification déclaré. Ajouter un pipeline à l'automatisation fait apparaître sa
+ * case ; le retirer la fait disparaître de la release suivante — mais elle reste
+ * sur les précédentes, dont le plan est figé (doc 15 §15.7).
+ *
+ * # Ce que l'écran ne décide plus
+ *
+ * Le pipeline à relancer et la famille de rapports à ouvrir venaient de trois
+ * tables écrites ici. Elles devenaient fausses dès qu'un projet déclarait deux
+ * campagnes de même nature : elles ne relancent pas le même pipeline. Le serveur
+ * les rend maintenant sur le composant, avec le geste qui les porte.
+ *
+ * La grammaire de la tuile — bordure colorée par le verdict, icône à gauche,
+ * icône du verdict à droite, valeur en chiffres — reste celle de la maquette.
  */
+
+/**
+ * Le détail qu'une famille de rapports sait ouvrir.
+ *
+ * Sur la **famille** et non sur le signal : c'est elle qui range les rapports, et
+ * c'est le serveur qui la rend maintenant sur chaque composant.
+ */
+function detailFor(family: string | undefined): 'reports' | 'security' | 'bench' | 'none' {
+  switch (family) {
+    case 'unit':
+    case 'integration':
+    case 'e2e':
+    case 'static':
+      return 'reports'
+    case 'security':
+      return 'security'
+    case 'load':
+      return 'bench'
+    default:
+      return 'none'
+  }
+}
 
 const SIGNAL_ICON: Record<string, IconName> = {
   unit: 'beaker',
@@ -45,7 +79,9 @@ export function SignalGrid({
   return (
     <ul className="grid grid-cols-2 gap-3 lg:grid-cols-3">
       {signals.map((signal) => (
-        <li key={signal.signal}>
+        // La clé est celle du composant — le geste — et non le signal : deux
+        // campagnes E2E le partagent, et React en confondrait les tuiles.
+        <li key={signal.key}>
           <SignalTile tag={tag} signal={signal} jobs={jobs} />
         </li>
       ))}
@@ -66,15 +102,17 @@ function SignalTile({
   const verify = useVerify(tag)
   const [open, setOpen] = useState(false)
 
-  const runningJob = runningJobFor(signal.signal, jobs)
+  const runningJob = runningJobFor(signal.ref, jobs)
   const running = runningJob !== undefined
-  const kind = kindForSignal(signal.signal)
-  // Chaque signal a son détail, et tous s'ouvrent en place : une famille de
+  // Le pipeline à relancer vient du **geste**, et non d'une table indexée par
+  // signal : deux campagnes E2E ne relancent pas le même.
+  const kind = signal.ref
+  // Chaque composant a son détail, et tous s'ouvrent en place : une famille de
   // tests montre ses cas, la sécurité ses constats, la performance ses
-  // campagnes. Aucun ne mène plus à une page — perdre le score et les cinq
-  // autres signaux pour lire une liste coûtait plus que ça ne rapportait.
-  const family = familyForSignal(signal.signal)
-  const hasDetail = family !== undefined || signal.signal === 'security' || signal.signal === 'performance'
+  // campagnes. Aucun ne mène plus à une page — perdre le score et les autres
+  // composants pour lire une liste coûtait plus que ça ne rapportait.
+  const family = signal.family
+  const detail = detailFor(family)
 
   const canReplay =
     session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
@@ -93,7 +131,7 @@ function SignalTile({
       <div className="flex items-center gap-2 text-zinc-500">
         <Icon name={SIGNAL_ICON[signal.signal] ?? 'doc'} className="size-4 shrink-0" />
         <span className="truncate text-sm font-medium">
-          {SIGNAL_LABEL[signal.signal] ?? signal.signal}
+          {signal.label || signal.signal}
         </span>
 
         {running ? (
@@ -147,9 +185,9 @@ function SignalTile({
     </>
   )
 
-  // Un signal sans détail reste une tuile inerte : un bouton qui n'ouvre rien se
-  // clique une fois et déçoit.
-  if (!hasDetail) return <div className={shell}>{body}</div>
+  // Un composant sans détail reste une tuile inerte : un bouton qui n'ouvre rien
+  // se clique une fois et déçoit.
+  if (detail === 'none') return <div className={shell}>{body}</div>
 
   return (
     <>
@@ -160,7 +198,7 @@ function SignalTile({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          aria-label={`Ouvrir le détail : ${SIGNAL_LABEL[signal.signal] ?? signal.signal}`}
+          aria-label={`Ouvrir le détail : ${signal.label || signal.signal}`}
           className="absolute inset-0 z-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-1"
         />
         {/* Le contenu passe au-dessus de la surface cliquable, sans quoi le
@@ -172,20 +210,17 @@ function SignalTile({
 
       {open && (
         <Modal
-          title={`${SIGNAL_LABEL[signal.signal] ?? signal.signal} — ${tag}`}
+          title={`${signal.label || signal.signal} — ${tag}`}
           onClose={() => setOpen(false)}
           size="lg"
         >
-          {family && (
+          {detail === 'reports' && family && (
             <FamilyDetail tag={tag} family={family} runName={runningJob?.run_name} />
           )}
-          {signal.signal === 'security' && (
-            <SecurityDetail tag={tag} runName={runningJob?.run_name} />
-          )}
-          {/* La performance n'a pas de pipeline que le dashboard lance : ses
-              campagnes viennent d'un runner extérieur (B16), d'où l'absence de
-              frise. */}
-          {signal.signal === 'performance' && <BenchDetail tag={tag} />}
+          {detail === 'security' && <SecurityDetail tag={tag} runName={runningJob?.run_name} />}
+          {/* La charge n'a pas de pipeline que le dashboard lance : ses campagnes
+              viennent d'un runner extérieur (B16), d'où l'absence de frise. */}
+          {detail === 'bench' && <BenchDetail tag={tag} />}
         </Modal>
       )}
     </>

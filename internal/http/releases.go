@@ -136,6 +136,10 @@ type ReleasesHandler struct {
 	forge CommitResolver
 	// tagger pose le tag Git. Nil quand le jeton est en lecture seule.
 	tagger Tagger
+	// artifactReader lit ce que l'automatisation d'une release a produit, et le
+	// plan figé qui donne leur nom aux gestes. Nil : la section reste vide plutôt
+	// que d'empêcher la page.
+	artifactReader ArtifactReader
 	// scoreCatalog sert au score, et pour la même raison que dans le gestionnaire
 	// des tests : nommer la famille d'un geste qui n'a rien produit. La pastille
 	// de la liste et l'écran d'une release doivent afficher le même chiffre, donc
@@ -158,6 +162,21 @@ func (h *ReleasesHandler) issueURL(reference string) string {
 		return ""
 	}
 	return h.trackerURL + "/issues/" + reference
+}
+
+// ArtifactReader rend ce qu'une release a produit, et le plan qui l'a produit.
+//
+// Interface étroite plutôt que le magasin entier : l'écran n'a besoin que de ces
+// deux réponses.
+type ArtifactReader interface {
+	ReleaseArtifacts(ctx context.Context, releaseID int64) ([]store.PlanArtifact, error)
+	PlanRunByID(ctx context.Context, id int64) (store.PlanRun, error)
+}
+
+// WithArtifactReader branche la lecture des artefacts d'une release.
+func (h *ReleasesHandler) WithArtifactReader(reader ArtifactReader) *ReleasesHandler {
+	h.artifactReader = reader
+	return h
 }
 
 // WithScoreCatalog branche le catalogue employé par le score.
@@ -285,13 +304,19 @@ type releasePayload struct {
 	Promotions []promotionPayload  `json:"promotions,omitempty"`
 	Targets    []promotionTargetVw `json:"targets,omitempty"`
 	Jobs       []releaseJobPayload `json:"jobs,omitempty"`
-	Images     []imagePayload      `json:"images,omitempty"`
-	// ImagesError dit pourquoi les digests manquent. L'absence de digest et
+	// Artifacts liste ce que l'automatisation a produit.
+	//
+	// Remplace la section « images », qui déclinait **un seul dépôt** — celui que
+	// la configuration nomme — en ses tags. Un projet qui en publie trois n'en
+	// voyait qu'un, et un projet qui produit un binaire ne voyait rien
+	// (doc 15 §15.7).
+	Artifacts []planArtifactPayload `json:"artifacts,omitempty"`
+	// ArtifactsNote dit pourquoi les digests manquent. L'absence de digest et
 	// l'impossibilité de le lire ne se ressemblent pas : la première signale une
 	// image qui n'existe pas, la seconde un registre injoignable ou non
 	// configuré. Les confondre ferait chercher une panne de build.
-	ImagesError  string          `json:"images_error,omitempty"`
-	ManualAction *manualActionVw `json:"manual_actions,omitempty"`
+	ArtifactsNote string          `json:"artifacts_note,omitempty"`
+	ManualAction  *manualActionVw `json:"manual_actions,omitempty"`
 
 	// Ce qu'un écran affiche à côté du nom, sans avoir à déplier la release.
 	//
@@ -326,18 +351,6 @@ type releaseJobPayload struct {
 	RequestedBy string     `json:"requested_by"`
 	RequestedAt time.Time  `json:"requested_at"`
 	FinishedAt  *time.Time `json:"finished_at,omitempty"`
-}
-
-type imagePayload struct {
-	// Repository est le nom court du dépôt — `portal` — tel que le registre
-	// l'attend : son client préfixe lui-même le projet.
-	Repository string `json:"repository"`
-	// Reference est le dépôt complet, registre et projet compris. C'est ce qu'on
-	// copie pour tirer l'image ou l'inspecter, et le nom court seul ne suffit pas
-	// à la désigner — deux projets du même registre portent un `portal`.
-	Reference string `json:"reference,omitempty"`
-	Tag       string `json:"tag"`
-	Digest    string `json:"digest,omitempty"`
 }
 
 type manualActionVw struct {
@@ -542,7 +555,10 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	payload.Images, payload.ImagesError = h.resolveImages(r.Context(), item, promotions)
+	payload.Artifacts = h.releaseArtifacts(r.Context(), item.ID, promotions)
+	if h.images == nil && len(payload.Artifacts) > 0 {
+		payload.ArtifactsNote = "Le registre n'est pas configuré : les digests ne peuvent pas être lus."
+	}
 
 	environments, err := h.store.ListEnvironments(r.Context())
 	if err != nil {
@@ -585,59 +601,6 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, payload)
-}
-
-// resolveImages liste les tags de la release et leurs digests.
-//
-// Le digest est ce qui prouve qu'une promotion n'a pas reconstruit : le tag
-// suffixé et le tag d'origine doivent porter le **même** digest. Un écart signale
-// une image reconstruite entre-temps, c'est-à-dire une livraison qui n'est plus
-// celle qui a été validée (B17).
-//
-// L'échec de résolution est rendu comme un message et non comme une erreur HTTP :
-// un registre injoignable ne doit pas rendre la page de release illisible. Ce qui
-// est en base reste affichable.
-func (h *ReleasesHandler) resolveImages(
-	ctx context.Context, item store.Release, promotions []store.Promotion,
-) ([]imagePayload, string) {
-	// L'ordre importe : la version d'image d'abord, c'est-à-dire ce qui a été
-	// construit, puis le tag de la release, puis les tags de promotion.
-	tags := []string{item.ImageVersion}
-	if item.Tag != item.ImageVersion {
-		tags = append(tags, item.Tag)
-	}
-	for _, promotion := range promotions {
-		tags = append(tags, promotion.Tag)
-	}
-
-	images := make([]imagePayload, 0, len(tags))
-	for _, tag := range tags {
-		images = append(images, imagePayload{
-			Repository: h.imageName,
-			Reference:  imageRepository(h.registryProject, h.imageName),
-			Tag:        tag,
-		})
-	}
-
-	if h.images == nil {
-		return images, "Le registre n'est pas configuré : les digests ne peuvent pas être lus."
-	}
-
-	var failures int
-	for index, image := range images {
-		digest, err := h.images.Digest(ctx, image.Repository, image.Tag)
-		if err != nil {
-			// Un tag absent du registre n'est pas une anomalie de lecture : une
-			// promotion mise en file n'a pas encore poussé son tag.
-			failures++
-			continue
-		}
-		images[index].Digest = digest
-	}
-	if failures == len(images) && failures > 0 {
-		return images, "Aucun digest n'a pu être lu : le registre est peut-être injoignable."
-	}
-	return images, ""
 }
 
 // targetOf traduit un environnement déclaré vers ce que la frontière attend.
@@ -1239,10 +1202,6 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 
 func imageReference(registryProject, name, tag string) string {
 	return imagenames.Reference(registryProject, name, tag)
-}
-
-func imageRepository(registryProject, name string) string {
-	return imagenames.Repository(registryProject, name)
 }
 
 // notePayload est une ligne de note de release.

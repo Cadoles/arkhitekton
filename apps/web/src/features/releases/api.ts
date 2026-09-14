@@ -136,25 +136,37 @@ export type ReleaseJob = {
   finished_at?: string
 }
 
-export type Image = {
-  /** Nom court du dépôt, tel que le registre l'attend. */
-  repository: string
-  /** Dépôt complet, registre et projet compris. Absent quand le projet n'est pas
-   *  configuré : mieux vaut alors le nom court qu'une référence tronquée. */
-  reference?: string
-  tag: string
-  /** Vide quand le tag n'existe pas encore dans le registre — une promotion mise
-   *  en file n'a pas encore poussé le sien. */
+/** Un artefact que l'automatisation a produit.
+ *
+ *  Remplace `Image`, qui déclinait **un seul dépôt** — celui que la configuration
+ *  nomme — en ses tags. Un projet qui en publie trois n'en voyait qu'un, et un
+ *  projet qui produit un binaire ne voyait rien (doc 15 §15.7). */
+export type ProducedArtifact = {
+  /** Le geste qui l'a produit, dans les mots de la déclaration. Vide quand
+   *  l'exécution n'est plus lisible — l'artefact, lui, reste vrai. */
+  geste: string
+  /** Le nom du résultat rendu par le pipeline : `image`, `tag`. C'est lui qui
+   *  fait foi, et non `kind` : celui-ci vaut `image` pour tout ce qu'un pipeline
+   *  d'images rend, y compris pour un tag qui n'en est pas une. */
+  name: string
+  kind?: string
+  /** Ce qui désigne l'artefact : pour une image, sa référence complète. */
+  reference: string
+  /** Vide quand le registre n'est pas interrogeable, ou quand l'artefact n'est
+   *  pas une image. */
   digest?: string
+  /** Un tag de promotion porte un digest différent : une image a été
+   *  reconstruite entre la validation et la livraison (B17). */
+  diverged?: boolean
 }
 
 /** Détail d'une release : la liste n'en porte que l'en-tête. */
 export type ReleaseDetail = Release & {
   jobs?: ReleaseJob[]
-  images?: Image[]
+  artifacts?: ProducedArtifact[]
   /** Dit pourquoi les digests manquent. « Pas de digest » et « impossible de le
    *  lire » n'appellent pas la même réaction. */
-  images_error?: string
+  artifacts_note?: string
   manual_actions?: ManualActions
 }
 

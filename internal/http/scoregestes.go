@@ -110,6 +110,9 @@ func gesteMeasures(
 
 		measure := results.Measure{
 			Key: gesteKey(ref), Label: geste.Name(), Signal: signal,
+			// Ce qui a produit la mesure : le pipeline que « Rejouer » relance, et
+			// la famille de rapports que le détail ouvre.
+			Ref: geste.Ref, Family: famille,
 			Weight: results.WeightOf(geste.Weight, signal),
 		}
 

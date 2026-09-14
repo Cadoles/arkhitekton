@@ -74,7 +74,12 @@ type signalPayload struct {
 	Label string `json:"label"`
 	// Signal dit la **nature** de ce qui est mesuré, et sert encore à choisir une
 	// icône. Il a cessé d'être l'identité : deux gestes peuvent le partager.
-	Signal string  `json:"signal"`
+	Signal string `json:"signal"`
+	// Ref est la famille de pipeline à relancer pour remesurer ce composant.
+	// Vide quand rien ne le remesure depuis le dashboard.
+	Ref string `json:"ref,omitempty"`
+	// Family est la famille de rapports à ouvrir en détail.
+	Family string  `json:"family,omitempty"`
 	Value  float64 `json:"value"`
 	// Weight est le poids **effectif**, après redistribution des signaux non
 	// mesurés. C'est lui qui explique la contribution réelle au score.
@@ -132,7 +137,8 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 	for _, signal := range breakdown.Signals {
 		signals = append(signals, signalPayload{
 			Key: signal.Key, Label: signal.Label,
-			Signal: string(signal.Signal), Value: signal.Value, Weight: signal.Weight,
+			Signal: string(signal.Signal), Ref: signal.Ref, Family: string(signal.Family),
+			Value: signal.Value, Weight: signal.Weight,
 			Declared: signal.Declared, Measured: signal.Measured, Detail: signal.Detail,
 			// Le verdict d'un signal vient du serveur comme celui du score : le
 			// dériver côté client en ferait un second avis, divergent au premier
@@ -312,6 +318,11 @@ func familyMeasures(
 		measure.Key = results.SignalKey(measure.Signal)
 		measure.Label = signalLabels[measure.Signal]
 		measure.Weight = results.WeightOf(nil, measure.Signal)
+		// Le pipeline et la famille du repli, tirés du signal : ici et nulle part
+		// ailleurs, parce que c'est le seul chemin où l'on n'a pas de geste pour
+		// les dire.
+		measure.Ref = signalKinds[measure.Signal]
+		measure.Family = signalFamilies[measure.Signal]
 		measures = append(measures, measure)
 	}
 	return measures, nil
@@ -321,6 +332,28 @@ func familyMeasures(
 //
 // Écrits ici parce qu'ils n'ont pas de déclaration : ce sont des natures, pas des
 // gestes. Un geste, lui, porte le libellé que quelqu'un lui a donné.
+// signalKinds et signalFamilies complètent le repli par famille.
+//
+// La famille de pipeline à relancer, et celle des rapports à ouvrir. Vides pour
+// la performance, dont les campagnes viennent d'un runner extérieur que le
+// dashboard ne déclenche pas (B16).
+var signalKinds = map[results.Signal]string{
+	results.SignalUnit:        "unit-tests",
+	results.SignalIntegration: "integration-tests",
+	results.SignalE2E:         "e2e-tests",
+	results.SignalCode:        "static-tests",
+	results.SignalSecurity:    "security-audit",
+}
+
+var signalFamilies = map[results.Signal]results.Family{
+	results.SignalUnit:        results.FamilyUnit,
+	results.SignalIntegration: results.FamilyIntegration,
+	results.SignalE2E:         results.FamilyE2E,
+	results.SignalCode:        results.FamilyStatic,
+	results.SignalSecurity:    results.FamilySecurity,
+	results.SignalPerformance: results.FamilyLoad,
+}
+
 var signalLabels = map[results.Signal]string{
 	results.SignalUnit:        "Tests unitaires",
 	results.SignalIntegration: "Tests d'intégration",

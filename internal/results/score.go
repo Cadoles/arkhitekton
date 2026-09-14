@@ -117,6 +117,17 @@ type Measure struct {
 	// Signal dit **comment** mesurer, et plus comment pondérer. Il reste ce qui
 	// relie un rapport à sa règle de notation (doc 13).
 	Signal Signal
+	// Ref et Family disent **ce qui a produit** la mesure, dans le vocabulaire du
+	// catalogue : la famille de pipeline à relancer, la famille de rapports à
+	// ouvrir en détail.
+	//
+	// Portées par la mesure et non déduites du signal par une table dans
+	// l'interface. Cette table existait, en trois exemplaires — signal → pipeline,
+	// pipeline → signaux, signal → famille de rapports — et elle devenait fausse
+	// dès qu'un projet déclarait deux campagnes de même nature : elles ne
+	// relancent pas le même pipeline.
+	Ref    string
+	Family Family
 	// Weight est le poids déclaré de ce composant.
 	//
 	// Porté par la mesure et non cherché dans une table : c'est ce qui permet à
@@ -160,6 +171,10 @@ type SignalScore struct {
 	Key    string
 	Label  string
 	Signal Signal
+	// Ref et Family disent ce qui a produit la mesure : le pipeline à relancer, et
+	// la famille de rapports à ouvrir.
+	Ref    string
+	Family Family
 	Value  float64
 	// Weight est le poids **effectif**, après redistribution. Distinct du poids
 	// déclaré : c'est lui qui explique la contribution réelle.
@@ -220,6 +235,7 @@ func Score(measures []Measure) Breakdown {
 
 		breakdown.Signals = append(breakdown.Signals, SignalScore{
 			Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
+			Ref: measure.Ref, Family: measure.Family,
 			Value: measure.Value, Weight: effective, Declared: measure.Weight,
 			Measured: true, Detail: measure.Detail,
 		})
@@ -237,6 +253,7 @@ func Score(measures []Measure) Breakdown {
 func retire(measure Measure) SignalScore {
 	return SignalScore{
 		Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
+		Ref: measure.Ref, Family: measure.Family,
 		Declared: measure.Weight, Detail: measure.Detail,
 	}
 }

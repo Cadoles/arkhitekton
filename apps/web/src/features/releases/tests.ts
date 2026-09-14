@@ -28,6 +28,12 @@ export type SignalScore = {
   /** La **nature** de ce qui est mesuré. Sert à choisir une icône ; deux
    *  composants peuvent la partager. */
   signal: string
+  /** La famille de pipeline à relancer pour remesurer ce composant. Vide quand
+   *  rien ne le remesure depuis le dashboard. */
+  ref?: string
+  /** La famille de rapports à ouvrir en détail. Vide quand le composant n'en
+   *  publie pas. */
+  family?: string
   value: number
   /** Poids **effectif**, après redistribution des signaux non mesurés. C'est lui
    *  qui explique la contribution réelle au score. */

@@ -50,6 +50,10 @@ type fakeReleaseStore struct {
 	// s'applique : les tests portent sur le nombre d'exécutions enfilées et sur
 	// leurs paramètres, pas sur le contenu de la table.
 	project *store.Project
+	// produits porte ce que l'automatisation a produit, tel que la table
+	// `plan_artifacts` le rendrait. Distinct d'`artifacts`, qui porte les exports
+	// du bon de livraison — deux natures, deux tables, deux noms.
+	produits []store.PlanArtifact
 	// pipelines est le catalogue que le handler emploie. Le magasin le porte
 	// parce qu'il doit rendre l'automatisation du projet, et que celle-ci se
 	// compose depuis les familles déclarées.
@@ -75,6 +79,13 @@ func fixtureProject() store.Project {
 // portent sur ce que le handler fait du projet, pas sur son choix.
 func (f *fakeReleaseStore) GetProject(context.Context, int64) (store.Project, error) {
 	return fixtureProject(), nil
+}
+
+// ReleaseArtifacts rend ce que l'automatisation a produit pour cette release.
+func (f *fakeReleaseStore) ReleaseArtifacts(
+	context.Context, int64,
+) ([]store.PlanArtifact, error) {
+	return f.produits, nil
 }
 
 // ReleaseAutomation rend ce que la reprise aurait composé pour ce projet.
@@ -370,6 +381,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		// Le planificateur **réel**, sur le même faux magasin. Un substitut ici
 		// ferait passer ces tests sans rien dire de ce que la création met
 		// réellement en file.
+		WithArtifactReader(store).
 		WithPlans(worker.NewReleasePlanner(
 			worker.NewEngine(store, worker.NewReleaseRunner(pipelines, store, quietLogger()),
 				quietLogger()),
@@ -655,13 +667,28 @@ func (f fakeRegistry) Digest(_ context.Context, _, tag string) (string, error) {
 // suffixé et le tag d'origine portent le même.
 func TestGetResolvesDigestsForEveryTag(t *testing.T) {
 	fake := newFakeStore()
-	fake.registry = fakeRegistry{"1.8.0-rc3": "sha256:aaa", "1.8.0": "sha256:aaa"}
+	// Le tag de promotion porte le **même** digest : rien n'a été reconstruit.
+	fake.registry = fakeRegistry{"1.8.0-rc3": "sha256:aaa", "1.8.0_prod": "sha256:aaa"}
 	fake.releases["1.8.0"] = store.Release{
 		ID: 8, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
 	}
 	fake.promotions = []store.Promotion{
 		{ReleaseID: 8, EnvironmentID: "prod", ImageName: "portal", Tag: "1.8.0_prod"},
 	}
+	fake.produits = []store.PlanArtifact{
+		{RunID: 3, Stage: 0, Position: 0, Name: "image", Kind: "image",
+			Reference: "reg.example.fr/vcarroy/portal:1.8.0-rc3"},
+		{RunID: 3, Stage: 0, Position: 0, Name: "tag", Kind: "image",
+			Reference: "1.8.0-rc3"},
+	}
+	fake.planRuns = map[int64]store.PlanRun{3: {
+		ID: 3, Plan: plan.Plan{Stages: []plan.Stage{{
+			Role: plan.RoleBuild,
+			Gestes: []plan.Geste{{
+				Kind: plan.GestePipeline, Ref: "build", Label: "portal",
+			}},
+		}}},
+	}}
 	handler := newReleasesHandler(t, fake)
 
 	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0", nil)
@@ -674,20 +701,62 @@ func TestGetResolvesDigestsForEveryTag(t *testing.T) {
 		t.Fatalf("décodage: %v", err)
 	}
 
-	digests := map[string]string{}
-	for _, image := range payload.Images {
-		digests[image.Tag] = image.Digest
+	if len(payload.Artifacts) != 2 {
+		t.Fatalf("%d artefact(s), attendu ceux du geste", len(payload.Artifacts))
 	}
-	if digests["1.8.0-rc3"] != digests["1.8.0"] || digests["1.8.0"] == "" {
-		t.Errorf("digests = %v, attendu identiques entre la RC et la finale", digests)
+	// Chacun porte le nom du geste qui l'a produit : c'est ce qui distingue trois
+	// constructions partageant la même référence de catalogue.
+	for _, artifact := range payload.Artifacts {
+		if artifact.Geste != "portal" {
+			t.Errorf("artefact %q produit par %q, attendu le geste", artifact.Name, artifact.Geste)
+		}
 	}
-	// Le tag de promotion n'est pas encore poussé : digest vide, et ce n'est pas
-	// une erreur de lecture.
-	if digests["1.8.0_prod"] != "" {
-		t.Errorf("tag de promotion = %q, attendu sans digest", digests["1.8.0_prod"])
+
+	image := payload.Artifacts[0]
+	if image.Name != "image" || image.Digest != "sha256:aaa" {
+		t.Errorf("image = %+v, attendue avec son digest", image)
 	}
-	if payload.ImagesError != "" {
-		t.Errorf("message d'erreur = %q, attendu aucun", payload.ImagesError)
+	if image.Diverged {
+		t.Error("divergence annoncée alors que la promotion porte le même digest")
+	}
+	// Le tag n'est pas une image, et n'a donc pas de digest — bien que `kind`
+	// vaille `image` pour tout ce que ce pipeline rend.
+	if payload.Artifacts[1].Digest != "" {
+		t.Errorf("le tag porte un digest: %+v", payload.Artifacts[1])
+	}
+}
+
+// Une image reconstruite entre la validation et la livraison se voit.
+//
+// C'est l'invariant que l'ancienne section « images » protégeait sur le seul
+// dépôt configuré, et qui vaut maintenant pour chaque image produite (B17).
+func TestGetSignalsARebuiltImage(t *testing.T) {
+	fake := newFakeStore()
+	// Le tag de promotion porte un **autre** digest : quelqu'un a reconstruit.
+	fake.registry = fakeRegistry{"1.8.0-rc3": "sha256:aaa", "1.8.0_prod": "sha256:bbb"}
+	fake.releases["1.8.0"] = store.Release{
+		ID: 8, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
+	}
+	fake.promotions = []store.Promotion{
+		{ReleaseID: 8, EnvironmentID: "prod", ImageName: "portal", Tag: "1.8.0_prod"},
+	}
+	fake.produits = []store.PlanArtifact{{
+		RunID: 3, Name: "image", Kind: "image",
+		Reference: "reg.example.fr/vcarroy/portal:1.8.0-rc3",
+	}}
+	handler := newReleasesHandler(t, fake)
+
+	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0", nil)
+	request.SetPathValue("tag", "1.8.0")
+	recorder := httptest.NewRecorder()
+	handler.Get(recorder, asRole(request, auth.RoleReleaser))
+
+	var payload releasePayload
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("décodage: %v", err)
+	}
+	if len(payload.Artifacts) != 1 || !payload.Artifacts[0].Diverged {
+		t.Errorf("artefacts = %+v — la reconstruction doit se voir", payload.Artifacts)
 	}
 }
 
@@ -699,7 +768,13 @@ func TestGetSaysWhyDigestsAreMissing(t *testing.T) {
 	fake.releases["1.8.0-rc1"] = store.Release{
 		ID: 9, Tag: "1.8.0-rc1", Kind: "pre", State: "ready", ImageVersion: "1.8.0-rc1",
 	}
+	fake.produits = []store.PlanArtifact{{
+		RunID: 4, Name: "image", Kind: "image",
+		Reference: "reg.example.fr/vcarroy/portal:1.8.0-rc1",
+	}}
 	handler := newReleasesHandler(t, fake)
+	// Sans registre : les artefacts restent affichables, sans leur digest.
+	handler.images = nil
 
 	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0-rc1", nil)
 	request.SetPathValue("tag", "1.8.0-rc1")
@@ -713,11 +788,11 @@ func TestGetSaysWhyDigestsAreMissing(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Errorf("code = %d: un registre absent ne doit pas casser la page", recorder.Code)
 	}
-	if payload.ImagesError == "" {
+	if payload.ArtifactsNote == "" {
 		t.Error("l'absence de digest doit être expliquée")
 	}
-	if len(payload.Images) == 0 {
-		t.Error("les tags restent affichables sans leur digest")
+	if len(payload.Artifacts) == 0 {
+		t.Error("les artefacts restent affichables sans leur digest")
 	}
 }
 

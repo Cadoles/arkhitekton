@@ -378,6 +378,10 @@ func (db *DB) planStepsFor(ctx context.Context, runIDs []int64) (map[int64][]Pla
 
 // PlanArtifact est ce qu'un geste a laissé derrière lui.
 type PlanArtifact struct {
+	// RunID est l'exécution qui l'a produit. Renseigné à la lecture par release,
+	// où plusieurs exécutions coexistent : une release reconstruite en a deux, et
+	// l'écran doit pouvoir dire laquelle a produit quoi.
+	RunID    int64
 	Stage    int
 	Position int
 	// Name est le nom du résultat rendu par le pipeline : `image`, `tag`.
@@ -524,4 +528,37 @@ func (db *DB) ResultGestes(ctx context.Context, releaseID int64) (map[int64]Gest
 		gestes[id] = ref
 	}
 	return gestes, rows.Err()
+}
+
+// ReleaseArtifacts rend ce que l'automatisation d'une release a produit.
+//
+// # Pourquoi la release et non l'exécution
+//
+// L'écran d'une release demande « qu'a-t-on produit pour ce tag ? », et non
+// « qu'a produit l'exécution 6 ? ». Une release reconstruite a deux exécutions,
+// et la question porte sur les deux — c'est d'ailleurs la raison pour laquelle
+// `plan_artifacts` porte `release_id` en plus de `run_id`.
+//
+// Rendus du plus récent au plus ancien : une reconstruction remplace ce qu'elle
+// refait, et c'est la dernière référence qui désigne ce qui est déployable.
+func (db *DB) ReleaseArtifacts(ctx context.Context, releaseID int64) ([]PlanArtifact, error) {
+	rows, err := db.pool.Query(ctx,
+		`select run_id, stage, position, name, kind, reference
+		 from plan_artifacts where release_id = $1
+		 order by created_at desc, stage, position, name`, releaseID)
+	if err != nil {
+		return nil, fmt.Errorf("artefacts de la release %d: %w", releaseID, err)
+	}
+	defer rows.Close()
+
+	var artifacts []PlanArtifact
+	for rows.Next() {
+		var entry PlanArtifact
+		if err := rows.Scan(&entry.RunID, &entry.Stage, &entry.Position,
+			&entry.Name, &entry.Kind, &entry.Reference); err != nil {
+			return nil, fmt.Errorf("artefacts de la release %d: %w", releaseID, err)
+		}
+		artifacts = append(artifacts, entry)
+	}
+	return artifacts, rows.Err()
 }
