@@ -565,7 +565,11 @@ function PlanEditor({
                   ? 'gestes exécutés en parallèle'
                   : ''}
             </span>
-            {plan.stages.length > 1 && (
+            {/* La dernière étape se retire quand le plan porte des rôles, et
+                seulement là : un plan de release **vide** est la façon de dire
+                « ce projet ne construit plus », alors qu'une réaction sans étape
+                ne réagit à rien et serait refusée. */}
+            {(plan.stages.length > 1 || withRoles) && (
               <button
                 type="button"
                 onClick={() =>
