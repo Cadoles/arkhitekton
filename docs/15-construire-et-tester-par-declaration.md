@@ -362,3 +362,72 @@ simplement de se déclencher — c'est le comportement que 0047 documentait pour
 disparu, et l'écran l'affiche **inerte, en le disant**. La base de développement n'en portait
 aucune ; le fil, lui, garde ses lignes, et l'interface garde leurs libellés pour que
 l'histoire d'avant la réduction reste lisible.
+
+---
+
+## 15.12 Ce que la déclaration a tranché à l'écriture
+
+La §15.5 disait qu'il fallait déclarer les constructions. Trois choses ont été décidées en
+l'écrivant.
+
+### Le catalogue disait déjà d'où vient chaque valeur
+
+Le plan posait `revision`, `version` et `tag-name` **en clair**, derrière un
+`if geste.Ref == "build"`. Ces trois noms étaient la recopie de ce que le catalogue déclare
+par ses `suggest` — il suffisait de le lire.
+
+Une **origine** par entrée le remplace, et elle se déduit du `suggest` sans déclaration
+supplémentaire :
+
+| Origine | Qui gagne | Pour quoi |
+|---|---|---|
+| `context` | l'exécution, toujours | la révision et le tag. Deux gestes d'une même release qui viseraient deux commits publieraient deux images sous le même tag (B17) |
+| `fallback` | la déclaration si elle dit quelque chose | une référence d'image. Sans déclaration, elle se recompose depuis le registre, comme avant |
+| `declared` | la déclaration seule | le dépôt à publier, la cible du Dockerfile, l'environnement visé |
+
+Conséquence directe : **la famille `build` n'apparaît plus dans le plan d'une release**. Il
+ne reste aucun nom de pipeline en dur dans ce chemin.
+
+### La reprise, et pourquoi elle n'est pas une migration SQL
+
+Composer ce plan en SQL demanderait de recopier la règle du Dockerfile résolu, les familles
+de vérification et le filtre par projet — trois choses qui vivent dans le binaire, dont une
+dans une ConfigMap. La reprise appelle donc le **même code** qui composait le plan jusqu'ici :
+le plan repris est identique à celui qui tournait, par construction et non par relecture.
+
+Elle tourne dans le worker, après la validation du catalogue contre le cluster — figer depuis
+un catalogue en désaccord écrirait en base des plans qui ne partiraient jamais, et une reprise
+ne repasse pas.
+
+**Le critère est l'absence de ligne, jamais un plan vide.** Un projet dont quelqu'un a vidé
+l'automatisation a une ligne : il ne construit plus, et c'est une décision. Sans cette
+distinction, vider l'automatisation la ferait réapparaître au redémarrage suivant.
+
+### L'artefact est visé là où il existe, et pas ailleurs
+
+La §15.4 veut qu'un geste de test vise `{artifacts.portal.image}`. La reprise l'écrit —
+**mais seulement quand le projet construit effectivement cette image**.
+
+Ailleurs, elle laisse le repli recomposer la référence depuis le registre, comme la veille.
+Viser un artefact que personne ne produit ferait échouer le geste en le nommant, ce qui est
+juste sur le fond ; mais une reprise ne doit rien casser en passant, et un plan qui refuse de
+partir là où il partait hier est une régression, pas une amélioration.
+
+C'est aussi ce qui donne enfin un **usage réel** au passage d'artefact posé en tranche 2 :
+l'audit de sécurité analyse l'image que la construction vient de publier, et non une
+référence recomposée qui peut désigner une image que personne n'a poussée.
+
+---
+
+## 15.13 Ce que `targets` décide encore
+
+La §15.8 prévoyait que la colonne cesse d'être lue. **Elle l'est encore**, et il vaut mieux
+le dire : `Promotable()` s'en sert pour savoir quelles images un re-tag propage. La
+construction n'en dépend plus, la promotion oui.
+
+L'écran des paramètres généraux garde donc sa section, avec une phrase qui dit ce qu'elle ne
+décide plus. La retirer aurait rendu la promotion inconfigurable ; la laisser muette aurait
+fait croire qu'on y modifie ce qui se construit.
+
+Ce qui reste à faire un jour : donner à la promotion sa propre déclaration. Ce n'est pas ce
+chantier-ci, et l'y ajouter l'aurait fait déborder.
