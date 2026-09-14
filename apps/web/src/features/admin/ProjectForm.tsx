@@ -248,6 +248,18 @@ export function ProjectForm({
             </span>
           </label>
 
+          {/* Ce que ces entrées ne décident plus.
+              Elles composaient la construction d'une release. Ce n'est plus le
+              cas : l'onglet automatisation le déclare, geste par geste (doc 15
+              §15.5). Elles restent lues par la **promotion**, qui doit savoir
+              quelles images un re-tag propage — et le taire ferait croire qu'on
+              modifie ici ce qui se construit. */}
+          <p className="rounded-md bg-zinc-50 p-2 text-xs text-zinc-600">
+            Ces images ne décident plus de ce qui se construit : l'onglet{' '}
+            <strong>Automatisation</strong> le déclare. Elles disent lesquelles une promotion
+            re-tague.
+          </p>
+
           <label className="flex items-center gap-2 text-sm text-zinc-700">
             <input
               type="checkbox"

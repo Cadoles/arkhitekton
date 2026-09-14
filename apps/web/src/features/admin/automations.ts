@@ -20,10 +20,34 @@ export type Geste = {
   params?: Record<string, string>
 }
 
-/** Une étape : des gestes exécutés en parallèle. */
-export type Stage = { label?: string; gestes: Geste[] }
+/** Une étape : des gestes exécutés en parallèle.
+ *
+ *  `role` n'a de sens que sur l'automatisation d'une release : c'est la
+ *  conclusion d'une étape à rôle qui fait avancer son état. Une réaction qui en
+ *  porterait un est refusée — elle ne vise aucune release en particulier. */
+export type Stage = { label?: string; role?: string; gestes: Geste[] }
 
 export type Plan = { stages: Stage[] }
+
+/** Un rôle d'étape, et ce qu'il exige de ses gestes. */
+export type RoleChoice = {
+  role: string
+  label: string
+  /** Le produit qu'un geste doit déclarer pour y entrer — `image`, `results`. */
+  requires: string
+  /** Ce que la conclusion de cette étape fait à la release. */
+  advances: string
+}
+
+/** L'automatisation d'une release : ce qu'un projet construit, puis vérifie. */
+export type Automation = {
+  plan: Plan
+  /** Faux quand personne n'a jamais rien déclaré. Distinct d'un plan vide, qui
+   *  dit « ce projet ne construit plus » : seul le premier sera repris depuis les
+   *  cibles du projet au prochain démarrage du worker. */
+  declared: boolean
+  updated_by?: string
+}
 
 export type Reaction = {
   id: number
@@ -70,12 +94,17 @@ export type GesteChoice = {
     options?: string[]
     placeholder?: string
   }[]
+  /** Ce que le pipeline laisse derrière lui — `image`, `results`. Vide pour une
+   *  action, qui ne produit rien d'observable. C'est ce qui décide dans quelle
+   *  étape à rôle il a le droit d'aller. */
+  produces?: string[]
 }
 
 export type Catalogue = {
   events: EventChoice[]
   gestes: GesteChoice[]
   when: string[]
+  roles: RoleChoice[]
 }
 
 export function useReactions(slug: string) {
@@ -137,6 +166,47 @@ export function useDeleteReaction(slug: string) {
       void queryClient.invalidateQueries({ queryKey: ['reactions', slug] })
     },
   })
+}
+
+export function useAutomation(slug: string) {
+  return useQuery({
+    queryKey: ['automation', slug],
+    queryFn: () => request<Automation>(`/projects/${encodeURIComponent(slug)}/automation`),
+    enabled: slug !== '',
+  })
+}
+
+export function useSaveAutomation(slug: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    // Toujours un PUT, jamais un POST : la clé est le projet, et il n'y a qu'une
+    // réponse à « que fait-on quand une release est déclarée ? ».
+    mutationFn: (plan: Plan) =>
+      request<Automation>(`/projects/${encodeURIComponent(slug)}/automation`, {
+        method: 'PUT',
+        body: JSON.stringify({ plan }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['automation', slug] })
+    },
+  })
+}
+
+/** Les gestes qu'une étape de ce rôle accepte.
+ *
+ *  Le serveur refuse de toute façon, mais un formulaire qui laisse choisir puis
+ *  refuse est un formulaire qu'on apprend à contourner. Sans rôle, tout est
+ *  admis : une étape sans rôle ne touche pas à l'état de la release. */
+export function gestesPourRole(
+  catalogue: Catalogue,
+  role: string | undefined,
+): GesteChoice[] {
+  const attendu = catalogue.roles.find((choice) => choice.role === role)
+  if (!attendu) return catalogue.gestes
+  return catalogue.gestes.filter(
+    (geste) => geste.kind === 'pipeline' && (geste.produces ?? []).includes(attendu.requires),
+  )
 }
 
 /** Un plan neuf : une étape, aucun geste. La forme minimale qui se valide. */

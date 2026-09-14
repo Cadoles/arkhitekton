@@ -36,7 +36,17 @@ const catalogue = {
       summary: 'Émet un POST JSON vers une URL.',
       fields: [{ name: 'url', label: 'URL', required: true }],
     },
-    { kind: 'pipeline', ref: 'unit-tests', label: 'Tests unitaires' },
+    { kind: 'pipeline', ref: 'unit-tests', label: 'Tests unitaires', produces: ['results'] },
+    {
+      kind: 'pipeline',
+      ref: 'build',
+      label: "Construction d'image",
+      produces: ['image'],
+      fields: [
+        { name: 'image-name', label: 'Dépôt publié', required: true, placeholder: 'portal' },
+        { name: 'target', label: 'Cible du Dockerfile', required: true },
+      ],
+    },
     {
       kind: 'action',
       ref: 'gitea.status',
@@ -54,11 +64,50 @@ const catalogue = {
     },
   ],
   when: ['success', 'failure', 'always'],
+  // Les rôles d'étape, et ce que chacun exige. L'éditeur ne code pas la table :
+  // une liste écrite ici divergerait du binaire au premier ajout.
+  roles: [
+    {
+      role: 'build',
+      label: 'Construction',
+      requires: 'image',
+      advances: 'la release passe en vérification, ou échoue',
+    },
+    {
+      role: 'test',
+      label: 'Vérification',
+      requires: 'results',
+      advances: 'la release devient prête, ou échoue',
+    },
+  ],
 }
 
-function armer(reactions: unknown[]) {
+// L'automatisation d'une release, telle que la reprise l'aurait composée.
+const automatisation = {
+  plan: {
+    stages: [
+      {
+        role: 'build',
+        gestes: [
+          {
+            kind: 'pipeline',
+            ref: 'build',
+            label: 'portal',
+            params: { 'image-name': 'portal', target: 'web' },
+          },
+        ],
+      },
+      { role: 'test', gestes: [{ kind: 'pipeline', ref: 'unit-tests' }] },
+    ],
+  },
+  declared: true,
+  updated_by: 'system:reprise',
+}
+
+function armer(reactions: unknown[], automation: unknown = automatisation) {
   return mockFetch([
     { path: '/automations/catalogue', body: catalogue },
+    { path: '/automation', body: automation },
     { path: '/reactions', body: { reactions, project: 'mse' } },
   ])
 }
@@ -175,5 +224,72 @@ describe("l'éditeur d'automatisations", () => {
     // fait, pour que la page vide soit un point de départ.
     expect(await screen.findByText(/Aucune réaction déclarée/)).toBeInTheDocument()
     expect(screen.getByText(/prévenir une messagerie/)).toBeInTheDocument()
+  })
+})
+
+/*
+ * Le plan d'une release.
+ *
+ * Ce que le projet construit, puis vérifie — la déclaration qui remplace la
+ * colonne `targets` et le drapeau `verification` du catalogue (doc 15 §15.5).
+ */
+
+describe("le plan d'une release", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("nomme chaque étape par ce que sa conclusion fait à la release", async () => {
+    armer([])
+    render(<AutomationsScreen />)
+
+    // Le rôle se lit par son effet, pas par son nom : « build » n'apprend rien.
+    expect(await screen.findByText('Construction')).toBeInTheDocument()
+    expect(
+      screen.getByText('la release passe en vérification, ou échoue'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('la release devient prête, ou échoue')).toBeInTheDocument()
+  })
+
+  it('distingue une automatisation vidée d’une automatisation jamais déclarée', async () => {
+    // Jamais déclarée : le worker la composera depuis les cibles. Le dire évite
+    // d'annoncer « ce projet ne construit plus » à qui attend simplement la
+    // reprise.
+    armer([], { plan: { stages: [] }, declared: false })
+    render(<AutomationsScreen />)
+
+    expect(await screen.findByText(/composée depuis les cibles du projet/)).toBeInTheDocument()
+  })
+
+  it('dit qu’un projet vidé ne construit plus', async () => {
+    armer([], { plan: { stages: [] }, declared: true })
+    render(<AutomationsScreen />)
+
+    expect(await screen.findByText(/ne construit rien/)).toBeInTheDocument()
+  })
+
+  it("n'offre dans une étape de construction que ce qui produit une image", async () => {
+    armer([])
+    render(<AutomationsScreen />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Modifier' }))
+
+    // L'étape reprise porte le rôle `build` : seuls les pipelines qui déclarent
+    // `image` y entrent. Le serveur refuse de toute façon, mais un formulaire qui
+    // laisse choisir puis refuse est un formulaire qu'on apprend à contourner.
+    const ajouts = await screen.findAllByRole('combobox')
+    const premierAjout = ajouts.find((champ) =>
+      Array.from(champ.querySelectorAll('option')).some(
+        (option) => option.textContent === 'ajouter un geste…',
+      ),
+    )
+    if (!premierAjout) throw new Error("aucun sélecteur d'ajout de geste")
+
+    const libelles = Array.from(premierAjout.querySelectorAll('option')).map(
+      (option) => option.textContent,
+    )
+    expect(libelles.some((libelle) => libelle?.includes("Construction d'image"))).toBe(true)
+    expect(libelles.some((libelle) => libelle?.includes('Tests unitaires'))).toBe(false)
+    expect(libelles.some((libelle) => libelle?.includes('Appel sortant'))).toBe(false)
   })
 })

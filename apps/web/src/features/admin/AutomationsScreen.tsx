@@ -7,10 +7,14 @@ import type { Project } from './api'
 import {
   emptyPlan,
   gesteLabel,
+  gestesPourRole,
+  useAutomation,
   useAutomationCatalogue,
   useDeleteReaction,
   useReactions,
+  useSaveAutomation,
   useSaveReaction,
+  type Automation,
   type Catalogue,
   type Geste,
   type Plan,
@@ -39,14 +43,23 @@ export function AutomationsScreen() {
   const project = useOutletContext<Project>()
   const reactions = useReactions(project.slug)
   const catalogue = useAutomationCatalogue()
+  const automation = useAutomation(project.slug)
   const [editing, setEditing] = useState<Reaction | 'new' | null>(null)
 
-  if (reactions.isPending || catalogue.isPending) {
+  if (reactions.isPending || catalogue.isPending || automation.isPending) {
     return <Skeleton className="h-64 w-full" />
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {catalogue.data && automation.data && (
+        <ReleaseAutomationCard
+          slug={project.slug}
+          catalogue={catalogue.data}
+          automation={automation.data}
+        />
+      )}
+
       <Card
         title="Automatisations"
         action={
@@ -88,6 +101,124 @@ export function AutomationsScreen() {
         />
       )}
     </div>
+  )
+}
+
+/*
+ * Le plan d'une release.
+ *
+ * Ce que le projet construit, puis vérifie. C'est la déclaration qui remplace la
+ * colonne `targets` et le drapeau `verification` du catalogue (doc 15 §15.5).
+ *
+ * # Pourquoi au-dessus des réactions, et pas dedans
+ *
+ * Une réaction répond à « sur tel fait, quoi faire ? », et il peut y en avoir
+ * plusieurs. Celle-ci répond à « que fait-on quand une release est déclarée ? »,
+ * qui n'a qu'une réponse : deux ouvriraient deux exécutions dont chacune ferait
+ * avancer l'état de la release.
+ */
+function ReleaseAutomationCard({
+  slug,
+  catalogue,
+  automation,
+}: {
+  slug: string
+  catalogue: Catalogue
+  automation: Automation
+}) {
+  const [draft, setDraft] = useState<Plan | null>(null)
+  const save = useSaveAutomation(slug)
+
+  const stages = automation.plan.stages
+
+  return (
+    <Card
+      title="Plan d'une release"
+      action={
+        draft ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setDraft(null)}
+              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              disabled={save.isPending}
+              onClick={() =>
+                save.mutate(draft, { onSuccess: () => setDraft(null) })
+              }
+              className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50"
+            >
+              Enregistrer
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setDraft(automation.plan.stages.length > 0 ? automation.plan : emptyPlan())}
+            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+          >
+            Modifier
+          </button>
+        )
+      }
+    >
+      {draft ? (
+        <div className="flex flex-col gap-3">
+          <PlanEditor
+            catalogue={catalogue}
+            /* Les variables de la charge de `release.created` : c'est ce fait qui
+               ouvre ce plan, et proposer les autres inviterait à interpoler une
+               clé qui n'existe pas. */
+            fields={
+              catalogue.events.find((choice) => choice.type === 'release.created')?.fields ?? []
+            }
+            plan={draft}
+            onChange={setDraft}
+            legend="Quand une release est déclarée"
+            withRoles
+          />
+          {save.isError && (
+            <p className="text-xs text-critical-700">{(save.error as Error).message}</p>
+          )}
+        </div>
+      ) : stages.length === 0 ? (
+        <EmptyState>
+          {automation.declared
+            ? "Ce projet ne construit rien : son automatisation a été vidée. Les releases créées ne lanceront aucun pipeline."
+            : "Aucune automatisation déclarée. Elle sera composée depuis les cibles du projet au prochain démarrage du worker."}
+        </EmptyState>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {stages.map((stage, index) => {
+            const role = catalogue.roles.find((choice) => choice.role === stage.role)
+            return (
+              <div key={index} className="flex flex-wrap items-baseline gap-2">
+                <span className="text-sm font-medium text-zinc-900">
+                  {role?.label ?? stage.label ?? `Étape ${index + 1}`}
+                </span>
+                {/* Le rôle est dit par ce qu'il fait, pas par son nom : « build »
+                    n'apprend rien, « la release passe en vérification » si. */}
+                {role && <span className="text-xs text-zinc-500">{role.advances}</span>}
+                <span className="ml-auto text-xs text-zinc-600">
+                  {stage.gestes
+                    .map((geste) => geste.label || gesteLabel(catalogue, geste))
+                    .join(' · ')}
+                </span>
+              </div>
+            )
+          })}
+          {automation.updated_by === 'system:reprise' && (
+            <p className="text-xs text-zinc-400">
+              Repris depuis les cibles du projet — personne ne l'a encore saisi.
+            </p>
+          )}
+        </div>
+      )}
+    </Card>
   )
 }
 
@@ -370,25 +501,69 @@ function PlanEditor({
   fields,
   plan,
   onChange,
+  legend = 'Alors',
+  /** Propose un rôle sur chaque étape. Seule l'automatisation d'une release en
+   *  porte : c'est la conclusion d'une étape à rôle qui fait avancer son état,
+   *  et une réaction ne vise aucune release en particulier. */
+  withRoles = false,
 }: {
   catalogue: Catalogue
   fields: string[]
   plan: Plan
   onChange: (plan: Plan) => void
+  legend?: string
+  withRoles?: boolean
 }) {
   const setStage = (index: number, stage: Plan['stages'][number]) =>
     onChange({ stages: plan.stages.map((entry, rank) => (rank === index ? stage : entry)) })
 
   return (
     <fieldset className="flex flex-col gap-3">
-      <legend className="text-sm text-zinc-700">Alors</legend>
+      <legend className="text-sm text-zinc-700">{legend}</legend>
 
-      {plan.stages.map((stage, index) => (
+      {plan.stages.map((stage, index) => {
+        const role = catalogue.roles.find((choice) => choice.role === stage.role)
+        const offerts = withRoles ? gestesPourRole(catalogue, stage.role) : catalogue.gestes
+
+        return (
         <div key={index} className="rounded-md border border-zinc-200 p-3">
-          <div className="mb-2 flex items-baseline gap-2">
+          <div className="mb-2 flex flex-wrap items-baseline gap-2">
             <span className="text-xs font-medium text-zinc-700">Étape {index + 1}</span>
+
+            {withRoles && (
+              <select
+                value={stage.role ?? ''}
+                onChange={(change) =>
+                  setStage(index, {
+                    ...stage,
+                    role: change.target.value || undefined,
+                    // Les gestes d'une étape dont le rôle change peuvent ne plus
+                    // y entrer. Les garder ferait refuser l'enregistrement sur
+                    // une faute qu'on ne se souvient pas d'avoir commise.
+                    gestes: stage.gestes.filter((geste) =>
+                      gestesPourRole(catalogue, change.target.value || undefined).some(
+                        (choice) => choice.kind === geste.kind && choice.ref === geste.ref,
+                      ),
+                    ),
+                  })
+                }
+                className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs text-zinc-900"
+              >
+                <option value="">sans rôle</option>
+                {catalogue.roles.map((choice) => (
+                  <option key={choice.role} value={choice.role}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            )}
+
             <span className="text-xs text-zinc-400">
-              {stage.gestes.length > 1 ? 'gestes exécutés en parallèle' : ''}
+              {role
+                ? role.advances
+                : stage.gestes.length > 1
+                  ? 'gestes exécutés en parallèle'
+                  : ''}
             </span>
             {plan.stages.length > 1 && (
               <button
@@ -431,19 +606,30 @@ function PlanEditor({
             <select
               value=""
               onChange={(change) => {
-                const choice = catalogue.gestes.find(
+                const choice = offerts.find(
                   (entry) => `${entry.kind}:${entry.ref}` === change.target.value,
                 )
                 if (!choice) return
                 setStage(index, {
                   ...stage,
-                  gestes: [...stage.gestes, { kind: choice.kind, ref: choice.ref, params: {} }],
+                  gestes: [
+                    ...stage.gestes,
+                    {
+                      kind: choice.kind,
+                      ref: choice.ref,
+                      // Le libellé distingue deux gestes de même référence — trois
+                      // constructions d'images le sont —, à l'écran comme dans la
+                      // carte des artefacts qu'ils alimentent.
+                      label: choice.label,
+                      params: {},
+                    },
+                  ],
                 })
               }}
               className="w-72 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
             >
               <option value="">ajouter un geste…</option>
-              {catalogue.gestes.map((choice) => (
+              {offerts.map((choice) => (
                 <option key={`${choice.kind}:${choice.ref}`} value={`${choice.kind}:${choice.ref}`}>
                   {/* La source distingue deux gestes de même libellé : « Statut de
                       commit » ne parle pas à la même forge selon le plugin. */}
@@ -451,9 +637,16 @@ function PlanEditor({
                 </option>
               ))}
             </select>
+            {offerts.length === 0 && (
+              <p className="text-xs text-zinc-500">
+                Aucun pipeline du catalogue ne produit ce que ce rôle exige
+                {role ? ` (${role.requires})` : ''}.
+              </p>
+            )}
           </div>
         </div>
-      ))}
+        )
+      })}
 
       <button
         type="button"
@@ -491,7 +684,7 @@ function GesteRow({
   return (
     <div className="flex flex-col gap-1 rounded-md bg-zinc-50 p-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-zinc-900">{choice?.label ?? geste.ref}</span>
+        <span className="text-sm text-zinc-900">{geste.label || choice?.label || geste.ref}</span>
         <span className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs text-zinc-600">
           {geste.kind === 'action' ? 'action' : 'pipeline'}
         </span>
@@ -518,6 +711,24 @@ function GesteRow({
       </div>
 
       {choice?.summary && <p className="text-xs text-zinc-500">{choice.summary}</p>}
+
+      {/* Le nom du geste, et non un ornement : c'est lui qui désigne ce que le
+          geste produit dans les étapes suivantes — `{artifacts.portal.image}`
+          vise le geste nommé `portal`. Trois constructions partageant la même
+          référence de catalogue ne se distinguent que par lui. */}
+      <label className="flex flex-col gap-0.5 text-xs">
+        <span className="text-zinc-700">Nom du geste</span>
+        <input
+          value={geste.label ?? ''}
+          onChange={(change) => onChange({ ...geste, label: change.target.value })}
+          placeholder={choice?.label}
+          className="rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-xs text-zinc-900"
+        />
+        <span className="text-zinc-500">
+          Désigne ce geste dans les étapes suivantes :{' '}
+          <code>{`{artifacts.${geste.label || 'nom'}.image}`}</code>
+        </span>
+      </label>
 
       {choice?.fields?.map((field) => (
         <label key={field.name} className="flex flex-col gap-0.5 text-xs">
