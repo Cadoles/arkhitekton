@@ -318,3 +318,43 @@ toujours au même numéro : le cas éprouvé — une version close homonyme ne b
 l'adoption, deux actives restent indécidables — est inchangé.
 
 **`deployments` est supprimée par la migration 0050**, qui sait la recréer en retour arrière.
+
+---
+
+## 16.12 Tranche 2 — ce que l'écriture a tranché
+
+**Deux propositions appliquées.** Le plugin est de `Kind` `module` (décision 6) ; `deployer` et
+`attester` disparaissent du registre, faute de réalisation. Sans le plugin, la page d'accueil
+est Releases (décision 9). Les deux restent révisables : la tranche les pose, elle ne les
+fige pas.
+
+**La migration 0051 reprend Flux.** L'activation et le namespace de `flux` deviennent ceux de
+`mse`. Un `flux` éteint à la main donne un `mse` éteint. Les réglages par projet de
+`portaldata` disparaissent : le plugin vaut pour toute l'instance.
+
+**Le namespace vient enfin du réglage du plugin.** La configuration `FLUX_NAMESPACE` ne sert
+plus que de repli — c'était l'un des deux défauts de §16.1.
+
+**Deux moments de lecture, et c'est assumé.**
+
+| Où | Quand | Pourquoi |
+|---|---|---|
+| `api` | à chaque requête | l'interrupteur se bascule depuis l'administration ; le lire au démarrage ferait mentir l'onglet jusqu'au déploiement suivant |
+| `worker` | au démarrage | ouvrir ou refermer un client Flux en cours de route toucherait au bail et à la boucle d'observation |
+
+Conséquence : **basculer l'interrupteur demande un redémarrage du worker** pour que Flux,
+PortalData et l'observation suivent. L'interface et les routes suivent immédiatement.
+
+**Ce qui est coupé quand le plugin est éteint :**
+
+- `api` : les routes `/environments`, la promotion et les validations de recette répondent
+  404 ; `/me` n'annonce pas le module ; une release ne rend ni cibles de promotion ni
+  environnements où elle tourne ;
+- `worker` : ni client Flux, ni PortalData, ni synchronisation ni observation des
+  environnements ;
+- front : pas d'onglet Environnements, accueil sur Releases, pas de section Déploiement ni de
+  pastille d'environnement ; une URL d'environnement renvoie aux releases.
+
+**Ce qui ne l'est pas encore.** `CheckScheme` s'applique toujours à la configuration d'un
+projet (couture 8) et la suggestion `environment` du formulaire de lancement lit toujours le
+catalogue (couture 9) : ce sont les tranches 3 et 5.

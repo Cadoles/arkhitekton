@@ -35,6 +35,7 @@ import (
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
 	pipelinelib "forge.cadoles.com/vcarroy/mse-dashboard/internal/pipelines"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/portaldata"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
@@ -189,15 +190,20 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// l'état de transition serait introuvable une fois sur deux.
 	flows := auth.NewDBFlowStore(db.Pool(), 10*time.Minute)
 	authorizer := auth.NewAuthorizer(environmentPolicies())
+	// Les modules sont lus à chaque requête : l'interrupteur se bascule depuis
+	// l'administration, et le lire au démarrage le ferait mentir jusqu'au
+	// prochain déploiement.
+	modules := dashhttp.NewModules(db, logger)
 	authHandler := dashhttp.NewAuthHandler(
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL),
 		cfg.OIDC.SessionTTL).
 		// `/me` rend le projet courant : l'interface en a besoin pour composer ses
 		// URL, et la liste des projets exige `admin` qu'elle n'a pas forcément.
-		WithProjects(db)
+		WithProjects(db).
+		WithModules(modules)
 	// Les contrôles rattachés à un projet ont besoin de traduire le nom porté par
 	// l'URL : c'est lui qui dit dans quel périmètre le rôle est vérifié.
-	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger).WithProjects(db)
+	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger).WithProjects(db).WithModules(modules)
 	runsHandler := dashhttp.NewRunsHandler(db).
 		WithTektonDashboard(cfg.Tekton.DashboardURL).
 		// L'annuaire traduit le sujet OIDC du demandeur en nom : c'est « qui a
@@ -244,6 +250,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// liste et l'écran d'une release affichent le même chiffre.
 		WithScoreCatalog(pipelines).
 		WithArtifactReader(db).
+		WithModules(modules).
 		WithTrackerURL(cfg.Tracker.URL).
 		// Le même déployeur que l'observateur, et le même que celui qui a validé
 		// les environnements au démarrage : un aperçu de promotion qui répondrait
@@ -472,52 +479,78 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
-	// Le client Flux découvre les versions d'API servies au lieu de les coder :
-	// `kustomize.toolkit.fluxcd.io/v1` est stable depuis Flux 2.0, alors que
-	// `image.toolkit.fluxcd.io/v1` n'existe que depuis 2.7, et une même
-	// installation peut donc servir les deux dans des versions différentes.
-	fluxClient, err := flux.Open(cluster.RESTConfig, cfg.Flux.Namespace)
-	if err != nil {
-		return err
-	}
-	logger.Info("client Flux", "namespace", cfg.Flux.Namespace, "versions", fluxClient.Versions())
-
-	// Deux dépendances distinctes, et depuis le lot D deux clients distincts :
-	// l'une dit ce que le déploiement a appliqué, l'autre ce que l'application
-	// rapporte d'elle-même. C'est leur écart qui fait la valeur de l'écran des
-	// environnements, et les confondre le ferait disparaître (B8).
+	// Le plugin MSE décide de tout ce qui suit : Flux, PortalData, l'observation
+	// des environnements. Éteint, le worker démarre sur un cluster qui ne porte ni
+	// les CRD de Flux ni celui du portail (doc 16 §16.8).
 	//
-	// L'attestation est **facultative** : un cluster sans le CRD du portail est
-	// une configuration valide — c'est le cas de tout projet qui n'est pas le
-	// MSE —, et le dashboard y retombe sur ce que le déploiement déclare. Tant
-	// qu'un seul client résolvait les deux, cette absence faisait échouer le
-	// démarrage sur une dépendance principale parfaitement installée.
-	var attester provider.Attester = provider.NoAttester{}
-	switch portalClient, err := portaldata.Open(cluster.RESTConfig); {
-	case errors.Is(err, portaldata.ErrAbsent):
-		logger.Info("aucune source d'attestation dans ce cluster",
-			"consequence", "l'état des environnements sera celui que le déployeur déclare")
-	case err != nil:
-		return err
-	default:
-		attester = portalClient
-		// `api_version` et non `version` : le logger porte déjà un attribut
-		// `version` — celui du binaire —, et deux clés homonymes dans un même
-		// enregistrement le rendent illisible.
-		logger.Info("source d'attestation", "api_version", portalClient.Version())
-	}
-
-	deployer := flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
-	environments := worker.NewEnvironmentObserver(db, deployer, attester, logger)
-
-	// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
-	// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux
-	// ignorerait. Mieux vaut ne pas démarrer.
-	syncCtx, cancelSync := context.WithTimeout(ctx, 30*time.Second)
-	err = environments.SyncEnvironments(syncCtx, pipelines.Environments)
-	cancelSync()
+	// **Lu au démarrage**, contrairement à l'`api` : ouvrir un client Flux ou le
+	// refermer en cours de route toucherait au bail et à la boucle d'observation.
+	// Basculer l'interrupteur demande donc un redémarrage du worker pour prendre
+	// effet ici.
+	pluginSettings, err := db.PluginSettingsAll(ctx)
 	if err != nil {
 		return err
+	}
+	mse := pluginSettings[plugin.ModuleMSE]
+	var environments *worker.EnvironmentObserver
+	if !mse.Enabled {
+		logger.Info("module MSE inactif",
+			"consequence", "ni Flux, ni PortalData, ni observation des environnements")
+	} else {
+		// Le namespace vient du réglage du plugin, et la configuration ne sert
+		// plus que de repli : l'administration l'affichait sans qu'il serve.
+		namespace := strings.TrimSpace(mse.Config["namespace"])
+		if namespace == "" {
+			namespace = cfg.Flux.Namespace
+		}
+
+		// Le client Flux découvre les versions d'API servies au lieu de les coder :
+		// `kustomize.toolkit.fluxcd.io/v1` est stable depuis Flux 2.0, alors que
+		// `image.toolkit.fluxcd.io/v1` n'existe que depuis 2.7, et une même
+		// installation peut donc servir les deux dans des versions différentes.
+		fluxClient, err := flux.Open(cluster.RESTConfig, namespace)
+		if err != nil {
+			return err
+		}
+		logger.Info("client Flux", "namespace", namespace, "versions", fluxClient.Versions())
+
+		// Deux dépendances distinctes, et depuis le lot D deux clients distincts :
+		// l'une dit ce que le déploiement a appliqué, l'autre ce que l'application
+		// rapporte d'elle-même. C'est leur écart qui fait la valeur de l'écran des
+		// environnements, et les confondre le ferait disparaître (B8).
+		//
+		// L'attestation est **facultative** : un cluster sans le CRD du portail est
+		// une configuration valide — c'est le cas de tout projet qui n'est pas le
+		// MSE —, et le dashboard y retombe sur ce que le déploiement déclare. Tant
+		// qu'un seul client résolvait les deux, cette absence faisait échouer le
+		// démarrage sur une dépendance principale parfaitement installée.
+		var attester provider.Attester = provider.NoAttester{}
+		switch portalClient, err := portaldata.Open(cluster.RESTConfig); {
+		case errors.Is(err, portaldata.ErrAbsent):
+			logger.Info("aucune source d'attestation dans ce cluster",
+				"consequence", "l'état des environnements sera celui que le déployeur déclare")
+		case err != nil:
+			return err
+		default:
+			attester = portalClient
+			// `api_version` et non `version` : le logger porte déjà un attribut
+			// `version` — celui du binaire —, et deux clés homonymes dans un même
+			// enregistrement le rendent illisible.
+			logger.Info("source d'attestation", "api_version", portalClient.Version())
+		}
+
+		deployer := flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
+		environments = worker.NewEnvironmentObserver(db, deployer, attester, logger)
+
+		// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
+		// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux
+		// ignorerait. Mieux vaut ne pas démarrer.
+		syncCtx, cancelSync := context.WithTimeout(ctx, 30*time.Second)
+		err = environments.SyncEnvironments(syncCtx, pipelines.Environments)
+		cancelSync()
+		if err != nil {
+			return err
+		}
 	}
 
 	identity := worker.LeaderIdentity()
@@ -705,7 +738,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			errs := make(chan error, 8)
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
-			go func() { errs <- environments.Run(leadingCtx) }()
+			if environments != nil {
+				go func() { errs <- environments.Run(leadingCtx) }()
+			}
 			go func() { errs <- purger.Run(leadingCtx) }()
 
 			// La pose des clés de déploiement. Sous le bail comme le reste : deux

@@ -45,8 +45,7 @@ import (
 
 // Kind est le point d'extension qu'un plugin réalise.
 //
-// Jeu **fermé** : ce sont les cinq frontières que doc 12 §12.5 a identifiées, et
-// en ajouter une demande du code, pas de la configuration. Tekton n'y figure pas,
+// Jeu **fermé** : en ajouter un demande du code, pas de la configuration. Tekton n'y figure pas,
 // délibérément — c'est une hypothèse assumée du produit, comme PostgreSQL.
 type Kind string
 
@@ -55,25 +54,27 @@ const (
 	KindTracker Kind = "tracker"
 	// KindForge porte les dépôts, les branches et les tags.
 	KindForge Kind = "forge"
-	// KindDeployer porte l'intention de déploiement.
-	KindDeployer Kind = "deployer"
-	// KindAttester dit quelle version tourne réellement.
-	//
-	// Séparé de [KindDeployer] délibérément : les deux viennent de sources
-	// différentes, et les fondre perdrait la distinction entre l'intention et le
-	// constat — celle qui fait la valeur de l'écran des environnements (B8).
-	KindAttester Kind = "attester"
 	// KindExporter produit les livrables contractuels.
 	KindExporter Kind = "exporter"
+	// KindModule apporte un domaine entier : ses écrans, ses routes, ses boucles.
+	//
+	// Il remplace `deployer` et `attester`, qui n'avaient qu'une réalisation
+	// chacun — Flux et PortalData — et n'existent que dans le contexte MSE. Un
+	// plugin qui déploie, atteste et apporte un écran n'entrait dans aucune de ces
+	// cases ; le déclarer « déployeur » passerait le reste sous silence (doc 16).
+	KindModule Kind = "module"
 )
+
+// ModuleMSE identifie le plugin MSE : environnements, promotion par Flux,
+// attestation par PortalData.
+const ModuleMSE = "mse"
 
 // KindLabel nomme chaque point d'extension en français, pour l'interface.
 var KindLabel = map[Kind]string{
 	KindTracker:  "Suivi",
 	KindForge:    "Forge",
-	KindDeployer: "Déploiement",
-	KindAttester: "Attestation",
 	KindExporter: "Livrables",
+	KindModule:   "Module",
 }
 
 // FieldType dit comment un champ se saisit et se vérifie.
@@ -394,24 +395,19 @@ func Registry() []Descriptor {
 			PerProject: true,
 		},
 		{
-			ID: "flux", Kind: KindDeployer, Label: "Flux",
-			Summary: "Intention de déploiement lue dans les ImagePolicy et Kustomization.",
+			ID: ModuleMSE, Kind: KindModule, Label: "MSE",
+			Summary: "Environnements, promotion par Flux et attestation par PortalData.",
 			Global: []Field{
 				{
-					Name: "namespace", Label: "Namespace", Type: FieldText,
+					Name: "namespace", Label: "Namespace Flux", Type: FieldText,
 					Help:        "Là où vivent les objets Flux, distinct de celui des pipelines.",
 					Placeholder: "flux-system",
 				},
 			},
+			// Pour toute l'instance : les environnements ne sont pas une propriété
+			// d'un projet. Éteint, l'instance n'a ni onglet Environnements, ni
+			// promotion, ni observation (doc 16 §16.8).
 			PerProject: false,
-		},
-		{
-			ID: "portaldata", Kind: KindAttester, Label: "PortalData",
-			Summary: "Version réellement en place, lue dans le CRD PortalData.",
-			// Aucun réglage : le CRD est là ou il ne l'est pas. Ce qui se décide,
-			// c'est si un projet l'utilise — un projet sans PortalData doit dire
-			// « non attesté » plutôt que d'afficher un écart permanent.
-			PerProject: true,
 		},
 		{
 			ID: "bon-de-livraison", Kind: KindExporter, Label: "Bon de livraison",

@@ -1,6 +1,7 @@
 import { Icon } from '../../components/Icon'
 import { status } from '../../lib/status'
 import { useEnvironments } from '../environments/api'
+import { MODULE_MSE, useModule } from '../auth/session'
 import type { Release } from './api'
 
 /*
@@ -23,6 +24,8 @@ import type { Release } from './api'
  * cycle, ce qu'aucune des trois ne recouvre.
  */
 export function ReleaseBadges({ release }: { release: Release }) {
+  const mse = useModule(MODULE_MSE)
+
   return (
     <>
       {release.build_failed && (
@@ -33,7 +36,7 @@ export function ReleaseBadges({ release }: { release: Release }) {
       )}
 
       <ScoreBadge score={release.score} />
-      <DeployedBadges environments={release.deployed_on ?? []} />
+      {mse && <DeployedBadges environments={release.deployed_on ?? []} />}
     </>
   )
 }

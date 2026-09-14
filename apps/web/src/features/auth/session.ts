@@ -15,6 +15,12 @@ export type Identity = {
    * `/projects//releases`.
    */
   projects?: ProjectChoice[]
+  /**
+   * Modules allumés sur l'instance — `mse` pour les environnements et la
+   * promotion. Absent ou vide : l'interface ne propose aucun de leurs écrans, et
+   * leurs routes répondraient 404 (doc 16).
+   */
+  modules?: string[]
 }
 
 export type Role = 'viewer' | 'operator' | 'releaser' | 'admin'
@@ -59,6 +65,21 @@ export function useSession(): SessionState {
 
   return { kind: 'authenticated', identity: query.data }
 }
+
+/**
+ * Dit si un module est allumé.
+ *
+ * Faux tant que la session n'est pas chargée : afficher l'onglet puis le retirer
+ * ferait sauter la navigation, et proposer un écran dont les requêtes échoueront
+ * est pire que le montrer une seconde plus tard.
+ */
+export function useModule(module: string): boolean {
+  const session = useSession()
+  return session.kind === 'authenticated' && (session.identity.modules ?? []).includes(module)
+}
+
+/** Le module qui porte les environnements, la promotion et les validations. */
+export const MODULE_MSE = 'mse'
 
 const ROLE_LABELS: Record<Role, string> = {
   viewer: 'Lecture',

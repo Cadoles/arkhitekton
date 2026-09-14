@@ -1,0 +1,102 @@
+package http
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+)
+
+/*
+ * Les modules actifs d'une instance.
+ *
+ * Un module apporte un domaine entier — le plugin MSE, ses environnements et sa
+ * promotion. Éteint, ses routes répondent 404 et l'interface ne les propose pas :
+ * une instance sans lui doit rester cohérente (doc 16 §16.8).
+ *
+ * # Lu à chaque requête
+ *
+ * L'interrupteur se bascule depuis l'écran d'administration. Le lire au
+ * démarrage de l'`api` le ferait mentir jusqu'au prochain déploiement, et
+ * l'onglet resterait affiché après qu'on l'a éteint. La lecture porte sur une
+ * table de quelques lignes.
+ */
+
+// PluginReader rend les réglages globaux des plugins.
+type PluginReader interface {
+	PluginSettingsAll(ctx context.Context) (map[string]store.PluginSettings, error)
+}
+
+// Modules dit quels modules sont actifs.
+type Modules struct {
+	store  PluginReader
+	logger *slog.Logger
+}
+
+func NewModules(reader PluginReader, logger *slog.Logger) *Modules {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Modules{store: reader, logger: logger}
+}
+
+// Active rend les identifiants des modules allumés.
+//
+// Une lecture impossible rend une liste vide : l'interface masque alors les
+// modules plutôt que d'afficher des écrans dont chaque requête échouerait.
+func (m *Modules) Active(ctx context.Context) []string {
+	settings, err := m.store.PluginSettingsAll(ctx)
+	if err != nil {
+		m.logger.Error("lecture des modules actifs", "error", err)
+		return []string{}
+	}
+	active := []string{}
+	for _, descriptor := range plugin.Registry() {
+		if descriptor.Kind == plugin.KindModule && settings[descriptor.ID].Enabled {
+			active = append(active, descriptor.ID)
+		}
+	}
+	return active
+}
+
+// Enabled dit si un module est allumé.
+//
+// Un `Modules` nil répond oui : c'est l'état d'un assemblage qui ne branche pas
+// la vérification — les tests des handlers —, et il reproduit le comportement
+// d'avant les modules.
+func (m *Modules) Enabled(ctx context.Context, id string) bool {
+	if m == nil {
+		return true
+	}
+	for _, active := range m.Active(ctx) {
+		if active == id {
+			return true
+		}
+	}
+	return false
+}
+
+// RequireModule répond 404 quand le module est éteint.
+//
+// 404 et non 403 : la route n'existe pas sur cette instance, et aucun rôle ne la
+// ferait apparaître.
+func (m *Middleware) RequireModule(id string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !m.modules.Enabled(r.Context(), id) {
+				writeProblem(w, http.StatusNotFound, "Module inactif",
+					"le module "+id+" est éteint sur cette instance")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// WithModules branche la vérification des modules.
+func (m *Middleware) WithModules(modules *Modules) *Middleware {
+	m.modules = modules
+	return m
+}

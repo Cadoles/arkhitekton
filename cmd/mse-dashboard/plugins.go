@@ -31,9 +31,8 @@ import (
 // faute de frappe produirait un réglage qu'aucun plugin ne relit, et l'écran
 // dirait « enregistré » sur une valeur morte.
 const (
-	trackerPluginID  = "redmine"
-	forgePluginID    = "gitea"
-	deployerPluginID = "flux"
+	trackerPluginID = "redmine"
+	forgePluginID   = "gitea"
 )
 
 // pluginIDs énumère les plugins embarqués, pour l'amorçage des lignes manquantes.
@@ -122,7 +121,7 @@ func configuredPlugins(cfg config.Config, cipher *secrets.Cipher, logger *slog.L
 
 	if namespace := strings.TrimSpace(cfg.Flux.Namespace); namespace != "" {
 		settings = append(settings, store.PluginSettings{
-			PluginID: deployerPluginID, Enabled: true,
+			PluginID: plugin.ModuleMSE, Enabled: true,
 			Config: map[string]string{"namespace": namespace},
 		})
 	}

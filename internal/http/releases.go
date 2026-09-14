@@ -19,6 +19,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
@@ -137,6 +138,9 @@ type ReleasesHandler struct {
 	// plan figé qui donne leur nom aux gestes. Nil : la section reste vide plutôt
 	// que d'empêcher la page.
 	artifactReader ArtifactReader
+	// modules dit si le plugin MSE est allumé. Éteint, une release ne dit ni où
+	// elle tourne ni vers où elle peut être promue.
+	modules *Modules
 	// scoreCatalog sert au score, et pour la même raison que dans le gestionnaire
 	// des tests : nommer la famille d'un geste qui n'a rien produit. La pastille
 	// de la liste et l'écran d'une release doivent afficher le même chiffre, donc
@@ -173,6 +177,12 @@ type ArtifactReader interface {
 // WithArtifactReader branche la lecture des artefacts d'une release.
 func (h *ReleasesHandler) WithArtifactReader(reader ArtifactReader) *ReleasesHandler {
 	h.artifactReader = reader
+	return h
+}
+
+// WithModules branche la vérification des modules.
+func (h *ReleasesHandler) WithModules(modules *Modules) *ReleasesHandler {
+	h.modules = modules
 	return h
 }
 
@@ -406,12 +416,15 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	who := h.actorsFor(r.Context())
+	mse := h.modules.Enabled(r.Context(), plugin.ModuleMSE)
 
 	payload := make([]releasePayload, 0, len(releases))
 	for _, item := range releases {
 		entry := toReleasePayload(item, "", who)
 		entry.BuildFailed = badges[item.Tag].BuildFailed
-		entry.DeployedOn = badges[item.Tag].Deployed
+		if mse {
+			entry.DeployedOn = badges[item.Tag].Deployed
+		}
 		// Le score est calculé release par release, donc deux lectures chacune.
 		// C'est assumé : la liste est bornée à cinquante entrées, les requêtes
 		// sont indexées, et le même chiffre doit sortir ici et sur l'écran d'une
@@ -532,6 +545,10 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		payload.BuildFailed = badges[item.Tag].BuildFailed
 		payload.DeployedOn = badges[item.Tag].Deployed
 	}
+	mse := h.modules.Enabled(r.Context(), plugin.ModuleMSE)
+	if !mse {
+		payload.DeployedOn = nil
+	}
 	payload.Score = h.scoreDigest(r.Context(), item.ID)
 
 	if item.ManualActions != "" || item.ManualActionsUpdatedAt != nil {
@@ -547,10 +564,15 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		payload.ArtifactsNote = "Le registre n'est pas configuré : les digests ne peuvent pas être lus."
 	}
 
-	environments, err := h.store.ListEnvironments(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
-		return
+	// Sans le plugin MSE, une release n'a pas de cible de promotion : la liste
+	// resterait lisible depuis la table, mais proposerait un geste que la route
+	// refuserait.
+	var environments []store.Environment
+	if mse {
+		if environments, err = h.store.ListEnvironments(r.Context()); err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
+			return
+		}
 	}
 	identity, _ := IdentityFrom(r.Context())
 	for _, environment := range environments {

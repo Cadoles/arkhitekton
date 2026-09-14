@@ -10,7 +10,7 @@ import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../compo
 import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
 import { useEnvironments } from '../environments/api'
-import { hasAtLeast, useSession } from '../auth/session'
+import { hasAtLeast, MODULE_MSE, useModule, useSession } from '../auth/session'
 import {
   downloadURL,
   useExports,
@@ -38,6 +38,7 @@ import {
 export function ReleaseScreen() {
   const { tag } = useParams()
   const { data, isPending, error, refetch } = useRelease(tag)
+  const mse = useModule(MODULE_MSE)
 
   return (
     <div className="flex flex-col gap-5">
@@ -72,7 +73,9 @@ export function ReleaseScreen() {
               savoir où en est la release ; ce qu'elle apporte se relit ensuite,
               au moment de rédiger ce qui part chez le client. */}
           <Artifacts release={data} />
-          <Deployment release={data} />
+          {/* Le plugin MSE porte la promotion : éteint, la release n'a nulle part
+              où aller, et la section proposerait un geste que le serveur refuse. */}
+          {mse && <Deployment release={data} />}
 
           <ReleaseNotes release={data} />
           <Exports release={data} />

@@ -3,6 +3,8 @@ import { Navigate, type RouteObject } from 'react-router'
 import { AppShell } from './components/AppShell'
 import { Placeholder } from './components/Placeholder'
 import { NotFound } from './components/NotFound'
+import { HomeRedirect, ModuleRoute } from './components/ModuleRoute'
+import { MODULE_MSE } from './features/auth/session'
 import { RunsScreen } from './features/runs/RunsScreen'
 import { ExecutionsLayout } from './features/runs/ExecutionsLayout'
 import { QueueScreen } from './features/queue/QueueScreen'
@@ -64,11 +66,32 @@ export const routes: RouteObject[] = [
     path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/environments" replace /> },
+      { index: true, element: <HomeRedirect /> },
 
-      { path: 'environments', element: <EnvironmentsScreen /> },
-      { path: 'environments/:env', element: <EnvironmentScreen /> },
-      { path: 'environments/:env/history', element: <HistoryScreen /> },
+      {
+        path: 'environments',
+        element: (
+          <ModuleRoute module={MODULE_MSE}>
+            <EnvironmentsScreen />
+          </ModuleRoute>
+        ),
+      },
+      {
+        path: 'environments/:env',
+        element: (
+          <ModuleRoute module={MODULE_MSE}>
+            <EnvironmentScreen />
+          </ModuleRoute>
+        ),
+      },
+      {
+        path: 'environments/:env/history',
+        element: (
+          <ModuleRoute module={MODULE_MSE}>
+            <HistoryScreen />
+          </ModuleRoute>
+        ),
+      },
 
       { path: 'versions', element: <VersionsScreen /> },
       { path: 'versions/:id', element: <VersionScreen /> },

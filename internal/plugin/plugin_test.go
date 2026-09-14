@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// Le registre couvre les cinq points d'extension de doc 12 §12.5, et rien d'autre.
+// Le registre couvre chaque genre de plugin, et rien d'autre.
 //
-// Le test porte sur les **genres** et non sur le nombre de plugins : en ajouter
-// un sixième est une évolution normale, en inventer un sixième genre demande du
-// code et doit se voir.
-func TestLeRegistreCouvreLesCinqPointsDExtension(t *testing.T) {
+// Le test porte sur les **genres** et non sur le nombre de plugins : ajouter un
+// plugin est une évolution normale, inventer un genre demande du code et doit se
+// voir.
+func TestLeRegistreCouvreChaqueGenre(t *testing.T) {
 	seen := map[Kind]bool{}
 	ids := map[string]bool{}
 
@@ -31,7 +31,7 @@ func TestLeRegistreCouvreLesCinqPointsDExtension(t *testing.T) {
 		seen[descriptor.Kind] = true
 	}
 
-	for _, kind := range []Kind{KindTracker, KindForge, KindDeployer, KindAttester, KindExporter} {
+	for _, kind := range []Kind{KindTracker, KindForge, KindExporter, KindModule} {
 		if !seen[kind] {
 			t.Errorf("aucune réalisation pour le genre %q", kind)
 		}

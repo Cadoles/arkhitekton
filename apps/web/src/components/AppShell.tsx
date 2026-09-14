@@ -4,7 +4,7 @@ import { Icon, type IconName } from './Icon'
 import { Skeleton } from './primitives'
 import { useTheme } from '../lib/theme'
 import { logout } from '../lib/api'
-import { roleLabel, useSession } from '../features/auth/session'
+import { MODULE_MSE, roleLabel, useSession } from '../features/auth/session'
 import { currentProject, projects, selectProject } from '../lib/project'
 
 /*
@@ -16,10 +16,16 @@ import { currentProject, projects, selectProject } from '../lib/project'
  * grammaire.
  */
 
-type NavEntry = { to: string; label: string; icon: IconName }
+type NavEntry = {
+  to: string
+  label: string
+  icon: IconName
+  /** Le module qui doit être allumé pour que l'entrée apparaisse. */
+  module?: string
+}
 
 const NAV: NavEntry[] = [
-  { to: '/environments', label: 'Environnements', icon: 'layers' },
+  { to: '/environments', label: 'Environnements', icon: 'layers', module: MODULE_MSE },
   { to: '/versions', label: 'Versions', icon: 'tag' },
   { to: '/releases', label: 'Releases', icon: 'doc' },
   // Une entrée pour les trois vues d'exécution : l'historique, les files et
@@ -126,6 +132,10 @@ function SessionBadge() {
 export const APP_SCROLL_ID = 'app-scroll'
 
 export function AppShell() {
+  const session = useSession()
+  const modules = session.kind === 'authenticated' ? (session.identity.modules ?? []) : []
+  const entries = NAV.filter((entry) => !entry.module || modules.includes(entry.module))
+
   return (
     /*
      * Le défilement appartient au conteneur intérieur, pas au document.
@@ -169,7 +179,7 @@ export function AppShell() {
 
         <nav aria-label="Navigation principale" className="border-t border-zinc-200">
           <ul className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4">
-            {NAV.map((entry) => (
+            {entries.map((entry) => (
               <li key={entry.to}>
                 <NavLink
                   to={entry.to}

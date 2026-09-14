@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 )
 
 // NewAPIRouter monte les routes applicatives.
@@ -106,7 +107,7 @@ func NewAPIRouter(
 	// L'environnement est dans le chemin et non dans le corps, précisément pour
 	// que l'autorisation — qui est par environnement — reste décidée ici.
 	mux.Handle("POST /projects/{project}/releases/{tag}/promote/{environment}", Chain(http.HandlerFunc(releases.Promote),
-		middleware.Authenticate, middleware.CSRF, middleware.RequireDeploy("environment")))
+		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.CSRF, middleware.RequireDeploy("environment")))
 
 	// Valider une release engage ce qui partira chez l'utilisateur : même
 	// permission que produire une release finale, et non `release:edit`. C'est
@@ -170,11 +171,11 @@ func NewAPIRouter(
 	// livrent, alors que valider et livrer sont justement les deux gestes qu'on
 	// souhaite voir accomplis par des personnes distinctes.
 	mux.Handle("GET /projects/{project}/releases/{tag}/signoffs", Chain(http.HandlerFunc(signoffs.List),
-		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.RequireIn(auth.PermRead)))
 	mux.Handle("PUT /projects/{project}/releases/{tag}/signoffs/{env}", Chain(http.HandlerFunc(signoffs.Set),
-		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
+		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 	mux.Handle("DELETE /projects/{project}/releases/{tag}/signoffs/{env}", Chain(http.HandlerFunc(signoffs.Clear),
-		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
+		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 
 	// Les campagnes de charge sont en lecture pour tous. Épingler une baseline
 	// déplace en revanche la référence de tous les verdicts suivants : c'est une
@@ -187,11 +188,11 @@ func NewAPIRouter(
 	// La vue d'ensemble est en lecture pour tous : savoir ce qui tourne où ne
 	// demande aucun privilège.
 	mux.Handle("GET /environments", Chain(http.HandlerFunc(releases.Environments),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.Require(auth.PermRead)))
 	mux.Handle("GET /environments/{environment}", Chain(http.HandlerFunc(releases.Environment),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.Require(auth.PermRead)))
 	mux.Handle("GET /environments/{environment}/history", Chain(http.HandlerFunc(releases.History),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.Require(auth.PermRead)))
 
 	// L'administration exige `admin`, et rien de moins : attribuer un rôle est ce
 	// qui permet d'en attribuer d'autres, donc la seule permission qui se

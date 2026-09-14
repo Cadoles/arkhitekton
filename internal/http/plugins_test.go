@@ -38,8 +38,7 @@ func newFakePluginStore() *fakePluginStore {
 		global: map[string]store.PluginSettings{
 			"redmine":          {PluginID: "redmine", Enabled: true, Config: map[string]string{}},
 			"gitea":            {PluginID: "gitea", Enabled: true, Config: map[string]string{}},
-			"flux":             {PluginID: "flux", Enabled: true, Config: map[string]string{}},
-			"portaldata":       {PluginID: "portaldata", Enabled: true, Config: map[string]string{}},
+			"mse":              {PluginID: "mse", Enabled: true, Config: map[string]string{}},
 			"bon-de-livraison": {PluginID: "bon-de-livraison", Enabled: true, Config: map[string]string{}},
 		},
 		byProject: map[int64]map[string]store.PluginSettings{},
@@ -306,8 +305,8 @@ func TestUnPluginInconnuRepond404(t *testing.T) {
 // l'actionner, puis à chercher pourquoi rien ne change.
 func TestLeProjetNeVoitQueCeQuIlPeutDecider(t *testing.T) {
 	fake := newFakePluginStore()
-	// L'instance éteint l'attestation : le projet ne doit plus la voir.
-	fake.global["portaldata"] = store.PluginSettings{PluginID: "portaldata", Enabled: false}
+	// L'instance éteint le bon de livraison : le projet ne doit plus le voir.
+	fake.global["bon-de-livraison"] = store.PluginSettings{PluginID: "bon-de-livraison", Enabled: false}
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
 
 	request := httptest.NewRequest(http.MethodGet, "/projects/mse/plugins", nil)
@@ -333,23 +332,23 @@ func TestLeProjetNeVoitQueCeQuIlPeutDecider(t *testing.T) {
 	for _, entry := range payload.Plugins {
 		ids = append(ids, entry.ID)
 		// Sans décision du projet, l'héritage vaut « oui » : c'est ce qui fait
-		// qu'un projet déclaré avant ces tables continue de recevoir son bon de
-		// livraison et son attestation.
+		// qu'un projet déclaré avant ces tables continue de recevoir ce que
+		// l'instance lui offre.
 		if !entry.Enabled {
 			t.Errorf("plugin %q éteint alors que le projet n'a rien décidé", entry.ID)
 		}
 	}
 
-	if slices.Contains(ids, "portaldata") {
+	if slices.Contains(ids, "bon-de-livraison") {
 		t.Error("un plugin éteint sur l'instance est proposé au projet")
 	}
-	// `flux` vaut nécessairement pour toute l'instance : son namespace n'est pas
-	// une propriété d'un projet, et prétendre le contraire afficherait un
-	// interrupteur qui ne fait rien.
-	if slices.Contains(ids, "flux") {
+	// `mse` vaut nécessairement pour toute l'instance : les environnements ne
+	// sont pas une propriété d'un projet, et prétendre le contraire afficherait
+	// un interrupteur qui ne fait rien.
+	if slices.Contains(ids, "mse") {
 		t.Error("un plugin qui vaut pour l'instance est proposé au projet")
 	}
-	if !slices.Contains(ids, "redmine") || !slices.Contains(ids, "bon-de-livraison") {
+	if !slices.Contains(ids, "redmine") {
 		t.Errorf("plugins proposés = %v", ids)
 	}
 }
@@ -370,15 +369,14 @@ func TestUnProjetNePeutPasRallumerCeQueLInstanceAEteint(t *testing.T) {
 
 // Un plugin qui vaut pour l'instance ne se règle pas par projet.
 //
-// `flux` en est un : le namespace où vivent ses objets n'est pas une propriété
-// d'un projet. `gitea`, lui, a cessé d'en être un le jour où il s'est mis à
+// `mse` en est un : les environnements ne sont pas une propriété d'un projet. `gitea`, lui, a cessé d'en être un le jour où il s'est mis à
 // observer — surveiller les demandes de fusion d'un dépôt est bien une décision
 // de projet, même quand la connexion vaut pour toute l'instance.
 func TestUnPluginDInstanceNeSeReglePasParProjet(t *testing.T) {
 	handler := pluginsHandlerWith(t, newFakePluginStore(), cleDeTest)
 
 	recorder := putPlugin(t, handler.SetProject,
-		"/projects/mse/plugins/flux", "flux", `{"enabled":false}`)
+		"/projects/mse/plugins/mse", "mse", `{"enabled":false}`)
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("code %d, attendu 409 — %s", recorder.Code, recorder.Body.String())
 	}

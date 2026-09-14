@@ -43,6 +43,18 @@ type AuthHandler struct {
 	// n'est pas branché : `/me` répond alors sans liste, et l'interface le dit
 	// plutôt que de composer des URL creuses.
 	projects projectLister
+	// modules rend les modules actifs avec l'identité. Nil : `/me` n'en dit rien.
+	modules *Modules
+}
+
+// WithModules rend les modules actifs sur `/me`.
+//
+// Là parce que c'est la seule réponse que toute personne connectée peut lire :
+// la liste des plugins exige `admin`, et la navigation en dépend dès le premier
+// écran.
+func (h *AuthHandler) WithModules(modules *Modules) *AuthHandler {
+	h.modules = modules
+	return h
 }
 
 // WithProjects branche la résolution du projet courant sur `/me`.
@@ -219,6 +231,9 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		payload["projects"] = visible
+	}
+	if h.modules != nil {
+		payload["modules"] = h.modules.Active(r.Context())
 	}
 	writeJSON(w, http.StatusOK, payload)
 }

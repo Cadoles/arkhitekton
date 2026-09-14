@@ -30,7 +30,9 @@ type Middleware struct {
 	// refuse alors tout, ce qui est le bon sens du doute — sans projet résolu, il
 	// n'y a pas de rôle à vérifier.
 	projects projectResolver
-	logger   *slog.Logger
+	// modules dit quels modules sont allumés. Nil : tous le sont.
+	modules *Modules
+	logger  *slog.Logger
 }
 
 func NewMiddleware(sessions Sessions, authorizer *auth.Authorizer, logger *slog.Logger) *Middleware {
