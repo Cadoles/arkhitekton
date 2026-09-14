@@ -396,3 +396,49 @@ quand le module est éteint. Elle suit l'interrupteur à chaque requête, comme 
 **Les réactions suivent, les faits passés restent.** La migration 0052 renomme le type des
 réactions déclarées sur `release.promoted`. Les faits déjà écrits gardent leur type : le fil
 est une histoire, et le front garde leur libellé.
+
+---
+
+## 16.14 Tranche 3b — ce que l'écriture a tranché
+
+**Les routes du plugin sont montées par le plugin.** `NewAPIRouter` accepte des `Mount` : des
+fonctions qui reçoivent le multiplexeur et le middleware. `mse.Handler.Routes` y déclare les
+cinq routes :
+
+- cibles d'une release ;
+- promotion ;
+- vue d'ensemble des environnements ;
+- détail d'un environnement ;
+- historique d'un environnement.
+
+Chacune porte `RequireModule`. Pour y répondre dans le format de l'API, le plugin emprunte au
+noyau `WriteJSON`, `WriteProblem` et `RequestProject`. Ce sont des exports minces, réunis dans
+`internal/http/plugin.go`.
+
+**Les cibles de promotion quittent la charge d'une release.** Elles étaient calculées dans
+`GET /releases/{tag}` et rendues vides quand le module était éteint. Elles sont servies par
+`GET /projects/{project}/releases/{tag}/targets`, route du plugin, que la section Déploiement
+interroge. La liste des promotions **demandées** reste dans la charge : la table appartient au
+schéma, et les artefacts s'en servent pour signaler un digest divergent.
+
+**L'observation part dans `internal/mse`.** `EnvironmentObserver` devient `mse.Observer`. Il
+dépend de deux interfaces étroites déclarées par le plugin : ce qu'il demande à Flux et à
+PortalData. Sans le CRD du portail, l'attestation est nulle plutôt qu'un `NoAttester`.
+
+**`provider.Deployer` et `provider.Attester` sont supprimés.** Leurs types d'échange suivent
+leur seul appelant :
+
+| Type | Destination |
+|---|---|
+| `Target`, `Deployment`, `Plan`, `Observation`, `Resolution` | `internal/mse/flux` |
+| `Attestation` | `internal/mse/portaldata` |
+
+`NoDeployer` et `ErrNoDeployment` disparaissent. « Aucun déployeur » s'écrit désormais
+« module éteint », et la route répond 404 au lieu de 501.
+
+**Le test du catalogue sans réglage de déployeur reste**, déplacé dans `internal/catalog` :
+c'est une propriété du catalogue, pas de l'observateur.
+
+**Ce qui reste dans le noyau** relève des tranches 4 et 5 : les validations de recette et
+leurs routes, `environmentPolicies()` dans `main.go`, la table `environments` et ses lectures
+dans `internal/store`.

@@ -16,8 +16,8 @@ import (
 
 /*
  * Les modules, et la porte de doc 16 §16.8 : une instance sans le plugin MSE
- * reste cohérente — ses routes répondent 404, `/me` ne l'annonce pas, et une
- * release ne propose aucune promotion.
+ * reste cohérente — ses routes répondent 404 et `/me` ne l'annonce pas. Les
+ * cibles de promotion d'une release sont l'une de ces routes (doc 16 §16.14).
  */
 
 type lecteurDePlugins struct {
@@ -104,40 +104,5 @@ func TestMeAnnonceLesModules(t *testing.T) {
 	}
 	if !slices.Equal(payload.Modules, []string{"mse"}) {
 		t.Errorf("modules = %v, attendu [mse]", payload.Modules)
-	}
-}
-
-// Sans le module MSE, une release ne propose aucune cible de promotion — même si
-// la table des environnements garde les lignes d'une activation passée.
-func TestSansModuleMSEUneReleaseNaPasDeCible(t *testing.T) {
-	for _, cas := range []struct {
-		mse     bool
-		cibles  bool
-		libelle string
-	}{
-		{mse: false, cibles: false, libelle: "module éteint"},
-		{mse: true, cibles: true, libelle: "module allumé"},
-	} {
-		fake := newFakeStore()
-		fake.releases["1.8.0-rc1"] = store.Release{
-			ID: 9, Tag: "1.8.0-rc1", Kind: "pre", State: "ready", ImageVersion: "1.8.0-rc1",
-		}
-		handler := newReleasesHandler(t, fake).WithModules(modulesAvec(cas.mse))
-
-		request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0-rc1", nil)
-		request.SetPathValue("tag", "1.8.0-rc1")
-		recorder := httptest.NewRecorder()
-		handler.Get(recorder, asRole(request, auth.RoleReleaser))
-
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("%s: code %d — %s", cas.libelle, recorder.Code, recorder.Body.String())
-		}
-		var payload releasePayload
-		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-			t.Fatalf("%s: décodage: %v", cas.libelle, err)
-		}
-		if got := len(payload.Targets) > 0; got != cas.cibles {
-			t.Errorf("%s: %d cible(s)", cas.libelle, len(payload.Targets))
-		}
 	}
 }

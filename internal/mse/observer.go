@@ -1,4 +1,4 @@
-package worker
+package mse
 
 import (
 	"context"
@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/portaldata"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -24,50 +25,54 @@ type EnvironmentStore interface {
 	SaveObservation(ctx context.Context, observation store.Observation) error
 }
 
-// EnvironmentObserver tient à jour ce que chaque environnement dit de lui-même.
+// Deployer est ce que l'observateur demande à Flux. Réalisé par [flux.Deployer].
+type Deployer interface {
+	Observe(ctx context.Context, target flux.Target) (flux.Observation, error)
+	Check(ctx context.Context, targets []flux.Target) error
+}
+
+// Attester dit quelle version tourne réellement dans un namespace. Réalisé par
+// [portaldata.Client].
+type Attester interface {
+	Attestations(ctx context.Context, namespace string) ([]portaldata.Attestation, error)
+}
+
+// Observer tient à jour ce que chaque environnement dit de lui-même.
 //
-// Deux sources, et leur séparation est le sujet : le **déployeur** dit ce qu'il a
-// appliqué, l'**attestation** dit ce qui tourne. C'est leur écart que l'écran des
-// environnements existe pour montrer, et les fondre en une seule dépendance le
-// ferait disparaître (B8, doc 12 §12.5).
-type EnvironmentObserver struct {
+// Deux sources, et leur séparation est le sujet : **Flux** dit ce qu'il a
+// appliqué, **PortalData** dit ce qui tourne. C'est leur écart que l'écran des
+// environnements existe pour montrer (B8).
+type Observer struct {
 	store    EnvironmentStore
-	deployer provider.Deployer
-	attester provider.Attester
+	deployer Deployer
+	// attester est nil quand le cluster ne sert pas le CRD du portail : le relevé
+	// retombe alors sur ce que Flux déclare.
+	attester Attester
 	logger   *slog.Logger
 }
 
-func NewEnvironmentObserver(
-	environments EnvironmentStore, deployer provider.Deployer,
-	attester provider.Attester, logger *slog.Logger,
-) *EnvironmentObserver {
-	return &EnvironmentObserver{
-		store: environments, deployer: deployer, attester: attester, logger: logger,
-	}
+func NewObserver(
+	environments EnvironmentStore, deployer Deployer, attester Attester, logger *slog.Logger,
+) *Observer {
+	return &Observer{store: environments, deployer: deployer, attester: attester, logger: logger}
 }
 
-// targetOf traduit un environnement déclaré vers ce que la frontière attend.
-//
-// Une **copie**, et c'est tout l'objet du lot D : les réglages du déployeur
-// traversent le dashboard sans qu'il les lise. Cette fonction nommait
-// auparavant les trois clés de Flux — elle imposait donc son vocabulaire à
-// quiconque en aurait branché un autre, dans un paquet qui n'a aucune raison de
-// connaître un outil de déploiement (doc 12 §12.9, lot D).
-func targetOf(environment store.Environment) provider.Target {
-	return provider.Target{
+// targetOf traduit un environnement déclaré vers ce que le déployeur attend.
+func targetOf(environment store.Environment) flux.Target {
+	return flux.Target{
 		ID:         environment.ID,
 		Observable: environment.Observable,
 		Settings:   environment.DeployerSettings,
 	}
 }
 
-// SyncEnvironments écrit en base les environnements déclarés, puis les soumet au
-// déployeur pour qu'il dise s'il saura les atteindre.
+// SyncEnvironments écrit en base les environnements déclarés, puis les soumet à
+// Flux pour qu'il dise s'il saura les atteindre.
 //
 // L'ordre compte : la table est d'abord alignée sur la configuration, ensuite
 // seulement confrontée au cluster. L'inverse validerait un état que le prochain
 // démarrage remplacerait.
-func (o *EnvironmentObserver) SyncEnvironments(ctx context.Context, declared []catalog.Environment) error {
+func (o *Observer) SyncEnvironments(ctx context.Context, declared []catalog.Environment) error {
 	for _, environment := range declared {
 		record := store.Environment{
 			ID:               environment.ID,
@@ -83,7 +88,7 @@ func (o *EnvironmentObserver) SyncEnvironments(ctx context.Context, declared []c
 		}
 	}
 
-	targets := make([]provider.Target, 0, len(declared))
+	targets := make([]flux.Target, 0, len(declared))
 	for _, environment := range declared {
 		targets = append(targets, targetOf(store.Environment{
 			ID:               environment.ID,
@@ -94,8 +99,8 @@ func (o *EnvironmentObserver) SyncEnvironments(ctx context.Context, declared []c
 
 	if err := o.deployer.Check(ctx, targets); err != nil {
 		// Refuser de démarrer plutôt que de proposer des promotions sans effet :
-		// un acheminement que l'outil ignore ne produit aucune erreur, et l'écart
-		// ne se verrait qu'en constatant qu'un environnement ne bouge jamais.
+		// un tag que Flux ignore ne produit aucune erreur, et l'écart ne se verrait
+		// qu'en constatant qu'un environnement ne bouge jamais.
 		return fmt.Errorf("environnements en désaccord avec le déployeur:\n%w", err)
 	}
 
@@ -104,7 +109,7 @@ func (o *EnvironmentObserver) SyncEnvironments(ctx context.Context, declared []c
 }
 
 // Run relève périodiquement l'état des environnements.
-func (o *EnvironmentObserver) Run(ctx context.Context) error {
+func (o *Observer) Run(ctx context.Context) error {
 	ticker := time.NewTicker(observeInterval)
 	defer ticker.Stop()
 
@@ -120,7 +125,7 @@ func (o *EnvironmentObserver) Run(ctx context.Context) error {
 	}
 }
 
-func (o *EnvironmentObserver) observeAll(ctx context.Context) {
+func (o *Observer) observeAll(ctx context.Context) {
 	environments, err := o.store.ListEnvironments(ctx)
 	if err != nil {
 		o.logger.Error("lecture des environnements", "error", err)
@@ -137,22 +142,17 @@ func (o *EnvironmentObserver) observeAll(ctx context.Context) {
 
 // observe croise ce que disent Flux et l'application.
 //
-// La `resolution` dit d'où vient l'information, et la distinction est
-// fonctionnelle : `portaldata` atteste qu'une version tourne **et** que ses
-// migrations ont abouti ; `git` ne dit que le tag retenu par Flux ; `unobservable`
-// dit qu'on ne peut rien affirmer. Les confondre ferait annoncer « livré » un
-// environnement dont les migrations ont échoué (B8).
-func (o *EnvironmentObserver) observe(
-	ctx context.Context, environment store.Environment,
-) store.Observation {
+// `portaldata` atteste qu'une version tourne **et** que ses migrations ont
+// abouti ; `git` ne dit que le tag retenu par Flux ; `unobservable` dit qu'on ne
+// peut rien affirmer (B8).
+func (o *Observer) observe(ctx context.Context, environment store.Environment) store.Observation {
 	observation := store.Observation{
 		EnvironmentID: environment.ID,
-		Resolution:    string(provider.ResolutionUnobservable),
+		Resolution:    string(flux.ResolutionUnobservable),
 	}
 
-	// Ce que le déployeur a appliqué : une **intention**. Un échec de lecture
-	// n'interrompt pas — l'attestation reste peut-être lisible, et enregistrer ce
-	// qu'on a vaut mieux que de ne rien enregistrer.
+	// Ce que Flux a appliqué : une **intention**. Un échec de lecture n'interrompt
+	// pas — l'attestation reste peut-être lisible.
 	declared, err := o.deployer.Observe(ctx, targetOf(environment))
 	if err != nil {
 		o.logger.Error("lecture de l'état du déployeur",
@@ -162,10 +162,10 @@ func (o *EnvironmentObserver) observe(
 		observation.Resolution = string(declared.Resolution)
 	}
 
-	if !environment.Observable {
-		// La production, dans son cluster indépendant. L'état est « non
-		// observable » et non « inconnu » : l'interface doit distinguer les deux,
-		// sans quoi une carte figée ressemble à une panne.
+	if !environment.Observable || o.attester == nil {
+		// La production, dans son cluster indépendant, ou un cluster sans le CRD
+		// du portail. « Non observable » et non « inconnu » : sans la distinction,
+		// une carte figée ressemble à une panne.
 		return observation
 	}
 
@@ -183,7 +183,7 @@ func (o *EnvironmentObserver) observe(
 		if state.Ready {
 			// Seul cas où l'on peut affirmer qu'une version est livrée : elle
 			// tourne, et ses migrations ont abouti.
-			observation.Resolution = string(provider.ResolutionAttested)
+			observation.Resolution = string(flux.ResolutionAttested)
 		}
 		break
 	}

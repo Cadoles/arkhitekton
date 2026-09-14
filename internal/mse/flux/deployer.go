@@ -5,28 +5,25 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
 )
 
 /*
- * Le déployeur GitOps, seule réalisation de [provider.Deployer].
+ * Le déployeur GitOps du plugin MSE.
  *
  * Il n'agit sur aucun cluster, et c'est la doctrine et non une limitation ([B7]) :
  * promouvoir consiste à poser un tag supplémentaire sur un digest déjà publié,
  * après quoi Flux le constate et déploie. Le dashboard ne se connecte jamais au
  * cluster cible — la production vit d'ailleurs dans un cluster qu'il ne voit pas.
  *
- * Ce que ce type ajoute au client : il **répond aux questions** du contrat, là où
- * le client se contente de lire des objets. La planification est dans
+ * Ce que ce type ajoute au client : il **planifie et juge**, là où le client se
+ * contente de lire des objets. La planification est dans
  * `promotion.go`, à côté : c'est une convention de Flux (doc 16 §16.4).
  */
 
 // Réglages qu'un environnement doit porter pour ce déployeur.
 //
-// Nommés ici, parce que c'est lui qui les lit. `provider.Target` ne les connaît
-// pas : ils n'ont de sens que pour une sélection par métadonnée SemVer, et un
-// déployeur qui procède autrement n'aurait pas à les fournir.
+// Nommés ici, parce que c'est lui qui les lit.
 const (
 	// SettingSuffix est la métadonnée SemVer que la plage de l'ImagePolicy retient.
 	SettingSuffix = "promotionSuffix"
@@ -47,7 +44,7 @@ const (
 // établit une identité. Les deux constantes coïncident sans se confondre.
 const DefaultPromotionKind = "retag"
 
-// Deployer réalise [provider.Deployer] au-dessus de Flux.
+// Deployer planifie et observe les promotions au-dessus de Flux.
 type Deployer struct {
 	client *Client
 	// kind est la famille de pipeline qui pose le tag. Portée par le déployeur
@@ -72,14 +69,12 @@ func NewDeployer(client *Client, kind, template string) *Deployer {
 	return &Deployer{client: client, kind: kind, template: template}
 }
 
-var _ provider.Deployer = (*Deployer)(nil)
-
 // Plan compose le tag à poser pour atteindre un environnement.
 //
 // Le refus est l'essentiel : une pré-release vers un environnement dont la plage
 // SemVer les exclut produirait un tag valide, poussé sans erreur, que Flux
 // ignorerait. [PromotionTag] porte cette règle et la rend telle quelle.
-func (d *Deployer) Plan(_ context.Context, request provider.Deployment) (provider.Plan, error) {
+func (d *Deployer) Plan(_ context.Context, request Deployment) (Plan, error) {
 	target := PromotionTarget{
 		ID:                request.Target.ID,
 		Suffix:            request.Target.Setting(SettingSuffix, ""),
@@ -88,10 +83,10 @@ func (d *Deployer) Plan(_ context.Context, request provider.Deployment) (provide
 
 	plan, err := PlanPromotion(request.Version, request.Artifact, target, d.template)
 	if err != nil {
-		return provider.Plan{}, err
+		return Plan{}, err
 	}
 
-	return provider.Plan{
+	return Plan{
 		Kind: d.kind,
 		Params: map[string]string{
 			"image-name": request.Name,
@@ -106,10 +101,10 @@ func (d *Deployer) Plan(_ context.Context, request provider.Deployment) (provide
 //
 // Une **intention**, jamais un constat : la Kustomization dit ce que Flux a
 // appliqué, pas ce qui tourne. Le niveau de preuve rendu est donc `declared`, et
-// c'est un [provider.Attester] qui peut l'élever — leur écart est ce que l'écran
+// c'est l'attestation de PortalData qui peut l'élever — leur écart est ce que l'écran
 // des environnements existe pour montrer (B8).
-func (d *Deployer) Observe(ctx context.Context, target provider.Target) (provider.Observation, error) {
-	observation := provider.Observation{Resolution: provider.ResolutionUnobservable}
+func (d *Deployer) Observe(ctx context.Context, target Target) (Observation, error) {
+	observation := Observation{Resolution: ResolutionUnobservable}
 
 	if !target.Observable || d.client == nil {
 		// La production, dans son cluster indépendant, ou aucun accès Flux. Non
@@ -133,7 +128,7 @@ func (d *Deployer) Observe(ctx context.Context, target provider.Target) (provide
 			continue
 		}
 		observation.State = kustomization.State()
-		observation.Resolution = provider.ResolutionDeclared
+		observation.Resolution = ResolutionDeclared
 		return observation, nil
 	}
 	return observation, nil
@@ -203,7 +198,7 @@ const probeTag = "1.0.0"
 // Sans client, rien n'est vérifié plutôt que tout refusé : un déploiement sans
 // accès Flux est une configuration valide, et faire échouer le démarrage dessus
 // empêcherait d'utiliser le reste du dashboard.
-func (d *Deployer) Check(ctx context.Context, targets []provider.Target) error {
+func (d *Deployer) Check(ctx context.Context, targets []Target) error {
 	if d.client == nil {
 		return nil
 	}

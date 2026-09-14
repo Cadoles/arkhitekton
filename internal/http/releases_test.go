@@ -13,9 +13,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
@@ -372,12 +370,6 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	})
 	return NewReleasesHandler(store, pipelines, authorizer, store.registry, store,
 		"portal", "reg.cadoles.com/vcarroy").
-		// Le déployeur GitOps, sans client : la planification n'en a pas besoin —
-		// elle compose un tag et refuse ce que la plage SemVer exclut. Sans lui,
-		// [provider.NoDeployer] refuserait toute promotion, ce qui est le
-		// comportement voulu d'un déploiement non configuré et non celui qu'on
-		// éprouve ici.
-		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, "")).
 		// Le planificateur **réel**, sur le même faux magasin. Un substitut ici
 		// ferait passer ces tests sans rien dire de ce que la création met
 		// réellement en file.
@@ -397,109 +389,6 @@ func asRole(request *http.Request, role auth.Role) *http.Request {
 	// elle-même le remplacent après coup.
 	request.SetPathValue("project", testProjectSlug)
 	return request.WithContext(context.WithValue(request.Context(), identityKey, identity))
-}
-
-// Le cas qui coûte le plus cher : pousser vers la production un tag qu'aucune
-// ImagePolicy ne retient ne produit aucune erreur. Le refus doit donc venir
-// d'ici, avant la mise en file.
-func TestPromoteRefusesAPrereleaseTowardsProduction(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0-rc1"] = store.Release{
-		ID: 1, Tag: "1.8.0-rc1", Kind: "pre", State: "ready", ImageVersion: "1.8.0-rc1",
-	}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0-rc1/promote/prod", nil)
-	request.SetPathValue("tag", "1.8.0-rc1")
-	request.SetPathValue("environment", "prod")
-	recorder := httptest.NewRecorder()
-
-	handler.Promote(recorder, asRole(request, auth.RoleReleaser))
-
-	if recorder.Code != http.StatusConflict {
-		t.Errorf("code = %d, attendu 409", recorder.Code)
-	}
-	if len(fake.jobs) != 0 {
-		t.Errorf("%d job(s) mis en file alors que la promotion est refusée", len(fake.jobs))
-	}
-}
-
-// Une release finale produite par re-tag doit atteindre la production, et le tag
-// poussé doit être composé depuis son tag — non depuis la version de son image,
-// restée celle de la RC.
-func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{
-		ID: 2, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
-	}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/promote/prod", nil)
-	request.SetPathValue("tag", "1.8.0")
-	request.SetPathValue("environment", "prod")
-	recorder := httptest.NewRecorder()
-
-	handler.Promote(recorder, asRole(request, auth.RoleReleaser))
-
-	if recorder.Code != http.StatusAccepted {
-		t.Fatalf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
-	}
-	// Une exécution par image promue : le pipeline de re-tag n'en traite qu'une.
-	if len(fake.jobs) != len(fixtureProject().Promotable()) {
-		t.Fatalf("%d job(s) mis en file, attendu %d", len(fake.jobs), len(fixtureProject().Promotable()))
-	}
-	job := fake.jobs[0]
-	if job.Params["image-name"] != "portal" {
-		t.Errorf("première image promue = %q", job.Params["image-name"])
-	}
-	if job.Params["new-tag"] != "1.8.0_prod" {
-		t.Errorf("new-tag = %q, attendu 1.8.0_prod", job.Params["new-tag"])
-	}
-	// Le re-tag part de ce qui existe réellement dans le registre.
-	if job.Params["old-tag"] != "1.8.0-rc3" {
-		t.Errorf("old-tag = %q, attendu 1.8.0-rc3", job.Params["old-tag"])
-	}
-	// Une ligne de promotion par image, et non une seule. La table les distingue
-	// par son nom d'image ; n'en écrire qu'une laissait `portal-cli` promue sans
-	// trace, donc sans moyen de dire que son re-tag avait échoué.
-	if len(fake.promotions) != len(fixtureProject().Promotable()) {
-		t.Fatalf("promotions = %+v", fake.promotions)
-	}
-	recorded := map[string]store.Promotion{}
-	for _, promotion := range fake.promotions {
-		recorded[promotion.ImageName] = promotion
-	}
-	for _, target := range fixtureProject().Promotable() {
-		name := target.Image
-		promotion, found := recorded[name]
-		if !found {
-			t.Errorf("aucune promotion enregistrée pour %s", name)
-			continue
-		}
-		// Enregistrée **demandée**, sans digest : le re-tag n'a pas encore eu lieu.
-		if promotion.Digest != "" || promotion.Tag != "1.8.0_prod" {
-			t.Errorf("promotion de %s = %+v", name, promotion)
-		}
-	}
-}
-
-func TestPromoteRefusesAReleaseWithoutImage(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.9.0-rc1"] = store.Release{
-		ID: 3, Tag: "1.9.0-rc1", Kind: "pre", State: "draft", ImageVersion: "1.9.0-rc1",
-	}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodPost, "/releases/1.9.0-rc1/promote/qualif", nil)
-	request.SetPathValue("tag", "1.9.0-rc1")
-	request.SetPathValue("environment", "qualif")
-	recorder := httptest.NewRecorder()
-
-	handler.Promote(recorder, asRole(request, auth.RoleReleaser))
-
-	if recorder.Code != http.StatusConflict {
-		t.Errorf("code = %d, attendu 409 pour une release non construite", recorder.Code)
-	}
 }
 
 // Créer `1.8.0-rc1` en la déclarant finale produit une release que la production
@@ -612,42 +501,6 @@ func TestCreateFinalRequiresTheReleaserRole(t *testing.T) {
 
 	if recorder.Code != http.StatusForbidden {
 		t.Errorf("code = %d, attendu 403", recorder.Code)
-	}
-}
-
-// L'interface a besoin de savoir non seulement qu'une cible est refusée, mais
-// pourquoi : un bouton grisé sans motif se lit comme une panne.
-func TestGetExplainsWhyATargetIsRefused(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0-rc1"] = store.Release{
-		ID: 7, Tag: "1.8.0-rc1", Kind: "pre", State: "ready", ImageVersion: "1.8.0-rc1",
-	}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0-rc1", nil)
-	request.SetPathValue("tag", "1.8.0-rc1")
-	recorder := httptest.NewRecorder()
-
-	handler.Get(recorder, asRole(request, auth.RoleReleaser))
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("code = %d", recorder.Code)
-	}
-
-	var payload releasePayload
-	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("décodage: %v", err)
-	}
-
-	targets := map[string]promotionTargetVw{}
-	for _, target := range payload.Targets {
-		targets[target.Environment] = target
-	}
-	if qualif := targets["qualif"]; !qualif.Allowed || qualif.Tag != "1.8.0-rc1_testing" {
-		t.Errorf("qualif = %+v, attendu autorisée avec le suffixe Flux", qualif)
-	}
-	if prod := targets["prod"]; prod.Allowed || prod.Reason == "" {
-		t.Errorf("prod = %+v, attendu refusée avec un motif", prod)
 	}
 }
 
@@ -833,79 +686,6 @@ func TestUpdateActionsOnAnUnknownRelease(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Errorf("code = %d, attendu 404", recorder.Code)
-	}
-}
-
-// Ce que le dashboard déclenche sort de lui : un tag poussé dans un registre
-// survit à toute correction en base.
-func TestOutgoingActionsAreAudited(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{
-		ID: 11, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
-	}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/promote/prod", nil)
-	request.SetPathValue("tag", "1.8.0")
-	request.SetPathValue("environment", "prod")
-	handler.Promote(httptest.NewRecorder(), asRole(request, auth.RoleReleaser))
-
-	if len(fake.audit) != 1 || fake.audit[0] != "release.promote:1.8.0" {
-		t.Errorf("journal = %v", fake.audit)
-	}
-}
-
-// Le journal est une trace, pas une transaction : son échec ne doit pas annuler
-// une promotion qui a bien été mise en file.
-func TestAFailingAuditDoesNotBlockThePromotion(t *testing.T) {
-	fake := &failingAuditStore{newFakeStore()}
-	fake.releases["1.8.0"] = store.Release{
-		ID: 12, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
-	}
-	handler := newReleasesHandler(t, fake.fakeReleaseStore)
-	handler.store = fake
-
-	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/promote/prod", nil)
-	request.SetPathValue("tag", "1.8.0")
-	request.SetPathValue("environment", "prod")
-	recorder := httptest.NewRecorder()
-	handler.Promote(recorder, asRole(request, auth.RoleReleaser))
-
-	if recorder.Code != http.StatusAccepted {
-		t.Errorf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
-	}
-	if len(fake.jobs) != len(fixtureProject().Promotable()) {
-		t.Errorf("%d job(s) mis en file, attendu %d", len(fake.jobs), len(fixtureProject().Promotable()))
-	}
-}
-
-type failingAuditStore struct{ *fakeReleaseStore }
-
-func (f *failingAuditStore) Audit(context.Context, string, string, string, map[string]any) error {
-	return errors.New("journal indisponible")
-}
-
-func TestHistoryFollowsWhatWasRequested(t *testing.T) {
-	fake := newFakeStore()
-	fake.history = []store.EnvironmentHistory{
-		{ReleaseTag: "1.8.0-rc2", ImageVersion: "1.8.0-rc2", Tag: "1.8.0-rc2_testing"},
-		{ReleaseTag: "1.8.0-rc1", ImageVersion: "1.8.0-rc1", Tag: "1.8.0-rc1_testing"},
-	}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodGet, "/environments/qualif/history", nil)
-	request.SetPathValue("environment", "qualif")
-	recorder := httptest.NewRecorder()
-	handler.History(recorder, asRole(request, auth.RoleViewer))
-
-	var payload struct {
-		History []historyPayload `json:"history"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("décodage: %v", err)
-	}
-	if len(payload.History) != 2 || payload.History[0].Release != "1.8.0-rc2" {
-		t.Errorf("historique = %+v", payload.History)
 	}
 }
 
@@ -1524,38 +1304,6 @@ func TestLaRelanceALUniteNaccepteQueLesVerifications(t *testing.T) {
 	}
 	if len(fake.jobs) != 1 {
 		t.Errorf("un refus ne doit rien mettre en file: %+v", fake.jobs)
-	}
-}
-
-// Sans outil de déploiement configuré, une promotion n'est pas une panne.
-//
-// C'est le cas que la réalisation triviale du contrat rend exprimable, et la
-// raison d'être de `provider.ErrNoDeployment` : répondre « échec » ferait chercher
-// un incident là où il n'y a qu'une absence de configuration, et répondre 202
-// laisserait croire à un acheminement qui n'aura jamais lieu.
-func TestSansDeployeurLaPromotionDitQueRienNestConfigure(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{
-		ID: 42, Tag: "1.8.0", State: "ready", ImageVersion: "1.8.0-rc3",
-	}
-	handler := newReleasesHandler(t, fake).WithDeployer(provider.NoDeployer{})
-
-	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/promote/qualif", nil)
-	request.SetPathValue("tag", "1.8.0")
-	request.SetPathValue("environment", "qualif")
-	recorder := httptest.NewRecorder()
-	handler.Promote(recorder, asRole(request, auth.RoleReleaser))
-
-	if recorder.Code != http.StatusNotImplemented {
-		t.Fatalf("code = %d, attendu 501: %s", recorder.Code, recorder.Body.String())
-	}
-	// Et surtout : rien ne part en file. Une promotion refusée qui enfilerait
-	// quand même son re-tag poserait le tag sans que personne ne le déploie.
-	if len(fake.jobs) != 0 {
-		t.Errorf("aucun job attendu: %+v", fake.jobs)
-	}
-	if len(fake.promotions) != 0 {
-		t.Errorf("aucune promotion enregistrée attendue: %+v", fake.promotions)
 	}
 }
 

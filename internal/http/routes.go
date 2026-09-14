@@ -19,7 +19,7 @@ func NewAPIRouter(
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
 	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
 	events *EventsHandler, reactions *AutomationsHandler, planRuns *PlanRunsHandler,
-	middleware *Middleware,
+	middleware *Middleware, mounts ...Mount,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -90,9 +90,7 @@ func NewAPIRouter(
 	mux.Handle("POST /queue/{id}/cancel", Chain(http.HandlerFunc(queue.Cancel),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermPipelineCancel)))
 
-	// Les releases se lisent comme les runs. Le détail expose aussi, pour chaque
-	// environnement, si la release peut y aller — ce qui dépend de l'identité qui
-	// demande, et se calcule donc ici plutôt que dans la page.
+	// Les releases se lisent comme les runs.
 	mux.Handle("GET /projects/{project}/releases", Chain(http.HandlerFunc(releases.List),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/releases/{tag}", Chain(http.HandlerFunc(releases.Get),
@@ -103,11 +101,6 @@ func NewAPIRouter(
 	// le chemin, et un middleware ne peut pas la lire sans consommer la requête.
 	mux.Handle("POST /projects/{project}/releases", Chain(http.HandlerFunc(releases.Create),
 		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseCreate)))
-
-	// L'environnement est dans le chemin et non dans le corps, précisément pour
-	// que l'autorisation — qui est par environnement — reste décidée ici.
-	mux.Handle("POST /projects/{project}/releases/{tag}/promote/{environment}", Chain(http.HandlerFunc(releases.Promote),
-		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.CSRF, middleware.RequireDeploy("environment")))
 
 	// Valider une release engage ce qui partira chez l'utilisateur : même
 	// permission que produire une release finale, et non `release:edit`. C'est
@@ -184,15 +177,6 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("POST /projects/{project}/releases/{tag}/bench/{measure}/baseline", Chain(http.HandlerFunc(benches.PinBaseline),
 		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseFinal)))
-
-	// La vue d'ensemble est en lecture pour tous : savoir ce qui tourne où ne
-	// demande aucun privilège.
-	mux.Handle("GET /environments", Chain(http.HandlerFunc(releases.Environments),
-		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.Require(auth.PermRead)))
-	mux.Handle("GET /environments/{environment}", Chain(http.HandlerFunc(releases.Environment),
-		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.Require(auth.PermRead)))
-	mux.Handle("GET /environments/{environment}/history", Chain(http.HandlerFunc(releases.History),
-		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.Require(auth.PermRead)))
 
 	// L'administration exige `admin`, et rien de moins : attribuer un rôle est ce
 	// qui permet d'en attribuer d'autres, donc la seule permission qui se
@@ -357,6 +341,12 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 	mux.Handle("PUT /projects/{project}/sync/redmine/mapping/{status}", Chain(http.HandlerFunc(syncAdmin.SetMapping),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+
+	// Les routes des plugins : promotion et environnements pour le module MSE.
+	// Chacune porte son contrôle d'accès, et le noyau ne les connaît pas.
+	for _, mount := range mounts {
+		mount(mux, middleware)
+	}
 
 	return mux
 }

@@ -19,6 +19,7 @@ import {
   useRelease,
   useReleaseRelease,
   usePromote,
+  useReleaseTargets,
   type ProducedArtifact,
   type PromotionTarget,
   type ReleaseDetail,
@@ -269,6 +270,7 @@ function Deployment({ release }: { release: ReleaseDetail }) {
   const environments = useEnvironments()
   const promote = usePromote()
   const [target, setTarget] = useState<PromotionTarget | null>(null)
+  const targets = useReleaseTargets(release.tag).data?.targets ?? []
 
   const promoted = new Map((release.promotions ?? []).map((promotion) => [promotion.environment, promotion]))
   const sensitive = new Set(
@@ -276,12 +278,12 @@ function Deployment({ release }: { release: ReleaseDetail }) {
   )
 
   return (
-    <CollapsibleSection title="Déploiement" count={(release.targets ?? []).length}>
-      {(release.targets ?? []).length === 0 ? (
+    <CollapsibleSection title="Déploiement" count={targets.length}>
+      {targets.length === 0 ? (
         <EmptyState>Aucun environnement déclaré.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-2">
-          {(release.targets ?? []).map((entry) => {
+          {targets.map((entry) => {
             const done = promoted.get(entry.environment)
             return (
               <li

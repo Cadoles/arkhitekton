@@ -38,7 +38,6 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/portaldata"
 	pipelinelib "forge.cadoles.com/vcarroy/mse-dashboard/internal/pipelines"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
@@ -254,10 +253,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		WithArtifactReader(db).
 		WithModules(modules).
 		WithTrackerURL(cfg.Tracker.URL).
-		// Le même déployeur que l'observateur, et le même que celui qui a validé
-		// les environnements au démarrage : un aperçu de promotion qui répondrait
-		// autrement que la promotion elle-même serait pire que pas d'aperçu.
-		WithDeployer(flux.NewDeployer(nil, flux.DefaultPromotionKind, "")).
 		// L'ouverture du plan d'une release, à sa création.
 		//
 		// Un moteur côté `api`, et ce n'est pas un second ordonnanceur : ouvrir un
@@ -268,6 +263,12 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			worker.NewEngine(db, worker.NewReleaseRunner(pipelines, db, logger), logger).
 				WithArtifacts(db, worker.ProductOf(pipelines)),
 			pipelines, db, cfg.Registry.Project, logger))
+
+	// Les routes du plugin MSE : cibles, promotion, environnements. Montées
+	// toujours, et refusées par route quand le module est éteint. Le déployeur
+	// est sans client : planifier une promotion ne demande pas le cluster.
+	mseHandler := mse.NewHandler(db, pipelines, authorizer,
+		flux.NewDeployer(nil, flux.DefaultPromotionKind, ""), logger)
 
 	// La forge est optionnelle : sans jeton, le formulaire de création de release
 	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture
@@ -341,7 +342,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// Ce qu'une réaction a réellement fait. Un moteur qu'on ne peut pas
 			// déboguer est pire qu'un comportement figé (doc 14 §14.10).
 			dashhttp.NewPlanRunsHandler(db),
-			middleware),
+			middleware, mseHandler.Routes),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
@@ -494,7 +495,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 	mseSettings := pluginSettings[plugin.ModuleMSE]
-	var environments *worker.EnvironmentObserver
+	var environments *mse.Observer
 	if !mseSettings.Enabled {
 		logger.Info("module MSE inactif",
 			"consequence", "ni Flux, ni PortalData, ni observation des environnements")
@@ -526,7 +527,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		// MSE —, et le dashboard y retombe sur ce que le déploiement déclare. Tant
 		// qu'un seul client résolvait les deux, cette absence faisait échouer le
 		// démarrage sur une dépendance principale parfaitement installée.
-		var attester provider.Attester = provider.NoAttester{}
+		var attester mse.Attester
 		switch portalClient, err := portaldata.Open(cluster.RESTConfig); {
 		case errors.Is(err, portaldata.ErrAbsent):
 			logger.Info("aucune source d'attestation dans ce cluster",
@@ -542,7 +543,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		}
 
 		deployer := flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
-		environments = worker.NewEnvironmentObserver(db, deployer, attester, logger)
+		environments = mse.NewObserver(db, deployer, attester, logger)
 
 		// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
 		// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux

@@ -33,21 +33,15 @@ type ReleaseStore interface {
 	CreateRelease(ctx context.Context, release store.Release) (int64, error)
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
 	ListReleases(ctx context.Context, projectID int64, limit int) ([]store.Release, error)
-	RecordPromotion(ctx context.Context, promotion store.Promotion) error
 	ListPromotions(ctx context.Context, releaseID int64) ([]store.Promotion, error)
 	SetManualActions(ctx context.Context, tag, markdown, author string) error
 	ListReleaseJobs(ctx context.Context, releaseID int64) ([]store.ReleaseJob, error)
-	ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]store.EnvironmentHistory, error)
-	DeployedRelease(ctx context.Context, environmentID string) (store.DeployedRelease, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	// RecordEvent consigne un fait constaté (doc 14). Rend `false` quand il était
 	// déjà connu, ce qui n'est pas une erreur.
 	RecordEvent(ctx context.Context, fact event.Event) (bool, error)
 	ListArtifacts(ctx context.Context, releaseID int64) ([]store.Artifact, error)
 	GetArtifact(ctx context.Context, id int64) (store.Artifact, error)
-	ListEnvironments(ctx context.Context) ([]store.Environment, error)
-	ListEnvironmentViews(ctx context.Context) ([]store.EnvironmentView, error)
-	LatestPromotions(ctx context.Context) (map[string]store.EnvironmentPromotion, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	// GetProject dit quelles images une release construit et lesquelles un re-tag
@@ -78,7 +72,6 @@ type ReleaseStore interface {
 	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
 }
 
-// ReleasesHandler expose les releases, leur création et leur promotion.
 // ReleasePlanner ouvre le plan d'une release.
 //
 // Interface déclarée ici plutôt qu'un import de `internal/worker` : les deux
@@ -112,13 +105,6 @@ type ReleasesHandler struct {
 	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
 	// le jour où le portail se scinde.
 	imageName string
-	// deployer planifie l'acheminement d'une version vers un environnement. Il ne
-	// touche à aucun cluster : il décrit ce qu'il faut faire, et c'est la file du
-	// dashboard qui le fait (B7, doc 12 §12.9 lot A).
-	//
-	// Jamais nil : sans outil configuré, [provider.NoDeployer] refuse en disant que
-	// c'est l'outillage qui manque, et non la demande.
-	deployer provider.Deployer
 	// logger sert à dire ce qui échoue sans faire échouer l'écran. Nil-safe :
 	// `slog.Default()` par défaut, pour que les tests n'aient pas à le fournir.
 	logger *slog.Logger
@@ -251,16 +237,6 @@ const (
 	exportParamFormat   = "export-format"
 )
 
-// WithDeployer branche la planification des promotions.
-//
-// Sans appel, [provider.NoDeployer] s'applique : l'écran des releases reste
-// utilisable, et une demande de promotion répond que rien n'est configuré plutôt
-// que d'échouer sur une cause invraisemblable.
-func (h *ReleasesHandler) WithDeployer(deployer provider.Deployer) *ReleasesHandler {
-	h.deployer = deployer
-	return h
-}
-
 // WithPlans branche l'ouverture du plan d'une release.
 func (h *ReleasesHandler) WithPlans(plans ReleasePlanner) *ReleasesHandler {
 	h.plans = plans
@@ -276,7 +252,7 @@ func NewReleasesHandler(
 		store: releases, catalog: pipelines, authorizer: authorizer,
 		images: images, artifacts: artifacts, imageName: imageName,
 		registryProject: registryProject,
-		deployer:        provider.NoDeployer{}, logger: slog.Default(),
+		logger:          slog.Default(),
 	}
 }
 
@@ -299,7 +275,6 @@ type releasePayload struct {
 	CreatedAt  time.Time           `json:"created_at"`
 	ReleasedAt *time.Time          `json:"released_at,omitempty"`
 	Promotions []promotionPayload  `json:"promotions,omitempty"`
-	Targets    []promotionTargetVw `json:"targets,omitempty"`
 	Jobs       []releaseJobPayload `json:"jobs,omitempty"`
 	// Artifacts liste ce que l'automatisation a produit.
 	//
@@ -363,21 +338,6 @@ type promotionPayload struct {
 	Digest      string    `json:"digest,omitempty"`
 	JobID       *int64    `json:"job_id,omitempty"`
 	PushedAt    time.Time `json:"pushed_at"`
-}
-
-// promotionTargetVw dit, environnement par environnement, si la release peut y
-// aller — et sinon pourquoi.
-//
-// Le refus est calculé ici plutôt que laissé au clic : une promotion qu'aucune
-// ImagePolicy ne retiendrait ne produit **aucune erreur**. Le tag part, la task
-// réussit, rien ne se déploie. Afficher un bouton actif dans ce cas revient à
-// promettre un déploiement qui n'aura pas lieu (B7).
-type promotionTargetVw struct {
-	Environment string `json:"environment"`
-	Label       string `json:"label"`
-	Tag         string `json:"tag,omitempty"`
-	Allowed     bool   `json:"allowed"`
-	Reason      string `json:"reason,omitempty"`
 }
 
 func toReleasePayload(release store.Release, sourceTag string, who actors) releasePayload {
@@ -492,7 +452,8 @@ func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *sco
 	}
 }
 
-// Get rend une release, ses promotions et ses cibles possibles.
+// Get rend une release et ses promotions. Ses cibles sont servies par le plugin
+// MSE, qui seul sait les juger.
 func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -564,67 +525,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		payload.ArtifactsNote = "Le registre n'est pas configuré : les digests ne peuvent pas être lus."
 	}
 
-	// Sans le plugin MSE, une release n'a pas de cible de promotion : la liste
-	// resterait lisible depuis la table, mais proposerait un geste que la route
-	// refuserait.
-	var environments []store.Environment
-	if mse {
-		if environments, err = h.store.ListEnvironments(r.Context()); err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
-			return
-		}
-	}
-	identity, _ := IdentityFrom(r.Context())
-	for _, environment := range environments {
-		if !environment.Visible {
-			continue
-		}
-		target := promotionTargetVw{
-			Environment: environment.ID, Label: environment.Label, Allowed: true,
-		}
-		switch {
-		case item.State != string(release.StateReady):
-			target.Allowed = false
-			target.Reason = "l'image de cette release n'est pas construite"
-		case !h.authorizer.Can(identity, auth.PermDeploy(environment.ID)):
-			target.Allowed = false
-			target.Reason = "votre rôle ne permet pas de promouvoir vers cet environnement"
-		default:
-			// La même question que la promotion elle-même, posée sans la faire :
-			// le déployeur dit s'il saurait acheminer cette version, et sous quelle
-			// référence. `Name` est vide parce que l'aperçu porte sur la release et
-			// non sur une image — la référence est la même pour toutes.
-			plan, err := h.deployer.Plan(r.Context(), provider.Deployment{
-				Target:   targetOf(environment),
-				Version:  item.Tag,
-				Artifact: item.ImageVersion,
-			})
-			if err != nil {
-				target.Allowed = false
-				target.Reason = err.Error()
-			} else {
-				target.Tag = plan.Reference
-			}
-		}
-		payload.Targets = append(payload.Targets, target)
-	}
-
 	writeJSON(w, http.StatusOK, payload)
-}
-
-// targetOf traduit un environnement déclaré vers ce que la frontière attend.
-//
-// Une **copie**, et c'est tout l'objet du lot D : les réglages du déployeur
-// traversent le dashboard sans qu'il les lise. Cette fonction nommait
-// auparavant les trois clés de Flux — elle imposait donc son vocabulaire à
-// quiconque en aurait branché un autre, dans un paquet qui n'a aucune raison de
-// connaître un outil de déploiement (doc 12 §12.9, lot D).
-func targetOf(environment store.Environment) provider.Target {
-	return provider.Target{
-		ID:         environment.ID,
-		Observable: environment.Observable,
-		Settings:   environment.DeployerSettings,
-	}
 }
 
 type createReleaseRequest struct {
@@ -1525,238 +1426,6 @@ func (h *ReleasesHandler) enqueueRetag(
 // pré-release source.
 const retagJobKind = "retag"
 
-// Promote met en file la promotion d'une release vers un environnement.
-//
-// Le handler ne pousse rien : il met en file. Le re-tag est fait par la task
-// `promote-image`, avec ses propres identifiants — le dashboard lit le registre,
-// il n'y écrit jamais. Et la file, seule à connaître la classe
-// `exclusive-registry`, évite deux re-tags concurrents sur le même dépôt.
-func (h *ReleasesHandler) Promote(w http.ResponseWriter, r *http.Request) {
-	identity, ok := IdentityFrom(r.Context())
-	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
-		return
-	}
-
-	currentID, ok := requestProject(w, r, h.store)
-	if !ok {
-		return
-	}
-
-	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
-	if err != nil {
-		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
-		return
-	}
-
-	if item.State != string(release.StateReady) {
-		writeProblem(w, http.StatusConflict, "Release non promouvable",
-			"l'image de cette release n'est pas construite")
-		return
-	}
-
-	name := r.PathValue("environment")
-	environments, err := h.store.ListEnvironments(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
-		return
-	}
-	var environment store.Environment
-	for _, candidate := range environments {
-		if candidate.ID == name {
-			environment = candidate
-			break
-		}
-	}
-	if environment.ID == "" {
-		writeProblem(w, http.StatusNotFound, "Environnement inconnu", name)
-		return
-	}
-
-	project, err := h.store.GetProject(r.Context(), currentID)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Images promues inconnues", err.Error())
-		return
-	}
-	targets := project.Promotable()
-
-	// Le déployeur planifie, le dashboard exécute. Une fois par image : le
-	// déployeur ne sait pas ce qu'une release contient, et lui faire porter la
-	// liste l'obligerait à connaître le modèle des projets.
-	plans := make([]provider.Plan, 0, len(targets))
-	for _, target := range targets {
-		plan, err := h.deployer.Plan(r.Context(), provider.Deployment{
-			Target:   targetOf(environment),
-			Version:  item.Tag,
-			Artifact: item.ImageVersion,
-			Name:     target.Image,
-		})
-		if err != nil {
-			if errors.Is(err, provider.ErrNoDeployment) {
-				// Aucun outil de déploiement n'est configuré. Ce n'est pas une
-				// panne, et l'afficher comme telle ferait chercher un incident là
-				// où il n'y a qu'une absence de configuration.
-				writeProblem(w, http.StatusNotImplemented, "Aucun déploiement configuré",
-					"ce dashboard ne sait acheminer aucune version vers un environnement")
-				return
-			}
-			// 409 et non 400 : la requête est bien formée, c'est la combinaison
-			// release/environnement qui n'a pas de sens.
-			writeProblem(w, http.StatusConflict, "Promotion impossible", err.Error())
-			return
-		}
-		plans = append(plans, plan)
-	}
-	if len(plans) == 0 {
-		writeProblem(w, http.StatusUnprocessableEntity, "Promotion impossible",
-			"aucune image de cette release n'est promue")
-		return
-	}
-
-	if _, found := h.catalog.Find(plans[0].Kind); !found {
-		writeProblem(w, http.StatusInternalServerError, "Catalogue incomplet", plans[0].Kind)
-		return
-	}
-
-	// Une exécution et une ligne de promotion par image. La table les distingue
-	// déjà — sa clé porte le nom de l'image — mais une seule y était écrite : le
-	// portail. Ce qui suivait le portail sans être suivi, c'était `portal-cli`,
-	// et rien n'aurait dit qu'un de ses re-tags avait échoué.
-	jobIDs := make([]int64, 0, len(plans))
-	for index, plan := range plans {
-		jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
-			Kind:        plan.Kind,
-			Params:      plan.Params,
-			RequestedBy: identity.Subject,
-			ReleaseID:   &item.ID,
-			Environment: &environment.ID,
-		})
-		if err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Mise en file impossible", "")
-			return
-		}
-		jobIDs = append(jobIDs, jobID)
-
-		// Enregistrer la promotion **demandée**, sans digest : le re-tag n'a pas
-		// eu lieu. C'est ce qui permettra de distinguer « promu mais pas encore
-		// déployé » de « jamais promu » quand l'observation contredira l'attendu.
-		if err := h.store.RecordPromotion(r.Context(), store.Promotion{
-			ReleaseID: item.ID, EnvironmentID: environment.ID,
-			ImageName: targets[index].Image, Tag: plan.Reference, JobID: &jobID,
-		}); err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Enregistrement de la promotion impossible", "")
-			return
-		}
-	}
-
-	// Consigné après l'enregistrement : ce qui compte est que le tag ait été
-	// demandé, et le tag part dès que le job est pris.
-	h.audit(r, store.AuditReleasePromote, item.Tag, map[string]any{
-		"environment": environment.ID, "tag": plans[0].Reference,
-		// La version d'image dont part l'acheminement, et non un paramètre du
-		// plan : celui-ci appartient au déployeur, et le journal d'audit ne doit
-		// pas se mettre à parler son vocabulaire.
-		"from": item.ImageVersion, "job_ids": jobIDs,
-	})
-
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"job_ids":     jobIDs,
-		"environment": environment.ID,
-		"tag":         plans[0].Reference,
-	})
-}
-
-type environmentPayload struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Rank  int    `json:"rank"`
-	// DeployerSettings est rendu tel quel, dans le vocabulaire du déployeur.
-	//
-	// L'interface en affiche le suffixe de promotion, et ce n'est pas décoratif :
-	// il ne se devine pas — Flux connaît `qualif` sous le nom `testing` —, et une
-	// confirmation qui ne dirait pas quel tag va partir demanderait d'approuver à
-	// l'aveugle. Une carte plutôt qu'un champ nommé : un déployeur qui n'a pas de
-	// suffixe n'affiche rien, au lieu d'afficher un vide qui ressemble à une
-	// donnée manquante (doc 12 §12.9, lot D).
-	DeployerSettings map[string]string `json:"deployer_settings,omitempty"`
-	// Observable distingue « on ne peut pas savoir » de « on ne sait pas encore ».
-	// La production vit dans un cluster indépendant : ni PortalData, ni Deployment,
-	// ni statut Flux n'y sont lisibles. Afficher « inconnu » y ferait croire à une
-	// panne d'observation (B8).
-	Observable bool `json:"observable"`
-	// Sensitive déclenche la ressaisie de la version à la confirmation. Décidé par
-	// l'autorisateur, seul à savoir ce qu'un environnement reçoit — le déduire de
-	// l'observabilité côté navigateur traiterait une coïncidence comme une règle.
-	Sensitive      bool           `json:"sensitive"`
-	PortalVersion  string         `json:"portal_version,omitempty"`
-	MigrationState string         `json:"migration_state,omitempty"`
-	DeclaredState  string         `json:"declared_state,omitempty"`
-	Resolution     string         `json:"resolution,omitempty"`
-	ObservedAt     string         `json:"observed_at,omitempty"`
-	CanDeploy      bool           `json:"can_deploy"`
-	LastPromotion  *lastPromotion `json:"last_promotion,omitempty"`
-}
-
-// lastPromotion est ce qui a été **demandé** pour un environnement, à confronter
-// à ce que l'observation y constate.
-type lastPromotion struct {
-	Tag      string    `json:"tag"`
-	Release  string    `json:"release"`
-	PushedAt time.Time `json:"pushed_at"`
-	JobID    *int64    `json:"job_id,omitempty"`
-}
-
-// Environments rend la vue d'ensemble des environnements.
-func (h *ReleasesHandler) Environments(w http.ResponseWriter, r *http.Request) {
-	views, err := h.store.ListEnvironmentViews(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
-		return
-	}
-
-	promotions, err := h.store.LatestPromotions(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
-		return
-	}
-
-	identity, _ := IdentityFrom(r.Context())
-	payload := make([]environmentPayload, 0, len(views))
-	for _, view := range views {
-		entry := environmentPayload{
-			ID:               view.Environment.ID,
-			Label:            view.Environment.Label,
-			Rank:             view.Environment.Rank,
-			DeployerSettings: view.Environment.DeployerSettings,
-			Observable:       view.Environment.Observable,
-			Sensitive:        h.authorizer.Sensitive(view.Environment.ID),
-			CanDeploy:        h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
-		}
-		if view.Observation != nil {
-			entry.PortalVersion = view.Observation.PortalVersion
-			entry.MigrationState = view.Observation.MigrationState
-			entry.DeclaredState = view.Observation.DeclaredState
-			entry.Resolution = view.Observation.Resolution
-		}
-		if view.ObservedAt != nil {
-			entry.ObservedAt = *view.ObservedAt
-		}
-		if promotion, found := promotions[view.Environment.ID]; found {
-			entry.LastPromotion = &lastPromotion{
-				Tag: promotion.Tag, Release: promotion.ReleaseTag,
-				PushedAt: promotion.PushedAt, JobID: promotion.JobID,
-			}
-		}
-		payload = append(payload, entry)
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"environments": payload})
-}
-
 type manualActionsRequest struct {
 	Markdown string `json:"markdown"`
 }
@@ -1810,40 +1479,6 @@ func (h *ReleasesHandler) UpdateActions(w http.ResponseWriter, r *http.Request) 
 		UpdatedBy: h.actorsFor(r.Context()).name(item.ManualActionsUpdatedBy),
 		UpdatedAt: item.ManualActionsUpdatedAt,
 	})
-}
-
-type historyPayload struct {
-	Release      string    `json:"release"`
-	ImageVersion string    `json:"image_version"`
-	Tag          string    `json:"tag"`
-	PushedAt     time.Time `json:"pushed_at"`
-	JobID        *int64    `json:"job_id,omitempty"`
-	JobState     string    `json:"job_state,omitempty"`
-	RequestedBy  string    `json:"requested_by,omitempty"`
-}
-
-// History rend la suite des promotions d'un environnement.
-//
-// La source est ce que le dashboard a demandé, et non l'historique des commits
-// que Flux écrit dans `mse-kustom`. Les deux diffèrent, et c'est l'écart qui
-// intéresse : une promotion qu'aucune ImagePolicy ne retient n'apparaît nulle
-// part côté Git alors qu'elle a bien été demandée.
-func (h *ReleasesHandler) History(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.store.ListEnvironmentHistory(r.Context(), r.PathValue("environment"), 50)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture de l'historique impossible", "")
-		return
-	}
-
-	payload := make([]historyPayload, 0, len(entries))
-	for _, entry := range entries {
-		payload = append(payload, historyPayload{
-			Release: entry.ReleaseTag, ImageVersion: entry.ImageVersion, Tag: entry.Tag,
-			PushedAt: entry.PushedAt, JobID: entry.JobID,
-			JobState: entry.JobState, RequestedBy: entry.RequestedBy,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"history": payload})
 }
 
 // audit consigne une action sortante, sans jamais faire échouer celle-ci.
@@ -2072,130 +1707,6 @@ func artifactContentType(format string) string {
 	default:
 		return "application/octet-stream"
 	}
-}
-
-type deployedPayload struct {
-	Tag string `json:"tag"`
-	// ImageVersion est ce qui a été rapproché de l'observation. Rendue parce que
-	// l'écart avec le tag est la chose la plus contre-intuitive du dispositif.
-	ImageVersion string     `json:"image_version"`
-	Kind         string     `json:"kind"`
-	State        string     `json:"state"`
-	GitRef       string     `json:"git_ref,omitempty"`
-	CreatedBy    string     `json:"created_by"`
-	CreatedAt    time.Time  `json:"created_at"`
-	PromotedAt   *time.Time `json:"promoted_at,omitempty"`
-	PromotedTag  string     `json:"promoted_tag,omitempty"`
-	// Ambiguous : plusieurs releases portent cette image et aucune promotion ne
-	// tranche. Normal après un re-tag, et le taire ferait afficher l'une pour
-	// l'autre.
-	Ambiguous bool `json:"ambiguous"`
-}
-
-// Environment rend l'état détaillé d'un environnement.
-//
-// L'écran est une jointure : l'environnement porte une version, la release porte
-// le contenu. Le rapprochement se fait sur `image_version` et jamais sur le tag —
-// ce que le portail rapporte est la version bakée dans l'image, restée celle de
-// la RC pour toute release finale produite par re-tag (B8, B17).
-func (h *ReleasesHandler) Environment(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("environment")
-
-	views, err := h.store.ListEnvironmentViews(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture de l'environnement impossible", "")
-		return
-	}
-
-	var view store.EnvironmentView
-	for _, candidate := range views {
-		if candidate.Environment.ID == name {
-			view = candidate
-			break
-		}
-	}
-	if view.Environment.ID == "" {
-		writeProblem(w, http.StatusNotFound, "Environnement inconnu", name)
-		return
-	}
-
-	identity, _ := IdentityFrom(r.Context())
-	payload := map[string]any{
-		"id":                view.Environment.ID,
-		"label":             view.Environment.Label,
-		"rank":              view.Environment.Rank,
-		"deployer_settings": view.Environment.DeployerSettings,
-		"namespace":         view.Environment.Namespace,
-		"observable":        view.Environment.Observable,
-		"sensitive":         h.authorizer.Sensitive(view.Environment.ID),
-		"can_deploy":        h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
-	}
-
-	if view.Observation != nil {
-		payload["portal_version"] = view.Observation.PortalVersion
-		payload["migration_state"] = view.Observation.MigrationState
-		payload["declared_state"] = view.Observation.DeclaredState
-		payload["resolution"] = view.Observation.Resolution
-	}
-	if view.ObservedAt != nil {
-		payload["observed_at"] = *view.ObservedAt
-	}
-
-	// Le fil de promotion : la position de cet environnement dans le chemin
-	// qu'une version parcourt. Rendu ici plutôt que reconstruit côté navigateur,
-	// où l'ordre des rangs devrait être redeviné.
-	flow := make([]map[string]any, 0, len(views))
-	for _, candidate := range views {
-		flow = append(flow, map[string]any{
-			"id": candidate.Environment.ID, "label": candidate.Environment.Label,
-			"rank":    candidate.Environment.Rank,
-			"current": candidate.Environment.ID == name,
-			"version": observedVersion(candidate),
-		})
-	}
-	payload["flow"] = flow
-
-	deployed, err := h.store.DeployedRelease(r.Context(), name)
-	switch {
-	case err == nil:
-		payload["deployed"] = deployedPayload{
-			Tag: deployed.Tag, ImageVersion: deployed.ImageVersion,
-			Kind: deployed.Kind, State: deployed.State, GitRef: deployed.GitRef,
-			CreatedBy: deployed.CreatedBy, CreatedAt: deployed.CreatedAt,
-			PromotedAt: deployed.PromotedAt, PromotedTag: deployed.PromotedTag,
-			Ambiguous: deployed.Ambiguous,
-		}
-	case errors.Is(err, store.ErrNoDeployedRelease):
-		// Cas normal : l'application est déployée depuis des années, et le
-		// dashboard ne connaît que les releases créées par lui. Le dire plutôt
-		// que présenter un écran vide.
-		payload["deployed"] = nil
-	default:
-		writeProblem(w, http.StatusInternalServerError, "Rapprochement impossible", "")
-		return
-	}
-
-	promotions, err := h.store.LatestPromotions(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
-		return
-	}
-	if promotion, found := promotions[name]; found {
-		payload["last_promotion"] = lastPromotion{
-			Tag: promotion.Tag, Release: promotion.ReleaseTag,
-			PushedAt: promotion.PushedAt, JobID: promotion.JobID,
-		}
-	}
-
-	writeJSON(w, http.StatusOK, payload)
-}
-
-// observedVersion rend la version constatée sur un environnement, ou vide.
-func observedVersion(view store.EnvironmentView) string {
-	if view.Observation == nil {
-		return ""
-	}
-	return view.Observation.PortalVersion
 }
 
 // isDuplicate reconnaît la violation d'unicité de PostgreSQL.

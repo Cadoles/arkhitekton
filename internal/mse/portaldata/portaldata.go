@@ -27,8 +27,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
-
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 )
 
 // group est le groupe d'API du CRD. Propre au portail MSE — c'est exactement ce
@@ -106,8 +104,6 @@ func (c *Client) Version() string {
 	return c.resource.GroupVersion().String()
 }
 
-var _ provider.Attester = (*Client)(nil)
-
 // Attestations lit ce que les applications d'un namespace rapportent d'elles-mêmes.
 //
 // Seule source issue de l'application **en exécution**, et la seule à dire si les
@@ -115,18 +111,18 @@ var _ provider.Attester = (*Client)(nil)
 // pas une version livrée, et rien d'autre ne le signale (B8).
 func (c *Client) Attestations(
 	ctx context.Context, namespace string,
-) ([]provider.Attestation, error) {
+) ([]Attestation, error) {
 	list, err := c.dynamic.Resource(c.resource).Namespace(namespace).
 		List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("liste des PortalData dans %q: %w", namespace, err)
 	}
 
-	states := make([]provider.Attestation, 0, len(list.Items))
+	states := make([]Attestation, 0, len(list.Items))
 	for _, item := range list.Items {
 		object := item.Object
 
-		state := provider.Attestation{Namespace: namespace, Name: item.GetName()}
+		state := Attestation{Namespace: namespace, Name: item.GetName()}
 		state.State, _, _ = unstructured.NestedString(object, "status", "phase")
 		// `dataVersion` est la version de l'**image** ayant réalisé le dernier
 		// bootstrap, non celle de la release. Une release finale réutilisant
@@ -143,4 +139,19 @@ func (c *Client) Attestations(
 		states = append(states, state)
 	}
 	return states, nil
+}
+
+// Attestation est ce qu'une application en exécution rapporte d'elle-même.
+type Attestation struct {
+	Namespace string
+	Name      string
+	// Version est celle de l'**image** qui tourne, non celle de la release. Une
+	// release finale réutilisant l'image de sa pré-release, le rapprochement se
+	// fait sur `releases.image_version` et jamais sur le tag (B17, B8).
+	Version string
+	// State est l'état rapporté, repris tel quel pour l'affichage.
+	State string
+	// Ready dit que les migrations ont abouti. C'est le seul cas où l'on peut
+	// affirmer qu'une version est **livrée** (B8).
+	Ready bool
 }

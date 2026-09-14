@@ -88,7 +88,6 @@ export type Release = {
   created_at: string
   released_at?: string
   promotions?: Promotion[]
-  targets?: PromotionTarget[]
 }
 
 export function useReleases() {
@@ -118,6 +117,14 @@ export function usePromote() {
   })
 }
 
+/** Les cibles de promotion d'une release, servies par le plugin MSE. */
+export function useReleaseTargets(tag: string) {
+  return useQuery({
+    queryKey: ['releases', tag, 'targets'],
+    queryFn: () =>
+      request<{ targets: PromotionTarget[] }>(projectPath(`/releases/${encodeURIComponent(tag)}/targets`)),
+  })
+}
 
 export type ManualActions = {
   markdown: string
