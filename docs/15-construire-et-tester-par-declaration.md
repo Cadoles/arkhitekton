@@ -95,6 +95,10 @@ application à ces deux-là qui diffère.
 **Tranché : quatre faits.** `version.created`, `release.created`, `release.promoted`,
 `release.released`.
 
+> **Révisé par doc 16 (décision 7).** `release.promoted` est devenu `mse.release.promoted`,
+> fait du plugin MSE : c'est lui qui définit ce qu'est une promotion. Le noyau compte trois
+> faits. Le besoin de prévenir une équipe reste couvert : une réaction écoute le fait du plugin.
+
 ### Ce que la réduction impose ailleurs
 
 `release.verified` ne servait pas qu'à déclencher : il faisait **avancer l'état de la

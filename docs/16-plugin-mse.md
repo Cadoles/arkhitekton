@@ -292,10 +292,10 @@ déplace presque rien, elle **conditionne**, et c'est ce qui dit si le reste vau
 | 3 | Que devient la règle de nommage des versions ? | **supprimée** — tranché. Le mécanisme reste avec `v` seul (§16.3) |
 | 4 | Que devient la règle de formation d'un tag de promotion ? | **dans le plugin** — tranché (§16.4) |
 | 5 | Les interfaces `Deployer` et `Attester` restent-elles ? | **non** : leurs seuls appelants rejoignent le plugin (§16.5) |
-| 6 | Quel `Kind` pour le plugin ? | `module` — à confirmer (§16.6) |
-| 7 | `release.promoted` reste-t-il un fait du noyau ? | **non** : `mse.release.promoted`, fait du plugin. Revient sur doc 15 §15.3 — à confirmer |
-| 8 | Où se déclarent les environnements et leur sensibilité ? | dans le **catalogue**, section lue par le plugin : ils y sont déjà, et y sont confrontés au cluster au démarrage — à confirmer |
-| 9 | Quelle page d'accueil sans le plugin ? | **Releases** — à confirmer |
+| 6 | Quel `Kind` pour le plugin ? | `module` — tranché (§16.6) |
+| 7 | `release.promoted` reste-t-il un fait du noyau ? | **non** : `mse.release.promoted`, fait du plugin. Revient sur doc 15 §15.3 — tranché |
+| 8 | Où se déclarent les environnements et leur sensibilité ? | dans le **catalogue**, section lue par le plugin : ils y sont déjà, et y sont confrontés au cluster au démarrage — tranché |
+| 9 | Quelle page d'accueil sans le plugin ? | **Releases** — tranché |
 | 10 | Les validations de recette partent-elles avec le plugin ? | **oui** : elles portent sur une release **dans un environnement** (§16.7, couture 5) |
 
 ---
@@ -325,8 +325,7 @@ l'adoption, deux actives restent indécidables — est inchangé.
 
 **Deux propositions appliquées.** Le plugin est de `Kind` `module` (décision 6) ; `deployer` et
 `attester` disparaissent du registre, faute de réalisation. Sans le plugin, la page d'accueil
-est Releases (décision 9). Les deux restent révisables : la tranche les pose, elle ne les
-fige pas.
+est Releases (décision 9). Les deux ont été confirmées après la tranche 5.
 
 **La migration 0051 reprend Flux.** L'activation et le namespace de `flux` deviennent ceux de
 `mse`. Un `flux` éteint à la main donne un `mse` éteint. Les réglages par projet de
@@ -528,5 +527,5 @@ Chacun vérifie aussi qu'il lit bien des sources, pour ne pas passer en silence 
 faux.
 
 **Le chantier est au bout de ses tranches.** Reste hors du découpage du code la couture 7 : les
-tables d'environnement et leurs lectures dans `internal/store` (§16.15). Et les décisions 6, 7, 8
-et 9 restent à confirmer.
+tables d'environnement et leurs lectures dans `internal/store` (§16.15). Les décisions 6 à 9
+sont confirmées.
