@@ -158,8 +158,16 @@ func TestLesMigrationsDuPluginSAnnulent(t *testing.T) {
 	cfg := testConfig(t)
 	ctx := context.Background()
 
-	if err := Rollback(ctx, cfg); err != nil {
-		t.Fatalf("annulation: %v", err)
+	// Toutes ses migrations, et non la dernière : c'est la première qui crée les
+	// tables.
+	count, err := ExpectedVersion()
+	if err != nil {
+		t.Fatalf("migrations embarquées: %v", err)
+	}
+	for step := range count {
+		if err := Rollback(ctx, cfg); err != nil {
+			t.Fatalf("annulation %d/%d: %v", step+1, count, err)
+		}
 	}
 	var exists bool
 	if err := db.Pool().QueryRow(ctx, "select to_regclass('public.environments') is not null").Scan(&exists); err != nil {
@@ -170,6 +178,62 @@ func TestLesMigrationsDuPluginSAnnulent(t *testing.T) {
 	}
 	if err := db.Pool().QueryRow(ctx, "select to_regclass('public.releases') is not null").Scan(&exists); err != nil || !exists {
 		t.Errorf("les tables du noyau ont été touchées (%v)", err)
+	}
+}
+
+// La migration de données éteint le plugin pour les projets qui ne relèvent pas
+// du MSE, et son retour arrière ne retire que ce qu'elle a posé.
+func TestLaMigrationDeDonneesEteintLePluginHorsMSE(t *testing.T) {
+	cfg, db := bareSchema(t)
+	ctx := context.Background()
+
+	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
+		t.Fatalf("migrations du noyau: %v", err)
+	}
+	for _, slug := range []string{"mse-test-project", "mse-tekton"} {
+		if _, err := db.Pool().Exec(ctx,
+			`insert into projects (slug, repository, label, forge_url, dockerfile, build_context, created_by)
+			 values ($1, 'vcarroy/'||$1, $1, 'https://forge.example', 'Dockerfile', '.', 'test')`, slug); err != nil {
+			t.Fatalf("projet %s: %v", slug, err)
+		}
+	}
+	if err := Migrate(ctx, cfg, quietLogger()); err != nil {
+		t.Fatalf("migrations du plugin: %v", err)
+	}
+
+	decisions := func() map[string]bool {
+		rows, err := db.Pool().Query(ctx,
+			`select p.slug, pp.enabled from project_plugins pp join projects p on p.id = pp.project_id
+			 where pp.plugin_id = 'mse'`)
+		if err != nil {
+			t.Fatalf("décisions: %v", err)
+		}
+		defer rows.Close()
+		found := map[string]bool{}
+		for rows.Next() {
+			var slug string
+			var enabled bool
+			if err := rows.Scan(&slug, &enabled); err != nil {
+				t.Fatalf("décision: %v", err)
+			}
+			found[slug] = enabled
+		}
+		return found
+	}
+
+	got := decisions()
+	if enabled, declared := got["mse-tekton"]; !declared || enabled {
+		t.Errorf("mse-tekton: %v (déclaré %v), attendu éteint", enabled, declared)
+	}
+	if _, declared := got["mse-test-project"]; declared {
+		t.Error("mse-test-project doit hériter, sans décision posée")
+	}
+
+	if err := Rollback(ctx, cfg); err != nil {
+		t.Fatalf("annulation: %v", err)
+	}
+	if got := decisions(); len(got) != 0 {
+		t.Errorf("décisions restantes après annulation: %v", got)
 	}
 }
 

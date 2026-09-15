@@ -342,12 +342,6 @@ func TestLeProjetNeVoitQueCeQuIlPeutDecider(t *testing.T) {
 	if slices.Contains(ids, "bon-de-livraison") {
 		t.Error("un plugin éteint sur l'instance est proposé au projet")
 	}
-	// `mse` vaut nécessairement pour toute l'instance : les environnements ne
-	// sont pas une propriété d'un projet, et prétendre le contraire afficherait
-	// un interrupteur qui ne fait rien.
-	if slices.Contains(ids, "mse") {
-		t.Error("un plugin qui vaut pour l'instance est proposé au projet")
-	}
 	if !slices.Contains(ids, "redmine") {
 		t.Errorf("plugins proposés = %v", ids)
 	}
@@ -367,18 +361,20 @@ func TestUnProjetNePeutPasRallumerCeQueLInstanceAEteint(t *testing.T) {
 	}
 }
 
-// Un plugin qui vaut pour l'instance ne se règle pas par projet.
+// Le module MSE se règle par projet : allumé sur l'instance, un projet qui ne
+// relève pas du portail l'éteint pour lui (doc 16 §16.18).
 //
-// `mse` en est un : les environnements ne sont pas une propriété d'un projet. `gitea`, lui, a cessé d'en être un le jour où il s'est mis à
-// observer — surveiller les demandes de fusion d'un dépôt est bien une décision
-// de projet, même quand la connexion vaut pour toute l'instance.
-func TestUnPluginDInstanceNeSeReglePasParProjet(t *testing.T) {
-	handler := pluginsHandlerWith(t, newFakePluginStore(), cleDeTest)
+// Aucun plugin du registre ne vaut plus pour la seule instance ; le refus d'un
+// réglage par projet reste dans le handler pour le jour où il en reviendra un.
+func TestLeModuleMSESeRegleParProjet(t *testing.T) {
+	fake := newFakePluginStore()
+	fake.global["mse"] = store.PluginSettings{PluginID: "mse", Enabled: true}
+	handler := pluginsHandlerWith(t, fake, cleDeTest)
 
 	recorder := putPlugin(t, handler.SetProject,
 		"/projects/mse/plugins/mse", "mse", `{"enabled":false}`)
-	if recorder.Code != http.StatusConflict {
-		t.Fatalf("code %d, attendu 409 — %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("code %d, attendu 200 — %s", recorder.Code, recorder.Body.String())
 	}
 }
 

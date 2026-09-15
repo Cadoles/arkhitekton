@@ -1,4 +1,4 @@
-import { useSession } from './features/auth/session'
+import { projectModules, useSession } from './features/auth/session'
 import { mseModule } from './features/mse/module'
 import type { AppModule } from './lib/modules'
 
@@ -16,10 +16,11 @@ export function appModules(): AppModule[] {
   return [mseModule]
 }
 
-/** Les modules allumés pour la session. Vide tant qu'elle n'est pas chargée. */
+/** Les modules allumés pour le projet courant. Vide tant que la session n'est pas
+ *  chargée. */
 export function useActiveModules(): AppModule[] {
   const session = useSession()
   if (session.kind !== 'authenticated') return []
-  const enabled = session.identity.modules ?? []
+  const enabled = projectModules(session.identity)
   return appModules().filter((module) => enabled.includes(module.id))
 }

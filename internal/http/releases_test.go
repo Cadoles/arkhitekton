@@ -324,7 +324,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		// réellement en file.
 		WithArtifactReader(store).
 		// Les promotions demandées, telles que le plugin MSE les fournirait.
-		WithPromotions(func(context.Context, int64) ([]ReleasePromotion, error) {
+		WithPromotions(func(context.Context, int64, int64) ([]ReleasePromotion, error) {
 			return store.promotions, nil
 		}).
 		WithPlans(worker.NewReleasePlanner(

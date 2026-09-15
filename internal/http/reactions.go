@@ -53,6 +53,7 @@ type AutomationStore interface {
 	SaveReleaseAutomation(ctx context.Context, entry store.ReleaseAutomation, actor string) error
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	PluginSettingsAll(ctx context.Context) (map[string]store.PluginSettings, error)
+	ProjectPluginSettings(ctx context.Context, projectID int64) (map[string]store.PluginSettings, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
@@ -102,7 +103,7 @@ func (h *AutomationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	live, err := h.liveEventTypes(r.Context())
+	live, err := h.liveEventTypes(r.Context(), project.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des plugins impossible", "")
 		return
@@ -427,7 +428,7 @@ func actionFields(descriptor action.Descriptor) []fieldPayload {
 func (h *AutomationsHandler) checkRefs(ctx context.Context, entry reaction.Reaction) error {
 	var problems []error
 
-	live, err := h.liveEventTypes(ctx)
+	live, err := h.liveEventTypes(ctx, entry.ProjectID)
 	if err != nil {
 		return err
 	}
@@ -519,11 +520,15 @@ func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan)
 
 // liveEventTypes énumère les faits qu'un projet peut effectivement écouter.
 //
-// Ceux du noyau, plus ceux des plugins **actifs** : un fait dont le plugin est
-// éteint ne sera jamais produit, et l'accepter donnerait une réaction qui ne part
-// jamais sans qu'on sache pourquoi.
-func (h *AutomationsHandler) liveEventTypes(ctx context.Context) ([]string, error) {
+// Ceux du noyau, plus ceux des plugins **actifs pour ce projet** : un fait dont le
+// plugin est éteint ne sera jamais produit, et l'accepter donnerait une réaction
+// qui ne part jamais sans qu'on sache pourquoi.
+func (h *AutomationsHandler) liveEventTypes(ctx context.Context, projectID int64) ([]string, error) {
 	settings, err := h.store.PluginSettingsAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	own, err := h.store.ProjectPluginSettings(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -534,6 +539,9 @@ func (h *AutomationsHandler) liveEventTypes(ctx context.Context) ([]string, erro
 	}
 	for _, descriptor := range plugin.Registry() {
 		if !settings[descriptor.ID].Enabled {
+			continue
+		}
+		if entry, declared := own[descriptor.ID]; declared && descriptor.PerProject && !entry.Enabled {
 			continue
 		}
 		for _, spec := range descriptor.Events {

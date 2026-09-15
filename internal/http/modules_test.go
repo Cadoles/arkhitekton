@@ -22,11 +22,17 @@ import (
 
 type lecteurDePlugins struct {
 	settings map[string]store.PluginSettings
-	err      error
+	// projets porte les décisions explicites, par projet.
+	projets map[int64]map[string]store.PluginSettings
+	err     error
 }
 
 func (l lecteurDePlugins) PluginSettingsAll(context.Context) (map[string]store.PluginSettings, error) {
 	return l.settings, l.err
+}
+
+func (l lecteurDePlugins) ProjectPluginSettings(_ context.Context, projectID int64) (map[string]store.PluginSettings, error) {
+	return l.projets[projectID], l.err
 }
 
 func modulesAvec(mse bool) *Modules {
@@ -104,5 +110,70 @@ func TestMeAnnonceLesModules(t *testing.T) {
 	}
 	if !slices.Equal(payload.Modules, []string{"mse"}) {
 		t.Errorf("modules = %v, attendu [mse]", payload.Modules)
+	}
+}
+
+// Un projet hérite du module allumé sur l'instance, peut l'éteindre pour lui, et
+// ne peut pas le rallumer quand l'instance l'a éteint (doc 16 §16.18).
+func TestUnModuleSeResoutDansLeProjet(t *testing.T) {
+	lecteur := func(global bool) *Modules {
+		return NewModules(lecteurDePlugins{
+			settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: global}},
+			projets: map[int64]map[string]store.PluginSettings{
+				2: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: false}},
+				3: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: true}},
+			},
+		}, quietLogger())
+	}
+	ctx := context.Background()
+
+	for _, cas := range []struct {
+		global  bool
+		projet  int64
+		attendu bool
+		libelle string
+	}{
+		{true, 1, true, "sans décision, le projet hérite"},
+		{true, 2, false, "éteint pour le projet"},
+		{false, 3, false, "l'instance éteinte l'emporte sur le projet"},
+	} {
+		if got := lecteur(cas.global).EnabledIn(ctx, cas.projet, plugin.ModuleMSE); got != cas.attendu {
+			t.Errorf("%s: %v, attendu %v", cas.libelle, got, cas.attendu)
+		}
+	}
+}
+
+type resolveurDeProjets map[string]int64
+
+func (r resolveurDeProjets) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+	id, found := r[slug]
+	if !found {
+		return store.Project{}, store.ErrProjectNotFound
+	}
+	return store.Project{ID: id, Slug: slug}, nil
+}
+
+// Une route qui nomme un projet répond 404 quand le module est éteint pour lui,
+// même allumé sur l'instance.
+func TestUneRouteDeProjetSuitLeModuleDuProjet(t *testing.T) {
+	modules := NewModules(lecteurDePlugins{
+		settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: true}},
+		projets: map[int64]map[string]store.PluginSettings{
+			2: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: false}},
+		},
+	}, quietLogger())
+	middleware := NewMiddleware(nil, nil, quietLogger()).
+		WithProjects(resolveurDeProjets{"mse": 1, "tekton": 2}).WithModules(modules)
+
+	for slug, attendu := range map[string]int{"mse": http.StatusOK, "tekton": http.StatusNotFound} {
+		handler := middleware.RequireModule(plugin.ModuleMSE)(http.HandlerFunc(
+			func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+		request := httptest.NewRequest(http.MethodGet, "/projects/"+slug+"/releases/1.0.0/targets", nil)
+		request.SetPathValue("project", slug)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != attendu {
+			t.Errorf("projet %s: code %d, attendu %d", slug, recorder.Code, attendu)
+		}
 	}
 }

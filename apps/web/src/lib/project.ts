@@ -27,8 +27,8 @@ const STORAGE_KEY = 'mse-dashboard.project'
 let current = ''
 let available: ProjectChoice[] = []
 
-/** Un projet tel que `/me` le nomme. */
-export type ProjectChoice = { slug: string; label: string }
+/** Un projet tel que `/me` le nomme, avec les modules allumés pour lui. */
+export type ProjectChoice = { slug: string; label: string; modules?: string[] }
 
 /**
  * Retient les projets lisibles et arrête le projet courant.

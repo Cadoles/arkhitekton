@@ -24,11 +24,11 @@ func NewBackend(db *store.DB) Backend {
 // Deployments rend, par tag de release, les environnements qui la font tourner.
 //
 // Le noyau affiche la pastille « déployée sur » sans lire les tables du plugin :
-// il appelle cette fonction, qui ne rend rien quand le module est éteint
-// (doc 16 §16.17).
-func Deployments(environments *storage.Store, modules *dashhttp.Modules) func(context.Context) (map[string][]string, error) {
-	return func(ctx context.Context) (map[string][]string, error) {
-		if !modules.Enabled(ctx, plugin.ModuleMSE) {
+// il appelle cette fonction, qui ne rend rien quand le module est éteint pour le
+// projet (doc 16 §16.17, §16.18).
+func Deployments(environments *storage.Store, modules *dashhttp.Modules) func(context.Context, int64) (map[string][]string, error) {
+	return func(ctx context.Context, projectID int64) (map[string][]string, error) {
+		if !modules.EnabledIn(ctx, projectID, plugin.ModuleMSE) {
 			return nil, nil
 		}
 		return environments.DeployedByRelease(ctx)
@@ -39,9 +39,9 @@ func Deployments(environments *storage.Store, modules *dashhttp.Modules) func(co
 // noyau. Rien quand le module est éteint.
 func Promotions(
 	environments *storage.Store, modules *dashhttp.Modules,
-) func(context.Context, int64) ([]dashhttp.ReleasePromotion, error) {
-	return func(ctx context.Context, releaseID int64) ([]dashhttp.ReleasePromotion, error) {
-		if !modules.Enabled(ctx, plugin.ModuleMSE) {
+) func(context.Context, int64, int64) ([]dashhttp.ReleasePromotion, error) {
+	return func(ctx context.Context, projectID, releaseID int64) ([]dashhttp.ReleasePromotion, error) {
+		if !modules.EnabledIn(ctx, projectID, plugin.ModuleMSE) {
 			return nil, nil
 		}
 		promotions, err := environments.ListPromotions(ctx, releaseID)

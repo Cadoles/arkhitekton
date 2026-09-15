@@ -12,14 +12,18 @@ import (
 // propose pour un paramètre de nature `environment`.
 //
 // Le noyau lisait la section du catalogue lui-même. Il demande désormais la liste
-// au plugin, qui n'en rend aucune quand le module est éteint : le champ reste
-// alors en saisie libre (doc 16 §16.7, couture 9). Lu à chaque requête, comme
-// l'interrupteur des routes.
+// au plugin, qui n'en rend aucune quand le module est éteint pour le projet, ou
+// sans projet : le champ reste alors en saisie libre (doc 16 §16.7, couture 9 ;
+// §16.18). Lu à chaque requête, comme l'interrupteur des routes.
 func EnvironmentSuggestions(
-	environments []catalog.Environment, modules *dashhttp.Modules,
-) func(context.Context) []dashhttp.Suggestion {
-	return func(ctx context.Context) []dashhttp.Suggestion {
-		if !modules.Enabled(ctx, plugin.ModuleMSE) {
+	environments []catalog.Environment, modules *dashhttp.Modules, projects dashhttp.ProjectResolver,
+) func(context.Context, string) []dashhttp.Suggestion {
+	return func(ctx context.Context, projectSlug string) []dashhttp.Suggestion {
+		if projectSlug == "" {
+			return nil
+		}
+		project, err := projects.ProjectBySlug(ctx, projectSlug)
+		if err != nil || !modules.EnabledIn(ctx, project.ID, plugin.ModuleMSE) {
 			return nil
 		}
 		proposed := make([]dashhttp.Suggestion, 0, len(environments))

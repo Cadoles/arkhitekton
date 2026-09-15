@@ -317,7 +317,7 @@ func TestLeFormulaireDeLancementEstPeuple(t *testing.T) {
 
 	proposed := []Suggestion{{Value: "dev", Label: "Unstable"}}
 	withPlugin := listQueues(t, queueHandler(fake).WithEnvironmentSuggestions(
-		func(context.Context) []Suggestion { return proposed }))
+		func(context.Context, string) []Suggestion { return proposed }))
 	if environments := withPlugin.Suggestions[catalog.SuggestEnvironment]; len(environments) != 1 ||
 		environments[0].Value != "dev" {
 		t.Errorf("environnements proposés par le plugin = %+v", environments)

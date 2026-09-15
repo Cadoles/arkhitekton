@@ -224,11 +224,15 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		if err != nil && h.logger != nil {
 			h.logger.Warn("liste des projets indisponible", "error", err)
 		}
-		visible := make([]map[string]string, 0, len(projects))
+		visible := make([]map[string]any, 0, len(projects))
 		for _, project := range projects {
-			visible = append(visible, map[string]string{
-				"slug": project.Slug, "label": project.Label,
-			})
+			entry := map[string]any{"slug": project.Slug, "label": project.Label}
+			// Les modules du projet : l'interface suit le projet courant, et un
+			// module allumé sur l'instance peut être éteint pour lui.
+			if h.modules != nil {
+				entry["modules"] = h.modules.ActiveIn(r.Context(), project.ID)
+			}
+			visible = append(visible, entry)
 		}
 		payload["projects"] = visible
 	}

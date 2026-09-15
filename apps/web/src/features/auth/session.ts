@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { ApiError, request } from '../../lib/api'
-import { setProjects, type ProjectChoice } from '../../lib/project'
+import { currentProject, setProjects, type ProjectChoice } from '../../lib/project'
 
 /** Identité renvoyée par `GET /api/v1/me`. */
 export type Identity = {
@@ -16,9 +16,9 @@ export type Identity = {
    */
   projects?: ProjectChoice[]
   /**
-   * Modules allumés sur l'instance — `mse` pour les environnements et la
-   * promotion. Absent ou vide : l'interface ne propose aucun de leurs écrans, et
-   * leurs routes répondraient 404 (doc 16).
+   * Modules allumés sur l'instance. L'interface suit ceux du **projet courant**
+   * (`projects[].modules`) : un module allumé sur l'instance peut être éteint
+   * pour un projet (doc 16 §16.18).
    */
   modules?: string[]
 }
@@ -66,8 +66,14 @@ export function useSession(): SessionState {
   return { kind: 'authenticated', identity: query.data }
 }
 
+/** Les modules allumés pour le projet courant. */
+export function projectModules(identity: Identity): string[] {
+  const project = identity.projects?.find((entry) => entry.slug === currentProject())
+  return project?.modules ?? []
+}
+
 /**
- * Dit si un module est allumé.
+ * Dit si un module est allumé pour le projet courant.
  *
  * Faux tant que la session n'est pas chargée : afficher l'onglet puis le retirer
  * ferait sauter la navigation, et proposer un écran dont les requêtes échoueront
@@ -75,7 +81,7 @@ export function useSession(): SessionState {
  */
 export function useModule(module: string): boolean {
   const session = useSession()
-  return session.kind === 'authenticated' && (session.identity.modules ?? []).includes(module)
+  return session.kind === 'authenticated' && projectModules(session.identity).includes(module)
 }
 
 const ROLE_LABELS: Record<Role, string> = {

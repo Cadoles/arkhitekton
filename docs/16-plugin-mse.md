@@ -794,3 +794,43 @@ Les jobs portent déjà leur projet, et l'ordonnanceur résout déjà des secret
 | 4 | **Observation par projet** | clients Flux par namespace ; contrôle des `ImagePolicy` par projet ; observateur par projet | |
 | 5 | **Paramètres par projet** | surcharge `config` par projet dans l'ordonnanceur ; réglages du plugin ; `schedulerConfig` sans clé MSE | un pipeline d'un second projet clone ses propres dépôts |
 
+
+---
+
+## 16.19 Par projet, tranche 1 — ce que l'écriture a tranché
+
+**Le plugin se choisit par projet.** Le descripteur passe à `PerProject: true` : il apparaît dans
+la liste des plugins d'un projet, avec son interrupteur. Le global vaut autorisation et défaut ;
+éteint sur l'instance, aucun projet ne le rallume.
+
+**L'interrupteur se résout dans le projet.**
+
+| Où | Résolution |
+|---|---|
+| `Modules.ActiveIn`, `EnabledIn` | global allumé, puis décision du projet ; sans décision, le projet hérite |
+| `RequireModule` | une route qui nomme `{project}` se résout dans ce projet ; les autres restent à l'échelle de l'instance |
+| `/me` | chaque projet porte ses `modules` ; `modules` à la racine reste celui de l'instance |
+| Pastille « déployée sur », promotions d'une release | fournies avec le projet de la requête |
+| Suggestion `environment` | résolue par le slug que la file reçoit ; sans projet, aucune |
+| Réactions | `mse.release.promoted` proposé et accepté selon le projet de la réaction |
+
+L'interface suit le **projet courant** : onglet, accueil, sections et pastilles lisent
+`projects[].modules`. Changer de projet recharge la page, comme avant.
+
+**La migration de données est une migration du plugin** (`0002`). Elle pose `enabled = false`
+pour `mse-kustom-test-project`, `mse-tekton`, `hydra-sql-mse-theme` et
+`hydra-dispatcher-mse-theme`. Sur une base où ces projets n'existent pas, elle n'écrit rien. Elle
+marque ses lignes par `updated_by`, et son retour arrière ne retire qu'elles.
+
+**Ce qui reste à l'échelle de l'instance, jusqu'aux tranches suivantes :**
+
+- les routes `/environments…`, hors projet — tranche 2 ;
+- le rapprochement de la pastille, qui joint encore toutes les releases par tag — tranche 2 ;
+- le catalogue des réactions de l'administration, sans projet ;
+- le contrôle du schéma de version à l'enregistrement d'un projet, qui consulte l'interrupteur
+  de l'instance ;
+- l'observation et le client Flux du worker — tranche 4.
+
+**Plus aucun plugin ne vaut pour la seule instance.** Le refus d'un réglage par projet reste dans
+le handler des plugins, sans test pour l'exercer : les deux tests qui s'appuyaient sur `mse`
+vérifient désormais qu'il se règle par projet.

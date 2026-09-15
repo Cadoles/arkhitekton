@@ -418,10 +418,10 @@ func Registry() []Descriptor {
 					},
 				},
 			},
-			// Pour toute l'instance : les environnements ne sont pas une propriété
-			// d'un projet. Éteint, l'instance n'a ni onglet Environnements, ni
-			// promotion, ni observation (doc 16 §16.8).
-			PerProject: false,
+			// Par projet : seul un projet qui relève du portail MSE le reçoit. Le
+			// global vaut autorisation et défaut ; éteint sur l'instance, aucun
+			// projet ne le rallume (doc 16 §16.18).
+			PerProject: true,
 		},
 		{
 			ID: "bon-de-livraison", Kind: KindExporter, Label: "Bon de livraison",

@@ -57,7 +57,7 @@ type QueueHandler struct {
 	logger          *slog.Logger
 	// environments rend les environnements proposés. Nil : aucun, le champ
 	// reste en saisie libre. Apporté par le plugin MSE (doc 16 §16.7, couture 9).
-	environments func(context.Context) []Suggestion
+	environments func(ctx context.Context, projectSlug string) []Suggestion
 }
 
 func NewQueueHandler(queue QueueStore, pipelines *catalog.Catalog) *QueueHandler {
@@ -121,7 +121,7 @@ type option struct {
 type Suggestion = option
 
 // WithEnvironmentSuggestions branche la liste des environnements proposés.
-func (h *QueueHandler) WithEnvironmentSuggestions(environments func(context.Context) []Suggestion) *QueueHandler {
+func (h *QueueHandler) WithEnvironmentSuggestions(environments func(ctx context.Context, projectSlug string) []Suggestion) *QueueHandler {
 	h.environments = environments
 	return h
 }
@@ -246,7 +246,7 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 	proposed := map[string][]option{}
 
 	if h.environments != nil {
-		if environments := h.environments(ctx); environments != nil {
+		if environments := h.environments(ctx, slug); environments != nil {
 			proposed[catalog.SuggestEnvironment] = environments
 		}
 	}

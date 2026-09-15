@@ -245,7 +245,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// celle employée pour lire les tags — le déduire ailleurs ferait diverger
 		// ce qu'on propose de ce qu'on tire.
 		WithSuggestions(db, cfg.Registry.Project, logger).
-		WithEnvironmentSuggestions(mse.EnvironmentSuggestions(pipelines.Environments, modules))
+		WithEnvironmentSuggestions(mse.EnvironmentSuggestions(pipelines.Environments, modules, db))
 	// Le nom du dépôt promu vient de la configuration du registre : c'est le même
 	// préfixe que celui employé pour lire les tags, et le déduire ailleurs ferait
 	// diverger lecture et promotion.

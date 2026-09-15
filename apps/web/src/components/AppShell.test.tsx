@@ -15,10 +15,11 @@ import { HomeRedirect, ModuleRoute } from './ModuleRoute'
  * mènerait à un écran dont chaque requête répond 404 (doc 16 §16.8).
  */
 
-function identite(modules: string[]) {
+/** Les modules du projet courant, et ceux de l'instance — les mêmes par défaut. */
+function identite(modules: string[], instance: string[] = modules) {
   return {
     subject: 's', username: 'vcarroy', email: 'v@example.fr', role: 'admin',
-    projects: [{ slug: 'mse', label: 'MSE' }], modules,
+    projects: [{ slug: 'mse', label: 'MSE', modules }], modules: instance,
   }
 }
 
@@ -29,6 +30,16 @@ describe('la navigation', () => {
 
   it("n'affiche pas Environnements sans le module MSE", async () => {
     mockFetch([{ path: '/me', body: identite([]) }])
+    render(<AppShell />)
+
+    expect(await screen.findByRole('link', { name: /Releases/ })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Environnements/ })).not.toBeInTheDocument()
+  })
+
+  // Allumé sur l'instance, éteint pour le projet courant : l'onglet suit le projet
+  // (doc 16 §16.18).
+  it("n'affiche pas Environnements quand le projet courant n'a pas le module", async () => {
+    mockFetch([{ path: '/me', body: identite([], ['mse']) }])
     render(<AppShell />)
 
     expect(await screen.findByRole('link', { name: /Releases/ })).toBeInTheDocument()

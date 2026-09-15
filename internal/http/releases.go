@@ -125,9 +125,9 @@ type ReleasesHandler struct {
 	// deployments rend, par tag, les environnements où une release tourne. Nil :
 	// la pastille n'est jamais affichée. Fourni par le plugin MSE, qui possède ces
 	// tables (doc 16 §16.17).
-	deployments func(context.Context) (map[string][]string, error)
+	deployments func(context.Context, int64) (map[string][]string, error)
 	// promotions rend les promotions demandées d'une release. Nil : aucune.
-	promotions func(context.Context, int64) ([]ReleasePromotion, error)
+	promotions func(context.Context, int64, int64) ([]ReleasePromotion, error)
 	// scoreCatalog sert au score, et pour la même raison que dans le gestionnaire
 	// des tests : nommer la famille d'un geste qui n'a rien produit. La pastille
 	// de la liste et l'écran d'une release doivent afficher le même chiffre, donc
@@ -179,13 +179,13 @@ type ReleasePromotion struct {
 }
 
 // WithDeployments branche la pastille « déployée sur ».
-func (h *ReleasesHandler) WithDeployments(deployments func(context.Context) (map[string][]string, error)) *ReleasesHandler {
+func (h *ReleasesHandler) WithDeployments(deployments func(ctx context.Context, projectID int64) (map[string][]string, error)) *ReleasesHandler {
 	h.deployments = deployments
 	return h
 }
 
 // WithPromotions branche la lecture des promotions demandées.
-func (h *ReleasesHandler) WithPromotions(promotions func(context.Context, int64) ([]ReleasePromotion, error)) *ReleasesHandler {
+func (h *ReleasesHandler) WithPromotions(promotions func(ctx context.Context, projectID, releaseID int64) ([]ReleasePromotion, error)) *ReleasesHandler {
 	h.promotions = promotions
 	return h
 }
@@ -194,11 +194,11 @@ func (h *ReleasesHandler) WithPromotions(promotions func(context.Context, int64)
 //
 // Une lecture impossible ne fait pas échouer l'écran : la pastille est un repère,
 // pas une information dont dépend une décision prise ici.
-func (h *ReleasesHandler) deployedOn(ctx context.Context) map[string][]string {
+func (h *ReleasesHandler) deployedOn(ctx context.Context, projectID int64) map[string][]string {
 	if h.deployments == nil {
 		return nil
 	}
-	deployed, err := h.deployments(ctx)
+	deployed, err := h.deployments(ctx, projectID)
 	if err != nil {
 		h.logger.Error("environnements des releases", "error", err)
 		return nil
@@ -207,11 +207,11 @@ func (h *ReleasesHandler) deployedOn(ctx context.Context) map[string][]string {
 }
 
 // releasePromotions rend les promotions demandées d'une release.
-func (h *ReleasesHandler) releasePromotions(ctx context.Context, releaseID int64) ([]ReleasePromotion, error) {
+func (h *ReleasesHandler) releasePromotions(ctx context.Context, projectID, releaseID int64) ([]ReleasePromotion, error) {
 	if h.promotions == nil {
 		return nil, nil
 	}
-	return h.promotions(ctx, releaseID)
+	return h.promotions(ctx, projectID, releaseID)
 }
 
 // WithScoreCatalog branche le catalogue employé par le score.
@@ -418,7 +418,7 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	who := h.actorsFor(r.Context())
-	deployed := h.deployedOn(r.Context())
+	deployed := h.deployedOn(r.Context(), currentID)
 
 	payload := make([]releasePayload, 0, len(releases))
 	for _, item := range releases {
@@ -513,7 +513,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	who := h.actorsFor(r.Context())
 	payload := toReleasePayload(item, "", who)
 
-	promotions, err := h.releasePromotions(r.Context(), item.ID)
+	promotions, err := h.releasePromotions(r.Context(), currentID, item.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
 		return
@@ -545,7 +545,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if badges, err := h.store.ReleaseBadgesByTag(r.Context()); err == nil {
 		payload.BuildFailed = badges[item.Tag].BuildFailed
 	}
-	payload.DeployedOn = h.deployedOn(r.Context())[item.Tag]
+	payload.DeployedOn = h.deployedOn(r.Context(), currentID)[item.Tag]
 	payload.Score = h.scoreDigest(r.Context(), item.ID)
 
 	if item.ManualActions != "" || item.ManualActionsUpdatedAt != nil {

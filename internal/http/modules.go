@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -24,9 +25,10 @@ import (
  * table de quelques lignes.
  */
 
-// PluginReader rend les réglages globaux des plugins.
+// PluginReader rend les réglages des plugins, de l'instance et d'un projet.
 type PluginReader interface {
 	PluginSettingsAll(ctx context.Context) (map[string]store.PluginSettings, error)
+	ProjectPluginSettings(ctx context.Context, projectID int64) (map[string]store.PluginSettings, error)
 }
 
 // Modules dit quels modules sont actifs.
@@ -78,6 +80,44 @@ func (m *Modules) Enabled(ctx context.Context, id string) bool {
 	return false
 }
 
+// ActiveIn rend les modules allumés pour un projet.
+//
+// Le global vaut autorisation : un module éteint sur l'instance l'est pour tous
+// les projets. Allumé, un projet en hérite sauf décision contraire — la même règle
+// que la liste des plugins d'un projet (doc 16 §16.18).
+func (m *Modules) ActiveIn(ctx context.Context, projectID int64) []string {
+	settings, err := m.store.PluginSettingsAll(ctx)
+	if err != nil {
+		m.logger.Error("lecture des modules actifs", "error", err)
+		return []string{}
+	}
+	own, err := m.store.ProjectPluginSettings(ctx, projectID)
+	if err != nil {
+		m.logger.Error("lecture des modules d'un projet", "projet", projectID, "error", err)
+		return []string{}
+	}
+	active := []string{}
+	for _, descriptor := range plugin.Registry() {
+		if descriptor.Kind != plugin.KindModule || !settings[descriptor.ID].Enabled {
+			continue
+		}
+		if entry, declared := own[descriptor.ID]; declared && descriptor.PerProject && !entry.Enabled {
+			continue
+		}
+		active = append(active, descriptor.ID)
+	}
+	return active
+}
+
+// EnabledIn dit si un module est allumé pour un projet. Nil répond oui, comme
+// [Modules.Enabled].
+func (m *Modules) EnabledIn(ctx context.Context, projectID int64, id string) bool {
+	if m == nil {
+		return true
+	}
+	return slices.Contains(m.ActiveIn(ctx, projectID), id)
+}
+
 // RequireModule répond 404 quand le module est éteint.
 //
 // 404 et non 403 : la route n'existe pas sur cette instance, et aucun rôle ne la
@@ -85,9 +125,19 @@ func (m *Modules) Enabled(ctx context.Context, id string) bool {
 func (m *Middleware) RequireModule(id string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !m.modules.Enabled(r.Context(), id) {
+			enabled := m.modules.Enabled(r.Context(), id)
+			// Une route qui nomme un projet se résout dans ce projet : un module
+			// allumé sur l'instance peut être éteint pour lui.
+			if enabled && r.PathValue("project") != "" && m.projects != nil {
+				projectID, ok := requestProject(w, r, m.projects)
+				if !ok {
+					return
+				}
+				enabled = m.modules.EnabledIn(r.Context(), projectID, id)
+			}
+			if !enabled {
 				writeProblem(w, http.StatusNotFound, "Module inactif",
-					"le module "+id+" est éteint sur cette instance")
+					"le module "+id+" est éteint")
 				return
 			}
 			next.ServeHTTP(w, r)
