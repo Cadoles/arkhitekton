@@ -529,3 +529,51 @@ faux.
 **Le chantier est au bout de ses tranches.** Reste hors du découpage du code la couture 7 : les
 tables d'environnement et leurs lectures dans `internal/store` (§16.15). Les décisions 6 à 9
 sont confirmées.
+
+---
+
+## 16.17 Couture 7 — les tables au plugin
+
+**Le plugin possède ses tables.** `environments`, `image_promotions`,
+`environment_observations` et `release_signoffs` sont créées par ses migrations
+(`internal/mse/storage/migrations`), tenues dans leur propre table de versions,
+`goose_mse_db_version`. Le Job de migration applique le noyau puis le plugin : ses tables
+référencent `releases` et `jobs`.
+
+**L'historique du noyau a été réécrit.**
+
+| Migration | Changement |
+|---|---|
+| `0001`, `0002`, `0003` | ne créent plus les quatre tables ni `deployments` |
+| `0006`, `0011`, `0032`, `0033` | vides : tout leur contenu portait sur ces tables |
+| `0050` | son retour arrière ne recrée plus `deployments` |
+| `0053` | nouvelle : retire la clé étrangère de `jobs.environment_id` vers `environments` |
+
+goose ne vérifie pas le contenu d'une migration déjà appliquée : les bases existantes gardent
+leur historique, les bases neuves ne créent plus ces tables par le noyau. Les numéros vidés
+restent, pour un historique continu.
+
+**La migration du plugin reprend les tables existantes.** Elle crée `if not exists`, avec les
+noms de contraintes relevés sur le cluster. Sur une base déjà en service elle ne fait
+qu'enregistrer sa version ; un test l'éprouve en retirant l'historique du plugin sur une base
+où les tables existent.
+
+**Appliquée que le module soit allumé ou non.** Le plugin est compilé dans ce binaire :
+l'interrupteur se bascule sans redéploiement, et le schéma doit déjà être là. « Sans le
+plugin, pas de tables » vaut pour un build qui ne l'embarque pas.
+
+**Le noyau ne lit plus ces tables.**
+
+- Les requêtes et leurs tests d'intégration sont dans `internal/mse/storage`.
+- La pastille « déployée sur » et les promotions demandées d'une release sont fournies à
+  `ReleasesHandler` par fonctions (`WithDeployments`, `WithPromotions`). Le plugin les
+  branche et ne rend rien quand le module est éteint ; `ReleasesHandler` ne consulte plus
+  l'interrupteur.
+- `jobs.environment_id` reste une colonne texte : le noyau transporte l'environnement visé
+  sans le connaître.
+
+**Le bon de livraison ne porte plus les promotions demandées.** Il liste l'image construite et
+le tag de la release, avec leurs empreintes.
+
+**Démarrage.** L'`api` et le `worker` attendent le schéma du plugin après celui du noyau, et
+la sonde de préparation `schema-mse` vérifie sa version.

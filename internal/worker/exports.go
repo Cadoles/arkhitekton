@@ -32,7 +32,6 @@ const (
 type ExportStore interface {
 	GetReleaseByID(ctx context.Context, id int64) (store.Release, error)
 	VersionName(ctx context.Context, versionID int64) (string, error)
-	ListPromotions(ctx context.Context, releaseID int64) ([]store.Promotion, error)
 	RecordArtifact(ctx context.Context, artifact store.Artifact) (int64, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
@@ -174,25 +173,12 @@ func (e *Exporter) buildNote(ctx context.Context, release store.Release, request
 		note.SourceTag = release.ImageVersion
 	}
 
-	promotions, err := e.store.ListPromotions(ctx, release.ID)
-	if err != nil {
-		return note, err
-	}
-
-	// L'ordre importe : l'image construite d'abord, puis le tag de la release,
-	// puis les tags de promotion. C'est l'ordre de la chaîne de livraison.
+	// L'image construite, puis le tag de la release : l'ordre de la chaîne de
+	// livraison. Les tags de promotion n'y figurent plus : ils appartiennent au
+	// plugin MSE, et le bon de livraison au noyau (doc 16 §16.17).
 	tags := []string{release.ImageVersion}
 	if release.Tag != release.ImageVersion {
 		tags = append(tags, release.Tag)
-	}
-	for _, promotion := range promotions {
-		tags = append(tags, promotion.Tag)
-		note.Promotions = append(note.Promotions, report.Promotion{
-			Environment: promotion.EnvironmentID,
-			Tag:         promotion.Tag,
-			RequestedAt: promotion.PushedAt,
-			Requested:   true,
-		})
 	}
 
 	for _, tag := range tags {

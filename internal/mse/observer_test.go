@@ -9,7 +9,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/portaldata"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
 )
 
 /*
@@ -48,30 +48,30 @@ func (f *fakeAttester) Attestations(context.Context, string) ([]portaldata.Attes
 }
 
 type fakeEnvironmentStore struct {
-	environments []store.Environment
-	saved        []store.Observation
+	environments []storage.Environment
+	saved        []storage.Observation
 }
 
-func (f *fakeEnvironmentStore) UpsertEnvironment(context.Context, store.Environment) error {
+func (f *fakeEnvironmentStore) UpsertEnvironment(context.Context, storage.Environment) error {
 	return nil
 }
 
-func (f *fakeEnvironmentStore) ListEnvironments(context.Context) ([]store.Environment, error) {
+func (f *fakeEnvironmentStore) ListEnvironments(context.Context) ([]storage.Environment, error) {
 	return f.environments, nil
 }
 
-func (f *fakeEnvironmentStore) SaveObservation(_ context.Context, o store.Observation) error {
+func (f *fakeEnvironmentStore) SaveObservation(_ context.Context, o storage.Observation) error {
 	f.saved = append(f.saved, o)
 	return nil
 }
 
-func observerFor(environment store.Environment, deployer Deployer, attester Attester) *Observer {
-	environments := &fakeEnvironmentStore{environments: []store.Environment{environment}}
+func observerFor(environment storage.Environment, deployer Deployer, attester Attester) *Observer {
+	environments := &fakeEnvironmentStore{environments: []storage.Environment{environment}}
 	return NewObserver(environments, deployer, attester, quietLogger())
 }
 
-func observable() store.Environment {
-	return store.Environment{ID: "dev", Namespace: "mse-dev", Observable: true}
+func observable() storage.Environment {
+	return storage.Environment{ID: "dev", Namespace: "mse-dev", Observable: true}
 }
 
 // Flux seul ne peut porter qu'une intention. Rendre `portaldata` sur ce qu'une
@@ -140,7 +140,7 @@ func TestUneAttestationNonPreteNeFaitPasLivre(t *testing.T) {
 // La production vit dans un cluster que le dashboard ne voit pas : l'attestation
 // n'y est même pas tentée.
 func TestUnEnvironnementNonObservableNestPasInterroge(t *testing.T) {
-	environment := store.Environment{ID: "prod", Namespace: "mse-prod", Observable: false}
+	environment := storage.Environment{ID: "prod", Namespace: "mse-prod", Observable: false}
 	deployer := &fakeDeployer{observation: flux.Observation{Resolution: flux.ResolutionUnobservable}}
 	attester := &fakeAttester{}
 	observer := observerFor(environment, deployer, attester)

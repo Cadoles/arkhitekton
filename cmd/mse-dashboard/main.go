@@ -36,6 +36,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/portaldata"
+	msestorage "forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
 	pipelinelib "forge.cadoles.com/vcarroy/mse-dashboard/internal/pipelines"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
@@ -132,6 +133,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// démarre en même temps que ce pod, et servir des requêtes contre un schéma
 	// incomplet rendrait des 500 sur des tables qui vont exister.
 	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
+		return err
+	}
+	// Puis celui du plugin MSE, migré juste après le noyau par le même Job.
+	if err := msestorage.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
 
@@ -257,13 +262,19 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		images = client
 	}
 
+	// Les tables du plugin MSE, lues par ses routes et fournies au noyau par fonctions.
+	mseBackend := mse.NewBackend(db)
+
 	releasesHandler := dashhttp.NewReleasesHandler(
 		db, pipelines, authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project).
 		// Même pondération que le gestionnaire des tests : la pastille de la
 		// liste et l'écran d'une release affichent le même chiffre.
 		WithScoreCatalog(pipelines).
 		WithArtifactReader(db).
-		WithModules(modules).
+		// La pastille « déployée sur » et les promotions demandées : le noyau ne
+		// lit plus les tables du plugin, qui ne rend rien quand il est éteint.
+		WithDeployments(mse.Deployments(mseBackend.Store, modules)).
+		WithPromotions(mse.Promotions(mseBackend.Store, modules)).
 		WithTrackerURL(cfg.Tracker.URL).
 		// L'ouverture du plan d'une release, à sa création.
 		//
@@ -279,7 +290,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// Les routes du plugin MSE : cibles, promotion, environnements. Montées
 	// toujours, et refusées par route quand le module est éteint. Le déployeur
 	// est sans client : planifier une promotion ne demande pas le cluster.
-	mseHandler := mse.NewHandler(db, pipelines, authorizer,
+	mseHandler := mse.NewHandler(mseBackend, pipelines, authorizer,
 		flux.NewDeployer(nil, flux.DefaultPromotionKind, ""), logger)
 
 	// La forge est optionnelle : sans jeton, le formulaire de création de release
@@ -353,12 +364,13 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// Ce qu'une réaction a réellement fait. Un moteur qu'on ne peut pas
 			// déboguer est pire qu'un comportement figé (doc 14 §14.10).
 			dashhttp.NewPlanRunsHandler(db),
-			middleware, mseHandler.Routes, mse.NewSignoffsHandler(db, logger).Routes),
+			middleware, mseHandler.Routes, mse.NewSignoffsHandler(mseBackend, logger).Routes),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
 		// déclarerait prêt puis répondrait 500 sur chaque table absente.
 		dashhttp.ReadinessCheck{Name: "schema", Check: db.CheckSchema},
+		dashhttp.ReadinessCheck{Name: "schema-mse", Check: msestorage.CheckSchema(db.Pool())},
 		dashhttp.ReadinessCheck{Name: "minio", Check: storage.Ping})
 
 	return server.Run(ctx)
@@ -399,6 +411,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	// conclus pendant son absence — et cette réconciliation touche des tables que
 	// le Job de migration n'a peut-être pas encore créées.
 	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
+		return err
+	}
+	// Puis celui du plugin MSE, migré juste après le noyau par le même Job.
+	if err := msestorage.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
 
@@ -540,7 +556,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		}
 
 		deployer := flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
-		environments = mse.NewObserver(db, deployer, attester, logger)
+		environments = mse.NewObserver(msestorage.New(db.Pool()), deployer, attester, logger)
 
 		// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
 		// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux
@@ -878,6 +894,12 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 	}
 
 	if err := store.Migrate(ctx, cfg.Database, logger); err != nil {
+		return err
+	}
+	// Le plugin MSE après le noyau : ses tables référencent `releases` et `jobs`.
+	// Appliqué que le module soit allumé ou non : l'interrupteur se bascule sans
+	// redéploiement, et le schéma doit déjà être là.
+	if err := msestorage.Migrate(ctx, cfg.Database, logger); err != nil {
 		return err
 	}
 

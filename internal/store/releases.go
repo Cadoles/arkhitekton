@@ -162,66 +162,6 @@ func (db *DB) SetReleaseState(ctx context.Context, id int64, state string) error
 	return nil
 }
 
-// Promotion est un tag de promotion poussé pour un environnement.
-type Promotion struct {
-	ReleaseID     int64
-	EnvironmentID string
-	ImageName     string
-	Tag           string
-	Digest        string
-	JobID         *int64
-	PushedAt      time.Time
-}
-
-// RecordPromotion enregistre une promotion demandée.
-//
-// « Demandée » et non « effectuée » : pousser le tag ne déploie rien. Flux
-// constate ensuite, et c'est l'observation des environnements qui dira si la
-// version est réellement livrée. Enregistrer ici ce qui a été **demandé** est ce
-// qui permet plus tard de distinguer « promu mais pas déployé » de « jamais
-// promu » (B7).
-func (db *DB) RecordPromotion(ctx context.Context, promotion Promotion) error {
-	_, err := db.pool.Exec(ctx,
-		`insert into image_promotions (
-		     release_id, environment_id, image_name, tag, digest, pushed_at, job_id
-		 ) values ($1, $2, $3, $4, nullif($5, ''), now(), $6)
-		 -- Repromouvoir un environnement est légitime : reprise après échec, ou
-		 -- correction. La dernière demande fait foi.
-		 on conflict (release_id, environment_id, image_name) do update set
-		     tag = excluded.tag,
-		     digest = coalesce(excluded.digest, image_promotions.digest),
-		     pushed_at = excluded.pushed_at,
-		     job_id = excluded.job_id`,
-		promotion.ReleaseID, promotion.EnvironmentID, promotion.ImageName,
-		promotion.Tag, promotion.Digest, promotion.JobID)
-	if err != nil {
-		return fmt.Errorf("enregistrement de la promotion de %q: %w", promotion.Tag, err)
-	}
-	return nil
-}
-
-// ListPromotions rend les promotions d'une release.
-func (db *DB) ListPromotions(ctx context.Context, releaseID int64) ([]Promotion, error) {
-	rows, err := db.pool.Query(ctx,
-		`select environment_id, image_name, tag, coalesce(digest, ''), pushed_at, job_id
-		 from image_promotions where release_id = $1 order by pushed_at desc`, releaseID)
-	if err != nil {
-		return nil, fmt.Errorf("promotions de la release %d: %w", releaseID, err)
-	}
-	defer rows.Close()
-
-	var promotions []Promotion
-	for rows.Next() {
-		promotion := Promotion{ReleaseID: releaseID}
-		if err := rows.Scan(&promotion.EnvironmentID, &promotion.ImageName, &promotion.Tag,
-			&promotion.Digest, &promotion.PushedAt, &promotion.JobID); err != nil {
-			return nil, fmt.Errorf("promotions de la release %d: %w", releaseID, err)
-		}
-		promotions = append(promotions, promotion)
-	}
-	return promotions, rows.Err()
-}
-
 // EnsureVersion rattache une release à sa version, en la créant au besoin.
 //
 // La recherche se fait en trois temps, et l'ordre porte la sémantique :
@@ -292,45 +232,6 @@ func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (
 	return id, nil
 }
 
-// EnvironmentPromotion est la dernière promotion demandée pour un environnement.
-type EnvironmentPromotion struct {
-	EnvironmentID string
-	ReleaseTag    string
-	Tag           string
-	PushedAt      time.Time
-	JobID         *int64
-}
-
-// LatestPromotions rend, par environnement, la dernière promotion demandée.
-//
-// C'est la moitié manquante de l'observation : celle-ci dit ce qui tourne,
-// celle-là ce qu'on a demandé. Sans les deux, « promu mais pas encore déployé »
-// et « jamais promu » s'affichent à l'identique — or le premier cas se règle en
-// attendant, le second en agissant (B7, B8).
-func (db *DB) LatestPromotions(ctx context.Context) (map[string]EnvironmentPromotion, error) {
-	rows, err := db.pool.Query(ctx,
-		`select distinct on (p.environment_id)
-		        p.environment_id, r.tag, p.tag, p.pushed_at, p.job_id
-		 from image_promotions p
-		 join releases r on r.id = p.release_id
-		 order by p.environment_id, p.pushed_at desc`)
-	if err != nil {
-		return nil, fmt.Errorf("dernières promotions: %w", err)
-	}
-	defer rows.Close()
-
-	latest := make(map[string]EnvironmentPromotion)
-	for rows.Next() {
-		var promotion EnvironmentPromotion
-		if err := rows.Scan(&promotion.EnvironmentID, &promotion.ReleaseTag,
-			&promotion.Tag, &promotion.PushedAt, &promotion.JobID); err != nil {
-			return nil, fmt.Errorf("dernières promotions: %w", err)
-		}
-		latest[promotion.EnvironmentID] = promotion
-	}
-	return latest, rows.Err()
-}
-
 // SetManualActions enregistre le récit des gestes manuels d'une livraison.
 //
 // L'auteur et l'horodatage sont posés ici et non fournis par l'appelant : ce
@@ -389,54 +290,6 @@ func (db *DB) ListReleaseJobs(ctx context.Context, releaseID int64) ([]ReleaseJo
 		jobs = append(jobs, job)
 	}
 	return jobs, rows.Err()
-}
-
-// EnvironmentHistory est une entrée de l'historique d'un environnement.
-type EnvironmentHistory struct {
-	ReleaseTag   string
-	ImageVersion string
-	Tag          string
-	PushedAt     time.Time
-	JobID        *int64
-	JobState     string
-	RequestedBy  string
-}
-
-// ListEnvironmentHistory rend la suite des promotions d'un environnement.
-//
-// La source est ce que le dashboard a demandé, et non l'historique des commits de
-// `mse-kustom` que Flux écrit. Les deux diffèrent : une promotion refusée par une
-// ImagePolicy n'apparaît nulle part côté Git, alors qu'elle a bien été demandée —
-// et c'est précisément ce cas qu'il faut pouvoir constater.
-func (db *DB) ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]EnvironmentHistory, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
-
-	rows, err := db.pool.Query(ctx,
-		`select r.tag, r.image_version, p.tag, p.pushed_at, p.job_id,
-		        coalesce(j.state, ''), coalesce(j.requested_by, '')
-		 from image_promotions p
-		 join releases r on r.id = p.release_id
-		 left join jobs j on j.id = p.job_id
-		 where p.environment_id = $1
-		 order by p.pushed_at desc
-		 limit $2`, environmentID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("historique de %q: %w", environmentID, err)
-	}
-	defer rows.Close()
-
-	var history []EnvironmentHistory
-	for rows.Next() {
-		var entry EnvironmentHistory
-		if err := rows.Scan(&entry.ReleaseTag, &entry.ImageVersion, &entry.Tag,
-			&entry.PushedAt, &entry.JobID, &entry.JobState, &entry.RequestedBy); err != nil {
-			return nil, fmt.Errorf("historique de %q: %w", environmentID, err)
-		}
-		history = append(history, entry)
-	}
-	return history, rows.Err()
 }
 
 // MarkReleased fait passer une release en `released` et date sa livraison.
@@ -669,9 +522,6 @@ type ReleaseBadges struct {
 	// La dernière et non « une » : une release relancée après un échec
 	// d'infrastructure garderait sinon un badge d'échec que plus rien ne justifie.
 	BuildFailed bool
-	// Deployed énumère les environnements qui font tourner cette release, dans
-	// l'ordre de rang.
-	Deployed []string
 }
 
 // ReleaseBadgesByTag rend, pour chaque release, de quoi composer ses badges.
@@ -706,37 +556,7 @@ func (db *DB) ReleaseBadgesByTag(ctx context.Context) (map[string]ReleaseBadges,
 		return nil, fmt.Errorf("constructions des releases: %w", err)
 	}
 
-	// Ce que chaque environnement fait tourner, par la même règle que
-	// `DeployedRelease` : la version observée désigne la release, une promotion
-	// enregistrée ici tranche entre plusieurs candidates, à défaut la plus
-	// récemment créée.
-	//
-	// C'est ce qui rend le badge exact sans condition supplémentaire : un
-	// environnement n'a qu'une version observée, donc une release plus récente
-	// déployée depuis fait mécaniquement disparaître le badge de la précédente.
-	deployed, err := db.pool.Query(ctx,
-		`select distinct on (e.id) e.id, r.tag
-		   from environments e
-		   join environment_observations o
-		     on o.environment_id = e.id and o.portal_version is not null
-		   join releases r on r.image_version = o.portal_version
-		   left join image_promotions p
-		     on p.release_id = r.id and p.environment_id = e.id
-		  where e.visible
-		  order by e.id, p.pushed_at desc nulls last, r.created_at desc`)
-	if err != nil {
-		return nil, fmt.Errorf("déploiements des releases: %w", err)
-	}
-	defer deployed.Close()
-
-	for deployed.Next() {
-		var environment, tag string
-		if err := deployed.Scan(&environment, &tag); err != nil {
-			return nil, fmt.Errorf("déploiements des releases: %w", err)
-		}
-		entry := badges[tag]
-		entry.Deployed = append(entry.Deployed, environment)
-		badges[tag] = entry
-	}
-	return badges, deployed.Err()
+	// Les environnements où une release tourne ne sont pas lus ici : ils
+	// appartiennent au plugin MSE, qui les fournit à l'écran (doc 16 §16.17).
+	return badges, nil
 }

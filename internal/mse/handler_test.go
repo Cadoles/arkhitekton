@@ -12,6 +12,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -19,10 +20,10 @@ const projectSlug = "test"
 
 type fakeStore struct {
 	releases     map[string]store.Release
-	environments []store.Environment
+	environments []storage.Environment
 	jobs         []store.JobRequest
-	promotions   []store.Promotion
-	history      []store.EnvironmentHistory
+	promotions   []storage.Promotion
+	history      []storage.EnvironmentHistory
 	audit        []string
 	auditErr     error
 }
@@ -30,7 +31,7 @@ type fakeStore struct {
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		releases: map[string]store.Release{},
-		environments: []store.Environment{
+		environments: []storage.Environment{
 			{ID: "qualif", Label: "Qualification", Rank: 2, Observable: true, Visible: true,
 				DeployerSettings: map[string]string{
 					flux.SettingSuffix: "testing", flux.SettingAcceptsPrerelease: "true",
@@ -75,28 +76,28 @@ func (f *fakeStore) GetRelease(_ context.Context, _ int64, tag string) (store.Re
 	return item, nil
 }
 
-func (f *fakeStore) ListEnvironments(context.Context) ([]store.Environment, error) {
+func (f *fakeStore) ListEnvironments(context.Context) ([]storage.Environment, error) {
 	return f.environments, nil
 }
 
-func (f *fakeStore) ListEnvironmentViews(context.Context) ([]store.EnvironmentView, error) {
-	views := make([]store.EnvironmentView, 0, len(f.environments))
+func (f *fakeStore) ListEnvironmentViews(context.Context) ([]storage.EnvironmentView, error) {
+	views := make([]storage.EnvironmentView, 0, len(f.environments))
 	for _, environment := range f.environments {
-		views = append(views, store.EnvironmentView{Environment: environment})
+		views = append(views, storage.EnvironmentView{Environment: environment})
 	}
 	return views, nil
 }
 
-func (f *fakeStore) LatestPromotions(context.Context) (map[string]store.EnvironmentPromotion, error) {
+func (f *fakeStore) LatestPromotions(context.Context) (map[string]storage.EnvironmentPromotion, error) {
 	return nil, nil
 }
 
-func (f *fakeStore) ListEnvironmentHistory(context.Context, string, int) ([]store.EnvironmentHistory, error) {
+func (f *fakeStore) ListEnvironmentHistory(context.Context, string, int) ([]storage.EnvironmentHistory, error) {
 	return f.history, nil
 }
 
-func (f *fakeStore) DeployedRelease(context.Context, string) (store.DeployedRelease, error) {
-	return store.DeployedRelease{}, store.ErrNoDeployedRelease
+func (f *fakeStore) DeployedRelease(context.Context, string) (storage.DeployedRelease, error) {
+	return storage.DeployedRelease{}, storage.ErrNoDeployedRelease
 }
 
 func (f *fakeStore) Enqueue(_ context.Context, request store.JobRequest) (int64, error) {
@@ -104,7 +105,7 @@ func (f *fakeStore) Enqueue(_ context.Context, request store.JobRequest) (int64,
 	return int64(len(f.jobs)), nil
 }
 
-func (f *fakeStore) RecordPromotion(_ context.Context, promotion store.Promotion) error {
+func (f *fakeStore) RecordPromotion(_ context.Context, promotion storage.Promotion) error {
 	f.promotions = append(f.promotions, promotion)
 	return nil
 }
@@ -263,7 +264,7 @@ func TestTargetsExplainWhyATargetIsRefused(t *testing.T) {
 
 func TestHistoryFollowsWhatWasRequested(t *testing.T) {
 	fake := newFakeStore()
-	fake.history = []store.EnvironmentHistory{
+	fake.history = []storage.EnvironmentHistory{
 		{ReleaseTag: "1.8.0-rc2", ImageVersion: "1.8.0-rc2", Tag: "1.8.0-rc2_testing"},
 		{ReleaseTag: "1.8.0-rc1", ImageVersion: "1.8.0-rc1", Tag: "1.8.0-rc1_testing"},
 	}

@@ -122,46 +122,6 @@ func TestFinalReleaseKeepsTheSourceImageVersion(t *testing.T) {
 	}
 }
 
-// Une promotion enregistre ce qui a été **demandé**. Pousser le tag ne déploie
-// rien : c'est ce qui permettra de distinguer « promu mais pas déployé » de
-// « jamais promu ».
-func TestRecordPromotion(t *testing.T) {
-	db := migrated(t)
-	ctx := context.Background()
-
-	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
-	releaseID, _ := db.CreateRelease(ctx, Release{
-		ProjectID: testProjectID,
-		VersionID: versionID, Tag: "1.8.0-rc1", Kind: "pre", State: "ready",
-		GitRef: "abc", ImageVersion: "1.8.0-rc1", CreatedBy: "vcarroy",
-	})
-
-	if err := db.UpsertEnvironment(ctx, Environment{
-		ID: "qualif", Label: "Qualification",
-		DeployerSettings: map[string]string{
-			"promotionSuffix": "testing", "acceptsPrerelease": "true",
-		},
-		Rank: 2, Namespace: "mse-dev", Observable: true, Visible: true,
-	}); err != nil {
-		t.Fatalf("environnement: %v", err)
-	}
-
-	if err := db.RecordPromotion(ctx, Promotion{
-		ReleaseID: releaseID, EnvironmentID: "qualif", ImageName: "portal",
-		Tag: "1.8.0-rc1_testing", Digest: "sha256:abc",
-	}); err != nil {
-		t.Fatalf("promotion: %v", err)
-	}
-
-	promotions, err := db.ListPromotions(ctx, releaseID)
-	if err != nil {
-		t.Fatalf("liste: %v", err)
-	}
-	if len(promotions) != 1 || promotions[0].Tag != "1.8.0-rc1_testing" {
-		t.Errorf("promotions = %+v", promotions)
-	}
-}
-
 func TestManualActionsCarryTheirAuthorAndDate(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -197,53 +157,6 @@ func TestSetManualActionsOnAnUnknownRelease(t *testing.T) {
 
 	if err := db.SetManualActions(context.Background(), "9.9.9", "texte", "vcarroy"); !errors.Is(err, ErrReleaseNotFound) {
 		t.Errorf("erreur = %v, attendu ErrReleaseNotFound", err)
-	}
-}
-
-// L'historique dit ce que le dashboard a **demandé**. Une promotion qu'une
-// ImagePolicy ignore n'apparaît nulle part côté Git, alors qu'elle a bien eu
-// lieu — et c'est ce cas-là qu'il faut pouvoir constater.
-func TestEnvironmentHistoryFollowsWhatWasRequested(t *testing.T) {
-	db := migrated(t)
-	ctx := context.Background()
-
-	if err := db.UpsertEnvironment(ctx, Environment{
-		ID: "qualif", Label: "Qualification",
-		DeployerSettings: map[string]string{
-			"promotionSuffix": "testing", "acceptsPrerelease": "true",
-		},
-		Rank: 2, Namespace: "mse-dev", Observable: true, Visible: true,
-	}); err != nil {
-		t.Fatalf("environnement: %v", err)
-	}
-
-	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
-	for _, tag := range []string{"1.8.0-rc1", "1.8.0-rc2"} {
-		releaseID, err := db.CreateRelease(ctx, Release{
-			ProjectID: testProjectID,
-			VersionID: versionID, Tag: tag, Kind: "pre", State: "ready",
-			GitRef: "abc", ImageVersion: tag, CreatedBy: "vcarroy",
-		})
-		if err != nil {
-			t.Fatalf("release %s: %v", tag, err)
-		}
-		if err := db.RecordPromotion(ctx, Promotion{
-			ReleaseID: releaseID, EnvironmentID: "qualif",
-			ImageName: "portal", Tag: tag + "_testing",
-		}); err != nil {
-			t.Fatalf("promotion %s: %v", tag, err)
-		}
-	}
-
-	history, err := db.ListEnvironmentHistory(ctx, "qualif", 0)
-	if err != nil {
-		t.Fatalf("historique: %v", err)
-	}
-	if len(history) != 2 {
-		t.Fatalf("%d entrée(s), attendu 2", len(history))
-	}
-	if history[0].ReleaseTag != "1.8.0-rc2" {
-		t.Errorf("première entrée = %q, attendu la plus récente", history[0].ReleaseTag)
 	}
 }
 

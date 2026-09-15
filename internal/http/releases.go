@@ -19,7 +19,6 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
 	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
@@ -33,7 +32,6 @@ type ReleaseStore interface {
 	CreateRelease(ctx context.Context, release store.Release) (int64, error)
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
 	ListReleases(ctx context.Context, projectID int64, limit int) ([]store.Release, error)
-	ListPromotions(ctx context.Context, releaseID int64) ([]store.Promotion, error)
 	SetManualActions(ctx context.Context, tag, markdown, author string) error
 	ListReleaseJobs(ctx context.Context, releaseID int64) ([]store.ReleaseJob, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
@@ -124,9 +122,12 @@ type ReleasesHandler struct {
 	// plan figé qui donne leur nom aux gestes. Nil : la section reste vide plutôt
 	// que d'empêcher la page.
 	artifactReader ArtifactReader
-	// modules dit si le plugin MSE est allumé. Éteint, une release ne dit ni où
-	// elle tourne ni vers où elle peut être promue.
-	modules *Modules
+	// deployments rend, par tag, les environnements où une release tourne. Nil :
+	// la pastille n'est jamais affichée. Fourni par le plugin MSE, qui possède ces
+	// tables (doc 16 §16.17).
+	deployments func(context.Context) (map[string][]string, error)
+	// promotions rend les promotions demandées d'une release. Nil : aucune.
+	promotions func(context.Context, int64) ([]ReleasePromotion, error)
 	// scoreCatalog sert au score, et pour la même raison que dans le gestionnaire
 	// des tests : nommer la famille d'un geste qui n'a rien produit. La pastille
 	// de la liste et l'écran d'une release doivent afficher le même chiffre, donc
@@ -166,10 +167,51 @@ func (h *ReleasesHandler) WithArtifactReader(reader ArtifactReader) *ReleasesHan
 	return h
 }
 
-// WithModules branche la vérification des modules.
-func (h *ReleasesHandler) WithModules(modules *Modules) *ReleasesHandler {
-	h.modules = modules
+// ReleasePromotion est une promotion demandée, telle que l'écran d'une release
+// l'affiche et que ses artefacts la confrontent au registre.
+type ReleasePromotion struct {
+	Environment string
+	Image       string
+	Tag         string
+	Digest      string
+	JobID       *int64
+	PushedAt    time.Time
+}
+
+// WithDeployments branche la pastille « déployée sur ».
+func (h *ReleasesHandler) WithDeployments(deployments func(context.Context) (map[string][]string, error)) *ReleasesHandler {
+	h.deployments = deployments
 	return h
+}
+
+// WithPromotions branche la lecture des promotions demandées.
+func (h *ReleasesHandler) WithPromotions(promotions func(context.Context, int64) ([]ReleasePromotion, error)) *ReleasesHandler {
+	h.promotions = promotions
+	return h
+}
+
+// deployedOn rend les environnements où tournent les releases, ou rien.
+//
+// Une lecture impossible ne fait pas échouer l'écran : la pastille est un repère,
+// pas une information dont dépend une décision prise ici.
+func (h *ReleasesHandler) deployedOn(ctx context.Context) map[string][]string {
+	if h.deployments == nil {
+		return nil
+	}
+	deployed, err := h.deployments(ctx)
+	if err != nil {
+		h.logger.Error("environnements des releases", "error", err)
+		return nil
+	}
+	return deployed
+}
+
+// releasePromotions rend les promotions demandées d'une release.
+func (h *ReleasesHandler) releasePromotions(ctx context.Context, releaseID int64) ([]ReleasePromotion, error) {
+	if h.promotions == nil {
+		return nil, nil
+	}
+	return h.promotions(ctx, releaseID)
 }
 
 // WithScoreCatalog branche le catalogue employé par le score.
@@ -376,15 +418,13 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	who := h.actorsFor(r.Context())
-	mse := h.modules.Enabled(r.Context(), plugin.ModuleMSE)
+	deployed := h.deployedOn(r.Context())
 
 	payload := make([]releasePayload, 0, len(releases))
 	for _, item := range releases {
 		entry := toReleasePayload(item, "", who)
 		entry.BuildFailed = badges[item.Tag].BuildFailed
-		if mse {
-			entry.DeployedOn = badges[item.Tag].Deployed
-		}
+		entry.DeployedOn = deployed[item.Tag]
 		// Le score est calculé release par release, donc deux lectures chacune.
 		// C'est assumé : la liste est bornée à cinquante entrées, les requêtes
 		// sont indexées, et le même chiffre doit sortir ici et sur l'écran d'une
@@ -473,14 +513,14 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	who := h.actorsFor(r.Context())
 	payload := toReleasePayload(item, "", who)
 
-	promotions, err := h.store.ListPromotions(r.Context(), item.ID)
+	promotions, err := h.releasePromotions(r.Context(), item.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
 		return
 	}
 	for _, promotion := range promotions {
 		payload.Promotions = append(payload.Promotions, promotionPayload{
-			Environment: promotion.EnvironmentID, Image: promotion.ImageName,
+			Environment: promotion.Environment, Image: promotion.Image,
 			Tag: promotion.Tag, Digest: promotion.Digest,
 			JobID: promotion.JobID, PushedAt: promotion.PushedAt,
 		})
@@ -504,12 +544,8 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	// contredire d'un écran à l'autre.
 	if badges, err := h.store.ReleaseBadgesByTag(r.Context()); err == nil {
 		payload.BuildFailed = badges[item.Tag].BuildFailed
-		payload.DeployedOn = badges[item.Tag].Deployed
 	}
-	mse := h.modules.Enabled(r.Context(), plugin.ModuleMSE)
-	if !mse {
-		payload.DeployedOn = nil
-	}
+	payload.DeployedOn = h.deployedOn(r.Context())[item.Tag]
 	payload.Score = h.scoreDigest(r.Context(), item.ID)
 
 	if item.ManualActions != "" || item.ManualActionsUpdatedAt != nil {

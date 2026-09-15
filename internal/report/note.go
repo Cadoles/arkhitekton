@@ -5,7 +5,7 @@
 // conséquences pour ce paquet.
 //
 // D'abord, il n'invente rien. Chaque ligne du document renvoie à un fait
-// enregistré — un digest lu dans le registre, une promotion demandée, un texte
+// enregistré — un digest lu dans le registre, un texte
 // écrit par un humain identifié. Ce qui n'est pas connu est écrit « non
 // disponible » et non omis : une absence silencieuse dans un document contractuel
 // se lit comme une affirmation.
@@ -44,8 +44,7 @@ type Note struct {
 	SourceTag    string `json:"source_release,omitempty"`
 	GitRef       string `json:"git_ref,omitempty"`
 
-	Images     []Image     `json:"images"`
-	Promotions []Promotion `json:"promotions"`
+	Images []Image `json:"images"`
 
 	ManualActions *ManualActions `json:"manual_actions,omitempty"`
 
@@ -70,17 +69,6 @@ type Image struct {
 	// Le document doit le dire : un digest est ce qui prouve que l'image livrée
 	// est celle qui a été validée.
 	Digest string `json:"digest,omitempty"`
-}
-
-// Promotion est un déploiement demandé.
-type Promotion struct {
-	Environment string    `json:"environment"`
-	Tag         string    `json:"tag"`
-	RequestedAt time.Time `json:"requested_at"`
-	// Requested et non « déployé » : pousser un tag ne déploie rien, Flux
-	// constate ensuite. Attester d'un déploiement sur la foi d'une promotion
-	// serait une affirmation que le dashboard ne peut pas soutenir.
-	Requested bool `json:"requested"`
 }
 
 // ManualActions est le récit des gestes manuels de la livraison.

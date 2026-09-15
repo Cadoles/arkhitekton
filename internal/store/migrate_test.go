@@ -102,9 +102,9 @@ func TestMigrateCreatesKeyConstraints(t *testing.T) {
 	defer db.Close()
 
 	for _, table := range []string{
-		"environments", "versions", "issues", "releases", "release_images",
-		"image_promotions", "jobs", "runs", "task_runs",
-		"environment_observations", "test_results", "test_cases", "artifacts",
+		"versions", "issues", "releases", "release_images",
+		"jobs", "runs", "task_runs",
+		"test_results", "test_cases", "artifacts",
 		"user_roles", "sessions", "audit_log", "sync_state",
 	} {
 		var exists bool

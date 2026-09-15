@@ -9,7 +9,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/portaldata"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
 )
 
 // observeInterval espace deux relevés d'environnement.
@@ -20,9 +20,9 @@ const observeInterval = 30 * time.Second
 
 // EnvironmentStore est ce que l'observateur d'environnements attend de la base.
 type EnvironmentStore interface {
-	UpsertEnvironment(ctx context.Context, environment store.Environment) error
-	ListEnvironments(ctx context.Context) ([]store.Environment, error)
-	SaveObservation(ctx context.Context, observation store.Observation) error
+	UpsertEnvironment(ctx context.Context, environment storage.Environment) error
+	ListEnvironments(ctx context.Context) ([]storage.Environment, error)
+	SaveObservation(ctx context.Context, observation storage.Observation) error
 }
 
 // Deployer est ce que l'observateur demande à Flux. Réalisé par [flux.Deployer].
@@ -58,7 +58,7 @@ func NewObserver(
 }
 
 // targetOf traduit un environnement déclaré vers ce que le déployeur attend.
-func targetOf(environment store.Environment) flux.Target {
+func targetOf(environment storage.Environment) flux.Target {
 	return flux.Target{
 		ID:         environment.ID,
 		Observable: environment.Observable,
@@ -74,7 +74,7 @@ func targetOf(environment store.Environment) flux.Target {
 // démarrage remplacerait.
 func (o *Observer) SyncEnvironments(ctx context.Context, declared []catalog.Environment) error {
 	for _, environment := range declared {
-		record := store.Environment{
+		record := storage.Environment{
 			ID:               environment.ID,
 			Label:            environment.Label,
 			Rank:             environment.Rank,
@@ -90,7 +90,7 @@ func (o *Observer) SyncEnvironments(ctx context.Context, declared []catalog.Envi
 
 	targets := make([]flux.Target, 0, len(declared))
 	for _, environment := range declared {
-		targets = append(targets, targetOf(store.Environment{
+		targets = append(targets, targetOf(storage.Environment{
 			ID:               environment.ID,
 			DeployerSettings: environment.Deployer,
 			Observable:       environment.IsObservable(),
@@ -145,8 +145,8 @@ func (o *Observer) observeAll(ctx context.Context) {
 // `portaldata` atteste qu'une version tourne **et** que ses migrations ont
 // abouti ; `git` ne dit que le tag retenu par Flux ; `unobservable` dit qu'on ne
 // peut rien affirmer (B8).
-func (o *Observer) observe(ctx context.Context, environment store.Environment) store.Observation {
-	observation := store.Observation{
+func (o *Observer) observe(ctx context.Context, environment storage.Environment) storage.Observation {
+	observation := storage.Observation{
 		EnvironmentID: environment.ID,
 		Resolution:    string(flux.ResolutionUnobservable),
 	}

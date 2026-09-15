@@ -1,5 +1,5 @@
 -- +goose Up
--- Releases, images et promotions.
+-- Releases et images. Les promotions appartiennent au plugin MSE (doc 16 §16.17).
 
 create table releases (
     id          bigserial primary key,
@@ -48,21 +48,6 @@ create table release_images (
 
 create index release_images_digest_idx on release_images (digest);
 
--- Tags de promotion : même digest, un tag par environnement atteint. Promouvoir
--- ne reconstruit pas l'image, cela ajoute un tag.
-create table image_promotions (
-    id             bigserial primary key,
-    release_id     bigint not null references releases (id) on delete cascade,
-    environment_id text   not null references environments (id),
-    image_name     text   not null,
-    tag            text   not null,
-    digest         text   not null,
-    pushed_at      timestamptz not null,
-    created_at     timestamptz not null default now(),
-    unique (release_id, environment_id, image_name)
-);
-
 -- +goose Down
-drop table if exists image_promotions;
 drop table if exists release_images;
 drop table if exists releases;

@@ -33,6 +33,10 @@ func redactError(err error, dsn string) error {
 	return errors.New(strings.ReplaceAll(message, password, "xxxxx"))
 }
 
+// RedactError retire le mot de passe du DSN d'un message d'erreur, pour les
+// migrations tenues hors de ce paquet.
+func RedactError(err error, dsn string) error { return redactError(err, dsn) }
+
 // passwordFromDSN extrait le mot de passe d'une URL de connexion. Rend une chaîne
 // vide pour les DSN au format clé-valeur (`host=... password=...`), que cette
 // fonction ne prétend pas couvrir : pgxpool.ParseConfig les accepte, mais le

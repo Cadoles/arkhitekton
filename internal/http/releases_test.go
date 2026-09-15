@@ -28,18 +28,15 @@ type fakeReleaseStore struct {
 	planRuns  map[int64]store.PlanRun
 	planSteps map[int64][]store.PlanStep
 
-	releases     map[string]store.Release
-	environments []store.Environment
-	jobs         []store.JobRequest
-	promotions   []store.Promotion
-	history      []store.EnvironmentHistory
-	audit        []string
+	releases   map[string]store.Release
+	jobs       []store.JobRequest
+	promotions []ReleasePromotion
+	audit      []string
 	// facts porte les faits émis, indexés par leur clé de déduplication : c'est
 	// la structure de la base, et un tableau ne dirait pas si un doublon a été
 	// écarté.
 	facts     map[string]event.Event
 	actions   map[string]string
-	deployed  map[string]store.DeployedRelease
 	artifacts []store.Artifact
 	objects   map[string]string
 	registry  Images
@@ -133,31 +130,6 @@ func (f *fakeReleaseStore) ListReleases(context.Context, int64, int) ([]store.Re
 	return releases, nil
 }
 
-func (f *fakeReleaseStore) RecordPromotion(_ context.Context, promotion store.Promotion) error {
-	f.promotions = append(f.promotions, promotion)
-	return nil
-}
-
-func (f *fakeReleaseStore) ListPromotions(context.Context, int64) ([]store.Promotion, error) {
-	return f.promotions, nil
-}
-
-func (f *fakeReleaseStore) ListEnvironments(context.Context) ([]store.Environment, error) {
-	return f.environments, nil
-}
-
-func (f *fakeReleaseStore) ListEnvironmentViews(context.Context) ([]store.EnvironmentView, error) {
-	var views []store.EnvironmentView
-	for _, environment := range f.environments {
-		views = append(views, store.EnvironmentView{Environment: environment})
-	}
-	return views, nil
-}
-
-func (f *fakeReleaseStore) LatestPromotions(context.Context) (map[string]store.EnvironmentPromotion, error) {
-	return nil, nil
-}
-
 func (f *fakeReleaseStore) SetManualActions(_ context.Context, tag, markdown, author string) error {
 	release, found := f.releases[tag]
 	if !found {
@@ -172,18 +144,6 @@ func (f *fakeReleaseStore) SetManualActions(_ context.Context, tag, markdown, au
 
 func (f *fakeReleaseStore) ListReleaseJobs(context.Context, int64) ([]store.ReleaseJob, error) {
 	return nil, nil
-}
-
-func (f *fakeReleaseStore) ListEnvironmentHistory(context.Context, string, int) ([]store.EnvironmentHistory, error) {
-	return f.history, nil
-}
-
-func (f *fakeReleaseStore) DeployedRelease(_ context.Context, environmentID string) (store.DeployedRelease, error) {
-	deployed, found := f.deployed[environmentID]
-	if !found {
-		return store.DeployedRelease{}, store.ErrNoDeployedRelease
-	}
-	return deployed, nil
 }
 
 func (f *fakeReleaseStore) Audit(_ context.Context, _, action, target string, _ map[string]any) error {
@@ -290,17 +250,6 @@ func newFakeStore() *fakeReleaseStore {
 		releases: map[string]store.Release{},
 		actions:  map[string]string{},
 		objects:  map[string]string{},
-		deployed: map[string]store.DeployedRelease{},
-		environments: []store.Environment{
-			{ID: "qualif", Label: "Qualification", Rank: 2, Observable: true, Visible: true,
-				DeployerSettings: map[string]string{
-					"promotionSuffix": "testing", "acceptsPrerelease": "true",
-				}},
-			{ID: "prod", Label: "Production", Rank: 4, Observable: false, Visible: true,
-				DeployerSettings: map[string]string{
-					"promotionSuffix": "prod", "acceptsPrerelease": "false",
-				}},
-		},
 	}
 }
 
@@ -374,6 +323,10 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		// ferait passer ces tests sans rien dire de ce que la création met
 		// réellement en file.
 		WithArtifactReader(store).
+		// Les promotions demandées, telles que le plugin MSE les fournirait.
+		WithPromotions(func(context.Context, int64) ([]ReleasePromotion, error) {
+			return store.promotions, nil
+		}).
 		WithPlans(worker.NewReleasePlanner(
 			worker.NewEngine(store, worker.NewReleaseRunner(pipelines, store, quietLogger()),
 				quietLogger()),
@@ -525,8 +478,8 @@ func TestGetResolvesDigestsForEveryTag(t *testing.T) {
 	fake.releases["1.8.0"] = store.Release{
 		ID: 8, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
 	}
-	fake.promotions = []store.Promotion{
-		{ReleaseID: 8, EnvironmentID: "prod", ImageName: "portal", Tag: "1.8.0_prod"},
+	fake.promotions = []ReleasePromotion{
+		{Environment: "prod", Image: "portal", Tag: "1.8.0_prod"},
 	}
 	fake.produits = []store.PlanArtifact{
 		{RunID: 3, Stage: 0, Position: 0, Name: "image", Kind: "image",
@@ -590,8 +543,8 @@ func TestGetSignalsARebuiltImage(t *testing.T) {
 	fake.releases["1.8.0"] = store.Release{
 		ID: 8, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
 	}
-	fake.promotions = []store.Promotion{
-		{ReleaseID: 8, EnvironmentID: "prod", ImageName: "portal", Tag: "1.8.0_prod"},
+	fake.promotions = []ReleasePromotion{
+		{Environment: "prod", Image: "portal", Tag: "1.8.0_prod"},
 	}
 	fake.produits = []store.PlanArtifact{{
 		RunID: 3, Name: "image", Kind: "image",

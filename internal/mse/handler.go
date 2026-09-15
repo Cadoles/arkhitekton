@@ -11,6 +11,7 @@ import (
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
@@ -21,13 +22,13 @@ type Store interface {
 	dashhttp.ProjectResolver
 	GetProject(ctx context.Context, id int64) (store.Project, error)
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
-	ListEnvironments(ctx context.Context) ([]store.Environment, error)
-	ListEnvironmentViews(ctx context.Context) ([]store.EnvironmentView, error)
-	LatestPromotions(ctx context.Context) (map[string]store.EnvironmentPromotion, error)
-	ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]store.EnvironmentHistory, error)
-	DeployedRelease(ctx context.Context, environmentID string) (store.DeployedRelease, error)
+	ListEnvironments(ctx context.Context) ([]storage.Environment, error)
+	ListEnvironmentViews(ctx context.Context) ([]storage.EnvironmentView, error)
+	LatestPromotions(ctx context.Context) (map[string]storage.EnvironmentPromotion, error)
+	ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]storage.EnvironmentHistory, error)
+	DeployedRelease(ctx context.Context, environmentID string) (storage.DeployedRelease, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
-	RecordPromotion(ctx context.Context, promotion store.Promotion) error
+	RecordPromotion(ctx context.Context, promotion storage.Promotion) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
@@ -183,7 +184,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
 		return
 	}
-	var environment store.Environment
+	var environment storage.Environment
 	for _, candidate := range environments {
 		if candidate.ID == name {
 			environment = candidate
@@ -245,7 +246,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 		// La promotion **demandée**, sans digest : le re-tag n'a pas eu lieu.
 		// C'est ce qui distingue « promu mais pas encore déployé » de « jamais
 		// promu ».
-		if err := h.store.RecordPromotion(r.Context(), store.Promotion{
+		if err := h.store.RecordPromotion(r.Context(), storage.Promotion{
 			ReleaseID: item.ID, EnvironmentID: environment.ID,
 			ImageName: images[index].Image, Tag: plan.Reference, JobID: &jobID,
 		}); err != nil {
@@ -411,7 +412,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var view store.EnvironmentView
+	var view storage.EnvironmentView
 	for _, candidate := range views {
 		if candidate.Environment.ID == name {
 			view = candidate
@@ -468,7 +469,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 			PromotedAt: deployed.PromotedAt, PromotedTag: deployed.PromotedTag,
 			Ambiguous: deployed.Ambiguous,
 		}
-	case errors.Is(err, store.ErrNoDeployedRelease):
+	case errors.Is(err, storage.ErrNoDeployedRelease):
 		// Cas normal : le dashboard ne connaît que les releases créées par lui.
 		payload["deployed"] = nil
 	default:
@@ -492,7 +493,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 }
 
 // observedVersion rend la version constatée sur un environnement, ou vide.
-func observedVersion(view store.EnvironmentView) string {
+func observedVersion(view storage.EnvironmentView) string {
 	if view.Observation == nil {
 		return ""
 	}

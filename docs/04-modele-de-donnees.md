@@ -79,6 +79,11 @@ Colonnes techniques omises pour la lisibilité : chaque table porte
 
 ### Référentiel
 
+> **Doc 16 §16.17.** `environments`, `image_promotions`, `environment_observations` et
+> `release_signoffs` appartiennent au plugin MSE : elles sont créées par ses migrations
+> (`internal/mse/storage/migrations`), et `jobs.environment_id` n'a plus de clé étrangère.
+> Les définitions ci-dessous décrivent leur schéma, pas l'endroit où il est posé.
+
 Les réglages propres à l'outil de déploiement vivent dans une carte que le
 dashboard **transporte sans la lire** : trois colonnes les portaient jusqu'à la
 migration 0033, et elles nommaient Flux dans un schéma que tout projet doit

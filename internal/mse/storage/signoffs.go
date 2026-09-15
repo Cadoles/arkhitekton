@@ -1,4 +1,4 @@
-package store
+package storage
 
 import (
 	"context"
@@ -14,10 +14,9 @@ var ErrSignoffNotFound = errors.New("validation introuvable")
 
 // Signoff est l'avis d'un intervenant sur une release dans un environnement.
 //
-// La validation porte sur le couple release-environnement et non sur
-// l'environnement seul. Une release validée en qualif ne l'est pas en
-// préproduction, et l'environnement qui passe à la version suivante ne doit pas
-// hériter de l'avis rendu sur la précédente.
+// La validation porte sur le couple release-environnement : une release validée
+// en qualif ne l'est pas en préproduction, et l'environnement qui passe à la
+// version suivante ne doit pas hériter de l'avis rendu sur la précédente.
 type Signoff struct {
 	ReleaseTag    string
 	EnvironmentID string
@@ -29,12 +28,10 @@ type Signoff struct {
 	DecidedAt time.Time
 }
 
-// ListSignoffs rend les validations d'une release, tous environnements confondus.
-//
-// L'ordre suit le rang des environnements puis le rôle : la lecture naturelle est
-// celle du flux de promotion, unstable d'abord, production ensuite.
-func (db *DB) ListSignoffs(ctx context.Context, releaseID int64) ([]Signoff, error) {
-	rows, err := db.pool.Query(ctx,
+// ListSignoffs rend les validations d'une release, dans l'ordre du flux de
+// promotion puis des rôles.
+func (s *Store) ListSignoffs(ctx context.Context, releaseID int64) ([]Signoff, error) {
+	rows, err := s.pool.Query(ctx,
 		`select e.id, s.role, s.status, coalesce(s.detail, ''), s.decided_by, s.decided_at
 		 from release_signoffs s
 		 join environments e on e.id = s.environment_id
@@ -59,12 +56,9 @@ func (db *DB) ListSignoffs(ctx context.Context, releaseID int64) ([]Signoff, err
 
 // SetSignoff enregistre l'avis d'un intervenant, ou remplace le sien.
 //
-// L'écrasement est délibéré et borné à l'auteur du rôle concerné : changer d'avis
-// après une correction est le cas normal en recette. L'avis précédent n'est pas
-// perdu pour autant, le journal d'audit conservant chaque décision — c'est lui, et
-// non cette table, qui répond à « qui avait validé quoi, et quand ».
-func (db *DB) SetSignoff(ctx context.Context, releaseID int64, environmentID, role, status, detail, decidedBy string) error {
-	_, err := db.pool.Exec(ctx,
+// L'avis précédent n'est pas perdu : le journal d'audit conserve chaque décision.
+func (s *Store) SetSignoff(ctx context.Context, releaseID int64, environmentID, role, status, detail, decidedBy string) error {
+	_, err := s.pool.Exec(ctx,
 		`insert into release_signoffs
 		     (release_id, environment_id, role, status, detail, decided_by, decided_at)
 		 values ($1, $2, $3, $4, nullif($5, ''), $6, now())
@@ -79,12 +73,8 @@ func (db *DB) SetSignoff(ctx context.Context, releaseID int64, environmentID, ro
 }
 
 // DeleteSignoff retire un avis et remet le rôle en attente.
-//
-// Retirer n'est pas refuser : un avis rendu par erreur, ou sur la mauvaise
-// release, doit pouvoir disparaître sans laisser un `fail` qui bloquerait la
-// livraison. Le retrait est tracé au journal comme le reste.
-func (db *DB) DeleteSignoff(ctx context.Context, releaseID int64, environmentID, role string) error {
-	tag, err := db.pool.Exec(ctx,
+func (s *Store) DeleteSignoff(ctx context.Context, releaseID int64, environmentID, role string) error {
+	tag, err := s.pool.Exec(ctx,
 		`delete from release_signoffs
 		 where release_id = $1 and environment_id = $2 and role = $3`,
 		releaseID, environmentID, role)
@@ -99,8 +89,8 @@ func (db *DB) DeleteSignoff(ctx context.Context, releaseID int64, environmentID,
 
 // EnvironmentSignoffs rend les validations d'une release pour un seul
 // environnement, dans l'ordre des rôles.
-func (db *DB) EnvironmentSignoffs(ctx context.Context, releaseID int64, environmentID string) ([]Signoff, error) {
-	rows, err := db.pool.Query(ctx,
+func (s *Store) EnvironmentSignoffs(ctx context.Context, releaseID int64, environmentID string) ([]Signoff, error) {
+	rows, err := s.pool.Query(ctx,
 		`select role, status, coalesce(detail, ''), decided_by, decided_at
 		 from release_signoffs
 		 where release_id = $1 and environment_id = $2
@@ -125,11 +115,10 @@ func (db *DB) EnvironmentSignoffs(ctx context.Context, releaseID int64, environm
 // SignoffEnvironmentExists dit si l'environnement visé est déclaré.
 //
 // La clé étrangère le garantirait, mais son échec remonte en erreur 500 alors que
-// l'environnement inconnu est une faute de l'appelant. Le vérifier avant permet de
-// répondre 404 avec le nom fautif.
-func (db *DB) SignoffEnvironmentExists(ctx context.Context, environmentID string) (bool, error) {
+// l'environnement inconnu est une faute de l'appelant.
+func (s *Store) SignoffEnvironmentExists(ctx context.Context, environmentID string) (bool, error) {
 	var exists bool
-	err := db.pool.QueryRow(ctx,
+	err := s.pool.QueryRow(ctx,
 		`select true from environments where id = $1`, environmentID).Scan(&exists)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

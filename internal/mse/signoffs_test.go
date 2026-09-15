@@ -10,14 +10,15 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
 type fakeSignoffStore struct {
 	release      store.Release
 	releaseErr   error
-	environments []store.Environment
-	signoffs     []store.Signoff
+	environments []storage.Environment
+	signoffs     []storage.Signoff
 	set          []string
 	deleted      []string
 	deleteErr    error
@@ -32,7 +33,7 @@ func (f *fakeSignoffStore) GetRelease(context.Context, int64, string) (store.Rel
 	return f.release, nil
 }
 
-func (f *fakeSignoffStore) ListSignoffs(context.Context, int64) ([]store.Signoff, error) {
+func (f *fakeSignoffStore) ListSignoffs(context.Context, int64) ([]storage.Signoff, error) {
 	return f.signoffs, nil
 }
 
@@ -53,7 +54,7 @@ func (f *fakeSignoffStore) SignoffEnvironmentExists(context.Context, string) (bo
 	return !f.unknownEnv, nil
 }
 
-func (f *fakeSignoffStore) ListEnvironments(context.Context) ([]store.Environment, error) {
+func (f *fakeSignoffStore) ListEnvironments(context.Context) ([]storage.Environment, error) {
 	return f.environments, nil
 }
 
@@ -65,7 +66,7 @@ func (f *fakeSignoffStore) Audit(_ context.Context, _, action, target string, _ 
 func newSignoffStore() *fakeSignoffStore {
 	return &fakeSignoffStore{
 		release: store.Release{ID: 1, Tag: "1.8.0-rc1"},
-		environments: []store.Environment{
+		environments: []storage.Environment{
 			{ID: "qualif", Label: "Qualification", Rank: 2},
 			{ID: "prod", Label: "Production", Rank: 4},
 		},
@@ -231,7 +232,7 @@ func TestLeRetraitExigeUnRole(t *testing.T) {
 // prononcé » de « cet environnement n'existe pas ».
 func TestTousLesEnvironnementsSontRendusMemeSansAvis(t *testing.T) {
 	fake := newSignoffStore()
-	fake.signoffs = []store.Signoff{
+	fake.signoffs = []storage.Signoff{
 		{EnvironmentID: "qualif", Role: "Client", Status: "pass", DecidedBy: "121"},
 	}
 	handler := NewSignoffsHandler(fake, quietLogger())

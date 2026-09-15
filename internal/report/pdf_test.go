@@ -17,9 +17,6 @@ func sample(t *testing.T) Note {
 			{Repository: "portal", Tag: "1.8.0-rc3", Digest: "sha256:1e4f"},
 			{Repository: "portal", Tag: "1.8.0_prod"},
 		},
-		Promotions: []Promotion{
-			{Environment: "prod", Tag: "1.8.0_prod", RequestedAt: at, Requested: true},
-		},
 		ManualActions: &ManualActions{
 			Markdown:  "- purge du cache CDN\n- bascule du DNS à 22 h",
 			UpdatedBy: "vcarroy", UpdatedAt: &at,
@@ -84,7 +81,7 @@ func TestRenderRefusesANoteWithoutIdentity(t *testing.T) {
 // en octets bruts, et le document serait illisible là où il est le plus lu.
 func TestAccentsSurviveTheEncoding(t *testing.T) {
 	note := sample(t)
-	note.Promotions[0].Environment = "préproduction"
+	note.ManualActions.Markdown = "- bascule en préproduction"
 
 	content := uncompressed(t, note)
 	// « é » vaut 0xE9 en cp1252 ; en UTF-8 il vaudrait 0xC3 0xA9.

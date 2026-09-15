@@ -11,6 +11,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
 	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -30,11 +31,11 @@ import (
 type SignoffStore interface {
 	dashhttp.ProjectResolver
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
-	ListSignoffs(ctx context.Context, releaseID int64) ([]store.Signoff, error)
+	ListSignoffs(ctx context.Context, releaseID int64) ([]storage.Signoff, error)
 	SetSignoff(ctx context.Context, releaseID int64, environmentID, role, status, detail, decidedBy string) error
 	DeleteSignoff(ctx context.Context, releaseID int64, environmentID, role string) error
 	SignoffEnvironmentExists(ctx context.Context, environmentID string) (bool, error)
-	ListEnvironments(ctx context.Context) ([]store.Environment, error)
+	ListEnvironments(ctx context.Context) ([]storage.Environment, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
@@ -244,7 +245,7 @@ func (h *SignoffsHandler) Clear(w http.ResponseWriter, r *http.Request) {
 
 	environmentID := r.PathValue("env")
 	if err := h.store.DeleteSignoff(r.Context(), release.ID, environmentID, role); err != nil {
-		if errors.Is(err, store.ErrSignoffNotFound) {
+		if errors.Is(err, storage.ErrSignoffNotFound) {
 			dashhttp.WriteProblem(w, http.StatusNotFound, "Validation introuvable", "")
 			return
 		}

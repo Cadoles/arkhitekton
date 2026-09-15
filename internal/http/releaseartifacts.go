@@ -57,7 +57,7 @@ type planArtifactPayload struct {
 // plutôt que de disparaître : c'est ce qui a été publié, et la perte du plan
 // figé n'y change rien.
 func (h *ReleasesHandler) releaseArtifacts(
-	ctx context.Context, releaseID int64, promotions []store.Promotion,
+	ctx context.Context, releaseID int64, promotions []ReleasePromotion,
 ) []planArtifactPayload {
 	if h.artifactReader == nil {
 		return nil
@@ -123,7 +123,7 @@ func (h *ReleasesHandler) gesteLabels(
 // digest de l'image validée. Un écart signale une image reconstruite entre-temps,
 // c'est-à-dire une livraison qui n'est plus celle qui a été validée (B17).
 func (h *ReleasesHandler) digestOf(
-	ctx context.Context, reference string, promotions []store.Promotion,
+	ctx context.Context, reference string, promotions []ReleasePromotion,
 ) (string, bool) {
 	if h.images == nil {
 		return "", false

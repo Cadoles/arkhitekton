@@ -9,18 +9,6 @@
 drop table if exists deployments;
 
 -- +goose Down
-create table deployments (
-    id             bigserial primary key,
-    environment_id text   not null references environments (id),
-    release_id     bigint not null references releases (id),
-    state          text   not null,
-    job_id         bigint references jobs (id),
-    requested_at   timestamptz not null,
-    requested_by   text not null,
-    observed_at    timestamptz,
-    superseded_at  timestamptz,
-    failure_reason text,
-    created_at     timestamptz not null default now(),
-    updated_at     timestamptz not null default now()
-);
-create unique index deployments_current_idx on deployments (environment_id) where superseded_at is null;
+-- Rien à recréer : `deployments` n'est plus créée par 0003, et elle référençait
+-- `environments`, qui appartient au plugin MSE (doc 16 §16.17).
+select 1;

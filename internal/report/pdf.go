@@ -98,20 +98,6 @@ func renderPDF(note Note, compress bool) ([]byte, error) {
 		}
 	}
 
-	section(doc, write, "Déploiements demandés")
-	if len(note.Promotions) == 0 {
-		paragraph(doc, write, "Aucun déploiement n'a été demandé pour cette release.")
-	} else {
-		for _, promotion := range note.Promotions {
-			bullet(doc, write, promotion.Environment, fmt.Sprintf("%s, demandé le %s",
-				promotion.Tag, promotion.RequestedAt.Format("02/01/2006 à 15:04")))
-		}
-		paragraph(doc, write,
-			"Une demande de déploiement pousse un tag dans le registre ; la mise en service est ensuite "+
-				"réalisée par l'outil de déploiement continu. Ce document atteste des demandes, non de leur "+
-				"aboutissement.")
-	}
-
 	section(doc, write, "Actions manuelles")
 	if note.ManualActions == nil || strings.TrimSpace(note.ManualActions.Markdown) == "" {
 		paragraph(doc, write, "Aucune action manuelle n'a été consignée.")
