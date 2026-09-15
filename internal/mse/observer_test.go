@@ -56,7 +56,7 @@ func (f *fakeEnvironmentStore) UpsertEnvironment(context.Context, storage.Enviro
 	return nil
 }
 
-func (f *fakeEnvironmentStore) ListEnvironments(context.Context) ([]storage.Environment, error) {
+func (f *fakeEnvironmentStore) ListAllEnvironments(context.Context) ([]storage.Environment, error) {
 	return f.environments, nil
 }
 

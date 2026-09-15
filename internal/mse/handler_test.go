@@ -76,11 +76,11 @@ func (f *fakeStore) GetRelease(_ context.Context, _ int64, tag string) (store.Re
 	return item, nil
 }
 
-func (f *fakeStore) ListEnvironments(context.Context) ([]storage.Environment, error) {
+func (f *fakeStore) ListEnvironments(context.Context, int64) ([]storage.Environment, error) {
 	return f.environments, nil
 }
 
-func (f *fakeStore) ListEnvironmentViews(context.Context) ([]storage.EnvironmentView, error) {
+func (f *fakeStore) ListEnvironmentViews(context.Context, int64) ([]storage.EnvironmentView, error) {
 	views := make([]storage.EnvironmentView, 0, len(f.environments))
 	for _, environment := range f.environments {
 		views = append(views, storage.EnvironmentView{Environment: environment})
@@ -88,15 +88,15 @@ func (f *fakeStore) ListEnvironmentViews(context.Context) ([]storage.Environment
 	return views, nil
 }
 
-func (f *fakeStore) LatestPromotions(context.Context) (map[string]storage.EnvironmentPromotion, error) {
+func (f *fakeStore) LatestPromotions(context.Context, int64) (map[string]storage.EnvironmentPromotion, error) {
 	return nil, nil
 }
 
-func (f *fakeStore) ListEnvironmentHistory(context.Context, string, int) ([]storage.EnvironmentHistory, error) {
+func (f *fakeStore) ListEnvironmentHistory(context.Context, int64, string, int) ([]storage.EnvironmentHistory, error) {
 	return f.history, nil
 }
 
-func (f *fakeStore) DeployedRelease(context.Context, string) (storage.DeployedRelease, error) {
+func (f *fakeStore) DeployedRelease(context.Context, int64, string) (storage.DeployedRelease, error) {
 	return storage.DeployedRelease{}, storage.ErrNoDeployedRelease
 }
 

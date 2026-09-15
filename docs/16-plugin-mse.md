@@ -834,3 +834,41 @@ marque ses lignes par `updated_by`, et son retour arrière ne retire qu'elles.
 **Plus aucun plugin ne vaut pour la seule instance.** Le refus d'un réglage par projet reste dans
 le handler des plugins, sans test pour l'exercer : les deux tests qui s'appuyaient sur `mse`
 vérifient désormais qu'il se règle par projet.
+
+---
+
+## 16.20 Par projet, tranche 2 — ce que l'écriture a tranché
+
+**Les environnements appartiennent à un projet.** La migration `0003` du plugin :
+
+| Table | Changement |
+|---|---|
+| `environments` | colonne `project_id` ; clé `(project_id, id)` ; rang unique par projet |
+| `image_promotions`, `release_signoffs` | colonne `project_id`, prise de la release ; clé étrangère composée vers `environments` |
+| `environment_observations` | colonne `project_id` ; clé `(project_id, environment_id)` |
+
+L'existant rejoint `mse-test-project`, ou le premier projet déclaré s'il n'existe pas. Une
+promotion ou une validation dont la release appartient à un autre projet que l'environnement le
+fait dupliquer pour ce projet : la donnée existait, elle n'est pas perdue. Le retour arrière ne
+garde, pour un identifiant partagé, que la ligne du projet le plus ancien.
+
+**Le projet d'une promotion ou d'une validation est lu en base.** `RecordPromotion` et
+`SetSignoff` le prennent de la release, par sous-requête : une promotion ne peut pas viser
+l'environnement d'un autre projet, et la clé étrangère composée le garantit.
+
+**Les routes passent sous le projet.** `/projects/{project}/environments`, `…/{environment}` et
+`…/history`, avec la lecture vérifiée dans le projet (`RequireIn`). Le front les compose avec
+`projectPath`.
+
+**Les rapprochements filtrent le projet.** Release déployée, pastille « déployée sur »,
+historique, dernières promotions : la jointure sur `image_version` ne considère que les releases
+du projet. Une release d'un autre projet portant la même version d'image ne tourne plus « ici ».
+
+**Le droit de promouvoir se vérifie dans le projet** sur l'écran des environnements et les cibles
+(`CanIn`), comme la route de promotion le faisait déjà. La sensibilité, elle, reste indexée par
+identifiant d'environnement jusqu'à la tranche 3.
+
+**La déclaration reste celle du catalogue, écrite pour chaque projet qui a le module.** Le worker
+calcule ces projets au démarrage et écrit pour chacun les environnements de la section
+`environments`. L'observation relève tous les environnements de tous les projets et enregistre
+chaque relevé avec son projet. La section par projet est la tranche 3.

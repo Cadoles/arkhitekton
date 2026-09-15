@@ -31,7 +31,7 @@ func Deployments(environments *storage.Store, modules *dashhttp.Modules) func(co
 		if !modules.EnabledIn(ctx, projectID, plugin.ModuleMSE) {
 			return nil, nil
 		}
-		return environments.DeployedByRelease(ctx)
+		return environments.DeployedByRelease(ctx, projectID)
 	}
 }
 

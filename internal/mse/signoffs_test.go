@@ -50,11 +50,11 @@ func (f *fakeSignoffStore) DeleteSignoff(_ context.Context, _ int64, environment
 	return nil
 }
 
-func (f *fakeSignoffStore) SignoffEnvironmentExists(context.Context, string) (bool, error) {
+func (f *fakeSignoffStore) SignoffEnvironmentExists(context.Context, int64, string) (bool, error) {
 	return !f.unknownEnv, nil
 }
 
-func (f *fakeSignoffStore) ListEnvironments(context.Context) ([]storage.Environment, error) {
+func (f *fakeSignoffStore) ListEnvironments(context.Context, int64) ([]storage.Environment, error) {
 	return f.environments, nil
 }
 

@@ -21,7 +21,7 @@ const observeInterval = 30 * time.Second
 // EnvironmentStore est ce que l'observateur d'environnements attend de la base.
 type EnvironmentStore interface {
 	UpsertEnvironment(ctx context.Context, environment storage.Environment) error
-	ListEnvironments(ctx context.Context) ([]storage.Environment, error)
+	ListAllEnvironments(ctx context.Context) ([]storage.Environment, error)
 	SaveObservation(ctx context.Context, observation storage.Observation) error
 }
 
@@ -66,25 +66,32 @@ func targetOf(environment storage.Environment) flux.Target {
 	}
 }
 
-// SyncEnvironments écrit en base les environnements déclarés, puis les soumet à
-// Flux pour qu'il dise s'il saura les atteindre.
+// SyncEnvironments écrit en base les environnements déclarés pour chaque projet
+// qui a le module, puis les soumet à Flux pour qu'il dise s'il saura les
+// atteindre.
+//
+// Les mêmes environnements pour chacun, en attendant qu'un projet déclare les
+// siens (doc 16 §16.18, tranche 3).
 //
 // L'ordre compte : la table est d'abord alignée sur la configuration, ensuite
 // seulement confrontée au cluster. L'inverse validerait un état que le prochain
 // démarrage remplacerait.
-func (o *Observer) SyncEnvironments(ctx context.Context, declared []catalog.Environment) error {
-	for _, environment := range declared {
-		record := storage.Environment{
-			ID:               environment.ID,
-			Label:            environment.Label,
-			Rank:             environment.Rank,
-			Namespace:        environment.Namespace,
-			DeployerSettings: environment.Deployer,
-			Observable:       environment.IsObservable(),
-			Visible:          environment.IsVisible(),
-		}
-		if err := o.store.UpsertEnvironment(ctx, record); err != nil {
-			return err
+func (o *Observer) SyncEnvironments(ctx context.Context, projectIDs []int64, declared []catalog.Environment) error {
+	for _, projectID := range projectIDs {
+		for _, environment := range declared {
+			record := storage.Environment{
+				ProjectID:        projectID,
+				ID:               environment.ID,
+				Label:            environment.Label,
+				Rank:             environment.Rank,
+				Namespace:        environment.Namespace,
+				DeployerSettings: environment.Deployer,
+				Observable:       environment.IsObservable(),
+				Visible:          environment.IsVisible(),
+			}
+			if err := o.store.UpsertEnvironment(ctx, record); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -104,7 +111,7 @@ func (o *Observer) SyncEnvironments(ctx context.Context, declared []catalog.Envi
 		return fmt.Errorf("environnements en désaccord avec le déployeur:\n%w", err)
 	}
 
-	o.logger.Info("environnements validés contre le déployeur", "environnements", len(declared))
+	o.logger.Info("environnements validés contre le déployeur", "environnements", len(declared), "projets", len(projectIDs))
 	return nil
 }
 
@@ -126,7 +133,7 @@ func (o *Observer) Run(ctx context.Context) error {
 }
 
 func (o *Observer) observeAll(ctx context.Context) {
-	environments, err := o.store.ListEnvironments(ctx)
+	environments, err := o.store.ListAllEnvironments(ctx)
 	if err != nil {
 		o.logger.Error("lecture des environnements", "error", err)
 		return
@@ -147,6 +154,7 @@ func (o *Observer) observeAll(ctx context.Context) {
 // peut rien affirmer (B8).
 func (o *Observer) observe(ctx context.Context, environment storage.Environment) storage.Observation {
 	observation := storage.Observation{
+		ProjectID:     environment.ProjectID,
 		EnvironmentID: environment.ID,
 		Resolution:    string(flux.ResolutionUnobservable),
 	}

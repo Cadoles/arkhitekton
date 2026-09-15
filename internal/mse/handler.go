@@ -22,11 +22,11 @@ type Store interface {
 	dashhttp.ProjectResolver
 	GetProject(ctx context.Context, id int64) (store.Project, error)
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
-	ListEnvironments(ctx context.Context) ([]storage.Environment, error)
-	ListEnvironmentViews(ctx context.Context) ([]storage.EnvironmentView, error)
-	LatestPromotions(ctx context.Context) (map[string]storage.EnvironmentPromotion, error)
-	ListEnvironmentHistory(ctx context.Context, environmentID string, limit int) ([]storage.EnvironmentHistory, error)
-	DeployedRelease(ctx context.Context, environmentID string) (storage.DeployedRelease, error)
+	ListEnvironments(ctx context.Context, projectID int64) ([]storage.Environment, error)
+	ListEnvironmentViews(ctx context.Context, projectID int64) ([]storage.EnvironmentView, error)
+	LatestPromotions(ctx context.Context, projectID int64) (map[string]storage.EnvironmentPromotion, error)
+	ListEnvironmentHistory(ctx context.Context, projectID int64, environmentID string, limit int) ([]storage.EnvironmentHistory, error)
+	DeployedRelease(ctx context.Context, projectID int64, environmentID string) (storage.DeployedRelease, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	RecordPromotion(ctx context.Context, promotion storage.Promotion) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
@@ -68,13 +68,14 @@ func (h *Handler) Routes(mux *http.ServeMux, m *dashhttp.Middleware) {
 	mux.Handle("POST /projects/{project}/releases/{tag}/promote/{environment}", dashhttp.Chain(http.HandlerFunc(h.Promote),
 		m.Authenticate, module, m.CSRF, m.RequireDeploy("environment")))
 
-	// Savoir ce qui tourne où ne demande aucun privilège.
-	mux.Handle("GET /environments", dashhttp.Chain(http.HandlerFunc(h.Environments),
-		m.Authenticate, module, m.Require(auth.PermRead)))
-	mux.Handle("GET /environments/{environment}", dashhttp.Chain(http.HandlerFunc(h.Environment),
-		m.Authenticate, module, m.Require(auth.PermRead)))
-	mux.Handle("GET /environments/{environment}/history", dashhttp.Chain(http.HandlerFunc(h.History),
-		m.Authenticate, module, m.Require(auth.PermRead)))
+	// Savoir ce qui tourne où ne demande aucun privilège. Sous le projet : chaque
+	// projet déploie vers ses propres environnements (doc 16 §16.18).
+	mux.Handle("GET /projects/{project}/environments", dashhttp.Chain(http.HandlerFunc(h.Environments),
+		m.Authenticate, module, m.RequireIn(auth.PermRead)))
+	mux.Handle("GET /projects/{project}/environments/{environment}", dashhttp.Chain(http.HandlerFunc(h.Environment),
+		m.Authenticate, module, m.RequireIn(auth.PermRead)))
+	mux.Handle("GET /projects/{project}/environments/{environment}/history", dashhttp.Chain(http.HandlerFunc(h.History),
+		m.Authenticate, module, m.RequireIn(auth.PermRead)))
 }
 
 // promotionTargetVw dit, environnement par environnement, si la release peut y
@@ -111,12 +112,12 @@ func (h *Handler) release(w http.ResponseWriter, r *http.Request) (store.Release
 
 // Targets rend les environnements vers lesquels une release peut être promue.
 func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
-	item, _, ok := h.release(w, r)
+	item, projectID, ok := h.release(w, r)
 	if !ok {
 		return
 	}
 
-	environments, err := h.store.ListEnvironments(r.Context())
+	environments, err := h.store.ListEnvironments(r.Context(), projectID)
 	if err != nil {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
 		return
@@ -133,7 +134,7 @@ func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 		case item.State != string(release.StateReady):
 			target.Allowed = false
 			target.Reason = "l'image de cette release n'est pas construite"
-		case !h.authorizer.Can(identity, auth.PermDeploy(environment.ID)):
+		case !h.authorizer.CanIn(identity, projectID, auth.PermDeploy(environment.ID)):
 			target.Allowed = false
 			target.Reason = "votre rôle ne permet pas de promouvoir vers cet environnement"
 		default:
@@ -179,7 +180,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := r.PathValue("environment")
-	environments, err := h.store.ListEnvironments(r.Context())
+	environments, err := h.store.ListEnvironments(r.Context(), projectID)
 	if err != nil {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
 		return
@@ -303,13 +304,18 @@ type lastPromotion struct {
 
 // Environments rend la vue d'ensemble des environnements.
 func (h *Handler) Environments(w http.ResponseWriter, r *http.Request) {
-	views, err := h.store.ListEnvironmentViews(r.Context())
+	projectID, ok := dashhttp.RequestProject(w, r, h.store)
+	if !ok {
+		return
+	}
+
+	views, err := h.store.ListEnvironmentViews(r.Context(), projectID)
 	if err != nil {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
 		return
 	}
 
-	promotions, err := h.store.LatestPromotions(r.Context())
+	promotions, err := h.store.LatestPromotions(r.Context(), projectID)
 	if err != nil {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
 		return
@@ -325,7 +331,7 @@ func (h *Handler) Environments(w http.ResponseWriter, r *http.Request) {
 			DeployerSettings: view.Environment.DeployerSettings,
 			Observable:       view.Environment.Observable,
 			Sensitive:        h.authorizer.Sensitive(view.Environment.ID),
-			CanDeploy:        h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
+			CanDeploy:        h.authorizer.CanIn(identity, projectID, auth.PermDeploy(view.Environment.ID)),
 		}
 		if view.Observation != nil {
 			entry.PortalVersion = view.Observation.PortalVersion
@@ -364,7 +370,11 @@ type historyPayload struct {
 // que Flux écrit dans `mse-kustom` : une promotion qu'aucune ImagePolicy ne
 // retient n'apparaît nulle part côté Git alors qu'elle a bien été demandée.
 func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.store.ListEnvironmentHistory(r.Context(), r.PathValue("environment"), 50)
+	projectID, ok := dashhttp.RequestProject(w, r, h.store)
+	if !ok {
+		return
+	}
+	entries, err := h.store.ListEnvironmentHistory(r.Context(), projectID, r.PathValue("environment"), 50)
 	if err != nil {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture de l'historique impossible", "")
 		return
@@ -404,9 +414,13 @@ type deployedPayload struct {
 // tag : ce que le portail rapporte est la version bakée dans l'image, restée
 // celle de la RC pour toute release finale produite par re-tag (B8, B17).
 func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := dashhttp.RequestProject(w, r, h.store)
+	if !ok {
+		return
+	}
 	name := r.PathValue("environment")
 
-	views, err := h.store.ListEnvironmentViews(r.Context())
+	views, err := h.store.ListEnvironmentViews(r.Context(), projectID)
 	if err != nil {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture de l'environnement impossible", "")
 		return
@@ -433,7 +447,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		"namespace":         view.Environment.Namespace,
 		"observable":        view.Environment.Observable,
 		"sensitive":         h.authorizer.Sensitive(view.Environment.ID),
-		"can_deploy":        h.authorizer.Can(identity, auth.PermDeploy(view.Environment.ID)),
+		"can_deploy":        h.authorizer.CanIn(identity, projectID, auth.PermDeploy(view.Environment.ID)),
 	}
 
 	if view.Observation != nil {
@@ -459,7 +473,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 	}
 	payload["flow"] = flow
 
-	deployed, err := h.store.DeployedRelease(r.Context(), name)
+	deployed, err := h.store.DeployedRelease(r.Context(), projectID, name)
 	switch {
 	case err == nil:
 		payload["deployed"] = deployedPayload{
@@ -477,7 +491,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	promotions, err := h.store.LatestPromotions(r.Context())
+	promotions, err := h.store.LatestPromotions(r.Context(), projectID)
 	if err != nil {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
 		return

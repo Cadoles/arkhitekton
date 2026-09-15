@@ -9,8 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Environment décrit un environnement de déploiement.
+// Environment décrit un environnement de déploiement d'un projet.
 type Environment struct {
+	// ProjectID est le projet qui déploie vers cet environnement. Deux projets
+	// peuvent chacun avoir un `qualif` (doc 16 §16.18).
+	ProjectID int64
 	ID        string
 	Label     string
 	Rank      int
@@ -23,24 +26,15 @@ type Environment struct {
 	Visible    bool
 }
 
-// ListEnvironments rend les environnements dans leur ordre de promotion.
-func (s *Store) ListEnvironments(ctx context.Context) ([]Environment, error) {
-	rows, err := s.pool.Query(ctx,
-		`select id, label, rank, namespace, deployer_settings, observable, visible
-		 from environments
-		 -- Le rang est l'ordre de promotion, seul ordre qui ait un sens ici :
-		 -- unstable, qualif, préprod, prod.
-		 order by rank`)
-	if err != nil {
-		return nil, fmt.Errorf("liste des environnements: %w", err)
-	}
-	defer rows.Close()
+const environmentColumns = `project_id, id, label, rank, namespace, deployer_settings, observable, visible`
 
+func scanEnvironments(rows pgx.Rows) ([]Environment, error) {
+	defer rows.Close()
 	var environments []Environment
 	for rows.Next() {
 		var environment Environment
-		if err := rows.Scan(&environment.ID, &environment.Label, &environment.Rank,
-			&environment.Namespace, &environment.DeployerSettings,
+		if err := rows.Scan(&environment.ProjectID, &environment.ID, &environment.Label,
+			&environment.Rank, &environment.Namespace, &environment.DeployerSettings,
 			&environment.Observable, &environment.Visible); err != nil {
 			return nil, fmt.Errorf("liste des environnements: %w", err)
 		}
@@ -49,13 +43,39 @@ func (s *Store) ListEnvironments(ctx context.Context) ([]Environment, error) {
 	return environments, rows.Err()
 }
 
+// ListEnvironments rend les environnements d'un projet dans leur ordre de
+// promotion.
+func (s *Store) ListEnvironments(ctx context.Context, projectID int64) ([]Environment, error) {
+	rows, err := s.pool.Query(ctx,
+		`select `+environmentColumns+`
+		 from environments
+		 where project_id = $1
+		 -- Le rang est l'ordre de promotion : unstable, qualif, préprod, prod.
+		 order by rank`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("liste des environnements: %w", err)
+	}
+	return scanEnvironments(rows)
+}
+
+// ListAllEnvironments rend les environnements de tous les projets. Sert à
+// l'observation, qui relève chacun d'eux.
+func (s *Store) ListAllEnvironments(ctx context.Context) ([]Environment, error) {
+	rows, err := s.pool.Query(ctx,
+		`select `+environmentColumns+` from environments order by project_id, rank`)
+	if err != nil {
+		return nil, fmt.Errorf("liste des environnements: %w", err)
+	}
+	return scanEnvironments(rows)
+}
+
 // UpsertEnvironment enregistre ou met à jour un environnement.
 func (s *Store) UpsertEnvironment(ctx context.Context, environment Environment) error {
 	_, err := s.pool.Exec(ctx,
 		`insert into environments (
-		     id, label, rank, namespace, deployer_settings, observable, visible
-		 ) values ($1, $2, $3, $4, coalesce($5, '{}'::jsonb), $6, $7)
-		 on conflict (id) do update set
+		     project_id, id, label, rank, namespace, deployer_settings, observable, visible
+		 ) values ($1, $2, $3, $4, $5, coalesce($6, '{}'::jsonb), $7, $8)
+		 on conflict (project_id, id) do update set
 		     label = excluded.label,
 		     rank = excluded.rank,
 		     namespace = excluded.namespace,
@@ -63,16 +83,19 @@ func (s *Store) UpsertEnvironment(ctx context.Context, environment Environment) 
 		     observable = excluded.observable,
 		     visible = excluded.visible,
 		     updated_at = now()`,
-		environment.ID, environment.Label, environment.Rank, environment.Namespace,
-		environment.DeployerSettings, environment.Observable, environment.Visible)
+		environment.ProjectID, environment.ID, environment.Label, environment.Rank,
+		environment.Namespace, environment.DeployerSettings, environment.Observable,
+		environment.Visible)
 	if err != nil {
-		return fmt.Errorf("enregistrement de l'environnement %q: %w", environment.ID, err)
+		return fmt.Errorf("enregistrement de l'environnement %q du projet %d: %w",
+			environment.ID, environment.ProjectID, err)
 	}
 	return nil
 }
 
 // Observation est ce que l'environnement dit réellement de lui-même.
 type Observation struct {
+	ProjectID     int64
 	EnvironmentID string
 	// PortalVersion est la version de l'image ayant réalisé le dernier bootstrap
 	// réussi, à rapprocher de `releases.image_version` et jamais du tag.
@@ -91,17 +114,18 @@ type Observation struct {
 func (s *Store) SaveObservation(ctx context.Context, observation Observation) error {
 	_, err := s.pool.Exec(ctx,
 		`insert into environment_observations (
-		     environment_id, observed_at, portal_version, migration_state, declared_state, resolution
-		 ) values ($1, now(), nullif($2, ''), nullif($3, ''), nullif($4, ''), $5)
-		 on conflict (environment_id) do update set
+		     project_id, environment_id, observed_at, portal_version, migration_state,
+		     declared_state, resolution
+		 ) values ($1, $2, now(), nullif($3, ''), nullif($4, ''), nullif($5, ''), $6)
+		 on conflict (project_id, environment_id) do update set
 		     observed_at = now(),
 		     portal_version = excluded.portal_version,
 		     migration_state = excluded.migration_state,
 		     declared_state = excluded.declared_state,
 		     resolution = excluded.resolution,
 		     updated_at = now()`,
-		observation.EnvironmentID, observation.PortalVersion, observation.MigrationState,
-		observation.DeclaredState, observation.Resolution)
+		observation.ProjectID, observation.EnvironmentID, observation.PortalVersion,
+		observation.MigrationState, observation.DeclaredState, observation.Resolution)
 	if err != nil {
 		return fmt.Errorf("observation de %q: %w", observation.EnvironmentID, err)
 	}
@@ -115,17 +139,19 @@ type EnvironmentView struct {
 	ObservedAt  *string
 }
 
-// ListEnvironmentViews rend les environnements visibles et ce qu'on sait d'eux.
-func (s *Store) ListEnvironmentViews(ctx context.Context) ([]EnvironmentView, error) {
+// ListEnvironmentViews rend les environnements visibles d'un projet et ce qu'on
+// sait d'eux.
+func (s *Store) ListEnvironmentViews(ctx context.Context, projectID int64) ([]EnvironmentView, error) {
 	rows, err := s.pool.Query(ctx,
-		`select e.id, e.label, e.rank, e.namespace, e.deployer_settings,
+		`select e.project_id, e.id, e.label, e.rank, e.namespace, e.deployer_settings,
 		        e.observable, e.visible,
 		        o.portal_version, o.migration_state, o.declared_state, o.resolution,
 		        to_char(o.observed_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')
 		 from environments e
-		 left join environment_observations o on o.environment_id = e.id
-		 where e.visible
-		 order by e.rank`)
+		 left join environment_observations o
+		        on o.project_id = e.project_id and o.environment_id = e.id
+		 where e.project_id = $1 and e.visible
+		 order by e.rank`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("vue des environnements: %w", err)
 	}
@@ -136,8 +162,8 @@ func (s *Store) ListEnvironmentViews(ctx context.Context) ([]EnvironmentView, er
 		var view EnvironmentView
 		var portalVersion, migrationState, declaredState, resolution, observedAt *string
 
-		if err := rows.Scan(&view.Environment.ID, &view.Environment.Label,
-			&view.Environment.Rank, &view.Environment.Namespace,
+		if err := rows.Scan(&view.Environment.ProjectID, &view.Environment.ID,
+			&view.Environment.Label, &view.Environment.Rank, &view.Environment.Namespace,
 			&view.Environment.DeployerSettings, &view.Environment.Observable,
 			&view.Environment.Visible,
 			&portalVersion, &migrationState, &declaredState, &resolution, &observedAt); err != nil {
@@ -146,6 +172,7 @@ func (s *Store) ListEnvironmentViews(ctx context.Context) ([]EnvironmentView, er
 
 		if resolution != nil {
 			view.Observation = &Observation{
+				ProjectID:      view.Environment.ProjectID,
 				EnvironmentID:  view.Environment.ID,
 				PortalVersion:  value(portalVersion),
 				MigrationState: value(migrationState),
@@ -189,19 +216,19 @@ type DeployedRelease struct {
 // par lui.
 var ErrNoDeployedRelease = errors.New("aucune release connue ne correspond à la version observée")
 
-// DeployedRelease rapproche la version observée sur un environnement de la
-// release qui la porte.
+// DeployedRelease rapproche la version observée sur un environnement d'un projet
+// de la release de ce projet qui la porte.
 //
-// La jointure se fait sur `image_version` et jamais sur le tag (B8, B17).
-// L'ambiguïté est résolue par la promotion : quand une RC et sa finale partagent
-// la même image, c'est celle qui a été promue ici qui est déployée.
-func (s *Store) DeployedRelease(ctx context.Context, environmentID string) (DeployedRelease, error) {
+// La jointure se fait sur `image_version` et jamais sur le tag (B8, B17), et
+// **dans le projet** : une release d'un autre projet portant la même version
+// d'image ne tourne pas ici. L'ambiguïté est résolue par la promotion.
+func (s *Store) DeployedRelease(ctx context.Context, projectID int64, environmentID string) (DeployedRelease, error) {
 	var release DeployedRelease
 
 	const query = `
 		with observed as (
 		    select portal_version from environment_observations
-		    where environment_id = $1 and portal_version is not null
+		    where project_id = $1 and environment_id = $2 and portal_version is not null
 		),
 		candidates as (
 		    select r.tag, r.image_version, r.kind, r.state,
@@ -213,7 +240,8 @@ func (s *Store) DeployedRelease(ctx context.Context, environmentID string) (Depl
 		    -- Jointure externe : une release peut porter la version observée sans
 		    -- avoir été promue ici par le dashboard.
 		    left join image_promotions p
-		         on p.release_id = r.id and p.environment_id = $1
+		         on p.release_id = r.id and p.project_id = $1 and p.environment_id = $2
+		    where r.project_id = $1
 		)
 		select tag, image_version, kind, state, git_ref, created_by, created_at,
 		       pushed_at, promoted_tag, total
@@ -223,7 +251,7 @@ func (s *Store) DeployedRelease(ctx context.Context, environmentID string) (Depl
 		limit 1`
 
 	var total int
-	err := s.pool.QueryRow(ctx, query, environmentID).Scan(
+	err := s.pool.QueryRow(ctx, query, projectID, environmentID).Scan(
 		&release.Tag, &release.ImageVersion, &release.Kind, &release.State,
 		&release.GitRef, &release.CreatedBy, &release.CreatedAt,
 		&release.PromotedAt, &release.PromotedTag, &total)

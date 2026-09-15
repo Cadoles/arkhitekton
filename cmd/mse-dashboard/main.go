@@ -561,8 +561,26 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
 		// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux
 		// ignorerait. Mieux vaut ne pas démarrer.
+		//
+		// Les environnements sont écrits pour chaque projet qui a le module, lu au
+		// démarrage comme l'interrupteur de l'instance.
+		projects, err := db.ListProjects(ctx)
+		if err != nil {
+			return err
+		}
+		projectModules := dashhttp.NewModules(db, logger)
+		var projectIDs []int64
+		var slugs []string
+		for _, project := range projects {
+			if projectModules.EnabledIn(ctx, project.ID, plugin.ModuleMSE) {
+				projectIDs = append(projectIDs, project.ID)
+				slugs = append(slugs, project.Slug)
+			}
+		}
+		logger.Info("projets du module MSE", "projets", slugs)
+
 		syncCtx, cancelSync := context.WithTimeout(ctx, 30*time.Second)
-		err = environments.SyncEnvironments(syncCtx, pipelines.Environments)
+		err = environments.SyncEnvironments(syncCtx, projectIDs, pipelines.Environments)
 		cancelSync()
 		if err != nil {
 			return err

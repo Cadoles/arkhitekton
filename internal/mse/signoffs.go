@@ -34,8 +34,8 @@ type SignoffStore interface {
 	ListSignoffs(ctx context.Context, releaseID int64) ([]storage.Signoff, error)
 	SetSignoff(ctx context.Context, releaseID int64, environmentID, role, status, detail, decidedBy string) error
 	DeleteSignoff(ctx context.Context, releaseID int64, environmentID, role string) error
-	SignoffEnvironmentExists(ctx context.Context, environmentID string) (bool, error)
-	ListEnvironments(ctx context.Context) ([]storage.Environment, error)
+	SignoffEnvironmentExists(ctx context.Context, projectID int64, environmentID string) (bool, error)
+	ListEnvironments(ctx context.Context, projectID int64) ([]storage.Environment, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
@@ -82,21 +82,21 @@ type environmentSignoffsVw struct {
 }
 
 // release lit la release du chemin, ou écrit la réponse.
-func (h *SignoffsHandler) release(w http.ResponseWriter, r *http.Request) (store.Release, bool) {
+func (h *SignoffsHandler) release(w http.ResponseWriter, r *http.Request) (store.Release, int64, bool) {
 	projectID, ok := dashhttp.RequestProject(w, r, h.store)
 	if !ok {
-		return store.Release{}, false
+		return store.Release{}, 0, false
 	}
 	release, err := h.store.GetRelease(r.Context(), projectID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
 			dashhttp.WriteProblem(w, http.StatusNotFound, "Release introuvable", "")
-			return store.Release{}, false
+			return store.Release{}, 0, false
 		}
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
-		return store.Release{}, false
+		return store.Release{}, 0, false
 	}
-	return release, true
+	return release, projectID, true
 }
 
 // List rend les validations d'une release, groupées par environnement.
@@ -105,12 +105,12 @@ func (h *SignoffsHandler) release(w http.ResponseWriter, r *http.Request) (store
 // distinguer « personne ne s'est prononcé » de « cet environnement n'existe pas »,
 // et l'attente est précisément l'information utile en recette.
 func (h *SignoffsHandler) List(w http.ResponseWriter, r *http.Request) {
-	release, ok := h.release(w, r)
+	release, projectID, ok := h.release(w, r)
 	if !ok {
 		return
 	}
 
-	environments, err := h.store.ListEnvironments(r.Context())
+	environments, err := h.store.ListEnvironments(r.Context(), projectID)
 	if err != nil {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
 		return
@@ -194,13 +194,13 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	release, ok := h.release(w, r)
+	release, projectID, ok := h.release(w, r)
 	if !ok {
 		return
 	}
 
 	environmentID := r.PathValue("env")
-	exists, err := h.store.SignoffEnvironmentExists(r.Context(), environmentID)
+	exists, err := h.store.SignoffEnvironmentExists(r.Context(), projectID, environmentID)
 	if err != nil {
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture de l'environnement impossible", "")
 		return
@@ -238,7 +238,7 @@ func (h *SignoffsHandler) Clear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	release, ok := h.release(w, r)
+	release, _, ok := h.release(w, r)
 	if !ok {
 		return
 	}

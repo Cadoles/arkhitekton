@@ -29,12 +29,12 @@ type Signoff struct {
 }
 
 // ListSignoffs rend les validations d'une release, dans l'ordre du flux de
-// promotion puis des rôles.
+// promotion de son projet puis des rôles.
 func (s *Store) ListSignoffs(ctx context.Context, releaseID int64) ([]Signoff, error) {
 	rows, err := s.pool.Query(ctx,
 		`select e.id, s.role, s.status, coalesce(s.detail, ''), s.decided_by, s.decided_at
 		 from release_signoffs s
-		 join environments e on e.id = s.environment_id
+		 join environments e on e.project_id = s.project_id and e.id = s.environment_id
 		 where s.release_id = $1
 		 order by e.rank, s.role`, releaseID)
 	if err != nil {
@@ -56,12 +56,15 @@ func (s *Store) ListSignoffs(ctx context.Context, releaseID int64) ([]Signoff, e
 
 // SetSignoff enregistre l'avis d'un intervenant, ou remplace le sien.
 //
-// L'avis précédent n'est pas perdu : le journal d'audit conserve chaque décision.
+// Le projet est celui de la release, lu en base : un avis ne peut viser que
+// l'environnement du projet de la release. L'avis précédent n'est pas perdu : le
+// journal d'audit conserve chaque décision.
 func (s *Store) SetSignoff(ctx context.Context, releaseID int64, environmentID, role, status, detail, decidedBy string) error {
 	_, err := s.pool.Exec(ctx,
 		`insert into release_signoffs
-		     (release_id, environment_id, role, status, detail, decided_by, decided_at)
-		 values ($1, $2, $3, $4, nullif($5, ''), $6, now())
+		     (project_id, release_id, environment_id, role, status, detail, decided_by, decided_at)
+		 values ((select project_id from releases where id = $1),
+		         $1, $2, $3, $4, nullif($5, ''), $6, now())
 		 on conflict (release_id, environment_id, role) do update
 		 set status = excluded.status, detail = excluded.detail,
 		     decided_by = excluded.decided_by, decided_at = excluded.decided_at`,
@@ -112,14 +115,15 @@ func (s *Store) EnvironmentSignoffs(ctx context.Context, releaseID int64, enviro
 	return signoffs, rows.Err()
 }
 
-// SignoffEnvironmentExists dit si l'environnement visé est déclaré.
+// SignoffEnvironmentExists dit si l'environnement visé est déclaré pour le projet.
 //
 // La clé étrangère le garantirait, mais son échec remonte en erreur 500 alors que
 // l'environnement inconnu est une faute de l'appelant.
-func (s *Store) SignoffEnvironmentExists(ctx context.Context, environmentID string) (bool, error) {
+func (s *Store) SignoffEnvironmentExists(ctx context.Context, projectID int64, environmentID string) (bool, error) {
 	var exists bool
 	err := s.pool.QueryRow(ctx,
-		`select true from environments where id = $1`, environmentID).Scan(&exists)
+		`select true from environments where project_id = $1 and id = $2`,
+		projectID, environmentID).Scan(&exists)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil

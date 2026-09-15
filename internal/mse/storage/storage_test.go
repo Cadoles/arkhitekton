@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pressly/goose/v3"
+
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
@@ -92,7 +94,8 @@ func releaseFor(t *testing.T, db *store.DB, tag, imageVersion string) int64 {
 
 func environment(id string, rank int, observable bool) Environment {
 	return Environment{
-		ID: id, Label: id, Rank: rank, Namespace: "mse-" + id, Observable: observable, Visible: true,
+		ProjectID: testProjectID, ID: id, Label: id, Rank: rank, Namespace: "mse-" + id,
+		Observable: observable, Visible: true,
 		DeployerSettings: map[string]string{"promotionSuffix": id},
 	}
 }
@@ -111,7 +114,12 @@ func TestLaMigrationDuPluginReprendDesTablesExistantes(t *testing.T) {
 	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
 		t.Fatalf("migrations du noyau: %v", err)
 	}
-	if err := Migrate(ctx, cfg, quietLogger()); err != nil {
+	// Le schéma d'avant le transfert : les tables telles que le noyau les créait,
+	// c'est-à-dire la première migration du plugin, et rien de son historique.
+	if err := withProvider(cfg, func(provider *goose.Provider) error {
+		_, err := provider.UpTo(ctx, 1)
+		return err
+	}); err != nil {
 		t.Fatalf("première migration: %v", err)
 	}
 	// La base d'avant le transfert : les tables sont là, l'historique du plugin non.
@@ -229,11 +237,95 @@ func TestLaMigrationDeDonneesEteintLePluginHorsMSE(t *testing.T) {
 		t.Error("mse-test-project doit hériter, sans décision posée")
 	}
 
-	if err := Rollback(ctx, cfg); err != nil {
+	// Jusqu'à la version qui précède la migration de données.
+	if err := withProvider(cfg, func(provider *goose.Provider) error {
+		_, err := provider.DownTo(ctx, 1)
+		return err
+	}); err != nil {
 		t.Fatalf("annulation: %v", err)
 	}
 	if got := decisions(); len(got) != 0 {
 		t.Errorf("décisions restantes après annulation: %v", got)
+	}
+}
+
+// La migration 0003 rattache l'existant au projet MSE, et un même identifiant
+// d'environnement devient possible dans deux projets.
+func TestLesEnvironnementsExistantsRejoignentLeProjetMSE(t *testing.T) {
+	cfg, db := bareSchema(t)
+	ctx := context.Background()
+
+	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
+		t.Fatalf("migrations du noyau: %v", err)
+	}
+	if err := withProvider(cfg, func(provider *goose.Provider) error {
+		_, err := provider.UpTo(ctx, 2)
+		return err
+	}); err != nil {
+		t.Fatalf("migrations du plugin jusqu'à 2: %v", err)
+	}
+
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.Pool().Exec(ctx, query, args...); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+	}
+	for _, slug := range []string{"autre-projet", "mse-test-project"} {
+		exec(`insert into projects (slug, repository, label, forge_url, dockerfile, build_context, created_by)
+		      values ($1, 'vcarroy/'||$1, $1, 'https://forge.example', 'Dockerfile', '.', 'test')`, slug)
+	}
+	// Le modèle d'instance : un environnement sans projet, son relevé, une
+	// validation portée par une release du projet MSE.
+	exec(`insert into environments (id, label, rank, namespace) values ('qualif', 'Qualification', 2, 'mse-dev')`)
+	exec(`insert into environment_observations (environment_id, observed_at, portal_version, resolution)
+	      values ('qualif', now(), '1.8.0', 'portaldata')`)
+	var mseID int64
+	if err := db.Pool().QueryRow(ctx, `select id from projects where slug = 'mse-test-project'`).Scan(&mseID); err != nil {
+		t.Fatalf("projet MSE: %v", err)
+	}
+	versionID, err := db.EnsureVersion(ctx, mseID, "1.8.0")
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	releaseID, err := db.CreateRelease(ctx, store.Release{
+		ProjectID: mseID, VersionID: versionID, Tag: "1.8.0", Kind: "pre", State: "ready",
+		GitRef: "abc", ImageVersion: "1.8.0", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	exec(`insert into release_signoffs (release_id, environment_id, role, status, decided_by)
+	      values ($1, 'qualif', 'Client', 'pass', 'vcarroy')`, releaseID)
+
+	if err := Migrate(ctx, cfg, quietLogger()); err != nil {
+		t.Fatalf("migration 0003: %v", err)
+	}
+
+	environments := New(db.Pool())
+	if listed, err := environments.ListEnvironments(ctx, mseID); err != nil || len(listed) != 1 {
+		t.Fatalf("environnements du projet MSE: %+v (%v)", listed, err)
+	}
+	views, err := environments.ListEnvironmentViews(ctx, mseID)
+	if err != nil || len(views) != 1 || views[0].Observation == nil {
+		t.Errorf("relevé rattaché: %+v (%v)", views, err)
+	}
+	if signoffs, err := environments.ListSignoffs(ctx, releaseID); err != nil || len(signoffs) != 1 {
+		t.Errorf("validation rattachée: %+v (%v)", signoffs, err)
+	}
+
+	// Le même identifiant dans un autre projet : refusé par l'ancienne clé.
+	var otherID int64
+	if err := db.Pool().QueryRow(ctx, `select id from projects where slug = 'autre-projet'`).Scan(&otherID); err != nil {
+		t.Fatalf("autre projet: %v", err)
+	}
+	if err := environments.UpsertEnvironment(ctx, Environment{
+		ProjectID: otherID, ID: "qualif", Label: "Qualification", Rank: 2, Namespace: "autre", Visible: true,
+	}); err != nil {
+		t.Errorf("qualif d'un second projet: %v", err)
+	}
+	if listed, _ := environments.ListEnvironments(ctx, otherID); len(listed) != 1 {
+		t.Errorf("environnements du second projet: %+v", listed)
 	}
 }
 
@@ -251,19 +343,19 @@ func TestDeployedReleaseJoinsOnImageVersion(t *testing.T) {
 	}
 	releaseFor(t, db, "1.8.0", "1.8.0-rc3")
 	if err := environments.SaveObservation(ctx, Observation{
-		EnvironmentID: "prod", PortalVersion: "1.8.0-rc3", MigrationState: "done", Resolution: "portaldata",
+		ProjectID: testProjectID, EnvironmentID: "prod", PortalVersion: "1.8.0-rc3", MigrationState: "done", Resolution: "portaldata",
 	}); err != nil {
 		t.Fatalf("observation: %v", err)
 	}
 
-	deployed, err := environments.DeployedRelease(ctx, "prod")
+	deployed, err := environments.DeployedRelease(ctx, testProjectID, "prod")
 	if err != nil {
 		t.Fatalf("rapprochement: %v", err)
 	}
 	if deployed.Tag != "1.8.0" || deployed.ImageVersion != "1.8.0-rc3" {
 		t.Errorf("release déployée = %+v", deployed)
 	}
-	if byRelease, err := environments.DeployedByRelease(ctx); err != nil || len(byRelease["1.8.0"]) != 1 {
+	if byRelease, err := environments.DeployedByRelease(ctx, testProjectID); err != nil || len(byRelease["1.8.0"]) != 1 {
 		t.Errorf("pastilles = %v (%v)", byRelease, err)
 	}
 }
@@ -279,12 +371,12 @@ func TestPromotionResolvesTheAmbiguity(t *testing.T) {
 	releaseFor(t, db, "1.8.0-rc3", "1.8.0-rc3")
 	finalID := releaseFor(t, db, "1.8.0", "1.8.0-rc3")
 	if err := environments.SaveObservation(ctx, Observation{
-		EnvironmentID: "prod", PortalVersion: "1.8.0-rc3", MigrationState: "done", Resolution: "portaldata",
+		ProjectID: testProjectID, EnvironmentID: "prod", PortalVersion: "1.8.0-rc3", MigrationState: "done", Resolution: "portaldata",
 	}); err != nil {
 		t.Fatalf("observation: %v", err)
 	}
 
-	if deployed, err := environments.DeployedRelease(ctx, "prod"); err != nil || !deployed.Ambiguous {
+	if deployed, err := environments.DeployedRelease(ctx, testProjectID, "prod"); err != nil || !deployed.Ambiguous {
 		t.Errorf("sans promotion: %+v (%v) — l'ambiguïté doit être signalée", deployed, err)
 	}
 
@@ -293,7 +385,7 @@ func TestPromotionResolvesTheAmbiguity(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("promotion: %v", err)
 	}
-	deployed, err := environments.DeployedRelease(ctx, "prod")
+	deployed, err := environments.DeployedRelease(ctx, testProjectID, "prod")
 	if err != nil {
 		t.Fatalf("rapprochement: %v", err)
 	}
@@ -310,11 +402,11 @@ func TestAnUnknownDeployedVersionIsReported(t *testing.T) {
 		t.Fatalf("environnement: %v", err)
 	}
 	if err := environments.SaveObservation(ctx, Observation{
-		EnvironmentID: "prod", PortalVersion: "2024.3.1-legacy", MigrationState: "done", Resolution: "portaldata",
+		ProjectID: testProjectID, EnvironmentID: "prod", PortalVersion: "2024.3.1-legacy", MigrationState: "done", Resolution: "portaldata",
 	}); err != nil {
 		t.Fatalf("observation: %v", err)
 	}
-	if _, err := environments.DeployedRelease(ctx, "prod"); !errors.Is(err, ErrNoDeployedRelease) {
+	if _, err := environments.DeployedRelease(ctx, testProjectID, "prod"); !errors.Is(err, ErrNoDeployedRelease) {
 		t.Errorf("erreur = %v, attendu ErrNoDeployedRelease", err)
 	}
 }
@@ -334,7 +426,7 @@ func TestLesReglagesDuDeployeurFontLAllerRetourTelsQuels(t *testing.T) {
 		t.Fatalf("environnement: %v", err)
 	}
 
-	listed, err := environments.ListEnvironments(ctx)
+	listed, err := environments.ListEnvironments(ctx, testProjectID)
 	if err != nil || len(listed) != 1 {
 		t.Fatalf("relecture: %v (%v)", listed, err)
 	}
@@ -348,8 +440,8 @@ func TestLaCarteDeReglagesNAccepteQueDesChaines(t *testing.T) {
 	db, _ := migrated(t)
 
 	if _, err := db.Pool().Exec(context.Background(),
-		`insert into environments (id, label, rank, namespace, deployer_settings, observable, visible)
-		 values ('dev', 'Dev', 1, 'mse-dev', '{"acceptsPrerelease": true}'::jsonb, true, true)`,
+		`insert into environments (project_id, id, label, rank, namespace, deployer_settings, observable, visible)
+		 values (1, 'dev', 'Dev', 1, 'mse-dev', '{"acceptsPrerelease": true}'::jsonb, true, true)`,
 	); err == nil {
 		t.Error("un booléen JSON devrait être refusé par la contrainte")
 	}
@@ -381,11 +473,11 @@ func TestLHistoriqueSuitLesPromotionsDemandees(t *testing.T) {
 	if err != nil || len(promotions) != 1 || promotions[0].Tag != "1.8.0-rc2_testing" {
 		t.Errorf("promotions = %+v (%v)", promotions, err)
 	}
-	history, err := environments.ListEnvironmentHistory(ctx, "qualif", 0)
+	history, err := environments.ListEnvironmentHistory(ctx, testProjectID, "qualif", 0)
 	if err != nil || len(history) != 2 || history[0].ReleaseTag != "1.8.0-rc2" {
 		t.Errorf("historique = %+v (%v)", history, err)
 	}
-	latest, err := environments.LatestPromotions(ctx)
+	latest, err := environments.LatestPromotions(ctx, testProjectID)
 	if err != nil || latest["qualif"].ReleaseTag != "1.8.0-rc2" {
 		t.Errorf("dernière promotion = %+v (%v)", latest, err)
 	}
@@ -500,10 +592,10 @@ func TestUnEnvironnementInconnuEstDetecte(t *testing.T) {
 	ctx := context.Background()
 	flow(t, environments)
 
-	if exists, err := environments.SignoffEnvironmentExists(ctx, "qualif"); err != nil || !exists {
+	if exists, err := environments.SignoffEnvironmentExists(ctx, testProjectID, "qualif"); err != nil || !exists {
 		t.Errorf("qualif: %v (%v)", exists, err)
 	}
-	if exists, err := environments.SignoffEnvironmentExists(ctx, "nexiste-pas"); err != nil || exists {
+	if exists, err := environments.SignoffEnvironmentExists(ctx, testProjectID, "nexiste-pas"); err != nil || exists {
 		t.Errorf("environnement inconnu reconnu: %v (%v)", exists, err)
 	}
 }

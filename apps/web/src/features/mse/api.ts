@@ -44,7 +44,7 @@ export type Environment = {
 export function useEnvironments() {
   return useQuery({
     queryKey: ['environments'],
-    queryFn: () => request<{ environments: Environment[] }>('/environments'),
+    queryFn: () => request<{ environments: Environment[] }>(projectPath('/environments')),
     // Un déploiement Flux prend des dizaines de secondes : rafraîchir plus vite
     // ne montrerait rien de plus, seulement du bruit.
     refetchInterval: 15000,
@@ -110,7 +110,7 @@ export function useEnvironmentHistory(environment: string | undefined) {
   return useQuery({
     queryKey: ['environments', environment, 'history'],
     queryFn: () =>
-      request<{ history: HistoryEntry[] }>(`/environments/${encodeURIComponent(environment as string)}/history`),
+      request<{ history: HistoryEntry[] }>(projectPath(`/environments/${encodeURIComponent(environment as string)}/history`)),
     enabled: Boolean(environment),
   })
 }
@@ -170,7 +170,7 @@ export type EnvironmentDetail = {
 export function useEnvironment(id: string | undefined) {
   return useQuery({
     queryKey: ['environments', id],
-    queryFn: () => request<EnvironmentDetail>(`/environments/${encodeURIComponent(id as string)}`),
+    queryFn: () => request<EnvironmentDetail>(projectPath(`/environments/${encodeURIComponent(id as string)}`)),
     enabled: Boolean(id),
     refetchInterval: 15000,
   })
