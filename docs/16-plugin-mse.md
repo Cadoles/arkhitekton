@@ -582,8 +582,8 @@ la sonde de préparation `schema-mse` vérifie sa version.
 
 ## 16.18 Étude — le plugin MSE par projet
 
-> Statut : **étude**. Rien n'est implémenté. Les questions de §16.18.6 sont tranchées
-> (§16.18.7) ; celles de §16.18.9 restent ouvertes.
+> Statut : **étude terminée**. Rien n'est implémenté. Toutes les questions sont tranchées
+> (§16.18.7 et §16.18.9).
 
 ### 16.18.1 Le constat
 
@@ -711,7 +711,7 @@ plugin garde la parité d'aujourd'hui.
 | # | Question | Réponse |
 |---|---|---|
 | 1 | Niveau 1 ou niveau 2 ? | **niveau 2** — tranché : environnements par projet |
-| 2 | Que reçoivent les projets existants ? | **désactivation explicite** hors MSE, par migration de données — tranché ; la liste reste à fixer (§16.18.9) |
+| 2 | Que reçoivent les projets existants ? | **désactivation explicite** hors MSE, par migration de données — tranché ; la liste est en §16.18.9 |
 | 3 | Promotions de quels projets sur l'écran Environnements ? | **du projet courant** — tranché |
 | 4 | Les paramètres MSE de `schedulerConfig` entrent-ils dans le chantier ? | **oui** — tranché |
 
@@ -776,13 +776,13 @@ Les jobs portent déjà leur projet, et l'ordonnanceur résout déjà des secret
 - les valeurs `forge.mseKustom.*`, `forge.e2e.repoUrl`, `mse.*` quittent `schedulerConfig`. Les
   valeurs par défaut écrites dans `main.go` deviennent les défauts du réglage global.
 
-### 16.18.9 Questions encore ouvertes
+### 16.18.9 Décisions complémentaires
 
-| # | Question | Proposition |
+| # | Question | Réponse |
 |---|---|---|
-| 5 | Quels projets gardent le plugin ? | `mse-test-project` ; les autres à confirmer |
-| 6 | Où se déclarent les environnements d'un projet ? | dans le **catalogue**, une section par slug de projet : versionnée, validée au démarrage et confrontée aux `ImagePolicy` comme aujourd'hui |
-| 7 | À quel projet rattacher les quatre environnements existants et leurs relevés ? | `mse-test-project`, le seul qui porte des releases |
+| 5 | Quels projets gardent le plugin ? | **`mse-test-project` seul** — tranché. `mse-kustom-test-project`, `mse-tekton` et les deux thèmes Hydra sont désactivés par migration de données |
+| 6 | Où se déclarent les environnements d'un projet ? | **dans le catalogue** — tranché : une section par slug de projet, versionnée, validée au démarrage et confrontée aux `ImagePolicy` comme aujourd'hui |
+| 7 | À quel projet rattacher les quatre environnements existants et leurs relevés ? | **`mse-test-project`** — tranché |
 
 ### 16.18.10 Tranches pressenties
 
