@@ -40,10 +40,14 @@ func (p projets) ProjectBySlug(_ context.Context, slug string) (store.Project, e
 // autre : sans projet, projet inconnu ou module éteint, le champ reste libre.
 func TestLesEnvironnementsProposesSuiventLeModuleDuProjet(t *testing.T) {
 	hidden := false
-	environments := []catalog.Environment{
-		{ID: "qualif", Label: "Qualification"},
-		{ID: "fantome", Label: "Fantôme", Visible: &hidden},
-	}
+	environments := &catalog.Catalog{Projects: map[string]catalog.ProjectDeclaration{
+		"mse": {Environments: []catalog.Environment{
+			{ID: "qualif", Label: "Qualification"},
+			{ID: "fantome", Label: "Fantôme", Visible: &hidden},
+		}},
+		// Déclarés, mais pour un projet qui a éteint le module.
+		"tekton": {Environments: []catalog.Environment{{ID: "qualif", Label: "Qualification"}}},
+	}}
 	resolver := projets{"mse": 1, "tekton": 2}
 	ctx := context.Background()
 

@@ -12,10 +12,10 @@ import (
 )
 
 func testMiddleware(sessions Sessions) *Middleware {
-	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
+	authorizer := auth.NewAuthorizer(auth.ProjectPolicies{"test": {
 		"unstable": {Sensitive: false},
 		"prod":     {Sensitive: true},
-	})
+	}})
 	return NewMiddleware(sessions, authorizer, quietLogger())
 }
 

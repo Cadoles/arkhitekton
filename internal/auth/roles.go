@@ -84,6 +84,11 @@ type Identity struct {
 	Role     Role
 }
 
+// ProjectPolicies porte les exigences de promotion, par slug de projet puis par
+// identifiant d'environnement. Deux projets peuvent avoir chacun un `qualif`, et
+// l'un le déclarer sensible sans que l'autre le soit (doc 16 §16.18).
+type ProjectPolicies map[string]map[string]EnvironmentPolicy
+
 // EnvironmentPolicy décrit les exigences de promotion d'un environnement.
 type EnvironmentPolicy struct {
 	// Sensitive impose le rôle `releaser`. Vaut pour la pré-production et la
@@ -93,7 +98,7 @@ type EnvironmentPolicy struct {
 
 // Authorizer décide si une identité peut exercer une permission.
 type Authorizer struct {
-	environments map[string]EnvironmentPolicy
+	environments ProjectPolicies
 }
 
 // NewAuthorizer construit l'autorisateur à partir des environnements déclarés.
@@ -102,7 +107,7 @@ type Authorizer struct {
 // environnement nouvellement créé et oublié dans la configuration doit être plus
 // difficile à atteindre, jamais plus facile. Se tromper dans ce sens fait perdre
 // du temps ; se tromper dans l'autre laisse promouvoir en production.
-func NewAuthorizer(environments map[string]EnvironmentPolicy) *Authorizer {
+func NewAuthorizer(environments ProjectPolicies) *Authorizer {
 	return &Authorizer{environments: environments}
 }
 
@@ -117,9 +122,23 @@ func NewAuthorizer(environments map[string]EnvironmentPolicy) *Authorizer {
 // Un environnement absent de la table est sensible, comme pour l'autorisation :
 // se tromper dans ce sens fait perdre du temps, dans l'autre laisse promouvoir
 // sans y penser.
-func (a *Authorizer) Sensitive(environment string) bool {
-	policy, known := a.environments[environment]
+func (a *Authorizer) Sensitive(project, environment string) bool {
+	policy, known := a.environments[project][environment]
 	return !known || policy.Sensitive
+}
+
+// CanDeploy dit si l'identité peut promouvoir vers un environnement d'un projet.
+//
+// Le rôle est celui du projet, la sensibilité celle que le projet déclare. Le
+// projet est désigné deux fois — par son identifiant pour le rôle, par son slug
+// pour la déclaration — parce que ce sont les deux clés sous lesquelles chacune
+// est tenue.
+func (a *Authorizer) CanDeploy(identity Identity, projectID int64, project, environment string) bool {
+	role := identity.RoleIn(projectID)
+	if !role.Valid() {
+		return false
+	}
+	return role.rank() >= a.minRoleForDeploy(project, environment).rank()
 }
 
 // PermissionsOf rend les permissions cumulées d'un rôle.
@@ -177,8 +196,10 @@ func (a *Authorizer) allows(role Role, permission Permission) bool {
 		return false
 	}
 
-	if environment, isDeploy := strings.CutPrefix(string(permission), deployPrefix); isDeploy {
-		return role.rank() >= a.minRoleForDeploy(environment).rank()
+	if _, isDeploy := strings.CutPrefix(string(permission), deployPrefix); isDeploy {
+		// Sans projet, la sensibilité n'est pas connue : l'exigence la plus forte
+		// s'applique. [Authorizer.CanDeploy] est le chemin qui la connaît.
+		return role.rank() >= RoleReleaser.rank()
 	}
 
 	for _, granted := range AllRoles {
@@ -195,8 +216,8 @@ func (a *Authorizer) allows(role Role, permission Permission) bool {
 // minRoleForDeploy rend le rôle minimal requis pour promouvoir sur un
 // environnement. Inconnu ou sensible : `releaser`. Connu et non sensible :
 // `operator`.
-func (a *Authorizer) minRoleForDeploy(environment string) Role {
-	policy, known := a.environments[environment]
+func (a *Authorizer) minRoleForDeploy(project, environment string) Role {
+	policy, known := a.environments[project][environment]
 	if !known || policy.Sensitive {
 		return RoleReleaser
 	}

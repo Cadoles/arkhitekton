@@ -41,10 +41,13 @@ const ExclusiveKindConcurrency = 1
 // Catalog est le catalogue chargé.
 type Catalog struct {
 	Pipelines []Pipeline `json:"pipelines"`
-	// Environments vit dans le même fichier que les pipelines : les deux
-	// décrivent ce que le dashboard peut déclencher, et les séparer imposerait
-	// deux montages et deux chargements pour une même intention.
-	Environments []Environment `json:"environments,omitempty"`
+	// Projects porte ce que le catalogue déclare pour un projet, par slug : ses
+	// environnements (doc 16 §16.18).
+	//
+	// Dans le même fichier que les pipelines : les deux décrivent ce que le
+	// dashboard peut déclencher, et les séparer imposerait deux montages et deux
+	// chargements pour une même intention.
+	Projects map[string]ProjectDeclaration `json:"projects,omitempty"`
 	// ScoreWeights porte la pondération du score de qualité. Vide, la pondération
 	// acceptée par le client s'applique — l'absence de configuration ne doit pas
 	// rendre le score incalculable (B11).
@@ -108,6 +111,21 @@ func (e Environment) IsObservable() bool { return e.Observable == nil || *e.Obse
 
 // IsVisible rend la valeur effective, l'absence valant « visible ».
 func (e Environment) IsVisible() bool { return e.Visible == nil || *e.Visible }
+
+// ProjectDeclaration est ce que le catalogue déclare pour un projet.
+type ProjectDeclaration struct {
+	// Environments sont les environnements vers lesquels le projet déploie, dans
+	// leur ordre de promotion.
+	Environments []Environment `json:"environments,omitempty"`
+}
+
+// EnvironmentsOf rend les environnements déclarés pour un projet, ou aucun.
+func (c *Catalog) EnvironmentsOf(project string) []Environment {
+	if c == nil {
+		return nil
+	}
+	return c.Projects[project].Environments
+}
 
 // IsSensitive rend la valeur effective, l'absence valant « sensible » : un
 // environnement déclaré sans y penser doit être plus difficile à atteindre, jamais
@@ -498,21 +516,34 @@ func (c *Catalog) validate() error {
 		problems = append(problems, errors.New("le catalogue ne déclare aucun pipeline"))
 	}
 
-	ranks := make(map[int]string, len(c.Environments))
-	for _, environment := range c.Environments {
-		if strings.TrimSpace(environment.ID) == "" {
-			problems = append(problems, errors.New("un environnement est déclaré sans id"))
+	projects := make([]string, 0, len(c.Projects))
+	for slug := range c.Projects {
+		projects = append(projects, slug)
+	}
+	sort.Strings(projects)
+	for _, slug := range projects {
+		if strings.TrimSpace(slug) == "" {
+			problems = append(problems, errors.New("une déclaration de projet est sans slug"))
 		}
-		// Ce que le catalogue ne vérifie **plus** : que le suffixe de promotion
-		// existe et soit unique. C'est une règle du déployeur — deux
-		// environnements partageant un suffixe promouvraient au même endroit —,
-		// et elle est vérifiée par lui, contre les politiques réelles du
-		// cluster, ce qui est plus fort qu'une comparaison de chaînes.
-		if other, clash := ranks[environment.Rank]; clash {
-			problems = append(problems, fmt.Errorf(
-				"environnements %q et %q partagent le rang %d", other, environment.ID, environment.Rank))
+		ids := make(map[string]bool, len(c.Projects[slug].Environments))
+		ranks := make(map[int]string, len(c.Projects[slug].Environments))
+		for _, environment := range c.Projects[slug].Environments {
+			if strings.TrimSpace(environment.ID) == "" {
+				problems = append(problems, fmt.Errorf("projet %q: un environnement est déclaré sans id", slug))
+			}
+			if ids[environment.ID] {
+				problems = append(problems, fmt.Errorf("projet %q: environnement %q déclaré deux fois", slug, environment.ID))
+			}
+			ids[environment.ID] = true
+			// Ce que le catalogue ne vérifie **pas** : que le suffixe de promotion
+			// existe et soit unique. C'est une règle du déployeur, vérifiée par lui
+			// contre les politiques réelles du cluster.
+			if other, clash := ranks[environment.Rank]; clash {
+				problems = append(problems, fmt.Errorf(
+					"projet %q: environnements %q et %q partagent le rang %d", slug, other, environment.ID, environment.Rank))
+			}
+			ranks[environment.Rank] = environment.ID
 		}
-		ranks[environment.Rank] = environment.ID
 	}
 
 	seen := make(map[string]bool, len(c.Pipelines))

@@ -134,7 +134,7 @@ func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 		case item.State != string(release.StateReady):
 			target.Allowed = false
 			target.Reason = "l'image de cette release n'est pas construite"
-		case !h.authorizer.CanIn(identity, projectID, auth.PermDeploy(environment.ID)):
+		case !h.authorizer.CanDeploy(identity, projectID, r.PathValue("project"), environment.ID):
 			target.Allowed = false
 			target.Reason = "votre rôle ne permet pas de promouvoir vers cet environnement"
 		default:
@@ -330,8 +330,8 @@ func (h *Handler) Environments(w http.ResponseWriter, r *http.Request) {
 			Rank:             view.Environment.Rank,
 			DeployerSettings: view.Environment.DeployerSettings,
 			Observable:       view.Environment.Observable,
-			Sensitive:        h.authorizer.Sensitive(view.Environment.ID),
-			CanDeploy:        h.authorizer.CanIn(identity, projectID, auth.PermDeploy(view.Environment.ID)),
+			Sensitive:        h.authorizer.Sensitive(r.PathValue("project"), view.Environment.ID),
+			CanDeploy:        h.authorizer.CanDeploy(identity, projectID, r.PathValue("project"), view.Environment.ID),
 		}
 		if view.Observation != nil {
 			entry.PortalVersion = view.Observation.PortalVersion
@@ -446,8 +446,8 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		"deployer_settings": view.Environment.DeployerSettings,
 		"namespace":         view.Environment.Namespace,
 		"observable":        view.Environment.Observable,
-		"sensitive":         h.authorizer.Sensitive(view.Environment.ID),
-		"can_deploy":        h.authorizer.CanIn(identity, projectID, auth.PermDeploy(view.Environment.ID)),
+		"sensitive":         h.authorizer.Sensitive(r.PathValue("project"), view.Environment.ID),
+		"can_deploy":        h.authorizer.CanDeploy(identity, projectID, r.PathValue("project"), view.Environment.ID),
 	}
 
 	if view.Observation != nil {

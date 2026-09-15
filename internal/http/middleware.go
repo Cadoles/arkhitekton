@@ -206,7 +206,7 @@ func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Han
 			}
 
 			environment := r.PathValue(pathValue)
-			if !m.authorizer.CanIn(identity, projectID, auth.PermDeploy(environment)) {
+			if !m.authorizer.CanDeploy(identity, projectID, r.PathValue("project"), environment) {
 				m.logger.Info("promotion refusée",
 					"subject", identity.Subject, "role", identity.RoleIn(projectID),
 					"projet", projectID, "environment", environment)

@@ -314,9 +314,9 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		},
 	}}
 	store.pipelines = pipelines
-	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
+	authorizer := auth.NewAuthorizer(auth.ProjectPolicies{testProjectSlug: {
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
-	})
+	}})
 	return NewReleasesHandler(store, pipelines, authorizer, store.registry, store,
 		"portal", "reg.cadoles.com/vcarroy").
 		// Le planificateur **réel**, sur le même faux magasin. Un substitut ici

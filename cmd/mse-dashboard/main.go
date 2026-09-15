@@ -205,15 +205,22 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.Info("catalogue chargé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
 	// La sensibilité des environnements est déclarée au catalogue et lue par le
 	// plugin MSE. Journalisée : c'est elle qui décide qui peut promouvoir où.
-	policies := mse.Policies(pipelines.Environments)
-	sensitive := make([]string, 0, len(policies))
-	for id, policy := range policies {
-		if policy.Sensitive {
-			sensitive = append(sensitive, id)
-		}
+	policies := mse.Policies(pipelines)
+	declaredProjects := make([]string, 0, len(policies))
+	for slug := range policies {
+		declaredProjects = append(declaredProjects, slug)
 	}
-	sort.Strings(sensitive)
-	logger.Info("environnements sensibles", "environnements", sensitive)
+	sort.Strings(declaredProjects)
+	for _, slug := range declaredProjects {
+		sensitive := make([]string, 0, len(policies[slug]))
+		for id, policy := range policies[slug] {
+			if policy.Sensitive {
+				sensitive = append(sensitive, id)
+			}
+		}
+		sort.Strings(sensitive)
+		logger.Info("environnements sensibles", "projet", slug, "environnements", sensitive)
+	}
 	authorizer := auth.NewAuthorizer(policies)
 	// Les modules sont lus à chaque requête : l'interrupteur se bascule depuis
 	// l'administration, et le lire au démarrage le ferait mentir jusqu'au
@@ -245,7 +252,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// celle employée pour lire les tags — le déduire ailleurs ferait diverger
 		// ce qu'on propose de ce qu'on tire.
 		WithSuggestions(db, cfg.Registry.Project, logger).
-		WithEnvironmentSuggestions(mse.EnvironmentSuggestions(pipelines.Environments, modules, db))
+		WithEnvironmentSuggestions(mse.EnvironmentSuggestions(pipelines, modules, db))
 	// Le nom du dépôt promu vient de la configuration du registre : c'est le même
 	// préfixe que celui employé pour lire les tags, et le déduire ailleurs ferait
 	// diverger lecture et promotion.
@@ -569,18 +576,36 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			return err
 		}
 		projectModules := dashhttp.NewModules(db, logger)
-		var projectIDs []int64
+		var declared []mse.ProjectEnvironments
+		enabled := map[string]bool{}
 		var slugs []string
 		for _, project := range projects {
-			if projectModules.EnabledIn(ctx, project.ID, plugin.ModuleMSE) {
-				projectIDs = append(projectIDs, project.ID)
-				slugs = append(slugs, project.Slug)
+			if !projectModules.EnabledIn(ctx, project.ID, plugin.ModuleMSE) {
+				continue
+			}
+			enabled[project.Slug] = true
+			slugs = append(slugs, project.Slug)
+			own := pipelines.EnvironmentsOf(project.Slug)
+			if len(own) == 0 {
+				logger.Warn("projet du module MSE sans environnement déclaré",
+					"projet", project.Slug, "consequence", "ni promotion ni observation pour lui")
+			}
+			declared = append(declared, mse.ProjectEnvironments{
+				ProjectID: project.ID, Slug: project.Slug, Environments: own,
+			})
+		}
+		for slug := range pipelines.Projects {
+			if !enabled[slug] {
+				// Une section pour un projet absent ou qui a éteint le module : sans
+				// effet, et le dire évite de chercher pourquoi rien n'apparaît.
+				logger.Warn("environnements déclarés pour un projet sans le module MSE",
+					"projet", slug, "consequence", "ignorés")
 			}
 		}
 		logger.Info("projets du module MSE", "projets", slugs)
 
 		syncCtx, cancelSync := context.WithTimeout(ctx, 30*time.Second)
-		err = environments.SyncEnvironments(syncCtx, projectIDs, pipelines.Environments)
+		err = environments.SyncEnvironments(syncCtx, declared)
 		cancelSync()
 		if err != nil {
 			return err

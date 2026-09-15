@@ -872,3 +872,54 @@ identifiant d'environnement jusqu'à la tranche 3.
 calcule ces projets au démarrage et écrit pour chacun les environnements de la section
 `environments`. L'observation relève tous les environnements de tous les projets et enregistre
 chaque relevé avec son projet. La section par projet est la tranche 3.
+
+---
+
+## 16.21 Par projet, tranche 3 — ce que l'écriture a tranché
+
+**Le catalogue déclare les environnements par projet** (décision 6 de §16.18.9). La section
+`environments` d'instance disparaît au profit de `projects`, indexée par slug :
+
+```yaml
+projects:
+  mse-test-project:
+    environments:
+      - id: unstable
+        …
+```
+
+La validation se fait **dans chaque projet** : identifiant présent et unique, rang unique. Deux
+projets peuvent chacun avoir un `qualif` de rang 2. Le catalogue ne peut pas vérifier qu'un slug
+désigne un projet déclaré — les projets vivent en base — : c'est le worker qui le dit au
+démarrage.
+
+**Le worker écrit, pour chaque projet qui a le module, ses propres environnements.**
+
+| Cas | Conséquence |
+|---|---|
+| projet avec le module et une section | ses environnements sont écrits et confrontés aux `ImagePolicy` |
+| projet avec le module, sans section | avertissement : ni promotion ni observation pour lui |
+| section pour un projet absent ou sans le module | avertissement : ignorée |
+
+Le contrôle des `ImagePolicy` se fait **projet par projet** : deux projets peuvent employer le
+même suffixe de promotion pour des images différentes, et les confronter ensemble les ferait
+passer pour un doublon. Les désaccords de tous les projets sont rapportés ensemble, et
+empêchent le démarrage comme avant.
+
+**La sensibilité se lit par `(projet, environnement)`.** L'autorisateur reçoit
+`auth.ProjectPolicies`, indexé par slug puis identifiant :
+
+- `CanDeploy(identity, projectID, slug, environment)` : le rôle est celui du projet, la
+  sensibilité celle qu'il déclare. Le projet est nommé deux fois parce que le rôle est tenu par
+  identifiant, la déclaration par slug ;
+- `Sensitive(slug, environment)` sert l'interface ;
+- `RequireDeploy`, les cibles et l'écran des environnements passent le slug du chemin ;
+- sans projet — `Can` avec `PermDeploy` —, la sensibilité est inconnue et l'exigence la plus
+  forte s'applique : `releaser`.
+
+L'oubli reste sensible, et un projet sans section n'a aucun environnement promouvable par un
+`operator`.
+
+**La suggestion `environment` propose les environnements du projet**, lus dans sa section.
+
+L'`api` journalise les environnements sensibles **par projet** au démarrage.

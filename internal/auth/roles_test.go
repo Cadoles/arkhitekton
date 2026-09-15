@@ -3,12 +3,12 @@ package auth
 import "testing"
 
 func testAuthorizer() *Authorizer {
-	return NewAuthorizer(map[string]EnvironmentPolicy{
+	return NewAuthorizer(ProjectPolicies{"mse": {
 		"unstable": {Sensitive: false},
 		"qualif":   {Sensitive: false},
 		"preprod":  {Sensitive: true},
 		"prod":     {Sensitive: true},
-	})
+	}})
 }
 
 func identity(role Role) Identity {
@@ -71,7 +71,7 @@ func TestDeployRequiresReleaserOnSensitiveEnvironments(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if got := a.Can(identity(c.role), PermDeploy(c.env)); got != c.allowed {
+		if got := a.CanDeploy(identity(c.role), 0, "mse", c.env); got != c.allowed {
 			t.Errorf("Can(%s, deploy:%s) = %v, attendu %v", c.role, c.env, got, c.allowed)
 		}
 	}
@@ -83,10 +83,16 @@ func TestDeployRequiresReleaserOnSensitiveEnvironments(t *testing.T) {
 func TestDeployOnUnknownEnvironmentFailsClosed(t *testing.T) {
 	a := testAuthorizer()
 
-	if a.Can(identity(RoleOperator), PermDeploy("nouveau-env")) {
+	if a.CanDeploy(identity(RoleOperator), 0, "mse", "nouveau-env") {
 		t.Error("un environnement inconnu ne doit pas être déployable par un operator")
 	}
-	if !a.Can(identity(RoleReleaser), PermDeploy("nouveau-env")) {
+	if a.CanDeploy(identity(RoleOperator), 0, "autre-projet", "unstable") {
+		t.Error("l'environnement d'un projet sans déclaration ne doit pas être déployable par un operator")
+	}
+	if a.Can(identity(RoleOperator), PermDeploy("unstable")) {
+		t.Error("sans projet, la sensibilité est inconnue : un operator ne promeut pas")
+	}
+	if !a.CanDeploy(identity(RoleReleaser), 0, "mse", "nouveau-env") {
 		t.Error("un releaser doit pouvoir déployer un environnement inconnu")
 	}
 }
@@ -123,7 +129,7 @@ func TestParseRole(t *testing.T) {
 func TestEmptyAuthorizerFailsClosed(t *testing.T) {
 	a := NewAuthorizer(nil)
 
-	if a.Can(identity(RoleOperator), PermDeploy("unstable")) {
+	if a.CanDeploy(identity(RoleOperator), 0, "mse", "unstable") {
 		t.Error("une configuration vide ne doit autoriser aucune promotion à un operator")
 	}
 	if !a.Can(identity(RoleOperator), PermPipelineRun) {
@@ -182,16 +188,31 @@ func TestUnRoleDeProjetPeutRestreindreLeRoleGlobal(t *testing.T) {
 
 // Promouvoir est le geste le plus coûteux : il doit se vérifier dans le projet.
 func TestLaPromotionSeVerifieDansSonProjet(t *testing.T) {
-	authorizer := NewAuthorizer(map[string]EnvironmentPolicy{
-		"prod": {Sensitive: true},
-	})
+	authorizer := NewAuthorizer(ProjectPolicies{"mse": {"prod": {Sensitive: true}}})
 
 	identity := Identity{Subject: "121", Projects: map[int64]Role{1: RoleReleaser}}
 
-	if !authorizer.CanIn(identity, 1, PermDeploy("prod")) {
+	if !authorizer.CanDeploy(identity, 1, "mse", "prod") {
 		t.Error("le releaser du projet 1 doit pouvoir y promouvoir")
 	}
-	if authorizer.CanIn(identity, 2, PermDeploy("prod")) {
+	if authorizer.CanDeploy(identity, 2, "mse", "prod") {
 		t.Error("il ne doit rien pouvoir promouvoir sur le projet 2")
+	}
+}
+
+// Le même identifiant d'environnement peut être sensible dans un projet et pas
+// dans l'autre : la sensibilité se lit dans la déclaration du projet.
+func TestLaSensibiliteSeLitDansLeProjet(t *testing.T) {
+	authorizer := NewAuthorizer(ProjectPolicies{
+		"mse":    {"qualif": {Sensitive: false}},
+		"themes": {"qualif": {Sensitive: true}},
+	})
+	operator := identity(RoleOperator)
+
+	if !authorizer.CanDeploy(operator, 0, "mse", "qualif") || authorizer.Sensitive("mse", "qualif") {
+		t.Error("qualif du projet mse n'est pas sensible")
+	}
+	if authorizer.CanDeploy(operator, 0, "themes", "qualif") || !authorizer.Sensitive("themes", "qualif") {
+		t.Error("qualif du projet themes est sensible")
 	}
 }

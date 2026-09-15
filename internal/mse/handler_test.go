@@ -120,9 +120,9 @@ func (f *fakeStore) Audit(_ context.Context, _, action, target string, _ map[str
 
 func newHandler(fake *fakeStore) *Handler {
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{Kind: "retag", PipelineRef: "retag-image"}}}
-	authorizer := auth.NewAuthorizer(map[string]auth.EnvironmentPolicy{
+	authorizer := auth.NewAuthorizer(auth.ProjectPolicies{projectSlug: {
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
-	})
+	}})
 	// Le déployeur Flux, sans client : planifier n'en demande pas.
 	return NewHandler(fake, pipelines, authorizer,
 		flux.NewDeployer(nil, flux.DefaultPromotionKind, ""), quietLogger())

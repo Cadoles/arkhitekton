@@ -2,6 +2,7 @@ package mse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -66,21 +67,31 @@ func targetOf(environment storage.Environment) flux.Target {
 	}
 }
 
-// SyncEnvironments écrit en base les environnements déclarés pour chaque projet
-// qui a le module, puis les soumet à Flux pour qu'il dise s'il saura les
-// atteindre.
+// ProjectEnvironments porte les environnements qu'un projet déclare au catalogue.
+type ProjectEnvironments struct {
+	ProjectID    int64
+	Slug         string
+	Environments []catalog.Environment
+}
+
+// SyncEnvironments écrit en base les environnements que chaque projet déclare,
+// puis les soumet à Flux pour qu'il dise s'il saura les atteindre.
 //
-// Les mêmes environnements pour chacun, en attendant qu'un projet déclare les
-// siens (doc 16 §16.18, tranche 3).
+// Le contrôle se fait **par projet** : deux projets peuvent employer le même
+// suffixe de promotion pour des images différentes, et les confronter ensemble
+// les ferait passer pour un doublon.
 //
 // L'ordre compte : la table est d'abord alignée sur la configuration, ensuite
 // seulement confrontée au cluster. L'inverse validerait un état que le prochain
 // démarrage remplacerait.
-func (o *Observer) SyncEnvironments(ctx context.Context, projectIDs []int64, declared []catalog.Environment) error {
-	for _, projectID := range projectIDs {
-		for _, environment := range declared {
+func (o *Observer) SyncEnvironments(ctx context.Context, projects []ProjectEnvironments) error {
+	var problems []error
+	environments := 0
+	for _, project := range projects {
+		targets := make([]flux.Target, 0, len(project.Environments))
+		for _, environment := range project.Environments {
 			record := storage.Environment{
-				ProjectID:        projectID,
+				ProjectID:        project.ProjectID,
 				ID:               environment.ID,
 				Label:            environment.Label,
 				Rank:             environment.Rank,
@@ -92,26 +103,24 @@ func (o *Observer) SyncEnvironments(ctx context.Context, projectIDs []int64, dec
 			if err := o.store.UpsertEnvironment(ctx, record); err != nil {
 				return err
 			}
+			targets = append(targets, targetOf(record))
+		}
+		environments += len(project.Environments)
+
+		if err := o.deployer.Check(ctx, targets); err != nil {
+			problems = append(problems, fmt.Errorf("projet %s:\n%w", project.Slug, err))
 		}
 	}
 
-	targets := make([]flux.Target, 0, len(declared))
-	for _, environment := range declared {
-		targets = append(targets, targetOf(storage.Environment{
-			ID:               environment.ID,
-			DeployerSettings: environment.Deployer,
-			Observable:       environment.IsObservable(),
-		}))
-	}
-
-	if err := o.deployer.Check(ctx, targets); err != nil {
+	if err := errors.Join(problems...); err != nil {
 		// Refuser de démarrer plutôt que de proposer des promotions sans effet :
 		// un tag que Flux ignore ne produit aucune erreur, et l'écart ne se verrait
 		// qu'en constatant qu'un environnement ne bouge jamais.
 		return fmt.Errorf("environnements en désaccord avec le déployeur:\n%w", err)
 	}
 
-	o.logger.Info("environnements validés contre le déployeur", "environnements", len(declared), "projets", len(projectIDs))
+	o.logger.Info("environnements validés contre le déployeur",
+		"environnements", environments, "projets", len(projects))
 	return nil
 }
 

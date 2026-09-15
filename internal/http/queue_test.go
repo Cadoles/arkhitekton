@@ -68,9 +68,6 @@ func (f *fakeQueueStore) ListReleases(context.Context, int64, int) ([]store.Rele
 func queueHandler(fake *fakeQueueStore) *QueueHandler {
 	return NewQueueHandler(fake, &catalog.Catalog{
 		MaxConcurrentRuns: 10,
-		Environments: []catalog.Environment{
-			{ID: "dev", Label: "Unstable", Deployer: map[string]string{"promotionSuffix": "dev"}, Rank: 1},
-		},
 		Pipelines: []catalog.Pipeline{
 			{
 				Kind: "unit-tests", PipelineRef: "php-unit-tests", Label: "Tests unitaires",

@@ -21,16 +21,17 @@ func TestShippedCatalogParses(t *testing.T) {
 	if len(catalog.Pipelines) == 0 {
 		t.Error("aucun pipeline déclaré")
 	}
-	if len(catalog.Environments) != 4 {
-		t.Errorf("%d environnement(s), attendu 4", len(catalog.Environments))
+	environments := catalog.EnvironmentsOf("mse-test-project")
+	if len(environments) != 4 {
+		t.Errorf("%d environnement(s) pour mse-test-project, attendu 4", len(environments))
 	}
 
 	// Le piège de B7, vérifié sur le fichier réellement livré : Flux désigne
 	// qualif sous le nom `testing`, et s'en tromper promeut vers rien.
 	var qualif *Environment
-	for i := range catalog.Environments {
-		if catalog.Environments[i].ID == "qualif" {
-			qualif = &catalog.Environments[i]
+	for i := range environments {
+		if environments[i].ID == "qualif" {
+			qualif = &environments[i]
 		}
 	}
 	if qualif == nil {
@@ -43,7 +44,7 @@ func TestShippedCatalogParses(t *testing.T) {
 			qualif.Deployer["promotionSuffix"])
 	}
 
-	for _, environment := range catalog.Environments {
+	for _, environment := range environments {
 		if environment.ID == "prod" {
 			if environment.Deployer["acceptsPrerelease"] != "false" {
 				t.Error("la production ne doit pas accepter les pré-releases")
