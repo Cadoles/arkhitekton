@@ -577,3 +577,131 @@ le tag de la release, avec leurs empreintes.
 
 **Démarrage.** L'`api` et le `worker` attendent le schéma du plugin après celui du noyau, et
 la sonde de préparation `schema-mse` vérifie sa version.
+
+---
+
+## 16.18 Étude — le plugin MSE par projet
+
+> Statut : **étude**. Rien n'est implémenté ; les questions de §16.18.6 sont à trancher avant
+> toute tranche.
+
+### 16.18.1 Le constat
+
+Le plugin est déclaré pour toute l'instance (`PerProject: false`, décision de la tranche 2). Il
+n'apparaît donc pas dans la liste des plugins d'un projet, et tout ce qu'il apporte vaut pour
+**tous** les projets.
+
+L'instance en compte cinq, et un seul relève du portail MSE :
+
+| Projet | Releases | Relève du MSE |
+|---|---|---|
+| `mse-test-project` | 15 | oui |
+| `mse-kustom-test-project` | 0 | à préciser |
+| `mse-tekton` | 0 | non |
+| `hydra-sql-mse-theme` | 0 | à préciser |
+| `hydra-dispatcher-mse-theme` | 0 | à préciser |
+
+Aujourd'hui, une release de `mse-tekton` se verrait proposer une promotion vers `prod`, une
+section Déploiement et des validations de recette.
+
+### 16.18.2 Ce qui suppose un MSE unique
+
+| Élément | Aujourd'hui | Portée |
+|---|---|---|
+| Interrupteur | `Modules.Enabled` lit `plugin_settings` seul ; `RequireModule` et `/me` en dépendent | instance |
+| Routes d'environnement | `/environments`, `/environments/{e}`, `/environments/{e}/history` — hors projet | instance |
+| Routes de release | cibles, promotion, validations — sous `/projects/{project}` | projet, mais gardées par l'interrupteur d'instance |
+| Table `environments` | clé `id` seule ; promotions, relevés et validations la référencent par `id` | instance |
+| Déclaration | section `environments` du catalogue, fichier unique de l'instance | instance |
+| Sensibilité | table de l'autorisateur indexée par identifiant d'environnement | instance ; le **rôle** est déjà vérifié dans le projet (`RequireDeploy` → `CanIn`) |
+| Observation | un client Flux, un namespace, un observateur pour tous les environnements | instance |
+| Rapprochements | `DeployedRelease`, `DeployedByRelease`, l'historique et les dernières promotions joignent `releases` **sans filtrer le projet** | instance |
+| Réactions | `liveEventTypes` ne propose `mse.release.promoted` que si le plugin est allumé globalement | instance |
+| Suggestion `environment` | la file connaît déjà le projet (`?project=`) | projet possible |
+| Interface | onglet, accueil et sections suivent `/me.modules`, global | instance |
+| Paramètres de pipeline | `forge.mseKustom.*`, `forge.e2e.repoUrl`, `mse.overlayLocation`, `mse.dockerfile` écrits dans `schedulerConfig` du noyau | instance |
+
+Le dernier point est une couture de plus, oubliée par §16.7 : le noyau porte encore des
+paramètres qui nomment le MSE.
+
+**Le mécanisme par projet existe déjà.** `project_plugins` porte la décision d'un projet, et son
+absence vaut **héritage du global** (`store.ProjectPluginSettings`). Le suivi et la forge s'en
+servent. Ce qui manque est de le consulter pour un module.
+
+### 16.18.3 Deux niveaux
+
+Deux questions distinctes se cachent derrière « par projet » :
+
+1. **Qui a le droit de s'en servir** — l'activation.
+2. **Vers quoi il déploie** — les environnements.
+
+#### Niveau 1 — activation par projet, environnements partagés
+
+Un projet active ou non le plugin ; les environnements restent ceux de l'instance.
+
+- Le descripteur passe à `PerProject: true`. Le global vaut **autorisation et défaut** ; un
+  projet surcharge. Éteint globalement, aucun projet ne peut le rallumer — la règle de la liste
+  des plugins d'un projet.
+- L'interrupteur se résout dans le projet du chemin : `Modules.EnabledIn(ctx, projectID, id)`.
+  `RequireModule` s'en sert pour les routes `/projects/{project}/…`.
+- Les routes d'environnement passent sous le projet, `/projects/{project}/environments…`.
+  L'écran montre les environnements partagés, mais **les promotions, l'historique et la
+  release déployée du projet courant** : les rapprochements filtrent `releases.project_id`.
+- `/me` rend les modules **par projet** ; l'onglet, l'accueil et les sections suivent le projet
+  courant, déjà choisi dans la coquille.
+- Les réactions proposent `mse.release.promoted` selon l'activation du projet.
+- Le worker ne change pas : l'observation porte sur des environnements partagés, et tourne si
+  le plugin est allumé globalement.
+
+Coût : modéré. Pas de migration de schéma, sauf les éventuelles décisions par défaut
+(§16.18.6, question 2).
+
+#### Niveau 2 — environnements par projet
+
+Chaque projet déclare ses environnements, leur namespace Flux, leur sensibilité.
+
+- `environments` prend une clé `(project_id, id)` ; les trois tables qui la référencent
+  suivent, par une migration du plugin — reprise des lignes existantes vers le projet MSE.
+- La déclaration quitte le catalogue d'instance : réglages par projet du plugin, ou section
+  de catalogue par projet.
+- La sensibilité devient une propriété de `(projet, environnement)` : l'autorisateur la
+  consulte avec le projet, qu'il reçoit déjà.
+- Le worker ouvre un client Flux par namespace distinct, et observe par projet.
+- Les paramètres MSE de `schedulerConfig` deviennent des réglages du plugin par projet.
+
+Coût : élevé. Il ne se justifie que si un **second projet déploie vers ses propres
+environnements**.
+
+### 16.18.4 Recommandation
+
+**Niveau 1 maintenant, niveau 2 sur un second cas réel.**
+
+C'est le critère de §16.1 appliqué à lui-même : un modèle d'environnements par projet écrit sans
+second projet qui en a besoin serait un calque du MSE qui se croirait générique. Le niveau 1
+règle ce qui se voit — un plugin proposé à des projets qui n'en font rien — sans rien fermer :
+passer au niveau 2 ne défait aucune de ses tranches.
+
+Le filtrage des rapprochements par projet est à faire **quel que soit le niveau** : deux
+projets dont une release porterait la même `image_version` se verraient attribuer le
+déploiement de l'autre. Aucune collision n'existe aujourd'hui ; rien ne l'empêche.
+
+### 16.18.5 Tranches pressenties (niveau 1)
+
+| # | Tranche | Ce qu'elle livre |
+|---|---|---|
+| 1 | **Activation par projet** | `PerProject: true` ; `Modules.EnabledIn` ; `RequireModule` résolu dans le projet du chemin ; le plugin apparaît dans la liste d'un projet |
+| 2 | **Environnements vus d'un projet** | routes sous `/projects/{project}` ; rapprochements, historique et dernières promotions filtrés par projet |
+| 3 | **Interface par projet** | `/me` rend les modules par projet ; onglet, accueil, sections et pastilles suivent le projet courant |
+| 4 | **Réactions et suggestion** | `mse.release.promoted` et la suggestion `environment` selon l'activation du projet |
+
+La porte : un projet sans le plugin ne voit ni onglet, ni section, ni route ; un projet avec le
+plugin garde la parité d'aujourd'hui.
+
+### 16.18.6 Questions à trancher
+
+| # | Question | Proposition |
+|---|---|---|
+| 1 | Niveau 1 ou niveau 2 ? Les thèmes Hydra et `mse-kustom-test-project` déploient-ils vers les mêmes `unstable`, `qualif`, `preprod`, `prod` ? | niveau 1, si oui ou s'ils ne déploient pas |
+| 2 | Que reçoivent les projets existants ? L'héritage donne le plugin aux cinq | désactivation explicite pour les projets qui ne relèvent pas du MSE, posée par une migration de données |
+| 3 | L'écran Environnements montre-t-il les promotions de tous les projets, ou du projet courant ? | du projet courant |
+| 4 | Les paramètres MSE de `schedulerConfig` entrent-ils dans ce chantier ? | non : couture distincte, à traiter avec le niveau 2 ou seule |
