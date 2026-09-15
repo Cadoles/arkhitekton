@@ -98,6 +98,9 @@ type Environment struct {
 	// Observable vaut false pour la production, dans un cluster indépendant.
 	Observable *bool `json:"observable,omitempty"`
 	Visible    *bool `json:"visible,omitempty"`
+	// Sensitive réserve la promotion au rôle `releaser`. Vaut pour les
+	// environnements qui reçoivent ce qui part chez l'utilisateur final.
+	Sensitive *bool `json:"sensitive,omitempty"`
 }
 
 // IsObservable rend la valeur effective, l'absence valant « observable ».
@@ -105,6 +108,11 @@ func (e Environment) IsObservable() bool { return e.Observable == nil || *e.Obse
 
 // IsVisible rend la valeur effective, l'absence valant « visible ».
 func (e Environment) IsVisible() bool { return e.Visible == nil || *e.Visible }
+
+// IsSensitive rend la valeur effective, l'absence valant « sensible » : un
+// environnement déclaré sans y penser doit être plus difficile à atteindre, jamais
+// plus facile.
+func (e Environment) IsSensitive() bool { return e.Sensitive == nil || *e.Sensitive }
 
 /*
  * Ce qu'un pipeline laisse derrière lui.

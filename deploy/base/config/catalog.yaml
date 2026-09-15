@@ -33,6 +33,7 @@ environments:
     label: Unstable
     rank: 1
     namespace: mse-dev
+    sensitive: false
     deployer:
       promotionSuffix: unstable
       acceptsPrerelease: "true"
@@ -42,6 +43,7 @@ environments:
     label: Qualification
     rank: 2
     namespace: mse-dev
+    sensitive: false
     deployer:
       promotionSuffix: testing
       acceptsPrerelease: "true"
@@ -51,6 +53,9 @@ environments:
     label: Pré-production
     rank: 3
     namespace: mse-dev
+    # Reçoit ce qui part chez l'utilisateur final : promotion réservée au rôle
+    # releaser. Un environnement sans `sensitive` est traité comme sensible.
+    sensitive: true
     deployer:
       # Les RC vont jusqu'en pré-production ; la frontière RC / release finale
       # se situe entre preprod et prod, et non avant.
@@ -62,6 +67,7 @@ environments:
     label: Production
     rank: 4
     namespace: mse-prod
+    sensitive: true
     deployer:
       promotionSuffix: prod
       # Sans pré-releases : la plage SemVer de sa politique s'écrit sans `-0`,

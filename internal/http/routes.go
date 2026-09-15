@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
 )
 
 // NewAPIRouter monte les routes applicatives.
@@ -15,7 +14,7 @@ import (
 func NewAPIRouter(
 	handler *AuthHandler, runs *RunsHandler, logs *LogsHandler, queue *QueueHandler,
 	releases *ReleasesHandler, benches *BenchHandler, tests *TestsHandler,
-	signoffs *SignoffsHandler, versions *VersionsHandler, syncAdmin *SyncAdminHandler,
+	versions *VersionsHandler, syncAdmin *SyncAdminHandler,
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
 	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
 	events *EventsHandler, reactions *AutomationsHandler, planRuns *PlanRunsHandler,
@@ -155,20 +154,6 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/releases/{tag}/security", Chain(http.HandlerFunc(tests.Security),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
-
-	// La validation de recette se lit sans privilège — savoir si le client a
-	// validé intéresse tout le monde. Se prononcer est en revanche une décision de
-	// livraison : `release:edit`, la même permission que les actions manuelles,
-	// parce que ce sont les mêmes personnes qui conduisent une recette. Exiger
-	// `release:create:final` reviendrait à réserver la validation à ceux qui
-	// livrent, alors que valider et livrer sont justement les deux gestes qu'on
-	// souhaite voir accomplis par des personnes distinctes.
-	mux.Handle("GET /projects/{project}/releases/{tag}/signoffs", Chain(http.HandlerFunc(signoffs.List),
-		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.RequireIn(auth.PermRead)))
-	mux.Handle("PUT /projects/{project}/releases/{tag}/signoffs/{env}", Chain(http.HandlerFunc(signoffs.Set),
-		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
-	mux.Handle("DELETE /projects/{project}/releases/{tag}/signoffs/{env}", Chain(http.HandlerFunc(signoffs.Clear),
-		middleware.Authenticate, middleware.RequireModule(plugin.ModuleMSE), middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 
 	// Les campagnes de charge sont en lecture pour tous. Épingler une baseline
 	// déplace en revanche la référence de tous les verdicts suivants : c'est une

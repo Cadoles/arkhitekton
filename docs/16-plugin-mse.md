@@ -442,3 +442,42 @@ c'est une propriété du catalogue, pas de l'observateur.
 **Ce qui reste dans le noyau** relève des tranches 4 et 5 : les validations de recette et
 leurs routes, `environmentPolicies()` dans `main.go`, la table `environments` et ses lectures
 dans `internal/store`.
+
+---
+
+## 16.15 Tranche 4 — ce que l'écriture a tranché
+
+**La sensibilité se déclare au catalogue** (décision 8). Chaque environnement porte
+`sensitive`. `mse.Policies` en tire la table que l'autorisateur consomme. La table écrite dans
+`main.go`, et son TODO, disparaissent.
+
+L'absence de `sensitive` vaut **sensible**, comme un environnement inconnu de l'autorisateur :
+un oubli rend la promotion plus difficile, jamais plus facile. Le catalogue déployé déclare les
+quatre valeurs explicitement, et un test vérifie qu'il reproduit l'ancienne table :
+
+| Environnement | Sensible |
+|---|---|
+| `unstable`, `qualif` | non |
+| `preprod`, `prod` | oui |
+
+**Le noyau garde le mécanisme.** `auth.PermDeploy`, le rôle minimal selon la sensibilité et
+`RequireDeploy` restent dans `internal/auth` et `internal/http` : ce sont des permissions, pas
+des environnements. Le noyau ne sait plus quels environnements existent.
+
+**Conséquence au démarrage de l'`api`.** Le catalogue est chargé **avant** l'autorisateur, qui
+en dépend. Les environnements sensibles sont journalisés : c'est ce qui décide qui peut
+promouvoir où, et un catalogue mal édité ne se verrait sinon qu'au premier refus.
+
+**Les validations de recette partent dans le plugin** (décision 10). `SignoffsHandler` et ses
+trois routes vivent dans `internal/mse`, montées comme celles de la tranche 3b. Le routeur du
+noyau perd son paramètre `signoffs`. Côté front, le panneau n'est affiché que par l'écran
+d'un environnement : il ne dépend déjà que du module.
+
+**Ce qui reste :**
+
+- les lectures et écritures des tables `environments`, `image_promotions`,
+  `environment_observations` et `release_signoffs` vivent encore dans `internal/store`. Les
+  déplacer demanderait au plugin ses propres migrations, un chantier distinct du découpage du
+  code (couture 7) ;
+- tranche 5 : le dossier front `features/mse`, la suggestion `environment` et le test de la
+  règle d'import.

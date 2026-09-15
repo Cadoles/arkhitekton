@@ -1,4 +1,4 @@
-package http
+package mse
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
+	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
@@ -80,11 +81,11 @@ func signoffRequestFor(t *testing.T, method, target, body string) *http.Request 
 		reader = strings.NewReader(body)
 	}
 	request := httptest.NewRequest(method, target, reader)
-	request.SetPathValue("project", testProjectSlug)
+	request.SetPathValue("project", projectSlug)
 	request.SetPathValue("tag", "1.8.0-rc1")
 	request.SetPathValue("env", "qualif")
 	identity := auth.Identity{Subject: "121", Username: "vcarroy", Role: auth.RoleOperator}
-	return request.WithContext(context.WithValue(request.Context(), identityKey, identity))
+	return request.WithContext(dashhttp.ContextWithIdentity(request.Context(), identity))
 }
 
 // Une réserve ou un refus sans motif ne dit rien à qui le lit ensuite, et c'est
@@ -92,7 +93,7 @@ func signoffRequestFor(t *testing.T, method, target, body string) *http.Request 
 func TestUnRefusSansMotifEstRefuse(t *testing.T) {
 	for _, status := range []string{"warn", "fail"} {
 		fake := newSignoffStore()
-		handler := NewSignoffsHandler(fake)
+		handler := NewSignoffsHandler(fake, quietLogger())
 
 		request := signoffRequestFor(t, http.MethodPut, "/releases/1.8.0-rc1/signoffs/qualif",
 			`{"role":"Client","status":"`+status+`","detail":""}`)
@@ -113,7 +114,7 @@ func TestUnRefusSansMotifEstRefuse(t *testing.T) {
 // remplit quand même.
 func TestUneValidationSansMotifEstAcceptee(t *testing.T) {
 	fake := newSignoffStore()
-	handler := NewSignoffsHandler(fake)
+	handler := NewSignoffsHandler(fake, quietLogger())
 
 	request := signoffRequestFor(t, http.MethodPut, "/releases/1.8.0-rc1/signoffs/qualif",
 		`{"role":"Client","status":"pass"}`)
@@ -139,7 +140,7 @@ func TestUneValidationSansMotifEstAcceptee(t *testing.T) {
 func TestLAttenteNestPasUnAvisEnregistrable(t *testing.T) {
 	for _, status := range []string{"na", "", "valide", "PASS"} {
 		fake := newSignoffStore()
-		handler := NewSignoffsHandler(fake)
+		handler := NewSignoffsHandler(fake, quietLogger())
 
 		request := signoffRequestFor(t, http.MethodPut, "/releases/1.8.0-rc1/signoffs/qualif",
 			`{"role":"Client","status":"`+status+`","detail":"peu importe"}`)
@@ -156,7 +157,7 @@ func TestLAttenteNestPasUnAvisEnregistrable(t *testing.T) {
 // n'apprend rien.
 func TestUnAvisSansRoleEstRefuse(t *testing.T) {
 	fake := newSignoffStore()
-	handler := NewSignoffsHandler(fake)
+	handler := NewSignoffsHandler(fake, quietLogger())
 
 	request := signoffRequestFor(t, http.MethodPut, "/releases/1.8.0-rc1/signoffs/qualif",
 		`{"role":"   ","status":"pass"}`)
@@ -173,7 +174,7 @@ func TestUnAvisSansRoleEstRefuse(t *testing.T) {
 func TestUnEnvironnementNonDeclareRepond404(t *testing.T) {
 	fake := newSignoffStore()
 	fake.unknownEnv = true
-	handler := NewSignoffsHandler(fake)
+	handler := NewSignoffsHandler(fake, quietLogger())
 
 	request := signoffRequestFor(t, http.MethodPut, "/releases/1.8.0-rc1/signoffs/qualif",
 		`{"role":"Client","status":"pass"}`)
@@ -189,7 +190,7 @@ func TestUnEnvironnementNonDeclareRepond404(t *testing.T) {
 // avait validé avant de se rétracter » n'a de réponse que dans le journal.
 func TestChaqueDecisionEstConsignee(t *testing.T) {
 	fake := newSignoffStore()
-	handler := NewSignoffsHandler(fake)
+	handler := NewSignoffsHandler(fake, quietLogger())
 
 	request := signoffRequestFor(t, http.MethodPut, "/releases/1.8.0-rc1/signoffs/qualif",
 		`{"role":"Client","status":"fail","detail":"panier cassé"}`)
@@ -211,7 +212,7 @@ func TestChaqueDecisionEstConsignee(t *testing.T) {
 // effacer tous les avis d'un environnement serait bien pire qu'une erreur 400.
 func TestLeRetraitExigeUnRole(t *testing.T) {
 	fake := newSignoffStore()
-	handler := NewSignoffsHandler(fake)
+	handler := NewSignoffsHandler(fake, quietLogger())
 
 	request := signoffRequestFor(t, http.MethodDelete, "/releases/1.8.0-rc1/signoffs/qualif", "")
 	recorder := httptest.NewRecorder()
@@ -233,7 +234,7 @@ func TestTousLesEnvironnementsSontRendusMemeSansAvis(t *testing.T) {
 	fake.signoffs = []store.Signoff{
 		{EnvironmentID: "qualif", Role: "Client", Status: "pass", DecidedBy: "121"},
 	}
-	handler := NewSignoffsHandler(fake)
+	handler := NewSignoffsHandler(fake, quietLogger())
 
 	request := signoffRequestFor(t, http.MethodGet, "/releases/1.8.0-rc1/signoffs", "")
 	recorder := httptest.NewRecorder()
@@ -267,16 +268,10 @@ func TestTousLesEnvironnementsSontRendusMemeSansAvis(t *testing.T) {
 	}
 }
 
-// BuildableProject nomme le projet d'accueil. Un seul suffit ici : ces tests
-// portent sur ce que le handler fait du projet, pas sur son choix.
-func (f *fakeSignoffStore) BuildableProject(context.Context) (store.Project, error) {
-	return store.Project{ID: 1, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
-}
-
 // ProjectBySlug résout le projet nommé dans le chemin. Un seul ici : ces tests
 // portent sur ce que le handler fait du projet, pas sur sa résolution.
 func (f *fakeSignoffStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
-	if slug != testProjectSlug {
+	if slug != projectSlug {
 		return store.Project{}, store.ErrProjectNotFound
 	}
 	return store.Project{ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil

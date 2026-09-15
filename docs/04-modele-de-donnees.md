@@ -82,7 +82,7 @@ Colonnes techniques omises pour la lisibilité : chaque table porte
 Les réglages propres à l'outil de déploiement vivent dans une carte que le
 dashboard **transporte sans la lire** : trois colonnes les portaient jusqu'à la
 migration 0033, et elles nommaient Flux dans un schéma que tout projet doit
-pouvoir remplir. Seul `internal/flux` connaît ses clés — `promotionSuffix`,
+pouvoir remplir. Seul `internal/mse/flux` connaît ses clés — `promotionSuffix`,
 `acceptsPrerelease`, `kustomization` — et c'est lui qui les valide, contre les
 politiques réelles du cluster (doc 12 §12.9, lot D).
 
@@ -118,6 +118,10 @@ create table environments (
 La frontière RC / release finale se situe **entre `preprod` et `prod`** : les trois
 premiers environnements reçoivent des pré-releases, seule la production exige une version
 stable.
+
+La **sensibilité** n'est pas une colonne : elle se déclare au catalogue (`sensitive`) et
+réserve la promotion au rôle `releaser`. `preprod` et `prod` sont sensibles ; un
+environnement qui ne la déclare pas l'est aussi (doc 16 §16.15).
 
 `acceptsPrerelease` n'est pas une préférence d'affichage : une plage SemVer sans
 composante de pré-release (`>=0.0.0`) ne sélectionne aucune RC. Promouvoir une

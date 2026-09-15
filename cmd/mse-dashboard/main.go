@@ -190,7 +190,26 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// servent `/auth/login` et `/auth/callback` par des instances différentes, et
 	// l'état de transition serait introuvable une fois sur deux.
 	flows := auth.NewDBFlowStore(db.Pool(), 10*time.Minute)
-	authorizer := auth.NewAuthorizer(environmentPolicies())
+	// Le catalogue est chargé par l'`api` aussi : c'est lui qui dit ce qui est
+	// lançable et quels paramètres sont requis. Il n'est pas validé contre le
+	// cluster ici — l'api n'y a pas accès, et le `worker` le fait au démarrage.
+	pipelines, err := catalog.Load(cfg.Tekton.CatalogPath)
+	if err != nil {
+		return err
+	}
+	logger.Info("catalogue chargé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
+	// La sensibilité des environnements est déclarée au catalogue et lue par le
+	// plugin MSE. Journalisée : c'est elle qui décide qui peut promouvoir où.
+	policies := mse.Policies(pipelines.Environments)
+	sensitive := make([]string, 0, len(policies))
+	for id, policy := range policies {
+		if policy.Sensitive {
+			sensitive = append(sensitive, id)
+		}
+	}
+	sort.Strings(sensitive)
+	logger.Info("environnements sensibles", "environnements", sensitive)
+	authorizer := auth.NewAuthorizer(policies)
 	// Les modules sont lus à chaque requête : l'interrupteur se bascule depuis
 	// l'administration, et le lire au démarrage le ferait mentir jusqu'au
 	// prochain déploiement.
@@ -215,14 +234,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// rencontre que MinIO et PostgreSQL.
 	logsHandler := dashhttp.NewLogsHandler(logs.NewReader(storage))
 
-	// Le catalogue est chargé par l'`api` aussi : c'est lui qui dit ce qui est
-	// lançable et quels paramètres sont requis. Il n'est pas validé contre le
-	// cluster ici — l'api n'y a pas accès, et le `worker` le fait au démarrage.
-	pipelines, err := catalog.Load(cfg.Tekton.CatalogPath)
-	if err != nil {
-		return err
-	}
-	logger.Info("catalogue chargé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
 	queueHandler := dashhttp.NewQueueHandler(db, pipelines).
 		// Les listes du formulaire de lancement : tags de release et images
 		// publiées. Le préfixe du registre vient de la même configuration que
@@ -313,7 +324,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// La pondération du score vient du catalogue : elle a été acceptée par
 			// le client et reste ajustable sans redéploiement (B11).
 			dashhttp.NewTestsHandler(db, pipelines),
-			dashhttp.NewSignoffsHandler(db),
 			// L'URL de Redmine sert à construire les liens sortants. Absente, les
 			// liens sont omis plutôt que rendus cassés.
 			dashhttp.NewVersionsHandler(db, cfg.Tracker.URL),
@@ -342,7 +352,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// Ce qu'une réaction a réellement fait. Un moteur qu'on ne peut pas
 			// déboguer est pire qu'un comportement figé (doc 14 §14.10).
 			dashhttp.NewPlanRunsHandler(db),
-			middleware, mseHandler.Routes),
+			middleware, mseHandler.Routes, mse.NewSignoffsHandler(db, logger).Routes),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
 		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
@@ -351,20 +361,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		dashhttp.ReadinessCheck{Name: "minio", Check: storage.Ping})
 
 	return server.Run(ctx)
-}
-
-// environmentPolicies décrit les exigences de promotion.
-//
-// TODO(lot 1): lire la table `environments` plutôt que cette liste. En attendant,
-// les valeurs correspondent au flux documenté, et un environnement absent échoue
-// fermé côté autorisateur.
-func environmentPolicies() map[string]auth.EnvironmentPolicy {
-	return map[string]auth.EnvironmentPolicy{
-		"unstable": {Sensitive: false},
-		"qualif":   {Sensitive: false},
-		"preprod":  {Sensitive: true},
-		"prod":     {Sensitive: true},
-	}
 }
 
 // exportRegistry ouvre le registre pour la génération de livrables.
