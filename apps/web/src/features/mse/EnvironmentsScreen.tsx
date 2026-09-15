@@ -4,8 +4,8 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
-import { usePromote, useReleases, type Release } from '../releases/api'
-import { describe, promotionSuffix, useEnvironments, type Environment } from './api'
+import { useReleases, type Release } from '../releases/api'
+import { describe, promotionSuffix, useEnvironments, usePromote, type Environment } from './api'
 
 /*
  * Vue d'ensemble des environnements.

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router'
-import { MODULE_MSE, useModule, useSession } from '../features/auth/session'
+import { useModule, useSession } from '../features/auth/session'
+import { useActiveModules } from '../modules'
 import { Skeleton } from './primitives'
 
 /*
@@ -23,14 +24,13 @@ export function ModuleRoute({ module, children }: { module: string; children: Re
 /**
  * La page d'accueil.
  *
- * Les environnements quand le plugin MSE est allumé — c'est la question qu'on
- * vient poser : qu'est-ce qui tourne où. Les releases sinon : c'est ce que le
- * noyau sait montrer sans lui.
+ * Celle du premier module allumé qui en propose une — les environnements pour le
+ * plugin MSE. Les releases sinon : c'est ce que le noyau sait montrer sans module.
  */
 export function HomeRedirect() {
   const session = useSession()
-  const mse = useModule(MODULE_MSE)
+  const home = useActiveModules().find((module) => module.home)?.home
 
   if (session.kind === 'loading') return <Skeleton className="h-64 w-full" />
-  return <Navigate to={mse ? '/environments' : '/releases'} replace />
+  return <Navigate to={home ?? '/releases'} replace />
 }

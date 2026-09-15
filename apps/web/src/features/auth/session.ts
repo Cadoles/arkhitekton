@@ -78,9 +78,6 @@ export function useModule(module: string): boolean {
   return session.kind === 'authenticated' && (session.identity.modules ?? []).includes(module)
 }
 
-/** Le module qui porte les environnements, la promotion et les validations. */
-export const MODULE_MSE = 'mse'
-
 const ROLE_LABELS: Record<Role, string> = {
   viewer: 'Lecture',
   operator: 'Opérateur',

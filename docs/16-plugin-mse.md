@@ -481,3 +481,52 @@ d'un environnement : il ne dépend déjà que du module.
   code (couture 7) ;
 - tranche 5 : le dossier front `features/mse`, la suggestion `environment` et le test de la
   règle d'import.
+
+---
+
+## 16.16 Tranche 5 — ce que l'écriture a tranché
+
+**Le front a son point d'assemblage.** Un module décrit ce qu'il apporte dans une définition :
+
+- son identifiant ;
+- sa page d'accueil ;
+- ses entrées de navigation et ses écrans ;
+- ses sections et pastilles pour les écrans d'une release.
+
+Le type vit dans `lib/modules.ts`. `src/modules.ts` est le seul fichier du noyau qui importe un
+module, comme `cmd/mse-dashboard` côté serveur. La coquille, les routes, l'accueil, l'écran d'une
+release et ses pastilles lisent la liste des modules allumés, et plus aucun ne nomme le MSE.
+
+**`features/mse` regroupe l'interface du plugin** :
+
+- les trois écrans d'environnement ;
+- le panneau de validation de recette ;
+- la section Déploiement, sortie de l'écran d'une release ;
+- les pastilles « déployée sur » ;
+- leurs hooks : promotion, cibles, validations.
+
+`MODULE_MSE` quitte la session pour la définition du module. La page introuvable renvoie à
+l'accueil plutôt qu'aux environnements.
+
+**La liste des modules est une fonction.** Les modules importent des écrans qui importent le
+noyau. Une constante évaluée au chargement pourrait l'être avant eux ; une fonction est appelée
+au rendu, une fois tout chargé.
+
+**La suggestion `environment` vient du plugin** (couture 9). La file reçoit une fonction
+`WithEnvironmentSuggestions`. Le plugin la fournit et ne rend rien quand le module est éteint :
+le champ reste en saisie libre, même si le catalogue déclare des environnements. Lue à chaque
+requête, comme l'interrupteur des routes.
+
+**La règle d'import est vérifiée des deux côtés.**
+
+| Côté | Test | Ce qu'il refuse |
+|---|---|---|
+| serveur | `internal/plugin/boundary_test.go` | tout fichier Go sous `internal/`, hors `internal/mse`, qui importe `internal/mse` — tests compris |
+| front | `src/modules.test.ts` | tout fichier hors `features/mse` et de l'assemblage qui importe `features/mse` |
+
+Chacun vérifie aussi qu'il lit bien des sources, pour ne pas passer en silence sur un chemin
+faux.
+
+**Le chantier est au bout de ses tranches.** Reste hors du découpage du code la couture 7 : les
+tables d'environnement et leurs lectures dans `internal/store` (§16.15). Et les décisions 6, 7, 8
+et 9 restent à confirmer.

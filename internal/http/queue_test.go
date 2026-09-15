@@ -309,9 +309,18 @@ func TestLeFormulaireDeLancementEstPeuple(t *testing.T) {
 	if len(images) != 2 || images[0].Value != "reg.example.fr/mse/portal:3.2.0-rc3" {
 		t.Errorf("images proposées = %+v", images)
 	}
-	environments := listing.Suggestions[catalog.SuggestEnvironment]
-	if len(environments) != 1 || environments[0].Value != "dev" || environments[0].Label != "Unstable" {
-		t.Errorf("environnements proposés = %+v", environments)
+	// Les environnements viennent du plugin MSE : sans lui, aucun n'est proposé
+	// et le champ reste libre, même si le catalogue en déclare.
+	if environments, present := listing.Suggestions[catalog.SuggestEnvironment]; present {
+		t.Errorf("environnements proposés sans plugin = %+v", environments)
+	}
+
+	proposed := []Suggestion{{Value: "dev", Label: "Unstable"}}
+	withPlugin := listQueues(t, queueHandler(fake).WithEnvironmentSuggestions(
+		func(context.Context) []Suggestion { return proposed }))
+	if environments := withPlugin.Suggestions[catalog.SuggestEnvironment]; len(environments) != 1 ||
+		environments[0].Value != "dev" {
+		t.Errorf("environnements proposés par le plugin = %+v", environments)
 	}
 
 	// Les références Git manquent délibérément : elles se lisent en direct chez

@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
+import { projectPath } from '../../lib/project'
 
 /**
  * D'où vient l'information affichée.
@@ -191,4 +192,118 @@ export function promotionSuffix(
   environment: { deployer_settings?: Record<string, string> },
 ): string | undefined {
   return environment.deployer_settings?.promotionSuffix || undefined
+}
+
+/**
+ * Cible de promotion, telle que le serveur la juge.
+ *
+ * `allowed` et `reason` viennent du serveur et ne sont pas recalculés ici : le
+ * refus dépend de la plage SemVer de l'ImagePolicy et du rôle de l'appelant, deux
+ * choses que le navigateur ne connaît pas. Le dupliquer donnerait une interface
+ * qui autorise ce que l'API refuse — ou l'inverse.
+ */
+export type PromotionTarget = {
+  environment: string
+  label: string
+  tag?: string
+  allowed: boolean
+  reason?: string
+}
+
+export function usePromote() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ tag, environment }: { tag: string; environment: string }) =>
+      request<{ job_id: number; environment: string; tag: string }>(
+        projectPath(`/releases/${encodeURIComponent(tag)}/promote/${encodeURIComponent(environment)}`),
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      // Trois vues changent d'un coup : la file reçoit le job, la release gagne
+      // une promotion, l'environnement gagne une promotion demandée.
+      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+      void queryClient.invalidateQueries({ queryKey: ['releases'] })
+      void queryClient.invalidateQueries({ queryKey: ['environments'] })
+    },
+  })
+}
+
+/** Les cibles de promotion d'une release, servies par le plugin MSE. */
+export function useReleaseTargets(tag: string) {
+  return useQuery({
+    queryKey: ['releases', tag, 'targets'],
+    queryFn: () =>
+      request<{ targets: PromotionTarget[] }>(projectPath(`/releases/${encodeURIComponent(tag)}/targets`)),
+  })
+}
+
+/** `pass` validé, `warn` validé sous réserve, `fail` refusé. L'attente est
+ *  l'absence d'entrée, non une valeur : une ligne « en attente » supposerait de
+ *  savoir à l'avance qui doit se prononcer. */
+export type SignoffStatus = 'pass' | 'warn' | 'fail'
+
+export type Signoff = {
+  role: string
+  status: SignoffStatus
+  detail?: string
+  decided_by: string
+  decided_at: string
+}
+
+export type EnvironmentSignoffs = {
+  environment: string
+  label: string
+  signoffs: Signoff[]
+}
+
+export function useSignoffs(tag: string) {
+  return useQuery({
+    queryKey: ['releases', tag, 'signoffs'],
+    queryFn: () =>
+      request<{ environments: EnvironmentSignoffs[] }>(
+        projectPath(`/releases/${encodeURIComponent(tag)}/signoffs`),
+      ),
+    enabled: Boolean(tag),
+  })
+}
+
+export function useSetSignoff(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      environment,
+      ...payload
+    }: {
+      environment: string
+      role: string
+      status: SignoffStatus
+      detail: string
+    }) =>
+      request<void>(
+        projectPath(`/releases/${encodeURIComponent(tag)}/signoffs/${encodeURIComponent(environment)}`),
+        { method: 'PUT', body: JSON.stringify(payload) },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'signoffs'] })
+    },
+  })
+}
+
+/** Retirer n'est pas refuser : un avis rendu sur la mauvaise release doit pouvoir
+ *  disparaître sans laisser un refus qui bloquerait la livraison. */
+export function useClearSignoff(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ environment, role }: { environment: string; role: string }) =>
+      request<void>(
+        projectPath(`/releases/${encodeURIComponent(tag)}/signoffs/${encodeURIComponent(environment)}?role=${encodeURIComponent(role)}`),
+        { method: 'DELETE' },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'signoffs'] })
+    },
+  })
 }

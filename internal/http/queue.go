@@ -55,6 +55,9 @@ type QueueHandler struct {
 	// l'être.
 	registryProject string
 	logger          *slog.Logger
+	// environments rend les environnements proposés. Nil : aucun, le champ
+	// reste en saisie libre. Apporté par le plugin MSE (doc 16 §16.7, couture 9).
+	environments func(context.Context) []Suggestion
 }
 
 func NewQueueHandler(queue QueueStore, pipelines *catalog.Catalog) *QueueHandler {
@@ -112,6 +115,15 @@ type kindPayload struct {
 type option struct {
 	Value string `json:"value"`
 	Label string `json:"label,omitempty"`
+}
+
+// Suggestion est une valeur proposée par le formulaire de lancement.
+type Suggestion = option
+
+// WithEnvironmentSuggestions branche la liste des environnements proposés.
+func (h *QueueHandler) WithEnvironmentSuggestions(environments func(context.Context) []Suggestion) *QueueHandler {
+	h.environments = environments
+	return h
 }
 
 // queuePayload est une file : son plafond, son occupation, ses jobs.
@@ -222,7 +234,7 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 // suggestions constitue les listes proposées par le formulaire de lancement.
 //
 // Composées ici et non par le client : les tags viennent de la base, les
-// environnements du catalogue, et les images d'un préfixe de configuration que
+// environnements du plugin MSE, et les images d'un préfixe de configuration que
 // le navigateur ne connaît pas. Les faire assembler côté client demanderait de
 // lui transmettre ce préfixe, donc de le publier, pour un gain nul.
 //
@@ -233,14 +245,11 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string][]option {
 	proposed := map[string][]option{}
 
-	environments := make([]option, 0, len(h.catalog.Environments))
-	for _, environment := range h.catalog.Environments {
-		if !environment.IsVisible() {
-			continue
+	if h.environments != nil {
+		if environments := h.environments(ctx); environments != nil {
+			proposed[catalog.SuggestEnvironment] = environments
 		}
-		environments = append(environments, option{Value: environment.ID, Label: environment.Label})
 	}
-	proposed[catalog.SuggestEnvironment] = environments
 
 	if h.releases == nil {
 		return proposed

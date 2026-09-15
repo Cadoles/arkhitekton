@@ -1,7 +1,6 @@
 import { Icon } from '../../components/Icon'
 import { status } from '../../lib/status'
-import { useEnvironments } from '../environments/api'
-import { MODULE_MSE, useModule } from '../auth/session'
+import { useActiveModules } from '../../modules'
 import type { Release } from './api'
 
 /*
@@ -24,7 +23,7 @@ import type { Release } from './api'
  * cycle, ce qu'aucune des trois ne recouvre.
  */
 export function ReleaseBadges({ release }: { release: Release }) {
-  const mse = useModule(MODULE_MSE)
+  const modules = useActiveModules()
 
   return (
     <>
@@ -36,7 +35,11 @@ export function ReleaseBadges({ release }: { release: Release }) {
       )}
 
       <ScoreBadge score={release.score} />
-      {mse && <DeployedBadges environments={release.deployed_on ?? []} />}
+      {/* Les pastilles des modules allumés — où la release tourne, pour le
+          plugin MSE. */}
+      {modules.flatMap((module) =>
+        (module.releaseBadges ?? []).map((Badge, index) => <Badge key={`${module.id}-${index}`} release={release} />),
+      )}
     </>
   )
 }
@@ -62,36 +65,5 @@ function ScoreBadge({ score }: { score?: Release['score'] }) {
       <span className="font-mono">{score.value}</span>
       <span className="opacity-70">/ 100</span>
     </span>
-  )
-}
-
-/**
- * Les environnements où la release tourne.
- *
- * Le libellé vient du catalogue : `prod` seul se lit mal dans une liste, et
- * l'écran des environnements affiche « Production ». Le repli sur l'identifiant
- * couvre un environnement retiré du catalogue mais encore observé.
- */
-function DeployedBadges({ environments }: { environments: string[] }) {
-  const known = useEnvironments()
-
-  if (environments.length === 0) return null
-
-  const label = (id: string) =>
-    known.data?.environments.find((entry) => entry.id === id)?.label ?? id
-
-  return (
-    <>
-      {environments.map((id) => (
-        <span
-          key={id}
-          title={`Déployée sur ${label(id)}`}
-          className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700"
-        >
-          <Icon name="layers" className="size-3.5" />
-          {label(id)}
-        </span>
-      ))}
-    </>
   )
 }

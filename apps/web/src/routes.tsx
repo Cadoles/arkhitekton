@@ -4,7 +4,7 @@ import { AppShell } from './components/AppShell'
 import { Placeholder } from './components/Placeholder'
 import { NotFound } from './components/NotFound'
 import { HomeRedirect, ModuleRoute } from './components/ModuleRoute'
-import { MODULE_MSE } from './features/auth/session'
+import { appModules } from './modules'
 import { RunsScreen } from './features/runs/RunsScreen'
 import { ExecutionsLayout } from './features/runs/ExecutionsLayout'
 import { QueueScreen } from './features/queue/QueueScreen'
@@ -12,9 +12,6 @@ import { QueueSettingsScreen } from './features/queue/QueueSettingsScreen'
 import { EventsScreen } from './features/runs/EventsScreen'
 import { PlanRunsScreen } from './features/runs/PlanRunsScreen'
 import { AutomationsScreen } from './features/admin/AutomationsScreen'
-import { EnvironmentsScreen } from './features/environments/EnvironmentsScreen'
-import { HistoryScreen } from './features/environments/HistoryScreen'
-import { EnvironmentScreen } from './features/environments/EnvironmentScreen'
 import { ReleasesScreen } from './features/releases/ReleasesScreen'
 import { ReleaseScreen } from './features/releases/ReleaseScreen'
 import { AdminLayout } from './features/admin/AdminLayout'
@@ -68,30 +65,14 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <HomeRedirect /> },
 
-      {
-        path: 'environments',
-        element: (
-          <ModuleRoute module={MODULE_MSE}>
-            <EnvironmentsScreen />
-          </ModuleRoute>
-        ),
-      },
-      {
-        path: 'environments/:env',
-        element: (
-          <ModuleRoute module={MODULE_MSE}>
-            <EnvironmentScreen />
-          </ModuleRoute>
-        ),
-      },
-      {
-        path: 'environments/:env/history',
-        element: (
-          <ModuleRoute module={MODULE_MSE}>
-            <HistoryScreen />
-          </ModuleRoute>
-        ),
-      },
+      // Les écrans des modules, chacun gardé par son interrupteur : éteint, une
+      // URL qui y mène renvoie à l'accueil.
+      ...appModules().flatMap((module) =>
+        (module.routes ?? []).map((route) => ({
+          ...route,
+          element: <ModuleRoute module={module.id}>{route.element}</ModuleRoute>,
+        })),
+      ),
 
       { path: 'versions', element: <VersionsScreen /> },
       { path: 'versions/:id', element: <VersionScreen /> },

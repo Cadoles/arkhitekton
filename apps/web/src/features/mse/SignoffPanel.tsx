@@ -12,7 +12,7 @@ import {
   type Signoff,
   type SignoffStatus,
 } from './api'
-import { SIGNAL_LABEL, useTests } from './tests'
+import { SIGNAL_LABEL, useTests } from '../releases/tests'
 
 /*
  * Validation de recette.

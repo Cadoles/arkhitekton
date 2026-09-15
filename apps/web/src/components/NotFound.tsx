@@ -11,10 +11,10 @@ export function NotFound() {
         Aucun écran ne correspond à <code className="font-mono text-zinc-900">{location.pathname}</code>.
       </p>
       <Link
-        to="/environments"
+        to="/"
         className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-zinc-900 hover:underline"
       >
-        Revenir aux environnements
+        Revenir à l&apos;accueil
         <Icon name="arrow-right" className="size-4" />
       </Link>
     </Card>

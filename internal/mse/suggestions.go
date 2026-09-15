@@ -1,0 +1,34 @@
+package mse
+
+import (
+	"context"
+
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
+)
+
+// EnvironmentSuggestions rend les environnements que le formulaire de lancement
+// propose pour un paramètre de nature `environment`.
+//
+// Le noyau lisait la section du catalogue lui-même. Il demande désormais la liste
+// au plugin, qui n'en rend aucune quand le module est éteint : le champ reste
+// alors en saisie libre (doc 16 §16.7, couture 9). Lu à chaque requête, comme
+// l'interrupteur des routes.
+func EnvironmentSuggestions(
+	environments []catalog.Environment, modules *dashhttp.Modules,
+) func(context.Context) []dashhttp.Suggestion {
+	return func(ctx context.Context) []dashhttp.Suggestion {
+		if !modules.Enabled(ctx, plugin.ModuleMSE) {
+			return nil
+		}
+		proposed := make([]dashhttp.Suggestion, 0, len(environments))
+		for _, environment := range environments {
+			if !environment.IsVisible() {
+				continue
+			}
+			proposed = append(proposed, dashhttp.Suggestion{Value: environment.ID, Label: environment.Label})
+		}
+		return proposed
+	}
+}
