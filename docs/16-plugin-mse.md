@@ -582,8 +582,8 @@ la sonde de préparation `schema-mse` vérifie sa version.
 
 ## 16.18 Étude — le plugin MSE par projet
 
-> Statut : **étude**. Rien n'est implémenté ; les questions de §16.18.6 sont à trancher avant
-> toute tranche.
+> Statut : **étude**. Rien n'est implémenté. Les questions de §16.18.6 sont tranchées
+> (§16.18.7) ; celles de §16.18.9 restent ouvertes.
 
 ### 16.18.1 Le constat
 
@@ -705,3 +705,92 @@ plugin garde la parité d'aujourd'hui.
 | 2 | Que reçoivent les projets existants ? L'héritage donne le plugin aux cinq | désactivation explicite pour les projets qui ne relèvent pas du MSE, posée par une migration de données |
 | 3 | L'écran Environnements montre-t-il les promotions de tous les projets, ou du projet courant ? | du projet courant |
 | 4 | Les paramètres MSE de `schedulerConfig` entrent-ils dans ce chantier ? | non : couture distincte, à traiter avec le niveau 2 ou seule |
+
+### 16.18.7 Décisions
+
+| # | Question | Réponse |
+|---|---|---|
+| 1 | Niveau 1 ou niveau 2 ? | **niveau 2** — tranché : environnements par projet |
+| 2 | Que reçoivent les projets existants ? | **désactivation explicite** hors MSE, par migration de données — tranché ; la liste reste à fixer (§16.18.9) |
+| 3 | Promotions de quels projets sur l'écran Environnements ? | **du projet courant** — tranché |
+| 4 | Les paramètres MSE de `schedulerConfig` entrent-ils dans le chantier ? | **oui** — tranché |
+
+La recommandation de §16.18.4 est donc écartée : un second projet déploiera vers ses propres
+environnements.
+
+### 16.18.8 Conception du niveau 2
+
+#### Le schéma
+
+Une migration du plugin (`0002`) rattache les environnements à un projet :
+
+| Table | Changement |
+|---|---|
+| `environments` | colonne `project_id` → `projects (id)` ; clé `(project_id, id)` ; rang unique **par projet** |
+| `image_promotions`, `release_signoffs` | colonne `project_id` ; clé étrangère composée `(project_id, environment_id)` |
+| `environment_observations` | clé `(project_id, environment_id)` |
+
+Les lignes existantes sont rattachées au projet qui les porte aujourd'hui (§16.18.9,
+question 7). Le projet de chaque promotion et de chaque validation se déduit déjà de sa release :
+la colonne ajoutée sert la clé étrangère, pas la lecture.
+
+#### L'activation
+
+- `PerProject: true` ; le global vaut autorisation et défaut, le projet surcharge.
+- `Modules.EnabledIn(ctx, projectID, id)` résout l'héritage de `project_plugins`.
+  `RequireModule` s'en sert dans le projet du chemin.
+- `/me` rend les modules **par projet** ; l'interface suit le projet courant.
+- Une migration de données pose `enabled = false` pour les projets qui ne relèvent pas du MSE.
+
+#### Les routes et l'écran
+
+- `/environments…` devient `/projects/{project}/environments…`.
+- Les rapprochements — release déployée, pastille, historique, dernières promotions —
+  filtrent le projet.
+- Le front compose ces chemins avec `projectPath`, comme les releases.
+
+#### La sensibilité et le droit de promouvoir
+
+La table de l'autorisateur, indexée par environnement et construite au démarrage, devient une
+**source** consultée avec le projet : `(projet, environnement) → sensible`. `RequireDeploy`
+connaît déjà le projet ; les cibles et l'écran des environnements passent de `Can` à `CanIn`.
+L'oubli reste sensible.
+
+#### L'observation
+
+- `flux.Client` est lié à un namespace. Le worker en ouvre **un par namespace distinct** parmi
+  les projets actifs, partagés entre projets qui en ont un en commun.
+- Le contrôle des `ImagePolicy` au démarrage se fait **par projet**, dans son namespace.
+- L'observateur parcourt les environnements de chaque projet actif. `PortalData` est déjà lu
+  par namespace d'environnement.
+
+#### Les paramètres de pipeline
+
+Les jobs portent déjà leur projet, et l'ordonnanceur résout déjà des secrets par projet
+(`DeployKeySecret`, `RegistrySecret`). La source `config` gagne une **surcharge par projet** :
+
+- l'ordonnanceur reçoit une fonction `func(ctx, projectID) map[string]string`, fournie par les
+  plugins ; le noyau ne nomme aucune clé ;
+- le plugin MSE déclare ses réglages — dépôt de kustomisation et sa révision, dépôt des tests
+  E2E, emplacement de l'overlay, Dockerfile — en global (défaut) et par projet ;
+- les valeurs `forge.mseKustom.*`, `forge.e2e.repoUrl`, `mse.*` quittent `schedulerConfig`. Les
+  valeurs par défaut écrites dans `main.go` deviennent les défauts du réglage global.
+
+### 16.18.9 Questions encore ouvertes
+
+| # | Question | Proposition |
+|---|---|---|
+| 5 | Quels projets gardent le plugin ? | `mse-test-project` ; les autres à confirmer |
+| 6 | Où se déclarent les environnements d'un projet ? | dans le **catalogue**, une section par slug de projet : versionnée, validée au démarrage et confrontée aux `ImagePolicy` comme aujourd'hui |
+| 7 | À quel projet rattacher les quatre environnements existants et leurs relevés ? | `mse-test-project`, le seul qui porte des releases |
+
+### 16.18.10 Tranches pressenties
+
+| # | Tranche | Ce qu'elle livre | Porte |
+|---|---|---|---|
+| 1 | **Activation par projet** | `PerProject: true` ; `EnabledIn` ; `/me` par projet ; interface par projet courant ; désactivation hors MSE | un projet sans le plugin ne voit rien |
+| 2 | **Environnements par projet** | migration `0002` ; requêtes et routes sous le projet ; rapprochements filtrés | parité sur `mse-test-project` |
+| 3 | **Déclaration et sensibilité par projet** | section de catalogue par projet ; synchronisation par projet ; autorisateur `(projet, environnement)` | |
+| 4 | **Observation par projet** | clients Flux par namespace ; contrôle des `ImagePolicy` par projet ; observateur par projet | |
+| 5 | **Paramètres par projet** | surcharge `config` par projet dans l'ordonnanceur ; réglages du plugin ; `schedulerConfig` sans clé MSE | un pipeline d'un second projet clone ses propres dépôts |
+
