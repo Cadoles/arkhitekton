@@ -22,22 +22,22 @@ func volume(value float64) Measure {
 
 var exclusive = Conditions{Exclusive: true, ConcurrentJobs: 0}
 
-// Le sens de la comparaison dépend de la métrique : une latence baisse, un débit
-// monte. Les confondre ferait afficher « conforme » sur une régression.
+// The direction of the comparison depends on the metric: a latency goes down, a throughput goes
+// up. Confusing them would display "conforming" on a regression.
 func TestVerdictFollowsTheDirectionOfTheMetric(t *testing.T) {
 	baselines := map[string]float64{"http_req_duration:p(95)": 300, "http_reqs:rate": 400}
 
 	comparisons := Compare(summaryOf(latency(250), throughput(500)), baselines, exclusive)
 	for _, comparison := range comparisons {
 		if comparison.Verdict != VerdictPass {
-			t.Errorf("%s = %s, attendu pass", comparison.Measure.Metric, comparison.Verdict)
+			t.Errorf("%s = %s, expected pass", comparison.Measure.Metric, comparison.Verdict)
 		}
 	}
 
 	comparisons = Compare(summaryOf(latency(400), throughput(300)), baselines, exclusive)
 	for _, comparison := range comparisons {
 		if comparison.Verdict != VerdictFail {
-			t.Errorf("%s = %s, attendu fail", comparison.Measure.Metric, comparison.Verdict)
+			t.Errorf("%s = %s, expected fail", comparison.Measure.Metric, comparison.Verdict)
 		}
 	}
 }
@@ -45,18 +45,18 @@ func TestVerdictFollowsTheDirectionOfTheMetric(t *testing.T) {
 func TestTenPercentTolerance(t *testing.T) {
 	baselines := map[string]float64{"http_req_duration:p(95)": 300}
 
-	// 315 ms contre 300 : ratio 0,952, dans la tolérance.
+	// 315 ms against 300: ratio 0.952, within the tolerance.
 	if verdict := Compare(summaryOf(latency(315)), baselines, exclusive)[0].Verdict; verdict != VerdictWarn {
-		t.Errorf("verdict = %s, attendu warn", verdict)
+		t.Errorf("verdict = %s, expected warn", verdict)
 	}
-	// 340 ms : ratio 0,882, au-delà.
+	// 340 ms: ratio 0.882, beyond it.
 	if verdict := Compare(summaryOf(latency(340)), baselines, exclusive)[0].Verdict; verdict != VerdictFail {
-		t.Errorf("verdict = %s, attendu fail", verdict)
+		t.Errorf("verdict = %s, expected fail", verdict)
 	}
 }
 
-// Le cœur de B16. Une mesure prise pendant un build ne se compare pas : la
-// juger imputerait à la release une lenteur causée par un voisin.
+// The heart of the matter. A measurement taken during a build does not compare: judging it would
+// charge the release with a slowness caused by a neighbour.
 func TestNonExclusiveMeasuresAreNotJudged(t *testing.T) {
 	baselines := map[string]float64{"http_req_duration:p(95)": 300}
 	conditions := Conditions{Exclusive: false, ConcurrentJobs: 3}
@@ -68,33 +68,32 @@ func TestNonExclusiveMeasuresAreNotJudged(t *testing.T) {
 	comparison := comparisons[0]
 
 	if comparison.Verdict != VerdictNA {
-		t.Errorf("verdict = %s: une mesure non comparable ne doit pas être jugée", comparison.Verdict)
+		t.Errorf("verdict = %s: a measurement that cannot be compared must not be judged", comparison.Verdict)
 	}
-	// Mais elle reste affichée : la cacher ferait croire que la campagne n'a pas
-	// eu lieu.
+	// But it stays displayed: hiding it would suggest the campaign did not happen.
 	if comparison.Measure.Value != 900 {
-		t.Error("la mesure doit rester disponible")
+		t.Error("the measurement must stay available")
 	}
 	if comparison.Comparable {
-		t.Error("la mesure est marquée comparable à tort")
+		t.Error("the measurement is wrongly marked comparable")
 	}
-	// Et le motif est dit : sans lui, l'absence de verdict se lit comme une panne.
+	// And the reason is stated: without it, the absence of a verdict reads as a failure.
 	if comparison.Reason == "" {
-		t.Error("le motif du refus de comparaison doit être explicite")
+		t.Error("the ground for refusing the comparison must be explicit")
 	}
-	// La baseline reste rendue : le lecteur doit pouvoir constater l'écart, même
-	// si le dashboard refuse d'en tirer un verdict.
+	// The baseline is still returned: the reader must be able to see the gap, even if the dashboard
+	// refuses to draw a verdict from it.
 	if comparison.Baseline == nil || *comparison.Baseline != 300 {
 		t.Errorf("baseline = %v", comparison.Baseline)
 	}
 }
 
-// La barrière draine avant de lancer : exclusivité et concurrence nulle
-// devraient coïncider. Si elles divergent, c'est le constat qui fait foi.
+// The barrier drains before launching: exclusivity and zero concurrency should coincide. If they
+// diverge, it is the observation that is authoritative.
 func TestObservedConcurrencyOverridesTheIntent(t *testing.T) {
 	conditions := Conditions{Exclusive: true, ConcurrentJobs: 2}
 	if conditions.Comparable() {
-		t.Error("des runs constatés au démarrage rendent la mesure non comparable")
+		t.Error("runs observed at start-up make the measurement not comparable")
 	}
 
 	comparisons := Compare(summaryOf(latency(250)),
@@ -104,53 +103,52 @@ func TestObservedConcurrencyOverridesTheIntent(t *testing.T) {
 	}
 }
 
-// Un débit instantané conforme obtenu en traitant moins de requêtes n'est pas un
-// succès.
+// A conforming instantaneous throughput obtained by handling fewer requests is not a success.
 func TestVolumeDegradesTheOtherVerdicts(t *testing.T) {
 	baselines := map[string]float64{"http_reqs:rate": 400, "http_reqs:count": 24000}
 
-	// Débit à parité, mais moitié moins de requêtes traitées.
+	// Throughput at parity, but half as many requests handled.
 	comparisons := Compare(summaryOf(throughput(400), volume(12000)), baselines, exclusive)
 
 	for _, comparison := range comparisons {
 		if comparison.Measure.Metric == "http_reqs:rate" && comparison.Verdict != VerdictFail {
-			t.Errorf("débit = %s, attendu dégradé par le volume", comparison.Verdict)
+			t.Errorf("throughput = %s, expected degraded by the volume", comparison.Verdict)
 		}
 	}
 }
 
-// Dans l'autre sens : un volume excellent ne rachète pas un débit effondré.
+// The other way round: an excellent volume does not redeem a collapsed throughput.
 func TestVolumeNeverImprovesAVerdict(t *testing.T) {
 	baselines := map[string]float64{"http_reqs:rate": 400, "http_reqs:count": 24000}
 
 	comparisons := Compare(summaryOf(throughput(100), volume(48000)), baselines, exclusive)
 	for _, comparison := range comparisons {
 		if comparison.Measure.Metric == "http_reqs:rate" && comparison.Verdict != VerdictFail {
-			t.Errorf("débit = %s, attendu fail", comparison.Verdict)
+			t.Errorf("throughput = %s, expected fail", comparison.Verdict)
 		}
 	}
 }
 
-// Une première campagne n'a pas de baseline. Ce n'est pas un échec : c'est une
-// mesure de référence en puissance.
+// A first campaign has no baseline. That is not a failure: it is a reference measurement in the
+// making.
 func TestAMeasureWithoutBaselineIsNotJudged(t *testing.T) {
 	comparisons := Compare(summaryOf(latency(250)), nil, exclusive)
 	if comparisons[0].Verdict != VerdictNA {
-		t.Errorf("verdict = %s, attendu na", comparisons[0].Verdict)
+		t.Errorf("verdict = %s, expected na", comparisons[0].Verdict)
 	}
 	if comparisons[0].Baseline != nil {
-		t.Error("aucune baseline ne doit être inventée")
+		t.Error("no baseline must be invented")
 	}
 }
 
-// Le signal de performance vaut le point le plus faible : une moyenne noierait
-// une régression dans la conformité des autres mesures.
+// The performance signal is worth the weakest point: an average would drown a regression in the
+// conformity of the other measurements.
 func TestWorstDrivesTheSignal(t *testing.T) {
 	baselines := map[string]float64{"http_req_duration:p(95)": 300, "http_reqs:rate": 400}
 
 	comparisons := Compare(summaryOf(latency(500), throughput(500)), baselines, exclusive)
 	if worst := Worst(comparisons); worst != VerdictFail {
-		t.Errorf("verdict d'ensemble = %s, attendu fail", worst)
+		t.Errorf("overall verdict = %s, expected fail", worst)
 	}
 }
 

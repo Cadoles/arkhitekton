@@ -12,26 +12,25 @@ import (
 )
 
 /*
- * Tests de décodage sur fixtures.
+ * Decoding tests on fixtures.
  *
- * Les fixtures sont synthétiques et non capturées telles quelles : les réponses
- * réelles portent des sujets de demandes — du contenu métier du client — et des
- * noms de personnes dans `assigned_to`. Les versionner reviendrait à faire entrer
- * des données du client et des données personnelles dans le dépôt, pour un gain de
- * couverture nul.
+ * The fixtures are synthetic and not captured as they are: the real responses carry request
+ * subjects — the client's business content — and people's names in `assigned_to`. Versioning
+ * them would amount to bringing client data and personal data into the repository, for no gain
+ * in coverage.
  *
- * Elles reproduisent en revanche les bizarreries réellement constatées sur
- * l'instance, qui sont la seule raison d'avoir des fixtures :
+ * They do reproduce, however, the oddities actually observed on the instance, which are the only
+ * reason to have fixtures:
  *
- *   - quatre conventions de nommage des versions, dont deux noms distincts pour ce
- *     qui paraît être la même version (`MSE 3.1.2` close et `v3.1.2` ouverte) ;
- *   - deux trackers d'anomalie (`Anomalie` et `Anomalie (SDN4)`) ;
- *   - deux statuts ne différant que par la casse (`En Standby`, `En StandBy`) ;
- *   - `Ré-ouvert` déclaré clos par Redmine ;
- *   - des demandes sans version, des échéances et horodatages absents.
+ *   - four version naming conventions, including two distinct names for what appears to be the
+ *     same version (`MSE 3.1.2` closed and `v3.1.2` open);
+ *   - two anomaly trackers (`Anomalie` and `Anomalie (SDN4)`);
+ *   - two statuses differing only in case (`En Standby`, `En StandBy`);
+ *   - `Ré-ouvert` declared closed by Redmine;
+ *   - requests with no version, missing due dates and timestamps.
  *
- * La conformité au format réel est vérifiée par les tests `Live`, exécutés à la
- * demande contre l'instance.
+ * Conformance to the real format is checked by the `Live` tests, run on demand against the
+ * instance.
  */
 
 func fixtureServer(t *testing.T, routes map[string]string) *httptest.Server {
@@ -43,7 +42,7 @@ func fixtureServer(t *testing.T, routes map[string]string) *httptest.Server {
 		}
 		name, ok := routes[key]
 		if !ok {
-			t.Errorf("route non prévue: %s", key)
+			t.Errorf("unexpected route: %s", key)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -58,7 +57,7 @@ func fixtureServer(t *testing.T, routes map[string]string) *httptest.Server {
 	return server
 }
 
-func TestLesVersionsSeDecodentAvecLeursQuatreConventions(t *testing.T) {
+func TestVersionsDecodeWithTheirFourConventions(t *testing.T) {
 	server := fixtureServer(t, map[string]string{
 		"/projects/mse-dev/versions.json": "versions.json",
 	})
@@ -68,22 +67,22 @@ func TestLesVersionsSeDecodentAvecLeursQuatreConventions(t *testing.T) {
 		t.Fatalf("versions: %v", err)
 	}
 	if len(versions) != 6 {
-		t.Fatalf("%d versions, attendu 6", len(versions))
+		t.Fatalf("%d versions, expected 6", len(versions))
 	}
 
-	// Le nom est conservé tel quel : l'identité est l'identifiant Redmine, et
-	// normaliser à l'écriture perdrait l'information sans rien résoudre.
+	// The name is kept as it is: the identity is the Redmine identifier, and normalising at write
+	// time would lose the information without solving anything.
 	byID := map[string]provider.Version{}
 	for _, version := range versions {
 		byID[version.ID] = version
 	}
 
 	if byID["801"].Name != "MSE3-1.5" || byID["803"].Name != "MSE 3.1.2" || byID["805"].Name != "v3.2.0" {
-		t.Errorf("noms altérés: %q %q %q", byID["801"].Name, byID["803"].Name, byID["805"].Name)
+		t.Errorf("names altered: %q %q %q", byID["801"].Name, byID["803"].Name, byID["805"].Name)
 	}
 
-	// Deux versions distinctes portent le même numéro sous deux conventions. Elles
-	// doivent rester deux lignes : les fusionner inventerait une donnée.
+	// Two distinct versions carry the same number under two conventions. They must stay two rows:
+	// merging them would invent data.
 	if byID["803"].ID == byID["804"].ID {
 		t.Error("MSE 3.1.2 et v3.1.2 doivent rester distinctes")
 	}
@@ -91,19 +90,19 @@ func TestLesVersionsSeDecodentAvecLeursQuatreConventions(t *testing.T) {
 		t.Errorf("statuts: 803=%q 804=%q", byID["803"].Status, byID["804"].Status)
 	}
 
-	// Échéance absente et horodatage vide ne sont pas des erreurs.
+	// A missing due date and an empty timestamp are not errors.
 	if byID["802"].DueDate != nil {
-		t.Errorf("échéance inventée pour 802: %v", byID["802"].DueDate)
+		t.Errorf("due date invented for 802: %v", byID["802"].DueDate)
 	}
 	if byID["806"].UpdatedOn != nil {
-		t.Errorf("horodatage inventé pour 806: %v", byID["806"].UpdatedOn)
+		t.Errorf("timestamp invented for 806: %v", byID["806"].UpdatedOn)
 	}
 	if got := byID["801"].DueDate; got == nil || got.Format("2006-01-02") != "2025-04-14" {
-		t.Errorf("échéance de 801: %v", got)
+		t.Errorf("due date of 801: %v", got)
 	}
 }
 
-func TestLesDemandesSeDecodentSurPlusieursPages(t *testing.T) {
+func TestRequestsDecodeAcrossSeveralPages(t *testing.T) {
 	server := fixtureServer(t, map[string]string{
 		"/issues.json":          "issues_page1.json",
 		"/issues.json?offset=5": "issues_page2.json",
@@ -115,9 +114,9 @@ func TestLesDemandesSeDecodentSurPlusieursPages(t *testing.T) {
 		t.Fatalf("demandes: %v", err)
 	}
 
-	// Les deux pages réunies, sans doublon ni omission.
+	// Both pages together, with neither duplicate nor omission.
 	if len(issues) != 8 {
-		t.Fatalf("%d demandes, attendu 8", len(issues))
+		t.Fatalf("%d requests, expected 8", len(issues))
 	}
 	seen := map[string]int{}
 	for _, issue := range issues {
@@ -130,7 +129,7 @@ func TestLesDemandesSeDecodentSurPlusieursPages(t *testing.T) {
 	}
 }
 
-func TestUneDemandeSansVersionResteSansVersion(t *testing.T) {
+func TestARequestWithNoVersionStaysWithout(t *testing.T) {
 	server := fixtureServer(t, map[string]string{
 		"/issues.json":          "issues_page1.json",
 		"/issues.json?offset=5": "issues_page2.json",
@@ -148,17 +147,17 @@ func TestUneDemandeSansVersionResteSansVersion(t *testing.T) {
 	}
 
 	if byID["9004"].VersionID != nil {
-		t.Errorf("version inventée pour 9004: %v", *byID["9004"].VersionID)
+		t.Errorf("version invented for 9004: %v", *byID["9004"].VersionID)
 	}
 	if byID["9001"].VersionID == nil || *byID["9001"].VersionID != "805" {
-		t.Errorf("version de 9001: %v", byID["9001"].VersionID)
+		t.Errorf("version of 9001: %v", byID["9001"].VersionID)
 	}
 }
 
-// Le drapeau de Redmine est repris sans jugement, y compris quand il surprend :
-// l'instance déclare `Ré-ouvert` comme clos. La projection en bucket est une
-// décision distincte, portée par une table éditable.
-func TestLeDrapeauDeClotureEstReprisSansJugement(t *testing.T) {
+// Redmine's flag is taken without judgement, including when it surprises: the instance declares
+// `Ré-ouvert` as closed. Mapping it to a bucket is a distinct decision, carried by an editable
+// table.
+func TestTheClosedFlagIsTakenWithoutJudgement(t *testing.T) {
 	server := fixtureServer(t, map[string]string{
 		"/issues.json":          "issues_page1.json",
 		"/issues.json?offset=5": "issues_page2.json",
@@ -177,26 +176,25 @@ func TestLeDrapeauDeClotureEstReprisSansJugement(t *testing.T) {
 
 	reouverte := byID["9005"]
 	if reouverte.Status != "Ré-ouvert" || !reouverte.StatusClosed {
-		t.Errorf("9005: statut %q clos=%v — le drapeau de Redmine doit être conservé",
+		t.Errorf("9005: status %q closed=%v — Redmine's flag must be kept",
 			reouverte.Status, reouverte.StatusClosed)
 	}
 
-	// Les deux trackers d'anomalie sont distincts : compter les anomalies sur
-	// l'égalité à « Anomalie » en manquerait une sur deux.
+	// The two anomaly trackers are distinct: counting anomalies by equality with "Anomalie" would
+	// miss one in two.
 	if byID["9002"].Tracker != "Anomalie" || byID["9003"].Tracker != "Anomalie (SDN4)" {
 		t.Errorf("trackers: %q et %q", byID["9002"].Tracker, byID["9003"].Tracker)
 	}
 
-	// Deux statuts ne différant que par la casse coexistent dans l'instance.
+	// Two statuses differing only in case coexist in the instance.
 	if byID["9008"].Status != "En StandBy" {
 		t.Errorf("9008: statut %q", byID["9008"].Status)
 	}
 }
 
-// `status_id=*` est indispensable : sans lui Redmine ne rend que les demandes
-// ouvertes, et une version terminée paraîtrait vide — une perte de données
-// silencieuse.
-func TestLaRequeteDemandeTousLesStatutsEtUnTriStable(t *testing.T) {
+// `status_id=*` is essential: without it Redmine returns only the open requests, and a finished
+// version would look empty — a silent data loss.
+func TestTheRequestAsksForEveryStatusAndAStableSort(t *testing.T) {
 	var query string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query = r.URL.RawQuery
@@ -216,14 +214,14 @@ func TestLaRequeteDemandeTousLesStatutsEtUnTriStable(t *testing.T) {
 		"updated_on=%3E%3D2026-08-01T00%3A00%3A00Z",
 	} {
 		if !strings.Contains(query, expected) {
-			t.Errorf("la requête ne porte pas %s: %s", expected, query)
+			t.Errorf("the request does not carry %s: %s", expected, query)
 		}
 	}
 }
 
-// Une page vide alors que le total en annonce davantage signalerait une incohérence
-// côté Redmine. Boucler dessus tournerait sans fin.
-func TestUnePageVideArreteLaPagination(t *testing.T) {
+// An empty page while the total announces more would signal an inconsistency on Redmine's side.
+// Looping on it would run forever.
+func TestAnEmptyPageStopsThePagination(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
@@ -240,22 +238,22 @@ func TestUnePageVideArreteLaPagination(t *testing.T) {
 		t.Errorf("%d demandes rendues", len(issues))
 	}
 	if calls != 1 {
-		t.Errorf("%d appels: la pagination doit s'arrêter sur une page vide", calls)
+		t.Errorf("%d calls: the pagination must stop on an empty page", calls)
 	}
 }
 
-// Un projet non renseigné est une faute d'appel, détectée avant tout appel réseau.
-func TestUnProjetAbsentEstRefuseAvantAppel(t *testing.T) {
+// A project left unset is a fault of the caller, detected before any network call.
+func TestAMissingProjectIsRefusedBeforeAnyCall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Error("aucun appel ne devrait partir")
+		t.Error("no call should be made")
 	}))
 	defer server.Close()
 
 	client := clientFor(t, server.URL)
 	if _, err := client.ListVersions(context.Background(), ""); err == nil {
-		t.Error("ListVersions devrait refuser un projet vide")
+		t.Error("ListVersions should refuse an empty project")
 	}
 	if _, err := client.ListIssues(context.Background(), provider.IssueQuery{}); err == nil {
-		t.Error("ListIssues devrait refuser un projet vide")
+		t.Error("ListIssues should refuse an empty project")
 	}
 }

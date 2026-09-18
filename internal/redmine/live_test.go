@@ -9,23 +9,22 @@ import (
 )
 
 /*
- * Vérification contre l'instance réelle.
+ * Check against the real instance.
  *
- * Gardé derrière `REDMINE_LIVE=1` et non derrière la seule présence de la clé :
- * celle-ci est renseignée dans l'environnement de développement courant, et faire
- * dépendre le test de sa présence ferait taper l'instance de **production** à
- * chaque `make test`. Une suite de tests qui sollicite un service tiers du client
- * finit par le solliciter au mauvais moment.
+ * Guarded behind `REDMINE_LIVE=1` and not behind the mere presence of the key: the key is set in
+ * the current development environment, and making the test depend on its presence would hit the
+ * **production** instance at every `make test`. A test suite that calls on a client's
+ * third-party service ends up calling on it at the wrong moment.
  *
- * Le reste des tests travaille sur des fixtures capturées ici, ce qui donne la
- * même couverture de décodage sans dépendance réseau.
+ * The rest of the tests work on fixtures captured here, which gives the same decoding coverage
+ * with no network dependency.
  *
  *   REDMINE_LIVE=1 go test ./internal/redmine/ -run Live -v
  */
 func liveClient(t *testing.T) (*Client, string) {
 	t.Helper()
 	if os.Getenv("REDMINE_LIVE") != "1" {
-		t.Skip("REDMINE_LIVE non défini: vérification contre l'instance réelle ignorée")
+		t.Skip("REDMINE_LIVE not set: the check against the real instance is skipped")
 	}
 
 	client, err := New(Options{URL: os.Getenv("REDMINE_URL"), APIKey: os.Getenv("REDMINE_API_KEY")})
@@ -34,14 +33,14 @@ func liveClient(t *testing.T) (*Client, string) {
 	}
 	project := os.Getenv("REDMINE_PROJECT")
 	if project == "" {
-		t.Fatal("REDMINE_PROJECT est requis pour la vérification réelle")
+		t.Fatal("REDMINE_PROJECT is required for the real check")
 	}
 	return client, project
 }
 
-// Le décodage correspond-il au format réellement servi ? C'est la seule question
-// que des fixtures ne peuvent pas trancher, puisqu'elles en sont issues.
-func TestLiveLesVersionsSeDecodent(t *testing.T) {
+// Does the decoding match the format actually served? It is the only question fixtures cannot
+// settle, since they come from it.
+func TestLiveTheVersionsDecode(t *testing.T) {
 	client, project := liveClient(t)
 
 	versions, err := client.ListVersions(context.Background(), project)
@@ -49,15 +48,15 @@ func TestLiveLesVersionsSeDecodent(t *testing.T) {
 		t.Fatalf("versions: %v", err)
 	}
 	if len(versions) == 0 {
-		t.Fatal("aucune version rendue")
+		t.Fatal("no version returned")
 	}
 
 	for _, version := range versions {
 		if version.ID == "" {
-			t.Errorf("version sans identifiant: %+v", version)
+			t.Errorf("version with no identifier: %+v", version)
 		}
 		if version.Name == "" {
-			t.Errorf("version %s sans nom", version.ID)
+			t.Errorf("version %s with no name", version.ID)
 		}
 		switch version.Status {
 		case "open", "locked", "closed":
@@ -65,12 +64,12 @@ func TestLiveLesVersionsSeDecodent(t *testing.T) {
 			t.Errorf("version %s: statut inattendu %q", version.Name, version.Status)
 		}
 	}
-	t.Logf("%d versions décodées", len(versions))
+	t.Logf("%d versions decoded", len(versions))
 }
 
-// La pagination doit ramener l'ensemble, et sans doublon. C'est la propriété qui
-// casse en silence quand le tri n'est pas stable.
-func TestLiveLesDemandesSePaginentSansDoublon(t *testing.T) {
+// Pagination must bring back the whole set, and with no duplicate. It is the property that breaks
+// silently when the sort is not stable.
+func TestLiveTheRequestsPaginateWithNoDuplicate(t *testing.T) {
 	client, project := liveClient(t)
 
 	issues, err := client.ListIssues(context.Background(), provider.IssueQuery{Project: project})
@@ -78,7 +77,7 @@ func TestLiveLesDemandesSePaginentSansDoublon(t *testing.T) {
 		t.Fatalf("demandes: %v", err)
 	}
 	if len(issues) == 0 {
-		t.Fatal("aucune demande rendue")
+		t.Fatal("no request returned")
 	}
 
 	seen := map[string]int{}
@@ -89,7 +88,7 @@ func TestLiveLesDemandesSePaginentSansDoublon(t *testing.T) {
 			withVersion++
 		}
 		if issue.Tracker == "" || issue.Status == "" {
-			t.Errorf("demande %s incomplète: %+v", issue.ID, issue)
+			t.Errorf("request %s incomplete: %+v", issue.ID, issue)
 		}
 	}
 	for id, count := range seen {
@@ -97,13 +96,13 @@ func TestLiveLesDemandesSePaginentSansDoublon(t *testing.T) {
 			t.Errorf("demande %s rendue %d fois", id, count)
 		}
 	}
-	t.Logf("%d demandes, %d distinctes, %d rattachées à une version",
+	t.Logf("%d requests, %d distinct, %d attached to a version",
 		len(issues), len(seen), withVersion)
 }
 
-// Le filtre incrémental doit rendre moins que tout : c'est ce qui fait l'intérêt de
-// la synchronisation, et une valeur ignorée par Redmine passerait inaperçue.
-func TestLiveLeFiltreIncrementalReduitLeVolume(t *testing.T) {
+// The incremental filter must return less than everything: that is what makes the synchronisation
+// worthwhile, and a value Redmine ignored would go unnoticed.
+func TestLiveTheIncrementalFilterReducesTheVolume(t *testing.T) {
 	client, project := liveClient(t)
 	ctx := context.Background()
 
@@ -112,18 +111,18 @@ func TestLiveLeFiltreIncrementalReduitLeVolume(t *testing.T) {
 		t.Fatalf("tout: %v", err)
 	}
 
-	// Une borne dans le futur proche : rien ne peut avoir été modifié après.
+	// A bound in the near future: nothing can have been modified after it.
 	futur, err := client.ListIssues(ctx, provider.IssueQuery{
 		Project: project,
 		Since:   time.Now().Add(24 * time.Hour),
 	})
 	if err != nil {
-		t.Fatalf("filtré: %v", err)
+		t.Fatalf("filtered: %v", err)
 	}
 
 	if len(futur) >= len(tout) {
-		t.Errorf("le filtre `updated_on` semble ignoré: %d demandes contre %d sans filtre",
+		t.Errorf("the `updated_on` filter seems ignored: %d requests against %d with no filter",
 			len(futur), len(tout))
 	}
-	t.Logf("sans filtre %d, depuis demain %d", len(tout), len(futur))
+	t.Logf("with no filter %d, since tomorrow %d", len(tout), len(futur))
 }

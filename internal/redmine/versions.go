@@ -12,27 +12,25 @@ import (
 )
 
 /*
- * Lecture des versions et des demandes.
+ * Reading the versions and the requests.
  *
- * La synchronisation est une interrogation périodique incrémentale, et c'est la
- * voie définitive et non un repli : aucun plugin webhook n'est déployable sur
- * l'instance ([B6](../../docs/02-blocages-et-decisions.md#b6)).
+ * The synchronisation is a periodic incremental query, and it is the definitive path and not a
+ * fallback: no webhook plugin can be deployed on the instance.
  */
 
-// redminePageSize est la taille de page demandée à Redmine.
+// redminePageSize is the page size asked of Redmine.
 //
-// Cent est le plafond de l'API : demander davantage est silencieusement ramené à
-// vingt-cinq, ce qui multiplierait le nombre d'allers-retours par quatre sans
-// aucun message.
+// A hundred is the API's ceiling: asking for more is silently brought back to twenty-five, which
+// would multiply the number of round trips by four with no message at all.
 const redminePageSize = 100
 
-// ListVersions rend les versions d'un projet.
+// ListVersions returns a project's versions.
 //
-// Non paginé du côté de Redmine, qui rend toutes les versions d'un projet en une
-// réponse. La borne de lecture du corps protège du cas où ce ne serait plus vrai.
+// Not paginated on Redmine's side, which returns all of a project's versions in one response. The
+// body's reading bound protects against the case where that stops being true.
 func (c *Client) ListVersions(ctx context.Context, project string) ([]provider.Version, error) {
 	if project == "" {
-		return nil, fmt.Errorf("redmine: projet non renseigné")
+		return nil, fmt.Errorf("redmine: project not set")
 	}
 
 	body, err := c.get(ctx, "/projects/"+url.PathEscape(project)+"/versions.json", nil)
@@ -51,7 +49,7 @@ func (c *Client) ListVersions(ctx context.Context, project string) ([]provider.V
 		} `json:"versions"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("redmine: liste des versions illisible: %w", err)
+		return nil, fmt.Errorf("redmine: list of versions unreadable: %w", err)
 	}
 
 	versions := make([]provider.Version, 0, len(payload.Versions))
@@ -66,18 +64,17 @@ func (c *Client) ListVersions(ctx context.Context, project string) ([]provider.V
 	return versions, nil
 }
 
-// ListIssues rend les demandes correspondant à la requête, toutes pages réunies.
+// ListIssues returns the requests matching the query, all pages together.
 //
-// `status_id=*` est indispensable : sans lui, Redmine ne rend que les demandes
-// ouvertes, et une version terminée paraîtrait vide. C'est le genre de défaut
-// silencieux qui se lit comme une perte de données.
+// `status_id=*` is essential: without it, Redmine returns only the open requests, and a finished
+// version would look empty. It is the kind of silent defect that reads as data loss.
 //
-// Le tri est imposé sur `updated_on` croissant. Sans ordre stable, une demande
-// modifiée pendant la pagination peut changer de page et échapper à la lecture —
-// et c'est précisément la demande qui vient de bouger qu'on cherche.
+// The sort is forced on `updated_on` ascending. With no stable order, a request modified during
+// the pagination can change page and escape the read — and it is precisely the request that has
+// just moved that is being looked for.
 func (c *Client) ListIssues(ctx context.Context, query provider.IssueQuery) ([]provider.Issue, error) {
 	if query.Project == "" {
-		return nil, fmt.Errorf("redmine: projet non renseigné")
+		return nil, fmt.Errorf("redmine: project not set")
 	}
 
 	var issues []provider.Issue
@@ -89,8 +86,7 @@ func (c *Client) ListIssues(ctx context.Context, query provider.IssueQuery) ([]p
 		params.Set("limit", strconv.Itoa(redminePageSize))
 		params.Set("offset", strconv.Itoa(offset))
 		if !query.Since.IsZero() {
-			// Redmine attend un opérateur dans la valeur ; `url.Values` encode le
-			// `>=` correctement.
+			// Redmine expects an operator in the value; `url.Values` encodes the `>=` correctly.
 			params.Set("updated_on", ">="+query.Since.UTC().Format(time.RFC3339))
 		}
 
@@ -105,9 +101,9 @@ func (c *Client) ListIssues(ctx context.Context, query provider.IssueQuery) ([]p
 		}
 		issues = append(issues, page...)
 
-		// Arrêt sur page vide autant que sur total atteint : une page vide alors que
-		// le total annonce davantage signalerait une incohérence côté Redmine, et
-		// boucler dessus tournerait sans fin.
+		// Stop on an empty page as much as on the total being reached: an empty page while the total
+		// announces more would signal an inconsistency on Redmine's side, and looping on it would run
+		// forever.
 		offset += len(page)
 		if len(page) == 0 || offset >= total {
 			return issues, nil
@@ -142,14 +138,14 @@ func decodeIssues(body []byte) ([]provider.Issue, int, error) {
 		} `json:"issues"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, 0, fmt.Errorf("redmine: liste des demandes illisible: %w", err)
+		return nil, 0, fmt.Errorf("redmine: list of requests unreadable: %w", err)
 	}
 
 	issues := make([]provider.Issue, 0, len(payload.Issues))
 	for _, raw := range payload.Issues {
 		issue := provider.Issue{
-			// Redmine numérote ; la frontière parle en texte, pour qu'un outil qui
-			// écrit `MSE-1234` puisse la franchir aussi.
+			// Redmine numbers; the boundary speaks in text, so that a tool writing `MSE-1234` can cross it
+			// too.
 			ID: strconv.FormatInt(raw.ID, 10), Subject: raw.Subject,
 			Tracker:      raw.Tracker.Name,
 			Status:       raw.Status.Name,
@@ -159,8 +155,8 @@ func decodeIssues(body []byte) ([]provider.Issue, int, error) {
 			DoneRatio:    raw.DoneRatio,
 			UpdatedOn:    parseTime(raw.UpdatedOn),
 		}
-		// Une demande sans version est le cas courant : le rattachement à une
-		// version est un geste de planification qui n'a pas toujours eu lieu.
+		// A request with no version is the common case: attaching to a version is an act of planning that
+		// has not always happened.
 		if raw.FixedVersion != nil {
 			id := strconv.FormatInt(raw.FixedVersion.ID, 10)
 			issue.VersionID = &id
@@ -176,9 +172,8 @@ func parseTime(raw string) *time.Time {
 	}
 	parsed, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
-		// Un horodatage illisible ne doit pas faire échouer la synchronisation
-		// entière : l'absence se traduit par une resynchronisation complète au
-		// prochain passage, ce qui est coûteux mais correct.
+		// An unreadable timestamp must not fail the whole synchronisation: its absence translates into a
+		// complete resynchronisation at the next pass, which is expensive but correct.
 		return nil
 	}
 	return &parsed

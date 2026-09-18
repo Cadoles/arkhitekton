@@ -14,48 +14,44 @@ import (
 )
 
 /*
- * Accès à Redmine, en lecture et rien d'autre.
+ * Access to Redmine, read-only and nothing else.
  *
- * L'instance visée est celle de **production** : elle porte les demandes réelles
- * du client, et le dashboard n'a aucune raison d'y écrire. Créer une version,
- * fermer une demande, poster une note — tout cela reste un geste humain fait dans
- * Redmine.
+ * The instance targeted is the **production** one: it carries the client's real requests, and
+ * the dashboard has no reason to write to it. Creating a version, closing a request, posting a
+ * note — all that stays a human act performed in Redmine.
  *
- * Cette interdiction n'est pas confiée à la discipline des appelants. Elle est
- * portée par le transport : toute requête qui n'est pas une lecture est refusée
- * avant d'atteindre le réseau. Un futur appelant qui tenterait un POST obtiendrait
- * une erreur immédiate, en développement comme en production, au lieu de modifier
- * une base dont on ne dispose pas de sauvegarde.
+ * This prohibition is not entrusted to the callers' discipline. It is carried by the transport:
+ * any request that is not a read is refused before reaching the network. A future caller
+ * attempting a POST would get an immediate error, in development as in production, instead of
+ * modifying a database of which no backup is held.
  *
- * Le choix du transport plutôt que d'une revue de code est délibéré : une revue
- * peut manquer un appel, un `RoundTrip` ne peut pas être contourné sans
- * réécrire la construction du client.
+ * Choosing the transport rather than a code review is deliberate: a review can miss a call, a
+ * `RoundTrip` cannot be bypassed without rewriting the client's construction.
  */
 
-// ErrWriteForbidden signale une tentative d'écriture sur Redmine.
+// ErrWriteForbidden reports an attempt to write to Redmine.
 //
-// Cette erreur n'est pas un cas d'exécution normal à traiter : c'est le signe
-// qu'un appelant a été écrit contre le contrat de ce paquet. Elle porte la méthode
-// et le chemin pour que la faute soit trouvable, sans jamais porter la clé.
+// This error is not a normal runtime case to handle: it is the sign that a caller was written
+// against this package's contract. It carries the method and the path so that the fault can be
+// found, without ever carrying the key.
 var ErrWriteForbidden = fmt.Errorf("redmine: %w", provider.ErrWriteForbidden)
 
-// ErrNotConfigured signale l'absence d'URL ou de clé d'API.
+// ErrNotConfigured reports a missing URL or API key.
 var ErrNotConfigured = fmt.Errorf("redmine: %w", provider.ErrNotConfigured)
 
-// readOnlyTransport interdit l'écriture et porte l'authentification.
+// readOnlyTransport forbids writing and carries the authentication.
 //
-// Les deux responsabilités sont réunies à dessein : la clé n'est ajoutée qu'ici,
-// donc aucun appelant n'a l'occasion de la placer ailleurs — notamment pas dans
-// une chaîne de requête, où elle finirait dans les journaux d'accès du serveur et
-// dans l'`url.Error` de toute requête en échec.
+// The two responsibilities are brought together deliberately: the key is added only here, so no
+// caller has the opportunity to put it elsewhere — notably not in a query string, where it would
+// end up in the server's access logs and in the `url.Error` of any failed request.
 type readOnlyTransport struct {
 	next   http.RoundTripper
 	apiKey string
 }
 
-// Méthodes de lecture. `HEAD` est admis parce qu'il ne modifie rien ; il ne sert
-// pas aujourd'hui, mais l'exclure obligerait à revenir ici pour un test de
-// joignabilité, ce qui est exactement le genre de retouche où la garde saute.
+// Reading methods. `HEAD` is allowed because it changes nothing; it is not used today, but
+// excluding it would force coming back here for a reachability test, which is exactly the kind of
+// touch-up where the guard is dropped.
 var readMethods = map[string]bool{
 	http.MethodGet:  true,
 	http.MethodHead: true,
@@ -63,19 +59,17 @@ var readMethods = map[string]bool{
 
 func (t *readOnlyTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	if !readMethods[request.Method] {
-		// Refus avant tout contact réseau. Le message nomme la méthode et le
-		// chemin, jamais la requête complète : une chaîne de requête peut porter
-		// des identifiants de demandes, et le principe reste de ne pas recopier
-		// dans un journal ce qu'on n'a pas choisi d'y mettre.
+		// Refusal before any network contact. The message names the method and the path, never the whole
+		// request: a query string may carry request identifiers, and the principle stays not to copy into
+		// a log what one did not choose to put there.
 		return nil, fmt.Errorf("%w (%s %s)", ErrWriteForbidden, request.Method, request.URL.Path)
 	}
 
-	// L'en-tête, et non `?key=` : une chaîne de requête est journalisée par le
-	// serveur, conservée dans les caches intermédiaires et recopiée dans les
-	// messages d'erreur du client Go.
+	// The header, and not `?key=`: a query string is logged by the server, kept in intermediate
+	// caches and copied into the Go client's error messages.
 	//
-	// La requête est clonée : muter celle de l'appelant est interdit par le
-	// contrat de RoundTripper, et laisserait la clé dans un objet qu'il détient.
+	// The request is cloned: mutating the caller's is forbidden by the RoundTripper contract, and
+	// would leave the key in an object the caller holds.
 	authenticated := request.Clone(request.Context())
 	authenticated.Header.Set("X-Redmine-API-Key", t.apiKey)
 	authenticated.Header.Set("Accept", "application/json")
@@ -83,9 +77,9 @@ func (t *readOnlyTransport) RoundTrip(request *http.Request) (*http.Response, er
 	return t.next.RoundTrip(authenticated)
 }
 
-// Client réalise [provider.Tracker], et cette assertion n'est pas décorative :
-// elle fait qu'une méthode retirée d'ici, ou une signature qui dérive de ce que
-// la frontière annonce, casse à la compilation plutôt qu'au premier appel.
+// Client implements [provider.Tracker], and this assertion is not decorative: it makes a method
+// removed from here, or a signature drifting from what the boundary announces, break at compile
+// time rather than at the first call.
 var _ provider.Tracker = (*Client)(nil)
 
 // Client interroge Redmine en lecture.
@@ -94,24 +88,23 @@ type Client struct {
 	http    *http.Client
 }
 
-// Options porte la configuration d'un client.
+// Options carries a client's configuration.
 type Options struct {
 	// URL de l'instance, par exemple `https://redmine.example.org`.
 	URL string
-	// APIKey est la clé d'API d'un compte Redmine. Elle ne doit apparaître ni dans
-	// un log, ni dans un message d'erreur, ni dans une URL.
+	// APIKey is a Redmine account's API key. It must appear neither in a log, nor in an error
+	// message, nor in a URL.
 	APIKey string
-	// Timeout borne un appel. Redmine sous charge répond parfois en plusieurs
-	// secondes ; sans borne, une lenteur de Redmine deviendrait une lenteur du
-	// dashboard.
+	// Timeout bounds a call. Redmine under load sometimes answers in several seconds; with no bound,
+	// a slow Redmine would become a slow dashboard.
 	Timeout time.Duration
 }
 
-// New construit un client en lecture seule.
+// New builds a read-only client.
 //
-// Rend [ErrNotConfigured] si l'URL ou la clé manquent, plutôt qu'un client qui
-// échouerait au premier appel : l'absence de configuration est une décision de
-// déploiement, et le dashboard doit pouvoir tourner sans Redmine.
+// Returns [ErrNotConfigured] if the URL or the key is missing, rather than a client that would
+// fail at the first call: the absence of configuration is a deployment decision, and the
+// dashboard must be able to run without Redmine.
 func New(options Options) (*Client, error) {
 	if strings.TrimSpace(options.URL) == "" || strings.TrimSpace(options.APIKey) == "" {
 		return nil, ErrNotConfigured
@@ -122,9 +115,9 @@ func New(options Options) (*Client, error) {
 		return nil, fmt.Errorf("redmine: URL invalide: %w", err)
 	}
 	if base.Scheme != "https" && base.Hostname() != "localhost" && base.Hostname() != "127.0.0.1" {
-		// La clé voyage à chaque requête. En clair sur le réseau, elle est lisible
-		// par tout intermédiaire, et il s'agit ici d'un accès à la production.
-		return nil, fmt.Errorf("redmine: %s exige https", base.Redacted())
+		// The key travels with every request. In clear text over the network, it is readable by any
+		// intermediary, and this is access to production.
+		return nil, fmt.Errorf("redmine: %s requires https", base.Redacted())
 	}
 
 	timeout := options.Timeout
@@ -141,11 +134,11 @@ func New(options Options) (*Client, error) {
 	}, nil
 }
 
-// get lit une ressource et rend son corps.
+// get reads a resource and returns its body.
 //
-// Seul point de sortie réseau du paquet : toute lecture passe par ici, ce qui
-// donne un endroit unique pour le traitement des codes d'erreur, et un endroit
-// unique à relire pour vérifier qu'aucune écriture n'est possible.
+// The package's only network exit: every read passes through here, which gives a single place
+// for handling the error codes, and a single place to re-read in order to check that no write is
+// possible.
 func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	target := c.baseURL.JoinPath(path)
 	if len(query) > 0 {
@@ -154,55 +147,54 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("redmine: requête: %w", err)
+		return nil, fmt.Errorf("redmine: request: %w", err)
 	}
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("redmine: appel à %s: %w", target.Redacted(), err)
+		return nil, fmt.Errorf("redmine: call to %s: %w", target.Redacted(), err)
 	}
 	defer response.Body.Close()
 
 	switch {
 	case response.StatusCode == http.StatusUnauthorized, response.StatusCode == http.StatusForbidden:
-		// Distingué du reste : c'est presque toujours une clé absente, révoquée ou
-		// sans droit sur le projet, et non une panne de Redmine.
-		return nil, fmt.Errorf("redmine: accès refusé sur %s (%d) — clé invalide ou sans droit sur le projet",
+		// Told apart from the rest: it is almost always a key that is absent, revoked or without rights
+		// on the project, and not a Redmine outage.
+		return nil, fmt.Errorf("redmine: access refused on %s (%d) — invalid key or without rights on the project",
 			target.Path, response.StatusCode)
 	case response.StatusCode == http.StatusNotFound:
 		return nil, fmt.Errorf("redmine: %s introuvable", target.Path)
 	case response.StatusCode >= 300:
-		return nil, fmt.Errorf("redmine: %s a répondu %d", target.Path, response.StatusCode)
+		return nil, fmt.Errorf("redmine: %s answered %d", target.Path, response.StatusCode)
 	}
 
-	// 8 Mio : une liste de demandes paginée tient largement dedans, et une réponse
-	// inattendue ne doit pas pouvoir épuiser la mémoire du processus.
+	// 8 MiB: a paginated list of requests fits amply within it, and an unexpected response must not
+	// be able to exhaust the process's memory.
 	body, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
 	if err != nil {
-		return nil, fmt.Errorf("redmine: lecture de la réponse de %s: %w", target.Path, err)
+		return nil, fmt.Errorf("redmine: reading the response from %s: %w", target.Path, err)
 	}
 	return body, nil
 }
 
-// CheckAccess vérifie la clé et rend le compte auquel elle appartient.
+// CheckAccess checks the key and returns the account it belongs to.
 //
-// `/users/current.json` est la lecture canonique pour valider une clé d'API : elle
-// ne coûte rien à Redmine et ne touche à rien. C'est ce qui permet de dire « la clé
-// est bonne » sans avoir à tenter une opération réelle.
+// `/users/current.json` is the canonical read for validating an API key: it costs Redmine
+// nothing and touches nothing. It is what allows saying "the key is good" without having to
+// attempt a real operation.
 //
-// Le champ `admin` est rendu parce qu'il mérite d'être vu : une clé d'administrateur
-// donne bien plus que ce dont le dashboard a besoin. Le transport en lecture seule
-// empêche d'en abuser depuis ici, mais une clé trop puissante reste une clé trop
-// puissante — mieux vaut le savoir et demander un compte restreint.
+// The `admin` field is returned because it deserves to be seen: an administrator key gives far
+// more than the dashboard needs. The read-only transport stops it being abused from here, but an
+// over-powerful key stays an over-powerful key — better to know it and ask for a restricted
+// account.
 func (c *Client) CheckAccess(ctx context.Context) (provider.Account, error) {
 	body, err := c.get(ctx, "/users/current.json", nil)
 	if err != nil {
 		return provider.Account{}, err
 	}
 
-	// Structure de fil, distincte du type de frontière : les noms de champs sont
-	// ceux de Redmine, et les exposer obligerait toute autre réalisation à les
-	// reprendre.
+	// A wire structure, distinct from the boundary type: the field names are Redmine's, and exposing
+	// them would force any other implementation to take them on.
 	var payload struct {
 		User struct {
 			ID    int64  `json:"id"`
@@ -211,7 +203,7 @@ func (c *Client) CheckAccess(ctx context.Context) (provider.Account, error) {
 		} `json:"user"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return provider.Account{}, fmt.Errorf("redmine: réponse de /users/current.json illisible: %w", err)
+		return provider.Account{}, fmt.Errorf("redmine: response from /users/current.json unreadable: %w", err)
 	}
 	return provider.Account{
 		ID: payload.User.ID, Login: payload.User.Login, Admin: payload.User.Admin,

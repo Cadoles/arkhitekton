@@ -1,21 +1,19 @@
-// Package bench lit les résultats de tests de charge et les rend comparables.
+// Package bench reads load-test results and makes them comparable.
 //
-// Deux responsabilités, et la seconde est la moins évidente.
+// Two responsibilities, and the second is the less obvious.
 //
-// Lire un résumé k6 est mécanique. **Décider si une mesure est comparable** ne
-// l'est pas : le cluster qui héberge Tekton est aussi celui de l'environnement de
-// test de charge ([B16]). Un build, un audit Trivy ou une campagne E2E qui tourne
-// pendant la mesure la fausse autant que le générateur l'aurait fait — c'est un
-// problème de voisinage, pas de génération, et sortir le runner du cluster ne le
-// résout qu'à moitié.
+// Reading a k6 summary is mechanical. **Deciding whether a measurement is comparable** is not:
+// the cluster hosting Tekton is also that of the load-test environment. A build, a Trivy audit
+// or an E2E campaign running during the measurement skews it as much as the generator would have
+// — it is a problem of neighbourhood, not of generation, and moving the runner out of the
+// cluster only half solves it.
 //
-// La conséquence est directe : une courbe de tendance sur six points dont les
-// conditions varient ne veut rien dire. Ce paquet porte donc la règle qui rend la
-// comparaison honnête — seules les mesures prises en exclusivité entrent dans la
-// comparaison à la baseline ; les autres sont conservées, affichées, et marquées
-// non comparables.
+// The consequence is direct: a trend curve over six points whose conditions vary means nothing.
+// This package therefore carries the rule that makes the comparison honest — only the
+// measurements taken under exclusivity enter the comparison with the baseline; the others are
+// kept, displayed, and marked as not comparable.
 //
-// Tout y est pur : ni base, ni cluster, ni réseau.
+// Everything here is pure: no database, no cluster, no network.
 package bench
 
 import (
@@ -25,75 +23,72 @@ import (
 	"strings"
 )
 
-// Metric nomme une métrique k6 et la façon de la lire.
+// Metric names a k6 metric and how to read it.
 type Metric struct {
-	// Name est le nom de la métrique k6 (`http_req_duration`).
+	// Name is the k6 metric's name (`http_req_duration`).
 	Name string
-	// Stat est la statistique retenue (`p(95)`, `rate`, `count`, `avg`).
+	// Stat is the statistic kept (`p(95)`, `rate`, `count`, `avg`).
 	Stat string
-	// Label est ce qui s'affiche.
+	// Label is what is displayed.
 	Label string
 	Unit  string
-	// LowerBetter inverse le sens de la comparaison. Une latence baisse, un débit
-	// monte : confondre les deux fait afficher « conforme » sur une régression.
+	// LowerBetter inverts the direction of the comparison. A latency goes down, a throughput goes
+	// up: confusing the two displays "conforming" on a regression.
 	LowerBetter bool
-	// Volume marque la métrique de volume total, qui peut dégrader le verdict d'une
-	// autre sans jamais l'améliorer.
+	// Volume marks the total-volume metric, which may degrade another's verdict without ever
+	// improving it.
 	Volume bool
 }
 
-// DefaultMetrics est le jeu retenu par défaut.
+// DefaultMetrics is the set kept by default.
 //
-// Quatre mesures et pas davantage : la maquette affiche un panneau, pas un
-// tableau de bord d'observabilité. Chacune répond à une question qu'on se pose
-// avant de livrer — est-ce lent, est-ce lent pour les plus malchanceux, combien
-// on encaisse, et est-ce que ça casse.
+// Four measurements and no more: the mock-up displays a panel, not an observability dashboard.
+// Each answers a question one asks before delivering — is it slow, is it slow for the unluckiest,
+// how much does it take, and does it break.
 var DefaultMetrics = []Metric{
 	{Name: "http_req_duration", Stat: "p(95)", Label: "Latence p95", Unit: "ms", LowerBetter: true},
 	{Name: "http_req_duration", Stat: "med", Label: "Latence médiane", Unit: "ms", LowerBetter: true},
 	{Name: "http_reqs", Stat: "rate", Label: "Débit", Unit: "req/s"},
-	// Le volume total : un débit instantané conforme obtenu en traitant moins de
-	// requêtes n'est pas un succès.
+	// The total volume: a conforming instantaneous throughput obtained by handling fewer requests is
+	// not a success.
 	{Name: "http_reqs", Stat: "count", Label: "Requêtes", Unit: "req", Volume: true},
 	{Name: "http_req_failed", Stat: "rate", Label: "Taux d'échec", Unit: "%", LowerBetter: true},
 }
 
-// Measure est une mesure lisible, prête à être comparée.
+// Measure is a readable measurement, ready to be compared.
 type Measure struct {
 	Metric string `json:"metric"`
 	Label  string `json:"label"`
 	Unit   string `json:"unit"`
 	Value  float64
-	// LowerBetter est recopié depuis la métrique : la mesure enregistrée doit
-	// pouvoir être relue et comparée sans reconstruire le catalogue de métriques,
-	// qui aura pu changer entre-temps.
+	// LowerBetter is copied from the metric: the recorded measurement must be re-readable and
+	// comparable without rebuilding the metrics catalogue, which may have changed in the meantime.
 	LowerBetter bool
 	Volume      bool
-	// ThresholdOK reprend le verdict que k6 rend lui-même sur ses seuils
-	// déclarés. Distinct de la comparaison à la baseline : k6 dit « le contrat est
-	// tenu », la baseline dit « c'est aussi bon qu'avant ». Les deux peuvent se
-	// contredire, et l'ignorer perdrait l'information la plus directe.
+	// ThresholdOK takes the verdict k6 itself gives on its declared thresholds. Distinct from the
+	// comparison with the baseline: k6 says "the contract is met", the baseline says "it is as good
+	// as before". The two can contradict each other, and ignoring it would lose the most direct
+	// piece of information.
 	ThresholdOK *bool
 }
 
-// Summary est le résultat d'une campagne.
+// Summary is a campaign's result.
 type Summary struct {
 	Scenario string
 	Measures []Measure
-	// VUs est le nombre d'utilisateurs virtuels au pic. Contexte de lecture :
-	// comparer deux mesures prises à des charges différentes n'a pas de sens.
+	// VUs is the number of virtual users at peak. Reading context: comparing two measurements taken
+	// at different loads makes no sense.
 	VUs int
-	// ThresholdsFailed liste les seuils k6 non tenus, dans l'ordre de lecture.
+	// ThresholdsFailed lists the k6 thresholds not met, in reading order.
 	ThresholdsFailed []string
 }
 
-// k6Metric couvre les deux formes de résumé produites par k6.
+// k6Metric covers both forms of summary k6 produces.
 //
-// `--summary-export` écrit les statistiques à plat dans l'objet de la métrique ;
-// `handleSummary` les range sous `values` et ajoute `type` et `thresholds`. Les
-// deux existent dans la nature — une Task écrite il y a deux ans emploie la
-// première —, et refuser l'une ferait échouer la collecte sur un détail
-// d'invocation.
+// `--summary-export` writes the statistics flat into the metric's object; `handleSummary` files
+// them under `values` and adds `type` and `thresholds`. Both exist in the wild — a Task written
+// two years ago uses the first — and refusing either would fail the collection over a detail of
+// invocation.
 type k6Metric struct {
 	Type       string                `json:"type"`
 	Contains   string                `json:"contains"`
@@ -109,18 +104,18 @@ type k6Summary struct {
 	Metrics map[string]json.RawMessage `json:"metrics"`
 }
 
-// ErrNoMetrics signale un résumé sans métrique exploitable.
+// ErrNoMetrics reports a summary with no usable metric.
 type ErrNoMetrics struct{ Scenario string }
 
 func (e ErrNoMetrics) Error() string {
-	return fmt.Sprintf("résumé k6 du scénario %q: aucune métrique exploitable", e.Scenario)
+	return fmt.Sprintf("k6 summary of scenario %q: no usable metric", e.Scenario)
 }
 
-// ParseSummary lit un résumé k6.
+// ParseSummary reads a k6 summary.
 //
-// Une métrique attendue mais absente n'est pas une erreur : un scénario peut ne
-// pas produire de requêtes HTTP. Elle est simplement omise, et le panneau
-// affichera « non mesuré » — ce qui est exact, alors qu'un zéro serait faux.
+// An expected but absent metric is not an error: a scenario may produce no HTTP request. It is
+// simply omitted, and the panel will display "not measured" — which is accurate, where a zero
+// would be wrong.
 func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error) {
 	if len(metrics) == 0 {
 		metrics = DefaultMetrics
@@ -128,7 +123,7 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 
 	var summary k6Summary
 	if err := json.Unmarshal(raw, &summary); err != nil {
-		return Summary{}, fmt.Errorf("résumé k6 du scénario %q illisible: %w", scenario, err)
+		return Summary{}, fmt.Errorf("k6 summary of scenario %q unreadable: %w", scenario, err)
 	}
 
 	result := Summary{Scenario: scenario}
@@ -142,7 +137,7 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 
 		values, thresholds, err := decodeMetric(raw)
 		if err != nil {
-			return Summary{}, fmt.Errorf("métrique %q du scénario %q: %w", metric.Name, scenario, err)
+			return Summary{}, fmt.Errorf("metric %q of scenario %q: %w", metric.Name, scenario, err)
 		}
 
 		value, measured := values[metric.Stat]
@@ -156,8 +151,8 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 			Value: value, LowerBetter: metric.LowerBetter, Volume: metric.Volume,
 		}
 
-		// Un taux k6 vaut 0..1 ; l'afficher en pourcentage évite un « 0.02 % »
-		// qui se lit comme deux centièmes de pour cent.
+		// A k6 rate is 0..1; displaying it as a percentage avoids a "0.02%" that reads as two hundredths
+		// of a percent.
 		if metric.Unit == "%" {
 			measure.Value = value * 100
 		}
@@ -175,8 +170,7 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 
 	if raw, present := summary.Metrics["vus_max"]; present {
 		if values, _, err := decodeMetric(raw); err == nil {
-			// `value` sur une jauge, `max` sur une série : les deux formes
-			// existent selon la version de k6.
+			// `value` on a gauge, `max` on a series: both forms exist depending on the k6 version.
 			if peak, found := values["value"]; found {
 				result.VUs = int(peak)
 			} else if peak, found := values["max"]; found {
@@ -188,9 +182,8 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 	for name := range failed {
 		result.ThresholdsFailed = append(result.ThresholdsFailed, name)
 	}
-	// Ordre stable : un ensemble de seuils identiques doit produire le même
-	// document deux fois de suite, sans quoi toute comparaison de sorties est
-	// faussée par l'ordre d'itération d'une map.
+	// A stable order: an identical set of thresholds must produce the same document twice in a row,
+	// otherwise any comparison of outputs is skewed by a map's iteration order.
 	sort.Strings(result.ThresholdsFailed)
 
 	if len(result.Measures) == 0 {
@@ -199,26 +192,26 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 	return result, nil
 }
 
-// decodeMetric lit une métrique dans l'une ou l'autre des formes de k6.
+// decodeMetric reads a metric in either of k6's forms.
 func decodeMetric(raw []byte) (map[string]float64, map[string]k6Threshol, error) {
 	var structured k6Metric
 	if err := json.Unmarshal(raw, &structured); err == nil && structured.Values != nil {
 		return structured.Values, structured.Thresholds, nil
 	}
 
-	// Forme plate : l'objet de la métrique **est** la table des statistiques.
+	// Flat form: the metric's object **is** the table of statistics.
 	var flat map[string]float64
 	if err := json.Unmarshal(raw, &flat); err != nil {
-		return nil, nil, fmt.Errorf("forme de métrique non reconnue: %w", err)
+		return nil, nil, fmt.Errorf("unrecognised metric form: %w", err)
 	}
 	return flat, nil, nil
 }
 
-// ScenarioFromKey déduit un nom de scénario d'une clé d'objet.
+// ScenarioFromKey derives a scenario name from an object key.
 //
-// Le runner publie sous une clé que le dashboard a calculée ; le nom du fichier
-// porte le scénario. Faute de mieux, le nom de l'objet vaut nom de scénario —
-// mieux qu'un scénario vide, qui empêcherait tout historique.
+// The runner publishes under a key the dashboard computed; the file name carries the scenario.
+// Failing anything better, the object's name serves as the scenario name — better than an empty
+// scenario, which would prevent any history.
 func ScenarioFromKey(key string) string {
 	name := key
 	if index := strings.LastIndex(name, "/"); index >= 0 {

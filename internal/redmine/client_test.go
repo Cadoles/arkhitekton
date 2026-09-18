@@ -9,10 +9,9 @@ import (
 	"testing"
 )
 
-// La garantie que ce paquet doit tenir : aucune méthode d'écriture n'atteint le
-// réseau. Vérifiée sur un serveur qui compte ce qu'il reçoit — si une requête
-// passait, le compteur le dirait.
-func TestAucuneEcritureNAtteintLeReseau(t *testing.T) {
+// The guarantee this package must hold: no write method reaches the network. Checked against a
+// server that counts what it receives — if a request went through, the counter would say so.
+func TestNoWriteReachesTheNetwork(t *testing.T) {
 	reached := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		reached++
@@ -28,23 +27,23 @@ func TestAucuneEcritureNAtteintLeReseau(t *testing.T) {
 	} {
 		request, err := http.NewRequestWithContext(context.Background(), method, server.URL+"/issues.json", nil)
 		if err != nil {
-			t.Fatalf("requête %s: %v", method, err)
+			t.Fatalf("request %s: %v", method, err)
 		}
 
 		_, err = client.http.Do(request)
 		if !errors.Is(err, ErrWriteForbidden) {
-			t.Errorf("%s: erreur %v, attendu ErrWriteForbidden", method, err)
+			t.Errorf("%s: error %v, expected ErrWriteForbidden", method, err)
 		}
 	}
 
 	if reached != 0 {
-		t.Errorf("%d requête(s) d'écriture ont atteint le serveur", reached)
+		t.Errorf("%d write request(s) reached the server", reached)
 	}
 }
 
-// La lecture, elle, doit passer : une garde qui bloque tout ne protège rien, elle
-// casse.
-func TestLaLectureEstAutorisee(t *testing.T) {
+// Reading, on the other hand, must go through: a guard that blocks everything protects nothing,
+// it breaks.
+func TestReadingIsAllowed(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte(`{"user":{"id":7,"login":"lecteur","admin":false}}`))
 	}))
@@ -59,9 +58,9 @@ func TestLaLectureEstAutorisee(t *testing.T) {
 	}
 }
 
-// La clé voyage en en-tête et jamais dans l'URL : une chaîne de requête est
-// journalisée par le serveur et recopiée dans les messages d'erreur du client Go.
-func TestLaCleVoyageEnEnteteEtJamaisDansLURL(t *testing.T) {
+// The key travels in a header and never in the URL: a query string is logged by the server and
+// copied into the Go client's error messages.
+func TestTheKeyTravelsInTheHeaderAndNeverInTheURL(t *testing.T) {
 	var seenHeader, seenQuery string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenHeader = r.Header.Get("X-Redmine-API-Key")
@@ -74,19 +73,19 @@ func TestLaCleVoyageEnEnteteEtJamaisDansLURL(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 
-	if seenHeader != "cle-de-test" {
-		t.Errorf("en-tête d'authentification %q", seenHeader)
+	if seenHeader != "test-key" {
+		t.Errorf("authentication header %q", seenHeader)
 	}
-	if strings.Contains(seenQuery, "cle-de-test") {
-		t.Errorf("la clé est passée dans la chaîne de requête: %q", seenQuery)
+	if strings.Contains(seenQuery, "test-key") {
+		t.Errorf("the key was passed in the query string: %q", seenQuery)
 	}
 }
 
-// La clé ne doit apparaître dans aucun message d'erreur : c'est le chemin par
-// lequel un secret finit le plus souvent dans un journal.
-func TestAucuneErreurNePorteLaCle(t *testing.T) {
-	// Un serveur fermé aussitôt, pour provoquer une erreur de transport — le cas où
-	// le client Go recopie l'URL complète dans son `url.Error`.
+// The key must appear in no error message: it is the path by which a secret most often ends up in
+// a log.
+func TestNoErrorCarriesTheKey(t *testing.T) {
+	// A server closed at once, to provoke a transport error — the case where the Go client copies the
+	// whole URL into its `url.Error`.
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	url := server.URL
 	server.Close()
@@ -95,23 +94,23 @@ func TestAucuneErreurNePorteLaCle(t *testing.T) {
 
 	_, err := client.CheckAccess(context.Background())
 	if err == nil {
-		t.Fatal("un serveur fermé devrait produire une erreur")
+		t.Fatal("a closed server should produce an error")
 	}
-	if strings.Contains(err.Error(), "cle-de-test") {
-		t.Errorf("la clé fuit dans l'erreur: %v", err)
+	if strings.Contains(err.Error(), "test-key") {
+		t.Errorf("the key leaks into the error: %v", err)
 	}
 
-	// Le refus d'écriture non plus ne doit pas la porter.
+	// The write refusal must not carry it either.
 	request, _ := http.NewRequest(http.MethodPost, url+"/issues.json", nil)
 	_, err = client.http.Do(request)
-	if err != nil && strings.Contains(err.Error(), "cle-de-test") {
-		t.Errorf("la clé fuit dans le refus d'écriture: %v", err)
+	if err != nil && strings.Contains(err.Error(), "test-key") {
+		t.Errorf("the key leaks into the write refusal: %v", err)
 	}
 }
 
-// Sans URL ni clé, le client refuse d'exister plutôt que d'échouer au premier
-// appel : l'absence de configuration est une décision de déploiement.
-func TestSansConfigurationLeClientNestPasConstruit(t *testing.T) {
+// With no URL and no key, the client refuses to exist rather than fail at the first call: the
+// absence of configuration is a deployment decision.
+func TestWithoutConfigurationNoClientIsBuilt(t *testing.T) {
 	for _, options := range []Options{
 		{},
 		{URL: "https://redmine.example.org"},
@@ -119,27 +118,27 @@ func TestSansConfigurationLeClientNestPasConstruit(t *testing.T) {
 		{URL: "   ", APIKey: "   "},
 	} {
 		if _, err := New(options); !errors.Is(err, ErrNotConfigured) {
-			t.Errorf("%+v: erreur %v, attendu ErrNotConfigured", options, err)
+			t.Errorf("%+v: error %v, expected ErrNotConfigured", options, err)
 		}
 	}
 }
 
-// La clé voyage à chaque requête : en clair sur le réseau, elle est lisible par
-// tout intermédiaire, et il s'agit d'un accès à la production.
-func TestUneURLEnClairEstRefuseeHorsLocalhost(t *testing.T) {
+// The key travels with every request: in clear text over the network, it is readable by any
+// intermediary, and this is access to production.
+func TestACleartextURLIsRefusedOutsideLocalhost(t *testing.T) {
 	if _, err := New(Options{URL: "http://redmine.example.org", APIKey: "cle"}); err == nil {
-		t.Error("une URL http distante devrait être refusée")
+		t.Error("a remote http URL should be refused")
 	}
 
-	// localhost reste admis : les tests et un tunnel local n'exposent rien.
+	// localhost stays allowed: the tests and a local tunnel expose nothing.
 	if _, err := New(Options{URL: "http://127.0.0.1:3000", APIKey: "cle"}); err != nil {
-		t.Errorf("127.0.0.1 devrait être admis: %v", err)
+		t.Errorf("127.0.0.1 should be allowed: %v", err)
 	}
 }
 
-// Une clé refusée par Redmine se distingue d'une panne : c'est presque toujours une
-// clé révoquée ou sans droit sur le projet, et le message doit le dire.
-func TestUneCleRefuseeEstNommeeCommeTelle(t *testing.T) {
+// A key refused by Redmine is told apart from an outage: it is almost always a key that is
+// revoked or without rights on the project, and the message must say so.
+func TestARefusedKeyIsNamedAsSuch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
@@ -147,16 +146,16 @@ func TestUneCleRefuseeEstNommeeCommeTelle(t *testing.T) {
 
 	_, err := clientFor(t, server.URL).CheckAccess(context.Background())
 	if err == nil {
-		t.Fatal("un 401 devrait produire une erreur")
+		t.Fatal("a 401 should produce an error")
 	}
-	if !strings.Contains(err.Error(), "clé invalide ou sans droit") {
+	if !strings.Contains(err.Error(), "invalid key or without rights") {
 		t.Errorf("message peu explicite: %v", err)
 	}
 }
 
 func clientFor(t *testing.T, serverURL string) *Client {
 	t.Helper()
-	client, err := New(Options{URL: serverURL, APIKey: "cle-de-test"})
+	client, err := New(Options{URL: serverURL, APIKey: "test-key"})
 	if err != nil {
 		t.Fatalf("construction: %v", err)
 	}
