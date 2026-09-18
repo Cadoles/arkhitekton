@@ -1,37 +1,13 @@
-// Package plugin déclare les extensions du dashboard et ce que chacune attend
-// comme configuration.
+// Package plugin declares the extensions this binary carries and the settings
+// each one expects. See docs/06-plugins.md.
 //
-// # Un registre à la compilation, et rien d'autre
+// The registry is filled at compile time: no init(), no dynamic resolution,
+// nothing loaded at runtime. Installing a plugin means rebuilding the binary.
 //
-// Doc 12 §12.5 tranche le mécanisme : un plugin est un paquet, une installation
-// est une reconstruction. Pas de `plugin` Go, pas de gRPC hors-process, pas de
-// chargement à l'exécution. Ce paquet ne contient donc **aucun** `init()` et
-// aucune résolution dynamique : il énumère ce que ce binaire sait faire.
-//
-// Ce que le registre ajoute par rapport à `internal/provider` : celui-ci nomme le
-// **contrat** qu'une frontière honore — ce qu'on peut demander à un suivi. Celui-
-// ci nomme les **réalisations** disponibles et ce qu'il faut leur fournir pour
-// qu'elles fonctionnent. L'un sert au compilateur, l'autre à l'écran de réglages.
-//
-// # Deux portées, et pourquoi les deux
-//
-// Un plugin sert d'abord les spécificités d'un projet, ce qui plaide pour une
-// configuration par projet. Mais certaines valeurs sont celles de l'instance —
-// l'URL de la forge, le namespace de Flux — et les redemander à chaque projet
-// serait une saisie répétée dont la moindre divergence se paierait en pannes
-// obscures.
-//
-// D'où la règle : le global porte les **valeurs par défaut**, le projet porte ses
-// **écarts**. Un champ vide au niveau d'un projet reprend celui de l'instance, et
-// c'est ce qui permet à un déploiement mono-client de ne rien saisir deux fois
-// tout en laissant un second client déclarer son propre serveur.
-//
-// # Les champs sensibles
-//
-// Un champ marqué [Field.Secret] n'est jamais rendu par l'API, et n'est jamais
-// écrit en clair : il est scellé par `internal/secrets`. L'écran n'en montre que
-// la présence. C'est ce qui rend la saisie d'une clé d'API acceptable depuis une
-// interface web — sans quoi la relire suffirait à la voler.
+// Settings have two scopes. Global values are the instance defaults; project
+// values are its departures from them. An empty project value inherits rather
+// than erases, which is what lets a single-tenant deployment configure nothing
+// twice while a second tenant declares its own server.
 package plugin
 
 import (
@@ -43,33 +19,28 @@ import (
 	"strings"
 )
 
-// Kind est le point d'extension qu'un plugin réalise.
-//
-// Jeu **fermé** : en ajouter un demande du code, pas de la configuration. Tekton n'y figure pas,
-// délibérément — c'est une hypothèse assumée du produit, comme PostgreSQL.
+// Kind is the extension point a plugin implements. The set is closed: adding one
+// takes code, not configuration. Tekton is deliberately absent — it is an
+// assumption of the product, like PostgreSQL.
 type Kind string
 
 const (
-	// KindTracker suit les versions, les demandes et leur avancement.
+	// KindTracker follows versions, issues and their progress.
 	KindTracker Kind = "tracker"
-	// KindForge porte les dépôts, les branches et les tags.
+	// KindForge carries repositories, branches and tags.
 	KindForge Kind = "forge"
-	// KindExporter produit les livrables contractuels.
+	// KindExporter produces contractual deliverables.
 	KindExporter Kind = "exporter"
-	// KindModule apporte un domaine entier : ses écrans, ses routes, ses boucles.
-	//
-	// Il remplace `deployer` et `attester`, qui n'avaient qu'une réalisation
-	// chacun — Flux et PortalData — et n'existent que dans le contexte MSE. Un
-	// plugin qui déploie, atteste et apporte un écran n'entrait dans aucune de ces
-	// cases ; le déclarer « déployeur » passerait le reste sous silence (doc 16).
+	// KindModule brings a whole domain: its screens, its routes, its loops. A
+	// plugin that deploys, attests and adds a screen fits no narrower kind.
 	KindModule Kind = "module"
 )
 
-// ModuleMSE identifie le plugin MSE : environnements, promotion par Flux,
-// attestation par PortalData.
+// ModuleMSE identifies the MSE plugin: environments, Flux promotion, PortalData
+// attestation.
 const ModuleMSE = "mse"
 
-// KindLabel nomme chaque point d'extension en français, pour l'interface.
+// KindLabel names each extension point for the interface.
 var KindLabel = map[Kind]string{
 	KindTracker:  "Suivi",
 	KindForge:    "Forge",
@@ -77,170 +48,134 @@ var KindLabel = map[Kind]string{
 	KindModule:   "Module",
 }
 
-// FieldType dit comment un champ se saisit et se vérifie.
+// FieldType says how a field is typed in and checked.
 type FieldType string
 
 const (
 	FieldText FieldType = "text"
 	FieldURL  FieldType = "url"
 	FieldBool FieldType = "bool"
-	// FieldList est une liste de valeurs, saisie séparée par des virgules et
-	// stockée telle quelle. Le format suit celui des variables d'environnement
-	// qu'elle remplace : une configuration migrée se recopie sans traduction.
+	// FieldList is a comma-separated list, stored as typed. The format matches the
+	// environment variables it replaces, so a migrated configuration is copied
+	// across without translation.
 	FieldList FieldType = "list"
 )
 
-// Field déclare un réglage attendu par un plugin.
+// Field declares one setting a plugin expects.
 type Field struct {
 	Name  string    `json:"name"`
 	Label string    `json:"label"`
 	Type  FieldType `json:"type"`
-	// Help dit à quoi sert le champ, et se lit sous lui. Pas décoratif : c'est ce
-	// qui évite qu'un identifiant de projet soit rempli avec son libellé.
+	// Help is read under the field. It is what keeps a project identifier from
+	// being filled in with the project's label.
 	Help string `json:"help,omitempty"`
-	// Required vaut pour la portée où le champ est déclaré. Un champ obligatoire
-	// au niveau d'un projet peut rester vide s'il est renseigné globalement :
-	// c'est la valeur **résolue** qui doit exister, pas la valeur saisie.
+	// Required applies to the scope where the field is declared. A field required
+	// on a project may be left empty when the instance provides it: what must
+	// exist is the resolved value, not the typed one.
 	Required bool `json:"required,omitempty"`
-	// Secret marque une valeur scellée en base et jamais rendue.
+	// Secret marks a value sealed at rest and never returned.
 	Secret      bool   `json:"secret,omitempty"`
 	Placeholder string `json:"placeholder,omitempty"`
 }
 
-// EventSpec déclare un fait qu'un plugin sait observer.
-//
-// C'est la moitié manquante de l'extensibilité : sans elle, on branche n'importe
-// quelle **conséquence** sur un jeu de **causes** figé, et réagir à un fait que le
-// noyau ne produit pas demande à nouveau de modifier le noyau (doc 14 §14.2).
+// EventSpec declares a fact this plugin can observe. Without it, reactions could
+// only ever be hung off causes the core itself produces.
 type EventSpec struct {
-	// Suffix est le type **sans** son préfixe : `pull_request.opened`.
-	//
-	// Déclaré nu et préfixé par [Descriptor.EventType] : un plugin qui écrirait
-	// son type entier pourrait oublier le préfixe, et deux plugins de forge
-	// produiraient alors des faits indiscernables.
+	// Suffix is the type without its prefix: `pull_request.opened`. It is declared
+	// bare and prefixed by [Descriptor.EventType], so that two forge plugins
+	// cannot produce indistinguishable facts.
 	Suffix string `json:"suffix"`
 	Label  string `json:"label"`
-	// Payload énumère les champs de la charge.
-	//
-	// **Déclarés et non libres**, pour la même raison que les champs de
-	// configuration : c'est ce qui permet à l'éditeur de proposer les appariements
-	// possibles et aux gabarits d'être validés à l'enregistrement, plutôt que de
-	// découvrir à l'exécution qu'on interpole une clé qui n'existe pas.
+	// Payload enumerates the fields of the payload. Declared rather than free-form
+	// so the editor can offer them and templates can be validated when saved,
+	// instead of failing at runtime on a key that does not exist.
 	Payload []Field `json:"payload"`
 }
 
-// ActionField déclare un paramètre attendu par une action de plugin.
+// ActionField declares a parameter an action takes.
 //
-// Distinct de [Field], et pas par étourderie : un réglage de plugin se saisit une
-// fois pour un projet et vaut pour tout ce qu'il fait, tandis qu'un paramètre
-// d'action se saisit **par geste** et admet des gabarits liés à la charge du fait.
-// Les fondre donnerait un type dont la moitié des champs n'aurait pas de sens
-// selon l'endroit où on le lit.
+// Deliberately distinct from [Field]: a setting is typed once per project and
+// governs everything the plugin does, while an action parameter is typed per
+// step and accepts templates bound to the triggering fact's payload.
 type ActionField struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
 	Help  string `json:"help,omitempty"`
-	// Required : la valeur doit être là, éventuellement après interpolation.
+	// Required: the value must be there, possibly after interpolation.
 	Required bool `json:"required,omitempty"`
-	// Template dit que la valeur admet des variables `{clé}`, liées à la charge
-	// du fait déclencheur.
+	// Template says the value accepts `{key}` variables bound to the payload of
+	// the triggering fact.
 	Template bool `json:"template,omitempty"`
-	// OneOf ferme le jeu des valeurs acceptées.
-	//
-	// Déclaré par le plugin plutôt que codé dans la validation : l'état d'un
-	// statut de commit est un vocabulaire de **forge**, et l'écrire ailleurs
-	// ferait qu'une seconde forge aux états différents demanderait de modifier
-	// le validateur pour ajouter un plugin.
+	// OneOf closes the set of accepted values. Declared by the plugin rather than
+	// hard-coded in validation: the states of a commit status are a forge's
+	// vocabulary, so a second forge with different ones must not require editing
+	// the validator.
 	OneOf       []string `json:"one_of,omitempty"`
 	Placeholder string   `json:"placeholder,omitempty"`
 }
 
-// ActionSpec déclare un geste qu'un plugin sait mettre en œuvre.
+// ActionSpec declares a step a plugin can carry out — the counterpart of
+// [EventSpec].
 //
-// Le pendant de [EventSpec], et la moitié qui manquait : un plugin qui constate
-// sans pouvoir agir laisse toute **conséquence** au noyau, et brancher une
-// nouvelle façon d'agir redemande alors de modifier celui-ci — exactement ce que
-// la déclaration des faits avait corrigé dans l'autre sens (doc 14 §14.2).
-//
-// # Aucun champ sensible, et c'est structurel
-//
-// Une action interne **désigne** un jeton, parce qu'elle parle à un destinataire
-// quelconque. Une action de plugin parle à **sa** frontière, dont la connexion est
-// déjà réglée et scellée : elle n'a rien à demander. La conséquence vaut d'être
-// dite — une action de plugin ne peut pas servir à faire sortir un secret vers une
-// cible choisie dans un formulaire, puisqu'elle ne choisit pas sa cible.
+// A plugin action takes no secret field, and that is structural: it talks to its
+// own boundary, whose connection is already configured and sealed. It therefore
+// cannot be used to send a secret to a target chosen in a form, because it does
+// not choose its target.
 type ActionSpec struct {
-	// Suffix est la référence **sans** son préfixe : `status`, `comment`.
-	//
-	// Préfixée par [Descriptor.ActionRef], comme les faits le sont par
-	// [Descriptor.EventType] : deux forges déclarant `status` produiraient sinon
-	// des gestes indiscernables.
+	// Suffix is the reference without its prefix: `status`, `comment`. Prefixed by
+	// [Descriptor.ActionRef], for the same reason facts are.
 	Suffix string `json:"suffix"`
 	Label  string `json:"label"`
-	// Summary dit ce que l'action fait, en une phrase, dans l'éditeur.
+	// Summary says what the action does, in one sentence, in the editor.
 	Summary string        `json:"summary"`
 	Fields  []ActionField `json:"fields"`
 }
 
-// Descriptor déclare un plugin et ses réglages.
+// Descriptor declares a plugin and its settings.
 type Descriptor struct {
 	ID    string `json:"id"`
 	Kind  Kind   `json:"kind"`
 	Label string `json:"label"`
-	// Summary dit ce que le plugin fait, en une phrase, sur l'écran
-	// d'administration.
+	// Summary says what the plugin does, in one sentence, on the administration
+	// screen.
 	Summary string `json:"summary"`
-	// Global énumère les réglages de l'instance, qui servent de défaut.
+	// Global lists the instance settings, which serve as defaults.
 	Global []Field `json:"global"`
-	// Project énumère les réglages qu'un projet peut poser ou surcharger.
-	//
-	// Vide n'empêche pas [Descriptor.PerProject] : un plugin peut se choisir par
-	// projet sans rien avoir à régler — le bon de livraison est dans ce cas, on
-	// veut seulement dire s'il s'applique.
+	// Project lists the settings a project may set or override. Empty does not
+	// preclude PerProject: a plugin can be chosen per project with nothing to
+	// configure.
 	Project []Field `json:"project"`
-	// Events énumère les faits que ce plugin sait observer.
-	//
-	// Vide pour un plugin qui n'observe rien : le bon de livraison produit des
-	// livrables, il ne constate pas.
+	// Events lists the facts this plugin observes. Empty for one that observes
+	// nothing.
 	Events []EventSpec `json:"events,omitempty"`
-	// Actions énumère les gestes que ce plugin sait mettre en œuvre.
-	//
-	// Vide pour un plugin qui ne fait que constater. Observer et agir sont deux
-	// capacités séparées : un attesteur dit ce qui tourne sans rien pouvoir
-	// changer, et lui prêter des actions par symétrie afficherait des gestes que
-	// rien n'exécute.
+	// Actions lists the steps this plugin can carry out. Observing and acting are
+	// separate capabilities: lending actions to an attester for symmetry would
+	// display steps that nothing executes.
 	Actions []ActionSpec `json:"actions,omitempty"`
-	// PerProject dit qu'un projet décide de son activation.
-	//
-	// Faux pour ce qui vaut nécessairement pour toute l'instance : le namespace de
-	// Flux n'est pas une propriété d'un projet, et prétendre le contraire
-	// afficherait un interrupteur qui ne fait rien.
+	// PerProject says a project decides whether this plugin is enabled. False for
+	// what necessarily holds for the whole instance, where a switch would do
+	// nothing.
 	PerProject bool `json:"per_project"`
 }
 
-// Registry énumère les plugins que ce binaire embarque.
+// Registry lists the plugins this binary carries.
 //
-// Une fonction et non une variable : rendre une tranche partagée laisserait un
-// appelant la trier ou y écrire, et le registre suivant en hériterait.
+// A function rather than a variable: returning a shared slice would let a caller
+// sort or write into it, and the next caller would inherit that.
 func Registry() []Descriptor {
 	descriptors := []Descriptor{
 		{
 			ID: "redmine", Kind: KindTracker, Label: "Redmine",
 			Summary: "Versions, demandes et avancement lus dans une instance Redmine.",
-			// Un seul fait propre au plugin, et c'est un retrait assumé.
+			// One plugin-specific fact only. The probe observes two, but the new
+			// version is a core fact — `version.created`, unprefixed — because every
+			// tracker writes versions to the same table, so a reaction on it need not
+			// be rewritten when the tracker changes.
 			//
-			// La sonde en constate bien deux, mais la version est passée au
-			// **noyau** — `version.created`, sans préfixe — parce que tous les
-			// suivis déposent leurs versions dans la même table, et qu'une réaction
-			// déclarée dessus n'a pas à être réécrite le jour où le client change
-			// d'outil (doc 15 §15.3). La déclarer ici en plus la ferait apparaître
-			// deux fois dans l'éditeur, dont une qui ne se déclencherait jamais.
-			//
-			// La demande close reste ici : elle n'a pas d'équivalent au noyau. Et
-			// c'est un **événement** — quelque chose est arrivé une fois. Une
-			// demande qui change de statut n'en est pas un : elle en change dix
-			// fois, et un fait par changement ferait du fil des faits un journal de
-			// saisie.
+			// A closed issue stays here: it has no core equivalent, and it is an
+			// event — something that happened once. A status change is not: it
+			// happens ten times, and one fact per change would turn the feed into a
+			// keystroke log.
 			Events: []EventSpec{
 				{
 					Suffix: "issue.closed",
@@ -254,10 +189,9 @@ func Registry() []Descriptor {
 					},
 				},
 			},
-			// La connexion est déclarée aux deux portées. Globalement, elle sert
-			// de défaut au déploiement mono-client — celui qui existe. Au niveau
-			// d'un projet, elle permet à un second client d'avoir son serveur sans
-			// que le premier ait rien à saisir.
+			// The connection is declared at both scopes: globally as the default,
+			// per project so a second tenant can have its own server without the
+			// first having to type anything.
 			Global: []Field{
 				{
 					Name: "url", Label: "URL de l'instance", Type: FieldURL,
@@ -384,14 +318,12 @@ func Registry() []Descriptor {
 						"que pour poser des tags, des statuts ou des commentaires.",
 				},
 			},
-			// Pas de **réglage** par projet : le dépôt est déjà déclaré dans ses
-			// paramètres généraux, et le redemander ici ferait deux endroits où le
-			// corriger — donc un endroit où oublier.
+			// No per-project settings: the repository is already declared in the
+			// project's own parameters, and asking again here would make two places
+			// to correct it — so one place to forget.
 			//
-			// Mais bien une **activation** par projet, depuis que ce plugin observe :
-			// surveiller les demandes de fusion d'un dépôt est une décision de
-			// projet, même quand la connexion vaut pour toute l'instance. Un projet
-			// qui n'en veut pas doit pouvoir le dire sans priver les autres.
+			// Per-project activation, though: watching a repository's pull requests
+			// is a project's decision, even when the connection is instance-wide.
 			PerProject: true,
 		},
 		{
@@ -425,9 +357,9 @@ func Registry() []Descriptor {
 					Placeholder: "overlays/pipeline",
 				},
 			},
-			// Un projet peut déployer par un autre Flux que celui de l'instance : ses
-			// ImagePolicy et ses Kustomization vivent alors dans un autre namespace
-			// (doc 16 §16.18). Vide, il hérite de l'instance.
+			// A project may deploy through a Flux other than the instance's, with its
+			// ImagePolicy and Kustomization objects in another namespace. Empty
+			// inherits.
 			Project: []Field{
 				{
 					Name: "namespace", Label: "Namespace Flux", Type: FieldText,
@@ -456,8 +388,8 @@ func Registry() []Descriptor {
 					Placeholder: "overlays/pipeline",
 				},
 			},
-			// La promotion est un fait du plugin et non du noyau : c'est lui qui
-			// définit ce qu'est une promotion, donc lui qui la constate.
+			// Promotion is a plugin fact, not a core one: the plugin defines what a
+			// promotion is, so the plugin observes it.
 			Events: []EventSpec{
 				{
 					Suffix: "release.promoted",
@@ -470,17 +402,16 @@ func Registry() []Descriptor {
 					},
 				},
 			},
-			// Par projet : seul un projet qui relève du portail MSE le reçoit. Le
-			// global vaut autorisation et défaut ; éteint sur l'instance, aucun
-			// projet ne le rallume (doc 16 §16.18).
+			// Per project: only a project that belongs to the MSE portal gets it. The
+			// instance switch is both permission and default — switched off there, no
+			// project can switch it back on.
 			PerProject: true,
 		},
 		{
 			ID: "bon-de-livraison", Kind: KindExporter, Label: "Bon de livraison",
 			Summary: "Livrable contractuel récapitulant le périmètre et les vérifications.",
-			// Par projet, et c'est la correction d'un défaut : le bon était proposé
-			// sur toute release, y compris celles de projets qui n'en produisent
-			// aucun.
+			// Per project: it used to be offered on every release, including those of
+			// projects that produce no such deliverable.
 			PerProject: true,
 		},
 	}
@@ -491,13 +422,12 @@ func Registry() []Descriptor {
 	return descriptors
 }
 
-// ErrUnknown signale un identifiant qu'aucun plugin ne porte.
+// ErrUnknown reports an id no plugin carries.
 var ErrUnknown = errors.New("plugin inconnu")
 
-// Get rend le descripteur d'un plugin.
-//
-// L'erreur nomme les plugins connus : chercher lequel existe dans le code source
-// n'est pas une réponse à donner à quelqu'un qui lit un message d'API.
+// Get returns a plugin's descriptor. The error names the known plugins: reading
+// the source to find out which exist is not an answer to give someone looking at
+// an API message.
 func Get(id string) (Descriptor, error) {
 	registry := Registry()
 	for _, descriptor := range registry {
@@ -514,24 +444,19 @@ func Get(id string) (Descriptor, error) {
 		ErrUnknown, id, strings.Join(known, ", "))
 }
 
-// EventType compose le type complet d'un fait de ce plugin.
-//
-// `gitea` + `pull_request.opened` donne `gitea.pull_request.opened`. Deux plugins
-// de forge coexisteront, et une réaction doit dire lequel elle écoute : un type nu
-// deviendrait ambigu au premier ajout, et l'ambiguïté se manifesterait par un plan
-// qui part sur le fait d'un autre.
+// EventType composes the full type of one of this plugin's facts: `gitea` plus
+// `pull_request.opened` gives `gitea.pull_request.opened`. Two forge plugins will
+// coexist, and a reaction must say which one it listens to.
 func (d Descriptor) EventType(spec EventSpec) string {
 	return d.ID + "." + spec.Suffix
 }
 
-// Observes dit si le plugin déclare au moins un fait.
+// Observes says whether the plugin declares at least one fact.
 func (d Descriptor) Observes() bool { return len(d.Events) > 0 }
 
-// EventTypes énumère les types complets déclarés par tous les plugins embarqués.
-//
-// Sert à l'éditeur, qui propose les faits appariables, et à la validation d'une
-// réaction : un type qu'aucun plugin ne déclare est refusé à l'enregistrement
-// plutôt que de rester silencieux pour toujours.
+// EventTypes lists the full types declared by every embedded plugin. It feeds the
+// editor, and the validation of a reaction: a type no plugin declares is refused
+// when saved rather than staying silent forever.
 func EventTypes() []string {
 	var types []string
 	for _, descriptor := range Registry() {
@@ -543,24 +468,24 @@ func EventTypes() []string {
 	return types
 }
 
-// ActionRef rend la référence complète d'une action, préfixée par le plugin.
+// ActionRef returns an action's full reference, prefixed by the plugin.
 func (d Descriptor) ActionRef(spec ActionSpec) string {
 	return d.ID + "." + spec.Suffix
 }
 
-// Acts dit si le plugin déclare au moins une action.
+// Acts says whether the plugin declares at least one action.
 func (d Descriptor) Acts() bool { return len(d.Actions) > 0 }
 
-// FindAction retrouve le plugin qui déclare une référence d'action.
+// FindAction finds the plugin that declares an action reference.
 //
-// La connaissance du préfixe vit ici, avec celle qui le pose : chercher un point
-// dans la référence et prendre ce qui précède est un découpage qu'un appelant
-// referait à sa façon, et `forge.status` — une action interne d'une version
-// antérieure — ressemble alors à une action du plugin `forge`.
+// Knowledge of the prefix lives here, next to what applies it: splitting on the
+// first dot is a decoding each caller would redo its own way, and `forge.status` —
+// an internal action of an earlier version — then looks like an action of a
+// `forge` plugin.
 //
-// Rendue sans consulter l'activation du plugin : un plan **figé** dans une
-// exécution doit rester lisible même après extinction, et c'est à l'appelant de
-// décider si ce qu'il fait de la réponse demande un plugin allumé.
+// It does not consult whether the plugin is enabled: a plan frozen into a run must
+// stay readable after the plugin is switched off, and it is the caller's business
+// whether what it does with the answer needs an enabled plugin.
 func FindAction(ref string) (Descriptor, ActionSpec, bool) {
 	for _, descriptor := range Registry() {
 		for _, spec := range descriptor.Actions {
@@ -572,7 +497,7 @@ func FindAction(ref string) (Descriptor, ActionSpec, bool) {
 	return Descriptor{}, ActionSpec{}, false
 }
 
-// Fields rend les champs d'une portée.
+// Fields returns the fields of one scope.
 func (d Descriptor) Fields(scope Scope) []Field {
 	if scope == ScopeProject {
 		return d.Project
@@ -580,7 +505,7 @@ func (d Descriptor) Fields(scope Scope) []Field {
 	return d.Global
 }
 
-// Scope est la portée d'un jeu de réglages.
+// Scope is the scope of a set of settings.
 type Scope string
 
 const (
@@ -588,21 +513,19 @@ const (
 	ScopeProject Scope = "project"
 )
 
-// Values porte les réglages d'un plugin, champ par champ.
+// Values carries a plugin's settings, field by field.
 //
-// Des chaînes, y compris pour les booléens et les listes. Le format suit celui
-// des variables d'environnement qu'il remplace : une configuration migrée se
-// recopie sans traduction, et un champ ajouté ne demande pas de migration de
-// schéma.
+// Strings throughout, booleans and lists included. The format matches the
+// environment variables it replaces, so a migrated configuration is copied across
+// without translation and a new field needs no schema migration.
 type Values map[string]string
 
-// Validate refuse un jeu de réglages incohérent avec le descripteur.
+// Validate refuses settings inconsistent with the descriptor.
 //
-// `resolved` porte les valeurs déjà connues à la portée supérieure : c'est contre
-// **elles** que l'obligation est vérifiée, et non contre la seule saisie. Un
-// projet qui laisse l'URL vide parce que l'instance la fournit ne doit pas être
-// refusé ; un projet qui la laisse vide alors que personne ne la fournit doit
-// l'être — et l'écart entre ces deux cas ne se voit qu'ici.
+// `resolved` carries what the wider scope already provides, and required fields
+// are checked against that rather than against the typed values alone: a project
+// leaving a URL empty because the instance provides it must pass, one leaving it
+// empty when nobody provides it must not.
 func (d Descriptor) Validate(scope Scope, values Values, resolved Values) error {
 	fields := d.Fields(scope)
 	declared := make(map[string]Field, len(fields))
@@ -612,9 +535,8 @@ func (d Descriptor) Validate(scope Scope, values Values, resolved Values) error 
 
 	var problems []error
 
-	// Les champs inconnus sont refusés plutôt qu'ignorés. Un champ ignoré donne
-	// un écran qui dit « enregistré » sur une valeur que rien ne relira, et c'est
-	// une faute de frappe qui se découvre des semaines plus tard.
+	// Unknown fields are refused rather than ignored: an ignored field means a
+	// screen saying "saved" over a value nothing will ever read back.
 	names := make([]string, 0, len(values))
 	for name := range values {
 		names = append(names, name)
@@ -660,9 +582,9 @@ func (d Descriptor) Validate(scope Scope, values Values, resolved Values) error 
 					"%s vaut « true » ou « false », reçu %q", field.Label, value))
 			}
 		case FieldText, FieldList:
-			// Rien à vérifier : une liste vide de valeurs utiles reste une saisie
-			// valide, et borner la forme d'un identifiant de projet imposerait une
-			// convention qui appartient au client.
+			// Nothing to check: a list with no useful values is still valid input,
+			// and constraining the shape of a project identifier would impose a
+			// convention that belongs to the deployment.
 		default:
 			problems = append(problems, fmt.Errorf(
 				"%s: type de champ %q inconnu", field.Label, field.Type))
@@ -672,12 +594,11 @@ func (d Descriptor) Validate(scope Scope, values Values, resolved Values) error 
 	return errors.Join(problems...)
 }
 
-// Resolve superpose les réglages d'un projet à ceux de l'instance.
+// Resolve layers a project's settings over the instance's.
 //
-// Une valeur vide au niveau du projet **n'efface pas** celle de l'instance : elle
-// veut dire « je n'ai rien de particulier à dire ». Effacer demanderait un geste
-// distinct, et le confondre avec un champ non rempli ferait perdre une URL au
-// premier enregistrement d'un formulaire qui ne l'affichait pas.
+// An empty project value does not erase the instance value; it means "nothing
+// particular to say". Erasing would need a separate gesture, and confusing the two
+// would lose a URL the first time a form that did not display it was saved.
 func Resolve(global, project Values) Values {
 	resolved := make(Values, len(global)+len(project))
 	maps.Copy(resolved, global)
@@ -690,7 +611,7 @@ func Resolve(global, project Values) Values {
 	return resolved
 }
 
-// SecretFields nomme les champs d'une portée qui doivent être scellés.
+// SecretFields names the fields of a scope that must be sealed.
 func (d Descriptor) SecretFields(scope Scope) []string {
 	var secrets []string
 	for _, field := range d.Fields(scope) {
@@ -701,7 +622,7 @@ func (d Descriptor) SecretFields(scope Scope) []string {
 	return secrets
 }
 
-// IsSecret dit si un champ d'une portée porte une valeur sensible.
+// IsSecret says whether a field of a scope carries a secret value.
 func (d Descriptor) IsSecret(scope Scope, name string) bool {
 	for _, field := range d.Fields(scope) {
 		if field.Name == name {
@@ -711,11 +632,10 @@ func (d Descriptor) IsSecret(scope Scope, name string) bool {
 	return false
 }
 
-// List découpe la valeur d'un champ [FieldList].
-//
-// Rendue ici plutôt que chez chaque appelant : deux découpages divergents — l'un
-// qui coupe les espaces, l'autre non — donneraient deux lectures de la même
-// configuration, et l'écart ne se verrait que sur un statut nommé « En revue ».
+// List splits the value of a [FieldList] field. Here rather than in each caller:
+// two divergent splits — one trimming spaces, one not — would read the same
+// configuration two ways, and the difference would only show on a status named
+// with a trailing space.
 func List(value string) []string {
 	parts := strings.Split(value, ",")
 	items := make([]string, 0, len(parts))

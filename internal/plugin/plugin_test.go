@@ -6,11 +6,9 @@ import (
 	"testing"
 )
 
-// Le registre couvre chaque genre de plugin, et rien d'autre.
-//
-// Le test porte sur les **genres** et non sur le nombre de plugins : ajouter un
-// plugin est une évolution normale, inventer un genre demande du code et doit se
-// voir.
+// The registry covers every kind, and nothing else. The test is about kinds, not
+// about how many plugins exist: adding a plugin is routine, inventing a kind takes
+// code and must be visible.
 func TestLeRegistreCouvreChaqueGenre(t *testing.T) {
 	seen := map[Kind]bool{}
 	ids := map[string]bool{}
@@ -38,8 +36,8 @@ func TestLeRegistreCouvreChaqueGenre(t *testing.T) {
 	}
 }
 
-// Un plugin inconnu nomme ceux qui existent : chercher dans le code source n'est
-// pas une réponse à donner à qui lit un message d'API.
+// An unknown plugin names the ones that exist: reading the source is not an answer
+// to give someone looking at an API message.
 func TestUnPluginInconnuNommeCeuxQuiExistent(t *testing.T) {
 	if _, err := Get("redmine"); err != nil {
 		t.Fatalf("redmine introuvable: %v", err)
@@ -55,14 +53,12 @@ func TestUnPluginInconnuNommeCeuxQuiExistent(t *testing.T) {
 }
 
 /*
- * La validation, et les deux erreurs qu'elle attrape.
+ * Validation, and the two mistakes it catches.
  */
 
-// Un champ que le descripteur ne déclare pas est refusé, et non ignoré.
-//
-// Un champ ignoré donne un écran qui dit « enregistré » sur une valeur que rien
-// ne relira : la faute de frappe se découvre des semaines plus tard, quand la
-// synchronisation n'a jamais rien fait.
+// A field the descriptor does not declare is refused, not ignored. An ignored
+// field means a screen saying "saved" over a value nothing reads back, and the typo
+// surfaces weeks later as a synchronisation that never did anything.
 func TestUnReglageNonDeclareEstRefuse(t *testing.T) {
 	redmine, _ := Get("redmine")
 
@@ -75,28 +71,26 @@ func TestUnReglageNonDeclareEstRefuse(t *testing.T) {
 	}
 }
 
-// L'obligation porte sur la valeur **résolue**, pas sur la saisie.
-//
-// C'est ce qui distingue « le projet n'a rien de particulier à dire » de « la
-// valeur manque partout ». Les confondre refuserait un projet parfaitement
-// configuré, dont l'instance fournit déjà l'URL.
+// A required field is checked against the resolved value, not the typed one. That
+// is what separates "this project has nothing particular to say" from "the value is
+// missing everywhere".
 func TestLObligationPorteSurLaValeurResolue(t *testing.T) {
 	redmine, _ := Get("redmine")
 
-	// `project` est obligatoire au niveau du projet, et rien ne le fournit.
+	// `project` is required at project scope, and nothing provides it.
 	if err := redmine.Validate(ScopeProject, Values{}, nil); err == nil {
 		t.Error("identifiant de projet manquant accepté")
 	}
 
-	// Fourni par la portée supérieure : accepté, bien que la saisie soit vide.
+	// Provided by the wider scope: accepted, although nothing was typed.
 	err := redmine.Validate(ScopeProject, Values{}, Values{"project": "mse"})
 	if err != nil {
 		t.Errorf("valeur héritée refusée: %v", err)
 	}
 }
 
-// Les formes se vérifient à la saisie. Une URL sans schéma est le cas réel : elle
-// s'enregistre, puis chaque appel échoue avec un message qui ne la désigne pas.
+// Shapes are checked on input. A URL without a scheme is the real case: it saves,
+// then every call fails with a message that does not point at it.
 func TestLesFormesSeVerifientALaSaisie(t *testing.T) {
 	redmine, _ := Get("redmine")
 
@@ -113,8 +107,8 @@ func TestLesFormesSeVerifientALaSaisie(t *testing.T) {
 	}
 }
 
-// Un plugin sans réglage se valide sans rien exiger : le bon de livraison ne se
-// configure pas, il s'applique ou non.
+// A plugin with no settings validates without demanding anything: it either
+// applies or it does not.
 func TestUnPluginSansReglageSeValideSansRienExiger(t *testing.T) {
 	exporter, err := Get("bon-de-livraison")
 	if err != nil {
@@ -129,14 +123,12 @@ func TestUnPluginSansReglageSeValideSansRienExiger(t *testing.T) {
 }
 
 /*
- * La superposition des portées.
+ * Layering the two scopes.
  */
 
-// Un champ vide au niveau d'un projet n'efface pas celui de l'instance.
-//
-// Le piège que cela évite : un formulaire qui n'affiche pas la clé d'API — parce
-// qu'elle est secrète — la renverrait vide, et l'enregistrement effacerait la clé
-// de l'instance pour tous les projets.
+// An empty project field does not erase the instance value. The trap it avoids: a
+// form that does not display the API key — because it is secret — would send it back
+// empty, and saving would wipe the instance key for every project.
 func TestUnChampVideNEffacePasCeluiDeLInstance(t *testing.T) {
 	resolved := Resolve(
 		Values{"url": "https://redmine.example.fr", "api_key": "globale"},
@@ -154,7 +146,7 @@ func TestUnChampVideNEffacePasCeluiDeLInstance(t *testing.T) {
 	}
 }
 
-// Ce que le projet déclare l'emporte : c'est le second client, avec son serveur.
+// What the project declares wins: this is the second tenant, with its own server.
 func TestLeProjetLEmporteSurLInstance(t *testing.T) {
 	resolved := Resolve(
 		Values{"url": "https://redmine.example.fr", "api_key": "globale"},
@@ -169,8 +161,8 @@ func TestLeProjetLEmporteSurLInstance(t *testing.T) {
 	}
 }
 
-// Les champs sensibles sont nommés par portée : c'est ce qui dit au magasin quoi
-// sceller, et à l'API quoi taire.
+// Secret fields are named per scope: that is what tells the store what to seal, and
+// the API what to withhold.
 func TestLesChampsSensiblesSeNommentParPortee(t *testing.T) {
 	redmine, _ := Get("redmine")
 
@@ -188,8 +180,8 @@ func TestLesChampsSensiblesSeNommentParPortee(t *testing.T) {
 	}
 }
 
-// Le découpage d'une liste est rendu une seule fois : deux découpages divergents
-// donneraient deux lectures d'un statut nommé « En revue ».
+// List splitting lives in one place: two divergent splits would read the same
+// configured status two ways.
 func TestLeDecoupageDUneListeIgnoreLesEspacesEtLeVide(t *testing.T) {
 	got := List(" En revue , Validé ,, ")
 	if len(got) != 2 || got[0] != "En revue" || got[1] != "Validé" {

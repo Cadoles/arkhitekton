@@ -10,13 +10,13 @@ import (
 	"testing"
 )
 
-// Le noyau n'importe pas le plugin MSE.
+// The core does not import the MSE plugin.
 //
-// C'est ce qui garantit qu'une instance sans lui reste cohérente : un paquet du
-// noyau qui l'importerait ne compilerait pas sans lui, et le module éteint ne
-// serait qu'un interrupteur d'affichage. Seul `cmd/arkhitekton` l'assemble
-// (doc 16 §16.6). Les tests comptent aussi : un test du noyau qui l'importerait
-// ferait du plugin une dépendance de sa vérification.
+// This is what guarantees that an instance without it stays coherent: a core
+// package importing it would not compile without it, and switching the module off
+// would be a display toggle and nothing more. Only cmd/arkhitekton assembles it.
+// Tests count too: a core test importing it would make the plugin a dependency of
+// the core's own verification.
 func TestLeNoyauNImportePasLePluginMSE(t *testing.T) {
 	const pluginPath = "forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
 	root := filepath.Join("..", "..", "internal")
@@ -53,8 +53,8 @@ func TestLeNoyauNImportePasLePluginMSE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lecture des sources: %v", err)
 	}
-	// Un chemin de départ faux ne lirait rien, et le test passerait sans rien
-	// vérifier.
+	// A wrong starting path would read nothing, and the test would pass having
+	// checked nothing.
 	if read < 100 {
 		t.Fatalf("seulement %d fichiers lus sous %s", read, root)
 	}
