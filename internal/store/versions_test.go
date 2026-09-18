@@ -9,7 +9,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 )
 
-// redmineVersion dépose une version réelle, comme le ferait la synchronisation.
+// redmineVersion writes a real version, as synchronisation would.
 func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) int64 {
 	t.Helper()
 	id, err := db.UpsertRedmineVersion(context.Background(), TrackedVersion{
@@ -35,7 +35,7 @@ func issueOf(t *testing.T, db *DB, redmineID int64, versionRedmineID int64, trac
 	}
 }
 
-// releaseOn rattache une release à une version, par la voie normale.
+// releaseOn attaches a release to a version, by the normal route.
 func releaseOn(t *testing.T, db *DB, versionID int64, tag string) {
 	t.Helper()
 	if _, err := db.CreateRelease(context.Background(), Release{
@@ -47,21 +47,21 @@ func releaseOn(t *testing.T, db *DB, versionID int64, tag string) {
 	}
 }
 
-// Le cas qui justifie tout le mécanisme : une release créée avant que Redmine ne
-// soit connu doit se retrouver rattachée à la version réelle, et non rester sur une
-// provisoire que personne ne regarde.
-func TestUneVersionProvisoireEstAdopteeParLaVersionReelle(t *testing.T) {
+// The case that justifies the whole mechanism: a release created before the tracker
+// was known must end up attached to the real version, and not stay on a provisional
+// one nobody looks at.
+func TestAProvisionalVersionIsAdoptedByTheRealOne(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	// Une release est créée alors que la synchronisation n'a jamais tourné.
+	// A release is created while synchronisation has never run.
 	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.2.0")
 	if err != nil {
 		t.Fatalf("version provisoire: %v", err)
 	}
 	releaseOn(t, db, pendingID, "3.2.0-rc1")
 
-	// La synchronisation découvre ensuite la version, sous son nom réel préfixé.
+	// Synchronisation then discovers the version, under its real prefixed name.
 	redmineVersion(t, db, 805, "v3.2.0", "open")
 
 	report, err := db.AdoptPendingVersions(ctx)
@@ -86,20 +86,20 @@ func TestUneVersionProvisoireEstAdopteeParLaVersionReelle(t *testing.T) {
 		t.Fatalf("versions: %v", err)
 	}
 	if len(summaries) != 1 {
-		t.Fatalf("%d versions, attendu 1", len(summaries))
+		t.Fatalf("%d versions, expected 1", len(summaries))
 	}
 	if summaries[0].Name != "v3.2.0" || summaries[0].Releases != 1 {
-		t.Errorf("version après adoption: %+v", summaries[0])
+		t.Errorf("version after adoption: %+v", summaries[0])
 	}
 	if summaries[0].Pending {
-		t.Error("la version réelle ne doit pas être marquée provisoire")
+		t.Error("the real version must not be marked provisional")
 	}
 }
 
-// Un numéro repris : `3.1.2` est close — ancien système de versionnement — et `v3.1.2`
-// ouverte. Une release visant ce numéro vise la version active, et l'adoption doit
-// donc aboutir plutôt que déclarer une ambiguïté.
-func TestUneVersionCloseHomonymeNeBloquePasLAdoption(t *testing.T) {
+// A reused number: one is closed — an older numbering scheme — and the other open. A
+// release aiming at that number aims at the active version, so adoption must succeed
+// rather than declare an ambiguity.
+func TestAClosedNamesakeVersionDoesNotBlockAdoption(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -120,10 +120,10 @@ func TestUneVersionCloseHomonymeNeBloquePasLAdoption(t *testing.T) {
 		t.Fatalf("rapport: %+v", report)
 	}
 	if report[0].Ambiguous {
-		t.Errorf("une seule version active porte ce numéro : pas d'ambiguïté attendue, %+v", report[0])
+		t.Errorf("only one active version carries this number: no ambiguity expected, %+v", report[0])
 	}
 	if report[0].AdoptedInto != "v3.1.2" {
-		t.Errorf("adoptée par %q, attendu la version active v3.1.2", report[0].AdoptedInto)
+		t.Errorf("adopted by %q, expected the active version v3.1.2", report[0].AdoptedInto)
 	}
 
 	// La provisoire a disparu et la release suit la version ouverte.
@@ -136,9 +136,9 @@ func TestUneVersionCloseHomonymeNeBloquePasLAdoption(t *testing.T) {
 	}
 }
 
-// `locked` n'est pas `closed` : une version verrouillée n'accepte plus de nouvelle
-// demande mais n'est pas terminée, et reste donc la candidate.
-func TestUneVersionVerrouilleeResteCandidate(t *testing.T) {
+// `locked` is not `closed`: a locked version accepts no new issue but is not
+// finished, and therefore stays the candidate.
+func TestALockedVersionStaysACandidate(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -157,9 +157,9 @@ func TestUneVersionVerrouilleeResteCandidate(t *testing.T) {
 	}
 }
 
-// L'indétermination réelle subsiste quand deux versions actives portent le même
-// numéro : là, trancher rattacherait des releases à la mauvaise version.
-func TestDeuxVersionsActivesHomonymesRestentIndecidables(t *testing.T) {
+// The real ambiguity remains when two active versions carry the same number: there,
+// choosing would attach releases to the wrong version.
+func TestTwoActiveVersionsOfTheSameNameStayUndecidable(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -183,7 +183,7 @@ func TestDeuxVersionsActivesHomonymesRestentIndecidables(t *testing.T) {
 		t.Errorf("candidates: %v", report[0].Candidates)
 	}
 
-	// La provisoire subsiste, donc reste signalée.
+	// The provisional version remains, and is therefore still reported.
 	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
@@ -194,15 +194,15 @@ func TestDeuxVersionsActivesHomonymesRestentIndecidables(t *testing.T) {
 
 	ambiguous, err := db.AmbiguousVersions(ctx, testProjectID)
 	if err != nil {
-		t.Fatalf("ambiguïtés: %v", err)
+		t.Fatalf("ambiguities: %v", err)
 	}
 	if len(ambiguous) != 1 || ambiguous[0].Normalized != "3.1.2" {
-		t.Errorf("ambiguïtés: %+v", ambiguous)
+		t.Errorf("ambiguities: %+v", ambiguous)
 	}
 }
 
-// L'adoption ne doit pas dépendre de l'ordre de lecture des versions.
-func TestLAdoptionNeDependPasDeLOrdreDeLecture(t *testing.T) {
+// Adoption must not depend on the order versions are read in.
+func TestAdoptionDoesNotDependOnReadOrder(t *testing.T) {
 	for _, ordre := range [][]string{{"3.1.2", "v3.1.2"}, {"v3.1.2", "3.1.2"}} {
 		db := migrated(t)
 		ctx := context.Background()
@@ -210,8 +210,8 @@ func TestLAdoptionNeDependPasDeLOrdreDeLecture(t *testing.T) {
 		pendingID, _ := db.EnsureVersion(ctx, testProjectID, "3.1.2")
 		releaseOn(t, db, pendingID, "3.1.2")
 
-		// Les deux actives : c'est le seul cas encore indécidable, et donc le seul
-		// où l'ordre de lecture pourrait faire une différence.
+		// Both active: the only case still undecidable, and therefore the only one where read
+		// order could make a difference.
 		for i, name := range ordre {
 			redmineVersion(t, db, int64(900+i), name, "open")
 		}
@@ -221,16 +221,16 @@ func TestLAdoptionNeDependPasDeLOrdreDeLecture(t *testing.T) {
 			t.Fatalf("%v: adoption: %v", ordre, err)
 		}
 		if len(report) != 1 || !report[0].Ambiguous {
-			t.Errorf("ordre %v: l'ambiguïté doit être constatée quel que soit l'ordre, rapport %+v",
+			t.Errorf("order %v: the ambiguity must be observed whatever the order, report %+v",
 				ordre, report)
 		}
 	}
 }
 
-// Une version provisoire que Redmine ne connaît pas reste visible : c'est le
-// symptôme d'une faute de frappe dans un tag, et le taire laisserait un écran
-// afficher « en attente de synchronisation » indéfiniment.
-func TestUneProvisoireSansCorrespondanceResteSignalee(t *testing.T) {
+// A provisional version the tracker does not know stays visible: it is the symptom of
+// a typo in a tag, and hiding it would leave a screen showing "awaiting
+// synchronisation" indefinitely.
+func TestAnUnmatchedProvisionalVersionStaysReported(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -244,7 +244,7 @@ func TestUneProvisoireSansCorrespondanceResteSignalee(t *testing.T) {
 		t.Fatalf("adoption: %v", err)
 	}
 	if len(report) != 0 {
-		t.Errorf("aucune adoption attendue: %+v", report)
+		t.Errorf("no adoption expected: %+v", report)
 	}
 
 	pendings, err := db.PendingVersions(ctx, testProjectID)
@@ -256,9 +256,9 @@ func TestUneProvisoireSansCorrespondanceResteSignalee(t *testing.T) {
 	}
 }
 
-// Les rejetées sortent du calcul : les compter au dénominateur ferait baisser la
-// complétion d'une version parce qu'on y a renoncé à une demande (doc 04 §4.5).
-func TestLesDemandesRejeteesSortentDuCalcul(t *testing.T) {
+// Rejected issues leave the computation: counting them in the denominator would lower
+// a version's completion because an issue was dropped.
+func TestRejectedIssuesLeaveTheComputation(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -275,30 +275,30 @@ func TestLesDemandesRejeteesSortentDuCalcul(t *testing.T) {
 		t.Fatalf("%d versions", len(summary))
 	}
 
-	// Deux comptées sur trois demandes, une terminée.
+	// Two counted out of three issues, one done.
 	if summary[0].Counted != 2 || summary[0].Done != 1 {
-		t.Errorf("comptes: counted=%d done=%d, attendu 2 et 1",
+		t.Errorf("counts: counted=%d done=%d, expected 2 and 1",
 			summary[0].Counted, summary[0].Done)
 	}
-	// La pondérée porte sur les comptées : 100 + 50, et non 150 sur trois.
+	// The weighted measure covers the counted ones: 100 + 50, and not 150 over three.
 	if summary[0].WeightedDone != 150 {
-		t.Errorf("pondération %d, attendu 150", summary[0].WeightedDone)
+		t.Errorf("weighting %d, expected 150", summary[0].WeightedDone)
 	}
 }
 
-// Les anomalies sont comptées à part et n'entrent pas dans la complétion : une
-// version peut être fonctionnellement complète et en porter.
-func TestLesAnomaliesSontCompteesAPart(t *testing.T) {
+// Anomalies are counted separately and do not enter completion: a version may be
+// functionally complete and carry some.
+func TestAnomaliesAreCountedSeparately(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	redmineVersion(t, db, 805, "v3.2.0", "open")
 	issueOf(t, db, 1, 805, "Évolution", "Fermé", "done", 100, true)
-	// Les deux trackers d'anomalie de l'instance. Compter sur l'égalité à
-	// « Anomalie » en manquerait une sur deux.
+	// The instance's two anomaly trackers. Comparing for equality with one name would
+	// miss half of them.
 	issueOf(t, db, 2, 805, "Anomalie", "Nouveau", "todo", 0, false)
 	issueOf(t, db, 3, 805, "Anomalie (SDN4)", "Nouveau", "todo", 0, false)
-	// Une anomalie fermée ne compte pas comme ouverte.
+	// A closed anomaly does not count as open.
 	issueOf(t, db, 4, 805, "Anomalie", "Fermé", "done", 100, true)
 
 	summary, err := db.GetVersionSummary(ctx, mustVersionID(t, db, "v3.2.0"))
@@ -306,7 +306,7 @@ func TestLesAnomaliesSontCompteesAPart(t *testing.T) {
 		t.Fatalf("version: %v", err)
 	}
 	if summary.OpenAnomalies != 2 {
-		t.Errorf("%d anomalies ouvertes, attendu 2 (les deux trackers)", summary.OpenAnomalies)
+		t.Errorf("%d open anomalies, expected 2 (both trackers)", summary.OpenAnomalies)
 	}
 
 	issues, err := db.ListVersionIssues(ctx, summary.ID)
@@ -320,38 +320,37 @@ func TestLesAnomaliesSontCompteesAPart(t *testing.T) {
 		}
 	}
 	if anomalies != 3 {
-		t.Errorf("%d demandes marquées anomalie, attendu 3", anomalies)
+		t.Errorf("%d issues marked as anomalies, expected 3", anomalies)
 	}
 }
 
-// Un statut non projeté tombe dans `todo` et se signale : les statuts Redmine
-// changent sans prévenir, et une dérive silencieuse du taux de complétion serait
-// invisible.
-func TestUnStatutNonProjeteSeSignale(t *testing.T) {
+// An unmapped status falls into `todo` and is reported: tracker statuses change
+// without warning, and a silent drift of the completion rate would be invisible.
+func TestAnUnmappedStatusIsReported(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	redmineVersion(t, db, 805, "v3.2.0", "open")
-	issueOf(t, db, 1, 805, "Évolution", "Statut Inédit", "todo", 0, false)
+	issueOf(t, db, 1, 805, "Évolution", "Unheard-of Status", "todo", 0, false)
 
 	unmapped, err := db.UnmappedStatuses(ctx, testProjectID)
 	if err != nil {
-		t.Fatalf("statuts non projetés: %v", err)
+		t.Fatalf("unmapped statuses: %v", err)
 	}
-	if len(unmapped) != 1 || unmapped[0].StatusName != "Statut Inédit" || unmapped[0].Issues != 1 {
-		t.Errorf("non projetés: %+v", unmapped)
+	if len(unmapped) != 1 || unmapped[0].StatusName != "Unheard-of Status" || unmapped[0].Issues != 1 {
+		t.Errorf("unmapped: %+v", unmapped)
 	}
 
-	// Une fois déclaré, il disparaît de la liste et la réapplication le déplace.
-	if err := db.SetStatusBucket(ctx, testProjectID, "Statut Inédit", "done"); err != nil {
+	// Once declared, it leaves the list and reapplying moves it.
+	if err := db.SetStatusBucket(ctx, testProjectID, "Unheard-of Status", "done"); err != nil {
 		t.Fatalf("projection: %v", err)
 	}
 	moved, err := db.ReprojectIssues(ctx, testProjectID)
 	if err != nil {
-		t.Fatalf("réapplication: %v", err)
+		t.Fatalf("reapplying: %v", err)
 	}
 	if moved != 1 {
-		t.Errorf("%d demandes déplacées, attendu 1", moved)
+		t.Errorf("%d issues moved, expected 1", moved)
 	}
 
 	summary, err := db.GetVersionSummary(ctx, mustVersionID(t, db, "v3.2.0"))
@@ -359,13 +358,13 @@ func TestUnStatutNonProjeteSeSignale(t *testing.T) {
 		t.Fatalf("version: %v", err)
 	}
 	if summary.Done != 1 {
-		t.Errorf("la demande devrait être comptée terminée après réapplication: %+v", summary)
+		t.Errorf("the issue should count as done after reapplying: %+v", summary)
 	}
 }
 
-// Les 31 statuts de l'instance sont projetés par la migration : aucun ne doit tomber
-// dans le seau par défaut sans avoir été décidé.
-func TestLesStatutsDeLInstanceSontTousProjetes(t *testing.T) {
+// The instance's statuses are all mapped by the migration: none must fall into the
+// default bucket without having been decided.
+func TestEveryInstanceStatusIsMapped(t *testing.T) {
 	db := migrated(t)
 
 	mapping, err := db.StatusMapping(context.Background(), testProjectID)
@@ -384,62 +383,62 @@ func TestLesStatutsDeLInstanceSontTousProjetes(t *testing.T) {
 	}
 	for _, statut := range reels {
 		if _, ok := mapping[statut]; !ok {
-			t.Errorf("statut %q sans projection déclarée", statut)
+			t.Errorf("status %q with no declared mapping", statut)
 		}
 	}
 
-	// `Rejeté` est le seul hors périmètre.
+	// Only the rejected one is out of scope.
 	if mapping["Rejeté"] != "rejected" {
-		t.Errorf("Rejeté projeté en %q", mapping["Rejeté"])
+		t.Errorf("the rejected status maps to %q", mapping["Rejeté"])
 	}
-	// `Ré-ouvert` est déclaré clos par Redmine ; la projection dit l'inverse, et
-	// c'est délibéré — une demande réouverte est en cours.
+	// One status is declared closed by the tracker; the mapping says the opposite, and
+	// that is deliberate — a reopened issue is in progress.
 	if mapping["Ré-ouvert"] != "doing" {
-		t.Errorf("Ré-ouvert projeté en %q, attendu doing", mapping["Ré-ouvert"])
+		t.Errorf("the reopened status maps to %q, expected doing", mapping["Ré-ouvert"])
 	}
 }
 
-// Le curseur n'avance pas après un échec : l'avancer sauterait la fenêtre non lue, et
-// les demandes modifiées pendant celle-ci ne seraient jamais reprises.
+// The cursor does not advance after a failure: advancing it would skip the unread
+// window, and issues modified during it would never be picked up.
 func TestUnEchecNAvancePasLeCurseur(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	if err := db.RecordSyncSuccess(ctx, "redmine", testProjectID, "2026-08-01T00:00:00Z"); err != nil {
-		t.Fatalf("succès: %v", err)
+		t.Fatalf("success: %v", err)
 	}
 	if err := db.RecordSyncFailure(ctx, "redmine", testProjectID, "Redmine injoignable"); err != nil {
-		t.Fatalf("échec: %v", err)
+		t.Fatalf("failure: %v", err)
 	}
 
 	state, err := db.GetSyncState(ctx, "redmine", testProjectID)
 	if err != nil {
-		t.Fatalf("état: %v", err)
+		t.Fatalf("state: %v", err)
 	}
 	if state.Cursor != "2026-08-01T00:00:00Z" {
-		t.Errorf("curseur %q: il ne doit pas bouger après un échec", state.Cursor)
+		t.Errorf("cursor %q: it must not move after a failure", state.Cursor)
 	}
 	if state.LastError != "Redmine injoignable" {
 		t.Errorf("erreur %q", state.LastError)
 	}
-	// `last_ok` distinct de `last_run` : l'interface doit pouvoir dire « données
-	// vieilles de tant, dernière tentative en échec ».
+	// `last_ok` distinct from `last_run`: the interface must be able to say "data this
+	// old, last attempt failed".
 	if state.LastOK == nil || state.LastRun == nil || !state.LastRun.After(*state.LastOK) {
 		t.Errorf("horodatages: run=%v ok=%v", state.LastRun, state.LastOK)
 	}
 }
 
-// Jamais synchronisé n'est pas une erreur : c'est l'état au premier démarrage, et il
-// doit conduire à une lecture complète.
-func TestUneSourceJamaisSynchroniseeRendUnEtatVide(t *testing.T) {
+// Never synchronised is not an error: it is the state at first start-up, and it must
+// lead to a full read.
+func TestANeverSynchronisedSourceReturnsAnEmptyState(t *testing.T) {
 	db := migrated(t)
 
 	state, err := db.GetSyncState(context.Background(), "redmine", testProjectID)
 	if err != nil {
-		t.Fatalf("état: %v", err)
+		t.Fatalf("state: %v", err)
 	}
 	if state.Cursor != "" || state.LastRun != nil || state.LastOK != nil {
-		t.Errorf("état inattendu: %+v", state)
+		t.Errorf("unexpected state: %+v", state)
 	}
 }
 
@@ -453,11 +452,10 @@ func mustVersionID(t *testing.T, db *DB, name string) int64 {
 	return id
 }
 
-// Le seau `client-test` s'intercale entre `doing` et `done`, et **ne compte pas comme
-// terminé** : il entre au dénominateur de la complétion, jamais au numérateur.
-// Confondre « fini de développer » et « accepté » est exactement ce qu'un taux de
-// complétion doit éviter.
-func TestLeSeauTestClientCompteAuDenominateurPasAuNumerateur(t *testing.T) {
+// The `client-test` bucket sits between `doing` and `done`, and does not count as
+// done: it enters the completion denominator, never the numerator. Confusing
+// "finished developing" with "accepted" is exactly what a completion rate must avoid.
+func TestTheClientTestBucketCountsInTheDenominatorNotTheNumerator(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -472,22 +470,22 @@ func TestLeSeauTestClientCompteAuDenominateurPasAuNumerateur(t *testing.T) {
 		t.Fatalf("version: %v", err)
 	}
 
-	// Trois comptées — tout sauf la rejetée — dont une seule terminée.
+	// Three counted — everything but the rejected one — of which only one is done.
 	if summary.Counted != 3 {
-		t.Errorf("dénominateur %d, attendu 3 : test client doit y figurer", summary.Counted)
+		t.Errorf("denominator %d, expected 3: client test must appear in it", summary.Counted)
 	}
 	if summary.Done != 1 {
-		t.Errorf("numérateur %d, attendu 1 : test client ne doit pas y figurer", summary.Done)
+		t.Errorf("numerator %d, expected 1: client test must not appear in it", summary.Done)
 	}
-	// La pondérée porte sur les comptées : 100 + 100 + 30.
+	// The weighted measure covers the counted ones: 100 + 100 + 30.
 	if summary.WeightedDone != 230 {
-		t.Errorf("pondération %d, attendu 230", summary.WeightedDone)
+		t.Errorf("weighting %d, expected 230", summary.WeightedDone)
 	}
 }
 
-// La contrainte de la base accepte les cinq seaux, et rien d'autre. Un seau inventé
-// doit être refusé plutôt que rangé silencieusement.
-func TestLaBaseAccepteLesCinqSeauxEtRienDautre(t *testing.T) {
+// The database constraint accepts the five buckets, and nothing else. An invented
+// bucket must be refused rather than silently filed.
+func TestTheDatabaseAcceptsTheFiveBucketsAndNothingElse(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -499,7 +497,7 @@ func TestLaBaseAccepteLesCinqSeauxEtRienDautre(t *testing.T) {
 			Tool:      "redmine", ExternalID: fmt.Sprint(100 + i), Tracker: "Évolution", Subject: "s",
 			StatusName: "x", StatusBucket: bucket,
 		}); err != nil {
-			t.Errorf("seau %q refusé par la base: %v", bucket, err)
+			t.Errorf("bucket %q refused by the database: %v", bucket, err)
 		}
 	}
 
@@ -507,54 +505,54 @@ func TestLaBaseAccepteLesCinqSeauxEtRienDautre(t *testing.T) {
 		ProjectID: testProjectID, Tool: "redmine", ExternalID: "200", Tracker: "Évolution", Subject: "s",
 		StatusName: "x", StatusBucket: "invente",
 	}); err == nil {
-		t.Error("un seau inventé devrait être refusé par la contrainte")
+		t.Error("an invented bucket should be refused by the constraint")
 	}
 }
 
-// La liste ordonnée est la source unique : les colonnes de l'écran, le sélecteur
-// d'administration et la contrainte de la base doivent dire la même chose.
-func TestLaListeOrdonneeDesSeauxEstLaSourceUnique(t *testing.T) {
+// The ordered list is the single source: the screen's columns, the administration
+// selector and the database constraint must say the same thing.
+func TestTheOrderedBucketListIsTheSingleSource(t *testing.T) {
 	expected := []string{"todo", "doing", "client-test", "done", "rejected"}
 
 	if len(Buckets) != 4 {
-		t.Fatalf("%d seaux d'avancement, attendu 4 (rejected est hors avancement)", len(Buckets))
+		t.Fatalf("%d progress buckets, expected 4 (rejected is outside progress)", len(Buckets))
 	}
-	// L'ordre porte du sens : c'est celui des colonnes.
+	// The order carries meaning: it is the columns' order.
 	if Buckets[1] != BucketDoing || Buckets[2] != BucketClientTest || Buckets[3] != BucketDone {
-		t.Errorf("ordre %v : test client doit s'intercaler entre doing et done", Buckets)
+		t.Errorf("order %v: client test must sit between doing and done", Buckets)
 	}
 
 	for _, bucket := range expected {
 		if !ValidBucket(bucket) {
-			t.Errorf("seau %q devrait être admis", bucket)
+			t.Errorf("bucket %q should be accepted", bucket)
 		}
 	}
 	for _, bucket := range []string{"", "invente", "DONE", "client_test"} {
 		if ValidBucket(bucket) {
-			t.Errorf("seau %q ne devrait pas être admis", bucket)
+			t.Errorf("bucket %q should not be accepted", bucket)
 		}
 	}
 }
 
-// Le cas constaté sur v3.2.0 : huit anomalies affichées ouvertes, dont cinq au statut
-// `Testé` — que Redmine déclare **non clos** alors qu'il est projeté en `done`.
+// The case observed in practice: eight anomalies displayed as open, five of them in a
+// status the tracker declares not closed while it maps to `done`.
 //
-// « Ouverte » se lit sur le seau projeté, jamais sur `is_closed`. Employer deux notions
-// de « clos » dans le même écran est la faute de fond : la projection est celle que
-// l'utilisateur règle et voit.
+// "Open" is read from the mapped bucket, never from `is_closed`. Using two notions of
+// "closed" in the same screen is the underlying fault: the mapping is what the user
+// sets and sees.
 func TestUneAnomalieTermineeNestPasOuverteMemeSiRedmineLaDitNonClose(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	redmineVersion(t, db, 805, "v3.2.0", "open")
 
-	// Les trois réellement ouvertes.
+	// The three really open ones.
 	issueOf(t, db, 1, 805, "Anomalie", "Ready", BucketTodo, 0, false)
 	issueOf(t, db, 2, 805, "Anomalie", "En cours", BucketDoing, 20, false)
 	issueOf(t, db, 3, 805, "Anomalie", "En revue", BucketDoing, 80, false)
 
-	// Cinq au statut `Testé` : projetées en `done`, mais non closes selon Redmine.
-	// C'est précisément la combinaison qui les faisait compter comme ouvertes.
+	// Five in a status mapped to `done`, but not closed according to the tracker. That is
+	// precisely the combination that made them count as open.
 	for i := 0; i < 5; i++ {
 		issueOf(t, db, int64(10+i), 805, "Anomalie", "Testé", BucketDone, 100, false)
 	}
@@ -564,13 +562,13 @@ func TestUneAnomalieTermineeNestPasOuverteMemeSiRedmineLaDitNonClose(t *testing.
 		t.Fatalf("version: %v", err)
 	}
 	if summary.OpenAnomalies != 3 {
-		t.Errorf("%d anomalies ouvertes, attendu 3 : les cinq en `done` ne le sont pas",
+		t.Errorf("%d open anomalies, expected 3: the five in `done` are not",
 			summary.OpenAnomalies)
 	}
 }
 
-// Une anomalie en attente de validation client n'est plus à traiter par l'équipe : elle
-// ne compte pas comme ouverte.
+// An anomaly awaiting client approval is no longer for the team to handle: it does not
+// count as open.
 func TestUneAnomalieEnTestClientNestPasOuverte(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -585,12 +583,12 @@ func TestUneAnomalieEnTestClientNestPasOuverte(t *testing.T) {
 		t.Fatalf("version: %v", err)
 	}
 	if summary.OpenAnomalies != 1 {
-		t.Errorf("%d anomalies ouvertes, attendu 1", summary.OpenAnomalies)
+		t.Errorf("%d open anomalies, expected 1", summary.OpenAnomalies)
 	}
 }
 
-// L'inverse du même écart : `Ré-ouvert` est déclaré **clos** par l'instance alors qu'il
-// est projeté en `doing`. Une anomalie réouverte doit compter comme ouverte.
+// The reverse of the same divergence: one status is declared closed by the instance
+// while it maps to `doing`. A reopened anomaly must count as open.
 func TestUneAnomalieReouverteCompteCommeOuverte(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -603,30 +601,30 @@ func TestUneAnomalieReouverteCompteCommeOuverte(t *testing.T) {
 		t.Fatalf("version: %v", err)
 	}
 	if summary.OpenAnomalies != 1 {
-		t.Errorf("%d anomalies ouvertes, attendu 1 malgré is_closed", summary.OpenAnomalies)
+		t.Errorf("%d open anomalies, expected 1 despite is_closed", summary.OpenAnomalies)
 	}
 }
 
-// Les seaux ouverts sont todo et doing, et rien d'autre.
+// The open buckets are todo and doing, and nothing else.
 func TestSeulsTodoEtDoingSontOuverts(t *testing.T) {
 	for _, bucket := range []string{BucketTodo, BucketDoing} {
 		if !BucketIsOpen(bucket) {
-			t.Errorf("%q devrait être ouvert", bucket)
+			t.Errorf("%q should be open", bucket)
 		}
 	}
 	for _, bucket := range []string{BucketClientTest, BucketDone, BucketRejected, "invente"} {
 		if BucketIsOpen(bucket) {
-			t.Errorf("%q ne devrait pas être ouvert", bucket)
+			t.Errorf("%q should not be open", bucket)
 		}
 	}
 }
 
-// Le rattachement immédiat : quand la version Redmine existe déjà, une release taguée
-// `3.2.0-rc1` — base `3.2.0` — doit s'accrocher à `v3.2.0` directement. Chercher le nom
-// exact seul créait une provisoire fantôme, adoptée cinq minutes plus tard ; entre-temps
-// l'écran montrait la release accrochée à une version « inconnue de Redmine » qui
-// existait bel et bien.
-func TestEnsureVersionRattacheAUneVersionReelleParNomNormalise(t *testing.T) {
+// Immediate attachment: when the tracker version already exists, a release tagged
+// `3.2.0-rc1` — base `3.2.0` — must attach to `v3.2.0` directly. Searching the exact
+// name alone created a phantom provisional version, adopted five minutes later;
+// meanwhile the screen showed the release attached to a version "unknown to the
+// tracker" that existed perfectly well.
+func TestEnsureVersionAttachesToARealVersionByNormalisedName(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -637,24 +635,24 @@ func TestEnsureVersionRattacheAUneVersionReelleParNomNormalise(t *testing.T) {
 		t.Fatalf("rattachement: %v", err)
 	}
 	if id != realID {
-		t.Errorf("rattaché à %d, attendu la version réelle %d", id, realID)
+		t.Errorf("attached to %d, expected the real version %d", id, realID)
 	}
 
-	// Aucune provisoire ne doit être née de ce rattachement.
+	// No provisional version must be born of that attachment.
 	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
 	}
 	if len(pendings) != 0 {
-		t.Errorf("provisoires créées à tort: %v", pendings)
+		t.Errorf("provisional versions wrongly created: %v", pendings)
 	}
 }
 
-// La même préférence que l'adoption : entre une homonyme close et la
-// version active, la release va à l'active. Les deux chemins — rattachement immédiat et
-// adoption différée — doivent désigner la même version, sans quoi le résultat dépendrait
-// du moment où la release est créée.
-func TestEnsureVersionPrefereLaVersionActiveALHomonymeClose(t *testing.T) {
+// The same preference as adoption: between a closed namesake and the active version,
+// the release goes to the active one. Both paths — immediate attachment and deferred
+// adoption — must name the same version, otherwise the result would depend on when the
+// release was created.
+func TestEnsureVersionPrefersTheActiveVersionOverTheClosedNamesake(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -666,13 +664,14 @@ func TestEnsureVersionPrefereLaVersionActiveALHomonymeClose(t *testing.T) {
 		t.Fatalf("rattachement: %v", err)
 	}
 	if id != activeID {
-		t.Errorf("rattaché à %d, attendu la version active %d", id, activeID)
+		t.Errorf("attached to %d, expected the active version %d", id, activeID)
 	}
 }
 
-// Deux versions actives homonymes : indécidable, donc provisoire — choisir au hasard
-// rattacherait la release à la mauvaise version, et la provisoire reste visible.
-func TestEnsureVersionRetombeSurUneProvisoireQuandCestIndecidable(t *testing.T) {
+// Two active versions of the same name: undecidable, hence provisional — choosing at
+// random would attach the release to the wrong version, and the provisional one stays
+// visible.
+func TestEnsureVersionFallsBackToAProvisionalWhenUndecidable(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -688,13 +687,13 @@ func TestEnsureVersionRetombeSurUneProvisoireQuandCestIndecidable(t *testing.T) 
 		t.Fatalf("provisoires: %v", err)
 	}
 	if len(pendings) != 1 || pendings[0] != "3.1.2" {
-		t.Errorf("provisoires: %v, attendu la seule 3.1.2", pendings)
+		t.Errorf("provisional: %v, expected only 3.1.2", pendings)
 	}
 }
 
-// Le chaînon qui manquait : la conclusion d'une construction doit pouvoir faire
-// avancer la release, et l'écriture doit être conditionnée à l'état lu.
-func TestUnJobPorteSaReleaseEtSonEtat(t *testing.T) {
+// The missing link: a build's conclusion must be able to advance the release, and the
+// write must be conditioned on the state that was read.
+func TestAJobCarriesItsReleaseAndItsState(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -718,17 +717,16 @@ func TestUnJobPorteSaReleaseEtSonEtat(t *testing.T) {
 
 	linked, err := db.JobRelease(ctx, jobID)
 	if err != nil {
-		t.Fatalf("release du job: %v", err)
+		t.Fatalf("release of the job: %v", err)
 	}
 	if linked.Kind != "build" || linked.Tag != "3.2.0-rc1" || linked.State != "building" {
 		t.Errorf("contexte: %+v", linked)
 	}
 }
 
-// Un job sans release n'est pas une erreur : un lancement manuel de tests depuis
-// la file n'en désigne aucune, et le traiter comme une panne remplirait les
-// journaux de faux problèmes.
-func TestUnJobSansReleaseSeDistingueDuneErreur(t *testing.T) {
+// A job with no release is not an error: launching tests by hand from the queue names
+// none, and treating it as a fault would fill the logs with false problems.
+func TestAJobWithNoReleaseIsToldApartFromAnError(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -740,14 +738,14 @@ func TestUnJobSansReleaseSeDistingueDuneErreur(t *testing.T) {
 	}
 
 	if _, err := db.JobRelease(ctx, jobID); !errors.Is(err, ErrJobWithoutRelease) {
-		t.Errorf("erreur %v, attendu ErrJobWithoutRelease", err)
+		t.Errorf("error %v, expected ErrJobWithoutRelease", err)
 	}
 }
 
-// L'écriture est conditionnée à l'état lu : entre la mise en file et la fin du
-// run, une reprise manuelle a pu déplacer la release, et l'écraser effacerait
-// cette décision au profit d'un pipeline qui n'était plus le dernier mot.
-func TestLAvancementNecrasePasUnEtatDeplaceEntreTemps(t *testing.T) {
+// The write is conditioned on the state that was read: between enqueueing and the end
+// of the run, a manual retry may have moved the release, and overwriting it would erase
+// that decision in favour of a pipeline that was no longer the last word.
+func TestAdvancingDoesNotOverwriteAStateMovedMeanwhile(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -761,18 +759,18 @@ func TestLAvancementNecrasePasUnEtatDeplaceEntreTemps(t *testing.T) {
 		t.Fatalf("release: %v", err)
 	}
 
-	// Quelqu'un déplace la release pendant que le pipeline tourne.
+	// Someone moves the release while the pipeline runs.
 	if err := db.SetReleaseState(ctx, releaseID, "failed"); err != nil {
-		t.Fatalf("déplacement: %v", err)
+		t.Fatalf("move: %v", err)
 	}
 
-	// La conclusion arrive avec l'état qu'elle avait lu au départ.
+	// The conclusion arrives with the state it had read at the start.
 	advanced, err := db.AdvanceReleaseState(ctx, releaseID, "building", "ready")
 	if err != nil {
 		t.Fatalf("avancement: %v", err)
 	}
 	if advanced {
-		t.Error("l'avancement ne devait pas aboutir sur un état déplacé")
+		t.Error("the advance should not have succeeded on a moved state")
 	}
 
 	current, err := db.GetReleaseByID(ctx, releaseID)
@@ -780,7 +778,7 @@ func TestLAvancementNecrasePasUnEtatDeplaceEntreTemps(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if current.State != "failed" {
-		t.Errorf("état %q, attendu failed conservé", current.State)
+		t.Errorf("state %q, expected failed to be kept", current.State)
 	}
 
 	// Depuis l'état réel, l'avancement passe.
@@ -789,14 +787,14 @@ func TestLAvancementNecrasePasUnEtatDeplaceEntreTemps(t *testing.T) {
 		t.Fatalf("avancement: %v", err)
 	}
 	if !advanced {
-		t.Error("l'avancement depuis l'état réel devait aboutir")
+		t.Error("the advance from the real state should have succeeded")
 	}
 }
 
-// Une release ne sort de `verifying` que lorsque **toutes** ses vérifications ont
-// rendu leur verdict. Sans ce décompte, elle y restait indéfiniment — constaté sur
-// 3.2.0-rc1, bloquée alors que ses deux tests avaient conclu.
-func TestUneReleaseNeSortDeVerifyingQueQuandToutAConclu(t *testing.T) {
+// A release leaves `verifying` only when every verification has returned its verdict.
+// Without that count it stayed there indefinitely — observed on a release blocked while
+// both its tests had concluded.
+func TestAReleaseLeavesVerifyingOnlyWhenEverythingConcluded(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -823,39 +821,39 @@ func TestUneReleaseNeSortDeVerifyingQueQuandToutAConclu(t *testing.T) {
 		jobs = append(jobs, id)
 	}
 
-	// Les deux en attente : rien n'est conclu.
+	// Both pending: nothing is concluded.
 	tally, err := db.CountVerifications(ctx, releaseID, kinds, "build")
 	if err != nil {
-		t.Fatalf("décompte: %v", err)
+		t.Fatalf("count: %v", err)
 	}
 	if tally.Done() || tally.Pending != 2 {
-		t.Fatalf("décompte initial: %+v", tally)
+		t.Fatalf("initial count: %+v", tally)
 	}
 
-	// La première conclut : toujours pas fini.
+	// The first concludes: still not finished.
 	if err := db.FinishJob(ctx, jobs[0], JobSucceeded, ""); err != nil {
 		t.Fatalf("conclusion: %v", err)
 	}
 	tally, _ = db.CountVerifications(ctx, releaseID, kinds, "build")
 	if tally.Done() {
-		t.Error("une vérification sur deux ne conclut pas la release")
+		t.Error("one verification out of two does not conclude the release")
 	}
 
-	// La seconde échoue : fini, mais avec un échec.
-	if err := db.FinishJob(ctx, jobs[1], JobFailed, "clone refusé"); err != nil {
+	// The second fails: finished, but with a failure.
+	if err := db.FinishJob(ctx, jobs[1], JobFailed, "clone refused"); err != nil {
 		t.Fatalf("conclusion: %v", err)
 	}
 	tally, _ = db.CountVerifications(ctx, releaseID, kinds, "build")
 	if !tally.Done() {
-		t.Error("toutes les vérifications ont conclu")
+		t.Error("every verification concluded")
 	}
 	if tally.Failed != 1 || tally.Succeeded != 1 {
-		t.Errorf("décompte final: %+v", tally)
+		t.Errorf("final count: %+v", tally)
 	}
 }
 
-// Les jobs d'une autre release, ou d'une autre nature, ne comptent pas.
-func TestLeDecompteNeRegardeQueLaBonneRelease(t *testing.T) {
+// Jobs of another release, or of another kind, do not count.
+func TestTheCountLooksOnlyAtTheRightRelease(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -871,8 +869,8 @@ func TestLeDecompteNeRegardeQueLaBonneRelease(t *testing.T) {
 		ImageVersion: "3.2.0-rc2", CreatedBy: "vcarroy",
 	})
 
-	// La construction vient d'abord, comme en production : c'est elle qui borne
-	// la série de vérifications qui la suit.
+	// The build comes first, as in production: it is what bounds the series of
+	// verifications that follows.
 	if _, err := db.Enqueue(ctx, JobRequest{
 		Kind: "build", RequestedBy: "x", ReleaseID: &mine,
 	}); err != nil {
@@ -881,31 +879,29 @@ func TestLeDecompteNeRegardeQueLaBonneRelease(t *testing.T) {
 	if _, err := db.Enqueue(ctx, JobRequest{
 		Kind: "static-tests", RequestedBy: "x", ReleaseID: &other,
 	}); err != nil {
-		t.Fatalf("job d'une autre release: %v", err)
+		t.Fatalf("job of another release: %v", err)
 	}
 
 	kinds := []string{"static-tests", "security-audit"}
 	tally, err := db.CountVerifications(ctx, mine, kinds, "build")
 	if err != nil {
-		t.Fatalf("décompte: %v", err)
+		t.Fatalf("count: %v", err)
 	}
 	if tally.Pending != 0 || tally.Failed != 0 || tally.Succeeded != 0 {
-		t.Errorf("décompte: %+v — ni la construction ni la release voisine ne comptent", tally)
+		t.Errorf("count: %+v — neither the build nor the neighbouring release counts", tally)
 	}
-	// Et une série vide n'est pas conclue : entre l'écriture de `verifying` et la
-	// mise en file des tests, la série l'est momentanément, et un verdict tardif
-	// redélivré à cet instant ferait passer la release en `ready` sans qu'aucun
-	// test n'ait tourné.
+	// And an empty series is not concluded: between writing `verifying` and queueing the
+	// tests it momentarily is, and a late verdict redelivered at that instant would move
+	// the release to `ready` without a single test having run.
 	if tally.Done() {
-		t.Error("une série vide ne conclut rien")
+		t.Error("an empty series concludes nothing")
 	}
 }
 
-// Une release relancée après un échec traîne les vérifications de ses tentatives
-// précédentes. Les compter ferait échouer indéfiniment une release dont la
-// seconde série passe entièrement — et le premier geste offert par l'interface
-// sur une release en échec est précisément « relancer la construction ».
-func TestUneRelanceNeCompteQueSesPropresVerifications(t *testing.T) {
+// A release retried after a failure drags the verifications of its previous attempts
+// along. Counting them would fail a release whose second series passes entirely — and
+// the first gesture the interface offers on a failed release is precisely "rebuild".
+func TestARetryCountsOnlyItsOwnVerifications(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -937,7 +933,7 @@ func TestUneRelanceNeCompteQueSesPropresVerifications(t *testing.T) {
 	if err := db.FinishJob(ctx, first[0], JobSucceeded, ""); err != nil {
 		t.Fatalf("conclusion: %v", err)
 	}
-	if err := db.FinishJob(ctx, first[1], JobFailed, "clone refusé"); err != nil {
+	if err := db.FinishJob(ctx, first[1], JobFailed, "clone refused"); err != nil {
 		t.Fatalf("conclusion: %v", err)
 	}
 
@@ -952,21 +948,20 @@ func TestUneRelanceNeCompteQueSesPropresVerifications(t *testing.T) {
 
 	tally, err := db.CountVerifications(ctx, releaseID, kinds, "build")
 	if err != nil {
-		t.Fatalf("décompte: %v", err)
+		t.Fatalf("count: %v", err)
 	}
 	if !tally.Done() {
-		t.Fatal("la seconde série a conclu")
+		t.Fatal("the second series concluded")
 	}
 	if tally.Failed != 0 || tally.Succeeded != 2 {
-		t.Errorf("décompte: %+v — l'échec de la première série est encore compté", tally)
+		t.Errorf("count: %+v — the first series' failure is still counted", tally)
 	}
 }
 
-// Le défaut qui laissait 3.2.0-rc3 en échec alors que ses trois familles étaient
-// vertes : le décompte cumulait les essais d'une même famille. Trois échecs
-// d'intégration suivis d'une réussite comptaient trois échecs, et la release
-// restait en échec pour des verdicts que le dernier essai avait remplacés — donc
-// le bouton « Rejouer » ne pouvait rien rattraper.
+// The defect that left a release failed while its three families were green: the count
+// accumulated the attempts of one family. Three integration failures followed by a
+// success counted three failures, and the release stayed failed over verdicts the last
+// attempt had replaced — so the replay button could catch nothing up.
 func TestSeulLeDernierEssaiDUneFamilleCompte(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -1003,7 +998,7 @@ func TestSeulLeDernierEssaiDUneFamilleCompte(t *testing.T) {
 	conclude(enqueue("static-tests"), JobSucceeded)
 	conclude(enqueue("security-audit"), JobSucceeded)
 
-	// L'intégration échoue trois fois, puis passe.
+	// Integration fails three times, then passes.
 	for i := 0; i < 3; i++ {
 		conclude(enqueue("integration-tests"), JobFailed)
 	}
@@ -1011,20 +1006,20 @@ func TestSeulLeDernierEssaiDUneFamilleCompte(t *testing.T) {
 
 	tally, err := db.CountVerifications(ctx, releaseID, kinds, "build")
 	if err != nil {
-		t.Fatalf("décompte: %v", err)
+		t.Fatalf("count: %v", err)
 	}
 	if !tally.Done() {
-		t.Fatal("les trois familles ont conclu")
+		t.Fatal("all three families concluded")
 	}
 	if tally.Failed != 0 {
-		t.Errorf("%d échec(s) comptés — les essais précédents pèsent encore", tally.Failed)
+		t.Errorf("%d failure(s) counted — the previous attempts still weigh", tally.Failed)
 	}
 	if tally.Succeeded != 3 {
-		t.Errorf("%d réussite(s), attendu une par famille", tally.Succeeded)
+		t.Errorf("%d success(es), expected one per family", tally.Succeeded)
 	}
 }
 
-// Et le pendant : un dernier essai en échec compte, même précédé de réussites.
+// And the converse: a failed last attempt counts, even preceded by successes.
 func TestUnDernierEssaiEnEchecCompte(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -1052,28 +1047,27 @@ func TestUnDernierEssaiEnEchecCompte(t *testing.T) {
 		t.Fatalf("conclusion: %v", err)
 	}
 	second := enqueue("static-tests")
-	if err := db.FinishJob(ctx, second, JobFailed, "régression"); err != nil {
+	if err := db.FinishJob(ctx, second, JobFailed, "regression"); err != nil {
 		t.Fatalf("conclusion: %v", err)
 	}
 
 	tally, err := db.CountVerifications(ctx, releaseID, []string{"static-tests"}, "build")
 	if err != nil {
-		t.Fatalf("décompte: %v", err)
+		t.Fatalf("count: %v", err)
 	}
 	if tally.Failed != 1 || tally.Succeeded != 0 {
-		t.Errorf("décompte %+v — le dernier essai doit l'emporter", tally)
+		t.Errorf("count %+v — the last attempt must win", tally)
 	}
 }
 
-// Deux projets suivis ensemble portent chacun leur `3.1.2`, et rien ne doit les
-// mêler.
+// Two projects tracked together each carry their own `3.1.2`, and nothing must mix
+// them.
 //
-// C'est la raison d'être de la migration 0025, et la propriété la plus facile à
-// perdre sans s'en apercevoir : le rapprochement se fait par nom **normalisé**,
-// et une requête qui oublie le projet rattache silencieusement la release de l'un
-// à la version de l'autre. Les deux existent, aucune erreur n'est levée, et
-// l'écran affiche un périmètre qui n'est pas le sien.
-func TestDeuxProjetsNeSeVolentPasLeursVersions(t *testing.T) {
+// That is what the migration is for, and the property easiest to lose without
+// noticing: matching is by normalised name, and a query that forgets the project
+// silently attaches one's release to the other's version. Both exist, no error is
+// raised, and the screen shows a scope that is not its own.
+func TestTwoProjectsDoNotStealEachOthersVersions(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -1085,18 +1079,18 @@ func TestDeuxProjetsNeSeVolentPasLeursVersions(t *testing.T) {
 		t.Fatalf("second projet: %v", err)
 	}
 
-	// Le même numéro, déclaré des deux côtés. Le même identifiant Redmine aussi :
-	// deux projets peuvent suivre deux instances, ou deux projets de la même.
+	// The same number, declared on both sides. The same tracker identifier too: two
+	// projects may track two instances, or two projects of the same one.
 	for _, projectID := range []int64{testProjectID, second} {
 		if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
 			ProjectID: projectID, Tool: "redmine", ExternalID: fmt.Sprint(900), Name: "v3.1.2",
 			Normalized: release.NormalizeVersionName("v3.1.2"), Status: "open",
 		}); err != nil {
-			t.Fatalf("version du projet %d: %v", projectID, err)
+			t.Fatalf("version of project %d: %v", projectID, err)
 		}
 	}
 
-	// Une release du premier projet doit trouver **sa** version.
+	// A release of the first project must find its own version.
 	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
 	if err != nil {
 		t.Fatalf("rattachement: %v", err)
@@ -1105,49 +1099,48 @@ func TestDeuxProjetsNeSeVolentPasLeursVersions(t *testing.T) {
 	var owner int64
 	if err := db.Pool().QueryRow(ctx,
 		`select project_id from versions where id = $1`, versionID).Scan(&owner); err != nil {
-		t.Fatalf("lecture du projet: %v", err)
+		t.Fatalf("reading the project: %v", err)
 	}
 	if owner != testProjectID {
-		t.Errorf("version rattachée au projet %d, attendu %d", owner, testProjectID)
+		t.Errorf("version attached to project %d, expected %d", owner, testProjectID)
 	}
 
-	// Et le tag n'est unique qu'au sein d'un projet : le même `1.0.0` doit
-	// pouvoir exister des deux côtés.
+	// And the tag is unique only within a project: the same `1.0.0` must be able to exist
+	// on both sides.
 	for _, projectID := range []int64{testProjectID, second} {
 		version, err := db.EnsureVersion(ctx, projectID, "1.0.0")
 		if err != nil {
-			t.Fatalf("version 1.0.0 du projet %d: %v", projectID, err)
+			t.Fatalf("version 1.0.0 of project %d: %v", projectID, err)
 		}
 		if _, err := db.CreateRelease(ctx, Release{
 			ProjectID: projectID, VersionID: version, Tag: "1.0.0",
 			Kind: "final", State: "draft", ImageVersion: "1.0.0", CreatedBy: "test",
 		}); err != nil {
-			t.Fatalf("release 1.0.0 du projet %d: %v", projectID, err)
+			t.Fatalf("release 1.0.0 of project %d: %v", projectID, err)
 		}
 	}
 
 	first, err := db.GetRelease(ctx, testProjectID, "1.0.0")
 	if err != nil {
-		t.Fatalf("lecture de la release du premier projet: %v", err)
+		t.Fatalf("reading the first project's release: %v", err)
 	}
 	other, err := db.GetRelease(ctx, second, "1.0.0")
 	if err != nil {
-		t.Fatalf("lecture de la release du second projet: %v", err)
+		t.Fatalf("reading the second project's release: %v", err)
 	}
 	if first.ID == other.ID {
-		t.Error("les deux projets partagent la même release: l'unicité du tag est restée globale")
+		t.Error("both projects share the same release: tag uniqueness stayed global")
 	}
 }
 
-// Un projet sans outil de suivi produit des versions **définitives**, jamais des
-// provisoires.
+// A project with no tracking tool produces definitive versions, never provisional
+// ones.
 //
-// C'est le cas de `hydra-sql-mse-theme` et `hydra-dispatcher-mse-theme` : ils
-// versionnent par tags Git, sans Redmine ni équivalent. Le dashboard leur
-// fabriquait une provisoire en attente d'une adoption qui ne serait jamais venue
-// — l'état d'anomalie devenu permanent, et un écran qui annonce indéfiniment un
-// retard sur un outil inexistant.
-func TestUnProjetSansSuiviProduitDesVersionsDefinitives(t *testing.T) {
+// That is the case of projects versioned by git tags alone, with no tracker. The
+// dashboard made them a provisional version awaiting an adoption that would never
+// come — the anomaly state made permanent, and a screen announcing indefinitely a lag
+// against a tool that does not exist.
+func TestAProjectWithoutATrackerProducesDefinitiveVersions(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
@@ -1156,7 +1149,7 @@ func TestUnProjetSansSuiviProduitDesVersionsDefinitives(t *testing.T) {
 		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
 		 values ('theme', 'CNOUS/hydra-sql-mse-theme', 'Thème', 'https://forge.example', '.', 'test')
 		 returning id`).Scan(&sansSuivi); err != nil {
-		t.Fatalf("projet sans suivi: %v", err)
+		t.Fatalf("project with no tracker: %v", err)
 	}
 
 	versionID, err := db.EnsureVersion(ctx, sansSuivi, "1.2.0")
@@ -1170,27 +1163,27 @@ func TestUnProjetSansSuiviProduitDesVersionsDefinitives(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if origin != "own" {
-		t.Errorf("origine = %q, attendu own", origin)
+		t.Errorf("origin = %q, expected own", origin)
 	}
-	// Le statut suit l'origine : une version qui se suffit à elle-même n'attend
-	// rien, et l'afficher « en attente » serait faux.
+	// The status follows the origin: a version that stands on its own waits for nothing,
+	// and displaying it as "pending" would be false.
 	if status != "open" {
-		t.Errorf("statut = %q, attendu open", status)
+		t.Errorf("status = %q, expected open", status)
 	}
 
-	// Et l'adoption ne doit pas la regarder : il n'y a rien à rapprocher.
+	// And adoption must not look at it: there is nothing to match.
 	report, err := db.AdoptPendingVersions(ctx)
 	if err != nil {
 		t.Fatalf("adoption: %v", err)
 	}
 	if len(report) != 0 {
-		t.Errorf("l'adoption a examiné une version sans suivi: %+v", report)
+		t.Errorf("adoption examined a version with no tracker: %+v", report)
 	}
 }
 
-// Et le pendant : un projet suivi produit bien une provisoire, que la
-// synchronisation pourra adopter.
-func TestUnProjetSuiviProduitUneProvisoire(t *testing.T) {
+// And the converse: a tracked project does produce a provisional version, which
+// synchronisation can adopt.
+func TestATrackedProjectProducesAProvisionalVersion(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -1205,24 +1198,24 @@ func TestUnProjetSuiviProduitUneProvisoire(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if origin != "pending" {
-		t.Errorf("origine = %q, attendu pending", origin)
+		t.Errorf("origin = %q, expected pending", origin)
 	}
 }
 
-// externalRef traduit l'identifiant numérique d'une version en la référence
-// textuelle que porte désormais la colonne.
+// externalRef turns a version's numeric identifier into the textual reference the
+// column now carries.
 func externalRef(id int64) *string {
 	reference := fmt.Sprint(id)
 	return &reference
 }
 
-// Une version que le dashboard s'est donnée ne porte **aucun** identifiant
-// externe, et plus un entier négatif.
+// A version the dashboard gave itself carries no external identifier at all, and no
+// longer a negative integer.
 //
-// Le contournement existait pour satisfaire un `not null` sur une colonne qui
-// n'avait pas de valeur à porter : il fallait lire le signe d'un nombre pour
-// connaître une nature. `origin` dit la nature, `external_id` reste nul.
-func TestUneVersionPropreNaAucunIdentifiantExterne(t *testing.T) {
+// The workaround existed to satisfy a not-null constraint on a column that had no
+// value to carry: one had to read the sign of a number to know a nature. `origin` says
+// the nature, `external_id` stays null.
+func TestAnOwnVersionHasNoExternalIdentifier(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
@@ -1246,16 +1239,16 @@ func TestUneVersionPropreNaAucunIdentifiantExterne(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if tool != "" {
-		t.Errorf("outil = %q, attendu vide", tool)
+		t.Errorf("tool = %q, expected empty", tool)
 	}
 	if external != nil {
-		t.Errorf("identifiant externe = %q, attendu nul", *external)
+		t.Errorf("external identifier = %q, expected null", *external)
 	}
 }
 
-// Deux outils peuvent numéroter pareil sans se gêner : l'unicité porte sur le
-// triplet projet + outil + identifiant.
-func TestDeuxOutilsPeuventPartagerUnIdentifiant(t *testing.T) {
+// Two tools may number alike without clashing: uniqueness is on the triple project +
+// tool + identifier.
+func TestTwoToolsMayShareAnIdentifier(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -1266,8 +1259,8 @@ func TestDeuxOutilsPeuventPartagerUnIdentifiant(t *testing.T) {
 		t.Fatalf("version Redmine: %v", err)
 	}
 
-	// Le même numéro, chez un autre outil. Un entier unique par projet l'aurait
-	// refusé sans qu'aucun message ne dise pourquoi.
+	// The same number, in another tool. A single integer unique per project would have
+	// refused it with no message saying why.
 	if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
 		ProjectID: testProjectID, Tool: "jira", ExternalID: "42",
 		Name: "MSE-42", Normalized: "MSE-42", Status: "open",
@@ -1278,20 +1271,20 @@ func TestDeuxOutilsPeuventPartagerUnIdentifiant(t *testing.T) {
 	var count int
 	if err := db.Pool().QueryRow(ctx,
 		`select count(*) from versions where external_id = '42'`).Scan(&count); err != nil {
-		t.Fatalf("décompte: %v", err)
+		t.Fatalf("count: %v", err)
 	}
 	if count != 2 {
-		t.Errorf("%d version(s) portant l'identifiant 42, attendu 2", count)
+		t.Errorf("%d version(s) carrying identifier 42, expected 2", count)
 	}
 }
 
-// La liste des versions est bornée à son projet.
+// The version list is bounded to its project.
 //
-// Elle ne l'était pas : la route `/projects/{p}/versions` passait son projet et
-// la requête l'ignorait. Un projet sans aucune version affichait celles du
-// voisin, sans qu'aucune erreur ne le dise — le pire mode de défaillance du
-// multi-projet, celui où l'écran d'un client montre les données d'un autre.
-func TestLaListeDesVersionsNeDeborteSurAucunAutreProjet(t *testing.T) {
+// It was not: the `/projects/{p}/versions` route passed its project and the query
+// ignored it. A project with no version displayed its neighbour's, with no error saying
+// so — the worst failure mode of multi-project work, the one where a client's screen
+// shows another's data.
+func TestTheVersionListDoesNotSpillOntoAnotherProject(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -1310,7 +1303,7 @@ func TestLaListeDesVersionsNeDeborteSurAucunAutreProjet(t *testing.T) {
 		ProjectID: second, Tool: "redmine", ExternalID: "901", Name: "v9.9.9",
 		Normalized: release.NormalizeVersionName("v9.9.9"), Status: "open",
 	}); err != nil {
-		t.Fatalf("version du second projet: %v", err)
+		t.Fatalf("version of the second project: %v", err)
 	}
 
 	summaries, err := db.ListVersionSummaries(ctx, testProjectID)
@@ -1318,15 +1311,15 @@ func TestLaListeDesVersionsNeDeborteSurAucunAutreProjet(t *testing.T) {
 		t.Fatalf("liste: %v", err)
 	}
 	if len(summaries) != 1 || summaries[0].Name != "v3.1.0" {
-		t.Fatalf("versions rendues: %+v — celles d'un autre projet débordent", summaries)
+		t.Fatalf("versions returned: %+v — another project's spill over", summaries)
 	}
 	if summaries[0].ProjectID != testProjectID {
-		t.Errorf("projet de la version = %d", summaries[0].ProjectID)
+		t.Errorf("project of the version = %d", summaries[0].ProjectID)
 	}
 
-	// Et réciproquement : le second projet ne voit que la sienne.
+	// And conversely: the second project sees only its own.
 	others, _ := db.ListVersionSummaries(ctx, second)
 	if len(others) != 1 || others[0].Name != "v9.9.9" {
-		t.Errorf("versions du second projet: %+v", others)
+		t.Errorf("versions of the second project: %+v", others)
 	}
 }

@@ -28,12 +28,12 @@ func project(t *testing.T, db *DB, repository string) int64 {
 		CreatedBy: "vcarroy",
 	})
 	if err != nil {
-		t.Fatalf("déclaration de %s: %v", repository, err)
+		t.Fatalf("declaring %s: %v", repository, err)
 	}
 	return id
 }
 
-func TestUnProjetSeDeclareEtSeRelit(t *testing.T) {
+func TestAProjectIsDeclaredAndReadBack(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
@@ -47,17 +47,17 @@ func TestUnProjetSeDeclareEtSeRelit(t *testing.T) {
 		t.Errorf("projet = %+v", read)
 	}
 	if len(read.Targets) != 2 || read.Targets[1].Image != "portal-cli" {
-		t.Errorf("étapes = %+v", read.Targets)
+		t.Errorf("stages = %+v", read.Targets)
 	}
-	// Aucun test d'accès n'a eu lieu : l'absence de constat doit se distinguer
-	// d'un test qui a échoué.
+	// No access check has happened: the absence of a verdict must be told apart from a
+	// check that failed.
 	if read.CheckedAt != nil || read.CheckOK != nil {
-		t.Errorf("constat posé sans test: %+v", read)
+		t.Errorf("verdict set with no check: %+v", read)
 	}
 }
 
-// Deux entrées pour un même dépôt décriraient la même chose, et rien ne dirait
-// laquelle fait foi.
+// Two entries for one repository would describe the same thing, with nothing saying
+// which prevails.
 func TestUnDepotNeSeDeclarePasDeuxFois(t *testing.T) {
 	db := migratedBare(t)
 
@@ -67,17 +67,12 @@ func TestUnDepotNeSeDeclarePasDeuxFois(t *testing.T) {
 		Repository: "CNOUS/mse", Label: "Doublon", CreatedBy: "vcarroy",
 	})
 	if !errors.Is(err, ErrProjectExists) {
-		t.Errorf("seconde déclaration: %v, attendu ErrProjectExists", err)
+		t.Errorf("second declaration: %v, expected ErrProjectExists", err)
 	}
 }
 
-// Une ligne de formulaire à moitié remplie ne devient pas une étape : elle
-// n'aurait rien à construire, et rien à l'écran ne la distinguerait d'une étape
-// valide.
-//
-// Cette fonction éprouvait aussi l'immuabilité du dépôt. Elle a cessé de le
-// faire avec elle : les projets amorcés portent le dépôt que la configuration a
-// nommé, et le corriger est le premier geste qu'on vient faire sur cet écran.
+// A half-filled form row does not become a stage: it would have nothing to build, and
+// nothing on screen would tell it from a valid stage.
 func TestUneCorrectionEcarteLesEtapesVides(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
@@ -90,7 +85,7 @@ func TestUneCorrectionEcarteLesEtapesVides(t *testing.T) {
 		BuildContext: ".", MultiStage: false,
 		Targets: []Target{{Stage: "", Image: ""}, {Stage: "web", Image: "portal"}},
 	}); err != nil {
-		t.Fatalf("mise à jour: %v", err)
+		t.Fatalf("update: %v", err)
 	}
 
 	read, _ := db.GetProject(ctx, id)
@@ -98,17 +93,17 @@ func TestUneCorrectionEcarteLesEtapesVides(t *testing.T) {
 		t.Errorf("projet = %+v", read)
 	}
 	if len(read.Targets) != 1 || read.Targets[0].Stage != "web" {
-		t.Errorf("étapes = %+v", read.Targets)
+		t.Errorf("stages = %+v", read.Targets)
 	}
 }
 
-func TestLeConstatDaccesEstConserve(t *testing.T) {
+func TestTheAccessVerdictIsKept(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
 
-	if err := db.RecordProjectCheck(ctx, id, false, "404 sur /repos/CNOUS/mse"); err != nil {
+	if err := db.RecordProjectCheck(ctx, id, false, "404 on /repos/CNOUS/mse"); err != nil {
 		t.Fatalf("constat: %v", err)
 	}
 
@@ -117,31 +112,31 @@ func TestLeConstatDaccesEstConserve(t *testing.T) {
 		t.Fatalf("constat = %+v", read)
 	}
 	if read.CheckNote == "" {
-		t.Error("le motif de l'échec doit être conservé: sans lui, « accès refusé » n'aide pas")
+		t.Error("the failure reason must be kept: without it, \"access refused\" does not help")
 	}
 
-	// Un second test remplace le premier : c'est un constat, pas un journal.
-	if err := db.RecordProjectCheck(ctx, id, true, "branche par défaut : main"); err != nil {
+	// A second check replaces the first: it is a verdict, not a log.
+	if err := db.RecordProjectCheck(ctx, id, true, "default branch: main"); err != nil {
 		t.Fatalf("second constat: %v", err)
 	}
 	read, _ = db.GetProject(ctx, id)
 	if read.CheckOK == nil || !*read.CheckOK {
-		t.Errorf("constat après reprise = %+v", read)
+		t.Errorf("verdict after retry = %+v", read)
 	}
 }
 
-func TestUnProjetAbsentSeDistingueDUneErreur(t *testing.T) {
+func TestAMissingProjectIsToldApartFromAnError(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	if _, err := db.GetProject(ctx, 4242); !errors.Is(err, ErrProjectNotFound) {
-		t.Errorf("lecture d'un projet absent: %v", err)
+		t.Errorf("reading a missing project: %v", err)
 	}
 	if err := db.DeleteProject(ctx, 4242); !errors.Is(err, ErrProjectNotFound) {
-		t.Errorf("suppression d'un projet absent: %v", err)
+		t.Errorf("deleting a missing project: %v", err)
 	}
 	if err := db.RecordProjectCheck(ctx, 4242, true, ""); !errors.Is(err, ErrProjectNotFound) {
-		t.Errorf("constat sur un projet absent: %v", err)
+		t.Errorf("verdict on a missing project: %v", err)
 	}
 }
 
@@ -152,7 +147,7 @@ func TestUnProjetAbsentSeDistingueDUneErreur(t *testing.T) {
  * pas ce qu'un administrateur aura pensé à y ressaisir. Deux propriétés le
  * rendent sûr : il est rejouable, et il n'écrase rien.
  */
-func TestLamorcageEstRejouableEtNecrasePas(t *testing.T) {
+func TestTheBootstrapIsReplayableAndOverwritesNothing(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
@@ -169,18 +164,18 @@ func TestLamorcageEstRejouableEtNecrasePas(t *testing.T) {
 			ForgeURL: "https://forge.example.fr", BuildContext: ".",
 			CreatedBy: "configuration",
 		},
-		// Une URL dont on n'a pas su tirer `owner/nom` : écartée plutôt que
-		// déclarée, un dépôt qui ne désigne rien donnerait un test d'accès en
-		// échec sans qu'on sache que la faute est en amont.
+		// A URL from which `owner/name` could not be derived: discarded rather than declared,
+		// since a repository naming nothing would give a failed access check with no way to know
+		// the fault was upstream.
 		{Repository: "", Label: "Illisible"},
 	}
 
 	declared, err := db.SeedProjects(ctx, configured)
 	if err != nil {
-		t.Fatalf("amorçage: %v", err)
+		t.Fatalf("bootstrap: %v", err)
 	}
 	if declared != 2 {
-		t.Errorf("%d projet(s) déclarés, attendu 2", declared)
+		t.Errorf("%d project(s) declared, expected 2", declared)
 	}
 
 	// Un administrateur corrige un libellé.
@@ -200,31 +195,30 @@ func TestLamorcageEstRejouableEtNecrasePas(t *testing.T) {
 		t.Fatalf("correction: %v", err)
 	}
 
-	// Le redémarrage rejoue l'amorçage : il ne doit rien déclarer, et surtout
-	// rien réécrire.
+	// A restart replays the bootstrap: it must declare nothing, and above all rewrite
+	// nothing.
 	declared, err = db.SeedProjects(ctx, configured)
 	if err != nil {
-		t.Fatalf("second amorçage: %v", err)
+		t.Fatalf("second bootstrap: %v", err)
 	}
 	if declared != 0 {
-		t.Errorf("%d projet(s) redéclarés", declared)
+		t.Errorf("%d project(s) redeclared", declared)
 	}
 
 	read, _ := db.GetProject(ctx, mse.ID)
 	if read.Label != "Portail MSE" {
-		t.Errorf("libellé = %q: l'amorçage a écrasé une correction", read.Label)
+		t.Errorf("label = %q: the bootstrap overwrote a correction", read.Label)
 	}
 }
 
-// Le dépôt est modifiable, et c'est le cas d'usage principal : les projets
-// amorcés portent celui que la configuration a nommé, et le corriger est
-// exactement ce qu'on vient faire.
-func TestLeDepotSeCorrigeEtEffaceLeConstat(t *testing.T) {
+// The repository is editable, and that is the main use case: bootstrapped projects carry
+// the one the configuration named, and correcting it is exactly what this is for.
+func TestCorrectingTheRepositoryClearsTheVerdict(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "vcarroy/mse-test-project")
-	if err := db.RecordProjectCheck(ctx, id, true, "branche par défaut : main"); err != nil {
+	if err := db.RecordProjectCheck(ctx, id, true, "default branch: main"); err != nil {
 		t.Fatalf("constat: %v", err)
 	}
 
@@ -239,23 +233,23 @@ func TestLeDepotSeCorrigeEtEffaceLeConstat(t *testing.T) {
 
 	read, _ := db.GetProject(ctx, id)
 	if read.Repository != "CNOUS/mse" {
-		t.Errorf("dépôt = %q", read.Repository)
+		t.Errorf("repository = %q", read.Repository)
 	}
-	// Le constat portait sur ce qu'on ne pilote plus. Le garder afficherait
-	// « accès vérifié » sur un dépôt que personne n'a testé.
+	// The verdict was about something no longer driven. Keeping it would display "access
+	// verified" on a repository nobody tested.
 	if read.CheckedAt != nil || read.CheckOK != nil || read.CheckNote != "" {
-		t.Errorf("constat conservé après changement de dépôt: %+v", read)
+		t.Errorf("verdict kept after changing repository: %+v", read)
 	}
 }
 
-// Modifier autre chose que le dépôt conserve le constat : le refaire à chaque
-// correction de libellé le rendrait inutile.
+// Changing anything other than the repository keeps the verdict: redoing it at every
+// label correction would make it useless.
 func TestUneCorrectionSansChangementDeDepotGardeLeConstat(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
-	if err := db.RecordProjectCheck(ctx, id, true, "branche par défaut : main"); err != nil {
+	if err := db.RecordProjectCheck(ctx, id, true, "default branch: main"); err != nil {
 		t.Fatalf("constat: %v", err)
 	}
 
@@ -268,13 +262,13 @@ func TestUneCorrectionSansChangementDeDepotGardeLeConstat(t *testing.T) {
 
 	read, _ := db.GetProject(ctx, id)
 	if read.CheckedAt == nil || read.CheckOK == nil || !*read.CheckOK {
-		t.Errorf("constat perdu sur une correction de libellé: %+v", read)
+		t.Errorf("verdict lost on a label correction: %+v", read)
 	}
 }
 
-// Deux entrées pour un même dépôt décriraient la même chose : le refus vaut
-// aussi pour une correction, et doit se distinguer d'une panne d'écriture.
-func TestUneCorrectionVersUnDepotDejaDeclareEstRefusee(t *testing.T) {
+// Two entries for one repository would describe the same thing: the refusal holds for a
+// correction too, and must be told apart from a write failure.
+func TestCorrectingTowardsADeclaredRepositoryIsRefused(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
@@ -286,56 +280,55 @@ func TestUneCorrectionVersUnDepotDejaDeclareEstRefusee(t *testing.T) {
 		ForgeURL: "https://forge.example.fr", BuildContext: ".",
 	})
 	if !errors.Is(err, ErrProjectExists) {
-		t.Errorf("correction vers un dépôt déclaré: %v, attendu ErrProjectExists", err)
+		t.Errorf("correcting towards a declared repository: %v, expected ErrProjectExists", err)
 	}
 }
 
-// Un dépôt vide n'est jamais une intention : c'est un appelant qui a oublié le
-// champ. L'accepter l'effacerait en silence, et le projet deviendrait une ligne
-// qui ne désigne rien.
+// An empty repository is never an intention: it is a caller that forgot the field.
+// Accepting it would clear it silently, and the project would become a row naming
+// nothing.
 func TestUneCorrectionSansDepotEstRefusee(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
 
-	if err := db.UpdateProject(ctx, Project{ID: id, Label: "Sans dépôt"}); err == nil {
-		t.Fatal("un dépôt vide devrait être refusé")
+	if err := db.UpdateProject(ctx, Project{ID: id, Label: "No repository"}); err == nil {
+		t.Fatal("an empty repository should be refused")
 	}
 
 	read, _ := db.GetProject(ctx, id)
 	if read.Repository != "CNOUS/mse" {
-		t.Errorf("dépôt = %q: il a été effacé", read.Repository)
+		t.Errorf("repository = %q: it was cleared", read.Repository)
 	}
 }
 
-// La référence complète est ce qui désigne une image. Un nom court seul
-// ressemble à une référence tirable sans l'être.
-func TestLaReferenceCombineLeRegistreEtLimage(t *testing.T) {
+// The full reference is what names an image. A short name alone looks like a pullable
+// reference without being one.
+func TestTheReferenceCombinesRegistryAndImage(t *testing.T) {
 	project := Project{ImageRegistry: "reg.example.fr/mse"}
 
 	if got := project.Reference(Target{Stage: "cli", Image: "portal-cli"}); got != "reg.example.fr/mse/portal-cli" {
-		t.Errorf("référence = %q", got)
+		t.Errorf("reference = %q", got)
 	}
-	// Les barres de fin ne doivent pas se redoubler : `projet//portal` n'est pas
-	// la même image que `projet/portal` pour un registre.
+	// Trailing slashes must not double up: `project//portal` is not the same image as
+	// `project/portal` to a registry.
 	sloppy := Project{ImageRegistry: "reg.example.fr/mse/"}
 	if got := sloppy.Reference(Target{Image: "portal"}); got != "reg.example.fr/mse/portal" {
-		t.Errorf("référence = %q", got)
+		t.Errorf("reference = %q", got)
 	}
-	// Vide plutôt que tronquée : mieux vaut ne rien afficher qu'un nom qui ne
-	// désigne rien.
+	// Empty rather than truncated: better to show nothing than a name that names nothing.
 	if got := project.Reference(Target{Stage: "web"}); got != "" {
-		t.Errorf("référence sans image = %q", got)
+		t.Errorf("reference with no image = %q", got)
 	}
 	if got := (Project{}).Reference(Target{Image: "portal"}); got != "" {
-		t.Errorf("référence sans registre = %q", got)
+		t.Errorf("reference with no registry = %q", got)
 	}
 }
 
-// Un Dockerfile à image unique passe par la même liste, avec une entrée sans
-// cible : c'est le cas qui n'avait aucun nom d'image du tout.
-func TestUneImageUniqueSeDeclareSansCible(t *testing.T) {
+// A single-image Dockerfile goes through the same list, with an entry that has no
+// target: that is the case which had no image name at all.
+func TestASingleImageIsDeclaredWithNoTarget(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
@@ -348,29 +341,28 @@ func TestUneImageUniqueSeDeclareSansCible(t *testing.T) {
 		CreatedBy:  "vcarroy",
 	})
 	if err != nil {
-		t.Fatalf("déclaration: %v", err)
+		t.Fatalf("declaration: %v", err)
 	}
 
 	read, _ := db.GetProject(ctx, id)
 	if len(read.Targets) != 1 || read.Targets[0].Image != "outil" {
-		t.Fatalf("étapes = %+v", read.Targets)
+		t.Fatalf("stages = %+v", read.Targets)
 	}
 	if got := read.Reference(read.Targets[0]); got != "reg.example.fr/mse/outil" {
-		t.Errorf("référence = %q", got)
+		t.Errorf("reference = %q", got)
 	}
 }
 
-// Deux formes de dépôt coexistent, et aucune n'est un cas particulier de l'autre.
+// Two repository shapes coexist, and neither is a special case of the other.
 //
-// Le modèle ne savait dire que « telle **étape** du Dockerfile du projet produit
-// telle image » — la forme du dépôt de MSE, prise pour une vérité générale.
-// `hydra-dispatcher-mse-theme` porte `Dockerfile.dev` et `Dockerfile.prod` à sa
-// racine : deux fichiers, deux images, aucune étape.
-func TestUneEtapePeutNommerSonPropreDockerfile(t *testing.T) {
+// The model could only say "this stage of the project's Dockerfile produces that image"
+// — one repository's shape, taken for a general truth. Another carries
+// `Dockerfile.dev` and `Dockerfile.prod` at its root: two files, two images, no stage.
+func TestAStageMayNameItsOwnDockerfile(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
-	// La forme MSE : un Dockerfile, des étapes.
+	// The first shape: one Dockerfile, several stages.
 	mse := Project{
 		Slug: "mse", Repository: "vcarroy/mse", Label: "MSE",
 		ForgeURL: "https://forge.example", Dockerfile: "Dockerfile", BuildContext: ".",
@@ -381,12 +373,12 @@ func TestUneEtapePeutNommerSonPropreDockerfile(t *testing.T) {
 		},
 	}
 	if _, err := db.CreateProject(ctx, mse); err != nil {
-		t.Fatalf("projet à étapes: %v", err)
+		t.Fatalf("project with stages: %v", err)
 	}
 
 	// La forme thème : un Dockerfile par image, aucune étape.
 	theme := Project{
-		Slug: "theme", Repository: "CNOUS/hydra-dispatcher-mse-theme", Label: "Thème",
+		Slug: "theme", Repository: "CNOUS/hydra-dispatcher-mse-theme", Label: "Theme",
 		ForgeURL: "https://forge.example", BuildContext: ".", MultiStage: true,
 		Targets: []Target{
 			{Image: "hydra-dispatcher-mse-theme", Dockerfile: "Dockerfile.prod"},
@@ -395,7 +387,7 @@ func TestUneEtapePeutNommerSonPropreDockerfile(t *testing.T) {
 	}
 	id, err := db.CreateProject(ctx, theme)
 	if err != nil {
-		t.Fatalf("projet à Dockerfiles: %v", err)
+		t.Fatalf("project with Dockerfiles: %v", err)
 	}
 
 	stored, err := db.GetProject(ctx, id)
@@ -403,22 +395,22 @@ func TestUneEtapePeutNommerSonPropreDockerfile(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if len(stored.Buildable()) != 2 {
-		t.Fatalf("%d étape(s) constructible(s), attendu 2: %+v", len(stored.Buildable()), stored.Targets)
+		t.Fatalf("%d buildable stage(s), expected 2: %+v", len(stored.Buildable()), stored.Targets)
 	}
-	// Le plus précis gagne : l'étape nomme son fichier, le projet n'en a aucun.
+	// The most specific wins: the stage names its file, the project has none.
 	if got := stored.DockerfileFor(stored.Targets[0]); got != "Dockerfile.prod" {
-		t.Errorf("Dockerfile de la première étape = %q", got)
+		t.Errorf("Dockerfile of the first stage = %q", got)
 	}
 
-	// Et l'inverse : une étape muette retombe sur celui du projet.
+	// And the converse: a silent stage falls back to the project's.
 	if got := (Project{Dockerfile: "Dockerfile"}).DockerfileFor(Target{Stage: "web"}); got != "Dockerfile" {
-		t.Errorf("repli sur le Dockerfile du projet = %q", got)
+		t.Errorf("fallback to the project's Dockerfile = %q", got)
 	}
 }
 
-// Une étape sans nom d'image ne publie rien : elle est écartée à l'écriture, et
-// la base la refuserait de toute façon.
-func TestUneEtapeSansImageEstEcartee(t *testing.T) {
+// A stage with no image name publishes nothing: it is discarded on write, and the
+// database would refuse it anyway.
+func TestAStageWithNoImageIsDiscarded(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
@@ -428,7 +420,7 @@ func TestUneEtapeSansImageEstEcartee(t *testing.T) {
 		Targets: []Target{{Stage: "web"}, {Stage: "cli", Image: "utile"}},
 	})
 	if err != nil {
-		t.Fatalf("création: %v", err)
+		t.Fatalf("creation: %v", err)
 	}
 
 	stored, err := db.GetProject(ctx, id)
@@ -436,6 +428,6 @@ func TestUneEtapeSansImageEstEcartee(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if len(stored.Targets) != 1 || stored.Targets[0].Image != "utile" {
-		t.Errorf("étapes conservées = %+v", stored.Targets)
+		t.Errorf("stages kept = %+v", stored.Targets)
 	}
 }

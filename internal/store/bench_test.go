@@ -53,7 +53,7 @@ func TestSaveLoadResultKeepsTheMeasuredConditions(t *testing.T) {
 		[]BenchMeasure{
 			{Metric: "http_req_duration:p(95)", Label: "Latence p95", Unit: "ms",
 				Value: 310.2, LowerBetter: true, ThresholdOK: yes()},
-			{Metric: "http_reqs:count", Label: "Requêtes", Unit: "req", Value: 24000, Volume: true},
+			{Metric: "http_reqs:count", Label: "Requests", Unit: "req", Value: 24000, Volume: true},
 		})
 	if err != nil {
 		t.Fatalf("enregistrement: %v", err)
@@ -66,8 +66,7 @@ func TestSaveLoadResultKeepsTheMeasuredConditions(t *testing.T) {
 	if len(measures) != 2 {
 		t.Fatalf("%d mesure(s)", len(measures))
 	}
-	// Les conditions accompagnent chaque mesure : sans elles, une mesure n'est
-	// qu'un nombre.
+	// The conditions accompany every measure: without them, a measure is only a number.
 	if !measures[0].Exclusive || measures[0].ConcurrentAt != 0 {
 		t.Errorf("conditions = %+v", measures[0])
 	}
@@ -75,13 +74,13 @@ func TestSaveLoadResultKeepsTheMeasuredConditions(t *testing.T) {
 		t.Errorf("seuil = %v", measures[0].ThresholdOK)
 	}
 	if !measures[1].Volume {
-		t.Error("le drapeau de volume est perdu")
+		t.Error("the volume flag was lost")
 	}
 }
 
-// Le statut figé de la campagne suit les seuils déclarés dans k6 et non la
-// baseline : une colonne figée qui dépendrait d'une référence mobile deviendrait
-// fausse au premier ré-épinglage.
+// The campaign's frozen status follows the thresholds declared in the load tool and not
+// the baseline: a frozen column depending on a moving reference would become false at the
+// first re-pinning.
 func TestLoadStatusFollowsTheDeclaredThresholds(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -102,11 +101,11 @@ func TestLoadStatusFollowsTheDeclaredThresholds(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if status != "fail" {
-		t.Errorf("statut = %q, attendu fail", status)
+		t.Errorf("status = %q, expected fail", status)
 	}
 }
 
-// Une campagne sans seuil déclaré ne prononce aucun verdict sur elle-même.
+// A campaign with no declared threshold pronounces no verdict on itself.
 func TestLoadStatusWithoutDeclaredThresholds(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -119,7 +118,7 @@ func TestLoadStatusWithoutDeclaredThresholds(t *testing.T) {
 	var status string
 	db.pool.QueryRow(ctx, `select status from test_results where id = $1`, resultID).Scan(&status)
 	if status != "na" {
-		t.Errorf("statut = %q, attendu na", status)
+		t.Errorf("status = %q, expected na", status)
 	}
 }
 
@@ -141,29 +140,29 @@ func TestBaselinesArePinnedNotComputed(t *testing.T) {
 	secondMeasures, _ := db.ListResultMeasures(ctx, second)
 
 	if err := db.PinBaseline(ctx, firstMeasures[0].ID, "vcarroy"); err != nil {
-		t.Fatalf("épinglage: %v", err)
+		t.Fatalf("pinning: %v", err)
 	}
 
 	baselines, err := db.Baselines(ctx, "panier")
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
-	// La référence est celle qui a été désignée, et une campagne plus récente ne
-	// la déplace pas d'elle-même. C'est ce qui rend la dérive visible.
+	// The reference is the one that was designated, and a more recent campaign does not move
+	// it by itself. That is what makes drift visible.
 	if baselines["http_req_duration:p(95)"].Value != 300 {
-		t.Errorf("baseline = %v, attendu 300", baselines["http_req_duration:p(95)"].Value)
+		t.Errorf("baseline = %v, expected 300", baselines["http_req_duration:p(95)"].Value)
 	}
 
-	// Ré-épingler est permis : une baseline vieillit.
+	// Re-pinning is allowed: a baseline ages.
 	if err := db.PinBaseline(ctx, secondMeasures[0].ID, "vcarroy"); err != nil {
-		t.Fatalf("ré-épinglage: %v", err)
+		t.Fatalf("re-pinning: %v", err)
 	}
 	baselines, _ = db.Baselines(ctx, "panier")
 	if baselines["http_req_duration:p(95)"].Value != 450 {
-		t.Errorf("baseline = %v, attendu 450", baselines["http_req_duration:p(95)"].Value)
+		t.Errorf("baseline = %v, expected 450", baselines["http_req_duration:p(95)"].Value)
 	}
 	if baselines["http_req_duration:p(95)"].PinnedBy != "vcarroy" {
-		t.Error("le geste doit être tracé")
+		t.Error("the gesture must be recorded")
 	}
 }
 
@@ -190,8 +189,8 @@ func TestScenarioHistoryIsMostRecentFirst(t *testing.T) {
 	}
 }
 
-// Relevées à la réservation : minutes plus tard, plus rien ne dit ce qui
-// tournait au moment de la mesure.
+// Recorded at claim time: minutes later, nothing says what was running at the moment of
+// the measurement.
 func TestClaimRecordsTheStartConditions(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -202,12 +201,12 @@ func TestClaimRecordsTheStartConditions(t *testing.T) {
 		t.Fatalf("mise en file: %v", err)
 	}
 
-	// Une file à une place : c'est ce qui rend la mesure exclusive, la barrière
-	// du modèle précédent ayant disparu.
+	// A queue of one place: that is what makes the measurement exclusive, the previous model's
+	// barrier having gone.
 	limits := Limits{PerKind: map[string]int{"load-test": 1}, Default: 5, Global: 4}
 	job, err := db.ClaimNext(ctx, limits, func(kind string, id int64) string { return "run-1" })
 	if err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 
 	exclusive, concurrent, err := db.StartConditions(ctx, job.ID)
@@ -219,8 +218,8 @@ func TestClaimRecordsTheStartConditions(t *testing.T) {
 	}
 }
 
-// Un job ordinaire n'est pas exclusif, quoi qu'il arrive : c'est la classe qui en
-// décide, pas la chance d'avoir trouvé le cluster vide.
+// An ordinary job is not exclusive whatever happens: the class decides that, not the luck
+// of having found the cluster empty.
 func TestAnOrdinaryJobIsNeverMarkedExclusive(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -237,13 +236,12 @@ func TestAnOrdinaryJobIsNeverMarkedExclusive(t *testing.T) {
 		t.Fatalf("conditions: %v", err)
 	}
 	if exclusive {
-		t.Error("un job hors barrière ne doit jamais être marqué exclusif")
+		t.Error("a job outside the barrier must never be marked exclusive")
 	}
 }
 
-// Non relevées : traitées comme non exclusives. Se tromper dans ce sens écarte
-// une mesure valide ; dans l'autre, il ferait entrer une mesure faussée dans la
-// comparaison.
+// Not recorded: treated as non-exclusive. Erring this way sets aside a valid measure;
+// erring the other way would let a skewed measure into the comparison.
 func TestUnrecordedConditionsDefaultToNonExclusive(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()

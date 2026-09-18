@@ -9,36 +9,36 @@ import (
 )
 
 // ErrSchemaOutdated signale un schéma en retard sur le binaire.
-var ErrSchemaOutdated = errors.New("schéma de base en retard sur le binaire")
+var ErrSchemaOutdated = errors.New("database schema behind the binary")
 
-// gooseVersionTable est la table tenue par goose. Le nom est fixé par la
-// bibliothèque ; l'interroger directement évite d'ouvrir un second *sql.DB à
-// chaque appel de sonde, ce que ferait MigrationState.
+// gooseVersionTable is the table goose keeps. The name is fixed by the library; querying it
+// directly avoids opening a second *sql.DB on every probe call, which MigrationState would
+// do.
 const gooseVersionTable = "goose_db_version"
 
-// ExpectedSchemaVersion rend le numéro de la dernière migration embarquée.
+// ExpectedSchemaVersion returns the number of the last embedded migration.
 //
-// Les fichiers sont nommés `NNNN_libellé.sql` ; goose retient le préfixe
-// numérique comme version. Le dériver ici plutôt que de le coder en dur fait que
-// l'ajout d'une migration suffit à déplacer l'attente.
+// Files are named `NNNN_label.sql`; goose keeps the numeric prefix as the version. Deriving
+// it here rather than hard-coding it means adding a migration is enough to move the
+// expectation.
 func ExpectedSchemaVersion() (int64, error) {
 	names, err := MigrationNames()
 	if err != nil {
 		return 0, err
 	}
 	if len(names) == 0 {
-		return 0, errors.New("aucune migration embarquée")
+		return 0, errors.New("no embedded migration")
 	}
 
 	var highest int64
 	for _, name := range names {
 		prefix, _, found := strings.Cut(name, "_")
 		if !found {
-			return 0, fmt.Errorf("migration %q: nom sans préfixe de version", name)
+			return 0, fmt.Errorf("migration %q: name with no version prefix", name)
 		}
 		version, err := strconv.ParseInt(prefix, 10, 64)
 		if err != nil {
-			return 0, fmt.Errorf("migration %q: préfixe de version illisible: %w", name, err)
+			return 0, fmt.Errorf("migration %q: unreadable version prefix: %w", name, err)
 		}
 		if version > highest {
 			highest = version
@@ -47,34 +47,33 @@ func ExpectedSchemaVersion() (int64, error) {
 	return highest, nil
 }
 
-// SchemaVersion rend la version appliquée en base.
+// SchemaVersion returns the version applied in the database.
 func (db *DB) SchemaVersion(ctx context.Context) (int64, error) {
 	if db == nil || db.pool == nil {
-		return 0, errors.New("pool non initialisé")
+		return 0, errors.New("pool not initialised")
 	}
 
-	// coalesce couvre la table présente mais vide ; la table absente remonte en
-	// erreur, ce qui est le cas « migrations jamais exécutées ».
+	// coalesce covers a table that exists but is empty; a missing table surfaces as an error,
+	// which is the "migrations never run" case.
 	var applied int64
 	err := db.pool.QueryRow(ctx,
 		`select coalesce(max(version_id), 0) from `+gooseVersionTable+` where is_applied`,
 	).Scan(&applied)
 	if err != nil {
-		return 0, fmt.Errorf("lecture de la version du schéma: %w", err)
+		return 0, fmt.Errorf("reading the schema version: %w", err)
 	}
 	return applied, nil
 }
 
-// CheckSchema alimente la sonde /readyz.
+// CheckSchema feeds the /readyz probe.
 //
-// Sans elle, un pod `api` démarré avant la fin du Job de migration se déclarerait
-// prêt — PostgreSQL répond au ping — puis répondrait 500 sur chaque requête
-// touchant une table absente. La sonde de préparation existe précisément pour
-// écarter du Service une instance qui ne peut pas servir : le retard de schéma
-// entre dans cette catégorie.
+// Without it, an api pod started before the migration Job finished would declare itself
+// ready — PostgreSQL answers the ping — then answer 500 on every request touching a missing
+// table. A readiness probe exists precisely to keep an instance that cannot serve out of the
+// Service: a schema lag falls into that category.
 //
-// Un schéma en avance est accepté : c'est l'état normal d'un déploiement
-// expand/contract, où les migrations sont appliquées avant le nouveau code.
+// A schema ahead is accepted: that is the normal state of an expand/contract deployment,
+// where migrations are applied before the new code.
 func (db *DB) CheckSchema(ctx context.Context) error {
 	expected, err := ExpectedSchemaVersion()
 	if err != nil {
@@ -86,7 +85,7 @@ func (db *DB) CheckSchema(ctx context.Context) error {
 		return err
 	}
 	if applied < expected {
-		return fmt.Errorf("%w: version %d appliquée, %d attendue", ErrSchemaOutdated, applied, expected)
+		return fmt.Errorf("%w: version %d applied, %d expected", ErrSchemaOutdated, applied, expected)
 	}
 	return nil
 }

@@ -12,41 +12,41 @@ var migrationName = regexp.MustCompile(`^\d{4}_[a-z0-9_]+\.sql$`)
 func TestMigrationsAreEmbedded(t *testing.T) {
 	names, err := MigrationNames()
 	if err != nil {
-		t.Fatalf("lecture des migrations: %v", err)
+		t.Fatalf("reading the migrations: %v", err)
 	}
 	if len(names) == 0 {
-		t.Fatal("aucune migration embarquée: `migrate` ne ferait rien depuis l'image")
+		t.Fatal("no embedded migration: `migrate` would do nothing from the image")
 	}
 }
 
-// Une numérotation dupliquée ferait appliquer les migrations dans un ordre
-// dépendant du système de fichiers — reproductible en local, aléatoire ailleurs.
+// Duplicate numbering would apply the migrations in an order depending on the file system —
+// reproducible locally, random elsewhere.
 func TestMigrationNumbersAreUniqueAndWellFormed(t *testing.T) {
 	names, err := MigrationNames()
 	if err != nil {
-		t.Fatalf("lecture des migrations: %v", err)
+		t.Fatalf("reading the migrations: %v", err)
 	}
 
 	seen := map[string]string{}
 	for _, name := range names {
 		if !migrationName.MatchString(name) {
-			t.Errorf("%s ne respecte pas le format NNNN_nom.sql", name)
+			t.Errorf("%s does not follow the NNNN_name.sql format", name)
 			continue
 		}
 		prefix := name[:4]
 		if previous, exists := seen[prefix]; exists {
-			t.Errorf("numéro %s dupliqué: %s et %s", prefix, previous, name)
+			t.Errorf("number %s duplicated: %s and %s", prefix, previous, name)
 		}
 		seen[prefix] = name
 	}
 }
 
-// goose distingue les sens par ces annotations. Une migration sans `Down` ne peut
-// pas être annulée, ce qui se découvre au pire moment.
+// goose tells the directions apart by these annotations. A migration with no `Down` cannot
+// be undone, which is discovered at the worst moment.
 func TestEveryMigrationDeclaresBothDirections(t *testing.T) {
 	names, err := MigrationNames()
 	if err != nil {
-		t.Fatalf("lecture des migrations: %v", err)
+		t.Fatalf("reading the migrations: %v", err)
 	}
 
 	for _, name := range names {
@@ -56,10 +56,10 @@ func TestEveryMigrationDeclaresBothDirections(t *testing.T) {
 		}
 		body := string(content)
 		if !strings.Contains(body, "-- +goose Up") {
-			t.Errorf("%s: annotation `-- +goose Up` absente", name)
+			t.Errorf("%s: missing `-- +goose Up` annotation", name)
 		}
 		if !strings.Contains(body, "-- +goose Down") {
-			t.Errorf("%s: annotation `-- +goose Down` absente", name)
+			t.Errorf("%s: missing `-- +goose Down` annotation", name)
 		}
 	}
 }

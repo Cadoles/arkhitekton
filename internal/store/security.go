@@ -10,14 +10,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// SecurityAudit est l'agrégat d'un audit, tel que `summary.json` le porte.
+// SecurityAudit is an audit's aggregate, as the summary report carries it.
 type SecurityAudit struct {
 	TestResultID int64
-	// RunID est l'identifiant que l'audit se donne à lui-même, tel que
-	// `sec-normalize` l'inscrit dans son rapport — pas celui d'un PipelineRun.
+	// RunID is the identifier the audit gives itself, as the normaliser writes it into its
+	// report — not a PipelineRun's.
 	RunID string
-	// RunName est le PipelineRun qui a produit l'audit. Vide si sa projection a
-	// été purgée : le rapport lui survit.
+	// RunName is the PipelineRun that produced the audit. Empty if its projection was purged:
+	// the report outlives it.
 	RunName       string
 	GeneratedAt   string
 	Total         int
@@ -29,9 +29,9 @@ type SecurityAudit struct {
 	DeltaNew      int
 	DeltaExisting int
 	DeltaResolved int
-	// FailedScanners nomme les scanners qui n'ont pas conclu. C'est ce qui
-	// distingue « aucune vulnérabilité » de « on n'a pas pu regarder », et donc
-	// ce qui décide si le signal de sécurité entre dans le score.
+	// FailedScanners names the scanners that did not conclude. It is what separates "no
+	// vulnerability" from "we could not look", and therefore what decides whether the security
+	// signal enters the score.
 	FailedScanners []string
 	ScannerStatus  map[string]string
 	Policy         map[string]string
@@ -39,16 +39,15 @@ type SecurityAudit struct {
 	CreatedAt      time.Time
 }
 
-// Measured dit si l'audit peut noter la sécurité.
+// Measured says whether the audit can grade security.
 //
-// Un seul scanner en échec suffit à retirer le signal du score. La règle est
-// volontairement stricte : Trivy qui n'a pas tourné ne prouve pas qu'aucune
-// vulnérabilité n'existe, et un score calculé sur les seuls scanners ayant
-// abouti afficherait « conforme » sur un audit partiel — l'erreur la plus chère
-// possible sur ce signal.
+// A single failed scanner is enough to remove the signal from the score. The rule is
+// deliberately strict: a scanner that did not run does not prove no vulnerability exists,
+// and a score computed on the scanners that did conclude would display "clean" on a
+// partial audit — the most expensive possible error on this signal.
 func (a SecurityAudit) Measured() bool { return len(a.FailedScanners) == 0 }
 
-// SecurityFinding est un finding normalisé.
+// SecurityFinding is a normalised finding.
 type SecurityFinding struct {
 	ID                 int64
 	TestResultID       int64
@@ -76,36 +75,35 @@ type SecurityFinding struct {
 }
 
 // ErrAuditNotFound signale un audit absent.
-var ErrAuditNotFound = errors.New("audit de sécurité introuvable")
+var ErrAuditNotFound = errors.New("security audit not found")
 
-// SaveSecurityAudit enregistre un audit et ses findings.
+// SaveSecurityAudit records an audit and its findings.
 //
-// En une transaction : un audit dont la moitié des findings manque produirait un
-// verdict faux dans le sens le plus dangereux — moins de critiques que la
-// réalité.
+// In one transaction: an audit missing half its findings would produce a false verdict in
+// the most dangerous direction — fewer critical findings than reality.
 func (db *DB) SaveSecurityAudit(
 	ctx context.Context, audit SecurityAudit, findings []SecurityFinding,
 ) error {
 	transaction, err := db.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("audit de sécurité: %w", err)
+		return fmt.Errorf("security audit: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
-	// `text[] not null` : un nil deviendrait NULL. Normalisé ici et non chez
-	// l'appelant — une contrainte de colonne se défend dans le paquet qui
-	// possède la colonne, sinon le second appelant la redécouvre en production.
+	// `text[] not null`: a nil would become NULL. Normalised here and not in the caller — a
+	// column constraint is defended in the package that owns the column, otherwise the second
+	// caller rediscovers it in production.
 	if audit.FailedScanners == nil {
 		audit.FailedScanners = []string{}
 	}
 
 	status, err := json.Marshal(audit.ScannerStatus)
 	if err != nil {
-		return fmt.Errorf("audit de sécurité: %w", err)
+		return fmt.Errorf("security audit: %w", err)
 	}
 	policy, err := json.Marshal(audit.Policy)
 	if err != nil {
-		return fmt.Errorf("audit de sécurité: %w", err)
+		return fmt.Errorf("security audit: %w", err)
 	}
 
 	_, err = transaction.Exec(ctx,
@@ -121,7 +119,7 @@ func (db *DB) SaveSecurityAudit(
 		audit.DeltaNew, audit.DeltaExisting, audit.DeltaResolved,
 		audit.FailedScanners, status, policy, audit.PreviousRunID)
 	if err != nil {
-		return fmt.Errorf("audit de sécurité %q: %w", audit.RunID, err)
+		return fmt.Errorf("security audit %q: %w", audit.RunID, err)
 	}
 
 	for _, finding := range findings {
@@ -147,12 +145,12 @@ func (db *DB) SaveSecurityAudit(
 	}
 
 	if err := transaction.Commit(ctx); err != nil {
-		return fmt.Errorf("audit de sécurité: %w", err)
+		return fmt.Errorf("security audit: %w", err)
 	}
 	return nil
 }
 
-// LatestSecurityAudit rend l'audit le plus récent d'une release.
+// LatestSecurityAudit returns a release's most recent audit.
 func (db *DB) LatestSecurityAudit(ctx context.Context, releaseID int64) (SecurityAudit, error) {
 	var audit SecurityAudit
 	var status, policy []byte
@@ -166,9 +164,9 @@ func (db *DB) LatestSecurityAudit(ctx context.Context, releaseID int64) (Securit
 		        coalesce(p.pipelinerun_name, '')
 		 from security_audits a
 		 join test_results r on r.id = a.test_result_id
-		 -- Le nom du run, pour renvoyer le lecteur vers l'exécution qui a produit
-		 -- l'audit. Jointure lâche : le rapport survit à la purge de sa
-		 -- projection, et un audit sans run reste lisible.
+		 -- The run's name, to send the reader back to the run that produced the
+		 -- audit. A loose join: the report outlives the purge of its projection,
+		 -- and an audit with no run stays readable.
 		 left join runs p on p.id = r.run_id
 		 where r.release_id = $1
 		 order by a.created_at desc
@@ -182,7 +180,7 @@ func (db *DB) LatestSecurityAudit(ctx context.Context, releaseID int64) (Securit
 		if errors.Is(err, pgx.ErrNoRows) {
 			return audit, ErrAuditNotFound
 		}
-		return audit, fmt.Errorf("audit de la release %d: %w", releaseID, err)
+		return audit, fmt.Errorf("audit of release %d: %w", releaseID, err)
 	}
 
 	if generatedAt != nil {
@@ -200,11 +198,10 @@ func (db *DB) LatestSecurityAudit(ctx context.Context, releaseID int64) (Securit
 	return audit, nil
 }
 
-// ListSecurityFindings rend les findings d'un audit.
+// ListSecurityFindings returns an audit's findings.
 //
-// Triés par sévérité décroissante puis par titre : c'est l'ordre dans lequel on
-// les traite, et le tri en base évite de rapatrier des milliers de lignes pour
-// les ordonner ensuite.
+// Sorted by descending severity then by title: that is the order they are handled in, and
+// sorting in the database avoids fetching thousands of rows to order them afterwards.
 func (db *DB) ListSecurityFindings(
 	ctx context.Context, resultID int64, includeSuppressed bool,
 ) ([]SecurityFinding, error) {
@@ -219,16 +216,15 @@ func (db *DB) ListSecurityFindings(
 	if !includeSuppressed {
 		query += ` and not suppressed`
 	}
-	// L'ordre de sévérité n'est pas alphabétique : CRITICAL précède HIGH, qui
-	// précède MEDIUM. Un `order by severity` textuel mettrait CRITICAL après
-	// aucun autre, mais HIGH après LOW et MEDIUM.
+	// Severity order is not alphabetical: CRITICAL precedes HIGH, which precedes MEDIUM. A
+	// textual `order by severity` would put HIGH after LOW and MEDIUM.
 	query += ` order by case severity
 	               when 'CRITICAL' then 0 when 'HIGH' then 1 when 'MEDIUM' then 2
 	               when 'LOW' then 3 else 4 end, title`
 
 	rows, err := db.pool.Query(ctx, query, resultID)
 	if err != nil {
-		return nil, fmt.Errorf("findings de l'audit %d: %w", resultID, err)
+		return nil, fmt.Errorf("findings of audit %d: %w", resultID, err)
 	}
 	defer rows.Close()
 
@@ -243,7 +239,7 @@ func (db *DB) ListSecurityFindings(
 			&finding.Fixable,
 			&finding.Status, &finding.FirstSeen, &finding.Suppressed,
 			&finding.SuppressionReason, &finding.SuppressionExpires); err != nil {
-			return nil, fmt.Errorf("findings de l'audit %d: %w", resultID, err)
+			return nil, fmt.Errorf("findings of audit %d: %w", resultID, err)
 		}
 		findings = append(findings, finding)
 	}

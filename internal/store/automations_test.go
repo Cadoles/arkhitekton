@@ -19,7 +19,7 @@ import (
  * qu'on vient d'effacer — et rien ne dirait pourquoi.
  */
 
-func planDeConstruction() plan.Plan {
+func buildPlan() plan.Plan {
 	return plan.Plan{Stages: []plan.Stage{{
 		Role: plan.RoleBuild, Label: "Construire",
 		Gestes: []plan.Geste{{
@@ -29,33 +29,33 @@ func planDeConstruction() plan.Plan {
 	}}}
 }
 
-// Un projet sans ligne se distingue nommément d'un projet au plan vide.
-func TestUnProjetSansAutomatisationSeDistingueDUnPlanVide(t *testing.T) {
+// A project with no row is told apart, by name, from a project with an empty plan.
+func TestAProjectWithoutAnAutomationIsToldApartFromAnEmptyPlan(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	if _, err := db.ReleaseAutomation(ctx, testProjectID); !errors.Is(err, ErrNoAutomation) {
-		t.Fatalf("lecture sans ligne: %v, attendu ErrNoAutomation", err)
+		t.Fatalf("read with no row: %v, expected ErrNoAutomation", err)
 	}
 
-	// Vider l'automatisation **écrit** une ligne. C'est ce qui la distingue de
-	// l'absence, et ce qui empêche la reprise de la recomposer.
+	// Emptying the automation writes a row. That is what distinguishes it from absence, and
+	// what keeps the catch-up from recomposing it.
 	if err := db.SaveReleaseAutomation(ctx,
 		ReleaseAutomation{ProjectID: testProjectID, Plan: plan.Plan{}}, "vcarroy"); err != nil {
-		t.Fatalf("enregistrement du plan vide: %v", err)
+		t.Fatalf("recording the empty plan: %v", err)
 	}
 
 	entry, err := db.ReleaseAutomation(ctx, testProjectID)
 	if err != nil {
-		t.Fatalf("lecture après vidage: %v — l'absence et le vide se confondent", err)
+		t.Fatalf("read after emptying: %v — absence and emptiness are conflated", err)
 	}
 	if len(entry.Plan.Stages) != 0 {
-		t.Errorf("plan = %+v, attendu vide", entry.Plan)
+		t.Errorf("plan = %+v, expected empty", entry.Plan)
 	}
 }
 
-// La reprise ne voit que les projets qui n'ont jamais rien eu.
-func TestLaRepriseNeVoitQueLesProjetsSansLigne(t *testing.T) {
+// The catch-up sees only the projects that never had anything.
+func TestTheCatchUpSeesOnlyProjectsWithNoRow(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -64,12 +64,12 @@ func TestLaRepriseNeVoitQueLesProjetsSansLigne(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 	if len(sans) != 1 || sans[0].ID != testProjectID {
-		t.Fatalf("projets sans automatisation = %+v, attendu le seul projet", sans)
+		t.Fatalf("projects without an automation = %+v, expected the single project", sans)
 	}
-	// Le projet est rendu **entier** : la reprise a besoin de ses cibles et de son
-	// contexte de build pour composer quoi que ce soit.
+	// The project is returned in full: the catch-up needs its targets and its build context to
+	// compose anything at all.
 	if sans[0].BuildContext == "" || sans[0].Slug == "" {
-		t.Errorf("projet rendu incomplet: %+v", sans[0])
+		t.Errorf("project returned incomplete: %+v", sans[0])
 	}
 
 	// Un plan vide suffit à le retirer de la reprise : quelqu'un a décidé.
@@ -83,17 +83,17 @@ func TestLaRepriseNeVoitQueLesProjetsSansLigne(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 	if len(sans) != 0 {
-		t.Errorf("%d projet(s) encore repris — un plan vidé réapparaîtrait", len(sans))
+		t.Errorf("%d project(s) still caught up — an emptied plan would reappear", len(sans))
 	}
 }
 
-// Le plan traverse la base sans se déformer, et un second enregistrement remplace.
-func TestLePlanTraverseEtLeSecondEnregistrementRemplace(t *testing.T) {
+// The plan crosses the database without deforming, and a second save replaces.
+func TestThePlanCrossesAndTheSecondSaveReplaces(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	if err := db.SaveReleaseAutomation(ctx,
-		ReleaseAutomation{ProjectID: testProjectID, Plan: planDeConstruction()},
+		ReleaseAutomation{ProjectID: testProjectID, Plan: buildPlan()},
 		"vcarroy"); err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -106,14 +106,13 @@ func TestLePlanTraverseEtLeSecondEnregistrementRemplace(t *testing.T) {
 		t.Fatalf("plan = %+v", entry.Plan)
 	}
 	stage := entry.Plan.Stages[0]
-	// Le rôle en particulier : c'est lui qui fait avancer l'état de la release, et
-	// un rôle perdu à l'écriture laisserait une release éternellement en
-	// construction (doc 15 §15.3).
+	// The role in particular: it is what advances the release's state, and a role lost on
+	// write would leave a release building for ever.
 	if stage.Role != plan.RoleBuild {
-		t.Errorf("rôle = %q, attendu %q", stage.Role, plan.RoleBuild)
+		t.Errorf("role = %q, expected %q", stage.Role, plan.RoleBuild)
 	}
 	if stage.Gestes[0].Params["image-name"] != "portal" {
-		t.Errorf("paramètres = %v", stage.Gestes[0].Params)
+		t.Errorf("parameters = %v", stage.Gestes[0].Params)
 	}
 
 	if err := db.SaveReleaseAutomation(ctx,
@@ -122,6 +121,6 @@ func TestLePlanTraverseEtLeSecondEnregistrementRemplace(t *testing.T) {
 	}
 	entry, _ = db.ReleaseAutomation(ctx, testProjectID)
 	if len(entry.Plan.Stages) != 0 || entry.UpdatedBy != "autre" {
-		t.Errorf("après remplacement: %+v", entry)
+		t.Errorf("after replacement: %+v", entry)
 	}
 }

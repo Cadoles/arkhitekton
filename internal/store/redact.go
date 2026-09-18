@@ -6,15 +6,14 @@ import (
 	"strings"
 )
 
-// redactError retire le mot de passe du DSN d'un message d'erreur.
+// redactError removes the DSN's password from an error message.
 //
-// pgx cite volontiers la chaîne de connexion dans ses erreurs d'analyse. Ces
-// erreurs finissent dans les logs, parfois dans un ticket, parfois dans une
-// capture d'écran. Le mot de passe n'a rien à y faire, et c'est précisément au
-// moment d'un incident que l'on copie-colle sans relire.
+// pgx readily quotes the connection string in its parse errors. Those errors end up in logs,
+// sometimes in a ticket, sometimes in a screenshot. The password has no business there, and
+// it is precisely during an incident that people copy and paste without re-reading.
 //
-// Le message est conservé par ailleurs : masquer l'erreur entière rendrait le
-// diagnostic impossible au moment où on en a le plus besoin.
+// The message is otherwise kept: masking the whole error would make diagnosis impossible at
+// the moment it is most needed.
 func redactError(err error, dsn string) error {
 	if err == nil {
 		return nil
@@ -33,14 +32,13 @@ func redactError(err error, dsn string) error {
 	return errors.New(strings.ReplaceAll(message, password, "xxxxx"))
 }
 
-// RedactError retire le mot de passe du DSN d'un message d'erreur, pour les
-// migrations tenues hors de ce paquet.
+// RedactError removes the DSN's password from an error message, for migrations kept outside
+// this package.
 func RedactError(err error, dsn string) error { return redactError(err, dsn) }
 
-// passwordFromDSN extrait le mot de passe d'une URL de connexion. Rend une chaîne
-// vide pour les DSN au format clé-valeur (`host=... password=...`), que cette
-// fonction ne prétend pas couvrir : pgxpool.ParseConfig les accepte, mais le
-// déploiement du dashboard utilise la forme URL.
+// passwordFromDSN extracts the password from a connection URL. Returns an empty string for
+// key-value DSNs (`host=... password=...`), which this function does not claim to cover:
+// pgxpool.ParseConfig accepts them, but the dashboard's deployment uses the URL form.
 func passwordFromDSN(dsn string) string {
 	parsed, err := url.Parse(strings.TrimSpace(dsn))
 	if err != nil || parsed.User == nil {

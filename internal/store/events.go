@@ -19,15 +19,13 @@ import (
  * du worker — repasse par le même chemin avec la même clé, et n'écrit rien.
  */
 
-// RecordEvent enregistre un fait, ou constate qu'il est déjà connu.
+// RecordEvent records a fact, or observes that it is already known.
 //
-// Rend `false` quand le fait existait déjà. Ce n'est **pas une erreur** : c'est
-// le cas nominal d'une redélivrance, et le traiter comme un échec ferait
-// journaliser une panne à chaque redémarrage du worker.
+// Returns false when the fact already existed. That is not an error: it is the nominal case
+// of a redelivery, and treating it as a failure would log a fault at every worker restart.
 //
-// La distinction sert aussi au diagnostic : « émis » et « déjà connu » ne se
-// lisent pas pareil quand on cherche pourquoi une réaction ne s'est pas
-// déclenchée.
+// The distinction also serves diagnosis: "emitted" and "already known" do not read the same
+// when looking for why a reaction did not fire.
 func (db *DB) RecordEvent(ctx context.Context, fact event.Event) (bool, error) {
 	if err := fact.Validate(); err != nil {
 		return false, err
@@ -49,37 +47,36 @@ func (db *DB) RecordEvent(ctx context.Context, fact event.Event) (bool, error) {
 	case err == nil:
 		return true, nil
 	case errors.Is(err, pgx.ErrNoRows):
-		// `do nothing` ne rend aucune ligne : le fait était déjà là.
+		// `do nothing` returns no row: the fact was already there.
 		return false, nil
 	default:
-		return false, fmt.Errorf("enregistrement du fait %q: %w", fact.Type, err)
+		return false, fmt.Errorf("recording fact %q: %w", fact.Type, err)
 	}
 }
 
-// RecordedEvent est un fait relu, avec ce que la base y a ajouté.
+// RecordedEvent is a fact read back, with what the database added to it.
 type RecordedEvent struct {
 	ID   int64
 	Type string
-	// Source distingue le noyau d'un plugin. Vide pour le noyau.
+	// Source distinguishes the core from a plugin. Empty for the core.
 	Source     string
 	ProjectID  *int64
 	Subject    string
 	Payload    map[string]string
 	OccurredAt time.Time
 	Depth      int
-	// RecordedAt est l'instant de l'écriture, distinct d'`OccurredAt`.
+	// RecordedAt is the instant of the write, distinct from OccurredAt.
 	//
-	// L'écart entre les deux est ce qui dira, le jour où des sondes rattraperont
-	// de l'historique, qu'un fait ancien vient d'être découvert.
+	// The gap between the two is what will say, the day probes catch up on history, that an old
+	// fact has just been discovered.
 	RecordedAt time.Time
 	DedupKey   string
 }
 
-// ListEvents rend le fil d'un projet, du plus récent au plus ancien.
+// ListEvents returns a project's feed, newest first.
 //
-// Par projet et non global : c'est le fil qu'on vient lire pour répondre à
-// « pourquoi rien ne s'est passé sur cette release ? », et mélanger les projets
-// obligerait à filtrer à l'œil.
+// Per project and not global: it is the feed one reads to answer "why did nothing happen on
+// this release?", and mixing projects would force filtering by eye.
 func (db *DB) ListEvents(ctx context.Context, projectID int64, limit int) ([]RecordedEvent, error) {
 	if limit <= 0 || limit > maxEventPage {
 		limit = maxEventPage
@@ -95,7 +92,7 @@ func (db *DB) ListEvents(ctx context.Context, projectID int64, limit int) ([]Rec
 
 	rows, err := db.pool.Query(ctx, query, projectID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("faits du projet %d: %w", projectID, err)
+		return nil, fmt.Errorf("facts of project %d: %w", projectID, err)
 	}
 	defer rows.Close()
 
@@ -105,18 +102,17 @@ func (db *DB) ListEvents(ctx context.Context, projectID int64, limit int) ([]Rec
 		if err := rows.Scan(&entry.ID, &entry.Type, &entry.Source, &entry.ProjectID,
 			&entry.Subject, &entry.Payload, &entry.OccurredAt, &entry.Depth,
 			&entry.RecordedAt, &entry.DedupKey); err != nil {
-			return nil, fmt.Errorf("lecture d'un fait: %w", err)
+			return nil, fmt.Errorf("reading a fact: %w", err)
 		}
 		events = append(events, entry)
 	}
 	return events, rows.Err()
 }
 
-// maxEventPage borne la lecture.
+// maxEventPage bounds the read.
 //
-// Un fil se parcourt, il ne se télécharge pas : personne ne lit deux cents faits
-// d'affilée, et la borne évite qu'un projet ancien ne rende une page que le
-// navigateur met une seconde à peindre.
+// A feed is browsed, not downloaded: nobody reads two hundred facts in a row, and the bound
+// keeps an old project from returning a page the browser takes a second to paint.
 const maxEventPage = 200
 
 func orEmptyPayload(payload map[string]string) map[string]string {

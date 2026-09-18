@@ -29,23 +29,23 @@ import (
  * automatisation qu'on vient d'effacer.
  */
 
-// ErrNoAutomation dit qu'aucune automatisation n'a jamais été enregistrée.
+// ErrNoAutomation says no automation was ever recorded.
 //
-// Distinct d'un plan vide, et c'est tout l'objet de cette erreur : seul ce cas
-// autorise la reprise à en composer une.
-var ErrNoAutomation = errors.New("aucune automatisation déclarée")
+// Distinct from an empty plan, and that is the whole point of this error: only that case
+// allows the catch-up to compose one.
+var ErrNoAutomation = errors.New("no automation declared")
 
-// ReleaseAutomation est ce qu'un projet exécute quand une release est déclarée.
+// ReleaseAutomation is what a project runs when a release is declared.
 type ReleaseAutomation struct {
 	ProjectID int64
 	Plan      plan.Plan
 	UpdatedBy string
 }
 
-// ReleaseAutomation rend l'automatisation d'un projet.
+// ReleaseAutomation returns a project's automation.
 //
-// Rend [ErrNoAutomation] quand aucune ligne n'existe — l'état qui autorise une
-// reprise, et le seul.
+// Returns [ErrNoAutomation] when no row exists — the state that allows a catch-up, and the
+// only one.
 func (db *DB) ReleaseAutomation(ctx context.Context, projectID int64) (ReleaseAutomation, error) {
 	const query = `
 		select project_id, plan, updated_by
@@ -59,7 +59,7 @@ func (db *DB) ReleaseAutomation(ctx context.Context, projectID int64) (ReleaseAu
 		return ReleaseAutomation{}, ErrNoAutomation
 	}
 	if err != nil {
-		return ReleaseAutomation{}, fmt.Errorf("lecture de l'automatisation: %w", err)
+		return ReleaseAutomation{}, fmt.Errorf("reading the automation: %w", err)
 	}
 	if err := json.Unmarshal(encoded, &entry.Plan); err != nil {
 		return ReleaseAutomation{}, fmt.Errorf("plan illisible: %w", err)
@@ -67,11 +67,10 @@ func (db *DB) ReleaseAutomation(ctx context.Context, projectID int64) (ReleaseAu
 	return entry, nil
 }
 
-// SaveReleaseAutomation enregistre l'automatisation d'un projet.
+// SaveReleaseAutomation records a project's automation.
 //
-// Un remplacement et jamais une création distincte : la clé est le projet, et
-// distinguer les deux obligerait l'appelant à savoir si une ligne existe pour
-// choisir son verbe.
+// A replacement and never a distinct creation: the key is the project, and telling the two
+// apart would force the caller to know whether a row exists in order to choose its verb.
 func (db *DB) SaveReleaseAutomation(
 	ctx context.Context, entry ReleaseAutomation, actor string,
 ) error {
@@ -89,16 +88,16 @@ func (db *DB) SaveReleaseAutomation(
 		    updated_at = now()`
 
 	if _, err := db.pool.Exec(ctx, upsert, entry.ProjectID, encoded, actor); err != nil {
-		return fmt.Errorf("enregistrement de l'automatisation: %w", err)
+		return fmt.Errorf("recording the automation: %w", err)
 	}
 	return nil
 }
 
-// ProjectsWithoutAutomation rend les projets qui n'en ont jamais eu.
+// ProjectsWithoutAutomation returns the projects that never had one.
 //
-// La question de la reprise, posée en une requête : un projet par ligne absente,
-// et non tous les projets filtrés en Go. Un projet dont le plan a été vidé n'y
-// figure pas — il a une ligne, donc quelqu'un a décidé.
+// The catch-up's question, asked in one query: one project per missing row, and not every
+// project filtered in Go. A project whose plan was emptied does not appear — it has a row,
+// so somebody decided.
 func (db *DB) ProjectsWithoutAutomation(ctx context.Context) ([]Project, error) {
 	const query = `
 		select p.id from projects p
@@ -108,7 +107,7 @@ func (db *DB) ProjectsWithoutAutomation(ctx context.Context) ([]Project, error) 
 
 	rows, err := db.pool.Query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("projets sans automatisation: %w", err)
+		return nil, fmt.Errorf("projects without an automation: %w", err)
 	}
 	defer rows.Close()
 
@@ -124,9 +123,9 @@ func (db *DB) ProjectsWithoutAutomation(ctx context.Context) ([]Project, error) 
 		return nil, err
 	}
 
-	// Les projets sont relus entiers : la reprise a besoin de leurs cibles, de
-	// leur Dockerfile et de leur contexte de build, et les rassembler ici évite à
-	// l'appelant une seconde requête par projet.
+	// The projects are read in full: the catch-up needs their targets, their Dockerfile and
+	// their build context, and gathering them here spares the caller a second query per
+	// project.
 	projects := make([]Project, 0, len(ids))
 	for _, id := range ids {
 		project, err := db.GetProject(ctx, id)

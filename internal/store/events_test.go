@@ -18,7 +18,7 @@ import (
  * réaction enverra une notification, cela en enverrait une par redémarrage.
  */
 
-func faitDeTest(cle string) event.Event {
+func testFact(cle string) event.Event {
 	return event.Event{
 		Type: event.ReleaseCreated, ProjectID: ptr(testProjectID),
 		Subject:    "1.8.0-rc1",
@@ -30,28 +30,28 @@ func faitDeTest(cle string) event.Event {
 
 func ptr(value int64) *int64 { return &value }
 
-// Le fait qui porte tout le mécanisme : réémettre n'écrit rien, et le dit.
-func TestUneRedelivranceNecritRien(t *testing.T) {
+// The fact that carries the whole mechanism: re-emitting writes nothing, and says so.
+func TestARedeliveryWritesNothing(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	recorded, err := db.RecordEvent(ctx, faitDeTest("release.created:42"))
+	recorded, err := db.RecordEvent(ctx, testFact("release.created:42"))
 	if err != nil {
-		t.Fatalf("première émission: %v", err)
+		t.Fatalf("first emission: %v", err)
 	}
 	if !recorded {
-		t.Fatal("le premier constat d'un fait doit s'écrire")
+		t.Fatal("the first observation of a fact must be written")
 	}
 
-	// La redélivrance. Le fait est le même ; seule l'heure de lecture a changé.
-	repete := faitDeTest("release.created:42")
+	// The redelivery. The fact is the same; only the reading time changed.
+	repete := testFact("release.created:42")
 	repete.OccurredAt = repete.OccurredAt.Add(time.Hour)
 	recorded, err = db.RecordEvent(ctx, repete)
 	if err != nil {
-		t.Fatalf("redélivrance: %v", err)
+		t.Fatalf("redelivery: %v", err)
 	}
 	if recorded {
-		t.Error("une redélivrance a produit un second fait")
+		t.Error("a redelivery produced a second fact")
 	}
 
 	events, err := db.ListEvents(ctx, testProjectID, 0)
@@ -59,28 +59,27 @@ func TestUneRedelivranceNecritRien(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if len(events) != 1 {
-		t.Fatalf("%d faits enregistrés, attendu 1", len(events))
+		t.Fatalf("%d facts recorded, expected 1", len(events))
 	}
-	// Et c'est le **premier** qui subsiste : `do nothing` ne remplace pas. Un
-	// écrasement ferait avancer l'instant du fait à chaque redémarrage, et
-	// l'histoire ne serait plus datée de ce qui s'est passé.
+	// And it is the first that survives: `do nothing` does not replace. An overwrite would move
+	// the fact's instant forward at every restart, and the history would no longer be dated by
+	// what happened.
 	//
-	// Comparé en UTC : PostgreSQL rend un `timestamptz` dans le fuseau de la
-	// session, et comparer une heure locale ferait échouer ce test selon la
-	// machine qui l'exécute.
-	if got := events[0].OccurredAt.UTC(); !got.Equal(faitDeTest("").OccurredAt) {
-		t.Errorf("instant = %v, attendu celui du premier constat", got)
+	// Compared in UTC: PostgreSQL returns a `timestamptz` in the session's time zone, and
+	// comparing a local time would fail this test depending on the machine running it.
+	if got := events[0].OccurredAt.UTC(); !got.Equal(testFact("").OccurredAt) {
+		t.Errorf("instant = %v, expected the first observation's", got)
 	}
 }
 
-// Deux faits distincts coexistent : la borne porte sur la clé, pas sur le type.
-func TestDeuxFaitsDistinctsCoexistent(t *testing.T) {
+// Two distinct facts coexist: the bound is on the key, not on the type.
+func TestTwoDistinctFactsCoexist(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	for _, cle := range []string{"release.created:42", "release.created:43"} {
-		if _, err := db.RecordEvent(ctx, faitDeTest(cle)); err != nil {
-			t.Fatalf("émission %q: %v", cle, err)
+		if _, err := db.RecordEvent(ctx, testFact(cle)); err != nil {
+			t.Fatalf("emission %q: %v", cle, err)
 		}
 	}
 
@@ -89,41 +88,41 @@ func TestDeuxFaitsDistinctsCoexistent(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if len(events) != 2 {
-		t.Errorf("%d faits, attendu 2 — deux releases sont deux faits", len(events))
+		t.Errorf("%d facts, expected 2 — two releases are two facts", len(events))
 	}
 }
 
-// Un fait invalide est refusé avant d'atteindre la base.
+// An invalid fact is refused before reaching the database.
 //
-// La clé absente en particulier : l'insertion aurait réussi sur une colonne
-// vide, et le défaut ne se serait vu qu'une fois une réaction branchée.
-func TestUnFaitInvalideNatteintPasLaBase(t *testing.T) {
+// The missing key in particular: the insert would have succeeded on an empty column, and
+// the flaw would only have shown once a reaction was connected.
+func TestAnInvalidFactDoesNotReachTheDatabase(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	sansCle := faitDeTest("")
+	sansCle := testFact("")
 	if _, err := db.RecordEvent(ctx, sansCle); err == nil {
-		t.Fatal("un fait sans clé a été accepté")
+		t.Fatal("a fact with no key was accepted")
 	}
 
 	events, _ := db.ListEvents(ctx, testProjectID, 0)
 	if len(events) != 0 {
-		t.Errorf("%d faits écrits malgré le refus", len(events))
+		t.Errorf("%d facts written despite the refusal", len(events))
 	}
 }
 
-// Le fil est rendu du plus récent au plus ancien : c'est l'ordre dans lequel on
-// vient chercher ce qui vient de se passer.
-func TestLeFilRendLePlusRecentDAbord(t *testing.T) {
+// The feed is returned newest first: that is the order in which one comes looking for what
+// just happened.
+func TestTheFeedReturnsTheMostRecentFirst(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
 	for index, decalage := range []time.Duration{0, 2 * time.Hour, time.Hour} {
-		fait := faitDeTest("fait-" + string(rune('a'+index)))
+		fait := testFact("fait-" + string(rune('a'+index)))
 		fait.OccurredAt = base.Add(decalage)
 		if _, err := db.RecordEvent(ctx, fait); err != nil {
-			t.Fatalf("émission: %v", err)
+			t.Fatalf("emission: %v", err)
 		}
 	}
 
@@ -136,19 +135,20 @@ func TestLeFilRendLePlusRecentDAbord(t *testing.T) {
 	}
 	for index := 1; index < len(events); index++ {
 		if events[index].OccurredAt.After(events[index-1].OccurredAt) {
-			t.Errorf("ordre rompu en position %d: %v après %v",
+			t.Errorf("order broken at position %d: %v after %v",
 				index, events[index].OccurredAt, events[index-1].OccurredAt)
 		}
 	}
 }
 
-// La charge traverse la base sans se déformer, et le fil est **borné au projet**.
-func TestLaChargeTraverseEtLeFilResteAuProjet(t *testing.T) {
+// The payload crosses the database without deforming, and the feed is bounded to the
+// project.
+func TestThePayloadCrossesAndTheFeedStaysWithinTheProject(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	if _, err := db.RecordEvent(ctx, faitDeTest("release.created:42")); err != nil {
-		t.Fatalf("émission: %v", err)
+	if _, err := db.RecordEvent(ctx, testFact("release.created:42")); err != nil {
+		t.Fatalf("emission: %v", err)
 	}
 
 	events, err := db.ListEvents(ctx, testProjectID, 0)
@@ -162,11 +162,11 @@ func TestLaChargeTraverseEtLeFilResteAuProjet(t *testing.T) {
 		t.Errorf("charge = %v", events[0].Payload)
 	}
 	if events[0].Source != "" {
-		t.Errorf("source = %q, attendue vide pour le noyau", events[0].Source)
+		t.Errorf("source = %q, expected empty for the core", events[0].Source)
 	}
 
-	// Un autre projet ne voit rien : le fil répond « il ne s'est rien passé
-	// **ici** », ce qui est la question posée.
+	// Another project sees nothing: the feed answers "nothing happened here", which is the
+	// question asked.
 	autre, err := db.CreateProject(ctx, Project{
 		Repository: "vcarroy/autre", Slug: "autre", Label: "Autre",
 		BuildContext: ".",
@@ -176,9 +176,9 @@ func TestLaChargeTraverseEtLeFilResteAuProjet(t *testing.T) {
 	}
 	voisins, err := db.ListEvents(ctx, autre, 0)
 	if err != nil {
-		t.Fatalf("lecture du voisin: %v", err)
+		t.Fatalf("reading the neighbour: %v", err)
 	}
 	if len(voisins) != 0 {
-		t.Errorf("%d faits ont débordé sur un autre projet", len(voisins))
+		t.Errorf("%d facts spilled onto another project", len(voisins))
 	}
 }

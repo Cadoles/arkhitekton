@@ -29,7 +29,7 @@ func noteRelease(t *testing.T, db *DB, versionID int64, tag string) int64 {
 }
 
 // Le parcours complet : rattacher, lire, retirer.
-func TestUneDemandeSeRattacheEtSeRetireDUneNote(t *testing.T) {
+func TestAnIssueIsLinkedToAndRemovedFromANote(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -46,32 +46,32 @@ func TestUneDemandeSeRattacheEtSeRetireDUneNote(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if len(entries) != 1 {
-		t.Fatalf("%d entrée(s)", len(entries))
+		t.Fatalf("%d entry(ies)", len(entries))
 	}
 	entry := entries[0]
-	// Le contenu vient d'`issues` par jointure : c'est ce qui fait qu'un sujet
-	// corrigé dans Redmine apparaît sans qu'on régénère la note.
+	// The content comes from `issues` by join: that is what makes a subject corrected in the
+	// tracker appear without regenerating the note.
 	if !entry.Known || entry.Subject != "sujet" || entry.Tracker != "Évolution" {
-		t.Errorf("entrée jointe: %+v", entry)
+		t.Errorf("joined entry: %+v", entry)
 	}
 	if entry.Source != NoteSourceAuto || entry.PullRequest != "#42" {
 		t.Errorf("provenance: %+v", entry)
 	}
 	if entry.Anomaly {
-		t.Error("une évolution n'est pas une anomalie")
+		t.Error("an enhancement is not an anomaly")
 	}
 
 	if err := db.UnlinkNoteIssue(ctx, releaseID, "1234"); err != nil {
 		t.Fatalf("retrait: %v", err)
 	}
 	if remaining, _ := db.ListNoteEntries(ctx, releaseID); len(remaining) != 0 {
-		t.Errorf("%d entrée(s) après retrait", len(remaining))
+		t.Errorf("%d entry(ies) after removal", len(remaining))
 	}
 }
 
-// Une demande ne figure qu'une fois : un second passage de détection la
-// doublerait, et la note compterait deux fois la même chose.
-func TestUneDemandeNeSeRattachePasDeuxFois(t *testing.T) {
+// An issue appears only once: a second detection pass would double it, and the note would
+// count the same thing twice.
+func TestAnIssueIsNotLinkedTwice(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -83,14 +83,13 @@ func TestUneDemandeNeSeRattachePasDeuxFois(t *testing.T) {
 	}
 	err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceManual, "", "vcarroy")
 	if !errors.Is(err, ErrNoteAlreadyLinked) {
-		t.Errorf("second rattachement: %v, attendu ErrNoteAlreadyLinked", err)
+		t.Errorf("second link: %v, expected ErrNoteAlreadyLinked", err)
 	}
 }
 
-// Une demande rattachée que la synchronisation n'a pas encore vue reste listée,
-// sans son sujet. La masquer ferait disparaître un ajout manuel, ce qui se lirait
-// comme une perte.
-func TestUneDemandeInconnueResteListee(t *testing.T) {
+// A linked issue synchronisation has not yet seen stays listed, without its subject.
+// Hiding it would make a manual addition disappear, which would read as a loss.
+func TestAnUnknownIssueStaysListed(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -106,15 +105,15 @@ func TestUneDemandeInconnueResteListee(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if len(entries) != 1 {
-		t.Fatalf("%d entrée(s)", len(entries))
+		t.Fatalf("%d entry(ies)", len(entries))
 	}
 	if entries[0].Known {
-		t.Error("la demande devrait être marquée inconnue")
+		t.Error("the issue should be marked unknown")
 	}
 }
 
-// Les anomalies sont reconnues au préfixe du tracker : Redmine porte `Anomalie`
-// et ses déclinaisons, toutes des corrections.
+// Anomalies are recognised by the tracker's prefix: the tracker carries several anomaly
+// variants, all of them fixes.
 func TestUneAnomalieEstReconnueAuPrefixeDuTracker(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -128,12 +127,12 @@ func TestUneAnomalieEstReconnueAuPrefixeDuTracker(t *testing.T) {
 	}
 	entries, _ := db.ListNoteEntries(ctx, releaseID)
 	if len(entries) != 1 || !entries[0].Anomaly {
-		t.Errorf("entrées: %+v — `Anomalie bloquante` est une correction", entries)
+		t.Errorf("entries: %+v — a blocking anomaly is a fix", entries)
 	}
 }
 
-// Le vivier de rattachement : les demandes de la version de la release.
-func TestLeVivierRendLesDemandesDeLaVersion(t *testing.T) {
+// The linking pool: the issues of the release's version.
+func TestThePoolReturnsTheVersionsIssues(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -142,10 +141,10 @@ func TestLeVivierRendLesDemandesDeLaVersion(t *testing.T) {
 
 	issueOf(t, db, 1, 920, "Évolution", "En revue", BucketDoing, 100, false)
 	issueOf(t, db, 2, 920, "Anomalie", "Terminé", BucketDone, 100, true)
-	// Rejetée : elle n'est pas livrée, et la proposer inviterait à annoncer au
-	// client ce qui a été abandonné.
+	// Rejected: it is not delivered, and offering it would invite announcing to the client
+	// what was dropped.
 	issueOf(t, db, 3, 920, "Évolution", "Rejeté", BucketRejected, 0, true)
-	// D'une autre version : hors du vivier.
+	// From another version: outside the pool.
 	otherVersion := redmineVersion(t, db, 921, "v3.3.0", "open")
 	_ = otherVersion
 	issueOf(t, db, 4, 921, "Évolution", "En revue", BucketDoing, 100, false)
@@ -160,18 +159,18 @@ func TestLeVivierRendLesDemandesDeLaVersion(t *testing.T) {
 		got[entry.ExternalID] = true
 	}
 	if !got["1"] || !got["2"] {
-		t.Errorf("demandes rendues: %v — la version en porte deux non rejetées", got)
+		t.Errorf("issues returned: %v — the version carries two that are not rejected", got)
 	}
 	if got["3"] {
-		t.Error("une demande rejetée ne doit pas être proposée")
+		t.Error("a rejected issue must not be offered")
 	}
 	if got["4"] {
-		t.Error("une demande d'une autre version ne doit pas être proposée")
+		t.Error("an issue of another version must not be offered")
 	}
 }
 
-// Les candidates à la détection : celles dont le statut les rend éligibles.
-func TestLesCandidatesSontFiltreesParStatut(t *testing.T) {
+// The detection candidates: those whose status makes them eligible.
+func TestCandidatesAreFilteredByStatus(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -188,16 +187,15 @@ func TestLesCandidatesSontFiltreesParStatut(t *testing.T) {
 		t.Fatalf("%d candidate(s): %+v", len(candidates), candidates)
 	}
 	if _, ok := candidates["1"]; !ok {
-		t.Error("la demande en revue devrait être candidate")
+		t.Error("the issue in review should be a candidate")
 	}
 }
 
-// Deux projets peuvent numéroter pareil : c'est tout l'objet de la clé
-// `(project_id, tool, external_id)` posée par la migration 0031. Une jointure ou
-// un vivier qui oublie le projet ne lève aucune erreur — il affiche le sujet
-// d'un autre client sur la note du sien, et propose au rattachement une demande
-// qui n'existe pas ici.
-func TestUneNoteNeVaPasChercherLaDemandeDUnAutreProjet(t *testing.T) {
+// Two projects may number alike: that is the whole point of the
+// `(project_id, tool, external_id)` key. A join or a pool that forgets the project raises
+// no error — it shows another deployment's subject on its own note, and offers for linking
+// an issue that does not exist here.
+func TestANoteDoesNotFetchAnotherProjectsIssue(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -214,40 +212,40 @@ func TestUneNoteNeVaPasChercherLaDemandeDUnAutreProjet(t *testing.T) {
 	versionID := redmineVersion(t, db, 920, "v3.2.0", "open")
 	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
 
-	// Le numéro 1234 existe des deux côtés, avec deux sujets différents.
+	// Number 1234 exists on both sides, with two different subjects.
 	issueOf(t, db, 1234, 920, "Évolution", "En revue", BucketDoing, 100, false)
 	if err := db.UpsertRedmineIssue(ctx, TrackedIssue{
 		ProjectID: second, Tool: "redmine", ExternalID: "1234",
-		Tracker: "Anomalie", Subject: "sujet de l'autre client",
+		Tracker: "Anomalie", Subject: "the other deployment's subject",
 		StatusName: "En revue", StatusBucket: BucketDoing,
 	}); err != nil {
-		t.Fatalf("demande du second projet: %v", err)
+		t.Fatalf("issue of the second project: %v", err)
 	}
 
 	if err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceManual, "", "vcarroy"); err != nil {
 		t.Fatalf("rattachement: %v", err)
 	}
 
-	// Une seule ligne, et c'est celle du projet de la release. Deux lignes
-	// diraient que la jointure a ramené les deux demandes.
+	// One row only, and it is the release's project's. Two rows would mean the join brought
+	// back both issues.
 	entries, err := db.ListNoteEntries(ctx, releaseID)
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
 	if len(entries) != 1 {
-		t.Fatalf("%d entrée(s) — la jointure ramène les demandes d'un autre projet: %+v",
+		t.Fatalf("%d entry(ies) — the join brings back another project's issues: %+v",
 			len(entries), entries)
 	}
 	if entries[0].Subject != "sujet" || entries[0].Anomaly {
-		t.Errorf("entrée jointe: %+v — c'est la demande de l'autre client", entries[0])
+		t.Errorf("joined entry: %+v — that is the other deployment's issue", entries[0])
 	}
 
-	// Le vivier de détection est borné de la même façon.
+	// The detection pool is bounded the same way.
 	candidates, err := db.NoteCandidates(ctx, releaseID, []string{"En revue"})
 	if err != nil {
 		t.Fatalf("candidates: %v", err)
 	}
 	if len(candidates) != 1 || candidates["1234"].Subject != "sujet" {
-		t.Errorf("candidates: %+v — le vivier déborde sur l'autre projet", candidates)
+		t.Errorf("candidates: %+v — the pool spills onto the other project", candidates)
 	}
 }

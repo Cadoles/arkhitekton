@@ -1,4 +1,5 @@
-// Package store porte l'accès à PostgreSQL et les migrations de schéma.
+// Package store carries PostgreSQL access and the schema migrations. The schema is
+// described in docs/08-data-model.md.
 package store
 
 import (
@@ -7,20 +8,20 @@ import (
 	"sort"
 )
 
-// migrationFiles embarque les migrations dans le binaire : `arkhitekton migrate`
-// doit pouvoir s'exécuter depuis l'image, sans volume ni fichier annexe.
+// migrationFiles embeds the migrations in the binary: `arkhitekton migrate` must be able to
+// run from the image, with no volume and no side file.
 //
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-// Migrations expose le système de fichiers des migrations, destiné au moteur de
-// migration (goose) branché à l'implémentation.
+// Migrations exposes the migrations' file system, for the migration engine wired into the
+// implementation.
 func Migrations() fs.FS {
 	return migrationFiles
 }
 
-// MigrationNames liste les migrations embarquées, triées. Sert au diagnostic —
-// `migrate --list` — et au test de non-régression ci-contre.
+// MigrationNames lists the embedded migrations, sorted. It serves diagnosis —
+// `migrate --list` — and the regression test alongside.
 func MigrationNames() ([]string, error) {
 	entries, err := fs.ReadDir(migrationFiles, "migrations")
 	if err != nil {

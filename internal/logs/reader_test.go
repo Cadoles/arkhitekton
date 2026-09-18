@@ -40,7 +40,7 @@ func TestUnsealedLogIsReadAsOneContinuousStream(t *testing.T) {
 
 	segment, err := reader.From(ctx, target.RunName, target.TaskName, 0, 0)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if string(segment.Content) != "AAAABBBBCCCC" {
 		t.Errorf("contenu = %q", segment.Content)
@@ -63,15 +63,15 @@ func TestTailReadsOnlyTheEnd(t *testing.T) {
 	cleanup(t, storage, target)
 
 	putChunk(t, target, 0, 1, "step-run-tests", strings.Repeat("x", 1000))
-	putChunk(t, target, 0, 2, "step-run-tests", "END-OF-LOG")
+	putChunk(t, target, 0, 2, "step-run-tests", "END-OF-THE-LOG")
 
 	reader := NewReader(storage)
 	segment, err := reader.Tail(ctx, target.RunName, target.TaskName, 14)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 
-	if string(segment.Content) != "END-OF-LOG" {
+	if string(segment.Content) != "END-OF-THE-LOG" {
 		t.Errorf("contenu = %q", segment.Content)
 	}
 	if segment.Offset != 1000 {
@@ -138,7 +138,7 @@ func TestSealedObjectWinsOverLeftoverChunks(t *testing.T) {
 
 	segment, err := NewReader(storage).From(ctx, target.RunName, target.TaskName, 0, 0)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if string(segment.Content) != sealed {
 		t.Errorf("content = %q, expected the sealed object alone", segment.Content)
@@ -156,7 +156,7 @@ func TestMissingLogIsEmptyNotAnError(t *testing.T) {
 
 	segment, err := NewReader(storage).Tail(context.Background(), target.RunName, target.TaskName, 0)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(segment.Content) != 0 || segment.Size != 0 || segment.Sealed {
 		t.Errorf("segment = %+v", segment)
@@ -176,7 +176,7 @@ func TestReadIsBounded(t *testing.T) {
 	// for all of a fifty-megabyte log must not be able to exhaust the server's memory.
 	segment, err := NewReader(storage).From(ctx, target.RunName, target.TaskName, 0, MaxRead*10)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if int64(len(segment.Content)) != 2000 {
 		t.Errorf("%d octets lus", len(segment.Content))
@@ -202,7 +202,7 @@ func TestLinesBeforeCountsAcrossChunks(t *testing.T) {
 	// Two chunks, with the cut falling mid-line: the real case, since the collector
 	// splits on size and not on newlines.
 	putChunk(t, target, 0, 1, "step-run-tests", "one\ntwo\nthr")
-	putChunk(t, target, 0, 2, "step-run-tests", "is\nquatre\n")
+	putChunk(t, target, 0, 2, "step-run-tests", "ee\nfour\n")
 
 	reader := NewReader(storage)
 
@@ -211,20 +211,20 @@ func TestLinesBeforeCountsAcrossChunks(t *testing.T) {
 		t.Errorf("before the start: %d, %v", count, err)
 	}
 
-	// Position 9: just after the first two lines, hence two complete lines.
-	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 9); err != nil || count != 2 {
+	// Position 8: just after the first two lines, hence two complete lines.
+	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 8); err != nil || count != 2 {
 		t.Errorf("after two lines: %d, %v — expected 2", count, err)
 	}
 
-	// Position 14, mid-word and therefore in the second chunk: the same two complete
+	// Position 11, mid-word and therefore in the second chunk: the same two complete
 	// lines precede, the third is started. That is what makes a window opened
 	// mid-line number it as the line it belongs to.
-	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 14); err != nil || count != 2 {
+	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 11); err != nil || count != 2 {
 		t.Errorf("mid-line: %d, %v — expected 2", count, err)
 	}
 
 	// The end: every line precedes.
-	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 22); err != nil || count != 4 {
+	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 19); err != nil || count != 4 {
 		t.Errorf("at the end: %d, %v — expected 4", count, err)
 	}
 }

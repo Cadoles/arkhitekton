@@ -6,28 +6,26 @@ import (
 	"fmt"
 )
 
-// SeedProjects déclare les dépôts qui n'existent pas encore.
+// SeedProjects declares the repositories that do not exist yet.
 //
-// Le pont entre la configuration et la table. Les dépôts pilotés vivaient dans
-// des variables d'environnement ; la table doit décrire ce que le dashboard fait
-// **réellement**, pas ce qu'un administrateur aura pensé à y ressaisir. Les en
-// déduire est donc la seule façon d'obtenir une liste juste dès le premier
-// démarrage.
+// The bridge between configuration and table. The driven repositories used to live in
+// environment variables; the table must describe what the dashboard actually does, not what
+// an administrator will have remembered to retype. Deriving them is therefore the only way
+// to get a correct list from the first start-up.
 //
-// Rien n'est écrasé : une déclaration existante l'emporte sur ce que la
-// configuration suggère. C'est ce qui permet à un administrateur de corriger un
-// libellé ou d'ajouter des étapes sans qu'un redémarrage ne les efface — et ce
-// qui rend l'amorçage sûr à rejouer.
+// Nothing is overwritten: an existing declaration beats what the configuration suggests.
+// That is what lets an administrator correct a label or add stages without a restart erasing
+// them — and what makes the bootstrap safe to replay.
 //
-// Rend le nombre de dépôts effectivement déclarés, pour que l'appelant puisse le
-// dire dans ses journaux plutôt que de laisser croire à une opération sans effet.
+// Returns how many repositories were actually declared, so the caller can say it in its logs
+// rather than suggest an operation with no effect.
 func (db *DB) SeedProjects(ctx context.Context, projects []Project) (int, error) {
 	declared := 0
 	for _, project := range projects {
 		if project.Repository == "" {
-			// Une URL de clonage dont on n'a pas su tirer `owner/nom`. L'écarter
-			// vaut mieux que déclarer un dépôt qui ne désigne rien : le test
-			// d'accès échouerait sans qu'on sache que la faute est en amont.
+			// A clone URL from which `owner/name` could not be derived. Discarding it beats declaring a
+			// repository that names nothing: the access check would fail with no way to know the fault
+			// is upstream.
 			continue
 		}
 
@@ -36,9 +34,9 @@ func (db *DB) SeedProjects(ctx context.Context, projects []Project) (int, error)
 		case err == nil:
 			declared++
 		case errors.Is(err, ErrProjectExists):
-			// Déjà déclaré : c'est le cas nominal après le premier démarrage.
+			// Already declared: the nominal case after the first start-up.
 		default:
-			return declared, fmt.Errorf("amorçage du projet %q: %w", project.Repository, err)
+			return declared, fmt.Errorf("bootstrapping project %q: %w", project.Repository, err)
 		}
 	}
 	return declared, nil

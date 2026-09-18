@@ -32,12 +32,12 @@ func enqueue(t *testing.T, db *DB, kind string, priority int) int64 {
 		RequestedBy: "vcarroy",
 	})
 	if err != nil {
-		t.Fatalf("mise en file de %s: %v", kind, err)
+		t.Fatalf("queueing %s: %v", kind, err)
 	}
 	return id
 }
 
-// caps compose des plafonds : ceux nommés, un défaut large pour les autres.
+// caps composes ceilings: the named ones, and a wide default for the rest.
 func caps(global int, perKind map[string]int) Limits {
 	if perKind == nil {
 		perKind = map[string]int{}
@@ -59,23 +59,23 @@ func TestClaimServesByPriorityThenArrival(t *testing.T) {
 
 	job, err := claim(t, db, caps(4, nil))
 	if err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 	if job.ID != urgent {
-		t.Errorf("job réservé = %d, attendu le plus prioritaire %d", job.ID, urgent)
+		t.Errorf("job claimed = %d, expected the highest priority %d", job.ID, urgent)
 	}
 	if job.RunName != naming("promote", urgent) {
-		t.Errorf("nom de run = %q", job.RunName)
+		t.Errorf("run name = %q", job.RunName)
 	}
 	if job.State != JobRunning {
-		t.Errorf("état = %q", job.State)
+		t.Errorf("state = %q", job.State)
 	}
 }
 
-// Une file pleine n'écarte que son type. C'est la règle centrale du modèle : un
-// audit de sécurité doit pouvoir tourner pendant des tests E2E, deux campagnes
-// E2E non.
-func TestUneFilePleineNecartequeSonType(t *testing.T) {
+// A full queue sets aside only its own kind. That is the model's central rule: a
+// security audit must be able to run during end-to-end tests, two end-to-end campaigns
+// not.
+func TestAFullQueueSetsAsideOnlyItsOwnKind(t *testing.T) {
 	db := migrated(t)
 
 	limits := caps(4, map[string]int{"e2e": 1})
@@ -96,22 +96,22 @@ func TestUneFilePleineNecartequeSonType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second: %v", err)
 	}
-	// Le second E2E est sauté, l'audit passe. Un job dont la file est pleine ne
-	// doit pas bloquer ceux qui le suivent — sans quoi une intégration en cours
-	// retiendrait tous les tests unitaires derrière elle.
+	// The second end-to-end run is skipped, the audit goes through. A job whose queue is
+	// full must not block those behind it — otherwise an integration run would hold every
+	// unit test behind it.
 	if second.Kind != "audit" {
-		t.Errorf("second job = %q, attendu audit: une file pleine bloque au-delà d'elle-même", second.Kind)
+		t.Errorf("second job = %q, expected the audit: a full queue blocks beyond itself", second.Kind)
 	}
 
 	if _, err := claim(t, db, limits); !errors.Is(err, ErrJobNotFound) {
-		t.Errorf("le second E2E ne devait pas être servi: %v", err)
+		t.Errorf("the second end-to-end run should not have been served: %v", err)
 	}
 }
 
-// Un plafond supérieur à un laisse plusieurs exécutions du même type, et s'arrête
-// à sa valeur. C'est ce que le modèle précédent ne savait pas exprimer : une
-// classe `parallel` n'avait pour limite que le plafond global.
-func TestUneFileSertJusquASonPlafond(t *testing.T) {
+// A ceiling above one allows several runs of the same kind, and stops at its value.
+// That is what the previous model could not express: a "parallel" class was bounded
+// only by the global ceiling.
+func TestAQueueServesUpToItsCeiling(t *testing.T) {
 	db := migrated(t)
 
 	limits := caps(10, map[string]int{"unit-tests": 2})
@@ -122,19 +122,19 @@ func TestUneFileSertJusquASonPlafond(t *testing.T) {
 
 	for i := range 2 {
 		if _, err := claim(t, db, limits); err != nil {
-			t.Fatalf("réservation %d: %v", i, err)
+			t.Fatalf("claim %d: %v", i, err)
 		}
 	}
 
 	if _, err := claim(t, db, limits); !errors.Is(err, ErrJobNotFound) {
-		t.Errorf("le plafond de 2 n'a pas été respecté: %v", err)
+		t.Errorf("the ceiling of 2 was not honoured: %v", err)
 	}
 }
 
-// Un type absent des plafonds — une tâche locale, un type retiré du catalogue
-// depuis la mise en file — prend le défaut. Le faire attendre un réglage qui
-// n'existera jamais l'immobiliserait pour toujours.
-func TestUnTypeInconnuPrendLeDefaut(t *testing.T) {
+// A kind absent from the ceilings — a local task, or a kind retired from the catalogue
+// since the job was queued — takes the default. Making it wait for a setting that will
+// never exist would immobilise it for ever.
+func TestAnUnknownKindTakesTheDefault(t *testing.T) {
 	db := migrated(t)
 
 	limits := Limits{PerKind: map[string]int{"build": 5}, Default: 1, Global: 10}
@@ -145,16 +145,16 @@ func TestUnTypeInconnuPrendLeDefaut(t *testing.T) {
 	if _, err := claim(t, db, limits); err != nil {
 		t.Fatalf("premier: %v", err)
 	}
-	// Défaut à 1 : le second attend, ce qui prouve que le défaut s'applique
-	// bien plutôt qu'une absence de limite.
+	// Default of 1: the second one waits, which proves the default really applies rather
+	// than there being no limit.
 	if _, err := claim(t, db, limits); !errors.Is(err, ErrJobNotFound) {
-		t.Errorf("le défaut n'a pas été appliqué au type inconnu: %v", err)
+		t.Errorf("the default was not applied to the unknown kind: %v", err)
 	}
 }
 
-// Le plafond global prime : il protège le cluster, et aucune file ne peut le
-// dépasser même si la sienne a de la place.
-func TestLePlafondGlobalPrimeSurLesFiles(t *testing.T) {
+// The global ceiling prevails: it protects the cluster, and no queue may exceed it even
+// when its own has room.
+func TestTheGlobalCeilingPrevailsOverTheQueues(t *testing.T) {
 	db := migrated(t)
 
 	limits := caps(2, map[string]int{"build": 5, "audit": 5})
@@ -165,19 +165,19 @@ func TestLePlafondGlobalPrimeSurLesFiles(t *testing.T) {
 
 	for i := range 2 {
 		if _, err := claim(t, db, limits); err != nil {
-			t.Fatalf("réservation %d: %v", i, err)
+			t.Fatalf("claim %d: %v", i, err)
 		}
 	}
 
 	if _, err := claim(t, db, limits); !errors.Is(err, ErrJobNotFound) {
-		t.Errorf("le plafond global de 2 n'a pas été respecté: %v", err)
+		t.Errorf("the global ceiling of 2 was not honoured: %v", err)
 	}
 }
 
-// L'exclusivité constatée n'est plus une barrière tenue mais une file à une
-// place. Elle est relevée à la réservation parce que c'est le seul instant où
-// elle existe, et sert à juger la comparabilité d'une mesure de charge (B16).
-func TestUneFileAUnePlaceEstConstateeExclusive(t *testing.T) {
+// Observed exclusivity is no longer a held barrier but a queue of one place. It is
+// recorded at claim time because that is the only instant it exists, and it serves to
+// judge whether a load measurement is comparable.
+func TestAQueueOfOnePlaceIsObservedAsExclusive(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -185,7 +185,7 @@ func TestUneFileAUnePlaceEstConstateeExclusive(t *testing.T) {
 
 	seul := enqueue(t, db, "load-test", 100)
 	if _, err := claim(t, db, limits); err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 
 	exclusive, concurrent, err := db.StartConditions(ctx, seul)
@@ -193,48 +193,48 @@ func TestUneFileAUnePlaceEstConstateeExclusive(t *testing.T) {
 		t.Fatalf("conditions: %v", err)
 	}
 	if !exclusive {
-		t.Error("une file à une place doit être constatée exclusive")
+		t.Error("a queue of one place must be observed as exclusive")
 	}
-	// Rien ne tournait : la mesure est comparable. C'est cette seconde condition
-	// qui porte désormais l'essentiel de B16, la barrière ayant disparu.
+	// Nothing was running: the measurement is comparable. It is that second condition that
+	// now carries the weight, the barrier having gone.
 	if concurrent != 0 {
-		t.Errorf("%d exécution(s) concurrente(s), attendu 0", concurrent)
+		t.Errorf("%d concurrent run(s), expected 0", concurrent)
 	}
 
 	partage := enqueue(t, db, "build", 100)
 	if _, err := claim(t, db, limits); err != nil {
-		t.Fatalf("seconde réservation: %v", err)
+		t.Fatalf("second claim: %v", err)
 	}
 	exclusive, concurrent, err = db.StartConditions(ctx, partage)
 	if err != nil {
 		t.Fatalf("conditions: %v", err)
 	}
 	if exclusive {
-		t.Error("une file à cinq places n'est pas exclusive")
+		t.Error("a queue of five places is not exclusive")
 	}
 	if concurrent != 1 {
-		t.Errorf("%d exécution(s) concurrente(s), attendu 1", concurrent)
+		t.Errorf("%d concurrent run(s), expected 1", concurrent)
 	}
 }
 
-// Le nom du run est décidé avant la création dans le cluster. S'il échoue, le job
-// doit repartir en file avec un essai de plus — et sans conserver un nom qui ne
-// désigne rien.
+// The run's name is decided before creation in the cluster. If that fails, the job must
+// return to the queue with one more attempt — and without keeping a name that names
+// nothing.
 func TestRequeueClearsTheRunNameAndCountsTheAttempt(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	id := enqueue(t, db, "build", 100)
 	if _, err := claim(t, db, caps(4, nil)); err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 
-	again, err := db.Requeue(ctx, id, "création refusée par le cluster")
+	again, err := db.Requeue(ctx, id, "creation refused by the cluster")
 	if err != nil {
 		t.Fatalf("remise en file: %v", err)
 	}
 	if !again {
-		t.Error("une première reprise doit être permise")
+		t.Error("a first retry must be allowed")
 	}
 
 	job, err := db.GetJob(ctx, id)
@@ -242,18 +242,18 @@ func TestRequeueClearsTheRunNameAndCountsTheAttempt(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if job.State != JobQueued {
-		t.Errorf("état = %q, attendu queued", job.State)
+		t.Errorf("state = %q, expected queued", job.State)
 	}
 	if job.Attempt != 2 {
-		t.Errorf("essais = %d, attendu 2", job.Attempt)
+		t.Errorf("attempts = %d, expected 2", job.Attempt)
 	}
 	if job.RunName != "" {
-		t.Errorf("nom de run conservé après échec: %q", job.RunName)
+		t.Errorf("run name kept after failure: %q", job.RunName)
 	}
 }
 
-// Une file qui n'explique pas son attente engendre des relances inutiles.
-func TestExplainQueueNommeLaFilePleine(t *testing.T) {
+// A queue that does not explain its waiting produces needless retries.
+func TestExplainQueueNamesTheFullQueue(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -262,7 +262,7 @@ func TestExplainQueueNommeLaFilePleine(t *testing.T) {
 	enqueue(t, db, "e2e", 100)
 	blocked := enqueue(t, db, "e2e", 100)
 	if _, err := claim(t, db, limits); err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 
 	if err := db.ExplainQueue(ctx, limits); err != nil {
@@ -274,14 +274,14 @@ func TestExplainQueueNommeLaFilePleine(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if job.QueueReason != ReasonKindBusy {
-		t.Errorf("motif = %q, attendu %q", job.QueueReason, ReasonKindBusy)
+		t.Errorf("reason = %q, expected %q", job.QueueReason, ReasonKindBusy)
 	}
 }
 
-// Le plafond global prime dans l'explication comme dans le service : dire « file
-// pleine » à un job retenu par le plafond ferait chercher la place au mauvais
-// endroit, et régler la file n'y changerait rien.
-func TestExplainQueuePrefereLePlafondGlobal(t *testing.T) {
+// The global ceiling prevails in the explanation as in the service: telling a job held
+// by the global ceiling that "the queue is full" would send someone looking for room in
+// the wrong place, and adjusting the queue would change nothing.
+func TestExplainQueuePrefersTheGlobalCeiling(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -289,7 +289,7 @@ func TestExplainQueuePrefereLePlafondGlobal(t *testing.T) {
 
 	enqueue(t, db, "audit", 100)
 	if _, err := claim(t, db, limits); err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 	blocked := enqueue(t, db, "build", 100)
 
@@ -302,22 +302,21 @@ func TestExplainQueuePrefereLePlafondGlobal(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if job.QueueReason != ReasonCapacity {
-		t.Errorf("motif = %q, attendu %q", job.QueueReason, ReasonCapacity)
+		t.Errorf("reason = %q, expected %q", job.QueueReason, ReasonCapacity)
 	}
 }
 
-// Un réglage remplace le plafond du catalogue, et son retrait le rend.
-func TestUnReglageRemplaceEtSeRetire(t *testing.T) {
+// A setting replaces the catalogue's ceiling, and removing it gives it back.
+func TestASettingReplacesAndIsRemoved(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	if err := db.SetQueueLimit(ctx, "unit-tests", 2, "vcarroy"); err != nil {
-		t.Fatalf("réglage: %v", err)
+		t.Fatalf("setting: %v", err)
 	}
-	// Le même type réglé deux fois ne crée pas deux lignes : c'est un réglage,
-	// pas un journal.
+	// The same kind set twice does not create two rows: it is a setting, not a log.
 	if err := db.SetQueueLimit(ctx, "unit-tests", 3, "vcarroy"); err != nil {
-		t.Fatalf("second réglage: %v", err)
+		t.Fatalf("second setting: %v", err)
 	}
 
 	limits, err := db.QueueLimits(ctx)
@@ -325,13 +324,13 @@ func TestUnReglageRemplaceEtSeRetire(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if len(limits) != 1 || limits["unit-tests"] != 3 {
-		t.Errorf("réglages = %v, attendu unit-tests à 3", limits)
+		t.Errorf("settings = %v, expected unit-tests at 3", limits)
 	}
 
-	// Un plafond nul ou négatif est refusé : il immobiliserait la file pour
-	// toujours, sans que rien ne le dise.
+	// A zero or negative ceiling is refused: it would immobilise the queue for ever, with
+	// nothing saying so.
 	if err := db.SetQueueLimit(ctx, "unit-tests", 0, "vcarroy"); err == nil {
-		t.Error("un plafond nul devrait être refusé")
+		t.Error("a zero ceiling should be refused")
 	}
 
 	if err := db.ClearQueueLimit(ctx, "unit-tests"); err != nil {
@@ -339,13 +338,13 @@ func TestUnReglageRemplaceEtSeRetire(t *testing.T) {
 	}
 	limits, _ = db.QueueLimits(ctx)
 	if len(limits) != 0 {
-		t.Errorf("réglages après retrait = %v", limits)
+		t.Errorf("settings after removal = %v", limits)
 	}
 }
 
-// L'occupation est comptée en base : un décompte fait sur une liste tronquée se
-// tromperait, et c'est le nombre de places prises qui décide de l'attente.
-func TestLoccupationEstCompteeParType(t *testing.T) {
+// Occupancy is counted in the database: a count made over a truncated list would be
+// wrong, and it is the number of places taken that decides the waiting.
+func TestOccupancyIsCountedPerKind(t *testing.T) {
 	db := migrated(t)
 
 	limits := caps(10, map[string]int{"build": 1})
@@ -355,7 +354,7 @@ func TestLoccupationEstCompteeParType(t *testing.T) {
 	enqueue(t, db, "audit", 100)
 
 	if _, err := claim(t, db, limits); err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 
 	counts, err := db.QueueOccupancy(context.Background())
@@ -363,10 +362,10 @@ func TestLoccupationEstCompteeParType(t *testing.T) {
 		t.Fatalf("occupation: %v", err)
 	}
 	if counts["build"].Running != 1 || counts["build"].Queued != 1 {
-		t.Errorf("build = %+v, attendu 1 en cours et 1 en attente", counts["build"])
+		t.Errorf("build = %+v, expected 1 running and 1 waiting", counts["build"])
 	}
 	if counts["audit"].Running != 0 || counts["audit"].Queued != 1 {
-		t.Errorf("audit = %+v, attendu 1 en attente", counts["audit"])
+		t.Errorf("audit = %+v, expected 1 waiting", counts["audit"])
 	}
 }
 
@@ -381,34 +380,34 @@ func TestCancelQueuedJobOnlyTouchesQueuedOnes(t *testing.T) {
 		t.Fatalf("annulation: %v", err)
 	}
 	if !cancelled {
-		t.Fatal("un job en file doit pouvoir être annulé")
+		t.Fatal("a queued job must be cancellable")
 	}
 
 	running := enqueue(t, db, "audit", 100)
 	if _, err := claim(t, db, caps(4, nil)); err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 
-	// Un job en cours ne s'annule pas en base : il faut passer par le cluster,
-	// et l'appelant doit pouvoir le distinguer.
+	// A running job is not cancelled in the database: it has to go through the cluster, and
+	// the caller must be able to tell the difference.
 	cancelled, err = db.CancelQueuedJob(ctx, running, "demande utilisateur")
 	if err != nil {
 		t.Fatalf("annulation: %v", err)
 	}
 	if cancelled {
-		t.Error("un job en cours ne doit pas être annulé par cette voie")
+		t.Error("a running job must not be cancelled this way")
 	}
 }
 
-// L'ordre affiché doit être celui du service : une file qui s'affiche autrement
-// fait attendre le mauvais job.
+// The order displayed must be the order of service: a queue displayed otherwise makes
+// people wait for the wrong job.
 func TestListQueueShowsRunningFirstThenServiceOrder(t *testing.T) {
 	db := migrated(t)
 
 	enqueue(t, db, "build", 100)
 	enqueue(t, db, "promote", 10)
 	if _, err := claim(t, db, caps(4, nil)); err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 	enqueue(t, db, "audit", 50)
 
@@ -417,14 +416,14 @@ func TestListQueueShowsRunningFirstThenServiceOrder(t *testing.T) {
 		t.Fatalf("liste: %v", err)
 	}
 	if len(jobs) != 3 {
-		t.Fatalf("%d job(s), attendu 3", len(jobs))
+		t.Fatalf("%d job(s), expected 3", len(jobs))
 	}
 
 	if jobs[0].State != JobRunning || jobs[0].Kind != "promote" {
-		t.Errorf("premier = %s/%s, attendu le job en cours", jobs[0].Kind, jobs[0].State)
+		t.Errorf("first = %s/%s, expected the running job", jobs[0].Kind, jobs[0].State)
 	}
 	if jobs[1].Kind != "audit" || jobs[2].Kind != "build" {
-		t.Errorf("ordre d'attente = %s puis %s, attendu audit puis build", jobs[1].Kind, jobs[2].Kind)
+		t.Errorf("waiting order = %s then %s, expected audit then build", jobs[1].Kind, jobs[2].Kind)
 	}
 }
 
@@ -434,13 +433,13 @@ func TestFinishJobIsIdempotentOnTerminalJobs(t *testing.T) {
 
 	id := enqueue(t, db, "build", 100)
 	if _, err := claim(t, db, caps(4, nil)); err != nil {
-		t.Fatalf("réservation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 
 	if err := db.FinishJob(ctx, id, JobSucceeded, ""); err != nil {
 		t.Fatalf("conclusion: %v", err)
 	}
-	// Un second événement d'informer ne doit pas réécrire l'issue.
+	// A second informer event must not rewrite the outcome.
 	if err := db.FinishJob(ctx, id, JobFailed, "trop tard"); err != nil {
 		t.Fatalf("seconde conclusion: %v", err)
 	}
@@ -450,28 +449,27 @@ func TestFinishJobIsIdempotentOnTerminalJobs(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if job.State != JobSucceeded {
-		t.Errorf("état = %q, attendu succeeded: une issue terminale a été réécrite", job.State)
+		t.Errorf("state = %q, expected succeeded: a terminal outcome was rewritten", job.State)
 	}
 }
 
-// Un job insatisfiable ne doit pas être repris indéfiniment : il immobiliserait la
-// file, l'ordonnanceur reprenant toujours le plus ancien avant de considérer les
-// suivants. Constaté en conditions réelles à deux cent trente essais.
-func TestUneRepriseSarreteAuPlafond(t *testing.T) {
+// An unsatisfiable job must not be retried indefinitely: it would immobilise the queue,
+// the scheduler always picking the oldest before considering the others. Observed in
+// real conditions at two hundred and thirty attempts.
+func TestARetryStopsAtTheCeiling(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	id := enqueue(t, db, "build", 100)
 
-	// `attempt` compte la tentative en cours, pas les reprises : un job enfilé
-	// est déjà à un essai. Le plafond borne donc le total, et la boucle doit
-	// s'arrêter d'elle-même.
+	// `attempt` counts the current attempt, not the retries: a queued job is already at one
+	// attempt. The ceiling therefore bounds the total, and the loop must stop on its own.
 	reprises := 0
 	for reprises < 50 {
 		if _, err := claim(t, db, caps(4, nil)); err != nil {
-			t.Fatalf("réservation: %v", err)
+			t.Fatalf("claim: %v", err)
 		}
-		again, err := db.Requeue(ctx, id, "cause qui ne disparaîtra pas")
+		again, err := db.Requeue(ctx, id, "a cause that will not go away")
 		if err != nil {
 			t.Fatalf("reprise %d: %v", reprises, err)
 		}
@@ -482,7 +480,7 @@ func TestUneRepriseSarreteAuPlafond(t *testing.T) {
 	}
 
 	if reprises >= 50 {
-		t.Fatal("la reprise ne s'arrête jamais: la file resterait immobilisée")
+		t.Fatal("the retry never stops: the queue would stay immobilised")
 	}
 
 	job, err := db.GetJob(ctx, id)
@@ -490,23 +488,23 @@ func TestUneRepriseSarreteAuPlafond(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if job.Attempt != MaxJobAttempts {
-		t.Errorf("%d tentatives au total, attendu le plafond %d", job.Attempt, MaxJobAttempts)
+		t.Errorf("%d attempts in total, expected the ceiling %d", job.Attempt, MaxJobAttempts)
 	}
 }
 
-// Un job qui n'est plus `running` — annulé entre-temps — n'est pas une erreur de
-// reprise : il n'y a simplement plus rien à reprendre.
-func TestUneRepriseSurUnJobNonCourantNestPasUneErreur(t *testing.T) {
+// A job that is no longer `running` — cancelled meanwhile — is not a retry error: there
+// is simply nothing left to retry.
+func TestARetryOnANonRunningJobIsNotAnError(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	id := enqueue(t, db, "build", 100)
 
-	again, err := db.Requeue(ctx, id, "jamais démarré")
+	again, err := db.Requeue(ctx, id, "never started")
 	if err != nil {
 		t.Fatalf("remise en file: %v", err)
 	}
 	if again {
-		t.Error("aucune reprise ne devrait être annoncée sur un job non courant")
+		t.Error("no retry should be announced on a job that is not running")
 	}
 }

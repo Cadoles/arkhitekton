@@ -24,30 +24,28 @@ import (
  * code sait déjà, avec une occasion de plus de diverger.
  */
 
-// PluginSettings porte l'état d'un plugin à une portée.
+// PluginSettings carries a plugin's state at one scope.
 type PluginSettings struct {
 	PluginID string
 	Enabled  bool
-	// Config est une carte plate de chaînes. Les champs sensibles y sont
-	// **scellés** : ce magasin les transporte sans les lire, et c'est la couche
-	// au-dessus qui ouvre et referme.
+	// Config is a flat map of strings. Sensitive fields in it are sealed: this store
+	// carries them without reading them, and the layer above opens and closes them.
 	Config    map[string]string
 	UpdatedAt time.Time
-	// UpdatedBy est vide pour ce que l'amorçage a posé. La distinction dit qu'une
-	// valeur vient de la configuration du déploiement, et non d'une décision
-	// humaine qu'on pourrait aller questionner.
+	// UpdatedBy is empty for what the bootstrap set. The distinction says a value comes
+	// from the deployment's configuration and not from a human decision one could go and
+	// question.
 	UpdatedBy string
 }
 
-// EnsurePlugins pose les lignes manquantes des plugins embarqués.
+// EnsurePlugins writes the missing rows for the embedded plugins.
 //
-// Appelé au démarrage, avec les identifiants du registre. Les lignes naissent
-// **activées** : chaque plugin embarqué décrit quelque chose que le dashboard
-// fait déjà, et naître désactivé arrêterait au premier déploiement des
-// mécanismes qui fonctionnaient la veille.
+// Called at start-up, with the registry's identifiers. The rows are born enabled: every
+// embedded plugin describes something the dashboard already does, and being born
+// disabled would stop, at the first deployment, mechanisms that worked the day before.
 //
-// Idempotent, et sans écrasement : un plugin désactivé à la main le reste après
-// un redémarrage, sinon le réglage ne tiendrait pas plus longtemps qu'un pod.
+// Idempotent, and without overwriting: a plugin disabled by hand stays disabled after a
+// restart, otherwise the setting would not outlive a pod.
 func (db *DB) EnsurePlugins(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -59,17 +57,17 @@ func (db *DB) EnsurePlugins(ctx context.Context, ids []string) error {
 		on conflict (plugin_id) do nothing`
 
 	if _, err := db.pool.Exec(ctx, query, ids); err != nil {
-		return fmt.Errorf("amorçage des plugins: %w", err)
+		return fmt.Errorf("bootstrapping the plugins: %w", err)
 	}
 	return nil
 }
 
-// PluginSettingsAll rend les réglages globaux, par identifiant.
+// PluginSettingsAll returns the global settings, by identifier.
 //
-// Une carte et non une tranche : l'appelant croise avec le registre du binaire,
-// qui fait foi sur ce qui existe et dans quel ordre l'afficher. Rendre une
-// tranche ordonnée par la base l'inviterait à s'en servir comme catalogue, alors
-// qu'elle ne connaît que ce qui a déjà été réglé.
+// A map and not a slice: the caller crosses them with the binary's registry, which is
+// authoritative about what exists and in what order to display it. Returning a slice
+// ordered by the database would invite using it as a catalogue, while it knows only
+// what has already been set.
 func (db *DB) PluginSettingsAll(ctx context.Context) (map[string]PluginSettings, error) {
 	const query = `
 		select plugin_id, enabled, config, updated_at, updated_by
@@ -77,7 +75,7 @@ func (db *DB) PluginSettingsAll(ctx context.Context) (map[string]PluginSettings,
 
 	rows, err := db.pool.Query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("lecture des plugins: %w", err)
+		return nil, fmt.Errorf("reading the plugins: %w", err)
 	}
 	defer rows.Close()
 
@@ -86,14 +84,14 @@ func (db *DB) PluginSettingsAll(ctx context.Context) (map[string]PluginSettings,
 		var entry PluginSettings
 		if err := rows.Scan(&entry.PluginID, &entry.Enabled, &entry.Config,
 			&entry.UpdatedAt, &entry.UpdatedBy); err != nil {
-			return nil, fmt.Errorf("lecture d'un plugin: %w", err)
+			return nil, fmt.Errorf("reading a plugin: %w", err)
 		}
 		settings[entry.PluginID] = entry
 	}
 	return settings, rows.Err()
 }
 
-// SetPluginSettings enregistre les réglages globaux d'un plugin.
+// SetPluginSettings records a plugin's global settings.
 func (db *DB) SetPluginSettings(ctx context.Context, entry PluginSettings, actor string) error {
 	const query = `
 		insert into plugin_settings (plugin_id, enabled, config, updated_at, updated_by)
@@ -106,17 +104,17 @@ func (db *DB) SetPluginSettings(ctx context.Context, entry PluginSettings, actor
 
 	if _, err := db.pool.Exec(ctx, query, entry.PluginID, entry.Enabled,
 		orEmptyConfig(entry.Config), actor); err != nil {
-		return fmt.Errorf("enregistrement du plugin %q: %w", entry.PluginID, err)
+		return fmt.Errorf("recording plugin %q: %w", entry.PluginID, err)
 	}
 	return nil
 }
 
-// ProjectPluginSettings rend les décisions explicites d'un projet.
+// ProjectPluginSettings returns a project's explicit decisions.
 //
-// N'y figurent que les plugins sur lesquels le projet s'est prononcé. L'absence
-// d'une entrée vaut **héritage du global**, et non refus : la traiter comme un
-// refus désactiverait d'un coup, pour tous les projets déclarés avant que ces
-// tables existent, ce qu'ils reçoivent aujourd'hui.
+// Only the plugins the project has pronounced on appear. The absence of an entry means
+// inheritance from the global scope, and not refusal: treating it as refusal would
+// disable at a stroke, for every project declared before these tables existed, what
+// they receive today.
 func (db *DB) ProjectPluginSettings(ctx context.Context, projectID int64) (map[string]PluginSettings, error) {
 	const query = `
 		select plugin_id, enabled, config, updated_at, updated_by
@@ -125,7 +123,7 @@ func (db *DB) ProjectPluginSettings(ctx context.Context, projectID int64) (map[s
 
 	rows, err := db.pool.Query(ctx, query, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("lecture des plugins du projet: %w", err)
+		return nil, fmt.Errorf("reading the project's plugins: %w", err)
 	}
 	defer rows.Close()
 
@@ -134,14 +132,14 @@ func (db *DB) ProjectPluginSettings(ctx context.Context, projectID int64) (map[s
 		var entry PluginSettings
 		if err := rows.Scan(&entry.PluginID, &entry.Enabled, &entry.Config,
 			&entry.UpdatedAt, &entry.UpdatedBy); err != nil {
-			return nil, fmt.Errorf("lecture d'un plugin de projet: %w", err)
+			return nil, fmt.Errorf("reading a project plugin: %w", err)
 		}
 		settings[entry.PluginID] = entry
 	}
 	return settings, rows.Err()
 }
 
-// SetProjectPluginSettings enregistre la décision d'un projet sur un plugin.
+// SetProjectPluginSettings records a project's decision on a plugin.
 func (db *DB) SetProjectPluginSettings(ctx context.Context, projectID int64,
 	entry PluginSettings, actor string,
 ) error {
@@ -157,40 +155,38 @@ func (db *DB) SetProjectPluginSettings(ctx context.Context, projectID int64,
 	_, err := db.pool.Exec(ctx, query, projectID, entry.PluginID, entry.Enabled,
 		orEmptyConfig(entry.Config), actor)
 	if err != nil {
-		return fmt.Errorf("enregistrement du plugin %q du projet %d: %w",
+		return fmt.Errorf("recording plugin %q of project %d: %w",
 			entry.PluginID, projectID, err)
 	}
 	return nil
 }
 
-// ClearProjectPluginSettings retire la décision d'un projet.
+// ClearProjectPluginSettings removes a project's decision.
 //
-// Le projet revient à l'héritage du global. Distinct d'une désactivation :
-// « je n'ai rien de particulier à dire » n'est pas « non », et les confondre
-// ferait qu'un projet ne pourrait plus jamais suivre le réglage de l'instance
-// une fois qu'il s'en est écarté.
+// The project returns to inheriting the global setting. Distinct from disabling: "I
+// have nothing particular to say" is not "no", and confusing them would mean a project
+// could never follow the instance's setting again once it had departed from it.
 func (db *DB) ClearProjectPluginSettings(ctx context.Context, projectID int64, pluginID string) error {
 	const query = `delete from project_plugins where project_id = $1 and plugin_id = $2`
 
 	if _, err := db.pool.Exec(ctx, query, projectID, pluginID); err != nil {
-		return fmt.Errorf("retrait du plugin %q du projet %d: %w", pluginID, projectID, err)
+		return fmt.Errorf("removing plugin %q from project %d: %w", pluginID, projectID, err)
 	}
 	return nil
 }
 
-// ErrPluginDisabled signale un plugin qu'on interroge alors qu'il est éteint.
-var ErrPluginDisabled = errors.New("plugin désactivé")
+// ErrPluginDisabled reports a plugin queried while it is switched off.
+var ErrPluginDisabled = errors.New("plugin disabled")
 
-// ResolvedPlugin rend les réglages effectifs d'un plugin pour un projet.
+// ResolvedPlugin returns a plugin's effective settings for a project.
 //
-// Le calcul est fait ici, en une seule requête, plutôt que par l'appelant à
-// partir de deux lectures : c'est la superposition dont dépend chaque appel
-// sortant, et deux endroits qui la calculent finiraient par la calculer
-// différemment.
+// The computation is done here, in one query, rather than by the caller from two reads:
+// it is the layering every outgoing call depends on, and two places computing it would
+// end up computing it differently.
 //
-// La configuration rendue reste **scellée** pour les champs sensibles. Ouvrir
-// demande la clé, et ce magasin ne l'a pas — délibérément : il ne doit pas
-// pouvoir rendre du clair, même par erreur d'appel.
+// The configuration returned stays sealed for sensitive fields. Opening them needs the
+// key, and this store does not have it — deliberately: it must not be able to return
+// plaintext, even by a mistaken call.
 func (db *DB) ResolvedPlugin(ctx context.Context, projectID int64, pluginID string) (PluginSettings, error) {
 	const query = `
 		select g.enabled,
@@ -212,17 +208,17 @@ func (db *DB) ResolvedPlugin(ctx context.Context, projectID int64, pluginID stri
 		Scan(&globalEnabled, &globalConfig, &projectEnabled, &projectConfig)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// Aucun réglage global : le plugin n'a jamais été amorcé sur cette
-		// instance. Traité comme éteint, ce qu'il est de fait.
+		// No global settings: the plugin was never bootstrapped on this instance. Treated as
+		// switched off, which it is in fact.
 		return PluginSettings{PluginID: pluginID}, fmt.Errorf("%w: %s",
 			ErrPluginDisabled, pluginID)
 	case err != nil:
-		return PluginSettings{}, fmt.Errorf("lecture du plugin %q: %w", pluginID, err)
+		return PluginSettings{}, fmt.Errorf("reading plugin %q: %w", pluginID, err)
 	}
 
-	// Le projet ne peut pas rallumer ce que l'instance a éteint : un plugin
-	// désactivé globalement l'est parce que le déploiement ne le porte pas, et
-	// un projet qui le forcerait échouerait à chaque appel.
+	// A project cannot switch back on what the instance switched off: a plugin disabled
+	// globally is disabled because the deployment does not carry it, and a project forcing
+	// it would fail on every call.
 	enabled := globalEnabled
 	if globalEnabled && projectEnabled != nil {
 		enabled = *projectEnabled
@@ -239,12 +235,12 @@ func (db *DB) ResolvedPlugin(ctx context.Context, projectID int64, pluginID stri
 	return resolved, nil
 }
 
-// overlayConfig superpose les réglages d'un projet à ceux de l'instance.
+// overlayConfig layers a project's settings over the instance's.
 //
-// Une valeur vide côté projet n'efface pas celle de l'instance : elle veut dire
-// « rien de particulier ». Le confondre avec un effacement ferait perdre une URL
-// au premier enregistrement d'un formulaire qui ne l'affichait pas — le cas est
-// certain pour les champs secrets, que l'API ne renvoie jamais.
+// An empty value on the project side does not erase the instance's: it means "nothing
+// particular". Confusing it with a deletion would lose a URL the first time a form that
+// did not display it was saved — a certainty for secret fields, which the API never
+// returns.
 func overlayConfig(global, project map[string]string) map[string]string {
 	resolved := make(map[string]string, len(global)+len(project))
 	for name, value := range global {
@@ -259,22 +255,19 @@ func overlayConfig(global, project map[string]string) map[string]string {
 	return resolved
 }
 
-// seedPlugins fait passer la configuration des plugins de l'environnement à la
-// base, une seule fois.
+// seedPlugins moves plugin configuration from the environment into the database, once.
 //
-// Deux gestes, et le second est celui qui compte. Les réglages de l'instance
-// naissent de la configuration du déploiement — l'URL et la clé d'un suivi, la
-// forge, le namespace de Flux. Puis **chaque projet déjà rattaché à un suivi
-// reçoit son propre réglage**, avec l'identifiant qu'il portait déjà.
+// Two gestures, and the second is the one that counts. The instance's settings are born
+// from the deployment's configuration — a tracker's URL and key, the forge, the Flux
+// namespace. Then every project already attached to a tracker receives its own setting,
+// with the identifier it already carried.
 //
-// Sans ce second geste, un déploiement en place verrait sa synchronisation
-// s'arrêter le jour où le code lit les réglages plutôt que la configuration : la
-// connexion serait là, mais aucun projet ne dirait quoi synchroniser. Une panne
-// muette, exactement celle qui a motivé l'étape `trackers`.
+// Without that second gesture, an existing deployment would see its synchronisation
+// stop the day the code reads settings rather than configuration: the connection would
+// be there, but no project would say what to synchronise. A silent failure.
 //
-// Rien n'est écrasé : `on conflict do nothing`. Un réglage déjà posé — par
-// l'interface, ou par un passage antérieur — l'emporte sur ce que la
-// configuration suggère.
+// Nothing is overwritten: `on conflict do nothing`. A setting already made — through the
+// interface, or by an earlier pass — beats what the configuration suggests.
 func (db *DB) seedPlugins(ctx context.Context, settings []PluginSettings, trackerID string) (int, error) {
 	posed := 0
 
@@ -287,7 +280,7 @@ func (db *DB) seedPlugins(ctx context.Context, settings []PluginSettings, tracke
 		tag, err := db.pool.Exec(ctx, query, entry.PluginID, entry.Enabled,
 			orEmptyConfig(entry.Config))
 		if err != nil {
-			return posed, fmt.Errorf("amorçage du plugin %q: %w", entry.PluginID, err)
+			return posed, fmt.Errorf("bootstrapping plugin %q: %w", entry.PluginID, err)
 		}
 		posed += int(tag.RowsAffected())
 	}
@@ -296,9 +289,9 @@ func (db *DB) seedPlugins(ctx context.Context, settings []PluginSettings, tracke
 		return posed, nil
 	}
 
-	// Le rattachement des projets. `tracker_project` reste la source : la colonne
-	// existe, elle est juste, et la recopier dans le réglage est ce qui permet à
-	// un second projet de désigner un autre serveur sans que le premier bouge.
+	// Attaching the projects. `tracker_project` stays the source: the column exists, it is
+	// right, and copying it into the setting is what lets a second project name another
+	// server without the first moving.
 	const attach = `
 		insert into project_plugins (project_id, plugin_id, enabled, config)
 		select id, $1, true, jsonb_build_object('project', tracker_project)
@@ -308,12 +301,12 @@ func (db *DB) seedPlugins(ctx context.Context, settings []PluginSettings, tracke
 
 	tag, err := db.pool.Exec(ctx, attach, trackerID)
 	if err != nil {
-		return posed, fmt.Errorf("rattachement des projets au suivi: %w", err)
+		return posed, fmt.Errorf("attaching the projects to the tracker: %w", err)
 	}
 	return posed + int(tag.RowsAffected()), nil
 }
 
-// orEmptyConfig évite d'écrire `null` dans une colonne déclarée `not null`.
+// orEmptyConfig avoids writing `null` into a column declared not null.
 func orEmptyConfig(config map[string]string) map[string]string {
 	if config == nil {
 		return map[string]string{}

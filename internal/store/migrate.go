@@ -17,18 +17,17 @@ import (
 
 const migrationsDir = "migrations"
 
-// MigrationStatus décrit une migration et son état d'application.
+// MigrationStatus describes a migration and whether it is applied.
 type MigrationStatus struct {
 	Name    string
 	Applied bool
 }
 
-// Migrate applique les migrations en attente.
+// Migrate applies the pending migrations.
 //
-// goose exige un *sql.DB là où le reste du dashboard utilise pgxpool : la
-// passerelle stdlib de pgx sert exactement à cela. La connexion est ouverte pour
-// la durée de l'opération puis refermée — les migrations tournent dans un Job
-// d'initialisation, pas dans un processus de longue durée.
+// goose requires a *sql.DB where the rest of the dashboard uses pgxpool: pgx's stdlib
+// bridge is exactly for that. The connection is opened for the duration of the operation
+// and then closed — migrations run in an init Job, not in a long-lived process.
 func Migrate(ctx context.Context, cfg config.DatabaseConfig, logger *slog.Logger) error {
 	db, err := openSQL(cfg)
 	if err != nil {
@@ -40,19 +39,19 @@ func Migrate(ctx context.Context, cfg config.DatabaseConfig, logger *slog.Logger
 		return fmt.Errorf("dialecte goose: %w", err)
 	}
 	goose.SetBaseFS(migrationFiles)
-	// Le journal de goose part vers slog plutôt que stdout brut, pour que la
-	// sortie du Job reste analysable comme le reste.
+	// goose's log goes to slog rather than raw stdout, so the Job's output stays as
+	// analysable as the rest.
 	goose.SetLogger(gooseLogger{logger})
 
 	if err := goose.UpContext(ctx, db, migrationsDir); err != nil {
-		return fmt.Errorf("application des migrations: %w", redactError(err, cfg.DSN))
+		return fmt.Errorf("applying the migrations: %w", redactError(err, cfg.DSN))
 	}
 	return nil
 }
 
-// MigrationState liste les migrations et indique lesquelles sont appliquées.
-// Utilisé par `migrate --status`, et pour vérifier avant de déployer qu'une
-// version du binaire n'attend pas un schéma plus récent que celui en place.
+// MigrationState lists the migrations and says which are applied. Used by
+// `migrate --status`, and to check before deploying that a version of the binary is not
+// expecting a newer schema than the one in place.
 func MigrationState(ctx context.Context, cfg config.DatabaseConfig) ([]MigrationStatus, error) {
 	db, err := openSQL(cfg)
 	if err != nil {
@@ -67,12 +66,12 @@ func MigrationState(ctx context.Context, cfg config.DatabaseConfig) ([]Migration
 
 	migrations, err := goose.CollectMigrations(migrationsDir, 0, goose.MaxVersion)
 	if err != nil {
-		return nil, fmt.Errorf("collecte des migrations: %w", err)
+		return nil, fmt.Errorf("collecting the migrations: %w", err)
 	}
 
 	applied, err := goose.GetDBVersionContext(ctx, db)
 	if err != nil {
-		return nil, fmt.Errorf("version du schéma: %w", redactError(err, cfg.DSN))
+		return nil, fmt.Errorf("schema version: %w", redactError(err, cfg.DSN))
 	}
 
 	state := make([]MigrationStatus, 0, len(migrations))
@@ -85,8 +84,8 @@ func MigrationState(ctx context.Context, cfg config.DatabaseConfig) ([]Migration
 	return state, nil
 }
 
-// Rollback annule la dernière migration appliquée. Réservé au développement :
-// annuler en production supprime des colonnes, donc des données.
+// Rollback undoes the last applied migration. Reserved for development: undoing in
+// production drops columns, hence data.
 func Rollback(ctx context.Context, cfg config.DatabaseConfig, logger *slog.Logger) error {
 	db, err := openSQL(cfg)
 	if err != nil {
@@ -101,15 +100,14 @@ func Rollback(ctx context.Context, cfg config.DatabaseConfig, logger *slog.Logge
 	goose.SetLogger(gooseLogger{logger})
 
 	if err := goose.DownContext(ctx, db, migrationsDir); err != nil {
-		return fmt.Errorf("annulation de la migration: %w", redactError(err, cfg.DSN))
+		return fmt.Errorf("rolling back the migration: %w", redactError(err, cfg.DSN))
 	}
 	return nil
 }
 
 func openSQL(cfg config.DatabaseConfig) (*sql.DB, error) {
-	// Le pilote est enregistré sous le nom "pgx" par l'import en blanc de
-	// pgx/stdlib : une seule implémentation PostgreSQL dans le binaire, celle
-	// déjà utilisée par le pool applicatif.
+	// The driver is registered under the name "pgx" by the blank import of pgx/stdlib: one
+	// PostgreSQL implementation in the binary, the one the application pool already uses.
 	db, err := sql.Open("pgx", cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("DSN PostgreSQL invalide: %w", redactError(err, cfg.DSN))
@@ -128,18 +126,18 @@ func (l gooseLogger) Printf(format string, v ...any) {
 	l.logger.Info(fmt.Sprintf(format, v...))
 }
 
-// discardLogger sert aux tests, où le journal de goose n'apporte rien.
+// discardLogger serves the tests, where goose's log adds nothing.
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// waitDelay borne l'attente entre deux tentatives de connexion.
+// waitDelay bounds the wait between two connection attempts.
 const waitDelay = 2 * time.Second
 
-// PendingMigrations rend les migrations que ce binaire embarque et que la base
-// n'a pas encore.
+// PendingMigrations returns the migrations this binary embeds that the database does not
+// yet have.
 //
-// Vide, le schéma est celui que ce binaire attend.
+// Empty means the schema is the one this binary expects.
 func PendingMigrations(ctx context.Context, cfg config.DatabaseConfig) ([]string, error) {
 	state, err := MigrationState(ctx, cfg)
 	if err != nil {
@@ -155,30 +153,24 @@ func PendingMigrations(ctx context.Context, cfg config.DatabaseConfig) ([]string
 	return pending, nil
 }
 
-// WaitForSchema attend que la base porte les migrations de ce binaire.
+// WaitForSchema waits for the database to carry this binary's migrations.
 //
-// # Pourquoi une attente, et pas seulement la connexion
+// Migration is a Job, deliberately — an init container would run once per replica and two
+// concurrent `goose up` would tread on each other. The trade-off is that no order is
+// guaranteed between that Job and the application pods: they start together.
 //
-// La migration est un **Job**, délibérément — un initContainer s'exécuterait une
-// fois par réplique et deux `goose up` concurrents se marcheraient dessus (voir
-// `deploy/base/job-migrate.yaml`). La contrepartie est qu'aucun ordre n'est
-// garanti entre ce Job et les pods applicatifs : ils démarrent ensemble.
+// [WaitForDatabase] is therefore not enough. A worker can connect to a database that is
+// reachable but not yet migrated, and its start-up reconciliation then runs against an
+// incomplete schema. That was observed: a score of "relation does not exist" errors at
+// every deployment, while the Job caught up.
 //
-// [WaitForDatabase] ne suffit donc pas. Un worker peut se connecter à une base
-// **joignable mais pas encore migrée**, et sa réconciliation de démarrage
-// s'exécute alors contre un schéma incomplet. C'est ce qui a été constaté :
-// une vingtaine de `relation "plan_steps" does not exist` à chaque déploiement,
-// le temps que le Job passe.
+// Nothing stayed broken — the following facts were written normally — but a start-up log
+// full of expected errors teaches people to ignore errors, and that is how a real
+// failure goes unnoticed.
 //
-// Rien n'en restait cassé — les faits suivants s'écrivaient normalement — mais
-// un journal de démarrage rempli d'erreurs attendues apprend à ignorer les
-// erreurs, et c'est ainsi qu'une vraie panne passe inaperçue.
-//
-// # Attendre plutôt que migrer soi-même
-//
-// L'`api` et le `worker` pourraient appliquer les migrations eux-mêmes. Ce serait
-// rouvrir précisément ce que le Job a fermé : deux répliques d'`api` migreraient
-// en parallèle. Ils attendent donc, et c'est le Job qui écrit.
+// The api and the worker could apply the migrations themselves. That would reopen
+// exactly what the Job closed: two api replicas would migrate in parallel. They wait,
+// and the Job writes.
 func WaitForSchema(
 	ctx context.Context, cfg config.DatabaseConfig, timeout time.Duration, logger *slog.Logger,
 ) error {
@@ -190,26 +182,26 @@ func WaitForSchema(
 		pending, err := PendingMigrations(ctx, cfg)
 		switch {
 		case err != nil:
-			// Une lecture impossible n'est pas un schéma en retard. On réessaie,
-			// puis on rend l'erreur telle quelle : elle dit autre chose.
+			// An impossible read is not a schema that is behind. It retries, then returns the error
+			// as it is: it says something else.
 			if time.Now().After(deadline) {
-				return fmt.Errorf("état du schéma illisible après %s: %w",
+				return fmt.Errorf("schema state unreadable after %s: %w",
 					timeout, redactError(err, cfg.DSN))
 			}
 		case len(pending) == 0:
 			if attempt > 1 {
-				logger.Info("schéma à jour", "tentatives", attempt)
+				logger.Info("schema up to date", "tentatives", attempt)
 			}
 			return nil
 		case time.Now().After(deadline):
-			// Le message nomme ce qui manque : « schéma en retard » seul
-			// enverrait lire les journaux du Job sans savoir quoi y chercher.
+			// The message names what is missing: "schema behind" alone would send someone to read
+			// the Job's logs without knowing what to look for.
 			return fmt.Errorf(
-				"schéma incomplet après %s, %d migration(s) en attente: %s",
+				"schema incomplete after %s, %d migration(s) pending: %s",
 				timeout, len(pending), strings.Join(pending, ", "))
 		default:
-			logger.Info("schéma en retard, attente du Job de migration",
-				"tentative", attempt, "en_attente", len(pending), "délai", waitDelay)
+			logger.Info("schema behind, waiting for the migration Job",
+				"tentative", attempt, "en_attente", len(pending), "timeout", waitDelay)
 		}
 
 		select {
@@ -220,21 +212,20 @@ func WaitForSchema(
 	}
 }
 
-// WaitForDatabase attend que PostgreSQL accepte des connexions.
+// WaitForDatabase waits for PostgreSQL to accept connections.
 //
-// Nécessaire parce que la migration est une étape d'**initialisation** : dans un
-// déploiement neuf, son Job démarre en même temps que la base, et l'ordre entre
-// les deux n'est pas garanti. Sans cette attente, le Job échoue, Kubernetes le
-// relance, et le second essai réussit — la migration finit par passer, mais
-// chaque déploiement laisse derrière lui un pod en `Error`.
+// Necessary because migration is an initialisation step: in a fresh deployment its Job
+// starts at the same time as the database, and the order between them is not guaranteed.
+// Without this wait the Job fails, Kubernetes restarts it, and the second attempt
+// succeeds — the migration does go through, but every deployment leaves a pod in `Error`
+// behind it.
 //
-// Ce résidu n'est pas cosmétique : il apprend à ignorer les pods en erreur, et
-// c'est ainsi qu'une vraie panne passe inaperçue.
+// That residue is not cosmetic: it teaches people to ignore failed pods, and that is how
+// a real failure goes unnoticed.
 //
-// L'attente est réservée à ce rôle. L'`api` et le `worker` doivent au contraire
-// échouer vite : ils tournent en permanence, Kubernetes les redémarre, et un
-// processus qui attend indéfiniment une base absente se déclarerait vivant sans
-// l'être.
+// The wait is reserved to this role. The api and the worker must fail fast instead: they
+// run permanently, Kubernetes restarts them, and a process waiting indefinitely for an
+// absent database would declare itself alive without being so.
 func WaitForDatabase(ctx context.Context, cfg config.DatabaseConfig, timeout time.Duration, logger *slog.Logger) error {
 	deadline := time.Now().Add(timeout)
 	attempt := 0
@@ -251,16 +242,15 @@ func WaitForDatabase(ctx context.Context, cfg config.DatabaseConfig, timeout tim
 		}
 
 		if time.Now().After(deadline) {
-			// Le message porte le nombre de tentatives et la durée : « connexion
-			// refusée » seul ne dit pas si la base est absente ou simplement lente
-			// à démarrer.
+			// The message carries the number of attempts and the duration: "connection refused"
+			// alone does not say whether the database is absent or merely slow to start.
 			return fmt.Errorf(
-				"base injoignable après %d tentative(s) en %s: %w",
+				"database unreachable after %d attempt(s) in %s: %w",
 				attempt, timeout, redactError(err, cfg.DSN))
 		}
 
 		logger.Info("base indisponible, nouvelle tentative",
-			"tentative", attempt, "délai", waitDelay)
+			"tentative", attempt, "timeout", waitDelay)
 
 		select {
 		case <-ctx.Done():

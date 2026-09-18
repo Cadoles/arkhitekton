@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// TestResult est le résultat d'un outil sur un run.
+// TestResult is one tool's result on a run.
 type TestResult struct {
 	ID         int64
 	RunID      int64
@@ -24,12 +24,12 @@ type TestResult struct {
 	Summary    string
 	RawObject  string
 	CreatedAt  time.Time
-	// RunName est le nom du PipelineRun qui a produit ce rapport. Vide si le run
-	// a été purgé de la projection — le rapport survit à son exécution.
+	// RunName is the name of the PipelineRun that produced this report. Empty if the run
+	// was purged from the projection — the report outlives its run.
 	RunName string
 }
 
-// TestCase est un cas individuel.
+// TestCase is an individual case.
 type TestCase struct {
 	ID             int64
 	TestResultID   int64
@@ -41,15 +41,15 @@ type TestCase struct {
 	FailureTrace   string
 }
 
-// SaveTestResult enregistre un rapport et ses cas.
+// SaveTestResult records a report and its cases.
 //
-// En une transaction : un rapport dont la moitié des cas manque ferait conclure à
-// des tests supprimés lors de la comparaison à la release précédente, ce qui est
-// exactement le signal qu'on cherche à rendre fiable.
+// In one transaction: a report missing half its cases would make the comparison with
+// the previous release conclude that tests were deleted, which is exactly the signal
+// this is meant to make reliable.
 func (db *DB) SaveTestResult(ctx context.Context, result TestResult, cases []TestCase) (int64, error) {
 	transaction, err := db.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("résultats de tests: %w", err)
+		return 0, fmt.Errorf("test results: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
@@ -64,7 +64,7 @@ func (db *DB) SaveTestResult(ctx context.Context, result TestResult, cases []Tes
 		result.Total, result.Passed, result.Failed, result.Skipped, result.Flaky,
 		result.DurationMS, result.Summary, result.RawObject).Scan(&id)
 	if err != nil {
-		return 0, fmt.Errorf("résultats %q du run %d: %w", result.Tool, result.RunID, err)
+		return 0, fmt.Errorf("results %q of run %d: %w", result.Tool, result.RunID, err)
 	}
 
 	for _, testCase := range cases {
@@ -80,52 +80,51 @@ func (db *DB) SaveTestResult(ctx context.Context, result TestResult, cases []Tes
 	}
 
 	if err := transaction.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("résultats de tests: %w", err)
+		return 0, fmt.Errorf("test results: %w", err)
 	}
 	return id, nil
 }
 
-// TestResultExists dit si un outil est déjà enregistré pour ce run.
+// TestResultExists says whether a tool is already recorded for this run.
 //
-// L'ingestion doit être idempotente : l'observateur revoit un run terminé au
-// redémarrage, et réenregistrer doublerait chaque cas — donc chaque comparaison.
+// Ingestion must be idempotent: the observer sees a finished run again at restart,
+// and recording it twice would double every case — hence every comparison.
 func (db *DB) TestResultExists(ctx context.Context, runID int64, tool string) (bool, error) {
 	var exists bool
 	err := db.pool.QueryRow(ctx,
 		`select exists(select 1 from test_results where run_id = $1 and tool = $2)`,
 		runID, tool).Scan(&exists)
 	if err != nil {
-		return false, fmt.Errorf("résultats %q du run %d: %w", tool, runID, err)
+		return false, fmt.Errorf("results %q of run %d: %w", tool, runID, err)
 	}
 	return exists, nil
 }
 
-// RunHasResults dit si un run a laissé le moindre résultat.
+// RunHasResults says whether a run left any result at all.
 //
-// La question porte sur le run entier et non sur un outil, parce que c'est
-// l'écart au **contrat** qu'elle sert à constater : un pipeline qui annonce des
-// résultats et n'en laisse aucun n'a pas honoré doc 13, et l'écran restera vide
-// sans que rien n'en dise la cause.
+// The question is about the whole run and not one tool, because what it observes is a
+// breach of the contract: a pipeline announcing results and leaving none has not
+// honoured it, and the screen will stay empty with nothing saying why.
 //
-// Elle couvre les trois voies d'entrée d'un résultat — les rapports ingérés, les
-// audits normalisés, et les `na` déduits d'un marqueur —, ce qu'un compteur tenu
-// par un seul ingesteur ne saurait pas faire.
+// It covers the three entry points of a result — ingested reports, normalised audits,
+// and the `na` values inferred from a marker — which a counter kept by a single
+// ingester could not.
 func (db *DB) RunHasResults(ctx context.Context, runID int64) (bool, error) {
 	var exists bool
 	err := db.pool.QueryRow(ctx,
 		`select exists(select 1 from test_results where run_id = $1)`, runID).Scan(&exists)
 	if err != nil {
-		return false, fmt.Errorf("résultats du run %d: %w", runID, err)
+		return false, fmt.Errorf("results of run %d: %w", runID, err)
 	}
 	return exists, nil
 }
 
-// ListReleaseTestResults rend les rapports d'une release.
+// ListReleaseTestResults returns a release's reports.
 func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]TestResult, error) {
 	rows, err := db.pool.Query(ctx,
-		// Le nom du run est joint plutôt que résolu ensuite : il sert à renvoyer
-		// le lecteur vers l'exécution qui a produit le rapport, et une seconde
-		// requête par rapport pour un seul champ ne se justifie pas.
+		// The run's name is joined rather than resolved afterwards: it serves to send the
+		// reader back to the run that produced the report, and a second query per report for
+		// a single field is not justified.
 		`select t.id, t.run_id, t.release_id, t.family, t.tool, t.status,
 		        coalesce(t.total, 0), coalesce(t.passed, 0), coalesce(t.failed, 0),
 		        coalesce(t.skipped, 0), coalesce(t.flaky, 0), coalesce(t.duration_ms, 0),
@@ -136,7 +135,7 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 		 where t.release_id = $1 and t.family <> 'load'
 		 order by t.created_at desc`, releaseID)
 	if err != nil {
-		return nil, fmt.Errorf("résultats de la release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("results of release %d: %w", releaseID, err)
 	}
 	defer rows.Close()
 
@@ -147,41 +146,40 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 			&result.Tool, &result.Status, &result.Total, &result.Passed, &result.Failed,
 			&result.Skipped, &result.Flaky, &result.DurationMS, &result.Summary,
 			&result.RawObject, &result.CreatedAt, &result.RunName); err != nil {
-			return nil, fmt.Errorf("résultats de la release %d: %w", releaseID, err)
+			return nil, fmt.Errorf("results of release %d: %w", releaseID, err)
 		}
 		results = append(results, result)
 	}
 	return results, rows.Err()
 }
 
-// CasePage borne une lecture de cas de test.
+// CasePage bounds a read of test cases.
 //
-// Une suite Cypress produit couramment plusieurs milliers de cas, et les rendre
-// tous coûte autant à PostgreSQL qu'au navigateur. La pagination est côté serveur
-// (doc 08 §8.6) : la découper côté client supposerait de tout avoir transféré,
-// c'est-à-dire de n'avoir rien économisé.
+// An end-to-end suite commonly produces several thousand cases, and returning them all
+// costs PostgreSQL as much as the browser. Pagination is server-side: doing it in the
+// client would presume everything had been transferred, that is, that nothing had been
+// saved.
 type CasePage struct {
-	// OnlyFailures restreint aux cas en échec ou instables.
+	// OnlyFailures restricts to failed or flaky cases.
 	OnlyFailures bool
-	// Query filtre sur la suite et le nom réunis.
+	// Query filters on the suite and the name together.
 	//
-	// Le filtre est côté serveur pour la même raison que la pagination, et pas
-	// seulement par symétrie : filtrer la page déjà transférée répondrait « aucun
-	// cas ne correspond » pour un test qui existe deux pages plus loin. Un filtre
-	// qui ne voit qu'une fraction des données ne filtre pas, il induit en erreur.
+	// The filter is server-side for the same reason as the pagination, and not only by
+	// symmetry: filtering the page already transferred would answer "no case matches" for
+	// a test that exists two pages further on. A filter that sees only a fraction of the
+	// data does not filter, it misleads.
 	Query string
-	// Limit à zéro ou négatif rend tout : la pagination est un choix de
-	// l'appelant, pas une contrainte du magasin.
+	// A zero or negative Limit returns everything: pagination is the caller's choice, not
+	// a constraint of the store.
 	Limit  int
 	Offset int
 }
 
-// ListTestCases rend une page de cas d'un rapport, et le total avant découpage.
+// ListTestCases returns a page of a report's cases, and the total before slicing.
 //
-// Le total est compté à part plutôt que par `count(*) over ()`. Une fenêtre ne
-// rend rien quand la page est vide, ce qui arrive dès qu'un `offset` dépasse le
-// total — l'interface perdrait alors le seul chiffre qui lui permet de revenir en
-// arrière.
+// The total is counted separately rather than with `count(*) over ()`. A window
+// returns nothing when the page is empty, which happens as soon as an offset exceeds
+// the total — the interface would then lose the one figure that lets it go back.
 func (db *DB) ListTestCases(ctx context.Context, resultID int64, page CasePage) ([]TestCase, int, error) {
 	filter := `from test_cases where test_result_id = $1`
 	args := []any{resultID}
@@ -189,22 +187,22 @@ func (db *DB) ListTestCases(ctx context.Context, resultID int64, page CasePage) 
 		filter += ` and status in ('failed', 'flaky')`
 	}
 	if needle := strings.TrimSpace(page.Query); needle != "" {
-		// `ilike` sur la concaténation : l'utilisateur tape un fragment sans
-		// savoir s'il appartient à la suite ou au nom du cas.
+		// `ilike` on the concatenation: the user types a fragment without knowing whether it
+		// belongs to the suite or to the case's name.
 		args = append(args, "%"+needle+"%")
 		filter += fmt.Sprintf(` and (suite || ' ' || name) ilike $%d`, len(args))
 	}
 
-	// Le total porte sur l'ensemble filtré, non sur le rapport entier : c'est lui
-	// qui doit dire « 12 cas » quand un filtre en retient douze sur trois mille.
+	// The total covers the filtered set, not the whole report: it is what must say "12
+	// cases" when a filter keeps twelve out of three thousand.
 	var total int
 	if err := db.pool.QueryRow(ctx, `select count(*) `+filter, args...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("total des cas du rapport %d: %w", resultID, err)
+		return nil, 0, fmt.Errorf("total cases of report %d: %w", resultID, err)
 	}
 
-	// `id` en dernier critère de tri, et il n'est pas décoratif : sans ordre total,
-	// deux cas homonymes peuvent s'échanger entre deux requêtes, ce qui fait
-	// apparaître l'un deux fois et disparaître l'autre au passage d'une page.
+	// `id` as the last sort criterion, and it is not decorative: without a total order,
+	// two cases of the same name can swap between two queries, which makes one appear
+	// twice and the other disappear when turning a page.
 	query := `select id, test_result_id, suite, name, status, coalesce(duration_ms, 0),
 	                 coalesce(failure_message, ''), coalesce(failure_trace, '')
 	          ` + filter + ` order by suite, name, id`
@@ -215,7 +213,7 @@ func (db *DB) ListTestCases(ctx context.Context, resultID int64, page CasePage) 
 
 	rows, err := db.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("cas du rapport %d: %w", resultID, err)
+		return nil, 0, fmt.Errorf("cases of report %d: %w", resultID, err)
 	}
 	defer rows.Close()
 
@@ -225,30 +223,29 @@ func (db *DB) ListTestCases(ctx context.Context, resultID int64, page CasePage) 
 		if err := rows.Scan(&testCase.ID, &testCase.TestResultID, &testCase.Suite,
 			&testCase.Name, &testCase.Status, &testCase.DurationMS,
 			&testCase.FailureMessage, &testCase.FailureTrace); err != nil {
-			return nil, 0, fmt.Errorf("cas du rapport %d: %w", resultID, err)
+			return nil, 0, fmt.Errorf("cases of report %d: %w", resultID, err)
 		}
 		cases = append(cases, testCase)
 	}
 	return cases, total, rows.Err()
 }
 
-// CaseDiff est la comparaison d'une famille à la release précédente.
+// CaseDiff is a family's comparison with the previous release.
 //
-// C'est la vue qui répond à la question réellement posée en recette — « qu'est-ce
-// qui a changé ? » — et non « combien de tests passent ». Un compteur stable peut
-// cacher un échec résolu et un échec apparu.
+// It is the view that answers the question actually asked before shipping — "what
+// changed?" — and not "how many tests pass". A stable counter can
 type CaseDiff struct {
 	Suite  string
 	Name   string
 	Status string
-	// Was est le statut dans la release comparée. Vide quand le cas n'y existait
-	// pas — c'est-à-dire un test ajouté.
+	// Was is the status in the release compared against. Empty when the case did not exist
+	// there — that is, a test that was added.
 	Was string
-	// Change vaut `new-failure`, `fixed`, `added`, `removed` ou `unchanged`.
+	// Change is `new-failure`, `fixed`, `added`, `removed` or `unchanged`.
 	Change string
 }
 
-// Natures de changement entre deux releases.
+// Kinds of change between two releases.
 const (
 	ChangeNewFailure = "new-failure"
 	ChangeFixed      = "fixed"
@@ -257,15 +254,15 @@ const (
 	ChangeUnchanged  = "unchanged"
 )
 
-// DiffFamily compare une famille de tests entre deux releases.
+// DiffFamily compares a test family between two releases.
 //
-// Comparaison en base et non en Go : les deux jeux de cas peuvent compter des
-// milliers d'entrées, et les rapatrier pour les apparier en mémoire ferait
-// transiter tout l'historique pour n'en garder que les écarts.
+// Compared in the database and not in Go: the two sets of cases may number thousands
+// of entries, and fetching them to pair them in memory would move the whole history
+// only to keep the differences.
 //
-// Le `full outer join` est ce qui rend les quatre natures de changement
-// visibles d'un coup : un `inner join` perdrait les tests ajoutés et supprimés,
-// qui sont précisément ceux qu'on ne remarque pas à l'œil.
+// The `full outer join` is what makes the four kinds of change visible at once: an
+// inner join would lose the added and removed tests, which are precisely the ones the
+// eye does not catch.
 func (db *DB) DiffFamily(ctx context.Context, releaseID, previousID int64, family string) ([]CaseDiff, error) {
 	const query = `
 		with current_cases as (
@@ -273,8 +270,8 @@ func (db *DB) DiffFamily(ctx context.Context, releaseID, previousID int64, famil
 		    from test_cases c
 		    join test_results r on r.id = c.test_result_id
 		    where r.release_id = $1 and r.family = $3
-		    -- Le rapport le plus récent fait foi : une release peut être testée
-		    -- plusieurs fois, et c'est la dernière exécution qui la décrit.
+		    -- The most recent report prevails: a release may be tested several
+		    -- times, and the last run is what describes it.
 		    order by c.suite, c.name, r.created_at desc
 		),
 		previous_cases as (
@@ -301,7 +298,7 @@ func (db *DB) DiffFamily(ctx context.Context, releaseID, previousID int64, famil
 
 	rows, err := db.pool.Query(ctx, query, releaseID, previousID, family)
 	if err != nil {
-		return nil, fmt.Errorf("comparaison de la famille %q: %w", family, err)
+		return nil, fmt.Errorf("comparing family %q: %w", family, err)
 	}
 	defer rows.Close()
 
@@ -309,18 +306,18 @@ func (db *DB) DiffFamily(ctx context.Context, releaseID, previousID int64, famil
 	for rows.Next() {
 		var diff CaseDiff
 		if err := rows.Scan(&diff.Suite, &diff.Name, &diff.Status, &diff.Was, &diff.Change); err != nil {
-			return nil, fmt.Errorf("comparaison de la famille %q: %w", family, err)
+			return nil, fmt.Errorf("comparing family %q: %w", family, err)
 		}
 		diffs = append(diffs, diff)
 	}
 	return diffs, rows.Err()
 }
 
-// PreviousRelease rend la release précédente d'une version, par date de création.
+// PreviousRelease returns a version's previous release, by creation date.
 //
-// Comparée à la précédente et non à la dernière finale : une RC se compare à la
-// RC qui la précède, sans quoi `rc2` serait confrontée à une release livrée des
-// semaines plus tôt et tout apparaîtrait comme un changement.
+// Compared with the previous one and not with the last final release: a candidate is
+// compared with the candidate before it, otherwise `rc2` would be set against a
+// release shipped weeks earlier and everything would look like a change.
 func (db *DB) PreviousRelease(ctx context.Context, releaseID int64) (int64, error) {
 	var previous int64
 	err := db.pool.QueryRow(ctx,
@@ -335,22 +332,22 @@ func (db *DB) PreviousRelease(ctx context.Context, releaseID int64) (int64, erro
 	return previous, nil
 }
 
-// ReprocessTarget est un run dont les résultats sont rejouables.
+// ReprocessTarget is a run whose results can be replayed.
 type ReprocessTarget struct {
 	RunID     int64
 	RunName   string
 	ReleaseID *int64
-	// Tools nomme ce qui a déjà été projeté pour ce run. Sert au journal : savoir
-	// ce qui disparaît avant de le reconstruire est le seul moyen de constater
-	// qu'un parseur corrigé produit désormais moins, et non davantage.
+	// Tools names what has already been projected for this run. It serves the log:
+	// knowing what disappears before rebuilding it is the only way to observe that a
+	// fixed parser now produces less, and not more.
 	Tools []string
 }
 
-// ListReprocessTargets rend les runs dont les artefacts bruts sont connus.
+// ListReprocessTargets returns the runs whose raw artifacts are known.
 //
-// La sélection part de `raw_object` et non de la liste des runs : un run dont
-// l'objet source n'est pas enregistré n'est pas rejouable, et le proposer
-// donnerait un rejeu qui efface sans reconstruire.
+// The selection starts from `raw_object` and not from the list of runs: a run whose
+// source object is not recorded cannot be replayed, and offering it would give a
+// replay that erases without rebuilding.
 func (db *DB) ListReprocessTargets(ctx context.Context, releaseID int64) ([]ReprocessTarget, error) {
 	query := `select r.run_id, coalesce(runs.pipelinerun_name, ''), r.release_id,
 	                 array_agg(distinct r.tool)
@@ -382,18 +379,18 @@ func (db *DB) ListReprocessTargets(ctx context.Context, releaseID int64) ([]Repr
 	return targets, rows.Err()
 }
 
-// DeleteTestResults efface les résultats d'un run.
+// DeleteTestResults erases a run's results.
 //
-// Effacer puis reconstruire, plutôt qu'ajouter : un rejeu qui empile
-// dupliquerait chaque cas et fausserait toute comparaison inter-release, c'est-
-// à-dire précisément ce que le rejeu sert à corriger.
+// Erase then rebuild, rather than add: a replay that stacked would duplicate every
+// case and skew every cross-release comparison, which is precisely what the replay
+// exists to fix.
 //
-// Les cas, findings et mesures partent avec, par cascade. C'est voulu : ils
-// n'ont aucun sens détachés du rapport qui les a produits.
+// The cases, findings and measures go with them, by cascade. That is intended: they
+// make no sense detached from the report that produced them.
 func (db *DB) DeleteTestResults(ctx context.Context, runID int64) (int64, error) {
 	tally, err := db.pool.Exec(ctx, `delete from test_results where run_id = $1`, runID)
 	if err != nil {
-		return 0, fmt.Errorf("effacement des résultats du run %d: %w", runID, err)
+		return 0, fmt.Errorf("erasing the results of run %d: %w", runID, err)
 	}
 	return tally.RowsAffected(), nil
 }

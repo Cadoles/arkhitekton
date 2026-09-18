@@ -26,45 +26,45 @@ import (
  * accepte d'une demande, et cette décision mérite d'être prise seule.
  */
 
-// Target est une étape constructible et le dépôt d'image qu'elle alimente.
+// Target is a buildable stage and the image repository it feeds.
 type Target struct {
-	// Stage est la cible du Dockerfile — `web`, `cli`, `dev`. Vide sur un
-	// Dockerfile à image unique, qui n'en a pas.
+	// Stage is the Dockerfile target — `web`, `cli`, `dev`. Empty on a single-image
+	// Dockerfile, which has none.
 	Stage string `json:"stage"`
-	// Image est le nom court du dépôt publié — `portal-cli`. Le registre qui le
-	// préfixe vit sur le projet : il est le même pour toutes les étapes.
+	// Image is the short name of the published repository. The registry that prefixes
+	// it lives on the project: it is the same for every stage.
 	Image string `json:"image"`
-	// Dockerfile est le fichier qui construit cette image, quand il diffère de
-	// celui du projet.
+	// Dockerfile is the file that builds this image, when it differs from the
+	// project's.
 	//
-	// Ajouté parce qu'un projet réel l'a exigé : `hydra-dispatcher-mse-theme`
-	// porte `Dockerfile.dev` et `Dockerfile.prod` à sa racine, chacun produisant
-	// une image distincte, et aucun n'a d'étapes. Le modèle ne savait dire que
-	// « telle **étape** du Dockerfile du projet produit telle image », ce qui est
-	// la forme du dépôt de MSE et non une vérité générale.
+	// Added because a real project required it: one repository carries
+	// `Dockerfile.dev` and `Dockerfile.prod` at its root, each producing a distinct
+	// image, and neither has stages. The model could only say "this stage of the
+	// project's Dockerfile produces that image", which is one repository's shape and
+	// not a general truth.
 	//
-	// Vide, celui du projet s'applique. Les deux formes coexistent donc sans que
-	// l'une devienne un cas particulier de l'autre.
+	// Empty, the project's applies. Both forms therefore coexist without either
+	// becoming a special case of the other.
 	Dockerfile string `json:"dockerfile,omitempty"`
-	// Promote dit si un re-tag propage cette image. Faux pour une image que la
-	// construction publie sans qu'aucun environnement du flux ne la déploie —
-	// l'image de développement : la re-taguer en préproduction reviendrait à
-	// annoncer comme livrable quelque chose qui ne l'est pas.
+	// Promote says whether a re-tag propagates this image. False for an image the
+	// build publishes that no environment of the flow deploys — a development image:
+	// re-tagging it to pre-production would announce as shippable something that is
+	// not.
 	//
-	// Pointeur, pour distinguer « non promue » d'une entrée écrite avant que le
-	// champ existe. Une entrée muette est traitée comme promue : c'est le cas
-	// courant, et le taire est ce que faisait le code qui promouvait tout.
+	// A pointer, to tell "not promoted" from an entry written before the field
+	// existed. A silent entry is treated as promoted: that is the common case, and
+	// staying silent is what the code that promoted everything did.
 	Promote *bool `json:"promote,omitempty"`
 }
 
-// Promoted dit si un re-tag propage cette image.
+// Promoted says whether a re-tag propagates this image.
 func (t Target) Promoted() bool { return t.Promote == nil || *t.Promote }
 
-// Reference compose la référence complète d'une image, sans tag.
+// Reference composes an image's full reference, without a tag.
 //
-// Vide quand l'un des deux manque : un nom sans registre ressemble à une
-// référence tirable sans l'être, et c'est le genre de chaîne qu'on recopie dans
-// un déploiement avant de découvrir qu'elle ne désigne rien.
+// Empty when either half is missing: a name without a registry looks like a
+// pullable reference without being one, and that is the kind of string someone
+// copies into a deployment before finding it names nothing.
 func (p Project) Reference(target Target) string {
 	registry := strings.Trim(strings.TrimSpace(p.ImageRegistry), "/")
 	image := strings.TrimSpace(target.Image)
@@ -74,11 +74,11 @@ func (p Project) Reference(target Target) string {
 	return registry + "/" + image
 }
 
-// DockerfileFor rend le fichier qui construit cette étape.
+// DockerfileFor returns the file that builds this stage.
 //
-// Celui de l'étape quand elle en déclare un, celui du projet sinon. L'ordre n'est
-// pas arbitraire : le plus précis gagne, et un projet qui change son Dockerfile
-// par défaut ne doit pas déplacer celles qui avaient déjà choisi le leur.
+// The stage's when it declares one, the project's otherwise. The order is not
+// arbitrary: the most specific wins, and a project changing its default Dockerfile
+// must not move those that had already chosen their own.
 func (p Project) DockerfileFor(target Target) string {
 	if file := strings.TrimSpace(target.Dockerfile); file != "" {
 		return file
@@ -86,19 +86,18 @@ func (p Project) DockerfileFor(target Target) string {
 	return p.Dockerfile
 }
 
-// Buildable rend les étapes qu'une release construit.
+// Buildable returns the stages a release builds.
 //
-// Vide sans Dockerfile : un dépôt cloné par un pipeline — kustomizations,
-// campagne E2E — décrit des cibles nulle part, et en inventer une lancerait une
-// construction qui échouerait au premier `docker build`.
+// Empty with no Dockerfile: a repository cloned by a pipeline — kustomizations, an
+// end-to-end campaign — describes targets nowhere, and inventing one would launch a
+// build failing at the first `docker build`.
 func (p Project) Buildable() []Target {
 	var buildable []Target
 	for _, target := range p.Targets {
-		// La condition porte sur le Dockerfile **résolu** et non sur celui du
-		// projet. Un dépôt peut n'en avoir aucun au niveau projet et rester
-		// parfaitement constructible : `hydra-dispatcher-mse-theme` porte
-		// `Dockerfile.dev` et `Dockerfile.prod` sur ses étapes, et exiger un
-		// fichier de projet le déclarait non constructible.
+		// The condition is on the resolved Dockerfile and not on the project's. A
+		// repository may have none at project level and still be perfectly buildable when
+		// its stages carry their own, and requiring a project file declared it
+		// unbuildable.
 		if strings.TrimSpace(p.DockerfileFor(target)) == "" {
 			continue
 		}
@@ -107,7 +106,7 @@ func (p Project) Buildable() []Target {
 	return buildable
 }
 
-// Promotable rend les étapes qu'un re-tag propage.
+// Promotable returns the stages a re-tag propagates.
 func (p Project) Promotable() []Target {
 	var promoted []Target
 	for _, target := range p.Buildable() {
@@ -121,77 +120,74 @@ func (p Project) Promotable() []Target {
 // Project décrit un dépôt piloté.
 type Project struct {
 	ID int64
-	// Slug nomme le projet dans une URL : `/projects/mse/releases/1.8.0`. Nom
-	// d'usage et non identité — celle-ci reste l'identifiant, et le slug peut
-	// changer sans que rien ne se détache.
+	// Slug names the project in a URL: `/projects/mse/releases/1.8.0`. A usage name and
+	// not an identity — that stays the identifier, and the slug can change without
+	// anything coming loose.
 	Slug         string
 	Repository   string
 	Label        string
 	ForgeURL     string
 	Dockerfile   string
 	BuildContext string
-	// ImageRegistry est le registre et le projet où publier, sans le nom
-	// d'image : `reg.cadoles.com/cnous-mse`. Porté par le projet et non répété
-	// par étape — les images d'une application vont au même endroit, et les
-	// répéter ferait diverger la dernière au premier changement de registre.
+	// ImageRegistry is the registry and project to publish to, without the image name.
+	// Carried by the project and not repeated per stage — an application's images go to
+	// the same place, and repeating it would let the last one diverge at the first
+	// registry change.
 	ImageRegistry string
-	// Stack nomme la pile technique du projet — `php`, ou vide.
+	// Stack names the project's technology stack — `php`, or empty.
 	//
-	// Elle décide de la bibliothèque de référence que le dashboard pose : les
-	// Task et Pipeline propres à un langage. Vide est la valeur normale d'un
-	// projet qui apporte les siens (migration 0041, doc 12 §12.6).
+	// It decides which reference library the dashboard installs: the Tasks and
+	// Pipelines specific to a language. Empty is the normal value for a project that
+	// brings its own.
 	Stack string
-	// VersionScheme nomme le schéma des tags de ce projet — `semver` ou
-	// `opaque`. Vide vaut `semver`.
+	// VersionScheme names this project's tag scheme — `semver` or `opaque`. Empty means
+	// `semver`.
 	//
-	// Un schéma opaque reste **utilisable** : construire, tester, noter et
-	// déployer par tag explicite fonctionnent. Il perd la suggestion de version
-	// suivante et la sélection par plage, et l'outil doit le dire plutôt que de
-	// calculer n'importe quoi (migration 0039, doc 12 §12.4).
+	// An opaque scheme stays usable: building, testing, grading and deploying by
+	// explicit tag all work. It loses the next-version suggestion and range selection,
+	// and the tool must say so rather than compute something arbitrary.
 	VersionScheme string
-	// ReleaseKinds déclare les natures de release du projet. Jamais vide : la
-	// migration 0040 donne à chacun le cycle historique, et un cycle vide
-	// décrirait un projet déclaré et inutilisable.
+	// ReleaseKinds declares the project's release kinds. Never empty: the migration
+	// gives each project the historical cycle, and an empty cycle would describe a
+	// project that is declared and unusable.
 	ReleaseKinds release.Cycle
-	// RegistrySecret nomme le secret autorisant à pousser vers ce registre. Vide
-	// vaut celui du déploiement.
+	// RegistrySecret names the secret allowing pushes to this registry. Empty means the
+	// deployment's.
 	//
-	// **Désigné, non créé** : un identifiant de registre vient d'un humain, et le
-	// faire entrer dans un Secret depuis l'interface le ferait transiter par le
-	// navigateur et l'API — laquelle tourne sans jeton de cluster. Le déploiement
-	// le provisionne, le projet le nomme (migration 0038, doc 07 §7.3).
+	// Named, not created: a registry credential comes from a human, and putting it into
+	// a Secret from the interface would route it through the browser and the API —
+	// which runs without a cluster token. The deployment provisions it, the project
+	// names it. See docs/09-security.md.
 	RegistrySecret string
 	MultiStage     bool
-	// TrackerProject nomme ce projet dans l'outil de suivi — `mse-dev` chez
-	// Redmine. Vide, le projet n'a **aucun** suivi : ses versions sont alors
-	// celles que le dashboard déduit des tags, et rien n'attend de confirmation
-	// extérieure.
+	// TrackerProject names this project in the tracking tool. Empty means the project
+	// has no tracker at all: its versions are then those the dashboard derives from
+	// tags, and nothing waits for outside confirmation.
 	//
-	// Porté par le projet et non par la configuration du déploiement : celle-ci
-	// ne pouvait donner qu'une réponse pour tous, et deux projets suivis ensemble
-	// n'ont aucune raison de partager un outil — ni même d'en avoir un.
+	// Carried by the project and not by the deployment's configuration: that could only
+	// give one answer for all, and two projects tracked together have no reason to
+	// share a tool — or to have one at all.
 	TrackerProject string
-	// Targets porte les étapes constructibles. Une seule entrée sans `Stage`
-	// décrit un Dockerfile à image unique : un second champ dirait la même chose
-	// d'une autre façon, et il faudrait savoir lequel fait foi.
+	// Targets carries the buildable stages. A single entry with no Stage describes a
+	// single-image Dockerfile: a second field would say the same thing another way, and
+	// one would have to know which prevails.
 	Targets []Target
-	// CheckedAt et CheckOK portent le constat du dernier test d'accès. Nils tant
-	// qu'aucun test n'a eu lieu — état distinct d'un test qui a échoué.
+	// CheckedAt and CheckOK carry the verdict of the last access check. Nil while no
+	// check has happened — a state distinct from a check that failed.
 	CheckedAt *time.Time
 	CheckOK   *bool
 	CheckNote string
-	// DeployKeyActive dit que la clé a été collée dans les réglages du dépôt et
-	// ouvre donc vraiment celui-ci. Faux tant que personne ne l'a affirmé : une
-	// clé posée mais inconnue de la forge n'ouvre rien, et l'employer d'office
-	// ferait échouer au clone un dépôt qui fonctionnait (migration 0037).
+	// DeployKeyActive says the key has been pasted into the repository's settings and
+	// therefore really opens it. False while nobody has asserted it: a key that is set
+	// but unknown to the forge opens nothing, and using it regardless would fail the
+	// clone of a repository that was working.
 	DeployKeyActive bool
-	// DeployKeyPublic est la **moitié publique** de la clé de déploiement du
-	// projet. Vide tant qu'aucune clé n'a été posée.
+	// DeployKeyPublic is the public half of the project's deploy key. Empty while no key
+	// has been set.
 	//
-	// Elle est aussi le registre de propriété du Secret qui porte l'autre
-	// moitié : la RBAC du dashboard ne lui permet pas de lire les secrets, donc
-	// il ne peut pas demander au cluster si celui d'un projet lui appartient. Il
-	// le lit ici (migration 0034, doc 12 §12.7).
+	// It is also the ownership record for the Secret carrying the other half: the
+	// dashboard's RBAC does not let it read secrets, so it cannot ask the cluster
+	// whether a project's secret belongs to it. It reads it here.
 	DeployKeyPublic    string
 	DeployKeyCreatedAt *time.Time
 	CreatedBy          string
@@ -202,23 +198,20 @@ type Project struct {
 // ErrProjectNotFound signale un projet absent.
 var ErrProjectNotFound = errors.New("projet introuvable")
 
-// ErrNoBuildableProject signale qu'aucun dépôt déclaré n'est constructible.
+// ErrNoBuildableProject reports that no declared repository is buildable.
 //
-// Distinct d'une erreur de lecture : la table est joignable, elle ne décrit
-// simplement rien à construire. Une release ne peut alors pas démarrer, et le
-// dire ainsi vaut mieux que d'enfiler zéro construction — le décompte
-// conclurait aussitôt sur une release sans image.
-var ErrNoBuildableProject = errors.New("aucun dépôt constructible déclaré")
+// Distinct from a read error: the table is reachable, it simply does not describe
+var ErrNoBuildableProject = errors.New("no buildable repository declared")
 
-// BuildableProject rend le dépôt dont une release construit les images.
+// BuildableProject returns the repository whose images a release builds.
 //
-// Un seul, pour l'instant : le dashboard versionne une application, et l'appelant
-// n'a nulle part où recevoir un choix. Plusieurs candidats sont refusés plutôt
-// que départagés par l'ordre de la table — en construire un au hasard produirait
-// une release dont personne ne pourrait dire ce qu'elle contient.
+// One only, for now: the dashboard versions one application, and the caller has
+// nowhere to receive a choice. Several candidates are refused rather than settled by
+// table order — building one at random would produce a release nobody could
+// describe.
 //
-// C'est le point où la table remplace les constantes qui portaient `portal` et
-// `portal-cli` en Go (doc 12 §12.9).
+// This is the point where the table replaces the image names that used to be Go
+// constants.
 func (db *DB) BuildableProject(ctx context.Context) (Project, error) {
 	projects, err := db.ListProjects(ctx)
 	if err != nil {
@@ -248,19 +241,19 @@ func (db *DB) BuildableProject(ctx context.Context) (Project, error) {
 }
 
 // ErrProjectAmbiguous signale plusieurs dépôts constructibles.
-var ErrProjectAmbiguous = errors.New("dépôt constructible ambigu")
+var ErrProjectAmbiguous = errors.New("ambiguous buildable repository")
 
-// uniqueViolation est le code PostgreSQL d'une contrainte d'unicité rompue.
+// uniqueViolation is PostgreSQL's code for a broken uniqueness constraint.
 const uniqueViolation = "23505"
 
-// ErrProjectExists signale un dépôt déjà déclaré.
+// ErrProjectExists reports a repository already declared.
 //
-// Distinct d'une erreur d'écriture : deux entrées pour un même dépôt décriraient
-// la même chose deux fois, et rien ne dirait laquelle fait foi. L'appelant doit
-// pouvoir le dire à l'utilisateur plutôt que de rendre une panne.
-var ErrProjectExists = errors.New("dépôt déjà déclaré")
+// Distinct from a write error: two entries for one repository would describe the
+// same thing twice, with nothing saying which prevails. The caller must be able to
+// tell the user rather than return a fault.
+var ErrProjectExists = errors.New("repository already declared")
 
-// ListProjects rend les projets déclarés, par libellé.
+// ListProjects returns the declared projects, by label.
 func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
@@ -271,7 +264,7 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 		        created_by, created_at, updated_at
 		 from projects order by label`)
 	if err != nil {
-		return nil, fmt.Errorf("liste des projets: %w", err)
+		return nil, fmt.Errorf("listing the projects: %w", err)
 	}
 	defer rows.Close()
 
@@ -286,7 +279,7 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	return projects, rows.Err()
 }
 
-// GetProject rend un projet.
+// GetProject returns a project.
 func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
@@ -297,33 +290,31 @@ func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 		        created_by, created_at, updated_at
 		 from projects where id = $1`, id)
 	if err != nil {
-		return Project{}, fmt.Errorf("lecture du projet %d: %w", id, err)
+		return Project{}, fmt.Errorf("reading project %d: %w", id, err)
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
-			return Project{}, fmt.Errorf("lecture du projet %d: %w", id, err)
+			return Project{}, fmt.Errorf("reading project %d: %w", id, err)
 		}
 		return Project{}, ErrProjectNotFound
 	}
 	return scanProject(rows)
 }
 
-// slugPattern retient ce qu'un segment d'URL accepte.
+// slugPattern keeps what a URL segment accepts.
 var slugPattern = regexp.MustCompile(`[^a-z0-9-]+`)
 
-// SlugFor dérive un nom d'URL du dépôt.
+// SlugFor derives a URL name from the repository.
 //
-// Le dernier segment, ramené aux minuscules et aux caractères qu'un chemin
-// accepte : `vcarroy/mse-test-project` donne `mse-test-project`. Même règle que
-// la migration 0026, pour qu'un projet déclaré après coup reçoive le nom qu'il
-// aurait eu s'il avait été là avant.
+// The last segment, lowercased and reduced to path-safe characters. The same rule as
+// the migration, so a project declared later receives the name it would have had had
+// it been there before.
 //
-// L'unicité n'est pas garantie ici : deux dépôts homonymes chez deux
-// propriétaires donnent le même slug, et c'est la contrainte en base qui tranche.
-// Le dire à l'utilisateur vaut mieux que de suffixer dans son dos un nom qu'il
-// devra ensuite reconnaître.
+// Uniqueness is not guaranteed here: two repositories of the same name under two
+// owners give the same slug, and it is the database constraint that settles it.
+// Telling the user beats silently suffixing a name they will then have to recognise.
 func SlugFor(repository string) string {
 	last := repository
 	if index := strings.LastIndex(repository, "/"); index >= 0 {
@@ -332,26 +323,26 @@ func SlugFor(repository string) string {
 	return strings.Trim(slugPattern.ReplaceAllString(strings.ToLower(last), "-"), "-")
 }
 
-// TrackedProject est un projet et le nom qu'il porte dans son outil de suivi.
+// TrackedProject is a project and the name it carries in its tracking tool.
 type TrackedProject struct {
 	ID int64
-	// Slug nomme le projet côté dashboard. Rendu parce que la synchronisation
-	// journalise et échoue **par projet** depuis qu'il peut y en avoir plusieurs :
-	// un message qui ne dit pas lequel n'aide personne.
+	// Slug names the project on the dashboard's side. Returned because synchronisation
+	// logs and fails per project now that there may be several: a message that does not
+	// say which helps nobody.
 	Slug           string
 	TrackerProject string
 }
 
-// TrackedProjects rend les projets qui déclarent un outil de suivi.
+// TrackedProjects returns the projects that declare a tracking tool.
 //
-// Les autres n'ont rien à synchroniser : leurs versions sont celles que le
-// dashboard déduit, et rien d'extérieur ne viendra les confirmer.
+// The others have nothing to synchronise: their versions are the ones the dashboard
+// derives, and nothing external will confirm them.
 func (db *DB) TrackedProjects(ctx context.Context) ([]TrackedProject, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, tracker_project from projects
 		 where coalesce(trim(tracker_project), '') <> '' order by id`)
 	if err != nil {
-		return nil, fmt.Errorf("projets suivis: %w", err)
+		return nil, fmt.Errorf("tracked projects: %w", err)
 	}
 	defer rows.Close()
 
@@ -359,18 +350,18 @@ func (db *DB) TrackedProjects(ctx context.Context) ([]TrackedProject, error) {
 	for rows.Next() {
 		var entry TrackedProject
 		if err := rows.Scan(&entry.ID, &entry.Slug, &entry.TrackerProject); err != nil {
-			return nil, fmt.Errorf("projets suivis: %w", err)
+			return nil, fmt.Errorf("tracked projects: %w", err)
 		}
 		tracked = append(tracked, entry)
 	}
 	return tracked, rows.Err()
 }
 
-// ProjectBySlug rend un projet par le nom qu'il porte dans les URL.
+// ProjectBySlug returns a project by the name it carries in URLs.
 //
-// C'est la résolution que fait chaque requête portant un projet dans son chemin.
-// Un slug inconnu rend [ErrProjectNotFound] et non une erreur de lecture :
-// l'appelant doit répondre 404, pas 500 — une URL périmée n'est pas une panne.
+// This is the resolution every request with a project in its path performs. An
+// unknown slug returns [ErrProjectNotFound] and not a read error: the caller must
+// answer 404, not 500 — a stale URL is not a fault.
 func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
@@ -381,13 +372,13 @@ func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 		        created_by, created_at, updated_at
 		 from projects where slug = $1`, slug)
 	if err != nil {
-		return Project{}, fmt.Errorf("lecture du projet %q: %w", slug, err)
+		return Project{}, fmt.Errorf("reading project %q: %w", slug, err)
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
-			return Project{}, fmt.Errorf("lecture du projet %q: %w", slug, err)
+			return Project{}, fmt.Errorf("reading project %q: %w", slug, err)
 		}
 		return Project{}, ErrProjectNotFound
 	}
@@ -407,17 +398,17 @@ func scanProject(rows pgx.Rows) (Project, error) {
 		&project.DeployKeyActive,
 		&project.CreatedBy, &project.CreatedAt,
 		&project.UpdatedAt); err != nil {
-		return Project{}, fmt.Errorf("lecture d'un projet: %w", err)
+		return Project{}, fmt.Errorf("reading a project: %w", err)
 	}
-	// Des étapes illisibles ne font pas disparaître le projet : le reste de sa
-	// description est juste, et un projet absent de l'écran se chercherait dans
-	// la forge avant de se chercher en base.
+	// Unreadable stages do not make the project disappear: the rest of its description
+	// is right, and a project missing from the screen would be looked for in the forge
+	// before being looked for in the database.
 	if len(targets) > 0 {
 		_ = json.Unmarshal(targets, &project.Targets)
 	}
-	// Un cycle illisible retombe sur celui d'origine plutôt que de laisser le
-	// projet sans nature créable : la colonne est contrainte non vide, et un
-	// décodage qui échoue désigne un défaut du dashboard, pas de la déclaration.
+	// An unreadable cycle falls back to the original one rather than leaving the project
+	// with no creatable kind: the column is constrained non-empty, and a decoding
+	// failure names a flaw in the dashboard, not in the declaration.
 	if len(kinds) > 0 {
 		_ = json.Unmarshal(kinds, &project.ReleaseKinds)
 	}
@@ -431,23 +422,23 @@ func scanProject(rows pgx.Rows) (Project, error) {
 func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error) {
 	targets, err := json.Marshal(normaliseTargets(project.Targets))
 	if err != nil {
-		return 0, fmt.Errorf("sérialisation des étapes: %w", err)
+		return 0, fmt.Errorf("serialising the stages: %w", err)
 	}
 
 	if strings.TrimSpace(project.Slug) == "" {
 		project.Slug = SlugFor(project.Repository)
 	}
 
-	// Le cycle est sérialisé ici plutôt que laissé à l'appelant : la colonne est
-	// contrainte non vide, et un projet déclaré sans nature serait refusé par la
-	// base avec un message qui ne désigne rien d'utile.
+	// The cycle is serialised here rather than left to the caller: the column is
+	// constrained non-empty, and a project declared with no kind would be refused by the
+	// database with a message naming nothing useful.
 	cycle := project.ReleaseKinds
 	if len(cycle) == 0 {
 		cycle = release.DefaultCycle()
 	}
 	kinds, err := json.Marshal(cycle)
 	if err != nil {
-		return 0, fmt.Errorf("sérialisation du cycle: %w", err)
+		return 0, fmt.Errorf("serialising the cycle: %w", err)
 	}
 
 	var id int64
@@ -466,54 +457,53 @@ func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error)
 		project.TrackerProject, targets, project.CreatedBy).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// `do nothing` n'a rien rendu : le dépôt est déjà déclaré.
+			// `do nothing` returned nothing: the repository is already declared.
 			return 0, ErrProjectExists
 		}
-		return 0, fmt.Errorf("déclaration du projet %q: %w", project.Repository, err)
+		return 0, fmt.Errorf("declaring project %q: %w", project.Repository, err)
 	}
 	return id, nil
 }
 
-// UpdateProject remplace la description d'un projet, dépôt compris.
+// UpdateProject replaces a project's description, repository included.
 //
-// Le dépôt a d'abord été figé, au motif qu'en changer ferait d'un projet un
-// autre. C'était vrai et sans importance : les projets amorcés portent le dépôt
-// que la **configuration** a nommé, et corriger celui-là est exactement ce qu'on
-// vient faire — le figer obligeait à supprimer puis redéclarer, en perdant tout
-// ce qui accompagnait la ligne.
+// The repository was frozen at first, on the grounds that changing it would make a
+// project another one. That was true and beside the point: bootstrapped projects
+// carry the repository the configuration named, and correcting that one is exactly
+// what this is for — freezing it forced a delete and redeclare, losing everything
+// that accompanied the row.
 //
-// Ce qui était juste dans ce motif est conservé : changer de dépôt **efface le
-// constat d'accès**. Il portait sur ce qu'on ne pilote plus, et le garder
-// afficherait « accès vérifié » sur un dépôt que personne n'a testé — la pire
-// des trois réponses possibles.
+// What was right in that reasoning is kept: changing repository clears the access
+// verdict. It was about something no longer driven, and keeping it would display
+// "access verified" on a repository nobody tested — the worst of the three possible
+// answers.
 func (db *DB) UpdateProject(ctx context.Context, project Project) error {
-	// Un dépôt vide n'est jamais une intention : c'est un appelant qui a oublié
-	// le champ. Le laisser passer l'effacerait en silence, et le projet
-	// deviendrait une ligne qui ne désigne rien — ce qu'aucun écran ne saurait
-	// expliquer. Constaté sur un test écrit du temps où le dépôt était figé.
+	// An empty repository is never an intention: it is a caller that forgot the field.
+	// Letting it through would clear it silently, and the project would become a row
+	// naming nothing — which no screen could explain.
 	if strings.TrimSpace(project.Repository) == "" {
-		return fmt.Errorf("mise à jour du projet %d: dépôt vide", project.ID)
+		return fmt.Errorf("updating project %d: empty repository", project.ID)
 	}
 
 	targets, err := json.Marshal(normaliseTargets(project.Targets))
 	if err != nil {
-		return fmt.Errorf("sérialisation des étapes: %w", err)
+		return fmt.Errorf("serialising the stages: %w", err)
 	}
 
 	if strings.TrimSpace(project.Slug) == "" {
 		project.Slug = SlugFor(project.Repository)
 	}
 
-	// Le cycle est sérialisé ici plutôt que laissé à l'appelant : la colonne est
-	// contrainte non vide, et un projet déclaré sans nature serait refusé par la
-	// base avec un message qui ne désigne rien d'utile.
+	// The cycle is serialised here rather than left to the caller: the column is
+	// constrained non-empty, and a project declared with no kind would be refused by the
+	// database with a message naming nothing useful.
 	cycle := project.ReleaseKinds
 	if len(cycle) == 0 {
 		cycle = release.DefaultCycle()
 	}
 	kinds, err := json.Marshal(cycle)
 	if err != nil {
-		return fmt.Errorf("sérialisation du cycle: %w", err)
+		return fmt.Errorf("serialising the cycle: %w", err)
 	}
 
 	tag, err := db.pool.Exec(ctx,
@@ -523,10 +513,9 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		     targets = $9, slug = $10, tracker_project = $11, registry_secret = $12,
 		     version_scheme = coalesce(nullif($13, ''), 'semver'),
 		     release_kinds = $14, stack = $15,
-		     -- Le constat ne survit qu'à un dépôt inchangé. La comparaison porte
-		     -- sur la valeur en base, encore lisible pendant l'update : une
-		     -- lecture préalable ouvrirait une fenêtre entre le constat et
-		     -- l'écriture.
+		     -- The verdict survives only an unchanged repository. The comparison
+		     -- is on the stored value, still readable during the update: a prior
+		     -- read would open a window between the verdict and the write.
 		     checked_at = case when repository = $2 then checked_at end,
 		     check_ok   = case when repository = $2 then check_ok end,
 		     check_note = case when repository = $2 then check_note else '' end,
@@ -537,18 +526,18 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		project.MultiStage, targets, project.Slug, project.TrackerProject,
 		project.RegistrySecret, project.VersionScheme, kinds, project.Stack)
 	if err != nil {
-		// Un dépôt déjà déclaré ailleurs : deux entrées le décriraient, et rien
-		// ne dirait laquelle fait foi. L'appelant doit pouvoir le dire plutôt que
-		// de rendre une panne.
+		// A repository already declared elsewhere: two entries would describe it, and
+		// nothing would say which prevails. The caller must be able to say so rather than
+		// return a fault.
 		//
-		// Le code d'erreur plutôt que le message : celui-ci est traduit selon la
-		// locale du serveur, et le comparer marcherait ici pour cesser de marcher
-		// sur une base configurée autrement.
+		// The error code rather than the message: the message is translated to the server's
+		// locale, and comparing it would work here and stop working on a database configured
+		// otherwise.
 		var violation *pgconn.PgError
 		if errors.As(err, &violation) && violation.Code == uniqueViolation {
 			return ErrProjectExists
 		}
-		return fmt.Errorf("mise à jour du projet %d: %w", project.ID, err)
+		return fmt.Errorf("updating project %d: %w", project.ID, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrProjectNotFound
@@ -560,7 +549,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 func (db *DB) DeleteProject(ctx context.Context, id int64) error {
 	tag, err := db.pool.Exec(ctx, `delete from projects where id = $1`, id)
 	if err != nil {
-		return fmt.Errorf("suppression du projet %d: %w", id, err)
+		return fmt.Errorf("deleting project %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrProjectNotFound
@@ -568,18 +557,18 @@ func (db *DB) DeleteProject(ctx context.Context, id int64) error {
 	return nil
 }
 
-// RecordProjectCheck consigne le résultat d'un test d'accès.
+// RecordProjectCheck records the result of an access check.
 //
-// Conservé plutôt que recalculé à l'affichage : l'appel sort du dashboard, et le
-// refaire à chaque ouverture de l'écran ferait payer une latence de forge pour
-// une information qui change une fois par trimestre.
+// Kept rather than recomputed on display: the call leaves the dashboard, and redoing
+// it every time the screen opens would pay a forge round trip for information that
+// changes once a quarter.
 func (db *DB) RecordProjectCheck(ctx context.Context, id int64, ok bool, note string) error {
 	tag, err := db.pool.Exec(ctx,
 		`update projects
 		 set checked_at = now(), check_ok = $2, check_note = $3, updated_at = now()
 		 where id = $1`, id, ok, note)
 	if err != nil {
-		return fmt.Errorf("constat d'accès du projet %d: %w", id, err)
+		return fmt.Errorf("access verdict of project %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrProjectNotFound
@@ -587,17 +576,17 @@ func (db *DB) RecordProjectCheck(ctx context.Context, id int64, ok bool, note st
 	return nil
 }
 
-// normaliseTargets écarte les étapes vides.
+// normaliseTargets discards empty stages.
 //
-// Un formulaire laisse volontiers une ligne à moitié remplie derrière lui.
-// L'enregistrer donnerait une étape sans nom, qu'aucun build ne saurait
-// construire et que rien à l'écran ne distinguerait d'une étape valide.
+// A form readily leaves a half-filled row behind. Saving it would give a stage with
+// no name, which no build could build and which nothing on screen would tell from a
+// valid one.
 func normaliseTargets(targets []Target) []Target {
 	kept := make([]Target, 0, len(targets))
 	for _, target := range targets {
-		// L'image seule suffit : une étape peut n'avoir ni cible ni Dockerfile
-		// propre — c'est le cas d'un dépôt à Dockerfile unique — mais sans nom
-		// d'image elle ne désigne rien à publier.
+		// The image alone is enough: a stage may have neither a target nor its own
+		// Dockerfile — that is a single-Dockerfile repository — but with no image name it
+		// names nothing to publish.
 		if strings.TrimSpace(target.Image) == "" {
 			continue
 		}
@@ -606,55 +595,53 @@ func normaliseTargets(targets []Target) []Target {
 	return kept
 }
 
-// SetDeployKey enregistre la moitié publique de la clé d'un projet.
+// SetDeployKey records the public half of a project's key.
 //
-// Écrite **après** que le Secret a été déposé dans le cluster, jamais avant :
-// cette colonne est le registre de propriété, et l'inscrire d'abord ferait
-// croire à une clé posée si le dépôt échouait ensuite. Une rotation ultérieure
-// remplacerait alors un Secret qui n'existe pas, ou pire, celui d'un tiers.
+// Written after the Secret has been placed in the cluster, never before: this column
+// is the ownership record, and writing it first would suggest a key was set if
+// placing it then failed. A later rotation would then replace a Secret that does not
+// exist, or worse, someone else's.
 func (db *DB) SetDeployKey(ctx context.Context, projectID int64, public string) error {
 	_, err := db.pool.Exec(ctx,
-		// La demande de rotation est effacée dans le même geste : la laisser
-		// ferait reposer une clé à chaque tour de la boucle.
+		// The rotation request is cleared in the same gesture: leaving it would set a new key
+		// on every turn of the loop.
 		`update projects
 		 set deploy_key_public = $2, deploy_key_created_at = now(),
 		     deploy_key_rotate_requested_at = null, updated_at = now()
 		 where id = $1`, projectID, public)
 	if err != nil {
-		return fmt.Errorf("clé du projet %d: %w", projectID, err)
+		return fmt.Errorf("key of project %d: %w", projectID, err)
 	}
 	return nil
 }
 
-// ClearDeployKey oublie la clé d'un projet.
+// ClearDeployKey forgets a project's key.
 //
-// Rend le projet à l'état « aucune clé » : une pose ultérieure refusera d'adopter
-// un Secret homonyme, ce qui est le comportement voulu — si l'on a oublié la clé,
-// on ne peut plus affirmer que le Secret est le nôtre.
+// It returns the project to the "no key" state: a later set will refuse to adopt a
+// Secret of the same name, which is the intended behaviour — having forgotten the
+// key, one can no longer assert the Secret is ours.
 func (db *DB) ClearDeployKey(ctx context.Context, projectID int64) error {
 	_, err := db.pool.Exec(ctx,
 		`update projects
 		 set deploy_key_public = '', deploy_key_created_at = null, updated_at = now()
 		 where id = $1`, projectID)
 	if err != nil {
-		return fmt.Errorf("oubli de la clé du projet %d: %w", projectID, err)
+		return fmt.Errorf("forgetting the key of project %d: %w", projectID, err)
 	}
 	return nil
 }
 
-// DeployKeySecret rend le nom du secret portant la clé d'un projet.
+// DeployKeySecret returns the name of the secret carrying a project's key.
 //
-// Faux quand le projet n'a pas de clé propre. La réponse se lit dans
-// `deploy_key_public` et non dans le cluster : la RBAC du dashboard ne lui
-// permet pas d'y lire un secret, et c'est cette colonne qui fait foi sur la
-// propriété (migration 0034).
+// False when the project has no key of its own. The answer is read from
+// `deploy_key_public` and not from the cluster: the dashboard's RBAC does not let it
+// read a secret there, and this column is authoritative about ownership.
 func (db *DB) DeployKeySecret(ctx context.Context, projectID int64) (string, bool, error) {
 	var slug, public string
 	err := db.pool.QueryRow(ctx,
-		// `deploy_key_active` et non la seule présence de la clé : entre la pose
-		// et l'instant où quelqu'un la colle dans la forge, elle n'ouvre rien.
-		// L'employer d'office ferait échouer au clone un dépôt qui fonctionnait
-		// la veille (migration 0037).
+		// `deploy_key_active` and not merely the key's presence: between setting it and the
+		// moment someone pastes it into the forge, it opens nothing. Using it regardless
+		// would fail the clone of a repository that worked the day before.
 		`select slug, deploy_key_public from projects
 		 where id = $1 and deploy_key_active`, projectID).
 		Scan(&slug, &public)
@@ -662,25 +649,25 @@ func (db *DB) DeployKeySecret(ctx context.Context, projectID int64) (string, boo
 	case errors.Is(err, pgx.ErrNoRows):
 		return "", false, nil
 	case err != nil:
-		return "", false, fmt.Errorf("clé du projet %d: %w", projectID, err)
+		return "", false, fmt.Errorf("key of project %d: %w", projectID, err)
 	case public == "":
 		return "", false, nil
 	}
 	return deploykeys.SecretName(slug), true, nil
 }
 
-// RequestKeyRotation demande le remplacement de la clé d'un projet.
+// RequestKeyRotation asks for a project's key to be replaced.
 //
-// Une demande et non un remplacement : l'API tourne sans jeton de cluster, et
-// lui en donner un pour la commodité d'une pose synchrone serait un recul de
-// sécurité — c'est la surface exposée. Le worker, qui a déjà le cluster et le
-// bail de leader, la réalise (migration 0034).
+// A request and not a replacement: the API runs without a cluster token, and giving
+// it one for the convenience of a synchronous set would be a security regression —
+// it is the exposed surface. The worker, which already has the cluster and the
+// leader lease, carries it out.
 func (db *DB) RequestKeyRotation(ctx context.Context, projectID int64) error {
 	tag, err := db.pool.Exec(ctx,
 		`update projects set deploy_key_rotate_requested_at = now(), updated_at = now()
 		 where id = $1`, projectID)
 	if err != nil {
-		return fmt.Errorf("demande de rotation pour le projet %d: %w", projectID, err)
+		return fmt.Errorf("rotation request for project %d: %w", projectID, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrProjectNotFound
@@ -688,23 +675,21 @@ func (db *DB) RequestKeyRotation(ctx context.Context, projectID int64) error {
 	return nil
 }
 
-// PendingKey décrit un projet dont la clé est à poser.
+// PendingKey describes a project whose key is to be set.
 type PendingKey struct {
 	ID   int64
 	Slug string
-	// Known dit si le dashboard possède déjà la clé de ce projet. C'est ce qui
-	// distingue une rotation — le Secret est nôtre, on le remplace — d'une
-	// première pose, où un Secret homonyme viendrait forcément d'ailleurs et ne
-	// doit pas être adopté.
+	// Known says whether the dashboard already holds this project's key. That is what
+	// separates a rotation — the Secret is ours, we replace it — from a first set, where
+	// a Secret of the same name necessarily came from elsewhere and must not be adopted.
 	Known bool
 }
 
-// ProjectsAwaitingKey rend les projets qu'il reste à pourvoir.
+// ProjectsAwaitingKey returns the projects still to be provided for.
 //
-// Deux cas réunis, parce que la boucle les traite de la même façon : celui qui
-// n'a aucune clé, et celui dont une rotation a été demandée. Un redémarrage
-// après panne rattrape les deux sans qu'on ait à distinguer ce qui avait été
-// interrompu.
+// Two cases together, because the loop treats them the same way: the one with no key
+// at all, and the one whose rotation was requested. A restart after a failure catches
+// up on both without having to tell which had been interrupted.
 func (db *DB) ProjectsAwaitingKey(ctx context.Context) ([]PendingKey, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, deploy_key_public <> ''
@@ -712,7 +697,7 @@ func (db *DB) ProjectsAwaitingKey(ctx context.Context) ([]PendingKey, error) {
 		 where deploy_key_public = '' or deploy_key_rotate_requested_at is not null
 		 order by id`)
 	if err != nil {
-		return nil, fmt.Errorf("projets sans clé: %w", err)
+		return nil, fmt.Errorf("projects without a key: %w", err)
 	}
 	defer rows.Close()
 
@@ -720,30 +705,28 @@ func (db *DB) ProjectsAwaitingKey(ctx context.Context) ([]PendingKey, error) {
 	for rows.Next() {
 		var entry PendingKey
 		if err := rows.Scan(&entry.ID, &entry.Slug, &entry.Known); err != nil {
-			return nil, fmt.Errorf("projets sans clé: %w", err)
+			return nil, fmt.Errorf("projects without a key: %w", err)
 		}
 		pending = append(pending, entry)
 	}
 	return pending, rows.Err()
 }
 
-// ActivateDeployKey enregistre que la clé d'un projet ouvre son dépôt.
+// ActivateDeployKey records that a project's key opens its repository.
 //
-// **Un constat, pas une déclaration.** Le seul appelant est le test d'accès, qui
-// vient de lire les clés de déploiement de la forge et d'y trouver — ou non —
-// celle du projet. Coller la moitié publique reste un geste humain ; le
-// *confirmer* n'en est plus un.
+// An observation, not a declaration. The only caller is the access check, which has
+// just read the forge's deploy keys and found — or not — the project's. Pasting the
+// public half stays a human gesture; confirming it no longer is.
 //
-// La distinction est celle de B8, et elle a un effet concret : une confirmation
-// manuelle restait vraie après qu'on avait retiré la clé du dépôt, et les
-// pipelines échouaient alors sur une erreur SSH que rien ne rattachait à l'écran
-// qui affirmait le contraire.
+// The distinction has a concrete effect: a manual confirmation stayed true after the
+// key had been removed from the repository, and pipelines then failed on an SSH
+// error that nothing connected to the screen asserting the contrary.
 func (db *DB) ActivateDeployKey(ctx context.Context, projectID int64, active bool) error {
 	tag, err := db.pool.Exec(ctx,
 		`update projects set deploy_key_active = $2, updated_at = now() where id = $1`,
 		projectID, active)
 	if err != nil {
-		return fmt.Errorf("activation de la clé du projet %d: %w", projectID, err)
+		return fmt.Errorf("activating the key of project %d: %w", projectID, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrProjectNotFound
@@ -751,10 +734,10 @@ func (db *DB) ActivateDeployKey(ctx context.Context, projectID int64, active boo
 	return nil
 }
 
-// RegistrySecret rend le secret de registre désigné par un projet.
+// RegistrySecret returns the registry secret a project names.
 //
-// Faux quand il n'en désigne aucun : le run emploie alors celui du déploiement,
-// qui est le cas de tous les projets qui publient au même endroit.
+// False when it names none: the run then uses the deployment's, which is the case of
+// every project publishing to the same place.
 func (db *DB) RegistrySecret(ctx context.Context, projectID int64) (string, bool, error) {
 	var name string
 	err := db.pool.QueryRow(ctx,
@@ -763,23 +746,23 @@ func (db *DB) RegistrySecret(ctx context.Context, projectID int64) (string, bool
 	case errors.Is(err, pgx.ErrNoRows):
 		return "", false, nil
 	case err != nil:
-		return "", false, fmt.Errorf("secret de registre du projet %d: %w", projectID, err)
+		return "", false, fmt.Errorf("registry secret of project %d: %w", projectID, err)
 	case name == "":
 		return "", false, nil
 	}
 	return name, true, nil
 }
 
-// Stacks rend les piles déclarées par les projets.
+// Stacks returns the stacks the projects declare.
 //
-// Dédoublonnées, et le vide écarté : c'est la liste des bibliothèques que le
-// dashboard a effectivement à poser, et itérer sur les projets en reposerait
-// plusieurs fois la même.
+// Deduplicated, and the empty one discarded: this is the list of libraries the
+// dashboard actually has to install, and iterating over projects would install
+// several of them twice.
 func (db *DB) Stacks(ctx context.Context) ([]string, error) {
 	rows, err := db.pool.Query(ctx,
 		`select distinct stack from projects where stack <> '' order by stack`)
 	if err != nil {
-		return nil, fmt.Errorf("piles déclarées: %w", err)
+		return nil, fmt.Errorf("declared stacks: %w", err)
 	}
 	defer rows.Close()
 
@@ -787,7 +770,7 @@ func (db *DB) Stacks(ctx context.Context) ([]string, error) {
 	for rows.Next() {
 		var stack string
 		if err := rows.Scan(&stack); err != nil {
-			return nil, fmt.Errorf("piles déclarées: %w", err)
+			return nil, fmt.Errorf("declared stacks: %w", err)
 		}
 		stacks = append(stacks, stack)
 	}

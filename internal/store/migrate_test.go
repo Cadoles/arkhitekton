@@ -10,25 +10,24 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
-// Ces tests exigent un PostgreSQL réel : appliquer un schéma ne se simule pas
-// utilement, et c'est justement l'exécution du SQL que l'on veut vérifier.
+// These tests require a real PostgreSQL: applying a schema cannot usefully be simulated,
+// and it is precisely the execution of the SQL that is being checked.
 //
-// Ils sont pilotés par TEST_DATABASE_URL plutôt que par testcontainers : la
-// dépendance en moins vaut la mise en place manuelle, et la CI fournit déjà un
-// service PostgreSQL. Sans la variable, les tests sont ignorés — visiblement,
-// pas silencieusement.
+// They are driven by TEST_DATABASE_URL rather than by testcontainers: one dependency
+// fewer is worth the manual setup, and CI already provides a PostgreSQL service. Without
+// the variable the tests are skipped — visibly, not silently.
 func testDB(t *testing.T) config.DatabaseConfig {
 	t.Helper()
 
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL non défini: test d'intégration ignoré")
+		t.Skip("TEST_DATABASE_URL not set: integration test skipped")
 	}
 	return config.DatabaseConfig{DSN: dsn, MaxConns: 4, ConnMaxLifetime: time.Minute}
 }
 
-// resetSchema ramène la base à zéro entre deux tests : goose mémorise la version
-// appliquée, et un test qui hérite de l'état du précédent ne prouve rien.
+// resetSchema returns the database to nothing between two tests: goose remembers the
+// applied version, and a test inheriting the previous one's state proves nothing.
 func resetSchema(t *testing.T, cfg config.DatabaseConfig) {
 	t.Helper()
 
@@ -40,7 +39,7 @@ func resetSchema(t *testing.T, cfg config.DatabaseConfig) {
 	defer db.Close()
 
 	if _, err := db.Pool().Exec(ctx, "drop schema public cascade; create schema public;"); err != nil {
-		t.Fatalf("réinitialisation du schéma: %v", err)
+		t.Fatalf("resetting the schema: %v", err)
 	}
 }
 
@@ -48,15 +47,14 @@ func TestOpenRejectsUnreachableDatabase(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// pgxpool est paresseux : sans le Ping de Open, cette configuration
-	// produirait un pool utilisable en apparence et une panne à la première
-	// requête, loin de sa cause.
+	// pgxpool is lazy: without Open's Ping, this configuration would produce a pool that
+	// looks usable and a failure at the first query, far from its cause.
 	_, err := Open(ctx, config.DatabaseConfig{
 		DSN:      "postgres://nobody:nothing@127.0.0.1:1/absent",
 		MaxConns: 1,
 	})
 	if err == nil {
-		t.Fatal("une base injoignable doit faire échouer Open")
+		t.Fatal("an unreachable database must fail Open")
 	}
 }
 
@@ -71,21 +69,21 @@ func TestMigrateAppliesEverySchemaFile(t *testing.T) {
 
 	state, err := MigrationState(ctx, cfg)
 	if err != nil {
-		t.Fatalf("état des migrations: %v", err)
+		t.Fatalf("migration state: %v", err)
 	}
 	if len(state) == 0 {
-		t.Fatal("aucune migration collectée")
+		t.Fatal("no migration collected")
 	}
 	for _, migration := range state {
 		if !migration.Applied {
-			t.Errorf("%s non appliquée", migration.Name)
+			t.Errorf("%s not applied", migration.Name)
 		}
 	}
 }
 
-// Les tables et contraintes qui portent des décisions dures doivent exister
-// après migration : les vérifier ici évite qu'une erreur de frappe dans le SQL
-// ne se découvre qu'au moment d'écrire la requête qui en dépend.
+// The tables and constraints that carry hard decisions must exist after migration:
+// checking them here keeps a typo in the SQL from being discovered only when writing the
+// query that depends on it.
 func TestMigrateCreatesKeyConstraints(t *testing.T) {
 	cfg := testDB(t)
 	resetSchema(t, cfg)
@@ -112,16 +110,16 @@ func TestMigrateCreatesKeyConstraints(t *testing.T) {
 			"select exists (select 1 from information_schema.tables where table_name = $1)",
 			table).Scan(&exists)
 		if err != nil {
-			t.Fatalf("interrogation du catalogue: %v", err)
+			t.Fatalf("querying the catalog: %v", err)
 		}
 		if !exists {
-			t.Errorf("table %s absente après migration", table)
+			t.Errorf("table %s missing after migration", table)
 		}
 	}
 }
 
-// Une migration qui ne sait pas s'annuler se découvre au pire moment. Le test
-// applique puis annule tout, ce qui exerce chaque bloc `-- +goose Down`.
+// A migration that cannot undo itself is discovered at the worst moment. The test applies
+// then rolls everything back, which exercises every `-- +goose Down` block.
 
 func TestMigrationsRollBackCleanly(t *testing.T) {
 	cfg := testDB(t)
@@ -134,7 +132,7 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 
 	names, err := MigrationNames()
 	if err != nil {
-		t.Fatalf("lecture des migrations: %v", err)
+		t.Fatalf("reading the migrations: %v", err)
 	}
 	for i := range names {
 		if err := Rollback(ctx, cfg, discardLogger()); err != nil {
@@ -152,32 +150,32 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	if err := db.Pool().QueryRow(ctx,
 		"select count(*) from information_schema.tables where table_schema = 'public' and table_name <> 'goose_db_version'").
 		Scan(&remaining); err != nil {
-		t.Fatalf("interrogation du catalogue: %v", err)
+		t.Fatalf("querying the catalog: %v", err)
 	}
 	if remaining != 0 {
-		t.Errorf("%d table(s) subsistent après annulation complète", remaining)
+		t.Errorf("%d table(s) remain after a full rollback", remaining)
 	}
 }
 
-// Le DSN porte le mot de passe et pgx le cite volontiers dans ses erreurs, qui
-// finissent en logs, en tickets, en captures d'écran.
+// The DSN carries the password and pgx readily quotes it in its errors, which end up in
+// logs, in tickets, in screenshots.
 func TestRedactErrorHidesPasswordKeepsMessage(t *testing.T) {
 	dsn := "postgres://mse:s3cr3t@db.example.fr:5432/mse"
 	err := redactError(
-		errorString("échec de connexion avec postgres://mse:s3cr3t@db.example.fr:5432/mse"), dsn)
+		errorString("connection failure with postgres://mse:s3cr3t@db.example.fr:5432/mse"), dsn)
 
 	if got := err.Error(); strings.Contains(got, "s3cr3t") {
-		t.Errorf("le mot de passe fuit: %s", got)
+		t.Errorf("the password leaks: %s", got)
 	}
 	if got := err.Error(); !strings.Contains(got, "db.example.fr") {
-		t.Errorf("le message a perdu l'hôte, il n'est plus diagnosticable: %s", got)
+		t.Errorf("the message lost the host, it can no longer be diagnosed: %s", got)
 	}
 }
 
 func TestRedactErrorPassesThroughWhenNoPassword(t *testing.T) {
-	original := errorString("connexion refusée")
+	original := errorString("connection refused")
 	if got := redactError(original, "postgres://mse@db:5432/mse"); got != original {
-		t.Errorf("erreur inutilement réécrite: %v", got)
+		t.Errorf("error needlessly rewritten: %v", got)
 	}
 }
 
@@ -185,19 +183,19 @@ type errorString string
 
 func (e errorString) Error() string { return string(e) }
 
-// La migration est une étape d'initialisation : son Job démarre en même temps que
-// la base. Sans attente, il échoue, Kubernetes le relance, et chaque déploiement
-// laisse un pod en `Error` — résidu qui apprend à ignorer les pods en erreur.
+// Migration is an initialisation step: its Job starts at the same time as the database.
+// Without a wait it fails, Kubernetes restarts it, and every deployment leaves a pod in
+// `Error` — a residue that teaches people to ignore failed pods.
 func TestWaitForDatabaseSucceedsOnAnAvailableDatabase(t *testing.T) {
 	cfg := testDB(t)
 
 	if err := WaitForDatabase(context.Background(), cfg, 5*time.Second, discardLogger()); err != nil {
-		t.Errorf("erreur = %v, attendu aucune sur une base disponible", err)
+		t.Errorf("error = %v, expected none on an available database", err)
 	}
 }
 
-// Le message doit porter le nombre de tentatives et la durée : « connexion
-// refusée » seul ne dit pas si la base est absente ou lente à démarrer.
+// The message must carry the number of attempts and the duration: "connection refused"
+// alone does not say whether the database is absent or slow to start.
 func TestWaitForDatabaseGivesUpWithACountedMessage(t *testing.T) {
 	cfg := config.DatabaseConfig{
 		DSN:      "postgres://nobody:nothing@127.0.0.1:1/absent?sslmode=disable",
@@ -207,20 +205,19 @@ func TestWaitForDatabaseGivesUpWithACountedMessage(t *testing.T) {
 	start := time.Now()
 	err := WaitForDatabase(context.Background(), cfg, 3*time.Second, discardLogger())
 	if err == nil {
-		t.Fatal("une base injoignable doit finir par échouer")
+		t.Fatal("an unreachable database must eventually fail")
 	}
-	if !strings.Contains(err.Error(), "tentative") {
-		t.Errorf("message = %q, attendu le nombre de tentatives", err)
+	if !strings.Contains(err.Error(), "attempt") {
+		t.Errorf("message = %q, expected the number of attempts", err)
 	}
-	// L'attente est bornée : un Job qui patiente indéfiniment ne se distingue pas
-	// d'un Job bloqué.
+	// The wait is bounded: a Job waiting indefinitely cannot be told from a stuck Job.
 	if elapsed := time.Since(start); elapsed > 20*time.Second {
-		t.Errorf("abandon après %s, la borne n'est pas respectée", elapsed)
+		t.Errorf("gave up after %s, the bound is not honoured", elapsed)
 	}
 }
 
-// Le mot de passe ne doit pas fuiter dans le message d'échec, qui part au journal
-// puis dans les événements Kubernetes.
+// The password must not leak into the failure message, which goes to the log and then
+// into Kubernetes events.
 func TestWaitForDatabaseRedactsTheDSN(t *testing.T) {
 	cfg := config.DatabaseConfig{
 		DSN:      "postgres://dashboard:tressecret@127.0.0.1:1/absent?sslmode=disable",
@@ -229,15 +226,15 @@ func TestWaitForDatabaseRedactsTheDSN(t *testing.T) {
 
 	err := WaitForDatabase(context.Background(), cfg, 2*time.Second, discardLogger())
 	if err == nil {
-		t.Fatal("échec attendu")
+		t.Fatal("expected failure")
 	}
 	if strings.Contains(err.Error(), "tressecret") {
-		t.Errorf("le mot de passe apparaît dans %q", err)
+		t.Errorf("the password appears in %q", err)
 	}
 }
 
-// L'annulation est honorée sans attendre la borne : un Job interrompu doit rendre
-// la main tout de suite.
+// Cancellation is honoured without waiting for the bound: an interrupted Job must return
+// at once.
 func TestWaitForDatabaseHonoursCancellation(t *testing.T) {
 	cfg := config.DatabaseConfig{
 		DSN:      "postgres://nobody:nothing@127.0.0.1:1/absent?sslmode=disable",
@@ -249,17 +246,17 @@ func TestWaitForDatabaseHonoursCancellation(t *testing.T) {
 
 	start := time.Now()
 	if err := WaitForDatabase(ctx, cfg, time.Minute, discardLogger()); err == nil {
-		t.Fatal("échec attendu")
+		t.Fatal("expected failure")
 	}
 	if elapsed := time.Since(start); elapsed > 15*time.Second {
-		t.Errorf("annulation non honorée: %s", elapsed)
+		t.Errorf("cancellation not honoured: %s", elapsed)
 	}
 }
 
-// Une base migrée n'a plus rien en attente.
+// A migrated database has nothing pending.
 //
-// C'est la condition de sortie de [WaitForSchema] : sans elle, l'`api` et le
-// `worker` attendraient indéfiniment un schéma pourtant complet.
+// That is the exit condition of [WaitForSchema]: without it, the api and the worker would
+// wait indefinitely for a schema that is in fact complete.
 func TestUneBaseMigreeNaPlusDeMigrationEnAttente(t *testing.T) {
 	cfg := testDB(t)
 	resetSchema(t, cfg)
@@ -274,21 +271,20 @@ func TestUneBaseMigreeNaPlusDeMigrationEnAttente(t *testing.T) {
 		t.Fatalf("migrations en attente: %v", err)
 	}
 	if len(pending) != 0 {
-		t.Errorf("%d migration(s) en attente après migration: %v", len(pending), pending)
+		t.Errorf("%d migration(s) pending after migrating: %v", len(pending), pending)
 	}
 
-	// Et l'attente rend la main tout de suite.
+	// And the wait returns at once.
 	if err := WaitForSchema(ctx, cfg, 5*time.Second, discardLogger()); err != nil {
-		t.Errorf("attente sur un schéma à jour: %v", err)
+		t.Errorf("waiting on an up-to-date schema: %v", err)
 	}
 }
 
-// Une base vierge est en retard, et l'attente le dit en nommant ce qui manque.
+// An empty database is behind, and the wait says so by naming what is missing.
 //
-// Le cas réel : le Job de migration et le pod applicatif démarrent ensemble, et
-// rien ne garantit l'ordre. Sans cette attente, le worker se réconciliait contre
-// un schéma incomplet — une vingtaine de `relation "plan_steps" does not exist`
-// à chaque déploiement.
+// The real case: the migration Job and the application pod start together, and nothing
+// guarantees the order. Without this wait the worker reconciled against an incomplete
+// schema.
 func TestUneBaseNonMigreeEstSignaleeEnRetard(t *testing.T) {
 	cfg := testDB(t)
 	resetSchema(t, cfg)
@@ -299,17 +295,17 @@ func TestUneBaseNonMigreeEstSignaleeEnRetard(t *testing.T) {
 		t.Fatalf("migrations en attente: %v", err)
 	}
 	if len(pending) == 0 {
-		t.Fatal("une base vierge doit avoir des migrations en attente")
+		t.Fatal("an empty database must have pending migrations")
 	}
 
-	// L'attente échoue sur une borne courte, et son message nomme une migration
-	// manquante : « schéma en retard » seul enverrait lire les journaux du Job
-	// sans savoir quoi y chercher.
+	// The wait fails on a short bound, and its message names a missing migration: "schema
+	// behind" alone would send someone to read the Job's logs without knowing what to look
+	// for.
 	err = WaitForSchema(ctx, cfg, 3*time.Second, discardLogger())
 	if err == nil {
-		t.Fatal("l'attente doit échouer sur une base non migrée")
+		t.Fatal("the wait must fail on an unmigrated database")
 	}
 	if !strings.Contains(err.Error(), pending[0]) {
-		t.Errorf("message %q — il doit nommer une migration en attente", err)
+		t.Errorf("message %q — it must name a pending migration", err)
 	}
 }

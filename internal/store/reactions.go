@@ -21,19 +21,19 @@ import (
  * action du registre.
  */
 
-// ErrReactionNotFound signale une réaction absente.
-var ErrReactionNotFound = errors.New("réaction introuvable")
+// ErrReactionNotFound reports a missing reaction.
+var ErrReactionNotFound = errors.New("reaction not found")
 
-// ErrReactionExists signale un nom déjà porté dans ce projet.
+// ErrReactionExists reports a name already taken within this project.
 //
-// Distingué du reste : « ce nom est pris » se corrige en une frappe, alors qu'une
-// erreur de base générique envoie chercher une panne.
-var ErrReactionExists = errors.New("une réaction porte déjà ce nom dans ce projet")
+// Told apart from the rest: "this name is taken" is fixed with a keystroke, while a generic
+// database error sends someone hunting for a fault.
+var ErrReactionExists = errors.New("a reaction already carries this name in this project")
 
-// ListReactions rend les réactions d'un projet, par nom.
+// ListReactions returns a project's reactions, by name.
 //
-// Toutes, actives ou non : un écran qui cacherait les réactions éteintes ferait
-// croire qu'elles ont été supprimées, et on les réécrirait.
+// All of them, active or not: a screen hiding switched-off reactions would suggest they had
+// been deleted, and they would be rewritten.
 func (db *DB) ListReactions(ctx context.Context, projectID int64) ([]reaction.Reaction, error) {
 	const query = `
 		select id, project_id, name, event_type, enabled, match, plan
@@ -42,7 +42,7 @@ func (db *DB) ListReactions(ctx context.Context, projectID int64) ([]reaction.Re
 
 	rows, err := db.pool.Query(ctx, query, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("réactions du projet %d: %w", projectID, err)
+		return nil, fmt.Errorf("reactions of project %d: %w", projectID, err)
 	}
 	defer rows.Close()
 
@@ -57,11 +57,10 @@ func (db *DB) ListReactions(ctx context.Context, projectID int64) ([]reaction.Re
 	return reactions, rows.Err()
 }
 
-// ReactionsFor rend les réactions **actives** d'un projet qui écoutent un type de
-// fait.
+// ReactionsFor returns a project's active reactions that listen for a fact type.
 //
-// La question que pose chaque fait constaté. Bornée aux actives : une réaction
-// éteinte reste lisible dans l'écran, elle ne se déclenche simplement plus.
+// The question every observed fact asks. Bounded to the active ones: a switched-off reaction
+// stays readable in the screen, it simply no longer fires.
 func (db *DB) ReactionsFor(
 	ctx context.Context, projectID int64, eventType string,
 ) ([]reaction.Reaction, error) {
@@ -73,7 +72,7 @@ func (db *DB) ReactionsFor(
 
 	rows, err := db.pool.Query(ctx, query, projectID, eventType)
 	if err != nil {
-		return nil, fmt.Errorf("réactions sur %q: %w", eventType, err)
+		return nil, fmt.Errorf("reactions on %q: %w", eventType, err)
 	}
 	defer rows.Close()
 
@@ -88,11 +87,10 @@ func (db *DB) ReactionsFor(
 	return reactions, rows.Err()
 }
 
-// GetReaction rend une réaction d'un projet.
+// GetReaction returns a project's reaction.
 //
-// Le projet fait partie de la question : sans lui, l'identifiant seul permettrait
-// de lire — et donc de modifier — la réaction d'un autre projet depuis une URL
-// composée à la main.
+// The project is part of the question: without it, the identifier alone would allow reading
+// — and therefore modifying — another project's reaction from a hand-made URL.
 func (db *DB) GetReaction(ctx context.Context, projectID, id int64) (reaction.Reaction, error) {
 	const query = `
 		select id, project_id, name, event_type, enabled, match, plan
@@ -108,7 +106,7 @@ func (db *DB) GetReaction(ctx context.Context, projectID, id int64) (reaction.Re
 	return entry, nil
 }
 
-// scannable couvre `pgx.Row` et `pgx.Rows`, dont seule la méthode `Scan` sert ici.
+// scannable covers `pgx.Row` and `pgx.Rows`, of which only the Scan method is used here.
 type scannable interface{ Scan(dest ...any) error }
 
 func scanReaction(row scannable) (reaction.Reaction, error) {
@@ -122,16 +120,16 @@ func scanReaction(row scannable) (reaction.Reaction, error) {
 	}
 	if err := json.Unmarshal(encoded, &entry.Plan); err != nil {
 		return reaction.Reaction{}, fmt.Errorf(
-			"plan de la réaction %d illisible: %w", entry.ID, err)
+			"plan of reaction %d unreadable: %w", entry.ID, err)
 	}
 	return entry, nil
 }
 
-// SaveReaction crée une réaction, ou remplace celle qui porte cet identifiant.
+// SaveReaction creates a reaction, or replaces the one carrying this identifier.
 //
-// Rend l'identifiant écrit. Un identifiant nul crée ; un identifiant renseigné
-// remplace, et le projet borne la mise à jour — une réaction d'un autre projet
-// n'est pas atteignable par une URL composée à la main.
+// Returns the identifier written. A nil identifier creates; a set identifier replaces, and
+// the project bounds the update — another project's reaction is not reachable from a
+// hand-made URL.
 func (db *DB) SaveReaction(
 	ctx context.Context, entry reaction.Reaction, actor string,
 ) (int64, error) {
@@ -176,12 +174,12 @@ func (db *DB) SaveReaction(
 	return entry.ID, nil
 }
 
-// DeleteReaction retire une réaction d'un projet.
+// DeleteReaction removes a project's reaction.
 func (db *DB) DeleteReaction(ctx context.Context, projectID, id int64) error {
 	tag, err := db.pool.Exec(ctx,
 		`delete from reactions where project_id = $1 and id = $2`, projectID, id)
 	if err != nil {
-		return fmt.Errorf("suppression de la réaction %d: %w", id, err)
+		return fmt.Errorf("deleting reaction %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrReactionNotFound
@@ -189,15 +187,15 @@ func (db *DB) DeleteReaction(ctx context.Context, projectID, id int64) error {
 	return nil
 }
 
-// wrapReactionWrite distingue le nom déjà pris du reste.
+// wrapReactionWrite tells a taken name from the rest.
 //
-// « Ce nom est pris » se corrige en une frappe ; une erreur générique envoie
-// chercher une panne. La distinction se fait sur le code de contrainte plutôt que
-// sur le message, qui dépend de la locale du serveur.
+// "This name is taken" is fixed with a keystroke; a generic error sends someone hunting for
+// a fault. The distinction is made on the constraint code rather than on the message, which
+// depends on the server's locale.
 func wrapReactionWrite(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return ErrReactionExists
 	}
-	return fmt.Errorf("enregistrement d'une réaction: %w", err)
+	return fmt.Errorf("recording a reaction: %w", err)
 }

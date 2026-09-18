@@ -11,55 +11,54 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 )
 
-// Release est une release enregistrée.
+// Release is a recorded release.
 type Release struct {
 	ID int64
-	// ProjectID est le dépôt qui porte cette release. Deux projets suivis
-	// ensemble publient chacun leur `1.0.0`, et c'est lui qui les distingue :
-	// l'unicité du tag est relative au projet depuis la migration 0025.
+	// ProjectID is the repository carrying this release. Two projects tracked together
+	// each publish their own `1.0.0`, and this is what tells them apart: a tag's
+	// uniqueness is relative to its project.
 	ProjectID int64
 	VersionID int64
-	// Tag est l'identité de la release : `1.8.0-rc2`, `1.8.0`.
+	// Tag is the release's identity: `1.8.0-rc2`, `1.8.0`.
 	Tag   string
 	Kind  string
 	State string
-	// ImageVersion est la version portée par l'image, distincte du tag pour
-	// toute release finale produite par re-tag : ce qui part en production est
-	// bit pour bit ce qui a été validé, et son `version.txt` reste celui de la
-	// RC (B17). Comparer PortalData au tag échouerait systématiquement.
+	// ImageVersion is the version the image carries, distinct from the tag for every
+	// final release produced by re-tag: what goes to production is bit for bit what was
+	// approved, and the version baked into it stays the candidate's. Comparing the
+	// running version with the tag would fail systematically.
 	ImageVersion    string
 	SourceReleaseID *int64
-	// GitRef est la référence désignée à la création — `main`, un tag. Elle dit
-	// d'où la release est partie ; elle ne suffit pas à la reproduire.
+	// GitRef is the reference named at creation — `main`, a tag. It says
 	GitRef string
-	// GitCommit est la résolution de `GitRef` à cet instant. C'est lui qui rend la
-	// release reproductible : une branche bouge (B17).
+	// GitCommit is the resolution of GitRef at that instant. It is what makes the release
+	// reproducible: a branch moves.
 	GitCommit  string
 	CreatedBy  string
 	CreatedAt  time.Time
 	ReleasedAt *time.Time
-	// ManualActions est le récit libre des gestes manuels de la livraison, repris
-	// tel quel dans le bon de livraison. L'auteur et la date l'accompagnent parce
-	// que ce document est contractuel.
+	// ManualActions is the free-text account of the delivery's manual steps, reproduced
+	// as is in the delivery note. The author and the date accompany it because that
+	// document is contractual.
 	ManualActions          string
 	ManualActionsUpdatedBy string
 	ManualActionsUpdatedAt *time.Time
 }
 
-// ErrReleaseNotFound signale une release absente.
+// ErrReleaseNotFound reports a missing release.
 var ErrReleaseNotFound = errors.New("release introuvable")
 
-// ErrVersionNotFound signale une version Redmine absente.
+// ErrVersionNotFound reports a missing tracker version.
 //
-// Distincte d'une erreur d'écriture : sans le lot 1, la table des versions est
-// vide, et l'appelant doit pouvoir dire *pourquoi* la création est refusée plutôt
-// que d'afficher une violation de contrainte.
+// Distinct from a write error: the versions table may be empty, and the caller must
+// be able to say why the creation is refused rather than display a constraint
+// violation.
 var ErrVersionNotFound = errors.New("version introuvable")
 
-// FindVersionByName retrouve une version Redmine par son nom.
+// FindVersionByName finds a tracker version by its name.
 //
-// C'est le point de jointure de l'invariant : le tag d'une release est le nom de
-// la version, éventuellement suivi d'un suffixe de pré-release (B17).
+// This is the join point of the invariant: a release's tag is the version's name,
+// possibly followed by a pre-release suffix.
 func (db *DB) FindVersionByName(ctx context.Context, projectID int64, name string) (int64, error) {
 	var id int64
 	err := db.pool.QueryRow(ctx,
@@ -68,12 +67,12 @@ func (db *DB) FindVersionByName(ctx context.Context, projectID int64, name strin
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, ErrVersionNotFound
 		}
-		return 0, fmt.Errorf("recherche de la version %q: %w", name, err)
+		return 0, fmt.Errorf("looking up version %q: %w", name, err)
 	}
 	return id, nil
 }
 
-// CreateRelease enregistre une release.
+// CreateRelease records a release.
 func (db *DB) CreateRelease(ctx context.Context, release Release) (int64, error) {
 	var id int64
 	err := db.pool.QueryRow(ctx,
@@ -86,15 +85,15 @@ func (db *DB) CreateRelease(ctx context.Context, release Release) (int64, error)
 		release.GitRef, release.GitCommit, release.ImageVersion,
 		release.SourceReleaseID, release.CreatedBy).Scan(&id)
 	if err != nil {
-		return 0, fmt.Errorf("création de la release %q: %w", release.Tag, err)
+		return 0, fmt.Errorf("creating release %q: %w", release.Tag, err)
 	}
 	return id, nil
 }
 
-// GetRelease rend une release par son tag, dans un projet.
+// GetRelease returns a release by its tag, within a project.
 //
-// Le projet n'est pas décoratif : le tag n'est unique qu'en son sein, et lire par
-// tag seul rendrait la release d'un autre projet dès qu'un second existera.
+// The project is not decorative: the tag is unique only within it, and reading by tag
+// alone would return another project's release as soon as a second one exists.
 func (db *DB) GetRelease(ctx context.Context, projectID int64, tag string) (Release, error) {
 	var release Release
 	err := db.pool.QueryRow(ctx,
@@ -112,12 +111,12 @@ func (db *DB) GetRelease(ctx context.Context, projectID int64, tag string) (Rele
 		if errors.Is(err, pgx.ErrNoRows) {
 			return release, ErrReleaseNotFound
 		}
-		return release, fmt.Errorf("lecture de la release %q: %w", tag, err)
+		return release, fmt.Errorf("reading release %q: %w", tag, err)
 	}
 	return release, nil
 }
 
-// ListReleases rend les releases d'un projet, les plus récentes d'abord.
+// ListReleases returns a project's releases, newest first.
 func (db *DB) ListReleases(ctx context.Context, projectID int64, limit int) ([]Release, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
@@ -130,7 +129,7 @@ func (db *DB) ListReleases(ctx context.Context, projectID int64, limit int) ([]R
 		 from releases where project_id = $1 order by created_at desc limit $2`,
 		projectID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("liste des releases: %w", err)
+		return nil, fmt.Errorf("listing the releases: %w", err)
 	}
 	defer rows.Close()
 
@@ -141,42 +140,43 @@ func (db *DB) ListReleases(ctx context.Context, projectID int64, limit int) ([]R
 			&release.State, &release.GitRef, &release.GitCommit, &release.ImageVersion,
 			&release.SourceReleaseID,
 			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt); err != nil {
-			return nil, fmt.Errorf("liste des releases: %w", err)
+			return nil, fmt.Errorf("listing the releases: %w", err)
 		}
 		releases = append(releases, release)
 	}
 	return releases, rows.Err()
 }
 
-// SetReleaseState fait avancer une release.
+// SetReleaseState advances a release.
 //
-// La transition autorisée est décidée par `internal/release`, hors de la base :
-// une table de transitions dupliquée en SQL et en Go finirait par diverger, et
-// c'est la version Go qui porte les messages d'erreur.
+// Which transition is allowed is decided by internal/release, outside the database: a
+// transition table duplicated in SQL and in Go would eventually diverge, and it is
+// the Go version that carries the error messages.
 func (db *DB) SetReleaseState(ctx context.Context, id int64, state string) error {
 	_, err := db.pool.Exec(ctx,
 		`update releases set state = $2, updated_at = now() where id = $1`, id, state)
 	if err != nil {
-		return fmt.Errorf("état de la release %d: %w", id, err)
+		return fmt.Errorf("state of release %d: %w", id, err)
 	}
 	return nil
 }
 
-// EnsureVersion rattache une release à sa version, en la créant au besoin.
+// EnsureVersion attaches a release to its version, creating one if needed.
 //
-// La recherche se fait en trois temps, et l'ordre porte la sémantique :
+// The search happens in three steps, and the order carries the meaning:
 //
-//  1. le nom exact — le cas d'une provisoire déjà créée pour ce même numéro ;
-//  2. le nom **normalisé**, en préférant la version non close — le cas nominal
-//     depuis la synchronisation : une release taguée `3.2.0-rc1` a pour base
-//     `3.2.0`, alors que la version Redmine s'appelle `v3.2.0`. Chercher le nom
-//     exact seul créait une provisoire fantôme, adoptée cinq minutes plus tard
-//     par la synchronisation ; entre-temps l'écran montrait la release accrochée
-//     à une version « inconnue de Redmine » qui existait bel et bien. La règle de
-//     préférence est celle de l'adoption, pour que le rattachement immédiat et le
-//     rattachement différé désignent la même version ;
-//  3. la création d'une provisoire d'origine `pending` — le repli quand
-//     Redmine ne connaît pas encore le numéro, reconnaissable et adopté plus tard.
+//  1. the exact name — the case of a provisional version already created for this
+//     same number;
+//  2. the normalised name, preferring the version that is not closed — the nominal
+//     case since synchronisation: a release tagged `3.2.0-rc1` has base `3.2.0`,
+//     while the tracker version is called `v3.2.0`. Searching the exact name alone
+//     created a phantom provisional version, adopted five minutes later by
+//     synchronisation; meanwhile the screen showed the release attached to a version
+//     "unknown to the tracker" that existed perfectly well. The preference rule is
+//     the one adoption uses, so that immediate and deferred attachment name the same
+//     version;
+//  3. creating a provisional version of origin `pending` — the fallback when the
+//     tracker does not know the number yet, recognisable and adopted later.
 func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error) {
 	id, err := db.FindVersionByName(ctx, projectID, name)
 	if err == nil {
@@ -186,10 +186,10 @@ func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (
 		return 0, err
 	}
 
-	// Parmi les versions réelles portant ce numéro, la non-close l'emporte ; à
-	// égalité le rattachement est indécidable et on retombe sur la provisoire —
-	// choisir au hasard rattacherait la release à la mauvaise version, et la
-	// provisoire, elle, reste visible et signalée.
+	// Among the real versions carrying this number, the one that is not closed wins; on
+	// a tie the attachment is undecidable and it falls back to the provisional one —
+	// choosing at random would attach the release to the wrong version, whereas the
+	// provisional one stays visible and flagged.
 	candidates, err := db.realVersionsNormalized(ctx, projectID, release.NormalizeVersionName(name))
 	if err != nil {
 		return 0, err
@@ -201,42 +201,39 @@ func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (
 		return candidates[0].id, nil
 	}
 
-	// `normalized_name` est renseigné dès la création, et ce n'est pas cosmétique :
-	// c'est la seule colonne sur laquelle la synchronisation peut reconnaître cette
-	// provisoire pour l'adopter. Nulle, la provisoire resterait orpheline et la
-	// version réelle s'afficherait sans aucune release.
+	// `normalized_name` is filled in from creation, and that is not cosmetic: it is the
+	// only column on which synchronisation can recognise this provisional version in
+	// order to adopt it. Null, it would stay orphaned and the real version would display
+	// with no release.
 	err = db.pool.QueryRow(ctx,
-		// L'origine dépend du projet, et c'est tout l'enjeu. Un projet **suivi**
-		// reçoit une provisoire, en attente que la synchronisation l'adopte. Un
-		// projet **sans suivi** reçoit une version définitive : rien ne viendra la
-		// confirmer, et la marquer « en attente » ferait de l'anomalie son état
-		// permanent.
+		// The origin depends on the project, and that is the whole point. A tracked project
+		// receives a provisional version, awaiting adoption by synchronisation. A project
+		// with no tracker receives a definitive one: nothing will come to confirm it, and
+		// marking it "pending" would make the anomaly its permanent state.
 		//
-		// Le statut suit : `open` pour une version qui se suffit à elle-même,
-		// `en-attente-de-synchronisation` pour celle qui espère encore.
-		// Ni outil ni identifiant externe : cette version n'existe que dans le
-		// dashboard. C'est ce qui remplace le `redmine_id` négatif — un nombre
-		// dont il fallait lire le signe pour connaître une nature (doc 12 §12.9,
-		// lot C).
+		// The status follows: `open` for a version that stands on its own,
+		// `en-attente-de-synchronisation` for one that still hopes — a stored value,
+		// left as it is so existing rows keep one vocabulary. Neither tool nor external
+		// identifier: this version exists only in the dashboard.
 		`insert into versions (project_id, name, normalized_name, origin, status, synced_at)
 		 select $1, $2, $3,
-		        case when suivi then 'pending' else 'own' end,
-		        case when suivi then 'en-attente-de-synchronisation' else 'open' end,
+		        case when tracked then 'pending' else 'own' end,
+		        case when tracked then 'en-attente-de-synchronisation' else 'open' end,
 		        now()
-		 from (select coalesce(trim(tracker_project), '') <> '' as suivi
+		 from (select coalesce(trim(tracker_project), '') <> '' as tracked
 		       from projects where id = $1) as p
 		 returning id`, projectID, name, release.NormalizeVersionName(name)).Scan(&id)
 	if err != nil {
-		return 0, fmt.Errorf("création de la version provisoire %q: %w", name, err)
+		return 0, fmt.Errorf("creating provisional version %q: %w", name, err)
 	}
 	return id, nil
 }
 
-// SetManualActions enregistre le récit des gestes manuels d'une livraison.
+// SetManualActions records the account of a delivery's manual steps.
 //
-// L'auteur et l'horodatage sont posés ici et non fournis par l'appelant : ce
-// texte finit dans un document contractuel, et sa provenance ne doit pas dépendre
-// de ce qu'un client veut bien déclarer.
+// The author and the timestamp are set here and not supplied by the caller: this text
+// ends up in a contractual document, and its provenance must not depend on what a
+// client chooses to declare.
 func (db *DB) SetManualActions(ctx context.Context, tag, markdown, author string) error {
 	tally, err := db.pool.Exec(ctx,
 		`update releases
@@ -246,7 +243,7 @@ func (db *DB) SetManualActions(ctx context.Context, tag, markdown, author string
 		     updated_at = now()
 		 where tag = $1`, tag, markdown, author)
 	if err != nil {
-		return fmt.Errorf("actions manuelles de %q: %w", tag, err)
+		return fmt.Errorf("manual actions of %q: %w", tag, err)
 	}
 	if tally.RowsAffected() == 0 {
 		return ErrReleaseNotFound
@@ -254,7 +251,7 @@ func (db *DB) SetManualActions(ctx context.Context, tag, markdown, author string
 	return nil
 }
 
-// ReleaseJob est un job rattaché à une release.
+// ReleaseJob is a job attached to a release.
 type ReleaseJob struct {
 	ID            int64
 	Kind          string
@@ -266,17 +263,17 @@ type ReleaseJob struct {
 	FinishedAt    *time.Time
 }
 
-// ListReleaseJobs rend ce qui a été déclenché pour une release.
+// ListReleaseJobs returns what was triggered for a release.
 //
-// C'est le chemin entre une promotion et sa preuve : la promotion dit ce qui a
-// été demandé, le job dit ce qui s'est passé, et son run porte les journaux.
+// It is the path between a promotion and its evidence: the promotion says what was
+// asked, the job says what happened, and its run carries the logs.
 func (db *DB) ListReleaseJobs(ctx context.Context, releaseID int64) ([]ReleaseJob, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, kind, state, coalesce(environment_id, ''), coalesce(run_name, ''),
 		        requested_by, requested_at, finished_at
 		 from jobs where release_id = $1 order by requested_at desc`, releaseID)
 	if err != nil {
-		return nil, fmt.Errorf("jobs de la release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("jobs of release %d: %w", releaseID, err)
 	}
 	defer rows.Close()
 
@@ -285,73 +282,72 @@ func (db *DB) ListReleaseJobs(ctx context.Context, releaseID int64) ([]ReleaseJo
 		var job ReleaseJob
 		if err := rows.Scan(&job.ID, &job.Kind, &job.State, &job.EnvironmentID,
 			&job.RunName, &job.RequestedBy, &job.RequestedAt, &job.FinishedAt); err != nil {
-			return nil, fmt.Errorf("jobs de la release %d: %w", releaseID, err)
+			return nil, fmt.Errorf("jobs of release %d: %w", releaseID, err)
 		}
 		jobs = append(jobs, job)
 	}
 	return jobs, rows.Err()
 }
 
-// MarkReleased fait passer une release en `released` et date sa livraison.
+// MarkReleased moves a release to `released` and dates its delivery.
 //
-// L'écriture est conditionnée à l'état de départ, comme [DB.AdvanceReleaseState] :
-// deux validations simultanées, ou une validation qui arrive après un abandon, ne
-// doivent pas se marcher dessus. Rend `false` quand la release a bougé entre la
-// lecture et l'écriture.
+// The write is conditioned on the starting state, like [DB.AdvanceReleaseState]: two
+// simultaneous approvals, or an approval arriving after an abandonment, must not
+// tread on each other. Returns false when the release moved between the read and the
+// write.
 //
-// `released_at` est posé ici et pas ailleurs : c'est la date de la décision
-// humaine, pas celle d'un déploiement. Une release validée mais jamais promue
-// porte quand même sa date de validation, et c'est ce qui distingue « validée,
-// pas encore livrée » de « jamais validée » dans le bon de livraison.
+// `released_at` is set here and nowhere else: it is the date of the human decision,
+// not of a deployment. A release approved but never promoted still carries its
+// approval date, and that is what separates "approved, not yet delivered" from
+// "never approved" in the delivery note.
 func (db *DB) MarkReleased(ctx context.Context, id int64, from string) (bool, error) {
 	tag, err := db.pool.Exec(ctx,
 		`update releases set state = $3, released_at = now(), updated_at = now()
 		 where id = $1 and state = $2`, id, from, string(release.StateReleased))
 	if err != nil {
-		return false, fmt.Errorf("validation de la release %d: %w", id, err)
+		return false, fmt.Errorf("approving release %d: %w", id, err)
 	}
 	return tag.RowsAffected() == 1, nil
 }
 
-// JobReleaseContext décrit la release qu'un job fait avancer.
+// JobReleaseContext describes the release a job advances.
 type JobReleaseContext struct {
 	ReleaseID int64
-	// JobID est le job lui-même.
+	// JobID is the job itself.
 	//
-	// Rendu parce que les faits en ont besoin pour se déduplique : une release se
-	// reconstruit, et « la construction de cette release » ne suffit pas à
-	// identifier laquelle. Le job, si.
+	// Returned because facts need it to deduplicate: a release is rebuilt, and "this
+	// release's build" is not enough to identify which. The job is.
 	JobID int64
-	// Kind est la nature du job — `build`, `promote` — et non celle de la release.
+	// Kind is the job's kind — `build`, `promote` — and not the release's.
 	Kind  string
 	Tag   string
 	State string
-	// Environment nomme l'environnement visé par une promotion. Vide pour les
-	// autres natures, qui n'en visent aucun.
+	// Environment names the environment a promotion targets. Empty for the other kinds,
+	// which target none.
 	Environment string
-	// GitRef et GitCommit servent à enchaîner les vérifications sur ce qui a été
-	// construit. Le commit prime : la branche a pu bouger depuis le build (B17).
+	// GitRef and GitCommit serve to chain verifications onto what was built. The commit
+	// prevails: the branch may have moved since the build.
 	GitRef    string
 	GitCommit string
-	// ProjectID est le dépôt de la release.
+	// ProjectID is the release's repository.
 	//
-	// Rendu parce que les vérifications enchaînées **clonent** elles aussi : sans
-	// lui, elles partaient sans projet et montaient le secret du déploiement, ce
-	// qui annulait la séparation des clés pour la moitié des runs d'une release.
+	// Returned because chained verifications clone too: without it they left with no
+	// project and mounted the deployment's secret, which undid the separation of keys for
+	// half of a release's runs.
 	ProjectID int64
 }
 
-// ErrJobWithoutRelease signale un job qui ne porte aucune release.
+// ErrJobWithoutRelease reports a job carrying no release.
 //
-// Cas courant et non exceptionnel : un lancement manuel de tests depuis `/queue`
-// n'en désigne aucune.
-var ErrJobWithoutRelease = errors.New("job sans release rattachée")
+// A common case and not an exceptional one: launching tests by hand from the queue
+// names none.
+var ErrJobWithoutRelease = errors.New("job with no release attached")
 
-// JobRelease rend la release qu'un job fait avancer, et son état courant.
+// JobRelease returns the release a job advances, and its current state.
 //
-// Lu au moment où le job se termine : l'état a pu changer entre-temps — reprise
-// manuelle, annulation — et décider d'une transition sur l'état connu à
-// l'enfilement produirait un écrasement silencieux.
+// Read as the job ends: the state may have changed meanwhile — a manual retry, a
+// cancellation — and deciding a transition on the state known at enqueue time would
+// produce a silent overwrite.
 func (db *DB) JobRelease(ctx context.Context, jobID int64) (JobReleaseContext, error) {
 	var entry JobReleaseContext
 	err := db.pool.QueryRow(ctx,
@@ -366,76 +362,71 @@ func (db *DB) JobRelease(ctx context.Context, jobID int64) (JobReleaseContext, e
 		if errors.Is(err, pgx.ErrNoRows) {
 			return JobReleaseContext{}, ErrJobWithoutRelease
 		}
-		return JobReleaseContext{}, fmt.Errorf("release du job %d: %w", jobID, err)
+		return JobReleaseContext{}, fmt.Errorf("release of job %d: %w", jobID, err)
 	}
 	return entry, nil
 }
 
-// AdvanceReleaseState écrit un état **si** la release est encore dans celui qu'on
-// a lu, et rend `false` sinon.
+// AdvanceReleaseState writes a state if the release is still in the one that was
+// read, and returns false otherwise.
 //
-// La condition sur l'état de départ est ce qui distingue cette écriture de
-// [DB.SetReleaseState] : entre la lecture et l'écriture, un autre geste a pu
-// déplacer la release, et écraser son état effacerait une décision humaine par
-// la conclusion d'un pipeline qui n'était plus le dernier mot.
+// The condition on the starting state is what distinguishes this write from
+// [DB.SetReleaseState]: between the read and the write another gesture may have moved
+// the release, and overwriting its state would erase a human decision with the
+// conclusion of a pipeline that was no longer the last word.
 func (db *DB) AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error) {
 	tag, err := db.pool.Exec(ctx,
 		`update releases set state = $3, updated_at = now()
 		 where id = $1 and state = $2`, id, from, to)
 	if err != nil {
-		return false, fmt.Errorf("avancement de la release %d: %w", id, err)
+		return false, fmt.Errorf("advancing release %d: %w", id, err)
 	}
 	return tag.RowsAffected() == 1, nil
 }
 
-// VerificationTally compte les vérifications d'une release par issue.
+// VerificationTally counts a release's verifications by outcome.
 type VerificationTally struct {
 	Pending   int
 	Failed    int
 	Succeeded int
 }
 
-// Done dit si plus aucune vérification n'est en cours.
-// Done dit que toutes les vérifications de la série ont rendu leur verdict.
+// Done says every verification in the series has returned its verdict.
 //
-// Une série **vide** n'est pas conclue. Le décompte ne portant que sur la
-// dernière construction, il existe un instant — entre l'écriture de `verifying`
-// et la mise en file des tests — où la série est vide. Un verdict tardif d'une
-// série précédente, redélivré par l'informer à ce moment, y verrait « tout a
-// conclu » et ferait passer la release en `ready` sans qu'aucun test de la série
-// en cours n'ait tourné.
+// An empty series is not concluded. The count covering only the last build, there is
+// an instant — between writing `verifying` and queueing the tests — when the series is
+// empty. A late verdict from a previous series, redelivered by the informer at that
+// moment, would see "everything concluded" and move the release to `ready` without a
+// single test of the current series having run.
 func (t VerificationTally) Done() bool {
 	return t.Pending == 0 && t.Failed+t.Succeeded > 0
 }
 
-// CountVerifications compte les jobs de vérification d'une release.
+// CountVerifications counts a release's verification jobs.
 //
-// Sert à conclure `verifying` : la release n'avance que lorsque **toutes** les
-// familles ont rendu leur verdict. Compter en base plutôt que retenir un état en
-// mémoire est ce qui rend la conclusion correcte après un redémarrage du worker —
-// les runs continuent pendant qu'il ne tourne pas.
+// It serves to conclude `verifying`: the release advances only when every family has
+// returned its verdict. Counting in the database rather than keeping state in memory
+// is what makes the conclusion correct after a worker restart — the runs continue
+// while it is not running.
 //
-// Les natures comptées sont passées par l'appelant : c'est lui qui décide de ce
-// qui constitue une vérification, et cette liste vit à côté de celle qui les
-// lance.
+// The kinds counted are passed by the caller: it decides what constitutes a
+// verification, and that list lives next to the one that launches them.
 func (db *DB) CountVerifications(
 	ctx context.Context, releaseID int64, kinds []string, buildKind string,
 ) (VerificationTally, error) {
 	var tally VerificationTally
-	// Le décompte ne porte que sur la **dernière** série. Une release relancée
-	// après un échec traîne les vérifications de ses tentatives précédentes : les
-	// compter ferait échouer indéfiniment une release dont la seconde série passe
-	// entièrement, sans que rien ne le dise. La frontière est la dernière
-	// construction — les vérifications d'une série sont enfilées après elle, et
-	// les identifiants sont monotones.
+	// The count covers only the last series. A release retried after a failure drags the
+	// verifications of its previous attempts along: counting them would fail a release
+	// whose second series passes entirely, with nothing saying so. The boundary is the
+	// last build — a series' verifications are queued after it, and identifiers are
+	// monotonic.
 	err := db.pool.QueryRow(ctx,
-		// Le **dernier** essai de chaque famille, et non tous.
+		// The last attempt of each family, not all of them.
 		//
-		// Une famille relancée après un échec laissait ses tentatives précédentes
-		// dans le décompte : trois échecs d'intégration suivis d'une réussite
-		// comptaient trois échecs, et la release restait en échec pour des
-		// verdicts que le dernier essai avait remplacés. Le bouton « Rejouer » ne
-		// pouvait donc rien rattraper.
+		// A family retried after a failure left its previous attempts in the count: three
+		// integration failures followed by a success counted three failures, and the release
+		// stayed failed over verdicts the last attempt had replaced. The replay button could
+		// therefore catch nothing up.
 		`with derniers as (
 		     select distinct on (kind) kind, state
 		       from jobs
@@ -453,45 +444,40 @@ func (db *DB) CountVerifications(
 		releaseID, kinds, buildKind).
 		Scan(&tally.Pending, &tally.Failed, &tally.Succeeded)
 	if err != nil {
-		return VerificationTally{}, fmt.Errorf("vérifications de la release %d: %w", releaseID, err)
+		return VerificationTally{}, fmt.Errorf("verifications of release %d: %w", releaseID, err)
 	}
 	return tally, nil
 }
 
-// BuildTally compte les constructions d'une release.
+// BuildTally counts a release's builds.
 type BuildTally struct {
 	Pending   int
 	Failed    int
 	Succeeded int
 }
 
-// Done dit que toutes les images ont été construites, et aucune en échec.
+// Done says every image was built, and none failed.
 //
-// Une série vide n'est pas conclue, pour la même raison que les vérifications :
-// entre l'écriture de `building` et la mise en file des constructions, il existe
-// un instant où le décompte est nul, et une redélivrance tardive y verrait « tout
-// a réussi ».
+// An empty series is not concluded, for the same reason as the verifications: between
+// writing `building` and queueing the builds there is an instant when the count is
+// zero, and a late redelivery would see "everything succeeded".
 func (t BuildTally) Done() bool {
 	return t.Pending == 0 && t.Failed == 0 && t.Succeeded > 0
 }
 
-// CountBuilds compte les constructions d'une release, une par image.
+// CountBuilds counts a release's builds, one per image.
 //
-// Une release construit désormais plusieurs images — le pipeline n'en traite
-// qu'une par exécution — et elle n'est construite que lorsque **toutes** ont
-// abouti. Compter en base plutôt que retenir un état en mémoire est ce qui rend
-// la conclusion correcte après un redémarrage du worker : les runs continuent
-// pendant qu'il ne tourne pas.
+// A release now builds several images — the pipeline handles one per run — and it is
+// built only when all have succeeded. Counting in the database rather than keeping
+// state in memory is what makes the conclusion correct after a worker restart.
 //
-// Le **dernier** essai de chaque image, et non tous : relancer une construction
-// laisserait sinon ses tentatives précédentes dans le décompte, et une release
-// dont la reprise passe entièrement resterait en échec pour un verdict que le
-// dernier essai a remplacé.
+// The last attempt of each image, not all of them: retrying a build would otherwise
+// leave its previous attempts in the count, and a release whose retry passes entirely
+// would stay failed over a verdict the last attempt replaced.
 //
-// Le regroupement se fait sur le paramètre `image-name`, seul à dire quelle image
-// un job construit. Les jobs antérieurs à ce paramètre le portent à `null` et se
-// regroupent donc ensemble, ce qui est le comportement d'avant : une release
-// construite par l'ancien pipeline avait bien une seule construction.
+// Grouping is on the `image-name` parameter, the only thing saying which image a job
+// builds. Jobs predating that parameter carry it as null and therefore group
+// together, which is the previous behaviour.
 func (db *DB) CountBuilds(ctx context.Context, releaseID int64, buildKind string) (BuildTally, error) {
 	var tally BuildTally
 	err := db.pool.QueryRow(ctx,
@@ -509,54 +495,54 @@ func (db *DB) CountBuilds(ctx context.Context, releaseID int64, buildKind string
 		releaseID, buildKind).
 		Scan(&tally.Pending, &tally.Failed, &tally.Succeeded)
 	if err != nil {
-		return BuildTally{}, fmt.Errorf("constructions de la release %d: %w", releaseID, err)
+		return BuildTally{}, fmt.Errorf("builds of release %d: %w", releaseID, err)
 	}
 	return tally, nil
 }
 
-// ReleaseBadges porte ce qu'un écran affiche à côté du nom d'une release, sans
-// avoir à la déplier.
+// ReleaseBadges carries what a screen shows beside a release's name, without having
+// to unfold it.
 type ReleaseBadges struct {
-	// BuildFailed dit que la **dernière** construction a échoué.
+	// BuildFailed says the last build failed.
 	//
-	// La dernière et non « une » : une release relancée après un échec
-	// d'infrastructure garderait sinon un badge d'échec que plus rien ne justifie.
+	// The last and not "a" build: a release retried after an infrastructure failure would
+	// otherwise keep a failure badge nothing justifies.
 	BuildFailed bool
 }
 
-// ReleaseBadgesByTag rend, pour chaque release, de quoi composer ses badges.
+// ReleaseBadgesByTag returns, for each release, what its badges are composed of.
 //
-// Une lecture pour toutes les releases plutôt qu'une par release : la liste en
-// affiche cinquante, et cinquante allers-retours pour deux booléens et un nom
-// d'environnement se paieraient à chaque ouverture de l'écran.
+// One read for every release rather than one per release: the list shows fifty, and
+// fifty round trips for two booleans and an environment name would be paid every time
+// the screen opens.
 func (db *DB) ReleaseBadgesByTag(ctx context.Context) (map[string]ReleaseBadges, error) {
 	badges := map[string]ReleaseBadges{}
 
-	// L'état de la dernière construction de chaque release.
+	// The state of each release's last build.
 	builds, err := db.pool.Query(ctx,
 		`select distinct on (r.tag) r.tag, j.state
 		   from releases r
 		   join jobs j on j.release_id = r.id and j.kind = 'build'
 		  order by r.tag, j.id desc`)
 	if err != nil {
-		return nil, fmt.Errorf("constructions des releases: %w", err)
+		return nil, fmt.Errorf("builds of the releases: %w", err)
 	}
 	defer builds.Close()
 
 	for builds.Next() {
 		var tag, state string
 		if err := builds.Scan(&tag, &state); err != nil {
-			return nil, fmt.Errorf("constructions des releases: %w", err)
+			return nil, fmt.Errorf("builds of the releases: %w", err)
 		}
 		entry := badges[tag]
 		entry.BuildFailed = state == JobFailed
 		badges[tag] = entry
 	}
 	if err := builds.Err(); err != nil {
-		return nil, fmt.Errorf("constructions des releases: %w", err)
+		return nil, fmt.Errorf("builds of the releases: %w", err)
 	}
 
-	// Les environnements où une release tourne ne sont pas lus ici : ils
-	// appartiennent au plugin MSE, qui les fournit à l'écran (doc 16 §16.17).
+	// The environments where a release runs are not read here: they belong to the MSE
+	// plugin, which supplies them to the screen.
 	return badges, nil
 }

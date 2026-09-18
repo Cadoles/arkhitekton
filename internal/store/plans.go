@@ -21,24 +21,24 @@ import (
  * logique, et une logique mêlée à du SQL ne s'éprouve qu'avec une base.
  */
 
-// PlanRun est une exécution de plan.
+// PlanRun is a run of a plan.
 type PlanRun struct {
 	ID int64
-	// Trigger nomme ce qui a déclenché : `builtin:<nom>` ou `reaction:<id>`.
+	// Trigger names what triggered it: `builtin:<name>` or `reaction:<id>`.
 	Trigger string
-	// EventKey est la clé du fait déclencheur.
+	// EventKey is the key of the triggering fact.
 	EventKey  string
 	ProjectID *int64
 	ReleaseID *int64
 	Plan      plan.Plan
-	// Context est la charge du fait déclencheur. Elle lie les paramètres des
-	// gestes : le plan nomme, l'exécution résout.
+	// Context is the triggering fact's payload. It binds the steps' parameters: the plan
+	// names, the run resolves.
 	Context   map[string]string
 	State     string
 	CreatedAt time.Time
 }
 
-// PlanStep est le sort d'un geste.
+// PlanStep is a step's fate.
 type PlanStep struct {
 	ID       int64
 	Stage    int
@@ -50,27 +50,25 @@ type PlanStep struct {
 	Detail   string
 }
 
-// États d'une exécution de plan. Les mêmes valeurs que celles de `internal/plan`,
-// écrites ici parce que la base ne dépend pas de ce paquet pour ses contraintes.
+// States of a plan run. The same values as internal/plan's, written here because the
+// database does not depend on that package for its constraints.
 const (
 	PlanRunning   = "running"
 	PlanSucceeded = "succeeded"
 	PlanFailed    = "failed"
 )
 
-// ErrPlanRunNotFound signale une exécution absente.
-var ErrPlanRunNotFound = errors.New("exécution de plan introuvable")
+// ErrPlanRunNotFound reports a missing run.
+var ErrPlanRunNotFound = errors.New("plan run not found")
 
-// CreatePlanRun ouvre une exécution, ou rend celle qui existe déjà.
+// CreatePlanRun opens a run, or returns the one that already exists.
 //
-// Le second retour dit laquelle des deux : `false` pour une exécution qui
-// existait. Ce n'est **pas une erreur** — c'est le cas nominal d'une
-// redélivrance, et le traiter comme un échec ferait journaliser une panne à
-// chaque redémarrage du worker.
+// The second return says which: false for a run that already existed. That is not an
+// error — it is the nominal case of a redelivery, and treating it as a failure would
+// log a fault at every worker restart.
 //
-// Les gestes sont créés dans la même transaction que l'exécution : une exécution
-// sans ses gestes serait une ligne que rien ne fait avancer, et il faudrait un
-// balai pour la retrouver.
+// The steps are created in the same transaction as the run: a run without its steps
+// would be a row nothing advances, and finding it again would take a sweep.
 func (db *DB) CreatePlanRun(ctx context.Context, run PlanRun) (PlanRun, bool, error) {
 	encoded, err := json.Marshal(run.Plan)
 	if err != nil {
@@ -79,7 +77,7 @@ func (db *DB) CreatePlanRun(ctx context.Context, run PlanRun) (PlanRun, bool, er
 
 	tx, err := db.pool.Begin(ctx)
 	if err != nil {
-		return PlanRun{}, false, fmt.Errorf("ouverture d'une exécution de plan: %w", err)
+		return PlanRun{}, false, fmt.Errorf("opening a plan run: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -93,12 +91,12 @@ func (db *DB) CreatePlanRun(ctx context.Context, run PlanRun) (PlanRun, bool, er
 		orEmptyContext(run.Context)).Scan(&id)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// Déjà ouverte. On rend celle qui existe, pour que l'appelant puisse la
-		// faire avancer plutôt que de repartir de zéro.
+		// Already open. The existing one is returned, so the caller can advance it rather
+		// than start over.
 		existing, err := db.PlanRunByEvent(ctx, run.Trigger, run.EventKey)
 		return existing, false, err
 	case err != nil:
-		return PlanRun{}, false, fmt.Errorf("ouverture d'une exécution de plan: %w", err)
+		return PlanRun{}, false, fmt.Errorf("opening a plan run: %w", err)
 	}
 
 	for stage, step := range run.Plan.Stages {
@@ -107,13 +105,13 @@ func (db *DB) CreatePlanRun(ctx context.Context, run PlanRun) (PlanRun, bool, er
 				`insert into plan_steps (run_id, stage, position, kind, ref)
 				 values ($1, $2, $3, $4, $5)`,
 				id, stage, position, string(geste.Kind), geste.Ref); err != nil {
-				return PlanRun{}, false, fmt.Errorf("gestes de l'exécution %d: %w", id, err)
+				return PlanRun{}, false, fmt.Errorf("steps of run %d: %w", id, err)
 			}
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return PlanRun{}, false, fmt.Errorf("ouverture d'une exécution de plan: %w", err)
+		return PlanRun{}, false, fmt.Errorf("opening a plan run: %w", err)
 	}
 
 	run.ID = id
@@ -121,7 +119,7 @@ func (db *DB) CreatePlanRun(ctx context.Context, run PlanRun) (PlanRun, bool, er
 	return run, true, nil
 }
 
-// PlanRunByEvent rend l'exécution ouverte pour un fait.
+// PlanRunByEvent returns the run opened for a fact.
 func (db *DB) PlanRunByEvent(ctx context.Context, trigger, eventKey string) (PlanRun, error) {
 	const query = `
 		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at
@@ -130,7 +128,7 @@ func (db *DB) PlanRunByEvent(ctx context.Context, trigger, eventKey string) (Pla
 	return db.scanPlanRun(ctx, query, trigger, eventKey)
 }
 
-// PlanRunByID rend une exécution par son identifiant.
+// PlanRunByID returns a run by its identifier.
 func (db *DB) PlanRunByID(ctx context.Context, id int64) (PlanRun, error) {
 	const query = `
 		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at
@@ -151,15 +149,15 @@ func (db *DB) scanPlanRun(ctx context.Context, query string, args ...any) (PlanR
 		if errors.Is(err, pgx.ErrNoRows) {
 			return PlanRun{}, ErrPlanRunNotFound
 		}
-		return PlanRun{}, fmt.Errorf("lecture d'une exécution de plan: %w", err)
+		return PlanRun{}, fmt.Errorf("reading a plan run: %w", err)
 	}
 	if err := json.Unmarshal(encoded, &run.Plan); err != nil {
-		return PlanRun{}, fmt.Errorf("plan de l'exécution %d illisible: %w", run.ID, err)
+		return PlanRun{}, fmt.Errorf("plan of run %d unreadable: %w", run.ID, err)
 	}
 	return run, nil
 }
 
-// PlanSteps rend les gestes d'une exécution, dans l'ordre du plan.
+// PlanSteps returns a run's steps, in the plan's order.
 func (db *DB) PlanSteps(ctx context.Context, runID int64) ([]PlanStep, error) {
 	const query = `
 		select id, stage, position, kind, ref, state, job_id, detail
@@ -168,7 +166,7 @@ func (db *DB) PlanSteps(ctx context.Context, runID int64) ([]PlanStep, error) {
 
 	rows, err := db.pool.Query(ctx, query, runID)
 	if err != nil {
-		return nil, fmt.Errorf("gestes de l'exécution %d: %w", runID, err)
+		return nil, fmt.Errorf("steps of run %d: %w", runID, err)
 	}
 	defer rows.Close()
 
@@ -177,18 +175,18 @@ func (db *DB) PlanSteps(ctx context.Context, runID int64) ([]PlanStep, error) {
 		var step PlanStep
 		if err := rows.Scan(&step.ID, &step.Stage, &step.Position, &step.Kind,
 			&step.Ref, &step.State, &step.JobID, &step.Detail); err != nil {
-			return nil, fmt.Errorf("lecture d'un geste: %w", err)
+			return nil, fmt.Errorf("reading a step: %w", err)
 		}
 		steps = append(steps, step)
 	}
 	return steps, rows.Err()
 }
 
-// MarkPlanStep écrit le sort d'un geste.
+// MarkPlanStep records a step's fate.
 //
-// `job` rattache le geste au job enfilé, et n'est renseigné qu'au départ d'un
-// geste de type pipeline. C'est ce rattachement qui permettra, à la conclusion du
-// job, de retrouver le geste qui l'attendait.
+// `job` attaches the step to the queued job, and is set only when a pipeline step
+// leaves. That attachment is what will allow finding, when the job concludes, the
+// step that was waiting for it.
 func (db *DB) MarkPlanStep(
 	ctx context.Context, runID int64, stage, position int, state string,
 	job *int64, detail string,
@@ -204,20 +202,20 @@ func (db *DB) MarkPlanStep(
 
 	tag, err := db.pool.Exec(ctx, query, runID, stage, position, state, job, detail)
 	if err != nil {
-		return fmt.Errorf("marquage du geste %d/%d de l'exécution %d: %w",
+		return fmt.Errorf("marking step %d/%d of run %d: %w",
 			stage, position, runID, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: geste %d/%d absent de l'exécution %d",
+		return fmt.Errorf("%w: step %d/%d missing from run %d",
 			ErrPlanRunNotFound, stage, position, runID)
 	}
 	return nil
 }
 
-// PlanStepForJob retrouve le geste qu'un job met en œuvre.
+// PlanStepForJob finds the step a job carries out.
 //
-// Rend [ErrPlanRunNotFound] quand aucun geste n'attend ce job — le cas courant :
-// la plupart des jobs ne viennent d'aucun plan.
+// Returns [ErrPlanRunNotFound] when no step awaits this job — the common case: most
+// jobs come from no plan.
 func (db *DB) PlanStepForJob(ctx context.Context, jobID int64) (int64, PlanStep, error) {
 	const query = `
 		select run_id, id, stage, position, kind, ref, state, job_id, detail
@@ -234,7 +232,7 @@ func (db *DB) PlanStepForJob(ctx context.Context, jobID int64) (int64, PlanStep,
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, PlanStep{}, ErrPlanRunNotFound
 		}
-		return 0, PlanStep{}, fmt.Errorf("geste du job %d: %w", jobID, err)
+		return 0, PlanStep{}, fmt.Errorf("step of job %d: %w", jobID, err)
 	}
 	return runID, step, nil
 }
@@ -246,40 +244,39 @@ func orEmptyContext(context map[string]string) map[string]string {
 	return context
 }
 
-// FinishPlanRun conclut une exécution.
+// FinishPlanRun concludes a run.
 //
-// Écriture conditionnée à l'état `running` : deux conclusions concurrentes — deux
-// gestes terminant en même temps — ne doivent pas produire deux conclusions, et
-// c'est la base qui tranche plutôt qu'un verrou en mémoire.
+// The write is conditioned on the `running` state: two concurrent conclusions — two
+// steps finishing at once — must not produce two conclusions, and the database
+// settles it rather than an in-memory lock.
 func (db *DB) FinishPlanRun(ctx context.Context, runID int64, state string) (bool, error) {
 	tag, err := db.pool.Exec(ctx,
 		`update plan_runs set state = $2, finished_at = now()
 		 where id = $1 and state = $3`, runID, state, PlanRunning)
 	if err != nil {
-		return false, fmt.Errorf("conclusion de l'exécution %d: %w", runID, err)
+		return false, fmt.Errorf("concluding run %d: %w", runID, err)
 	}
 	return tag.RowsAffected() > 0, nil
 }
 
-// PlanRunSummary est une exécution et ses gestes, telle que l'écran la lit.
+// PlanRunSummary is a run and its steps, as the screen reads it.
 type PlanRunSummary struct {
 	PlanRun
 	Steps []PlanStep
 }
 
-// maxPlanRunPage borne la lecture.
+// maxPlanRunPage bounds the read.
 //
-// Une vue d'exécutions se parcourt : on vient y chercher ce qui vient de se
-// passer, pas l'historique entier. La borne évite qu'un projet ancien rende une
-// page que le navigateur met une seconde à peindre.
+// A runs view is browsed: one comes to see what just happened, not the whole history.
+// The bound keeps an old project from returning a page the browser takes a second to
+// paint.
 const maxPlanRunPage = 100
 
-// ListPlanRuns rend les exécutions d'un projet, de la plus récente à la plus
-// ancienne, avec leurs gestes.
+// ListPlanRuns returns a project's runs, newest first, with their steps.
 //
-// Deux requêtes et non une jointure : une jointure rendrait une ligne par geste,
-// et recomposer les exécutions côté Go depuis un produit aplati coûterait plus de
-// code que la seconde requête n'économise d'aller-retour.
+// Two queries and not a join: a join would return one row per step, and recomposing
+// the runs in Go from a flattened product would cost more code than the second query
+// saves in round trips.
 func (db *DB) ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]PlanRunSummary, error) {
 	if limit <= 0 || limit > maxPlanRunPage {
 		limit = maxPlanRunPage
@@ -294,7 +291,7 @@ func (db *DB) ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]P
 
 	rows, err := db.pool.Query(ctx, query, projectID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("exécutions du projet %d: %w", projectID, err)
+		return nil, fmt.Errorf("runs of project %d: %w", projectID, err)
 	}
 	defer rows.Close()
 
@@ -307,10 +304,10 @@ func (db *DB) ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]P
 		)
 		if err := rows.Scan(&run.ID, &run.Trigger, &run.EventKey, &run.ProjectID,
 			&run.ReleaseID, &encoded, &run.Context, &run.State, &run.CreatedAt); err != nil {
-			return nil, fmt.Errorf("lecture d'une exécution: %w", err)
+			return nil, fmt.Errorf("reading a run: %w", err)
 		}
 		if err := json.Unmarshal(encoded, &run.Plan); err != nil {
-			return nil, fmt.Errorf("plan de l'exécution %d illisible: %w", run.ID, err)
+			return nil, fmt.Errorf("plan of run %d unreadable: %w", run.ID, err)
 		}
 		summaries = append(summaries, PlanRunSummary{PlanRun: run})
 		ids = append(ids, run.ID)
@@ -332,7 +329,7 @@ func (db *DB) ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]P
 	return summaries, nil
 }
 
-// planStepsFor rend les gestes de plusieurs exécutions, indexés par exécution.
+// planStepsFor returns the steps of several runs, indexed by run.
 func (db *DB) planStepsFor(ctx context.Context, runIDs []int64) (map[int64][]PlanStep, error) {
 	const query = `
 		select run_id, id, stage, position, kind, ref, state, job_id, detail
@@ -341,7 +338,7 @@ func (db *DB) planStepsFor(ctx context.Context, runIDs []int64) (map[int64][]Pla
 
 	rows, err := db.pool.Query(ctx, query, runIDs)
 	if err != nil {
-		return nil, fmt.Errorf("gestes des exécutions: %w", err)
+		return nil, fmt.Errorf("steps of the runs: %w", err)
 	}
 	defer rows.Close()
 
@@ -353,7 +350,7 @@ func (db *DB) planStepsFor(ctx context.Context, runIDs []int64) (map[int64][]Pla
 		)
 		if err := rows.Scan(&runID, &step.ID, &step.Stage, &step.Position, &step.Kind,
 			&step.Ref, &step.State, &step.JobID, &step.Detail); err != nil {
-			return nil, fmt.Errorf("lecture d'un geste: %w", err)
+			return nil, fmt.Errorf("reading a step: %w", err)
 		}
 		steps[runID] = append(steps[runID], step)
 	}
@@ -376,27 +373,27 @@ func (db *DB) planStepsFor(ctx context.Context, runIDs []int64) (map[int64][]Pla
  * eux qui disent quelle image porte le numéro qu'on a communiqué.
  */
 
-// PlanArtifact est ce qu'un geste a laissé derrière lui.
+// PlanArtifact is what a step left behind.
 type PlanArtifact struct {
-	// RunID est l'exécution qui l'a produit. Renseigné à la lecture par release,
-	// où plusieurs exécutions coexistent : une release reconstruite en a deux, et
-	// l'écran doit pouvoir dire laquelle a produit quoi.
+	// RunID is the run that produced it. Set when reading by release, where several runs
+	// coexist: a rebuilt release has two, and the screen must be able to say which
+	// produced what.
 	RunID    int64
 	Stage    int
 	Position int
-	// Name est le nom du résultat rendu par le pipeline : `image`, `tag`.
+	// Name is the result name the pipeline returned: `image`, `tag`.
 	Name string
-	// Kind reprend le vocabulaire de `produces` du catalogue. Vide quand le
-	// pipeline n'en déclare aucun.
+	// Kind reuses the catalogue's `produces` vocabulary. Empty when the pipeline declares
+	// none.
 	Kind      string
 	Reference string
 }
 
-// RecordPlanArtifacts enregistre ce qu'un geste a produit.
+// RecordPlanArtifacts records what a step produced.
 //
-// Rappelable sans effet : une redélivrance réécrit la même référence plutôt que
-// d'empiler. L'observateur redélivre les runs terminés, et c'est la règle plutôt
-// que l'exception.
+// Callable again with no effect: a redelivery rewrites the same reference rather than
+// stacking. The observer redelivers finished runs, and that is the rule rather than
+// the exception.
 func (db *DB) RecordPlanArtifacts(
 	ctx context.Context, runID int64, releaseID *int64, artifacts []PlanArtifact,
 ) error {
@@ -420,20 +417,20 @@ func (db *DB) RecordPlanArtifacts(
 	defer results.Close()
 	for range artifacts {
 		if _, err := results.Exec(); err != nil {
-			return fmt.Errorf("enregistrement des artefacts de l'exécution %d: %w", runID, err)
+			return fmt.Errorf("recording the artifacts of run %d: %w", runID, err)
 		}
 	}
 	return nil
 }
 
-// PlanArtifacts rend ce qu'une exécution a produit jusqu'ici.
+// PlanArtifacts returns what a run has produced so far.
 func (db *DB) PlanArtifacts(ctx context.Context, runID int64) ([]PlanArtifact, error) {
 	rows, err := db.pool.Query(ctx,
 		`select stage, position, name, kind, reference
 		 from plan_artifacts where run_id = $1
 		 order by stage, position, name`, runID)
 	if err != nil {
-		return nil, fmt.Errorf("artefacts de l'exécution %d: %w", runID, err)
+		return nil, fmt.Errorf("artifacts of run %d: %w", runID, err)
 	}
 	defer rows.Close()
 
@@ -442,23 +439,23 @@ func (db *DB) PlanArtifacts(ctx context.Context, runID int64) ([]PlanArtifact, e
 		var entry PlanArtifact
 		if err := rows.Scan(&entry.Stage, &entry.Position,
 			&entry.Name, &entry.Kind, &entry.Reference); err != nil {
-			return nil, fmt.Errorf("artefacts de l'exécution %d: %w", runID, err)
+			return nil, fmt.Errorf("artifacts of run %d: %w", runID, err)
 		}
 		artifacts = append(artifacts, entry)
 	}
 	return artifacts, rows.Err()
 }
 
-// RunResults rend les résultats Tekton du run d'un job.
+// RunResults returns the Tekton results of a job's run.
 //
-// Vide quand le job n'a pas de run, ou que son pipeline n'a rien rendu : les deux
-// sont des cas normaux, et les distinguer n'apporterait rien à l'appelant — il
-// n'a d'artefacts à enregistrer ni dans un cas ni dans l'autre.
+// Empty when the job has no run, or when its pipeline returned nothing: both are
+// normal cases, and telling them apart would add nothing for the caller — it has
+// artifacts to record in neither.
 func (db *DB) RunResults(ctx context.Context, jobID int64) (map[string]string, error) {
 	rows, err := db.pool.Query(ctx,
 		`select coalesce(results, '{}'::jsonb) from runs where job_id = $1`, jobID)
 	if err != nil {
-		return nil, fmt.Errorf("résultats du job %d: %w", jobID, err)
+		return nil, fmt.Errorf("results of job %d: %w", jobID, err)
 	}
 	defer rows.Close()
 
@@ -467,11 +464,11 @@ func (db *DB) RunResults(ctx context.Context, jobID int64) (map[string]string, e
 	}
 	var raw []byte
 	if err := rows.Scan(&raw); err != nil {
-		return nil, fmt.Errorf("résultats du job %d: %w", jobID, err)
+		return nil, fmt.Errorf("results of job %d: %w", jobID, err)
 	}
 	results := map[string]string{}
 	if err := json.Unmarshal(raw, &results); err != nil {
-		return nil, fmt.Errorf("résultats du job %d: %w", jobID, err)
+		return nil, fmt.Errorf("results of job %d: %w", jobID, err)
 	}
 	return results, nil
 }
@@ -485,25 +482,25 @@ func (db *DB) RunResults(ctx context.Context, jobID int64) (map[string]string, e
  * run porte son job, et un geste est le seul à porter ce job.
  */
 
-// GesteRef désigne un geste par sa place dans le plan figé.
+// GesteRef names a step by its place in the frozen plan.
 //
-// Sa position, et non son libellé : deux gestes peuvent le partager, et un plan
-// renommé ne doit pas orpheliner ce qu'il a mesuré. C'est la même clé que
-// `plan_steps` et `plan_artifacts`.
+// Its position, not its label: two steps may share a label, and a renamed plan must
+// not orphan what it measured. It is the same key as `plan_steps` and
+// `plan_artifacts`.
 type GesteRef struct {
 	Stage    int
 	Position int
 }
 
-// ResultGestes rend, pour chaque résultat d'une release, le geste qui l'a produit.
+// ResultGestes returns, for each result of a release, the step that produced it.
 //
-// Indexé par l'identifiant du **résultat** et non par run : c'est cette clé que
-// portent les audits de sécurité et les campagnes de charge, qui doivent se
-// rattacher au même geste que les rapports de tests.
+// Indexed by the result's identifier and not by run: that is the key security audits
+// and load campaigns carry, and they must attach to the same step as the test
+// reports.
 //
-// Un résultat sans geste n'apparaît pas : il vient d'un lancement manuel depuis
-// la file, qu'aucun plan n'a causé. Il compte dans les écrans de tests, pas dans
-// le score d'une release — le score porte sur ce que l'automatisation a mesuré.
+// A result with no step does not appear: it comes from a manual launch from the
+// queue, which no plan caused. It counts in the test screens, not in a release's
+// score — the score covers what the automation measured.
 func (db *DB) ResultGestes(ctx context.Context, releaseID int64) (map[int64]GesteRef, error) {
 	const query = `
 		select r.id, s.stage, s.position
@@ -514,7 +511,7 @@ func (db *DB) ResultGestes(ctx context.Context, releaseID int64) (map[int64]Gest
 
 	rows, err := db.pool.Query(ctx, query, releaseID)
 	if err != nil {
-		return nil, fmt.Errorf("gestes des résultats de la release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("steps of the results of release %d: %w", releaseID, err)
 	}
 	defer rows.Close()
 
@@ -530,24 +527,18 @@ func (db *DB) ResultGestes(ctx context.Context, releaseID int64) (map[int64]Gest
 	return gestes, rows.Err()
 }
 
-// ReleaseArtifacts rend ce que l'automatisation d'une release a produit.
+// ReleaseArtifacts returns what a release's automation produced.
 //
-// # Pourquoi la release et non l'exécution
-//
-// L'écran d'une release demande « qu'a-t-on produit pour ce tag ? », et non
-// « qu'a produit l'exécution 6 ? ». Une release reconstruite a deux exécutions,
-// et la question porte sur les deux — c'est d'ailleurs la raison pour laquelle
-// `plan_artifacts` porte `release_id` en plus de `run_id`.
-//
-// Rendus du plus récent au plus ancien : une reconstruction remplace ce qu'elle
-// refait, et c'est la dernière référence qui désigne ce qui est déployable.
+// A release's screen asks "what was produced for this tag?", not "what did run 6
+// produce?". A rebuilt release has two runs, and the question covers both — which is
+// why `plan_artifacts` carries `release_id` as well as `run_id`.
 func (db *DB) ReleaseArtifacts(ctx context.Context, releaseID int64) ([]PlanArtifact, error) {
 	rows, err := db.pool.Query(ctx,
 		`select run_id, stage, position, name, kind, reference
 		 from plan_artifacts where release_id = $1
 		 order by created_at desc, stage, position, name`, releaseID)
 	if err != nil {
-		return nil, fmt.Errorf("artefacts de la release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("artifacts of release %d: %w", releaseID, err)
 	}
 	defer rows.Close()
 
@@ -556,7 +547,7 @@ func (db *DB) ReleaseArtifacts(ctx context.Context, releaseID int64) ([]PlanArti
 		var entry PlanArtifact
 		if err := rows.Scan(&entry.RunID, &entry.Stage, &entry.Position,
 			&entry.Name, &entry.Kind, &entry.Reference); err != nil {
-			return nil, fmt.Errorf("artefacts de la release %d: %w", releaseID, err)
+			return nil, fmt.Errorf("artifacts of release %d: %w", releaseID, err)
 		}
 		artifacts = append(artifacts, entry)
 	}

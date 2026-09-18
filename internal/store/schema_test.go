@@ -9,7 +9,7 @@ import (
 func TestExpectedSchemaVersionFollowsTheLastMigration(t *testing.T) {
 	names, err := MigrationNames()
 	if err != nil {
-		t.Fatalf("lecture des migrations: %v", err)
+		t.Fatalf("reading the migrations: %v", err)
 	}
 
 	version, err := ExpectedSchemaVersion()
@@ -17,15 +17,15 @@ func TestExpectedSchemaVersionFollowsTheLastMigration(t *testing.T) {
 		t.Fatalf("version attendue: %v", err)
 	}
 	if version != int64(len(names)) {
-		// Les migrations sont numérotées sans trou depuis 0001 : si un jour ce
-		// n'est plus vrai, c'est ce test qui doit être revu, pas la sonde.
-		t.Errorf("version attendue = %d, %d migration(s) embarquée(s)", version, len(names))
+		// Migrations are numbered without gaps from 0001: if that ever stops being true, this test
+		// is what should be revisited, not the probe.
+		t.Errorf("expected version = %d, %d embedded migration(s)", version, len(names))
 	}
 }
 
-// Le cas qui motive la sonde : la base répond, mais le Job de migration n'a pas
-// tourné. Sans distinction, le pod se déclarerait prêt et répondrait 500 sur
-// chaque table absente.
+// The case that motivates the probe: the database answers, but the migration Job has not
+// run. Without the distinction the pod would declare itself ready and answer 500 on every
+// missing table.
 func TestCheckSchemaFailsBeforeMigration(t *testing.T) {
 	cfg := testDB(t)
 	resetSchema(t, cfg)
@@ -38,7 +38,7 @@ func TestCheckSchemaFailsBeforeMigration(t *testing.T) {
 	defer db.Close()
 
 	if err := db.CheckSchema(ctx); err == nil {
-		t.Fatal("un schéma absent doit faire échouer la sonde")
+		t.Fatal("a missing schema must fail the probe")
 	}
 }
 
@@ -58,13 +58,13 @@ func TestCheckSchemaPassesAfterMigration(t *testing.T) {
 	defer db.Close()
 
 	if err := db.CheckSchema(ctx); err != nil {
-		t.Fatalf("sonde en échec après migration complète: %v", err)
+		t.Fatalf("probe failed after a complete migration: %v", err)
 	}
 }
 
-// Un schéma partiellement appliqué doit être refusé, et le motif doit être
-// reconnaissable : c'est ce qui distingue « migrations en retard » d'une panne
-// de connexion, deux causes au traitement opposé.
+// A partially applied schema must be refused, and the reason must be recognisable: that is
+// what separates "migrations behind" from a connection failure, two causes handled
+// oppositely.
 func TestCheckSchemaDetectsPartialMigration(t *testing.T) {
 	cfg := testDB(t)
 	resetSchema(t, cfg)
@@ -80,15 +80,15 @@ func TestCheckSchemaDetectsPartialMigration(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Simule un binaire plus récent que la base : la dernière migration est
-	// marquée non appliquée, sans toucher aux tables.
+	// Simulates a binary newer than the database: the last migration is marked unapplied,
+	// without touching the tables.
 	if _, err := db.Pool().Exec(ctx,
 		"update goose_db_version set is_applied = false where version_id = (select max(version_id) from goose_db_version)"); err != nil {
-		t.Fatalf("altération de l'état goose: %v", err)
+		t.Fatalf("altering goose's state: %v", err)
 	}
 
 	err = db.CheckSchema(ctx)
 	if !errors.Is(err, ErrSchemaOutdated) {
-		t.Fatalf("erreur = %v, attendu ErrSchemaOutdated", err)
+		t.Fatalf("error = %v, expected ErrSchemaOutdated", err)
 	}
 }

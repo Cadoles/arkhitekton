@@ -11,23 +11,23 @@ func TestEnsureVersionCreatesThenReuses(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	// Sans la synchronisation Redmine, la table est vide et aucune release ne
-	// pourrait être créée alors que tout le reste de la chaîne fonctionne.
+	// Without tracker synchronisation the table is empty, and no release could be created
+	// while the rest of the chain works.
 	first, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	if err != nil {
-		t.Fatalf("création: %v", err)
+		t.Fatalf("creation: %v", err)
 	}
 
 	second, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
 	if err != nil {
-		t.Fatalf("réutilisation: %v", err)
+		t.Fatalf("reuse: %v", err)
 	}
 	if first != second {
-		t.Errorf("deux versions créées pour un même nom: %d puis %d", first, second)
+		t.Errorf("two versions created for one name: %d then %d", first, second)
 	}
 
-	// La ligne provisoire doit être reconnaissable, pour que la synchronisation
-	// sache laquelle remplacer.
+	// The provisional row must be recognisable, so synchronisation knows which one to
+	// replace.
 	var origin, status string
 	var externalID *string
 	if err := db.Pool().QueryRow(ctx,
@@ -36,12 +36,12 @@ func TestEnsureVersionCreatesThenReuses(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if origin != VersionOriginPending {
-		t.Errorf("origin = %q, attendu %q pour une version provisoire", origin, VersionOriginPending)
+		t.Errorf("origin = %q, expected %q for a provisional version", origin, VersionOriginPending)
 	}
-	// Une provisoire n'a rien à désigner dans le suivi : c'est justement ce
-	// qu'elle attend.
+	// A provisional version has nothing to name in the tracker: that is precisely what it is
+	// waiting for.
 	if externalID != nil {
-		t.Errorf("external_id = %q, attendu nul", *externalID)
+		t.Errorf("external_id = %q, expected null", *externalID)
 	}
 	if status != "en-attente-de-synchronisation" {
 		t.Errorf("statut = %q", status)
@@ -63,7 +63,7 @@ func TestCreateAndGetRelease(t *testing.T) {
 		GitRef: "abc1234", ImageVersion: "1.8.0-rc1", CreatedBy: "vcarroy",
 	})
 	if err != nil {
-		t.Fatalf("création: %v", err)
+		t.Fatalf("creation: %v", err)
 	}
 
 	release, err := db.GetRelease(ctx, testProjectID, "1.8.0-rc1")
@@ -79,13 +79,13 @@ func TestGetReleaseDistinguishesAbsence(t *testing.T) {
 	db := migrated(t)
 
 	if _, err := db.GetRelease(context.Background(), testProjectID, "9.9.9"); !errors.Is(err, ErrReleaseNotFound) {
-		t.Errorf("erreur = %v, attendu ErrReleaseNotFound", err)
+		t.Errorf("error = %v, expected ErrReleaseNotFound", err)
 	}
 }
 
-// Le re-tag : la finale porte son propre tag mais l'image de sa RC. C'est cet
-// écart que `image_version` absorbe, et sans lequel toute comparaison à
-// PortalData échouerait sur une release finale.
+// The re-tag: the final release carries its own tag but its candidate's image. That is
+// the gap `image_version` absorbs, and without which any comparison with the running
+// version would fail on a final release.
 func TestFinalReleaseKeepsTheSourceImageVersion(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -115,10 +115,10 @@ func TestFinalReleaseKeepsTheSourceImageVersion(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if final.ImageVersion != "1.8.0-rc3" {
-		t.Errorf("version d'image = %q, attendu celle de la RC", final.ImageVersion)
+		t.Errorf("image version = %q, expected the candidate's", final.ImageVersion)
 	}
 	if final.SourceReleaseID == nil || *final.SourceReleaseID != sourceID {
-		t.Errorf("release source = %v, attendu %d", final.SourceReleaseID, sourceID)
+		t.Errorf("source release = %v, expected %d", final.SourceReleaseID, sourceID)
 	}
 }
 
@@ -135,7 +135,7 @@ func TestManualActionsCarryTheirAuthorAndDate(t *testing.T) {
 		t.Fatalf("release: %v", err)
 	}
 
-	if err := db.SetManualActions(ctx, "1.8.0", "- purge du cache\n- bascule du DNS", "vcarroy"); err != nil {
+	if err := db.SetManualActions(ctx, "1.8.0", "- cache purge\n- DNS switchover", "vcarroy"); err != nil {
 		t.Fatalf("actions: %v", err)
 	}
 
@@ -146,7 +146,7 @@ func TestManualActionsCarryTheirAuthorAndDate(t *testing.T) {
 	if release.ManualActions == "" {
 		t.Error("texte perdu")
 	}
-	// Ce texte finit dans un document contractuel : sa provenance en fait partie.
+	// This text ends up in a contractual document: its provenance is part of it.
 	if release.ManualActionsUpdatedBy != "vcarroy" || release.ManualActionsUpdatedAt == nil {
 		t.Errorf("auteur = %q, date = %v", release.ManualActionsUpdatedBy, release.ManualActionsUpdatedAt)
 	}
@@ -156,11 +156,11 @@ func TestSetManualActionsOnAnUnknownRelease(t *testing.T) {
 	db := migrated(t)
 
 	if err := db.SetManualActions(context.Background(), "9.9.9", "texte", "vcarroy"); !errors.Is(err, ErrReleaseNotFound) {
-		t.Errorf("erreur = %v, attendu ErrReleaseNotFound", err)
+		t.Errorf("error = %v, expected ErrReleaseNotFound", err)
 	}
 }
 
-// buildJob met en file une construction d'image et la conclut.
+// buildJob queues an image build and concludes it.
 func buildJob(t *testing.T, db *DB, releaseID int64, image, state string) int64 {
 	t.Helper()
 	ctx := context.Background()
@@ -172,11 +172,11 @@ func buildJob(t *testing.T, db *DB, releaseID int64, image, state string) int64 
 		ReleaseID:   &releaseID,
 	})
 	if err != nil {
-		t.Fatalf("mise en file de %s: %v", image, err)
+		t.Fatalf("queueing %s: %v", image, err)
 	}
 	if state != JobQueued {
 		if err := db.FinishJob(ctx, id, state, ""); err != nil {
-			t.Fatalf("conclusion de %s: %v", image, err)
+			t.Fatalf("concluding %s: %v", image, err)
 		}
 	}
 	return id
@@ -191,7 +191,7 @@ func buildJob(t *testing.T, db *DB, releaseID int64, image, state string) int64 
  * après un redémarrage du worker : les runs continuent pendant qu'il ne tourne
  * pas.
  */
-func TestLeDecompteDesConstructionsAttendToutesLesImages(t *testing.T) {
+func TestTheBuildCountWaitsForEveryImage(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -211,29 +211,29 @@ func TestLeDecompteDesConstructionsAttendToutesLesImages(t *testing.T) {
 
 	tally, err := db.CountBuilds(ctx, releaseID, "build")
 	if err != nil {
-		t.Fatalf("décompte: %v", err)
+		t.Fatalf("count: %v", err)
 	}
 	if tally.Done() {
-		t.Errorf("série conclue alors qu'une image reste à construire: %+v", tally)
+		t.Errorf("series concluded while an image is still to build: %+v", tally)
 	}
 	if tally.Pending != 1 || tally.Succeeded != 2 {
-		t.Errorf("décompte = %+v", tally)
+		t.Errorf("count = %+v", tally)
 	}
 
 	if err := db.FinishJob(ctx, buildJob(t, db, releaseID, "portal-dev", JobQueued),
 		JobSucceeded, ""); err != nil {
 		t.Fatalf("conclusion: %v", err)
 	}
-	// Le **dernier** essai de chaque image, et non tous : la première mise en
-	// file de `portal-dev` reste `queued` et ne doit plus compter.
+	// The last attempt of each image, not all: the first queueing of one image stays `queued`
+	// and must no longer count.
 	tally, _ = db.CountBuilds(ctx, releaseID, "build")
 	if !tally.Done() || tally.Succeeded != 3 {
-		t.Errorf("décompte après la dernière image = %+v", tally)
+		t.Errorf("count after the last image = %+v", tally)
 	}
 }
 
-// Un échec suffit à disqualifier la série, même si les autres images passent.
-func TestUneImageEnEchecEmpecheLaConclusion(t *testing.T) {
+// One failure is enough to disqualify the series, even when the other images pass.
+func TestAFailedImagePreventsTheConclusion(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -252,23 +252,22 @@ func TestUneImageEnEchecEmpecheLaConclusion(t *testing.T) {
 
 	tally, _ := db.CountBuilds(ctx, releaseID, "build")
 	if tally.Done() || tally.Failed != 1 {
-		t.Errorf("décompte = %+v", tally)
+		t.Errorf("count = %+v", tally)
 	}
 
-	// La reprise remplace l'essai précédent : une release dont la seconde
-	// tentative passe entièrement ne doit pas rester en échec pour un verdict
-	// que le dernier essai a remplacé.
+	// The retry replaces the previous attempt: a release whose second attempt passes entirely
+	// must not stay failed over a verdict the last attempt replaced.
 	buildJob(t, db, releaseID, "portal-cli", JobSucceeded)
 	tally, _ = db.CountBuilds(ctx, releaseID, "build")
 	if !tally.Done() || tally.Failed != 0 {
-		t.Errorf("décompte après reprise = %+v", tally)
+		t.Errorf("count after the retry = %+v", tally)
 	}
 }
 
-// Une série vide n'est pas conclue : entre l'écriture de `building` et la mise
-// en file des constructions, il existe un instant où le décompte est nul, et une
-// redélivrance tardive y verrait « tout a réussi ».
-func TestUneSerieVideNestPasConclue(t *testing.T) {
+// An empty series is not concluded: between writing `building` and queueing the builds
+// there is an instant when the count is zero, and a late redelivery would see "everything
+// succeeded".
+func TestAnEmptySeriesIsNotConcluded(t *testing.T) {
 	db := migrated(t)
 
 	versionID := redmineVersion(t, db, 932, "v3.5.0", "open")
@@ -283,25 +282,23 @@ func TestUneSerieVideNestPasConclue(t *testing.T) {
 
 	tally, err := db.CountBuilds(context.Background(), releaseID, "build")
 	if err != nil {
-		t.Fatalf("décompte: %v", err)
+		t.Fatalf("count: %v", err)
 	}
 	if tally.Done() {
-		t.Error("une série vide ne doit pas être conclue")
+		t.Error("an empty series must not be concluded")
 	}
 }
 
-// Une release appartient à son projet, et la base l'exige.
+// A release belongs to its project, and the database requires it.
 //
-// Le gestionnaire de création ne renseignait pas `ProjectID` depuis que la
-// migration 0025 a rattaché les releases à leur projet. La valeur zéro d'un
-// `int64` n'est pas nulle : c'est l'identifiant 0, qui ne désigne aucun projet,
-// et la clé étrangère refusait l'insertion.
+// The creation handler did not set ProjectID after the migration attached releases to
+// their project. An int64's zero value is not null: it is identifier 0, which names no
+// project, and the foreign key refused the insert.
 //
-// Personne ne l'a vu parce que l'échec se lisait « cette release existe peut-être
-// déjà » — le gestionnaire traduisait toute erreur de la base en conflit. Le
-// message envoyait chercher un doublon pendant que la vraie cause restait
-// invisible.
-func TestUneReleaseSansProjetEstRefuseeParLaBase(t *testing.T) {
+// Nobody saw it because the failure read as "this release may already exist" — the handler
+// translated every database error into a conflict. The message sent someone looking for a
+// duplicate while the real cause stayed invisible.
+func TestAReleaseWithoutAProjectIsRefusedByTheDatabase(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -315,23 +312,22 @@ func TestUneReleaseSansProjetEstRefuseeParLaBase(t *testing.T) {
 		ImageVersion: "3.2.1-rc1", CreatedBy: "vcarroy",
 	})
 	if err == nil {
-		t.Fatal("une release sans projet doit être refusée: rien ne dirait à qui elle appartient")
+		t.Fatal("a release with no project must be refused: nothing would say whom it belongs to")
 	}
 
-	// Avec son projet, elle passe : c'est la seule différence.
+	// With its project it passes: that is the only difference.
 	if _, err := db.CreateRelease(ctx, Release{
 		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.1-rc1", Kind: "pre", State: "draft",
 		ImageVersion: "3.2.1-rc1", CreatedBy: "vcarroy",
 	}); err != nil {
-		t.Fatalf("release avec projet refusée: %v", err)
+		t.Fatalf("release with a project refused: %v", err)
 	}
 }
 
-// Le doublon est une violation d'unicité, et non n'importe quelle erreur : c'est
-// ce que le gestionnaire doit pouvoir distinguer pour rendre un 409 plutôt qu'un
-// 500 muet.
-func TestUnTagDejaPrisDansLeProjetEstUnDoublon(t *testing.T) {
+// A duplicate is a uniqueness violation, and not just any error: that is what the handler
+// must be able to tell apart in order to return a 409 rather than a mute 500.
+func TestATagAlreadyTakenInTheProjectIsADuplicate(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -343,14 +339,14 @@ func TestUnTagDejaPrisDansLeProjetEstUnDoublon(t *testing.T) {
 	}
 
 	if _, err := db.CreateRelease(ctx, release); err != nil {
-		t.Fatalf("première création: %v", err)
+		t.Fatalf("first creation: %v", err)
 	}
 
 	_, err := db.CreateRelease(ctx, release)
 	if err == nil {
-		t.Fatal("le même tag deux fois dans un projet doit être refusé")
+		t.Fatal("the same tag twice within a project must be refused")
 	}
 	if !strings.Contains(err.Error(), "23505") && !strings.Contains(err.Error(), "duplicate") {
-		t.Errorf("erreur %v — attendu une violation d'unicité", err)
+		t.Errorf("error %v — expected a uniqueness violation", err)
 	}
 }

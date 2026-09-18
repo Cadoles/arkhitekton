@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// migrated rend une base au schéma à jour. Les tests de ce fichier travaillent
-// tous sur des runs, sans dépendance à un référentiel.
+// migrated returns a database at the current schema. Every test in this file works on
+// runs, with no dependency on a reference dataset.
 func migratedBare(t *testing.T) *DB {
 	t.Helper()
 
@@ -54,14 +54,13 @@ func TestUpsertRunIsIdempotent(t *testing.T) {
 		t.Fatalf("second enregistrement: %v", err)
 	}
 	if first != second {
-		t.Errorf("identifiants différents: %d puis %d", first, second)
+		t.Errorf("different identifiers: %d then %d", first, second)
 	}
 }
 
-// L'invariant central de la projection. Une resynchronisation d'informer rejoue
-// tous les objets dans un ordre quelconque : sans cette garde, un run terminé
-// repasserait `running` et gèlerait sa classe d'exclusion, sans que rien
-// n'explique pourquoi la file n'avance plus.
+// The projection's central invariant. An informer resync replays every object in
+// arbitrary order: without this guard a finished run would return to `running` and
+// freeze its exclusion class, with nothing to explain why the queue stopped advancing.
 func TestTerminalStatusIsNeverOverwritten(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -76,12 +75,12 @@ func TestTerminalStatusIsNeverOverwritten(t *testing.T) {
 	final.Reason = "Failed"
 	final.CompletedAt = &completed
 	if _, err := db.UpsertRun(ctx, final); err != nil {
-		t.Fatalf("passage en échec: %v", err)
+		t.Fatalf("transition to failed: %v", err)
 	}
 
-	// L'événement en retard : même objet, état antérieur.
+	// The late event: same object, earlier state.
 	if _, err := db.UpsertRun(ctx, runningRecord("run-terminal")); err != nil {
-		t.Fatalf("événement en retard: %v", err)
+		t.Fatalf("late event: %v", err)
 	}
 
 	var status, reason string
@@ -90,17 +89,17 @@ func TestTerminalStatusIsNeverOverwritten(t *testing.T) {
 		`select status, coalesce(reason, ''), completed_at from runs where pipelinerun_name = 'run-terminal'`).
 		Scan(&status, &reason, &completedAt)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 
 	if status != "failed" {
-		t.Errorf("statut = %q, attendu failed: un état terminal a été écrasé", status)
+		t.Errorf("status = %q, expected failed: a terminal state was overwritten", status)
 	}
 	if reason != "Failed" {
-		t.Errorf("motif = %q, attendu Failed", reason)
+		t.Errorf("reason = %q, expected Failed", reason)
 	}
 	if completedAt == nil {
-		t.Error("completed_at effacé par un événement plus ancien")
+		t.Error("completed_at cleared by an older event")
 	}
 }
 
@@ -108,16 +107,16 @@ func TestTaskRunAttachesToItsRun(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	if _, err := db.UpsertRun(ctx, runningRecord("run-avec-task")); err != nil {
+	if _, err := db.UpsertRun(ctx, runningRecord("run-with-task")); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
 	record := TaskRunRecord{
-		RunName:     "run-avec-task",
-		Name:        "run-avec-task-unit-test",
+		RunName:     "run-with-task",
+		Name:        "run-with-task-unit-test",
 		DisplayName: "unit-test",
 		Status:      "running",
-		PodName:     "run-avec-task-unit-test-pod",
+		PodName:     "run-with-task-unit-test-pod",
 	}
 	if err := db.UpsertTaskRun(ctx, record); err != nil {
 		t.Fatalf("task: %v", err)
@@ -126,17 +125,17 @@ func TestTaskRunAttachesToItsRun(t *testing.T) {
 	var count int
 	if err := db.Pool().QueryRow(ctx,
 		`select count(*) from task_runs t join runs r on r.id = t.run_id
-		 where r.pipelinerun_name = 'run-avec-task'`).Scan(&count); err != nil {
-		t.Fatalf("relecture: %v", err)
+		 where r.pipelinerun_name = 'run-with-task'`).Scan(&count); err != nil {
+		t.Fatalf("read back: %v", err)
 	}
 	if count != 1 {
-		t.Errorf("%d task(s) rattachée(s), attendu 1", count)
+		t.Errorf("%d task(s) attached, expected 1", count)
 	}
 }
 
-// Un TaskRun peut arriver avant son PipelineRun : l'informer ne garantit aucun
-// ordre entre les deux ressources. L'écriture doit alors ne rien faire, sans
-// erreur — le prochain événement la reprendra.
+// A TaskRun may arrive before its PipelineRun: the informer guarantees no order between
+// the two resources. The write must then do nothing, without error — the next event will
+// pick it up.
 func TestTaskRunWithoutItsRunIsIgnoredWithoutError(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -147,21 +146,21 @@ func TestTaskRunWithoutItsRunIsIgnoredWithoutError(t *testing.T) {
 		Status:  "running",
 	})
 	if err != nil {
-		t.Fatalf("une task orpheline ne doit pas produire d'erreur: %v", err)
+		t.Fatalf("an orphaned task must not produce an error: %v", err)
 	}
 
 	var count int
 	if err := db.Pool().QueryRow(ctx, `select count(*) from task_runs`).Scan(&count); err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if count != 0 {
-		t.Errorf("%d task(s) écrite(s) sans run parent", count)
+		t.Errorf("%d task(s) written with no parent run", count)
 	}
 }
 
-// Le pod disparaît avant le TaskRun, et un événement tardif ne le porte plus.
-// L'effacer rendrait les logs illisibles alors qu'ils sont peut-être encore
-// capturables — ou déjà scellés sur MinIO sous une clé dérivée du pod.
+// The pod disappears before the TaskRun, and a late event no longer carries it. Clearing
+// it would make the logs unreadable while they may still be capturable — or already
+// sealed under a key derived from the pod.
 func TestPodNameIsNeverErased(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -175,21 +174,21 @@ func TestPodNameIsNeverErased(t *testing.T) {
 		PodName: "run-pod-task-pod",
 	}
 	if err := db.UpsertTaskRun(ctx, withPod); err != nil {
-		t.Fatalf("task avec pod: %v", err)
+		t.Fatalf("task with a pod: %v", err)
 	}
 
 	withoutPod := TaskRunRecord{RunName: "run-pod", Name: "run-pod-task", Status: "running"}
 	if err := db.UpsertTaskRun(ctx, withoutPod); err != nil {
-		t.Fatalf("task sans pod: %v", err)
+		t.Fatalf("task with no pod: %v", err)
 	}
 
 	var podName *string
 	if err := db.Pool().QueryRow(ctx,
 		`select pod_name from task_runs where name = 'run-pod-task'`).Scan(&podName); err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if podName == nil || *podName != "run-pod-task-pod" {
-		t.Errorf("pod_name = %v, attendu conservé", podName)
+		t.Errorf("pod_name = %v, expected to be kept", podName)
 	}
 }
 
@@ -219,11 +218,11 @@ func TestUnfinishedRunsExcludesTerminalOnes(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if len(unfinished) != 2 {
-		t.Fatalf("%d run(s) non terminé(s), attendu 2: %+v", len(unfinished), unfinished)
+		t.Fatalf("%d unfinished run(s), expected 2: %+v", len(unfinished), unfinished)
 	}
 }
 
-// La conclusion d'un run disparu, cœur de la réconciliation au démarrage.
+// Concluding a vanished run, the heart of reconciliation at start-up.
 func TestMarkRunVanishedConcludesTheRun(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -243,24 +242,24 @@ func TestMarkRunVanishedConcludesTheRun(t *testing.T) {
 	if err := db.Pool().QueryRow(ctx,
 		`select status, coalesce(reason, ''), completed_at from runs where id = $1`, id).
 		Scan(&status, &got, &completedAt); err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 
 	if status != "failed" {
-		t.Errorf("statut = %q, attendu failed", status)
+		t.Errorf("status = %q, expected failed", status)
 	}
-	// Le motif doit dire « disparu » et non « échoué » : la distinction évite de
-	// faire chercher un log qui n'a jamais existé.
+	// The reason must say "vanished" and not "failed": the distinction avoids sending
+	// someone hunting for a log that never existed.
 	if got != reason {
-		t.Errorf("motif = %q, attendu %q", got, reason)
+		t.Errorf("reason = %q, expected %q", got, reason)
 	}
 	if completedAt == nil {
-		t.Error("completed_at non renseigné")
+		t.Error("completed_at not set")
 	}
 }
 
-// Un run déjà conclu ne doit pas être réécrit par la réconciliation : son motif
-// réel vaut mieux que « disparu ».
+// A run already concluded must not be rewritten by reconciliation: its real reason is
+// worth more than "vanished".
 func TestMarkRunVanishedLeavesTerminalRunsAlone(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -282,16 +281,16 @@ func TestMarkRunVanishedLeavesTerminalRunsAlone(t *testing.T) {
 	var status, reason string
 	if err := db.Pool().QueryRow(ctx,
 		`select status, coalesce(reason, '') from runs where id = $1`, id).Scan(&status, &reason); err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if status != "succeeded" || reason != "Completed" {
-		t.Errorf("run terminal réécrit: statut = %q, motif = %q", status, reason)
+		t.Errorf("terminal run rewritten: status = %q, reason = %q", status, reason)
 	}
 }
 
-// Un run que Tekton n'a pas encore réconcilié n'a pas de date de début. Il doit
-// apparaître en tête de liste et non en queue, sans quoi le run qu'on vient de
-// lancer est le plus dur à trouver.
+// A run Tekton has not yet reconciled has no start time. It must appear at the top of
+// the list and not at the bottom, otherwise the run just launched is the hardest to
+// find.
 func TestListRunsPlacesUnstartedRunsFirst(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -303,7 +302,7 @@ func TestListRunsPlacesUnstartedRunsFirst(t *testing.T) {
 		t.Fatalf("run ancien: %v", err)
 	}
 
-	fresh := runningRecord("run-tout-neuf")
+	fresh := runningRecord("brand-new-run")
 	fresh.Status = "pending"
 	fresh.StartedAt = nil
 	if _, err := db.UpsertRun(ctx, fresh); err != nil {
@@ -315,10 +314,10 @@ func TestListRunsPlacesUnstartedRunsFirst(t *testing.T) {
 		t.Fatalf("liste: %v", err)
 	}
 	if len(runs) != 2 {
-		t.Fatalf("%d run(s), attendu 2", len(runs))
+		t.Fatalf("%d run(s), expected 2", len(runs))
 	}
-	if runs[0].Name != "run-tout-neuf" {
-		t.Errorf("premier run = %q, attendu run-tout-neuf", runs[0].Name)
+	if runs[0].Name != "brand-new-run" {
+		t.Errorf("first run = %q, expected the brand-new run", runs[0].Name)
 	}
 }
 
@@ -344,22 +343,22 @@ func TestUpsertRunStoresResultsAndJobID(t *testing.T) {
 	if err := db.Pool().QueryRow(ctx,
 		`select results, job_id, observed from runs where pipelinerun_name = 'run-resultats'`).
 		Scan(&results, &jobID, &observed); err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 
 	if results["tag"] != "1.8.0-rc1" {
-		t.Errorf("résultats = %v", results)
+		t.Errorf("results = %v", results)
 	}
 	if jobID == nil || *jobID != record.JobID {
-		t.Errorf("job_id = %v, attendu %d", jobID, record.JobID)
+		t.Errorf("job_id = %v, expected %d", jobID, record.JobID)
 	}
 	if observed {
-		t.Error("un run portant un job_id ne doit pas être marqué observé")
+		t.Error("a run carrying a job_id must not be marked observed")
 	}
 }
 
-// insertJob crée un job minimal. La colonne runs.job_id le référence : un test
-// qui inventerait un identifiant vérifierait la contrainte, pas la projection.
+// insertJob creates a minimal job. The runs.job_id column references it: a test that
+// invented an identifier would exercise the constraint, not the projection.
 func insertJob(t *testing.T, db *DB) int64 {
 	t.Helper()
 
@@ -369,15 +368,14 @@ func insertJob(t *testing.T, db *DB) int64 {
 		 values ('php-static-tests', 'parallel', 'running', '{}'::jsonb, 'test')
 		 returning id`).Scan(&id)
 	if err != nil {
-		t.Fatalf("création du job: %v", err)
+		t.Fatalf("creating the job: %v", err)
 	}
 	return id
 }
 
-// Un label de job pointant sur un job inexistant ne doit pas faire perdre
-// l'observation : la contrainte référentielle ferait échouer l'insertion, et le
-// run n'apparaîtrait nulle part. Il est enregistré sans lien, donc en lecture
-// seule.
+// A job label pointing at a non-existent job must not cost the observation: the
+// referential constraint would fail the insert, and the run would appear nowhere. It is
+// recorded without a link, hence read-only.
 func TestUnknownJobIDDoesNotLoseTheRun(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -387,7 +385,7 @@ func TestUnknownJobIDDoesNotLoseTheRun(t *testing.T) {
 	record.Observed = false
 
 	if _, err := db.UpsertRun(ctx, record); err != nil {
-		t.Fatalf("un job inconnu ne doit pas faire échouer l'enregistrement: %v", err)
+		t.Fatalf("an unknown job must not fail the recording: %v", err)
 	}
 
 	var jobID *int64
@@ -395,13 +393,13 @@ func TestUnknownJobIDDoesNotLoseTheRun(t *testing.T) {
 	if err := db.Pool().QueryRow(ctx,
 		`select job_id, observed from runs where pipelinerun_name = 'run-job-fantome'`).
 		Scan(&jobID, &observed); err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if jobID != nil {
-		t.Errorf("job_id = %v, attendu null", *jobID)
+		t.Errorf("job_id = %v, expected null", *jobID)
 	}
 	if !observed {
-		t.Error("un run sans lien de job valide doit être en lecture seule")
+		t.Error("a run with no valid job link must be read-only")
 	}
 }
 
@@ -416,8 +414,8 @@ func TestGetRunReturnsItsTasksInExecutionOrder(t *testing.T) {
 	early := time.Now().Add(-3 * time.Minute)
 	late := time.Now().Add(-time.Minute)
 	tasks := []TaskRunRecord{
-		// Insérées à l'envers de l'ordre d'exécution, et nommées de sorte que
-		// l'ordre alphabétique ne sauve pas le test.
+		// Inserted in reverse execution order, and named so that alphabetical order does not
+		// save the test.
 		{RunName: "run-detail", Name: "run-detail-zebre", DisplayName: "zebre", Status: "running", StartedAt: &late},
 		{RunName: "run-detail", Name: "run-detail-alpha", DisplayName: "alpha", Status: "succeeded", StartedAt: &early},
 		{RunName: "run-detail", Name: "run-detail-attente", DisplayName: "attente", Status: "pending"},
@@ -430,33 +428,33 @@ func TestGetRunReturnsItsTasksInExecutionOrder(t *testing.T) {
 
 	detail, err := db.GetRun(ctx, "run-detail")
 	if err != nil {
-		t.Fatalf("détail: %v", err)
+		t.Fatalf("detail: %v", err)
 	}
 	if detail.Run.Name != "run-detail" {
 		t.Errorf("run = %q", detail.Run.Name)
 	}
 	if len(detail.Tasks) != 3 {
-		t.Fatalf("%d task(s), attendu 3", len(detail.Tasks))
+		t.Fatalf("%d task(s), expected 3", len(detail.Tasks))
 	}
 
 	order := []string{detail.Tasks[0].DisplayName, detail.Tasks[1].DisplayName, detail.Tasks[2].DisplayName}
 	expected := []string{"alpha", "zebre", "attente"}
 	for i := range expected {
 		if order[i] != expected[i] {
-			t.Errorf("ordre = %v, attendu %v (la task non démarrée doit finir la liste)", order, expected)
+			t.Errorf("order = %v, expected %v (the unstarted task must end the list)", order, expected)
 			break
 		}
 	}
 }
 
-// Un run purgé par les CronJobs de nettoyage est un cas normal : l'erreur doit
-// être distinguable pour que l'interface réponde 404 plutôt que 500.
+// A run purged by clean-up cron jobs is a normal case: the error must be
+// distinguishable so the interface answers 404 rather than 500.
 func TestGetRunDistinguishesAbsence(t *testing.T) {
 	db := migrated(t)
 
-	_, err := db.GetRun(context.Background(), "run-qui-n-existe-pas")
+	_, err := db.GetRun(context.Background(), "run-that-does-not-exist")
 	if !errors.Is(err, ErrRunNotFound) {
-		t.Errorf("erreur = %v, attendu ErrRunNotFound", err)
+		t.Errorf("error = %v, expected ErrRunNotFound", err)
 	}
 }
 
@@ -470,17 +468,17 @@ func TestRunsUpdatedSinceReturnsOnlyChanges(t *testing.T) {
 
 	_, watermark, err := db.RunsUpdatedSince(ctx, time.Now().Add(-time.Hour))
 	if err != nil {
-		t.Fatalf("première lecture: %v", err)
+		t.Fatalf("first read: %v", err)
 	}
 
-	// Rien n'a changé : le flux ne doit rien retransmettre, sinon chaque tour
-	// renverrait des centaines de runs figés.
+	// Nothing changed: the stream must retransmit nothing, otherwise every turn would
+	// resend hundreds of frozen runs.
 	unchanged, _, err := db.RunsUpdatedSince(ctx, watermark)
 	if err != nil {
-		t.Fatalf("lecture à vide: %v", err)
+		t.Fatalf("empty read: %v", err)
 	}
 	if len(unchanged) != 0 {
-		t.Errorf("%d run(s) retransmis sans changement", len(unchanged))
+		t.Errorf("%d run(s) retransmitted with no change", len(unchanged))
 	}
 
 	if _, err := db.UpsertRun(ctx, runningRecord("run-apres")); err != nil {
@@ -489,43 +487,43 @@ func TestRunsUpdatedSinceReturnsOnlyChanges(t *testing.T) {
 
 	changed, _, err := db.RunsUpdatedSince(ctx, watermark)
 	if err != nil {
-		t.Fatalf("lecture après changement: %v", err)
+		t.Fatalf("read after the change: %v", err)
 	}
 	if len(changed) != 1 || changed[0].Name != "run-apres" {
 		t.Errorf("changements = %+v", changed)
 	}
 }
 
-// testProjectID est le projet créé par [migrated]. Constante et non variable :
-// le schéma est recréé à chaque test, et la séquence repart de un.
+// testProjectID is the project created by [migrated]. A constant and not a variable: the
+// schema is recreated for each test, and the sequence restarts at one.
 const testProjectID int64 = 1
 
-// testProjectSlug est le nom que ce projet porte dans les URL.
+// testProjectSlug is the name that project carries in URLs.
 const testProjectSlug = "test"
 
-// migrated rend une base au schéma à jour, avec un projet d'accueil.
+// migrated returns a database at the current schema, with a host project.
 //
-// Sans lui, aucune version ni aucune release ne peut exister depuis la migration
-// 0025. Créé ici plutôt que dans chaque test : c'est un prérequis du schéma, pas
-// un sujet d'épreuve. Les tests qui **comptent** les projets — amorçage,
-// administration des dépôts — prennent [migratedBare], qui n'en pose aucun.
+// Without one, no version and no release can exist. Created here rather than in every
+// test: it is a prerequisite of the schema, not a subject under test. Tests that count
+// projects — bootstrap, repository administration — take [migratedBare], which creates
+// none.
 //
-// L'identifiant est prévisible parce que `resetSchema` recrée le schéma : la
-// séquence repart de un.
+// The identifier is predictable because `resetSchema` recreates the schema: the sequence
+// restarts at one.
 func migrated(t *testing.T) *DB {
 	t.Helper()
 
 	db := migratedBare(t)
 	if _, err := db.Pool().Exec(context.Background(),
-		// Avec un suivi : la plupart de ces tests portent sur le rapprochement
-		// entre releases et versions d'un outil de gestion de projet, qui n'a de
-		// sens que pour un projet suivi. Le cas sans suivi a son propre test.
+		// With a tracker: most of these tests are about matching releases with a project
+		// management tool's versions, which only means something for a tracked project. The
+		// untracked case has its own test.
 		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
 		                       tracker_project, created_by)
 		 values ($1, 'vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.',
 		         'projet-suivi', 'test')`,
 		testProjectSlug); err != nil {
-		t.Fatalf("projet de test: %v", err)
+		t.Fatalf("test project: %v", err)
 	}
 	return db
 }

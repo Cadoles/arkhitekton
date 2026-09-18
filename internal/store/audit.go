@@ -7,29 +7,28 @@ import (
 	"time"
 )
 
-// AuditEntry est une ligne du journal d'audit.
+// AuditEntry is a line of the audit log.
 type AuditEntry struct {
 	ID     int64
 	Actor  string
 	Action string
 	Target string
-	// Payload porte ce qui distingue deux occurrences de la même action : le tag
-	// poussé, l'environnement visé, les paramètres d'un lancement.
+	// Payload carries what distinguishes two occurrences of the same action: the tag pushed,
+	// the environment targeted, a launch's parameters.
 	Payload map[string]any
 	At      time.Time
 }
 
-// Actions consignées. Nommées ici plutôt qu'en chaînes libres à l'appel : une
-// faute de frappe dans un `action` rend la ligne introuvable au moment où on la
-// cherche, c'est-à-dire après coup.
+// Recorded actions. Named here rather than as free strings at the call site: a typo in an
+// `action` makes the line impossible to find when it is looked for, that is, afterwards.
 const (
 	AuditReleaseCreate = "release.create"
-	// La validation d'une release engage ce qui partira chez l'utilisateur. Elle
-	// est consignée à part de sa création : ce sont deux décisions distinctes,
-	// souvent prises par des personnes différentes et à plusieurs jours d'écart.
+	// Approving a release commits what will reach the user. It is recorded separately from
+	// its creation: they are two distinct decisions, often taken by different people and days
+	// apart.
 	AuditReleaseRelease = "release.release"
-	// Une reconstruction relance un pipeline sur la même référence Git : la
-	// tracer distingue « l'image a été rebâtie » de « le code a changé ».
+	// A rebuild re-runs a pipeline on the same git reference: recording it separates "the
+	// image was rebuilt" from "the code changed".
 	AuditReleaseRebuild    = "release.rebuild"
 	AuditReleaseVerify     = "release.verify"
 	AuditReleaseNoteAdd    = "release.note.add"
@@ -38,44 +37,39 @@ const (
 	AuditReleaseActions    = "release.actions"
 	AuditJobEnqueue        = "job.enqueue"
 	AuditJobCancel         = "job.cancel"
-	// Le plafond d'une file décide de ce que le cluster accepte de mener de
-	// front. Le relever engage la machine, le baisser rallonge toute
-	// vérification : les deux méritent d'être attribués.
+	// A queue's ceiling decides what the cluster accepts to run at once. Raising it commits
+	// the machine, lowering it lengthens every verification: both deserve to be attributed.
 	AuditQueueLimit = "queue.limit"
-	// Déclarer un dépôt dit ce que le dashboard pilote, et le retirer le lui
-	// retire. Le test d'accès est consigné aussi : c'est la trace qui dit depuis
-	// quand on savait qu'un dépôt était injoignable.
+	// Declaring a repository says what the dashboard drives, and removing it takes that away.
+	// The access check is recorded too: it is the trace that says since when a repository was
+	// known to be unreachable.
 	AuditProjectSet = "project.set"
-	// Déclarer une version à la main n'arrive que sur un projet sans suivi :
-	// ailleurs, l'outil de suivi en fait autorité. La trace dit qui a décidé
-	// qu'un périmètre existait, ce qu'aucune synchronisation ne dira à sa place.
+	// Declaring a version by hand only happens on a project with no tracker: elsewhere the
+	// tracking tool is authoritative. The record says who decided a scope existed, which no
+	// synchronisation will say in its place.
 	AuditVersionDeclare   = "version.declare"
 	AuditProjectRemove    = "project.remove"
 	AuditProjectProbe     = "project.probe"
 	AuditArtifactGenerate = "artifact.generate"
 	AuditBaselinePin      = "bench.baseline.pin"
-	// La validation de recette est la décision qui autorise une livraison. Son
-	// historique ne peut pas vivre dans `release_signoffs`, où un changement
-	// d'avis remplace le précédent : le journal est le seul endroit qui répond à
-	// « qui avait validé, avant de se rétracter ».
+	// Acceptance approval is the decision that authorises a delivery. Its history cannot live
+	// in `release_signoffs`, where a change of mind replaces the previous one: the log is the
+	// only place that answers "who had approved, before retracting".
 	AuditSignoffSet   = "release.signoff"
 	AuditSignoffClear = "release.signoff.clear"
-	// Les changements de rôle sont consignés comme les actions sortantes : ils
-	// décident de qui peut livrer, et « qui a promu qui » doit avoir une réponse
-	// sans consulter les journaux applicatifs.
+	// Role changes are recorded like outgoing actions: they decide who can ship, and "who
+	// promoted whom" must have an answer without consulting application logs.
 	AuditRoleGrant  = "role.grant"
 	AuditRoleRevoke = "role.revoke"
 )
 
-// Audit consigne une action.
+// Audit records an action.
 //
-// La table est posée par la migration 0004 : « qui a promu quoi, et quand » doit
-// avoir une réponse sans consulter les journaux applicatifs.
+// "Who promoted what, and when" must have an answer without consulting application logs.
 //
-// L'erreur est rendue mais l'appelant n'a pas à la traiter comme un échec de son
-// action : le journal est une trace, pas une transaction. Refuser une promotion
-// parce que son enregistrement a échoué serait une régression de disponibilité
-// pour un gain nul — la promotion, elle, a bien eu lieu.
+// The error is returned but the caller need not treat it as a failure of its action: the
+// log is a record, not a transaction. Refusing a promotion because recording it failed
+// would be an availability regression for no gain — the promotion did happen.
 func (db *DB) Audit(ctx context.Context, actor, action, target string, payload map[string]any) error {
 	var encoded []byte
 	if payload != nil {
@@ -95,10 +89,10 @@ func (db *DB) Audit(ctx context.Context, actor, action, target string, payload m
 	return nil
 }
 
-// ListAudit rend le journal, du plus récent au plus ancien.
+// ListAudit returns the log, newest first.
 //
-// `target` vide rend tout le journal ; renseigné, il rend l'historique d'un objet
-// — les deux lectures pour lesquelles les index existent.
+// An empty `target` returns the whole log; set, it returns one object's history — the two
+// reads the indexes exist for.
 func (db *DB) ListAudit(ctx context.Context, target string, limit int) ([]AuditEntry, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
@@ -111,7 +105,7 @@ func (db *DB) ListAudit(ctx context.Context, target string, limit int) ([]AuditE
 		 order by at desc, id desc
 		 limit $2`, target, limit)
 	if err != nil {
-		return nil, fmt.Errorf("lecture du journal d'audit: %w", err)
+		return nil, fmt.Errorf("reading the audit log: %w", err)
 	}
 	defer rows.Close()
 
@@ -121,11 +115,11 @@ func (db *DB) ListAudit(ctx context.Context, target string, limit int) ([]AuditE
 		var payload []byte
 		if err := rows.Scan(&entry.ID, &entry.Actor, &entry.Action,
 			&entry.Target, &payload, &entry.At); err != nil {
-			return nil, fmt.Errorf("lecture du journal d'audit: %w", err)
+			return nil, fmt.Errorf("reading the audit log: %w", err)
 		}
 		if len(payload) > 0 {
 			if err := json.Unmarshal(payload, &entry.Payload); err != nil {
-				return nil, fmt.Errorf("lecture du journal d'audit: %w", err)
+				return nil, fmt.Errorf("reading the audit log: %w", err)
 			}
 		}
 		entries = append(entries, entry)

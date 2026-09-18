@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// Régénérer est légitime : les actions manuelles s'écrivent au fil de la
-// livraison, et un bon de livraison produit trop tôt ne porte pas ce qui a été
-// fait après. Chaque génération est donc une ligne — les précédentes restent
-// lisibles, ce qui compte pour un document déjà transmis.
+// Regenerating is legitimate: manual actions are written as the delivery proceeds, and a
+// delivery note produced too early does not carry what was done afterwards. Each
+// generation is therefore a row — the previous ones stay readable, which matters for a
+// document already sent.
 func TestArtifactsKeepEveryGeneration(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -39,7 +39,7 @@ func TestArtifactsKeepEveryGeneration(t *testing.T) {
 		t.Fatalf("liste: %v", err)
 	}
 	if len(artifacts) != 2 {
-		t.Errorf("%d artefact(s), attendu 2", len(artifacts))
+		t.Errorf("%d artifact(s), expected 2", len(artifacts))
 	}
 }
 
@@ -66,18 +66,18 @@ func TestGetArtifactCarriesItsRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
-	// Sans la release, le téléchargement ne pourrait pas vérifier que l'artefact
-	// demandé est bien celui du chemin.
+	// Without the release, the download could not check that the artifact asked for is the
+	// one in the path.
 	if artifact.ReleaseID != releaseID {
-		t.Errorf("release = %d, attendu %d", artifact.ReleaseID, releaseID)
+		t.Errorf("release = %d, expected %d", artifact.ReleaseID, releaseID)
 	}
 
 	if _, err := db.GetArtifact(ctx, 99999); !errors.Is(err, ErrArtifactNotFound) {
-		t.Errorf("erreur = %v, attendu ErrArtifactNotFound", err)
+		t.Errorf("error = %v, expected ErrArtifactNotFound", err)
 	}
 }
 
-// Le générateur part d'un job, qui porte l'identifiant de la release et non son
+// The generator starts from a job, which carries the release's identifier and not its
 // tag.
 func TestGetReleaseByIDCarriesTheManualActions(t *testing.T) {
 	db := migrated(t)
@@ -89,7 +89,7 @@ func TestGetReleaseByIDCarriesTheManualActions(t *testing.T) {
 		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
 		GitRef: "abc", ImageVersion: "1.8.0-rc3", CreatedBy: "vcarroy",
 	})
-	if err := db.SetManualActions(ctx, "1.8.0", "- bascule du DNS", "vcarroy"); err != nil {
+	if err := db.SetManualActions(ctx, "1.8.0", "- DNS switchover", "vcarroy"); err != nil {
 		t.Fatalf("actions: %v", err)
 	}
 
@@ -97,7 +97,7 @@ func TestGetReleaseByIDCarriesTheManualActions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
-	if release.Tag != "1.8.0" || release.ManualActions != "- bascule du DNS" {
+	if release.Tag != "1.8.0" || release.ManualActions != "- DNS switchover" {
 		t.Errorf("release = %+v", release)
 	}
 

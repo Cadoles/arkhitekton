@@ -17,7 +17,7 @@ import (
  * savait trancher que pour tout le monde à la fois.
  */
 
-// ProjectPipeline est la décision d'un projet sur une famille du catalogue.
+// ProjectPipeline is a project's decision about a catalogue kind.
 type ProjectPipeline struct {
 	Kind      string
 	Enabled   bool
@@ -25,11 +25,11 @@ type ProjectPipeline struct {
 	UpdatedBy string
 }
 
-// ProjectPipelines rend les décisions explicites d'un projet, par famille.
+// ProjectPipelines returns a project's explicit decisions, by kind.
 //
-// N'y figurent que les familles sur lesquelles le projet s'est prononcé.
-// L'absence d'une entrée vaut **activé** : la traiter comme un refus arrêterait
-// d'un coup les vérifications de tous les projets déclarés avant cette table.
+// Only the kinds the project has pronounced on appear. The absence of an entry means
+// enabled: treating it as refusal would stop at a stroke the verifications of every project
+// declared before this table.
 func (db *DB) ProjectPipelines(ctx context.Context, projectID int64) (map[string]ProjectPipeline, error) {
 	const query = `
 		select kind, enabled, updated_at, updated_by
@@ -38,7 +38,7 @@ func (db *DB) ProjectPipelines(ctx context.Context, projectID int64) (map[string
 
 	rows, err := db.pool.Query(ctx, query, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("pipelines du projet %d: %w", projectID, err)
+		return nil, fmt.Errorf("pipelines of project %d: %w", projectID, err)
 	}
 	defer rows.Close()
 
@@ -46,14 +46,14 @@ func (db *DB) ProjectPipelines(ctx context.Context, projectID int64) (map[string
 	for rows.Next() {
 		var entry ProjectPipeline
 		if err := rows.Scan(&entry.Kind, &entry.Enabled, &entry.UpdatedAt, &entry.UpdatedBy); err != nil {
-			return nil, fmt.Errorf("pipeline d'un projet: %w", err)
+			return nil, fmt.Errorf("pipeline of a project: %w", err)
 		}
 		decisions[entry.Kind] = entry
 	}
 	return decisions, rows.Err()
 }
 
-// SetProjectPipeline enregistre la décision d'un projet sur une famille.
+// SetProjectPipeline records a project's decision about a kind.
 func (db *DB) SetProjectPipeline(ctx context.Context, projectID int64, kind string, enabled bool, actor string) error {
 	const query = `
 		insert into project_pipelines (project_id, kind, enabled, updated_at, updated_by)
@@ -63,20 +63,19 @@ func (db *DB) SetProjectPipeline(ctx context.Context, projectID int64, kind stri
 		    updated_by = excluded.updated_by`
 
 	if _, err := db.pool.Exec(ctx, query, projectID, kind, enabled, actor); err != nil {
-		return fmt.Errorf("pipeline %q du projet %d: %w", kind, projectID, err)
+		return fmt.Errorf("pipeline %q of project %d: %w", kind, projectID, err)
 	}
 	return nil
 }
 
-// PipelineEnabled dit si une famille s'applique à un projet.
+// PipelineEnabled says whether a kind applies to a project.
 //
-// La question est posée en base plutôt que déduite d'une carte chargée une fois :
-// l'ordonnanceur tourne en continu, et une famille désactivée dans l'interface
-// doit cesser de s'enchaîner à la construction suivante, pas au redémarrage
-// suivant.
+// The question is asked in the database rather than derived from a map loaded once: the
+// scheduler runs continuously, and a kind disabled in the interface must stop being chained
+// at the next build, not at the next restart.
 //
-// L'absence de ligne rend vrai. C'est le comportement d'avant cette table, et
-// c'est le bon : un projet qui n'a rien dit reçoit ce que le catalogue propose.
+// The absence of a row returns true. That is the behaviour before this table, and it is the
+// right one: a project that said nothing receives what the catalogue offers.
 func (db *DB) PipelineEnabled(ctx context.Context, projectID int64, kind string) (bool, error) {
 	const query = `
 		select enabled from project_pipelines where project_id = $1 and kind = $2`
@@ -88,6 +87,6 @@ func (db *DB) PipelineEnabled(ctx context.Context, projectID int64, kind string)
 	case errors.Is(err, pgx.ErrNoRows):
 		return true, nil
 	default:
-		return false, fmt.Errorf("pipeline %q du projet %d: %w", kind, projectID, err)
+		return false, fmt.Errorf("pipeline %q of project %d: %w", kind, projectID, err)
 	}
 }

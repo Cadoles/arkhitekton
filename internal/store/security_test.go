@@ -35,7 +35,7 @@ func auditFixture(t *testing.T, db *DB, failed []string) (int64, int64) {
 			PackageFixed: "7.8.2", Fixable: true, Status: "new"},
 		{Fingerprint: "b", RunID: "r", TargetKind: "repo", TargetName: "mse",
 			Tool: "semgrep", Category: "sast", RuleID: "php.sql", Severity: "MEDIUM",
-			Title: "Concaténation", Status: "existing",
+			Title: "Concatenation", Status: "existing",
 			Suppressed: true, SuppressionReason: "faux positif"},
 		{Fingerprint: "c", RunID: "r", TargetKind: "repo", TargetName: "mse",
 			Tool: "trivy", Category: "sca", RuleID: "CVE-2", Severity: "CRITICAL",
@@ -61,11 +61,11 @@ func TestLatestSecurityAudit(t *testing.T) {
 		t.Errorf("politique = %v, statut = %v", audit.Policy, audit.ScannerStatus)
 	}
 	if !audit.Measured() {
-		t.Error("aucun scanner en échec : l'audit doit être mesurable")
+		t.Error("no failed scanner: the audit must be measurable")
 	}
 }
 
-// Trivy qui n'a pas tourné ne prouve pas qu'aucune vulnérabilité n'existe.
+// A scanner that did not run does not prove no vulnerability exists.
 func TestAnAuditWithAFailedScannerIsNotMeasured(t *testing.T) {
 	db := migrated(t)
 	releaseID, _ := auditFixture(t, db, []string{"trivy-image"})
@@ -75,15 +75,14 @@ func TestAnAuditWithAFailedScannerIsNotMeasured(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if audit.Measured() {
-		t.Error("un scanner en échec doit retirer le signal du score")
+		t.Error("a failed scanner must remove the signal from the score")
 	}
 	if len(audit.FailedScanners) != 1 {
 		t.Errorf("scanners = %v", audit.FailedScanners)
 	}
 }
 
-// L'ordre de sévérité n'est pas alphabétique : un tri textuel placerait HIGH
-// après LOW et MEDIUM.
+// Severity order is not alphabetical: a textual sort would put HIGH after LOW and MEDIUM.
 func TestFindingsAreOrderedBySeverity(t *testing.T) {
 	db := migrated(t)
 	_, resultID := auditFixture(t, db, nil)
@@ -101,7 +100,7 @@ func TestFindingsAreOrderedBySeverity(t *testing.T) {
 	}
 }
 
-// Un finding supprimé reste enregistré ; il est simplement écarté du décompte.
+// A suppressed finding stays recorded; it is simply left out of the count.
 func TestSuppressedFindingsAreKeptButFilterable(t *testing.T) {
 	db := migrated(t)
 	_, resultID := auditFixture(t, db, nil)
@@ -111,24 +110,24 @@ func TestSuppressedFindingsAreKeptButFilterable(t *testing.T) {
 	active, _ := db.ListSecurityFindings(ctx, resultID, false)
 
 	if len(all) != 3 || len(active) != 2 {
-		t.Errorf("%d au total, %d actifs", len(all), len(active))
+		t.Errorf("%d in total, %d active", len(all), len(active))
 	}
 	for _, finding := range active {
 		if finding.Suppressed {
-			t.Error("un finding supprimé ne doit pas apparaître dans les actifs")
+			t.Error("a suppressed finding must not appear among the active ones")
 		}
 	}
-	// Le motif accompagne la suppression : sans lui, l'exception est
-	// indéfendable en revue.
+	// The reason accompanies the suppression: without it, the exception is indefensible in
+	// review.
 	for _, finding := range all {
 		if finding.Suppressed && finding.SuppressionReason == "" {
-			t.Error("une suppression sans motif ne doit pas être conservée muette")
+			t.Error("a suppression with no reason must not be kept silent")
 		}
 	}
 }
 
-// L'écart entre la version installée et celle qui corrige est ce qui décide
-// d'une action.
+// The gap between the installed version and the one that fixes it is what decides an
+// action.
 func TestPackageVersionsAreKeptApart(t *testing.T) {
 	db := migrated(t)
 	_, resultID := auditFixture(t, db, nil)
@@ -151,6 +150,6 @@ func TestLatestSecurityAuditOnAReleaseWithout(t *testing.T) {
 	releaseID := releaseFor(t, db, "1.9.0-rc1")
 
 	if _, err := db.LatestSecurityAudit(context.Background(), releaseID); !errors.Is(err, ErrAuditNotFound) {
-		t.Errorf("erreur = %v, attendu ErrAuditNotFound", err)
+		t.Errorf("error = %v, expected ErrAuditNotFound", err)
 	}
 }

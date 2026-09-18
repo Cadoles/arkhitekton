@@ -9,7 +9,7 @@ import (
 func grantRole(t *testing.T, db *DB, subject, username, role string) {
 	t.Helper()
 	if err := db.SetRole(context.Background(), subject, username, role, "vcarroy"); err != nil {
-		t.Fatalf("attribution à %s: %v", subject, err)
+		t.Fatalf("granting to %s: %v", subject, err)
 	}
 }
 
@@ -19,7 +19,7 @@ func openSession(t *testing.T, db *DB, subject string) {
 		`insert into sessions (id, subject, username, expires_at)
 		 values ($1, $2, $2, now() + interval '1 hour')`, "sess-"+subject, subject)
 	if err != nil {
-		t.Fatalf("session de %s: %v", subject, err)
+		t.Fatalf("session of %s: %v", subject, err)
 	}
 }
 
@@ -28,14 +28,14 @@ func sessionCount(t *testing.T, db *DB, subject string) int {
 	var count int
 	if err := db.pool.QueryRow(context.Background(),
 		`select count(*) from sessions where subject = $1`, subject).Scan(&count); err != nil {
-		t.Fatalf("décompte: %v", err)
+		t.Fatalf("count: %v", err)
 	}
 	return count
 }
 
-// Retirer un rôle sans fermer les sessions laisse l'utilisateur exercer l'ancien
-// jusqu'à expiration. Une rétrogradation qui ne prend pas effet est pire que pas
-// de rétrogradation : on croit avoir agi.
+// Removing a role without closing the sessions lets the user exercise the old one until
+// expiry. A demotion that does not take effect is worse than no demotion: one believes one
+// has acted.
 func TestRevokeClosesTheSessions(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -45,26 +45,26 @@ func TestRevokeClosesTheSessions(t *testing.T) {
 	openSession(t, db, "bob")
 
 	if sessionCount(t, db, "bob") != 1 {
-		t.Fatal("la session de départ manque")
+		t.Fatal("the initial session is missing")
 	}
 
 	if err := db.RevokeRole(ctx, "bob"); err != nil {
 		t.Fatalf("retrait: %v", err)
 	}
 	if sessionCount(t, db, "bob") != 0 {
-		t.Error("les sessions doivent être fermées avec le rôle")
+		t.Error("the sessions must be closed with the role")
 	}
 
 	roles, _ := db.ListUserRoles(ctx)
 	for _, role := range roles {
 		if role.Subject == "bob" {
-			t.Error("le rôle subsiste")
+			t.Error("the role remains")
 		}
 	}
 }
 
-// Un changement de rôle ferme aussi les sessions, quel que soit son sens :
-// distinguer promotion et rétrogradation ferait payer l'oubli du mauvais côté.
+// A role change closes the sessions too, whichever way it goes: telling promotion from
+// demotion would make forgetting cost on the wrong side.
 func TestSetRoleClosesTheSessions(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -73,16 +73,16 @@ func TestSetRoleClosesTheSessions(t *testing.T) {
 	openSession(t, db, "bob")
 
 	if err := db.SetRole(ctx, "bob", "bob", "viewer", "alice"); err != nil {
-		t.Fatalf("rétrogradation: %v", err)
+		t.Fatalf("demotion: %v", err)
 	}
 	if sessionCount(t, db, "bob") != 0 {
-		t.Error("les sessions doivent être fermées au changement de rôle")
+		t.Error("the sessions must be closed when the role changes")
 	}
 }
 
-// Sans ce garde-fou, un administrateur se retire lui-même et laisse le dashboard
-// sans personne pour attribuer quoi que ce soit : la seule sortie serait de
-// modifier la configuration d'amorçage et de redémarrer.
+// Without that guard, an administrator removes themselves and leaves the dashboard with
+// nobody able to grant anything: the only way out would be to edit the bootstrap
+// configuration and restart.
 func TestTheLastAdminCannotBeRemoved(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -90,21 +90,21 @@ func TestTheLastAdminCannotBeRemoved(t *testing.T) {
 	grantRole(t, db, "alice", "alice", "admin")
 
 	if err := db.RevokeRole(ctx, "alice"); !errors.Is(err, ErrLastAdmin) {
-		t.Errorf("erreur = %v, attendu ErrLastAdmin", err)
+		t.Errorf("error = %v, expected ErrLastAdmin", err)
 	}
 	// Ni par retrait, ni par rétrogradation.
 	if err := db.SetRole(ctx, "alice", "alice", "viewer", "alice"); !errors.Is(err, ErrLastAdmin) {
-		t.Errorf("rétrogradation = %v, attendu ErrLastAdmin", err)
+		t.Errorf("demotion = %v, expected ErrLastAdmin", err)
 	}
 
-	// Le rôle est toujours là : le refus n'a rien laissé à moitié fait.
+	// The role is still there: the refusal left nothing half done.
 	admins, err := db.CountAdmins(ctx)
 	if err != nil || admins != 1 {
 		t.Errorf("administrateurs = %d, err = %v", admins, err)
 	}
 }
 
-// Deux administrateurs : le retrait de l'un est légitime.
+// Two administrators: removing one is legitimate.
 func TestPenultimateAdminCanBeRemoved(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -117,20 +117,19 @@ func TestPenultimateAdminCanBeRemoved(t *testing.T) {
 	}
 	admins, _ := db.CountAdmins(ctx)
 	if admins != 1 {
-		t.Errorf("administrateurs = %d, attendu 1", admins)
+		t.Errorf("administrators = %d, expected 1", admins)
 	}
 }
 
 func TestRevokeAnUnknownSubject(t *testing.T) {
 	db := migrated(t)
 
-	if err := db.RevokeRole(context.Background(), "inconnu"); !errors.Is(err, ErrRoleNotFound) {
-		t.Errorf("erreur = %v, attendu ErrRoleNotFound", err)
+	if err := db.RevokeRole(context.Background(), "unknown"); !errors.Is(err, ErrRoleNotFound) {
+		t.Errorf("error = %v, expected ErrRoleNotFound", err)
 	}
 }
 
-// La liste sert à vérifier qui peut livrer : les plus privilégiés d'abord, sans
-// tri manuel.
+// The list serves to check who can ship: the most privileged first, with no manual sorting.
 func TestRolesAreListedByPrivilege(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -151,31 +150,30 @@ func TestRolesAreListedByPrivilege(t *testing.T) {
 	expected := []string{"admin", "releaser", "operator", "viewer"}
 	for index := range expected {
 		if order[index] != expected[index] {
-			t.Errorf("ordre = %v, attendu %v", order, expected)
+			t.Errorf("order = %v, expected %v", order, expected)
 			break
 		}
 	}
 }
 
-// Un rôle attribué à un identifiant erroné ne se voit qu'à ceci : personne ne
-// s'en est jamais servi.
+// A role granted to a wrong identifier shows only by this: nobody ever used it.
 func TestNeverSeenRoleIsRecognisable(t *testing.T) {
 	db := migrated(t)
 
-	grantRole(t, db, "faute-de-frappe", "", "operator")
+	grantRole(t, db, "typo", "", "operator")
 
 	roles, _ := db.ListUserRoles(context.Background())
 	for _, role := range roles {
-		if role.Subject != "faute-de-frappe" {
+		if role.Subject != "typo" {
 			continue
 		}
 		if role.LastSeen != nil {
-			t.Error("un rôle jamais employé ne doit pas porter de date d'usage")
+			t.Error("a role never used must carry no usage date")
 		}
 		if role.Sessions != 0 {
 			t.Errorf("sessions = %d", role.Sessions)
 		}
 		return
 	}
-	t.Error("rôle introuvable")
+	t.Error("role not found")
 }

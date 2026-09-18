@@ -9,15 +9,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// LoadResult est une campagne de charge enregistrée.
+// LoadResult is a recorded load campaign.
 type LoadResult struct {
 	ID        int64
 	RunID     int64
 	ReleaseID *int64
 	Scenario  string
-	// Exclusive et ConcurrentJobs sont les conditions **constatées** au démarrage,
-	// non celles demandées. C'est ce qui décide si la campagne entre dans la
-	// comparaison à la baseline (B16).
+	// Exclusive and ConcurrentJobs are the conditions observed at start-up, not those
+	// asked for. They are what decides whether the campaign enters the comparison with the
+	// baseline.
 	Exclusive      bool
 	ConcurrentJobs int
 	VUs            int
@@ -27,7 +27,7 @@ type LoadResult struct {
 	CreatedAt      time.Time
 }
 
-// BenchMeasure est une mesure d'une campagne.
+// BenchMeasure is one measure of a campaign.
 type BenchMeasure struct {
 	ID           int64
 	ResultID     int64
@@ -44,18 +44,18 @@ type BenchMeasure struct {
 	ConcurrentAt int
 }
 
-// ErrBaselineNotFound signale une baseline absente.
+// ErrBaselineNotFound reports a missing baseline.
 var ErrBaselineNotFound = errors.New("baseline introuvable")
 
-// SaveLoadResult enregistre une campagne et ses mesures.
+// SaveLoadResult records a campaign and its measures.
 //
-// En une transaction : une campagne dont la moitié des mesures manque produirait
-// un verdict d'ensemble faux — `Worst` retiendrait le pire de ce qui a été
-// enregistré, sans savoir qu'il en manque.
+// In one transaction: a campaign missing half its measures would produce a false
+// overall verdict — the worst value would be taken from what was recorded, without
+// knowing some is missing.
 func (db *DB) SaveLoadResult(ctx context.Context, result LoadResult, measures []BenchMeasure) (int64, error) {
 	transaction, err := db.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("campagne de charge: %w", err)
+		return 0, fmt.Errorf("load campaign: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
@@ -69,7 +69,7 @@ func (db *DB) SaveLoadResult(ctx context.Context, result LoadResult, measures []
 		result.RunID, result.ReleaseID, loadStatus(measures), result.DurationMS,
 		result.Summary, result.RawObject, result.Exclusive, result.ConcurrentJobs).Scan(&id)
 	if err != nil {
-		return 0, fmt.Errorf("campagne de charge du scénario %q: %w", result.Scenario, err)
+		return 0, fmt.Errorf("load campaign of scenario %q: %w", result.Scenario, err)
 	}
 
 	for _, measure := range measures {
@@ -81,22 +81,22 @@ func (db *DB) SaveLoadResult(ctx context.Context, result LoadResult, measures []
 			id, result.Scenario, measure.Metric, measure.Label, measure.Unit,
 			measure.Value, measure.LowerBetter, measure.Volume, measure.ThresholdOK)
 		if err != nil {
-			return 0, fmt.Errorf("mesure %q du scénario %q: %w", measure.Metric, result.Scenario, err)
+			return 0, fmt.Errorf("measure %q of scenario %q: %w", measure.Metric, result.Scenario, err)
 		}
 	}
 
 	if err := transaction.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("campagne de charge: %w", err)
+		return 0, fmt.Errorf("load campaign: %w", err)
 	}
 	return id, nil
 }
 
-// loadStatus rend le statut de la campagne au sens de `test_results`.
+// loadStatus returns the campaign's status in the sense of `test_results`.
 //
-// Fondé sur les seuils déclarés dans k6, et non sur la comparaison à la
-// baseline : le statut est enregistré une fois pour toutes, alors qu'une
-// baseline peut être ré-épinglée plus tard. Faire dépendre une colonne figée
-// d'une référence mobile la rendrait fausse au premier ré-épinglage.
+// Based on the thresholds declared in the load tool, and not on the comparison with
+// the baseline: the status is recorded once and for all, whereas a baseline can be
+// re-pinned later. Making a frozen column depend on a moving reference would make it
+// false at the first re-pinning.
 func loadStatus(measures []BenchMeasure) string {
 	declared := false
 	for _, measure := range measures {
@@ -109,19 +109,17 @@ func loadStatus(measures []BenchMeasure) string {
 		}
 	}
 	if !declared {
-		// Aucun seuil déclaré : la campagne a tourné, mais elle ne prononce
-		// aucun verdict sur elle-même.
+		// No threshold declared: the campaign ran, but it pronounces no verdict on itself.
 		return "na"
 	}
 	return "pass"
 }
 
-// ListScenarioMeasures rend l'historique d'une métrique, du plus récent au plus
-// ancien.
+// ListScenarioMeasures returns a metric's history, newest first.
 //
-// Les conditions de mesure accompagnent chaque point : une tendance qui mêle des
-// mesures prises dans des conditions différentes est une tendance inventée, et
-// c'est à l'appelant de trancher ce qu'il en fait.
+// The measurement conditions accompany each point: a trend mixing measures taken under
+// different conditions is an invented trend, and it is for the caller to decide what to
+// do with them.
 func (db *DB) ListScenarioMeasures(
 	ctx context.Context, scenario, metric string, limit int,
 ) ([]BenchMeasure, error) {
@@ -139,14 +137,14 @@ func (db *DB) ListScenarioMeasures(
 		 order by m.created_at desc, m.id desc
 		 limit $3`, scenario, metric, limit)
 	if err != nil {
-		return nil, fmt.Errorf("historique de %q/%q: %w", scenario, metric, err)
+		return nil, fmt.Errorf("history of %q/%q: %w", scenario, metric, err)
 	}
 	defer rows.Close()
 
-	return scanMeasures(rows, fmt.Sprintf("historique de %q/%q", scenario, metric))
+	return scanMeasures(rows, fmt.Sprintf("history of %q/%q", scenario, metric))
 }
 
-// ListResultMeasures rend les mesures d'une campagne.
+// ListResultMeasures returns a campaign's measures.
 func (db *DB) ListResultMeasures(ctx context.Context, resultID int64) ([]BenchMeasure, error) {
 	rows, err := db.pool.Query(ctx,
 		`select m.id, m.test_result_id, m.scenario, m.metric, m.label, m.unit, m.value,
@@ -157,14 +155,14 @@ func (db *DB) ListResultMeasures(ctx context.Context, resultID int64) ([]BenchMe
 		 where m.test_result_id = $1
 		 order by m.id`, resultID)
 	if err != nil {
-		return nil, fmt.Errorf("mesures de la campagne %d: %w", resultID, err)
+		return nil, fmt.Errorf("measures of campaign %d: %w", resultID, err)
 	}
 	defer rows.Close()
 
-	return scanMeasures(rows, fmt.Sprintf("mesures de la campagne %d", resultID))
+	return scanMeasures(rows, fmt.Sprintf("measures of campaign %d", resultID))
 }
 
-// ListReleaseLoadResults rend les campagnes rattachées à une release.
+// ListReleaseLoadResults returns the campaigns attached to a release.
 func (db *DB) ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]LoadResult, error) {
 	rows, err := db.pool.Query(ctx,
 		`select r.id, r.run_id, r.release_id, coalesce(m.scenario, ''),
@@ -172,15 +170,15 @@ func (db *DB) ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]Lo
 		        coalesce(r.duration_ms, 0), coalesce(r.summary, ''),
 		        coalesce(r.raw_object, ''), r.created_at
 		 from test_results r
-		 -- Le scénario vit sur les mesures : une campagne sans mesure n'en a pas,
-		 -- et le distinct l'évite en double.
+		 -- The scenario lives on the measures: a campaign with no measure has
+		 -- none, and the distinct avoids duplicating it.
 		 left join lateral (
 		     select scenario from bench_measures where test_result_id = r.id limit 1
 		 ) m on true
 		 where r.release_id = $1 and r.family = 'load'
 		 order by r.created_at desc`, releaseID)
 	if err != nil {
-		return nil, fmt.Errorf("campagnes de la release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("campaigns of release %d: %w", releaseID, err)
 	}
 	defer rows.Close()
 
@@ -190,31 +188,31 @@ func (db *DB) ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]Lo
 		if err := rows.Scan(&result.ID, &result.RunID, &result.ReleaseID, &result.Scenario,
 			&result.Exclusive, &result.ConcurrentJobs, &result.DurationMS,
 			&result.Summary, &result.RawObject, &result.CreatedAt); err != nil {
-			return nil, fmt.Errorf("campagnes de la release %d: %w", releaseID, err)
+			return nil, fmt.Errorf("campaigns of release %d: %w", releaseID, err)
 		}
 		results = append(results, result)
 	}
 	return results, rows.Err()
 }
 
-// Baseline est une mesure de référence épinglée.
+// Baseline is a pinned reference measure.
 type Baseline struct {
 	Scenario string
 	Metric   string
 	Value    float64
-	// MeasuredAt est la date de la campagne de référence. Rendue parce qu'une
-	// baseline vieillit : savoir de quand elle date fait partie du verdict.
+	// MeasuredAt is the reference campaign's date. Returned because a baseline ages:
+	// knowing when it dates from is part of the verdict.
 	MeasuredAt time.Time
 	PinnedBy   string
 	PinnedAt   time.Time
 }
 
-// PinBaseline désigne une mesure comme référence.
+// PinBaseline designates a measure as the reference.
 //
-// Ré-épingler est permis et volontairement simple : une baseline vieillit, et le
-// refus de la déplacer forcerait à comparer indéfiniment à une campagne dont les
-// conditions n'existent plus. Le geste est en revanche tracé — c'est une décision
-// qui déplace la référence de tous les verdicts suivants.
+// Re-pinning is allowed and deliberately simple: a baseline ages, and refusing to move
+// it would force comparing forever with a campaign whose conditions no longer exist.
+// The gesture is recorded, though — it is a decision that moves the reference of every
+// later verdict.
 func (db *DB) PinBaseline(ctx context.Context, measureID int64, pinnedBy string) error {
 	tally, err := db.pool.Exec(ctx,
 		`insert into bench_baselines (scenario, metric, measure_id, pinned_by)
@@ -224,7 +222,7 @@ func (db *DB) PinBaseline(ctx context.Context, measureID int64, pinnedBy string)
 		     pinned_by = excluded.pinned_by,
 		     pinned_at = now()`, measureID, pinnedBy)
 	if err != nil {
-		return fmt.Errorf("épinglage de la baseline %d: %w", measureID, err)
+		return fmt.Errorf("pinning baseline %d: %w", measureID, err)
 	}
 	if tally.RowsAffected() == 0 {
 		return ErrBaselineNotFound
@@ -232,7 +230,7 @@ func (db *DB) PinBaseline(ctx context.Context, measureID int64, pinnedBy string)
 	return nil
 }
 
-// Baselines rend les références d'un scénario, indexées par métrique.
+// Baselines returns a scenario's references, indexed by metric.
 func (db *DB) Baselines(ctx context.Context, scenario string) (map[string]Baseline, error) {
 	rows, err := db.pool.Query(ctx,
 		`select b.scenario, b.metric, m.value, m.created_at, b.pinned_by, b.pinned_at
@@ -240,7 +238,7 @@ func (db *DB) Baselines(ctx context.Context, scenario string) (map[string]Baseli
 		 join bench_measures m on m.id = b.measure_id
 		 where b.scenario = $1`, scenario)
 	if err != nil {
-		return nil, fmt.Errorf("baselines du scénario %q: %w", scenario, err)
+		return nil, fmt.Errorf("baselines of scenario %q: %w", scenario, err)
 	}
 	defer rows.Close()
 
@@ -249,28 +247,28 @@ func (db *DB) Baselines(ctx context.Context, scenario string) (map[string]Baseli
 		var baseline Baseline
 		if err := rows.Scan(&baseline.Scenario, &baseline.Metric, &baseline.Value,
 			&baseline.MeasuredAt, &baseline.PinnedBy, &baseline.PinnedAt); err != nil {
-			return nil, fmt.Errorf("baselines du scénario %q: %w", scenario, err)
+			return nil, fmt.Errorf("baselines of scenario %q: %w", scenario, err)
 		}
 		baselines[baseline.Metric] = baseline
 	}
 	return baselines, rows.Err()
 }
 
-// RecordStartConditions relève ce qui tournait à la prise d'un job.
+// RecordStartConditions records what was running when a job was claimed.
 //
-// Écrit à la réservation et non à l'arrivée du résultat : minutes plus tard, plus
-// rien ne dit ce qui tournait au moment de la mesure.
+// Written at claim time and not when the result arrives: minutes later, nothing says
+// what was running at the moment of the measurement.
 func (db *DB) RecordStartConditions(ctx context.Context, jobID int64, exclusive bool, concurrent int) error {
 	_, err := db.pool.Exec(ctx,
 		`update jobs set exclusive_at_start = $2, concurrent_at_start = $3, updated_at = now()
 		 where id = $1`, jobID, exclusive, concurrent)
 	if err != nil {
-		return fmt.Errorf("conditions de démarrage du job %d: %w", jobID, err)
+		return fmt.Errorf("start conditions of job %d: %w", jobID, err)
 	}
 	return nil
 }
 
-// StartConditions rend les conditions constatées au démarrage d'un job.
+// StartConditions returns the conditions observed when a job started.
 func (db *DB) StartConditions(ctx context.Context, jobID int64) (bool, int, error) {
 	var exclusive *bool
 	var concurrent *int
@@ -281,12 +279,12 @@ func (db *DB) StartConditions(ctx context.Context, jobID int64) (bool, int, erro
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, 0, ErrJobNotFound
 		}
-		return false, 0, fmt.Errorf("conditions de démarrage du job %d: %w", jobID, err)
+		return false, 0, fmt.Errorf("start conditions of job %d: %w", jobID, err)
 	}
 
-	// Non relevées : la mesure est traitée comme non exclusive. Se tromper dans ce
-	// sens écarte une mesure valide de la comparaison ; dans l'autre, il ferait
-	// entrer une mesure faussée dans la baseline.
+	// Not recorded: the measure is treated as non-exclusive. Erring this way keeps a valid
+	// measure out of the comparison; erring the other way would let a skewed measure into
+	// the baseline.
 	if exclusive == nil || concurrent == nil {
 		return false, 0, nil
 	}
@@ -308,12 +306,12 @@ func scanMeasures(rows pgx.Rows, context string) ([]BenchMeasure, error) {
 	return measures, rows.Err()
 }
 
-// LoadResultExists dit si une campagne est déjà enregistrée pour ce run et ce
-// scénario.
+// LoadResultExists says whether a campaign is already recorded for this run and
+// scenario.
 //
-// L'ingestion doit être idempotente : l'observateur revoit un run terminé au
-// redémarrage, ou quand un informer resynchronise son cache. Réenregistrer
-// produirait des points d'historique en double, c'est-à-dire une tendance fausse.
+// Ingestion must be idempotent: the observer sees a finished run again at restart, or
+// when an informer resyncs its cache. Recording it twice would produce duplicate
+// history points, that is, a false trend.
 func (db *DB) LoadResultExists(ctx context.Context, runID int64, scenario string) (bool, error) {
 	var exists bool
 	err := db.pool.QueryRow(ctx,
@@ -323,7 +321,7 @@ func (db *DB) LoadResultExists(ctx context.Context, runID int64, scenario string
 		     where r.run_id = $1 and r.family = 'load' and m.scenario = $2
 		 )`, runID, scenario).Scan(&exists)
 	if err != nil {
-		return false, fmt.Errorf("campagne %q du run %d: %w", scenario, runID, err)
+		return false, fmt.Errorf("campaign %q of run %d: %w", scenario, runID, err)
 	}
 	return exists, nil
 }

@@ -30,98 +30,95 @@ func spec() BootstrapSpec {
 	}
 }
 
-func TestLamorcageNeSappliqueQuUneFois(t *testing.T) {
+func TestTheBootstrapAppliesOnlyOnce(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	report, err := db.Bootstrap(ctx, spec())
 	if err != nil {
-		t.Fatalf("amorçage: %v", err)
+		t.Fatalf("bootstrap: %v", err)
 	}
 	if report.GrantsApplied != 2 || report.ProjectsApplied != 1 {
 		t.Fatalf("rapport = %+v", report)
 	}
 	if len(report.Skipped) != 0 {
-		t.Errorf("étapes ignorées au premier passage: %v", report.Skipped)
+		t.Errorf("steps skipped on the first pass: %v", report.Skipped)
 	}
 
-	// La base prend la main : un administrateur retire un dépôt et une
-	// déclaration.
+	// The database takes over: an administrator removes a repository and a declaration.
 	projects, _ := db.ListProjects(ctx)
 	if err := db.DeleteProject(ctx, projects[0].ID); err != nil {
 		t.Fatalf("suppression: %v", err)
 	}
 
-	// Le redéploiement rejoue l'amorçage. Rien ne doit revenir.
+	// Redeploying replays the bootstrap. Nothing must come back.
 	report, err = db.Bootstrap(ctx, spec())
 	if err != nil {
-		t.Fatalf("second amorçage: %v", err)
+		t.Fatalf("second bootstrap: %v", err)
 	}
 	if report.GrantsApplied != 0 || report.ProjectsApplied != 0 {
-		t.Errorf("rapport = %+v: une étape a été rejouée", report)
+		t.Errorf("report = %+v: a step was replayed", report)
 	}
-	// Quatre étapes : rôles, dépôts, le rattachement des suivis, et les réglages
-	// de plugins. Les deux dernières ont été ajoutées après coup, précisément
-	// parce qu'une étape déjà réclamée n'est jamais rejouée : sans elles, un
-	// déploiement en place perdrait silencieusement ce que le code s'est mis à
-	// lire ailleurs.
+	// Four steps: roles, repositories, attaching the trackers, and plugin settings. The last
+	// two were added afterwards, precisely because a step already claimed is never replayed:
+	// without them, an existing deployment would silently lose what the code had begun to read
+	// elsewhere.
 	if len(report.Skipped) != 4 {
-		t.Errorf("étapes ignorées = %v, attendu les quatre", report.Skipped)
+		t.Errorf("steps skipped = %v, expected all four", report.Skipped)
 	}
 
 	remaining, _ := db.ListProjects(ctx)
 	if len(remaining) != 0 {
-		t.Errorf("%d dépôt(s) ressuscités par l'amorçage", len(remaining))
+		t.Errorf("%d repository(ies) resurrected by the bootstrap", len(remaining))
 	}
 }
 
-// Une déclaration ajoutée après coup à la configuration n'a plus d'effet : c'est
-// le prix de « la base fait foi », et il vaut mieux qu'une variable
-// d'environnement qui redonne un rôle indéfiniment.
-func TestUneDeclarationAjouteeApresCoupNestPasReprise(t *testing.T) {
+// A declaration added to the configuration after the fact has no effect: that is the price
+// of "the database prevails", and it beats an environment variable that grants a role
+// indefinitely.
+func TestADeclarationAddedAfterwardsIsNotPickedUp(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	if _, err := db.Bootstrap(ctx, spec()); err != nil {
-		t.Fatalf("amorçage: %v", err)
+		t.Fatalf("bootstrap: %v", err)
 	}
 
 	étendu := spec()
 	étendu.Grants = append(étendu.Grants, Grant{Identifier: "bob", Role: "operator"})
 	if _, err := db.Bootstrap(ctx, étendu); err != nil {
-		t.Fatalf("second amorçage: %v", err)
+		t.Fatalf("second bootstrap: %v", err)
 	}
 
 	pending, err := db.PendingGrants(ctx)
 	if err != nil {
-		t.Fatalf("déclarations en attente: %v", err)
+		t.Fatalf("pending declarations: %v", err)
 	}
 	for _, grant := range pending {
 		if grant.Identifier == "bob" {
-			t.Error("une déclaration ajoutée après l'amorçage a été reprise")
+			t.Error("a declaration added after the bootstrap was picked up")
 		}
 	}
 	if len(pending) != 2 {
-		t.Errorf("%d déclaration(s) en attente, attendu les 2 initiales", len(pending))
+		t.Errorf("%d pending declaration(s), expected the initial 2", len(pending))
 	}
 }
 
-// Les déclarations en attente sont ce qui reste visible d'un identifiant mal
-// orthographié : l'utilisateur se connecte sans permission, et rien d'autre ne
-// le dit.
-func TestLesDeclarationsEnAttenteSeListent(t *testing.T) {
+// Pending declarations are what stays visible of a misspelled identifier: the user signs in
+// with no permission, and nothing else says so.
+func TestPendingDeclarationsAreListed(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	if _, err := db.Bootstrap(ctx, spec()); err != nil {
-		t.Fatalf("amorçage: %v", err)
+		t.Fatalf("bootstrap: %v", err)
 	}
 
 	pending, err := db.PendingGrants(ctx)
 	if err != nil {
-		t.Fatalf("déclarations: %v", err)
+		t.Fatalf("declarations: %v", err)
 	}
 	if len(pending) != 2 || pending[0].Identifier != "alice" || pending[0].Role != "releaser" {
-		t.Errorf("déclarations = %+v", pending)
+		t.Errorf("declarations = %+v", pending)
 	}
 }

@@ -10,11 +10,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// RunRecord est ce que la projection d'un PipelineRun dépose en base.
+// RunRecord is what a PipelineRun's projection writes to the database.
 //
-// Le type est défini ici et non dans `internal/tekton` pour que `store` ne
-// dépende pas de client-go : la couche de persistance n'a aucune raison de
-// connaître Kubernetes.
+// The type is defined here and not in internal/tekton so that `store` does not depend
+// on client-go: the persistence layer has no reason to know Kubernetes.
 type RunRecord struct {
 	Name        string
 	Namespace   string
@@ -26,32 +25,29 @@ type RunRecord struct {
 	Results     map[string]string
 	JobID       int64
 	Observed    bool
-	// DeclaredTasks énumère les tâches du pipeline, telles qu'il les déclare.
-	// Sert à montrer ce qui n'a pas encore démarré : Tekton ne crée un TaskRun
-	// qu'au démarrage d'une tâche.
+	// DeclaredTasks lists the pipeline's tasks as it declares them. It serves to show
+	// what has not started: Tekton creates a TaskRun only when a task starts.
 	DeclaredTasks []DeclaredTask
 }
 
-// DeclaredTask est une tâche telle que le pipeline la déclare.
+// DeclaredTask is a task as the pipeline declares it.
 //
-// Redit ici plutôt qu'importé de `tekton` : ce paquet ignore Tekton, et
-// l'adaptateur de l'observateur fait la traduction. C'est la même règle qui fait
-// que `tekton` ignore PostgreSQL, et elle se paie une fois — six champs de
-// recopie — plutôt qu'en dépendance croisée entre deux paquets qui n'ont pas à
-// se connaître.
+// Restated here rather than imported from `tekton`: this package knows nothing of
+// Tekton, and the observer's adapter does the translation. It is the same rule that
+// keeps `tekton` ignorant of PostgreSQL, and it is paid once — six copied fields —
+// rather than in a cross-dependency between two packages that need not know each
+// other.
 type DeclaredTask struct {
 	Name string `json:"name"`
-	// DisplayName porte le label `tekton.dev/pipelineTask`, c'est-à-dire le nom
-	// de la **tâche du pipeline** — `git-clone` — et non un libellé humain. Le
-	// nom est un accident d'histoire, et il a coûté un défaut : la même étape
-	// s'affichait deux fois, une fois exécutée sous ce nom et une fois « en
-	// attente » sous le libellé de la déclaration. C'est par lui que les deux se
-	// rapprochent.
+	// DisplayName carries the `tekton.dev/pipelineTask` label, that is, the name of the
+	// pipeline's task and not a human label. The name is an accident of history, and it
+	// cost a defect: the same step displayed twice, once run under this name and once
+	// "pending" under the declaration's label. This is what brings the two together.
 	DisplayName string `json:"display_name,omitempty"`
 	Finally     bool   `json:"finally,omitempty"`
 }
 
-// TaskRunRecord est la projection d'un TaskRun.
+// TaskRunRecord is a TaskRun's projection.
 type TaskRunRecord struct {
 	RunName     string
 	Name        string
@@ -62,25 +58,24 @@ type TaskRunRecord struct {
 	PodName     string
 }
 
-// terminalStatuses doit rester aligné sur tekton.Status.Terminal(). La
-// duplication est assumée : la faire disparaître obligerait `store` à importer le
-// paquet Kubernetes, pour une liste de cinq chaînes.
+// terminalStatuses must stay aligned with tekton.Status.Terminal(). The duplication
+// is accepted: removing it would force `store` to import the Kubernetes package, for
+// a list of five strings.
 const terminalStatuses = `('succeeded', 'failed', 'cancelled', 'timedout')`
 
-// UpsertRun enregistre ou met à jour un run, et rend son identifiant.
+// UpsertRun records or updates a run, and returns its identifier.
 //
-// Deux protections sont dans la requête, et non dans le code appelant :
+// Two protections live in the query, not in the calling code:
 //
-//  1. **Un état terminal ne redevient jamais transitoire.** Les événements
-//     d'informer n'arrivent pas dans l'ordre — une resynchronisation périodique
-//     rejoue tous les objets — et un run terminé qui repasserait `running`
-//     gèlerait sa classe d'exclusion sans que rien ne l'explique.
-//  2. **Les dates ne régressent pas.** `completed_at` déjà connu n'est pas
-//     effacé par un événement plus ancien qui ne le porte pas encore.
+//  1. A terminal state never becomes transient again. Informer events do not arrive
+//     in order — a periodic resync replays every object — and a finished run returning
+//     to `running` would freeze its exclusion class with nothing to explain it.
+//  2. Dates do not regress. A known `completed_at` is not cleared by an older event
+//     that does not carry it yet.
 //
-// Les mettre en SQL plutôt qu'en Go les rend vraies même en cas d'écriture
-// concurrente par deux workers, situation que l'élection de leader rend rare
-// mais pas impossible pendant une bascule.
+// Putting them in SQL rather than in Go makes them true even under concurrent writes
+// by two workers, which leader election makes rare but not impossible during a
+// handover.
 func (db *DB) UpsertRun(ctx context.Context, record RunRecord) (int64, error) {
 	results, err := marshalResults(record.Results)
 	if err != nil {
@@ -97,16 +92,16 @@ func (db *DB) UpsertRun(ctx context.Context, record RunRecord) (int64, error) {
 			pipeline_name, pipelinerun_name, namespace, status, reason,
 			started_at, completed_at, results, observed, job_id, declared_tasks
 		)
-		-- job_id passe par une sous-requête plutôt que d'être inséré tel quel.
-		-- La colonne référence la table jobs, et un PipelineRun portant un
-		-- identifiant de job inconnu — base restaurée, label recopié à la main —
-		-- ferait échouer l'insertion sur la contrainte. L'observation serait
-		-- perdue pour une raison d'intégrité référentielle, ce qui est le mauvais
-		-- arbitrage : mieux vaut un run affiché sans lien vers son job.
+		-- job_id goes through a sub-query rather than being inserted as is. The
+		-- column references the jobs table, and a PipelineRun carrying an unknown
+		-- job identifier — a restored database, a label copied by hand — would
+		-- fail the insert on the constraint. The observation would be lost for a
+		-- referential integrity reason, which is the wrong trade: better a run
+		-- displayed with no link to its job.
 		--
-		-- observed suit la même logique : sans lien valide, le run reste en
-		-- lecture seule. C'est le côté sûr — le dashboard ne prétend pas piloter
-		-- ce qu'il ne peut pas rattacher.
+		-- observed follows the same logic: with no valid link, the run stays
+		-- read-only. That is the safe side — the dashboard does not claim to drive
+		-- what it cannot attach.
 		select $1, $2, $3, $4, $5, $6, $7, $8,
 		       $9 or job.id is null,
 		       job.id, $11
@@ -125,8 +120,8 @@ func (db *DB) UpsertRun(ctx context.Context, record RunRecord) (int64, error) {
 			completed_at = coalesce(runs.completed_at, excluded.completed_at),
 			results      = coalesce(excluded.results, runs.results),
 			job_id       = coalesce(runs.job_id, excluded.job_id),
-			-- La déclaration ne se perd pas : Tekton la retire du statut d'un run
-			-- terminé, et une redélivrance tardive viderait sinon la liste d'un
+			-- The declaration is not lost: Tekton removes it from a finished run's
+			-- status, and a late redelivery would otherwise empty the list of a
 			-- run qu'on regarde encore.
 			declared_tasks = case
 				when jsonb_array_length(excluded.declared_tasks) > 0 then excluded.declared_tasks
@@ -137,7 +132,7 @@ func (db *DB) UpsertRun(ctx context.Context, record RunRecord) (int64, error) {
 
 	declared, err := json.Marshal(record.DeclaredTasks)
 	if err != nil {
-		return 0, fmt.Errorf("tâches déclarées du run %q: %w", record.Name, err)
+		return 0, fmt.Errorf("declared tasks of run %q: %w", record.Name, err)
 	}
 	if record.DeclaredTasks == nil {
 		declared = []byte("[]")
@@ -149,17 +144,16 @@ func (db *DB) UpsertRun(ctx context.Context, record RunRecord) (int64, error) {
 		record.StartedAt, record.CompletedAt, results, record.Observed, jobID, declared,
 	).Scan(&id)
 	if err != nil {
-		return 0, fmt.Errorf("enregistrement du run %q: %w", record.Name, err)
+		return 0, fmt.Errorf("recording run %q: %w", record.Name, err)
 	}
 	return id, nil
 }
 
-// UpsertTaskRun enregistre ou met à jour une task, rattachée à son run.
+// UpsertTaskRun records or updates a task, attached to its run.
 //
-// Le rattachement se fait par nom de PipelineRun : un TaskRun peut être observé
-// avant son PipelineRun, l'informer ne garantissant aucun ordre entre les deux
-// ressources. Dans ce cas la task est ignorée et le prochain événement — ou la
-// resynchronisation — la reprendra.
+// The attachment is by PipelineRun name: a TaskRun may be observed before its
+// PipelineRun, the informer guaranteeing no order between the two resources. The task
+// is then ignored and the next event — or the resync — will pick it up.
 func (db *DB) UpsertTaskRun(ctx context.Context, record TaskRunRecord) error {
 	const query = `
 		insert into task_runs (
@@ -174,8 +168,8 @@ func (db *DB) UpsertTaskRun(ctx context.Context, record TaskRunRecord) error {
 			display_name = coalesce(excluded.display_name, task_runs.display_name),
 			started_at   = coalesce(task_runs.started_at, excluded.started_at),
 			completed_at = coalesce(task_runs.completed_at, excluded.completed_at),
-			-- Le nom du pod ne doit jamais être effacé : c'est la seule prise
-			-- pour lire les logs, et le pod disparaît avant le TaskRun.
+			-- The pod's name must never be cleared: it is the only handle for
+			-- reading the logs, and the pod disappears before the TaskRun.
 			pod_name     = coalesce(task_runs.pod_name, excluded.pod_name),
 			updated_at   = now()`
 
@@ -184,29 +178,29 @@ func (db *DB) UpsertTaskRun(ctx context.Context, record TaskRunRecord) error {
 		record.StartedAt, record.CompletedAt, nullString(record.PodName),
 	)
 	if err != nil {
-		return fmt.Errorf("enregistrement de la task %q: %w", record.Name, err)
+		return fmt.Errorf("recording task %q: %w", record.Name, err)
 	}
 	return nil
 }
 
-// UnfinishedRun décrit un run que la base croit en cours.
+// UnfinishedRun describes a run the database believes is in flight.
 type UnfinishedRun struct {
 	ID     int64
 	Name   string
 	Status string
 }
 
-// UnfinishedRuns liste les runs non terminés d'un namespace.
+// UnfinishedRuns lists a namespace's unfinished runs.
 //
-// Point d'entrée de la réconciliation au démarrage : c'est cette liste qui est
-// confrontée à ce que le cluster détient réellement.
+// The entry point of reconciliation at start-up: this list is what gets compared with
+// what the cluster actually holds.
 func (db *DB) UnfinishedRuns(ctx context.Context, namespace string) ([]UnfinishedRun, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, pipelinerun_name, status from runs
 		 where namespace = $1 and status not in `+terminalStatuses+`
 		 order by id`, namespace)
 	if err != nil {
-		return nil, fmt.Errorf("lecture des runs non terminés: %w", err)
+		return nil, fmt.Errorf("reading the unfinished runs: %w", err)
 	}
 	defer rows.Close()
 
@@ -214,19 +208,19 @@ func (db *DB) UnfinishedRuns(ctx context.Context, namespace string) ([]Unfinishe
 	for rows.Next() {
 		var run UnfinishedRun
 		if err := rows.Scan(&run.ID, &run.Name, &run.Status); err != nil {
-			return nil, fmt.Errorf("lecture des runs non terminés: %w", err)
+			return nil, fmt.Errorf("reading the unfinished runs: %w", err)
 		}
 		runs = append(runs, run)
 	}
 	return runs, rows.Err()
 }
 
-// MarkRunVanished conclut un run dont le PipelineRun a disparu du cluster.
+// MarkRunVanished concludes a run whose PipelineRun disappeared from the cluster.
 //
-// Sans cette conclusion, un redémarrage laisse des runs bloqués en `running` qui
-// gèlent leur classe d'exclusion — le mode de panne le plus probable de tout le
-// dispositif (doc 06 §6.4). Le motif est explicite : « disparu » n'est pas
-// « échoué », et la distinction évite de faire chercher un log qui n'existe pas.
+// Without that conclusion, a restart leaves runs stuck in `running` that freeze their
+// exclusion class — the most likely failure mode of the whole arrangement. The reason
+// is explicit: "vanished" is not "failed", and the distinction avoids sending someone
+// hunting for a log that does not exist.
 func (db *DB) MarkRunVanished(ctx context.Context, id int64, reason string) error {
 	_, err := db.pool.Exec(ctx,
 		`update runs
@@ -234,12 +228,12 @@ func (db *DB) MarkRunVanished(ctx context.Context, id int64, reason string) erro
 		     completed_at = coalesce(completed_at, now()), updated_at = now()
 		 where id = $1 and status not in `+terminalStatuses, id, reason)
 	if err != nil {
-		return fmt.Errorf("conclusion du run %d: %w", id, err)
+		return fmt.Errorf("concluding run %d: %w", id, err)
 	}
 	return nil
 }
 
-// RunSummary est la vue de liste d'un run.
+// RunSummary is a run's list view.
 type RunSummary struct {
 	ID          int64
 	Name        string
@@ -249,20 +243,20 @@ type RunSummary struct {
 	StartedAt   *time.Time
 	CompletedAt *time.Time
 	Observed    bool
-	// Namespace est celui du PipelineRun. Sert à composer le lien vers le
-	// dashboard Tekton, qui range ses objets par namespace.
+	// Namespace is the PipelineRun's. It serves to compose the link to the Tekton
+	// dashboard, which files its objects by namespace.
 	Namespace string
-	// ReleaseTag et RequestedBy disent d'où vient l'exécution. Vides sur un run
-	// observé — déclenché hors dashboard, il n'a ni job ni demandeur — et c'est
-	// une information en soi : personne ici ne l'a lancé.
+	// ReleaseTag and RequestedBy say where the run came from. Empty on an observed run —
+	// triggered outside the dashboard, it has neither job nor requester — and that is
+	// information in itself: nobody here launched it.
 	//
-	// Renseignés par GetRun seulement : la liste n'en a pas l'usage, et la
-	// jointure la ferait payer à chaque ligne.
+	// Set by GetRun only: the list has no use for them, and the join would make every row
+	// pay.
 	ReleaseTag  string
 	RequestedBy string
 }
 
-// ListRuns rend les runs les plus récents d'abord.
+// ListRuns returns the most recent runs first.
 func (db *DB) ListRuns(ctx context.Context, limit int) ([]RunSummary, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
@@ -272,12 +266,12 @@ func (db *DB) ListRuns(ctx context.Context, limit int) ([]RunSummary, error) {
 		`select id, pipelinerun_name, pipeline_name, status, coalesce(reason, ''),
 		        started_at, completed_at, observed, namespace
 		 from runs
-		 -- Les runs sans date de début — créés mais pas encore réconciliés par
-		 -- Tekton — doivent apparaître en tête et non en fin de liste.
+		 -- Runs with no start time — created but not yet reconciled by Tekton —
+		 -- must appear at the head and not at the end of the list.
 		 order by coalesce(started_at, created_at) desc
 		 limit $1`, limit)
 	if err != nil {
-		return nil, fmt.Errorf("liste des runs: %w", err)
+		return nil, fmt.Errorf("listing the runs: %w", err)
 	}
 	defer rows.Close()
 
@@ -286,7 +280,7 @@ func (db *DB) ListRuns(ctx context.Context, limit int) ([]RunSummary, error) {
 		var run RunSummary
 		if err := rows.Scan(&run.ID, &run.Name, &run.Pipeline, &run.Status, &run.Reason,
 			&run.StartedAt, &run.CompletedAt, &run.Observed, &run.Namespace); err != nil {
-			return nil, fmt.Errorf("liste des runs: %w", err)
+			return nil, fmt.Errorf("listing the runs: %w", err)
 		}
 		runs = append(runs, run)
 	}
@@ -299,13 +293,13 @@ func marshalResults(results map[string]string) (any, error) {
 	}
 	encoded, err := json.Marshal(results)
 	if err != nil {
-		return nil, fmt.Errorf("sérialisation des résultats: %w", err)
+		return nil, fmt.Errorf("serialising the results: %w", err)
 	}
 	return encoded, nil
 }
 
-// nullString évite d'écrire des chaînes vides là où l'absence est la bonne
-// information : `reason` vide et `reason` inconnu ne se distinguent plus ensuite.
+// nullString avoids writing empty strings where absence is the right information: an
+// empty `reason` and an unknown `reason` would otherwise be indistinguishable.
 func nullString(value string) any {
 	if value == "" {
 		return nil
@@ -313,10 +307,10 @@ func nullString(value string) any {
 	return value
 }
 
-// SealTaskLog enregistre l'objet de journal d'une task et la marque scellée.
+// SealTaskLog records a task's log object and marks it sealed.
 //
-// Appelé après l'écriture de l'objet, jamais avant : l'ordre inverse annoncerait
-// un journal lisible que personne ne pourrait ouvrir.
+// Called after the object is written, never before: the reverse order would announce
+// a readable log nobody could open.
 func (db *DB) SealTaskLog(ctx context.Context, runName, taskName, object string) error {
 	_, err := db.pool.Exec(ctx,
 		`update task_runs t
@@ -325,12 +319,12 @@ func (db *DB) SealTaskLog(ctx context.Context, runName, taskName, object string)
 		 where r.id = t.run_id and r.pipelinerun_name = $1 and t.name = $2`,
 		runName, taskName, object)
 	if err != nil {
-		return fmt.Errorf("scellement du journal de %q: %w", taskName, err)
+		return fmt.Errorf("sealing the log of %q: %w", taskName, err)
 	}
 	return nil
 }
 
-// TaskLogLocation décrit où lire le journal d'une task.
+// TaskLogLocation describes where to read a task's log.
 type TaskLogLocation struct {
 	RunName  string
 	TaskName string
@@ -339,7 +333,7 @@ type TaskLogLocation struct {
 	Sealed   bool
 }
 
-// TaskLog rend l'emplacement du journal d'une task.
+// TaskLog returns the location of a task's log.
 func (db *DB) TaskLog(ctx context.Context, runName, taskName string) (TaskLogLocation, error) {
 	location := TaskLogLocation{RunName: runName, TaskName: taskName}
 
@@ -350,7 +344,7 @@ func (db *DB) TaskLog(ctx context.Context, runName, taskName string) (TaskLogLoc
 		 where r.pipelinerun_name = $1 and t.name = $2`, runName, taskName).
 		Scan(&podName, &object, &location.Sealed)
 	if err != nil {
-		return location, fmt.Errorf("emplacement du journal de %q: %w", taskName, err)
+		return location, fmt.Errorf("location of the log of %q: %w", taskName, err)
 	}
 
 	if podName != nil {
@@ -362,11 +356,11 @@ func (db *DB) TaskLog(ctx context.Context, runName, taskName string) (TaskLogLoc
 	return location, nil
 }
 
-// RunsUpdatedSince rend les runs modifiés depuis un instant donné, et l'instant
-// de la modification la plus récente.
+// RunsUpdatedSince returns the runs modified since a given instant, and the instant
+// of the most recent modification.
 //
-// Alimente le flux d'état : renvoyer la liste entière à chaque tour ferait
-// retransmettre des centaines de runs figés pour un seul changement.
+// It feeds the state stream: returning the whole list on every turn would retransmit
+// hundreds of frozen runs for a single change.
 func (db *DB) RunsUpdatedSince(ctx context.Context, since time.Time) ([]RunSummary, time.Time, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, pipelinerun_name, pipeline_name, status, coalesce(reason, ''),
@@ -376,7 +370,7 @@ func (db *DB) RunsUpdatedSince(ctx context.Context, since time.Time) ([]RunSumma
 		 order by updated_at
 		 limit 200`, since)
 	if err != nil {
-		return nil, since, fmt.Errorf("runs modifiés: %w", err)
+		return nil, since, fmt.Errorf("modified runs: %w", err)
 	}
 	defer rows.Close()
 
@@ -388,7 +382,7 @@ func (db *DB) RunsUpdatedSince(ctx context.Context, since time.Time) ([]RunSumma
 		if err := rows.Scan(&run.ID, &run.Name, &run.Pipeline, &run.Status, &run.Reason,
 			&run.StartedAt, &run.CompletedAt, &run.Observed, &run.Namespace,
 			&updatedAt); err != nil {
-			return nil, since, fmt.Errorf("runs modifiés: %w", err)
+			return nil, since, fmt.Errorf("modified runs: %w", err)
 		}
 		if updatedAt.After(latest) {
 			latest = updatedAt
@@ -398,7 +392,7 @@ func (db *DB) RunsUpdatedSince(ctx context.Context, since time.Time) ([]RunSumma
 	return runs, latest, rows.Err()
 }
 
-// TaskSummary est la vue d'une task dans le détail d'un run.
+// TaskSummary is a task's view within a run's detail.
 type TaskSummary struct {
 	Name        string
 	DisplayName string
@@ -406,33 +400,32 @@ type TaskSummary struct {
 	StartedAt   *time.Time
 	CompletedAt *time.Time
 	PodName     string
-	// LogSealed dit que le journal est définitif. L'interface s'en sert pour
-	// décider s'il faut suivre le flux ou se contenter d'une lecture.
+	// LogSealed says the log is final. The interface uses it to decide whether to follow
+	// the stream or settle for a read.
 	LogSealed bool
 	HasLog    bool
 }
 
-// RunDetail est un run et ses tasks.
+// RunDetail is a run and its tasks.
 type RunDetail struct {
 	Run   RunSummary
 	Tasks []TaskSummary
-	// Declared énumère les tâches du pipeline, dans l'ordre du graphe. Vide sur
-	// un run projeté avant que cette liste ne soit enregistrée : l'appelant
-	// retombe alors sur les seules tâches démarrées.
+	// Declared lists the pipeline's tasks, in graph order. Empty on a run projected before
+	// that list was recorded: the caller then falls back to the started tasks alone.
 	Declared []DeclaredTask
 }
 
 // ErrRunNotFound signale un run absent.
 var ErrRunNotFound = errors.New("run introuvable")
 
-// GetRun rend un run et ses tasks, dans l'ordre d'exécution.
+// GetRun returns a run and its tasks, in execution order.
 func (db *DB) GetRun(ctx context.Context, name string) (RunDetail, error) {
 	var detail RunDetail
 
 	var declared []byte
-	// Les jointures sont externes à dessein : un run observé n'a pas de job, et
-	// un job de synchronisation n'a pas de release. Une jointure interne les
-	// ferait disparaître de l'écran plutôt que de les afficher sans provenance.
+	// The joins are outer by design: an observed run has no job, and a synchronisation job
+	// has no release. An inner join would make them vanish from the screen rather than
+	// display them without provenance.
 	err := db.pool.QueryRow(ctx,
 		`select r.id, r.pipelinerun_name, r.pipeline_name, r.status, coalesce(r.reason, ''),
 		        r.started_at, r.completed_at, r.observed, r.namespace, r.declared_tasks,
@@ -449,11 +442,11 @@ func (db *DB) GetRun(ctx context.Context, name string) (RunDetail, error) {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return detail, ErrRunNotFound
 		}
-		return detail, fmt.Errorf("lecture du run %q: %w", name, err)
+		return detail, fmt.Errorf("reading run %q: %w", name, err)
 	}
 
-	// Une déclaration illisible n'empêche pas de rendre le run : l'écran retombe
-	// sur les tâches démarrées, ce qui est le comportement d'avant.
+	// An unreadable declaration does not prevent returning the run: the screen falls back
+	// to the started tasks, which is the previous behaviour.
 	if len(declared) > 0 {
 		_ = json.Unmarshal(declared, &detail.Declared)
 	}
@@ -463,12 +456,12 @@ func (db *DB) GetRun(ctx context.Context, name string) (RunDetail, error) {
 		        coalesce(pod_name, ''), log_sealed, log_object is not null
 		 from task_runs
 		 where run_id = $1
-		 -- Les tasks sans date de début — pas encore ordonnancées — passent en
-		 -- fin de liste : elles n'ont rien à montrer, contrairement aux runs où
-		 -- c'est le plus récent qu'on cherche.
+		 -- Tasks with no start time — not yet scheduled — go to the end of the
+		 -- list: they have nothing to show, unlike runs where the most recent is
+		 -- what one looks for.
 		 order by started_at nulls last, name`, detail.Run.ID)
 	if err != nil {
-		return detail, fmt.Errorf("lecture des tasks de %q: %w", name, err)
+		return detail, fmt.Errorf("reading the tasks of %q: %w", name, err)
 	}
 	defer rows.Close()
 
@@ -476,7 +469,7 @@ func (db *DB) GetRun(ctx context.Context, name string) (RunDetail, error) {
 		var task TaskSummary
 		if err := rows.Scan(&task.Name, &task.DisplayName, &task.Status, &task.StartedAt,
 			&task.CompletedAt, &task.PodName, &task.LogSealed, &task.HasLog); err != nil {
-			return detail, fmt.Errorf("lecture des tasks de %q: %w", name, err)
+			return detail, fmt.Errorf("reading the tasks of %q: %w", name, err)
 		}
 		detail.Tasks = append(detail.Tasks, task)
 	}

@@ -22,7 +22,7 @@ import (
 // all: includes files starting with a dot, among them the .gitkeep that lets this
 // directory exist in the repository without committing build output.
 //
-// go:embed all:dist
+//go:embed all:dist
 var assets embed.FS
 
 // ErrNotBuilt reports an interface missing from the binary.

@@ -20,11 +20,11 @@ import (
  * ses seules actions futures.
  */
 
-// Directory associe les sujets connus à leur nom.
+// Directory maps known subjects to their names.
 //
-// Rendu en une fois plutôt que sujet par sujet : la table tient en quelques
-// dizaines de lignes, et une lecture par acteur d'une liste de cinquante
-// releases coûterait cinquante allers-retours pour le même résultat.
+// Returned in one go rather than subject by subject: the table holds a few dozen rows, and
+// one read per actor of a list of fifty releases would cost fifty round trips for the same
+// result.
 func (db *DB) Directory(ctx context.Context) (map[string]string, error) {
 	rows, err := db.pool.Query(ctx,
 		`select subject, coalesce(username, '') from user_roles where username <> ''`)

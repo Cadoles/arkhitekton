@@ -9,91 +9,89 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrVersionNotFoundByID signale une version absente.
+// ErrVersionNotFoundByID reports a missing version.
 var ErrVersionNotFoundByID = errors.New("version introuvable")
 
-// VersionSummary est une version et son avancement.
+// VersionSummary is a version and its progress.
 //
-// Deux mesures de complétion, parce qu'elles ne disent pas la même chose (doc 04
-// §4.5) : par nombre de demandes, lisible mais une grosse demande vaut une petite ;
-// pondérée par `done_ratio`, plus fine mais tributaire de la rigueur de saisie.
+// Two completion measures, because they do not say the same thing: by issue count,
+// readable but a large issue counts as much as a small one; weighted by `done_ratio`,
+// finer but dependent on how carefully it is filled in.
 type VersionSummary struct {
 	ID int64
-	// ProjectID rattache la version à son dépôt. Nécessaire pour savoir quel
-	// schéma de version et quel cycle de release s'y appliquent.
+	// ProjectID attaches the version to its repository. Needed to know which version
+	// scheme and which release cycle apply.
 	ProjectID int64
-	// ExternalID est l'identifiant de la version dans le suivi, vide quand elle
-	// n'en vient pas.
+	// ExternalID is the version's identifier in the tracker, empty when it comes from
+	// none.
 	ExternalID string
 	Name       string
 	Status     string
 	DueDate    *time.Time
 	SyncedAt   time.Time
 
-	// Pending marque une version provisoire, créée par une release avant que la
-	// synchronisation ne connaisse la version réelle.
+	// Pending marks a provisional version, created by a release before synchronisation
+	// knew the real one.
 	Pending bool
 
-	// Counted est le dénominateur : les demandes hors `rejected`. Les rejetées ne
-	// pèsent ni au numérateur ni au dénominateur — les compter en bas ferait baisser
-	// la complétion d'une version parce qu'on y a renoncé à une demande.
+	// Counted is the denominator: issues other than `rejected`. Rejected ones weigh
+	// neither in the numerator nor in the denominator — counting them below would lower a
+	// version's completion because an issue was dropped.
 	Counted int
 	Done    int
-	// WeightedDone est la somme des `done_ratio` des demandes comptées, en points de
-	// pourcentage. Divisée par `Counted` elle donne la seconde mesure.
+	// WeightedDone is the sum of the counted issues' `done_ratio`, in percentage points.
+	// Divided by Counted it gives the second measure.
 	WeightedDone int
 
-	// OpenAnomalies est compté à part et **n'entre pas** dans la complétion : une
-	// version peut être fonctionnellement complète et porter des anomalies ouvertes,
-	// ce sont deux signaux distincts qui doivent le rester.
+	// OpenAnomalies is counted separately and does not enter completion: a version may be
+	// functionally complete and carry open anomalies; they are two distinct signals and
+	// must stay so.
 	OpenAnomalies int
 
 	Releases int
 }
 
-// Buckets est la projection des statuts Redmine, dans l'ordre d'avancement.
+// Buckets is the mapping of tracker statuses, in order of progress.
 //
-// Un seul endroit, et ordonné : les colonnes de l'écran, la liste du sélecteur
-// d'administration et la contrainte de la base doivent dire la même chose. Trois
-// énumérations séparées divergeraient au premier ajout — c'est précisément ce qui
-// vient d'arriver avec `client-test`.
+// One place, and ordered: the screen's columns, the administration selector's list
+// and the database constraint must say the same thing. Three separate enumerations
+// would diverge at the first addition.
 //
-// `rejected` est en dehors de l'avancement : il n'est ni avant ni après, il est hors
-// périmètre (doc 04 §4.5).
+// `rejected` sits outside progress: it is neither before nor after, it is out of
+// scope.
 var Buckets = []string{BucketTodo, BucketDoing, BucketClientTest, BucketDone}
 
 const (
 	BucketTodo  = "todo"
 	BucketDoing = "doing"
-	// BucketClientTest est l'attente de validation par le client : le développement
-	// est fini, la recette non.
+	// BucketClientTest is awaiting the client's approval: development is finished,
+	// acceptance is not.
 	//
-	// **Il ne compte pas comme terminé.** Il entre au dénominateur de la complétion,
-	// jamais au numérateur — confondre « fini de développer » et « accepté » est
-	// exactement ce qu'un taux de complétion doit éviter.
+	// It does not count as done. It enters the completion denominator, never the
+	// numerator — confusing "finished developing" with "accepted" is exactly what a
+	// completion rate must avoid.
 	BucketClientTest = "client-test"
 	BucketDone       = "done"
-	// BucketRejected sort du calcul : ni au numérateur ni au dénominateur. Le compter
-	// en bas ferait baisser la complétion d'une version parce qu'on y a renoncé à une
-	// demande.
+	// BucketRejected leaves the computation: neither numerator nor denominator. Counting
+	// it below would lower a version's completion because an issue was dropped.
 	BucketRejected = "rejected"
 )
 
-// OpenBuckets sont les seaux d'une demande encore à traiter.
+// OpenBuckets are the buckets of an issue still to be handled.
 //
-// C'est **cette** liste qui décide si une anomalie est ouverte, et non le drapeau
-// `is_closed` de Redmine. Les deux divergent sur l'instance réelle : `Testé` y est
-// déclaré non clos alors qu'il est projeté en `done`, et `Ré-ouvert` l'inverse. Compter
-// les anomalies sur `is_closed` affichait donc cinq anomalies terminées comme ouvertes.
+// It is this list that decides whether an anomaly is open, and not the tracker's
+// `is_closed` flag. The two diverge on the real instance: one status is declared not
+// closed while it maps to `done`, and another the reverse. Counting anomalies on
+// `is_closed` therefore displayed five finished anomalies as open.
 //
-// Employer deux notions de « clos » dans le même écran est la faute de fond ; la
-// projection est celle que l'utilisateur règle et voit, donc la seule autorité.
+// Using two notions of "closed" in the same screen is the underlying fault; the
+// mapping is what the user sets and sees, hence the only authority.
 //
-// `client-test` en est absent : une anomalie en attente de validation client n'est plus
-// à traiter par l'équipe.
+// `client-test` is absent from it: an anomaly awaiting client approval is no longer
+// for the team to handle.
 var OpenBuckets = []string{BucketTodo, BucketDoing}
 
-// BucketIsOpen dit si un seau désigne une demande encore à traiter.
+// BucketIsOpen says whether a bucket names an issue still to be handled.
 func BucketIsOpen(bucket string) bool {
 	for _, open := range OpenBuckets {
 		if open == bucket {
@@ -103,7 +101,7 @@ func BucketIsOpen(bucket string) bool {
 	return false
 }
 
-// ValidBucket dit si un seau est déclaré.
+// ValidBucket says whether a bucket is declared.
 func ValidBucket(bucket string) bool {
 	if bucket == BucketRejected {
 		return true
@@ -116,31 +114,30 @@ func ValidBucket(bucket string) bool {
 	return false
 }
 
-// anomalyTrackers borne ce qui compte comme anomalie.
+// anomalyTrackers bounds what counts as an anomaly.
 //
-// L'instance en déclare deux — `Anomalie` et `Anomalie (SDN4)` — là où doc 04
-// supposait un nom unique. Compter sur l'égalité à `Anomalie` en manquerait la
-// moitié, et le préfixe est le seul point commun fiable.
+// The instance declares two names where a single one was assumed. Comparing for
+// equality would miss half of them, and the prefix is the only reliable common
+// ground.
 const anomalyTrackerPrefix = "Anomalie"
 
-// ListVersionSummaries rend les versions et leur avancement.
+// ListVersionSummaries returns a project's versions and their progress.
 //
-// Les versions closes sans aucune demande ni release ne sont pas masquées : elles
-// existent dans Redmine, et les cacher ferait douter de l'exhaustivité de l'écran.
-// ListVersionSummaries rend les versions **d'un projet**.
+// Closed versions with no issue and no release are not hidden: they exist in the
+// tracker, and hiding them would cast doubt on the screen's completeness.
 //
-// Bornée au projet depuis que le dashboard en pilote plusieurs. Elle ne l'était
-// pas : la route `/projects/{p}/versions` passait son projet, et la requête
-// l'ignorait — un projet sans aucune version affichait les vingt du voisin, sans
-// qu'aucune erreur ne le dise. C'est le pire mode de défaillance du
-// multi-projet, celui où l'écran d'un client montre les données d'un autre.
+// Bounded to the project since the dashboard drives several. It was not: the
+// `/projects/{p}/versions` route passed its project and the query ignored it — a
+// project with no version displayed its neighbour's twenty, with no error saying so.
+// That is the worst failure mode of multi-project work, the one where a client's
+// screen shows another's data.
 func (db *DB) ListVersionSummaries(ctx context.Context, projectID int64) ([]VersionSummary, error) {
 	rows, err := db.pool.Query(ctx, versionSummaryQuery+`
 		   and v.project_id = $3
 		 order by v.due_date desc nulls last, v.name desc`,
 		anomalyTrackerPrefix, OpenBuckets, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("liste des versions: %w", err)
+		return nil, fmt.Errorf("listing the versions: %w", err)
 	}
 	defer rows.Close()
 
@@ -155,7 +152,7 @@ func (db *DB) ListVersionSummaries(ctx context.Context, projectID int64) ([]Vers
 	return summaries, rows.Err()
 }
 
-// GetVersionSummary rend une version par sa clé locale.
+// GetVersionSummary returns a version by its local key.
 func (db *DB) GetVersionSummary(ctx context.Context, id int64) (VersionSummary, error) {
 	rows, err := db.pool.Query(ctx, versionSummaryQuery+` and v.id = $3`,
 		anomalyTrackerPrefix, OpenBuckets, id)
@@ -173,12 +170,11 @@ func (db *DB) GetVersionSummary(ctx context.Context, id int64) (VersionSummary, 
 	return scanVersionSummary(rows)
 }
 
-// versionSummaryQuery agrège demandes et releases par version.
+// versionSummaryQuery aggregates issues and releases per version.
 //
-// Les agrégats sont calculés en sous-requêtes latérales plutôt que par des
-// jointures : joindre `issues` et `releases` dans la même requête multiplierait les
-// lignes l'une par l'autre, et chaque compte serait faux d'un facteur égal au nombre
-// de lignes de l'autre table.
+// The aggregates are computed in lateral sub-queries rather than by joins: joining
+// issues and releases in one query would multiply the rows of one by the other, and
+// each count would be wrong by a factor equal to the other table's row count.
 const versionSummaryQuery = `
 	select v.id, v.project_id, coalesce(v.external_id, ''), v.origin, v.name, v.status, v.due_date, v.synced_at,
 	       counts.counted, counts.done, counts.weighted, counts.anomalies,
@@ -188,10 +184,9 @@ const versionSummaryQuery = `
 	    select count(*) filter (where status_bucket <> 'rejected')            as counted,
 	           count(*) filter (where status_bucket = 'done')                 as done,
 	           coalesce(sum(done_ratio) filter (where status_bucket <> 'rejected'), 0) as weighted,
-	           -- Ouverte au sens du seau projeté, jamais du drapeau is_closed de
-	           -- Redmine : les deux divergent, et c'est ce qui faisait compter cinq
-	           -- anomalies terminées comme ouvertes. (Pas de backtick ici : cette
-	           -- chaîne est brute, un backtick la fermerait.)
+	           -- Open in the sense of the mapped bucket, never of the tracker's
+	           -- is_closed flag: the two diverge, and that is what made five
+	           -- finished anomalies count as open.
 	           count(*) filter (
 	               where tracker like $1 || '%' and status_bucket = any($2)
 	           ) as anomalies
@@ -208,18 +203,18 @@ func scanVersionSummary(rows pgx.Rows) (VersionSummary, error) {
 	if err := rows.Scan(&summary.ID, &summary.ProjectID, &summary.ExternalID, &origin, &summary.Name, &summary.Status,
 		&summary.DueDate, &summary.SyncedAt, &summary.Counted, &summary.Done,
 		&summary.WeightedDone, &summary.OpenAnomalies, &summary.Releases); err != nil {
-		return VersionSummary{}, fmt.Errorf("lecture d'une version: %w", err)
+		return VersionSummary{}, fmt.Errorf("reading a version: %w", err)
 	}
-	// La provisoire se lit dans `origin` depuis la migration 0028. Elle se
-	// déduisait auparavant du signe de `redmine_id` — un entier négatif qui
-	// n'existait que pour tenir un `not null`, et qu'il fallait savoir lire.
+	// Provisional status is read from `origin`. It used to be inferred from the sign of a
+	// numeric identifier — a negative integer that existed only to satisfy a not-null
+	// constraint, and that one had to know how to read.
 	summary.Pending = origin == VersionOriginPending
 	return summary, nil
 }
 
-// VersionIssue est une demande dans le périmètre d'une version.
+// VersionIssue is an issue within a version's scope.
 type VersionIssue struct {
-	// ExternalID est l'identifiant de la demande dans le suivi, en texte.
+	// ExternalID is the issue's identifier in the tracker, as text.
 	ExternalID string
 	Tracker    string
 	Subject    string
@@ -229,15 +224,15 @@ type VersionIssue struct {
 	Assignee   string
 	DoneRatio  int
 	IsClosed   bool
-	// Anomaly distingue les anomalies, comptées à part du taux de complétion.
+	// Anomaly marks anomalies, counted apart from the completion rate.
 	Anomaly bool
 }
 
-// ListVersionIssues rend le périmètre d'une version.
+// ListVersionIssues returns a version's scope.
 //
-// Toutes les demandes, rejetées comprises : elles sortent du calcul de complétion
-// mais restent le périmètre discuté, et les masquer ferait chercher une demande dont
-// on sait qu'elle existe.
+// Every issue, rejected ones included: they leave the completion computation but stay
+// part of the scope under discussion, and hiding them would send someone hunting for
+// an issue they know exists.
 func (db *DB) ListVersionIssues(ctx context.Context, versionID int64) ([]VersionIssue, error) {
 	rows, err := db.pool.Query(ctx,
 		`select external_id, tracker, subject, status_name, status_bucket,
@@ -246,7 +241,7 @@ func (db *DB) ListVersionIssues(ctx context.Context, versionID int64) ([]Version
 		 where version_id = $1
 		 order by tracker, external_id`, versionID)
 	if err != nil {
-		return nil, fmt.Errorf("demandes de la version %d: %w", versionID, err)
+		return nil, fmt.Errorf("issues of version %d: %w", versionID, err)
 	}
 	defer rows.Close()
 
@@ -256,7 +251,7 @@ func (db *DB) ListVersionIssues(ctx context.Context, versionID int64) ([]Version
 		if err := rows.Scan(&issue.ExternalID, &issue.Tracker, &issue.Subject,
 			&issue.StatusName, &issue.Bucket, &issue.Priority, &issue.Assignee,
 			&issue.DoneRatio, &issue.IsClosed); err != nil {
-			return nil, fmt.Errorf("demandes de la version %d: %w", versionID, err)
+			return nil, fmt.Errorf("issues of version %d: %w", versionID, err)
 		}
 		issue.Anomaly = len(issue.Tracker) >= len(anomalyTrackerPrefix) &&
 			issue.Tracker[:len(anomalyTrackerPrefix)] == anomalyTrackerPrefix
@@ -265,11 +260,10 @@ func (db *DB) ListVersionIssues(ctx context.Context, versionID int64) ([]Version
 	return issues, rows.Err()
 }
 
-// SyncState est l'état d'une synchronisation.
+// SyncState is a synchronisation's state.
 //
-// `LastOK` est distinct de `LastRun` pour que l'interface puisse dire « données
-// vieilles de quatorze minutes, dernière synchronisation en échec » plutôt qu'un
-// chiffre muet.
+// LastOK is distinct from LastRun so the interface can say "data fourteen minutes
+// old, last synchronisation failed" rather than a mute figure.
 type SyncState struct {
 	Source    string
 	Cursor    string
@@ -278,12 +272,12 @@ type SyncState struct {
 	LastError string
 }
 
-// GetSyncState rend l'état d'une source pour un projet, ou un état vide si elle
-// n'a jamais tourné.
+// GetSyncState returns a source's state for a project, or an empty state when it has
+// never run.
 //
-// Par projet depuis la migration 0043. Un curseur unique avançait sur le premier
-// projet lu, et le second reprenait depuis un instant où **il** n'avait rien lu :
-// son historique était sauté, définitivement et sans message.
+// Per project. A single cursor advanced on the first project read, and the second
+// resumed from an instant at which it had read nothing: its history was skipped,
+// permanently and with no message.
 func (db *DB) GetSyncState(ctx context.Context, source string, projectID int64) (SyncState, error) {
 	state := SyncState{Source: source}
 	var cursor, lastError *string
@@ -294,11 +288,11 @@ func (db *DB) GetSyncState(ctx context.Context, source string, projectID int64) 
 		source, projectID).Scan(&cursor, &state.LastRun, &state.LastOK, &lastError)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Jamais synchronisé n'est pas une erreur : c'est l'état au premier
-			// démarrage, et il conduit à une lecture complète.
+			// Never synchronised is not an error: it is the state at first start-up, and it leads
+			// to a full read.
 			return state, nil
 		}
-		return SyncState{}, fmt.Errorf("état de synchronisation %q: %w", source, err)
+		return SyncState{}, fmt.Errorf("synchronisation state %q: %w", source, err)
 	}
 	if cursor != nil {
 		state.Cursor = *cursor
@@ -309,16 +303,15 @@ func (db *DB) GetSyncState(ctx context.Context, source string, projectID int64) 
 	return state, nil
 }
 
-// RecordSyncSuccess avance le curseur d'un projet et efface l'erreur précédente.
-// Le prédicat `where project_id is not null` n'est pas décoratif : `sync_state`
-// porte deux index uniques **partiels** — un par projet, un pour ce qui n'en vise
-// aucun — et PostgreSQL refuse un `on conflict` qui ne reprend pas celui de
-// l'index visé. Sans lui, l'écriture échoue en 42P10 : « no unique or exclusion
-// constraint matching the ON CONFLICT specification ».
+// RecordSyncSuccess advances a project's cursor and clears the previous error.
 //
-// Constaté en production, sur le journal du worker : chaque passe de sonde
-// échouait à consigner son état, et l'écran ne pouvait donc jamais dire
-// « dernière tentative en échec ».
+// The `where project_id is not null` predicate is not decorative: `sync_state`
+// carries two partial unique indexes — one per project, one for what targets none —
+// and PostgreSQL refuses an `on conflict` that does not restate the targeted index's
+// predicate. Without it the write fails with 42P10.
+//
+// Observed in production, in the worker's log: every probe pass failed to record its
+// state, and the screen could therefore never say "last attempt failed".
 func (db *DB) RecordSyncSuccess(ctx context.Context, source string, projectID int64, cursor string) error {
 	_, err := db.pool.Exec(ctx,
 		`insert into sync_state (source, project_id, cursor, last_run, last_ok, last_error, updated_at)
@@ -328,16 +321,16 @@ func (db *DB) RecordSyncSuccess(ctx context.Context, source string, projectID in
 		     last_ok = excluded.last_ok, last_error = null, updated_at = now()`,
 		source, projectID, cursor)
 	if err != nil {
-		return fmt.Errorf("enregistrement de la synchronisation %q: %w", source, err)
+		return fmt.Errorf("recording synchronisation %q: %w", source, err)
 	}
 	return nil
 }
 
-// RecordSyncFailure note l'échec sans toucher au curseur.
+// RecordSyncFailure records the failure without touching the cursor.
 //
-// Le curseur est laissé en place à dessein : l'avancer après un échec sauterait la
-// fenêtre non lue, et les demandes modifiées pendant celle-ci ne seraient jamais
-// reprises. Mieux vaut relire deux fois que perdre.
+// The cursor is left in place deliberately: advancing it after a failure would skip
+// the unread window, and issues modified during it would never be picked up. Better
+// to read twice than to lose.
 func (db *DB) RecordSyncFailure(ctx context.Context, source string, projectID int64, message string) error {
 	_, err := db.pool.Exec(ctx,
 		`insert into sync_state (source, project_id, last_run, last_error, updated_at)
@@ -347,12 +340,12 @@ func (db *DB) RecordSyncFailure(ctx context.Context, source string, projectID in
 		     updated_at = now()`,
 		source, projectID, message)
 	if err != nil {
-		return fmt.Errorf("enregistrement de l'échec de synchronisation %q: %w", source, err)
+		return fmt.Errorf("recording the synchronisation failure %q: %w", source, err)
 	}
 	return nil
 }
 
-// ResetSyncCursor efface le curseur d'un projet pour forcer une lecture complète.
+// ResetSyncCursor clears a project's cursor to force a full read.
 func (db *DB) ResetSyncCursor(ctx context.Context, source string, projectID int64) error {
 	_, err := db.pool.Exec(ctx,
 		`insert into sync_state (source, project_id, cursor, updated_at)
@@ -360,12 +353,12 @@ func (db *DB) ResetSyncCursor(ctx context.Context, source string, projectID int6
 		 on conflict (source, project_id) where project_id is not null do update set cursor = null, updated_at = now()`,
 		source, projectID)
 	if err != nil {
-		return fmt.Errorf("réinitialisation du curseur %q: %w", source, err)
+		return fmt.Errorf("resetting cursor %q: %w", source, err)
 	}
 	return nil
 }
 
-// VersionRelease est une release produite pour une version.
+// VersionRelease is a release produced for a version.
 type VersionRelease struct {
 	Tag          string
 	Kind         string
@@ -374,14 +367,14 @@ type VersionRelease struct {
 	CreatedAt    time.Time
 }
 
-// ListVersionReleases rend les releases d'une version, la plus récente d'abord.
+// ListVersionReleases returns a version's releases, newest first.
 func (db *DB) ListVersionReleases(ctx context.Context, versionID int64) ([]VersionRelease, error) {
 	rows, err := db.pool.Query(ctx,
 		`select tag, kind, state, image_version, created_at
 		 from releases where version_id = $1
 		 order by created_at desc`, versionID)
 	if err != nil {
-		return nil, fmt.Errorf("releases de la version %d: %w", versionID, err)
+		return nil, fmt.Errorf("releases of version %d: %w", versionID, err)
 	}
 	defer rows.Close()
 
@@ -390,7 +383,7 @@ func (db *DB) ListVersionReleases(ctx context.Context, versionID int64) ([]Versi
 		var item VersionRelease
 		if err := rows.Scan(&item.Tag, &item.Kind, &item.State,
 			&item.ImageVersion, &item.CreatedAt); err != nil {
-			return nil, fmt.Errorf("releases de la version %d: %w", versionID, err)
+			return nil, fmt.Errorf("releases of version %d: %w", versionID, err)
 		}
 		releases = append(releases, item)
 	}

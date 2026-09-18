@@ -50,8 +50,8 @@ func releaseFor(t *testing.T, db *DB, tag string) int64 {
 	return id
 }
 
-// La vue qui répond à la question réellement posée en recette : qu'est-ce qui a
-// changé ? Un compteur stable peut cacher un échec résolu et un échec apparu.
+// The view that answers the question actually asked before shipping: what changed? A
+// stable counter can hide a resolved failure and a new one.
 func TestDiffFamilySeesTheFourKindsOfChange(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -91,14 +91,13 @@ func TestDiffFamilySeesTheFourKindsOfChange(t *testing.T) {
 	}
 	for name, change := range expected {
 		if changes[name] != change {
-			t.Errorf("%q = %q, attendu %q", name, changes[name], change)
+			t.Errorf("%q = %q, expected %q", name, changes[name], change)
 		}
 	}
 }
 
-// Un test instable est un échec du point de vue de la comparaison : passer de
-// stable à instable est une régression, et la taire ferait disparaître le seul
-// signal qui existe dessus.
+// A flaky test is a failure as far as comparison goes: going from stable to flaky is a
+// regression, and hiding it would remove the only signal there is on it.
 func TestFlakyCountsAsAFailureInTheDiff(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -120,8 +119,7 @@ func TestFlakyCountsAsAFailureInTheDiff(t *testing.T) {
 	}
 }
 
-// Une release peut être testée plusieurs fois : c'est la dernière exécution qui
-// la décrit.
+// A release may be tested several times: the last run is what describes it.
 func TestTheMostRecentReportWins(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -156,19 +154,19 @@ func TestSaveTestResultIsIdempotentPerTool(t *testing.T) {
 
 	exists, err := db.TestResultExists(ctx, runID, "phpunit")
 	if err != nil {
-		t.Fatalf("contrôle: %v", err)
+		t.Fatalf("check: %v", err)
 	}
 	if !exists {
-		t.Error("le rapport doit être reconnu comme déjà enregistré")
+		t.Error("the report must be recognised as already recorded")
 	}
 
 	if other, _ := db.TestResultExists(ctx, runID, "phpstan"); other {
-		t.Error("un autre outil ne doit pas être confondu")
+		t.Error("another tool must not be conflated")
 	}
 }
 
-// Une RC se compare à la RC qui la précède, sans quoi rc2 serait confrontée à
-// une release livrée des semaines plus tôt et tout apparaîtrait changé.
+// A candidate is compared with the candidate before it, otherwise rc2 would be set
+// against a release shipped weeks earlier and everything would look changed.
 func TestPreviousReleaseIsTheOneJustBefore(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -179,52 +177,50 @@ func TestPreviousReleaseIsTheOneJustBefore(t *testing.T) {
 
 	previous, err := db.PreviousRelease(ctx, third)
 	if err != nil {
-		t.Fatalf("précédente: %v", err)
+		t.Fatalf("previous: %v", err)
 	}
 	if previous != second {
-		t.Errorf("précédente = %d, attendu %d", previous, second)
+		t.Errorf("previous = %d, expected %d", previous, second)
 	}
 
-	// La première release n'a rien à quoi se comparer.
+	// The first release has nothing to compare against.
 	if _, err := db.PreviousRelease(ctx, first); err == nil {
-		t.Error("la première release ne doit pas avoir de précédente")
+		t.Error("the first release must have no previous one")
 	}
 }
 
-// Le rejeu part de `raw_object` : un run dont l'objet source n'est pas
-// enregistré n'est pas rejouable, et le proposer donnerait un rejeu qui efface
-// sans reconstruire.
+// Replay starts from `raw_object`: a run whose source object is not recorded cannot be
+// replayed, and offering it would give a replay that erases without rebuilding.
 func TestReprocessTargetsRequireARawObject(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	releaseID := releaseFor(t, db, "1.8.0-rc1")
-	withRaw := testRun(t, db, "avec-brut")
-	withoutRaw := testRun(t, db, "sans-brut")
+	withRaw := testRun(t, db, "with-raw")
+	withoutRaw := testRun(t, db, "without-raw")
 
 	if _, err := db.SaveTestResult(ctx, TestResult{
 		RunID: withRaw, ReleaseID: &releaseID, Family: "unit", Tool: "phpunit",
-		Status: "pass", RawObject: "raw/avec-brut/junit.xml",
+		Status: "pass", RawObject: "raw/with-raw/junit.xml",
 	}, nil); err != nil {
-		t.Fatalf("avec brut: %v", err)
+		t.Fatalf("with raw: %v", err)
 	}
 	if _, err := db.SaveTestResult(ctx, TestResult{
 		RunID: withoutRaw, ReleaseID: &releaseID, Family: "unit", Tool: "phpunit",
 		Status: "pass",
 	}, nil); err != nil {
-		t.Fatalf("sans brut: %v", err)
+		t.Fatalf("without raw: %v", err)
 	}
 
 	targets, err := db.ListReprocessTargets(ctx, 0)
 	if err != nil {
 		t.Fatalf("cibles: %v", err)
 	}
-	if len(targets) != 1 || targets[0].RunName != "avec-brut" {
+	if len(targets) != 1 || targets[0].RunName != "with-raw" {
 		t.Errorf("cibles = %+v", targets)
 	}
-	// Les outils déjà projetés sont rendus : savoir ce qui disparaît avant de le
-	// reconstruire est le seul moyen de constater qu'un parseur corrigé produit
-	// désormais moins.
+	// The tools already projected are returned: knowing what disappears before rebuilding
+	// it is the only way to observe that a fixed parser now produces less.
 	if len(targets[0].Tools) != 1 || targets[0].Tools[0] != "phpunit" {
 		t.Errorf("outils = %v", targets[0].Tools)
 	}
@@ -259,8 +255,7 @@ func TestReprocessTargetsCanBeScopedToARelease(t *testing.T) {
 	}
 }
 
-// Les cas partent avec leur rapport : ils n'ont aucun sens détachés de ce qui
-// les a produits.
+// The cases go with their report: they make no sense detached from what produced them.
 func TestDeleteTestResultsCascadesToCases(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
@@ -277,7 +272,7 @@ func TestDeleteTestResultsCascadesToCases(t *testing.T) {
 		t.Fatalf("effacement: %v", err)
 	}
 	if deleted != 1 {
-		t.Errorf("%d rapport(s) effacé(s)", deleted)
+		t.Errorf("%d report(s) erased", deleted)
 	}
 
 	var remaining int
@@ -285,12 +280,11 @@ func TestDeleteTestResultsCascadesToCases(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if remaining != 0 {
-		t.Errorf("%d cas subsistent après effacement du rapport", remaining)
+		t.Errorf("%d cases remain after erasing the report", remaining)
 	}
 }
 
-// reportOf rend l'identifiant du rapport d'une famille, seule entrée de
-// ListTestCases.
+// reportOf returns a family's report identifier, the only input to ListTestCases.
 func reportOf(t *testing.T, db *DB, releaseID int64, family string) int64 {
 	t.Helper()
 	reports, err := db.ListReleaseTestResults(context.Background(), releaseID)
@@ -302,11 +296,11 @@ func reportOf(t *testing.T, db *DB, releaseID int64, family string) int64 {
 			return report.ID
 		}
 	}
-	t.Fatalf("aucun rapport pour la famille %s", family)
+	t.Fatalf("no report for family %s", family)
 	return 0
 }
 
-// manyCases fabrique n cas nommés de façon à être triables et reconnaissables.
+// manyCases builds n cases named so as to be sortable and recognisable.
 func manyCases(n int) []TestCase {
 	cases := make([]TestCase, 0, n)
 	for i := 0; i < n; i++ {
@@ -319,9 +313,9 @@ func manyCases(n int) []TestCase {
 	return cases
 }
 
-// Le total porte sur l'ensemble, la page sur ce qu'on demande. Sans cela
-// l'interface ne peut pas savoir qu'une page suivante existe.
-func TestListTestCasesRendUnePageEtLeTotal(t *testing.T) {
+// The total covers the whole set, the page what was asked for. Without it the interface
+// cannot know a next page exists.
+func TestListTestCasesReturnsAPageAndTheTotal(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -332,22 +326,22 @@ func TestListTestCasesRendUnePageEtLeTotal(t *testing.T) {
 
 	page, total, err := db.ListTestCases(ctx, reportID, CasePage{Limit: 500})
 	if err != nil {
-		t.Fatalf("première page: %v", err)
+		t.Fatalf("first page: %v", err)
 	}
 	if total != 1200 {
-		t.Errorf("total %d, attendu 1200", total)
+		t.Errorf("total %d, expected 1200", total)
 	}
 	if len(page) != 500 {
-		t.Fatalf("%d cas dans la page, attendu 500", len(page))
+		t.Fatalf("%d cases in the page, expected 500", len(page))
 	}
 	if page[0].Name != "cas-0000" {
 		t.Errorf("premier cas %q", page[0].Name)
 	}
 }
 
-// Les pages ne doivent ni se recouvrir ni laisser de trou : c'est la propriété
-// qui rend la pagination utilisable, et celle qu'un tri non total casse.
-func TestLesPagesCouvrentToutSansRecouvrement(t *testing.T) {
+// Pages must neither overlap nor leave gaps: that is the property that makes pagination
+// usable, and the one a non-total ordering breaks.
+func TestPagesCoverEverythingWithoutOverlapping(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -360,7 +354,7 @@ func TestLesPagesCouvrentToutSansRecouvrement(t *testing.T) {
 	for offset := 0; offset < 1200; offset += 500 {
 		page, _, err := db.ListTestCases(ctx, reportID, CasePage{Limit: 500, Offset: offset})
 		if err != nil {
-			t.Fatalf("page à l'offset %d: %v", offset, err)
+			t.Fatalf("page at offset %d: %v", offset, err)
 		}
 		for _, testCase := range page {
 			seen[testCase.Name]++
@@ -368,7 +362,7 @@ func TestLesPagesCouvrentToutSansRecouvrement(t *testing.T) {
 	}
 
 	if len(seen) != 1200 {
-		t.Errorf("%d cas distincts vus, attendu 1200", len(seen))
+		t.Errorf("%d distinct cases seen, expected 1200", len(seen))
 	}
 	for name, count := range seen {
 		if count != 1 {
@@ -377,9 +371,9 @@ func TestLesPagesCouvrentToutSansRecouvrement(t *testing.T) {
 	}
 }
 
-// Un offset au-delà du total rend une page vide mais conserve le total : c'est ce
-// qui permet à l'interface de revenir en arrière au lieu d'afficher « aucun cas ».
-func TestUnOffsetTropLoinConserveLeTotal(t *testing.T) {
+// An offset beyond the total returns an empty page but keeps the total: that is what
+// lets the interface go back instead of showing "no case".
+func TestAnOffsetTooFarKeepsTheTotal(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -393,17 +387,17 @@ func TestUnOffsetTropLoinConserveLeTotal(t *testing.T) {
 		t.Fatalf("page hors bornes: %v", err)
 	}
 	if len(page) != 0 {
-		t.Errorf("%d cas rendus au-delà du total", len(page))
+		t.Errorf("%d cases returned beyond the total", len(page))
 	}
 	if total != 10 {
-		t.Errorf("total %d, attendu 10", total)
+		t.Errorf("total %d, expected 10", total)
 	}
 }
 
-// Le filtre porte sur l'ensemble et non sur la page, et le total suit. C'est la
-// raison d'être du filtre côté serveur : filtrer la page transférée répondrait
-// « aucun cas » pour un test présent deux pages plus loin.
-func TestLeFiltrePorteSurToutesLesPages(t *testing.T) {
+// The filter covers the whole set and not the page, and the total follows. That is the
+// point of server-side filtering: filtering the transferred page would answer "no case"
+// for a test present two pages further on.
+func TestTheFilterCoversEveryPage(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -420,53 +414,50 @@ func TestLeFiltrePorteSurToutesLesPages(t *testing.T) {
 		t.Fatalf("filtre: %v", err)
 	}
 	if total != 1 {
-		t.Fatalf("total filtré %d, attendu 1", total)
+		t.Fatalf("filtered total %d, expected 1", total)
 	}
 	if len(page) != 1 || page[0].Name != "connexion-oidc" {
-		t.Errorf("page filtrée %+v", page)
+		t.Errorf("filtered page %+v", page)
 	}
 }
 
-// Le filtre joint la suite et le nom : l'utilisateur tape un fragment sans savoir
-// auquel des deux il appartient.
-func TestLeFiltreVoitLaSuiteEtLeNom(t *testing.T) {
+// The filter joins the suite and the name: the user types a fragment without knowing
+// which of the two it belongs to.
+func TestTheFilterSeesTheSuiteAndTheName(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
 	releaseID := releaseFor(t, db, "1.8.0-rc1")
 	runID := testRun(t, db, "run-1")
 	saveCases(t, db, runID, releaseID, "e2e", []TestCase{
-		{Suite: "Panier", Name: "ajoute un article", Status: "passed"},
-		{Suite: "Connexion", Name: "refuse un mot de passe vide", Status: "failed"},
+		{Suite: "Panier", Name: "adds an item", Status: "passed"},
+		{Suite: "Connexion", Name: "refuses an empty password", Status: "failed"},
 	})
 	reportID := reportOf(t, db, releaseID, "e2e")
 
 	bySuite, total, err := db.ListTestCases(ctx, reportID, CasePage{Limit: 500, Query: "panier"})
 	if err != nil {
-		t.Fatalf("filtre par suite: %v", err)
+		t.Fatalf("filter by suite: %v", err)
 	}
 	if total != 1 || len(bySuite) != 1 {
-		t.Errorf("filtre par suite: %d cas, total %d", len(bySuite), total)
+		t.Errorf("filter by suite: %d cases, total %d", len(bySuite), total)
 	}
 
-	byName, total, err := db.ListTestCases(ctx, reportID, CasePage{Limit: 500, Query: "mot de passe"})
+	byName, total, err := db.ListTestCases(ctx, reportID, CasePage{Limit: 500, Query: "password"})
 	if err != nil {
-		t.Fatalf("filtre par nom: %v", err)
+		t.Fatalf("filter by name: %v", err)
 	}
 	if total != 1 || len(byName) != 1 {
-		t.Errorf("filtre par nom: %d cas, total %d", len(byName), total)
+		t.Errorf("filter by name: %d cases, total %d", len(byName), total)
 	}
 }
 
-// La question que pose le contrôle du contrat : ce run a-t-il laissé quoi que ce
-// soit ?
+// The question the contract check asks: did this run leave anything at all?
 //
-// Portée sur le run entier et non sur un outil, parce que c'est l'écart au
-// contrat qu'elle sert à constater — un pipeline qui annonce des résultats et
-// n'en laisse aucun produit un écran vide dont rien ne dit la cause (doc 13
-// §13.1). Elle doit donc voir un résultat quelle que soit la voie par laquelle il
-// est entré.
-func TestUnRunSansLeMoindreResultatSeReconnait(t *testing.T) {
+// About the whole run and not one tool, because what it observes is a breach of the
+// contract — a pipeline announcing results and leaving none produces an empty screen
+// with nothing saying why. It must therefore see a result whichever way it came in.
+func TestARunWithNoResultAtAllIsRecognised(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -476,16 +467,16 @@ func TestUnRunSansLeMoindreResultatSeReconnait(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if has {
-		t.Error("un run sans résultat s'annonce pourvu")
+		t.Error("a run with no result declares itself provided")
 	}
 
-	// Un seul résultat suffit : la question n'est pas « combien » mais « quelque
-	// chose est-il remonté ». Un pipeline qui publie une famille sur trois est un
-	// autre problème, que le score porte déjà.
+	// One result is enough: the question is not "how many" but "did anything come back". A
+	// pipeline publishing one family out of three is another problem, which the score
+	// already carries.
 	parlant := testRun(t, db, "run-parlant")
 	release := releaseFor(t, db, "1.8.0-rc9")
 	saveCases(t, db, parlant, release, "unit", []TestCase{
-		{Name: "un cas", Status: "passed"},
+		{Name: "one case", Status: "passed"},
 	})
 
 	has, err = db.RunHasResults(ctx, parlant)
@@ -493,11 +484,11 @@ func TestUnRunSansLeMoindreResultatSeReconnait(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if !has {
-		t.Error("un run pourvu s'annonce muet")
+		t.Error("a provided run declares itself silent")
 	}
 
-	// Et la réponse est bien **par run** : celui d'à côté reste muet.
+	// And the answer is indeed per run: the neighbouring one stays silent.
 	if has, _ := db.RunHasResults(ctx, muet); has {
-		t.Error("le résultat d'un run déborde sur un autre")
+		t.Error("one run's result spills onto another")
 	}
 }
