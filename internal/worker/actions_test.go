@@ -15,15 +15,14 @@ import (
 )
 
 /*
- * Les actions, vues du moteur.
+ * The actions, seen from the engine.
  *
- * Ce qui se joue ici n'est pas l'appel HTTP — `internal/webhook` s'en charge et
- * l'éprouve — mais la **frontière du secret** : un jeton désigné doit atteindre
- * l'en-tête d'authentification sans jamais traverser un gabarit, un corps, ou un
- * message d'erreur.
+ * What is at stake here is not the HTTP call — `internal/webhook` takes care of that and
+ * exercises it — but the **boundary of the secret**: a named token must reach the
+ * authentication header without ever crossing a template, a body, or an error message.
  */
 
-// fakeSecrets rend un jeton pour une désignation connue.
+// fakeSecrets returns a token for a known designation.
 type fakeSecrets struct {
 	values map[string]string
 	err    error
@@ -43,30 +42,30 @@ func runnerFor(t *testing.T, secrets SecretResolver) *ActionRunner {
 	}), secrets, quietLogger())
 }
 
-func projet(id int64) *int64 { return &id }
+func projectRow(id int64) *int64 { return &id }
 
-// Le chemin nominal : le gabarit est lié à la charge du fait, et le jeton part
-// dans l'en-tête — jamais dans le corps.
-func TestUnAppelSortantLieSonGabaritEtPoseSonJeton(t *testing.T) {
-	var recu struct {
+// The nominal path: the template is bound to the fact's payload, and the token leaves in the
+// header — never in the body.
+func TestAnOutgoingCallBindsItsTemplateAndSetsItsToken(t *testing.T) {
+	var received struct {
 		body string
 		auth string
 	}
 	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		corps := make([]byte, r.ContentLength)
 		_, _ = r.Body.Read(corps)
-		recu.body = string(corps)
-		recu.auth = r.Header.Get("Authorization")
+		received.body = string(corps)
+		received.auth = r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer serveur.Close()
 
 	runner := runnerFor(t, fakeSecrets{values: map[string]string{
-		"redmine.api_key": "jeton-de-production",
+		"redmine.api_key": "production-token",
 	}})
 
 	job, err := runner.Run(context.Background(), store.PlanRun{
-		ID: 1, ProjectID: projet(7),
+		ID: 1, ProjectID: projectRow(7),
 		Context: map[string]string{"tag": "1.8.0-rc1", "outcome": "succeeded"},
 	}, plan.Geste{
 		Kind: plan.GesteAction, Ref: action.Webhook,
@@ -80,33 +79,33 @@ func TestUnAppelSortantLieSonGabaritEtPoseSonJeton(t *testing.T) {
 	if err != nil {
 		t.Fatalf("appel: %v", err)
 	}
-	// Une action est conclue à l'instant où elle est faite : rien n'arrivera plus
-	// tard pour la conclure, donc pas de job à attendre.
+	// An action is concluded the moment it is done: nothing will arrive later to conclude it, so
+	// there is no job to wait for.
 	if job != nil {
-		t.Errorf("identifiant de job = %v, attendu nul", *job)
+		t.Errorf("job identifier = %v, expected null", *job)
 	}
 
-	if recu.body != `{"text":"release 1.8.0-rc1 : succeeded"}` {
-		t.Errorf("corps reçu = %q", recu.body)
+	if received.body != `{"text":"release 1.8.0-rc1 : succeeded"}` {
+		t.Errorf("body received = %q", received.body)
 	}
-	if recu.auth != "jeton-de-production" {
-		t.Errorf("en-tête d'authentification = %q", recu.auth)
+	if received.auth != "production-token" {
+		t.Errorf("authentication header = %q", received.auth)
 	}
-	// **Le jeton n'est pas dans le corps.** C'est la règle : un champ sensible est
-	// désigné, jamais interpolé.
-	if strings.Contains(recu.body, "jeton-de-production") {
-		t.Error("le jeton transparaît dans le corps")
+	// **The token is not in the body.** That is the rule: a sensitive field is named, never
+	// interpolated.
+	if strings.Contains(received.body, "production-token") {
+		t.Error("the token shows through in the body")
 	}
 }
 
-// Un corps vide envoie la charge du fait telle quelle : un destinataire générique
-// reçoit tout ce qu'on sait, sans qu'un gabarit ait à être écrit.
-func TestUnCorpsVideEnvoieLaChargeDuFait(t *testing.T) {
-	var recu string
+// An empty body sends the fact's payload as it is: a generic recipient receives everything
+// known, with no template to write.
+func TestAnEmptyBodySendsTheFactsPayload(t *testing.T) {
+	var received string
 	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		corps := make([]byte, r.ContentLength)
 		_, _ = r.Body.Read(corps)
-		recu = string(corps)
+		received = string(corps)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer serveur.Close()
@@ -120,15 +119,15 @@ func TestUnCorpsVideEnvoieLaChargeDuFait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("appel: %v", err)
 	}
-	if !strings.Contains(recu, `"tag":"1.8.0"`) {
-		t.Errorf("charge reçue = %q", recu)
+	if !strings.Contains(received, `"tag":"1.8.0"`) {
+		t.Errorf("payload received = %q", received)
 	}
 }
 
-// Un gabarit qui rend du JSON invalide est refusé **avant** de partir : le
-// destinataire répondrait sur *sa* syntaxe, et le message enverrait chercher chez
-// lui un défaut qui est chez nous.
-func TestUnGabaritQuiRendDuJSONInvalideEstRefuseAvantDePartir(t *testing.T) {
+// A template that yields invalid JSON is refused **before** leaving: the recipient would
+// answer about *its* syntax, and the message would send someone hunting on their side for a
+// defect that is on ours.
+func TestATemplateYieldingInvalidJSONIsRefusedBeforeLeaving(t *testing.T) {
 	var atteint bool
 	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atteint = true
@@ -144,19 +143,19 @@ func TestUnGabaritQuiRendDuJSONInvalideEstRefuseAvantDePartir(t *testing.T) {
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "JSON") {
-		t.Fatalf("%v, attendu un refus nommant le JSON", err)
+		t.Fatalf("%v, expected a refusal naming the JSON", err)
 	}
 	if atteint {
-		t.Error("la requête est partie malgré un corps invalide")
+		t.Error("the request left despite an invalid body")
 	}
 }
 
-// L'en-tête et le jeton se déclarent ensemble.
+// The header and the token are declared together.
 //
-// Un jeton sans en-tête ne partirait nulle part ; un en-tête sans jeton partirait
-// vide, et le destinataire refuserait sur un message d'authentification qui ne
-// dirait pas que la valeur manque chez nous.
-func TestLEnteteEtLeJetonSeDeclarentEnsemble(t *testing.T) {
+// A token with no header would go nowhere; a header with no token would go empty, and the
+// recipient would refuse with an authentication message that would not say the value is
+// missing on our side.
+func TestTheHeaderAndTheTokenAreDeclaredTogether(t *testing.T) {
 	runner := runnerFor(t, fakeSecrets{})
 
 	for _, params := range []map[string]string{
@@ -166,17 +165,17 @@ func TestLEnteteEtLeJetonSeDeclarentEnsemble(t *testing.T) {
 		_, err := runner.Run(context.Background(), store.PlanRun{}, plan.Geste{
 			Kind: plan.GesteAction, Ref: action.Webhook, Params: params,
 		})
-		if err == nil || !strings.Contains(err.Error(), "ensemble") {
+		if err == nil || !strings.Contains(err.Error(), "together") {
 			t.Errorf("params %v: %v", params, err)
 		}
 	}
 }
 
-// Un jeton désigné mais vide est refusé plutôt qu'envoyé vide : le destinataire
-// répondrait 401, et le message ne dirait pas que le réglage est absent chez nous.
-func TestUnJetonNonRenseigneEstRefuse(t *testing.T) {
+// A token that is named but empty is refused rather than sent empty: the recipient would
+// answer 401, and the message would not say the setting is missing on our side.
+func TestAnUnsetTokenIsRefused(t *testing.T) {
 	_, err := runnerFor(t, fakeSecrets{values: map[string]string{}}).Run(
-		context.Background(), store.PlanRun{ProjectID: projet(7)}, plan.Geste{
+		context.Background(), store.PlanRun{ProjectID: projectRow(7)}, plan.Geste{
 			Kind: plan.GesteAction, Ref: action.Webhook,
 			Params: map[string]string{
 				"url":         "https://example.test/h",
@@ -184,15 +183,14 @@ func TestUnJetonNonRenseigneEstRefuse(t *testing.T) {
 			},
 		})
 
-	if err == nil || !strings.Contains(err.Error(), "renseigné") {
+	if err == nil || !strings.Contains(err.Error(), "not set") {
 		t.Fatalf("%v", err)
 	}
 }
 
-// Une cible interdite est refusée par le transport, et l'erreur reste
-// reconnaissable au travers du runner : « refusé » se corrige dans la réaction,
-// « injoignable » chez le destinataire.
-func TestUneCibleInterditeResteReconnaissable(t *testing.T) {
+// A forbidden target is refused by the transport, and the error stays recognisable through
+// the runner: "refused" is fixed in the reaction, "unreachable" at the recipient.
+func TestAForbiddenTargetStaysRecognisable(t *testing.T) {
 	runner := NewActionRunner(
 		webhook.New(webhook.Options{}), fakeSecrets{}, quietLogger())
 
@@ -202,16 +200,16 @@ func TestUneCibleInterditeResteReconnaissable(t *testing.T) {
 	})
 
 	if !errors.Is(err, webhook.ErrBlockedTarget) {
-		t.Fatalf("%v, attendu ErrBlockedTarget", err)
+		t.Fatalf("%v, expected ErrBlockedTarget", err)
 	}
 }
 
-// Un refus du destinataire fait échouer le geste, avec son code et un extrait :
-// « échoué » seul n'apprend rien et oblige à relancer pour voir.
-func TestUnRefusDuDestinataireFaitEchouerLeGesteEnLeDisant(t *testing.T) {
+// A refusal from the recipient fails the step, with its code and an excerpt: "failed" alone
+// teaches nothing and forces a re-run to see.
+func TestARefusalFromTheRecipientFailsTheStepAndSaysSo(t *testing.T) {
 	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte("jeton expiré"))
+		_, _ = w.Write([]byte("token expired"))
 	}))
 	defer serveur.Close()
 
@@ -221,18 +219,18 @@ func TestUnRefusDuDestinataireFaitEchouerLeGesteEnLeDisant(t *testing.T) {
 	})
 
 	if err == nil {
-		t.Fatal("un 401 n'a pas fait échouer le geste")
+		t.Fatal("a 401 did not fail the step")
 	}
-	for _, attendu := range []string{"401", "jeton expiré"} {
-		if !strings.Contains(err.Error(), attendu) {
-			t.Errorf("message %q — il doit porter %q", err, attendu)
+	for _, expected := range []string{"401", "token expired"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("message %q — it must carry %q", err, expected)
 		}
 	}
 }
 
-// Une action de plugin sur un déploiement qui ne les a pas branchées est refusée
-// nommément : rendre « parti » sur un geste que personne n'exécute serait pire.
-func TestUneActionDePluginNonBrancheeEstRefuseeNommement(t *testing.T) {
+// A plugin action on a deployment that has not wired them is refused by name: reporting
+// "sent" for a step nobody runs would be worse.
+func TestAnUnwiredPluginActionIsRefusedByName(t *testing.T) {
 	_, err := runnerFor(t, nil).Run(context.Background(), store.PlanRun{}, plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.status",
 		Params: map[string]string{
@@ -241,20 +239,19 @@ func TestUneActionDePluginNonBrancheeEstRefuseeNommement(t *testing.T) {
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "gitea") {
-		t.Fatalf("%v — le refus doit nommer le plugin attendu", err)
+		t.Fatalf("%v — the refusal must name the expected plugin", err)
 	}
 }
 
-// Le partage se lit dans le descripteur, jamais dans un découpage de la
-// référence.
+// The split is read in the descriptor, never in a split of the reference.
 //
-// C'est le piège que ce test tient : `forge.status` — action interne d'une
-// version antérieure — porte un point et ressemble à s'y méprendre à une action
-// du plugin `forge`. La confier au runner de plugins la ferait échouer sur
-// « aucun plugin ne déclare », message qui envoie chercher au mauvais endroit.
-func TestUnPointDansUneReferenceNeFaitPasUnPlugin(t *testing.T) {
+// That is the trap this test holds: `forge.status` — an internal action of an earlier version
+// — carries a dot and looks exactly like an action of the `forge` plugin. Handing it to the
+// plugin runner would fail it on "no plugin declares", a message that sends one hunting in
+// the wrong place.
+func TestADotInAReferenceDoesNotMakeAPlugin(t *testing.T) {
 	var confie bool
-	runner := runnerFor(t, nil).WithPlugins(gesteRunnerFunc(
+	runner := runnerFor(t, nil).WithPlugins(stepRunnerFunc(
 		func(context.Context, store.PlanRun, plan.Geste) (*int64, error) {
 			confie = true
 			return nil, nil
@@ -265,39 +262,38 @@ func TestUnPointDansUneReferenceNeFaitPasUnPlugin(t *testing.T) {
 	})
 
 	if confie {
-		t.Error("une action inconnue a été confiée au runner de plugins")
+		t.Error("an unknown action was handed to the plugin runner")
 	}
 	if err == nil || !errors.Is(err, action.ErrUnknown) {
-		t.Fatalf("%v, attendu ErrUnknown", err)
+		t.Fatalf("%v, expected ErrUnknown", err)
 	}
 }
 
-// gesteRunnerFunc adapte une fonction en [GesteRunner].
-type gesteRunnerFunc func(context.Context, store.PlanRun, plan.Geste) (*int64, error)
+// stepRunnerFunc adapts a function into a [GesteRunner].
+type stepRunnerFunc func(context.Context, store.PlanRun, plan.Geste) (*int64, error)
 
-func (f gesteRunnerFunc) Run(
+func (f stepRunnerFunc) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
 	return f(ctx, run, geste)
 }
 
-// L'aiguillage sépare les deux natures : le moteur n'a pas à connaître la
-// différence entre un pipeline, qui devient un job, et une action, qui sort.
-func TestLAiguillageSepareLesDeuxNaturesDeGeste(t *testing.T) {
-	router := gesteRouter{actions: runnerFor(t, nil)}
+// The routing separates the two kinds: the engine has no business knowing the difference
+// between a pipeline, which becomes a job, and an action, which goes out.
+func TestTheRoutingSeparatesTheTwoKindsOfStep(t *testing.T) {
+	router := stepRouter{actions: runnerFor(t, nil)}
 
 	_, err := router.Run(context.Background(), store.PlanRun{}, plan.Geste{
 		Kind: "courriel", Ref: "x",
 	})
-	if err == nil || !strings.Contains(err.Error(), "inconnue") {
-		t.Errorf("nature inconnue: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "unknown") {
+		t.Errorf("unknown kind: %v", err)
 	}
 
-	// Sans runner de pipeline branché, un geste de pipeline échoue plutôt que de
-	// partir dans le vide.
+	// With no pipeline runner wired, a pipeline step fails rather than leaving into the void.
 	if _, err := router.Run(context.Background(), store.PlanRun{}, plan.Geste{
 		Kind: plan.GestePipeline, Ref: "unit-tests",
 	}); err == nil {
-		t.Error("un geste de pipeline est parti sans runner")
+		t.Error("a pipeline step left with no runner")
 	}
 }

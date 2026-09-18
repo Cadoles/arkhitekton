@@ -12,45 +12,43 @@ import (
 )
 
 /*
- * Détection des demandes qu'une release apporte.
+ * Detecting the requests a release brings.
  *
- * Deux conditions, et les deux comptent :
+ * Two conditions, and both count:
  *
- *   * la demande est **en revue** dans le suivi — son code est écrit et relu ;
- *   * une pull request **fusionnée** la cite, dans son titre ou l'un de ses
- *     messages de commit.
+ *   * the request is **in review** in the tracker — its code is written and reviewed;
+ *   * a **merged** pull request cites it, in its title or in one of its commit messages.
  *
- * Ni l'une ni l'autre ne suffit. Une demande en revue dont rien n'est fusionné
- * n'est pas dans l'image ; une PR fusionnée qui cite une demande encore en
- * développement désigne un travail partiel. Annoncer l'une ou l'autre au client
- * serait une note fausse, et une note fausse est pire qu'une note vide : elle se
- * lit comme une liste vérifiée.
+ * Neither is enough on its own. A request in review with nothing merged is not in the image; a
+ * merged PR citing a request still in development names partial work. Announcing either to the
+ * client would be a false note, and a false note is worse than an empty one: it reads as a
+ * checked list.
  *
- * La détection tourne **à la création** de la release et ne se rejoue pas seule.
- * Ce qu'elle a trouvé devient une proposition que l'on complète ou corrige à la
- * main : rejouer effacerait ces ajustements.
+ * The detection runs **when the release is created** and does not replay itself. What it found
+ * becomes a proposal one completes or corrects by hand: replaying would erase those
+ * adjustments.
  */
 
-// PullReader est ce que la détection attend de la forge.
+// PullReader is what the detection needs from the forge.
 type PullReader interface {
 	ListMergedPullRequests(ctx context.Context, since time.Time) ([]provider.PullRequest, error)
 	LoadCommitMessages(ctx context.Context, pull *provider.PullRequest) error
 }
 
-// NoteStore est ce que la détection attend de la base.
+// NoteStore is what the detection needs from the database.
 type NoteStore interface {
 	NoteCandidates(ctx context.Context, releaseID int64, statuses []string) (map[string]store.NoteEntry, error)
 	LinkNoteIssue(ctx context.Context, releaseID int64, reference, source, pullRequest, actor string) error
 }
 
-// NoteBuilder compose la note d'une release à sa création.
+// NoteBuilder composes a release's note when it is created.
 type NoteBuilder struct {
 	forge  PullReader
 	store  NoteStore
 	logger *slog.Logger
-	// statuses énumère les statuts du suivi qui rendent une demande éligible.
-	// Configurables : le vocabulaire appartient au client, qui peut renommer
-	// « En revue » sans que ce code ait à changer.
+	// statuses lists the tracker statuses that make a request eligible. Configurable: the
+	// vocabulary belongs to the client, who may rename "In review" without this code having to
+	// change.
 	statuses []string
 }
 
@@ -60,23 +58,21 @@ func NewNoteBuilder(
 	return &NoteBuilder{forge: forge, store: notes, statuses: statuses, logger: logger}
 }
 
-// NoteResult dit ce que la détection a trouvé.
+// NoteResult says what the detection found.
 type NoteResult struct {
-	// Linked est le nombre de demandes rattachées.
+	// Linked is the number of requests attached.
 	Linked int
-	// Pulls est le nombre de pull requests fusionnées examinées.
+	// Pulls is the number of merged pull requests examined.
 	Pulls int
-	// Incomplete signale qu'au moins une PR n'a pas pu être lue entièrement. La
-	// note est alors une proposition partielle, et le dire évite de la prendre
-	// pour exhaustive.
+	// Incomplete reports that at least one PR could not be read whole. The note is then a partial
+	// proposal, and saying so avoids taking it for exhaustive.
 	Incomplete bool
 }
 
-// Build rattache à la release les demandes détectées.
+// Build attaches the detected requests to the release.
 //
-// `since` borne la lecture des PR : la date de création de la release
-// précédente, quand elle existe. Sans elle, la détection remonte jusqu'à la
-// borne du client de forge.
+// `since` bounds the reading of the PRs: the previous release's creation date, when there is
+// one. Without it, the detection goes back to the forge client's own bound.
 func (b *NoteBuilder) Build(
 	ctx context.Context, releaseID int64, since time.Time, actor string,
 ) (NoteResult, error) {
@@ -86,8 +82,8 @@ func (b *NoteBuilder) Build(
 	if err != nil {
 		return result, err
 	}
-	// Aucune demande en revue : rien ne peut être détecté, et interroger la forge
-	// pour le découvrir coûterait deux cents requêtes pour rien.
+	// No request in review: nothing can be detected, and querying the forge to find that out would
+	// cost two hundred requests for nothing.
 	if len(candidates) == 0 {
 		return result, nil
 	}
@@ -101,13 +97,12 @@ func (b *NoteBuilder) Build(
 	for index := range pulls {
 		pull := &pulls[index]
 
-		// Les commits complètent le titre : la convention autorise le numéro dans
-		// l'un ou l'autre. Un échec de lecture ne fait pas échouer la détection —
-		// le titre reste exploitable — mais il est signalé, la note devenant
-		// partielle.
+		// The commits complete the title: the convention allows the number in either. A read failure
+		// does not fail the detection — the title stays usable — but it is reported, the note becoming
+		// partial.
 		if err := b.forge.LoadCommitMessages(ctx, pull); err != nil {
 			result.Incomplete = true
-			b.logger.Warn("commits d'une pull request illisibles",
+			b.logger.Warn("commits of a pull request unreadable",
 				"pull", pull.Number, "error", err)
 		}
 
@@ -120,8 +115,8 @@ func (b *NoteBuilder) Build(
 				store.NoteSourceAuto, pull.Reference(), actor)
 			switch {
 			case errors.Is(err, store.ErrNoteAlreadyLinked):
-				// Deux PR pour une même demande : c'est courant — un correctif
-				// puis son suivi — et la première rattachée fait foi.
+				// Two PRs for one request: it is common — a fix then its follow-up — and the first attached is
+				// authoritative.
 				continue
 			case err != nil:
 				return result, err
@@ -130,41 +125,40 @@ func (b *NoteBuilder) Build(
 		}
 	}
 
-	b.logger.Info("note de release composée",
+	b.logger.Info("release note composed",
 		"release", releaseID, "demandes", result.Linked,
 		"pull_requests", result.Pulls, "partielle", result.Incomplete)
 	return result, nil
 }
 
-// KindReleaseNotes est la nature de job qui compose une note de release.
+// KindReleaseNotes is the kind of job that composes a release note.
 //
-// Absente du catalogue : ce travail lit le suivi, la forge et la base, et n'a
-// aucune raison de traverser Tekton. Il passe malgré tout par la file — comme
-// les exports — pour son ordonnancement et sa trace : la composition interroge
-// jusqu'à deux cents pull requests, et la faire dans la requête de création
-// aurait fait attendre l'utilisateur devant un formulaire.
+// Absent from the catalogue: this work reads the tracker, the forge and the database, and has
+// no reason to cross Tekton. It goes through the queue anyway — like the exports — for its
+// scheduling and its trace: composing queries up to two hundred pull requests, and doing it in
+// the creation request would have left the user waiting in front of a form.
 const KindReleaseNotes = "release-notes"
 
 // Kind implémente LocalTask.
 func (b *NoteBuilder) Kind() string { return KindReleaseNotes }
 
-// Run compose la note du job.
+// Run composes the job's note.
 //
-// Les paramètres portent la release et la borne de lecture. Un échec est rendu à
-// l'ordonnanceur, qui conclut le job : une note absente se voit à l'écran, et la
-// relancer est un geste, pas une reprise silencieuse.
+// The parameters carry the release and the reading bound. A failure is returned to the
+// scheduler, which concludes the job: a missing note is visible on screen, and re-running it
+// is a deliberate act, not a silent retry.
 func (b *NoteBuilder) Run(ctx context.Context, job store.Job) error {
 	if job.ReleaseID == nil {
-		return errors.New("note de release: aucun identifiant de release")
+		return errors.New("release note: no release identifier")
 	}
 
 	var since time.Time
 	if raw := job.Params["since"]; raw != "" {
 		parsed, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			// Une borne illisible n'empêche pas de composer : sans elle la lecture
-			// remonte plus loin, ce qui est plus coûteux mais pas faux.
-			b.logger.Warn("borne de lecture illisible", "valeur", raw, "error", err)
+			// An unreadable bound does not prevent composing: without it the reading goes back further,
+			// which is more expensive but not wrong.
+			b.logger.Warn("reading bound unreadable", "valeur", raw, "error", err)
 		} else {
 			since = parsed
 		}

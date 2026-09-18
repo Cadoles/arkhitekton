@@ -9,48 +9,47 @@ import (
 )
 
 /*
- * L'ordre entre l'enregistrement d'un run et la conclusion de son geste.
+ * L'order entre l'enregistrement d'un run et la conclusion de son geste.
  */
 
-// magasinOrdonne retient l'ordre des écritures.
-type magasinOrdonne struct {
+// orderedStore keeps the order of the writes.
+type orderedStore struct {
 	*fakePlanStore
-	ordre     []string
+	order     []string
 	resultats map[int64]map[string]string
 	produits  []store.PlanArtifact
 }
 
-func (m *magasinOrdonne) RunResults(_ context.Context, jobID int64) (map[string]string, error) {
-	m.ordre = append(m.ordre, "lecture")
+func (m *orderedStore) RunResults(_ context.Context, jobID int64) (map[string]string, error) {
+	m.order = append(m.order, "lecture")
 	return m.resultats[jobID], nil
 }
 
-func (m *magasinOrdonne) RecordPlanArtifacts(
+func (m *orderedStore) RecordPlanArtifacts(
 	_ context.Context, _ int64, _ *int64, artifacts []store.PlanArtifact,
 ) error {
-	m.ordre = append(m.ordre, "relevé")
+	m.order = append(m.order, "collected")
 	m.produits = append(m.produits, artifacts...)
 	return nil
 }
 
-func (m *magasinOrdonne) PlanArtifacts(context.Context, int64) ([]store.PlanArtifact, error) {
+func (m *orderedStore) PlanArtifacts(context.Context, int64) ([]store.PlanArtifact, error) {
 	return m.produits, nil
 }
 
-// Les résultats d'un geste conclu deviennent ses artefacts.
+// A concluded step's results become its artifacts.
 //
-// # Ce que ce test tient, et que rien ne tenait
+// # What this test holds, and nothing held
 //
-// Le relevé **relit** les résultats du run par son job. Il faut donc qu'ils
-// soient écrits avant que le geste ne soit conclu. Ils ne l'étaient pas :
-// l'observation concluait le job *puis* enregistrait le run, et le relevé lisait
-// une ligne vide. Trois constructions réussies, aucun artefact retenu — constaté
-// sur le cluster, pas en test.
+// The collection **re-reads** the run's results by its job. They must therefore be written
+// before the step is concluded. They were not: the observation concluded the job *then*
+// recorded the run, and the collection read an empty row. Three successful builds, no
+// artifact kept — observed on the cluster, not in a test.
 //
-// Ce test tient la moitié qui dépend du moteur : donné un run dont les résultats
-// sont lisibles, la conclusion du geste les retient.
-func TestLesResultatsDunGesteConcluDeviennentSesArtefacts(t *testing.T) {
-	base := &magasinOrdonne{
+// This test holds the half that depends on the engine: given a run whose results are
+// readable, concluding the step keeps them.
+func TestAConcludedStepsResultsBecomeItsArtifacts(t *testing.T) {
+	base := &orderedStore{
 		fakePlanStore: newFakePlanStore(),
 		resultats: map[int64]map[string]string{
 			77: {"image": "reg.example.fr/portal:1.0.0", "tag": "1.0.0"},
@@ -62,7 +61,7 @@ func TestLesResultatsDunGesteConcluDeviennentSesArtefacts(t *testing.T) {
 		Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "build", Label: "portal"}},
 	}}}
 
-	engine := NewEngine(base, gesteRunnerFunc(
+	engine := NewEngine(base, stepRunnerFunc(
 		func(context.Context, store.PlanRun, plan.Geste) (*int64, error) {
 			id := int64(77)
 			return &id, nil
@@ -70,12 +69,12 @@ func TestLesResultatsDunGesteConcluDeviennentSesArtefacts(t *testing.T) {
 		WithArtifacts(base, func(string) string { return "image" })
 
 	engine.Trigger(context.Background(), store.PlanRun{
-		Trigger: "essai", EventKey: "essai:1", Plan: sujet,
+		Trigger: "trial", EventKey: "trial:1", Plan: sujet,
 	})
 	engine.Advance(context.Background(), 77, plan.Succeeded)
 
 	if len(base.produits) != 2 {
-		t.Fatalf("%d artefact(s) retenus, attendu image et tag: %+v",
+		t.Fatalf("%d artifact(s) kept, expected image and tag: %+v",
 			len(base.produits), base.produits)
 	}
 	parNom := map[string]store.PlanArtifact{}
@@ -85,7 +84,7 @@ func TestLesResultatsDunGesteConcluDeviennentSesArtefacts(t *testing.T) {
 	if parNom["image"].Reference != "reg.example.fr/portal:1.0.0" {
 		t.Errorf("image = %q", parNom["image"].Reference)
 	}
-	// La nature vient du `produces` du catalogue, pas du nom du résultat.
+	// The kind comes from the catalogue's `produces`, not from the result's name.
 	if parNom["image"].Kind != "image" {
 		t.Errorf("nature = %q", parNom["image"].Kind)
 	}

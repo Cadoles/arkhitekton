@@ -9,39 +9,36 @@ import (
 )
 
 /*
- * La sonde du suivi.
+ * The tracker probe.
  *
- * Celle qui **existait avant le contrat**, et c'est tout son intérêt. Un contrat
- * de sonde écrit sur la seule sonde Gitea en aurait épousé la forme sans qu'on
- * s'en aperçoive ; écrit puis éprouvé sur une source qui tourne depuis des mois,
- * il a une chance d'être juste (doc 14 §14.11).
+ * The one that **existed before the contract**, and that is its whole value. A probe contract
+ * written on the Gitea probe alone would have taken its shape without anyone noticing; written
+ * then exercised on a source that has been running for months, it has a chance of being right.
  *
- * # Ce que cette seconde réalisation a révélé
+ * # What this second implementation revealed
  *
- * Deux manques, tous deux corrigés dans `probes.go` :
+ * Two gaps, both fixed in `probes.go`:
  *
- *   - **la cadence était celle de la boucle**, pas de la sonde. Le suivi se relit
- *     toutes les cinq minutes — une saisie humaine ne va pas plus vite — et une
- *     forge se regarde plus souvent. [Schedule] laisse chacune déclarer la sienne,
- *     au-dessus du plancher du déploiement ;
- *   - **l'amorçage jetait ses faits au lieu de les retenir**. Cela suffisait tant
- *     qu'une sonde filtrait sur son curseur. Celle-ci rend un **instantané** —
- *     l'API de Redmine ne filtre pas les versions —, et les faits jetés seraient
- *     revenus neufs à la passe suivante, déclenchant tout ce que l'amorçage
- *     prétendait taire.
+ *   - **the cadence was the loop's**, not the probe's. The tracker is re-read every five
+ *     minutes — human typing goes no faster — and a forge is watched more often. [Schedule]
+ *     lets each declare its own, above the deployment's floor;
+ *   - **the bootstrap discarded its facts instead of keeping them**. That was enough as long as
+ *     a probe filtered on its cursor. This one returns a **snapshot** — Redmine's API does not
+ *     filter the versions — and the discarded facts would have come back new at the next pass,
+ *     triggering everything the bootstrap claimed to silence.
  *
- * # Ce que le contrat a absorbé sans se tordre
+ * # What the contract absorbed without contorting itself
  *
- * Le reste : réglages du plugin par projet, descellement de la clé, curseur dans
- * `sync_state`, isolation des échecs. La synchronisation en portait sa propre
- * version, écrite six mois plus tôt ; il n'en reste rien ici.
+ * The rest: per-project plugin settings, unsealing the key, cursor in `sync_state`, isolation
+ * of failures. The synchronisation carried its own version of it, written six months earlier;
+ * nothing of it remains here.
  */
 
-// redmineProbe adapte la synchronisation du suivi au contrat de sonde.
+// redmineProbe adapts the tracker synchronisation to the probe contract.
 //
-// Une enveloppe mince, et délibérément : la projection n'a pas bougé. Ce fichier
-// ne fait que traduire ce que la boucle apporte — une configuration résolue et
-// descellée — en ce que la projection attend, un client et un curseur.
+// A thin wrapper, deliberately: the projection has not moved. This file only translates what
+// the loop brings — a configuration resolved and unsealed — into what the projection needs, a
+// client and a cursor.
 type redmineProbe struct{ sync *TrackerSync }
 
 // NewRedmineProbe construit la sonde du suivi.
@@ -49,48 +46,45 @@ func NewRedmineProbe(sync *TrackerSync) Probe { return redmineProbe{sync: sync} 
 
 func (p redmineProbe) PluginID() string { return trackerTool }
 
-// Source nomme le curseur dans `sync_state`, et garde son nom historique.
+// Source names the cursor in `sync_state`, and keeps its historical name.
 func (p redmineProbe) Source() string { return redmineSource }
 
-// Schedule : cinq minutes, et une passe immédiate.
+// Schedule: five minutes, and an immediate pass.
 //
-// La passe immédiate n'est pas un confort. Cette sonde **remplit un écran** —
-// celui des versions —, qui serait vide pendant cinq minutes après chaque
-// démarrage. C'est le seul cas où l'attente coûte plus que l'appel qu'elle évite,
-// et c'est pour lui que [Schedule.Eager] existe.
+// The immediate pass is no convenience. This probe **fills a screen** — the versions one —
+// which would be empty for five minutes after each start-up. It is the only case where waiting
+// costs more than the call it avoids, and it is what [Schedule.Eager] exists for.
 func (p redmineProbe) Schedule() Schedule {
 	return Schedule{Interval: syncInterval, Eager: true}
 }
 
-// Poll projette une passe et rend les faits qu'elle constate.
+// Poll projects one pass and returns the facts it observes.
 //
-// La configuration arrive **descellée** : la boucle l'a ouverte, et c'est
-// désormais le seul endroit où cela se fait. La clé n'existe en clair que le temps
-// de construire le client, dans un processus qui n'expose aucun port.
+// The configuration arrives **unsealed**: the loop opened it, and that is now the only place
+// where this happens. The key exists in clear text only for the time it takes to build the
+// client, in a process that exposes no port.
 func (p redmineProbe) Poll(
 	ctx context.Context, project store.Project, config map[string]string, cursor string,
 ) ([]event.Event, string, error) {
-	// L'identifiant du projet dans le suivi vient du réglage, et retombe sur la
-	// colonne `tracker_project` : elle a précédé les plugins, elle est juste, et un
-	// déploiement dont l'amorçage n'aurait pas tourné ne doit pas cesser de se
-	// synchroniser pour autant.
+	// The project's identifier in the tracker comes from the setting, and falls back to the
+	// `tracker_project` column: it predates the plugins, it is right, and a deployment whose
+	// bootstrap did not run must not stop synchronising for that.
 	trackerProject := strings.TrimSpace(config["project"])
 	if trackerProject == "" {
 		trackerProject = strings.TrimSpace(project.TrackerProject)
 	}
 	if trackerProject == "" {
-		// **Pas une erreur**, et c'est une correction.
+		// **Not an error**, and that is a fix.
 		//
-		// J'avais fait de ce cas un échec nommé, en le prenant pour une intention
-		// contrariée : « le plugin est allumé, donc quelqu'un veut suivre ce
-		// projet ». Le journal de production a montré le contraire — le plugin est
-		// activé au niveau de l'**instance**, et quatre projets sur cinq n'ont
-		// simplement pas de correspondance dans le suivi. Le cas normal criait
-		// donc toutes les cinq minutes, pour chacun d'eux.
+		// I had made this case a named failure, taking it for a thwarted intention: "the plugin is
+		// switched on, so someone wants to track this project". The production log showed the opposite
+		// — the plugin is enabled at the **instance** level, and four projects out of five simply have
+		// no counterpart in the tracker. The normal case therefore shouted every five minutes, for
+		// each of them.
 		//
-		// Un projet sans identifiant de suivi n'a rien à lire. C'est exactement ce
-		// que `TrackedProjects` exprimait avant la migration, et le perdre était
-		// une régression de jugement, pas de code.
+		// A project with no tracker identifier has nothing to read. That is exactly what
+		// `TrackedProjects` expressed before the migration, and losing it was a regression of
+		// judgement, not of code.
 		return nil, cursor, nil
 	}
 

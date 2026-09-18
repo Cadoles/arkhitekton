@@ -14,21 +14,21 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// KindExport est le `kind` des jobs de génération de livrable.
+// KindExport is the `kind` of the deliverable-generation jobs.
 //
-// Absent du catalogue, et c'est délibéré : le catalogue décrit ce qui devient un
-// PipelineRun. Un export ne sort pas du processus — il lit la base, écrit un
-// objet, et rend la main en quelques millisecondes. Lui faire traverser Tekton
-// coûterait un pod, un workspace et trente secondes pour produire deux pages.
+// Absent from the catalogue, deliberately: the catalogue describes what becomes a PipelineRun.
+// An export does not leave the process — it reads the database, writes an object, and returns
+// in a few milliseconds. Making it cross Tekton would cost a pod, a workspace and thirty
+// seconds to produce two pages.
 const KindExport = "export"
 
-// Paramètres d'un job d'export.
+// Parameters of an export job.
 const (
 	ParamExportKind   = "export-kind"
 	ParamExportFormat = "export-format"
 )
 
-// ExportStore est ce que le générateur attend de la base.
+// ExportStore is what the generator needs from the database.
 type ExportStore interface {
 	GetReleaseByID(ctx context.Context, id int64) (store.Release, error)
 	VersionName(ctx context.Context, versionID int64) (string, error)
@@ -36,18 +36,18 @@ type ExportStore interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// Storage est ce que le générateur attend du stockage objet.
+// Storage is what the generator needs from object storage.
 type Storage interface {
 	Put(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error
 }
 
-// Registry résout les empreintes. Optionnel : un document peut être produit sans,
-// à condition de dire ce qu'il n'a pas pu vérifier.
+// Registry resolves the digests. Optional: a document can be produced without it, provided it
+// says what it could not check.
 type Registry interface {
 	Digest(ctx context.Context, repository, tag string) (string, error)
 }
 
-// Exporter produit les livrables d'une release.
+// Exporter produces a release's deliverables.
 type Exporter struct {
 	store     ExportStore
 	storage   Storage
@@ -67,19 +67,19 @@ func NewExporter(
 	}
 }
 
-// Kind rend le `kind` traité par ce générateur.
+// Kind returns the `kind` this generator handles.
 func (e *Exporter) Kind() string { return KindExport }
 
-// Run produit le livrable demandé par un job.
+// Run produces the deliverable a job asks for.
 //
-// Exécuté dans la boucle de l'ordonnanceur plutôt que dans une goroutine : la
-// génération dure quelques millisecondes, et la sérialiser évite d'avoir à
-// raisonner sur deux exports concurrents de la même release — dont le second
-// écraserait l'objet du premier tout en enregistrant deux lignes.
+// Run in the scheduler's loop rather than in a goroutine: generation takes a few
+// milliseconds, and serialising it avoids having to reason about two concurrent exports of
+// the same release — the second of which would overwrite the first's object while recording
+// two rows.
 func (e *Exporter) Run(ctx context.Context, job store.Job) error {
 	release, err := e.store.GetReleaseByID(ctx, derefRelease(job))
 	if err != nil {
-		return fmt.Errorf("release du job %d: %w", job.ID, err)
+		return fmt.Errorf("release of job %d: %w", job.ID, err)
 	}
 
 	format := job.Params[ParamExportFormat]
@@ -91,10 +91,9 @@ func (e *Exporter) Run(ctx context.Context, job store.Job) error {
 		kind = store.ArtifactDeliveryNote
 	}
 	if kind != store.ArtifactDeliveryNote {
-		// Les rapports de tests et de sécurité attendent les données du lot 4.
-		// Refuser explicitement vaut mieux que produire un document vide qui
-		// aurait l'air d'attester quelque chose.
-		return fmt.Errorf("livrable %q indisponible: les résultats correspondants ne sont pas encore collectés", kind)
+		// The test and security reports await their data. Refusing explicitly is better than
+		// producing an empty document that would look like it attests to something.
+		return fmt.Errorf("deliverable %q unavailable: the matching results are not collected yet", kind)
 	}
 
 	note, err := e.buildNote(ctx, release, job.RequestedBy)
@@ -112,7 +111,7 @@ func (e *Exporter) Run(ctx context.Context, job store.Job) error {
 		content, err = report.RenderJSON(note)
 		contentType, filename = "application/json", "delivery-note.json"
 	default:
-		return fmt.Errorf("format de livrable inconnu %q", format)
+		return fmt.Errorf("unknown deliverable format %q", format)
 	}
 	if err != nil {
 		return err
@@ -120,11 +119,11 @@ func (e *Exporter) Run(ctx context.Context, job store.Job) error {
 
 	key, err := e.keys.ReleaseArtifact(release.Tag, filename)
 	if err != nil {
-		return fmt.Errorf("clé du livrable de %q: %w", release.Tag, err)
+		return fmt.Errorf("key of the deliverable of %q: %w", release.Tag, err)
 	}
 
 	if err := e.storage.Put(ctx, key, bytes.NewReader(content), int64(len(content)), contentType); err != nil {
-		return fmt.Errorf("écriture du livrable %q: %w", key, err)
+		return fmt.Errorf("writing the deliverable %q: %w", key, err)
 	}
 
 	if _, err := e.store.RecordArtifact(ctx, store.Artifact{
@@ -134,8 +133,8 @@ func (e *Exporter) Run(ctx context.Context, job store.Job) error {
 		return err
 	}
 
-	// Consigné : un bon de livraison est un document contractuel, et savoir qui
-	// l'a produit et quand fait partie de ce qui est livré.
+	// Logged: a delivery note is a contractual document, and knowing who produced it and when is
+	// part of what is delivered.
 	if err := e.store.Audit(ctx, job.RequestedBy, store.AuditArtifactGenerate, release.Tag,
 		map[string]any{"kind": kind, "format": format, "object": key}); err != nil {
 		e.logger.Error("journal d'audit", "job", job.ID, "error", err)
@@ -146,12 +145,11 @@ func (e *Exporter) Run(ctx context.Context, job store.Job) error {
 	return nil
 }
 
-// buildNote rassemble les faits du bon de livraison.
+// buildNote gathers the delivery note's facts.
 //
-// Rien n'y est inventé : chaque champ vient d'un enregistrement ou d'une lecture
-// du registre. Ce qui n'a pas pu être établi est nommé dans `Unavailable` plutôt
-// qu'omis — dans un document contractuel, une section absente se lit comme une
-// affirmation.
+// Nothing in it is invented: every field comes from a record or from a read of the registry.
+// What could not be established is named in `Unavailable` rather than omitted — in a
+// contractual document, a missing section reads as an assertion.
 func (e *Exporter) buildNote(ctx context.Context, release store.Release, requestedBy string) (report.Note, error) {
 	note := report.Note{
 		Release:      release.Tag,
@@ -173,9 +171,9 @@ func (e *Exporter) buildNote(ctx context.Context, release store.Release, request
 		note.SourceTag = release.ImageVersion
 	}
 
-	// L'image construite, puis le tag de la release : l'ordre de la chaîne de
-	// livraison. Les tags de promotion n'y figurent plus : ils appartiennent au
-	// plugin MSE, et le bon de livraison au noyau (doc 16 §16.17).
+	// The image built, then the release's tag: the order of the delivery chain. The promotion
+	// tags no longer appear there: they belong to the MSE plugin, and the delivery note to the
+	// core.
 	tags := []string{release.ImageVersion}
 	if release.Tag != release.ImageVersion {
 		tags = append(tags, release.Tag)
@@ -193,8 +191,8 @@ func (e *Exporter) buildNote(ctx context.Context, release store.Release, request
 
 	if unverified := note.UnverifiedImages(); len(unverified) > 0 {
 		note.Unavailable = append(note.Unavailable, fmt.Sprintf(
-			"Empreintes non vérifiées pour : %s. Sans empreinte, ce document n'atteste pas que l'image "+
-				"livrée est celle qui a été validée.", strings.Join(unverified, ", ")))
+			"Digests not checked for: %s. Without a digest, this document does not attest that the image "+
+				"delivered is the one that was validated.", strings.Join(unverified, ", ")))
 	}
 
 	if release.ManualActions != "" {

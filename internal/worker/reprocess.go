@@ -9,40 +9,37 @@ import (
 )
 
 /*
-Rejeu des résultats depuis les artefacts bruts.
+ * Replaying the results from the raw artifacts.
+ *
+ * A parser gets fixed. A metric is added. A test family changes format. Each time, the history
+ * already projected becomes wrong — and rebuilding it by re-running the pipelines is
+ * impossible: the runs are past, their target has moved, and a forty-minute E2E campaign is not
+ * replayed to fix a regular expression.
+ *
+ * The replay therefore starts from the **raw data kept**. Each report records the key of the
+ * object it came from, and that key is what makes the history rebuildable without re-running
+ * anything.
+ *
+ * Three properties follow.
+ *
+ * **Erase then rebuild, never stack.** A replay that added would duplicate every case and skew
+ * any comparison between releases — precisely what the replay serves to fix.
+ *
+ * **One run at a time, and one's failure does not carry off the others.** Replaying fifty runs
+ * and losing everything because the third has a purged artifact would be a regression worse
+ * than the original defect.
+ *
+ * **The dry-run mode is the default mode of doubt.** Replaying erases before rebuilding: being
+ * able to see what would disappear, destroying nothing, is what makes the operation defensible.
+ */
 
-Un parseur se corrige. Une métrique s'ajoute. Une famille de tests change de
-format. À chaque fois, l'historique déjà projeté devient faux — et le
-reconstruire en relançant les pipelines est impossible : les runs sont passés,
-leur cible a bougé, et une campagne E2E de quarante minutes ne se rejoue pas pour
-corriger une expression régulière.
-
-Le rejeu part donc du **brut conservé**. Chaque rapport enregistre la clé de
-l'objet dont il est issu, et cette clé est ce qui rend l'historique
-reconstructible sans rien réexécuter.
-
-Trois propriétés en découlent.
-
-**Effacer puis reconstruire, jamais empiler.** Un rejeu qui ajoute dupliquerait
-chaque cas et fausserait toute comparaison inter-release — précisément ce que le
-rejeu sert à corriger.
-
-**Un run à la fois, et l'échec de l'un n'emporte pas les autres.** Rejouer
-cinquante runs et tout perdre parce que le troisième a un artefact purgé serait
-une régression pire que le défaut d'origine.
-
-**Le mode simulation est le mode par défaut du doute.** Rejouer efface avant de
-reconstruire : pouvoir constater ce qui disparaîtrait, sans rien détruire, est ce
-qui rend l'opération défendable.
-*/
-
-// ReprocessStore est ce que le rejeu attend de la base.
+// ReprocessStore is what the replay needs from the database.
 type ReprocessStore interface {
 	ListReprocessTargets(ctx context.Context, releaseID int64) ([]store.ReprocessTarget, error)
 	DeleteTestResults(ctx context.Context, runID int64) (int64, error)
 }
 
-// Reprocessor rejoue les résultats d'un ou plusieurs runs.
+// Reprocessor replays the results of one or more runs.
 type Reprocessor struct {
 	store    ReprocessStore
 	tests    *TestIngester
@@ -58,27 +55,27 @@ func NewReprocessor(
 	return &Reprocessor{store: targets, tests: tests, security: security, load: load, logger: logger}
 }
 
-// ReprocessOptions borne ce que le rejeu touche.
+// ReprocessOptions bounds what the replay touches.
 type ReprocessOptions struct {
-	// ReleaseID limite le rejeu à une release. Zéro rejoue tout l'historique.
+	// ReleaseID limits the replay to one release. Zero replays the whole history.
 	ReleaseID int64
-	// DryRun n'efface ni ne reconstruit : il énumère ce qui serait rejoué. Ce
-	// mode existe parce que le rejeu détruit avant de reconstruire, et qu'une
-	// opération destructive doit pouvoir être regardée avant d'être lancée.
+	// DryRun neither erases nor rebuilds: it lists what would be replayed. This mode exists because
+	// the replay destroys before rebuilding, and a destructive operation must be inspectable before
+	// being launched.
 	DryRun bool
 }
 
-// ReprocessReport rend compte de ce qui a été fait.
+// ReprocessReport accounts for what was done.
 type ReprocessReport struct {
 	Examined int
 	Replayed int
 	Deleted  int64
-	// Failed nomme les runs dont le rejeu a échoué. Nommés et non comptés :
-	// savoir lesquels est ce qui permet de décider s'il faut s'en inquiéter.
+	// Failed names the runs whose replay failed. Named and not counted: knowing which ones is what
+	// allows deciding whether to worry.
 	Failed []string
 }
 
-// Run rejoue les résultats.
+// Run replays the results.
 func (r *Reprocessor) Run(ctx context.Context, options ReprocessOptions) (ReprocessReport, error) {
 	targets, err := r.store.ListReprocessTargets(ctx, options.ReleaseID)
 	if err != nil {
@@ -89,15 +86,15 @@ func (r *Reprocessor) Run(ctx context.Context, options ReprocessOptions) (Reproc
 
 	for _, target := range targets {
 		if options.DryRun {
-			r.logger.Info("rejeu simulé",
+			r.logger.Info("dry run",
 				"run", target.RunName, "outils actuels", target.Tools)
 			continue
 		}
 
 		deleted, err := r.replay(ctx, target)
 		if err != nil {
-			// L'échec d'un run n'emporte pas les autres : un artefact purgé ne
-			// doit pas priver l'historique entier de sa reconstruction.
+			// One run's failure does not carry off the others: a purged artifact must not deprive the whole
+			// history of its rebuild.
 			r.logger.Error("rejeu", "run", target.RunName, "error", err)
 			report.Failed = append(report.Failed, target.RunName)
 			continue
@@ -110,16 +107,15 @@ func (r *Reprocessor) Run(ctx context.Context, options ReprocessOptions) (Reproc
 	return report, nil
 }
 
-// replay efface les résultats d'un run puis les reconstruit depuis le brut.
+// replay erases a run's results then rebuilds them from the raw data.
 //
-// L'effacement précède volontairement la reconstruction : les ingesteurs sont
-// idempotents et refuseraient d'écrire par-dessus l'existant, ce qui rendrait le
-// rejeu inopérant — l'inverse exact de ce qu'on demande.
+// The erasure deliberately precedes the rebuild: the ingesters are idempotent and would refuse
+// to write over what exists, which would make the replay useless — the exact opposite of what
+// is asked.
 //
-// La contrepartie est réelle : entre l'effacement et la reconstruction, le run
-// n'a plus de résultats. Une interruption à cet instant laisse un trou. C'est
-// accepté parce que le brut, lui, reste — un second rejeu répare, alors qu'une
-// projection dupliquée demanderait un nettoyage manuel.
+// The price is real: between the erasure and the rebuild, the run has no results. An
+// interruption at that moment leaves a hole. It is accepted because the raw data stays — a
+// second replay repairs it, whereas a duplicated projection would need a manual clean-up.
 func (r *Reprocessor) replay(ctx context.Context, target store.ReprocessTarget) (int64, error) {
 	deleted, err := r.store.DeleteTestResults(ctx, target.RunID)
 	if err != nil {
@@ -128,9 +124,8 @@ func (r *Reprocessor) replay(ctx context.Context, target store.ReprocessTarget) 
 
 	run := LoadRun{ID: target.RunID, Name: target.RunName, ReleaseID: target.ReleaseID}
 
-	// Les trois ingesteurs sont rejoués : un run peut porter des rapports de
-	// tests, un audit et une campagne de charge. N'en rejouer qu'un
-	// reconstruirait une partie de ce qui vient d'être effacé.
+	// All three ingesters are replayed: a run may carry test reports, an audit and a load campaign.
+	// Replaying only one would rebuild part of what has just been erased.
 	var problems []error
 	if r.tests != nil {
 		if err := r.tests.Ingest(ctx, run); err != nil {
@@ -152,7 +147,7 @@ func (r *Reprocessor) replay(ctx context.Context, target store.ReprocessTarget) 
 		return deleted, fmt.Errorf("run %q: %w", target.RunName, problems[0])
 	}
 
-	r.logger.Info("run rejoué",
-		"run", target.RunName, "rapports effacés", deleted, "outils précédents", target.Tools)
+	r.logger.Info("run replayed",
+		"run", target.RunName, "reports erased", deleted, "previous tools", target.Tools)
 	return deleted, nil
 }

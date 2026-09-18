@@ -132,10 +132,10 @@ func TestASourceDeclaredLowerDownStaysValid(t *testing.T) {
 // The structural inconsistencies.
 func TestAnInconsistentCycleIsRefused(t *testing.T) {
 	cases := map[string]Cycle{
-		"vide":           {},
-		"without an id":        {{Mode: ModeBuild}},
-		"unknown mode":   {{ID: "rc", Mode: "deploy"}},
-		"unknown rule": {{ID: "rc", Mode: ModeBuild, Tag: "prerelease-maybe"}},
+		"empty":           {},
+		"without an id":   {{Mode: ModeBuild}},
+		"unknown mode":    {{ID: "rc", Mode: "deploy"}},
+		"unknown rule":    {{ID: "rc", Mode: ModeBuild, Tag: "prerelease-maybe"}},
 		"duplicated kind": {{ID: "rc", Mode: ModeBuild}, {ID: "rc", Mode: ModeRetag}},
 	}
 

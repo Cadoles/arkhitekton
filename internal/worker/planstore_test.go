@@ -8,25 +8,23 @@ import (
 )
 
 /*
- * Un magasin de plans en mémoire.
+ * An in-memory plan store.
  *
- * Il existe pour que le juge de la chaîne de vérification — `verification_test.go`
- * — continue de s'exécuter **sans base**. Ce n'est pas une commodité : ces tests
- * portent sur ce qui est enfilé et sur l'idempotence de l'enchaînement, deux
- * choses qu'on veut pouvoir éprouver en quelques millisecondes, sur toutes les
- * combinaisons, sans monter PostgreSQL.
+ * It exists so that the judge of the verification chain — `verification_test.go` — keeps
+ * running **without a database**. It is no convenience: those tests bear on what is queued and
+ * on the idempotence of the chaining, two things one wants to be able to exercise in a few
+ * milliseconds, over every combination, without standing up PostgreSQL.
  *
- * Il reproduit les deux propriétés dont le moteur dépend, et rien d'autre :
- * l'unicité par (déclencheur, fait), et la conclusion conditionnée à l'état
- * `running`. Un faux magasin qui les relâcherait rendrait les tests plus verts
- * que le code.
+ * It reproduces the two properties the engine depends on, and nothing else: uniqueness per
+ * (trigger, fact), and conclusion conditioned on the `running` state. A fake store that relaxed
+ * them would make the tests greener than the code.
  */
 type fakePlanStore struct {
 	mu    sync.Mutex
 	runs  map[int64]*store.PlanRun
 	steps map[int64][]store.PlanStep
 	next  int64
-	// byEvent tient l'unicité que la base porte par index.
+	// byEvent holds the uniqueness the database carries by index.
 	byEvent map[string]int64
 }
 
@@ -123,8 +121,7 @@ func (f *fakePlanStore) FinishPlanRun(_ context.Context, runID int64, state stri
 
 	run, found := f.runs[runID]
 	if !found || run.State != store.PlanRunning {
-		// La même écriture conditionnelle que la base : deux conclusions
-		// concurrentes n'en produisent qu'une.
+		// The same conditional write as the database: two concurrent conclusions produce only one.
 		return false, nil
 	}
 	run.State = state

@@ -17,40 +17,38 @@ import (
 )
 
 /*
- * L'exécution des actions qu'un plugin déclare.
+ * Running the actions a plugin declares.
  *
- * # Ce que ce fichier ajoute au précédent
+ * # What this file adds to the previous one
  *
- * `actions.go` met en œuvre l'appel sortant : une cible saisie dans un
- * formulaire, un transport qui la juge, un jeton désigné. Ici, rien de tout cela.
- * Une action de plugin parle à **sa** frontière, celle que le plugin a déjà réglée
- * — et c'est ce qui rend les deux chemins irréductibles l'un à l'autre.
+ * `actions.go` carries out the outgoing call: a target typed into a form, a transport that
+ * judges it, a named token. Here, none of that. A plugin action speaks to **its** boundary, the
+ * one the plugin has already set — and that is what makes the two paths irreducible to each
+ * other.
  *
- * Trois conséquences valent d'être nommées :
+ * Three consequences are worth naming:
  *
- *   - **la cible n'est pas choisie**. Elle vient de la configuration du plugin,
- *     pas du geste. Aucune vérification d'adresse n'est donc faite ici : celle de
- *     `internal/webhook` existe parce qu'une URL vient d'un formulaire, et ce
- *     n'est pas le cas ;
- *   - **aucun secret n'est désigné**. Le jeton est celui du plugin, ouvert le
- *     temps de l'appel. Un geste ne peut pas nommer un autre jeton, et ne peut
- *     donc pas s'en servir pour faire sortir celui d'un voisin ;
- *   - **le plugin doit être allumé**. Un plugin éteint est un refus nommé, pas un
- *     appel silencieux : la configuration existe encore en base, et partir avec
- *     enverrait un statut au nom d'une intégration qu'on croit désactivée.
+ *   - **the target is not chosen**. It comes from the plugin's configuration, not from the
+ *     step. No address check is therefore made here: the one in `internal/webhook` exists
+ *     because a URL comes from a form, and that is not the case;
+ *   - **no secret is named**. The token is the plugin's, opened for the duration of the call. A
+ *     step cannot name another token, and therefore cannot use one to extract a neighbour's;
+ *   - **the plugin must be switched on**. A switched-off plugin is a named refusal, not a
+ *     silent call: the configuration still exists in the database, and starting with it would
+ *     send a status in the name of an integration one believes disabled.
  */
 
-// PluginActionStore est ce que les actions de plugin attendent de la base.
+// PluginActionStore is what the plugin actions need from the database.
 //
-// Deux lectures et pas une de plus : la connexion résolue du plugin, et le projet
-// — dont on ne veut que le dépôt. Une interface plus large inviterait ce runner à
-// décider de choses qui ne lui appartiennent pas.
+// Two reads and not one more: the plugin's resolved connection, and the project — of which
+// only the repository is wanted. A wider interface would invite this runner to decide things
+// that are not its own.
 type PluginActionStore interface {
 	ResolvedPlugin(ctx context.Context, projectID int64, pluginID string) (store.PluginSettings, error)
 	GetProject(ctx context.Context, id int64) (store.Project, error)
 }
 
-// PluginActionRunner met en œuvre les actions déclarées par les plugins.
+// PluginActionRunner carries out the actions the plugins declare.
 type PluginActionRunner struct {
 	store   PluginActionStore
 	secrets SecretOpener
@@ -70,49 +68,48 @@ func NewPluginActionRunner(
 	return &PluginActionRunner{store: settings, secrets: secrets, timeout: timeout, logger: logger}
 }
 
-// Run met en œuvre un geste d'action de plugin.
+// Run carries out a plugin action step.
 //
-// Rend toujours un identifiant de job nul, comme les actions internes : rien de
-// tout cela ne passe par la file, et il n'y a rien à attendre.
+// Always returns a null job identifier, like the internal actions: none of this goes through
+// the queue, and there is nothing to wait for.
 func (r *PluginActionRunner) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
 	descriptor, spec, found := plugin.FindAction(geste.Ref)
 	if !found {
-		return nil, fmt.Errorf("aucun plugin ne déclare l'action %q", geste.Ref)
+		return nil, fmt.Errorf("no plugin declares the action %q", geste.Ref)
 	}
 	if run.ProjectID == nil {
-		// Un plugin est réglé par projet. Un fait qui n'en désigne aucun n'a pas
-		// de connexion à emprunter, et partir sur celle de l'instance choisirait
-		// un dépôt au hasard.
+		// A plugin is set per project. A fact naming none has no connection to borrow, and starting on
+		// the instance's would pick a repository at random.
 		return nil, fmt.Errorf(
-			"l'action %q porte sur un projet, et ce fait n'en désigne aucun", geste.Ref)
+			"the action %q bears on a project, and this fact names none", geste.Ref)
 	}
 
 	settings, err := r.store.ResolvedPlugin(ctx, *run.ProjectID, descriptor.ID)
 	if err != nil {
-		return nil, fmt.Errorf("réglages du plugin %q: %w", descriptor.ID, err)
+		return nil, fmt.Errorf("settings of plugin %q: %w", descriptor.ID, err)
 	}
 	if !settings.Enabled {
 		return nil, fmt.Errorf(
-			"le plugin %q est éteint pour ce projet : l'action %q ne part pas",
+			"plugin %q is switched off for this project: the action %q does not start",
 			descriptor.ID, geste.Ref)
 	}
 
 	config, err := openPluginSecrets(r.secrets, descriptor.ID, settings.Config)
 	if err != nil {
-		return nil, fmt.Errorf("connexion du plugin %q: %w", descriptor.ID, err)
+		return nil, fmt.Errorf("connection of plugin %q: %w", descriptor.ID, err)
 	}
 
 	project, err := r.store.GetProject(ctx, *run.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("projet de l'exécution: %w", err)
+		return nil, fmt.Errorf("project of the run: %w", err)
 	}
 
-	// Les gabarits sont liés **puis** revérifiés. Voir [verifierJeuxFermes] : un
-	// jeu fermé validé avant interpolation ne dit rien de ce qui en sortira.
-	params := lierParams(spec, geste.Params, run.Context)
-	if err := verifierJeuxFermes(spec, geste.Params, params); err != nil {
+	// The templates are bound **then** checked again. See [checkClosedSets]: a closed set
+	// validated before interpolation says nothing about what will come out of it.
+	params := bindParams(spec, geste.Params, run.Context)
+	if err := checkClosedSets(spec, geste.Params, params); err != nil {
 		return nil, err
 	}
 
@@ -120,22 +117,22 @@ func (r *PluginActionRunner) Run(
 	case "gitea":
 		return nil, r.runGitea(ctx, run, geste.Ref, params, project, config)
 	default:
-		// Un plugin qui déclare une action sans que personne ne la mette en œuvre.
-		// Refuser nommément vaut mieux que rendre « parti » : le registre et
-		// l'exécution ont divergé, et le dire est la seule façon de s'en apercevoir.
+		// A plugin that declares an action nobody carries out. Refusing it by name is better than
+		// reporting it "sent": the registry and the runtime have diverged, and saying so is the only
+		// way to notice.
 		return nil, fmt.Errorf(
-			"le plugin %q déclare %q, et rien ne l'exécute", descriptor.ID, geste.Ref)
+			"plugin %q declares %q, and nothing runs it", descriptor.ID, geste.Ref)
 	}
 }
 
-// Références complètes des actions du plugin Gitea.
+// Full references of the Gitea plugin's actions.
 const (
 	giteaStatusRef  = "gitea.status"
 	giteaCommentRef = "gitea.comment"
 )
 
-// lierParams remplace les gabarits par la charge du fait déclencheur.
-func lierParams(
+// bindParams replaces the templates with the triggering fact's payload.
+func bindParams(
 	spec plugin.ActionSpec, declares, contexte map[string]string,
 ) map[string]string {
 	params := make(map[string]string, len(spec.Fields))
@@ -145,30 +142,29 @@ func lierParams(
 	return params
 }
 
-// verifierJeuxFermes refuse une valeur interpolée hors du jeu déclaré.
+// checkClosedSets refuses an interpolated value outside the declared set.
 //
-// # Pourquoi ce contrôle-ci ne pouvait pas se faire plus tôt
+// # Why this check could not happen earlier
 //
-// À l'enregistrement, un champ à jeu fermé laisse passer un gabarit : ce qu'il
-// vaudra dépend de la charge du fait, et le refuser obligerait à écrire l'état en
-// dur. Mais la valeur **produite** n'a alors été vérifiée par personne.
+// At recording time, a closed-set field lets a template through: what it will be worth depends
+// on the fact's payload, and refusing it would force the state to be written literally. But
+// the value **produced** has then been checked by nobody.
 //
-// C'est un défaut constaté contre une vraie forge, et pas une précaution
-// théorique. Le gabarit naturel — `state: {outcome}` — rend `succeeded`, parce
-// que c'est le vocabulaire d'un fait ; la forge, elle, dit `success`. Gitea a
-// **accepté** l'appel et stocké l'état tel quel : un statut hors de son propre
-// vocabulaire, qu'aucune interface ne sait afficher, sans le moindre message.
+// It is a defect observed against a real forge, not a theoretical precaution. The natural
+// template — `state: {outcome}` — yields `succeeded`, because that is a fact's vocabulary; the
+// forge says `success`. Gitea **accepted** the call and stored the state as it was: a status
+// outside its own vocabulary, which no interface can display, with not a single message.
 //
-// Un destinataire indulgent est le pire des cas : rien n'échoue, et rien ne
-// marche. Le geste échoue donc ici, en nommant ce qui est admis.
+// A lenient recipient is the worst case: nothing fails, and nothing works. The step therefore
+// fails here, naming what is allowed.
 //
-// # Deux vocabulaires, et aucune traduction
+// # Two vocabularies, and no translation
 //
-// L'issue d'un fait et l'état d'un statut de forge ne se correspondent pas, et
-// aucune table ne les rapproche : elle serait à tenir, et ne vaudrait que pour
-// cette forge-ci. Une réaction qui veut refléter l'issue s'écrit avec un état en
-// dur et un appariement sur `outcome` — ce que le modèle sait déjà faire.
-func verifierJeuxFermes(spec plugin.ActionSpec, declares, params map[string]string) error {
+// A fact's outcome and a forge status's state do not correspond, and no table brings them
+// together: it would have to be kept up, and would hold only for this forge. A reaction that
+// wants to mirror the outcome is written with a literal state and a match on `outcome` — which
+// the model already knows how to do.
+func checkClosedSets(spec plugin.ActionSpec, declares, params map[string]string) error {
 	for _, field := range spec.Fields {
 		if len(field.OneOf) == 0 {
 			continue
@@ -178,21 +174,21 @@ func verifierJeuxFermes(spec plugin.ActionSpec, declares, params map[string]stri
 			continue
 		}
 
-		// Le gabarit d'origine est cité quand il en portait un : sans lui, « reçu
-		// "succeeded" » n'apprend pas d'où la valeur vient.
+		// The original template is quoted when there was one: without it, `received "succeeded"` does
+		// not teach where the value comes from.
 		origine := strings.TrimSpace(declares[field.Name])
 		if origine != value {
-			return fmt.Errorf("%s vaut %q après interpolation de %q, "+
-				"or le destinataire n'admet que %s",
+			return fmt.Errorf("%s is %q after interpolating %q, "+
+				"but the recipient allows only %s",
 				field.Label, value, origine, strings.Join(field.OneOf, ", "))
 		}
-		return fmt.Errorf("%s vaut %q, or le destinataire n'admet que %s",
+		return fmt.Errorf("%s is %q, but the recipient allows only %s",
 			field.Label, value, strings.Join(field.OneOf, ", "))
 	}
 	return nil
 }
 
-// runGitea met en œuvre les actions de la forge.
+// runGitea carries out the forge's actions.
 func (r *PluginActionRunner) runGitea(
 	ctx context.Context, run store.PlanRun, ref string,
 	params map[string]string, project store.Project, config map[string]string,
@@ -200,12 +196,12 @@ func (r *PluginActionRunner) runGitea(
 	url := strings.TrimSpace(config["url"])
 	token := strings.TrimSpace(config["token"])
 	if url == "" || token == "" {
-		// Nommé plutôt que laissé au client : « URL invalide » enverrait chercher
-		// une faute de frappe là où c'est un réglage jamais saisi.
-		return fmt.Errorf("forge non configurée: renseigner l'URL et le jeton du plugin \"gitea\"")
+		// Named rather than left to the client: "invalid URL" would send someone hunting for a typo
+		// where it is a setting that was never filled in.
+		return fmt.Errorf("forge not configured: set the URL and the token of plugin \"gitea\"")
 	}
 	if strings.TrimSpace(project.Repository) == "" {
-		return fmt.Errorf("le projet %q ne déclare aucun dépôt", project.Slug)
+		return fmt.Errorf("project %q declares no repository", project.Slug)
 	}
 
 	writer, err := gitea.NewWriter(gitea.Options{
@@ -219,36 +215,36 @@ func (r *PluginActionRunner) runGitea(
 	case giteaStatusRef:
 		commit := params["commit"]
 		if commit == "" {
-			return fmt.Errorf("le commit visé est vide après interpolation : " +
-				"le fait déclencheur ne porte pas la variable nommée")
+			return fmt.Errorf("the commit targeted is empty after interpolation: " +
+				"the triggering fact does not carry the named variable")
 		}
 		if err := writer.SetCommitStatus(ctx, commit, params["state"],
 			params["context"], params["description"], params["target_url"]); err != nil {
 			return err
 		}
-		r.logger.Info("statut de commit posé",
-			"execution", run.ID, "projet", project.Slug,
-			"contexte", params["context"], "etat", params["state"])
+		r.logger.Info("commit status set",
+			"run", run.ID, "project", project.Slug,
+			"contexte", params["context"], "state", params["state"])
 		return nil
 
 	case giteaCommentRef:
 		raw := strings.TrimSpace(params["number"])
 		number, err := strconv.Atoi(raw)
 		if err != nil {
-			// Le cas courant, et il vaut d'être dit ainsi : une réaction branchée
-			// sur `release.built` n'a pas de `{number}`, le gabarit reste littéral,
-			// et « invalide » sans citer la valeur enverrait chercher ailleurs.
-			return fmt.Errorf("le numéro de demande de fusion vaut %q après "+
-				"interpolation : ce fait porte-t-il bien la variable nommée ?", raw)
+			// The common case, and it is worth saying this way: a reaction wired to `release.built` has no
+			// `{number}`, the template stays literal, and "invalid" without quoting the value would send
+			// someone hunting elsewhere.
+			return fmt.Errorf("the pull request number is %q after "+
+				"interpolation: does this fact really carry the named variable?", raw)
 		}
 		if err := writer.CommentOnPullRequest(ctx, number, params["body"]); err != nil {
 			return err
 		}
-		r.logger.Info("commentaire posté",
-			"execution", run.ID, "projet", project.Slug, "demande", number)
+		r.logger.Info("comment posted",
+			"run", run.ID, "project", project.Slug, "request", number)
 		return nil
 
 	default:
-		return fmt.Errorf("action %q inconnue du plugin \"gitea\"", ref)
+		return fmt.Errorf("action %q unknown to plugin \"gitea\"", ref)
 	}
 }

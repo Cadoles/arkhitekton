@@ -13,28 +13,26 @@ import (
 )
 
 /*
- * La sonde des demandes de fusion.
+ * The pull-request probe.
  *
- * Celle qui a motivé la demande : « un plugin Gitea pourrait déclarer un
- * événement de création de PR lorsqu'il en détecte une nouvelle ».
+ * The one that motivated the request: a Gitea plugin could declare an event when it detects a
+ * new PR.
  *
- * Elle ne persiste rien et ne déduplique rien — la boucle s'en charge (voir
- * `probes.go`). Ce qu'elle doit tenir, elle, tient en deux points :
+ * It persists nothing and deduplicates nothing — the loop takes care of that (see `probes.go`).
+ * What it must hold fits in two points:
  *
- *   - **la clé de déduplication**, dérivée du numéro de la demande dans son
- *     dépôt. Elle seule sait ce qui identifie ses faits, et la boucle relit une
- *     fenêtre de recouvrement à chaque passe ;
- *   - **la date du fait**, celle de la création de la demande, jamais celle de la
- *     lecture. Une sonde qui rattrape trois jours doit produire des faits datés de
- *     ces trois jours.
+ *   - **the deduplication key**, derived from the request's number in its repository. It alone
+ *     knows what identifies its facts, and the loop re-reads an overlap window at each pass;
+ *   - **the fact's date**, that of the request's creation, never that of the read. A probe
+ *     catching up three days must produce facts dated across those three days.
  */
 
-// giteaPullProbe observe les demandes de fusion ouvertes d'un dépôt.
+// giteaPullProbe observes a repository's open pull requests.
 type giteaPullProbe struct {
 	timeout time.Duration
 }
 
-// NewGiteaPullProbe construit la sonde des demandes de fusion.
+// NewGiteaPullProbe builds the pull-request probe.
 func NewGiteaPullProbe(timeout time.Duration) Probe {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -44,36 +42,35 @@ func NewGiteaPullProbe(timeout time.Duration) Probe {
 
 func (p giteaPullProbe) PluginID() string { return "gitea" }
 
-// Schedule : la cadence du déploiement, et aucune passe d'emblée.
+// Schedule: the deployment's cadence, and no pass straight away.
 //
-// Cette sonde ne remplit aucun écran — elle constate. Un redémarrage en boucle ne
-// doit pas se traduire par une rafale d'appels vers une forge tierce.
+// This probe fills no screen — it observes. A restart loop must not turn into a burst of
+// calls towards a third-party forge.
 func (p giteaPullProbe) Schedule() Schedule { return Schedule{} }
 
-// Source nomme le curseur dans `sync_state`.
+// Source names the cursor in `sync_state`.
 //
-// Propre à la sonde et non au plugin : Gitea pourrait en porter d'autres — les
-// tags posés, les demandes fermées — et un curseur partagé ferait que l'une
-// avance celui de l'autre.
+// Specific to the probe and not to the plugin: Gitea could carry others — tags set, requests
+// closed — and a shared cursor would have one advance the other's.
 func (p giteaPullProbe) Source() string { return "gitea.pull_requests" }
 
-// pullRequestOpened est le type de fait émis, préfixé comme le veut la règle.
+// pullRequestOpened is the type of fact emitted, prefixed as the rule requires.
 const pullRequestOpened = "gitea.pull_request.opened"
 
-// Poll rend les demandes ouvertes depuis le curseur.
+// Poll returns the requests opened since the cursor.
 func (p giteaPullProbe) Poll(
 	ctx context.Context, project store.Project, config map[string]string, cursor string,
 ) ([]event.Event, string, error) {
 	url := strings.TrimSpace(config["url"])
 	token := strings.TrimSpace(config["token"])
 	if url == "" || token == "" {
-		// Nommé plutôt que laissé au client : « URL invalide » enverrait chercher
-		// une faute de frappe là où c'est un réglage jamais saisi.
+		// Named rather than left to the client: "invalid URL" would send someone hunting for a typo
+		// where it is a setting that was never filled in.
 		return nil, "", fmt.Errorf(
-			"forge non configurée: renseigner l'URL et le jeton du plugin %q", p.PluginID())
+			"forge not configured: set the URL and the token of plugin %q", p.PluginID())
 	}
 	if strings.TrimSpace(project.Repository) == "" {
-		return nil, "", fmt.Errorf("le projet ne déclare aucun dépôt")
+		return nil, "", fmt.Errorf("the project declares no repository")
 	}
 
 	client, err := gitea.New(gitea.Options{
@@ -103,11 +100,10 @@ func (p giteaPullProbe) Poll(
 				"target_branch": pull.TargetBranch,
 				"url":           pull.URL,
 			},
-			// La date du **fait**, celle de l'ouverture de la demande.
+			// The **fact's** date, that of the request's opening.
 			OccurredAt: pull.CreatedAt,
-			// La clé porte le dépôt et le numéro : un numéro seul se répéterait
-			// d'un dépôt à l'autre, et deux projets suivis se voleraient leurs
-			// faits.
+			// The key carries the repository and the number: a number alone would repeat from one
+			// repository to the next, and two tracked projects would steal each other's facts.
 			DedupKey: pullDedupKey(project.Repository, pull.Number),
 		})
 		if pull.CreatedAt.After(newest) {
@@ -118,19 +114,19 @@ func (p giteaPullProbe) Poll(
 	return facts, formatCursor(newest, since), nil
 }
 
-// pullDedupKey identifie une demande de fusion.
+// pullDedupKey identifies a pull request.
 //
-// Le dépôt et le numéro, et rien d'autre : une demande ouverte est un fait unique,
-// et la relire dix fois ne doit pas en produire dix.
+// The repository and the number, and nothing else: an opened request is a single fact, and
+// reading it ten times must not produce ten.
 func pullDedupKey(repository string, number int64) string {
 	return pullRequestOpened + ":" + repository + ":" + strconv.FormatInt(number, 10)
 }
 
-// parseCursor lit le curseur, ou rend le zéro.
+// parseCursor reads the cursor, or returns zero.
 //
-// Un curseur illisible est traité comme une absence : c'est la même règle que
-// pour la synchronisation du suivi, et elle mène à une passe d'amorçage — qui
-// n'émet rien — plutôt qu'à une reprise depuis un instant faux.
+// An unreadable cursor is treated as an absent one: the same rule as for the tracker
+// synchronisation, and it leads to a bootstrap pass — which emits nothing — rather than to a
+// resume from a wrong instant.
 func parseCursor(cursor string) time.Time {
 	if strings.TrimSpace(cursor) == "" {
 		return time.Time{}
@@ -142,20 +138,18 @@ func parseCursor(cursor string) time.Time {
 	return parsed
 }
 
-// formatCursor compose le curseur suivant.
+// formatCursor composes the next cursor.
 //
-// Il **n'avance jamais en arrière** : une passe qui ne voit rien de neuf rend le
-// curseur précédent, plutôt qu'un zéro qui relancerait un amorçage et perdrait
-// tout l'historique de déduplication.
+// It **never moves backwards**: a pass that sees nothing new returns the previous cursor,
+// rather than a zero that would restart a bootstrap and lose the whole deduplication history.
 func formatCursor(newest, previous time.Time) string {
 	if newest.IsZero() {
 		newest = previous
 	}
 	if newest.IsZero() {
-		// Aucune demande, jamais. Le curseur porte l'instant de la lecture pour
-		// que la passe suivante cesse d'être un amorçage : sans cela, un dépôt
-		// sans demande de fusion resterait éternellement en amorçage, et la
-		// première demande ouverte n'émettrait rien.
+		// No request, ever. The cursor carries the instant of the read so that the next pass stops
+		// being a bootstrap: without that, a repository with no pull request would stay in bootstrap
+		// forever, and the first request opened would emit nothing.
 		newest = time.Now().UTC()
 	}
 	return newest.UTC().Format(time.RFC3339)

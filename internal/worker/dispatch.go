@@ -10,35 +10,35 @@ import (
 )
 
 /*
- * Le maillon entre un fait et les plans qu'il déclenche.
+ * The link between a fact and the plans it triggers.
  *
- * Les tranches précédentes ont posé les faits, le moteur et les actions ; ce qui
- * manquait était l'aiguillage — trouver qui écoute, et ouvrir une exécution.
+ * Facts, the engine and the actions were already in place; what was missing was the routing —
+ * finding who is listening, and opening a run.
  *
- * # Appelé là où un fait est constaté, jamais par une horloge
+ * # Called where a fact is observed, never by a clock
  *
- * Comme le moteur (voir `engine.go`), et pour la même raison : les faits arrivent
- * par deux chemins connus — l'observateur et les sondes — qui savent tous deux
- * quand ils viennent d'en écrire un. Une boucle qui relirait le fil ajouterait un
- * curseur, une latence et une seconde source de vérité sur ce qui a été traité.
+ * Like the engine (see `engine.go`), and for the same reason: facts arrive by two known paths —
+ * the observer and the probes — which both know when they have just written one. A loop
+ * re-reading the feed would add a cursor, a latency and a second source of truth about what has
+ * been handled.
  *
- * # Ce qui n'est **pas** déclenché
+ * # What is **not** triggered
  *
- * Un fait déjà connu. `RecordEvent` rend `false` sur une redélivrance, et
- * l'aiguillage n'est appelé que sur un fait neuf — première borne. L'unicité par
- * (déclencheur, fait) de `plan_runs` est la seconde : deux bornes pour la même
- * garantie, parce que celle-ci décide d'appels sortants.
+ * An already known fact. `RecordEvent` returns `false` on a redelivery, and the routing is
+ * called only on a new fact — the first bound. The uniqueness per (trigger, fact) of
+ * `plan_runs` is the second: two bounds for the same guarantee, because this one decides on
+ * outgoing calls.
  */
 
-// ReactionStore est ce que l'aiguillage attend de la base.
+// ReactionStore is what the routing needs from the database.
 //
-// Interface étroite : il ne lit que les réactions actives d'un type, et lui
-// donner le reste l'inviterait à décider de choses qui ne lui appartiennent pas.
+// A narrow interface: it reads only the active reactions of one type, and giving it the rest
+// would invite it to decide things that are not its own.
 type ReactionStore interface {
 	ReactionsFor(ctx context.Context, projectID int64, eventType string) ([]reaction.Reaction, error)
 }
 
-// Dispatcher ouvre les exécutions que déclenche un fait.
+// Dispatcher opens the runs a fact triggers.
 type Dispatcher struct {
 	store  ReactionStore
 	engine *Engine
@@ -52,10 +52,10 @@ func NewDispatcher(reactions ReactionStore, engine *Engine, logger *slog.Logger)
 	return &Dispatcher{store: reactions, engine: engine, logger: logger}
 }
 
-// Dispatch déclenche les réactions qui apparient ce fait.
+// Dispatch triggers the reactions this fact matches.
 //
-// Sans effet quand le fait ne vise aucun projet : une réaction est déclarée par
-// projet, et un fait qui n'en désigne aucun n'a personne pour l'écouter.
+// Without effect when the fact names no project: a reaction is declared per project, and a
+// fact naming none has nobody to listen to it.
 func (d *Dispatcher) Dispatch(ctx context.Context, fact event.Event) {
 	if d == nil || d.engine == nil || fact.ProjectID == nil {
 		return
@@ -63,18 +63,17 @@ func (d *Dispatcher) Dispatch(ctx context.Context, fact event.Event) {
 
 	reactions, err := d.store.ReactionsFor(ctx, *fact.ProjectID, string(fact.Type))
 	if err != nil {
-		d.logger.Error("réactions d'un fait",
-			"type", fact.Type, "projet", *fact.ProjectID, "error", err)
+		d.logger.Error("a fact's reactions",
+			"type", fact.Type, "project", *fact.ProjectID, "error", err)
 		return
 	}
 
 	for _, declared := range reactions {
 		if !declared.Matches(fact.Payload) {
-			// Journalisé en `Debug` : c'est le cas courant — une réaction sur les
-			// releases finales voit passer toutes les pré-releases — et le dire en
-			// `Info` noierait le journal.
-			d.logger.Debug("réaction non appariée",
-				"reaction", declared.Name, "fait", fact.Type)
+			// Logged at `Debug`: it is the common case — a reaction on final releases sees every
+			// pre-release go by — and saying it at `Info` would drown the log.
+			d.logger.Debug("reaction not matched",
+				"reaction", declared.Name, "fact", fact.Type)
 			continue
 		}
 
@@ -83,12 +82,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, fact event.Event) {
 			EventKey:  fact.DedupKey,
 			ProjectID: fact.ProjectID,
 			Plan:      declared.Plan,
-			// La charge du fait devient le contexte de l'exécution : c'est elle qui
-			// lie les gabarits des gestes. Le plan **nomme**, l'exécution résout.
+			// The fact's payload becomes the run's context: it is what binds the steps' templates. The
+			// plan **names**, the run resolves.
 			Context: fact.Payload,
 		})
-		d.logger.Info("réaction déclenchée",
-			"reaction", declared.Name, "fait", fact.Type,
-			"sujet", fact.Subject, "gestes", started)
+		d.logger.Info("reaction triggered",
+			"reaction", declared.Name, "fact", fact.Type,
+			"subject", fact.Subject, "steps", started)
 	}
 }

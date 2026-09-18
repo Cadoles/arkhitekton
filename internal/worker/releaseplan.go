@@ -18,53 +18,48 @@ import (
 )
 
 /*
- * Le plan d'une release.
+ * A release's plan.
  *
- * # La porte du chantier
+ * # The door of the work
  *
- * Doc 15 §15.9 en fait une porte, et la question qu'elle pose est simple : la
- * suite **construire puis vérifier** entre-t-elle dans un plan unique ? Si elle
- * n'y entre pas, le modèle est trop pauvre, et on l'apprend avant d'avoir écrit
- * un éditeur.
+ * It is a door, and the question it asks is simple: does the sequence **build then verify** fit
+ * into a single plan? If it does not, the model is too poor, and one learns it before having
+ * written an editor.
  *
- * Elle y entre, et sa forme dit pourquoi : deux étapes, la seconde conditionnée
- * à la réussite de la première. C'est exactement ce que faisaient `enqueueBuild`
- * — une boucle sur les cibles, dans l'API — et `launchVerification` — une boucle
- * sur les familles, dans l'observateur. Deux boucles dans deux fichiers, reliées
- * par un fait intermédiaire, là où il y avait un plan non déclaré.
+ * It does, and its shape says why: two stages, the second conditioned on the first succeeding.
+ * That is exactly what `enqueueBuild` — a loop over the targets, in the API — and
+ * `launchVerification` — a loop over the kinds, in the observer — did. Two loops in two files,
+ * linked by an intermediate fact, where there was an undeclared plan.
  *
- * # Déclaré, et plus composé
+ * # Declared, no longer composed
  *
- * Le plan était composé ici, en Go, depuis la colonne `targets` et le catalogue.
- * Il est désormais **lu** : le projet le déclare depuis l'onglet automatisation,
- * et ce fichier ne connaît plus ni cible, ni famille particulière (doc 15 §15.5).
+ * The plan was composed here, in Go, from the `targets` column and the catalogue. It is now
+ * **read**: the project declares it from the automation tab, and this file knows neither target
+ * nor particular kind any more.
  *
- * Ce que cela retire est visible à l'œil : la famille `build` n'apparaît plus
- * nulle part, et le `if geste.Ref == "build"` qui aiguillait deux façons de
- * renseigner les paramètres non plus. Les trois paramètres qu'il posait en clair
- * — `revision`, `version`, `tag-name` — étaient la recopie de ce que le catalogue
- * déclarait déjà par ses `suggest`.
+ * What that removes is visible to the eye: the `build` kind appears nowhere any more, and
+ * neither does the `if geste.Ref == "build"` that routed two ways of filling in the parameters.
+ * The three parameters it set literally — `revision`, `version`, `tag-name` — were a copy of
+ * what the catalogue already declared through its `suggest`.
  *
- * La composition survit à un seul endroit, `automationreprise.go`, où elle dote
- * d'une automatisation les projets qui n'en ont jamais déclaré.
+ * The composition survives in a single place, `automationcatchup.go`, where it gives an
+ * automation to the projects that never declared one.
  *
- * # Ce que le geste porte, et ce que le contexte porte
+ * # What the step carries, and what the context carries
  *
- * Le geste porte ce que la **déclaration** fixe : l'image à produire, l'étape du
- * Dockerfile, son contexte de build. Le contexte de l'exécution porte ce qui
- * dépend du **fait déclencheur** : la révision, le tag.
+ * The step carries what the **declaration** fixes: the image to produce, the Dockerfile stage,
+ * its build context. The run's context carries what depends on the **triggering fact**: the
+ * revision, the tag.
  *
- * Cette séparation n'est pas une commodité. C'est elle qui rend un plan
- * réutilisable d'une release à l'autre — un plan qui figerait la révision ne
- * servirait qu'une fois — et c'est la même règle que pour les réactions
- * déclarées (doc 14 §14.3).
+ * That separation is no convenience. It is what makes a plan reusable from one release to the
+ * next — a plan that froze the revision would serve only once — and it is the same rule as for
+ * the declared reactions.
  */
 
-// Clés du contexte d'exécution du plan d'une release.
+// Keys of the run context of a release's plan.
 //
-// Nommées plutôt qu'écrites en clair aux deux bouts : le plan les pose, le runner
-// les lit, et deux orthographes produiraient un geste sans paramètres dont rien
-// ne dirait pourquoi.
+// Named rather than written literally at both ends: the plan sets them, the runner reads them,
+// and two spellings would produce a step with no parameters with nothing saying why.
 const (
 	contextRevision  = "revision"
 	contextTag       = "tag"
@@ -72,26 +67,26 @@ const (
 	contextRegistry  = "registry"
 )
 
-// releaseTrigger nomme le déclencheur du plan d'une release.
+// releaseTrigger names the trigger of a release's plan.
 //
-// Distinct de `builtin:verification`, qu'il remplace : celui-ci couvrait la
-// moitié aval de la chaîne, celui-ci la porte entière.
+// Distinct from `builtin:verification`, which it replaces: that one covered the downstream
+// half of the chain, this one the whole door.
 //
-// Défini dans `plan` depuis que l'API doit **retrouver** cette exécution pour
-// lire les poids figés d'un score : deux orthographes désigneraient deux
-// exécutions, et le score se calculerait sur un plan qui n'a pas tourné.
+// Defined in `plan` since the API must **find** this run again in order to read a score's
+// frozen weights: two spellings would name two runs, and the score would be computed on a plan
+// that did not run.
 const releaseTrigger = plan.ReleaseTrigger
 
-// verificationRequester nomme le demandeur des jobs qu'un plan enfile.
+// verificationRequester names the requester of the jobs a plan queues.
 //
-// Distinct d'un identifiant humain : ces jobs ne sont demandés par personne, et
-// afficher le nom de qui a créé la release ferait croire à un lancement manuel.
+// Distinct from a human identifier: these jobs are requested by nobody, and displaying the
+// name of whoever created the release would suggest a manual launch.
 const verificationRequester = "system:plan"
 
-// releaseContext compose le contexte d'exécution du plan d'une release.
+// releaseContext composes the run context of a release's plan.
 //
-// La révision est le **commit**, jamais la branche dont il vient : reconstruire
-// la même release six mois plus tard doit produire la même image (B17).
+// The revision is the **commit**, never the branch it comes from: rebuilding the same release
+// six months later must produce the same image.
 func releaseContext(release store.Release, revision, registryProject string) map[string]string {
 	return map[string]string{
 		contextRevision:  revision,
@@ -101,48 +96,43 @@ func releaseContext(release store.Release, revision, registryProject string) map
 	}
 }
 
-// gesteParams compose les paramètres d'un geste du plan d'une release.
+// stepParams composes the parameters of a step of a release's plan.
 //
-// # Trois origines, et le catalogue les dit déjà
+// # Three origins, and the catalogue states them already
 //
-// Ce qu'un geste **déclare** d'abord, gabarits liés au contexte. Puis, pour
-// chaque entrée que le pipeline demande, l'une des trois règles que porte
-// [catalog.Input.Origin] :
+// What a step **declares** first, templates bound to the context. Then, for each input the
+// pipeline asks for, one of the three rules [catalog.Input.Origin] carries:
 //
-//   - le contexte **impose** la révision et le tag. Une déclaration ne peut pas
-//     les changer : deux gestes d'une même release qui viseraient deux commits
-//     publieraient deux images sous le même tag (B17) ;
-//   - une référence d'image est un **repli** — la déclaration l'emporte quand
-//     elle vise l'artefact qu'une construction a réellement produit ;
-//   - le reste n'est renseigné que par la déclaration.
+//   - the context **imposes** the revision and the tag. A declaration cannot change them: two
+//     steps of one release targeting two commits would publish two images under the same tag;
+//   - an image reference is a **fallback** — the declaration wins when it targets the artifact
+//     a build actually produced;
+//   - the rest is filled in by the declaration only.
 //
-// # Ce que cela remplace
+// # What this replaces
 //
-// Deux chemins vivaient ici, aiguillés par `geste.Ref == "build"` : l'un posait
-// `revision`, `version` et `tag-name` en clair, l'autre appelait
-// `VerificationInputs`. Les trois noms en clair étaient la recopie de ce que le
-// catalogue déclarait déjà par ses `suggest` — la famille `build` cesse donc
-// d'être un cas particulier de ce fichier.
-func gesteParams(
+// Two paths lived here, routed by `geste.Ref == "build"`: one set `revision`, `version` and
+// `tag-name` literally, the other called `VerificationInputs`. The three literal names were a
+// copy of what the catalogue already declared through its `suggest` — the `build` kind
+// therefore stops being a special case of this file.
+func stepParams(
 	pipeline catalog.Pipeline, geste plan.Geste, context map[string]string,
 ) (map[string]string, error) {
 	params := make(map[string]string, len(geste.Params)+4)
 	for name, value := range geste.Params {
-		// Les gabarits sont liés au contexte, qui porte la charge du fait **et**
-		// ce que les étapes précédentes ont produit : `{artifacts.portal.image}`.
+		// The templates are bound to the context, which carries the fact's payload **and** what the
+		// previous stages produced: `{artifacts.portal.image}`.
 		params[name] = action.Expand(value, context)
 	}
 
-	if manquant := artefactNonResolu(params); manquant != "" {
-		// Refusé plutôt que parti avec un gabarit littéral. Un pipeline qui
-		// recevrait `{artifacts.portal.image}` comme image clonerait, échouerait
-		// au `docker pull`, et le motif parlerait d'un dépôt introuvable — à
-		// mille lieues de la cause.
+	if manquant := unresolvedArtifact(params); manquant != "" {
+		// Refused rather than started with a literal template. A pipeline receiving
+		// `{artifacts.portal.image}` as an image would clone, fail at the `docker pull`, and the reason
+		// would speak of a repository that cannot be found — a long way from the cause.
 		//
-		// Doc 15 §15.4 tranche dans ce sens : un test qui ne tourne pas en
-		// silence se lit comme un test passé.
-		return nil, fmt.Errorf("l'artefact %s n'a pas été produit par une étape "+
-			"précédente", manquant)
+		// A test that silently does not run reads as a test that passed.
+		return nil, fmt.Errorf("the artifact %s was not produced by an earlier "+
+			"stage", manquant)
 	}
 
 	for _, input := range pipeline.Inputs() {
@@ -157,27 +147,26 @@ func gesteParams(
 				params[input.Name] = fourni
 			}
 		case catalog.OriginDeclared:
-			// Rien à fournir : seule la déclaration le renseigne.
+			// Nothing to supply: only the declaration fills it in.
 		}
 
 		if input.Required && strings.TrimSpace(params[input.Name]) == "" {
-			// Un paramètre requis qu'on ne sait pas renseigner ferait échouer le
-			// run à l'ordonnancement, sur un message qui ne désigne pas la cause.
-			// Ne pas l'enfiler du tout est plus honnête.
-			return nil, fmt.Errorf("paramètre %q non renseigné par la déclaration "+
-				"ni par l'exécution", input.Name)
+			// A required parameter that cannot be filled in would fail the run at scheduling, with a
+			// message that does not name the cause. Not queueing it at all is more honest.
+			return nil, fmt.Errorf("parameter %q filled in neither by the declaration "+
+				"nor by the run", input.Name)
 		}
 	}
 	return params, nil
 }
 
-// artefactNonResolu rend la première référence d'artefact restée littérale.
+// unresolvedArtifact returns the first artifact reference left literal.
 //
-// Seulement `{artifacts.…}` : les autres variables restent littérales quand elles
-// ne sont pas dans la charge, et c'est délibéré — un `{tag}` visible dans un
-// message se remarque et se corrige. Un artefact, lui, désigne quelque chose qui
-// devait exister : son absence est une erreur de plan, pas de gabarit.
-func artefactNonResolu(params map[string]string) string {
+// Only `{artifacts.…}`: the other variables stay literal when they are not in the payload, and
+// that is deliberate — a `{tag}` visible in a message is noticed and fixed. An artifact, on
+// the other hand, names something that was supposed to exist: its absence is an error in the
+// plan, not in the template.
+func unresolvedArtifact(params map[string]string) string {
 	for _, value := range params {
 		reste := value
 		for {
@@ -195,15 +184,14 @@ func artefactNonResolu(params map[string]string) string {
 	return ""
 }
 
-// ReleaseRunner met en œuvre les gestes du plan d'une release.
+// ReleaseRunner carries out the steps of a release's plan.
 //
-// Les deux natures de pipeline passent par lui : construire et vérifier ne
-// diffèrent que par la façon de composer leurs paramètres, et les séparer en
-// deux runners aurait demandé au moteur de savoir laquelle il tient.
-// Il prend [Enqueuer] plutôt qu'un `runSink`, et c'est ce qui permet à l'API
-// comme au worker de construire le même runner : ouvrir le plan d'une release est
-// une écriture en base, pas un ordonnancement. L'ordonnanceur reste unique, dans
-// le worker.
+// Both kinds of pipeline go through it: building and verifying differ only in how their
+// parameters are composed, and splitting them into two runners would have required the engine
+// to know which one it holds.
+// It takes an [Enqueuer] rather than a `runSink`, and that is what lets the API and the worker
+// build the same runner: opening a release's plan is a write to the database, not scheduling.
+// The scheduler stays single, in the worker.
 type ReleaseRunner struct {
 	catalog *catalog.Catalog
 	queue   Enqueuer
@@ -223,18 +211,18 @@ func (r *ReleaseRunner) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
 	if geste.Kind != plan.GestePipeline {
-		// Les actions d'un plan de release passeront par le routeur habituel. Ici
-		// seuls les pipelines : refuser nommément vaut mieux que rendre « parti ».
-		return nil, fmt.Errorf("geste %q: ce runner ne met en œuvre que des pipelines",
+		// A release plan's actions will go through the usual router. Here only the pipelines: refusing
+		// by name is better than reporting "sent".
+		return nil, fmt.Errorf("step %q: this runner carries out pipelines only",
 			geste.Ref)
 	}
 
 	pipeline, found := r.catalog.Find(geste.Ref)
 	if !found {
-		return nil, fmt.Errorf("famille %q absente du catalogue", geste.Ref)
+		return nil, fmt.Errorf("kind %q missing from the catalogue", geste.Ref)
 	}
 
-	params, err := gesteParams(pipeline, geste, run.Context)
+	params, err := stepParams(pipeline, geste, run.Context)
 	if err != nil {
 		return nil, err
 	}
@@ -250,35 +238,34 @@ func (r *ReleaseRunner) Run(
 		return nil, err
 	}
 
-	r.logger.Info("geste de release lancé",
+	r.logger.Info("release step launched",
 		"release", run.Context[contextTag], "kind", geste.Ref,
-		"geste", strings.TrimSpace(geste.Label), "job", id)
+		"step", strings.TrimSpace(geste.Label), "job", id)
 	return &id, nil
 }
 
-// ReleaseStates est ce que le cycle de vie attend de la base.
+// ReleaseStates is what the life cycle needs from the database.
 type ReleaseStates interface {
 	AdvanceReleaseState(ctx context.Context, releaseID int64, from, to string) (bool, error)
 }
 
-// ReleaseLifecycle avance une release au rythme des étapes de son plan.
+// ReleaseLifecycle advances a release at the pace of its plan's stages.
 //
-// # Ce qu'il remplace
+// # What it replaces
 //
-// Le décompte des constructions. L'observateur comptait les builds d'une release
-// — `CountBuilds` — pour savoir si la dernière venait de conclure, parce qu'il
-// était appelé une fois par image sans rien savoir de l'ensemble.
+// The build count. The observer counted a release's builds — `CountBuilds` — to know whether
+// the last one had just concluded, because it was called once per image knowing nothing of the
+// whole.
 //
-// L'étape **est** cet ensemble. Son règlement dit exactement ce que le décompte
-// cherchait à établir, et le dit sans requête : le moteur tient déjà l'état de
-// chaque geste.
+// The stage **is** that whole. Its settling says exactly what the count sought to establish,
+// and says it with no query: the engine already holds the state of each step.
 //
-// # Idempotent par construction
+// # Idempotent by construction
 //
-// `StageSettled` est appelé à chaque avancement, sur toutes les étapes déjà
-// réglées — le moteur ne tient pas de marque de « déjà annoncé ». La répétition
-// est sans effet parce que la transition est **conditionnée à l'état de départ** :
-// une seule livraison la gagne, les suivantes n'écrivent rien.
+// `StageSettled` is called at every advance, on every stage already settled — the engine keeps
+// no "already announced" mark. The repetition has no effect because the transition is
+// **conditioned on the starting state**: a single delivery wins it, the following ones write
+// nothing.
 type ReleaseLifecycle struct {
 	releases ReleaseStates
 	logger   *slog.Logger
@@ -298,9 +285,9 @@ func (l *ReleaseLifecycle) StageSettled(
 		return
 	}
 
-	// Une étape entièrement sautée n'a rien tenté, et ne dit donc rien de la
-	// release. Le cas se produit quand la construction a échoué : les tests sont
-	// sautés, et la release est déjà `failed` par l'étape d'avant.
+	// A stage skipped entirely attempted nothing, and therefore says nothing about the release. It
+	// happens when the build failed: the tests are skipped, and the release is already `failed`
+	// from the stage before.
 	var from, to string
 	switch {
 	case role == plan.RoleBuild && outcome == plan.Succeeded:
@@ -317,33 +304,32 @@ func (l *ReleaseLifecycle) StageSettled(
 
 	advanced, err := l.releases.AdvanceReleaseState(ctx, *run.ReleaseID, from, to)
 	if err != nil {
-		l.logger.Error("avancement d'une release par son plan",
-			"execution", run.ID, "release", *run.ReleaseID, "vers", to, "error", err)
+		l.logger.Error("advancing a release through its plan",
+			"run", run.ID, "release", *run.ReleaseID, "to", to, "error", err)
 		return
 	}
 	if !advanced {
-		// Le cas courant d'une répétition, et non une anomalie : l'étape est
-		// annoncée à chaque avancement du plan.
-		l.logger.Debug("release déjà avancée", "execution", run.ID,
-			"release", *run.ReleaseID, "de", from, "vers", to)
+		// The common case of a repetition, and not an anomaly: the stage is announced at every advance
+		// of the plan.
+		l.logger.Debug("release already advanced", "run", run.ID,
+			"release", *run.ReleaseID, "from", from, "to", to)
 		return
 	}
-	l.logger.Info("release avancée par son plan", "execution", run.ID,
-		"release", *run.ReleaseID, "etape", role, "de", from, "vers", to)
+	l.logger.Info("release advanced through its plan", "run", run.ID,
+		"release", *run.ReleaseID, "stage", role, "from", from, "to", to)
 }
 
-// ReleasePlanner ouvre le plan d'une release.
+// ReleasePlanner opens a release's plan.
 //
-// # Pourquoi côté API
+// # Why on the API side
 //
-// La création d'une release est une décision humaine, servie par l'`api`. Ouvrir
-// son plan **là** conserve ce que faisait `enqueueBuild` : la personne qui crée
-// la release sait tout de suite si la construction est partie, plutôt que de
-// l'apprendre au tour de boucle suivant d'un worker.
+// Creating a release is a human decision, served by the `api`. Opening its plan **there** keeps
+// what `enqueueBuild` did: whoever creates the release knows straight away whether the build
+// started, rather than learning it at a worker's next loop.
 //
-// Et cela ne duplique aucun ordonnanceur : ouvrir un plan écrit une exécution et
-// met des jobs en file. C'est ce que l'API faisait déjà. Le worker garde
-// l'exclusivité de ce qui **sort** — créer les PipelineRun — et de l'avancement.
+// And it duplicates no scheduler: opening a plan writes a run and queues jobs. That is what the
+// API already did. The worker keeps exclusive charge of what **leaves** — creating the
+// PipelineRuns — and of the advance.
 type ReleasePlanner struct {
 	engine      *Engine
 	catalog     *catalog.Catalog
@@ -352,10 +338,10 @@ type ReleasePlanner struct {
 	logger      *slog.Logger
 }
 
-// Automations rend le plan qu'un projet a déclaré.
+// Automations returns the plan a project declared.
 //
-// Interface étroite plutôt que le magasin entier : ouvrir le plan d'une release
-// n'a besoin que de cette réponse.
+// A narrow interface rather than the whole store: opening a release's plan needs only that
+// answer.
 type Automations interface {
 	ReleaseAutomation(ctx context.Context, projectID int64) (store.ReleaseAutomation, error)
 }
@@ -373,10 +359,10 @@ func NewReleasePlanner(
 	}
 }
 
-// OpenReleasePlan compose le plan d'une release et le fait partir.
+// OpenReleasePlan composes a release's plan and starts it.
 //
-// Rend le nombre de gestes effectivement partis. L'appelant en dépend : une
-// release dont rien n'est parti ne doit pas être annoncée « en construction ».
+// Returns the number of steps actually started. The caller depends on it: a release from which
+// nothing started must not be announced as "building".
 func (p *ReleasePlanner) OpenReleasePlan(
 	ctx context.Context, project store.Project, record store.Release, revision string,
 ) int {
@@ -384,34 +370,31 @@ func (p *ReleasePlanner) OpenReleasePlan(
 		return 0
 	}
 	if strings.TrimSpace(revision) == "" {
-		// Rien ne part sans référence. Construire « ce que la branche désigne à
-		// cet instant » est exactement ce que l'invariant de version interdit, et
-		// une révision vide produirait un clone sur le défaut du pipeline — donc
-		// une image dont personne ne saurait dire d'où elle vient (B17).
-		p.logger.Warn("aucune construction lancée",
-			"release", record.Tag, "raison", "aucune référence Git à construire")
+		// Nothing starts without a reference. Building "what the branch names at this instant" is
+		// exactly what the version invariant forbids, and an empty revision would produce a clone on
+		// the pipeline's default — hence an image nobody could say where it came from.
+		p.logger.Warn("no build launched",
+			"release", record.Tag, "reason", "no Git reference to build")
 		return 0
 	}
 
-	// Le plan **déclaré**, et plus composé ici.
+	// The **declared** plan, no longer composed here.
 	//
-	// Ce que cela retire : la boucle sur `targets`, le filtre sur les familles
-	// activées, le drapeau `verification`. Un projet qui produit un binaire ou une
-	// archive entre par la même porte, sans que ce fichier connaisse sa forme
-	// (doc 15 §15.5).
+	// What that removes: the loop over `targets`, the filter on enabled kinds, the `verification`
+	// flag. A project producing a binary or an archive comes in through the same door, without
+	// this file knowing its shape.
 	sujet, err := p.declaredPlan(ctx, project)
 	if err != nil {
-		// Une lecture impossible n'ouvre **rien**. Composer un repli ferait
-		// construire autre chose que ce que le projet déclare, sous le tag d'une
-		// release — et personne ne saurait que ce n'est pas la bonne.
-		p.logger.Error("lecture de l'automatisation",
-			"release", record.Tag, "projet", project.Slug, "error", err)
+		// A failed read opens **nothing**. Composing a fallback would build something other than what
+		// the project declares, under a release's tag — and nobody would know it is not the right one.
+		p.logger.Error("reading the automation",
+			"release", record.Tag, "project", project.Slug, "error", err)
 		return 0
 	}
 	if sujet.Empty() {
-		p.logger.Info("aucun plan pour cette release",
-			"release", record.Tag, "projet", project.Slug,
-			"raison", "le projet ne déclare aucune automatisation")
+		p.logger.Info("no plan for this release",
+			"release", record.Tag, "project", project.Slug,
+			"reason", "the project declares no automation")
 		return 0
 	}
 
@@ -427,12 +410,11 @@ func (p *ReleasePlanner) OpenReleasePlan(
 	})
 }
 
-// declaredPlan rend le plan que le projet a déclaré.
+// declaredPlan returns the plan the project declared.
 //
-// Une automatisation absente rend un plan vide et **aucune erreur** : c'est
-// l'état d'un projet neuf, que la reprise du worker remplira à son prochain
-// démarrage. Le traiter en panne enverrait chercher un défaut là où il n'y a
-// qu'une déclaration à écrire.
+// A missing automation returns an empty plan and **no error**: that is the state of a fresh
+// project, which the worker's catch-up will fill at its next start-up. Treating it as an
+// outage would send someone hunting for a defect where there is only a declaration to write.
 func (p *ReleasePlanner) declaredPlan(
 	ctx context.Context, project store.Project,
 ) (plan.Plan, error) {
@@ -450,13 +432,12 @@ func (p *ReleasePlanner) declaredPlan(
 	return entry.Plan, nil
 }
 
-// ProductOf rend la nature de ce qu'une famille du catalogue laisse derrière
-// elle.
+// ProductOf returns the kind of what a catalogue kind leaves behind it.
 //
-// Le **premier** produit déclaré, et vide quand la famille n'en déclare aucun ou
-// déclare `none`. Un pipeline qui construit puis teste en rend deux ; retenir le
-// premier suffit à nommer la nature de ses artefacts, et choisir par artefact
-// demanderait au catalogue une déclaration par résultat qu'il ne porte pas.
+// The **first** product declared, and empty when the kind declares none or declares `none`. A
+// pipeline that builds then tests returns two; keeping the first is enough to name the kind of
+// its artifacts, and choosing per artifact would require of the catalogue a declaration per
+// result that it does not carry.
 func ProductOf(registry *catalog.Catalog) func(ref string) string {
 	return func(ref string) string {
 		if registry == nil {

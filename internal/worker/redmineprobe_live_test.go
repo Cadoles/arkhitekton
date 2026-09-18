@@ -12,71 +12,68 @@ import (
 )
 
 /*
- * La sonde du suivi contre l'instance réelle.
+ * The tracker probe against the real instance.
  *
- * Gardé derrière `REDMINE_LIVE=1`, comme les vérifications du client : la clé est
- * renseignée dans l'environnement de développement courant, et faire dépendre le
- * test de sa seule présence ferait taper l'instance de **production** à chaque
- * `make test`.
+ * Guarded behind `REDMINE_LIVE=1`, like the client's checks: the key is set in the current
+ * development environment, and making the test depend on its mere presence would hit the
+ * **production** instance at every `make test`.
  *
  *   REDMINE_LIVE=1 go test ./internal/worker/ -run Live -v
  *
- * # Ce qu'il éprouve, et que `internal/redmine` n'éprouve pas
+ * # What it exercises, and what `internal/redmine` does not
  *
- * Celui-là vérifie que le format se **décode**. Celui-ci vérifie que les données
- * réelles, une fois décodées, produisent des faits **valides** — et c'est un autre
- * risque. Une version sans date de mise à jour, une demande sans sujet, un
- * identifiant vide : autant de choses qu'une fixture capturée un jour de beau
- * temps ne contient pas, et qui feraient échouer la sonde toutes les cinq minutes
- * sur un fait que la base refuse.
+ * That one checks that the format **decodes**. This one checks that the real data, once
+ * decoded, produce **valid** facts — and that is another risk. A version with no update date, a
+ * request with no subject, an empty identifier: all things a fixture captured on a fine day
+ * does not contain, and which would fail the probe every five minutes on a fact the database
+ * refuses.
  *
- * Il mesure aussi ce que coûterait une **passe d'amorçage** : depuis la migration,
- * celle-ci enregistre les faits sans les aiguiller, et le nombre de lignes écrites
- * mérite d'être connu avant de l'être en production.
+ * It also measures what a **bootstrap pass** would cost: since the migration, it records the
+ * facts without routing them, and the number of rows written deserves to be known before it is
+ * known in production.
  *
- * # Il n'écrit rien
+ * # It writes nothing
  *
- * La projection va dans un magasin en mémoire, et le transport de
- * `internal/redmine` refuse structurellement toute méthode autre que GET et HEAD.
- * Une exécution est sans effet, des deux côtés.
+ * The projection goes into an in-memory db, and `internal/redmine`'s transport structurally
+ * refuses any method other than GET and HEAD. A run has no effect, on either side.
  */
 
-// magasinEnMemoire reçoit la projection sans toucher à la base.
-type magasinEnMemoire struct {
+// inMemoryStore receives the projection without touching the database.
+type inMemoryStore struct {
 	versions []store.TrackedVersion
 	issues   []store.TrackedIssue
 }
 
-func (m *magasinEnMemoire) UpsertRedmineVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
+func (m *inMemoryStore) UpsertRedmineVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
 	m.versions = append(m.versions, version)
 	return int64(len(m.versions)), nil
 }
 
-func (m *magasinEnMemoire) UpsertRedmineIssue(_ context.Context, issue store.TrackedIssue) error {
+func (m *inMemoryStore) UpsertRedmineIssue(_ context.Context, issue store.TrackedIssue) error {
 	m.issues = append(m.issues, issue)
 	return nil
 }
 
-func (m *magasinEnMemoire) AdoptPendingVersions(context.Context) ([]store.Adoption, error) {
+func (m *inMemoryStore) AdoptPendingVersions(context.Context) ([]store.Adoption, error) {
 	return nil, nil
 }
 
-func (m *magasinEnMemoire) StatusMapping(context.Context, int64) (map[string]string, error) {
-	// Vide : ce test porte sur les faits, pas sur la correspondance des statuts.
-	// Toutes les demandes tomberont donc dans `todo`, ce qui est sans conséquence
-	// ici — le drapeau de clôture vient de Redmine, pas du seau.
+func (m *inMemoryStore) StatusMapping(context.Context, int64) (map[string]string, error) {
+	// Empty: this test bears on the facts, not on the status mapping. Every request will therefore
+	// fall into `todo`, which is of no consequence here — the closed flag comes from Redmine, not
+	// from the bucket.
 	return nil, nil
 }
 
-func sondeLive(t *testing.T) (*TrackerSync, TrackerReader, string, *magasinEnMemoire) {
+func liveProbe(t *testing.T) (*TrackerSync, TrackerReader, string, *inMemoryStore) {
 	t.Helper()
 	if os.Getenv("REDMINE_LIVE") != "1" {
-		t.Skip("REDMINE_LIVE non défini: vérification contre l'instance réelle ignorée")
+		t.Skip("REDMINE_LIVE not set: the check against the real instance is skipped")
 	}
 
 	project := os.Getenv("REDMINE_PROJECT")
 	if project == "" {
-		t.Fatal("REDMINE_PROJECT est requis pour la vérification réelle")
+		t.Fatal("REDMINE_PROJECT is required for the real check")
 	}
 
 	client, err := redmine.New(redmine.Options{
@@ -85,79 +82,78 @@ func sondeLive(t *testing.T) (*TrackerSync, TrackerReader, string, *magasinEnMem
 		Timeout: 30 * time.Second,
 	})
 	if err != nil {
-		// Le message ne cite pas la clé, et n'a pas à le faire : ce qui manque se
-		// lit dans le nom de la variable.
+		// The message does not quote the key, and has no business doing so: what is missing is read in
+		// the variable's name.
 		t.Fatalf("client Redmine: %v", err)
 	}
 
-	magasin := &magasinEnMemoire{}
+	db := &inMemoryStore{}
 	connect := func(TrackerConnection) (TrackerReader, error) { return client, nil }
-	return NewTrackerSync(magasin, connect, quietLogger()), client, project, magasin
+	return NewTrackerSync(db, connect, quietLogger()), client, project, db
 }
 
-// Les données réelles produisent-elles des faits que la base accepterait ?
+// Do the real data produce facts the database would accept?
 //
-// C'est la seule question que des fixtures ne peuvent pas trancher, puisqu'elles
-// en sont issues. Un fait invalide ferait échouer la sonde à chaque passe, sur un
-// projet précis, sans que rien d'autre ne bouge.
-func TestLiveLesFaitsDuSuiviSontValides(t *testing.T) {
-	sync, client, project, magasin := sondeLive(t)
+// It is the only question fixtures cannot settle, since they come from it. An invalid fact
+// would fail the probe at every pass, on one precise project, with nothing else moving.
+func TestLiveTheTrackerFactsAreValid(t *testing.T) {
+	sync, client, project, db := liveProbe(t)
 
 	facts, cursor, err := sync.Observe(context.Background(), 1, project, client, "")
 	if err != nil {
-		t.Fatalf("passe: %v", err)
+		t.Fatalf("pass: %v", err)
 	}
 	if cursor == "" {
-		t.Error("aucun curseur rendu: la passe suivante relirait tout")
+		t.Error("no cursor returned: the next pass would re-read everything")
 	}
 
 	parType := map[string]int{}
 	cles := map[string]event.Event{}
 	for _, fact := range facts {
 		if err := fact.Validate(); err != nil {
-			// Le fait est décrit sans son contenu : un sujet de demande peut porter
-			// le nom d'un client, et un journal de test n'a pas à le retenir.
-			t.Errorf("fait %q invalide (clé %q): %v", fact.Type, fact.DedupKey, err)
+			// The fact is described without its content: a request's subject may carry a client's name, and
+			// a test log has no business keeping it.
+			t.Errorf("fact %q invalid (key %q): %v", fact.Type, fact.DedupKey, err)
 			continue
 		}
 		if precedent, vu := cles[fact.DedupKey]; vu {
-			t.Errorf("clé %q partagée par deux faits (%q et %q): l'un des deux "+
-				"ne serait jamais enregistré", fact.DedupKey, precedent.Type, fact.Type)
+			t.Errorf("key %q shared by two facts (%q and %q): one of the two "+
+				"would never be recorded", fact.DedupKey, precedent.Type, fact.Type)
 		}
 		cles[fact.DedupKey] = fact
 		parType[string(fact.Type)]++
 
-		// Une date manquante donnerait un fait de l'an zéro, enterré sous tout le
-		// reste dans un fil trié par date.
+		// A missing date would give a fact from year zero, buried under everything else in a feed
+		// sorted by date.
 		if fact.OccurredAt.IsZero() {
-			t.Errorf("fait %q sans date (clé %q)", fact.Type, fact.DedupKey)
+			t.Errorf("fact %q with no date (key %q)", fact.Type, fact.DedupKey)
 		}
 	}
 
-	// Ce que coûterait une passe d'amorçage en production : autant de lignes
-	// écrites dans le fil des faits, sans qu'aucune réaction ne parte.
-	t.Logf("projet %q: %d versions, %d demandes lues", project,
-		len(magasin.versions), len(magasin.issues))
-	t.Logf("faits d'un amorçage: %d au total — %d versions, %d clôtures",
+	// What a bootstrap pass would cost in production: that many rows written into the fact feed,
+	// with no reaction starting.
+	t.Logf("projectRow %q: %d versions, %d demandes lues", project,
+		len(db.versions), len(db.issues))
+	t.Logf("facts of a bootstrap: %d in all — %d versions, %d closures",
 		len(facts), parType[string(event.VersionCreated)], parType[redmineIssueClosed])
 }
 
-// Une seconde passe ne reconstate pas ce que la première a vu.
+// A second pass does not observe again what the first saw.
 //
-// C'est la propriété corrigée par la migration, éprouvée sur des données réelles
-// plutôt que sur une sonde de test : les versions sont relues en entier à chaque
-// passe, et seule la stabilité des clés empêche l'instantané de tout redéclencher.
-func TestLiveUneSecondePasseNeReconstatePasLesVersions(t *testing.T) {
-	sync, client, project, _ := sondeLive(t)
+// It is the property the migration fixed, exercised on real data rather than on a test probe:
+// the versions are re-read whole at each pass, and only the stability of the keys stops the
+// snapshot re-triggering everything.
+func TestLiveASecondPassDoesNotObserveTheVersionsAgain(t *testing.T) {
+	sync, client, project, _ := liveProbe(t)
 
 	premiere, cursor, err := sync.Observe(context.Background(), 1, project, client, "")
 	if err != nil {
-		t.Fatalf("première passe: %v", err)
+		t.Fatalf("first pass: %v", err)
 	}
 
 	seconde, _, err := sync.Observe(context.Background(), 1, project, client, cursor)
 	if err != nil {
-		t.Fatalf("seconde passe: %v", err)
+		t.Fatalf("seconde pass: %v", err)
 	}
 
 	vues := map[string]bool{}
@@ -165,37 +161,35 @@ func TestLiveUneSecondePasseNeReconstatePasLesVersions(t *testing.T) {
 		vues[fact.DedupKey] = true
 	}
 
-	// Sans cette garde, le test passerait pour une mauvaise raison : une seconde
-	// passe qui ne rendrait **rien** n'aurait aucune clé neuve, et ne prouverait
-	// rien du tout. Ce qu'on veut voir, c'est qu'elle reconstate les mêmes
-	// versions — l'instantané est relu en entier — et que leurs clés coïncident.
+	// Without this guard, the test would pass for a bad reason: a second pass returning **nothing**
+	// would have no new key, and would prove nothing at all. What must be seen is that it observes
+	// the same versions again — the snapshot is re-read whole — and that their keys coincide.
 	if len(seconde) == 0 {
-		t.Fatal("la seconde passe n'a rien rendu: elle ne peut rien prouver " +
-			"sur la stabilité des clés")
+		t.Fatal("the second pass returned nothing: it can prove nothing " +
+			"about the stability of the keys")
 	}
-	t.Logf("passes: %d faits puis %d, dont %d clés déjà vues",
-		len(premiere), len(seconde), communes(vues, seconde))
+	t.Logf("passes: %d facts then %d, of which %d keys already seen",
+		len(premiere), len(seconde), sharedKeys(vues, seconde))
 
 	nouvelles := 0
 	for _, fact := range seconde {
 		if !vues[fact.DedupKey] {
 			nouvelles++
-			t.Logf("clé neuve à la seconde passe: %q", fact.DedupKey)
+			t.Logf("new key at the second pass: %q", fact.DedupKey)
 		}
 	}
 
-	// Zéro, sauf si quelqu'un déclare une version entre les deux appels — ce qui
-	// serait une coïncidence, pas un défaut. Le message le dit plutôt que
-	// d'accuser le code.
+	// Zero, unless someone declares a version between the two calls — which would be a coincidence,
+	// not a defect. The message says so rather than accusing the code.
 	if nouvelles > 0 {
-		t.Errorf("%d clés neuves entre deux passes immédiates: les versions "+
-			"seraient reconstatées à chaque tour (ou une saisie a eu lieu entre-temps)",
+		t.Errorf("%d new keys between two immediate passes: the versions "+
+			"would be observed again at every round (or someone typed one in the meantime)",
 			nouvelles)
 	}
 }
 
-// communes compte les faits dont la clé était déjà connue.
-func communes(vues map[string]bool, facts []event.Event) int {
+// shared counts the facts whose key was already known.
+func sharedKeys(vues map[string]bool, facts []event.Event) int {
 	total := 0
 	for _, fact := range facts {
 		if vues[fact.DedupKey] {

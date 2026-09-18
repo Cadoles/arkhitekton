@@ -15,21 +15,20 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// maxArtifactBytes borne ce qu'un rapport peut peser une fois décompressé.
+// maxArtifactBytes bounds what a report may weigh once decompressed.
 //
-// Une archive publiée par un pipeline est produite dans le cluster et n'est pas
-// hostile, mais un rapport JUnit de plusieurs gigaoctets — une boucle de test
-// partie en vrille — mettrait le worker à genoux au lieu de le signaler. La
-// borne transforme une panne mémoire en message.
+// An archive published by a pipeline is produced in the cluster and is not hostile, but a JUnit
+// report of several gigabytes — a test loop gone wild — would bring the worker to its knees
+// instead of reporting it. The bound turns an out-of-memory failure into a message.
 const maxArtifactBytes = 64 << 20
 
-// TestResultStore est ce que l'ingesteur attend de la base.
+// TestResultStore is what the ingester needs from the database.
 type TestResultStore interface {
 	SaveTestResult(ctx context.Context, result store.TestResult, cases []store.TestCase) (int64, error)
 	TestResultExists(ctx context.Context, runID int64, tool string) (bool, error)
 }
 
-// TestIngester enregistre les rapports de tests publiés par un run.
+// TestIngester records the test reports a run published.
 type TestIngester struct {
 	store   TestResultStore
 	objects Objects
@@ -40,49 +39,45 @@ func NewTestIngester(results TestResultStore, objects Objects, logger *slog.Logg
 	return &TestIngester{store: results, objects: objects, logger: logger}
 }
 
-// artifactKind associe un nom de fichier à son lecteur.
+// artifactKind associates a file name with its reader.
 //
-// La reconnaissance se fait sur le **nom**, décidé par le catalogue et non par le
-// pipeline : c'est ce qui permet d'ajouter un outil sans toucher au code
-// d'ingestion, et ce qui évite de deviner un format à partir de son contenu.
+// Recognition is by **name**, decided by the catalogue and not by the pipeline: that is what
+// allows adding a tool without touching the ingestion code, and what avoids guessing a format
+// from its content.
 type artifactKind struct {
 	family results.Family
 	tool   string
 	parse  func(raw []byte) (results.Report, error)
 }
 
-// junitKind rend un lecteur JUnit pour une famille et un outil donnés.
+// junitKind returns a JUnit reader for a given family and tool.
 func junitKind(family results.Family, tool string) artifactKind {
 	return artifactKind{family, tool, func(raw []byte) (results.Report, error) {
 		return results.ParseJUnit(family, tool, raw)
 	}}
 }
 
-// recognise identifie un fichier d'artefact.
+// recognise identifies an artifact file.
 //
-// Le **répertoire** est consulté avant le nom du fichier, et c'est ce qui
-// manquait. Les Tasks écrivent sous `test-results/<famille>/` — `unit/`,
-// `integration/`, `phpstan/`, `cs-fixer/` — et nomment toutes leur rapport
-// `junit.xml`. Ne regarder que le nom faisait donc tomber le rapport
-// d'intégration dans la dernière règle, celle des tests unitaires : la famille
-// `integration` n'était jamais mesurée, et son échec était rapporté comme un
-// échec de tests unitaires.
+// The **directory** is consulted before the file name, and that is what was missing. The Tasks
+// write under `test-results/<family>/` — `unit/`, `integration/`, `phpstan/`, `cs-fixer/` — and
+// all name their report `junit.xml`. Looking only at the name therefore dropped the integration
+// report into the last rule, that of the unit tests: the `integration` family was never
+// measured, and its failure was reported as a unit-test failure.
 //
-// Un fichier inconnu est ignoré en silence : une archive contient aussi des
-// journaux et des captures, et échouer dessus perdrait les rapports qui
-// l'accompagnent.
+// An unknown file is ignored silently: an archive also contains logs and screenshots, and
+// failing on them would lose the reports that accompany them.
 func recognise(name string) (artifactKind, bool) {
 	clean := strings.ToLower(path.Clean(name))
 	base := path.Base(clean)
-	// Le segment qui précède le fichier. `test-results/integration/junit.xml`
-	// donne `integration`.
+	// The segment preceding the file. `test-results/integration/junit.xml` gives `integration`.
 	dir := path.Base(path.Dir(clean))
 
 	xml := strings.HasSuffix(base, ".xml")
 	json := strings.HasSuffix(base, ".json")
 
 	switch {
-	// Le répertoire nomme la famille, quel que soit le nom du rapport.
+	// The directory names the family, whatever the report's name.
 	case dir == "integration" && xml:
 		return junitKind(results.FamilyIntegration, "phpunit-integration"), true
 
@@ -95,17 +90,16 @@ func recognise(name string) (artifactKind, bool) {
 	case (dir == "cs-fixer" || dir == "csfixer") && json:
 		return artifactKind{results.FamilyStatic, "cs-fixer", results.ParseCSFixer}, true
 
-	// `e2e/` manquait, et c'est le contrat publié qui le réclamait. Les Tasks du
-	// MSE écrivent sous `mocha/`, si bien que la règle de nom suffisait ici ; un
-	// projet qui suit la convention documentée et nomme son rapport
-	// `test-results/e2e/report.json` n'était en revanche **pas reconnu du tout**.
-	// Le silence est le pire des résultats : l'écran des tests reste vide, et
-	// rien ne dit que la famille n'a jamais été lue (doc 12 §12.9, lot F).
+	// `e2e/` was missing, and it is the published contract that required it. The MSE Tasks write
+	// under `mocha/`, so that the name rule was enough here; a project following the documented
+	// convention and naming its report `test-results/e2e/report.json` was, on the other hand, **not
+	// recognised at all**. Silence is the worst outcome: the tests screen stays empty, and nothing
+	// says the family was never read.
 	case dir == "e2e" && json:
 		return artifactKind{results.FamilyE2E, "cypress", results.ParseMochawesome}, true
 
-	// À défaut de répertoire parlant, le nom du fichier. Ces règles couvrent les
-	// rapports publiés à plat, hors de la convention `test-results/`.
+	// Failing a telling directory, the file's name. These rules cover the reports published flat,
+	// outside the `test-results/` convention.
 	case strings.Contains(base, "phpstan") && json:
 		return artifactKind{results.FamilyStatic, "phpstan", results.ParsePHPStan}, true
 
@@ -125,35 +119,33 @@ func recognise(name string) (artifactKind, bool) {
 	return artifactKind{}, false
 }
 
-// Ingest lit les artefacts d'un run terminé et enregistre ce qu'il y reconnaît.
+// Ingest reads a finished run's artifacts and records what it recognises in them.
 //
-// Idempotent par outil : l'observateur revoit un run terminé au redémarrage, et
-// réenregistrer doublerait chaque cas — donc chaque comparaison à la release
-// précédente.
+// Idempotent per tool: the observer sees a finished run again at restart, and recording again
+// would double every case — therefore every comparison with the previous release.
 func (i *TestIngester) Ingest(ctx context.Context, run LoadRun) error {
 	prefix := "raw/" + run.Name + "/"
 	objects, err := i.objects.List(ctx, prefix)
 	if err != nil {
-		return fmt.Errorf("artefacts du run %q: %w", run.Name, err)
+		return fmt.Errorf("artifacts of run %q: %w", run.Name, err)
 	}
 
 	var failures []string
 	for _, object := range objects {
-		// Les campagnes de charge ont leur propre ingesteur : leurs mesures ne
-		// sont pas des cas de test, et les faire passer ici les projetterait dans
-		// un modèle qui ne leur convient pas.
+		// Load campaigns have their own ingester: their measurements are not test cases, and passing
+		// them through here would project them into a model that does not suit them.
 		if strings.Contains(object.Key, "/k6/") {
 			continue
 		}
 
 		if err := i.ingestObject(ctx, run, object.Key); err != nil {
-			i.logger.Error("artefact de tests", "run", run.Name, "objet", object.Key, "error", err)
+			i.logger.Error("test artifact", "run", run.Name, "objet", object.Key, "error", err)
 			failures = append(failures, object.Key)
 		}
 	}
 
 	if len(failures) > 0 {
-		return fmt.Errorf("run %q: %d artefact(s) non enregistré(s): %s",
+		return fmt.Errorf("run %q: %d artifact(s) not recorded: %s",
 			run.Name, len(failures), strings.Join(failures, ", "))
 	}
 	return nil
@@ -187,11 +179,10 @@ func (i *TestIngester) ingestObject(ctx context.Context, run LoadRun, key string
 
 		report, err := kind.parse(file.content)
 		if err != nil {
-			// Un rapport illisible n'empêche pas d'enregistrer les autres : une
-			// campagne qui produit quatre rapports ne doit pas être perdue en
-			// entier parce que l'un d'eux est tronqué.
+			// An unreadable report does not prevent recording the others: a campaign producing four reports
+			// must not be lost whole because one of them is truncated.
 			i.logger.Error("rapport illisible",
-				"run", run.Name, "fichier", file.name, "error", err)
+				"run", run.Name, "file", file.name, "error", err)
 			continue
 		}
 
@@ -219,26 +210,25 @@ func (i *TestIngester) ingestObject(ctx context.Context, run LoadRun, key string
 			return err
 		}
 
-		i.logger.Info("rapport de tests enregistré",
-			"run", run.Name, "outil", kind.tool, "cas", len(cases), "statut", report.Status)
+		i.logger.Info("test report recorded",
+			"run", run.Name, "tool", kind.tool, "cases", len(cases), "status", report.Status)
 	}
 
 	return nil
 }
 
-// artifactFile est un fichier extrait d'un objet.
+// artifactFile is a file extracted from an object.
 type artifactFile struct {
 	name    string
 	content []byte
 }
 
-// extract rend les fichiers d'un objet.
+// extract returns an object's files.
 //
-// Une archive est déballée, un fichier isolé est rendu tel quel. Les deux formes
-// coexistent parce que les pipelines publient les deux : un rapport JUnit dont le
-// nom est connu part seul, un répertoire Cypress part en `tar.gz` — ses noms de
-// fichiers dépendent des specs exécutées et ne peuvent pas être pré-signés un par
-// un (P1).
+// An archive is unpacked, a single file is returned as it is. Both forms coexist because the
+// pipelines publish both: a JUnit report whose name is known leaves on its own, a Cypress
+// directory leaves as a `tar.gz` — its file names depend on the specs run and cannot be
+// presigned one by one.
 func extract(key string, source io.Reader) ([]artifactFile, error) {
 	if !strings.HasSuffix(key, ".tar.gz") && !strings.HasSuffix(key, ".tgz") {
 		content, err := io.ReadAll(io.LimitReader(source, maxArtifactBytes))
@@ -270,9 +260,8 @@ func extract(key string, source io.Reader) ([]artifactFile, error) {
 			continue
 		}
 
-		// Seuls les formats qu'on sait lire sont chargés en mémoire : une archive
-		// Cypress pèse surtout des vidéos, qu'il serait absurde de rapatrier pour
-		// les jeter aussitôt.
+		// Only the formats that can be read are loaded into memory: a Cypress archive weighs mostly
+		// videos, which it would be absurd to fetch back only to throw away at once.
 		if _, known := recognise(header.Name); !known {
 			continue
 		}
@@ -283,7 +272,7 @@ func extract(key string, source io.Reader) ([]artifactFile, error) {
 		}
 		budget -= int64(len(content))
 		if budget <= 0 {
-			return nil, fmt.Errorf("archive %q: taille décompressée au-delà de la limite", key)
+			return nil, fmt.Errorf("archive %q: decompressed size beyond the limit", key)
 		}
 
 		files = append(files, artifactFile{name: header.Name, content: content})
@@ -292,7 +281,7 @@ func extract(key string, source io.Reader) ([]artifactFile, error) {
 	return files, nil
 }
 
-// readLimited lit un flux en bornant ce qu'il peut occuper en mémoire.
+// readLimited reads a stream while bounding what it may occupy in memory.
 func readLimited(source io.Reader) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(source, maxArtifactBytes))
 }

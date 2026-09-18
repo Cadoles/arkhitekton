@@ -20,8 +20,8 @@ import (
 
 func instant(moment time.Time) *time.Time { return &moment }
 
-// Les versions et les demandes closes deviennent des faits ; le reste, non.
-func TestLeSuiviConstateLesVersionsEtLesDemandesCloses(t *testing.T) {
+// Versions and closed requests become facts; the rest do not.
+func TestTheTrackerObservesVersionsAndClosedRequests(t *testing.T) {
 	echeance := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	client := &fakeRedmine{
 		versions: []provider.Version{
@@ -31,14 +31,14 @@ func TestLeSuiviConstateLesVersionsEtLesDemandesCloses(t *testing.T) {
 		issues: []provider.Issue{
 			{ID: "1", Tracker: "Anomalie", Status: "Fermé", StatusClosed: true,
 				UpdatedOn: instant(time.Date(2026, 9, 2, 9, 0, 0, 0, time.UTC))},
-			// Ouverte : elle se projette, mais ne constate rien. Un fait par
-			// changement de statut ferait du fil des faits un journal de saisie.
+			// Open: it is projected, but observes nothing. One fact per status change would turn the fact
+			// feed into a typing log.
 			{ID: "2", Tracker: "Évolution", Status: "En cours"},
 		},
 	}
 	db := &fakeRedmineStore{}
 
-	facts, _, err := passe(t, client, db)
+	facts, _, err := pass(t, client, db)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -49,46 +49,43 @@ func TestLeSuiviConstateLesVersionsEtLesDemandesCloses(t *testing.T) {
 		if err := fact.Validate(); err != nil {
 			t.Errorf("fait %q invalide: %v", fact.Type, err)
 		}
-		// La date du **fait**, celle du suivi — jamais celle de la lecture. Une
-		// sonde qui rattrape trois jours doit produire des faits datés de ces
-		// trois jours, sinon l'ordre est perdu.
+		// The **fact's** date, the tracker's — never the read's. A probe catching up three days must
+		// produce facts dated across those three days, otherwise the order is lost.
 		if fact.OccurredAt.After(time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)) {
-			t.Errorf("fait %q daté de la lecture: %v", fact.Type, fact.OccurredAt)
+			t.Errorf("fact %q dated from the read: %v", fact.Type, fact.OccurredAt)
 		}
 	}
 
 	if parType[string(event.VersionCreated)] != 1 {
-		t.Errorf("%d faits de version, attendu 1", parType[string(event.VersionCreated)])
+		t.Errorf("%d version facts, expected 1", parType[string(event.VersionCreated)])
 	}
 	if parType[redmineIssueClosed] != 1 {
-		t.Errorf("%d faits de clôture, attendu 1 — la demande ouverte n'en produit pas",
+		t.Errorf("%d closure facts, expected 1 — the open request produces none",
 			parType[redmineIssueClosed])
 	}
 }
 
-// La clé de déduplication ne bouge pas d'une passe à l'autre.
+// The deduplication key does not move from one pass to the next.
 //
-// C'est elle qui porte la sémantique de « created » : chaque passe relit toutes
-// les versions, et seule l'unicité de la clé fait qu'une version déjà vue n'est
-// pas reconstatée. Une clé qui varierait — parce qu'elle porterait la date de
-// mise à jour, par exemple — redéclencherait à chaque modification.
-func TestLaCleDUnFaitDuSuiviNeBougePasDUnePasseALautre(t *testing.T) {
+// It is what carries the meaning of "created": every pass re-reads all the versions, and only
+// the key's uniqueness stops a version already seen being observed again. A key that varied —
+// because it carried the update date, say — would re-trigger at every modification.
+func TestATrackerFactsKeyDoesNotMoveFromOnePassToTheNext(t *testing.T) {
 	version := provider.Version{ID: "805", Name: "v3.2.0", Status: "open"}
 	client := &fakeRedmine{versions: []provider.Version{version}}
-	// **Le même magasin** pour les deux passes, comme en production : la clé porte
-	// désormais la ligne locale, et deux magasins neufs prouveraient seulement que
-	// deux compteurs partis de zéro donnent le même nombre.
+	// **The same store** for both passes, as in production: the key now carries the local row, and
+	// two fresh stores would prove only that two counters starting from zero give the same number.
 	db := &fakeRedmineStore{}
 
-	premiere, _, err := passe(t, client, db)
+	premiere, _, err := pass(t, client, db)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
 
-	// La version change de statut et de date : elle reste la même version.
+	// The version changes status and date: it stays the same version.
 	client.versions[0].Status = "closed"
 	client.versions[0].UpdatedOn = instant(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC))
-	seconde, _, err := passe(t, client, db)
+	seconde, _, err := pass(t, client, db)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -97,58 +94,56 @@ func TestLaCleDUnFaitDuSuiviNeBougePasDUnePasseALautre(t *testing.T) {
 		t.Fatalf("faits = %d puis %d", len(premiere), len(seconde))
 	}
 	if premiere[0].DedupKey != seconde[0].DedupKey {
-		t.Errorf("clés %q puis %q — la version serait reconstatée",
+		t.Errorf("keys %q then %q — the version would be observed again",
 			premiere[0].DedupKey, seconde[0].DedupKey)
 	}
 }
 
-// Deux projets ne partagent pas la clé, et ce n'est plus pour la même raison.
+// Two projects do not share the key, and no longer for the same reason.
 //
-// # Ce que le passage au noyau a déplacé
+// # What the move into the core shifted
 //
-// La clé portait le projet du suivi, parce que deux instances Redmine numérotent
-// chacune à partir de 1. Elle porte désormais la **ligne locale**, dont l'unicité
-// est `(project_id, tool, external_id)` — le projet y est donc encore, mais une
-// fois, et du côté du dashboard.
+// The key carried the tracker's project, because two Redmine instances each number from 1. It
+// now carries the **local row**, whose uniqueness is `(project_id, tool, external_id)` — the
+// project is therefore still there, but once, and on the dashboard's side.
 //
-// Ce que cela gagne : `version.created` est devenu un fait du noyau (doc 15
-// §15.3), et sa clé ne dépend plus de l'outil qui l'a observé. Une instance qui
-// changerait de suivi ne reconstaterait pas tout son historique.
-func TestDeuxProjetsNePartagentPasLaCleDUneVersion(t *testing.T) {
+// What that gains: `version.created` has become a core fact, and its key no longer depends on
+// the tool that observed it. An instance changing tracker would not observe its whole history
+// again.
+func TestTwoProjectsDoNotShareAVersionsKey(t *testing.T) {
 	client := &fakeRedmine{versions: []provider.Version{{ID: "805", Name: "v3.2.0"}}}
 	sync := newSync(t, client, &fakeRedmineStore{})
 
-	un, _, err := sync.Observe(context.Background(), 1, "projet-un", client, "curseur")
+	un, _, err := sync.Observe(context.Background(), 1, "project-one", client, "curseur")
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	deux, _, err := sync.Observe(context.Background(), 2, "projet-deux", client, "curseur")
+	deux, _, err := sync.Observe(context.Background(), 2, "project-two", client, "curseur")
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
 
 	if un[0].DedupKey == deux[0].DedupKey {
-		t.Errorf("deux projets partagent la clé %q", un[0].DedupKey)
+		t.Errorf("two projects share the key %q", un[0].DedupKey)
 	}
-	// Et le nom du projet dans le suivi n'y est pour rien : le mettre dans la clé
-	// ferait qu'un projet renommé chez le client reconstaterait ses versions.
-	for _, nom := range []string{"projet-un", "projet-deux"} {
+	// And the project's name in the tracker has nothing to do with it: putting it in the key would
+	// mean a project renamed at the client's would have its versions observed again.
+	for _, nom := range []string{"project-one", "project-two"} {
 		if strings.Contains(un[0].DedupKey, nom) || strings.Contains(deux[0].DedupKey, nom) {
-			t.Errorf("clés %q / %q — elles portent le projet du suivi",
+			t.Errorf("keys %q / %q — they carry the tracker's project",
 				un[0].DedupKey, deux[0].DedupKey)
 		}
 	}
 }
 
-// La charge nomme l'outil et l'identifiant qu'il emploie.
+// The payload names the tool and the identifier it uses.
 //
-// C'est ce que la clé a cessé de porter, et il faut bien que ça vive quelque
-// part : sans eux, un fait du noyau ne permettrait plus de remonter à la fiche
-// dont il parle.
-func TestLaChargeDUneVersionNommeLOutilEtSonIdentifiant(t *testing.T) {
+// That is what the key stopped carrying, and it has to live somewhere: without them, a core
+// fact would no longer allow tracing back to the record it speaks of.
+func TestAVersionsPayloadNamesTheToolAndItsIdentifier(t *testing.T) {
 	client := &fakeRedmine{versions: []provider.Version{{ID: "805", Name: "v3.2.0"}}}
 
-	facts, _, err := passe(t, client, &fakeRedmineStore{})
+	facts, _, err := pass(t, client, &fakeRedmineStore{})
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -160,19 +155,18 @@ func TestLaChargeDUneVersionNommeLOutilEtSonIdentifiant(t *testing.T) {
 	}
 }
 
-// Un projet sans identifiant de suivi est ignoré, en silence.
+// A project with no tracker identifier is ignored, silently.
 //
-// # Une correction de jugement
+// # A correction of judgement
 //
-// Ce test exigeait l'inverse : que la sonde **refuse** nommément, au motif qu'un
-// plugin allumé sur un projet est une intention. Le journal de production a
-// montré que non — le plugin est activé au niveau de l'instance, et la plupart
-// des projets n'ont pas de correspondance dans le suivi. Le cas normal criait
-// donc toutes les cinq minutes, pour chacun d'eux.
-func TestUnProjetSansIdentifiantDeSuiviEstIgnore(t *testing.T) {
+// This test required the opposite: that the probe **refuse** by name, on the grounds that a
+// plugin switched on for a project is an intention. The production log showed otherwise — the
+// plugin is enabled at the instance level, and most projects have no counterpart in the
+// tracker. The normal case therefore shouted every five minutes, for each of them.
+func TestAProjectWithNoTrackerIdentifierIsIgnored(t *testing.T) {
 	sonde := NewRedmineProbe(NewTrackerSync(&fakeRedmineStore{},
 		func(TrackerConnection) (TrackerReader, error) {
-			t.Error("aucune connexion ne doit être ouverte")
+			t.Error("no connection must be opened")
 			return &fakeRedmine{}, nil
 		},
 		quietLogger()))
@@ -181,13 +175,13 @@ func TestUnProjetSansIdentifiantDeSuiviEstIgnore(t *testing.T) {
 		store.Project{ID: 1, Slug: "mse"}, map[string]string{"url": "https://r.fr"}, "curseur")
 
 	if err != nil {
-		t.Fatalf("%v — l'absence de suivi n'est pas une panne", err)
+		t.Fatalf("%v — the absence of a tracker is not an outage", err)
 	}
 	if len(facts) != 0 {
 		t.Errorf("%d fait(s) rendus", len(facts))
 	}
-	// Le curseur est rendu inchangé : rien n'a été lu, donc rien n'a avancé.
+	// The cursor is returned unchanged: nothing was read, so nothing advanced.
 	if cursor != "curseur" {
-		t.Errorf("curseur = %q, attendu inchangé", cursor)
+		t.Errorf("cursor = %q, expected unchanged", cursor)
 	}
 }

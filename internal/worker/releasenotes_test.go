@@ -65,15 +65,15 @@ func candidates(ids ...string) map[string]store.NoteEntry {
 	return entries
 }
 
-// Les deux conditions sont nécessaires, et c'est tout le sujet : une demande en
-// revue dont rien n'est fusionné n'est pas dans l'image, et une PR fusionnée qui
-// cite une demande encore en développement désigne un travail partiel.
-func TestSeulesLesDemandesEnRevueCiteesParUnePRFusionneeSontRetenues(t *testing.T) {
+// Both conditions are necessary, and that is the whole subject: a request in review with
+// nothing merged is not in the image, and a merged PR citing a request still in development
+// names partial work.
+func TestOnlyRequestsInReviewCitedByAMergedPRAreKept(t *testing.T) {
 	forge := &fakeForge{
 		pulls: []provider.PullRequest{
-			{Number: 10, Title: "Corrige la pagination (#1234)"},
-			// Cite une demande qui n'est pas en revue : ignorée.
-			{Number: 11, Title: "wip sur #9999"},
+			{Number: 10, Title: "Fix pagination (#1234)"},
+			// Cites a request that is not in review: ignored.
+			{Number: 11, Title: "wip on #9999"},
 		},
 	}
 	notes := &fakeNoteStore{candidates: candidates("1234", "4321")}
@@ -81,43 +81,41 @@ func TestSeulesLesDemandesEnRevueCiteesParUnePRFusionneeSontRetenues(t *testing.
 	result, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy")
 	if err != nil {
-		t.Fatalf("détection: %v", err)
+		t.Fatalf("detection: %v", err)
 	}
 
 	if len(notes.linked) != 1 || notes.linked[0] != "1234" {
-		t.Errorf("demandes rattachées: %v — seule 1234 remplit les deux conditions", notes.linked)
+		t.Errorf("requests attached: %v — only 1234 meets both conditions", notes.linked)
 	}
-	// 4321 est en revue mais aucune PR ne la cite : elle n'est pas dans l'image.
+	// 4321 is in review but no PR cites it: it is not in the image.
 	if result.Linked != 1 {
 		t.Errorf("%d rattachements", result.Linked)
 	}
 }
 
-// Le numéro peut n'être que dans un commit : le titre seul manquerait la
-// demande.
-func TestUneDemandeCiteeSeulementDansUnCommitEstRetenue(t *testing.T) {
+// The number may be in a commit only: the title alone would miss the request.
+func TestARequestCitedOnlyInACommitIsKept(t *testing.T) {
 	forge := &fakeForge{
-		pulls:   []provider.PullRequest{{Number: 12, Title: "Corrige la pagination"}},
+		pulls:   []provider.PullRequest{{Number: 12, Title: "Fix pagination"}},
 		commits: map[int64][]string{12: {"wip", "fix: borne l'offset\n\nRefs #1234"}},
 	}
 	notes := &fakeNoteStore{candidates: candidates("1234")}
 
 	if _, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy"); err != nil {
-		t.Fatalf("détection: %v", err)
+		t.Fatalf("detection: %v", err)
 	}
 	if len(notes.linked) != 1 || notes.linked[0] != "1234" {
-		t.Errorf("demandes rattachées: %v", notes.linked)
+		t.Errorf("requests attached: %v", notes.linked)
 	}
 }
 
-// Deux PR pour une même demande — un correctif puis son suivi — ne la comptent
-// qu'une fois.
-func TestDeuxPullRequestsPourUneDemandeNeLaComptentQuUneFois(t *testing.T) {
+// Two PRs for one request — a fix then its follow-up — count it only once.
+func TestTwoPullRequestsForOneRequestCountItOnce(t *testing.T) {
 	forge := &fakeForge{
 		pulls: []provider.PullRequest{
 			{Number: 20, Title: "Corrige #1234"},
-			{Number: 21, Title: "Suite de #1234"},
+			{Number: 21, Title: "Follow-up to #1234"},
 		},
 	}
 	notes := &fakeNoteStore{candidates: candidates("1234")}
@@ -125,21 +123,20 @@ func TestDeuxPullRequestsPourUneDemandeNeLaComptentQuUneFois(t *testing.T) {
 	result, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy")
 	if err != nil {
-		t.Fatalf("détection: %v", err)
+		t.Fatalf("detection: %v", err)
 	}
 	if result.Linked != 1 || len(notes.linked) != 1 {
-		t.Errorf("%d rattachements pour une demande citée deux fois", result.Linked)
+		t.Errorf("%d attachments for a request cited twice", result.Linked)
 	}
-	// La première PR rencontrée fait foi.
+	// The first PR met is authoritative.
 	if notes.sources["1234"] != "auto #20" {
 		t.Errorf("source retenue: %q", notes.sources["1234"])
 	}
 }
 
-// Des commits illisibles ne font pas échouer la détection — le titre reste
-// exploitable — mais la note devient partielle, et le dire évite de la prendre
-// pour exhaustive.
-func TestDesCommitsIllisiblesRendentLaNotePartielleSansLaPerdre(t *testing.T) {
+// Unreadable commits do not fail the detection — the title stays usable — but the note becomes
+// partial, and saying so avoids taking it for exhaustive.
+func TestUnreadableCommitsMakeTheNotePartialWithoutLosingIt(t *testing.T) {
 	forge := &fakeForge{
 		pulls:      []provider.PullRequest{{Number: 30, Title: "Corrige #1234"}},
 		commitsErr: errors.New("forge injoignable"),
@@ -149,55 +146,54 @@ func TestDesCommitsIllisiblesRendentLaNotePartielleSansLaPerdre(t *testing.T) {
 	result, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy")
 	if err != nil {
-		t.Fatalf("la détection ne doit pas échouer: %v", err)
+		t.Fatalf("the detection must not fail: %v", err)
 	}
 	if !result.Incomplete {
-		t.Error("la note devrait être signalée partielle")
+		t.Error("the note should be reported partial")
 	}
 	if result.Linked != 1 {
-		t.Errorf("%d rattachements — le titre reste exploitable", result.Linked)
+		t.Errorf("%d attachments — the title stays usable", result.Linked)
 	}
 }
 
-// Aucune demande en revue : la forge n'est pas interrogée. Deux cents requêtes
-// pour découvrir qu'il n'y a rien à rattacher se paieraient à chaque création.
-func TestSansDemandeEnRevueLaForgeNEstPasInterrogee(t *testing.T) {
+// No request in review: the forge is not queried. Two hundred requests to discover there is
+// nothing to attach would be paid for at every creation.
+func TestWithNoRequestInReviewTheForgeIsNotQueried(t *testing.T) {
 	forge := &fakeForge{pulls: []provider.PullRequest{{Number: 40, Title: "Corrige #1234"}}}
 	notes := &fakeNoteStore{candidates: map[string]store.NoteEntry{}}
 
 	result, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, time.Time{}, "vcarroy")
 	if err != nil {
-		t.Fatalf("détection: %v", err)
+		t.Fatalf("detection: %v", err)
 	}
 	if result.Pulls != 0 {
-		t.Errorf("%d PR examinées alors qu'aucune demande n'est éligible", result.Pulls)
+		t.Errorf("%d PRs examined although no request is eligible", result.Pulls)
 	}
 }
 
-// La borne de lecture est transmise à la forge : sans elle, la détection
-// remonterait des demandes livrées il y a deux ans.
-func TestLaBorneDeLectureEstTransmiseALaForge(t *testing.T) {
+// The reading bound is passed to the forge: without it, the detection would bring back requests
+// delivered two years ago.
+func TestTheReadingBoundIsPassedToTheForge(t *testing.T) {
 	forge := &fakeForge{}
 	notes := &fakeNoteStore{candidates: candidates("1")}
 	since := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	if _, err := NewNoteBuilder(forge, notes, []string{"En revue"}, quietLogger()).
 		Build(context.Background(), 7, since, "vcarroy"); err != nil {
-		t.Fatalf("détection: %v", err)
+		t.Fatalf("detection: %v", err)
 	}
 	if !forge.since.Equal(since) {
-		t.Errorf("borne transmise %v, attendu %v", forge.since, since)
+		t.Errorf("bound passed %v, expected %v", forge.since, since)
 	}
 }
 
-// Le `kind` est écrit deux fois — ici et dans l'API qui met le job en file — pour
-// éviter un cycle d'import. Deux valeurs divergentes donneraient un job que la
-// file accepte et que rien ne traite : il resterait `queued` indéfiniment, sans
-// erreur nulle part.
-func TestLeKindDeNoteEstLeMemeDesDeuxCotes(t *testing.T) {
+// The `kind` is written twice — here and in the API that queues the job — to avoid an import
+// cycle. Two diverging values would give a job the queue accepts and nothing processes: it
+// would stay `queued` indefinitely, with no error anywhere.
+func TestTheNoteKindIsTheSameOnBothSides(t *testing.T) {
 	if KindReleaseNotes != dashhttp.ReleaseNotesJobKind {
-		t.Errorf("worker: %q, api: %q — un job mis en file ne serait jamais traité",
+		t.Errorf("worker: %q, api: %q — a queued job would never be processed",
 			KindReleaseNotes, dashhttp.ReleaseNotesJobKind)
 	}
 }

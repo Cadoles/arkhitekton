@@ -12,48 +12,45 @@ import (
 )
 
 /*
- * La porte de doc 15.
+ * The door.
  *
- * La question est unique : **construire puis vérifier entre-t-il dans un plan
- * unique ?** Ces tests y répondent sur la forme du plan composé, avant qu'une
- * ligne d'éditeur ait été écrite.
+ * The question is single: **does build then verify fit into a single plan?** These tests answer
+ * it on the shape of the composed plan, before a line of editor has been written.
  *
- * Ce qu'ils tiennent n'est pas la mise en file — le runner s'en charge — mais la
- * structure : deux étapes, leurs rôles, et la séparation entre ce que le geste
- * fixe et ce que le contexte lie.
+ * What they hold is not the queueing — the runner takes care of that — but the structure: two
+ * stages, their roles, and the separation between what the step fixes and what the context
+ * binds.
  */
 
-// catalogueDeTest rend un catalogue portant une construction et deux
-// vérifications.
-func catalogueDeTest(t *testing.T) *catalog.Catalog {
+// testCatalogue returns a catalogue carrying one build and two verifications.
+func testCatalogue(t *testing.T) *catalog.Catalog {
 	t.Helper()
 
 	const source = `
 pipelines:
   - kind: build
     pipelineRef: build-image
-    label: Construction
+    label: Build
     produces: [image]
-    # Les paramètres réels de la famille, et c'est ce que la tranche 4 exige : le
-    # plan ne pose plus la révision ni le tag en clair, il lit ce que le catalogue
-    # déclare vouloir. Un catalogue de test muet ferait passer cette lecture pour
-    # correcte alors qu'elle ne rendrait rien.
+    # The kind's real parameters: the plan no longer sets the revision or the tag
+    # literally, it reads what the catalogue declares it wants. A mute test catalogue
+    # would make that read look correct although it would return nothing.
     params:
       revision:   { source: input, required: true, suggest: git-ref }
       version:    { source: input, required: true, suggest: release-tag }
       tag-name:   { source: input, required: true, suggest: release-tag }
-      image-name: { source: input, required: true, suggest: image-name, label: Dépôt publié }
+      image-name: { source: input, required: true, suggest: image-name, label: Published repository }
       target:     { source: input, required: true, suggest: build-target }
       dockerfile: { source: input }
       context:    { source: input }
   - kind: security-audit
     pipelineRef: audit
-    label: Audit de sécurité
+    label: Security audit
     verification: true
     produces: [results]
     params:
-      # Une **référence** d'image : l'analyse porte sur ce que la construction a
-      # publié, et le geste peut viser l'artefact plutôt que la recomposer.
+      # An image **reference**: the analysis bears on what the build published, and
+      # the step can target the artifact rather than recompose it.
       portal-image: { source: input, required: true, suggest: image, image: portal }
     uploads:
       results:
@@ -62,7 +59,7 @@ pipelines:
         family: security
   - kind: unit-tests
     pipelineRef: unit-tests
-    label: Tests unitaires
+    label: Unit tests
     verification: true
     produces: [results]
     params:
@@ -94,17 +91,17 @@ pipelines:
 	return registry
 }
 
-// pipelineDeTest rend une famille du catalogue de test.
-func pipelineDeTest(t *testing.T, kind string) catalog.Pipeline {
+// testPipeline returns one kind of the test catalogue.
+func testPipeline(t *testing.T, kind string) catalog.Pipeline {
 	t.Helper()
-	pipeline, found := catalogueDeTest(t).Find(kind)
+	pipeline, found := testCatalogue(t).Find(kind)
 	if !found {
-		t.Fatalf("famille %q absente du catalogue de test", kind)
+		t.Fatalf("kind %q missing from the test catalogue", kind)
 	}
 	return pipeline
 }
 
-func projetDeuxImages() store.Project {
+func twoImageProject() store.Project {
 	return store.Project{
 		ID: 1, Slug: "mse", Repository: "CNOUS/mse",
 		Dockerfile: "Dockerfile", BuildContext: ".",
@@ -116,255 +113,251 @@ func projetDeuxImages() store.Project {
 	}
 }
 
-// La porte : les deux moitiés de la chaîne entrent dans un plan unique.
-func TestConstruireEtVerifierEntrentDansUnPlanUnique(t *testing.T) {
-	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(), nil)
+// The door: both halves of the chain enter a single plan.
+func TestBuildAndVerifyFitIntoASinglePlan(t *testing.T) {
+	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
 
 	if err := sujet.Validate(); err != nil {
-		t.Fatalf("le plan composé doit être valide: %v", err)
+		t.Fatalf("the composed plan must be valid: %v", err)
 	}
 	if len(sujet.Stages) != 2 {
-		t.Fatalf("%d étape(s), attendu construire puis vérifier", len(sujet.Stages))
+		t.Fatalf("%d stage(s), expected build then verify", len(sujet.Stages))
 	}
 
-	// Les rôles sont l'ancrage du cycle de vie : sans eux, rien ne ferait avancer
-	// la release une fois `release.verified` retiré.
+	// The roles are where the life cycle is anchored: without them, nothing would advance the
+	// release once `release.verified` is removed.
 	if sujet.Stages[0].Role != plan.RoleBuild {
-		t.Errorf("rôle de la première étape = %q", sujet.Stages[0].Role)
+		t.Errorf("role of the first stage = %q", sujet.Stages[0].Role)
 	}
 	if sujet.Stages[1].Role != plan.RoleTest {
-		t.Errorf("rôle de la seconde étape = %q", sujet.Stages[1].Role)
+		t.Errorf("role of the second stage = %q", sujet.Stages[1].Role)
 	}
 	if sujet.LastWithRole(plan.RoleBuild) != 0 || sujet.LastWithRole(plan.RoleTest) != 1 {
 		t.Errorf("ancrages = %d et %d",
 			sujet.LastWithRole(plan.RoleBuild), sujet.LastWithRole(plan.RoleTest))
 	}
 
-	// Un geste par image : les trois images de MSE cessent d'être une boucle dans
-	// l'API pour devenir des gestes lisibles et relançables.
+	// One step per image: MSE's three images stop being a loop in the API and become steps that are
+	// readable and re-runnable.
 	if len(sujet.Stages[0].Gestes) != 2 {
-		t.Fatalf("%d geste(s) de construction, attendu un par cible",
+		t.Fatalf("%d build step(s), expected one per target",
 			len(sujet.Stages[0].Gestes))
 	}
 	libelles := []string{sujet.Stages[0].Gestes[0].Label, sujet.Stages[0].Gestes[1].Label}
 	if libelles[0] != "portal" || libelles[1] != "portal-cli" {
-		t.Errorf("libellés = %v — ils distinguent deux gestes de même référence", libelles)
+		t.Errorf("labels = %v — they tell apart two steps of the same reference", libelles)
 	}
 
-	// La vérification part **si la construction a réussi**. C'est cette condition
-	// qui remplace le fait `release.built` : la même chose, sans aller-retour par
-	// le fil des faits.
+	// The verification starts **if the build succeeded**. It is that condition which replaces the
+	// `release.built` fact: the same thing, without a round trip through the fact feed.
 	for _, geste := range sujet.Stages[1].Gestes {
 		if geste.Condition() != plan.WhenSuccess {
-			t.Errorf("geste %q conditionné en %q, attendu %q",
+			t.Errorf("step %q conditioned on %q, expected %q",
 				geste.Ref, geste.Condition(), plan.WhenSuccess)
 		}
 	}
 }
 
-// Le geste porte ce que la déclaration fixe, le contexte ce qui dépend du fait.
+// The step carries what the declaration fixes, the context what depends on the fact.
 //
-// C'est la séparation qui rend un plan réutilisable d'une release à l'autre : un
-// plan qui figerait la révision ne servirait qu'une fois.
-func TestLeGesteFixeLimageEtLeContexteLieLaRevision(t *testing.T) {
-	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(), nil)
+// It is the separation that makes a plan reusable from one release to the next: a plan that
+// froze the revision would serve only once.
+func TestTheStepFixesTheImageAndTheContextBindsTheRevision(t *testing.T) {
+	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
 	geste := sujet.Stages[0].Gestes[0]
 
-	// Rien de ce qui dépend de la release n'est dans le geste.
+	// Nothing that depends on the release is in the step.
 	for _, interdit := range []string{"revision", "version", "tag-name"} {
 		if _, present := geste.Params[interdit]; present {
-			t.Errorf("le geste fige %q, qui dépend de la release", interdit)
+			t.Errorf("the step freezes %q, which depends on the release", interdit)
 		}
 	}
 	if geste.Params["image-name"] != "portal" || geste.Params["target"] != "web" {
-		t.Errorf("paramètres du geste = %v", geste.Params)
+		t.Errorf("parameters of the step = %v", geste.Params)
 	}
 
 	contexte := releaseContext(
 		store.Release{ID: 42, Tag: "3.2.0-rc8"}, "c1f8f8cd", "reg.example.fr/mse")
-	params, err := gesteParams(pipelineDeTest(t, buildKind), geste, contexte)
+	params, err := stepParams(testPipeline(t, buildKind), geste, contexte)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
 
 	if params["revision"] != "c1f8f8cd" {
-		t.Errorf("révision liée = %q", params["revision"])
+		t.Errorf("revision bound = %q", params["revision"])
 	}
 	if params["version"] != "3.2.0-rc8" || params["tag-name"] != "3.2.0-rc8" {
-		t.Errorf("tag lié = %v", params)
+		t.Errorf("tag bound = %v", params)
 	}
-	// Et ce que le geste fixait est toujours là.
+	// And what the step fixed is still there.
 	if params["image-name"] != "portal" {
-		t.Errorf("l'image du geste a été perdue: %v", params)
+		t.Errorf("the step's image was lost: %v", params)
 	}
 }
 
-// Un geste ne peut pas redéfinir la révision construite.
+// A step cannot redefine the revision built.
 //
-// Sans cette règle, deux gestes d'une même release pourraient viser deux commits
-// et publier deux images sous le même tag — l'invariant de version tomberait sans
-// le moindre message (B17).
-func TestUnGesteNePeutPasRedefinirLaRevision(t *testing.T) {
+// Without that rule, two steps of one release could target two commits and publish two images
+// under the same tag — the version invariant would fall with not a single message.
+func TestAStepCannotRedefineTheRevision(t *testing.T) {
 	geste := plan.Geste{
 		Kind: plan.GestePipeline, Ref: buildKind,
 		Params: map[string]string{
 			"image-name": "portal", "target": "web",
-			"revision": "un-autre-commit",
+			"revision": "another-commit",
 		},
 	}
-	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "le-bon-commit", "reg")
+	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "the-right-commit", "reg")
 
-	params, err := gesteParams(pipelineDeTest(t, buildKind), geste, contexte)
+	params, err := stepParams(testPipeline(t, buildKind), geste, contexte)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	if got := params["revision"]; got != "le-bon-commit" {
-		t.Errorf("révision = %q — le contexte doit l'emporter sur le geste", got)
+	if got := params["revision"]; got != "the-right-commit" {
+		t.Errorf("revision = %q — the context must win over the step", got)
 	}
 }
 
-// Ce que le projet ne vérifie pas ne s'enchaîne pas.
+// What the project does not verify is not chained.
 //
-// Un projet sans campagne E2E voyait le pipeline s'enchaîner, échouer faute de
-// scénario, et laisser sa release attendre un verdict qui ne viendrait jamais.
-func TestUneFamilleNonActiveeNestPasEnchainee(t *testing.T) {
-	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(),
+// A project with no E2E campaign saw the pipeline follow on, fail for want of a scenario, and
+// leave its release waiting for a verdict that would never come.
+func TestAKindNotEnabledIsNotChained(t *testing.T) {
+	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(),
 		func(kind string) bool { return kind != "e2e-tests" })
 
 	if len(sujet.Stages) != 2 {
-		t.Fatalf("%d étape(s)", len(sujet.Stages))
+		t.Fatalf("%d stage(s)", len(sujet.Stages))
 	}
 	for _, geste := range sujet.Stages[1].Gestes {
 		if geste.Ref == "e2e-tests" {
-			t.Error("une famille non activée par le projet a été enchaînée")
+			t.Error("a kind the project has not enabled was chained")
 		}
 	}
-	// Les deux autres familles du catalogue restent, et c'est ce qui prouve que le
-	// filtre porte sur une famille et non sur l'étape entière.
+	// The catalogue's other two kinds remain, and that is what proves the filter bears on a kind
+	// and not on the whole stage.
 	if len(sujet.Stages[1].Gestes) != 2 {
-		t.Errorf("%d vérification(s), attendu les deux activées", len(sujet.Stages[1].Gestes))
+		t.Errorf("%d verification(s), expected the two enabled", len(sujet.Stages[1].Gestes))
 	}
 }
 
-// Un projet qui ne construit rien et ne vérifie rien rend un plan vide.
+// A project that builds nothing and verifies nothing returns an empty plan.
 //
-// C'est une configuration légitime, distincte d'un plan invalide : l'appelant
-// conclut tout de suite plutôt que d'attendre un verdict que personne ne rendra.
-func TestUnProjetSansRienARendUnPlanVide(t *testing.T) {
-	sujet := DefaultAutomation(catalogueDeTest(t),
+// It is a legitimate configuration, distinct from an invalid plan: the caller concludes at once
+// rather than waiting for a verdict nobody will give.
+func TestAProjectWithNothingReturnsAnEmptyPlan(t *testing.T) {
+	sujet := DefaultAutomation(testCatalogue(t),
 		store.Project{ID: 2, Slug: "vide"},
 		func(string) bool { return false })
 
 	if !sujet.Empty() {
-		t.Errorf("plan = %+v, attendu vide", sujet)
+		t.Errorf("plan = %+v, expected empty", sujet)
 	}
 }
 
-// avancementsDeTest retient les transitions demandées.
-type avancementsDeTest struct {
+// testAdvances keeps the transitions requested.
+type testAdvances struct {
 	demandes []string
 	etat     string
 }
 
-func (a *avancementsDeTest) AdvanceReleaseState(
+func (a *testAdvances) AdvanceReleaseState(
 	_ context.Context, _ int64, from, to string,
 ) (bool, error) {
 	a.demandes = append(a.demandes, from+"->"+to)
 	if a.etat != from {
-		// Conditionnée à l'état de départ, comme en base : une répétition
-		// n'écrit rien.
+		// Conditioned on the starting state, as in the database: a repetition writes nothing.
 		return false, nil
 	}
 	a.etat = to
 	return true, nil
 }
 
-func executionDeRelease() store.PlanRun {
+func releaseRun() store.PlanRun {
 	id := int64(7)
 	return store.PlanRun{ID: 1, ReleaseID: &id}
 }
 
-// Le règlement d'une étape avance la release, et remplace le décompte des builds.
-func TestLeReglementDuneEtapeAvanceLaRelease(t *testing.T) {
-	suivi := &avancementsDeTest{etat: string(release.StateBuilding)}
+// The settling of a stage advances the release, and replaces the build count.
+func TestTheSettlingOfAStageAdvancesTheRelease(t *testing.T) {
+	suivi := &testAdvances{etat: string(release.StateBuilding)}
 	cycle := NewReleaseLifecycle(suivi, quietLogger())
 	ctx := context.Background()
 
-	cycle.StageSettled(ctx, executionDeRelease(), plan.RoleBuild, plan.Succeeded)
+	cycle.StageSettled(ctx, releaseRun(), plan.RoleBuild, plan.Succeeded)
 	if suivi.etat != string(release.StateVerifying) {
-		t.Fatalf("état = %q, attendu verifying", suivi.etat)
+		t.Fatalf("state = %q, expected verifying", suivi.etat)
 	}
 
-	cycle.StageSettled(ctx, executionDeRelease(), plan.RoleTest, plan.Succeeded)
+	cycle.StageSettled(ctx, releaseRun(), plan.RoleTest, plan.Succeeded)
 	if suivi.etat != string(release.StateReady) {
-		t.Errorf("état = %q, attendu ready", suivi.etat)
+		t.Errorf("state = %q, expected ready", suivi.etat)
 	}
 }
 
-// La même étape annoncée dix fois n'avance la release qu'une.
+// The same stage announced ten times advances the release only once.
 //
-// Le moteur ne tient aucune marque de « déjà annoncé » : il réannonce toutes les
-// étapes réglées à chaque avancement. L'idempotence vient de l'écriture
-// conditionnelle, et c'est elle qu'on éprouve ici.
-func TestUneEtapeReannonceeNavancePasDeuxFois(t *testing.T) {
-	suivi := &avancementsDeTest{etat: string(release.StateBuilding)}
+// The engine keeps no "already announced" mark: it re-announces every settled stage at each
+// advance. The idempotence comes from the conditional write, and that is what is exercised
+// here.
+func TestAStageAnnouncedAgainDoesNotAdvanceTwice(t *testing.T) {
+	suivi := &testAdvances{etat: string(release.StateBuilding)}
 	cycle := NewReleaseLifecycle(suivi, quietLogger())
 	ctx := context.Background()
 
 	for range 10 {
-		cycle.StageSettled(ctx, executionDeRelease(), plan.RoleBuild, plan.Succeeded)
+		cycle.StageSettled(ctx, releaseRun(), plan.RoleBuild, plan.Succeeded)
 	}
 
 	if suivi.etat != string(release.StateVerifying) {
-		t.Errorf("état = %q", suivi.etat)
+		t.Errorf("state = %q", suivi.etat)
 	}
-	// Dix demandes, un seul avancement : c'est la base qui tranche, pas le moteur.
+	// Ten requests, a single advance: it is the database that decides, not the engine.
 	if len(suivi.demandes) != 10 {
-		t.Errorf("%d demandes, attendu 10", len(suivi.demandes))
+		t.Errorf("%d requests, expected 10", len(suivi.demandes))
 	}
 }
 
-// Une étape sautée ne touche à rien.
+// A skipped stage touches nothing.
 //
-// Le cas se produit quand la construction a échoué : les tests sont sautés, et la
-// release est déjà `failed` par l'étape d'avant. La faire retomber ailleurs
-// écraserait un état déjà juste.
-func TestUneEtapeSauteeNeTouchePasALaRelease(t *testing.T) {
-	suivi := &avancementsDeTest{etat: string(release.StateFailed)}
+// It happens when the build failed: the tests are skipped, and the release is already `failed`
+// from the stage before. Making it land elsewhere would overwrite a state that is already
+// right.
+func TestASkippedStageDoesNotTouchTheRelease(t *testing.T) {
+	suivi := &testAdvances{etat: string(release.StateFailed)}
 	cycle := NewReleaseLifecycle(suivi, quietLogger())
 
-	cycle.StageSettled(context.Background(), executionDeRelease(),
+	cycle.StageSettled(context.Background(), releaseRun(),
 		plan.RoleTest, plan.Skipped)
 
 	if len(suivi.demandes) != 0 {
-		t.Errorf("transitions demandées = %v, attendu aucune", suivi.demandes)
+		t.Errorf("transitions requested = %v, expected none", suivi.demandes)
 	}
 }
 
-// Un plan sans release ne touche à rien : une réaction déclarée n'a pas à
-// déplacer un cycle de vie qui ne la concerne pas.
-func TestUnPlanSansReleaseNavanceRien(t *testing.T) {
-	suivi := &avancementsDeTest{etat: string(release.StateBuilding)}
+// A plan with no release touches nothing: a declared reaction has no business moving a life
+// cycle that does not concern it.
+func TestAPlanWithNoReleaseAdvancesNothing(t *testing.T) {
+	suivi := &testAdvances{etat: string(release.StateBuilding)}
 	NewReleaseLifecycle(suivi, quietLogger()).StageSettled(
 		context.Background(), store.PlanRun{ID: 2}, plan.RoleBuild, plan.Succeeded)
 
 	if len(suivi.demandes) != 0 {
-		t.Errorf("transitions demandées = %v", suivi.demandes)
+		t.Errorf("transitions requested = %v", suivi.demandes)
 	}
 }
 
-// Une étape de construction encore en cours n'avance pas la release.
+// A build stage still in progress does not advance the release.
 //
-// # La propriété que le décompte des builds tenait
+// # The property the build count held
 //
-// Une release construit plusieurs images. Tant que la dernière n'a pas conclu,
-// elle reste en construction — l'observateur le tenait par `CountBuilds`, un
-// décompte en base relu à chaque conclusion.
+// A release builds several images. Until the last has concluded, it stays building — the
+// observer held that through `CountBuilds`, a count in the database re-read at every conclusion.
 //
-// L'étape le tient sans requête : elle n'est **réglée** que lorsque tous ses
-// gestes le sont, et [plan.Progress.StageOutcome] ne rend rien avant.
-func TestUneConstructionPartielleNAvancePasLaRelease(t *testing.T) {
-	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(), nil)
+// The stage holds it with no query: it is **settled** only when all its steps are, and
+// [plan.Progress.StageOutcome] returns nothing before that.
+func TestAPartialBuildDoesNotAdvanceTheRelease(t *testing.T) {
+	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
 	progress := plan.Start(sujet)
 
 	// La première image a conclu, la seconde tourne encore.
@@ -372,23 +365,23 @@ func TestUneConstructionPartielleNAvancePasLaRelease(t *testing.T) {
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 1}, plan.Running)
 
 	if _, settled := progress.StageOutcome(0); settled {
-		t.Fatal("une étape dont un geste tourne encore ne doit pas être réglée")
+		t.Fatal("a stage one of whose steps is still running must not be settled")
 	}
 
-	// La seconde conclut : l'étape est réglée, et seulement alors.
+	// The second concludes: the stage is settled, and only then.
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 1}, plan.Succeeded)
 	outcome, settled := progress.StageOutcome(0)
 	if !settled || outcome != plan.Succeeded {
-		t.Errorf("issue = %q, réglée = %v", outcome, settled)
+		t.Errorf("outcome = %q, settled = %v", outcome, settled)
 	}
 }
 
-// Une image en échec conclut l'étape sans attendre les autres.
+// A failed image concludes the stage without waiting for the others.
 //
-// Attendre ferait tourner des constructions dont on sait déjà que le résultat ne
-// servira pas, et retarderait d'autant le moment où l'écran dit ce qui ne va pas.
-func TestUneImageEnEchecFaitEchouerLetapeDesQuelleEstReglee(t *testing.T) {
-	sujet := DefaultAutomation(catalogueDeTest(t), projetDeuxImages(), nil)
+// Waiting would keep running builds whose result is already known to be useless, and would
+// delay by as much the moment the screen says what is wrong.
+func TestAFailedImageFailsTheStageAsSoonAsItSettles(t *testing.T) {
+	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
 	progress := plan.Start(sujet)
 
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 0}, plan.Failed)
@@ -396,24 +389,24 @@ func TestUneImageEnEchecFaitEchouerLetapeDesQuelleEstReglee(t *testing.T) {
 
 	outcome, settled := progress.StageOutcome(0)
 	if !settled {
-		t.Fatal("l'étape doit être réglée")
+		t.Fatal("the stage must be settled")
 	}
-	// Un échec l'emporte sur une réussite : l'image manquante manque, quelle que
-	// soit la réussite des autres.
+	// A failure wins over a success: the missing image is missing, whatever the success of the
+	// others.
 	if outcome != plan.Failed {
-		t.Errorf("issue = %q, attendu échouée", outcome)
+		t.Errorf("outcome = %q, expected failed", outcome)
 	}
 }
 
 /*
- * Le passage d'un artefact d'une étape à l'autre.
+ * Passing an artifact from one stage to the next.
  *
- * La seconde porte de doc 15. La question : un geste de test peut-il viser ce que
- * la construction vient de publier, sans langage d'expressions ?
+ * The second door. The question: can a test step target what the build has just published,
+ * without a language of expressions?
  */
 
-// Un gabarit d'artefact est lié au contexte, comme les autres.
-func TestUnGesteViseLartefactDunePrecedenteEtape(t *testing.T) {
+// An artifact template is bound to the context, like the others.
+func TestAStepTargetsAnEarlierStagesArtifact(t *testing.T) {
 	geste := plan.Geste{
 		Kind: plan.GestePipeline, Ref: "security-audit",
 		Params: map[string]string{"portal-image": "{artifacts.portal.image}"},
@@ -421,56 +414,56 @@ func TestUnGesteViseLartefactDunePrecedenteEtape(t *testing.T) {
 	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
 	contexte["artifacts.portal.image"] = "reg.example.fr/portal:1.0.0"
 
-	params, err := gesteParams(pipelineDeTest(t, "security-audit"), geste, contexte)
+	params, err := stepParams(testPipeline(t, "security-audit"), geste, contexte)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	// L'artefact l'emporte sur le repli : sans déclaration, l'exécution aurait
-	// recomposé `reg/portal:1.0.0`, ce qui vaut même quand personne ne l'a publié.
+	// The artifact wins over the fallback: with no declaration, the run would have recomposed
+	// `reg/portal:1.0.0`, which holds even when nobody has published it.
 	if params["portal-image"] != "reg.example.fr/portal:1.0.0" {
 		t.Errorf("image = %q", params["portal-image"])
 	}
 }
 
-// Un artefact qui n'a pas été produit fait échouer le geste, en le nommant.
+// An artifact that was not produced fails the step, naming it.
 //
-// Parti avec son gabarit littéral, le pipeline clonerait, échouerait au `pull`,
-// et le motif parlerait d'un dépôt introuvable — à mille lieues de la cause. Doc
-// 15 §15.4 : un test qui ne tourne pas en silence se lit comme un test passé.
-func TestUnArtefactAbsentFaitEchouerLeGesteEnLeNommant(t *testing.T) {
+// Started with its literal template, the pipeline would clone, fail at the `pull`, and the
+// reason would speak of a repository that cannot be found — a long way from the cause. A test
+// that silently does not run reads as a test that passed.
+func TestAMissingArtifactFailsTheStepNamingIt(t *testing.T) {
 	geste := plan.Geste{
 		Kind: plan.GestePipeline, Ref: "security-audit",
 		Params: map[string]string{"portal-image": "{artifacts.portal.image}"},
 	}
 	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
 
-	_, err := gesteParams(pipelineDeTest(t, "security-audit"), geste, contexte)
+	_, err := stepParams(testPipeline(t, "security-audit"), geste, contexte)
 	if err == nil {
-		t.Fatal("un artefact absent doit faire échouer le geste")
+		t.Fatal("a missing artifact must fail the step")
 	}
 	if !strings.Contains(err.Error(), "artifacts.portal.image") {
-		t.Errorf("motif %q — il doit nommer l'artefact manquant", err)
+		t.Errorf("reason %q — it must name the missing artifact", err)
 	}
 }
 
-// Les autres variables non résolues restent littérales, et c'est délibéré.
+// The other unresolved variables stay literal, and that is deliberate.
 //
-// Un `{tag}` visible dans un message se remarque et se corrige. Un artefact, lui,
-// désigne quelque chose qui devait exister : son absence est une erreur de plan.
-func TestUneVariableOrdinaireNonResolueNeFaitPasEchouer(t *testing.T) {
+// A `{tag}` visible in a message is noticed and fixed. An artifact, on the other hand, names
+// something that was supposed to exist: its absence is an error in the plan.
+func TestAnOrdinaryUnresolvedVariableDoesNotFail(t *testing.T) {
 	geste := plan.Geste{
 		Kind: plan.GestePipeline, Ref: buildKind,
 		Params: map[string]string{
 			"note": "construit depuis {branche}",
-			// Les requis, sans quoi le refus porterait sur eux et non sur la note.
+			// The required ones, without which the refusal would bear on them and not on the note.
 			"image-name": "portal", "target": "web",
 		},
 	}
 	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
 
-	params, err := gesteParams(pipelineDeTest(t, buildKind), geste, contexte)
+	params, err := stepParams(testPipeline(t, buildKind), geste, contexte)
 	if err != nil {
-		t.Fatalf("%v — seule une référence d'artefact doit être exigée", err)
+		t.Fatalf("%v — only an artifact reference must be required", err)
 	}
 	if params["note"] != "construit depuis {branche}" {
 		t.Errorf("note = %q", params["note"])

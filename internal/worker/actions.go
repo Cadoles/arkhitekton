@@ -16,39 +16,37 @@ import (
 )
 
 /*
- * L'exécution des actions d'un plan.
+ * Running a plan's actions.
  *
- * # Une action est conclue à l'instant où elle est faite
+ * # An action is concluded the moment it is done
  *
- * C'est ce qui la distingue d'un geste de type pipeline : celui-ci devient un job
- * et attend la conclusion de son run, alors qu'une action rend son verdict tout de
- * suite. Le moteur le sait par la valeur nulle qu'elle rend à la place d'un
- * identifiant de job.
+ * That is what tells it apart from a pipeline step: a pipeline step becomes a job and waits for
+ * its run to conclude, whereas an action gives its verdict at once. The engine knows it by the
+ * null value returned in place of a job identifier.
  *
- * # Ce que le contexte apporte, et ce qu'il n'apporte pas
+ * # What the context supplies, and what it does not
  *
- * Les gabarits sont liés à la charge du fait déclencheur — `{tag}`, `{outcome}`.
- * Les **secrets n'y entrent jamais** : un champ sensible est désigné, et posé
- * comme en-tête par ce paquet sans jamais traverser un gabarit ni un journal
- * (doc 14 §14.7). C'est ce qui empêche qu'un jeton finisse interpolé dans une URL
- * qu'un message d'erreur recopiera.
+ * The templates are bound to the triggering fact's payload — `{tag}`, `{outcome}`. **Secrets
+ * never enter it**: a sensitive field is named, and set as a header by this package without
+ * ever crossing a template or a log. That is what stops a token ending up interpolated into a
+ * URL an error message will copy.
  */
 
-// SecretResolver rend la valeur en clair d'un champ sensible désigné.
+// SecretResolver returns the clear-text value of a named sensitive field.
 //
-// Interface étroite, et volontairement pauvre : elle ne sait faire qu'une chose,
-// et le geste qui l'appelle ne peut donc rien en tirer d'autre. La désignation
-// s'écrit `plugin.champ` — `redmine.api_key`.
+// A narrow interface, deliberately poor: it can do only one thing, so the step that calls it
+// can get nothing else out of it. The designation is written `plugin.field` —
+// `redmine.api_key`.
 type SecretResolver interface {
 	ResolveSecret(ctx context.Context, projectID *int64, reference string) (string, error)
 }
 
-// ActionRunner met en œuvre les actions d'un plan.
+// ActionRunner carries out a plan's actions.
 //
-// Celles du noyau lui-même ; celles d'un plugin sont confiées au runner dédié,
-// dont les dépendances n'ont rien de commun avec les siennes (voir
-// `pluginactions.go`). L'entrée reste unique parce que le contrôle qui précède —
-// résoudre le descripteur et revalider les paramètres — vaut pour les deux.
+// The core's own; a plugin's are handed to the dedicated runner, whose dependencies have
+// nothing in common with these (see `pluginactions.go`). The entry point stays single because
+// the check that precedes it — resolving the descriptor and revalidating the parameters —
+// holds for both.
 type ActionRunner struct {
 	webhooks *webhook.Client
 	secrets  SecretResolver
@@ -65,19 +63,19 @@ func NewActionRunner(
 	return &ActionRunner{webhooks: webhooks, secrets: secrets, logger: logger}
 }
 
-// WithPlugins branche la mise en œuvre des actions déclarées par les plugins.
+// WithPlugins wires the implementation of the actions plugins declare.
 //
-// Optionnelle, et l'absence se dit : un déploiement assemblé sans elle refuse le
-// geste par son nom plutôt que de le rendre « parti ».
+// Optional, and its absence says so: a deployment assembled without it refuses the step by
+// name rather than reporting it as "sent".
 func (r *ActionRunner) WithPlugins(plugins GesteRunner) *ActionRunner {
 	r.plugins = plugins
 	return r
 }
 
-// Run met en œuvre un geste d'action.
+// Run carries out an action step.
 //
-// Rend toujours un identifiant de job nul : une action ne passe pas par la file,
-// et n'a rien à attendre.
+// Always returns a null job identifier: an action does not go through the queue, and has
+// nothing to wait for.
 func (r *ActionRunner) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
@@ -85,22 +83,20 @@ func (r *ActionRunner) Run(
 	if err != nil {
 		return nil, err
 	}
-	// Revalidé ici bien que le plan l'ait été à l'enregistrement : un plan figé
-	// dans une exécution a pu être écrit par une version antérieure du registre,
-	// et partir sur des paramètres qu'une action ne déclare plus produirait un
-	// appel dont personne ne saurait dire ce qu'il a envoyé.
+	// Revalidated here although the plan was validated when recorded: a plan frozen into a run
+	// may have been written by an earlier version of the registry, and starting it on parameters
+	// an action no longer declares would produce a call nobody could describe.
 	if err := descriptor.Validate(geste.Params); err != nil {
 		return nil, err
 	}
 
-	// Une action de plugin part par l'autre chemin. Le partage se lit dans le
-	// descripteur plutôt que dans un découpage de la référence : `forge.status`,
-	// action interne d'une version antérieure, ressemble à s'y méprendre à une
-	// action du plugin `forge`.
+	// A plugin action leaves by the other path. The split is read in the descriptor rather than
+	// in a split of the reference: `forge.status`, an internal action of an earlier version,
+	// looks exactly like an action of the `forge` plugin.
 	if descriptor.Plugin != "" {
 		if r.plugins == nil {
 			return nil, fmt.Errorf(
-				"les actions du plugin %q ne sont pas configurées", descriptor.Plugin)
+				"the actions of plugin %q are not configured", descriptor.Plugin)
 		}
 		return r.plugins.Run(ctx, run, geste)
 	}
@@ -109,19 +105,18 @@ func (r *ActionRunner) Run(
 	case action.Webhook:
 		return nil, r.postWebhook(ctx, run, geste)
 	default:
-		// Une action que le registre déclare et que rien n'exécute. Refuser
-		// nommément vaut mieux que rendre « parti » : les deux ont divergé, et le
-		// dire est la seule façon de s'en apercevoir.
-		return nil, fmt.Errorf("action %q déclarée mais pas encore exécutée", geste.Ref)
+		// An action the registry declares and nothing runs. Refusing it by name is better than
+		// reporting it "sent": the two have diverged, and saying so is the only way to notice.
+		return nil, fmt.Errorf("action %q declared but not run yet", geste.Ref)
 	}
 }
 
-// postWebhook émet l'appel sortant d'un geste `webhook`.
+// postWebhook issues the outgoing call of a `webhook` step.
 func (r *ActionRunner) postWebhook(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) error {
 	if r.webhooks == nil {
-		return fmt.Errorf("appels sortants non configurés")
+		return fmt.Errorf("outgoing calls not configured")
 	}
 
 	target := action.Expand(geste.Params["url"], run.Context)
@@ -140,23 +135,21 @@ func (r *ActionRunner) postWebhook(
 		return err
 	}
 	if !response.OK() {
-		// Un refus du destinataire est un **constat** : le geste échoue, et le
-		// motif porte le code et un extrait. Sans eux, « échoué » n'apprend rien
-		// et oblige à relancer pour voir.
-		return fmt.Errorf("le destinataire a répondu %d: %s",
+		// A refusal from the recipient is an **observation**: the step fails, and the reason carries
+		// the code and an excerpt. Without them, "failed" teaches nothing and forces a re-run to see.
+		return fmt.Errorf("the recipient answered %d: %s",
 			response.Status, truncate(response.Body, 200))
 	}
 
 	r.logger.Info("appel sortant abouti",
-		"execution", run.ID, "geste", geste.Ref, "code", response.Status)
+		"run", run.ID, "step", geste.Ref, "code", response.Status)
 	return nil
 }
 
-// webhookBody compose la charge envoyée.
+// webhookBody composes the payload sent.
 //
-// Un corps vide envoie la **charge du fait** telle quelle. C'est le défaut utile :
-// un destinataire générique reçoit tout ce qu'on sait, et personne n'a de gabarit
-// à écrire pour commencer.
+// An empty body sends the **fact's payload** as it is. That is the useful default: a generic
+// recipient receives everything known, and nobody has a template to write to begin with.
 func webhookBody(template string, run store.PlanRun) ([]byte, error) {
 	if strings.TrimSpace(template) == "" {
 		payload := map[string]string{}
@@ -169,20 +162,20 @@ func webhookBody(template string, run store.PlanRun) ([]byte, error) {
 	}
 
 	expanded := action.Expand(template, run.Context)
-	// Le corps est annoncé `application/json` : l'envoyer sans vérifier ferait
-	// recevoir au destinataire un JSON invalide, qu'il rejetterait avec un
-	// message sur **sa** syntaxe plutôt que sur notre gabarit.
+	// The body is announced as `application/json`: sending it unchecked would hand the recipient
+	// invalid JSON, which it would reject with a message about **its** syntax rather than about
+	// our template.
 	if !json.Valid([]byte(expanded)) {
-		return nil, fmt.Errorf("le corps rendu n'est pas du JSON valide")
+		return nil, fmt.Errorf("the body produced is not valid JSON")
 	}
 	return []byte(expanded), nil
 }
 
-// authHeader compose l'en-tête d'authentification, sans jamais rendre le jeton.
+// authHeader composes the authentication header, without ever returning the token.
 //
-// C'est le seul chemin par lequel un secret atteint un appel sortant. Il ne passe
-// ni par un gabarit, ni par le corps, ni par un journal — la valeur ne vit que
-// dans la carte rendue, consommée immédiatement par le client.
+// It is the only path by which a secret reaches an outgoing call. It passes through no
+// template, no body, no log — the value lives only in the map returned, consumed immediately
+// by the client.
 func (r *ActionRunner) authHeader(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (map[string]string, error) {
@@ -193,25 +186,24 @@ func (r *ActionRunner) authHeader(
 	case name == "" && reference == "":
 		return nil, nil
 	case name == "" || reference == "":
-		// Les deux vont ensemble. Un jeton sans en-tête ne partirait nulle part ;
-		// un en-tête sans jeton partirait vide, et le destinataire refuserait sur
-		// un message d'authentification qui ne dirait pas que la valeur manque
-		// chez nous.
+		// The two go together. A token with no header would go nowhere; a header with no token would
+		// go empty, and the recipient would refuse with an authentication message that would not say
+		// the value is missing on our side.
 		return nil, fmt.Errorf(
-			"l'en-tête d'authentification et le jeton se déclarent ensemble")
+			"the authentication header and the token are declared together")
 	case r.secrets == nil:
-		return nil, fmt.Errorf("le scellement n'est pas configuré : le jeton %q "+
-			"ne peut pas être ouvert", reference)
+		return nil, fmt.Errorf("sealing is not configured: token %q "+
+			"cannot be opened", reference)
 	}
 
 	value, err := r.secrets.ResolveSecret(ctx, run.ProjectID, reference)
 	if err != nil {
-		// Le message ne cite pas la valeur, et pour cause : c'est celle qu'on n'a
-		// pas su ouvrir.
+		// The message does not quote the value, and for good reason: that is the one we could not
+		// open.
 		return nil, fmt.Errorf("jeton %q illisible: %w", reference, err)
 	}
 	if value == "" {
-		return nil, fmt.Errorf("le jeton %q n'est pas renseigné", reference)
+		return nil, fmt.Errorf("token %q is not set", reference)
 	}
 	return map[string]string{name: value}, nil
 }
@@ -224,41 +216,40 @@ func truncate(text string, limit int) string {
 	return text[:limit] + "…"
 }
 
-// gesteRouter aiguille un geste vers celui qui sait le mettre en œuvre.
+// stepRouter sends a step to whoever can carry it out.
 //
-// Le moteur ne connaît qu'un `GesteRunner` ; les deux natures de geste n'ayant
-// rien en commun, l'aiguillage vit ici plutôt que dans le moteur — qui n'aurait
-// alors plus de raison d'ignorer la différence.
-type gesteRouter struct {
+// The engine knows only a `GesteRunner`; the two kinds of step having nothing in common, the
+// routing lives here rather than in the engine — which would then have no reason left to
+// ignore the difference.
+type stepRouter struct {
 	pipelines GesteRunner
 	actions   GesteRunner
 }
 
-func (r gesteRouter) Run(
+func (r stepRouter) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
-	// Les deux branches gardent leur runner. Un moteur assemblé sans l'un des
-	// deux — ce qui arrive dans les tests, et arriverait dans un déploiement où
-	// les appels sortants ne sont pas configurés — doit refuser nommément plutôt
-	// que déréférencer une interface nulle : le geste échoue avec son motif, et
-	// l'exécution se conclut au lieu de faire tomber la boucle d'observation.
+	// Both branches keep their runner. An engine assembled without one of them — which happens in
+	// the tests, and would happen in a deployment where outgoing calls are not configured — must
+	// refuse by name rather than dereference a nil interface: the step fails with its reason, and
+	// the run concludes instead of bringing down the observation loop.
 	switch geste.Kind {
 	case plan.GestePipeline:
 		if r.pipelines == nil {
-			return nil, fmt.Errorf("enchaînement de pipelines non configuré")
+			return nil, fmt.Errorf("pipeline chaining not configured")
 		}
 		return r.pipelines.Run(ctx, run, geste)
 	case plan.GesteAction:
 		if r.actions == nil {
-			return nil, fmt.Errorf("actions non configurées")
+			return nil, fmt.Errorf("actions not configured")
 		}
 		return r.actions.Run(ctx, run, geste)
 	default:
-		return nil, fmt.Errorf("nature de geste %q inconnue", geste.Kind)
+		return nil, fmt.Errorf("unknown step kind %q", geste.Kind)
 	}
 }
 
-// ActionIDs énumère les actions disponibles, pour la validation d'un plan.
+// ActionIDs lists the available actions, for validating a plan.
 func ActionIDs() []string {
 	registry := action.All()
 	ids := make([]string, 0, len(registry))

@@ -56,8 +56,8 @@ const brokenSummary = `{
   "failed_scanners": ["trivy-image"]
 }`
 
-const findingsJSONL = `{"fingerprint":"abc123","run_id":"2026-08-14T10-00-00Z","target":{"kind":"repo","name":"mse"},"tool":{"name":"trivy"},"category":"sca","rule_id":"CVE-2026-1111","severity":"HIGH","cvss":7.5,"title":"Faille dans guzzle","package":{"name":"guzzlehttp/guzzle","installed":"7.4.0","fixed":"7.8.2"},"fixable":true,"status":"new","suppression":null}
-{"fingerprint":"def456","run_id":"2026-08-14T10-00-00Z","target":{"kind":"repo","name":"mse"},"tool":{"name":"semgrep"},"category":"sast","rule_id":"php.lang.security","severity":"MEDIUM","title":"Concaténation SQL","location":{"file":"src/Repo.php","start_line":42},"status":"existing","suppression":{"reason":"faux positif validé","approved_by":"vcarroy","expires":"2026-12-31"}}
+const findingsJSONL = `{"fingerprint":"abc123","run_id":"2026-08-14T10-00-00Z","target":{"kind":"repo","name":"mse"},"tool":{"name":"trivy"},"category":"sca","rule_id":"CVE-2026-1111","severity":"HIGH","cvss":7.5,"title":"Flaw in guzzle","package":{"name":"guzzlehttp/guzzle","installed":"7.4.0","fixed":"7.8.2"},"fixable":true,"status":"new","suppression":null}
+{"fingerprint":"def456","run_id":"2026-08-14T10-00-00Z","target":{"kind":"repo","name":"mse"},"tool":{"name":"semgrep"},"category":"sast","rule_id":"php.lang.security","severity":"MEDIUM","title":"SQL concatenation","location":{"file":"src/Repo.php","start_line":42},"status":"existing","suppression":{"reason":"validated false positive","approved_by":"vcarroy","expires":"2026-12-31"}}
 `
 
 func newSecurityIngester(objects fakeObjects) (*fakeSecurityStore, *SecurityIngester) {
@@ -80,8 +80,8 @@ func TestIngestSecurityAudit(t *testing.T) {
 		t.Fatalf("%d audit(s)", len(audits.audits))
 	}
 	audit := audits.audits[0]
-	// Les compteurs viennent de `by_severity`, qui exclut déjà supprimés et
-	// résolus. Les recompter depuis les findings donnerait autre chose.
+	// The counters come from `by_severity`, which already excludes the suppressed and the resolved
+	// ones. Recounting them from the findings would give something else.
 	if audit.High != 1 || audit.Medium != 2 || audit.Critical != 0 {
 		t.Errorf("compteurs = %+v", audit)
 	}
@@ -89,18 +89,18 @@ func TestIngestSecurityAudit(t *testing.T) {
 		t.Errorf("delta = %+v", audit)
 	}
 	if !audit.Measured() {
-		t.Error("un audit dont tous les scanners ont conclu doit être mesurable")
+		t.Error("an audit whose every scanner concluded must be measurable")
 	}
 
-	// Un HIGH sans critique : alerte, pas échec.
+	// A HIGH with no critical: an alert, not a failure.
 	if audits.results[0].Status != "warn" {
-		t.Errorf("statut = %q, attendu warn", audits.results[0].Status)
+		t.Errorf("status = %q, expected warn", audits.results[0].Status)
 	}
 }
 
-// Le cœur du signal : un scanner en échec produit zéro finding, exactement
-// comme un audit propre. Seul son descripteur les distingue, et les confondre
-// afficherait « conforme » sur un audit partiel.
+// The heart of the signal: a failed scanner produces zero findings, exactly like a clean audit.
+// Only its descriptor tells them apart, and confusing them would display "compliant" on a
+// partial audit.
 func TestAFailedScannerMakesTheAuditUnmeasurable(t *testing.T) {
 	objects := fakeObjects{"raw/security-audit-2/report/summary.json": brokenSummary}
 	audits, ingester := newSecurityIngester(objects)
@@ -111,24 +111,23 @@ func TestAFailedScannerMakesTheAuditUnmeasurable(t *testing.T) {
 
 	audit := audits.audits[0]
 	if audit.Measured() {
-		t.Error("un scanner en échec doit retirer le signal du score")
+		t.Error("a failed scanner must take the signal out of the score")
 	}
 	if len(audit.FailedScanners) != 1 || audit.FailedScanners[0] != "trivy-image" {
-		t.Errorf("scanners en échec = %v", audit.FailedScanners)
+		t.Errorf("failed scanners = %v", audit.FailedScanners)
 	}
-	// `na` et non `fail` : rien ne dit que le code est mauvais, seulement qu'on
-	// n'a pas pu regarder.
+	// `na` and not `fail`: nothing says the code is bad, only that it could not be looked at.
 	if audits.results[0].Status != "na" {
-		t.Errorf("statut = %q, attendu na", audits.results[0].Status)
+		t.Errorf("status = %q, expected na", audits.results[0].Status)
 	}
 	// Le résumé nomme le coupable.
 	if audits.results[0].Summary == "" || audits.results[0].Total != 0 {
-		t.Errorf("résultat = %+v", audits.results[0])
+		t.Errorf("result = %+v", audits.results[0])
 	}
 }
 
-// Le contrat du manager est consommé tel quel : empreinte, sévérité, statut,
-// suppression. Rien n'est renormalisé ici.
+// The manager's contract is consumed as it is: fingerprint, severity, status, suppression.
+// Nothing is renormalised here.
 func TestFindingsKeepTheManagerContract(t *testing.T) {
 	objects := fakeObjects{
 		"raw/security-audit-1/report/summary.json":   cleanSummary,
@@ -154,7 +153,7 @@ func TestFindingsKeepTheManagerContract(t *testing.T) {
 	if guzzle.Severity != "HIGH" || guzzle.PackageInstalled != "7.4.0" || guzzle.PackageFixed != "7.8.2" {
 		t.Errorf("finding SCA = %+v", guzzle)
 	}
-	// `installed` et `fixed` ensemble : c'est l'écart qui décide d'une action.
+	// `installed` and `fixed` together: it is the gap that decides on an action.
 	if !guzzle.Fixable || guzzle.Status != "new" {
 		t.Errorf("finding SCA = %+v", guzzle)
 	}
@@ -163,8 +162,8 @@ func TestFindingsKeepTheManagerContract(t *testing.T) {
 	if semgrep.Location != "src/Repo.php:42" {
 		t.Errorf("emplacement = %q", semgrep.Location)
 	}
-	// Un finding supprimé reste enregistré, avec son motif : la trace de ce qui
-	// a été écarté vaut autant que la liste de ce qui reste.
+	// A suppressed finding stays recorded, with its reason: the trace of what was set aside is
+	// worth as much as the list of what remains.
 	if !semgrep.Suppressed || semgrep.SuppressionReason == "" {
 		t.Errorf("suppression = %+v", semgrep)
 	}
@@ -176,31 +175,31 @@ func TestSecurityIngestIsIdempotent(t *testing.T) {
 	audits, ingester := newSecurityIngester(objects)
 
 	if err := ingester.Ingest(context.Background(), LoadRun{ID: 1, Name: "security-audit-1"}); err != nil {
-		t.Fatalf("première: %v", err)
+		t.Fatalf("first: %v", err)
 	}
 	audits.known["security-audit"] = true
 	if err := ingester.Ingest(context.Background(), LoadRun{ID: 1, Name: "security-audit-1"}); err != nil {
 		t.Fatalf("seconde: %v", err)
 	}
 	if len(audits.audits) != 1 {
-		t.Errorf("%d audit(s), attendu 1", len(audits.audits))
+		t.Errorf("%d audit(s), expected 1", len(audits.audits))
 	}
 }
 
-// La plupart des pipelines ne produisent pas d'audit : ce n'est pas une anomalie.
+// Most pipelines produce no audit: that is not an anomaly.
 func TestARunWithoutAuditIsIgnored(t *testing.T) {
 	audits, ingester := newSecurityIngester(fakeObjects{"raw/unit-1/junit.xml": "<testsuites/>"})
 
 	if err := ingester.Ingest(context.Background(), LoadRun{ID: 3, Name: "unit-1"}); err != nil {
-		t.Errorf("erreur = %v, attendu aucune", err)
+		t.Errorf("error = %v, expected none", err)
 	}
 	if len(audits.audits) != 0 {
-		t.Error("rien ne doit être enregistré")
+		t.Error("nothing must be recorded")
 	}
 }
 
-// Un résumé sans findings.jsonl reste exploitable : les compteurs suffisent au
-// score, et le détail n'est qu'un confort d'affichage.
+// A summary with no findings.jsonl stays usable: the counters are enough for the score, and the
+// detail is only a display convenience.
 func TestASummaryWithoutFindingsIsStillIngested(t *testing.T) {
 	objects := fakeObjects{"raw/security-audit-1/report/summary.json": cleanSummary}
 	audits, ingester := newSecurityIngester(objects)
@@ -212,6 +211,6 @@ func TestASummaryWithoutFindingsIsStillIngested(t *testing.T) {
 		t.Errorf("audit = %+v", audits.audits)
 	}
 	if audits.audits[0].High != 1 {
-		t.Error("les compteurs doivent rester exploitables")
+		t.Error("the counters must stay usable")
 	}
 }

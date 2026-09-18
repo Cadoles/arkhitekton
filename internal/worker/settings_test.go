@@ -10,12 +10,11 @@ import (
 )
 
 /*
- * La superposition des secrets d'un projet sur ceux du déploiement.
+ * The layering of a project's secrets over the deployment's.
  *
- * C'est l'endroit où un run part avec le mauvais secret **sans rien dire** : le
- * pipeline réussit à cloner ou échoue au push, et le message désigne le dépôt ou
- * le registre, jamais le réglage qui l'a envoyé là. D'où des tests sur une
- * fonction de six lignes.
+ * It is the place where a run starts with the wrong secret **saying nothing**: the pipeline
+ * succeeds in cloning or fails at the push, and the message names the repository or the
+ * registry, never the setting that sent it there. Hence tests on a six-line function.
  */
 
 type fakeProjectSecrets struct {
@@ -57,9 +56,9 @@ func jobOf(projectID int64) store.Job {
 	return store.Job{ID: 1, ProjectID: &projectID}
 }
 
-// Les deux secrets d'un projet remplacent ceux du déploiement, et le reste de la
-// configuration passe intact.
-func TestLesSecretsDuProjetRemplacentCeuxDuDeploiement(t *testing.T) {
+// A project's two secrets replace the deployment's, and the rest of the configuration passes
+// through untouched.
+func TestTheProjectsSecretsReplaceTheDeploymentsOnes(t *testing.T) {
 	scheduler := schedulerWith(&fakeProjectSecrets{
 		deployKey: "arkhitekton-project-mse-git",
 		registry:  "regcred-mse",
@@ -67,112 +66,112 @@ func TestLesSecretsDuProjetRemplacentCeuxDuDeploiement(t *testing.T) {
 
 	settings, err := scheduler.settingsFor(context.Background(), jobOf(7))
 	if err != nil {
-		t.Fatalf("réglages: %v", err)
+		t.Fatalf("settings: %v", err)
 	}
 
 	if settings["pipeline.gitSecret"] != "arkhitekton-project-mse-git" {
-		t.Errorf("clé git = %q", settings["pipeline.gitSecret"])
+		t.Errorf("git key = %q", settings["pipeline.gitSecret"])
 	}
 	if settings["pipeline.registrySecret"] != "regcred-mse" {
-		t.Errorf("secret de registre = %q", settings["pipeline.registrySecret"])
+		t.Errorf("registry secret = %q", settings["pipeline.registrySecret"])
 	}
 	if settings["tekton.namespace"] != "mse-tekton-pipelines" {
-		t.Errorf("le reste de la configuration a été perdu: %v", settings)
+		t.Errorf("the rest of the configuration was lost: %v", settings)
 	}
 }
 
-// Les deux sont lus **séparément** : un projet qui a sa clé sans désigner de
-// registre pousse là où poussent les autres. Les traiter ensemble ferait perdre
-// le secret de registre du déploiement au motif que le projet n'en nomme pas.
-func TestUnProjetSansRegistreDesignePousseLaOuPoussentLesAutres(t *testing.T) {
+// Both are read **separately**: a project that has its key without naming a registry pushes
+// where the others push. Handling them together would lose the deployment's registry secret on
+// the grounds that the project names none.
+func TestAProjectNamingNoRegistryPushesWhereTheOthersPush(t *testing.T) {
 	scheduler := schedulerWith(&fakeProjectSecrets{
 		deployKey: "arkhitekton-project-mse-git",
 	})
 
 	settings, err := scheduler.settingsFor(context.Background(), jobOf(7))
 	if err != nil {
-		t.Fatalf("réglages: %v", err)
+		t.Fatalf("settings: %v", err)
 	}
 
 	if settings["pipeline.gitSecret"] != "arkhitekton-project-mse-git" {
-		t.Errorf("clé git = %q", settings["pipeline.gitSecret"])
+		t.Errorf("git key = %q", settings["pipeline.gitSecret"])
 	}
 	if settings["pipeline.registrySecret"] != "regcred" {
-		t.Errorf("secret de registre = %q — le projet n'en désigne aucun",
+		t.Errorf("registry secret = %q — the project names none",
 			settings["pipeline.registrySecret"])
 	}
 }
 
 /*
- * Le refus de construire sans clé propre.
+ * The refusal to build with no key of its own.
  *
- * Il remplace un repli sur une clé **partagée**, retiré parce qu'une clé unique
- * ajoutée à plusieurs dépôts fait de sa révocation une panne pour tous à la fois,
- * et ne dit rien de qui a cloné quoi.
+ * It replaces a fallback to a **shared** key, removed because a single key added to several
+ * repositories makes its revocation an outage for all of them at once, and says nothing about
+ * who cloned what.
  */
 
-// Sans clé active, le run ne part pas — et le message nomme le geste qui manque.
+// With no active key, the run does not start — and the message names the missing act.
 //
-// Sans lui, le clone échouerait dans le pipeline sur une erreur SSH, très loin de
-// sa cause : personne ne ferait le lien avec une clé jamais collée dans la forge.
-func TestUnProjetSansCleActiveNeConstruitPas(t *testing.T) {
+// Without it, the clone would fail in the pipeline on an SSH error, very far from its cause:
+// nobody would connect it with a key never pasted into the forge.
+func TestAProjectWithNoActiveKeyDoesNotBuild(t *testing.T) {
 	scheduler := schedulerWith(&fakeProjectSecrets{registry: "regcred-mse"})
 
 	_, err := scheduler.settingsFor(context.Background(), jobOf(7))
 	if err == nil {
-		t.Fatal("un projet sans clé de déploiement a pu partir")
+		t.Fatal("a project with no deploy key was able to start")
 	}
-	for _, expected := range []string{"clé de déploiement", "dépôt"} {
+	for _, expected := range []string{"deploy key", "repository"} {
 		if !strings.Contains(err.Error(), expected) {
-			t.Errorf("message %q — il doit mentionner %q", err, expected)
+			t.Errorf("message %q — it must mention %q", err, expected)
 		}
 	}
 }
 
-// La carte partagée ne doit **jamais** être écrite : elle sert à tous les runs,
-// et y écrire ferait porter au job suivant le secret du précédent — un dépôt
-// construit avec la clé d'un autre client, sans qu'aucune erreur ne le signale.
-func TestLaConfigurationPartageeNestJamaisEcrite(t *testing.T) {
-	scheduler := schedulerWith(&fakeProjectSecrets{deployKey: "clef-du-projet"})
+// The shared map must **never** be written to: it serves every run, and writing into it would
+// have the next job carry the previous one's secret — a repository built with another client's
+// key, with no error reporting it.
+func TestTheSharedConfigurationIsNeverWrittenTo(t *testing.T) {
+	scheduler := schedulerWith(&fakeProjectSecrets{deployKey: "project-key"})
 
 	_, _ = scheduler.settingsFor(context.Background(), jobOf(7))
 
 	if scheduler.config["pipeline.gitSecret"] != "git-credentials" {
-		t.Errorf("configuration partagée altérée: %v — le job suivant hériterait",
+		t.Errorf("shared configuration altered: %v — the next job would inherit it",
 			scheduler.config)
 	}
 }
 
-// Un job sans projet emploie les secrets du déploiement. C'est le cas des jobs
-// antérieurs à la migration 0035, et il ne doit rien casser : ils sont figés en
-// file, et rien ne leur rattachera un projet rétroactivement.
-func TestUnJobSansProjetEmploieLesSecretsDuDeploiement(t *testing.T) {
-	scheduler := schedulerWith(&fakeProjectSecrets{deployKey: "clef-du-projet"})
+// A job with no project uses the deployment's secrets. That is the case of the jobs predating
+// the migration, and it must break nothing: they are frozen in the queue, and nothing will
+// attach a project to them retroactively.
+func TestAJobWithNoProjectUsesTheDeploymentsSecrets(t *testing.T) {
+	scheduler := schedulerWith(&fakeProjectSecrets{deployKey: "project-key"})
 
 	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1})
 	if err != nil {
-		t.Fatalf("réglages: %v", err)
+		t.Fatalf("settings: %v", err)
 	}
 
 	if settings["pipeline.gitSecret"] != "git-credentials" {
-		t.Errorf("clé git = %q", settings["pipeline.gitSecret"])
+		t.Errorf("git key = %q", settings["pipeline.gitSecret"])
 	}
 }
 
-// Une lecture en échec ne se déguise pas en clé absente.
+// A failed read does not disguise itself as a missing key.
 //
-// La distinction est ce qui évite d'envoyer quelqu'un activer une clé qui existe
-// déjà : la base est muette une seconde, pas la forge. La reprise couvre le cas,
-// et le plafond de tentatives conclut si elle persiste.
-func TestUnEchecDeLectureNeSeDeguisePasEnCleAbsente(t *testing.T) {
+// The distinction is what avoids sending someone to enable a key that already exists: the
+// database is mute for a second, not the forge. The retry covers the case, and the attempt cap
+// concludes if it persists.
+func TestAReadFailureDoesNotDisguiseItselfAsAMissingKey(t *testing.T) {
 	muette := errors.New("base muette")
 	scheduler := schedulerWith(&fakeProjectSecrets{err: muette})
 
 	_, err := scheduler.settingsFor(context.Background(), jobOf(7))
 	if !errors.Is(err, muette) {
-		t.Fatalf("erreur = %v, attendue celle de la base", err)
+		t.Fatalf("error = %v, expected the database's", err)
 	}
 	if strings.Contains(err.Error(), "coller") {
-		t.Errorf("message %q — il envoie activer une clé qui existe peut-être", err)
+		t.Errorf("message %q — it sends someone to enable a key that may exist", err)
 	}
 }

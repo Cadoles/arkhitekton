@@ -16,15 +16,15 @@ import (
 )
 
 /*
- * Les actions qu'un plugin fournit.
+ * The actions a plugin supplies.
  *
- * Ce que ces tests tiennent n'est pas la forme des appels — la forge s'en charge —
- * mais les trois propriétés qui distinguent une action de plugin d'un appel
- * sortant : la cible vient de la configuration et non du geste, le jeton est celui
- * du plugin, et un plugin éteint refuse au lieu de partir.
+ * What these tests hold is not the shape of the calls — the forge takes care of that — but the
+ * three properties that tell a plugin action from an outgoing call: the target comes from the
+ * configuration and not from the step, the token is the plugin's, and a switched-off plugin
+ * refuses instead of starting.
  */
 
-// forgeEcrivante enregistre ce que le runner envoie à la forge.
+// writingForge records what the runner sends to the forge.
 type forgeEcrivante struct {
 	server *httptest.Server
 
@@ -36,7 +36,7 @@ type forgeEcrivante struct {
 	status int
 }
 
-func nouvelleForgeEcrivante(t *testing.T) *forgeEcrivante {
+func newWritingForge(t *testing.T) *forgeEcrivante {
 	t.Helper()
 	forge := &forgeEcrivante{status: http.StatusCreated}
 	forge.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,23 +60,23 @@ func (f *forgeEcrivante) vu() (string, string, map[string]string) {
 	return f.method, f.path, f.body
 }
 
-// fakePluginStore rend une connexion de plugin et un projet.
+// fakePluginStore returns a plugin connection and a project.
 type fakePluginStore struct {
-	url      string
-	enabled  bool
-	repo     string
-	consulte []string
+	url       string
+	enabled   bool
+	repo      string
+	consulted []string
 }
 
 func (f *fakePluginStore) ResolvedPlugin(
 	_ context.Context, _ int64, pluginID string,
 ) (store.PluginSettings, error) {
-	f.consulte = append(f.consulte, pluginID)
+	f.consulted = append(f.consulted, pluginID)
 	return store.PluginSettings{
 		PluginID: pluginID, Enabled: f.enabled,
-		// Le jeton est **scellé** en base, comme il l'est réellement : c'est ce que
-		// l'ouverture doit traverser pour atteindre la forge.
-		Config: map[string]string{"url": f.url, "token": "scellé:jeton-de-forge"},
+		// The token is **sealed** in the database, as it really is: that is what opening must cross in
+		// order to reach the forge.
+		Config: map[string]string{"url": f.url, "token": "sealed:forge-token"},
 	}, nil
 }
 
@@ -84,9 +84,9 @@ func (f *fakePluginStore) GetProject(_ context.Context, id int64) (store.Project
 	return store.Project{ID: id, Slug: "mse", Repository: f.repo}, nil
 }
 
-func runnerDePlugin(t *testing.T, magasin *fakePluginStore) *PluginActionRunner {
+func pluginRunner(t *testing.T, db *fakePluginStore) *PluginActionRunner {
 	t.Helper()
-	return NewPluginActionRunner(magasin, openerDeTest{}, 2*time.Second, quietLogger())
+	return NewPluginActionRunner(db, testOpener{}, 2*time.Second, quietLogger())
 }
 
 func execution() store.PlanRun {
@@ -100,163 +100,161 @@ func execution() store.PlanRun {
 	}
 }
 
-// Le chemin nominal d'un statut : la cible vient de la configuration du plugin,
-// le commit du fait déclencheur, et le jeton part descellé dans l'en-tête.
-func TestUnStatutDeCommitEmprunteLaConnexionDuPlugin(t *testing.T) {
-	forge := nouvelleForgeEcrivante(t)
-	magasin := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
+// The nominal path of a status: the target comes from the plugin's configuration, the commit
+// from the triggering fact, and the token leaves unsealed in the header.
+func TestACommitStatusBorrowsThePluginsConnection(t *testing.T) {
+	forge := newWritingForge(t)
+	db := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
 
-	job, err := runnerDePlugin(t, magasin).Run(context.Background(), execution(), plan.Geste{
+	job, err := pluginRunner(t, db).Run(context.Background(), execution(), plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.status",
 		Params: map[string]string{
 			"commit": "{git_commit}", "state": "success",
-			"context": "arkhitekton/vérifications", "description": "{tag} vérifiée",
+			"context": "arkhitekton/verifications", "description": "{tag} verified",
 		},
 	})
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	// Une action est conclue à l'instant où elle est faite : rien à attendre, donc
-	// pas de job.
+	// An action is concluded the moment it is done: nothing to wait for, so no job.
 	if job != nil {
-		t.Errorf("identifiant de job %v — une action ne passe pas par la file", *job)
+		t.Errorf("job identifier %v — an action does not go through the queue", *job)
 	}
 
 	methode, chemin, corps := forge.vu()
 	if methode != http.MethodPost {
-		t.Errorf("méthode %q", methode)
+		t.Errorf("method %q", methode)
 	}
-	// Le commit résolu, et non le gabarit littéral : sans l'interpolation, le
-	// statut se poserait sur une référence qui n'existe pas.
+	// The resolved commit, and not the literal template: without the interpolation, the status
+	// would be set on a reference that does not exist.
 	if chemin != "/api/v1/repos/equipe/mse/statuses/9f1c0deadbeef" {
 		t.Errorf("chemin %q", chemin)
 	}
-	if corps["state"] != "success" || corps["context"] != "arkhitekton/vérifications" {
+	if corps["state"] != "success" || corps["context"] != "arkhitekton/verifications" {
 		t.Errorf("corps %v", corps)
 	}
-	if corps["description"] != "1.8.0-rc1 vérifiée" {
-		t.Errorf("description %q — le gabarit doit être lié à la charge du fait",
+	if corps["description"] != "1.8.0-rc1 verified" {
+		t.Errorf("description %q — the template must be bound to the fact's payload",
 			corps["description"])
 	}
 
 	forge.mu.Lock()
 	auth := forge.auth
 	forge.mu.Unlock()
-	// Descellé le temps de l'appel. Le geste n'a désigné aucun jeton : il emprunte
-	// celui du plugin, et ne peut donc pas servir à en faire sortir un autre.
-	if auth != "token jeton-de-forge" {
-		t.Errorf("en-tête d'authentification %q", auth)
+	// Unsealed for the duration of the call. The step named no token: it borrows the plugin's, and
+	// therefore cannot serve to extract another.
+	if auth != "token forge-token" {
+		t.Errorf("authentication header %q", auth)
 	}
 }
 
-// Un commentaire va sur le fil de la demande, avec le numéro que le fait porte.
-func TestUnCommentaireVaSurLaDemandeQueLeFaitDesigne(t *testing.T) {
-	forge := nouvelleForgeEcrivante(t)
-	magasin := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
+// A comment goes on the request's thread, with the number the fact carries.
+func TestACommentGoesOnTheRequestTheFactNames(t *testing.T) {
+	forge := newWritingForge(t)
+	db := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
 
-	_, err := runnerDePlugin(t, magasin).Run(context.Background(), execution(), plan.Geste{
+	_, err := pluginRunner(t, db).Run(context.Background(), execution(), plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.comment",
-		Params: map[string]string{"number": "{number}", "body": "Vérifiée en {tag}."},
+		Params: map[string]string{"number": "{number}", "body": "Verified in {tag}."},
 	})
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
 
 	_, chemin, corps := forge.vu()
-	// Le fil d'une demande de fusion vit sous la route des issues : dans Gitea,
-	// une demande **est** une issue augmentée.
+	// A pull request's thread lives under the issues route: in Gitea, a request **is** an
+	// augmented issue.
 	if chemin != "/api/v1/repos/equipe/mse/issues/128/comments" {
 		t.Errorf("chemin %q", chemin)
 	}
-	if corps["body"] != "Vérifiée en 1.8.0-rc1." {
+	if corps["body"] != "Verified in 1.8.0-rc1." {
 		t.Errorf("corps %q", corps["body"])
 	}
 }
 
-// Un plugin éteint refuse nommément, et n'appelle rien.
+// A switched-off plugin refuses by name, and calls nothing.
 //
-// La configuration existe encore en base : partir avec enverrait un statut au nom
-// d'une intégration qu'on croit désactivée.
-func TestUnPluginEteintRefuseAuLieuDePartir(t *testing.T) {
-	forge := nouvelleForgeEcrivante(t)
-	magasin := &fakePluginStore{url: forge.server.URL, enabled: false, repo: "equipe/mse"}
+// The configuration still exists in the database: starting with it would send a status in the
+// name of an integration one believes disabled.
+func TestASwitchedOffPluginRefusesInsteadOfStarting(t *testing.T) {
+	forge := newWritingForge(t)
+	db := &fakePluginStore{url: forge.server.URL, enabled: false, repo: "equipe/mse"}
 
-	_, err := runnerDePlugin(t, magasin).Run(context.Background(), execution(), plan.Geste{
+	_, err := pluginRunner(t, db).Run(context.Background(), execution(), plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.status",
 		Params: map[string]string{"commit": "{git_commit}", "state": "success", "context": "c"},
 	})
 
-	if err == nil || !strings.Contains(err.Error(), "éteint") {
-		t.Fatalf("%v — le refus doit dire que le plugin est éteint", err)
+	if err == nil || !strings.Contains(err.Error(), "switched off") {
+		t.Fatalf("%v — the refusal must say the plugin is switched off", err)
 	}
 	if methode, _, _ := forge.vu(); methode != "" {
-		t.Errorf("la forge a été appelée (%s) alors que le plugin est éteint", methode)
+		t.Errorf("the forge was called (%s) although the plugin is switched off", methode)
 	}
 }
 
-// Un gabarit resté littéral se dit en citant sa valeur.
+// A template left literal says so by quoting its value.
 //
-// C'est le cas courant, et il vaut d'être nommé ainsi : une réaction branchée sur
-// `release.built` n'a pas de `{number}`, et « numéro invalide » sans citer la
-// valeur enverrait chercher une faute de frappe là où c'est le fait qui ne porte
-// pas la variable.
-func TestUnNumeroNonInterpoleCiteCeQuIlEstDevenu(t *testing.T) {
-	forge := nouvelleForgeEcrivante(t)
-	magasin := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
+// It is the common case, and it is worth naming this way: a reaction wired to `release.built`
+// has no `{number}`, and "invalid number" without quoting the value would send someone hunting
+// for a typo where it is the fact that does not carry the variable.
+func TestAnUninterpolatedNumberQuotesWhatItBecame(t *testing.T) {
+	forge := newWritingForge(t)
+	db := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
 
 	run := execution()
 	delete(run.Context, "number")
 
-	_, err := runnerDePlugin(t, magasin).Run(context.Background(), run, plan.Geste{
+	_, err := pluginRunner(t, db).Run(context.Background(), run, plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.comment",
 		Params: map[string]string{"number": "{number}", "body": "bonjour"},
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "{number}") {
-		t.Fatalf("%v — le message doit citer ce que le gabarit est devenu", err)
+		t.Fatalf("%v — the message must quote what the template became", err)
 	}
 	if methode, _, _ := forge.vu(); methode != "" {
-		t.Errorf("la forge a été appelée (%s) sur un numéro illisible", methode)
+		t.Errorf("the forge was called (%s) on an unreadable number", methode)
 	}
 }
 
-// Un fait qui ne désigne aucun projet n'a pas de connexion à emprunter.
+// A fact naming no project has no connection to borrow.
 //
-// Partir sur celle de l'instance choisirait un dépôt au hasard, et le statut se
-// poserait chez quelqu'un d'autre.
-func TestUneActionDePluginSansProjetRefuse(t *testing.T) {
-	magasin := &fakePluginStore{url: "https://forge.example.fr", enabled: true, repo: "equipe/mse"}
+// Starting on the instance's would pick a repository at random, and the status would be set on
+// someone else's.
+func TestAPluginActionWithNoProjectRefuses(t *testing.T) {
+	db := &fakePluginStore{url: "https://forge.example.fr", enabled: true, repo: "equipe/mse"}
 
-	_, err := runnerDePlugin(t, magasin).Run(context.Background(), store.PlanRun{}, plan.Geste{
+	_, err := pluginRunner(t, db).Run(context.Background(), store.PlanRun{}, plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.status",
 		Params: map[string]string{"commit": "abc", "state": "success", "context": "c"},
 	})
 
-	if err == nil || !strings.Contains(err.Error(), "projet") {
+	if err == nil || !strings.Contains(err.Error(), "project") {
 		t.Fatalf("%v", err)
 	}
-	if len(magasin.consulte) != 0 {
-		t.Errorf("le plugin a été consulté sans projet: %v", magasin.consulte)
+	if len(db.consulted) != 0 {
+		t.Errorf("the plugin was consulted with no project: %v", db.consulted)
 	}
 }
 
-// Un refus de la forge devient le motif du geste, avec ce qu'il faut pour agir.
+// A refusal from the forge becomes the step's reason, with what is needed to act.
 func TestUnRefusDeLaForgeNommeLaPortéeAttendue(t *testing.T) {
-	forge := nouvelleForgeEcrivante(t)
+	forge := newWritingForge(t)
 	forge.status = http.StatusForbidden
-	magasin := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
+	db := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
 
-	_, err := runnerDePlugin(t, magasin).Run(context.Background(), execution(), plan.Geste{
+	_, err := pluginRunner(t, db).Run(context.Background(), execution(), plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.status",
 		Params: map[string]string{"commit": "{git_commit}", "state": "success", "context": "c"},
 	})
 
 	if err == nil {
-		t.Fatal("un 403 doit faire échouer le geste")
+		t.Fatal("a 403 must fail the step")
 	}
-	// La portée du jeton est la cause la plus fréquente, et la nommer évite d'aller
-	// chercher un droit de dépôt qui est déjà là.
+	// The token's scope is the most frequent cause, and naming it avoids hunting for a repository
+	// permission that is already there.
 	if !strings.Contains(err.Error(), "write:repository") {
-		t.Errorf("message %q — il doit nommer la portée manquante", err)
+		t.Errorf("message %q — it must name the missing scope", err)
 	}
 }

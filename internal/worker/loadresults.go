@@ -13,33 +13,32 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// LoadStore est ce que l'ingesteur attend de la base.
+// LoadStore is what the ingester needs from the database.
 type LoadStore interface {
 	SaveLoadResult(ctx context.Context, result store.LoadResult, measures []store.BenchMeasure) (int64, error)
 	StartConditions(ctx context.Context, jobID int64) (bool, int, error)
 	LoadResultExists(ctx context.Context, runID int64, scenario string) (bool, error)
 }
 
-// Objects est ce que l'ingesteur attend du stockage.
+// Objects is what the ingester needs from storage.
 type Objects interface {
 	List(ctx context.Context, prefix string) ([]ObjectRef, error)
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 }
 
-// ObjectRef est le strict nécessaire pour retrouver un résumé.
+// ObjectRef is the bare minimum needed to find a summary again.
 type ObjectRef struct {
 	Key  string
 	Size int64
 }
 
-// LoadIngester enregistre les campagnes de charge produites par un run.
+// LoadIngester records the load campaigns a run produced.
 //
-// L'ingestion est déclenchée par la **fin du run**, et non par une notification
-// du runner : celui-ci vit hors du cluster, publie sur MinIO avec une URL
-// pré-signée fournie par le dashboard, et n'a aucun credential ni aucun chemin de
-// retour vers le dashboard ([B16], [B14]). Le seul signal fiable est donc celui
-// que le dashboard possède déjà — l'observateur Tekton constate la fin du
-// PipelineRun qui pilotait le runner.
+// Ingestion is triggered by the **end of the run**, and not by a notification from the
+// runner: the runner lives outside the cluster, publishes to MinIO with a presigned URL the
+// dashboard supplies, and has no credential and no return path to the dashboard. The only
+// reliable signal is therefore the one the dashboard already has — the Tekton observer sees
+// the end of the PipelineRun that drove the runner.
 type LoadIngester struct {
 	store   LoadStore
 	objects Objects
@@ -47,42 +46,40 @@ type LoadIngester struct {
 	logger  *slog.Logger
 }
 
-// loadDirectories énumère les répertoires où un résumé de charge peut vivre.
+// loadDirectories lists the directories where a load summary may live.
 //
-// `load` est le nom de la famille, celui que le contrat publie ; `k6` est le nom
-// de l'outil, celui que les Tasks du MSE emploient. Les deux sont lus : retirer
-// le second casserait les runs existants, refuser le premier démentirait le
-// contrat.
+// `load` is the kind's name, the one the contract publishes; `k6` is the tool's name, the one
+// the MSE Tasks use. Both are read: removing the second would break existing runs, refusing
+// the first would contradict the contract.
 var loadDirectories = []string{"load", "k6"}
 
 func NewLoadIngester(releases LoadStore, objects Objects, logger *slog.Logger) *LoadIngester {
 	return &LoadIngester{store: releases, objects: objects, metrics: bench.DefaultMetrics, logger: logger}
 }
 
-// Ingest lit les résumés k6 d'un run terminé et les enregistre.
+// Ingest reads a finished run's k6 summaries and records them.
 //
-// Idempotent : l'observateur peut revoir un run terminé — au redémarrage, ou
-// parce qu'un informer resynchronise son cache. Réenregistrer produirait des
-// points d'historique en double, c'est-à-dire une tendance fausse.
+// Idempotent: the observer may see a finished run again — at restart, or because an informer
+// resynchronises its cache. Recording again would produce duplicate history points, that is,
+// a false trend.
 func (i *LoadIngester) Ingest(ctx context.Context, run LoadRun) error {
-	// Deux répertoires, et c'est le contrat publié qui l'impose. Les Tasks du MSE
-	// écrivent sous `k6/`, du nom de l'outil ; le contrat annonce que le
-	// répertoire nomme la **famille**, donc `load/`. Un projet qui suit la
-	// convention documentée n'était pas lu du tout, et l'écran de charge restait
-	// vide sans que rien ne dise pourquoi (doc 12 §12.9, lot F).
+	// Two directories, and it is the published contract that requires it. The MSE Tasks write
+	// under `k6/`, from the tool's name; the contract announces that the directory names the
+	// **kind**, hence `load/`. A project following the documented convention was not read at all,
+	// and the load screen stayed empty with nothing saying why.
 	var objects []ObjectRef
 	for _, directory := range loadDirectories {
 		prefix := "raw/" + run.Name + "/" + directory + "/"
 		found, err := i.objects.List(ctx, prefix)
 		if err != nil {
-			return fmt.Errorf("résumés du run %q: %w", run.Name, err)
+			return fmt.Errorf("summaries of run %q: %w", run.Name, err)
 		}
 		objects = append(objects, found...)
 	}
 	if len(objects) == 0 {
-		// Un run de charge sans résumé n'est pas une anomalie de l'ingesteur : le
-		// runner a pu échouer avant de publier, et le run porte déjà son échec.
-		i.logger.Info("aucun résumé de charge", "run", run.Name)
+		// A load run with no summary is not an anomaly of the ingester: the runner may have failed
+		// before publishing, and the run already carries its failure.
+		i.logger.Info("no load summary", "run", run.Name)
 		return nil
 	}
 
@@ -95,12 +92,10 @@ func (i *LoadIngester) Ingest(ctx context.Context, run LoadRun) error {
 		exclusive, concurrent = conditions, count
 	}
 
-	// Un scénario ne s'enregistre qu'une fois par passe. La garde d'idempotence
-	// est `LoadResultExists`, mais elle interroge la base : s'y fier **dans** la
-	// boucle ferait dépendre la justesse d'un read-after-write, et deux objets
-	// désignant le même scénario — le même résumé publié sous `k6/` et sous
-	// `load/` — produiraient deux points d'historique, c'est-à-dire une tendance
-	// fausse.
+	// A scenario is recorded only once per pass. The idempotence guard is `LoadResultExists`, but
+	// it queries the database: relying on it **inside** the loop would make correctness depend on
+	// a read-after-write, and two objects naming the same scenario — the same summary published
+	// under `k6/` and under `load/` — would produce two history points, that is, a false trend.
 	seen := make(map[string]bool, len(objects))
 
 	var failures []string
@@ -114,16 +109,15 @@ func (i *LoadIngester) Ingest(ctx context.Context, run LoadRun) error {
 		}
 		seen[scenario] = true
 		if err := i.ingestOne(ctx, run, object, exclusive, concurrent); err != nil {
-			// Un résumé illisible n'empêche pas d'enregistrer les autres : une
-			// campagne à quatre scénarios ne doit pas être perdue en entier parce
-			// que l'un d'eux a produit un fichier tronqué.
-			i.logger.Error("résumé de charge", "run", run.Name, "objet", object.Key, "error", err)
+			// An unreadable summary does not prevent recording the others: a four-scenario campaign must
+			// not be lost whole because one of them produced a truncated file.
+			i.logger.Error("load summary", "run", run.Name, "objet", object.Key, "error", err)
 			failures = append(failures, object.Key)
 		}
 	}
 
 	if len(failures) > 0 {
-		return fmt.Errorf("run %q: %d résumé(s) non enregistré(s): %s",
+		return fmt.Errorf("run %q: %d summary(ies) not recorded: %s",
 			run.Name, len(failures), strings.Join(failures, ", "))
 	}
 	return nil
@@ -169,9 +163,9 @@ func (i *LoadIngester) ingestOne(
 
 	_, err = i.store.SaveLoadResult(ctx, store.LoadResult{
 		RunID: run.ID, ReleaseID: run.ReleaseID, Scenario: scenario,
-		// Les conditions **constatées**, relevées à la réservation du job. Pas
-		// celles demandées : la barrière draine avant de lancer, mais c'est le
-		// constat qui décide si la mesure entre dans la comparaison (B16).
+		// The conditions **observed**, collected when the job was reserved. Not those asked for: the
+		// barrier drains before launching, but it is the observation that decides whether the
+		// measurement enters the comparison.
 		Exclusive: exclusive, ConcurrentJobs: concurrent,
 		DurationMS: run.DurationMS,
 		Summary:    summarise(summary),
@@ -181,13 +175,13 @@ func (i *LoadIngester) ingestOne(
 		return err
 	}
 
-	i.logger.Info("campagne de charge enregistrée",
-		"run", run.Name, "scénario", scenario, "mesures", len(measures),
+	i.logger.Info("load campaign recorded",
+		"run", run.Name, "scenario", scenario, "mesures", len(measures),
 		"exclusive", exclusive, "concurrents", concurrent)
 	return nil
 }
 
-// LoadRun est le run dont on ingère les résultats.
+// LoadRun is the run whose results are being ingested.
 type LoadRun struct {
 	ID         int64
 	Name       string
@@ -196,25 +190,23 @@ type LoadRun struct {
 	DurationMS int64
 }
 
-// summarise rend un résumé d'une ligne, affiché sans avoir à ouvrir les mesures.
+// summarise returns a one-line summary, displayed without having to open the measurements.
 func summarise(summary bench.Summary) string {
 	parts := []string{fmt.Sprintf("%d mesure(s)", len(summary.Measures))}
 	if summary.VUs > 0 {
-		parts = append(parts, fmt.Sprintf("%d VU au pic", summary.VUs))
+		parts = append(parts, fmt.Sprintf("%d VUs at peak", summary.VUs))
 	}
 	if len(summary.ThresholdsFailed) > 0 {
-		// Nommé et non compté : savoir *quel* seuil a lâché est ce qui décide de
-		// la suite.
+		// Named and not counted: knowing *which* threshold gave way is what decides what follows.
 		parts = append(parts, "seuils non tenus : "+strings.Join(summary.ThresholdsFailed, ", "))
 	}
 	return strings.Join(parts, ", ")
 }
 
-// objectStore adapte le client MinIO à ce que l'ingesteur attend.
+// objectStore adapts the MinIO client to what the ingester needs.
 //
-// L'adaptateur existe pour que l'ingesteur reste testable sans MinIO : ce qu'il
-// lui faut tient en deux méthodes, et les exiger sur le client complet
-// obligerait à en simuler douze.
+// The adapter exists so that the ingester stays testable without MinIO: what it needs fits in
+// two methods, and requiring them on the whole client would force twelve to be simulated.
 type objectStore struct {
 	client interface {
 		List(ctx context.Context, prefix string) ([]blob.ObjectInfo, error)
@@ -222,7 +214,7 @@ type objectStore struct {
 	}
 }
 
-// NewObjectStore rend l'adaptateur consommé par l'ingesteur.
+// NewObjectStore returns the adapter the ingester consumes.
 func NewObjectStore(client *blob.Client) Objects { return objectStore{client: client} }
 
 func (o objectStore) List(ctx context.Context, prefix string) ([]ObjectRef, error) {

@@ -34,8 +34,8 @@ func uploadPipeline() catalog.Pipeline {
 	}
 }
 
-// La clé est calculée avant la création du run : c'est ce qui permet au
-// dashboard de la retrouver ensuite sans balayer un préfixe (B14).
+// The key is computed before the run is created: that is what lets the dashboard find it again
+// afterwards without sweeping a prefix.
 func TestUploadURLsAreMintedBeforeTheRun(t *testing.T) {
 	presigner := fakePresigner{signed: map[string]string{}}
 	scheduler := &Scheduler{uploads: presigner, logger: slog.New(slog.DiscardHandler)}
@@ -47,24 +47,24 @@ func TestUploadURLsAreMintedBeforeTheRun(t *testing.T) {
 
 	const key = "raw/static-tests-42/static-tests.tar.gz"
 	if _, signed := presigner.signed[key]; !signed {
-		t.Errorf("clés signées = %v, attendu %q", presigner.signed, key)
+		t.Errorf("signed keys = %v, expected %q", presigner.signed, key)
 	}
 	if params["results-upload-url"] != presigner.signed[key] {
-		t.Errorf("paramètre = %q", params["results-upload-url"])
+		t.Errorf("parameter = %q", params["results-upload-url"])
 	}
 }
 
-// Sans stockage, le run part quand même : le refuser priverait l'utilisateur
-// d'une exécution qui reste utile, ses journaux passant par un autre chemin.
+// Without storage, the run starts anyway: refusing it would deprive the user of a run that
+// stays useful, its logs going by another path.
 func TestWithoutStorageTheRunStillStarts(t *testing.T) {
 	scheduler := &Scheduler{logger: slog.New(slog.DiscardHandler)}
 
 	params := map[string]string{}
 	if err := scheduler.addUploadURLs(context.Background(), uploadPipeline(), "static-tests-42", params); err != nil {
-		t.Fatalf("erreur = %v, attendu aucune", err)
+		t.Fatalf("error = %v, expected none", err)
 	}
 	if len(params) != 0 {
-		t.Errorf("paramètres = %v, attendu aucun", params)
+		t.Errorf("parameters = %v, expected none", params)
 	}
 }
 
@@ -78,12 +78,12 @@ func TestAnIncompleteUploadDeclarationIsRefused(t *testing.T) {
 	}
 
 	if err := scheduler.addUploadURLs(context.Background(), pipeline, "run-1", map[string]string{}); err == nil {
-		t.Error("un artefact sans paramètre cible doit être refusé")
+		t.Error("an artifact with no target parameter must be refused")
 	}
 }
 
-// Un tag de release compose des clés ; un nom de run aussi. La validation des
-// segments vaut ici comme ailleurs.
+// A release tag composes keys; so does a run name. Validating the segments holds here as
+// elsewhere.
 func TestAnUnsafeRunNameIsRefused(t *testing.T) {
 	scheduler := &Scheduler{
 		uploads: fakePresigner{signed: map[string]string{}}, logger: slog.New(slog.DiscardHandler),
@@ -91,44 +91,41 @@ func TestAnUnsafeRunNameIsRefused(t *testing.T) {
 
 	if err := scheduler.addUploadURLs(
 		context.Background(), uploadPipeline(), "../evasion", map[string]string{}); err == nil {
-		t.Error("un nom de run hors grammaire doit être refusé")
+		t.Error("a run name outside the grammar must be refused")
 	}
 }
 
-// Le défaut qui a coûté trois builds fantômes : les identifiants de jobs
-// repartent à 1 sur une base neuve, alors que les PipelineRun survivent dans le
-// cluster. Sans identité de base, le nouveau job portait le nom d'un run
-// existant, la création se heurtait à un conflit lu comme « c'était déjà fait »,
-// et rien ne partait — l'interface affichant l'échec d'une exécution vieille de
-// plusieurs heures.
-func TestLeNomDunRunDistingueDeuxGenerationsDeBase(t *testing.T) {
+// The defect that cost three phantom builds: job identifiers start again at 1 on a fresh
+// database, whereas PipelineRuns survive in the cluster. With no database identity, the new job
+// carried an existing run's name, the creation met a conflict read as "it was already done",
+// and nothing started — the interface displaying the failure of a run hours old.
+func TestARunsNameTellsApartTwoDatabaseGenerations(t *testing.T) {
 	ancienne := RunName("a1b2c3", "build", 1)
 	nouvelle := RunName("d4e5f6", "build", 1)
 
 	if ancienne == nouvelle {
-		t.Errorf("même nom pour deux bases: %q — une remise à zéro produirait des homonymes", ancienne)
+		t.Errorf("the same name for two databases: %q — a reset would produce namesakes", ancienne)
 	}
 }
 
-// La propriété que le nommage doit conserver : deux essais du même job donnent le
-// même nom. C'est elle qui rend la reprise sûre — une seconde création se heurte
-// à un conflit que l'ordonnanceur lit comme « c'était déjà fait » au lieu de
-// créer un doublon.
-func TestDeuxEssaisDuMemeJobDonnentLeMemeNom(t *testing.T) {
+// The property the naming must keep: two attempts of the same job give the same name. It is
+// what makes retrying safe — a second creation meets a conflict the scheduler reads as "it was
+// already done" instead of creating a duplicate.
+func TestTwoAttemptsOfTheSameJobGiveTheSameName(t *testing.T) {
 	if RunName("a1b2c3", "build", 7) != RunName("a1b2c3", "build", 7) {
-		t.Error("le nom doit rester déterministe pour un job donné")
+		t.Error("the name must stay deterministic for a given job")
 	}
-	// Et deux jobs distincts ne se confondent pas.
+	// And two distinct jobs are not confused.
 	if RunName("a1b2c3", "build", 7) == RunName("a1b2c3", "build", 8) {
-		t.Error("deux jobs distincts ne doivent pas partager un nom")
+		t.Error("two distinct jobs must not share a name")
 	}
 	if RunName("a1b2c3", "build", 7) == RunName("a1b2c3", "static-tests", 7) {
-		t.Error("deux natures distinctes ne doivent pas partager un nom")
+		t.Error("two distinct kinds must not share a name")
 	}
 }
 
-// Le nom doit rester un nom de ressource Kubernetes valide.
-func TestLeNomResteUnNomKubernetesValide(t *testing.T) {
+// The name must stay a valid Kubernetes resource name.
+func TestTheNameStaysAValidKubernetesName(t *testing.T) {
 	name := RunName("a1b2c3", "security-audit", 12345)
 
 	if len(name) > 63 {
@@ -136,23 +133,23 @@ func TestLeNomResteUnNomKubernetesValide(t *testing.T) {
 	}
 	for _, r := range name {
 		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
-			t.Errorf("caractère invalide %q dans %q", r, name)
+			t.Errorf("invalid character %q in %q", r, name)
 		}
 	}
 }
 
-// Sans identité, l'ancien nommage subsiste : les tests n'ont pas à la fournir, et
-// un déploiement qui n'a jamais tourné ne change pas de comportement.
-func TestSansIdentiteLAncienNommageSubsiste(t *testing.T) {
+// With no identity, the old naming survives: tests need not supply it, and a deployment that
+// has never run does not change behaviour.
+func TestWithNoIdentityTheOldNamingSurvives(t *testing.T) {
 	if got := RunName("", "build", 3); got != "mse-build-3" {
-		t.Errorf("nom sans identité: %q", got)
+		t.Errorf("name with no identity: %q", got)
 	}
 }
 
-// Les paramètres que le catalogue ne déclare pas passent tels quels : c'est ce
-// qui rend possible une exécution personnalisée, où l'on renseigne un paramètre
-// que le pipeline connaît mais que le dashboard n'a pas décrit.
-func TestUnParametreNonDeclarePasseTelQuel(t *testing.T) {
+// The parameters the catalogue does not declare pass through as they are: that is what makes a
+// customised run possible, where one fills in a parameter the pipeline knows and the dashboard
+// has not described.
+func TestAnUndeclaredParameterPassesThroughAsItIs(t *testing.T) {
 	scheduler := &Scheduler{config: map[string]string{"forge.mse.repoUrl": "ssh://git@forge/CNOUS/mse"}}
 
 	pipeline := catalog.Pipeline{
@@ -168,21 +165,20 @@ func TestUnParametreNonDeclarePasseTelQuel(t *testing.T) {
 		"debug":    "true",
 	}, scheduler.config)
 	if err != nil {
-		t.Fatalf("résolution: %v", err)
+		t.Fatalf("resolution: %v", err)
 	}
 	if params["debug"] != "true" {
-		t.Errorf("paramètre supplémentaire perdu: %v", params)
+		t.Errorf("extra parameter lost: %v", params)
 	}
 	if params["revision"] != "unstable" || params["repo-url"] != "ssh://git@forge/CNOUS/mse" {
-		t.Errorf("paramètres déclarés = %v", params)
+		t.Errorf("declared parameters = %v", params)
 	}
 }
 
-// Le passe-plat n'affaiblit pas la séparation des sources. Laisser une demande
-// fournir un paramètre de source `config` permettrait de pointer un pipeline
-// vers un autre dépôt que celui prévu — exactement ce que cette séparation
-// existe pour empêcher.
-func TestUneDemandeNeRemplacePasUnParametreDeConfiguration(t *testing.T) {
+// The pass-through does not weaken the separation of sources. Letting a request supply a
+// `config` parameter would allow pointing a pipeline at a repository other than the one
+// intended — exactly what this separation exists to prevent.
+func TestARequestDoesNotReplaceAConfigurationParameter(t *testing.T) {
 	scheduler := &Scheduler{config: map[string]string{"forge.mse.repoUrl": "ssh://git@forge/CNOUS/mse"}}
 
 	pipeline := catalog.Pipeline{
@@ -198,19 +194,19 @@ func TestUneDemandeNeRemplacePasUnParametreDeConfiguration(t *testing.T) {
 		"image":    "docker.io/attaquant/ci",
 	}, scheduler.config)
 	if err != nil {
-		t.Fatalf("résolution: %v", err)
+		t.Fatalf("resolution: %v", err)
 	}
 	if params["repo-url"] != "ssh://git@forge/CNOUS/mse" {
-		t.Errorf("dépôt = %q: une demande a écrasé la configuration", params["repo-url"])
+		t.Errorf("repository = %q: a request overwrote the configuration", params["repo-url"])
 	}
 	if params["image"] != "reg.example.fr/mse/ci" {
-		t.Errorf("image = %q: une demande a écrasé une valeur littérale", params["image"])
+		t.Errorf("image = %q: a request overwrote a literal value", params["image"])
 	}
 }
 
-// Un réglage de projet — la kustomisation que le plugin MSE fournit — remplace
-// celui de l'instance pour ce job, et pour lui seul (doc 16 §16.18).
-func TestUnReglageDeProjetRemplaceCeluiDeLInstance(t *testing.T) {
+// A project setting — the kustomization the MSE plugin supplies — replaces the instance's for
+// this job, and for it alone.
+func TestAProjectSettingReplacesTheInstances(t *testing.T) {
 	scheduler := (&Scheduler{config: map[string]string{
 		"forge.mseKustom.repoUrl": "ssh://git@forge/CNOUS/mse-kustom",
 		"registry.project":        "reg.example.fr/cnous",
@@ -221,30 +217,30 @@ func TestUnReglageDeProjetRemplaceCeluiDeLInstance(t *testing.T) {
 		return map[string]string{"forge.mseKustom.repoUrl": "ssh://git@forge/vcarroy/kustom"}, nil
 	})
 
-	projet := int64(7)
-	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projet})
+	projectRow := int64(7)
+	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projectRow})
 	if err != nil {
-		t.Fatalf("réglages: %v", err)
+		t.Fatalf("settings: %v", err)
 	}
 	if settings["forge.mseKustom.repoUrl"] != "ssh://git@forge/vcarroy/kustom" {
-		t.Errorf("kustomisation = %q, attendu celle du projet", settings["forge.mseKustom.repoUrl"])
+		t.Errorf("kustomization = %q, expected the project's", settings["forge.mseKustom.repoUrl"])
 	}
-	// Ce que le projet ne dit pas reste celui de l'instance.
+	// What the project does not state stays the instance's.
 	if settings["registry.project"] != "reg.example.fr/cnous" {
 		t.Errorf("registre = %q", settings["registry.project"])
 	}
-	// Et la carte de l'instance n'a pas bougé : elle est partagée par tous les jobs.
+	// And the instance's map has not moved: it is shared by every job.
 	if scheduler.config["forge.mseKustom.repoUrl"] != "ssh://git@forge/CNOUS/mse-kustom" {
-		t.Error("la configuration de l'instance a été écrite")
+		t.Error("the instance's configuration was written to")
 	}
 
 	autre := int64(9)
 	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &autre})
 	if err != nil {
-		t.Fatalf("réglages: %v", err)
+		t.Fatalf("settings: %v", err)
 	}
 	if settings["forge.mseKustom.repoUrl"] != "ssh://git@forge/CNOUS/mse-kustom" {
-		t.Errorf("un autre projet a hérité du réglage: %q", settings["forge.mseKustom.repoUrl"])
+		t.Errorf("another project inherited the setting: %q", settings["forge.mseKustom.repoUrl"])
 	}
 }
 
@@ -258,44 +254,44 @@ func (d depotsDeProjets) GetProject(_ context.Context, id int64) (store.Project,
 	return project, nil
 }
 
-// Les pipelines d'un projet clonent **son** dépôt, déclaré en base. Sans cela, un
-// second projet construirait le dépôt du premier (doc 16 §16.24).
-func TestLesPipelinesDUnProjetClonentSonDepot(t *testing.T) {
+// A project's pipelines clone **its** repository, declared in the database. Without that, a
+// second project would build the first one's repository.
+func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	scheduler := (&Scheduler{config: map[string]string{
 		projectRepoKey: "ssh://git@forge/CNOUS/mse.git",
 		legacyRepoKey:  "ssh://git@forge/CNOUS/mse.git",
 	}}).WithProjectRepositories(depotsDeProjets{
 		7: {ID: 7, Repository: "vcarroy/themes", ForgeURL: "https://forge.example.fr"},
-		// Déclaré avant que sa forge ne soit renseignée.
-		8: {ID: 8, Repository: "vcarroy/sans-forge"},
+		// Declared before its forge was filled in.
+		8: {ID: 8, Repository: "vcarroy/no-forge"},
 	}, "2222")
 
-	projet := int64(7)
-	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projet})
+	projectRow := int64(7)
+	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projectRow})
 	if err != nil {
-		t.Fatalf("réglages: %v", err)
+		t.Fatalf("settings: %v", err)
 	}
-	const attendu = "ssh://git@forge.example.fr:2222/vcarroy/themes.git"
-	if settings[projectRepoKey] != attendu {
-		t.Errorf("dépôt = %q, attendu celui du projet", settings[projectRepoKey])
+	const expected = "ssh://git@forge.example.fr:2222/vcarroy/themes.git"
+	if settings[projectRepoKey] != expected {
+		t.Errorf("repository = %q, expected the project's", settings[projectRepoKey])
 	}
-	// L'ancienne clé porte la même valeur, tant qu'un catalogue la nomme.
-	if settings[legacyRepoKey] != attendu {
-		t.Errorf("ancienne clé = %q", settings[legacyRepoKey])
+	// The old key carries the same value, for as long as a catalogue names it.
+	if settings[legacyRepoKey] != expected {
+		t.Errorf("old key = %q", settings[legacyRepoKey])
 	}
 
 	sansForge := int64(8)
 	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &sansForge})
 	if err != nil {
-		t.Fatalf("réglages: %v", err)
+		t.Fatalf("settings: %v", err)
 	}
 	if settings[projectRepoKey] != "ssh://git@forge/CNOUS/mse.git" {
-		t.Errorf("dépôt = %q, attendu celui de l'instance", settings[projectRepoKey])
+		t.Errorf("repository = %q, expected the instance's", settings[projectRepoKey])
 	}
 
-	// Un job sans projet garde celui de l'instance.
+	// A job with no project keeps the instance's.
 	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 3})
 	if err != nil || settings[projectRepoKey] != "ssh://git@forge/CNOUS/mse.git" {
-		t.Errorf("job sans projet: %q (%v)", settings[projectRepoKey], err)
+		t.Errorf("job with no project: %q (%v)", settings[projectRepoKey], err)
 	}
 }

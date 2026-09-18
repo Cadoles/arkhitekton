@@ -13,48 +13,43 @@ import (
 )
 
 /*
- * Raccordement du canal de marqueurs.
+ * Wiring the marker channel.
  *
- * Les Tasks émettent un descripteur par outil sur leur sortie standard —
- * `##META## {"tool":"phpstan","status":"ok"}` — et `internal/results` sait le
- * lire depuis longtemps. Personne ne l'appelait : la fonction était écrite,
- * testée, et sans le moindre appelant (doc 13 §13.9).
+ * The Tasks emit one descriptor per tool on their standard output —
+ * `##META## {"tool":"phpstan","status":"ok"}` — and `internal/results` has long known how to
+ * read it. Nobody called it: the function was written, tested, and had not a single caller.
  *
- * Ce que l'absence coûtait : **un outil planté ne se distinguait pas d'un outil
- * qui n'avait rien trouvé**. Les deux publient zéro violation, l'un parce que le
- * code est sain, l'autre parce que le scanner est mort avant de commencer. Sans
- * le descripteur, le second s'affichait « conforme ». C'est exactement la
- * propriété que le canal existait pour préserver, et elle était perdue.
+ * What that absence cost: **a crashed tool could not be told apart from a tool that found
+ * nothing**. Both publish zero violations, one because the code is healthy, the other because
+ * the scanner died before starting. Without the descriptor, the second displayed as
+ * "compliant". That is exactly the property the channel existed to preserve, and it was lost.
  *
- * Le descripteur est produit par le pipeline, **jamais déduit ici**. Lui seul
- * peut faire la différence, et un dashboard qui la devinerait aurait tort au
- * premier outil qui sort en 1 pour dire « j'ai trouvé quelque chose ».
+ * The descriptor is produced by the pipeline, **never deduced here**. It alone can tell the
+ * difference, and a dashboard that guessed would be wrong at the first tool that exits with 1
+ * to say "I found something".
  */
 
-// maxMarkerScanBytes borne ce qu'on lit d'un journal de task pour y chercher des
-// marqueurs.
+// maxMarkerScanBytes bounds how much of a task's log is read while looking for markers.
 //
-// Un descripteur pèse une centaine d'octets et peut se trouver n'importe où dans
-// le flux — chaque outil émet le sien dès qu'il a fini. Il faut donc parcourir,
-// et la borne évite qu'un journal parti en vrille mette le worker à genoux. Son
-// franchissement est signalé : un marqueur manqué se lit comme un marqueur
-// absent, et ne pas le dire ferait passer une lecture tronquée pour un pipeline
-// muet.
+// A descriptor weighs about a hundred bytes and can be anywhere in the stream — each tool
+// emits its own as soon as it has finished. The log must therefore be walked, and the bound
+// stops a log gone wild bringing the worker to its knees. Crossing it is reported: a missed
+// marker reads as an absent marker, and not saying so would make a truncated read look like a
+// mute pipeline.
 const maxMarkerScanBytes = 8 << 20
 
-// LogSource est ce que l'ingesteur attend du lecteur de journaux.
+// LogSource is what the ingester needs from the log reader.
 type LogSource interface {
 	From(ctx context.Context, runName, taskName string, offset, length int64) (logs.Segment, error)
 }
 
-// MarkerStore est ce que l'ingesteur attend de la base.
+// MarkerStore is what the ingester needs from the database.
 type MarkerStore interface {
 	SaveTestResult(ctx context.Context, result store.TestResult, cases []store.TestCase) (int64, error)
 	TestResultExists(ctx context.Context, runID int64, tool string) (bool, error)
 }
 
-// MarkerIngester enregistre ce que les descripteurs d'un run disent des outils
-// qui n'ont pas conclu.
+// MarkerIngester records what a run's descriptors say about the tools that did not conclude.
 type MarkerIngester struct {
 	store   MarkerStore
 	source  LogSource
@@ -68,30 +63,26 @@ func NewMarkerIngester(
 	return &MarkerIngester{store: db, source: source, markers: markers, logger: logger}
 }
 
-// MarkerRun est le run à examiner.
+// MarkerRun is the run to examine.
 type MarkerRun struct {
 	ID        int64
 	Name      string
 	Tasks     []string
 	ReleaseID *int64
-	// Family est la famille de signal que le pipeline mesure, telle que le
-	// catalogue la déclare. Vide, rien n'est enregistré : un résultat sans famille
-	// ne se rattache à aucun signal et n'apparaîtrait nulle part.
+	// Family is the signal family the pipeline measures, as the catalogue declares it. Empty,
+	// nothing is recorded: a result with no family attaches to no signal and would appear nowhere.
 	Family string
 }
 
-// Ingest lit les journaux d'un run terminé et enregistre les outils qui n'ont pas
-// conclu.
+// Ingest reads a finished run's logs and records the tools that did not conclude.
 //
-// **Seuls** ceux-là. Un outil qui a fait son travail publie un artefact, et c'est
-// lui qui porte le décompte : en tirer un second résultat depuis le descripteur
-// donnerait deux lignes pour une exécution, sans que rien ne dise laquelle fait
-// foi.
+// **Only** those. A tool that did its work publishes an artifact, and that artifact carries
+// the count: drawing a second result from the descriptor would give two rows for one run,
+// with nothing saying which is authoritative.
 //
-// Appelé **avant** l'ingestion des artefacts, et l'ordre porte une décision : les
-// deux sont idempotents par outil, donc le premier arrivé l'emporte. Le
-// descripteur doit gagner — il est le seul à savoir que l'outil a échoué, là où un
-// artefact partiel se lirait comme un résultat complet.
+// Called **before** the artifacts are ingested, and the order carries a decision: both are
+// idempotent per tool, so the first to arrive wins. The descriptor must win — it is the only
+// one that knows the tool failed, where a partial artifact would read as a complete result.
 func (i *MarkerIngester) Ingest(ctx context.Context, run MarkerRun) error {
 	if run.Family == "" || len(run.Tasks) == 0 {
 		return nil
@@ -101,19 +92,17 @@ func (i *MarkerIngester) Ingest(ctx context.Context, run MarkerRun) error {
 	for _, task := range run.Tasks {
 		text, err := i.readTask(ctx, run.Name, task)
 		if err != nil {
-			// Une task sans journal est un cas normal : elle a pu être sautée, ou
-			// son collecteur n'a rien scellé. Ce n'est pas une raison de perdre
-			// les marqueurs des autres.
-			i.logger.Debug("journal illisible pour la lecture des marqueurs",
+			// A task with no log is a normal case: it may have been skipped, or its collector sealed
+			// nothing. That is no reason to lose the others' markers.
+			i.logger.Debug("log unreadable for the marker reading",
 				"run", run.Name, "task", task, "error", err)
 			continue
 		}
 
-		// L'horodatage est retiré avant l'analyse : les tranches stockées le
-		// conservent, et un marqueur précédé d'un `2026-08-25T14:33:39Z ` n'est
-		// plus en début de ligne. Sans cela le canal ne reconnaît rien, sans le
-		// moindre message — les journaux se lisent bien, ils ne s'analysent
-		// simplement pas.
+		// The timestamp is stripped before parsing: the stored chunks keep it, and a marker preceded
+		// by a `2026-08-25T14:33:39Z ` is no longer at the start of the line. Without that the
+		// channel recognises nothing, with not a single message — the logs read fine, they simply do
+		// not parse.
 		for tool, meta := range i.markers.ScanMarkers(logs.Plain(text)).Metas {
 			if meta.Ran() {
 				continue
@@ -125,12 +114,12 @@ func (i *MarkerIngester) Ingest(ctx context.Context, run MarkerRun) error {
 	}
 
 	if len(failures) > 0 {
-		return fmt.Errorf("marqueurs du run %q: %s", run.Name, strings.Join(failures, "; "))
+		return fmt.Errorf("markers of run %q: %s", run.Name, strings.Join(failures, "; "))
 	}
 	return nil
 }
 
-// record enregistre un outil qui n'a pas conclu.
+// record records a tool that did not conclude.
 func (i *MarkerIngester) record(
 	ctx context.Context, run MarkerRun, tool string, meta results.Meta,
 ) error {
@@ -142,10 +131,10 @@ func (i *MarkerIngester) record(
 		return nil
 	}
 
-	// `na` et non `fail`, et la nuance est tout l'objet du canal : « échec » se
-	// lit comme un verdict sur le code, alors qu'ici c'est l'outil qui n'a pas
-	// rendu de verdict. Le score sort ce signal du calcul et redistribue son
-	// poids, au lieu de compter un zéro qui serait faux (B11).
+	// `na` and not `fail`, and the nuance is the whole point of the channel: "failure" reads as a
+	// verdict on the code, whereas here it is the tool that gave no verdict. The score takes this
+	// signal out of the computation and redistributes its weight, instead of counting a zero that
+	// would be wrong.
 	result := store.TestResult{
 		RunID:     run.ID,
 		ReleaseID: run.ReleaseID,
@@ -158,32 +147,32 @@ func (i *MarkerIngester) record(
 	if _, err := i.store.SaveTestResult(ctx, result, nil); err != nil {
 		return err
 	}
-	i.logger.Warn("outil sans conclusion",
-		"run", run.Name, "outil", tool, "statut", meta.Status,
+	i.logger.Warn("tool with no conclusion",
+		"run", run.Name, "tool", tool, "status", meta.Status,
 		"code_sortie", meta.ExitCode, "detail", meta.Error)
 	return nil
 }
 
-// markerSummary compose la ligne affichée pour un outil qui n'a pas conclu.
+// markerSummary composes the line displayed for a tool that did not conclude.
 //
-// Le message du pipeline quand il y en a un, sinon une phrase qui dit au moins
-// pourquoi la ligne existe. Une cellule vide se lirait comme une absence de
-// mesure sans cause, ce qui est la moitié de l'information.
+// The pipeline's message when there is one, otherwise a sentence that at least says why the
+// row exists. An empty cell would read as a measurement missing with no cause, which is half
+// the information.
 func markerSummary(meta results.Meta) string {
 	if detail := strings.TrimSpace(meta.Error); detail != "" {
 		return detail
 	}
 	if status := strings.TrimSpace(meta.Status); status != "" {
-		return fmt.Sprintf("l'outil n'a pas conclu (statut %q, code %d)", status, meta.ExitCode)
+		return fmt.Sprintf("the tool did not conclude (status %q, code %d)", status, meta.ExitCode)
 	}
-	return fmt.Sprintf("l'outil n'a pas conclu (code %d)", meta.ExitCode)
+	return fmt.Sprintf("the tool did not conclude (code %d)", meta.ExitCode)
 }
 
-// readTask lit le journal d'une task, borné.
+// readTask reads a task's log, bounded.
 //
-// Le journal est lu par tranches et non d'un bloc : c'est l'interface du lecteur,
-// qui sert d'abord le suivi en direct. La boucle s'arrête sur la fin du journal
-// ou sur la borne, selon ce qui vient en premier.
+// The log is read in chunks and not in one block: that is the reader's interface, which
+// serves live following first. The loop stops at the end of the log or at the bound,
+// whichever comes first.
 func (i *MarkerIngester) readTask(ctx context.Context, runName, taskName string) (string, error) {
 	var builder strings.Builder
 	var offset int64
@@ -201,19 +190,18 @@ func (i *MarkerIngester) readTask(ctx context.Context, runName, taskName string)
 		offset = segment.NextOffset
 
 		if int64(builder.Len()) >= maxMarkerScanBytes {
-			i.logger.Warn("journal tronqué pour la lecture des marqueurs",
+			i.logger.Warn("log truncated for the marker reading",
 				"run", runName, "task", taskName,
-				"lu", builder.Len(), "taille", segment.Size)
+				"read", builder.Len(), "size", segment.Size)
 			return builder.String(), nil
 		}
 	}
 }
 
-// markerRunFor compose ce qu'il faut savoir d'un run pour y chercher des
-// marqueurs.
+// markerRunFor composes what needs to be known about a run in order to look for markers in it.
 //
-// Rend `false` quand le catalogue ne dit pas quelle famille le pipeline mesure :
-// sans elle, un outil sans artefact ne se rattache à aucun signal.
+// Returns `false` when the catalogue does not say which family the pipeline measures: without
+// it, a tool with no artifact attaches to no signal.
 func markerRunFor(
 	pipelines *catalog.Catalog, kind string, run MarkerRun,
 ) (MarkerRun, bool) {

@@ -38,7 +38,7 @@ const junitXML = `<testsuites><testsuite name="Unit" time="1.0">
 const phpstanJSON = `{"totals":{"errors":0,"file_errors":1},"files":{
   "src/A.php":{"errors":1,"messages":[{"message":"m","line":3,"identifier":"r"}]}},"errors":[]}`
 
-// archive fabrique un tar.gz, forme sous laquelle un répertoire est publié.
+// archive builds a tar.gz, the form in which a directory is published.
 func archive(t *testing.T, files map[string]string) string {
 	t.Helper()
 	var buffer bytes.Buffer
@@ -70,7 +70,7 @@ func TestIngestReadsReportsFromAnArchive(t *testing.T) {
 		"raw/static-tests-1/static-tests.tar.gz": archive(t, map[string]string{
 			"junit.xml":    junitXML,
 			"phpstan.json": phpstanJSON,
-			// Ni un rapport, ni un format connu : ignoré sans faire échouer le reste.
+			// Neither a report nor a known format: ignored without failing the rest.
 			"phpunit.log": "bruit",
 		}),
 	}
@@ -85,7 +85,7 @@ func TestIngestReadsReportsFromAnArchive(t *testing.T) {
 		tools[result.Tool] = result
 	}
 	if len(tools) != 2 {
-		t.Fatalf("outils enregistrés = %v", tools)
+		t.Fatalf("tools recorded = %v", tools)
 	}
 	if tools["phpunit"].Failed != 1 || tools["phpunit"].Status != "fail" {
 		t.Errorf("phpunit = %+v", tools["phpunit"])
@@ -111,14 +111,14 @@ func TestIngestReadsAStandaloneFile(t *testing.T) {
 	}
 }
 
-// L'observateur revoit un run terminé au redémarrage. Réenregistrer doublerait
-// chaque cas, donc chaque comparaison à la release précédente.
+// The observer sees a finished run again at restart. Recording again would double every case,
+// therefore every comparison with the previous release.
 func TestIngestIsIdempotentPerTool(t *testing.T) {
 	objects := fakeObjects{"raw/unit-1/junit.xml": junitXML}
 	results, ingester := newTestIngester(objects)
 
 	if err := ingester.Ingest(context.Background(), LoadRun{ID: 2, Name: "unit-1"}); err != nil {
-		t.Fatalf("première ingestion: %v", err)
+		t.Fatalf("first ingestion: %v", err)
 	}
 	results.known["phpunit"] = true
 
@@ -126,12 +126,12 @@ func TestIngestIsIdempotentPerTool(t *testing.T) {
 		t.Fatalf("seconde ingestion: %v", err)
 	}
 	if len(results.saved) != 1 {
-		t.Errorf("%d rapport(s), attendu 1", len(results.saved))
+		t.Errorf("%d report(s), expected 1", len(results.saved))
 	}
 }
 
-// Les mesures de charge ne sont pas des cas de test : les faire passer ici les
-// projetterait dans un modèle qui ne leur convient pas.
+// Load measurements are not test cases: passing them through here would project them into a
+// model that does not suit them.
 func TestLoadArtifactsAreLeftToTheirOwnIngester(t *testing.T) {
 	objects := fakeObjects{"raw/load-test-1/k6/panier-summary.json": `{"metrics":{}}`}
 	results, ingester := newTestIngester(objects)
@@ -140,12 +140,11 @@ func TestLoadArtifactsAreLeftToTheirOwnIngester(t *testing.T) {
 		t.Fatalf("ingestion: %v", err)
 	}
 	if len(results.saved) != 0 {
-		t.Errorf("%d rapport(s) enregistré(s)", len(results.saved))
+		t.Errorf("%d report(s) recorded", len(results.saved))
 	}
 }
 
-// Une campagne qui produit quatre rapports ne doit pas être perdue en entier
-// parce que l'un d'eux est tronqué.
+// A campaign producing four reports must not be lost whole because one of them is truncated.
 func TestOneBadReportDoesNotLoseTheOthers(t *testing.T) {
 	objects := fakeObjects{
 		"raw/static-tests-1/static-tests.tar.gz": archive(t, map[string]string{
@@ -163,8 +162,8 @@ func TestOneBadReportDoesNotLoseTheOthers(t *testing.T) {
 	}
 }
 
-// Une archive Cypress pèse surtout des vidéos : les rapatrier en mémoire pour
-// les jeter aussitôt serait absurde.
+// A Cypress archive weighs mostly videos: fetching them into memory only to throw them away at
+// once would be absurd.
 func TestUnknownFilesAreNotLoaded(t *testing.T) {
 	files, err := extract("x.tar.gz", bytes.NewReader([]byte(archive(t, map[string]string{
 		"videos/panier.mp4": "beaucoup d'octets",
@@ -189,20 +188,19 @@ func TestRecognise(t *testing.T) {
 	for name, expected := range cases {
 		kind, known := recognise(name)
 		if !known || kind.tool != expected {
-			t.Errorf("recognise(%q) = %q/%v, attendu %q", name, kind.tool, known, expected)
+			t.Errorf("recognise(%q) = %q/%v, expected %q", name, kind.tool, known, expected)
 		}
 	}
 	if _, known := recognise("videos/panier.mp4"); known {
-		t.Error("une vidéo n'est pas un rapport")
+		t.Error("a video is not a report")
 	}
 }
 
-// Le défaut qui rendait la famille `integration` inobservable. Les Tasks écrivent
-// sous `test-results/<famille>/` et nomment toutes leur rapport `junit.xml` :
-// l'intégration tombait donc dans la règle des tests unitaires, et son échec
-// était rapporté comme un échec unitaire — sur un signal qui pèse 25 au score au
-// lieu de 20, et en laissant `integration` éternellement non mesurée.
-func TestLeRepertoireNommeLaFamille(t *testing.T) {
+// The defect that made the `integration` family unobservable. The Tasks write under
+// `test-results/<family>/` and all name their report `junit.xml`: integration therefore fell
+// into the unit-test rule, and its failure was reported as a unit failure — on a signal
+// weighing 25 in the score instead of 20, and leaving `integration` forever unmeasured.
+func TestTheDirectoryNamesTheFamily(t *testing.T) {
 	cases := map[string]struct {
 		family results.Family
 		tool   string
@@ -211,7 +209,7 @@ func TestLeRepertoireNommeLaFamille(t *testing.T) {
 		"test-results/unit/junit.xml":        {results.FamilyUnit, "phpunit"},
 		"test-results/phpstan/report.json":   {results.FamilyStatic, "phpstan"},
 		"test-results/cs-fixer/report.json":  {results.FamilyStatic, "cs-fixer"},
-		// Le même fichier, publié à plat : le nom prend le relais.
+		// The same file, published flat: the name takes over.
 		"junit.xml": {results.FamilyUnit, "phpunit"},
 	}
 
@@ -222,79 +220,75 @@ func TestLeRepertoireNommeLaFamille(t *testing.T) {
 			continue
 		}
 		if kind.family != expected.family || kind.tool != expected.tool {
-			t.Errorf("recognise(%q) = %s/%s, attendu %s/%s",
+			t.Errorf("recognise(%q) = %s/%s, expected %s/%s",
 				name, kind.family, kind.tool, expected.family, expected.tool)
 		}
 	}
 }
 
-// Deux rapports d'un même run, dans deux familles différentes, doivent être
-// distingués. C'est le cas d'une archive qui porte à la fois l'unitaire et
-// l'intégration — et le cas où l'ancienne reconnaissance les confondait.
-func TestDeuxFamillesDansUneMemeArchiveNeSeConfondentPas(t *testing.T) {
+// Two reports of one run, in two different families, must be told apart. It is the case of an
+// archive carrying both the unit and the integration ones — and the case the old recognition
+// confused.
+func TestTwoFamiliesInOneArchiveAreNotConfused(t *testing.T) {
 	unit, _ := recognise("test-results/unit/junit.xml")
 	integration, _ := recognise("test-results/integration/junit.xml")
 
 	if unit.family == integration.family {
-		t.Errorf("même famille %q pour deux répertoires distincts", unit.family)
+		t.Errorf("the same family %q for two distinct directories", unit.family)
 	}
-	// Les outils diffèrent aussi : l'idempotence de l'ingestion est indexée par
-	// outil, et deux familles sous le même nom d'outil feraient perdre la seconde.
+	// The tools differ too: the ingestion's idempotence is indexed by tool, and two families under
+	// the same tool name would lose the second.
 	if unit.tool == integration.tool {
-		t.Errorf("même outil %q — la seconde ingestion serait ignorée", unit.tool)
+		t.Errorf("the same tool %q — the second ingestion would be ignored", unit.tool)
 	}
 }
 
-// Le contrat publié doit être vrai pour les six familles, pas pour quatre.
+// The published contract must be true for all six families, not for four.
 //
-// C'est la raison d'être du lot F : « le normatif est le contrat, pas
-// l'implémentation » (doc 12 §12.6). Les Tasks du MSE écrivent leur rapport
-// Cypress sous `mocha/`, si bien que la règle de nom suffisait ; un projet qui
-// suit la convention documentée et écrit `test-results/e2e/report.json`
-// n'était **pas reconnu du tout**.
+// The normative thing is the contract, not the implementation. The MSE Tasks write their
+// Cypress report under `mocha/`, so that the name rule was enough; a project following the
+// documented convention and writing `test-results/e2e/report.json` was **not recognised at
+// all**.
 //
-// Le silence est le pire des résultats : l'écran des tests reste vide, la
-// famille `e2e` n'est jamais mesurée, et rien ne dit pourquoi. C'est exactement
-// ce que doc 13 annonce comme le mode de défaillance à éviter.
+// Silence is the worst outcome: the tests screen stays empty, the `e2e` family is never
+// measured, and nothing says why.
 func TestLeRepertoireDeFamillePubliéEstReconnu(t *testing.T) {
 	cases := map[string]struct {
 		family results.Family
 		tool   string
 	}{
-		// Le nom du rapport ne dit rien : seul le répertoire le range.
+		// The report's name says nothing: only the directory files it.
 		"test-results/e2e/report.json": {results.FamilyE2E, "cypress"},
-		// La convention de l'outil reste lue : la retirer casserait les runs
-		// existants du MSE.
+		// The tool's convention stays read: removing it would break MSE's existing runs.
 		"test-results/mocha/mochawesome.json": {results.FamilyE2E, "cypress"},
 	}
 
 	for name, expected := range cases {
 		kind, known := recognise(name)
 		if !known {
-			t.Errorf("recognise(%q) non reconnu — le contrat l'annonce pourtant", name)
+			t.Errorf("recognise(%q) not recognised — the contract announces it nonetheless", name)
 			continue
 		}
 		if kind.family != expected.family || kind.tool != expected.tool {
-			t.Errorf("recognise(%q) = %s/%s, attendu %s/%s",
+			t.Errorf("recognise(%q) = %s/%s, expected %s/%s",
 				name, kind.family, kind.tool, expected.family, expected.tool)
 		}
 	}
 }
 
-// Pour l'analyse statique, le répertoire de famille ne suffit pas : PHPStan et
-// php-cs-fixer produisent deux formats JSON différents, et le parseur ne se
-// devine pas. Le nom du fichier prend alors le relais — c'est ce que le contrat
-// doit exiger, plutôt que de laisser croire que `static/` suffit.
-func TestSousStaticLOutilDoitResterIdentifiable(t *testing.T) {
+// For static analysis, the family directory is not enough: PHPStan and php-cs-fixer produce two
+// different JSON formats, and the parser cannot be guessed. The file's name then takes over —
+// which is what the contract must require, rather than letting one believe `static/` is enough.
+func TestUnderStaticTheToolMustStayIdentifiable(t *testing.T) {
 	kind, known := recognise("test-results/static/phpstan.json")
 	if !known || kind.family != results.FamilyStatic || kind.tool != "phpstan" {
-		t.Errorf("recognise = %s/%s/%v — le nom doit désigner l'outil",
+		t.Errorf("recognise = %s/%s/%v — the name must designate the tool",
 			kind.family, kind.tool, known)
 	}
 
-	// Sans outil identifiable, rien n'est deviné : mieux vaut ignorer que
-	// choisir un parseur au hasard et rendre des violations fausses.
+	// With no identifiable tool, nothing is guessed: better to ignore than to pick a parser at
+	// random and return false violations.
 	if _, known := recognise("test-results/static/report.json"); known {
-		t.Error("un rapport statique sans outil identifiable ne doit pas être deviné")
+		t.Error("a static report with no identifiable tool must not be guessed")
 	}
 }

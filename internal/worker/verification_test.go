@@ -13,19 +13,18 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 )
 
-// fakeVerificationStore retient ce qui est mis en file après une construction.
+// fakeVerificationStore keeps what is queued after a build.
 type fakeVerificationStore struct {
 	enqueued  []store.JobRequest
 	enqueueEr error
-	// state simule la release et son écriture conditionnelle.
+	// state simulates the release and its conditional write.
 	state    string
 	advances int
-	// jobRelease associe un job à sa release. Nil, tous les jobs en rendent une
-	// vide — le comportement des tests qui ne s'y intéressent pas.
+	// jobRelease associates a job with its release. Nil, every job returns an empty one — the
+	// behaviour for the tests that take no interest in it.
 	jobRelease map[int64]store.JobReleaseContext
-	// builds est le décompte des constructions rendu à l'observateur. Zéro
-	// valeur : une seule construction réussie, ce qui est le cas des tests qui ne
-	// s'intéressent pas à la multiplicité des images.
+	// builds is the build count returned to the observer. Zero value: a single successful build,
+	// which is the case for the tests that take no interest in the multiplicity of the images.
 	builds store.BuildTally
 }
 
@@ -46,8 +45,8 @@ func verificationCatalog() *catalog.Catalog {
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
-			// Les tests unitaires ont leur propre pipeline : deux questions
-			// distinctes, deux signaux que le score pondère séparément.
+			// The unit tests have their own pipeline: two distinct questions, two signals the score weighs
+			// separately.
 			{
 				Kind: "unit-tests", Verification: true, Params: map[string]catalog.Param{
 					"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
@@ -56,11 +55,10 @@ func verificationCatalog() *catalog.Catalog {
 			},
 			{
 				Kind: "security-audit", Verification: true, Params: map[string]catalog.Param{
-					// L'audit nomme sa révision autrement que les tests statiques,
-					// et réclame les images déjà publiées plutôt que de les
-					// reconstruire.
-					// Trois noms pour trois natures : c'est la déclaration, et non le
-					// nom du paramètre, qui dit ce que l'enchaînement doit y mettre.
+					// The audit names its revision differently from the static tests, and asks for the images
+					// already published rather than rebuilding them.
+					// Three names for three kinds: it is the declaration, and not the parameter's name, that says
+					// what the chaining must put there.
 					"app-revision": {
 						Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
 					"portal-image": {
@@ -72,16 +70,15 @@ func verificationCatalog() *catalog.Catalog {
 					"app-repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
 			},
-			// La révision de l'infrastructure de déploiement vient de la
-			// configuration : c'est ce qui rend ce pipeline enchaînable. Tant
-			// qu'elle était une entrée, le dashboard ne savait pas la renseigner.
+			// The deployment infrastructure's revision comes from the configuration: that is what makes
+			// this pipeline chainable. While it was an input, the dashboard did not know how to fill it in.
 			{
 				Kind: "integration-tests", Verification: true, Params: map[string]catalog.Param{
 					"mse-revision": {
 						Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
 					"mse-kustom-revision": {Source: catalog.SourceConfig, Key: "forge.mseKustom.revision"},
-					// Le pipeline déploie des images déjà publiées : il en reçoit
-					// le tag, jamais de quoi les reconstruire.
+					// The pipeline deploys images already published: it receives their tag, never what is needed to
+					// rebuild them.
 					"image-tag": {
 						Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestReleaseTag},
 				},
@@ -90,13 +87,11 @@ func verificationCatalog() *catalog.Catalog {
 	}
 }
 
-// sinkFor monte l'observateur pour les tests qui pilotent encore l'ancien
-// chemin.
+// sinkFor stands up the observer for the tests that still drive the old path.
 //
-// TODO(doc 15, tranche 1) : ces tests visent `concludeVerification` et
-// `advanceRelease`, devenus du code mort depuis que le plan d'une release porte
-// la construction et la vérification. Ils restent à repointer sur le plan, comme
-// l'ont été ceux de `launchVerification` juste au-dessus.
+// TODO: these tests target `concludeVerification` and `advanceRelease`, dead code since a
+// release's plan carries the build and the verification. They remain to be repointed at the
+// plan, as those of `launchVerification` just above have been.
 func sinkFor(store *fakeVerificationStore, pipelines *catalog.Catalog) *runSink {
 	sink := &runSink{
 		logger: quietLogger(), catalog: pipelines,
@@ -107,60 +102,59 @@ func sinkFor(store *fakeVerificationStore, pipelines *catalog.Catalog) *runSink 
 	return sink
 }
 
-// planifie ouvre le plan d'une release et rend le nombre de gestes partis.
+// plan opens a release's plan and returns the number of steps started.
 //
-// # Ces tests ont changé de pilote, pas d'assertions
+// # These tests changed driver, not assertions
 //
-// Ils appelaient `launchVerification`, qui composait la moitié aval de la chaîne
-// dans l'observateur. Cette moitié est devenue **l'étape de vérification du plan
-// d'une release** (doc 15 §15.2), et c'est elle qu'ils exercent désormais.
+// They called `launchVerification`, which composed the downstream half of the chain in the
+// observer. That half has become **the verification stage of a release's plan**, and it is what
+// they now exercise.
 //
-// Le projet ne déclare **aucune cible** : l'étape de construction est donc vide,
-// l'étape de vérification devient la première, et elle part immédiatement — ce
-// que faisait `launchVerification` appelée sur une construction déjà conclue.
-// C'est la même situation, exprimée dans le modèle plutôt qu'à côté.
-func planifie(
+// The project declares **no target**: the build stage is therefore empty, the verification
+// stage becomes the first, and it starts immediately — which is what `launchVerification` did
+// when called on an already concluded build. It is the same situation, expressed in the model
+// rather than beside it.
+func openPlan(
 	t *testing.T, queue *fakeVerificationStore, pipelines *catalog.Catalog,
 	tag, revision string,
 ) int {
 	t.Helper()
 
-	projet := store.Project{ID: 1, Slug: "mse"}
+	projectRow := store.Project{ID: 1, Slug: "mse"}
 
 	planner := NewReleasePlanner(
 		NewEngine(newFakePlanStore(),
 			NewReleaseRunner(pipelines, queue, quietLogger()), quietLogger()),
 		pipelines,
-		// L'automatisation que la reprise aurait composée pour ce projet. Le plan
-		// est désormais **lu** et non composé à l'ouverture (doc 15 §15.5) : passer
-		// nil rendrait un plan vide, et ces tests constateraient zéro geste parti
-		// sans que rien ne dise que c'est la lecture qui manque.
-		automatisationDeTest{plan: DefaultAutomation(pipelines, projet, nil)},
+		// The automation the catch-up would have composed for this project. The plan is now **read**
+		// and not composed when opened: passing nil would return an empty plan, and these tests would
+		// observe zero steps started with nothing saying it is the read that is missing.
+		testAutomation{plan: DefaultAutomation(pipelines, projectRow, nil)},
 		"reg.cadoles.com/vcarroy", quietLogger())
 
-	return planner.OpenReleasePlan(context.Background(), projet,
+	return planner.OpenReleasePlan(context.Background(), projectRow,
 		store.Release{ID: 7, Tag: tag}, revision)
 }
 
-// automatisationDeTest rend un plan déjà déclaré.
-type automatisationDeTest struct{ plan plan.Plan }
+// testAutomation returns an already declared plan.
+type testAutomation struct{ plan plan.Plan }
 
-func (a automatisationDeTest) ReleaseAutomation(
+func (a testAutomation) ReleaseAutomation(
 	context.Context, int64,
 ) (store.ReleaseAutomation, error) {
 	return store.ReleaseAutomation{Plan: a.plan}, nil
 }
 
-// Une construction réussie enchaîne les vérifications sur **le commit
-// construit**, jamais sur la branche d'où il vient : celle-ci a pu bouger depuis
-// le build, et les tests porteraient alors sur autre chose que l'image (B17).
-func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
+// A successful build chains the verifications on **the commit built**, never on the branch it
+// comes from: that branch may have moved since the build, and the tests would then bear on
+// something other than the image.
+func TestTheVerificationBearsOnTheCommitBuilt(t *testing.T) {
 	fake := &fakeVerificationStore{}
 
-	launched := planifie(t, fake, verificationCatalog(), "3.2.0-rc1", "abc123def456")
+	launched := openPlan(t, fake, verificationCatalog(), "3.2.0-rc1", "abc123def456")
 
 	if launched != 4 {
-		t.Fatalf("%d vérifications lancées, attendu 4", launched)
+		t.Fatalf("%d verifications launched, expected 4", launched)
 	}
 
 	kinds := map[string]store.JobRequest{}
@@ -168,115 +162,111 @@ func TestLaVerificationPorteSurLeCommitConstruit(t *testing.T) {
 		kinds[job.Kind] = job
 	}
 	if _, ok := kinds["static-tests"]; !ok {
-		t.Error("static-tests devrait être lancé")
+		t.Error("static-tests should be launched")
 	}
 	if _, ok := kinds["unit-tests"]; !ok {
-		t.Error("unit-tests devrait être lancé")
+		t.Error("unit-tests should be launched")
 	}
 	if _, ok := kinds["security-audit"]; !ok {
-		t.Error("security-audit devrait être lancé")
+		t.Error("security-audit should be launched")
 	}
 	integration, ok := kinds["integration-tests"]
 	if !ok {
-		t.Error("integration-tests devrait être lancé")
+		t.Error("integration-tests should be launched")
 	}
-	// Le pipeline d'intégration nomme sa révision `mse-revision`. C'est encore le
-	// commit construit : le déploiement qu'il éprouve doit être celui de la
-	// release, pas celui de la branche dont elle est issue (B17).
+	// The integration pipeline names its revision `mse-revision`. It is still the commit built: the
+	// deployment it exercises must be the release's, not that of the branch it came from.
 	if integration.Params["mse-revision"] != "abc123def456" {
-		t.Errorf("params de integration-tests: %v", integration.Params)
+		t.Errorf("params of integration-tests: %v", integration.Params)
 	}
-	// `mse-kustom-revision` vient de la configuration, pas de l'enchaînement :
-	// l'ordonnanceur la résout au lancement, et la fournir ici la figerait au
-	// moment de la construction.
+	// `mse-kustom-revision` comes from the configuration, not from the chaining: the scheduler
+	// resolves it at launch, and supplying it here would freeze it at the moment of the build.
 	if _, present := integration.Params["mse-kustom-revision"]; present {
-		t.Error("mse-kustom-revision ne doit pas être renseignée à l'enchaînement")
+		t.Error("mse-kustom-revision must not be filled in by the chaining")
 	}
-	// Le tag des images à déployer est celui de la release : ce sont celles que
-	// sa construction vient de publier, et non une reconstruction (B17).
+	// The tag of the images to deploy is the release's: they are the ones its build has just
+	// published, and not a rebuild.
 	if integration.Params["image-tag"] != "3.2.0-rc1" {
-		t.Errorf("image-tag %q, attendu le tag de la release", integration.Params["image-tag"])
+		t.Errorf("image-tag %q, expected the release's tag", integration.Params["image-tag"])
 	}
 
 	static := kinds["static-tests"]
 	if static.Params["revision"] != "abc123def456" {
-		t.Errorf("params de static-tests: %v — attendu le commit, pas la branche", static.Params)
+		t.Errorf("params of static-tests: %v — expected the commit, not the branch", static.Params)
 	}
 
-	// L'audit nomme sa révision `app-revision`. Sans ce nom, il retombait sur son
-	// défaut et scannait `CNOUS/mse` à `k8s-unstable` — donc autre chose que la
-	// release, en rendant un verdict qu'on rapportait à la mauvaise chose.
+	// The audit names its revision `app-revision`. Without that name, it fell back to its default
+	// and scanned `CNOUS/mse` at `k8s-unstable` — therefore something other than the release,
+	// returning a verdict attributed to the wrong thing.
 	audit := kinds["security-audit"]
 	if audit.Params["app-revision"] != "abc123def456" {
-		t.Errorf("params de security-audit: %v — attendu le commit en app-revision", audit.Params)
+		t.Errorf("params of security-audit: %v — expected the commit in app-revision", audit.Params)
 	}
-	// L'audit analyse les images **publiées** par la construction, au tag de la
-	// release. Reconstruire pour scanner produirait un artefact différent de celui
-	// qui sera déployé (B17).
+	// The audit analyses the images **published** by the build, at the release's tag. Rebuilding in
+	// order to scan would produce an artifact different from the one that will be deployed.
 	if got := audit.Params["portal-image"]; got != "reg.cadoles.com/vcarroy/portal:3.2.0-rc1" {
 		t.Errorf("image portal %q", got)
 	}
-	// `portal-cli` depuis la migration FrankenPHP de `mse` : la cible `consumer`
-	// du Dockerfile a disparu, remplacée par `cli`, et l'image qu'elle publie a
-	// été renommée avec elle.
+	// `portal-cli` since `mse`'s FrankenPHP migration: the Dockerfile's `consumer` target
+	// disappeared, replaced by `cli`, and the image it publishes was renamed with it.
 	if got := audit.Params["consumer-image"]; got != "reg.cadoles.com/vcarroy/portal-cli:3.2.0-rc1" {
 		t.Errorf("image consumer %q", got)
 	}
 	if static.ReleaseID == nil || *static.ReleaseID != 7 {
-		t.Error("les vérifications doivent porter leur release, sans quoi leur conclusion ne fait rien avancer")
+		t.Error("the verifications must carry their release, otherwise their conclusion advances nothing")
 	}
 }
 
-// Sans commit résolu, la vérification retombe sur la référence : moins bon, mais
-// mieux que de ne rien lancer.
-func TestSansCommitLaVerificationRetombeSurLaReference(t *testing.T) {
+// With no resolved commit, the verification falls back to the reference: less good, but better
+// than launching nothing.
+func TestWithNoCommitTheVerificationFallsBackToTheReference(t *testing.T) {
 	fake := &fakeVerificationStore{}
 
-	// La référence tient lieu de révision : c'est l'appelant qui a déjà fait le
-	// repli, et le plan ne connaît qu'une révision.
-	launched := planifie(t, fake, verificationCatalog(), "3.2.0-rc1", "main")
+	// The reference stands in for the revision: the caller has already made the fallback, and the
+	// plan knows only one revision.
+	launched := openPlan(t, fake, verificationCatalog(), "3.2.0-rc1", "main")
 
 	if launched != 4 {
-		t.Fatalf("%d vérifications lancées", launched)
+		t.Fatalf("%d verifications launched", launched)
 	}
 	for _, job := range fake.enqueued {
 		if job.Kind == "static-tests" && job.Params["revision"] != "main" {
-			t.Errorf("révision %q, attendu le repli sur la référence", job.Params["revision"])
+			t.Errorf("revision %q, expected the fallback to the reference", job.Params["revision"])
 		}
 	}
 }
 
-// Aucune référence du tout : rien à tester, et le dire vaut mieux que d'enfiler
-// un run qui échouera au clone.
-func TestSansReferenceAucuneVerificationNePart(t *testing.T) {
+// No reference at all: nothing to test, and saying so is better than queueing a run that will
+// fail at the clone.
+func TestWithNoReferenceNoVerificationStarts(t *testing.T) {
 	fake := &fakeVerificationStore{}
 
-	if launched := planifie(t, fake, verificationCatalog(), "3.2.0-rc1", ""); launched != 0 {
-		t.Errorf("%d vérifications lancées, attendu 0", launched)
+	if launched := openPlan(t, fake, verificationCatalog(), "3.2.0-rc1", ""); launched != 0 {
+		t.Errorf("%d verifications launched, expected 0", launched)
 	}
 	if len(fake.enqueued) != 0 {
-		t.Errorf("jobs enfilés: %+v", fake.enqueued)
+		t.Errorf("jobs queued: %+v", fake.enqueued)
 	}
 }
 
-// Un échec de mise en file est consigné, pas propagé : la construction a réussi,
-// et perdre ce fait parce qu'un test n'a pas pu être enfilé serait pire.
-func TestUnEchecDeMiseEnFileNeFaitPasEchouerLaConclusion(t *testing.T) {
+// A queueing failure is logged, not propagated: the build succeeded, and losing that fact
+// because a test could not be queued would be worse.
+func TestAQueueingFailureDoesNotFailTheConclusion(t *testing.T) {
 	fake := &fakeVerificationStore{enqueueEr: errors.New("file indisponible")}
 
-	if launched := planifie(t, fake, verificationCatalog(), "3.2.0-rc1", "abc123"); launched != 0 {
-		t.Errorf("%d vérifications lancées malgré l'échec", launched)
+	if launched := openPlan(t, fake, verificationCatalog(), "3.2.0-rc1", "abc123"); launched != 0 {
+		t.Errorf("%d verifications launched despite the failure", launched)
 	}
 }
 
-// Sans catalogue branché, rien ne part — et l'observation continue. Un
-// observateur qui tomberait faute de catalogue cesserait aussi de projeter les
-// runs, ce qui est bien pire que de ne pas enchaîner.
-func TestSansCatalogueRienNePart(t *testing.T) {
+// With no catalogue wired, nothing starts — and observation continues. An observer falling over
+// for want of a catalogue would also stop projecting the runs, which is far worse than not
+// chaining.
+func TestWithNoCatalogueNothingStarts(t *testing.T) {
 	fake := &fakeVerificationStore{}
 
-	if launched := planifie(t, fake, nil, "3.2.0-rc1", "abc123"); launched != 0 {
-		t.Errorf("%d vérifications lancées sans catalogue", launched)
+	if launched := openPlan(t, fake, nil, "3.2.0-rc1", "abc123"); launched != 0 {
+		t.Errorf("%d verifications launched with no catalogue", launched)
 	}
 }
 
@@ -309,51 +299,50 @@ func (f *fakeVerificationStore) JobRelease(_ context.Context, jobID int64) (stor
 	return linked, nil
 }
 
-// L'observateur redélivre les runs terminés : resynchronisation de l'informer,
-// redémarrage du worker. Une même construction conclut donc plusieurs fois, et
-// les vérifications ne doivent partir qu'une.
+// The observer redelivers finished runs: informer resynchronisation, worker restart. One build
+// therefore concludes several times, and the verifications must start only once.
 //
-// Constaté avant correction : cinq paires de tests pour une seule construction,
-// parce que le lancement précédait le contrôle de transition.
-func TestUneConstructionNeLanceSesVerificationsQuUneFois(t *testing.T) {
+// Observed before the fix: five pairs of tests for a single build, because the launch preceded
+// the transition check.
+func TestABuildLaunchesItsVerificationsOnlyOnce(t *testing.T) {
 	fake := &fakeVerificationStore{state: "building"}
 	pipelines := verificationCatalog()
 
-	projet := store.Project{ID: 1, Slug: "mse"}
+	projectRow := store.Project{ID: 1, Slug: "mse"}
 
-	// Un seul planificateur, donc un seul magasin de plans : c'est lui qui porte
-	// l'unicité par (déclencheur, fait), comme la table `plan_runs`.
+	// A single planner, therefore a single plan store: it is what carries the uniqueness per
+	// (trigger, fact), like the `plan_runs` table.
 	planner := NewReleasePlanner(
 		NewEngine(newFakePlanStore(),
 			NewReleaseRunner(pipelines, fake, quietLogger()), quietLogger()),
 		pipelines,
-		automatisationDeTest{plan: DefaultAutomation(pipelines, projet, nil)},
+		testAutomation{plan: DefaultAutomation(pipelines, projectRow, nil)},
 		"reg.cadoles.com/vcarroy", quietLogger())
 
 	ouvrir := func() int {
-		return planner.OpenReleasePlan(context.Background(), projet,
+		return planner.OpenReleasePlan(context.Background(), projectRow,
 			store.Release{ID: 7, Tag: "3.2.0-rc1"}, "abc123")
 	}
 
 	if premier := ouvrir(); premier != 4 {
-		t.Fatalf("%d vérifications lancées, attendu 4", premier)
+		t.Fatalf("%d verifications launched, expected 4", premier)
 	}
 
-	// Redélivrances. L'unicité ne vient plus d'un contrôle de transition écrit à
-	// la main mais de l'exécution elle-même : `CreatePlanRun` rend celle qui
-	// existe, et ses gestes ne sont plus en attente.
+	// Redeliveries. The uniqueness no longer comes from a transition check written by hand but from
+	// the run itself: `CreatePlanRun` returns the one that exists, and its steps are no longer
+	// waiting.
 	for i := range 3 {
 		if reparti := ouvrir(); reparti != 0 {
-			t.Errorf("redélivrance %d: %d geste(s) reparti(s)", i, reparti)
+			t.Errorf("redelivery %d: %d step(s) started again", i, reparti)
 		}
 	}
 
 	if len(fake.enqueued) != 4 {
-		t.Errorf("%d vérifications au total, attendu 4 — les redélivrances ont relancé",
+		t.Errorf("%d verifications in all, expected 4 — the redeliveries relaunched",
 			len(fake.enqueued))
 	}
 }
-func TestUnRunDUneAutreBaseNeConclutAucunJob(t *testing.T) {
+func TestARunOfAnotherDatabaseConcludesNoJob(t *testing.T) {
 	sink := &runSink{logger: quietLogger(), instance: "1d82ae"}
 
 	disowned := sink.disown(tekton.Run{
@@ -362,21 +351,21 @@ func TestUnRunDUneAutreBaseNeConclutAucunJob(t *testing.T) {
 	})
 
 	if disowned.JobID != 0 {
-		t.Errorf("job %d encore rattaché", disowned.JobID)
+		t.Errorf("job %d still attached", disowned.JobID)
 	}
 	if !disowned.Observed {
-		t.Error("un run d'une autre base est observé, pas piloté")
+		t.Error("a run of another database is observed, not driven")
 	}
-	// Le run reste projeté : il a existé, ses journaux ont une valeur, et le
-	// masquer ferait disparaître de l'historique ce que le cluster détient encore.
+	// The run stays projected: it existed, its logs have value, and hiding it would make what the
+	// cluster still holds disappear from the history.
 	if disowned.Name != "mse-static-tests-7" || disowned.Status != tekton.StatusFailed {
-		t.Errorf("le run a été altéré au-delà du rattachement: %+v", disowned)
+		t.Errorf("the run was altered beyond the attachment: %+v", disowned)
 	}
 }
 
-// Un run de la base courante garde son rattachement, sans quoi plus rien
-// n'avancerait.
-func TestUnRunDeLaBaseCouranteResteRattache(t *testing.T) {
+// A run of the current database keeps its attachment, without which nothing would advance any
+// more.
+func TestARunOfTheCurrentDatabaseStaysAttached(t *testing.T) {
 	sink := &runSink{logger: quietLogger(), instance: "1d82ae"}
 
 	run := tekton.Run{
@@ -388,99 +377,94 @@ func TestUnRunDeLaBaseCouranteResteRattache(t *testing.T) {
 	}
 }
 
-// Un run qui n'a jamais été piloté — webhook Gitea, CronJob — traverse inchangé,
-// quelle que soit la base.
-func TestUnRunObserveTraverseInchange(t *testing.T) {
+// A run that was never driven — Gitea webhook, CronJob — passes through unchanged, whatever the
+// database.
+func TestAnObservedRunPassesThroughUnchanged(t *testing.T) {
 	sink := &runSink{logger: quietLogger(), instance: "1d82ae"}
 
 	run := tekton.Run{Name: "e2e-test-run-f8m8c", JobID: 0, Observed: true}
 	if got := sink.disown(run); got.JobID != 0 || !got.Observed {
-		t.Errorf("run observé altéré: %+v", got)
+		t.Errorf("observed run altered: %+v", got)
 	}
 }
 
-// Le catalogue réellement livré, confronté à ce que l'enchaînement lance.
+// The catalogue actually shipped, set against what the chaining launches.
 //
-// Une famille de vérification qui ne déclare aucun artefact tourne, échoue ou
-// réussit, et le dashboard n'en sait rien : son signal reste « non mesuré »
-// pendant que dix scanners ou trois cents tests s'exécutent. C'était le cas de
-// `security-audit` et de `integration-tests`, qui publiaient dans le bucket des
-// pipelines — là où le lecteur ne regarde pas.
+// A verification kind that declares no artifact runs, fails or succeeds, and the dashboard
+// knows nothing of it: its signal stays "not measured" while ten scanners or three hundred
+// tests run. That was the case of `security-audit` and of `integration-tests`, which published
+// into the pipelines' bucket — where the reader does not look.
 //
-// La règle vaut pour tout ce qui est enchaîné : lancer une vérification dont on
-// ne lira pas le verdict revient à ne pas la lancer, en plus cher.
-func TestToutCeQuiEstEnchaineRendUnResultatLisible(t *testing.T) {
+// The rule holds for everything that is chained: launching a verification whose verdict will
+// not be read amounts to not launching it, only more expensively.
+func TestEverythingChainedReturnsAReadableResult(t *testing.T) {
 	shipped := "../../deploy/base/config/catalog.yaml"
 	if _, err := os.Stat(shipped); err != nil {
-		t.Skip("catalogue livré introuvable")
+		t.Skip("shipped catalogue not found")
 	}
 
 	pipelines, err := catalog.Load(shipped)
 	if err != nil {
-		t.Fatalf("catalogue livré: %v", err)
+		t.Fatalf("shipped catalogue: %v", err)
 	}
 
 	kinds := pipelines.VerificationKinds()
 	if len(kinds) == 0 {
-		t.Fatal("le catalogue livré n'enchaîne aucune vérification : une construction réussie conclurait sur rien")
+		t.Fatal("the shipped catalogue chains no verification: a successful build would conclude on nothing")
 	}
 
-	// La règle « une vérification déclare un artefact » est désormais tenue par la
-	// validation du catalogue, que `Load` applique : ce test échouerait plus haut,
-	// au chargement, si le fichier livré la rompait. La vérifier une seconde fois
-	// ici mesurerait le même code deux fois.
+	// The rule "a verification declares an artifact" is now held by the catalogue's validation,
+	// which `Load` applies: this test would fail earlier, at loading, if the file shipped broke it.
+	// Checking it a second time here would measure the same code twice.
 
-	// Le point que la validation ne peut pas trancher seule : ce qui construit
-	// ou re-tague ne doit pas être enchaîné. Une construction qui s'enchaînerait
-	// elle-même bouclerait sans fin, en publiant une image à chaque tour.
+	// The point the validation cannot settle on its own: what builds or re-tags must not be chained.
+	// A build that chained itself would loop endlessly, publishing an image at each round.
 	for _, kind := range []string{"build", "retag"} {
 		if pipelines.IsVerification(kind) {
-			t.Errorf("%s est déclaré vérification : une construction s'enchaînerait elle-même", kind)
+			t.Errorf("%s is declared a verification: a build would chain itself", kind)
 		}
 	}
 }
 
-// Et le pendant : un artefact déclaré doit désigner un paramètre et un nom
-// d'objet, sans quoi l'URL est minée sans que personne sache où l'envoyer —
-// l'ordonnanceur refuse alors le run, et la release reste en attente d'un test
-// qui ne partira pas.
-func TestChaqueArtefactDeclareSonParametreEtSonNom(t *testing.T) {
+// And the counterpart: a declared artifact must name a parameter and an object name, without
+// which the URL is minted with nobody knowing where to send it — the scheduler then refuses the
+// run, and the release stays waiting for a test that will not start.
+func TestEachArtifactDeclaresItsParameterAndItsName(t *testing.T) {
 	shipped := "../../deploy/base/config/catalog.yaml"
 	if _, err := os.Stat(shipped); err != nil {
-		t.Skip("catalogue livré introuvable")
+		t.Skip("shipped catalogue not found")
 	}
 
 	pipelines, err := catalog.Load(shipped)
 	if err != nil {
-		t.Fatalf("catalogue livré: %v", err)
+		t.Fatalf("shipped catalogue: %v", err)
 	}
 
 	for _, pipeline := range pipelines.Pipelines {
 		for name, upload := range pipeline.Uploads {
 			if upload.Param == "" || upload.Artifact == "" {
-				t.Errorf("%s/%s: param=%q artifact=%q — les deux sont requis",
+				t.Errorf("%s/%s: param=%q artifact=%q — both are required",
 					pipeline.Kind, name, upload.Param, upload.Artifact)
 			}
-			// L'extension de l'objet doit dire son contenu : c'est elle qui
-			// décide, à la lecture, s'il faut déballer une archive.
+			// The object's extension must say its content: it is what decides, at reading, whether an
+			// archive must be unpacked.
 			archive := strings.HasSuffix(upload.Artifact, ".tar.gz") ||
 				strings.HasSuffix(upload.Artifact, ".tgz")
 			if (upload.Format == "archive") != archive {
-				t.Errorf("%s/%s: format=%q mais artifact=%q — le lecteur déballera ou non à tort",
+				t.Errorf("%s/%s: format=%q but artifact=%q — the reader will unpack or not, wrongly",
 					pipeline.Kind, name, upload.Format, upload.Artifact)
 			}
 		}
 	}
 }
 
-// Le défaut qui vidait l'écran d'une release : les rapports étaient bien ingérés
-// — neuf lignes en base — mais avec `release_id` nul. L'écran les cherche par
-// release et n'en trouvait aucun, laissant le score « non évalué » sur une
-// release dont les tests avaient tourné et réussi.
+// The defect that emptied a release's screen: the reports were indeed ingested — nine rows in
+// the database — but with a null `release_id`. The screen looks for them by release and found
+// none, leaving the score "not evaluated" on a release whose tests had run and passed.
 //
-// La cause tenait en un champ non renseigné à l'appel : `LoadRun` porte bien
-// `ReleaseID`, et les trois ingestions le laissaient à zéro.
-func TestUnRapportEstRattacheALaReleaseQueSonRunVerifie(t *testing.T) {
+// The cause was one field not filled in at the call: `LoadRun` does carry `ReleaseID`, and the
+// three ingestions left it at zero.
+func TestAReportIsAttachedToTheReleaseItsRunVerifies(t *testing.T) {
 	fake := &fakeVerificationStore{
 		jobRelease: map[int64]store.JobReleaseContext{
 			42: {ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "static-tests"},
@@ -492,78 +476,75 @@ func TestUnRapportEstRattacheALaReleaseQueSonRunVerifie(t *testing.T) {
 	release := sink.releaseOf(context.Background(), tekton.Run{Name: "mse-static-tests-42", JobID: 42})
 
 	if release == nil {
-		t.Fatal("aucune release rendue: les rapports s'enregistreraient orphelins")
+		t.Fatal("no release returned: the reports would be recorded orphaned")
 	}
 	if *release != 7 {
-		t.Errorf("release %d, attendu 7", *release)
+		t.Errorf("release %d, expected 7", *release)
 	}
 }
 
-// Un run que le dashboard n'a pas lancé — webhook Gitea, CronJob nocturne — ne
-// vérifie aucune release. C'est un cas normal : ses rapports restent
-// consultables depuis le run, et leur inventer une release les ferait apparaître
-// dans le score de quelqu'un d'autre.
-func TestUnRunObserveNeRattacheSesRapportsAAucuneRelease(t *testing.T) {
+// A run the dashboard did not launch — Gitea webhook, nightly CronJob — verifies no release. It
+// is a normal case: its reports stay consultable from the run, and inventing a release for them
+// would make them appear in someone else's score.
+func TestAnObservedRunAttachesItsReportsToNoRelease(t *testing.T) {
 	fake := &fakeVerificationStore{}
 	sink := sinkFor(fake, verificationCatalog())
 	sink.releases = fake
 
 	if release := sink.releaseOf(context.Background(),
 		tekton.Run{Name: "php-static-tests-run-abc", JobID: 0}); release != nil {
-		t.Errorf("release %d rendue pour un run observé", *release)
+		t.Errorf("release %d returned for an observed run", *release)
 	}
 }
 
-// Un job sans release non plus — un lancement manuel depuis la file.
-func TestUnLancementManuelNeRattacheRien(t *testing.T) {
+// Nor does a job with no release — a manual launch from the queue.
+func TestAManualLaunchAttachesNothing(t *testing.T) {
 	fake := &fakeVerificationStore{jobRelease: map[int64]store.JobReleaseContext{}}
 	sink := sinkFor(fake, verificationCatalog())
 	sink.releases = fake
 
 	if release := sink.releaseOf(context.Background(),
 		tekton.Run{Name: "mse-static-tests-9", JobID: 9}); release != nil {
-		t.Errorf("release %d rendue pour un job sans release", *release)
+		t.Errorf("release %d returned for a job with no release", *release)
 	}
 }
 
-// L'enchaînement automatique et la relance à l'unité portent sur les mêmes
-// familles, et le catalogue est désormais leur source **unique**. Ce qui suit ne
-// compare donc plus deux listes — il vérifie que le fichier livré désigne bien
-// celles qu'on attend, la déclaration étant maintenant ce qu'on peut se tromper
-// en écrivant.
-func TestLeCatalogueLivreEnchaineLesQuatreFamillesAttendues(t *testing.T) {
+// The automatic chaining and the re-run of a single kind bear on the same kinds, and the
+// catalogue is now their **single** source. What follows therefore no longer compares two lists
+// — it checks that the file shipped does name those expected, the declaration being now what
+// one can get wrong in writing.
+func TestTheShippedCatalogueChainsTheFourExpectedKinds(t *testing.T) {
 	shipped := "../../deploy/base/config/catalog.yaml"
 	if _, err := os.Stat(shipped); err != nil {
-		t.Skip("catalogue livré introuvable")
+		t.Skip("shipped catalogue not found")
 	}
 
 	pipelines, err := catalog.Load(shipped)
 	if err != nil {
-		t.Fatalf("catalogue livré: %v", err)
+		t.Fatalf("shipped catalogue: %v", err)
 	}
 
 	want := []string{"security-audit", "static-tests", "unit-tests", "integration-tests"}
 	got := pipelines.VerificationKinds()
 
 	if len(got) != len(want) {
-		t.Fatalf("familles enchaînées = %v, attendu %v", got, want)
+		t.Fatalf("families chained = %v, expected %v", got, want)
 	}
 	for index, kind := range want {
-		// L'ordre est celui de déclaration, et il devient celui de mise en file :
-		// des runs qui changent de rang à chaque construction rendent impossible
-		// de comparer deux releases d'un coup d'œil.
+		// The order is that of declaration, and it becomes that of queueing: runs changing rank at every
+		// build make it impossible to compare two releases at a glance.
 		if got[index] != kind {
-			t.Errorf("famille %d = %q, attendu %q", index, got[index], kind)
+			t.Errorf("family %d = %q, expected %q", index, got[index], kind)
 		}
 	}
 }
 
 /*
- * Une release construit plusieurs images, et le pipeline n'en traite qu'une par
- * exécution : la conclusion est donc appelée une fois par image.
+ * A release builds several images, and the pipeline handles only one per run: the conclusion is
+ * therefore called once per image.
  *
- * Elle ne doit avancer qu'à la dernière. Avancer à la première ferait partir les
- * vérifications sur une release dont deux images sur trois n'existent pas encore
- * au registre — l'audit et l'intégration échoueraient sur un tirage impossible,
- * et l'échec désignerait le test au lieu de la construction.
+ * It must advance only on the last. Advancing on the first would start the verifications on a
+ * release two of whose three images do not yet exist in the registry — the audit and the
+ * integration would fail on an impossible pull, and the failure would name the test instead of
+ * the build.
  */

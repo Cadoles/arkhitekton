@@ -12,15 +12,15 @@ import (
 )
 
 /*
- * La sonde des demandes de fusion, contre une fausse forge.
+ * The pull-request probe, against a fake forge.
  *
- * Ce qui se joue ici est ce que la sonde doit tenir elle-même — la boucle tient
- * le reste : la **clé de déduplication**, dérivée du dépôt et du numéro, et la
- * **date du fait**, celle de l'ouverture et jamais celle de la lecture.
+ * What is at stake here is what the probe must hold itself — the loop holds the rest: the
+ * **deduplication key**, derived from the repository and the number, and the **fact's date**,
+ * that of the opening and never that of the read.
  */
 
-// forgeDeTest sert une liste de demandes ouvertes.
-func forgeDeTest(t *testing.T, corps string) *httptest.Server {
+// testForge serves a list of open requests.
+func testForge(t *testing.T, corps string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/pulls") {
@@ -28,9 +28,9 @@ func forgeDeTest(t *testing.T, corps string) *httptest.Server {
 			return
 		}
 		if r.URL.Query().Get("state") != "open" {
-			t.Errorf("état demandé = %q, attendu open", r.URL.Query().Get("state"))
+			t.Errorf("state requested = %q, expected open", r.URL.Query().Get("state"))
 		}
-		// La seconde page est vide : la pagination s'arrête sur une page courte.
+		// The second page is empty: pagination stops on a short page.
 		if r.URL.Query().Get("page") != "1" {
 			_, _ = w.Write([]byte(`[]`))
 			return
@@ -40,167 +40,167 @@ func forgeDeTest(t *testing.T, corps string) *httptest.Server {
 }
 
 const deuxDemandes = `[
-  {"number":412,"title":"Corriger le clone","html_url":"https://forge.example.fr/CNOUS/mse/pulls/412",
+  {"number":412,"title":"Fix the clone","html_url":"https://forge.example.fr/CNOUS/mse/pulls/412",
    "user":{"login":"vcarroy"},"head":{"ref":"fix/clone"},"base":{"ref":"main"},
    "created_at":"2026-09-03T10:30:00Z"},
-  {"number":405,"title":"Ancienne demande","html_url":"https://forge.example.fr/CNOUS/mse/pulls/405",
+  {"number":405,"title":"Older request","html_url":"https://forge.example.fr/CNOUS/mse/pulls/405",
    "user":{"login":"autre"},"head":{"ref":"feat/x"},"base":{"ref":"main"},
    "created_at":"2026-08-01T09:00:00Z"}
 ]`
 
-func configDeForge(url string) map[string]string {
-	return map[string]string{"url": url, "token": "jeton"}
+func forgeConfig(url string) map[string]string {
+	return map[string]string{"url": url, "token": "token"}
 }
 
-// Une demande ouverte devient un fait, daté de son ouverture et identifié par son
-// dépôt et son numéro.
-func TestUneDemandeOuverteDevientUnFaitDateDeSonOuverture(t *testing.T) {
-	serveur := forgeDeTest(t, deuxDemandes)
+// An opened request becomes a fact, dated from its opening and identified by its repository
+// and its number.
+func TestAnOpenedRequestBecomesAFactDatedFromItsOpening(t *testing.T) {
+	serveur := testForge(t, deuxDemandes)
 	defer serveur.Close()
 
 	facts, cursor, err := NewGiteaPullProbe(time.Second).Poll(
 		context.Background(),
 		store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"},
-		configDeForge(serveur.URL), "")
+		forgeConfig(serveur.URL), "")
 	if err != nil {
 		t.Fatalf("sonde: %v", err)
 	}
 
 	if len(facts) != 2 {
-		t.Fatalf("%d faits, attendu 2", len(facts))
+		t.Fatalf("%d facts, expected 2", len(facts))
 	}
 
 	premier := facts[0]
 	if premier.Type != "gitea.pull_request.opened" {
-		t.Errorf("type = %q — il doit être préfixé par le plugin", premier.Type)
+		t.Errorf("type = %q — it must be prefixed by the plugin", premier.Type)
 	}
 	if premier.Subject != "#412" {
 		t.Errorf("sujet = %q", premier.Subject)
 	}
-	// La date du **fait**, pas celle de la lecture.
+	// The **fact's** date, not the read's.
 	if !premier.OccurredAt.Equal(time.Date(2026, 9, 3, 10, 30, 0, 0, time.UTC)) {
-		t.Errorf("instant = %v, attendu celui de l'ouverture", premier.OccurredAt)
+		t.Errorf("instant = %v, expected that of the opening", premier.OccurredAt)
 	}
-	// La clé porte le dépôt **et** le numéro : un numéro seul se répéterait d'un
-	// dépôt à l'autre, et deux projets se voleraient leurs faits.
+	// The key carries the repository **and** the number: a number alone would repeat from one
+	// repository to the next, and two projects would steal each other's facts.
 	if premier.DedupKey != "gitea.pull_request.opened:CNOUS/mse:412" {
-		t.Errorf("clé = %q", premier.DedupKey)
+		t.Errorf("key = %q", premier.DedupKey)
 	}
 	for _, champ := range []string{"number", "title", "author", "source_branch", "target_branch", "url"} {
 		if premier.Payload[champ] == "" {
-			t.Errorf("charge sans %q: %v", champ, premier.Payload)
+			t.Errorf("payload without %q: %v", champ, premier.Payload)
 		}
 	}
 
-	// Le curseur retient la plus récente, pour que la passe suivante reparte de là.
+	// The cursor keeps the most recent one, so that the next pass starts again from there.
 	if cursor != "2026-09-03T10:30:00Z" {
 		t.Errorf("curseur = %q", cursor)
 	}
 }
 
-// Le curseur écarte ce qui a été ouvert avant lui.
+// The cursor sets aside what was opened before it.
 //
-// La date de **création** décide, jamais celle de mise à jour : une demande
-// ouverte il y a un mois et commentée ce matin n'est pas un fait nouveau, et la
-// traiter comme tel renotifierait à chaque commentaire.
-func TestLeCurseurEcarteCeQuiEstAnterieur(t *testing.T) {
-	serveur := forgeDeTest(t, deuxDemandes)
+// The **creation** date decides, never the update date: a request opened a month ago and
+// commented on this morning is not a new fact, and treating it as one would re-notify at
+// every comment.
+func TestTheCursorSetsAsideWhatIsEarlier(t *testing.T) {
+	serveur := testForge(t, deuxDemandes)
 	defer serveur.Close()
 
 	facts, _, err := NewGiteaPullProbe(time.Second).Poll(
 		context.Background(),
 		store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"},
-		configDeForge(serveur.URL), "2026-09-01T00:00:00Z")
+		forgeConfig(serveur.URL), "2026-09-01T00:00:00Z")
 	if err != nil {
 		t.Fatalf("sonde: %v", err)
 	}
 
 	if len(facts) != 1 || facts[0].Subject != "#412" {
-		t.Errorf("faits = %d, attendu la seule demande postérieure au curseur", len(facts))
+		t.Errorf("facts = %d, expected only the request later than the cursor", len(facts))
 	}
 }
 
-// Le curseur ne recule jamais.
+// The cursor never moves backwards.
 //
-// Une passe qui ne voit rien de neuf rend le curseur précédent, plutôt qu'un zéro
-// qui relancerait un amorçage et perdrait tout l'historique de déduplication.
-func TestLeCurseurNeReculeJamais(t *testing.T) {
-	serveur := forgeDeTest(t, `[]`)
+// A pass that sees nothing new returns the previous cursor, rather than a zero that would
+// restart a bootstrap and lose the whole deduplication history.
+func TestTheCursorNeverMovesBackwards(t *testing.T) {
+	serveur := testForge(t, `[]`)
 	defer serveur.Close()
 
 	_, cursor, err := NewGiteaPullProbe(time.Second).Poll(
 		context.Background(),
 		store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"},
-		configDeForge(serveur.URL), "2026-09-01T00:00:00Z")
+		forgeConfig(serveur.URL), "2026-09-01T00:00:00Z")
 	if err != nil {
 		t.Fatalf("sonde: %v", err)
 	}
 	if cursor != "2026-09-01T00:00:00Z" {
-		t.Errorf("curseur = %q, attendu inchangé", cursor)
+		t.Errorf("cursor = %q, expected unchanged", cursor)
 	}
 }
 
-// Un dépôt sans aucune demande sort tout de même de l'amorçage.
+// A repository with no request at all still leaves the bootstrap.
 //
-// Sans cela, il y resterait éternellement — et la première demande ouverte
-// n'émettrait rien, puisque la boucle n'émet pas à l'amorçage.
-func TestUnDepotSansDemandeSortDeLAmorcage(t *testing.T) {
-	serveur := forgeDeTest(t, `[]`)
+// Without that it would stay there forever — and the first request opened would emit nothing,
+// since the loop emits nothing at bootstrap.
+func TestARepositoryWithNoRequestLeavesTheBootstrap(t *testing.T) {
+	serveur := testForge(t, `[]`)
 	defer serveur.Close()
 
 	_, cursor, err := NewGiteaPullProbe(time.Second).Poll(
 		context.Background(),
 		store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"},
-		configDeForge(serveur.URL), "")
+		forgeConfig(serveur.URL), "")
 	if err != nil {
 		t.Fatalf("sonde: %v", err)
 	}
 	if cursor == "" {
-		t.Error("curseur vide : le projet resterait en amorçage pour toujours")
+		t.Error("empty cursor: the project would stay in bootstrap forever")
 	}
 }
 
-// Une forge non configurée est nommée comme telle, plutôt que laissée au client.
+// An unconfigured forge is named as such, rather than left to the client.
 //
-// « URL invalide » enverrait chercher une faute de frappe là où c'est un réglage
-// jamais saisi.
-func TestUneForgeNonConfigureeEstNommeeCommeTelle(t *testing.T) {
+// "Invalid URL" would send someone hunting for a typo where it is a setting that was never
+// filled in.
+func TestAnUnconfiguredForgeIsNamedAsSuch(t *testing.T) {
 	probe := NewGiteaPullProbe(time.Second)
 	project := store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"}
 
 	for _, config := range []map[string]string{
 		{},
 		{"url": "https://forge.example.fr"},
-		{"token": "jeton"},
+		{"token": "token"},
 	} {
 		_, _, err := probe.Poll(context.Background(), project, config, "")
-		if err == nil || !strings.Contains(err.Error(), "non configurée") {
+		if err == nil || !strings.Contains(err.Error(), "not configured") {
 			t.Errorf("config %v: %v", config, err)
 		}
 	}
 }
 
-// Un projet sans dépôt déclaré est refusé nommément : la sonde n'a rien à
-// interroger, et le dire évite une erreur d'URL qui ne désignerait pas la cause.
-func TestUnProjetSansDepotEstRefuseNommement(t *testing.T) {
+// A project with no declared repository is refused by name: the probe has nothing to query,
+// and saying so avoids a URL error that would not name the cause.
+func TestAProjectWithNoRepositoryIsRefusedByName(t *testing.T) {
 	_, _, err := NewGiteaPullProbe(time.Second).Poll(
 		context.Background(), store.Project{ID: 1, Slug: "mse"},
-		configDeForge("https://forge.example.fr"), "")
+		forgeConfig("https://forge.example.fr"), "")
 
-	if err == nil || !strings.Contains(err.Error(), "dépôt") {
+	if err == nil || !strings.Contains(err.Error(), "repository") {
 		t.Errorf("%v", err)
 	}
 }
 
-// La sonde se déclare : son plugin, et son curseur propre.
-func TestLaSondeSeDeclare(t *testing.T) {
+// The probe declares itself: its plugin, and its own cursor.
+func TestTheProbeDeclaresItself(t *testing.T) {
 	probe := NewGiteaPullProbe(time.Second)
 
 	if probe.PluginID() != "gitea" {
 		t.Errorf("plugin = %q", probe.PluginID())
 	}
-	// Propre à la sonde et non au plugin : Gitea pourrait en porter d'autres, et
-	// un curseur partagé ferait que l'une avance celui de l'autre.
+	// Specific to the probe and not to the plugin: Gitea could carry others, and a shared cursor
+	// would have one advance the other's.
 	if probe.Source() != "gitea.pull_requests" {
 		t.Errorf("source = %q", probe.Source())
 	}

@@ -12,11 +12,11 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// fakeLogSource sert un journal par task, en une seule tranche.
+// fakeLogSource serves one log per task, in a single chunk.
 type fakeLogSource struct {
 	byTask map[string]string
-	// slice force la lecture par tranches, pour éprouver la boucle de
-	// pagination : le lecteur réel ne rend pas tout d'un coup.
+	// slice forces reading in chunks, to exercise the pagination loop: the real reader does not
+	// return everything at once.
 	slice int
 }
 
@@ -25,7 +25,7 @@ func (f *fakeLogSource) From(
 ) (logs.Segment, error) {
 	text, found := f.byTask[taskName]
 	if !found {
-		return logs.Segment{}, errors.New("journal absent")
+		return logs.Segment{}, errors.New("log missing")
 	}
 
 	size := int64(len(text))
@@ -65,10 +65,9 @@ func markerIngester(t *testing.T, source *fakeLogSource) (*MarkerIngester, *fake
 	return NewMarkerIngester(db, source, results.NewMarkerSet("MSE"), quietLogger()), db
 }
 
-// Le cas que le canal existait pour préserver : un scanner planté publie zéro
-// violation, exactement comme un code sain. Sans le descripteur, il s'affichait
-// « conforme ».
-func TestUnOutilQuiNaPasConcluDevientNonMesure(t *testing.T) {
+// The case the channel existed to preserve: a crashed scanner publishes zero violations,
+// exactly like healthy code. Without the descriptor, it displayed as "compliant".
+func TestAToolThatDidNotConcludeBecomesNotMeasured(t *testing.T) {
 	ingester, db := markerIngester(t, &fakeLogSource{byTask: map[string]string{
 		"audit": `Running trivy...
 ##MSE-META## {"tool":"trivy","exit_code":0,"status":"error","error":"db download failed"}
@@ -84,28 +83,28 @@ func TestUnOutilQuiNaPasConcluDevientNonMesure(t *testing.T) {
 	}
 
 	if len(db.saved) != 1 {
-		t.Fatalf("%d résultat(s) enregistré(s), attendu 1: %+v", len(db.saved), db.saved)
+		t.Fatalf("%d result(s) recorded, expected 1: %+v", len(db.saved), db.saved)
 	}
 	saved := db.saved[0]
-	// `na` et non `fail` : ce n'est pas un verdict sur le code, c'est l'absence de
-	// verdict. Le score sort ce signal du calcul au lieu de compter un zéro faux.
+	// `na` and not `fail`: it is not a verdict on the code, it is the absence of a verdict. The
+	// score takes this signal out of the computation instead of counting a wrong zero.
 	if saved.Status != results.ReportNA {
-		t.Errorf("statut = %q, attendu %q", saved.Status, results.ReportNA)
+		t.Errorf("status = %q, expected %q", saved.Status, results.ReportNA)
 	}
 	if saved.Tool != "trivy" || saved.Family != "security" || saved.RunID != 7 {
-		t.Errorf("résultat = %+v", saved)
+		t.Errorf("result = %+v", saved)
 	}
-	// La cause vient du pipeline : une cellule vide se lirait comme une absence de
-	// mesure sans raison, ce qui est la moitié de l'information.
+	// The cause comes from the pipeline: an empty cell would read as a measurement missing for no
+	// reason, which is half the information.
 	if saved.Summary != "db download failed" {
-		t.Errorf("résumé = %q", saved.Summary)
+		t.Errorf("summary = %q", saved.Summary)
 	}
 }
 
-// Un outil qui a conclu n'est pas enregistré ici : son artefact porte le
-// décompte, et en tirer un second résultat donnerait deux lignes pour une
-// exécution sans que rien ne dise laquelle fait foi.
-func TestUnOutilQuiAConcluNestPasEnregistre(t *testing.T) {
+// A tool that concluded is not recorded here: its artifact carries the count, and drawing a
+// second result from it would give two rows for one run with nothing saying which is
+// authoritative.
+func TestAToolThatConcludedIsNotRecorded(t *testing.T) {
 	ingester, db := markerIngester(t, &fakeLogSource{byTask: map[string]string{
 		"tests": `##MSE-META## {"tool":"phpstan","exit_code":1,"status":"ok"}` + "\n",
 	}})
@@ -116,17 +115,16 @@ func TestUnOutilQuiAConcluNestPasEnregistre(t *testing.T) {
 		t.Fatalf("ingestion: %v", err)
 	}
 
-	// `exit_code: 1` est un **succès** de PHPStan : il sort en 1 dès qu'il trouve
-	// une violation. Confondre les deux ferait passer chaque analyse fructueuse
-	// pour un outil en panne.
+	// `exit_code: 1` is a **success** for PHPStan: it exits with 1 as soon as it finds a
+	// violation. Confusing the two would make every fruitful analysis look like a broken tool.
 	if len(db.saved) != 0 {
-		t.Errorf("un outil qui a conclu ne doit rien enregistrer ici: %+v", db.saved)
+		t.Errorf("a tool that concluded must record nothing here: %+v", db.saved)
 	}
 }
 
-// L'artefact l'emporte quand il existe : l'ingestion est idempotente par outil,
-// et réenregistrer doublerait la ligne.
-func TestUnResultatDejaPresentNestPasDouble(t *testing.T) {
+// The artifact wins when it exists: ingestion is idempotent per tool, and recording again
+// would double the row.
+func TestAResultAlreadyPresentIsNotDoubled(t *testing.T) {
 	ingester, db := markerIngester(t, &fakeLogSource{byTask: map[string]string{
 		"tests": `##MSE-META## {"tool":"phpunit","exit_code":255,"status":"error"}` + "\n",
 	}})
@@ -138,31 +136,31 @@ func TestUnResultatDejaPresentNestPasDouble(t *testing.T) {
 		t.Fatalf("ingestion: %v", err)
 	}
 	if len(db.saved) != 0 {
-		t.Errorf("aucun doublon attendu: %+v", db.saved)
+		t.Errorf("no duplicate expected: %+v", db.saved)
 	}
 }
 
-// Une task sans journal ne doit pas emporter les marqueurs des autres : elle a pu
-// être sautée, ou son collecteur n'a rien scellé.
-func TestUneTaskSansJournalNemporteFasLesAutres(t *testing.T) {
+// A task with no log must not carry off the others' markers: it may have been skipped, or its
+// collector sealed nothing.
+func TestATaskWithNoLogDoesNotCarryOffTheOthers(t *testing.T) {
 	ingester, db := markerIngester(t, &fakeLogSource{byTask: map[string]string{
 		"seconde": `##MSE-META## {"tool":"gitleaks","status":"error","error":"timeout"}` + "\n",
 	}})
 
 	if err := ingester.Ingest(context.Background(), MarkerRun{
-		ID: 10, Name: "audit-run", Tasks: []string{"absente", "seconde"}, Family: "security",
+		ID: 10, Name: "audit-run", Tasks: []string{"missing", "seconde"}, Family: "security",
 	}); err != nil {
 		t.Fatalf("ingestion: %v", err)
 	}
 	if len(db.saved) != 1 || db.saved[0].Tool != "gitleaks" {
-		t.Errorf("résultats = %+v", db.saved)
+		t.Errorf("results = %+v", db.saved)
 	}
 }
 
-// Le journal est lu par tranches, le lecteur réel ne rendant pas tout d'un coup.
-// Un marqueur à cheval sur deux tranches doit rester lisible.
-func TestLeJournalEstLuJusquAuBout(t *testing.T) {
-	descriptor := `##MSE-META## {"tool":"cypress","status":"error","error":"navigateur absent"}`
+// The log is read in chunks, the real reader not returning everything at once. A marker
+// straddling two chunks must stay readable.
+func TestTheLogIsReadToTheEnd(t *testing.T) {
+	descriptor := `##MSE-META## {"tool":"cypress","status":"error","error":"browser missing"}`
 	ingester, db := markerIngester(t, &fakeLogSource{
 		byTask: map[string]string{"e2e": strings.Repeat("bruit\n", 200) + descriptor + "\n"},
 		slice:  17,
@@ -173,14 +171,14 @@ func TestLeJournalEstLuJusquAuBout(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ingestion: %v", err)
 	}
-	if len(db.saved) != 1 || db.saved[0].Summary != "navigateur absent" {
-		t.Errorf("résultats = %+v", db.saved)
+	if len(db.saved) != 1 || db.saved[0].Summary != "browser missing" {
+		t.Errorf("results = %+v", db.saved)
 	}
 }
 
-// Sans famille, rien n'est enregistré : un résultat qui ne se rattache à aucun
-// signal n'apparaîtrait nulle part, et occuperait une ligne pour rien.
-func TestSansFamilleRienNestEnregistre(t *testing.T) {
+// With no family, nothing is recorded: a result attaching to no signal would appear nowhere,
+// and would take up a row for nothing.
+func TestWithNoFamilyNothingIsRecorded(t *testing.T) {
 	ingester, db := markerIngester(t, &fakeLogSource{byTask: map[string]string{
 		"build": `##MSE-META## {"tool":"buildx","status":"error"}` + "\n",
 	}})
@@ -191,13 +189,13 @@ func TestSansFamilleRienNestEnregistre(t *testing.T) {
 		t.Fatalf("ingestion: %v", err)
 	}
 	if len(db.saved) != 0 {
-		t.Errorf("aucun enregistrement attendu sans famille: %+v", db.saved)
+		t.Errorf("no record expected with no family: %+v", db.saved)
 	}
 }
 
-// La famille vient du catalogue, qui la déclare déjà pour ranger les artefacts.
-// Un pipeline qui n'en déclare aucune, ou plusieurs, ne permet pas de classer.
-func TestLaFamilleVientDuCatalogue(t *testing.T) {
+// The family comes from the catalogue, which already declares it in order to file the
+// artifacts. A pipeline declaring none, or several, gives nothing to file by.
+func TestTheFamilyComesFromTheCatalogue(t *testing.T) {
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
 		{Kind: "unit-tests", Uploads: map[string]catalog.Upload{"rapport": {Family: "unit"}}},
 		{Kind: "build"},
@@ -208,23 +206,22 @@ func TestLaFamilleVientDuCatalogue(t *testing.T) {
 		t.Errorf("unit-tests: ok=%v famille=%q", ok, run.Family)
 	}
 	if _, ok := markerRunFor(pipelines, "build", MarkerRun{ID: 1}); ok {
-		t.Error("un pipeline sans artefact ne mesure aucune famille")
+		t.Error("a pipeline with no artifact measures no family")
 	}
-	// Deux familles : rien ne dit à laquelle rattacher un outil, et classer au
-	// hasard déplacerait un verdict sur un signal qui n'a pas été mesuré.
+	// Two families: nothing says which one a tool attaches to, and filing at random would move a
+	// verdict onto a signal that was not measured.
 	if _, ok := markerRunFor(pipelines, "mixte", MarkerRun{ID: 1}); ok {
-		t.Error("un pipeline à deux familles ne permet pas de classer")
+		t.Error("a pipeline with two families gives nothing to file by")
 	}
 	if _, ok := markerRunFor(nil, "unit-tests", MarkerRun{ID: 1}); ok {
-		t.Error("sans catalogue, rien n'est classable")
+		t.Error("with no catalogue, nothing can be filed")
 	}
 }
 
-// Les tranches stockées conservent l'horodatage ajouté par kubelet, et le
-// marqueur n'est donc **pas** en début de ligne. C'est ce qui a fait que le canal
-// ne reconnaissait rien sur les journaux réels alors que tous les tests unitaires
-// passaient : leurs fixtures n'en portaient pas.
-func TestUnMarqueurPrecedeDunHorodatageEstReconnu(t *testing.T) {
+// The stored chunks keep the timestamp kubelet added, and the marker is therefore **not** at
+// the start of the line. That is what made the channel recognise nothing on real logs although
+// every unit test passed: their fixtures carried none.
+func TestAMarkerPrecededByATimestampIsRecognised(t *testing.T) {
 	ingester, db := markerIngester(t, &fakeLogSource{byTask: map[string]string{
 		"audit": "2026-08-25T14:33:39.746477394Z Running trivy...\n" +
 			`2026-08-25T14:33:39.746667427Z ##MSE-META## {"tool":"trivy","status":"error","error":"db download failed"}` + "\n" +
@@ -238,9 +235,9 @@ func TestUnMarqueurPrecedeDunHorodatageEstReconnu(t *testing.T) {
 	}
 
 	if len(db.saved) != 1 {
-		t.Fatalf("%d résultat(s), attendu 1: le marqueur horodaté n'est pas reconnu", len(db.saved))
+		t.Fatalf("%d result(s), expected 1: the timestamped marker is not recognised", len(db.saved))
 	}
 	if db.saved[0].Tool != "trivy" || db.saved[0].Summary != "db download failed" {
-		t.Errorf("résultat = %+v", db.saved[0])
+		t.Errorf("result = %+v", db.saved[0])
 	}
 }

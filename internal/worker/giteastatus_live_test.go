@@ -17,16 +17,16 @@ import (
 )
 
 /*
- * Une action de plugin qui écrit vraiment sur une forge.
+ * A plugin action that really writes to a forge.
  *
- * # Contre une forge à soi, et pas celle de l'équipe
+ * # Against a forge of one's own, and not the team's
  *
- * Un statut de commit est **visible par d'autres** et ne se retire pas. Le prouver
- * sur le dépôt d'une équipe laisserait une trace de test sur un vrai commit pour
- * établir une propriété qui s'établit aussi bien sur une instance jetable.
+ * A commit status is **visible to others** and cannot be withdrawn. Proving it on a team's
+ * repository would leave a test trace on a real commit in order to establish a property that is
+ * established just as well on a throwaway instance.
  *
- * Le test vise donc un Gitea monté pour l'occasion. C'est un vrai serveur, sa
- * vraie API, un vrai jeton, un vrai commit — seule l'adresse change.
+ * The test therefore targets a Gitea stood up for the occasion. It is a real server, its real
+ * API, a real token, a real commit — only the address changes.
  *
  *   docker run -d --name gitea-live -p 3080:3000 \
  *     -e GITEA__security__INSTALL_LOCK=true -e GITEA__database__DB_TYPE=sqlite3 \
@@ -36,35 +36,35 @@ import (
  *   docker exec -u git gitea-live gitea admin user generate-access-token \
  *     -u mse --scopes write:repository --raw
  *
- * puis, le dépôt et son commit créés par l'API :
+ * then, once the repository and its commit are created through the API:
  *
  *   TEST_DATABASE_URL=… GITEA_LIVE=1 GITEA_URL=http://127.0.0.1:3080 \
  *     GITEA_TOKEN=… GITEA_REPO=mse/mse-demo GITEA_COMMIT=… \
- *     go test -count=1 -run TestLiveUnStatutDeCommit ./internal/worker/ -v
+ *     go test -count=1 -run TestLiveACommitStatus ./internal/worker/ -v
  *
- * # Ce qui n'est pas prouvé par un 201
+ * # What a 201 does not prove
  *
- * Que le statut soit **là**. La forge peut accepter un appel et n'en rien faire de
- * visible — un contexte mal formé, un commit inconnu accepté avec indulgence. Le
- * test relit donc le statut par l'API, et c'est cette lecture qui conclut.
+ * That the status is **there**. The forge can accept a call and make nothing visible of it — a
+ * malformed context, an unknown commit accepted leniently. The test therefore re-reads the
+ * status through the API, and it is that read which concludes.
  */
 
-func forgeLocale(t *testing.T) (url, token, repo, commit string) {
+func localForge(t *testing.T) (url, token, repo, commit string) {
 	t.Helper()
 	if os.Getenv("GITEA_LIVE") != "1" {
-		t.Skip("GITEA_LIVE non défini: vérification contre une forge réelle ignorée")
+		t.Skip("GITEA_LIVE not set: the check against a real forge is skipped")
 	}
 	url = os.Getenv("GITEA_URL")
 	token = os.Getenv("GITEA_TOKEN")
 	repo = os.Getenv("GITEA_REPO")
 	commit = os.Getenv("GITEA_COMMIT")
 	if url == "" || token == "" || repo == "" || commit == "" {
-		t.Fatal("GITEA_URL, GITEA_TOKEN, GITEA_REPO et GITEA_COMMIT sont requis")
+		t.Fatal("GITEA_URL, GITEA_TOKEN, GITEA_REPO and GITEA_COMMIT are required")
 	}
 	return url, token, repo, commit
 }
 
-// statutsDuCommit relit les statuts posés sur un commit.
+// commitStatuses re-reads the statuses set on a commit.
 type statutRendu struct {
 	State       string `json:"status"`
 	Context     string `json:"context"`
@@ -72,54 +72,54 @@ type statutRendu struct {
 	TargetURL   string `json:"target_url"`
 }
 
-func statutsDuCommit(t *testing.T, url, token, repo, commit string) []statutRendu {
+func commitStatuses(t *testing.T, url, token, repo, commit string) []statutRendu {
 	t.Helper()
 
-	cible := strings.TrimSuffix(url, "/") + "/api/v1/repos/" + repo + "/statuses/" + commit
-	request, err := http.NewRequest(http.MethodGet, cible, nil)
+	target := strings.TrimSuffix(url, "/") + "/api/v1/repos/" + repo + "/statuses/" + commit
+	request, err := http.NewRequest(http.MethodGet, target, nil)
 	if err != nil {
-		t.Fatalf("requête de relecture: %v", err)
+		t.Fatalf("re-reading request: %v", err)
 	}
 	request.Header.Set("Authorization", "token "+token)
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		t.Fatalf("relecture des statuts: %v", err)
+		t.Fatalf("re-reading the statuses: %v", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		t.Fatalf("relecture des statuts: la forge a répondu %d", response.StatusCode)
+		t.Fatalf("re-reading the statuses: the forge answered %d", response.StatusCode)
 	}
 
 	var statuts []statutRendu
 	if err := json.NewDecoder(response.Body).Decode(&statuts); err != nil {
-		t.Fatalf("décodage des statuts: %v", err)
+		t.Fatalf("decoding the statuses: %v", err)
 	}
 	return statuts
 }
 
-func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
-	url, token, repo, commit := forgeLocale(t)
-	db := baseJetable(t)
+func TestLiveACommitStatusIsReallySet(t *testing.T) {
+	url, token, repo, commit := localForge(t)
+	db := throwawayDatabase(t)
 	ctx := context.Background()
 
-	cipher, err := secrets.New(cleDeChiffrementDeTest)
+	cipher, err := secrets.New(testEncryptionKey)
 	if err != nil {
 		t.Fatalf("chiffreur: %v", err)
 	}
 	scelle, err := cipher.Seal(token)
 	if err != nil {
-		t.Fatalf("scellement du jeton: %v", err)
+		t.Fatalf("sealing the token: %v", err)
 	}
 
 	projectID, err := db.CreateProject(ctx, store.Project{
-		// Le dépôt vient des paramètres du projet, et non du geste : c'est là
-		// qu'il est déclaré une fois pour toutes.
-		Repository: repo, Label: "Démo", ForgeURL: url,
+		// The repository comes from the project's settings, and not from the step: that is where it is
+		// declared once and for all.
+		Repository: repo, Label: "Demo", ForgeURL: url,
 		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
 	})
 	if err != nil {
-		t.Fatalf("projet: %v", err)
+		t.Fatalf("projectRow: %v", err)
 	}
 
 	if err := db.SetPluginSettings(ctx, store.PluginSettings{
@@ -131,16 +131,15 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 	if err := db.SetProjectPluginSettings(ctx, projectID, store.PluginSettings{
 		PluginID: "gitea", Enabled: true,
 	}, "test"); err != nil {
-		t.Fatalf("plugin du projet: %v", err)
+		t.Fatalf("project's plugin: %v", err)
 	}
 
-	// Le contexte et le tag sont surchargeables. Sur une forge jetable ils peuvent
-	// ressembler à un vrai contrôle ; sur un dépôt réel, un statut ne se retire
-	// pas, et il doit s'annoncer pour ce qu'il est — une vérification — plutôt que
-	// de se faire passer pour un verdict de CI que personne n'a demandé.
+	// The context and the tag can be overridden. On a throwaway forge they may look like a real
+	// check; on a real repository, a status cannot be withdrawn, and it must announce itself for
+	// what it is — a verification — rather than pass for a CI verdict nobody asked for.
 	contexte := os.Getenv("GITEA_STATUS_CONTEXT")
 	if contexte == "" {
-		contexte = "arkhitekton/vérifications"
+		contexte = "arkhitekton/verifications"
 	}
 	tag := os.Getenv("GITEA_STATUS_TAG")
 	if tag == "" {
@@ -148,17 +147,16 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 	}
 
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
-		ProjectID: projectID, Name: "Statut sur construction conclue",
+		ProjectID: projectID, Name: "Status on a concluded build",
 		EventType: string(event.ReleaseCreated), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{
 			Gestes: []plan.Geste{{
 				Kind: plan.GesteAction, Ref: "gitea.status",
 				Params: map[string]string{
 					"commit": "{git_ref}",
-					// En dur, et c'est le bon usage : l'issue d'un fait et l'état
-					// d'un statut de forge sont deux vocabulaires distincts. Une
-					// réaction qui veut refléter l'issue s'apparie sur `outcome`.
-					// Voir le test suivant, qui tient l'autre moitié.
+					// Literal, and that is the right usage: a fact's outcome and a forge status's state are two
+					// distinct vocabularies. A reaction that wants to mirror the outcome matches on `outcome`. See
+					// the next test, which holds the other half.
 					"state":       "success",
 					"context":     contexte,
 					"description": "Release {tag} construite",
@@ -167,54 +165,53 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 			}},
 		}}},
 	}, "test"); err != nil {
-		t.Fatalf("réaction: %v", err)
+		t.Fatalf("reaction: %v", err)
 	}
 
-	// Le runner d'actions, avec les actions de plugin branchées — l'assemblage de
-	// `main`, sans le client de webhook dont ce geste n'a pas besoin.
+	// The action runner, with the plugin actions wired — `main`'s assembly, without the webhook
+	// client this step does not need.
 	actions := NewActionRunner(nil,
-		resolveurDeTest{db: db, cipher: cipher}, quietLogger()).
+		testResolver{db: db, cipher: cipher}, quietLogger()).
 		WithPlugins(NewPluginActionRunner(db, cipher, 15*time.Second, quietLogger()))
 
-	engine := NewEngine(db, gesteRouter{actions: actions}, quietLogger())
+	engine := NewEngine(db, stepRouter{actions: actions}, quietLogger())
 	dispatcher := NewDispatcher(db, engine, quietLogger())
 
-	// Le fait déclencheur passe par le vrai chemin d'écriture : la provenance des
-	// faits a déjà été éprouvée par la sonde, et la refaire ici lierait ce test à
-	// la disponibilité de Redmine.
+	// The triggering fact goes through the real write path: where facts come from has already been
+	// exercised by the probe, and doing it again here would tie this test to Redmine's
+	// availability.
 	fait := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 42,
 		tag, "pre", commit, "1.8.0")
 	neuf, err := db.RecordEvent(ctx, fait)
 	if err != nil {
-		t.Fatalf("écriture du fait: %v", err)
+		t.Fatalf("writing the fact: %v", err)
 	}
 	if !neuf {
-		t.Fatal("le fait était déjà connu: rien ne se déclencherait")
+		t.Fatal("the fact was already known: nothing would trigger")
 	}
 	dispatcher.Dispatch(ctx, fait)
 
 	/*
-	 * 1. L'exécution conclut.
+	 * 1. The run concludes.
 	 */
 	executions, err := db.ListPlanRuns(ctx, projectID, 0)
 	if err != nil {
-		t.Fatalf("exécutions: %v", err)
+		t.Fatalf("runs: %v", err)
 	}
 	if len(executions) != 1 {
-		t.Fatalf("%d exécutions, attendu 1", len(executions))
+		t.Fatalf("%d runs, expected 1", len(executions))
 	}
 	if executions[0].State != "succeeded" {
-		t.Fatalf("exécution %q — motif: %s",
-			executions[0].State, detailPremierGeste(executions[0]))
+		t.Fatalf("run %q — reason: %s",
+			executions[0].State, firstStepDetail(executions[0]))
 	}
 
 	/*
-	 * 2. Et le statut est **là**, relu depuis la forge.
+	 * 2. And the status is **there**, re-read from the forge.
 	 *
-	 * C'est la seule assertion qui compte : un appel accepté n'est pas un statut
-	 * posé.
+	 * It is the only assertion that counts: an accepted call is not a status set.
 	 */
-	statuts := statutsDuCommit(t, url, token, repo, commit)
+	statuts := commitStatuses(t, url, token, repo, commit)
 	var pose *statutRendu
 	for index := range statuts {
 		if statuts[index].Context == contexte {
@@ -223,46 +220,46 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 		}
 	}
 	if pose == nil {
-		t.Fatalf("aucun statut de contexte %q sur %s (%d statuts lus)",
+		t.Fatalf("no status with context %q on %s (%d statuses read)",
 			contexte, commit[:8], len(statuts))
 	}
 
 	if pose.State != "success" {
-		t.Errorf("état %q, attendu success", pose.State)
+		t.Errorf("state %q, expected success", pose.State)
 	}
 	if !strings.Contains(pose.Description, tag) {
-		t.Errorf("description %q — elle doit porter le tag interpolé", pose.Description)
+		t.Errorf("description %q — it must carry the interpolated tag", pose.Description)
 	}
 	if !strings.Contains(pose.TargetURL, tag) {
-		t.Errorf("lien %q — il doit porter le tag interpolé", pose.TargetURL)
+		t.Errorf("link %q — it must carry the interpolated tag", pose.TargetURL)
 	}
-	t.Logf("statut relu sur %s: %s / %s — %q",
+	t.Logf("status re-read on %s: %s / %s — %q",
 		commit[:8], pose.Context, pose.State, pose.Description)
 }
 
-// Un plugin éteint ne parle pas à la forge, même avec une connexion valide.
+// A switched-off plugin does not speak to the forge, even with a valid connection.
 //
-// La configuration reste en base quand on éteint un plugin : partir avec
-// enverrait un statut au nom d'une intégration qu'on croit désactivée.
-func TestLiveUnPluginEteintNecritPasSurLaForge(t *testing.T) {
-	url, token, repo, commit := forgeLocale(t)
-	db := baseJetable(t)
+// The configuration stays in the database when a plugin is switched off: starting with it would
+// send a status in the name of an integration one believes disabled.
+func TestLiveASwitchedOffPluginDoesNotWriteToTheForge(t *testing.T) {
+	url, token, repo, commit := localForge(t)
+	db := throwawayDatabase(t)
 	ctx := context.Background()
 
-	cipher, _ := secrets.New(cleDeChiffrementDeTest)
+	cipher, _ := secrets.New(testEncryptionKey)
 	scelle, err := cipher.Seal(token)
 	if err != nil {
 		t.Fatalf("scellement: %v", err)
 	}
 
 	projectID, err := db.CreateProject(ctx, store.Project{
-		Repository: repo, Label: "Démo", ForgeURL: url,
+		Repository: repo, Label: "Demo", ForgeURL: url,
 		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
 	})
 	if err != nil {
-		t.Fatalf("projet: %v", err)
+		t.Fatalf("projectRow: %v", err)
 	}
-	// La connexion est là, complète et valide — mais éteinte.
+	// The connection is there, complete and valid — but switched off.
 	if err := db.SetPluginSettings(ctx, store.PluginSettings{
 		PluginID: "gitea", Enabled: false,
 		Config: map[string]string{"url": url, "token": scelle},
@@ -270,9 +267,9 @@ func TestLiveUnPluginEteintNecritPasSurLaForge(t *testing.T) {
 		t.Fatalf("plugin global: %v", err)
 	}
 
-	const contexte = "arkhitekton/ne-doit-pas-apparaitre"
+	const contexte = "arkhitekton/must-not-appear"
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
-		ProjectID: projectID, Name: "Statut sur plugin éteint",
+		ProjectID: projectID, Name: "Status on a switched-off plugin",
 		EventType: string(event.ReleaseCreated), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{
 			Gestes: []plan.Geste{{
@@ -283,84 +280,81 @@ func TestLiveUnPluginEteintNecritPasSurLaForge(t *testing.T) {
 			}},
 		}}},
 	}, "test"); err != nil {
-		t.Fatalf("réaction: %v", err)
+		t.Fatalf("reaction: %v", err)
 	}
 
-	actions := NewActionRunner(nil, resolveurDeTest{db: db, cipher: cipher}, quietLogger()).
+	actions := NewActionRunner(nil, testResolver{db: db, cipher: cipher}, quietLogger()).
 		WithPlugins(NewPluginActionRunner(db, cipher, 15*time.Second, quietLogger()))
 	dispatcher := NewDispatcher(db,
-		NewEngine(db, gesteRouter{actions: actions}, quietLogger()), quietLogger())
+		NewEngine(db, stepRouter{actions: actions}, quietLogger()), quietLogger())
 
 	fait := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 43,
 		"1.8.0-rc2", "pre", commit, "1.8.0")
 	if _, err := db.RecordEvent(ctx, fait); err != nil {
-		t.Fatalf("écriture du fait: %v", err)
+		t.Fatalf("writing the fact: %v", err)
 	}
 	dispatcher.Dispatch(ctx, fait)
 
-	// Rien n'est arrivé sur la forge.
-	for _, statut := range statutsDuCommit(t, url, token, repo, commit) {
+	// Nothing arrived at the forge.
+	for _, statut := range commitStatuses(t, url, token, repo, commit) {
 		if statut.Context == contexte {
-			t.Fatalf("un statut a été posé alors que le plugin est éteint: %+v", statut)
+			t.Fatalf("a status was set although the plugin is switched off: %+v", statut)
 		}
 	}
 
-	// Et le refus se lit, plutôt que de passer pour un succès silencieux.
+	// And the refusal can be read, rather than passing for a silent success.
 	executions, err := db.ListPlanRuns(ctx, projectID, 0)
 	if err != nil {
-		t.Fatalf("exécutions: %v", err)
+		t.Fatalf("runs: %v", err)
 	}
 	if len(executions) != 1 || executions[0].State != "failed" {
-		t.Fatalf("exécutions = %+v, attendue une échouée", executions)
+		t.Fatalf("runs = %+v, expected one failed", executions)
 	}
-	motif := detailPremierGeste(executions[0])
-	t.Logf("refus consigné: %s", motif)
-	// Le refus vient du magasin, qui rend `ErrPluginDisabled` avant même que le
-	// runner ait à le constater. Ce qui compte est qu'il nomme le plugin et son
-	// état, pas la formulation exacte.
-	if !strings.Contains(motif, "gitea") || !strings.Contains(motif, "désactiv") {
-		t.Errorf("motif %q — il doit nommer le plugin et son extinction", motif)
+	motif := firstStepDetail(executions[0])
+	t.Logf("refusal recorded: %s", motif)
+	// The refusal comes from the store, which returns `ErrPluginDisabled` before the runner even
+	// has to observe it. What counts is that it names the plugin and its state, not the exact
+	// wording.
+	if !strings.Contains(motif, "gitea") || !strings.Contains(motif, "disabled") {
+		t.Errorf("reason %q — it must name the plugin and its being switched off", motif)
 	}
 }
 
-// Un état hors du vocabulaire de la forge est refusé **avant** l'appel.
+// A state outside the forge's vocabulary is refused **before** the call.
 //
-// # Le défaut que la vérification réelle a révélé
+// # The defect the real check revealed
 //
-// Le gabarit fautif s'écrivait `state: {outcome}` : refléter l'issue du fait,
-// qui rend `succeeded` parce que c'est le vocabulaire d'un fait, là où la forge
-// dit `success`. Gitea a **accepté** l'appel et stocké l'état tel quel : un
-// statut hors de son propre vocabulaire, qu'aucune interface ne sait afficher, et
-// pas un message.
+// The offending template was written `state: {outcome}`: mirroring the fact's outcome, which
+// yields `succeeded` because that is a fact's vocabulary, where the forge says `success`. Gitea
+// **accepted** the call and stored the state as it was: a status outside its own vocabulary,
+// which no interface can display, and not a message.
 //
-// Un destinataire indulgent est le pire des cas — rien n'échoue, et rien ne
-// marche. Le jeu fermé est donc revérifié après interpolation, et le geste échoue
-// en nommant ce qui est admis.
+// A lenient recipient is the worst case — nothing fails, and nothing works. The closed set is
+// therefore checked again after interpolation, and the step fails naming what is allowed.
 //
-// # Pourquoi le gabarit du test a changé
+// # Why the test's template changed
 //
-// `outcome` n'existe plus : il vivait sur `release.built`, retiré par la
-// réduction des faits (doc 15 §15.3). Le piège, lui, n'a pas bougé — **tout**
-// champ de charge interpolé dans un paramètre à jeu fermé le tend. Le test le
-// tend donc avec `{kind}`, qui rend `pre` : une valeur parfaitement légitime pour
-// une release, et que Gitea n'a aucune raison d'admettre comme état.
-func TestLiveUnEtatHorsVocabulaireNatteintPasLaForge(t *testing.T) {
-	url, token, repo, commit := forgeLocale(t)
-	db := baseJetable(t)
+// `outcome` no longer exists: it lived on `release.built`, removed when the facts were reduced.
+// The trap, though, has not moved — **any** payload field interpolated into a closed-set
+// parameter sets it. The test therefore sets it with `{kind}`, which yields `pre`: a perfectly
+// legitimate value for a release, and one Gitea has no reason to allow as a state.
+func TestLiveAStateOutsideTheVocabularyDoesNotReachTheForge(t *testing.T) {
+	url, token, repo, commit := localForge(t)
+	db := throwawayDatabase(t)
 	ctx := context.Background()
 
-	cipher, _ := secrets.New(cleDeChiffrementDeTest)
+	cipher, _ := secrets.New(testEncryptionKey)
 	scelle, err := cipher.Seal(token)
 	if err != nil {
 		t.Fatalf("scellement: %v", err)
 	}
 
 	projectID, err := db.CreateProject(ctx, store.Project{
-		Repository: repo, Label: "Démo", ForgeURL: url,
+		Repository: repo, Label: "Demo", ForgeURL: url,
 		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
 	})
 	if err != nil {
-		t.Fatalf("projet: %v", err)
+		t.Fatalf("projectRow: %v", err)
 	}
 	if err := db.SetPluginSettings(ctx, store.PluginSettings{
 		PluginID: "gitea", Enabled: true,
@@ -371,7 +365,7 @@ func TestLiveUnEtatHorsVocabulaireNatteintPasLaForge(t *testing.T) {
 
 	const contexte = "arkhitekton/vocabulaire-invalide"
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
-		ProjectID: projectID, Name: "Statut reflétant l'issue",
+		ProjectID: projectID, Name: "Status mirroring the outcome",
 		EventType: string(event.ReleaseCreated), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{
 			Gestes: []plan.Geste{{
@@ -382,51 +376,51 @@ func TestLiveUnEtatHorsVocabulaireNatteintPasLaForge(t *testing.T) {
 			}},
 		}}},
 	}, "test"); err != nil {
-		t.Fatalf("réaction: %v", err)
+		t.Fatalf("reaction: %v", err)
 	}
 
-	actions := NewActionRunner(nil, resolveurDeTest{db: db, cipher: cipher}, quietLogger()).
+	actions := NewActionRunner(nil, testResolver{db: db, cipher: cipher}, quietLogger()).
 		WithPlugins(NewPluginActionRunner(db, cipher, 15*time.Second, quietLogger()))
 	dispatcher := NewDispatcher(db,
-		NewEngine(db, gesteRouter{actions: actions}, quietLogger()), quietLogger())
+		NewEngine(db, stepRouter{actions: actions}, quietLogger()), quietLogger())
 
 	fait := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 44,
 		"1.8.0-rc3", "pre", commit, "1.8.0")
 	if _, err := db.RecordEvent(ctx, fait); err != nil {
-		t.Fatalf("écriture du fait: %v", err)
+		t.Fatalf("writing the fact: %v", err)
 	}
 	dispatcher.Dispatch(ctx, fait)
 
-	// Rien n'a atteint la forge. C'est l'assertion qui compte : avant la
-	// correction, un statut d'état `succeeded` y était bel et bien déposé.
-	for _, statut := range statutsDuCommit(t, url, token, repo, commit) {
+	// Nothing reached the forge. That is the assertion that counts: before the fix, a status with
+	// state `succeeded` was indeed deposited there.
+	for _, statut := range commitStatuses(t, url, token, repo, commit) {
 		if statut.Context == contexte {
-			t.Fatalf("un statut hors vocabulaire a été posé: %+v", statut)
+			t.Fatalf("a status outside the vocabulary was set: %+v", statut)
 		}
 	}
 
 	executions, err := db.ListPlanRuns(ctx, projectID, 0)
 	if err != nil {
-		t.Fatalf("exécutions: %v", err)
+		t.Fatalf("runs: %v", err)
 	}
 	if len(executions) != 1 || executions[0].State != "failed" {
-		t.Fatalf("exécutions = %+v, attendue une échouée", executions)
+		t.Fatalf("runs = %+v, expected one failed", executions)
 	}
-	motif := detailPremierGeste(executions[0])
-	t.Logf("refus consigné: %s", motif)
-	// Le message doit porter les trois éléments du diagnostic : ce qu'on a obtenu,
-	// d'où ça vient, et ce qui est admis.
-	for _, attendu := range []string{"pre", "{kind}", "success"} {
-		if !strings.Contains(motif, attendu) {
-			t.Errorf("motif %q — il doit porter %q", motif, attendu)
+	motif := firstStepDetail(executions[0])
+	t.Logf("refusal recorded: %s", motif)
+	// The message must carry the three elements of the diagnosis: what was obtained, where it comes
+	// from, and what is allowed.
+	for _, expected := range []string{"pre", "{kind}", "success"} {
+		if !strings.Contains(motif, expected) {
+			t.Errorf("reason %q — it must carry %q", motif, expected)
 		}
 	}
 }
 
-// detailPremierGeste rend le motif du premier geste d'une exécution.
-func detailPremierGeste(run store.PlanRunSummary) string {
+// firstStepDetail returns the reason of a run's first step.
+func firstStepDetail(run store.PlanRunSummary) string {
 	if len(run.Steps) == 0 {
-		return "(aucun geste)"
+		return "(no step)"
 	}
 	return run.Steps[0].Detail
 }

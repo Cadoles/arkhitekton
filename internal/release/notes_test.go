@@ -8,10 +8,10 @@ import (
 // The convention as it is written in pull request titles and commit messages.
 func TestIssueNumbersAreReadFromTheText(t *testing.T) {
 	cases := map[string][]string{
-		"#1234 fixes pagination":            {"1234"},
-		"Fixes pagination (#1234)":          {"1234"},
+		"#1234 fixes pagination":                 {"1234"},
+		"Fixes pagination (#1234)":               {"1234"},
 		"fix: pagination\n\nRefs #1234 et #5678": {"1234", "5678"},
-		"no number here":                       nil,
+		"no number here":                         nil,
 		// The same number cited twice names one issue.
 		"#42 puis encore #42": {"42"},
 	}

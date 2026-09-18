@@ -24,9 +24,8 @@ func (f *fakeLoadStore) SaveLoadResult(
 ) (int64, error) {
 	f.saved = append(f.saved, result)
 	f.measures = append(f.measures, measures)
-	// Le faux doit modéliser la base : après enregistrement, le scénario existe.
-	// Sans cela `TestIngestIsIdempotent` passait pour une mauvaise raison — la
-	// garde n'était jamais réellement franchie.
+	// The fake must model the database: after recording, the scenario exists. Without that,
+	// `TestIngestIsIdempotent` passed for a bad reason — the guard was never actually crossed.
 	if f.known == nil {
 		f.known = map[string]bool{}
 	}
@@ -57,7 +56,7 @@ func (f fakeObjects) List(_ context.Context, prefix string) ([]ObjectRef, error)
 func (f fakeObjects) Get(_ context.Context, key string) (io.ReadCloser, error) {
 	content, found := f[key]
 	if !found {
-		return nil, errors.New("objet absent")
+		return nil, errors.New("object missing")
 	}
 	return io.NopCloser(strings.NewReader(content)), nil
 }
@@ -77,7 +76,7 @@ func TestIngestSavesOneCampaignPerScenario(t *testing.T) {
 	objects := fakeObjects{
 		"raw/load-test-1/k6/panier-summary.json":    summaryJSON,
 		"raw/load-test-1/k6/recherche-summary.json": summaryJSON,
-		// Ni un résumé, ni du JSON : ignoré sans faire échouer le reste.
+		// Neither a summary nor JSON: ignored without failing the rest.
 		"raw/load-test-1/k6/console.log": "bruit",
 	}
 	releases, ingester := newIngester(objects)
@@ -87,30 +86,30 @@ func TestIngestSavesOneCampaignPerScenario(t *testing.T) {
 	}
 
 	if len(releases.saved) != 2 {
-		t.Fatalf("%d campagne(s), attendu 2", len(releases.saved))
+		t.Fatalf("%d campaign(s), expected 2", len(releases.saved))
 	}
 	scenarios := map[string]bool{}
 	for _, result := range releases.saved {
 		scenarios[result.Scenario] = true
-		// Les conditions constatées voyagent avec la campagne : sans elles, la
-		// mesure n'est qu'un nombre.
+		// The observed conditions travel with the campaign: without them, the measurement is only a
+		// number.
 		if !result.Exclusive || result.ConcurrentJobs != 0 {
 			t.Errorf("conditions = %+v", result)
 		}
 	}
 	if !scenarios["panier"] || !scenarios["recherche"] {
-		t.Errorf("scénarios = %v", scenarios)
+		t.Errorf("scenarios = %v", scenarios)
 	}
 }
 
-// L'observateur revoit un run terminé au redémarrage. Réenregistrer produirait
-// des points d'historique en double, c'est-à-dire une tendance fausse.
+// The observer sees a finished run again at restart. Recording again would produce duplicate
+// history points, that is, a false trend.
 func TestIngestIsIdempotent(t *testing.T) {
 	objects := fakeObjects{"raw/load-test-1/k6/panier-summary.json": summaryJSON}
 	releases, ingester := newIngester(objects)
 
 	if err := ingester.Ingest(context.Background(), LoadRun{ID: 1, Name: "load-test-1"}); err != nil {
-		t.Fatalf("première ingestion: %v", err)
+		t.Fatalf("first ingestion: %v", err)
 	}
 	releases.known["panier"] = true
 
@@ -118,12 +117,12 @@ func TestIngestIsIdempotent(t *testing.T) {
 		t.Fatalf("seconde ingestion: %v", err)
 	}
 	if len(releases.saved) != 1 {
-		t.Errorf("%d campagne(s) enregistrée(s), attendu 1", len(releases.saved))
+		t.Errorf("%d campaign(s) recorded, expected 1", len(releases.saved))
 	}
 }
 
-// Une campagne à quatre scénarios ne doit pas être perdue en entier parce que
-// l'un d'eux a produit un fichier tronqué.
+// A four-scenario campaign must not be lost whole because one of them produced a truncated
+// file.
 func TestOneBadSummaryDoesNotLoseTheOthers(t *testing.T) {
 	objects := fakeObjects{
 		"raw/load-test-1/k6/panier-summary.json":  summaryJSON,
@@ -133,30 +132,30 @@ func TestOneBadSummaryDoesNotLoseTheOthers(t *testing.T) {
 
 	err := ingester.Ingest(context.Background(), LoadRun{ID: 1, Name: "load-test-1"})
 	if err == nil {
-		t.Error("l'échec partiel doit être signalé")
+		t.Error("the partial failure must be reported")
 	}
 	if len(releases.saved) != 1 {
-		t.Errorf("%d campagne(s) enregistrée(s), attendu 1", len(releases.saved))
+		t.Errorf("%d campaign(s) recorded, expected 1", len(releases.saved))
 	}
 	if !strings.Contains(err.Error(), "tronque") {
-		t.Errorf("erreur = %v, attendu le nom du résumé fautif", err)
+		t.Errorf("error = %v, expected the name of the offending summary", err)
 	}
 }
 
-// Le runner a pu échouer avant de publier : le run porte déjà son échec.
+// The runner may have failed before publishing: the run already carries its failure.
 func TestIngestWithoutSummariesIsNotAnError(t *testing.T) {
 	releases, ingester := newIngester(fakeObjects{})
 
 	if err := ingester.Ingest(context.Background(), LoadRun{ID: 1, Name: "load-test-1"}); err != nil {
-		t.Errorf("erreur = %v, attendu aucune", err)
+		t.Errorf("error = %v, expected none", err)
 	}
 	if len(releases.saved) != 0 {
-		t.Error("rien ne doit être enregistré")
+		t.Error("nothing must be recorded")
 	}
 }
 
-// Un run déclenché hors dashboard n'a pas de job : ses résultats valent autant,
-// mais on ne peut rien affirmer de ses conditions.
+// A run triggered outside the dashboard has no job: its results are worth as much, but nothing
+// can be asserted about its conditions.
 func TestIngestWithoutAJobAssumesNonExclusive(t *testing.T) {
 	objects := fakeObjects{"raw/load-test-1/k6/panier-summary.json": summaryJSON}
 	releases, ingester := newIngester(objects)
@@ -166,7 +165,7 @@ func TestIngestWithoutAJobAssumesNonExclusive(t *testing.T) {
 		t.Fatalf("ingestion: %v", err)
 	}
 	if releases.saved[0].Exclusive {
-		t.Error("sans job, aucune exclusivité ne peut être affirmée")
+		t.Error("with no job, no exclusivity can be asserted")
 	}
 }
 
@@ -182,19 +181,18 @@ func TestSummariseNamesTheFailedThresholds(t *testing.T) {
 	if err := ingester.Ingest(context.Background(), LoadRun{ID: 1, Name: "load-test-1"}); err != nil {
 		t.Fatalf("ingestion: %v", err)
 	}
-	// Savoir *quel* seuil a lâché est ce qui décide de la suite.
+	// Knowing *which* threshold gave way is what decides what follows.
 	if !strings.Contains(releases.saved[0].Summary, "p(95)<500") {
-		t.Errorf("résumé = %q", releases.saved[0].Summary)
+		t.Errorf("summary = %q", releases.saved[0].Summary)
 	}
 }
 
-// Le contrat publie `load` comme nom de famille ; les Tasks du MSE écrivent
-// sous `k6`, du nom de l'outil. Les deux doivent être lus.
+// The contract publishes `load` as the kind's name; the MSE Tasks write under `k6`, from the
+// tool's name. Both must be read.
 //
-// Sans cela, un projet qui suit la convention documentée ne voit rien : l'écran
-// de charge reste vide et rien ne dit que le répertoire n'a jamais été ouvert
-// (doc 12 §12.9, lot F).
-func TestLeRepertoireDeFamillePublieEstLuPourLaCharge(t *testing.T) {
+// Without that, a project following the documented convention sees nothing: the load screen
+// stays empty and nothing says the directory was never opened.
+func TestThePublishedFamilyDirectoryIsReadForLoad(t *testing.T) {
 	objects := fakeObjects{
 		"raw/load-test-2/load/panier-summary.json": summaryJSON,
 	}
@@ -204,14 +202,14 @@ func TestLeRepertoireDeFamillePublieEstLuPourLaCharge(t *testing.T) {
 		t.Fatalf("ingestion: %v", err)
 	}
 	if len(releases.saved) != 1 {
-		t.Fatalf("%d campagne(s) — le répertoire publié par le contrat n'est pas lu",
+		t.Fatalf("%d campaign(s) — the directory published by the contract is not read",
 			len(releases.saved))
 	}
 }
 
-// Les deux répertoires cohabitent sans se doubler : un run qui publierait sous
-// les deux noms produirait deux fois la même campagne, donc une tendance fausse.
-func TestLesDeuxRepertoiresDeChargeNeSeDoublentPas(t *testing.T) {
+// The two directories coexist without doubling up: a run publishing under both names would
+// produce the same campaign twice, therefore a false trend.
+func TestTheTwoLoadDirectoriesDoNotDoubleUp(t *testing.T) {
 	objects := fakeObjects{
 		"raw/load-test-3/k6/panier-summary.json":   summaryJSON,
 		"raw/load-test-3/load/panier-summary.json": summaryJSON,
@@ -222,7 +220,7 @@ func TestLesDeuxRepertoiresDeChargeNeSeDoublentPas(t *testing.T) {
 		t.Fatalf("ingestion: %v", err)
 	}
 	if len(releases.saved) != 1 {
-		t.Errorf("%d campagne(s) pour un même scénario — l'historique serait faux",
+		t.Errorf("%d campaign(s) for one scenario — the history would be wrong",
 			len(releases.saved))
 	}
 }

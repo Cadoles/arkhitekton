@@ -33,7 +33,7 @@ func (f *fakeKeyStore) Audit(context.Context, string, string, string, map[string
 }
 
 type fakeKeyIssuer struct {
-	// byslug rend une erreur pour les slugs qui y figurent.
+	// bySlug returns an error for the slugs listed in it.
 	failures map[string]error
 	issued   []string
 	known    map[string]bool
@@ -51,9 +51,8 @@ func (f *fakeKeyIssuer) Issue(_ context.Context, slug string, known bool) (strin
 	return "ssh-ed25519 AAAA " + slug, nil
 }
 
-// Le cas nominal : chaque projet en attente reçoit sa clé, et la moitié publique
-// est enregistrée.
-func TestChaqueProjetEnAttenteRecoitSaClef(t *testing.T) {
+// The nominal case: every waiting project receives its key, and the public half is recorded.
+func TestEachWaitingProjectReceivesItsKey(t *testing.T) {
 	projects := &fakeKeyStore{pending: []store.PendingKey{
 		{ID: 1, Slug: "mse", Known: false},
 		{ID: 2, Slug: "hydra-sql", Known: false},
@@ -63,17 +62,16 @@ func TestChaqueProjetEnAttenteRecoitSaClef(t *testing.T) {
 	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
 
 	if len(issuer.issued) != 2 {
-		t.Fatalf("%d clé(s) posée(s), attendu 2", len(issuer.issued))
+		t.Fatalf("%d key(s) set, expected 2", len(issuer.issued))
 	}
 	if projects.saved[1] == "" || projects.saved[2] == "" {
-		t.Errorf("clés enregistrées: %v", projects.saved)
+		t.Errorf("keys recorded: %v", projects.saved)
 	}
 }
 
-// Une rotation se distingue d'une première pose, et le poseur doit le savoir :
-// c'est ce qui l'autorise à remplacer un Secret existant plutôt que de refuser
-// de l'adopter.
-func TestUneRotationEstSignaleeAuPoseur(t *testing.T) {
+// A rotation differs from a first setting, and the issuer must know it: that is what allows
+// it to replace an existing Secret rather than refuse to adopt it.
+func TestARotationIsReportedToTheIssuer(t *testing.T) {
 	projects := &fakeKeyStore{pending: []store.PendingKey{
 		{ID: 1, Slug: "mse", Known: true},
 	}}
@@ -82,16 +80,16 @@ func TestUneRotationEstSignaleeAuPoseur(t *testing.T) {
 	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
 
 	if !issuer.known["mse"] {
-		t.Error("la rotation n'a pas été signalée: le poseur refusera d'adopter")
+		t.Error("the rotation was not reported: the issuer will refuse to adopt")
 	}
 }
 
-// Un projet dont le nom est déjà pris ne bloque pas les autres.
+// A project whose name is already taken does not block the others.
 //
-// C'est une situation qu'un humain doit trancher — un Secret homonyme que le
-// dashboard n'a pas créé —, et s'arrêter dessus priverait de clé tous les
-// projets qui viennent après dans la liste.
-func TestUnNomDejaPrisNeBloquePasLesAutres(t *testing.T) {
+// It is a situation a human must settle — a Secret of the same name the dashboard did not
+// create — and stopping on it would deprive of a key every project coming after it in the
+// list.
+func TestANameAlreadyTakenDoesNotBlockTheOthers(t *testing.T) {
 	projects := &fakeKeyStore{pending: []store.PendingKey{
 		{ID: 1, Slug: "occupe"},
 		{ID: 2, Slug: "libre"},
@@ -103,18 +101,18 @@ func TestUnNomDejaPrisNeBloquePasLesAutres(t *testing.T) {
 	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
 
 	if len(issuer.issued) != 1 || issuer.issued[0] != "libre" {
-		t.Errorf("clés posées %v — le projet suivant doit être servi", issuer.issued)
+		t.Errorf("keys set %v — the next project must be served", issuer.issued)
 	}
-	// Et surtout : rien n'est enregistré pour celui qui a échoué. L'inscrire
-	// affirmerait une propriété que le dashboard n'a pas, et une rotation
-	// ultérieure écraserait le Secret d'un tiers.
+	// And above all: nothing is recorded for the one that failed. Recording it would assert an
+	// ownership the dashboard does not have, and a later rotation would overwrite someone else's
+	// Secret.
 	if _, recorded := projects.saved[1]; recorded {
-		t.Error("une clé non posée a été enregistrée: la propriété serait fausse")
+		t.Error("a key that was not set was recorded: the property would be false")
 	}
 }
 
-// Une panne de cluster n'inscrit rien non plus, pour la même raison.
-func TestUneClefNonPoseeNestPasEnregistree(t *testing.T) {
+// A cluster outage records nothing either, for the same reason.
+func TestAKeyNotSetIsNotRecorded(t *testing.T) {
 	projects := &fakeKeyStore{pending: []store.PendingKey{{ID: 1, Slug: "mse"}}}
 	issuer := &fakeKeyIssuer{
 		failures: map[string]error{"mse": errors.New("API injoignable")},
@@ -123,9 +121,9 @@ func TestUneClefNonPoseeNestPasEnregistree(t *testing.T) {
 	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
 
 	if len(projects.saved) != 0 {
-		t.Errorf("enregistrements %v — aucune clé n'a été posée", projects.saved)
+		t.Errorf("records %v — no key was set", projects.saved)
 	}
 	if projects.audits != 0 {
-		t.Error("une pose échouée ne doit pas être journalisée comme faite")
+		t.Error("a failed setting must not be logged as done")
 	}
 }

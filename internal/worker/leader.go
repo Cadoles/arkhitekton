@@ -13,24 +13,24 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 )
 
-// LeaseName est le nom du Lease qui arbitre entre workers.
+// LeaseName is the name of the Lease that arbitrates between workers.
 const LeaseName = "arkhitekton-worker"
 
 // LeaderConfig décrit l'élection.
 type LeaderConfig struct {
-	// Namespace du Lease : celui du dashboard, jamais celui des pipelines. La
-	// Role accordée ne couvre que le premier (doc 07 §7.3).
+	// Namespace of the Lease: the dashboard's, never the pipelines'. The Role granted covers only
+	// the first (docs/09-security.md).
 	Namespace string
-	// Identity doit être unique par processus. Le nom du pod le garantit ; en
-	// développement, le nom d'hôte suffit.
+	// Identity must be unique per process. The pod's name guarantees it; in development, the host
+	// name is enough.
 	Identity string
 }
 
-// LeaderIdentity dérive une identité du contexte d'exécution.
+// LeaderIdentity derives an identity from the execution context.
 //
-// POD_NAME est injecté par le Deployment. Sans lui, le journal dirait qu'un
-// leader existe sans dire lequel — précisément l'information utile quand deux
-// processus se disputent la place.
+// POD_NAME is injected by the Deployment. Without it, the log would say a leader exists
+// without saying which — precisely the useful piece of information when two processes are
+// contending for the place.
 func LeaderIdentity() string {
 	if pod := os.Getenv("POD_NAME"); pod != "" {
 		return pod
@@ -38,18 +38,17 @@ func LeaderIdentity() string {
 	if host, err := os.Hostname(); err == nil && host != "" {
 		return host + "-local"
 	}
-	return "inconnu"
+	return "unknown"
 }
 
-// RunAsLeader acquiert le Lease puis exécute `work`. Le contexte passé à `work`
-// est annulé dès la perte du bail.
+// RunAsLeader acquires the Lease then runs `work`. The context passed to `work` is cancelled
+// as soon as the lease is lost.
 //
-// Les durées suivent les valeurs recommandées par client-go, avec un rapport
-// volontairement large entre le bail et la période de renouvellement : un worker
-// occupé — la collecte de logs sature ses goroutines — ne doit pas perdre le bail
-// pour un renouvellement en retard de deux secondes. Perdre le bail à tort
-// signifie une bascule, donc une interruption de la collecte, donc des lignes
-// perdues.
+// The durations follow the values client-go recommends, with a deliberately wide ratio
+// between the lease and the renewal period: a busy worker — log collection saturates its
+// goroutines — must not lose the lease over a renewal two seconds late. Losing the lease
+// wrongly means a switch-over, therefore an interruption of the collection, therefore lines
+// lost.
 func RunAsLeader(
 	ctx context.Context,
 	kube kubernetes.Interface,
@@ -63,8 +62,8 @@ func RunAsLeader(
 		LockConfig: resourcelock.ResourceLockConfig{Identity: cfg.Identity},
 	}
 
-	// workErr est renseignée par la goroutine de travail et lue après la fin de
-	// l'élection : `leaderelection.Run` ne rend pas d'erreur.
+	// workErr is set by the work goroutine and read after the election ends:
+	// `leaderelection.Run` returns no error.
 	var workErr error
 
 	elector, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
@@ -78,26 +77,25 @@ func RunAsLeader(
 				logger.Info("bail acquis", "identity", cfg.Identity, "lease", LeaseName)
 				if err := work(leadingCtx); err != nil {
 					workErr = err
-					logger.Error("boucles de fond interrompues", "error", err)
+					logger.Error("background loops interrupted", "error", err)
 				}
 			},
 			OnStoppedLeading: func() {
-				// Ni panique ni redémarrage : le processus reste candidat. Un
-				// bail perdu pendant une bascule réseau est un incident normal,
-				// et sortir en erreur transformerait une seconde d'indisponibilité
-				// en boucle de crash.
+				// Neither panic nor restart: the process stays a candidate. A lease lost during a network
+				// switch is a normal incident, and exiting with an error would turn a second of unavailability
+				// into a crash loop.
 				logger.Warn("bail perdu", "identity", cfg.Identity)
 			},
 			OnNewLeader: func(identity string) {
 				if identity == cfg.Identity {
 					return
 				}
-				logger.Info("un autre worker mène", "leader", identity)
+				logger.Info("another worker leads", "leader", identity)
 			},
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("élection de leader: %w", err)
+		return fmt.Errorf("leader election: %w", err)
 	}
 
 	elector.Run(ctx)

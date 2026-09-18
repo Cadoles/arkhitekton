@@ -501,7 +501,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	// celle-ci tourne à plusieurs répliques, et trois reprises concurrentes
 	// écriraient la même chose trois fois. L'`api` lit la déclaration, elle ne la
 	// compose pas.
-	if err := worker.NewAutomationReprise(db, pipelines, logger).Run(ctx); err != nil {
+	if err := worker.NewAutomationCatchUp(db, pipelines, logger).Run(ctx); err != nil {
 		return err
 	}
 

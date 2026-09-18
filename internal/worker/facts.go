@@ -11,59 +11,53 @@ import (
 )
 
 /*
- * L'émission des faits, côté observation.
+ * The emission of facts, on the observation side.
  *
- * Personne ne les écoute encore. C'est le sujet de cette tranche : poser les
- * points d'émission et éprouver qu'ils tiennent à la redélivrance, pendant que
- * l'erreur ne coûte rien (doc 14).
+ * Nobody listens to them yet. That is the subject here: putting the emission points in place
+ * and exercising that they hold under redelivery, while an error costs nothing.
  *
- * # Où ils sont posés, et pourquoi là
+ * # Where they are placed, and why there
  *
- * Chaque fait est émis **après** l'écriture qui l'établit, jamais avant. Le
- * mécanisme d'idempotence de l'observateur est une écriture conditionnelle — une
- * seule livraison la gagne — et s'y adosser fait que le fait hérite de sa
- * garantie. La clé de déduplication reste une seconde ceinture, pour les chemins
- * qui ne passent pas par une transition d'état.
+ * Each fact is emitted **after** the write that establishes it, never before. The observer's
+ * idempotence mechanism is a conditional write — a single delivery wins it — and leaning on it
+ * makes the fact inherit its guarantee. The deduplication key stays a second belt, for the
+ * paths that do not go through a state transition.
  *
- * # L'échec n'interrompt rien
+ * # A failure interrupts nothing
  *
- * Un fait qu'on n'a pas su écrire est journalisé et le traitement continue. C'est
- * la même règle que pour les ingestions, et elle a ici un filet : l'observateur
- * redélivre les runs terminés, si bien qu'un fait perdu au redémarrage sera
- * réémis au passage suivant.
+ * A fact that could not be written is logged and processing continues. It is the same rule as
+ * for the ingestions, and here it has a net: the observer redelivers finished runs, so that a
+ * fact lost at restart will be re-emitted at the next pass.
  *
- * Ce filet n'existe **pas** pour les faits émis par l'`api` — une release
- * déclarée, une release livrée. Un fait perdu l'est définitivement. C'est
- * acceptable tant que rien ne réagit ; ce ne le sera plus, et c'est un écart à
- * traiter quand le moteur arrivera.
+ * That net does **not** exist for the facts emitted by the `api` — a release declared, a
+ * release delivered. A lost fact is lost for good. That is acceptable as long as nothing
+ * reacts; it will no longer be, and it is a gap to deal with when the engine arrives.
  */
 
-// EventRecorder enregistre un fait, ou constate qu'il est déjà connu.
+// EventRecorder records a fact, or observes that it is already known.
 //
-// Interface étroite plutôt que le magasin entier : l'émission n'a besoin que de
-// cette réponse, et donner accès au reste inviterait à y lire autre chose.
+// A narrow interface rather than the whole store: emission needs only that answer, and giving
+// access to the rest would invite reading something else there.
 type EventRecorder interface {
-	// RecordEvent rend `false` quand le fait existait déjà — le cas nominal d'une
-	// redélivrance, et non une erreur.
+	// RecordEvent returns `false` when the fact already existed — the nominal case of a
+	// redelivery, and not an error.
 	RecordEvent(ctx context.Context, fact event.Event) (bool, error)
 }
 
-// WithEvents branche l'émission des faits.
+// WithEvents wires the emission of facts.
 //
-// Optionnelle comme les ingestions : sans elle, l'observation continue, et le fil
-// des faits reste vide. Personne ne réagit encore, donc rien n'est perdu de plus
-// qu'une trace.
+// Optional like the ingestions: without it, observation continues, and the fact feed stays
+// empty. Nobody reacts yet, so nothing more than a trace is lost.
 func (s *runSink) WithEvents(recorder EventRecorder) *runSink {
 	s.events = recorder
 	return s
 }
 
-// at date un fait.
+// at dates a fact.
 //
-// Retombe sur l'horloge quand rien n'a été injecté. Le repli n'est pas une
-// coquetterie : `runSink` se construit littéralement dans plusieurs tests, et
-// une horloge absente y produirait un déréférencement nul loin de la ligne
-// fautive — sur un chemin qui, de surcroît, n'émet rien.
+// Falls back to the clock when nothing was injected. The fallback is no frill: `runSink` is
+// built literally in several tests, and a missing clock would there produce a nil dereference
+// far from the offending line — on a path that, moreover, emits nothing.
 func (s *runSink) at() time.Time {
 	if s.now == nil {
 		return time.Now()
@@ -71,7 +65,7 @@ func (s *runSink) at() time.Time {
 	return s.now()
 }
 
-// emit enregistre un fait sans interrompre ce qui l'a produit.
+// emit records a fact without interrupting what produced it.
 func (s *runSink) emit(ctx context.Context, fact event.Event) {
 	if s.events == nil {
 		return
@@ -79,50 +73,49 @@ func (s *runSink) emit(ctx context.Context, fact event.Event) {
 
 	recorded, err := s.events.RecordEvent(ctx, fact)
 	if err != nil {
-		s.logger.Error("émission d'un fait",
-			"type", fact.Type, "sujet", fact.Subject, "error", err)
+		s.logger.Error("emitting a fact",
+			"type", fact.Type, "subject", fact.Subject, "error", err)
 		return
 	}
 	if !recorded {
-		// Le cas nominal d'une redélivrance. Journalisé en `Debug` et non tu :
-		// c'est ce qui permet de vérifier que la déduplication travaille, sans
-		// polluer un journal d'exploitation à chaque redémarrage.
-		s.logger.Debug("fait déjà connu, non réémis",
-			"type", fact.Type, "sujet", fact.Subject, "cle", fact.DedupKey)
+		// The nominal case of a redelivery. Logged at `Debug` and not silenced: that is what allows
+		// checking that deduplication is working, without polluting an operations log at every
+		// restart.
+		s.logger.Debug("fact already known, not re-emitted",
+			"type", fact.Type, "subject", fact.Subject, "key", fact.DedupKey)
 		return
 	}
-	s.logger.Info("fait constaté", "type", fact.Type, "sujet", fact.Subject)
+	s.logger.Info("fact observed", "type", fact.Type, "subject", fact.Subject)
 
-	// L'aiguillage n'est appelé **que sur un fait neuf**. C'est la première des
-	// deux bornes qui empêchent une redélivrance de rejouer des appels sortants ;
-	// la seconde est l'unicité par (déclencheur, fait) de `plan_runs`.
+	// The routing is called **only on a new fact**. It is the first of the two bounds that stop a
+	// redelivery replaying outgoing calls; the second is the uniqueness per (trigger, fact) of
+	// `plan_runs`.
 	//
-	// Deux bornes pour la même garantie, parce que celle-ci décide d'appels qui
-	// sortent du cluster au nom de l'instance.
+	// Two bounds for the same guarantee, because this one decides on calls that leave the cluster
+	// in the instance's name.
 	s.dispatcher.Dispatch(ctx, fact)
 }
 
-// WithDispatcher branche l'aiguillage des faits vers les réactions déclarées.
+// WithDispatcher wires the routing of facts towards the declared reactions.
 //
-// Optionnel comme le reste : sans lui, les faits sont constatés et personne n'y
-// réagit — l'état des tranches 2 à 5.
+// Optional like the rest: without it, facts are observed and nobody reacts to them.
 func (s *runSink) WithDispatcher(dispatcher *Dispatcher) *runSink {
 	s.dispatcher = dispatcher
 	return s
 }
 
-// PromotionFacts compose le fait d'une promotion aboutie.
+// PromotionFacts composes the fact of a completed promotion.
 //
-// Apporté par le plugin qui promeut : le noyau sait qu'un job rattaché à un
-// environnement a conclu, pas ce que cela signifie (doc 16 §16.7).
+// Supplied by the plugin that promotes: the core knows that a job attached to an environment
+// concluded, not what that means.
 type PromotionFacts interface {
 	Promoted(at time.Time, linked store.JobReleaseContext) event.Event
 }
 
-// WithPromotionFacts branche la constatation des promotions.
+// WithPromotionFacts wires the observation of promotions.
 //
-// Sans elle, aucune promotion n'est constatée : c'est l'état d'une instance sans
-// le plugin MSE, où rien ne promeut.
+// Without it, no promotion is observed: that is the state of an instance without the MSE
+// plugin, where nothing promotes.
 func (s *runSink) WithPromotionFacts(facts PromotionFacts) *runSink {
 	s.promotions = facts
 	return s
@@ -135,39 +128,39 @@ func (s *runSink) emitReleasePromoted(ctx context.Context, linked store.JobRelea
 	s.emit(ctx, s.promotions.Promoted(s.at(), linked))
 }
 
-// WithEngine branche le moteur d'exécution des plans.
+// WithEngine wires the engine that runs the plans.
 //
-// C'est lui qui enchaîne les vérifications d'une construction réussie, et qui
-// conclut leurs gestes à la fin de leur job. Sans lui, rien ne s'enchaîne — et
-// `launchVerification` le dit plutôt que de rendre zéro en silence.
+// It is what chains the verifications of a successful build, and what concludes their steps
+// at the end of their job. Without it, nothing is chained — and `launchVerification` says so
+// rather than returning zero silently.
 func (s *runSink) WithEngine(engine *Engine) *runSink {
 	s.engine = engine
 	return s
 }
 
-// NewVerificationEngine assemble le moteur qui enchaîne les vérifications.
+// NewVerificationEngine assembles the engine that chains the verifications.
 //
-// Le runner est lié au sink : il a besoin du catalogue et de la file, que le sink
-// porte déjà. Les assembler ici plutôt que dans `main` évite d'exposer ces deux
-// dépendances une seconde fois.
+// The runner is bound to the sink: it needs the catalogue and the queue, which the sink
+// already carries. Assembling them here rather than in `main` avoids exposing those two
+// dependencies a second time.
 func NewVerificationEngine(
 	sink *runSink, plans PlanStore, actions GesteRunner, logger *slog.Logger,
 ) *Engine {
-	// L'aiguillage entre les deux natures de geste vit hors du moteur : celui-ci
-	// n'a pas à connaître la différence entre un pipeline, qui devient un job, et
-	// une action, qui sort du cluster.
-	return NewEngine(plans, gesteRouter{
+	// The routing between the two kinds of step lives outside the engine: it has no business
+	// knowing the difference between a pipeline, which becomes a job, and an action, which leaves
+	// the cluster.
+	return NewEngine(plans, stepRouter{
 		pipelines: NewReleaseRunner(sink.catalog, sink.verification, logger),
 		actions:   actions,
 	}, logger)
 }
 
-// planStateOf traduit l'issue d'un job dans le vocabulaire des plans.
+// planStateOf translates a job's outcome into the plans' vocabulary.
 //
-// Une annulation vaut un échec pour un plan : ce qui suivait ne doit pas partir,
-// et il n'y a pas d'état « interrompu » dans le modèle. La nuance subsiste sur le
-// job, qui la porte et l'affiche ; la perdre ici ne coûte rien, parce que la seule
-// question posée à cet endroit est « la suite part-elle ? ».
+// A cancellation is a failure for a plan: what followed must not start, and there is no
+// "interrupted" state in the model. The nuance survives on the job, which carries and
+// displays it; losing it here costs nothing, because the only question asked at this point is
+// "does what follows start?".
 func planStateOf(jobState string) plan.State {
 	if jobState == store.JobSucceeded {
 		return plan.Succeeded

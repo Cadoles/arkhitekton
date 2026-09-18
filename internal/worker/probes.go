@@ -15,90 +15,82 @@ import (
 )
 
 /*
- * Les sondes : d'où viennent les faits d'un plugin.
+ * The probes: where a plugin's facts come from.
  *
- * # Sonde plutôt que réception
+ * # A probe rather than reception
  *
- * « Détecter » cache deux mécanismes très différents. Le dashboard interroge, ou
- * la forge pousse. La sonde a été retenue pour trois raisons qui tiennent
- * ensemble (doc 14 §14.4) :
+ * "Detecting" hides two very different mechanisms. The dashboard queries, or the forge pushes.
+ * The probe was chosen for three reasons that hold together:
  *
- *   - la machinerie existe — la synchronisation du suivi fait exactement cela
- *     depuis le lot C, et `sync_state` porte déjà `(source, project_id)` ;
- *   - la réception ajouterait un **point d'entrée public**, non authentifié par
- *     nature, qui demande une signature partagée et une fenêtre anti-rejeu : une
- *     décision d'une autre nature, pas un point d'extension ;
- *   - [B6] a déjà tranché ce débat pour le suivi.
+ *   - the machinery exists — the tracker synchronisation does exactly that, and `sync_state`
+ *     already carries `(source, project_id)`;
+ *   - reception would add a **public entry point**, unauthenticated by nature, requiring a
+ *     shared signature and an anti-replay window: a decision of another kind, not a point of
+ *     extension;
+ *   - the same debate was already settled this way for the tracker.
  *
- * # Les trois obligations, tenues **ici** et non par chaque sonde
+ * # The three obligations, held **here** and not by each probe
  *
- * Elles vivent dans la boucle, délibérément : une obligation confiée à chaque
- * réalisation est une obligation qu'une réalisation oubliera.
+ * They live in the loop, deliberately: an obligation handed to each implementation is an
+ * obligation one implementation will forget.
  *
- *  1. **La première passe n'émet rien.** Elle établit le curseur et s'arrête.
- *     Sans cela, activer une sonde sur un dépôt qui porte quatre cents demandes
- *     de fusion émet quatre cents faits, donc déclenche quatre cents plans, donc
- *     envoie quatre cents notifications. Une activation ne réveille pas le passé.
- *  2. **La clé de déduplication vient de la sonde.** Elle seule sait ce qui
- *     identifie ses faits — pour une demande de fusion, son numéro. La boucle
- *     relit une fenêtre de recouvrement à chaque passe ; sans clé stable, chaque
- *     passe renotifierait.
- *  3. **Un échec est isolé par projet.** Deux projets peuvent viser deux forges,
- *     et la panne de l'une ne dit rien de l'autre. C'est la règle que la
- *     synchronisation du suivi vient d'apprendre.
+ *  1. **The first pass emits nothing.** It establishes the cursor and stops. Without that,
+ *     enabling a probe on a repository carrying four hundred pull requests emits four hundred
+ *     facts, therefore triggers four hundred plans, therefore sends four hundred notifications.
+ *     Enabling something does not wake the past.
+ *  2. **The deduplication key comes from the probe.** It alone knows what identifies its facts
+ *     — for a pull request, its number. The loop re-reads an overlap window at each pass; with
+ *     no stable key, every pass would re-notify.
+ *  3. **A failure is isolated per project.** Two projects may target two forges, and one's
+ *     outage says nothing about the other. It is the rule the tracker synchronisation has just
+ *     learnt.
  */
 
-// Schedule dit quand une sonde veut être interrogée.
+// Schedule says when a probe wants to be queried.
 //
-// Déclaré par la sonde et non imposé par la boucle : le suivi bouge au rythme
-// d'une saisie humaine et se relit toutes les cinq minutes, une forge se regarde
-// plus souvent. Une cadence unique servirait mal les deux — et le plancher du
-// déploiement reste au-dessus de tout (doc 14 §14.4).
+// Declared by the probe and not imposed by the loop: the tracker moves at the pace of human
+// typing and is re-read every five minutes, a forge is watched more often. A single cadence
+// would serve both badly — and the deployment's floor stays above everything.
 type Schedule struct {
-	// Interval est la période souhaitée. Relevée au plancher du déploiement : une
-	// sonde ne peut pas demander à interroger une machine tierce plus souvent que
-	// ce que l'exploitation a autorisé.
+	// Interval is the period wanted. Raised to the deployment's floor: a probe cannot ask to query
+	// a third-party machine more often than operations has allowed.
 	Interval time.Duration
-	// Eager demande une passe immédiate au démarrage.
+	// Eager asks for an immediate pass at start-up.
 	//
-	// Faux par défaut, et c'est le bon défaut : une sonde qui ne fait que
-	// constater n'a rien à rattraper, et un redémarrage en boucle martèlerait une
-	// machine qui n'est pas la nôtre. Vrai pour une source qui **remplit un
-	// écran** — celui des versions serait vide jusqu'au premier battement.
+	// False by default, and that is the right default: a probe that only observes has nothing to
+	// catch up, and a restart loop would hammer a machine that is not ours. True for a source that
+	// **fills a screen** — the versions screen would be empty until the first beat.
 	Eager bool
 }
 
-// Probe observe une source extérieure et rend les faits qu'elle y voit.
+// Probe observes an outside source and returns the facts it sees there.
 //
-// Une interface étroite : la sonde ne persiste **pas ses faits**, ne les
-// déduplique pas, ne les date pas de son propre chef. Elle lit et rapporte ; la
-// boucle décide de ce qui s'écrit et de ce qui déclenche.
+// A narrow interface: the probe does **not** persist its facts, does not deduplicate them,
+// does not date them of its own accord. It reads and reports; the loop decides what is written
+// and what triggers.
 //
-// Ce qu'elle fait de ses **propres** données ne regarde pas la boucle. La
-// synchronisation du suivi projette des versions et des demandes dans ses tables
-// au passage : c'est son travail, et le lui interdire aurait demandé un second
-// mécanisme pour faire tourner exactement la même boucle.
+// What it does with its **own** data is none of the loop's business. The tracker
+// synchronisation projects versions and requests into its tables as it goes: that is its work,
+// and forbidding it would have needed a second mechanism to run exactly the same loop.
 type Probe interface {
-	// PluginID dit de quel plugin la sonde tient sa connexion et son activation.
-	// Un plugin éteint — sur l'instance ou sur le projet — n'est pas interrogé.
+	// PluginID says which plugin the probe gets its connection and its activation from. A
+	// switched-off plugin — on the instance or on the project — is not queried.
 	PluginID() string
-	// Source nomme le curseur dans `sync_state`. Propre à la sonde et non au
-	// plugin : un plugin peut en porter plusieurs, et un curseur partagé ferait
-	// que l'une avance celui de l'autre.
+	// Source names the cursor in `sync_state`. Specific to the probe and not to the plugin: a
+	// plugin may carry several, and a shared cursor would have one advance the other's.
 	Source() string
-	// Schedule dit à quelle cadence interroger, et s'il faut le faire d'emblée.
+	// Schedule says at what cadence to query, and whether to do it straight away.
 	Schedule() Schedule
-	// Poll rend les faits survenus depuis le curseur, et le curseur suivant.
+	// Poll returns the facts that occurred since the cursor, and the next cursor.
 	//
-	// Les faits portent leur **propre** clé de déduplication et leur **propre**
-	// date — celle du fait, jamais celle de la lecture. Une sonde qui rattrape
-	// trois jours d'histoire doit produire des faits datés de ces trois jours,
-	// sinon tout paraît avoir eu lieu à l'instant et l'ordre est perdu.
+	// The facts carry their **own** deduplication key and their **own** date — the fact's, never
+	// the read's. A probe catching up three days of history must produce facts dated across those
+	// three days, otherwise everything appears to have happened at once and the order is lost.
 	Poll(ctx context.Context, project store.Project, config map[string]string,
 		cursor string) ([]event.Event, string, error)
 }
 
-// ProbeStore est ce que la boucle attend de la base.
+// ProbeStore is what the loop needs from the database.
 type ProbeStore interface {
 	ListProjects(ctx context.Context) ([]store.Project, error)
 	ResolvedPlugin(ctx context.Context, projectID int64, pluginID string) (store.PluginSettings, error)
@@ -108,27 +100,27 @@ type ProbeStore interface {
 	RecordEvent(ctx context.Context, fact event.Event) (bool, error)
 }
 
-// minProbeInterval est le plancher d'interrogation.
+// minProbeInterval is the querying floor.
 //
-// La charge se compte : *projets × sondes × fréquence*, et le multiplicande est
-// une machine qui n'est pas la nôtre. Une sonde qui interrogerait une forge toutes
-// les dix secondes pour trente projets serait un déni de service involontaire.
+// The load can be counted: *projects × probes × frequency*, and the multiplicand is a machine
+// that is not ours. A probe querying a forge every ten seconds for thirty projects would be an
+// unintended denial of service.
 const minProbeInterval = time.Minute
 
-// ProbeRunner fait tourner les sondes de tous les projets.
+// ProbeRunner runs every project's probes.
 type ProbeRunner struct {
 	store   ProbeStore
 	secrets SecretOpener
 	probes  []Probe
-	// dispatcher déclenche les réactions déclarées d'un fait neuf. Nil : les
-	// faits sont constatés et personne n'y réagit.
+	// dispatcher triggers the declared reactions of a new fact. Nil: facts are observed and nobody
+	// reacts to them.
 	dispatcher *Dispatcher
 	interval   time.Duration
 	logger     *slog.Logger
 	now        func() time.Time
 }
 
-// WithDispatcher branche l'aiguillage des faits vers les réactions déclarées.
+// WithDispatcher wires the routing of facts towards the declared reactions.
 func (r *ProbeRunner) WithDispatcher(dispatcher *Dispatcher) *ProbeRunner {
 	r.dispatcher = dispatcher
 	return r
@@ -150,15 +142,15 @@ func NewProbeRunner(
 	}
 }
 
-// Run interroge les sondes jusqu'à annulation.
+// Run queries the probes until cancellation.
 //
-// Une boucle **par sonde**, chacune à sa cadence. Un tour commun obligerait la
-// plus lente et la plus rapide à s'accorder, et le suivi — cinq minutes — ferait
-// alors la loi d'une forge qu'on veut regarder plus souvent.
+// One loop **per probe**, each at its own cadence. A common pass would force the slowest and
+// the fastest to agree, and the tracker — five minutes — would then lay down the law for a
+// forge one wants to watch more often.
 func (r *ProbeRunner) Run(ctx context.Context) error {
 	if len(r.probes) == 0 {
-		// Rien à interroger. On ne tourne pas dans le vide : la boucle rendrait
-		// un tour de journal par intervalle pour ne rien faire.
+		// Nothing to query. The loop does not spin for nothing: it would produce a round of log per
+		// interval to do nothing.
 		<-ctx.Done()
 		return ctx.Err()
 	}
@@ -175,20 +167,18 @@ func (r *ProbeRunner) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// loop fait tourner une sonde à sa cadence.
+// loop runs a probe at its cadence.
 func (r *ProbeRunner) loop(ctx context.Context, probe Probe) {
 	schedule := probe.Schedule()
-	// Le plancher du déploiement l'emporte : une sonde déclare sa cadence
-	// au-dessus de lui, jamais en dessous.
+	// The deployment's floor wins: a probe declares its cadence above it, never below.
 	interval := schedule.Interval
 	if interval < r.interval {
 		interval = r.interval
 	}
 
-	// Une passe immédiate seulement si la sonde la réclame. Une source qui remplit
-	// un écran la veut ; une source qui ne fait que constater n'a rien à
-	// rattraper, et l'attente évite qu'un redémarrage en boucle martèle une
-	// machine tierce.
+	// An immediate pass only if the probe asks for one. A source that fills a screen wants it; a
+	// source that only observes has nothing to catch up, and waiting stops a restart loop
+	// hammering a third-party machine.
 	if schedule.Eager {
 		r.sweep(ctx, probe)
 	}
@@ -206,36 +196,36 @@ func (r *ProbeRunner) loop(ctx context.Context, probe Probe) {
 	}
 }
 
-// sweep passe une sonde sur tous les projets.
+// sweep runs a probe over every project.
 func (r *ProbeRunner) sweep(ctx context.Context, probe Probe) {
 	projects, err := r.store.ListProjects(ctx)
 	if err != nil {
-		r.logger.Error("projets à sonder", "error", err)
+		r.logger.Error("projects to probe", "error", err)
 		return
 	}
 
 	for _, project := range projects {
-		// L'échec d'un projet **n'arrête pas** les suivants : deux projets peuvent
-		// viser deux serveurs, et la panne de l'un ne dit rien de l'autre.
+		// One project's failure **does not stop** the next ones: two projects may target two servers,
+		// and one's outage says nothing about the other.
 		if err := r.pollOne(ctx, probe, project); err != nil {
 			r.logger.Error("sonde",
-				"source", probe.Source(), "projet", project.Slug, "error", err)
+				"source", probe.Source(), "project", project.Slug, "error", err)
 			if recordErr := r.store.RecordSyncFailure(
 				ctx, probe.Source(), project.ID, err.Error()); recordErr != nil {
-				r.logger.Error("enregistrement de l'échec d'une sonde",
-					"source", probe.Source(), "projet", project.Slug, "error", recordErr)
+				r.logger.Error("recording a probe's failure",
+					"source", probe.Source(), "project", project.Slug, "error", recordErr)
 			}
 		}
 	}
 }
 
-// pollOne interroge une sonde pour un projet.
+// pollOne queries a probe for one project.
 func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Project) error {
 	settings, err := r.store.ResolvedPlugin(ctx, project.ID, probe.PluginID())
 	if err != nil {
 		if errors.Is(err, store.ErrPluginDisabled) {
-			// Éteint sur l'instance ou sur le projet. Ce n'est pas une panne : le
-			// signaler à chaque tour remplirait le journal d'un état voulu.
+			// Switched off on the instance or on the project. It is not an outage: reporting it at every
+			// pass would fill the log with a wanted state.
 			return nil
 		}
 		return err
@@ -256,24 +246,22 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 		return err
 	}
 
-	// **La première passe ne déclenche rien.**
+	// **The first pass triggers nothing.**
 	//
-	// C'est la règle la moins évidente et la plus coûteuse à découvrir : sans
-	// elle, activer une sonde sur un dépôt qui porte quatre cents demandes de
-	// fusion enverrait quatre cents notifications. Une activation ne réveille pas
-	// le passé.
+	// It is the least obvious rule and the most expensive to discover: without it, enabling a
+	// probe on a repository carrying four hundred pull requests would send four hundred
+	// notifications. Enabling something does not wake the past.
 	//
-	// # Elle enregistre pourtant, et c'est une correction
+	// # It records nonetheless, and that is a fix
 	//
-	// La passe d'amorçage **écrit** les faits, sans les aiguiller. Les jeter
-	// aurait suffi tant que toute sonde filtrait sur son curseur — la sonde Gitea
-	// ne rend que les demandes ouvertes depuis, et ne les revoit pas.
+	// The bootstrap pass **writes** the facts, without routing them. Discarding them would have
+	// been enough as long as every probe filtered on its cursor — the Gitea probe returns only the
+	// requests opened since, and does not see them again.
 	//
-	// Une sonde qui rend un **instantané** casse cette hypothèse : le suivi relit
-	// toutes les versions à chaque passe, parce que l'API de Redmine ne les filtre
-	// pas. Jetés à l'amorçage sans être retenus, ces faits seraient neufs à la
-	// passe suivante — et la déclencheraient tous. « Une activation ne réveille
-	// pas le passé » n'aurait été vrai que d'un tour.
+	// A probe that returns a **snapshot** breaks that assumption: the tracker re-reads every
+	// version at each pass, because Redmine's API does not filter them. Discarded at bootstrap
+	// without being kept, those facts would be new at the next pass — and would all trigger.
+	// "Enabling something does not wake the past" would have been true for one round only.
 	priming := state.Cursor == ""
 
 	emitted := 0
@@ -283,50 +271,49 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 
 		recorded, err := r.store.RecordEvent(ctx, fact)
 		if err != nil {
-			// Un fait qu'on n'a pas su écrire n'arrête pas les autres : le curseur
-			// n'avance pas non plus, et la passe suivante le reverra.
+			// A fact that could not be written does not stop the others: the cursor does not advance
+			// either, and the next pass will see it again.
 			return fmt.Errorf("fait %q: %w", fact.Type, err)
 		}
 		if !recorded || priming {
 			continue
 		}
 		emitted++
-		// Sur un fait **neuf** seulement : la fenêtre de recouvrement fait revoir
-		// les mêmes demandes à chaque passe, et déclencher sur chacune enverrait
-		// une notification par tour.
+		// On a **new** fact only: the overlap window makes the same requests come round at every pass,
+		// and triggering on each would send one notification per round.
 		r.dispatcher.Dispatch(ctx, fact)
 	}
 
 	switch {
 	case priming:
-		r.logger.Info("sonde amorcée, aucune réaction déclenchée",
-			"source", probe.Source(), "projet", project.Slug,
+		r.logger.Info("probe bootstrapped, no reaction triggered",
+			"source", probe.Source(), "project", project.Slug,
 			"faits_retenus", len(facts),
-			"raison", "une activation ne réveille pas le passé")
+			"reason", "enabling something does not wake the past")
 	case emitted > 0:
-		r.logger.Info("faits constatés par sonde",
-			"source", probe.Source(), "projet", project.Slug,
+		r.logger.Info("facts observed by a probe",
+			"source", probe.Source(), "project", project.Slug,
 			"emis", emitted, "lus", len(facts))
 	}
 	return r.store.RecordSyncSuccess(ctx, probe.Source(), project.ID, cursor)
 }
 
-// openSecrets desselle les champs sensibles de la configuration d'un plugin.
+// openSecrets unseals the sensitive fields of a plugin's configuration.
 //
-// C'est le seul endroit où ils passent en clair, et ils n'en sortent pas : la
-// carte rendue est consommée par la sonde le temps de son appel.
+// It is the only place where they are in clear text, and they do not leave it: the map
+// returned is consumed by the probe for the duration of its call.
 func (r *ProbeRunner) openSecrets(
 	pluginID string, sealed map[string]string,
 ) (map[string]string, error) {
 	return openPluginSecrets(r.secrets, pluginID, sealed)
 }
 
-// openPluginSecrets desselle la configuration d'un plugin, pour qui en a besoin.
+// openPluginSecrets unseals a plugin's configuration, for whoever needs it.
 //
-// Partagée entre les sondes et les actions de plugin depuis que les deux
-// atteignent la même frontière avec la même connexion. En écrire deux versions
-// ferait deux endroits où décider ce qu'on fait d'un champ qu'on n'a pas su
-// ouvrir — et le second finirait par le laisser passer vide.
+// Shared between the probes and the plugin actions since both reach the same boundary with the
+// same connection. Writing two versions of it would make two places to decide what is done
+// with a field that could not be opened — and the second would end up letting it through
+// empty.
 func openPluginSecrets(
 	opener SecretOpener, pluginID string, sealed map[string]string,
 ) (map[string]string, error) {
@@ -341,12 +328,12 @@ func openPluginSecrets(
 				continue
 			}
 			return nil, fmt.Errorf(
-				"le champ %q est scellé et le scellement n'est pas configuré", name)
+				"the field %q is sealed and sealing is not configured", name)
 		}
 		opened, err := opener.Open(value)
 		if err != nil {
-			// Le message ne cite pas la valeur, et pour cause : c'est celle qu'on
-			// n'a pas su ouvrir.
+			// The message does not quote the value, and for good reason: that is the one we could not
+			// open.
 			return nil, fmt.Errorf("champ %q illisible: %w", name, err)
 		}
 		config[name] = opened
@@ -354,19 +341,18 @@ func openPluginSecrets(
 	return config, nil
 }
 
-// secretField dit si un champ d'un plugin porte une valeur scellée.
+// secretField says whether a plugin field carries a sealed value.
 //
-// Lu dans le registre plutôt qu'écrit ici : deux listes divergeraient au premier
-// champ ajouté, et l'écart se manifesterait par une valeur scellée transmise
-// telle quelle à une forge — qui la refuserait sur un message d'authentification
-// ne disant pas que la valeur n'a pas été ouverte.
+// Read from the registry rather than written here: two lists would diverge at the first field
+// added, and the gap would show up as a sealed value passed as it is to a forge — which would
+// refuse it with an authentication message that would not say the value was never opened.
 func secretField(pluginID, field string) bool {
 	descriptor, err := plugin.Get(pluginID)
 	if err != nil {
 		return false
 	}
-	// Les deux portées : un champ sensible déclaré globalement l'est aussi quand
-	// il est surchargé par un projet, et l'inverse est vrai.
+	// Both scopes: a sensitive field declared globally is sensitive too when a project overrides
+	// it, and the reverse is true.
 	return descriptor.IsSecret(plugin.ScopeGlobal, field) ||
 		descriptor.IsSecret(plugin.ScopeProject, field)
 }

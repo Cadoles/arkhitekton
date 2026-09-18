@@ -52,7 +52,7 @@ type fakeDigests map[string]string
 func (f fakeDigests) Digest(_ context.Context, _, tag string) (string, error) {
 	digest, found := f[tag]
 	if !found {
-		return "", errors.New("manifeste absent")
+		return "", errors.New("manifest missing")
 	}
 	return digest, nil
 }
@@ -62,7 +62,7 @@ func newExportFixture() (*fakeExportStore, fakeStorage, *Exporter) {
 		release: store.Release{
 			ID: 1, VersionID: 5, Tag: "1.8.0", Kind: "final", State: "ready",
 			ImageVersion: "1.8.0-rc3", GitRef: "abc1234", CreatedBy: "vcarroy",
-			ManualActions: "- purge du cache", ManualActionsUpdatedBy: "vcarroy",
+			ManualActions: "- cache purge", ManualActionsUpdatedBy: "vcarroy",
 		},
 	}
 	storage := fakeStorage{}
@@ -82,19 +82,19 @@ func TestExporterWritesAtTheExpectedKey(t *testing.T) {
 		t.Fatalf("export: %v", err)
 	}
 
-	// La clé est calculée avant écriture, jamais découverte : c'est ce qui permet
-	// de la retrouver sans balayer un préfixe.
+	// The key is computed before writing, never discovered: that is what makes it findable
+	// without sweeping a prefix.
 	const key = "artifacts/releases/1.8.0/delivery-note.pdf"
 	content, written := storage[key]
 	if !written {
-		t.Fatalf("clés écrites = %v", keysOf(storage))
+		t.Fatalf("keys written = %v", keysOf(storage))
 	}
 	if !bytes.HasPrefix(content, []byte("%PDF-")) {
-		t.Error("le contenu n'est pas un PDF")
+		t.Error("the content is not a PDF")
 	}
 
 	if len(releases.recorded) != 1 {
-		t.Fatalf("%d artefact(s) enregistré(s)", len(releases.recorded))
+		t.Fatalf("%d artifact(s) recorded", len(releases.recorded))
 	}
 	artifact := releases.recorded[0]
 	if artifact.Object != key || artifact.SizeBytes != int64(len(content)) {
@@ -112,25 +112,24 @@ func TestExporterRendersJSON(t *testing.T) {
 
 	content, written := storage["artifacts/releases/1.8.0/delivery-note.json"]
 	if !written {
-		t.Fatalf("clés écrites = %v", keysOf(storage))
+		t.Fatalf("keys written = %v", keysOf(storage))
 	}
 	text := string(content)
-	// Un intégrateur doit lire que le format n'est pas définitif.
+	// An integrator must read that the format is not final.
 	if !strings.Contains(text, `"provisional": true`) {
-		t.Error("le drapeau provisoire manque")
+		t.Error("the provisional flag is missing")
 	}
-	// La version de l'image, distincte du tag, est ce qui sera constaté sur les
-	// environnements.
+	// The image's version, distinct from the tag, is what will be observed on the environments.
 	if !strings.Contains(text, `"image_version": "1.8.0-rc3"`) {
-		t.Error("la version d'image manque")
+		t.Error("the image version is missing")
 	}
 }
 
-// Un tag non poussé n'a pas d'empreinte, et le document doit le dire : sans
-// empreinte, il n'atteste pas que l'image livrée est celle qui a été validée.
+// An unpushed tag has no digest, and the document must say so: without a digest, it does not
+// attest that the image delivered is the one that was validated.
 func TestExporterNamesUnverifiedImages(t *testing.T) {
 	releases, storage, _ := newExportFixture()
-	// Le tag de la release n'est pas encore poussé : il n'a pas d'empreinte.
+	// The release's tag is not pushed yet: it has no digest.
 	exporter := NewExporter(releases, storage, fakeDigests{"1.8.0-rc3": "sha256:aaa"},
 		"portal", slog.New(slog.DiscardHandler))
 
@@ -139,27 +138,27 @@ func TestExporterNamesUnverifiedImages(t *testing.T) {
 	}
 
 	text := string(storage["artifacts/releases/1.8.0/delivery-note.json"])
-	// Les promotions ne figurent plus au bon de livraison (doc 16 §16.17).
+	// Promotions no longer appear in the delivery note.
 	if strings.Contains(text, "promotions") {
-		t.Error("le document ne doit plus porter de promotions")
+		t.Error("the document must no longer carry promotions")
 	}
-	if !strings.Contains(text, "Empreintes non vérifiées") {
-		t.Error("le document doit nommer ce qu'il n'a pas pu vérifier")
+	if !strings.Contains(text, "Digests not checked") {
+		t.Error("the document must name what it could not check")
 	}
 }
 
-// Produire un document vide qui aurait l'air d'attester quelque chose est pire
-// que refuser.
+// Producing an empty document that would look like it attests to something is worse than
+// refusing.
 func TestExporterRefusesReportsWhoseDataIsMissing(t *testing.T) {
 	_, storage, exporter := newExportFixture()
 
 	err := exporter.Run(context.Background(),
 		exportJob(map[string]string{ParamExportKind: store.ArtifactTestReport}, 1))
 	if err == nil {
-		t.Error("un rapport de tests sans résultats doit être refusé")
+		t.Error("a test report with no results must be refused")
 	}
 	if len(storage) != 0 {
-		t.Errorf("%d objet(s) écrit(s) malgré le refus", len(storage))
+		t.Errorf("%d object(s) written despite the refusal", len(storage))
 	}
 }
 
@@ -168,7 +167,7 @@ func TestExporterRefusesAnUnknownFormat(t *testing.T) {
 
 	if err := exporter.Run(context.Background(),
 		exportJob(map[string]string{ParamExportFormat: "docx"}, 1)); err == nil {
-		t.Error("format inconnu accepté")
+		t.Error("unknown format accepted")
 	}
 }
 
@@ -176,12 +175,12 @@ func TestExporterRefusesAJobWithoutRelease(t *testing.T) {
 	_, _, exporter := newExportFixture()
 
 	if err := exporter.Run(context.Background(), store.Job{ID: 1, Kind: KindExport}); err == nil {
-		t.Error("un export sans release ne désigne rien à produire")
+		t.Error("an export with no release names nothing to produce")
 	}
 }
 
-// Le registre est optionnel : un bon de livraison reste produisible sans
-// empreintes, à condition de dire ce qu'il n'a pas pu vérifier.
+// The registry is optional: a delivery note stays producible without digests, provided it
+// says what it could not check.
 func TestExporterWorksWithoutARegistry(t *testing.T) {
 	releases, storage, _ := newExportFixture()
 	exporter := NewExporter(releases, storage, nil, "portal", slog.New(slog.DiscardHandler))
@@ -189,8 +188,8 @@ func TestExporterWorksWithoutARegistry(t *testing.T) {
 	if err := exporter.Run(context.Background(), exportJob(map[string]string{ParamExportFormat: "json"}, 1)); err != nil {
 		t.Fatalf("export: %v", err)
 	}
-	if !strings.Contains(string(storage["artifacts/releases/1.8.0/delivery-note.json"]), "Empreintes non vérifiées") {
-		t.Error("l'absence d'empreinte doit être signalée")
+	if !strings.Contains(string(storage["artifacts/releases/1.8.0/delivery-note.json"]), "Digests not checked") {
+		t.Error("the missing digest must be reported")
 	}
 }
 

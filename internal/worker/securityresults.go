@@ -15,29 +15,27 @@ import (
 )
 
 /*
-Ingestion des audits de sécurité.
+ * Ingesting the security audits.
+ *
+ * The dashboard **renormalises nothing**. `pkg/security`'s contract is imported as it is: same
+ * types, same fingerprints, same severity scale. Reimplementing the merging of severities or
+ * the deduplication here would give two truths about the same findings — the pipeline's, which
+ * decides whether the build fails, and the interface's, which displays it. They would diverge
+ * at the first scanner added, and it is the interface one would believe.
+ *
+ * Two files are read, and both count. `findings.jsonl` carries the detail; `summary.json`
+ * carries what the detail cannot say — which scanners failed. An audit in which Trivy did not
+ * run produces zero image vulnerabilities, exactly like a clean audit.
+ */
 
-Le dashboard **ne renormalise rien**. Le contrat de `pkg/security` est verrouillé
-par P7 et importé tel quel : mêmes types, mêmes empreintes, même échelle de
-sévérité. Réimplémenter ici la fusion des sévérités ou la déduplication donnerait
-deux vérités sur les mêmes findings — celle du pipeline, qui décide si le build
-échoue, et celle de l'interface, qui l'affiche. Elles divergeraient au premier
-scanner ajouté, et c'est l'interface qu'on croirait.
-
-Deux fichiers sont lus, et les deux comptent. `findings.jsonl` porte le détail ;
-`summary.json` porte ce que le détail ne peut pas dire — quels scanners ont
-échoué. Un audit dont Trivy n'a pas tourné produit zéro vulnérabilité d'image,
-exactement comme un audit propre.
-*/
-
-// SecurityStore est ce que l'ingesteur attend de la base.
+// SecurityStore is what the ingester needs from the database.
 type SecurityStore interface {
 	SaveTestResult(ctx context.Context, result store.TestResult, cases []store.TestCase) (int64, error)
 	TestResultExists(ctx context.Context, runID int64, tool string) (bool, error)
 	SaveSecurityAudit(ctx context.Context, audit store.SecurityAudit, findings []store.SecurityFinding) error
 }
 
-// SecurityIngester enregistre les audits publiés par un run.
+// SecurityIngester records the audits a run published.
 type SecurityIngester struct {
 	store   SecurityStore
 	objects Objects
@@ -48,19 +46,18 @@ func NewSecurityIngester(audits SecurityStore, objects Objects, logger *slog.Log
 	return &SecurityIngester{store: audits, objects: objects, logger: logger}
 }
 
-// securityTool est le nom sous lequel l'audit est enregistré dans `test_results`.
+// securityTool is the name under which the audit is recorded in `test_results`.
 //
-// Un seul nom pour tous les scanners : ce qui est enregistré est le rapport
-// **normalisé**, pas la sortie de chaque outil. Les scanners individuels sont
-// nommés dans `scanner_status`.
+// A single name for every scanner: what is recorded is the **normalised** report, not each
+// tool's output. The individual scanners are named in `scanner_status`.
 const securityTool = "security-audit"
 
-// Ingest lit le rapport normalisé d'un run terminé.
+// Ingest reads a finished run's normalised report.
 func (i *SecurityIngester) Ingest(ctx context.Context, run LoadRun) error {
 	prefix := "raw/" + run.Name + "/"
 	objects, err := i.objects.List(ctx, prefix)
 	if err != nil {
-		return fmt.Errorf("artefacts du run %q: %w", run.Name, err)
+		return fmt.Errorf("artifacts of run %q: %w", run.Name, err)
 	}
 
 	var summaryKey, findingsKey string
@@ -74,8 +71,7 @@ func (i *SecurityIngester) Ingest(ctx context.Context, run LoadRun) error {
 	}
 
 	if summaryKey == "" {
-		// Pas d'audit dans ce run : ce n'est pas une anomalie, la plupart des
-		// pipelines n'en produisent pas.
+		// No audit in this run: that is not an anomaly, most pipelines produce none.
 		return nil
 	}
 
@@ -102,13 +98,13 @@ func (i *SecurityIngester) Ingest(ctx context.Context, run LoadRun) error {
 
 	audit := toAudit(summary)
 
-	// Le statut du rapport suit la politique appliquée par le manager, et non un
-	// seuil réinventé ici : c'est lui qui a décidé si le pipeline échouait.
+	// The report's status follows the policy the manager applied, and not a threshold reinvented
+	// here: it is the manager that decided whether the pipeline failed.
 	status := results.ReportPass
 	switch {
 	case !audit.Measured():
-		// Un scanner en échec ne permet aucun verdict. `na` et non `fail` : rien
-		// ne dit que le code est mauvais, seulement qu'on n'a pas pu regarder.
+		// A failed scanner allows no verdict. `na` and not `fail`: nothing says the code is bad, only
+		// that it could not be looked at.
 		status = results.ReportNA
 	case audit.Critical > 0:
 		status = results.ReportFail
@@ -137,9 +133,9 @@ func (i *SecurityIngester) Ingest(ctx context.Context, run LoadRun) error {
 		return err
 	}
 
-	i.logger.Info("audit de sécurité enregistré",
+	i.logger.Info("security audit recorded",
 		"run", run.Name, "findings", len(stored), "critiques", audit.Critical,
-		"hauts", audit.High, "scanners en échec", audit.FailedScanners)
+		"hauts", audit.High, "failed scanners", audit.FailedScanners)
 	return nil
 }
 
@@ -153,7 +149,7 @@ func (i *SecurityIngester) readSummary(ctx context.Context, key string) (securit
 	defer content.Close()
 
 	if err := json.NewDecoder(content).Decode(&summary); err != nil {
-		return summary, fmt.Errorf("résumé d'audit %q illisible: %w", key, err)
+		return summary, fmt.Errorf("audit summary %q unreadable: %w", key, err)
 	}
 	return summary, nil
 }
@@ -170,8 +166,8 @@ func (i *SecurityIngester) readFindings(ctx context.Context, key string) ([]secu
 		return nil, fmt.Errorf("findings %q illisibles: %w", key, err)
 	}
 
-	// `UnmarshalFindings` est celui du manager : le format JSONL et sa tolérance
-	// aux lignes vides sont son affaire, pas la nôtre.
+	// `UnmarshalFindings` is the manager's: the JSONL format and its tolerance of empty lines are
+	// its business, not ours.
 	return security.UnmarshalFindings(raw), nil
 }
 
@@ -187,9 +183,9 @@ func toAudit(summary security.Summary) store.SecurityAudit {
 		PreviousRunID:  summary.PreviousRunID,
 	}
 
-	// Les compteurs viennent de la table du manager, indexée par le libellé de
-	// sévérité. Les recompter depuis les findings donnerait un autre résultat :
-	// `BySeverity` exclut déjà les supprimés et les résolus.
+	// The counters come from the manager's table, indexed by the severity label. Recounting them
+	// from the findings would give a different result: `BySeverity` already excludes the suppressed
+	// and the resolved ones.
 	audit.Critical = summary.BySeverity[string(security.SeverityCritical)]
 	audit.High = summary.BySeverity[string(security.SeverityHigh)]
 	audit.Medium = summary.BySeverity[string(security.SeverityMedium)]
@@ -226,11 +222,10 @@ func toFinding(finding security.Finding) store.SecurityFinding {
 	}
 
 	if stored.Severity == "" {
-		// Ne devrait pas arriver : `pkg/security` ramène tous les outils à son
-		// échelle. Le cas est traité pour que l'audit ne soit pas perdu en entier
-		// — la contrainte de la table refuserait la chaîne vide — et `INFO` est
-		// retenu faute de mieux : inventer `HIGH` serait aussi faux, dans l'autre
-		// sens.
+		// Should not happen: `pkg/security` brings every tool back to its scale. The case is handled so
+		// that the audit is not lost whole — the table's constraint would refuse an empty string — and
+		// `INFO` is kept for want of better: inventing `HIGH` would be just as wrong, the other way
+		// round.
 		stored.Severity = string(security.SeverityInfo)
 	}
 	return stored
@@ -238,7 +233,7 @@ func toFinding(finding security.Finding) store.SecurityFinding {
 
 func summarizeAudit(audit store.SecurityAudit) string {
 	if !audit.Measured() {
-		return fmt.Sprintf("audit incomplet : %s n'a pas conclu",
+		return fmt.Sprintf("incomplete audit: %s did not conclude",
 			strings.Join(audit.FailedScanners, ", "))
 	}
 
@@ -253,7 +248,7 @@ func summarizeAudit(audit store.SecurityAudit) string {
 		parts = append(parts, fmt.Sprintf("%d nouveau(x)", audit.DeltaNew))
 	}
 	if audit.Suppressed > 0 {
-		parts = append(parts, fmt.Sprintf("%d supprimé(s) par exception", audit.Suppressed))
+		parts = append(parts, fmt.Sprintf("%d suppressed by exception", audit.Suppressed))
 	}
 	return strings.Join(parts, ", ")
 }

@@ -32,9 +32,8 @@ func newReprocessor(targets *fakeReprocessStore, objects fakeObjects) (*fakeTest
 		NewTestIngester(tests, objects, discard), nil, nil, discard)
 }
 
-// Le rejeu efface avant de reconstruire. Empiler dupliquerait chaque cas et
-// fausserait toute comparaison inter-release — précisément ce que le rejeu sert
-// à corriger.
+// The replay erases before rebuilding. Stacking would duplicate every case and skew any
+// comparison between releases — precisely what the replay serves to fix.
 func TestReprocessDeletesBeforeRebuilding(t *testing.T) {
 	targets := &fakeReprocessStore{targets: []store.ReprocessTarget{
 		{RunID: 1, RunName: "unit-1", Tools: []string{"phpunit"}},
@@ -58,8 +57,8 @@ func TestReprocessDeletesBeforeRebuilding(t *testing.T) {
 	}
 }
 
-// Le rejeu détruit avant de reconstruire : pouvoir constater ce qui
-// disparaîtrait, sans rien détruire, est ce qui rend l'opération défendable.
+// The replay destroys before rebuilding: being able to see what would disappear, destroying
+// nothing, is what makes the operation defensible.
 func TestDryRunTouchesNothing(t *testing.T) {
 	targets := &fakeReprocessStore{targets: []store.ReprocessTarget{
 		{RunID: 1, RunName: "unit-1", Tools: []string{"phpunit"}},
@@ -72,26 +71,25 @@ func TestDryRunTouchesNothing(t *testing.T) {
 	}
 
 	if len(targets.deleted) != 0 {
-		t.Error("la simulation ne doit rien effacer")
+		t.Error("the dry run must erase nothing")
 	}
 	if len(tests.saved) != 0 {
-		t.Error("la simulation ne doit rien reconstruire")
+		t.Error("the dry run must rebuild nothing")
 	}
-	// Elle rend compte de ce qu'elle aurait touché.
+	// It accounts for what it would have touched.
 	if report.Examined != 1 || report.Replayed != 0 {
 		t.Errorf("rapport = %+v", report)
 	}
 }
 
-// Rejouer cinquante runs et tout perdre parce que le troisième a un artefact
-// purgé serait une régression pire que le défaut d'origine.
+// Replaying fifty runs and losing everything because the third has a purged artifact would be a
+// regression worse than the original defect.
 func TestAFailingRunDoesNotStopTheOthers(t *testing.T) {
 	targets := &fakeReprocessStore{targets: []store.ReprocessTarget{
 		{RunID: 1, RunName: "purge", Tools: []string{"phpunit"}},
 		{RunID: 2, RunName: "unit-2", Tools: []string{"phpunit"}},
 	}}
-	// `purge` n'a plus d'artefact lisible : son objet existe dans la liste mais
-	// sa lecture échoue.
+	// `purge` no longer has a readable artifact: its object exists in the list but reading it fails.
 	objects := fakeObjects{
 		"raw/purge/junit.xml":  "",
 		"raw/unit-2/junit.xml": junitXML,
@@ -108,20 +106,18 @@ func TestAFailingRunDoesNotStopTheOthers(t *testing.T) {
 	}
 
 	if report.Replayed != 1 {
-		t.Errorf("%d run(s) rejoué(s), attendu 1", report.Replayed)
+		t.Errorf("%d run(s) replayed, expected 1", report.Replayed)
 	}
-	// Les échecs sont nommés, pas comptés : savoir lesquels est ce qui permet de
-	// décider s'il faut s'en inquiéter.
+	// Failures are named, not counted: knowing which ones is what allows deciding whether to worry.
 	if len(report.Failed) != 1 || report.Failed[0] != "purge" {
-		t.Errorf("échecs = %v", report.Failed)
+		t.Errorf("failures = %v", report.Failed)
 	}
 	if len(tests.saved) != 1 {
 		t.Errorf("%d rapport(s) reconstruit(s)", len(tests.saved))
 	}
 }
 
-// brokenObjects fait échouer la lecture d'une clé précise, comme le ferait un
-// objet purgé par la rétention.
+// brokenObjects fails the reading of one precise key, as an object purged by retention would.
 type brokenObjects struct {
 	fakeObjects
 	broken string
@@ -129,7 +125,7 @@ type brokenObjects struct {
 
 func (b brokenObjects) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	if key == b.broken {
-		return nil, errors.New("objet purgé")
+		return nil, errors.New("purged object")
 	}
 	return b.fakeObjects.Get(ctx, key)
 }

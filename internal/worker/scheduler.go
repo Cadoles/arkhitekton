@@ -18,140 +18,132 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 )
 
-// tickInterval borne l'attente entre deux tours de boucle.
+// tickInterval bounds the wait between two rounds of the loop.
 //
-// La doc prévoit un réveil par `LISTEN/NOTIFY` avec un tick de sécurité. Seul le
-// tick est implémenté pour l'instant : deux secondes de latence au lancement sont
-// sans conséquence pour un pipeline qui dure des minutes, alors qu'une notification
-// perdue laisserait la file immobile jusqu'au tick suivant de toute façon. La
-// notification reste un raffinement, pas un prérequis.
+// A wake-up through `LISTEN/NOTIFY` with a safety tick is foreseen. Only the tick is
+// implemented for now: two seconds of latency at launch are of no consequence for a pipeline
+// lasting minutes, whereas a lost notification would leave the queue still until the next tick
+// anyway. The notification stays a refinement, not a prerequisite.
 const tickInterval = 2 * time.Second
 
-// Queue est ce que l'ordonnanceur attend de la base.
+// Queue is what the scheduler needs from the database.
 type Queue interface {
 	ClaimNext(ctx context.Context, limits store.Limits, runName func(kind string, id int64) string) (store.Job, error)
 	Requeue(ctx context.Context, id int64, reason string) (bool, error)
 	FinishJob(ctx context.Context, id int64, state, reason string) error
 	ExplainQueue(ctx context.Context, limits store.Limits) error
 	PendingCancellations(ctx context.Context) ([]store.RunningJob, error)
-	// QueueLimits rend les plafonds réglés à la main. Relus à chaque tour : un
-	// réglage doit prendre effet sans redémarrer le worker, sinon personne ne
-	// s'en sert.
+	// QueueLimits returns the caps set by hand. Re-read at every round: a setting must take effect
+	// without restarting the worker, otherwise nobody uses it.
 	QueueLimits(ctx context.Context) (map[string]int, error)
 }
 
-// LocalTask exécute un job dans le processus, sans passer par Tekton.
+// LocalTask runs a job inside the process, without going through Tekton.
 //
-// Tout ce que la file porte ne devient pas un PipelineRun. Générer un bon de
-// livraison lit la base et écrit un objet : le faire traverser Tekton coûterait
-// un pod et un workspace pour produire deux pages. Passer malgré tout par la
-// file donne l'ordonnancement, la trace et la visibilité — un export apparaît
-// dans la file comme le reste, et son échec se lit au même endroit.
+// Not everything the queue carries becomes a PipelineRun. Generating a delivery note reads the
+// database and writes an object: making it cross Tekton would cost a pod and a workspace to
+// produce two pages. Going through the queue anyway gives scheduling, a trace and visibility —
+// an export appears in the queue like the rest, and its failure is read in the same place.
 type LocalTask interface {
-	// Kind est le `kind` traité. Ces kinds sont absents du catalogue, qui décrit
-	// ce qui devient un PipelineRun.
+	// Kind is the `kind` handled. These kinds are absent from the catalogue, which describes what
+	// becomes a PipelineRun.
 	Kind() string
 	Run(ctx context.Context, job store.Job) error
 }
 
-// Presigner mint les URLs d'écriture des artefacts.
+// Presigner mints the write URLs of the artifacts.
 //
-// Le layout appartient au dashboard : il calcule la clé exacte de chaque artefact
-// **avant** de créer le run, et fournit l'URL correspondante en paramètre. Le
-// pipeline n'a donc ni bucket, ni préfixe, ni identifiants — et le lecteur n'a
-// rien à chercher par préfixe ensuite (B14).
+// The layout belongs to the dashboard: it computes the exact key of each artifact **before**
+// creating the run, and supplies the matching URL as a parameter. The pipeline therefore has
+// no bucket, no prefix and no credentials — and the reader has nothing to look for by prefix
+// afterwards.
 type Presigner interface {
 	PresignPut(ctx context.Context, key string, ttl time.Duration) (*url.URL, error)
 }
 
-// uploadTTL borne la validité d'une URL d'écriture.
+// uploadTTL bounds the validity of a write URL.
 //
-// Elle doit survivre au pipeline le plus long — une campagne E2E dépasse l'heure —
-// sans devenir un droit d'écriture durable. Six heures : au-delà, une URL fuitée
-// resterait exploitable après la fin du run qui la justifiait.
+// It must outlive the longest pipeline — an E2E campaign exceeds the hour — without becoming a
+// lasting write permission. Six hours: beyond that, a leaked URL would stay usable after the
+// end of the run that justified it.
 const uploadTTL = 6 * time.Hour
 
-// Scheduler transforme les jobs en file en PipelineRun.
+// Scheduler turns the queued jobs into PipelineRuns.
 type Scheduler struct {
 	queue   Queue
 	cluster *tekton.Client
 	catalog *catalog.Catalog
 	config  map[string]string
 	local   map[string]LocalTask
-	// uploads mint les URLs pré-signées. Nil quand le stockage n'est pas
-	// disponible : les runs partent alors sans publication, et le disent.
+	// uploads mints the presigned URLs. Nil when storage is not available: the runs then start
+	// with no publication, and say so.
 	uploads Presigner
 	keys    blob.Keys
-	// instance identifie la base. Entre dans le nom des runs pour qu'une remise à
-	// zéro ne produise pas d'homonymes de PipelineRun restés dans le cluster.
+	// instance identifies the database. It enters the runs' names so that a reset does not produce
+	// namesakes of PipelineRuns left in the cluster.
 	instance string
-	// projects rend le dépôt d'un projet, pour que ses pipelines clonent le sien.
-	// Nil : le dépôt de l'instance vaut pour tous.
+	// projects returns a project's repository, so that its pipelines clone its own. Nil: the
+	// instance's repository holds for all.
 	projects ProjectRepositories
-	// projectSSHPort est le port SSH de la forge, que l'URL HTTPS ne dit pas.
+	// projectSSHPort is the forge's SSH port, which the HTTPS URL does not state.
 	projectSSHPort string
-	// projectSettings rend les valeurs de configuration qu'un plugin ajoute pour
-	// un projet — la kustomisation du MSE, son overlay. Nil : la configuration de
-	// l'instance seule (doc 16 §16.18).
+	// projectSettings returns the configuration values a plugin adds for a project — MSE's
+	// kustomization, its overlay. Nil: the instance's configuration alone.
 	projectSettings func(ctx context.Context, projectID int64) (map[string]string, error)
-	// deployKeys rend le nom du secret portant la clé de déploiement d'un projet.
-	// Nil quand aucune clé par projet n'est en service : les runs montent alors
-	// la clé partagée, comme avant le lot G.
+	// deployKeys returns the name of the secret carrying a project's deploy key. Nil when no
+	// per-project key is in service: the runs then mount the shared key.
 	deployKeys ProjectKeys
 	logger     *slog.Logger
 }
 
-// ProjectKeys dit quel secret porte la clé de déploiement d'un projet.
+// ProjectKeys says which secret carries a project's deploy key.
 //
-// Interface étroite plutôt que le magasin entier : l'ordonnanceur n'a besoin
-// que de cette réponse, et lui donner accès aux projets l'inviterait à en lire
-// autre chose.
+// A narrow interface rather than the whole store: the scheduler needs only that answer, and
+// giving it access to the projects would invite it to read something else there.
 type ProjectKeys interface {
-	// DeployKeySecret rend le nom du secret, et faux quand le projet n'a pas de
-	// clé propre active. L'absence **empêche le run** : il n'y a plus de clé
-	// partagée sur laquelle retomber, et construire avec celle d'un autre projet
-	// est précisément ce qu'on a voulu rendre impossible.
+	// DeployKeySecret returns the secret's name, and false when the project has no active key of
+	// its own. The absence **stops the run**: there is no shared key left to fall back on, and
+	// building with another project's is precisely what was made impossible.
 	DeployKeySecret(ctx context.Context, projectID int64) (string, bool, error)
-	// RegistrySecret rend le secret **désigné** par le projet pour pousser ses
-	// images, et faux quand il n'en désigne aucun. Désigné et non créé : un
-	// identifiant de registre vient d'un humain, et le déploiement le
-	// provisionne (migration 0038).
+	// RegistrySecret returns the secret the project **names** in order to push its images, and
+	// false when it names none. Named and not created: a registry credential comes from a human,
+	// and the deployment provisions it.
 	RegistrySecret(ctx context.Context, projectID int64) (string, bool, error)
 }
 
-// WithProjectKeys branche les clés de déploiement par projet.
+// WithProjectKeys wires the per-project deploy keys.
 func (s *Scheduler) WithProjectKeys(keys ProjectKeys) *Scheduler {
 	s.deployKeys = keys
 	return s
 }
 
-// WithInstance déclare l'identité de la base.
+// WithInstance declares the database's identity.
 //
-// Séparée du constructeur pour ne pas propager une lecture en base dans tous les
-// appelants : elle est facultative, et son absence retombe sur l'ancien nommage —
-// suffisant pour un test, jamais pour un déploiement qui a déjà tourné.
+// Separate from the constructor so as not to propagate a database read into every caller: it
+// is optional, and its absence falls back to the old naming — enough for a test, never for a
+// deployment that has already run.
 func (s *Scheduler) WithInstance(id string) *Scheduler {
 	s.instance = id
 	return s
 }
 
-// WithUploads branche la génération des URLs d'artefacts.
+// WithUploads wires the generation of the artifact URLs.
 func (s *Scheduler) WithUploads(presigner Presigner) *Scheduler {
 	s.uploads = presigner
 	return s
 }
 
-// Les deux clés sous lesquelles le catalogue désigne le dépôt à cloner.
+// The two keys under which the catalogue names the repository to clone.
 //
-// `forge.mse.repoUrl` nommait le MSE dans une clé du noyau. Elle reste servie le
-// temps qu'un catalogue déployé la nomme encore (doc 16 §16.24).
+// `forge.mse.repoUrl` named MSE in a core key. It stays served for as long as a deployed
+// catalogue still names it.
 const (
 	projectRepoKey = "project.repoUrl"
 	legacyRepoKey  = "forge.mse.repoUrl"
 )
 
-// NewSchedulerFromCatalog assemble l'ordonnanceur. `config` fournit les valeurs
-// des paramètres de source `config`.
+// NewSchedulerFromCatalog assembles the scheduler. `config` supplies the values of the
+// parameters whose source is `config`.
 func NewSchedulerFromCatalog(
 	queue Queue, cluster *tekton.Client, pipelines *catalog.Catalog,
 	config map[string]string, logger *slog.Logger,
@@ -162,22 +154,22 @@ func NewSchedulerFromCatalog(
 	}
 }
 
-// ProjectRepositories rend le dépôt déclaré d'un projet.
+// ProjectRepositories returns a project's declared repository.
 type ProjectRepositories interface {
 	GetProject(ctx context.Context, id int64) (store.Project, error)
 }
 
-// WithProjectRepositories branche la résolution du dépôt d'un projet.
+// WithProjectRepositories wires the resolution of a project's repository.
 //
-// Sans elle, tous les projets clonent le dépôt de la configuration : c'est l'état
-// d'avant, et celui d'un job qui ne désigne aucun projet.
+// Without it, every project clones the configuration's repository: that is the previous state,
+// and the state of a job naming no project.
 func (s *Scheduler) WithProjectRepositories(projects ProjectRepositories, sshPort string) *Scheduler {
 	s.projects = projects
 	s.projectSSHPort = sshPort
 	return s
 }
 
-// WithProjectSettings branche les réglages qu'un plugin ajoute par projet.
+// WithProjectSettings wires the settings a plugin adds per project.
 func (s *Scheduler) WithProjectSettings(
 	settings func(ctx context.Context, projectID int64) (map[string]string, error),
 ) *Scheduler {
@@ -185,33 +177,30 @@ func (s *Scheduler) WithProjectSettings(
 	return s
 }
 
-// Handle enregistre une tâche exécutée dans le processus.
+// Handle registers a task run inside the process.
 func (s *Scheduler) Handle(task LocalTask) {
 	s.local[task.Kind()] = task
 }
 
-// Run fait tourner la boucle jusqu'à annulation.
+// Run runs the loop until cancellation.
 //
-// Une seule instance doit l'exécuter : c'est ce que garantit le bail. Le
-// `skip locked` de la réservation couvre le reste — un double lancement de
-// déploiement en production n'est pas rattrapable.
+// A single instance must run it: that is what the lease guarantees. The reservation's `skip
+// locked` covers the rest — a double deployment launch in production cannot be undone.
 func (s *Scheduler) Run(ctx context.Context) error {
-	s.logger.Info("ordonnanceur démarré",
+	s.logger.Info("scheduler started",
 		"plafond", s.catalog.MaxConcurrentRuns, "kinds", s.catalog.Kinds())
 
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 
 	for {
-		// Les plafonds sont relus une fois par tour, et non par job : un réglage
-		// changé pendant qu'un tour vide la file s'appliquera au tour suivant, ce
-		// qui suffit largement, alors qu'une lecture par job multiplierait les
-		// allers-retours en base pour une valeur qui bouge une fois par mois.
+		// The caps are re-read once per round, and not per job: a setting changed while a round empties
+		// the queue will apply at the next round, which is amply enough, whereas a read per job would
+		// multiply the round trips to the database for a value that moves once a month.
 		limits := s.limits(ctx)
 
-		// Chaque tour vide la file autant que les règles le permettent : servir
-		// un seul job par tick ferait démarrer quatre jobs éligibles en huit
-		// secondes, sans raison.
+		// Each round empties the queue as far as the rules allow: serving a single job per tick would
+		// make four eligible jobs start over eight seconds, for no reason.
 		for s.dispatchOne(ctx, limits) {
 			if ctx.Err() != nil {
 				return nil
@@ -221,24 +210,23 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		s.applyCancellations(ctx)
 
 		if err := s.queue.ExplainQueue(ctx, limits); err != nil {
-			s.logger.Error("explication de la file", "error", err)
+			s.logger.Error("queue explanation", "error", err)
 		}
 
 		select {
 		case <-ctx.Done():
-			s.logger.Info("arrêt de l'ordonnanceur")
+			s.logger.Info("scheduler stopped")
 			return nil
 		case <-ticker.C:
 		}
 	}
 }
 
-// limits compose les plafonds effectifs : ceux du catalogue, écrasés par les
-// réglages enregistrés.
+// limits composes the effective caps: the catalogue's, overridden by the recorded settings.
 //
-// Un échec de lecture ne fait pas s'arrêter la file : les plafonds du catalogue
-// s'appliquent alors seuls. Se figer parce qu'un réglage n'a pas pu être lu
-// coûterait plus que de tourner un tour avec les valeurs par défaut.
+// A failed read does not stop the queue: the catalogue's caps then apply alone. Freezing
+// because a setting could not be read would cost more than running one round with the default
+// values.
 func (s *Scheduler) limits(ctx context.Context) store.Limits {
 	limits := store.Limits{
 		PerKind: s.catalog.Concurrency(),
@@ -248,7 +236,7 @@ func (s *Scheduler) limits(ctx context.Context) store.Limits {
 
 	overrides, err := s.queue.QueueLimits(ctx)
 	if err != nil {
-		s.logger.Error("lecture des plafonds de file", "error", err)
+		s.logger.Error("reading the queue caps", "error", err)
 		return limits
 	}
 	for kind, limit := range overrides {
@@ -257,20 +245,20 @@ func (s *Scheduler) limits(ctx context.Context) store.Limits {
 	return limits
 }
 
-// dispatchOne réserve et lance un job. Rend false quand il n'y a plus rien à
-// faire pour ce tour.
+// dispatchOne reserves and launches a job. Returns false when there is nothing left to do for
+// this round.
 func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 	job, err := s.queue.ClaimNext(ctx, limits,
 		func(kind string, id int64) string { return RunName(s.instance, kind, id) })
 	if err != nil {
 		if !errors.Is(err, store.ErrJobNotFound) {
-			s.logger.Error("réservation d'un job", "error", err)
+			s.logger.Error("reserving a job", "error", err)
 		}
 		return false
 	}
 
-	// Les tâches locales sont consultées avant le catalogue : leur `kind` n'y
-	// figure pas, et l'absence du catalogue conclurait le job en échec.
+	// The local tasks are consulted before the catalogue: their `kind` does not appear there, and
+	// its absence from the catalogue would conclude the job as failed.
 	if task, local := s.local[job.Kind]; local {
 		s.runLocal(ctx, task, job)
 		return true
@@ -278,18 +266,16 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 
 	pipeline, found := s.catalog.Find(job.Kind)
 	if !found {
-		// Le catalogue a changé entre la mise en file et le lancement. Remettre
-		// le job en file le ferait boucler : mieux vaut le conclure en échec avec
-		// un motif qui nomme la cause.
-		s.logger.Error("kind absent du catalogue", "job", job.ID, "kind", job.Kind)
-		s.retry(ctx, job.ID, fmt.Sprintf("kind %q absent du catalogue", job.Kind))
+		// The catalogue changed between the queueing and the launch. Putting the job back in the queue
+		// would make it loop: better to conclude it as failed with a reason that names the cause.
+		s.logger.Error("kind missing from the catalogue", "job", job.ID, "kind", job.Kind)
+		s.retry(ctx, job.ID, fmt.Sprintf("kind %q missing from the catalogue", job.Kind))
 		return false
 	}
 
-	// Les paramètres et les noms de secrets sont résolus dans la même chaîne, et
-	// depuis les mêmes réglages : ce sont deux façons pour le catalogue de
-	// désigner une valeur de configuration, et les traiter séparément ferait
-	// partir un run avec les uns résolus par le projet et les autres non.
+	// The parameters and the secret names are resolved in the same chain, and from the same
+	// settings: they are two ways for the catalogue to name a configuration value, and handling
+	// them separately would start a run with some resolved by the project and the others not.
 	settings, err := s.settingsFor(ctx, job)
 	var params map[string]string
 	if err == nil {
@@ -303,14 +289,14 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 		resolved, err = pipeline.ResolveSecrets(settings)
 	}
 	if err != nil {
-		s.logger.Error("paramètres du job", "job", job.ID, "error", err)
+		s.logger.Error("job parameters", "job", job.ID, "error", err)
 		s.retry(ctx, job.ID, err.Error())
 		return false
 	}
 
-	// La création vient **après** la transition validée en base. Si elle échoue,
-	// le job repasse `queued` avec un essai de plus ; l'ordre inverse produirait
-	// un run que le dashboard ne saurait pas rattacher.
+	// The creation comes **after** the transition is committed in the database. If it fails, the
+	// job goes back to `queued` with one more attempt; the reverse order would produce a run the
+	// dashboard could not attach.
 	if _, err := s.cluster.Create(ctx, tekton.Request{
 		Name:     job.RunName,
 		JobID:    job.ID,
@@ -319,35 +305,34 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 		Params:   params,
 	}); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			// Le run existe déjà sous ce nom : une tentative précédente a abouti
-			// dans le cluster sans que le worker l'apprenne — mort entre la
-			// création et sa prise en compte. Le remettre en file en créerait un
-			// second, ou boucherait la file indéfiniment. L'état visé est
-			// atteint : on continue.
-			s.logger.Warn("run déjà présent, tentative précédente aboutie",
+			// The run already exists under that name: an earlier attempt completed in the cluster without
+			// the worker learning it — dead between the creation and its being taken into account. Putting
+			// it back in the queue would create a second one, or block the queue indefinitely. The
+			// intended state is reached: carry on.
+			s.logger.Warn("run already present, an earlier attempt completed",
 				"job", job.ID, "run", job.RunName)
 			return true
 		}
 
-		s.logger.Error("création du PipelineRun", "job", job.ID, "run", job.RunName, "error", err)
+		s.logger.Error("creating the PipelineRun", "job", job.ID, "run", job.RunName, "error", err)
 		s.retry(ctx, job.ID, err.Error())
 		return false
 	}
 
-	s.logger.Info("run lancé",
+	s.logger.Info("run launched",
 		"job", job.ID, "kind", job.Kind, "run", job.RunName, "file", limits.Of(job.Kind))
 	return true
 }
 
-// addUploadURLs ajoute une URL pré-signée par artefact déclaré.
+// addUploadURLs adds one presigned URL per declared artifact.
 //
-// Faite ici, avant la création du run, et non par le pipeline : c'est ce qui
-// permet au dashboard de connaître la clé de chaque artefact sans la chercher, et
-// ce qui sort le secret MinIO des Tasks de test.
+// Done here, before the run is created, and not by the pipeline: that is what lets the
+// dashboard know each artifact's key without looking for it, and what takes the MinIO secret
+// out of the test Tasks.
 //
-// Un artefact non déclaré ne reçoit pas d'URL, et sa publication est simplement
-// ignorée par la Task. C'est la dégradation voulue : un pipeline qui produit plus
-// que ce que le catalogue annonce ne doit pas échouer pour autant.
+// An undeclared artifact receives no URL, and its publication is simply ignored by the Task.
+// That is the intended degradation: a pipeline producing more than the catalogue announces
+// must not fail for that.
 func (s *Scheduler) addUploadURLs(
 	ctx context.Context, pipeline catalog.Pipeline, runName string, params map[string]string,
 ) error {
@@ -355,16 +340,15 @@ func (s *Scheduler) addUploadURLs(
 		return nil
 	}
 	if s.uploads == nil {
-		// Sans stockage, le run part sans publication. Le refuser priverait
-		// l'utilisateur d'une exécution qui reste utile — les journaux, eux,
-		// passent par un autre chemin.
-		s.logger.Warn("stockage indisponible, artefacts non publiés", "run", runName)
+		// Without storage, the run starts with no publication. Refusing it would deprive the user of a
+		// run that stays useful — the logs go by another path.
+		s.logger.Warn("storage unavailable, artifacts not published", "run", runName)
 		return nil
 	}
 
 	for name, upload := range pipeline.Uploads {
 		if upload.Param == "" || upload.Artifact == "" {
-			return fmt.Errorf("artefact %q: `param` et `artifact` sont requis pour minter une URL", name)
+			return fmt.Errorf("artifact %q: `param` and `artifact` are required to mint a URL", name)
 		}
 
 		key, err := s.keys.RawArtifact(runName, upload.Artifact)
@@ -381,70 +365,66 @@ func (s *Scheduler) addUploadURLs(
 	return nil
 }
 
-// runLocal exécute une tâche du processus et conclut son job.
+// runLocal runs a task of the process and concludes its job.
 //
-// La conclusion est immédiate et non déléguée à l'informer : aucun PipelineRun
-// n'existe pour ce job, donc rien d'autre ne viendra le terminer. Un job local
-// laissé `running` bloquerait sa classe indéfiniment.
+// The conclusion is immediate and not delegated to the informer: no PipelineRun exists for this
+// job, so nothing else will come to finish it. A local job left `running` would block its class
+// indefinitely.
 func (s *Scheduler) runLocal(ctx context.Context, task LocalTask, job store.Job) {
 	if err := task.Run(ctx, job); err != nil {
 		s.logger.Error("tâche locale", "job", job.ID, "kind", job.Kind, "error", err)
-		// Échec définitif plutôt que remise en file : ces tâches échouent sur des
-		// causes qui ne se corrigent pas d'elles-mêmes — une release sans image,
-		// un format inconnu. Réessayer produirait la même erreur en boucle.
+		// Final failure rather than re-queueing: these tasks fail on causes that do not fix themselves
+		// — a release with no image, an unknown format. Retrying would produce the same error in a
+		// loop.
 		if err := s.queue.FinishJob(ctx, job.ID, store.JobFailed, err.Error()); err != nil {
-			s.logger.Error("conclusion du job", "job", job.ID, "error", err)
+			s.logger.Error("concluding the job", "job", job.ID, "error", err)
 		}
 		return
 	}
 
 	if err := s.queue.FinishJob(ctx, job.ID, store.JobSucceeded, ""); err != nil {
-		s.logger.Error("conclusion du job", "job", job.ID, "error", err)
+		s.logger.Error("concluding the job", "job", job.ID, "error", err)
 	}
-	s.logger.Info("tâche locale terminée", "job", job.ID, "kind", job.Kind)
+	s.logger.Info("local task finished", "job", job.ID, "kind", job.Kind)
 }
 
-// applyCancellations exécute les demandes d'arrêt enregistrées par l'api.
+// applyCancellations carries out the stop requests the api recorded.
 //
-// Le patch Tekton est idempotent : le rejouer sur un run déjà annulé ne coûte
-// qu'un appel. C'est ce qui permet de ne pas tenir d'état supplémentaire pour
-// savoir si la demande a été transmise — l'informer finira par constater la fin,
-// et la demande disparaîtra avec le job.
+// The Tekton patch is idempotent: replaying it on a run already cancelled costs only a call.
+// That is what makes it unnecessary to keep extra state to know whether the request was passed
+// on — the informer will eventually see the end, and the request will disappear with the job.
 func (s *Scheduler) applyCancellations(ctx context.Context) {
 	pending, err := s.queue.PendingCancellations(ctx)
 	if err != nil {
-		s.logger.Error("lecture des annulations demandées", "error", err)
+		s.logger.Error("reading the requested cancellations", "error", err)
 		return
 	}
 
 	for _, job := range pending {
 		if err := s.cluster.Cancel(ctx, job.RunName); err != nil {
-			s.logger.Error("annulation dans le cluster",
+			s.logger.Error("cancellation in the cluster",
 				"job", job.ID, "run", job.RunName, "error", err)
 			continue
 		}
-		s.logger.Info("annulation transmise au cluster", "job", job.ID, "run", job.RunName)
+		s.logger.Info("cancellation passed to the cluster", "job", job.ID, "run", job.RunName)
 	}
 }
 
-// resolveParams compose les paramètres du run à partir du catalogue et de la
-// demande.
+// resolveParams composes the run's parameters from the catalogue and the request.
 //
-// Les trois sources ne se mélangent pas : `input` vient de l'utilisateur,
-// `config` de la configuration du dashboard, `literal` du catalogue. Laisser une
-// demande fournir un paramètre de source `config` permettrait de pointer un
-// pipeline vers un autre dépôt que celui prévu.
+// The three sources do not mix: `input` comes from the user, `config` from the dashboard's
+// configuration, `literal` from the catalogue. Letting a request supply a `config` parameter
+// would allow pointing a pipeline at a repository other than the one intended.
 //
-// Ce qui n'est **pas** déclaré passe en revanche tel quel, et c'est ce qui rend
-// possible une exécution personnalisée : le formulaire accepte des paramètres
-// supplémentaires, que le catalogue ignore et que le pipeline peut connaître.
-// La règle ci-dessus n'en est pas affaiblie — un paramètre déclaré garde sa
-// source, et une valeur fournie sous le nom d'un paramètre `config` est écartée
-// par la boucle qui suit, non reprise par celle d'après.
+// What is **not** declared does pass through as it is, and that is what makes a customised run
+// possible: the form accepts extra parameters, which the catalogue ignores and the pipeline may
+// know. The rule above is not weakened by it — a declared parameter keeps its source, and a
+// value supplied under the name of a `config` parameter is set aside by the loop that follows,
+// not picked up by the one after.
 //
-// Un paramètre supplémentaire que le Pipeline ne déclare pas fait échouer la
-// création côté Tekton, avec un message qui le nomme. C'est le comportement
-// voulu : mieux vaut un refus explicite qu'un paramètre silencieusement perdu.
+// An extra parameter the Pipeline does not declare fails the creation on Tekton's side, with a
+// message naming it. That is the intended behaviour: an explicit refusal is better than a
+// parameter silently lost.
 func (s *Scheduler) resolveParams(
 	pipeline catalog.Pipeline, provided map[string]string, settings map[string]string,
 ) (map[string]string, error) {
@@ -458,7 +438,7 @@ func (s *Scheduler) resolveParams(
 		case catalog.SourceConfig:
 			value, present := settings[declared.Key]
 			if !present {
-				return nil, fmt.Errorf("paramètre %q: clé de configuration %q absente", name, declared.Key)
+				return nil, fmt.Errorf("parameter %q: configuration key %q missing", name, declared.Key)
 			}
 			params[name] = value
 
@@ -466,7 +446,7 @@ func (s *Scheduler) resolveParams(
 			value, present := provided[name]
 			if !present || value == "" {
 				if declared.Required {
-					return nil, fmt.Errorf("paramètre %q requis et non fourni", name)
+					return nil, fmt.Errorf("parameter %q required and not supplied", name)
 				}
 				continue
 			}
@@ -476,9 +456,8 @@ func (s *Scheduler) resolveParams(
 
 	for name, value := range provided {
 		if _, declared := pipeline.Params[name]; declared {
-			// Déjà traité par sa source. Le reprendre ici écraserait une valeur
-			// de configuration par une valeur d'utilisateur, ce que toute la
-			// séparation des sources existe pour empêcher.
+			// Already handled by its source. Picking it up here would overwrite a configuration value with
+			// a user value, which the whole separation of sources exists to prevent.
 			continue
 		}
 		if value == "" {
@@ -490,22 +469,20 @@ func (s *Scheduler) resolveParams(
 	return params, nil
 }
 
-// RunName compose le nom du PipelineRun d'un job.
+// RunName composes the name of a job's PipelineRun.
 //
-// Il porte l'identifiant du job : le lien est lisible dans `kubectl` sans
-// consulter la base, et deux essais du même job donnent le même nom. C'est ce qui
-// rend la reprise sûre — une seconde création se heurte à un conflit, que
-// l'ordonnanceur lit comme « c'était déjà fait » plutôt que de créer un doublon.
+// It carries the job's identifier: the link is readable in `kubectl` without consulting the
+// database, and two attempts of the same job give the same name. That is what makes retrying
+// safe — a second creation meets a conflict, which the scheduler reads as "it was already
+// done" rather than creating a duplicate.
 //
-// Il porte **aussi** l'identité de la base, et c'est ce qui manquait. Les
-// identifiants de jobs repartent à 1 sur une base neuve, alors que les
-// PipelineRun survivent dans le cluster : chaque nouveau job s'accrochait à un
-// run existant, le conflit était lu comme un succès, et rien ne partait. On
-// regardait l'échec d'une exécution vieille de plusieurs heures en croyant
-// consulter la sienne.
+// It **also** carries the database's identity, and that is what was missing. Job identifiers
+// start again at 1 on a fresh database, whereas PipelineRuns survive in the cluster: each new
+// job attached itself to an existing run, the conflict was read as a success, and nothing
+// started. One looked at the failure of a run hours old believing one was looking at one's own.
 //
-// L'identité vide est tolérée pour que les tests n'aient pas à la fournir ; en
-// production elle est lue au démarrage et ne l'est jamais.
+// An empty identity is tolerated so that tests need not supply it; in production it is read at
+// start-up and is never empty.
 func RunName(instance, kind string, id int64) string {
 	if instance == "" {
 		return fmt.Sprintf("mse-%s-%d", kind, id)
@@ -513,13 +490,12 @@ func RunName(instance, kind string, id int64) string {
 	return fmt.Sprintf("mse-%s-%s-%d", instance, kind, id)
 }
 
-// retry remet un job en file, ou le conclut en échec quand il a trop insisté.
+// retry puts a job back in the queue, or concludes it as failed when it has insisted too much.
 //
-// La distinction est ce qui empêche un job insatisfiable d'immobiliser la file.
-// Une reprise sert aux échecs transitoires ; un paramètre manquant, lui, ne se
-// matérialisera jamais — les paramètres sont figés à la mise en file, et le
-// catalogue évolue. Sans plafond, l'ordonnanceur reprend indéfiniment le même
-// job, toujours le plus ancien, et ne considère jamais les suivants.
+// The distinction is what stops an unsatisfiable job freezing the queue. A retry serves
+// transient failures; a missing parameter, on the other hand, will never materialise — the
+// parameters are frozen at queueing, and the catalogue changes. With no cap, the scheduler
+// retries the same job indefinitely, always the oldest, and never considers the next ones.
 func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
 	again, err := s.queue.Requeue(ctx, jobID, reason)
 	if err != nil {
@@ -530,37 +506,35 @@ func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
 		return
 	}
 
-	// Le motif de la dernière tentative est conservé : sans lui, l'utilisateur
-	// lirait « trop de tentatives » sans savoir de quoi.
-	final := fmt.Sprintf("abandonné après %d tentatives: %s", store.MaxJobAttempts, reason)
-	s.logger.Error("job abandonné", "job", jobID, "tentatives", store.MaxJobAttempts, "raison", reason)
+	// The last attempt's reason is kept: without it, the user would read "too many attempts"
+	// without knowing of what.
+	final := fmt.Sprintf("given up after %d attempts: %s", store.MaxJobAttempts, reason)
+	s.logger.Error("job given up", "job", jobID, "attempts", store.MaxJobAttempts, "reason", reason)
 	if err := s.queue.FinishJob(ctx, jobID, store.JobFailed, final); err != nil {
-		s.logger.Error("conclusion du job abandonné", "job", jobID, "error", err)
+		s.logger.Error("concluding the job given up", "job", jobID, "error", err)
 	}
 }
 
-// settingsFor rend les réglages du run, ceux du projet remplaçant ceux du
-// déploiement quand il en désigne.
+// settingsFor returns the run's settings, the project's replacing the deployment's where it
+// names any.
 //
-// Une **copie** superposée à la configuration globale, jamais une écriture dans
-// celle-ci : la carte est partagée par tous les runs, et y écrire ferait porter
-// au job suivant la clé du précédent — un dépôt construit avec la clé d'un autre
-// client, sans qu'aucune erreur ne le signale.
+// A **copy** layered over the global configuration, never a write into it: the map is shared by
+// every run, and writing into it would have the next job carry the previous one's key — a
+// repository built with another client's key, with no error reporting it.
 //
-// # Un projet sans clé propre ne construit plus
+// # A project with no key of its own no longer builds
 //
-// L'absence de clé retombait sur une clé **partagée**, celle du déploiement. Ce
-// repli est retiré : une clé unique ajoutée à plusieurs dépôts fait de sa
-// révocation une panne pour tous à la fois, et ne dit rien de qui a cloné quoi.
+// A missing key fell back to a **shared** key, the deployment's. That fallback is removed: a
+// single key added to several repositories makes its revocation an outage for all of them at
+// once, and says nothing about who cloned what.
 //
-// Le refus est donc explicite, et son message nomme le geste qui manque — coller
-// la moitié publique dans les réglages du dépôt, puis le déclarer. Sans lui, le
-// clone échouerait dans le pipeline avec une erreur SSH, très loin de sa cause.
+// The refusal is therefore explicit, and its message names the missing act — pasting the public
+// half into the repository's settings, then declaring it. Without it, the clone would fail in
+// the pipeline with an SSH error, very far from its cause.
 //
-// Le secret de registre garde son repli, et ce n'est pas une incohérence : il est
-// **désigné** et non créé, provisionné par le déploiement pour toute l'instance,
-// et un projet qui n'en désigne pas de particulier pousse légitimement là où
-// poussent les autres.
+// The registry secret keeps its fallback, and that is no inconsistency: it is **named** and not
+// created, provisioned by the deployment for the whole instance, and a project naming none in
+// particular legitimately pushes where the others push.
 func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) (map[string]string, error) {
 	if job.ProjectID == nil {
 		return s.config, nil
@@ -568,28 +542,26 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) (map[string]
 
 	overrides := map[string]string{}
 
-	// Le dépôt du projet, celui que ses pipelines clonent. Déclaré en base, et
-	// non dans la configuration : un second projet ne construit pas le dépôt du
-	// premier (doc 16 §16.24).
+	// The project's repository, the one its pipelines clone. Declared in the database, and not in
+	// the configuration: a second project does not build the first one's repository.
 	if s.projects != nil {
 		project, err := s.projects.GetProject(ctx, *job.ProjectID)
 		if err != nil {
-			return nil, fmt.Errorf("dépôt du projet %d: %w", *job.ProjectID, err)
+			return nil, fmt.Errorf("repository of project %d: %w", *job.ProjectID, err)
 		}
 		if clone := config.CloneURLFor(project.ForgeURL, project.Repository, s.projectSSHPort); clone != "" {
 			overrides[projectRepoKey] = clone
-			// L'ancienne clé, tant qu'un catalogue peut encore la nommer.
+			// The old key, for as long as a catalogue can still name it.
 			overrides[legacyRepoKey] = clone
 		}
 	}
 
-	// Ce qu'un plugin ajoute pour ce projet, avant les secrets : les deux portent
-	// sur des clés distinctes, et l'ordre ne fait que dire laquelle est la plus
-	// spécifique en cas d'homonymie future.
+	// What a plugin adds for this project, before the secrets: the two bear on distinct keys, and
+	// the order only says which is the more specific should names collide in future.
 	if s.projectSettings != nil {
 		values, err := s.projectSettings(ctx, *job.ProjectID)
 		if err != nil {
-			return nil, fmt.Errorf("réglages du projet %d: %w", *job.ProjectID, err)
+			return nil, fmt.Errorf("settings of project %d: %w", *job.ProjectID, err)
 		}
 		maps.Copy(overrides, values)
 	}
@@ -601,37 +573,36 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) (map[string]
 		return settings, nil
 	}
 
-	// Deux réglages, lus séparément : un projet peut avoir sa clé sans désigner
-	// de registre, et l'inverse. Les traiter ensemble ferait perdre l'un quand
-	// l'autre manque.
+	// Two settings, read separately: a project may have its key without naming a registry, and the
+	// reverse. Handling them together would lose one when the other is missing.
 
 	gitSecret, found, err := s.deployKeys.DeployKeySecret(ctx, *job.ProjectID)
 	switch {
 	case err != nil:
-		// Une lecture en échec ne se déguise pas en absence de clé : le message
-		// enverrait activer une clé qui existe peut-être déjà. La reprise couvre
-		// le cas transitoire, et le plafond de tentatives conclut sinon.
-		return nil, fmt.Errorf("lecture de la clé de déploiement du projet %d: %w",
+		// A failed read does not disguise itself as a missing key: the message would send someone to
+		// enable a key that may already exist. The retry covers the transient case, and the attempt cap
+		// concludes otherwise.
+		return nil, fmt.Errorf("reading the deploy key of project %d: %w",
 			*job.ProjectID, err)
 	case !found:
 		return nil, fmt.Errorf(
-			"le projet %d n'a pas de clé de déploiement active: coller sa moitié "+
-				"publique dans les réglages du dépôt, puis la déclarer active depuis "+
-				"l'écran du projet", *job.ProjectID)
+			"project %d has no active deploy key: paste its public half "+
+				"into the repository settings, then declare it active from "+
+				"the project screen", *job.ProjectID)
 	}
 	overrides["pipeline.gitSecret"] = gitSecret
 
 	registrySecret, found, err := s.deployKeys.RegistrySecret(ctx, *job.ProjectID)
 	if err != nil {
-		// Celui-ci ne fait pas échouer le run : le secret du déploiement reste
-		// valable, et c'est là que poussent les projets qui n'en désignent pas.
-		s.logger.Error("secret de registre du projet",
-			"job", job.ID, "projet", *job.ProjectID, "error", err)
+		// This one does not fail the run: the deployment's secret stays valid, and that is where the
+		// projects naming none push.
+		s.logger.Error("project's registry secret",
+			"job", job.ID, "project", *job.ProjectID, "error", err)
 	} else if found {
 		overrides["pipeline.registrySecret"] = registrySecret
 	}
 
-	// Une **copie** superposée, jamais une écriture dans la carte partagée.
+	// A **copy** layered over, never a write into the shared map.
 	settings := make(map[string]string, len(s.config))
 	maps.Copy(settings, s.config)
 	maps.Copy(settings, overrides)

@@ -13,39 +13,37 @@ import (
 )
 
 /*
- * Vérification du canal de marqueurs contre un journal **réellement scellé**,
- * gardée par `MARKERS_LIVE=1` comme les vérifications de Redmine et de la forge.
+ * Checking the marker channel against a log that is **really sealed**, guarded by
+ * `MARKERS_LIVE=1` like the Redmine and forge checks.
  *
- * Les tests unitaires du canal servent un journal depuis une map : ils éprouvent
- * la logique et rien de plus. Ce qu'ils ne peuvent pas dire, c'est si le lecteur
- * rend bien le texte complet d'un objet réel — un journal scellé est écrit par
- * tranches, puis recomposé, et c'est exactement le genre d'assemblage qui marche
- * sur une fixture et pas sur la donnée.
+ * The channel's unit tests serve a log from a map: they exercise the logic and nothing more.
+ * What they cannot say is whether the reader really returns the complete text of a real object
+ * — a sealed log is written in chunks, then recomposed, and that is exactly the kind of
+ * assembly that works on a fixture and not on the data.
  *
- * Ce que ce test couvre, et que rien d'autre ne couvrait : la chaîne
- * MinIO → logs.Reader → MarkerIngester sur un run que le dashboard a lui-même
- * ordonnancé, collecté et scellé.
+ * What this test covers, and nothing else covered: the chain MinIO → logs.Reader →
+ * MarkerIngester on a run the dashboard itself scheduled, collected and sealed.
  *
- * Variables attendues :
+ * Expected variables:
  *
  *   MARKERS_LIVE=1
  *   MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET
- *   MARKERS_LIVE_RUN   nom du PipelineRun
- *   MARKERS_LIVE_TASKS noms des tasks, séparés par des virgules
- *   MARKER_TOKEN       jeton du déploiement observé (`MSE` ici)
+ *   MARKERS_LIVE_RUN   name of the PipelineRun
+ *   MARKERS_LIVE_TASKS names of the tasks, comma-separated
+ *   MARKER_TOKEN       token of the deployment observed (`MSE` here)
  */
 
 func liveMarkerSource(t *testing.T) (*logs.Reader, string, []string) {
 	t.Helper()
 
 	if os.Getenv("MARKERS_LIVE") != "1" {
-		t.Skip("MARKERS_LIVE != 1: vérification contre un journal réel ignorée")
+		t.Skip("MARKERS_LIVE != 1: the check against a real log is skipped")
 	}
 
 	run := os.Getenv("MARKERS_LIVE_RUN")
 	tasks := strings.Split(os.Getenv("MARKERS_LIVE_TASKS"), ",")
 	if run == "" || len(tasks) == 0 || tasks[0] == "" {
-		t.Skip("MARKERS_LIVE_RUN ou MARKERS_LIVE_TASKS non renseigné")
+		t.Skip("MARKERS_LIVE_RUN or MARKERS_LIVE_TASKS not set")
 	}
 
 	storage, err := blob.Open(context.Background(), config.StorageConfig{
@@ -62,13 +60,11 @@ func liveMarkerSource(t *testing.T) (*logs.Reader, string, []string) {
 	return logs.NewReader(storage), run, tasks
 }
 
-// Le journal scellé d'un run réel doit rendre ses descripteurs, entiers et
-// analysables.
+// A real run's sealed log must return its descriptors, whole and parsable.
 //
-// L'assertion porte sur ce qui est **lu**, pas sur ce qui est enregistré : un run
-// dont tous les outils ont conclu n'enregistre rien, et ne prouverait donc rien
-// du chemin de lecture.
-func TestLiveLesDescripteursDunRunScelleSeLisent(t *testing.T) {
+// The assertion bears on what is **read**, not on what is recorded: a run whose every tool
+// concluded records nothing, and would therefore prove nothing about the reading path.
+func TestLiveTheDescriptorsOfASealedRunAreRead(t *testing.T) {
 	reader, run, tasks := liveMarkerSource(t)
 
 	set := results.NewMarkerSet(os.Getenv("MARKER_TOKEN"))
@@ -80,42 +76,39 @@ func TestLiveLesDescripteursDunRunScelleSeLisent(t *testing.T) {
 		task = strings.TrimSpace(task)
 		text, err := ingester.readTask(context.Background(), run, task)
 		if err != nil {
-			t.Fatalf("lecture de %s/%s: %v", run, task, err)
+			t.Fatalf("reading %s/%s: %v", run, task, err)
 		}
 		read += len(text)
-		// Le début du journal est rendu quoi qu'il arrive : quand aucun
-		// descripteur n'est trouvé, la question suivante est toujours « qu'y
-		// avait-il alors dans ce journal », et l'échec doit y répondre seul.
-		t.Logf("%s: %d octets, début: %s", task, len(text), firstLines(text, 3))
-		// Même retrait d'horodatage que l'ingesteur : sans lui, ce test passerait
-		// à côté de descripteurs pourtant présents — c'est exactement le défaut
-		// qu'il a servi à trouver.
+		// The start of the log is returned whatever happens: when no descriptor is found, the next
+		// question is always "what was in that log then", and the failure must answer it on its own.
+		t.Logf("%s: %d bytes, start: %s", task, len(text), firstLines(text, 3))
+		// The same timestamp stripping as the ingester: without it, this test would miss descriptors
+		// that are nonetheless present — exactly the defect it served to find.
 		for tool, meta := range set.ScanMarkers(logs.Plain(text)).Metas {
 			found[tool] = meta
 		}
 	}
 
 	if read == 0 {
-		t.Fatal("aucun octet lu: le lecteur ne rend rien du journal scellé")
+		t.Fatal("no byte read: the reader returns nothing of the sealed log")
 	}
 	if len(found) == 0 {
-		t.Fatalf("%d octets lus, aucun descripteur trouvé: soit le jeton %q ne correspond pas "+
-			"à ce que les Tasks émettent, soit le journal est tronqué", read, set.Meta)
+		t.Fatalf("%d bytes read, no descriptor found: either the token %q does not match "+
+			"what the Tasks emit, or the log is truncated", read, set.Meta)
 	}
 
 	for tool, meta := range found {
 		t.Logf("descripteur lu: outil=%s statut=%s code=%d", tool, meta.Status, meta.ExitCode)
 		if tool == "" {
-			t.Error("un descripteur sans outil ne peut être rattaché à rien")
+			t.Error("a descriptor with no tool can be attached to nothing")
 		}
 	}
 }
 
-// Et le pendant, qui est la propriété la plus facile à casser sans s'en
-// apercevoir : un run dont tous les outils ont conclu ne doit enregistrer aucun
-// résultat. Un faux positif ici marquerait « non mesuré » une famille qui l'a
-// été, et sortirait du score un signal parfaitement valide.
-func TestLiveUnRunSainNenregistreRien(t *testing.T) {
+// And the counterpart, which is the property easiest to break without noticing: a run whose
+// every tool concluded must record no result. A false positive here would mark as "not
+// measured" a family that was, and take a perfectly valid signal out of the score.
+func TestLiveAHealthyRunRecordsNothing(t *testing.T) {
 	reader, run, tasks := liveMarkerSource(t)
 
 	set := results.NewMarkerSet(os.Getenv("MARKER_TOKEN"))
@@ -135,15 +128,14 @@ func TestLiveUnRunSainNenregistreRien(t *testing.T) {
 	}
 
 	for _, saved := range db.saved {
-		// Un enregistrement n'est une faute que si l'outil avait conclu. Le test
-		// est lancé sur un run réussi, donc la liste doit être vide ; si elle ne
-		// l'est pas, le journal dit lequel et pourquoi.
-		t.Errorf("résultat enregistré pour un run sain: outil=%s statut=%s résumé=%q",
+		// A record is a fault only if the tool had concluded. The test is run on a successful run, so
+		// the list must be empty; if it is not, the log says which one and why.
+		t.Errorf("result recorded for a healthy run: tool=%s status=%s summary=%q",
 			saved.Tool, saved.Status, saved.Summary)
 	}
 }
 
-// firstLines rend les premières lignes d'un texte, pour le diagnostic.
+// firstLines returns a text's first lines, for diagnosis.
 func firstLines(text string, count int) string {
 	lines := strings.SplitN(strings.TrimSpace(text), "\n", count+1)
 	if len(lines) > count {

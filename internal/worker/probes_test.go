@@ -11,23 +11,20 @@ import (
 )
 
 /*
- * Les sondes.
+ * The probes.
  *
- * Trois choses s'éprouvent ici, et aucune ne s'éprouve à la lecture du code :
- * qu'une activation n'émet rien du passé, qu'une seconde passe sur la même
- * fenêtre de recouvrement ne renotifie pas, et qu'une forge injoignable
- * n'empêche pas les autres projets d'avancer.
- *
- * Elles valent la tranche à elles seules (doc 14 §14.11).
+ * Three things are exercised here, and none of them is exercised by reading the code: that
+ * enabling one emits nothing of the past, that a second pass over the same overlap window does
+ * not re-notify, and that an unreachable forge does not stop the other projects advancing.
  */
 
-// fakeProbe rend ce qu'on lui donne, et retient ce qu'on lui a demandé.
+// fakeProbe returns what it is given, and keeps what it was asked.
 type fakeProbe struct {
 	facts  []event.Event
 	cursor string
-	// err est rendue pour un projet nommé, pour éprouver l'isolation.
+	// err is returned for a named project, to exercise the isolation.
 	errFor string
-	// seen retient les curseurs reçus, projet par projet.
+	// seen keeps the cursors received, project by project.
 	seen map[string]string
 }
 
@@ -49,17 +46,16 @@ func (p *fakeProbe) Poll(
 	return p.facts, p.cursor, nil
 }
 
-// fakeProbeStore tient l'état que la boucle lit et écrit.
+// fakeProbeStore holds the state the loop reads and writes.
 type fakeProbeStore struct {
 	projects []store.Project
 	cursors  map[string]string
-	// facts retient les clés émises, comme la base : c'est l'unicité qu'on
-	// éprouve, et un tableau ne dirait pas si un doublon a été écarté.
+	// facts keeps the keys emitted, like the database: uniqueness is what is being exercised, and
+	// a slice would not say whether a duplicate was set aside.
 	facts map[string]event.Event
-	// nouveaux compte les faits **neufs**, c'est-à-dire ceux que la boucle
-	// aiguillerait. Le total ne suffit pas à le dire : une passe qui réécrit dix
-	// fois le même fait laisse une carte d'un seul élément.
-	nouveaux int
+	// fresh counts the **new** facts, that is, those the loop would route. The total does not say
+	// it: a pass rewriting the same fact ten times leaves a map of a single element.
+	fresh    int
 	failures []string
 	disabled bool
 }
@@ -84,20 +80,20 @@ func (f *fakeProbeStore) ResolvedPlugin(
 	}
 	return store.PluginSettings{
 		PluginID: pluginID, Enabled: true,
-		Config: map[string]string{"url": "https://forge.example.fr", "token": "scellé:jeton"},
+		Config: map[string]string{"url": "https://forge.example.fr", "token": "sealed:token"},
 	}, nil
 }
 
 func (f *fakeProbeStore) GetSyncState(
 	_ context.Context, source string, projectID int64,
 ) (store.SyncState, error) {
-	return store.SyncState{Source: source, Cursor: f.cursors[curseurCle(source, projectID)]}, nil
+	return store.SyncState{Source: source, Cursor: f.cursors[cursorKey(source, projectID)]}, nil
 }
 
 func (f *fakeProbeStore) RecordSyncSuccess(
 	_ context.Context, source string, projectID int64, cursor string,
 ) error {
-	f.cursors[curseurCle(source, projectID)] = cursor
+	f.cursors[cursorKey(source, projectID)] = cursor
 	return nil
 }
 
@@ -116,179 +112,176 @@ func (f *fakeProbeStore) RecordEvent(_ context.Context, fact event.Event) (bool,
 		return false, nil
 	}
 	f.facts[fact.DedupKey] = fact
-	f.nouveaux++
+	f.fresh++
 	return true, nil
 }
 
-func curseurCle(source string, projectID int64) string {
+func cursorKey(source string, projectID int64) string {
 	return source + ":" + string(rune('0'+projectID))
 }
 
-func faitDeSonde(cle string) event.Event {
+func probeFact(cle string) event.Event {
 	return event.Event{
 		Type: "gitea.pull_request.opened", Subject: "#412",
-		Payload:    map[string]string{"number": "412", "title": "Corriger le clone"},
+		Payload:    map[string]string{"number": "412", "title": "Fix the clone"},
 		OccurredAt: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC),
 		DedupKey:   cle,
 	}
 }
 
-func projetDeTest(id int64, slug string) store.Project {
+func testProject(id int64, slug string) store.Project {
 	return store.Project{ID: id, Slug: slug, Repository: "CNOUS/" + slug}
 }
 
-func runnerDeSonde(t *testing.T, store *fakeProbeStore, probe Probe) *ProbeRunner {
+func probeRunnerFor(t *testing.T, db *fakeProbeStore, probe Probe) *ProbeRunner {
 	t.Helper()
-	return NewProbeRunner(store, openerDeTest{}, time.Minute, quietLogger(), probe)
+	return NewProbeRunner(db, testOpener{}, time.Minute, quietLogger(), probe)
 }
 
 /*
- * 1. Une activation ne réveille pas le passé.
+ * 1. Enabling something does not wake the past.
  */
 
-// La première passe **établit le curseur et ne déclenche rien**.
+// The first pass **establishes the cursor and triggers nothing**.
 //
-// Sans cette règle, activer une sonde sur un dépôt qui porte quatre cents
-// demandes de fusion enverrait quatre cents notifications.
+// Without that rule, enabling a probe on a repository carrying four hundred pull requests
+// would send four hundred notifications.
 //
-// Elle **retient** pourtant ce qu'elle voit, et c'est une correction apportée par
-// la migration du suivi : voir le test suivant.
-func TestUneActivationNeReveillePasLePasse(t *testing.T) {
-	base := newFakeProbeStore(projetDeTest(1, "mse"))
+// It nonetheless **keeps** what it sees, and that is a fix the tracker's migration brought:
+// see the next test.
+func TestEnablingDoesNotWakeThePast(t *testing.T) {
+	base := newFakeProbeStore(testProject(1, "mse"))
 	probe := &fakeProbe{
-		facts:  []event.Event{faitDeSonde("gitea.pr:mse:410"), faitDeSonde("gitea.pr:mse:411")},
+		facts:  []event.Event{probeFact("gitea.pr:mse:410"), probeFact("gitea.pr:mse:411")},
 		cursor: "2026-09-03T10:00:00Z",
 	}
 
-	runnerDeSonde(t, base, probe).sweep(context.Background(), probe)
+	probeRunnerFor(t, base, probe).sweep(context.Background(), probe)
 
 	if len(base.facts) != 2 {
-		t.Errorf("%d faits retenus à l'activation, attendu 2", len(base.facts))
+		t.Errorf("%d facts kept at enabling, expected 2", len(base.facts))
 	}
-	// Le curseur est posé : la passe suivante repartira de là.
-	if base.cursors[curseurCle("gitea.pull_requests", 1)] != "2026-09-03T10:00:00Z" {
-		t.Errorf("curseur = %q", base.cursors[curseurCle("gitea.pull_requests", 1)])
+	// The cursor is set: the next pass will start again from there.
+	if base.cursors[cursorKey("gitea.pull_requests", 1)] != "2026-09-03T10:00:00Z" {
+		t.Errorf("curseur = %q", base.cursors[cursorKey("gitea.pull_requests", 1)])
 	}
 }
 
-// Une sonde qui rend un **instantané** ne déclenche pas après son amorçage.
+// A probe returning a **snapshot** does not trigger after its bootstrap.
 //
-// # Le défaut que la seconde réalisation a révélé
+// # The defect the second implementation revealed
 //
-// L'amorçage jetait ses faits. Cela suffisait tant que toute sonde filtrait sur
-// son curseur : la sonde Gitea ne rend que les demandes ouvertes depuis, et ne les
-// revoit jamais.
+// The bootstrap discarded its facts. That was enough as long as every probe filtered on its
+// cursor: the Gitea probe returns only the requests opened since, and never sees them again.
 //
-// La synchronisation du suivi relit **toutes** les versions à chaque passe —
-// l'API de Redmine ne les filtre pas. Jetés à l'amorçage sans être retenus, ces
-// faits revenaient neufs au tour suivant et déclenchaient tout ce que l'amorçage
-// prétendait taire. « Une activation ne réveille pas le passé » n'était vrai que
-// d'un tour.
-func TestUnInstantaneNeDeclenchePasApresSonAmorcage(t *testing.T) {
-	base := newFakeProbeStore(projetDeTest(1, "mse"))
-	// Une sonde d'instantané : les mêmes faits à chaque passe, indépendamment du
-	// curseur. C'est exactement ce que fait la lecture des versions.
+// The tracker synchronisation re-reads **every** version at each pass — Redmine's API does not
+// filter them. Discarded at bootstrap without being kept, those facts came back new at the
+// next round and triggered everything the bootstrap claimed to silence. "Enabling something
+// does not wake the past" was true for one round only.
+func TestASnapshotDoesNotTriggerAfterItsBootstrap(t *testing.T) {
+	base := newFakeProbeStore(testProject(1, "mse"))
+	// A snapshot probe: the same facts at each pass, whatever the cursor. That is exactly what
+	// reading the versions does.
 	probe := &fakeProbe{
-		facts:  []event.Event{faitDeSonde("redmine.version:mse:803"), faitDeSonde("redmine.version:mse:805")},
+		facts:  []event.Event{probeFact("redmine.version:mse:803"), probeFact("redmine.version:mse:805")},
 		cursor: "2026-09-03T10:00:00Z",
 	}
-	runner := runnerDeSonde(t, base, probe)
+	runner := probeRunnerFor(t, base, probe)
 
 	runner.sweep(context.Background(), probe) // amorçage
-	apresAmorcage := base.nouveaux
+	apresAmorcage := base.fresh
 
 	runner.sweep(context.Background(), probe) // le tour suivant revoit tout
 
-	if base.nouveaux != apresAmorcage {
-		t.Errorf("%d faits neufs après l'amorçage, attendu aucun — "+
-			"l'instantané a redéclenché ce que l'amorçage devait taire",
-			base.nouveaux-apresAmorcage)
+	if base.fresh != apresAmorcage {
+		t.Errorf("%d new facts after the bootstrap, expected none — "+
+			"the snapshot re-triggered what the bootstrap was to silence",
+			base.fresh-apresAmorcage)
 	}
 }
 
-// La passe suivante, elle, émet.
-func TestLaPasseSuivanteEmet(t *testing.T) {
-	base := newFakeProbeStore(projetDeTest(1, "mse"))
+// La pass suivante, elle, émet.
+func TestTheNextPassEmits(t *testing.T) {
+	base := newFakeProbeStore(testProject(1, "mse"))
 	probe := &fakeProbe{cursor: "2026-09-03T10:00:00Z"}
-	runner := runnerDeSonde(t, base, probe)
+	runner := probeRunnerFor(t, base, probe)
 
 	// Amorçage.
 	runner.sweep(context.Background(), probe)
 
-	// Une demande de fusion s'ouvre.
-	probe.facts = []event.Event{faitDeSonde("gitea.pr:mse:412")}
+	// A pull request opens.
+	probe.facts = []event.Event{probeFact("gitea.pr:mse:412")}
 	probe.cursor = "2026-09-03T11:00:00Z"
 	runner.sweep(context.Background(), probe)
 
 	if len(base.facts) != 1 {
-		t.Fatalf("%d faits émis, attendu 1", len(base.facts))
+		t.Fatalf("%d facts emitted, expected 1", len(base.facts))
 	}
 	fait := base.facts["gitea.pr:mse:412"]
-	// La boucle rattache le projet et la source ; la sonde n'a pas à s'en charger.
+	// The loop attaches the project and the source; the probe has no business doing it.
 	if fait.ProjectID == nil || *fait.ProjectID != 1 {
-		t.Errorf("projet du fait = %v", fait.ProjectID)
+		t.Errorf("fact's project = %v", fait.ProjectID)
 	}
 	if fait.Source != "gitea" {
-		t.Errorf("source du fait = %q, attendue l'identifiant du plugin", fait.Source)
+		t.Errorf("fact's source = %q, expected the plugin's identifier", fait.Source)
 	}
 }
 
 /*
- * 2. Une seconde passe sur la même fenêtre ne renotifie pas.
+ * 2. A second pass over the same window does not re-notify.
  */
 
-// La sonde relit une fenêtre de recouvrement à chaque passe — c'est ce qui évite
-// de perdre un fait à cheval sur deux secondes. Sans clé stable, chaque passe
-// renotifierait.
-func TestUneSecondePasseSurLaMemeFenetreNeRenotifiePas(t *testing.T) {
-	base := newFakeProbeStore(projetDeTest(1, "mse"))
+// The probe re-reads an overlap window at each pass — that is what avoids losing a fact
+// straddling two seconds. With no stable key, every pass would re-notify.
+func TestASecondPassOverTheSameWindowDoesNotReNotify(t *testing.T) {
+	base := newFakeProbeStore(testProject(1, "mse"))
 	probe := &fakeProbe{cursor: "2026-09-03T10:00:00Z"}
-	runner := runnerDeSonde(t, base, probe)
+	runner := probeRunnerFor(t, base, probe)
 
 	runner.sweep(context.Background(), probe) // amorçage
 
-	probe.facts = []event.Event{faitDeSonde("gitea.pr:mse:412")}
+	probe.facts = []event.Event{probeFact("gitea.pr:mse:412")}
 	runner.sweep(context.Background(), probe)
-	// La fenêtre de recouvrement fait revoir le même fait.
+	// The overlap window makes the same fact come round again.
 	runner.sweep(context.Background(), probe)
 	runner.sweep(context.Background(), probe)
 
 	if len(base.facts) != 1 {
-		t.Errorf("%d faits enregistrés après trois passes, attendu 1", len(base.facts))
+		t.Errorf("%d facts recorded after three passes, expected 1", len(base.facts))
 	}
 }
 
 /*
- * 3. Un échec est isolé par projet.
+ * 3. A failure is isolated per project.
  */
 
-// Une forge injoignable pour un projet n'empêche pas les autres d'avancer.
+// A forge unreachable for one project does not stop the others advancing.
 //
-// Deux projets peuvent viser deux forges, et la panne de l'une ne dit rien de
-// l'autre. C'est la règle que la synchronisation du suivi vient d'apprendre.
-func TestUneForgeInjoignableNarretePasLesAutresProjets(t *testing.T) {
+// Two projects may target two forges, and one's outage says nothing about the other. It is the
+// rule the tracker synchronisation has just learnt.
+func TestAnUnreachableForgeDoesNotStopTheOtherProjects(t *testing.T) {
 	base := newFakeProbeStore(
-		projetDeTest(1, "casse"), projetDeTest(2, "sain"))
+		testProject(1, "casse"), testProject(2, "sain"))
 	probe := &fakeProbe{errFor: "casse", cursor: "2026-09-03T10:00:00Z"}
-	runner := runnerDeSonde(t, base, probe)
+	runner := probeRunnerFor(t, base, probe)
 
 	runner.sweep(context.Background(), probe) // amorçage des deux
 
-	probe.facts = []event.Event{faitDeSonde("gitea.pr:sain:1")}
+	probe.facts = []event.Event{probeFact("gitea.pr:sain:1")}
 	runner.sweep(context.Background(), probe)
 
-	// Le projet sain a bien émis.
+	// Le projectRow sain a bien émis.
 	if len(base.facts) != 1 {
-		t.Errorf("%d faits émis, attendu 1 pour le projet sain", len(base.facts))
+		t.Errorf("%d facts emitted, expected 1 for the healthy project", len(base.facts))
 	}
-	// Et l'échec de l'autre est consigné, pour que l'écran le dise.
+	// And the other's failure is recorded, so that the screen says it.
 	if len(base.failures) == 0 {
-		t.Error("l'échec du projet en panne n'a pas été consigné")
+		t.Error("the failing project's failure was not recorded")
 	}
-	// Son curseur n'a **pas** avancé : la passe suivante reverra ce qu'il a raté.
-	if base.cursors[curseurCle("gitea.pull_requests", 1)] != "" {
-		t.Errorf("curseur du projet en panne = %q, attendu inchangé",
-			base.cursors[curseurCle("gitea.pull_requests", 1)])
+	// Its cursor has **not** advanced: the next pass will see again what it missed.
+	if base.cursors[cursorKey("gitea.pull_requests", 1)] != "" {
+		t.Errorf("cursor of the failing project = %q, expected unchanged",
+			base.cursors[cursorKey("gitea.pull_requests", 1)])
 	}
 }
 
@@ -296,57 +289,56 @@ func TestUneForgeInjoignableNarretePasLesAutresProjets(t *testing.T) {
  * Ce que la boucle fait par ailleurs.
  */
 
-// Un plugin éteint n'est pas interrogé, et ce n'est pas une panne : le signaler à
-// chaque tour remplirait le journal d'un état voulu.
-func TestUnPluginEteintNestPasInterroge(t *testing.T) {
-	base := newFakeProbeStore(projetDeTest(1, "mse"))
+// A switched-off plugin is not queried, and that is not an outage: reporting it at every round
+// would fill the log with a wanted state.
+func TestASwitchedOffPluginIsNotQueried(t *testing.T) {
+	base := newFakeProbeStore(testProject(1, "mse"))
 	base.disabled = true
 	probe := &fakeProbe{cursor: "x"}
 
-	runnerDeSonde(t, base, probe).sweep(context.Background(), probe)
+	probeRunnerFor(t, base, probe).sweep(context.Background(), probe)
 
 	if len(probe.seen) != 0 {
-		t.Errorf("la sonde a été interrogée pour un plugin éteint: %v", probe.seen)
+		t.Errorf("the probe was queried for a switched-off plugin: %v", probe.seen)
 	}
 	if len(base.failures) != 0 {
-		t.Errorf("un plugin éteint a été consigné en échec: %v", base.failures)
+		t.Errorf("a switched-off plugin was recorded as failed: %v", base.failures)
 	}
 }
 
-// Le champ scellé est ouvert avant d'atteindre la sonde ; les autres traversent
-// tels quels.
-func TestLesChampsScellesSontOuvertsAvantDatteindreLaSonde(t *testing.T) {
-	base := newFakeProbeStore(projetDeTest(1, "mse"))
+// The sealed field is opened before reaching the probe; the others pass through as they are.
+func TestSealedFieldsAreOpenedBeforeReachingTheProbe(t *testing.T) {
+	base := newFakeProbeStore(testProject(1, "mse"))
 
 	var vu map[string]string
-	probe := &lecteurDeConfig{cible: &vu}
-	NewProbeRunner(base, openerDeTest{}, time.Minute, quietLogger(), probe).
+	probe := &configReader{target: &vu}
+	NewProbeRunner(base, testOpener{}, time.Minute, quietLogger(), probe).
 		sweep(context.Background(), probe)
 
-	if vu["token"] != "jeton" {
-		t.Errorf("jeton transmis = %q, attendu descellé", vu["token"])
+	if vu["token"] != "token" {
+		t.Errorf("token passed = %q, expected unsealed", vu["token"])
 	}
 	if vu["url"] != "https://forge.example.fr" {
-		t.Errorf("URL transmise = %q", vu["url"])
+		t.Errorf("URL passed = %q", vu["url"])
 	}
 }
 
-// lecteurDeConfig retient la configuration reçue.
-type lecteurDeConfig struct{ cible *map[string]string }
+// configReader retient la configuration reçue.
+type configReader struct{ target *map[string]string }
 
-func (l *lecteurDeConfig) PluginID() string   { return "gitea" }
-func (l *lecteurDeConfig) Source() string     { return "gitea.pull_requests" }
-func (l *lecteurDeConfig) Schedule() Schedule { return Schedule{} }
-func (l *lecteurDeConfig) Poll(
+func (l *configReader) PluginID() string   { return "gitea" }
+func (l *configReader) Source() string     { return "gitea.pull_requests" }
+func (l *configReader) Schedule() Schedule { return Schedule{} }
+func (l *configReader) Poll(
 	_ context.Context, _ store.Project, config map[string]string, _ string,
 ) ([]event.Event, string, error) {
-	*l.cible = config
+	*l.target = config
 	return nil, "curseur", nil
 }
 
-// Le plancher d'intervalle est imposé : la charge se compte en *projets × sondes
-// × fréquence*, et le multiplicande est une machine qui n'est pas la nôtre.
-func TestLePlancherDIntervalleEstImpose(t *testing.T) {
+// The interval floor is enforced: the load counts as *projects × probes × frequency*, and the
+// multiplicand is a machine that is not ours.
+func TestTheIntervalFloorIsEnforced(t *testing.T) {
 	runner := NewProbeRunner(newFakeProbeStore(), nil, time.Second, quietLogger())
 
 	if runner.interval < minProbeInterval {
@@ -354,24 +346,24 @@ func TestLePlancherDIntervalleEstImpose(t *testing.T) {
 	}
 }
 
-// Une sonde déclare sa cadence, et le plancher du déploiement reste au-dessus.
+// A probe declares its cadence, and the deployment's floor stays above it.
 //
-// Le suivi se relit toutes les cinq minutes — une saisie humaine ne va pas plus
-// vite —, une forge se regarde plus souvent. Une cadence unique obligerait les
-// deux à s'accorder, et la plus lente ferait la loi.
-func TestChaqueSondeDeclareSaCadenceAuDessusDuPlancher(t *testing.T) {
+// The tracker is re-read every five minutes — human typing goes no faster — a forge is watched
+// more often. A single cadence would force both to agree, and the slowest would lay down the
+// law.
+func TestEachProbeDeclaresItsCadenceAboveTheFloor(t *testing.T) {
 	// La sonde du suivi demande cinq minutes : au-dessus du plancher, respectées.
 	if got := NewRedmineProbe(nil).Schedule(); got.Interval != syncInterval {
-		t.Errorf("cadence du suivi = %s, attendu %s", got.Interval, syncInterval)
+		t.Errorf("tracker cadence = %s, expected %s", got.Interval, syncInterval)
 	}
-	// Et elle réclame une passe immédiate : elle remplit un écran, qui serait vide
-	// pendant cinq minutes après chaque démarrage.
+	// And it asks for an immediate pass: it fills a screen, which would be empty for five minutes
+	// after each start-up.
 	if !NewRedmineProbe(nil).Schedule().Eager {
-		t.Error("la sonde du suivi doit réclamer une passe immédiate")
+		t.Error("the tracker probe must ask for an immediate pass")
 	}
-	// La sonde de la forge ne constate que : aucune passe d'emblée, sans quoi un
-	// redémarrage en boucle martèlerait une machine tierce.
+	// The forge probe only observes: no pass straight away, otherwise a restart loop would hammer
+	// a third-party machine.
 	if NewGiteaPullProbe(0).Schedule().Eager {
-		t.Error("une sonde qui ne fait que constater ne part pas d'emblée")
+		t.Error("a probe that only observes does not start straight away")
 	}
 }
