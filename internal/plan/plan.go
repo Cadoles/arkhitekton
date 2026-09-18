@@ -1,33 +1,20 @@
-// Package plan porte le graphe d'exécution d'une réaction, et son avancement.
+// Package plan carries the execution graph of a reaction, and its progress.
 //
-// # Sans entrées-sorties, délibérément
+// No I/O, deliberately. Nothing here touches the database or the cluster. How a
+// plan advances — which stage is settled, which step leaves next, what to do with
+// a failure — is decision logic, and it is testable without standing anything up.
 //
-// Rien ici ne touche la base ni le cluster. L'avancement d'un plan — quelle étape
-// est réglée, quel geste part ensuite, que faire d'un échec — est de la **logique
-// de décision**, et c'est le même geste que pour `internal/release` : elle
-// s'éprouve sans monter quoi que ce soit.
+// That is not a style preference. A chaining engine is rarely seen running end to
+// end, and on runs that last tens of minutes; the only way to trust its awkward
+// cases — an empty stage, a step that cannot leave, a failure in the middle — is
+// to be able to write them in three lines.
 //
-// Ce n'est pas une préférence de style. Un moteur d'enchaînement ne se voit
-// tourner en entier que rarement, et sur des exécutions qui durent des dizaines
-// de minutes ; la seule façon d'avoir confiance dans ses cas tordus — une étape
-// vide, un geste qui ne peut pas partir, un échec au milieu — est de pouvoir les
-// écrire en trois lignes.
-//
-// # Des étapes, pas un graphe
-//
-// Un plan est une **suite d'étapes** ; chaque étape porte des **gestes** exécutés
-// en parallèle ; l'étape suivante démarre quand la précédente est réglée.
-//
-// Le graphe libre a été écarté (doc 14 §14.2). Il appelle un langage
-// d'expressions, un ordonnanceur de graphe, une détection de cycles et une
-// interface que personne ne sait lire — pour une expressivité que le besoin
-// exprimé ne réclame pas : « poser un statut, puis trois constructions en
-// parallèle, puis quatre tests si elles ont réussi » est une suite de quatre
-// étapes.
-//
-// La forme retenue a une seconde vertu, moins évidente : elle **se dessine**. Des
-// étapes empilées et des gestes en colonnes se lisent d'un coup d'œil, là où un
-// DAG aurait demandé un éditeur de graphe.
+// A plan is a sequence of stages; each stage carries steps run in parallel; the
+// next stage starts when the previous one is settled. A free-form graph was
+// rejected: it calls for an expression language, a graph scheduler, cycle
+// detection and an interface nobody can read, for expressiveness the need does not
+// ask for. It also has a second virtue: stacked stages and steps in columns can be
+// drawn, where a DAG would have needed a graph editor.
 package plan
 
 import (
@@ -37,85 +24,74 @@ import (
 	"strings"
 )
 
-// GesteKind dit ce qu'un geste met en œuvre.
+// GesteKind says what a step carries out.
 //
-// Jeu **fermé** : ce sont les deux choses que le moteur sait faire. Un geste de
-// type pipeline **est** un job de la file existante, avec ses plafonds, ses
-// classes d'exclusion et son plafond de tentatives — il n'y a pas de second
-// exécuteur, et c'est ce qui fait tenir l'édifice.
+// A closed set: these are the two things the engine can do. A pipeline step is a
+// job of the existing queue, with its ceilings, its exclusion classes and its
+// attempt limit — there is no second executor, and that is what holds the edifice
+// together.
 type GesteKind string
 
 const (
-	// GestePipeline enfile une famille du catalogue.
+	// GestePipeline queues a kind from the catalogue.
 	GestePipeline GesteKind = "pipeline"
-	// GesteAction exécute une action interne ou fournie par un plugin.
+	// GesteAction runs an internal action or one supplied by a plugin.
 	GesteAction GesteKind = "action"
 )
 
-// When borne le déclenchement d'un geste à l'issue de l'étape précédente.
+// When bounds a step's triggering on the outcome of the previous stage.
 //
-// Trois valeurs, et pas un langage d'expressions. Le jour où quelqu'un demandera
-// « si le score dépasse 80 », la bonne réponse sera d'ajouter un opérateur nommé,
-// pas un interpréteur : une configuration qui devient un programme est une
-// configuration qu'on ne peut plus relire, et le dashboard n'offre aucun
-// débogueur pour elle.
+// Three values, not an expression language. The day someone asks for "if the score
+// is above 80", the right answer is a named operator, not an interpreter: a
+// configuration that becomes a program is one nobody can read back, and the
+// dashboard offers no debugger for it.
 type When string
 
 const (
-	// WhenSuccess ne part que si l'étape précédente n'a rien fait échouer. Vaut
-	// par défaut : c'est l'enchaînement qu'on écrit sans y penser.
+	// WhenSuccess leaves only if the previous stage failed nothing. The default: it is
+	// the chaining one writes without thinking.
 	WhenSuccess When = "success"
-	// WhenFailure ne part que si l'étape précédente a échoué. Sert à réagir à un
-	// échec — poser un statut rouge, prévenir.
+	// WhenFailure leaves only if the previous stage failed. For reacting to a failure
+	// — setting a red status, warning someone.
 	WhenFailure When = "failure"
-	// WhenAlways part dans les deux cas. Sert à conclure : un statut final, un
-	// nettoyage.
+	// WhenAlways leaves either way. For concluding: a final status, a clean-up.
 	WhenAlways When = "always"
 )
 
-// Geste est une chose à faire.
+// Geste is one thing to do.
 type Geste struct {
 	Kind GesteKind `json:"kind"`
-	// Ref nomme la famille du catalogue pour un pipeline, l'action pour une
-	// action. Ce que la référence désigne est vérifié **à l'enregistrement**
-	// contre le catalogue et le registre — ce paquet ne les connaît pas.
+	// Ref names the catalogue kind for a pipeline, the action for an action. What the
+	// reference points at is checked when saved, against the catalogue and the
+	// registry — this package knows neither.
 	Ref string `json:"ref"`
-	// Label nomme le geste à l'écran. Vide, la référence fait l'affaire.
+	// Label names the step on screen. Empty, the reference will do.
 	Label string `json:"label,omitempty"`
-	// When vide vaut [WhenSuccess].
+	// An empty When means [WhenSuccess].
 	When When `json:"when,omitempty"`
-	// Params est ce que la déclaration fixe. Ce qui dépend du fait déclencheur —
-	// la révision construite, le tag — est lié par le moteur au moment de partir :
-	// un plan qui figerait ces valeurs ne servirait qu'une fois.
+	// Params is what the declaration fixes. What depends on the triggering fact — the
+	// revision built, the tag — is bound by the engine as the step leaves: a plan
+	// freezing those values would serve only once.
 	Params map[string]string `json:"params,omitempty"`
-	// Weight est le poids de ce geste dans le score de qualité d'une release.
+	// Weight is this step's weight in a release's quality score.
 	//
-	// # Sur le geste, et plus sur le signal
+	// On the step, and no longer on the signal: the score used to weigh six signals of
+	// fixed weight, so two distinct end-to-end campaigns could not each carry their
+	// own. The signal still says what a report reader should extract, but it is no
+	// longer the axis of weighting.
 	//
-	// Le score pesait **six signaux** de poids fixes, et deux campagnes E2E
-	// distinctes ne pouvaient donc pas peser chacune la sienne : elles se
-	// confondaient dans une famille unique. Le signal ne disparaît pas — il reste
-	// ce qui dit au lecteur de rapports quoi extraire (doc 13) — mais il cesse
-	// d'être l'axe de pondération (doc 15 §15.6).
+	// A pointer, for three states rather than two. Absent: the step takes its signal's
+	// original weight, so nobody loses the agreed weighting by typing nothing. Zero:
+	// the step is deliberately out of the score, which is a decision and not an
+	// oversight. A value: it applies.
 	//
-	// # Pointeur, et pourquoi
-	//
-	// Trois états, pas deux. Absent : le geste prend le poids d'origine de son
-	// signal, celui que le client a accepté (B11) — personne ne perd la
-	// pondération convenue en ne saisissant rien. Zéro : le geste est
-	// **délibérément** hors du score, ce qui est une décision et pas un oubli.
-	// Une valeur : elle s'applique.
-	//
-	// # Figé avec le plan, sans machinerie
-	//
-	// `plan_runs.plan` porte le plan tel qu'il était à l'ouverture. Le poids y est
-	// donc figé avec le reste : rejouer le score d'une release livrée il y a six
-	// mois emploie les poids de ce jour-là, et non ceux d'aujourd'hui. Un chiffre
-	// communiqué ne se réécrit pas.
+	// `plan_runs.plan` carries the plan as it stood when the run opened, so the weight
+	// is frozen with the rest: replaying the score of a release shipped six months ago
+	// uses that day's weights. A figure once communicated does not rewrite itself.
 	Weight *float64 `json:"weight,omitempty"`
 }
 
-// Condition rend la règle effective, l'absence valant [WhenSuccess].
+// Condition returns the effective rule; absence means [WhenSuccess].
 func (g Geste) Condition() When {
 	if g.When == "" {
 		return WhenSuccess
@@ -123,7 +99,7 @@ func (g Geste) Condition() When {
 	return g.When
 }
 
-// Name rend de quoi nommer le geste à l'écran.
+// Name returns something to call the step by on screen.
 func (g Geste) Name() string {
 	if strings.TrimSpace(g.Label) != "" {
 		return g.Label
@@ -131,62 +107,55 @@ func (g Geste) Name() string {
 	return g.Ref
 }
 
-// Stage est un jeu de gestes exécutés en parallèle.
-// Role dit ce qu'une étape **est**, pour ce qui en dépend au-dehors.
+// Stage is a set of steps run in parallel. Role says what a stage is, for whatever
+// depends on it outside.
 //
-// # Pourquoi l'étape porte cela
+// A release's life advances at two moments: when it is built, and when it is
+// verified. There must therefore be a named anchor in the plan.
 //
-// La vie d'une release avance à deux moments : quand elle est construite, et
-// quand elle est vérifiée. Il faut donc un point d'ancrage nommé dans le plan.
+// "The plan concluded" is not one: it confuses the automation being over with the
+// release being verified. A plan ending in a notification would then fail the
+// release on an unreachable webhook.
 //
-// « La conclusion du plan » n'en est pas un : elle confond *l'automatisation est
-// terminée* avec *la release est vérifiée*. Un plan qui finirait par une
-// notification ferait alors échouer la release sur un webhook injoignable.
+// A composite step — a `build` step containing pipelines — is not one either: the
+// stage already is the group. It gathers parallel steps and the engine already
+// computes its outcome; one more level of nesting would redo what it does.
 //
-// Un geste composite — un geste `build` contenant des pipelines — n'en est pas un
-// non plus, et pour une raison de modèle : l'étape **est déjà** le groupe. Elle
-// rassemble des gestes parallèles et le moteur calcule déjà sa conclusion. Un
-// niveau d'imbrication de plus referait ce qu'elle fait (doc 15 §15.3).
-//
-// # Une étape sans rôle ne touche à rien
-//
-// C'est le défaut par lequel on entre, et c'est ce qui rend une étape de
-// notification inoffensive pour le cycle de vie d'une release.
+// A stage with no role touches nothing, which is the default and what makes a
+// notification stage harmless to a release's life cycle.
 type Role string
 
 const (
-	// RoleBuild produit les artefacts d'une release.
+	// RoleBuild produces a release's artifacts.
 	RoleBuild Role = "build"
-	// RoleTest rend un verdict sur ces artefacts.
+	// RoleTest yields a verdict on those artifacts.
 	RoleTest Role = "test"
 )
 
-// Roles énumère les rôles connus, pour l'éditeur et la validation.
+// Roles lists the known roles, for the editor and for validation.
 func Roles() []Role { return []Role{RoleBuild, RoleTest} }
 
 type Stage struct {
 	// Label nomme l'étape à l'écran. Facultatif.
 	Label string `json:"label,omitempty"`
-	// Role rattache l'étape au cycle de vie d'une release. Vide : l'étape
-	// s'exécute sans rien y changer.
+	// Role attaches the stage to a release's life cycle. Empty: the stage runs without
+	// changing anything in it.
 	//
-	// Ce paquet vérifie que la valeur est connue. Que les gestes de l'étape
-	// produisent bien ce que le rôle annonce se vérifie **à l'enregistrement**,
-	// contre le catalogue — que ce paquet ne connaît pas, délibérément.
+	// This package checks that the value is known. Whether the stage's steps
 	Role   Role    `json:"role,omitempty"`
 	Gestes []Geste `json:"gestes"`
 }
 
-// Plan est une suite d'étapes.
+// Plan is a sequence of stages.
 type Plan struct {
 	Stages []Stage `json:"stages"`
 }
 
-// Empty dit qu'un plan n'a rien à faire.
+// Empty says a plan has nothing to do.
 //
-// Distingué d'un plan invalide : « ce projet n'enchaîne rien » est une
-// configuration parfaitement légitime, et l'appelant doit pouvoir conclure tout
-// de suite plutôt qu'attendre un geste qui ne viendra pas.
+// Distinct from an invalid plan: "this project chains nothing" is a perfectly
+// legitimate configuration, and the caller must be able to conclude at once rather
+// than wait for a step that will never come.
 func (p Plan) Empty() bool {
 	for _, stage := range p.Stages {
 		if len(stage.Gestes) > 0 {
@@ -196,25 +165,24 @@ func (p Plan) Empty() bool {
 	return true
 }
 
-// ErrInvalid signale un plan qu'on refuse d'exécuter.
-var ErrInvalid = errors.New("plan invalide")
+// ErrInvalid reports a plan we refuse to run.
+var ErrInvalid = errors.New("invalid plan")
 
-// Validate refuse un plan qui ne pourrait pas s'exécuter comme il se lit.
+// Validate refuses a plan that could not run as it reads.
 //
-// Vérifié à l'enregistrement et non au premier déclenchement : un plan fautif
-// découvert au moment où il devait partir laisse une release en attente d'un
-// geste que rien n'exécutera, et le diagnostic se fait alors sur une chaîne
-// arrêtée plutôt que devant un formulaire.
+// Checked when saved rather than at the first trigger: a faulty plan discovered
+// when it should have left leaves a release waiting for a step nothing will run,
+// and the diagnosis then happens on a halted chain rather than in front of a form.
 func (p Plan) Validate() error {
 	if len(p.Stages) == 0 {
-		return fmt.Errorf("%w: aucune étape", ErrInvalid)
+		return fmt.Errorf("%w: no stage", ErrInvalid)
 	}
 
 	var problems []error
 	for index, stage := range p.Stages {
 		if len(stage.Gestes) == 0 {
 			problems = append(problems, fmt.Errorf(
-				"%w: l'étape %d ne porte aucun geste", ErrInvalid, index+1))
+				"%w: stage %d carries no step", ErrInvalid, index+1))
 			continue
 		}
 		problems = append(problems, stage.validateRole(index)...)
@@ -226,7 +194,7 @@ func (p Plan) Validate() error {
 	return errors.Join(problems...)
 }
 
-// validateRole refuse un rôle que ce paquet ne connaît pas.
+// validateRole refuses a role this package does not know.
 func (s Stage) validateRole(index int) []error {
 	if s.Role == "" || slices.Contains(Roles(), s.Role) {
 		return nil
@@ -236,27 +204,26 @@ func (s Stage) validateRole(index int) []error {
 	for _, role := range Roles() {
 		known = append(known, string(role))
 	}
-	// Un rôle inventé serait ignoré par le cycle de vie, et l'étape s'exécuterait
-	// sans jamais faire avancer la release. Le refuser à l'enregistrement évite
-	// une release qui reste en construction sans que rien ne le dise.
-	return []error{fmt.Errorf("%w: l'étape %d porte le rôle %q (connus: %s)",
+	// An invented role would be ignored by the life cycle, and the stage would run
+	// without ever advancing the release. Refusing it when saved avoids a release that
+	// stays building with nothing saying so.
+	return []error{fmt.Errorf("%w: stage %d carries role %q (known: %s)",
 		ErrInvalid, index+1, s.Role, strings.Join(known, ", "))}
 }
 
-// ReleaseTrigger nomme le déclencheur du plan d'une release.
+// ReleaseTrigger names the trigger of a release's plan.
 //
-// Ici plutôt que dans le worker, depuis que deux paquets ont besoin de le
-// composer : celui qui ouvre l'exécution, et celui qui la **retrouve** pour lire
-// les poids figés d'un score. Deux orthographes désigneraient deux exécutions,
-// et le score se calculerait sur un plan qui n'a pas tourné.
+// Here rather than in the worker, now that two packages compose it: the one that
+// opens the run, and the one that finds it again to read a score's frozen weights.
+// Two spellings would name two runs, and the score would be computed on a plan
+// that never ran.
 const ReleaseTrigger = "builtin:release"
 
-// Refs rend ce qu'un plan désigne, par nature de geste.
+// Refs returns what a plan points at, by kind of step.
 //
-// Une fonction du paquet plutôt qu'une méthode d'une réaction : depuis que
-// l'automatisation d'une release porte un plan elle aussi, la question « que
-// désigne ce plan ? » se pose des deux côtés, et deux réponses divergeraient au
-// premier ajout de nature.
+// A package function rather than a method on a reaction: now that a release's
+// automation carries a plan too, the question "what does this plan point at?"
+// arises on both sides, and two answers would diverge at the first kind added.
 func Refs(p Plan) (pipelines, actions []string) {
 	for _, stage := range p.Stages {
 		for _, geste := range stage.Gestes {
@@ -271,12 +238,11 @@ func Refs(p Plan) (pipelines, actions []string) {
 	return pipelines, actions
 }
 
-// validateWeights refuse un poids là où rien ne le lirait.
+// validateWeights refuses a weight where nothing would read it.
 //
-// Le score d'une release se calcule sur les gestes de son étape de
-// **vérification** : c'est la seule qui mesure quelque chose. Un poids posé
-// ailleurs — sur une construction, sur une notification — serait enregistré,
-// affiché, et sans effet. Le refuser vaut mieux que le laisser croire.
+// A release's score is computed on the steps of its verification stage: the only
+// one that measures anything. A weight set elsewhere — on a build, on a
+// notification — would be saved, displayed, and have no effect.
 func (s Stage) validateWeights(index int) []error {
 	if s.Role == RoleTest {
 		return nil
@@ -288,18 +254,18 @@ func (s Stage) validateWeights(index int) []error {
 			continue
 		}
 		problems = append(problems, fmt.Errorf(
-			"%w: étape %d, geste %d: un poids ne pèse qu'au score d'une étape de "+
-				"rôle %q (celle-ci porte %q)",
+			"%w: stage %d, step %d: a weight only counts in the score of a stage with "+
+				"role %q (this one carries %q)",
 			ErrInvalid, index+1, rank+1, RoleTest, s.Role))
 	}
 	return problems
 }
 
-// LastWithRole rend l'indice de la dernière étape portant ce rôle, ou -1.
+// LastWithRole returns the index of the last stage carrying this role, or -1.
 //
-// La **dernière**, et non la première : un plan peut construire en deux temps —
-// une image de base, puis l'application au-dessus — et c'est la conclusion du
-// dernier de ces temps qui dit que la construction est faite.
+// The last, not the first: a plan may build in two passes — a base image, then the
+// application on top — and it is the conclusion of the last of those that says the
+// build is done.
 func (p Plan) LastWithRole(role Role) int {
 	found := -1
 	for index, stage := range p.Stages {
@@ -312,19 +278,19 @@ func (p Plan) LastWithRole(role Role) int {
 
 func (g Geste) validate(stage, rank int) []error {
 	var problems []error
-	where := fmt.Sprintf("étape %d, geste %d", stage+1, rank+1)
+	where := fmt.Sprintf("stage %d, step %d", stage+1, rank+1)
 
 	switch g.Kind {
 	case GestePipeline, GesteAction:
 	default:
 		problems = append(problems, fmt.Errorf(
-			"%w: %s: type %q inconnu (attendu %s ou %s)",
+			"%w: %s: unknown kind %q (expected %s or %s)",
 			ErrInvalid, where, g.Kind, GestePipeline, GesteAction))
 	}
 
 	if strings.TrimSpace(g.Ref) == "" {
 		problems = append(problems, fmt.Errorf(
-			"%w: %s: référence absente — un geste doit dire ce qu'il met en œuvre",
+			"%w: %s: missing reference — a step must say what it carries out",
 			ErrInvalid, where))
 	}
 
@@ -332,27 +298,26 @@ func (g Geste) validate(stage, rank int) []error {
 	case WhenSuccess, WhenFailure, WhenAlways:
 	default:
 		problems = append(problems, fmt.Errorf(
-			"%w: %s: condition %q inconnue (attendu %s, %s ou %s)",
+			"%w: %s: unknown condition %q (expected %s, %s or %s)",
 			ErrInvalid, where, g.When, WhenSuccess, WhenFailure, WhenAlways))
 	}
 
-	// Un geste de la **première** étape conditionné à un échec ne partira jamais :
-	// rien ne la précède, et l'issue conventionnelle d'une étape absente est la
-	// réussite. Refusé plutôt que laissé en place, parce qu'une déclaration qui ne
-	// peut pas se déclencher se lit comme une déclaration qui ne se déclenche pas
-	// — et on cherche alors la panne ailleurs.
+	// A step in the first stage conditioned on failure would never leave: nothing
+	// precedes it, and the conventional outcome of an absent stage is success. Refused
+	// rather than left in place, because a declaration that cannot trigger reads like
+	// one that does not trigger — and the fault is then looked for elsewhere.
 	if stage == 0 && g.Condition() == WhenFailure {
 		problems = append(problems, fmt.Errorf(
-			"%w: %s: condition %q sur la première étape — rien ne la précède, "+
-				"ce geste ne partirait jamais", ErrInvalid, where, WhenFailure))
+			"%w: %s: condition %q on the first stage — nothing precedes it, "+
+				"this step would never leave", ErrInvalid, where, WhenFailure))
 	}
 
-	// Un poids négatif ferait *baisser* le score quand le geste réussit, et le
-	// monter quand il échoue. La renormalisation le rendrait de surcroît
-	// incalculable dès que la somme des poids mesurés atteint zéro.
+	// A negative weight would lower the score when the step succeeds and raise it when
+	// it fails. Renormalisation would also make it incomputable as soon as the sum of
+	// measured weights reached zero.
 	if g.Weight != nil && *g.Weight < 0 {
 		problems = append(problems, fmt.Errorf(
-			"%w: %s: poids négatif (%v) — un geste ne peut pas retrancher du score",
+			"%w: %s: negative weight (%v) — a step cannot subtract from the score",
 			ErrInvalid, where, *g.Weight))
 	}
 
@@ -366,7 +331,7 @@ func (g Geste) validate(stage, rank int) []error {
  * faire. Le moteur persiste les états et exécute ; il ne décide de rien.
  */
 
-// State est le sort d'un geste.
+// State is a step's fate.
 type State string
 
 const (
@@ -374,31 +339,30 @@ const (
 	Running   State = "running"
 	Succeeded State = "succeeded"
 	Failed    State = "failed"
-	// Skipped : la condition du geste n'était pas remplie. Distinct d'un échec —
-	// un geste sauté n'a rien raté — et distinct d'un `pending`, qui attendrait
-	// encore.
+	// Skipped: the step's condition was not met. Distinct from a failure — a skipped
+	// step missed nothing — and from pending, which would still be waiting.
 	Skipped State = "skipped"
 )
 
-// Terminal dit qu'un geste ne bougera plus.
+// Terminal says a step will not move again.
 func (s State) Terminal() bool {
 	return s == Succeeded || s == Failed || s == Skipped
 }
 
-// Position désigne un geste dans un plan.
+// Position points at a step within a plan.
 type Position struct {
 	Stage int `json:"stage"`
 	Geste int `json:"geste"`
 }
 
-// Progress est un plan et l'état de ses gestes.
+// Progress is a plan and the state of its steps.
 type Progress struct {
 	Plan Plan
-	// States suit la forme du plan : une tranche par étape, un état par geste.
+	// States follows the shape of the plan: one slice per stage, one state per step.
 	States [][]State
 }
 
-// Start rend l'avancement initial d'un plan : tout en attente.
+// Start returns a plan's initial progress: everything pending.
 func Start(p Plan) Progress {
 	states := make([][]State, len(p.Stages))
 	for index, stage := range p.Stages {
@@ -410,33 +374,33 @@ func Start(p Plan) Progress {
 	return Progress{Plan: p, States: states}
 }
 
-// Step est ce que le moteur doit faire d'un geste en attente.
+// Step is what the engine must do with a pending step.
 type Step struct {
 	Position Position
 	Geste    Geste
-	// Run dit s'il doit partir. Faux : sa condition n'est pas remplie, et il est
-	// à marquer [Skipped].
+	// Run says whether it must leave. False: its condition is not met and it is to be
+	// marked [Skipped].
 	//
-	// Une seule réponse pour les deux cas, plutôt que deux fonctions à appeler
-	// dans le bon ordre : un moteur qui oublierait la seconde laisserait des
-	// gestes en attente pour toujours, et l'étape ne se réglerait jamais.
+	// One answer for both cases rather than two functions to call in the right order:
+	// an engine forgetting the second would leave steps pending for ever, and the
+	// stage would never settle.
 	Run bool
 }
 
-// Next rend les gestes de l'étape courante qui attendent une décision.
+// Next returns the steps of the current stage awaiting a decision.
 //
-// Rend une tranche vide quand le plan est réglé, ou quand l'étape courante n'a
-// que des gestes déjà partis. Rappelable sans effet : c'est ce qui rend le moteur
-// tolérant à une redélivrance, et ce qui permet de le relancer après un
-// redémarrage sans tenir d'état en mémoire.
+// It returns an empty slice when the plan is settled, or when the current stage
+// only holds steps that already left. Callable again with no effect: that is what
+// makes the engine tolerant of a redelivery, and what allows restarting it without
+// keeping state in memory.
 func (p Progress) Next() []Step {
 	stage, found := p.current()
 	if !found {
 		return nil
 	}
 
-	// L'issue de l'étape précédente décide des conditions. La première étape n'en
-	// a pas : par convention, rien n'a échoué avant elle.
+	// The previous stage's outcome decides the conditions. The first stage has none:
+	// by convention, nothing failed before it.
 	previousFailed := stage > 0 && p.stageFailed(stage-1)
 
 	var steps []Step
@@ -453,7 +417,7 @@ func (p Progress) Next() []Step {
 	return steps
 }
 
-// satisfied dit si la condition d'un geste est remplie.
+// satisfied says whether a step's condition is met.
 func satisfied(condition When, previousFailed bool) bool {
 	switch condition {
 	case WhenAlways:
@@ -465,7 +429,7 @@ func satisfied(condition When, previousFailed bool) bool {
 	}
 }
 
-// current rend l'index de la première étape non réglée.
+// current returns the index of the first unsettled stage.
 func (p Progress) current() (int, bool) {
 	for index := range p.Plan.Stages {
 		if !p.stageSettled(index) {
@@ -475,7 +439,7 @@ func (p Progress) current() (int, bool) {
 	return 0, false
 }
 
-// stageSettled dit qu'une étape ne bougera plus.
+// stageSettled says a stage will not move again.
 func (p Progress) stageSettled(stage int) bool {
 	for _, state := range p.States[stage] {
 		if !state.Terminal() {
@@ -485,27 +449,24 @@ func (p Progress) stageSettled(stage int) bool {
 	return true
 }
 
-// stageFailed dit qu'une étape a laissé quelque chose en échec.
+// stageFailed says a stage left something failed.
 //
-// Une étape entièrement sautée n'a pas échoué : elle n'a rien tenté. La
-// distinction compte pour un geste conditionné à l'échec, qui ne doit pas partir
-// parce que l'étape d'avant ne s'est pas exécutée.
+// A wholly skipped stage has not failed: it attempted nothing. The distinction
+// matters for a step conditioned on failure, which must not leave because the
+// preceding stage did not run.
 func (p Progress) stageFailed(stage int) bool {
 	return slices.Contains(p.States[stage], Failed)
 }
 
-// StageOutcome rend l'issue d'une étape réglée.
+// StageOutcome returns the outcome of a settled stage.
 //
-// Le second retour vaut faux tant qu'elle bouge encore. C'est ce qui permet au
-// moteur de prévenir le cycle de vie d'une release **au moment où la
-// construction se conclut**, sans attendre la fin du plan — un plan peut porter
-// une étape de notification après, qui n'a rien à voir avec l'état de la release
-// (doc 15 §15.3).
+// The second return is false while it is still moving. That is what lets the engine
+// tell a release's life cycle at the moment the build concludes, without waiting
+// for the end of the plan — a plan may carry a notification stage afterwards, which
+// has nothing to do with the release's state.
 //
-// Une étape entièrement sautée est réglée, et n'a pas échoué : elle n'a rien
-// tenté. La distinction est celle de [Progress.stageFailed], et elle vaut ici
-// pour la même raison — une construction sautée ne doit pas faire échouer une
-// release, elle doit la laisser où elle est.
+// A wholly skipped stage is settled and has not failed: it attempted nothing. A
+// skipped build must not fail a release, it must leave it where it is.
 func (p Progress) StageOutcome(stage int) (State, bool) {
 	if stage < 0 || stage >= len(p.States) || !p.stageSettled(stage) {
 		return Pending, false
@@ -520,17 +481,17 @@ func (p Progress) StageOutcome(stage int) (State, bool) {
 	return Skipped, true
 }
 
-// Done dit que le plan n'a plus rien à faire.
+// Done says the plan has nothing left to do.
 func (p Progress) Done() bool {
 	_, found := p.current()
 	return !found
 }
 
-// Outcome est l'issue d'un plan réglé.
+// Outcome is a settled plan's outcome.
 //
-// Échoué dès qu'un geste a échoué, **où qu'il soit**. Un geste de conclusion en
-// `always` qui réussit ne rachète pas l'échec qui l'a fait partir : le plan
-// rapporterait « réussi » sur une chaîne dont la construction est tombée.
+// Failed as soon as one step failed, wherever it is. A concluding `always` step
+// that succeeds does not redeem the failure that made it leave: the plan would
+// report success on a chain whose build fell over.
 func (p Progress) Outcome() State {
 	for stage := range p.Plan.Stages {
 		if p.stageFailed(stage) {
@@ -540,16 +501,16 @@ func (p Progress) Outcome() State {
 	return Succeeded
 }
 
-// Mark écrit le sort d'un geste.
+// Mark records a step's fate.
 //
-// Rend une copie : `Progress` est une valeur, et la muter en place ferait qu'un
-// appelant qui l'a passée à `Next` verrait sa tranche changer sous lui.
+// It returns a copy: Progress is a value, and mutating it in place would make a
+// caller that passed it to Next see its slice change underneath.
 func (p Progress) Mark(position Position, state State) (Progress, error) {
 	if position.Stage < 0 || position.Stage >= len(p.States) {
-		return p, fmt.Errorf("%w: étape %d hors du plan", ErrInvalid, position.Stage)
+		return p, fmt.Errorf("%w: stage %d outside the plan", ErrInvalid, position.Stage)
 	}
 	if position.Geste < 0 || position.Geste >= len(p.States[position.Stage]) {
-		return p, fmt.Errorf("%w: geste %d hors de l'étape %d",
+		return p, fmt.Errorf("%w: step %d outside stage %d",
 			ErrInvalid, position.Geste, position.Stage)
 	}
 

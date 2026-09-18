@@ -11,18 +11,18 @@ func pipeline(ref string, when When) Geste {
 	return Geste{Kind: GestePipeline, Ref: ref, When: when}
 }
 
-// avance déroule un plan en marquant chaque geste partant du sort qu'on lui
-// donne, jusqu'à ce qu'il n'y ait plus rien à décider.
+// advance walks a plan, marking each leaving step with the fate it is given, until
+// nothing is left to decide.
 //
-// C'est le moteur, réduit à ce qu'il fait vraiment : demander, exécuter, écrire.
-// L'écrire ici plutôt que de simuler à la main rend les tests lisibles et éprouve
-// la boucle elle-même — qu'elle termine, notamment.
-func avance(t *testing.T, progress Progress, sorts map[string]State) Progress {
+// The engine reduced to what it really does: ask, run, record. Writing it here
+// rather than simulating by hand makes the tests readable and exercises the loop
+// itself — that it terminates, in particular.
+func advance(t *testing.T, progress Progress, sorts map[string]State) Progress {
 	t.Helper()
 
 	for tour := 0; ; tour++ {
 		if tour > 100 {
-			t.Fatal("la boucle d'avancement ne termine pas")
+			t.Fatal("the advancing loop does not terminate")
 		}
 		steps := progress.Next()
 		if len(steps) == 0 {
@@ -48,13 +48,13 @@ func avance(t *testing.T, progress Progress, sorts map[string]State) Progress {
  * La forme du modèle : des étapes, des gestes parallèles.
  */
 
-// L'exemple qui a motivé le chantier, déroulé en entier.
+// The example that motivated the work, in full.
 //
-// « Poser un statut, puis trois constructions en parallèle, puis quatre tests si
-// les constructions ont réussi, puis poser le statut final. » S'il n'entre pas
-// dans le modèle, le modèle est faux.
-func TestLExempleDemandeSeDerouleEnQuatreEtapes(t *testing.T) {
-	sujet := Plan{Stages: []Stage{
+// "Set a status, then three builds in parallel, then four tests if the builds
+// succeeded, then set the final status." If it does not fit the model, the model
+// is wrong.
+func TestTheRequestedExampleRunsInFourStages(t *testing.T) {
+	subject := Plan{Stages: []Stage{
 		{Gestes: []Geste{{Kind: GesteAction, Ref: "forge.status"}}},
 		{Gestes: []Geste{
 			pipeline("build-web", ""), pipeline("build-cli", ""), pipeline("build-worker", ""),
@@ -66,62 +66,62 @@ func TestLExempleDemandeSeDerouleEnQuatreEtapes(t *testing.T) {
 		{Gestes: []Geste{{Kind: GesteAction, Ref: "forge.status", When: WhenAlways}}},
 	}}
 
-	if err := sujet.Validate(); err != nil {
-		t.Fatalf("plan refusé: %v", err)
+	if err := subject.Validate(); err != nil {
+		t.Fatalf("plan refused: %v", err)
 	}
 
-	progress := Start(sujet)
+	progress := Start(subject)
 
-	// Première étape : un seul geste proposé, et rien d'autre.
+	// First stage: one step offered, and nothing else.
 	premiers := progress.Next()
 	if len(premiers) != 1 || premiers[0].Geste.Ref != "forge.status" {
-		t.Fatalf("première étape: %+v", premiers)
+		t.Fatalf("first stage: %+v", premiers)
 	}
 
-	// L'étape suivante n'ouvre pas tant que la première n'est pas réglée.
+	// The next stage does not open until the first is settled.
 	progress, _ = progress.Mark(premiers[0].Position, Running)
 	if steps := progress.Next(); len(steps) != 0 {
-		t.Errorf("une étape en cours a laissé passer la suivante: %+v", steps)
+		t.Errorf("a stage in flight let the next one through: %+v", steps)
 	}
 
 	progress, _ = progress.Mark(premiers[0].Position, Succeeded)
 
-	// Deuxième étape : les trois constructions **ensemble**.
+	// Second stage: the three builds together.
 	builds := progress.Next()
 	if len(builds) != 3 {
-		t.Fatalf("%d constructions proposées, attendu 3 en parallèle", len(builds))
+		t.Fatalf("%d builds offered, expected 3 in parallel", len(builds))
 	}
 	for _, step := range builds {
 		if !step.Run {
-			t.Errorf("construction %q non lancée après une étape réussie", step.Geste.Ref)
+			t.Errorf("build %q not launched after a successful stage", step.Geste.Ref)
 		}
 	}
 
-	progress = avance(t, progress, nil)
+	progress = advance(t, progress, nil)
 
 	if !progress.Done() {
-		t.Error("le plan n'est pas réglé")
+		t.Error("the plan is not settled")
 	}
 	if progress.Outcome() != Succeeded {
 		t.Errorf("issue = %q", progress.Outcome())
 	}
 }
 
-// La chaîne existante : une étape, N vérifications en parallèle. C'est la forme
-// que la tranche doit reproduire à l'identique.
-func TestLaChaineDeVerificationEstUnPlanDUneSeuleEtape(t *testing.T) {
-	sujet := Plan{Stages: []Stage{{Gestes: []Geste{
+// The existing chain: one stage, N verifications in parallel. That is the shape
+// this must reproduce exactly.
+func TestTheVerificationChainIsASingleStagePlan(t *testing.T) {
+	subject := Plan{Stages: []Stage{{Gestes: []Geste{
 		pipeline("unit-tests", ""), pipeline("static-tests", ""),
 		pipeline("integration-tests", ""), pipeline("security-audit", ""),
 	}}}}
 
-	if err := sujet.Validate(); err != nil {
-		t.Fatalf("plan refusé: %v", err)
+	if err := subject.Validate(); err != nil {
+		t.Fatalf("plan refused: %v", err)
 	}
 
-	steps := Start(sujet).Next()
+	steps := Start(subject).Next()
 	if len(steps) != 4 {
-		t.Fatalf("%d vérifications proposées, attendu 4", len(steps))
+		t.Fatalf("%d verifications offered, expected 4", len(steps))
 	}
 	for _, step := range steps {
 		if step.Geste.Kind != GestePipeline || !step.Run {
@@ -134,10 +134,10 @@ func TestLaChaineDeVerificationEstUnPlanDUneSeuleEtape(t *testing.T) {
  * Les conditions.
  */
 
-// Un échec ferme la suite conditionnée au succès, ouvre celle conditionnée à
-// l'échec, et laisse passer ce qui doit toujours partir.
-func TestUnEchecOrienteLEtapeSuivante(t *testing.T) {
-	sujet := Plan{Stages: []Stage{
+// A failure closes what was conditioned on success, opens what was conditioned on
+// failure, and lets through what must always leave.
+func TestAFailureSteersTheNextStage(t *testing.T) {
+	subject := Plan{Stages: []Stage{
 		{Gestes: []Geste{pipeline("build", "")}},
 		{Gestes: []Geste{
 			pipeline("tests", WhenSuccess),
@@ -146,13 +146,13 @@ func TestUnEchecOrienteLEtapeSuivante(t *testing.T) {
 		}},
 	}}
 
-	progress := Start(sujet)
+	progress := Start(subject)
 	premiers := progress.Next()
 	progress, _ = progress.Mark(premiers[0].Position, Failed)
 
 	suite := progress.Next()
 	if len(suite) != 3 {
-		t.Fatalf("%d gestes proposés", len(suite))
+		t.Fatalf("%d steps offered", len(suite))
 	}
 
 	choix := map[string]bool{}
@@ -160,62 +160,61 @@ func TestUnEchecOrienteLEtapeSuivante(t *testing.T) {
 		choix[step.Geste.Ref] = step.Run
 	}
 	if choix["tests"] {
-		t.Error("les tests sont partis après une construction en échec")
+		t.Error("the tests left after a failed build")
 	}
 	if !choix["prevenir"] {
-		t.Error("la réaction à l'échec n'est pas partie")
+		t.Error("the failure reaction did not leave")
 	}
 	if !choix["statut"] {
-		t.Error("le geste inconditionnel n'est pas parti")
+		t.Error("the unconditional step did not leave")
 	}
 }
 
-// Une étape entièrement sautée n'a pas échoué : elle n'a rien tenté.
+// A wholly skipped stage has not failed: it attempted nothing.
 //
-// Sans cette distinction, un geste conditionné à l'échec partirait derrière une
-// étape que rien n'a exécutée — et préviendrait d'une panne qui n'a pas eu lieu.
-func TestUneEtapeSauteeNaPasEchoue(t *testing.T) {
-	sujet := Plan{Stages: []Stage{
+// Without that distinction, a step conditioned on failure would leave behind a
+// stage nothing ran — and would warn of an outage that never happened.
+func TestASkippedStageHasNotFailed(t *testing.T) {
+	subject := Plan{Stages: []Stage{
 		{Gestes: []Geste{pipeline("build", "")}},
 		{Gestes: []Geste{{Kind: GesteAction, Ref: "reparer", When: WhenFailure}}},
 		{Gestes: []Geste{{Kind: GesteAction, Ref: "alerter", When: WhenFailure}}},
 	}}
 
-	progress := Start(sujet)
+	progress := Start(subject)
 	premiers := progress.Next()
-	// La construction réussit : l'étape 2 est donc sautée en entier.
+	// The build succeeds: stage 2 is therefore skipped entirely.
 	progress, _ = progress.Mark(premiers[0].Position, Succeeded)
 
 	deuxieme := progress.Next()
 	if len(deuxieme) != 1 || deuxieme[0].Run {
-		t.Fatalf("deuxième étape: %+v", deuxieme)
+		t.Fatalf("second stage: %+v", deuxieme)
 	}
 	progress, _ = progress.Mark(deuxieme[0].Position, Skipped)
 
 	troisieme := progress.Next()
 	if len(troisieme) != 1 {
-		t.Fatalf("troisième étape: %+v", troisieme)
+		t.Fatalf("third stage: %+v", troisieme)
 	}
 	if troisieme[0].Run {
-		t.Error("un geste d'échec est parti derrière une étape sautée, qui n'a rien raté")
+		t.Error("a failure step left behind a skipped stage, which missed nothing")
 	}
 }
 
-// L'issue d'un plan est l'échec dès qu'un geste a échoué, où qu'il soit.
+// A plan's outcome is failure as soon as one step failed, wherever it is.
 //
-// Un geste de conclusion en `always` qui réussit ne rachète pas l'échec qui l'a
-// fait partir : le plan rapporterait « réussi » sur une chaîne dont la
-// construction est tombée.
-func TestUnGesteDeConclusionNeRachetePasUnEchec(t *testing.T) {
-	sujet := Plan{Stages: []Stage{
+// A concluding `always` step that succeeds does not redeem the failure that made
+// it leave.
+func TestAConcludingStepDoesNotRedeemAFailure(t *testing.T) {
+	subject := Plan{Stages: []Stage{
 		{Gestes: []Geste{pipeline("build", "")}},
 		{Gestes: []Geste{{Kind: GesteAction, Ref: "statut", When: WhenAlways}}},
 	}}
 
-	progress := avance(t, Start(sujet), map[string]State{"build": Failed})
+	progress := advance(t, Start(subject), map[string]State{"build": Failed})
 
 	if !progress.Done() {
-		t.Fatal("plan non réglé")
+		t.Fatal("plan not settled")
 	}
 	if progress.Outcome() != Failed {
 		t.Errorf("issue = %q, attendue %q", progress.Outcome(), Failed)
@@ -226,23 +225,23 @@ func TestUnGesteDeConclusionNeRachetePasUnEchec(t *testing.T) {
  * L'idempotence, qui est la propriété dont le moteur dépend.
  */
 
-// Rappeler `Next` sans rien exécuter rend la même chose ; le rappeler après avoir
-// marqué les gestes partants ne rend plus rien tant que l'étape n'est pas réglée.
-func TestNextEstRappelableSansEffet(t *testing.T) {
-	sujet := Plan{Stages: []Stage{{Gestes: []Geste{
+// Calling Next without running anything returns the same thing; calling it after
+// marking the leaving steps returns nothing until the stage is settled.
+func TestNextIsCallableAgainWithoutEffect(t *testing.T) {
+	subject := Plan{Stages: []Stage{{Gestes: []Geste{
 		pipeline("unit-tests", ""), pipeline("static-tests", ""),
 	}}}}
 
-	progress := Start(sujet)
+	progress := Start(subject)
 	premier, second := progress.Next(), progress.Next()
 	if len(premier) != 2 || len(second) != 2 {
-		t.Fatalf("appels successifs: %d puis %d gestes, attendu 2 à chaque fois",
+		t.Fatalf("successive calls: %d then %d steps, expected 2 each time",
 			len(premier), len(second))
 	}
 	for index := range premier {
 		if premier[index].Position != second[index].Position {
-			t.Errorf("geste %d: positions %+v puis %+v — deux appels doivent rendre "+
-				"la même chose", index, premier[index].Position, second[index].Position)
+			t.Errorf("step %d: positions %+v then %+v — two calls must return "+
+				"the same thing", index, premier[index].Position, second[index].Position)
 		}
 	}
 
@@ -250,26 +249,26 @@ func TestNextEstRappelableSansEffet(t *testing.T) {
 		progress, _ = progress.Mark(step.Position, Running)
 	}
 	if steps := progress.Next(); len(steps) != 0 {
-		t.Errorf("des gestes déjà partis sont reproposés: %+v", steps)
+		t.Errorf("steps that already left are offered again: %+v", steps)
 	}
 }
 
-// Marquer hors du plan est refusé plutôt que silencieusement absorbé : c'est le
-// symptôme d'un moteur qui a perdu la correspondance entre un job et son geste,
-// et l'absorber laisserait le plan bloqué sans rien dire.
-func TestMarquerHorsDuPlanEstRefuse(t *testing.T) {
+// Marking outside the plan is refused rather than silently absorbed: it is the
+// symptom of an engine that lost the correspondence between a job and its step,
+// and absorbing it would leave the plan stuck with nothing said.
+func TestMarkingOutsideThePlanIsRefused(t *testing.T) {
 	progress := Start(Plan{Stages: []Stage{{Gestes: []Geste{pipeline("build", "")}}}})
 
 	for _, position := range []Position{{Stage: 1}, {Stage: 0, Geste: 3}, {Stage: -1}} {
 		if _, err := progress.Mark(position, Succeeded); !errors.Is(err, ErrInvalid) {
-			t.Errorf("position %+v acceptée: %v", position, err)
+			t.Errorf("position %+v accepted: %v", position, err)
 		}
 	}
 }
 
-// Marquer rend une **copie** : un appelant qui tient l'avancement précédent ne
-// doit pas le voir changer sous lui.
-func TestMarquerNeMutePasLAvancementPrecedent(t *testing.T) {
+// Marking returns a copy: a caller holding the previous progress must not see it
+// change underneath.
+func TestMarkingDoesNotMutatePreviousProgress(t *testing.T) {
 	avant := Start(Plan{Stages: []Stage{{Gestes: []Geste{pipeline("build", "")}}}})
 
 	apres, err := avant.Mark(Position{}, Succeeded)
@@ -277,10 +276,10 @@ func TestMarquerNeMutePasLAvancementPrecedent(t *testing.T) {
 		t.Fatalf("marquage: %v", err)
 	}
 	if avant.States[0][0] != Pending {
-		t.Error("l'avancement précédent a été muté")
+		t.Error("the previous progress was mutated")
 	}
 	if apres.States[0][0] != Succeeded {
-		t.Error("le marquage n'a pas pris")
+		t.Error("the mark did not take")
 	}
 }
 
@@ -288,24 +287,23 @@ func TestMarquerNeMutePasLAvancementPrecedent(t *testing.T) {
  * Ce qu'un plan doit déclarer pour être exécutable.
  */
 
-// Un plan vide se reconnaît sans être invalide : « ce projet n'enchaîne rien »
-// est une configuration légitime, et l'appelant doit pouvoir conclure tout de
-// suite plutôt qu'attendre un geste qui ne viendra pas.
-func TestUnPlanVideSeReconnaitSansEtreInvalide(t *testing.T) {
+// An empty plan is recognised without being invalid: "this project chains nothing"
+// is a legitimate configuration, and the caller must be able to conclude at once.
+func TestAnEmptyPlanIsRecognisedWithoutBeingInvalid(t *testing.T) {
 	if !(Plan{}).Empty() {
-		t.Error("un plan sans étape n'est pas vu comme vide")
+		t.Error("a plan with no stage is not seen as empty")
 	}
 	if !(Plan{Stages: []Stage{{}}}).Empty() {
-		t.Error("une étape sans geste ne rend pas le plan vide")
+		t.Error("a stage with no step does not make the plan empty")
 	}
 	if (Plan{Stages: []Stage{{Gestes: []Geste{pipeline("build", "")}}}}).Empty() {
-		t.Error("un plan pourvu est vu comme vide")
+		t.Error("a populated plan is seen as empty")
 	}
 }
 
-// Une étape sans geste est refusée : elle ne fait rien et décale les conditions
-// des suivantes, qui liraient l'issue d'une étape qui n'a rien tenté.
-func TestUneEtapeSansGesteEstRefusee(t *testing.T) {
+// A stage with no step is refused: it does nothing and shifts the conditions of the
+// following ones, which would read the outcome of a stage that attempted nothing.
+func TestAStageWithoutAStepIsRefused(t *testing.T) {
 	err := Plan{Stages: []Stage{
 		{Gestes: []Geste{pipeline("build", "")}},
 		{},
@@ -314,16 +312,15 @@ func TestUneEtapeSansGesteEstRefusee(t *testing.T) {
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("validation: %v", err)
 	}
-	if !strings.Contains(err.Error(), "étape 2") {
-		t.Errorf("message %q — il doit désigner l'étape fautive", err)
+	if !strings.Contains(err.Error(), "stage 2") {
+		t.Errorf("message %q — it must name the offending stage", err)
 	}
 }
 
-// Un geste d'échec sur la première étape ne partirait jamais : rien ne la
-// précède. Refusé plutôt que laissé en place — une déclaration qui ne peut pas se
-// déclencher se lit comme une déclaration qui ne se déclenche pas, et on cherche
-// alors la panne ailleurs.
-func TestUnGesteDEchecSurLaPremiereEtapeEstRefuse(t *testing.T) {
+// A failure step in the first stage would never leave: nothing precedes it. Refused
+// rather than left in place — a declaration that cannot trigger reads like one that
+// does not trigger.
+func TestAFailureStepInTheFirstStageIsRefused(t *testing.T) {
 	err := Plan{Stages: []Stage{
 		{Gestes: []Geste{{Kind: GesteAction, Ref: "prevenir", When: WhenFailure}}},
 	}}.Validate()
@@ -331,36 +328,36 @@ func TestUnGesteDEchecSurLaPremiereEtapeEstRefuse(t *testing.T) {
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("validation: %v", err)
 	}
-	if !strings.Contains(err.Error(), "jamais") {
-		t.Errorf("message %q — il doit dire que le geste ne partirait jamais", err)
+	if !strings.Contains(err.Error(), "never leave") {
+		t.Errorf("message %q — it must say the step would never leave", err)
 	}
 }
 
-// Les incohérences de déclaration sont refusées, chacune nommée.
-func TestLesDeclarationsIncoherentesSontRefusees(t *testing.T) {
+// Inconsistent declarations are refused, each one named.
+func TestInconsistentDeclarationsAreRefused(t *testing.T) {
 	cas := map[string]Plan{
-		"aucune étape": {},
-		"type inconnu": {Stages: []Stage{{Gestes: []Geste{
+		"no stage": {},
+		"unknown kind": {Stages: []Stage{{Gestes: []Geste{
 			{Kind: "webhook", Ref: "x"},
 		}}}},
-		"référence absente": {Stages: []Stage{{Gestes: []Geste{
+		"missing reference": {Stages: []Stage{{Gestes: []Geste{
 			{Kind: GestePipeline, Ref: "  "},
 		}}}},
-		"condition inconnue": {Stages: []Stage{{Gestes: []Geste{
-			{Kind: GestePipeline, Ref: "build", When: "peut-être"},
+		"unknown condition": {Stages: []Stage{{Gestes: []Geste{
+			{Kind: GestePipeline, Ref: "build", When: "maybe"},
 		}}}},
 	}
 
-	for nom, sujet := range cas {
-		if err := sujet.Validate(); !errors.Is(err, ErrInvalid) {
-			t.Errorf("%s: accepté (%v)", nom, err)
+	for nom, subject := range cas {
+		if err := subject.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: accepted (%v)", nom, err)
 		}
 	}
 }
 
-// Un geste sans libellé se nomme par sa référence : l'écran doit toujours avoir
-// quelque chose à afficher.
-func TestUnGesteSansLibelleSeNommeParSaReference(t *testing.T) {
+// A step with no label is named by its reference: the screen must always have
+// something to show.
+func TestAStepWithoutALabelIsNamedByItsReference(t *testing.T) {
 	if got := (Geste{Ref: "unit-tests"}).Name(); got != "unit-tests" {
 		t.Errorf("nom = %q", got)
 	}
@@ -369,9 +366,9 @@ func TestUnGesteSansLibelleSeNommeParSaReference(t *testing.T) {
 	}
 }
 
-// La condition absente vaut « succès » : c'est l'enchaînement qu'on écrit sans y
-// penser, et exiger de le déclarer alourdirait chaque plan.
-func TestLaConditionAbsenteVautSucces(t *testing.T) {
+// An absent condition means success: it is the chaining one writes without
+// thinking, and requiring it to be declared would weigh every plan down.
+func TestAnAbsentConditionMeansSuccess(t *testing.T) {
 	if got := (Geste{}).Condition(); got != WhenSuccess {
 		t.Errorf("condition = %q", got)
 	}
@@ -383,136 +380,133 @@ func TestLaConditionAbsenteVautSucces(t *testing.T) {
  * C'est l'ancrage du cycle de vie d'une release dans le plan (doc 15 §15.3).
  */
 
-// Une étape sans rôle ne participe pas au cycle de vie.
+// A stage with no role takes no part in the life cycle.
 //
-// C'est le défaut, et c'est ce qui rend une étape de notification inoffensive :
-// un webhook injoignable ne doit pas faire échouer une release.
-func TestUneEtapeSansRoleNestPasUnAncrage(t *testing.T) {
-	sujet := Plan{Stages: []Stage{
+// That is the default, and it is what makes a notification stage harmless: an
+// unreachable webhook must not fail a release.
+func TestAStageWithoutARoleIsNoAnchor(t *testing.T) {
+	subject := Plan{Stages: []Stage{
 		{Role: RoleBuild, Gestes: []Geste{{Kind: GestePipeline, Ref: "build"}}},
-		{Label: "Prévenir", Gestes: []Geste{{Kind: GesteAction, Ref: "webhook"}}},
+		{Label: "Warn", Gestes: []Geste{{Kind: GesteAction, Ref: "webhook"}}},
 	}}
-	if err := sujet.Validate(); err != nil {
+	if err := subject.Validate(); err != nil {
 		t.Fatalf("%v", err)
 	}
 
-	if got := sujet.LastWithRole(RoleBuild); got != 0 {
-		t.Errorf("étape de construction = %d, attendu 0", got)
+	if got := subject.LastWithRole(RoleBuild); got != 0 {
+		t.Errorf("build stage = %d, expected 0", got)
 	}
-	// Aucune étape de test : le cycle de vie n'a pas d'ancrage pour cette
-	// transition, et l'appelant doit pouvoir le constater plutôt que de viser
-	// l'étape 0 par défaut.
-	if got := sujet.LastWithRole(RoleTest); got != -1 {
-		t.Errorf("étape de test = %d, attendu -1", got)
+	// No test stage: the life cycle has no anchor for this transition, and the caller
+	// must be able to see that rather than aim at stage 0 by default.
+	if got := subject.LastWithRole(RoleTest); got != -1 {
+		t.Errorf("test stage = %d, expected -1", got)
 	}
 }
 
-// La **dernière** étape d'un rôle fait foi.
+// The last stage of a role is authoritative.
 //
-// Un plan peut construire en deux temps — une image de base, puis l'application
-// au-dessus. C'est la conclusion du dernier temps qui dit que la construction est
-// faite ; viser le premier avancerait la release trop tôt.
-func TestLaDerniereEtapeDunRoleFaitFoi(t *testing.T) {
-	sujet := Plan{Stages: []Stage{
+// A plan may build in two passes — a base image, then the application on top. It is
+// the conclusion of the last pass that says the build is done; aiming at the first
+// would advance the release too early.
+func TestTheLastStageOfARoleIsAuthoritative(t *testing.T) {
+	subject := Plan{Stages: []Stage{
 		{Role: RoleBuild, Gestes: []Geste{{Kind: GestePipeline, Ref: "build-base"}}},
 		{Role: RoleBuild, Gestes: []Geste{{Kind: GestePipeline, Ref: "build-app"}}},
 		{Role: RoleTest, Gestes: []Geste{{Kind: GestePipeline, Ref: "unit-tests"}}},
 	}}
-	if err := sujet.Validate(); err != nil {
+	if err := subject.Validate(); err != nil {
 		t.Fatalf("%v", err)
 	}
 
-	if got := sujet.LastWithRole(RoleBuild); got != 1 {
-		t.Errorf("étape de construction = %d, attendu la seconde", got)
+	if got := subject.LastWithRole(RoleBuild); got != 1 {
+		t.Errorf("build stage = %d, expected the second", got)
 	}
-	if got := sujet.LastWithRole(RoleTest); got != 2 {
-		t.Errorf("étape de test = %d", got)
+	if got := subject.LastWithRole(RoleTest); got != 2 {
+		t.Errorf("test stage = %d", got)
 	}
 }
 
-// Un rôle inventé est refusé à l'enregistrement.
+// An invented role is refused when saved.
 //
-// Ignoré, il donnerait une étape qui s'exécute sans jamais faire avancer la
-// release — donc une release bloquée en construction sans que rien ne le dise.
-func TestUnRoleInconnuEstRefuse(t *testing.T) {
+// Ignored, it would give a stage that runs without ever advancing the release —
+// hence a release stuck building with nothing saying so.
+func TestAnUnknownRoleIsRefused(t *testing.T) {
 	err := Plan{Stages: []Stage{
 		{Role: "deploiement", Gestes: []Geste{{Kind: GestePipeline, Ref: "build"}}},
 	}}.Validate()
 
 	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("%v, attendu ErrInvalid", err)
+		t.Fatalf("%v, expected ErrInvalid", err)
 	}
-	// Le message nomme les rôles connus : les chercher dans le code source n'est
-	// pas une réponse à donner à qui lit un message d'API.
+	// The message names the known roles: looking them up in the source is not an
+	// answer to give someone reading an API message.
 	for _, attendu := range []string{"deploiement", "build", "test"} {
 		if !strings.Contains(err.Error(), attendu) {
-			t.Errorf("message %q — il doit porter %q", err, attendu)
+			t.Errorf("message %q — it must carry %q", err, attendu)
 		}
 	}
 }
 
 /*
- * Le poids d'un geste (doc 15 §15.6).
+ * Le weight d'un geste (doc 15 §15.6).
  */
 
-func poids(value float64) *float64 { return &value }
+func weight(value float64) *float64 { return &value }
 
-// Un poids négatif est refusé.
+// A negative weight is refused.
 //
-// Il ferait *baisser* le score quand le geste réussit, et le monter quand il
-// échoue.
-func TestUnPoidsNegatifEstRefuse(t *testing.T) {
-	sujet := Plan{Stages: []Stage{{
+// It would lower the score when the step succeeds and raise it when it fails.
+func TestANegativeWeightIsRefused(t *testing.T) {
+	subject := Plan{Stages: []Stage{{
 		Role: RoleTest,
 		Gestes: []Geste{{
-			Kind: GestePipeline, Ref: "unit-tests", Weight: poids(-5),
+			Kind: GestePipeline, Ref: "unit-tests", Weight: weight(-5),
 		}},
 	}}}
 
-	err := sujet.Validate()
+	err := subject.Validate()
 	if err == nil {
-		t.Fatal("un poids négatif a été accepté")
+		t.Fatal("a negative weight was accepted")
 	}
-	if !strings.Contains(err.Error(), "négatif") {
-		t.Errorf("motif %q — il doit nommer la faute", err)
+	if !strings.Contains(err.Error(), "negative") {
+		t.Errorf("reason %q — it must name the mistake", err)
 	}
 }
 
-// Un poids posé hors d'une étape de vérification est refusé.
+// A weight set outside a verification stage is refused.
 //
-// Il serait enregistré, affiché, et sans effet : le score d'une release se
-// calcule sur les gestes de son étape de vérification, la seule qui mesure
-// quelque chose.
-func TestUnPoidsHorsDuneEtapeDeVerificationEstRefuse(t *testing.T) {
+// It would be saved, displayed, and have no effect: a release's score is computed
+// on the steps of its verification stage, the only one that measures anything.
+func TestAWeightOutsideAVerificationStageIsRefused(t *testing.T) {
 	for _, role := range []Role{RoleBuild, ""} {
-		sujet := Plan{Stages: []Stage{{
+		subject := Plan{Stages: []Stage{{
 			Role: role,
 			Gestes: []Geste{{
-				Kind: GestePipeline, Ref: "build", Weight: poids(20),
+				Kind: GestePipeline, Ref: "build", Weight: weight(20),
 			}},
 		}}}
 
-		err := sujet.Validate()
+		err := subject.Validate()
 		if err == nil {
-			t.Errorf("rôle %q: un poids a été accepté là où rien ne le lirait", role)
+			t.Errorf("role %q: a weight was accepted where nothing would read it", role)
 			continue
 		}
 		if !strings.Contains(err.Error(), string(RoleTest)) {
-			t.Errorf("rôle %q: motif %q — il doit dire où un poids compte", role, err)
+			t.Errorf("role %q: reason %q — it must say where a weight counts", role, err)
 		}
 	}
 }
 
-// Un poids nul est une décision, et se valide.
-func TestUnPoidsNulSeValide(t *testing.T) {
-	sujet := Plan{Stages: []Stage{{
+// A zero weight is a decision, and validates.
+func TestAZeroWeightValidates(t *testing.T) {
+	subject := Plan{Stages: []Stage{{
 		Role: RoleTest,
 		Gestes: []Geste{{
-			Kind: GestePipeline, Ref: "unit-tests", Weight: poids(0),
+			Kind: GestePipeline, Ref: "unit-tests", Weight: weight(0),
 		}},
 	}}}
 
-	if err := sujet.Validate(); err != nil {
-		t.Errorf("un poids nul a été refusé: %v", err)
+	if err := subject.Validate(); err != nil {
+		t.Errorf("a zero weight was refused: %v", err)
 	}
 }

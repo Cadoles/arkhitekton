@@ -1,25 +1,23 @@
-// Package images compose les références des images publiées.
+// Package images composes the references of published images.
 //
-// Rien de plus : les **noms** des dépôts publiés vivaient ici, en constantes —
-// `portal`, `portal-cli`, `portal-dev` — accompagnées des listes de ce qu'une
-// release construit et de ce qu'un re-tag propage. Ils décrivaient un dépôt
-// donné, pas le produit, et les tenir en Go voulait dire recompiler le dashboard
-// pour publier une image de plus.
+// Nothing more: the names of the published repositories used to live here as
+// constants, along with the lists of what a release builds and what a re-tag
+// propagates. They described one repository rather than the product, and keeping
+// them in Go meant recompiling the dashboard to publish one more image.
 //
-// Ils sont désormais dans la table `projects`, qui décrit déjà ce que chaque
-// dépôt construit : registre, étapes du Dockerfile, dépôts d'image alimentés, et
-// lesquels sont promus. L'amorçage l'installe, l'administration la modifie
-// (doc 12 §12.9). Ce qui reste ici est la seule chose qui n'est ni une donnée ni
-// une décision : la façon d'écrire `registre/nom:tag`.
+// They now live in the `projects` table, which already describes what each
+// repository builds: registry, Dockerfile stages, image repositories fed, and which
+// are promoted. What remains here is the only thing that is neither data nor
+// decision: how to write `registry/name:tag`.
 //
-// Le préfixe du registre reste un paramètre : il change d'un déploiement à
-// l'autre — `cnous-mse` en production, `vcarroy` en local.
+// The registry prefix stays a parameter: it differs from one deployment to the
+// next.
 package images
 
-// Repository compose le dépôt complet, sans tag.
+// Repository composes the full repository, without a tag.
 //
-// Vide quand le projet l'est : mieux vaut ne rien afficher qu'un nom tronqué qui
-// ressemblerait à une référence tirable sans l'être.
+// Empty when the project is: better to show nothing than a truncated name that
+// would look like a pullable reference without being one.
 func Repository(project, name string) string {
 	if project == "" {
 		return ""
@@ -27,7 +25,7 @@ func Repository(project, name string) string {
 	return project + "/" + name
 }
 
-// Reference compose la référence complète d'une image publiée.
+// Reference composes the full reference of a published image.
 func Reference(project, name, tag string) string {
 	repository := Repository(project, name)
 	if repository == "" || tag == "" {

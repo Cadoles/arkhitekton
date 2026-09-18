@@ -1,23 +1,17 @@
-// Package reaction porte la déclaration « sur tel fait, exécuter tel plan ».
+// Package reaction carries the declaration "on this fact, run this plan".
 //
-// # Ce que ce paquet sait, et ce qu'il ignore
+// It knows the shape of a reaction and how it matches a fact. It does not know what
+// its steps' references point at: that a kind exists in the catalogue, that an
+// action is declared in the registry, that a fact type is produced by a plugin —
+// three questions whose answers live elsewhere, and which are asked when saving, in
+// the layer that has those registries at hand.
 //
-// Il connaît la **forme** d'une réaction et la façon dont elle apparie un fait. Il
-// ignore ce que les références de ses gestes désignent : qu'une famille existe au
-// catalogue, qu'une action soit déclarée au registre, qu'un type de fait soit
-// produit par un plugin — trois questions dont la réponse vit ailleurs, et qui se
-// posent à l'enregistrement, dans la couche qui a ces registres sous la main.
+// The separation is the same as for internal/plan: structure here, references when
+// they are resolved.
 //
-// La séparation est la même que pour `internal/plan` : la structure ici, les
-// références au moment de les résoudre.
-//
-// # L'appariement reste pauvre, délibérément
-//
-// Égalité et appartenance, rien d'autre (doc 14 §14.2). Le jour où quelqu'un
-// demande « si le score dépasse 80 et que le tag ne contient pas hotfix », la
-// bonne réponse sera d'ajouter un opérateur nommé, pas un interpréteur : une
-// configuration qui devient un programme est une configuration qu'on ne peut plus
-// relire, et le dashboard n'offre aucun débogueur pour elle.
+// Matching stays poor, deliberately: equality and membership, nothing else. The day
+// someone asks for "if the score is above 80 and the tag does not contain hotfix",
+// the right answer is a named operator, not an interpreter.
 package reaction
 
 import (
@@ -28,66 +22,65 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 )
 
-// Reaction est la déclaration d'un enchaînement.
+// Reaction is the declaration of a chained run.
 type Reaction struct {
 	ID        int64  `json:"id"`
 	ProjectID int64  `json:"-"`
 	Name      string `json:"name"`
-	// EventType est le fait écouté : `release.created`, ou
-	// `gitea.pull_request.opened` pour un fait de plugin.
+	// EventType is the fact listened for: `release.created`, or
+	// `gitea.pull_request.opened` for a plugin fact.
 	EventType string `json:"event_type"`
 	Enabled   bool   `json:"enabled"`
-	// Match apparie la charge du fait. Vide : la réaction part sur tout fait de
-	// ce type.
+	// Match matches the fact's payload. Empty: the reaction leaves on any fact of that
+	// type.
 	//
-	// Une carte plate, comme la charge qu'elle apparie : un appariement porte sur
-	// une valeur, pas sur un chemin. `$.release.kind` demanderait un langage de
-	// chemins et l'interface qui va avec.
+	// A flat map, like the payload it matches: a match is on a value, not on a path.
+	// `$.release.kind` would require a path language and the interface that goes with
+	// it.
 	Match map[string]string `json:"match,omitempty"`
 	Plan  plan.Plan         `json:"plan"`
 }
 
-// ErrInvalid signale une réaction qu'on refuse d'enregistrer.
-var ErrInvalid = errors.New("réaction invalide")
+// ErrInvalid reports a reaction we refuse to save.
+var ErrInvalid = errors.New("invalid reaction")
 
-// maxNameLength borne le nom. Il sert à retrouver une réaction dans une liste, pas
-// à la décrire.
+// maxNameLength bounds the name. It serves to find a reaction in a list, not to
+// describe it.
 const maxNameLength = 120
 
-// Validate refuse une réaction qui ne pourrait pas se déclencher comme elle se
-// lit.
+// Validate refuses a reaction that could not trigger as it reads.
 //
-// Vérifiée à l'enregistrement et non au premier fait : une déclaration fautive
-// découverte au moment où elle devait partir ne se manifeste que par une absence,
-// et l'absence se diagnostique mal — on cherche d'abord si le fait a été émis.
+// Checked when saved rather than at the first fact: a faulty declaration discovered
+// when it should have left shows up only as an absence, and an absence is hard to
+// diagnose — one first looks for whether the fact was emitted at all.
 func (r Reaction) Validate() error {
 	var problems []error
 
 	if name := strings.TrimSpace(r.Name); name == "" {
 		problems = append(problems, fmt.Errorf(
-			"%w: un nom est requis — c'est par lui qu'on la retrouve dans une liste",
+			"%w: a name is required — it is how the reaction is found in a list",
 			ErrInvalid))
 	} else if len(name) > maxNameLength {
 		problems = append(problems, fmt.Errorf(
-			"%w: nom de %d caractères, borné à %d", ErrInvalid, len(name), maxNameLength))
+			"%w: name of %d characters, bounded to %d", ErrInvalid, len(name), maxNameLength))
 	}
 
 	if strings.TrimSpace(r.EventType) == "" {
 		problems = append(problems, fmt.Errorf(
-			"%w: aucun fait écouté", ErrInvalid))
+			"%w: no fact listened for", ErrInvalid))
 	}
 
 	for key, value := range r.Match {
 		if strings.TrimSpace(key) == "" {
 			problems = append(problems, fmt.Errorf(
-				"%w: un appariement porte sur un champ sans nom", ErrInvalid))
+				"%w: a match is on an unnamed field", ErrInvalid))
 		}
-		// Une valeur vide apparierait un champ absent de la charge, ce que la
-		// règle refuse par ailleurs. La laisser passer donnerait une réaction qui
-		// ne part jamais sans qu'on sache pourquoi.
+		// An empty value would match a field absent from the payload, which the rule
+		// refuses elsewhere. Letting it through would give a reaction that never leaves
+		// with nobody knowing why.
 		if strings.TrimSpace(value) == "" {
 			problems = append(problems, fmt.Errorf(
-				"%w: l'appariement sur %q n'a aucune valeur", ErrInvalid, key))
+				"%w: the match on %q has no value", ErrInvalid, key))
 		}
 	}
 
@@ -98,15 +91,14 @@ func (r Reaction) Validate() error {
 	return errors.Join(problems...)
 }
 
-// Matches dit si la charge d'un fait satisfait l'appariement.
+// Matches says whether a fact's payload satisfies the match.
 //
-// **Toutes** les clés déclarées doivent correspondre : un appariement est une
-// conjonction. Deux conditions qui se satisferaient l'une ou l'autre s'écrivent
-// en deux réactions, ce qui se lit mieux qu'un opérateur de plus.
+// Every declared key must match: a match is a conjunction. Two conditions where
+// either would do are written as two reactions, which reads better than one more
+// operator.
 //
-// Une clé absente de la charge **ne correspond pas**. Le contraire ferait partir
-// une réaction sur un fait qui ne porte pas ce dont elle parle — le cas exact
-// d'un `environment` attendu sur un fait qui n'en a pas.
+// A key absent from the payload does not match. The opposite would fire a reaction
+// on a fact that does not carry what it talks about.
 func (r Reaction) Matches(payload map[string]string) bool {
 	for key, expected := range r.Match {
 		value, present := payload[key]
@@ -117,11 +109,11 @@ func (r Reaction) Matches(payload map[string]string) bool {
 	return true
 }
 
-// oneOf dit si une valeur figure dans une liste séparée par des virgules.
+// oneOf says whether a value appears in a comma-separated list.
 //
-// L'appartenance est écrite ainsi plutôt qu'avec un opérateur dédié : `preprod,
-// production` se saisit dans un champ de texte et se relit sans documentation,
-// là où une syntaxe d'ensemble demanderait d'en apprendre une.
+// Membership is written this way rather than with a dedicated operator:
+// `preprod,production` is typed into a text field and reads back without
+// documentation, where a set syntax would have to be learnt.
 func oneOf(value, expected string) bool {
 	for _, candidate := range strings.Split(expected, ",") {
 		if strings.TrimSpace(candidate) == value {
@@ -131,23 +123,23 @@ func oneOf(value, expected string) bool {
 	return false
 }
 
-// Refs énumère ce que les gestes du plan désignent, par nature.
+// Refs lists what the plan's steps point at, by kind.
 //
-// Sert à la couche qui a les registres sous la main : elle vérifie que chaque
-// référence existe **à l'enregistrement**, plutôt que de laisser la découverte au
-// moment où le geste devait partir.
+// It serves the layer that has the registries at hand: it checks that each
+// reference exists when saving, rather than leaving the discovery to the moment the
+// step should have left.
 func (r Reaction) Refs() (pipelines, actions []string) {
-	// Délégué au plan depuis que l'automatisation d'une release en porte un aussi
-	// (doc 15 §15.5) : la question « que désigne ce plan ? » n'appartient pas plus
-	// à une réaction qu'à une automatisation.
+	// Delegated to the plan now that a release's automation carries one too: the
+	// question "what does this plan point at?" belongs no more to a reaction than to an
+	// automation.
 	return plan.Refs(r.Plan)
 }
 
-// Trigger nomme le déclencheur d'une exécution issue de cette réaction.
+// Trigger names the trigger of a run issued from this reaction.
 //
-// `reaction:<id>`, en regard du `builtin:<nom>` de la chaîne de vérification. Les
-// deux partagent la même unicité par fait, et c'est ce qui permet à une réaction
-// déclarée de coexister avec la chaîne intégrée sans que l'une bloque l'autre.
+// `reaction:<id>`, beside the `builtin:<name>` of the verification chain. Both
+// share the same uniqueness per fact, which is what lets a declared reaction
+// coexist with the built-in chain without either blocking the other.
 func (r Reaction) Trigger() string {
 	return fmt.Sprintf("reaction:%d", r.ID)
 }

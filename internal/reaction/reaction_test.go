@@ -8,16 +8,16 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 )
 
-func planDeTest() plan.Plan {
+func planForTest() plan.Plan {
 	return plan.Plan{Stages: []plan.Stage{{Gestes: []plan.Geste{
 		{Kind: plan.GestePipeline, Ref: "unit-tests"},
 	}}}}
 }
 
-func sujet(match map[string]string) Reaction {
+func subject(match map[string]string) Reaction {
 	return Reaction{
-		Name: "Prévenir l'équipe", EventType: "release.created",
-		Enabled: true, Match: match, Plan: planDeTest(),
+		Name: "Warn the team", EventType: "release.created",
+		Enabled: true, Match: match, Plan: planForTest(),
 	}
 }
 
@@ -25,55 +25,53 @@ func sujet(match map[string]string) Reaction {
  * L'appariement.
  */
 
-// Toutes les clés déclarées doivent correspondre : un appariement est une
-// conjonction.
-func TestUnAppariementEstUneConjonction(t *testing.T) {
-	sujet := sujet(map[string]string{"kind": "final", "outcome": "succeeded"})
+// Every declared key must match: a match is a conjunction.
+func TestAMatchIsAConjunction(t *testing.T) {
+	subject := subject(map[string]string{"kind": "final", "outcome": "succeeded"})
 
-	if !sujet.Matches(map[string]string{"kind": "final", "outcome": "succeeded", "tag": "1.8.0"}) {
-		t.Error("une charge qui satisfait tout n'apparie pas")
+	if !subject.Matches(map[string]string{"kind": "final", "outcome": "succeeded", "tag": "1.8.0"}) {
+		t.Error("a payload satisfying everything does not match")
 	}
-	if sujet.Matches(map[string]string{"kind": "final", "outcome": "failed"}) {
-		t.Error("une charge qui ne satisfait qu'une clé apparie")
+	if subject.Matches(map[string]string{"kind": "final", "outcome": "failed"}) {
+		t.Error("a payload satisfying only one key matches")
 	}
 }
 
-// L'appartenance s'écrit avec des virgules : `preprod,production` se saisit dans
-// un champ de texte et se relit sans documentation.
-func TestLAppartenanceSecritAvecDesVirgules(t *testing.T) {
-	sujet := sujet(map[string]string{"environment": "preprod, production"})
+// Membership is written with commas: `preprod,production` is typed into a text
+// field and reads back without documentation.
+func TestMembershipIsWrittenWithCommas(t *testing.T) {
+	subject := subject(map[string]string{"environment": "preprod, production"})
 
 	for _, valeur := range []string{"preprod", "production"} {
-		if !sujet.Matches(map[string]string{"environment": valeur}) {
-			t.Errorf("environnement %q n'apparie pas", valeur)
+		if !subject.Matches(map[string]string{"environment": valeur}) {
+			t.Errorf("environment %q does not match", valeur)
 		}
 	}
-	if sujet.Matches(map[string]string{"environment": "qualif"}) {
-		t.Error("un environnement hors de la liste apparie")
+	if subject.Matches(map[string]string{"environment": "qualif"}) {
+		t.Error("an environment outside the list matches")
 	}
 }
 
-// **Une clé absente de la charge n'apparie pas.**
+// A key absent from the payload does not match.
 //
-// Le contraire ferait partir une réaction sur un fait qui ne porte pas ce dont
-// elle parle — le cas exact d'un `environment` attendu sur un fait qui n'en a
-// aucun.
-func TestUneCleAbsenteDeLaChargeNapariePas(t *testing.T) {
-	sujet := sujet(map[string]string{"environment": "production"})
+// The opposite would fire a reaction on a fact that does not carry what it talks
+// about — the exact case of an `environment` expected on a fact that has none.
+func TestAKeyAbsentFromThePayloadDoesNotMatch(t *testing.T) {
+	subject := subject(map[string]string{"environment": "production"})
 
-	if sujet.Matches(map[string]string{"tag": "1.8.0"}) {
-		t.Error("une charge sans le champ apparié a déclenché la réaction")
+	if subject.Matches(map[string]string{"tag": "1.8.0"}) {
+		t.Error("a payload lacking the matched field triggered the reaction")
 	}
 }
 
-// Un appariement vide part sur tout fait de ce type : c'est la déclaration la
-// plus simple, et elle doit rester possible.
-func TestUnAppariementVidePartSurToutFaitDeCeType(t *testing.T) {
-	if !sujet(nil).Matches(map[string]string{"n'importe": "quoi"}) {
-		t.Error("un appariement vide n'apparie pas")
+// An empty match leaves on any fact of that type: it is the simplest declaration,
+// and it must stay possible.
+func TestAnEmptyMatchLeavesOnAnyFactOfThatType(t *testing.T) {
+	if !subject(nil).Matches(map[string]string{"n'importe": "quoi"}) {
+		t.Error("an empty match does not match")
 	}
-	if !sujet(map[string]string{}).Matches(nil) {
-		t.Error("un appariement vide n'apparie pas une charge vide")
+	if !subject(map[string]string{}).Matches(nil) {
+		t.Error("an empty match does not match an empty payload")
 	}
 }
 
@@ -81,48 +79,48 @@ func TestUnAppariementVidePartSurToutFaitDeCeType(t *testing.T) {
  * La validation, faite à l'enregistrement.
  */
 
-// Une réaction sans nom est refusée : c'est par lui qu'on la retrouve dans une
-// liste, et « réaction 7 » n'apprend rien.
-func TestUneReactionSansNomEstRefusee(t *testing.T) {
-	sujet := sujet(nil)
-	sujet.Name = "  "
+// A reaction with no name is refused: the name is how it is found in a list, and
+// "reaction 7" teaches nothing.
+func TestAReactionWithoutANameIsRefused(t *testing.T) {
+	subject := subject(nil)
+	subject.Name = "  "
 
-	err := sujet.Validate()
-	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "nom") {
+	err := subject.Validate()
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "name") {
 		t.Errorf("%v", err)
 	}
 }
 
-// Une réaction qui n'écoute aucun fait est refusée.
-func TestUneReactionSansFaitEcouteEstRefusee(t *testing.T) {
-	sujet := sujet(nil)
-	sujet.EventType = ""
+// A reaction listening for no fact is refused.
+func TestAReactionListeningForNoFactIsRefused(t *testing.T) {
+	subject := subject(nil)
+	subject.EventType = ""
 
-	if err := sujet.Validate(); !errors.Is(err, ErrInvalid) {
+	if err := subject.Validate(); !errors.Is(err, ErrInvalid) {
 		t.Errorf("%v", err)
 	}
 }
 
-// Un appariement sans valeur est refusé : il apparierait un champ absent, ce que
-// la règle refuse par ailleurs, et donnerait une réaction qui ne part jamais sans
-// qu'on sache pourquoi.
-func TestUnAppariementSansValeurEstRefuse(t *testing.T) {
-	err := sujet(map[string]string{"kind": "  "}).Validate()
+// A match with no value is refused: it would match an absent field, which the rule
+// refuses elsewhere, and would give a reaction that never leaves with nobody
+// knowing why.
+func TestAMatchWithoutAValueIsRefused(t *testing.T) {
+	err := subject(map[string]string{"kind": "  "}).Validate()
 
 	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "kind") {
 		t.Errorf("%v", err)
 	}
 }
 
-// Le plan est validé avec la réaction : une réaction dont le plan ne tient pas
-// n'a pas de sens, et laisser passer reporterait le diagnostic au moment du
-// déclenchement.
-func TestLePlanEstValideAvecLaReaction(t *testing.T) {
-	sujet := sujet(nil)
-	sujet.Plan = plan.Plan{Stages: []plan.Stage{{}}}
+// The plan is validated with the reaction: a reaction whose plan does not hold
+// makes no sense, and letting it through would postpone the diagnosis to the moment
+// it triggers.
+func TestThePlanIsValidatedWithTheReaction(t *testing.T) {
+	subject := subject(nil)
+	subject.Plan = plan.Plan{Stages: []plan.Stage{{}}}
 
-	if err := sujet.Validate(); err == nil {
-		t.Error("une réaction au plan invalide a été acceptée")
+	if err := subject.Validate(); err == nil {
+		t.Error("a reaction with an invalid plan was accepted")
 	}
 }
 
@@ -130,11 +128,11 @@ func TestLePlanEstValideAvecLaReaction(t *testing.T) {
  * Ce que la couche au-dessus doit vérifier.
  */
 
-// Les références sont énumérées par nature, pour que la couche qui a les
-// registres vérifie leur existence **à l'enregistrement**.
-func TestLesReferencesSonEnumereesParNature(t *testing.T) {
-	sujet := sujet(nil)
-	sujet.Plan = plan.Plan{Stages: []plan.Stage{
+// References are listed by kind, so the layer that has the registries can check
+// they exist when saving.
+func TestReferencesAreListedByKind(t *testing.T) {
+	subject := subject(nil)
+	subject.Plan = plan.Plan{Stages: []plan.Stage{
 		{Gestes: []plan.Geste{
 			{Kind: plan.GestePipeline, Ref: "unit-tests"},
 			{Kind: plan.GestePipeline, Ref: "static-tests"},
@@ -142,7 +140,7 @@ func TestLesReferencesSonEnumereesParNature(t *testing.T) {
 		{Gestes: []plan.Geste{{Kind: plan.GesteAction, Ref: "webhook"}}},
 	}}
 
-	pipelines, actions := sujet.Refs()
+	pipelines, actions := subject.Refs()
 	if len(pipelines) != 2 || pipelines[0] != "unit-tests" {
 		t.Errorf("pipelines = %v", pipelines)
 	}
@@ -151,17 +149,16 @@ func TestLesReferencesSonEnumereesParNature(t *testing.T) {
 	}
 }
 
-// Le déclencheur d'une réaction se distingue de celui de la chaîne intégrée : les
-// deux partagent la même unicité par fait, et doivent pouvoir coexister sans que
-// l'une bloque l'autre.
-func TestLeDeclencheurSeDistingueDeLaChaineIntegree(t *testing.T) {
-	sujet := sujet(nil)
-	sujet.ID = 42
+// A reaction's trigger differs from the built-in chain's: both share the same
+// uniqueness per fact, and must coexist without either blocking the other.
+func TestTheTriggerDiffersFromTheBuiltInChain(t *testing.T) {
+	subject := subject(nil)
+	subject.ID = 42
 
-	if got := sujet.Trigger(); got != "reaction:42" {
-		t.Errorf("déclencheur = %q", got)
+	if got := subject.Trigger(); got != "reaction:42" {
+		t.Errorf("trigger = %q", got)
 	}
-	if strings.HasPrefix(sujet.Trigger(), "builtin:") {
-		t.Error("une réaction déclarée se confond avec la chaîne intégrée")
+	if strings.HasPrefix(subject.Trigger(), "builtin:") {
+		t.Error("a declared reaction is confused with the built-in chain")
 	}
 }
