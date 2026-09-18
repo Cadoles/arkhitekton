@@ -6,98 +6,98 @@ import "testing"
 
 const stream = `Running PHPStan...
 ##META## {"tool":"phpstan","version":"1.11.2","exit_code":1,"status":"ok"}
-##SUMMARY## 12 violations dans 4 fichiers
+##SUMMARY## 12 violations in 4 files
 Note: 12 errors found
 ##META## {"tool":"trivy","exit_code":0,"status":"error","error":"db download failed"}
-##SUMMARY## audit interrompu
+##SUMMARY## audit interrupted
 `
 
 func TestScanMarkers(t *testing.T) {
 	markers := DefaultMarkers.ScanMarkers(stream)
 
 	if len(markers.Metas) != 2 {
-		t.Fatalf("%d descripteur(s)", len(markers.Metas))
+		t.Fatalf("%d descriptor(s)", len(markers.Metas))
 	}
-	if len(markers.Summaries) != 2 || markers.Summaries[0] != "12 violations dans 4 fichiers" {
-		t.Errorf("résumés = %v", markers.Summaries)
+	if len(markers.Summaries) != 2 || markers.Summaries[0] != "12 violations in 4 files" {
+		t.Errorf("summaries = %v", markers.Summaries)
 	}
 }
 
-// PHPStan sort en 1 dès qu'il trouve une violation : c'est un succès de l'outil
-// et un échec du code. Confondre les deux rendrait toute analyse non conforme
-// « non mesurée ».
+// PHPStan exits 1 as soon as it finds a violation: a success of the tool and a
+// failure of the code. Confusing the two would make every non-clean analysis read
+// as "not measured".
 func TestANonZeroExitCodeIsNotAToolFailure(t *testing.T) {
 	markers := DefaultMarkers.ScanMarkers(stream)
 
 	phpstan := markers.Metas["phpstan"]
 	if phpstan.ExitCode != 1 {
-		t.Errorf("code de sortie = %d", phpstan.ExitCode)
+		t.Errorf("exit code = %d", phpstan.ExitCode)
 	}
 	if !phpstan.Ran() {
-		t.Error("phpstan a conclu : son signal doit être mesuré")
+		t.Error("phpstan concluded: its signal must be measured")
 	}
 }
 
-// Le scanner planté et le scanner qui ne trouve rien produisent tous deux zéro
-// finding. Le descripteur est ce qui les distingue (P2).
+// A crashed scanner and a scanner that finds nothing both produce zero findings.
+// The descriptor is what tells them apart.
 func TestAFailedToolIsNotMeasured(t *testing.T) {
 	markers := DefaultMarkers.ScanMarkers(stream)
 
 	if markers.Metas["trivy"].Ran() {
-		t.Error("un outil en erreur ne doit pas compter comme mesuré")
+		t.Error("a tool in error must not count as measured")
 	}
 }
 
-// Un descripteur absent vaut « n'a pas conclu ». Se tromper dans ce sens affiche
-// « non mesuré » sur un outil qui a tourné ; dans l'autre, « conforme » sur un
-// scanner qui a planté.
+// An absent descriptor means "did not conclude". Erring this way shows "not
+// measured" for a tool that ran; erring the other way, "clean" for a crashed
+// scanner.
 func TestAnAbsentMetaIsNotARun(t *testing.T) {
 	if (Meta{}).Ran() {
-		t.Error("un descripteur vide ne doit pas valoir exécution")
+		t.Error("an empty descriptor must not count as a run")
 	}
 }
 
-// Le journal a d'autres usages : le perdre en entier pour une accolade manquante
-// serait disproportionné.
+// The log has other uses: losing it entirely over a missing brace would be
+// disproportionate.
 func TestMalformedMarkersAreIgnoredNotFatal(t *testing.T) {
-	markers := DefaultMarkers.ScanMarkers("##META## {pas du json\n##SUMMARY##\nligne normale\n")
+	markers := DefaultMarkers.ScanMarkers("##META## {not json\n##SUMMARY##\nan ordinary line\n")
 
 	if len(markers.Metas) != 0 {
 		t.Errorf("descripteurs = %v", markers.Metas)
 	}
-	// Un résumé vide n'est pas un résumé.
+	// An empty summary is not a summary.
 	if len(markers.Summaries) != 0 {
-		t.Errorf("résumés = %v", markers.Summaries)
+		t.Errorf("summaries = %v", markers.Summaries)
 	}
 }
 
-// Une reprise après échec émet deux descripteurs : le dernier décrit
-// l'exécution retenue.
+// A retry after failure emits two descriptors: the last one describes the run that
+// was kept.
 func TestTheLastMetaWins(t *testing.T) {
 	markers := DefaultMarkers.ScanMarkers(`##META## {"tool":"phpunit","status":"error"}
 ##META## {"tool":"phpunit","status":"ok"}`)
 
 	if !markers.Metas["phpunit"].Ran() {
-		t.Error("le dernier descripteur doit faire foi")
+		t.Error("the last descriptor must prevail")
 	}
 }
 
-// Le journal affiché est celui que l'utilisateur lit : y laisser des lignes de
-// protocole le charge sans rien lui apprendre.
+// The displayed log is what a person reads: leaving protocol lines in it adds noise
+// without teaching anything.
 func TestStripMarkersKeepsTheRest(t *testing.T) {
 	cleaned := DefaultMarkers.StripMarkers(stream)
 
 	if strings.Contains(cleaned, DefaultMarkers.Meta) || strings.Contains(cleaned, DefaultMarkers.Summary) {
-		t.Error("les marqueurs doivent disparaître du journal affiché")
+		t.Error("markers must disappear from the displayed log")
 	}
 	if !strings.Contains(cleaned, "Running PHPStan...") {
-		t.Error("le reste du journal doit être conservé")
+		t.Error("the rest of the log must be kept")
 	}
 }
 
-// Un jeton de projet rend la forme historique, ce qui laisse un déploiement qui
-// émet déjà `##MSE-META##` continuer sans toucher à ses pipelines.
-func TestUnJetonDeProjetRendLaFormeHistorique(t *testing.T) {
+// A deployment token yields the historical form, which lets a deployment already
+// emitting it carry on without touching its pipelines.
+func TestADeploymentTokenYieldsTheHistoricalForm(t *testing.T) {
 	mse := NewMarkerSet("MSE")
 
 	if mse.Meta != "##MSE-META##" || mse.Summary != "##MSE-SUMMARY##" {
@@ -110,9 +110,9 @@ func TestUnJetonDeProjetRendLaFormeHistorique(t *testing.T) {
 		t.Errorf("marqueurs lus = %+v", markers)
 	}
 
-	// Et le jeu neutre ne les lit pas : deux protocoles distincts ne doivent pas
-	// se confondre, sans quoi le jeton ne servirait à rien.
+	// And the neutral set does not read them: two distinct protocols must not be
+	// conflated, otherwise the token would serve no purpose.
 	if len(DefaultMarkers.ScanMarkers("##MSE-META## {\"tool\":\"phpstan\"}").Metas) != 0 {
-		t.Error("le jeu neutre ne doit pas lire les marqueurs d'un autre jeton")
+		t.Error("the neutral set must not read another token's markers")
 	}
 }

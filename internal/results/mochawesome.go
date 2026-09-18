@@ -28,8 +28,8 @@ type mochawesomeReport struct {
 }
 
 type mochawesomeResult struct {
-	// File est le chemin de la spec. Meilleur identifiant de suite que le titre,
-	// qui peut être renommé sans que le test change.
+	// File is the spec's path. A better suite identifier than the title, which can be
+	// renamed without the test changing.
 	File   string             `json:"file"`
 	Suites []mochawesomeSuite `json:"suites"`
 	Tests  []mochawesomeTest  `json:"tests"`
@@ -82,8 +82,8 @@ func ParseMochawesome(raw []byte) (Report, error) {
 }
 
 func collectMochaSuite(suite mochawesomeSuite, path string, report *Report) {
-	// Le fichier prime sur le titre : renommer un `describe` ne doit pas rendre
-	// tous ses tests « nouveaux » à la comparaison suivante.
+	// The file wins over the title: renaming a `describe` must not make all its tests
+	// "new" at the next comparison.
 	name := strings.TrimSpace(suite.File)
 	if name == "" {
 		name = path
@@ -116,16 +116,16 @@ func mochaToCase(test mochawesomeTest, suite string) Case {
 		testCase.Message = firstLine(test.Err.Message)
 		testCase.Trace = strings.TrimSpace(test.Err.Stack)
 	case test.Pass && test.CurrentRetry > 0:
-		// Passé, mais pas du premier coup.
+		// Passed, but not on the first attempt.
 		testCase.Status = StatusFlaky
 		testCase.Message = firstLine(test.Err.Message)
 	case test.Pass:
 		testCase.Status = StatusPassed
 	default:
-		// Ni passé, ni échoué, ni en attente : Cypress produit cet état quand la
-		// spec meurt avant d'exécuter le cas. L'ignorer perdrait un test.
+		// Neither passed, failed nor pending: Cypress produces this state when the spec
+		// dies before running the case. Ignoring it would lose a test.
 		testCase.Status = StatusSkipped
-		testCase.Message = "cas non exécuté"
+		testCase.Message = "case not run"
 	}
 
 	return testCase

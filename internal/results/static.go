@@ -25,9 +25,9 @@ type phpstanReport struct {
 		Errors     int `json:"errors"`
 		FileErrors int `json:"file_errors"`
 	} `json:"totals"`
-	// Files est indexé par chemin. `json:"files"` peut valoir `[]` quand il n'y a
-	// aucune erreur — PHP sérialise un tableau vide là où on attend un objet —, ce
-	// que `json.RawMessage` absorbe.
+	// Files is keyed by path. `json:"files"` may be `[]` when there is no error — PHP
+	// serialises an empty array where an object is expected — which json.RawMessage
+	// absorbs.
 	Files  json.RawMessage `json:"files"`
 	Errors []string        `json:"errors"`
 }
@@ -51,9 +51,9 @@ func ParsePHPStan(raw []byte) (Report, error) {
 		return report, ErrUnsupported{Tool: "phpstan", Detail: err.Error()}
 	}
 
-	// Les erreurs hors fichier — configuration illisible, extension manquante —
-	// sont des échecs de l'outil, pas du code. Les compter comme des violations
-	// ferait chercher un problème dans le code qui n'y est pas.
+	// Errors outside a file — unreadable configuration, a missing extension — are
+	// failures of the tool, not of the code. Counting them as violations would send
+	// someone looking for a problem in the code that is not there.
 	for _, message := range source.Errors {
 		report.Cases = append(report.Cases, Case{
 			Suite: "phpstan", Name: "erreur d'analyse",
@@ -63,8 +63,8 @@ func ParsePHPStan(raw []byte) (Report, error) {
 
 	files := map[string]phpstanFile{}
 	if len(source.Files) > 0 {
-		// Ignoré délibérément : `files: []` est un tableau vide, pas un objet, et
-		// signifie « aucune violation ».
+		// Deliberately ignored: `files: []` is an empty array, not an object, and means "no
+		// violation".
 		_ = json.Unmarshal(source.Files, &files)
 	}
 
@@ -72,9 +72,8 @@ func ParsePHPStan(raw []byte) (Report, error) {
 		for _, message := range files[path].Messages {
 			rule := message.Identifier
 			if rule == "" {
-				// Les versions anciennes n'émettent pas d'identifiant : le message
-				// tient lieu de règle. Moins stable, mais mieux qu'une identité
-				// fondée sur la ligne.
+				// Older versions emit no identifier: the message stands in for the rule. Less
+				// stable, but better than an identity based on the line number.
 				rule = firstLine(message.Message)
 			}
 			report.Cases = append(report.Cases, Case{
@@ -85,9 +84,9 @@ func ParsePHPStan(raw []byte) (Report, error) {
 	}
 
 	report.tally()
-	// Une analyse statique propre n'a aucun cas. Le verdict dérivé serait `na`,
-	// c'est-à-dire « non exécutée » — or elle a bien tourné et n'a rien trouvé,
-	// ce qui est le meilleur résultat possible.
+	// A clean static analysis has no cases. The derived verdict would be `na`, meaning
+	// "did not run" — whereas it did run and found nothing, which is the best possible
+	// result.
 	if report.Total == 0 {
 		report.Status = ReportPass
 	}
@@ -103,10 +102,10 @@ type csFixerReport struct {
 	} `json:"files"`
 }
 
-// ParseCSFixer lit la sortie JSON de PHP-CS-Fixer.
+// ParseCSFixer reads PHP-CS-Fixer's JSON output.
 //
-// L'outil tourne en `--dry-run` dans le pipeline : chaque fichier listé est un
-// fichier qui **aurait** été modifié, donc un écart de style.
+// The tool runs in --dry-run in the pipeline: every file listed is one that would
+// have been modified, hence a style deviation.
 func ParseCSFixer(raw []byte) (Report, error) {
 	report := Report{Family: FamilyStatic, Tool: "cs-fixer"}
 
@@ -121,11 +120,11 @@ func ParseCSFixer(raw []byte) (Report, error) {
 			fixers = []string{"style"}
 		}
 		for _, fixer := range fixers {
-			// Une entrée par règle et non par fichier : c'est la granularité à
-			// laquelle on corrige, et celle à laquelle « c'est réglé » a un sens.
+			// One entry per rule rather than per file: that is the granularity at which one
+			// fixes, and at which "it is done" means something.
 			report.Cases = append(report.Cases, Case{
 				Suite: file.Name, Name: fixer, Status: StatusFailed,
-				Message: "écart de style : " + fixer,
+				Message: "style deviation: " + fixer,
 				Trace:   file.Diff,
 			})
 		}
@@ -135,26 +134,26 @@ func ParseCSFixer(raw []byte) (Report, error) {
 	if report.Total == 0 {
 		report.Status = ReportPass
 	}
-	report.Summary = summarizeViolations(report, "écart(s) de style")
+	report.Summary = summarizeViolations(report, "style deviation(s)")
 	return report, nil
 }
 
 func summarizeViolations(report Report, noun string) string {
 	if report.Total == 0 {
-		return "aucun " + strings.TrimSuffix(noun, "(s)")
+		return "no " + strings.TrimSuffix(noun, "(s)")
 	}
 	files := map[string]bool{}
 	for _, testCase := range report.Cases {
 		files[testCase.Suite] = true
 	}
-	return fmt.Sprintf("%d %s dans %d fichier(s)", report.Total, noun, len(files))
+	return fmt.Sprintf("%d %s in %d file(s)", report.Total, noun, len(files))
 }
 
-// sortedKeys rend les clés triées.
+// sortedKeys returns the keys, sorted.
 //
-// L'ordre d'itération d'une map est aléatoire en Go : sans tri, deux lectures du
-// même rapport produiraient deux ordres de cas différents, et toute comparaison
-// de sorties deviendrait illisible.
+// A Go map's iteration order is random: without sorting, two reads of the same
+// report would produce two orders of cases, and any comparison of outputs would
+// become unreadable.
 func sortedKeys[V any](source map[string]V) []string {
 	keys := make([]string, 0, len(source))
 	for key := range source {

@@ -25,7 +25,7 @@ explicite. Un 100 sur trois signaux mesurés ne doit pas ressembler à un 100 su
 six — c'est le même nombre pour deux réalités qui n'engagent pas la même décision.
 */
 
-// Signal nomme une composante du score.
+// Signal names a component of the score.
 type Signal string
 
 const (
@@ -37,22 +37,21 @@ const (
 	SignalPerformance Signal = "performance"
 )
 
-// Weights est la pondération des signaux.
+// Weights is the weighting of the signals.
 //
-// Type nommé plutôt que map anonyme : cette valeur vient d'une ConfigMap, et lui
-// donner un nom rend visible qu'elle traverse la frontière de la configuration.
+// A named type rather than an anonymous map: this value comes from a ConfigMap, and
+// naming it makes visible that it crosses the configuration boundary.
 type Weights map[Signal]float64
 
-// DefaultWeights est la pondération acceptée par le client (B11).
+// DefaultWeights is the agreed weighting.
 //
-// Présente en code comme **repli**, pas comme référence : sans elle, une
-// ConfigMap absente rendrait tout score incalculable, ce qui est pire qu'un score
-// calculé selon la pondération d'origine et affiché avec son détail.
+// Present in code as a fallback, not as the reference: without it, a missing
+// ConfigMap would make every score incomputable, which is worse than a score
+// computed with the original weighting and displayed with its breakdown.
 //
-// Depuis que le poids se déclare sur le geste (doc 15 §15.6), elle sert surtout
-// de **défaut par signal** : un geste qui ne dit rien pèse ce que son signal
-// pesait avant que quiconque puisse le changer. Personne ne perd la pondération
-// convenue en ne saisissant rien.
+// Now that weight is declared on the step, it serves mostly as the per-signal
+// default: a step that says nothing weighs what its signal weighed. Nobody loses the
+// agreed weighting by typing nothing.
 func DefaultWeights() Weights {
 	return Weights{
 		SignalUnit:        25,
@@ -64,12 +63,11 @@ func DefaultWeights() Weights {
 	}
 }
 
-// SignalOf rend le signal qu'une famille de résultats alimente.
+// SignalOf returns the signal a result family feeds.
 //
-// La famille dit d'où sort le chiffre, le signal dit comment le noter. Les deux
-// noms coexistaient déjà dans l'interface ; la correspondance, elle, vivait
-// implicitement dans une liste d'appels — et devenait fausse dès qu'un geste
-// choisissait sa famille au lieu de la subir.
+// The family says where the figure comes from, the signal says how to grade it. The
+// correspondence used to live implicitly in a list of calls — and became wrong as
+// soon as a step chose its family instead of inheriting it.
 func SignalOf(family Family) (Signal, bool) {
 	switch family {
 	case FamilyUnit:
@@ -89,12 +87,11 @@ func SignalOf(family Family) (Signal, bool) {
 	}
 }
 
-// WeightOf rend le poids d'un geste : celui qu'il déclare, sinon celui de son
-// signal.
+// WeightOf returns a step's weight: the one it declares, otherwise its signal's.
 //
-// Le pointeur porte trois états, et c'est pour cela qu'il en est un. Absent : le
-// défaut du signal s'applique. Zéro : le geste est délibérément hors du score.
-// Une valeur : elle s'applique.
+// The pointer carries three states, which is why it is one. Absent: the signal's
+// default applies. Zero: the step is deliberately out of the score. A value: it
+// applies.
 func WeightOf(declared *float64, signal Signal) float64 {
 	if declared != nil {
 		return *declared
@@ -102,101 +99,95 @@ func WeightOf(declared *float64, signal Signal) float64 {
 	return DefaultWeights()[signal]
 }
 
-// Measure est la valeur d'un composant du score.
+// Measure is the value of one component of the score.
 type Measure struct {
-	// Key identifie le composant, et c'est ce qui a changé d'axe.
+	// Key identifies the component, and that is what changed axis.
 	//
-	// Le signal faisait l'identité : six composants, un par nature, et deux
-	// campagnes E2E distinctes se confondaient donc dans un seul. La clé est
-	// désormais le **geste** qui a mesuré — `geste:1.0` — ou, pour une release
-	// antérieure aux plans, la famille faute de mieux — `signal:unit`
-	// (doc 15 §15.6).
+	// The signal used to be the identity: six components, one per nature, so two
+	// distinct end-to-end campaigns were conflated into one. The key is now the step
+	// that measured — or, for a release predating plans, the family for want of better.
 	Key string
-	// Label nomme le composant à l'écran, dans les mots de qui l'a déclaré.
+	// Label names the component on screen, in the words of whoever declared it.
 	Label string
-	// Signal dit **comment** mesurer, et plus comment pondérer. Il reste ce qui
-	// relie un rapport à sa règle de notation (doc 13).
+	// Signal says how to measure, no longer how to weigh. It remains what links a report
+	// to its grading rule.
 	Signal Signal
-	// Ref et Family disent **ce qui a produit** la mesure, dans le vocabulaire du
-	// catalogue : la famille de pipeline à relancer, la famille de rapports à
-	// ouvrir en détail.
+	// Ref and Family say what produced the measure, in the catalogue's vocabulary: the
+	// pipeline family to re-run, the report family to open in detail.
 	//
-	// Portées par la mesure et non déduites du signal par une table dans
-	// l'interface. Cette table existait, en trois exemplaires — signal → pipeline,
-	// pipeline → signaux, signal → famille de rapports — et elle devenait fausse
-	// dès qu'un projet déclarait deux campagnes de même nature : elles ne
-	// relancent pas le même pipeline.
+	// Carried by the measure rather than inferred from the signal by a table in the
+	// interface. That table existed in three copies, and became wrong as soon as a
+	// project declared two campaigns of the same nature: they do not re-run the same
+	// pipeline.
 	Ref    string
 	Family Family
-	// Weight est le poids déclaré de ce composant.
+	// Weight is this component's declared weight.
 	//
-	// Porté par la mesure et non cherché dans une table : c'est ce qui permet à
-	// deux gestes de même signal de peser différemment, et c'est tout l'objet du
-	// changement.
+	// Carried by the measure rather than looked up in a table: that is what lets two
+	// steps of the same signal weigh differently.
 	Weight float64
-	// Value vaut 0 à 100. Ignorée quand Measured est faux.
+	// Value ranges from 0 to 100. Ignored when Measured is false.
 	Value float64
-	// Measured distingue « mesuré à zéro » de « non mesuré ». Les deux affichent
-	// zéro, et les confondre ferait tomber le score d'une release dont un pipeline
-	// n'a simplement pas tourné.
+	// Measured separates "measured at zero" from "not measured". Both display zero, and
+	// confusing them would sink the score of a release whose pipeline simply did not
+	// run.
 	Measured bool
 	// Detail explique la valeur, en français. Affiché à côté du score.
 	Detail string
 }
 
-// SignalKey rend la clé d'un composant identifié par son seul signal.
+// SignalKey returns the key of a component identified by its signal alone.
 //
-// Le repli des releases qui n'ont pas de plan — celles d'avant doc 15 §15.2. Leur
-// score reste calculable, et c'est la seule raison pour laquelle cette forme
-// existe encore.
+// The fallback for releases that have no plan. Their score stays computable, which
+// is the only reason this form still exists.
 func SignalKey(signal Signal) string { return "signal:" + string(signal) }
 
-// Breakdown est le score et sa décomposition.
+// Breakdown is the score and its decomposition.
 type Breakdown struct {
-	// Score vaut 0 à 100, arrondi à l'entier. Nul quand rien n'est mesuré — et
-	// `Measured` vaut alors faux, ce qui est la seule façon de distinguer un
-	// projet à zéro d'un projet non évalué.
+	// Score ranges from 0 to 100, rounded to an integer. Zero when nothing is measured —
+	// and Measured is then false, which is the only way to tell a project scoring zero
+	// from a project not evaluated.
 	Score    int
 	Measured bool
 	Signals  []SignalScore
-	// Redistributed liste les composants sortis du calcul, par leur clé. Affiché
-	// tel quel : le lecteur doit savoir sur quoi porte le score qu'il lit.
+	// Redistributed lists the components left out of the computation, by key. Displayed
+	// as is: the reader must know what the score they are reading covers.
 	Redistributed []string
 }
 
-// SignalScore est la contribution d'un composant.
+// SignalScore is one component's contribution.
 type SignalScore struct {
-	// Key et Label identifient le composant. Le signal les accompagne parce qu'il
-	// dit la nature de ce qui a été mesuré, et sert encore à choisir une icône.
+	// Key and Label identify the component. The signal comes along because it says the
+	// nature of what was measured, and still picks an icon.
 	Key    string
 	Label  string
 	Signal Signal
-	// Ref et Family disent ce qui a produit la mesure : le pipeline à relancer, et
-	// la famille de rapports à ouvrir.
+	// Ref and Family say what produced the measure: the pipeline to re-run, and the
+	// report family to open.
 	Ref    string
 	Family Family
 	Value  float64
-	// Weight est le poids **effectif**, après redistribution. Distinct du poids
-	// déclaré : c'est lui qui explique la contribution réelle.
+	// Weight is the effective weight, after redistribution. Distinct from the declared
+	// weight: it is what explains the real contribution.
 	Weight float64
-	// Declared est le poids tel qu'il a été saisi, avant redistribution. Rendu
-	// parce qu'un poids effectif seul ne permet pas de relire une pondération :
-	// « 33 » ne dit pas si quelqu'un a écrit 20 ou 40.
+	// Declared is the weight as it was typed, before redistribution. Returned because an
+	// effective weight alone cannot be read back as a weighting: "33" does not say
+	// whether someone wrote 20 or 40.
 	Declared float64
 	Measured bool
 	Detail   string
 }
 
-// Score calcule le score pondéré et sa décomposition.
+// Score computes the weighted score and its decomposition.
 //
-// Les poids voyagent avec les mesures : un composant sait ce qu'il pèse, et deux
-// composants de même signal peuvent donc peser différemment. La table des poids
-// a disparu de la signature pour cette raison — la chercher par signal était
-// exactement ce qui empêchait deux campagnes E2E de compter séparément.
+// Weights travel with the measures: a component knows what it weighs, so two
+// components of the same signal may weigh differently. The weights table left the
+// signature for that reason — looking weights up by signal was exactly what stopped
+// two end-to-end campaigns from counting separately.
 //
-// **L'ordre des mesures est conservé.** C'est celui de la déclaration, donc celui
-// que l'écran doit montrer : un plan qui lance l'audit en premier l'affiche en
-// premier, et le trier ici imposerait un ordre que personne n'a demandé.
+// The order of the measures is preserved. It is the declaration order, hence the
+// order the screen must show: a plan that runs the audit first displays it first,
+// and sorting here would impose an order nobody asked for.
 func Score(measures []Measure) Breakdown {
 	var totalWeight float64
 	for _, measure := range measures {
@@ -207,13 +198,12 @@ func Score(measures []Measure) Breakdown {
 
 	breakdown := Breakdown{}
 
-	// `totalWeight` nul couvre deux cas d'un coup : rien n'a été mesuré, ou tout
-	// ce qui l'a été pèse zéro. Dans les deux, aucun score n'est calculable — et
-	// rendre zéro serait un jugement, le plus sévère possible sur une release
-	// qu'on n'a pas évaluée.
+	// A zero totalWeight covers two cases at once: nothing was measured, or everything
+	// measured weighs zero. In both, no score is computable — and returning zero would
+	// be a judgement, the harshest possible, on a release nobody evaluated.
 	if totalWeight == 0 {
 		for _, measure := range measures {
-			breakdown.Signals = append(breakdown.Signals, retire(measure))
+			breakdown.Signals = append(breakdown.Signals, retired(measure))
 			breakdown.Redistributed = append(breakdown.Redistributed, measure.Key)
 		}
 		return breakdown
@@ -222,14 +212,14 @@ func Score(measures []Measure) Breakdown {
 	var weighted float64
 	for _, measure := range measures {
 		if !measure.Measured {
-			breakdown.Signals = append(breakdown.Signals, retire(measure))
+			breakdown.Signals = append(breakdown.Signals, retired(measure))
 			breakdown.Redistributed = append(breakdown.Redistributed, measure.Key)
 			continue
 		}
 
-		// Le poids effectif est la part du composant dans ce qui a été mesuré.
-		// C'est la redistribution : elle se fait par renormalisation, sans
-		// réattribuer arbitrairement le poids manquant à un voisin.
+		// The effective weight is the component's share of what was measured. That is the
+		// redistribution: by renormalisation, without arbitrarily reassigning the missing
+		// weight to a neighbour.
 		effective := measure.Weight / totalWeight * 100
 		weighted += measure.Value * measure.Weight / totalWeight
 
@@ -246,11 +236,11 @@ func Score(measures []Measure) Breakdown {
 	return breakdown
 }
 
-// retire rend la ligne d'un composant sorti du calcul.
+// retired returns the line of a component left out of the computation.
 //
-// Son poids déclaré est conservé : c'est ce qui permet de lire « ce geste aurait
-// pesé 20 » sur un pipeline qui n'a pas tourné, plutôt qu'une case muette.
-func retire(measure Measure) SignalScore {
+// Its declared weight is kept: that is what allows reading "this step would have
+// weighed 20" on a pipeline that did not run, rather than a silent cell.
+func retired(measure Measure) SignalScore {
 	return SignalScore{
 		Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
 		Ref: measure.Ref, Family: measure.Family,
@@ -258,17 +248,16 @@ func retire(measure Measure) SignalScore {
 	}
 }
 
-// FromReport rend la mesure d'un signal à partir d'un rapport de tests.
+// FromReport returns a signal's measure from a test report.
 //
-// La règle est celle de B11 : 100 si tout passe, sinon `100 × (1 − échecs/total)`,
-// **un test instable comptant pour un demi-échec**. Un test instable coûte à
-// chaque exécution sans jamais bloquer : ne pas le compter du tout reviendrait à
-// dire qu'il ne coûte rien.
+// The rule: 100 if everything passes, otherwise 100 × (1 − failures/total), with a
+// flaky test counting as half a failure. A flaky test costs on every run without
+// ever blocking: not counting it at all would say it costs nothing.
 func FromReport(signal Signal, report Report, ran bool) Measure {
 	if !ran || report.Total == 0 {
-		reason := "non exécuté"
+		reason := "not run"
 		if ran {
-			reason = "aucun test"
+			reason = "no test"
 		}
 		return Measure{Signal: signal, Detail: reason}
 	}
@@ -276,7 +265,7 @@ func FromReport(signal Signal, report Report, ran bool) Measure {
 	failures := float64(report.Failed) + float64(report.Flaky)/2
 	value := math.Max(0, 100*(1-failures/float64(report.Total)))
 
-	detail := fmt.Sprintf("%d/%d réussis", report.Passed, report.Total)
+	detail := fmt.Sprintf("%d/%d passed", report.Passed, report.Total)
 	if report.Flaky > 0 {
 		detail += fmt.Sprintf(", %d instable(s)", report.Flaky)
 	}
@@ -284,14 +273,14 @@ func FromReport(signal Signal, report Report, ran bool) Measure {
 	return Measure{Signal: signal, Value: value, Measured: true, Detail: detail}
 }
 
-// FromSecurity rend la mesure du signal de sécurité.
+// FromSecurity returns the security signal's measure.
 //
-// Par palier et non proportionnelle : une vulnérabilité critique n'est pas « un
-// peu moins bien » que zéro, elle interdit de livrer. Une moyenne la noierait
-// dans le nombre de findings mineurs.
+// By threshold rather than proportionally: a critical vulnerability is not
+// "slightly worse" than zero, it forbids shipping. An average would drown it in the
+// number of minor findings.
 func FromSecurity(critical, high int, ran bool) Measure {
 	if !ran {
-		return Measure{Signal: SignalSecurity, Detail: "non exécuté"}
+		return Measure{Signal: SignalSecurity, Detail: "not run"}
 	}
 
 	switch {
@@ -300,21 +289,21 @@ func FromSecurity(critical, high int, ran bool) Measure {
 			Detail: fmt.Sprintf("%d finding(s) critique(s)", critical)}
 	case high > 0:
 		return Measure{Signal: SignalSecurity, Value: 50, Measured: true,
-			Detail: fmt.Sprintf("%d finding(s) de sévérité haute", high)}
+			Detail: fmt.Sprintf("%d high-severity finding(s)", high)}
 	default:
 		return Measure{Signal: SignalSecurity, Value: 100, Measured: true,
-			Detail: "aucun finding critique ni haut"}
+			Detail: "no critical or high finding"}
 	}
 }
 
-// FromBench rend la mesure du signal de performance.
+// FromBench returns the performance signal's measure.
 func FromBench(verdict string, comparable bool) Measure {
 	if !comparable {
-		// Une campagne non comparable n'est pas une campagne absente, mais elle ne
-		// peut pas noter la performance : la juger imputerait à la release une
-		// lenteur causée par un voisin (B16).
+		// A campaign that cannot be compared is not an absent campaign, but it cannot grade
+		// performance: grading it would blame the release for slowness caused by a
+		// neighbour.
 		return Measure{Signal: SignalPerformance,
-			Detail: "mesure non comparable aux conditions de référence"}
+			Detail: "measure not comparable to the baseline conditions"}
 	}
 
 	switch verdict {
@@ -325,18 +314,18 @@ func FromBench(verdict string, comparable bool) Measure {
 	case "fail":
 		return Measure{Signal: SignalPerformance, Value: 0, Measured: true, Detail: "hors seuil"}
 	default:
-		return Measure{Signal: SignalPerformance, Detail: "non mesuré"}
+		return Measure{Signal: SignalPerformance, Detail: "not measured"}
 	}
 }
 
-// FromStatic rend la mesure de qualité du code.
+// FromStatic returns the code quality measure.
 //
-// Par palier : la maquette dit « 100 si PHPStan et cs-fixer sont propres, dégradé
-// par palier ». Les paliers sont fixés ici parce qu'ils ne sont pas dans la
-// pondération — celle-ci dit le poids du signal, pas la façon de le mesurer.
+// By threshold: 100 when the linters are clean, degraded step by step. The
+// thresholds live here because they are not part of the weighting — that says a
+// signal's weight, not how to measure it.
 func FromStatic(violations int, ran bool) Measure {
 	if !ran {
-		return Measure{Signal: SignalCode, Detail: "non exécuté"}
+		return Measure{Signal: SignalCode, Detail: "not run"}
 	}
 
 	value := 0.0
@@ -355,7 +344,7 @@ func FromStatic(violations int, ran bool) Measure {
 		Detail: fmt.Sprintf("%d violation(s)", violations)}
 }
 
-// Health dérive le statut global du score, selon les seuils de la maquette.
+// Health derives the overall status of the score from the thresholds.
 func Health(breakdown Breakdown) string {
 	if !breakdown.Measured {
 		return "na"
@@ -363,14 +352,13 @@ func Health(breakdown Breakdown) string {
 	return healthFromValue(float64(breakdown.Score))
 }
 
-// SignalHealth dérive le statut d'un signal, aux mêmes seuils que le score
-// global.
+// SignalHealth derives a signal's status, at the same thresholds as the overall
+// score.
 //
-// Rendu par l'API plutôt que recalculé dans le navigateur : l'interface ne
-// dérive aucun verdict, sans quoi un changement de seuil ici produirait un
-// second avis divergent côté client (B11). Appliquer les seuils du score à un
-// signal est une extrapolation, et c'est le seul endroit où elle est faite —
-// elle vaut ce que vaut l'échelle 85/70, ni plus ni moins.
+// Returned by the API rather than recomputed in the browser: the interface derives
+// no verdict, otherwise changing a threshold here would produce a second, diverging
+// opinion client-side. Applying the score's thresholds to a signal is an
+// extrapolation, and this is the only place it is made.
 func SignalHealth(signal SignalScore) string {
 	if !signal.Measured {
 		return "na"
@@ -389,10 +377,9 @@ func healthFromValue(value float64) string {
 	}
 }
 
-// Ce qui a disparu ici : le tri par signal.
+// What disappeared here: sorting by signal.
 //
-// Il imposait l'ordre de la maquette — unitaires, intégration, E2E, code,
-// sécurité, performance — parce que le signal faisait l'identité et qu'une carte
-// Go n'a pas d'ordre. Le composant est désormais un geste, et les gestes
-// **arrivent dans l'ordre du plan** : celui que quelqu'un a déclaré, et donc
-// celui qu'il s'attend à lire. Trier ici l'écraserait.
+// It imposed the mock-up's order, because the signal was the identity and a Go map
+// has none. A component is now a step, and steps arrive in the plan's order: the one
+// someone declared, and therefore the one they expect to read. Sorting here would
+// overwrite it.

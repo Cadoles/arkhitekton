@@ -25,31 +25,28 @@ un code sain. C'est la meilleure propriété du `security-audit` existant, et el
 est reprise telle quelle.
 */
 
-// MarkerSet nomme les deux marqueurs qu'un flux emploie.
+// MarkerSet names the two markers a stream uses.
 //
-// Un jeton et non deux chaînes libres : les deux marqueurs d'un même protocole
-// doivent porter la même marque, et laisser l'appelant les composer permettrait
-// un `##ACME-META##` avec un `##SUMMARY##`, dont rien ne dirait qu'ils vont
-// ensemble.
+// One token rather than two free strings: both markers of a protocol must carry the
+// same mark, and letting the caller compose them would allow a `##ACME-META##`
+// beside a `##SUMMARY##`, with nothing saying they belong together.
 type MarkerSet struct {
 	Meta    string
 	Summary string
 }
 
-// DefaultMarkers est le jeu sans marque de projet.
+// DefaultMarkers is the set with no deployment token.
 //
-// Les marqueurs valaient `##MSE-META##` et `##MSE-SUMMARY##`, en constantes. Le
-// nom d'un projet dans un **protocole** est un couplage d'une autre nature que
-// dans une interface : un pipeline générique qui émet `##MSE-META##` reste marqué
-// MSE dans son code source, et c'est précisément ce qu'on cherche à retirer
-// (doc 12 §12.9, chantier 5).
+// A deployment's name inside a protocol is a different kind of coupling than inside
+// an interface: a generic pipeline emitting a branded marker stays branded in its
+// own source.
 var DefaultMarkers = NewMarkerSet("")
 
-// NewMarkerSet compose les marqueurs d'un jeton de projet.
+// NewMarkerSet composes the markers of a deployment token.
 //
-// Jeton vide pour la forme neutre — `##META##`. Le jeton `MSE` rend la forme
-// historique, `##MSE-META##`, ce qui laisse un déploiement qui l'émet déjà
-// continuer sans rien changer à ses pipelines.
+// An empty token gives the neutral form, `##META##`. A token gives the historical
+// form, which lets a deployment already emitting it carry on without touching its
+// pipelines.
 func NewMarkerSet(token string) MarkerSet {
 	token = strings.TrimSpace(strings.Trim(strings.TrimSpace(token), "-"))
 	if token != "" {
@@ -58,44 +55,43 @@ func NewMarkerSet(token string) MarkerSet {
 	return MarkerSet{Meta: "##" + token + "META##", Summary: "##" + token + "SUMMARY##"}
 }
 
-// Meta est le descripteur d'exécution d'un outil.
+// Meta is a tool's execution descriptor.
 type Meta struct {
 	Tool    string `json:"tool"`
 	Version string `json:"version,omitempty"`
-	// ExitCode est celui de l'outil. Distinct de `Status` : un `exit_code` non nul
-	// peut être normal — PHPStan sort en 1 dès qu'il trouve une violation, ce qui
-	// est un succès de l'outil et un échec du code.
+	// ExitCode is the tool's own. Distinct from Status: a non-zero exit code may be
+	// normal — PHPStan exits 1 as soon as it finds a violation, which is a success of
+	// the tool and a failure of the code.
 	ExitCode int `json:"exit_code"`
-	// Status vaut `ok` quand l'outil a fait son travail, quel qu'en soit le
-	// résultat. Toute autre valeur signale que l'outil n'a pas pu conclure, et le
-	// signal correspondant devient « non mesuré » plutôt que « conforme ».
+	// Status is `ok` when the tool did its job, whatever the outcome. Any other value
+	// says the tool could not conclude, and the corresponding signal becomes "not
+	// measured" rather than "clean".
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
 }
 
-// Ran dit si l'outil a conclu.
+// Ran says whether the tool concluded.
 //
-// Un descripteur absent vaut « n'a pas conclu » : le pipeline est censé en
-// émettre un, et son absence est elle-même une information. Se tromper dans ce
-// sens affiche « non mesuré » sur un outil qui a tourné ; dans l'autre, il
-// afficherait « conforme » sur un scanner qui a planté.
+// An absent descriptor means "did not conclude": the pipeline is supposed to emit
+// one, and its absence is itself information. Erring this way shows "not measured"
+// for a tool that ran; erring the other way would show "clean" for a scanner that
+// crashed.
 func (m Meta) Ran() bool { return strings.EqualFold(m.Status, "ok") }
 
-// Markers rassemble ce qu'un flux a livré.
+// Markers gathers what a stream delivered.
 type Markers struct {
-	// Metas est indexé par outil. Un outil qui en émet plusieurs — reprise après
-	// échec — voit le dernier faire foi : c'est celui qui décrit l'exécution
-	// retenue.
+	// Metas is keyed by tool. A tool emitting several — a retry after failure — has the
+	// last one prevail: it describes the run that was kept.
 	Metas map[string]Meta
-	// Summaries conserve l'ordre d'apparition, qui est l'ordre d'exécution.
+	// Summaries keeps the order of appearance, which is the order of execution.
 	Summaries []string
 }
 
-// ScanMarkers extrait les marqueurs d'un flux de journal.
+// ScanMarkers extracts markers from a log stream.
 //
-// Tolérant sur la forme : un marqueur mal formé est ignoré plutôt que de faire
-// échouer la lecture du journal. Le journal a d'autres usages que celui-ci, et le
-// perdre en entier pour une accolade manquante serait disproportionné.
+// Tolerant about shape: a malformed marker is ignored rather than failing the whole
+// log read. The log has other uses, and losing it entirely over a missing brace
+// would be disproportionate.
 func (m MarkerSet) ScanMarkers(text string) Markers {
 	markers := Markers{Metas: map[string]Meta{}}
 
@@ -122,11 +118,11 @@ func (m MarkerSet) ScanMarkers(text string) Markers {
 	return markers
 }
 
-// StripMarkers retire les lignes de marqueur d'un journal.
+// StripMarkers removes marker lines from a log.
 //
-// Le journal affiché est celui que l'utilisateur lit : y laisser des lignes de
-// protocole le charge sans rien lui apprendre, puisque l'information qu'elles
-// portent est affichée à côté, mise en forme.
+// The displayed log is what a person reads: leaving protocol lines in it adds noise
+// without teaching anything, since what they carry is displayed alongside,
+// formatted.
 func (m MarkerSet) StripMarkers(text string) string {
 	lines := strings.Split(text, "\n")
 	kept := lines[:0]

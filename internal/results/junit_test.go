@@ -8,7 +8,7 @@ const phpunitXML = `<?xml version="1.0"?>
     <testsuite name="App\Tests\LoginTest" time="0.750">
       <testcase name="testLogin" classname="App\Tests\LoginTest" time="0.500"/>
       <testcase name="testLogout" classname="App\Tests\LoginTest" time="0.250">
-        <failure message="Failed asserting that false is true.&#10;dans LoginTest.php:42" type="PHPUnit\Framework\ExpectationFailedException">
+        <failure message="Failed asserting that false is true.&#10;in LoginTest.php:42" type="PHPUnit\Framework\ExpectationFailedException">
 #0 /app/tests/LoginTest.php(42)
 #1 /app/vendor/bin/phpunit(12)
         </failure>
@@ -21,10 +21,10 @@ const phpunitXML = `<?xml version="1.0"?>
   </testsuite>
 </testsuites>`
 
-// Cypress émet parfois `<testsuite>` seul. Ne gérer que `<testsuites>` ferait
-// lire zéro test sur une campagne E2E réussie.
+// Cypress sometimes emits a bare <testsuite>. Handling only <testsuites> would
+// read zero tests from a successful end-to-end campaign.
 const bareSuiteXML = `<testsuite name="e2e" tests="1" time="3.0">
-  <testcase name="visite la page d'accueil" time="3.0"/>
+  <testcase name="visits the home page" time="3.0"/>
 </testsuite>`
 
 func TestParseJUnitReadsNestedSuites(t *testing.T) {
@@ -41,20 +41,20 @@ func TestParseJUnitReadsNestedSuites(t *testing.T) {
 	}
 }
 
-// Deux `testLogin` dans deux classes différentes sont deux tests. Les fusionner
-// signalerait un échec résolu là où rien n'a bougé.
+// Two `testLogin` tests in different classes are two tests. Merging them would
+// report a resolved failure where nothing moved.
 func TestHomonymousCasesStayDistinct(t *testing.T) {
 	report, _ := ParseJUnit(FamilyUnit, "phpunit", []byte(phpunitXML))
 
 	keys := map[string]bool{}
 	for _, testCase := range report.Cases {
 		if keys[testCase.Key()] {
-			t.Errorf("identité dupliquée: %q", testCase.Key())
+			t.Errorf("duplicate identity: %q", testCase.Key())
 		}
 		keys[testCase.Key()] = true
 	}
 	if !keys[`App\Tests\LoginTest::testLogin`] || !keys[`App\Tests\CartTest::testLogin`] {
-		t.Errorf("identités = %v", keys)
+		t.Errorf("identities = %v", keys)
 	}
 }
 
@@ -68,16 +68,16 @@ func TestParseJUnitAcceptsABareSuite(t *testing.T) {
 	}
 }
 
-// Le temps JUnit est en secondes flottantes. Le prendre pour des millisecondes
-// afficherait des campagnes de trois millisecondes.
+// JUnit time is in floating-point seconds. Taking it for milliseconds would display
+// three-millisecond campaigns.
 func TestJUnitTimeIsSeconds(t *testing.T) {
 	report, _ := ParseJUnit(FamilyE2E, "cypress", []byte(bareSuiteXML))
 	if report.Cases[0].DurationMS != 3000 {
-		t.Errorf("durée = %d ms, attendu 3000", report.Cases[0].DurationMS)
+		t.Errorf("duration = %d ms, expected 3000", report.Cases[0].DurationMS)
 	}
 }
 
-// Le message d'échec tient sur une ligne dans le tableau ; la trace se déplie.
+// The failure message fits on one line in the table; the trace unfolds.
 func TestFailureMessageIsOneLine(t *testing.T) {
 	report, _ := ParseJUnit(FamilyUnit, "phpunit", []byte(phpunitXML))
 
@@ -89,18 +89,18 @@ func TestFailureMessageIsOneLine(t *testing.T) {
 			t.Errorf("message = %q", testCase.Message)
 		}
 		if testCase.Trace == "" {
-			t.Error("la trace doit être conservée à part")
+			t.Error("the trace must be kept apart")
 		}
 		return
 	}
-	t.Error("aucun échec trouvé")
+	t.Error("no failure found")
 }
 
-// Un cas repassé après reprise n'est ni un succès ni un échec : le traiter en
-// succès effacerait le seul signal d'instabilité.
+// A case that passed on retry is neither a success nor a failure: treating it as a
+// success would erase the only signal of instability.
 func TestRerunCasesAreFlaky(t *testing.T) {
 	const xml = `<testsuites><testsuite name="e2e">
-	  <testcase name="panier" classname="Cart" time="1.0">
+	  <testcase name="cart" classname="Cart" time="1.0">
 	    <flakyFailure message="timeout">trace</flakyFailure>
 	  </testcase>
 	</testsuite></testsuites>`
@@ -112,14 +112,14 @@ func TestRerunCasesAreFlaky(t *testing.T) {
 	if report.Flaky != 1 || report.Failed != 0 {
 		t.Errorf("comptes = %+v", report)
 	}
-	// Instable dégrade sans bloquer.
+	// Flaky degrades without blocking.
 	if report.Status != ReportWarn {
-		t.Errorf("statut = %q, attendu warn", report.Status)
+		t.Errorf("status = %q, expected warn", report.Status)
 	}
 }
 
-// Un JUnit annonce `tests="12"` en ne listant que dix cas quand le processus
-// meurt en route. Compter ce qui est là évite deux tests fantômes en succès.
+// A JUnit report announces tests="12" while listing only ten cases when the process
+// dies mid-run. Counting what is actually there avoids two phantom passing tests.
 func TestTotalsAreRecountedNotTrusted(t *testing.T) {
 	const xml = `<testsuites><testsuite name="Unit" tests="12">
 	  <testcase name="a" classname="X"/>
@@ -127,23 +127,23 @@ func TestTotalsAreRecountedNotTrusted(t *testing.T) {
 
 	report, _ := ParseJUnit(FamilyUnit, "phpunit", []byte(xml))
 	if report.Total != 1 {
-		t.Errorf("total = %d, attendu le nombre réel de cas", report.Total)
+		t.Errorf("total = %d, expected the real number of cases", report.Total)
 	}
 }
 
 func TestParseJUnitRejectsGarbage(t *testing.T) {
-	if _, err := ParseJUnit(FamilyUnit, "phpunit", []byte("pas du xml")); err == nil {
-		t.Error("un rapport illisible doit être refusé")
+	if _, err := ParseJUnit(FamilyUnit, "phpunit", []byte("not xml")); err == nil {
+		t.Error("an unreadable report must be refused")
 	}
 }
 
-// Un rapport vide n'est pas un rapport réussi : personne n'a rien exécuté.
+// An empty report is not a successful report: nobody ran anything.
 func TestAnEmptyReportIsNotAPass(t *testing.T) {
 	report, err := ParseJUnit(FamilyUnit, "phpunit", []byte(`<testsuites></testsuites>`))
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
 	if report.Status != ReportNA {
-		t.Errorf("statut = %q, attendu na", report.Status)
+		t.Errorf("status = %q, expected na", report.Status)
 	}
 }

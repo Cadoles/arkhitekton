@@ -41,15 +41,15 @@ type junitSuite struct {
 
 type junitCase struct {
 	Name string `xml:"name,attr"`
-	// ClassName est souvent plus précis que le nom de la suite parente : PHPUnit y
-	// met la classe pleinement qualifiée, là où la suite porte le nom du fichier.
+	// ClassName is often more precise than the parent suite's name: PHPUnit puts the
+	// fully qualified class there, where the suite carries the file name.
 	ClassName string        `xml:"classname,attr"`
 	Time      string        `xml:"time,attr"`
 	Failures  []junitDetail `xml:"failure"`
 	Errors    []junitDetail `xml:"error"`
 	Skipped   *struct{}     `xml:"skipped"`
-	// Rerun et Flaky : Cypress et PHPUnit 10 signalent ainsi un cas repassé après
-	// reprise. Les traiter en succès effacerait le seul signal d'instabilité.
+	// Rerun and Flaky: Cypress and PHPUnit 10 use these to report a case that passed
+	// on retry. Treating them as successes would erase the only signal of instability.
 	FlakyFailures []junitDetail `xml:"flakyFailure"`
 	RerunFailures []junitDetail `xml:"rerunFailure"`
 }
@@ -66,9 +66,9 @@ func ParseJUnit(family Family, tool string, raw []byte) (Report, error) {
 
 	var root junitSuites
 	if err := xml.Unmarshal(raw, &root); err != nil {
-		// La racine n'est pas `<testsuites>` : essayer `<testsuite>` seul avant de
-		// renoncer. C'est le cas de Cypress, et renoncer ici ferait apparaître une
-		// campagne E2E réussie comme non exécutée.
+		// The root is not <testsuites>: try a bare <testsuite> before giving up. That is
+		// Cypress's case, and giving up here would make a successful end-to-end campaign
+		// look as though it never ran.
 		var single junitSuite
 		if single.unmarshal(raw) != nil {
 			return report, ErrUnsupported{Tool: tool, Detail: err.Error()}
@@ -87,12 +87,11 @@ func ParseJUnit(family Family, tool string, raw []byte) (Report, error) {
 
 func (s *junitSuite) unmarshal(raw []byte) error { return xml.Unmarshal(raw, s) }
 
-// collectSuite descend l'arbre des suites en conservant le chemin.
+// collectSuite walks the suite tree while keeping the path.
 //
-// Le chemin est ce qui donne au cas une identité stable : deux tests `testLogin`
-// dans deux classes différentes doivent rester deux tests, sans quoi la
-// comparaison à la release précédente signalerait un échec résolu là où rien n'a
-// bougé.
+// The path is what gives a case a stable identity: two `testLogin` tests in
+// different classes must stay two tests, otherwise the comparison with the
+// previous release would report a resolved failure where nothing moved.
 func collectSuite(suite junitSuite, path string, report *Report) {
 	name := strings.TrimSpace(suite.Name)
 	if path != "" && name != "" {
@@ -110,9 +109,8 @@ func collectSuite(suite junitSuite, path string, report *Report) {
 }
 
 func junitToCase(source junitCase, suiteName string) Case {
-	// `classname` prime : PHPUnit y met la classe pleinement qualifiée, là où la
-	// suite porte le nom du fichier. Un renommage de fichier ne doit pas casser
-	// l'identité du test.
+	// `classname` wins: PHPUnit puts the fully qualified class there, where the suite
+	// carries the file name. Renaming a file must not break a test's identity.
 	suite := strings.TrimSpace(source.ClassName)
 	if suite == "" {
 		suite = suiteName
@@ -132,7 +130,7 @@ func junitToCase(source junitCase, suiteName string) Case {
 		testCase.Message = firstLine(detailMessage(details[0]))
 		testCase.Trace = strings.TrimSpace(details[0].Content)
 	case len(reruns) > 0:
-		// Le cas a fini par passer : instable, pas en échec.
+		// The case eventually passed: flaky, not failed.
 		testCase.Status = StatusFlaky
 		testCase.Message = firstLine(detailMessage(reruns[0]))
 		testCase.Trace = strings.TrimSpace(reruns[0].Content)
@@ -147,15 +145,14 @@ func detailMessage(detail junitDetail) string {
 	if message := strings.TrimSpace(detail.Message); message != "" {
 		return message
 	}
-	// Certains outils laissent `message` vide et mettent tout dans le corps.
+	// Some tools leave `message` empty and put everything in the body.
 	return strings.TrimSpace(detail.Content)
 }
 
-// junitMillis convertit un temps JUnit en millisecondes.
+// junitMillis converts a JUnit time to milliseconds.
 //
-// Le format est un flottant en **secondes**. Le prendre pour des millisecondes
-// afficherait des campagnes de trois millisecondes, ce qui passe inaperçu
-// longtemps.
+// The format is a float in seconds. Taking it for milliseconds would display
+// three-millisecond campaigns, which goes unnoticed for a long time.
 func junitMillis(value string) int {
 	seconds, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	if err != nil || seconds < 0 {
@@ -172,17 +169,17 @@ func junitDuration(suites []junitSuite) int64 {
 	return total
 }
 
-// SummarizeJUnit rend la ligne de résumé d'un rapport.
+// SummarizeJUnit returns a report's summary line.
 func SummarizeJUnit(report Report) string {
 	parts := []string{fmt.Sprintf("%d test(s)", report.Total)}
 	if report.Failed > 0 {
-		parts = append(parts, fmt.Sprintf("%d en échec", report.Failed))
+		parts = append(parts, fmt.Sprintf("%d failed", report.Failed))
 	}
 	if report.Flaky > 0 {
 		parts = append(parts, fmt.Sprintf("%d instable(s)", report.Flaky))
 	}
 	if report.Skipped > 0 {
-		parts = append(parts, fmt.Sprintf("%d ignoré(s)", report.Skipped))
+		parts = append(parts, fmt.Sprintf("%d skipped", report.Skipped))
 	}
 	return strings.Join(parts, ", ")
 }

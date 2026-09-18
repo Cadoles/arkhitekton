@@ -32,21 +32,20 @@ func TestParsePHPStanProjectsViolationsAsCases(t *testing.T) {
 	}
 }
 
-// L'identité est fichier + règle, jamais le numéro de ligne : une ligne bouge à
-// chaque commit, et l'y attacher signalerait une violation résolue et une
-// nouvelle à chaque insertion au-dessus.
+// The identity is file + rule, never the line number: a line moves with every
+// commit, and tying identity to it would report one violation resolved and one new
+// at every insertion above.
 func TestViolationIdentityIgnoresTheLineNumber(t *testing.T) {
 	report, _ := ParsePHPStan([]byte(phpstanJSON))
 
 	for _, testCase := range report.Cases {
 		if testCase.Name == "missingType.return" {
 			if testCase.Key() != "/app/src/Controller/HomeController.php::missingType.return" {
-				t.Errorf("identité = %q", testCase.Key())
+				t.Errorf("identity = %q", testCase.Key())
 			}
-			// La ligne reste dans le message : utile à lire, sans entrer dans
-			// l'identité.
+			// The line stays in the message: useful to read, without entering the identity.
 			if testCase.Message == "" {
-				t.Error("la ligne doit rester lisible dans le message")
+				t.Error("the line must stay readable in the message")
 			}
 			return
 		}
@@ -54,8 +53,9 @@ func TestViolationIdentityIgnoresTheLineNumber(t *testing.T) {
 	t.Error("violation introuvable")
 }
 
-// Une erreur hors fichier est un échec de l'outil, pas du code : la compter
-// comme une violation ferait chercher un problème dans le code qui n'y est pas.
+// An error outside a file is a failure of the tool, not of the code: counting it as
+// a violation would send someone looking for a problem in the code that is not
+// there.
 func TestAnalysisErrorsAreDistinguished(t *testing.T) {
 	report, _ := ParsePHPStan([]byte(phpstanJSON))
 
@@ -64,25 +64,25 @@ func TestAnalysisErrorsAreDistinguished(t *testing.T) {
 			return
 		}
 	}
-	t.Error("l'erreur d'analyse doit être distinguée des violations")
+	t.Error("the analysis error must be told apart from violations")
 }
 
-// PHP sérialise un objet vide en tableau vide. Refuser `files: []` ferait
-// échouer la lecture d'une analyse parfaitement propre.
+// PHP serialises an empty object as an empty array. Refusing `files: []` would fail
+// the read of a perfectly clean analysis.
 func TestPHPStanAcceptsAnEmptyFilesArray(t *testing.T) {
 	report, err := ParsePHPStan([]byte(`{"totals":{"errors":0,"file_errors":0},"files":[],"errors":[]}`))
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
-	// Zéro cas, mais l'outil a tourné : `pass` et non `na`.
+	// Zero cases, but the tool ran: `pass`, not `na`.
 	if report.Status != ReportPass {
-		t.Errorf("statut = %q, attendu pass", report.Status)
+		t.Errorf("status = %q, expected pass", report.Status)
 	}
 }
 
 func TestParsePHPStanRejectsGarbage(t *testing.T) {
 	if _, err := ParsePHPStan([]byte("<html>")); err == nil {
-		t.Error("un rapport illisible doit être refusé")
+		t.Error("an unreadable report must be refused")
 	}
 }
 
@@ -94,15 +94,15 @@ const csFixerJSON = `{
   ]
 }`
 
-// Une entrée par règle et non par fichier : c'est la granularité à laquelle on
-// corrige, et celle à laquelle « c'est réglé » a un sens.
+// One entry per rule rather than per file: that is the granularity at which one
+// fixes, and at which "it is done" means something.
 func TestCSFixerReportsOneCasePerRule(t *testing.T) {
 	report, err := ParseCSFixer([]byte(csFixerJSON))
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
 	if report.Total != 3 {
-		t.Errorf("total = %d, attendu 3", report.Total)
+		t.Errorf("total = %d, expected 3", report.Total)
 	}
 
 	keys := map[string]bool{}
@@ -110,11 +110,11 @@ func TestCSFixerReportsOneCasePerRule(t *testing.T) {
 		keys[testCase.Key()] = true
 	}
 	if !keys["src/Kernel.php::no_unused_imports"] {
-		t.Errorf("identités = %v", keys)
+		t.Errorf("identities = %v", keys)
 	}
-	// Un fichier sans règle nommée reste signalé.
+	// A file with no named rule is still reported.
 	if !keys["src/Legacy.php::style"] {
-		t.Errorf("identités = %v", keys)
+		t.Errorf("identities = %v", keys)
 	}
 }
 
@@ -128,8 +128,8 @@ func TestCSFixerCleanRunIsAPass(t *testing.T) {
 	}
 }
 
-// L'ordre d'itération d'une map est aléatoire : sans tri, deux lectures du même
-// rapport donneraient deux ordres différents.
+// A Go map's iteration order is random: without sorting, two reads of the same
+// report would give two different orders.
 func TestPHPStanOutputIsStable(t *testing.T) {
 	const multi = `{"totals":{"errors":0,"file_errors":3},"files":{
 	  "c.php":{"errors":1,"messages":[{"message":"m","line":1,"identifier":"r"}]},
@@ -148,6 +148,6 @@ func TestPHPStanOutputIsStable(t *testing.T) {
 		}
 	}
 	if first.Cases[0].Suite != "a.php" {
-		t.Errorf("premier cas = %q, attendu l'ordre alphabétique", first.Cases[0].Suite)
+		t.Errorf("first case = %q, expected alphabetical order", first.Cases[0].Suite)
 	}
 }

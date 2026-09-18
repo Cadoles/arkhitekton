@@ -1,24 +1,22 @@
-// Package results lit les sorties des outils de test et les normalise.
+// Package results reads the output of test tools and normalises it.
 //
-// Six outils, six formats, une seule question : **qu'est-ce qui a changé depuis
-// la dernière fois ?** C'est celle qu'on pose en recette, et elle ne se répond
-// que si les résultats sont comparables d'un run à l'autre. Toute la
-// normalisation existe pour cela.
+// Six tools, six formats, one question: what changed since last time? That is the
+// question asked before shipping, and it can only be answered if results are
+// comparable from one run to the next. All the normalisation exists for that.
 //
-// Deux principes en découlent.
+// Two principles follow.
 //
-// **L'identité d'un cas est stable.** `suite` + `name` désignent le même test
-// d'une exécution à l'autre, quel que soit son ordre, sa durée ou le nombre de
-// tests autour de lui. Sans cette stabilité, « nouvel échec » et « échec
-// persistant » seraient indiscernables — et c'est exactement la distinction qui
-// décide si on livre.
+// A case's identity is stable. `suite` + `name` name the same test from one run to
+// the next, whatever its order, its duration or how many tests surround it. Without
+// that stability, "new failure" and "persistent failure" would be
+// indistinguishable — and that is exactly the distinction that decides whether to
+// ship.
 //
-// **Un outil qui n'a pas tourné n'est pas un outil sans résultat.** PHPStan qui
-// plante et PHPStan qui ne trouve rien produisent tous deux zéro violation. Le
-// descripteur `meta`, émis par le pipeline lui-même, tranche — le dashboard ne
-// peut pas le déduire (P2, doc 10).
+// A tool that did not run is not a tool with no results. PHPStan crashing and
+// PHPStan finding nothing both produce zero violations. The `meta` descriptor,
+// emitted by the pipeline itself, settles it — the dashboard cannot infer it.
 //
-// Tout y est pur : ni base, ni réseau, ni système de fichiers.
+// Everything here is pure: no database, no network, no filesystem.
 package results
 
 import (
@@ -26,7 +24,7 @@ import (
 	"strings"
 )
 
-// Family regroupe les résultats par nature.
+// Family groups results by nature.
 type Family string
 
 const (
@@ -38,61 +36,61 @@ const (
 	FamilyLoad        Family = "load"
 )
 
-// Status est le sort d'un cas de test.
+// Status is a test case's fate.
 type Status string
 
 const (
 	StatusPassed  Status = "passed"
 	StatusFailed  Status = "failed"
 	StatusSkipped Status = "skipped"
-	// StatusFlaky : le cas a fini par passer après une ou plusieurs reprises. Ni
-	// un succès ni un échec — il compte pour un demi-échec dans le score (B11),
-	// parce qu'un test instable coûte à chaque exécution sans jamais bloquer.
+	// StatusFlaky: the case eventually passed after one or more retries. Neither a
+	// success nor a failure — it counts as half a failure in the score, because a flaky
+	// test costs on every run without ever blocking.
 	StatusFlaky Status = "flaky"
 )
 
-// Case est un cas de test normalisé.
+// Case is a normalised test case.
 type Case struct {
-	// Suite et Name forment l'identité du cas, stable d'un run à l'autre. C'est
-	// sur ce couple que se fait la comparaison à la release précédente.
+	// Suite and Name form the case's identity, stable from run to run. The comparison
+	// with the previous release is made on that pair.
 	Suite string
 	Name  string
 	Status
 	DurationMS int
-	// Message est la raison de l'échec, sur une ligne. La trace complète vit à
-	// part : c'est le message qu'on lit d'abord, et la trace qu'on déplie.
+	// Message is the reason for the failure, on one line. The full trace lives apart:
+	// the message is read first, the trace unfolded.
 	Message string
 	Trace   string
 }
 
-// Key rend l'identité du cas.
+// Key returns the case's identity.
 //
-// Fonction plutôt que champ calculé : la concaténation doit être la même partout,
-// et un champ qu'on oublie de remplir donnerait deux cas identiques réputés
-// distincts.
+// A function rather than a computed field: the concatenation must be the same
+// everywhere, and a field left unfilled would make two identical cases pass for
+// distinct ones.
 func (c Case) Key() string { return c.Suite + "::" + c.Name }
 
-// Report est le résultat normalisé d'un outil.
+// Report is a tool's normalised result.
 type Report struct {
 	Family Family
 	Tool   string
-	// Status est le verdict d'ensemble, dérivé des cas — sauf si le descripteur
-	// `meta` dit que l'outil a échoué, auquel cas rien n'est dérivable.
+	// Status is the overall verdict, derived from the cases — unless the `meta`
+	// descriptor says the tool failed, in which case nothing is derivable.
 	Status  string
 	Total   int
 	Passed  int
 	Failed  int
 	Skipped int
 	Flaky   int
-	// DurationMS est la durée cumulée. Zéro quand l'outil ne la rapporte pas —
-	// distinct d'une exécution instantanée, mais l'interface ne l'affiche alors
-	// pas plutôt que d'afficher « 0 ms ».
+	// DurationMS is the cumulative duration. Zero when the tool does not report it —
+	// distinct from an instantaneous run, but the interface then shows nothing rather
+	// than "0 ms".
 	DurationMS int64
 	Summary    string
 	Cases      []Case
 }
 
-// Statuts d'ensemble d'un rapport.
+// Overall statuses of a report.
 const (
 	ReportPass = "pass"
 	ReportWarn = "warn"
@@ -101,12 +99,12 @@ const (
 	ReportNA   = "na"
 )
 
-// tally recompte les cas et pose le verdict d'ensemble.
+// tally recounts the cases and sets the overall verdict.
 //
-// Recompté plutôt que repris des totaux annoncés par l'outil : ceux-ci mentent
-// régulièrement — un JUnit rapporte `tests="12"` en ne listant que dix cas quand
-// le processus meurt en cours de route. Compter ce qui est réellement là évite
-// d'afficher deux tests fantômes en succès.
+// Recounted rather than taken from the totals the tool announces: those lie
+// regularly — a JUnit report says tests="12" while listing ten cases when the
+// process dies mid-run. Counting what is really there avoids two phantom passing
+// tests.
 func (r *Report) tally() {
 	r.Total, r.Passed, r.Failed, r.Skipped, r.Flaky = 0, 0, 0, 0, 0
 
@@ -130,8 +128,8 @@ func (r *Report) tally() {
 	case r.Failed > 0:
 		r.Status = ReportFail
 	case r.Flaky > 0:
-		// Un test instable ne bloque pas la livraison, mais le taire ferait
-		// disparaître le seul signal qui existe sur lui.
+		// A flaky test does not block shipping, but staying silent about it would remove the
+		// only signal there is on it.
 		r.Status = ReportWarn
 	default:
 		r.Status = ReportPass
@@ -145,14 +143,14 @@ type ErrUnsupported struct {
 }
 
 func (e ErrUnsupported) Error() string {
-	return fmt.Sprintf("format de %q non reconnu: %s", e.Tool, e.Detail)
+	return fmt.Sprintf("unrecognised format for %q: %s", e.Tool, e.Detail)
 }
 
-// firstLine rend la première ligne non vide d'un texte.
+// firstLine returns the first non-empty line of a text.
 //
-// Les messages d'échec des outils PHP tiennent souvent sur dix lignes dont la
-// première porte l'essentiel ; les suivantes sont la trace. Afficher les dix dans
-// un tableau rend le tableau illisible.
+// PHP tools' failure messages often run to ten lines, the first carrying the
+// substance and the rest being the trace. Showing all ten in a table makes the table
+// unreadable.
 func firstLine(text string) string {
 	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
