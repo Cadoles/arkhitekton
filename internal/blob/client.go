@@ -21,24 +21,22 @@ type Client struct {
 	Keys       Keys
 }
 
-// Open construit le client et vérifie que le bucket est accessible.
+// Open builds the client and checks that the bucket is reachable.
 //
-// La vérification n'est pas superflue : le client minio-go n'ouvre aucune
-// connexion à la construction. Sans elle, un identifiant erroné ou un bucket
-// absent passerait le démarrage et se manifesterait à la première publication
-// d'artefact — c'est-à-dire à la fin d'un pipeline, après que le travail coûteux
-// a été fait.
+// The check is not superfluous: minio-go opens no connection when constructed.
+// Without it, a wrong credential or a missing bucket would pass start-up and show
+// up at the first artifact upload — that is, at the end of a pipeline, after the
+// expensive work is done.
 func Open(ctx context.Context, cfg config.StorageConfig) (*Client, error) {
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds: credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		// La région n'est pas décorative : elle entre dans le calcul de la
-		// signature SigV4. Une région erronée produit un refus dont le message
-		// ne mentionne pas la région. L'instance cible utilise "NUO-Region".
+		// The region is not decorative: it enters the SigV4 signature. A wrong region
+		// produces a refusal whose message does not mention the region.
 		Region: cfg.Region,
 		Secure: cfg.UseSSL,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("client MinIO pour %q: %w", cfg.Endpoint, err)
+		return nil, fmt.Errorf("MinIO client for %q: %w", cfg.Endpoint, err)
 	}
 
 	checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -46,10 +44,10 @@ func Open(ctx context.Context, cfg config.StorageConfig) (*Client, error) {
 
 	exists, err := client.BucketExists(checkCtx, cfg.Bucket)
 	if err != nil {
-		return nil, fmt.Errorf("accès au bucket %q sur %q: %w", cfg.Bucket, cfg.Endpoint, err)
+		return nil, fmt.Errorf("access to bucket %q on %q: %w", cfg.Bucket, cfg.Endpoint, err)
 	}
 	if !exists {
-		return nil, fmt.Errorf("bucket %q absent sur %q", cfg.Bucket, cfg.Endpoint)
+		return nil, fmt.Errorf("bucket %q missing on %q", cfg.Bucket, cfg.Endpoint)
 	}
 
 	return &Client{
@@ -65,41 +63,40 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
-// PresignPut produit une URL d'écriture à usage unique pour une clé donnée.
+// PresignPut produces a single-use write URL for a given key.
 //
-// C'est le mécanisme central de la publication : le pipeline reçoit cette URL en
-// paramètre et écrit avec un simple `curl -T`, sans détenir le moindre
-// identifiant MinIO et sans choisir où l'artefact atterrit.
+// This is the core of publishing: the pipeline receives the URL as a parameter and
+// writes with a plain `curl -T`, holding no store credential and choosing nothing
+// about where the artifact lands.
 //
-// L'URL est signée avant que l'artefact existe, donc sans connaître son
-// empreinte : minio-go émet `UNSIGNED-PAYLOAD`, que l'instance cible accepte.
-// Sans cette tolérance, tout le dispositif tomberait.
+// The URL is signed before the artifact exists, hence without knowing its digest:
+// minio-go emits UNSIGNED-PAYLOAD, which the target instance accepts. Without that
+// tolerance the whole arrangement falls.
 //
-// La valeur retournée est une capacité d'écriture : elle ne doit jamais être
-// journalisée ni exposée en dehors du paramètre de PipelineRun qui la porte.
+// The value returned is a write capability: it must never be logged nor exposed
+// outside the PipelineRun parameter that carries it.
 func (c *Client) PresignPut(ctx context.Context, key string, ttl time.Duration) (*url.URL, error) {
 	if ttl <= 0 {
 		ttl = c.presignTTL
 	}
 	if key == "" {
-		return nil, fmt.Errorf("clé vide")
+		return nil, fmt.Errorf("empty key")
 	}
 
 	presigned, err := c.minio.PresignedPutObject(ctx, c.bucket, key, ttl)
 	if err != nil {
-		return nil, fmt.Errorf("signature de l'URL d'écriture pour %q: %w", key, err)
+		return nil, fmt.Errorf("signing the write URL for %q: %w", key, err)
 	}
 	return presigned, nil
 }
 
-// Put écrit un objet. Sert aux copies faites par le dashboard lui-même — un
-// artefact rattaché à une release, un log scellé — là où les pipelines passent
-// par une URL pré-signée.
+// Put writes an object. Used for copies the dashboard makes itself — an artifact
+// attached to a release, a sealed log — where pipelines go through a presigned URL.
 func (c *Client) Put(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error {
 	_, err := c.minio.PutObject(ctx, c.bucket, key, reader, size,
 		minio.PutObjectOptions{ContentType: contentType})
 	if err != nil {
-		return fmt.Errorf("écriture de %q: %w", key, err)
+		return fmt.Errorf("writing %q: %w", key, err)
 	}
 	return nil
 }
@@ -108,33 +105,32 @@ func (c *Client) Put(ctx context.Context, key string, reader io.Reader, size int
 func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	object, err := c.minio.GetObject(ctx, c.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("lecture de %q: %w", key, err)
+		return nil, fmt.Errorf("reading %q: %w", key, err)
 	}
-	// GetObject est paresseux : l'erreur d'objet absent ne survient qu'à la
-	// première lecture. Un Stat immédiat la remonte à l'appelant plutôt qu'à
-	// l'endroit du code qui consomme le flux.
+	// GetObject is lazy: the missing-object error only surfaces at the first read. An
+	// immediate Stat raises it to the caller rather than wherever the stream is
+	// consumed.
 	if _, err := object.Stat(); err != nil {
 		_ = object.Close()
-		return nil, fmt.Errorf("lecture de %q: %w", key, err)
+		return nil, fmt.Errorf("reading %q: %w", key, err)
 	}
 	return object, nil
 }
 
-// GetRange lit une plage d'octets.
+// GetRange reads a byte range.
 //
-// Indispensable pour les logs : un pipeline d'intégration en produit des dizaines
-// de mégaoctets, et l'interface n'en affiche que la fin avant de remonter à la
-// demande. Charger l'objet entier pour en montrer les cinquante dernières lignes
-// serait ruineux.
+// Indispensable for logs: an integration pipeline produces tens of megabytes, and
+// the interface shows only the end before going back on demand. Loading the whole
+// object to show the last fifty lines would be ruinous.
 func (c *Client) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
 	options := minio.GetObjectOptions{}
 	if err := options.SetRange(offset, offset+length-1); err != nil {
-		return nil, fmt.Errorf("plage invalide pour %q: %w", key, err)
+		return nil, fmt.Errorf("invalid range for %q: %w", key, err)
 	}
 
 	object, err := c.minio.GetObject(ctx, c.bucket, key, options)
 	if err != nil {
-		return nil, fmt.Errorf("lecture partielle de %q: %w", key, err)
+		return nil, fmt.Errorf("partial read of %q: %w", key, err)
 	}
 	return object, nil
 }
@@ -146,19 +142,19 @@ type ObjectInfo struct {
 	LastModified time.Time
 }
 
-// Stat rend les métadonnées d'un objet, sans son contenu.
+// Stat returns an object's metadata, without its content.
 //
-// Sert à connaître la taille avant une lecture par plage : afficher la fin d'un
-// journal de cinquante mégaoctets suppose de savoir où elle commence.
+// It serves to learn the size before a ranged read: showing the end of a
+// fifty-megabyte log means knowing where it begins.
 func (c *Client) Stat(ctx context.Context, key string) (ObjectInfo, error) {
 	info, err := c.minio.StatObject(ctx, c.bucket, key, minio.StatObjectOptions{})
 	if err != nil {
-		return ObjectInfo{}, fmt.Errorf("métadonnées de %q: %w", key, err)
+		return ObjectInfo{}, fmt.Errorf("metadata of %q: %w", key, err)
 	}
 	return ObjectInfo{Key: info.Key, Size: info.Size, LastModified: info.LastModified}, nil
 }
 
-// List énumère les objets sous un préfixe.
+// List enumerates the objects under a prefix.
 func (c *Client) List(ctx context.Context, prefix string) ([]ObjectInfo, error) {
 	var objects []ObjectInfo
 
@@ -167,7 +163,7 @@ func (c *Client) List(ctx context.Context, prefix string) ([]ObjectInfo, error) 
 		Recursive: true,
 	}) {
 		if object.Err != nil {
-			return nil, fmt.Errorf("listing de %q: %w", prefix, object.Err)
+			return nil, fmt.Errorf("listing %q: %w", prefix, object.Err)
 		}
 		objects = append(objects, ObjectInfo{
 			Key:          object.Key,
@@ -181,10 +177,10 @@ func (c *Client) List(ctx context.Context, prefix string) ([]ObjectInfo, error) 
 // Remove supprime un objet.
 func (c *Client) Remove(ctx context.Context, key string) error {
 	if err := c.minio.RemoveObject(ctx, c.bucket, key, minio.RemoveObjectOptions{}); err != nil {
-		return fmt.Errorf("suppression de %q: %w", key, err)
+		return fmt.Errorf("deleting %q: %w", key, err)
 	}
 	return nil
 }
 
-// Bucket rend le nom du bucket, pour le diagnostic.
+// Bucket returns the bucket name, for diagnostics.
 func (c *Client) Bucket() string { return c.bucket }

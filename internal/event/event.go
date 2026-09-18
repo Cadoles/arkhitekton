@@ -1,59 +1,37 @@
-// Package event nomme les faits que le dashboard constate.
+// Package event names the facts the dashboard observes.
 //
-// # Un fait, jamais un ordre
+// A fact, never an order. `release.created` says a release was declared; it does not
+// say what to do. The distinction is not cosmetic: a fact is replayable — it can be
+// re-read, re-emitted, archived — where an order is not, and that property is what
+// lets reactions hang off it without the core knowing them.
 //
-// `release.created` dit qu'une release a été déclarée ; il ne dit pas quoi faire.
-// La distinction n'est pas cosmétique : un fait est **rejouable** — on peut le
-// relire, le réémettre, l'archiver — là qu'un ordre ne l'est pas, et c'est cette
-// propriété qui permettra d'y accrocher des réactions sans que le noyau ait à les
-// connaître (doc 14 §14.2).
+// A core fact exists when something happens that no plan caused. What a plan causes
+// belongs to the plan: it has no business reappearing in the fact feed only to
+// re-enter through a reaction.
 //
-// # Trois faits, et la règle qui les choisit
+// Three facts were removed on that rule. Two were stages of a release's plan, and it
+// is now the stage's role that advances its state; the third was a run's generic
+// conclusion, and `when: failure` on a stage covers what it was asked for.
 //
-// **Un fait du noyau existe quand quelque chose arrive qu'aucun plan n'a causé**
-// (doc 15 §15.3). Ce qu'un plan provoque lui appartient : il n'a pas à ressortir
-// dans le fil des faits pour y rentrer aussitôt par une réaction.
+// Three entry points remain: a version declared in the tracker, a release declared,
+// a release approved. The last could have fallen under the same rule; it does not,
+// because it is a human decision taken outside any automation.
 //
-// Trois faits ont été retirés sur cette règle — `release.built`,
-// `release.verified`, `pipeline.finished`. Les deux premiers étaient des étapes
-// du plan d'une release, et c'est désormais le **rôle de l'étape** qui fait
-// avancer son état ; le troisième était le générique d'un run, et `when: failure`
-// sur une étape couvre ce qu'on lui demandait.
+// Successful promotion left on another ground: the MSE plugin defines what a
+// promotion is, and it is the plugin that observes it.
 //
-// Restent trois points d'entrée : une version déclarée dans le suivi, une
-// release déclarée, une recette validée. La dernière aurait pu tomber sous la
-// même règle ; elle n'en relève pas, parce qu'elle est une **décision humaine**
-// prise hors de toute automatisation.
+// This package emits nothing. It carries the vocabulary and the deduplication rule,
+// nothing else. The emission points live where the fact occurs: the api for human
+// gestures, the worker for what it observes. The one thing that must truly be shared
+// is how a fact is named — two ways would produce two keys for the same event, and
+// deduplication would no longer serve.
 //
-// La promotion aboutie en est sortie sur un autre motif : c'est le plugin MSE qui
-// définit ce qu'est une promotion, et c'est lui qui la constate, sous
-// `mse.release.promoted` (doc 16 §16.7).
-//
-// Le type `Outcome` est parti avec eux : aucun des trois ne se termine d'une
-// façon ou d'une autre. Un point d'entrée **arrive**, il ne conclut pas — ce qui
-// conclut, ce sont les étapes d'un plan, et leur issue se lit dans l'exécution.
-//
-// # Ce paquet n'émet rien
-//
-// Il porte le vocabulaire et la **règle de déduplication**, rien d'autre. Les
-// points d'émission vivent là où le fait se produit : l'`api` pour les gestes
-// humains, le `worker` pour ce qu'il observe. Les faire passer par un émetteur
-// commun n'apporterait qu'une indirection, alors que la seule chose qui doive
-// vraiment être partagée est la façon de nommer un fait — deux façons finiraient
-// par produire deux clés pour le même événement, et la déduplication ne servirait
-// plus à rien.
-//
-// # Pourquoi la déduplication est le cœur du paquet
-//
-// L'observateur **redélivre** les runs terminés : resynchronisation de
-// l'informer, redémarrage du worker. Les sondes font pire encore — celle du suivi
-// relit l'intégralité des versions à chaque passe, parce que l'API de Redmine ne
-// les filtre pas.
-//
-// Un fait sans clé stable serait donc réémis à chaque tour. Aujourd'hui personne
-// ne les écoute et cela ne coûterait rien ; le jour où une réaction enverra une
-// notification, cela en enverrait une par redémarrage du worker. La règle doit
-// être posée maintenant, pendant qu'elle est gratuite à vérifier.
+// Deduplication is the heart of the package because the observer redelivers finished
+// runs — informer resynchronisation, worker restart — and the probes do worse: the
+// tracker probe re-reads every version on each pass, because the API does not filter
+// them. A fact with no stable key would be re-emitted on every round. Today nobody
+// listens and it would cost nothing; the day a reaction sends a notification, it
+// would send one per worker restart.
 package event
 
 import (
@@ -63,107 +41,102 @@ import (
 	"time"
 )
 
-// Type nomme un fait.
+// Type names a fact.
 //
-// Les types du noyau sont nus — `release.created` — là où ceux d'un plugin seront
-// préfixés par son identifiant : `gitea.pull_request.opened`. Deux plugins de
-// forge coexisteront, et une réaction doit pouvoir dire lequel elle écoute.
+// Core types are bare — `release.created` — where a plugin's are prefixed by its
+// identifier: `gitea.pull_request.opened`. Two forge plugins will coexist, and a
+// reaction must be able to say which one it listens to.
 type Type string
 
 const (
-	// VersionCreated : une version apparaît dans le suivi du projet.
+	// VersionCreated: a version appears in the project's tracker.
 	//
-	// Du noyau bien qu'observé par un plugin, et c'est délibéré : tous les suivis
-	// déposent leurs versions dans la même table, et une réaction déclarée sur
-	// « une version existe » n'a pas à être réécrite quand le client change de
-	// Redmine pour autre chose. Le plugin qui l'a constaté reste nommé par
-	// [Event.Source].
+	// A core fact although observed by a plugin, deliberately: every tracker writes its
+	// versions to the same table, and a reaction declared on "a version exists" need not
+	// be rewritten when the deployment changes tool. The plugin that observed it is
+	// still named by [Event.Source].
 	VersionCreated Type = "version.created"
-	// ReleaseCreated : une release est déclarée. Le premier fait de sa vie.
+	// ReleaseCreated: a release is declared. The first fact of its life.
 	ReleaseCreated Type = "release.created"
-	// ReleaseReleased : une release est validée pour livraison. La seule
-	// transition que rien n'automatise.
+	// ReleaseReleased: a release is approved for shipping. The only transition nothing
+	// automates.
 	ReleaseReleased Type = "release.released"
 )
 
-// Event est un fait constaté.
+// Event is an observed fact.
 type Event struct {
 	Type Type
-	// Source nomme **qui l'a constaté** : le plugin qui l'a observé, ou rien
-	// quand le noyau l'a constaté lui-même.
+	// Source names who observed it: the plugin that saw it, or nothing when the core
+	// observed it itself.
 	//
-	// Ce n'est donc pas tout à fait la même chose que le préfixe du type, et
-	// `version.created` est l'exception qui le montre : un fait du noyau, observé
-	// par la sonde d'un plugin, qui porte son identifiant sans porter son préfixe.
+	// It is therefore not quite the same as the type's prefix, and `version.created` is
+	// the exception that shows it: a core fact, observed by a plugin's probe, carrying
+	// its identifier without carrying its prefix.
 	//
-	// Explicite plutôt que déduit du nom : un plugin retiré d'une version laisse
-	// des faits qu'on doit encore savoir attribuer, et les reconnaître à leur type
-	// demanderait de connaître les plugins disparus.
+	// Explicit rather than inferred from the name: a plugin removed in a later version
+	// leaves facts that must still be attributable, and recognising them by their type
+	// would mean knowing the plugins that disappeared.
 	Source string
-	// ProjectID rattache le fait à son projet. Nil pour un fait qui n'en vise
-	// aucun — un run lancé sans projet, antérieur à la migration 0035.
+	// ProjectID attaches the fact to its project. Nil for a fact aiming at none.
 	ProjectID *int64
-	// Subject nomme ce sur quoi porte le fait, dans le vocabulaire de l'écran :
-	// un tag de release, un nom de run. Sert à le lire, jamais à le retrouver —
-	// c'est le rôle de la charge.
+	// Subject names what the fact is about, in the screen's vocabulary: a release tag, a
+	// run name. It serves to read the fact, never to find it — that is the payload's
+	// role.
 	Subject string
-	// Payload est une carte **plate** de chaînes, comme la configuration des
-	// plugins et les réglages de déployeur.
+	// Payload is a flat map of strings, like plugin configuration and deployer settings.
 	//
-	// Plate parce qu'un appariement de réaction porte sur une valeur, pas sur un
-	// chemin : `kind = final` se lit et s'édite, `$.release.kind` demanderait un
-	// langage de chemins et l'interface qui va avec.
+	// Flat because a reaction's match is on a value, not on a path: `kind = final` reads
+	// and edits, `$.release.kind` would need a path language and the interface that goes
+	// with it.
 	Payload map[string]string
-	// OccurredAt est l'instant du **fait**, jamais celui de sa lecture. La
-	// distinction comptera pour les sondes, qui rattraperont des jours
-	// d'historique : les dater à l'instant de la lecture ferait paraître que tout
-	// s'est produit d'un coup.
+	// OccurredAt is the instant of the fact, never of its reading. The distinction will
+	// matter for probes catching up on days of history: dating them at reading time
+	// would make everything look as though it happened at once.
 	OccurredAt time.Time
-	// Depth est la profondeur d'enchaînement, héritée du fait qui l'a causé.
+	// Depth is the chaining depth, inherited from the fact that caused it.
 	//
-	// Zéro tant que rien ne réagit. Le champ existe dès maintenant parce qu'il
-	// borne les boucles, et qu'un champ ajouté après coup laisse une histoire
-	// dont la profondeur est inconnue.
+	// Zero while nothing reacts. The field exists now because it bounds loops, and a
+	// field added later leaves a history whose depth is unknown.
 	Depth int
-	// DedupKey identifie le fait, pas sa lecture. Deux émissions du même fait
-	// portent la même clé, et la seconde n'écrit rien.
+	// DedupKey identifies the fact, not its reading. Two emissions of the same fact carry
+	// the same key, and the second writes nothing.
 	DedupKey string
 }
 
-// ErrInvalid signale un fait qu'on refuse d'enregistrer.
+// ErrInvalid reports a fact we refuse to record.
 var ErrInvalid = errors.New("fait invalide")
 
-// Validate refuse un fait qui ne pourrait pas être exploité.
+// Validate refuses a fact that could not be used.
 //
-// La clé de déduplication est le contrôle qui compte : sans elle, l'insertion
-// réussirait et le fait serait réémis à chaque redélivrance. Le défaut ne se
-// verrait qu'une fois une réaction branchée, très loin d'ici.
+// The deduplication key is the check that counts: without it the insert would succeed
+// and the fact would be re-emitted on every redelivery. The flaw would only show once
+// a reaction was connected, far from here.
 func (e Event) Validate() error {
 	var problems []error
 
 	if strings.TrimSpace(string(e.Type)) == "" {
-		problems = append(problems, fmt.Errorf("%w: type absent", ErrInvalid))
+		problems = append(problems, fmt.Errorf("%w: type missing", ErrInvalid))
 	}
 	if strings.TrimSpace(e.DedupKey) == "" {
 		problems = append(problems, fmt.Errorf(
-			"%w: clé de déduplication absente pour %q — le fait serait réémis à "+
-				"chaque redélivrance", ErrInvalid, e.Type))
+			"%w: deduplication key missing for %q — the fact would be re-emitted on "+
+				"every redelivery", ErrInvalid, e.Type))
 	}
 	if e.OccurredAt.IsZero() {
-		problems = append(problems, fmt.Errorf("%w: instant absent pour %q", ErrInvalid, e.Type))
+		problems = append(problems, fmt.Errorf("%w: instant missing for %q", ErrInvalid, e.Type))
 	}
 	if e.Depth < 0 {
-		problems = append(problems, fmt.Errorf("%w: profondeur négative (%d)", ErrInvalid, e.Depth))
+		problems = append(problems, fmt.Errorf("%w: negative depth (%d)", ErrInvalid, e.Depth))
 	}
 
 	return errors.Join(problems...)
 }
 
-// key compose une clé de déduplication.
+// key composes a deduplication key.
 //
-// Rendue ici et jamais chez l'appelant : c'est la seule chose que les deux
-// émetteurs — l'`api` et le `worker` — doivent absolument partager, et deux
-// façons de la composer produiraient deux clés pour le même fait.
+// Returned here and never in the caller: it is the one thing the two emitters — the
+// api and the worker — must absolutely share, and two ways of composing it would
+// produce two keys for the same fact.
 func key(parts ...string) string {
 	return strings.Join(parts, ":")
 }
@@ -177,32 +150,27 @@ func key(parts ...string) string {
  * chaque appelant, c'est-à-dire à l'endroit où elle se trompe.
  */
 
-// VersionCreatedAt rend le fait d'une version apparue dans le suivi.
+// VersionCreatedAt returns the fact of a version appearing in the tracker.
 //
-// # La clé porte la version **locale**, et pas celle du suivi
+// The key carries the local version, not the tracker's. That is what makes the fact
+// independent of the tool that observed it. An instance migrating to another tracker
+// would otherwise re-observe its whole history under fresh identifiers — and fire one
+// notification per version.
 //
-// C'est ce qui rend le fait indépendant de l'outil qui l'a observé. Une instance
-// qui migrerait de Redmine vers autre chose reconstaterait sinon tout son
-// historique sous des identifiants neufs — et déclencherait une notification par
-// version.
-//
-// Elle vaut aussi comme garde contre la forme de cette sonde : le suivi relit
-// l'intégralité des versions à chaque passe, parce que l'API de Redmine ne les
-// filtre pas. C'est l'unicité de la clé, et elle seule, qui fait qu'une version
-// déjà vue n'est pas reconstatée — le magasin n'a pas à dire si son écriture a
-// inséré ou mis à jour.
+// It also guards against the shape of this probe: the tracker re-reads every version
+// on each pass, because the API does not filter them. It is the key's uniqueness, and
+// it alone, that keeps an already-seen version from being observed again.
 func VersionCreatedAt(
 	at time.Time, versionID int64, name, status, tool, externalID string, dueDate *time.Time,
 ) Event {
 	payload := map[string]string{
 		"version_id": id(versionID), "name": name, "status": status,
-		// L'outil et son identifiant : ce qui permet de remonter à la fiche, et de
-		// distinguer deux suivis branchés sur le même projet.
+		// The tool and its identifier: what allows going back to the record, and telling
+		// apart two trackers connected to the same project.
 		"tool": tool, "external_id": externalID,
 	}
-	// Une échéance absente reste absente. La rendre sous forme de chaîne vide
-	// ferait qu'un appariement `due_date=` la reconnaîtrait, alors que l'absence
-	// d'échéance n'est pas une échéance.
+	// A missing due date stays missing. Returning it as an empty string would make a
+	// `due_date=` match recognise it, whereas no due date is not a due date.
 	if dueDate != nil {
 		payload["due_date"] = dueDate.Format(time.DateOnly)
 	}
@@ -215,19 +183,18 @@ func VersionCreatedAt(
 	}
 }
 
-// ReleaseCreatedKey rend la clé du fait d'une release déclarée.
+// ReleaseCreatedKey returns the key of the fact of a release being declared.
 //
-// Exportée pour que l'ouverture du plan et l'émission du fait composent la
-// **même** clé : c'est elle qui rend l'exécution unique par release, et deux
-// orthographes en ouvriraient deux (doc 15 §15.2).
+// Exported so that opening the plan and emitting the fact compose the same key: it is
+// what makes the run unique per release, and two spellings would open two.
 func ReleaseCreatedKey(releaseID int64) string {
 	return key(string(ReleaseCreated), id(releaseID))
 }
 
-// ReleaseCreatedAt rend le fait d'une release déclarée.
+// ReleaseCreatedAt returns the fact of a release being declared.
 //
-// Clé sur la release seule : une release n'est créée qu'une fois, et un second
-// appel serait un doublon que la contrainte d'unicité refuse déjà en amont.
+// Keyed on the release alone: a release is created only once, and a second call would
+// be a duplicate that the uniqueness constraint already refuses upstream.
 func ReleaseCreatedAt(
 	at time.Time, projectID, releaseID int64, tag, kind, gitRef, version string,
 ) Event {
@@ -242,7 +209,7 @@ func ReleaseCreatedAt(
 	}
 }
 
-// ReleaseReleasedAt rend le fait d'une release validée pour livraison.
+// ReleaseReleasedAt returns the fact of a release approved for shipping.
 func ReleaseReleasedAt(at time.Time, projectID, releaseID int64, tag, by string) Event {
 	return Event{
 		Type: ReleaseReleased, ProjectID: &projectID, Subject: tag,

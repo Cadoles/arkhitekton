@@ -1,14 +1,13 @@
-// Package registry lit le registre d'images par l'API OCI distribution.
+// Package registry reads the image registry through the OCI distribution API.
 //
-// Il ne sert qu'à **constater**. Le dashboard ne pousse jamais d'image : le
-// re-tag de promotion est fait par la Task `promote-image`, avec ses propres
-// identifiants. Le compte employé ici n'a donc besoin que de la lecture, et lui
-// donner l'écriture ferait porter au dashboard un pouvoir qu'il n'exerce pas.
+// It only observes. The dashboard never pushes an image: promotion re-tags through a
+// Task carrying its own credentials. The account used here needs read access only,
+// and granting it write would give the dashboard a power it does not exercise.
 //
-// Ce que le registre apporte que rien d'autre ne donne : **la liste des tags
-// portés par un digest**. Une promotion étant un re-tag du même digest (B7), cette
-// liste dit à la fois quelle version est une image et où elle a été promue — y
-// compris pour la production, dont le cluster est hors de portée (B8).
+// What the registry gives that nothing else does: the list of tags carried by a
+// digest. A promotion being a re-tag of the same digest, that list says both which
+// version an image is and where it was promoted — including for production, whose
+// cluster is out of reach.
 package registry
 
 import (
@@ -25,12 +24,10 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
-// Types de manifeste demandés.
+// Manifest types requested.
 //
-// Les deux formes coexistent dans un registre réel : les images anciennes sont en
-// manifeste v2 simple, les récentes en liste multi-architecture. Ne demander que
-// la première ferait échouer la résolution de digest sur les secondes, avec un
-// 404 qui laisse croire à une image absente.
+// Both forms coexist in a real registry: older images are plain v2 manifests, recent
+// ones multi-architecture lists. Requesting only one
 var acceptManifests = strings.Join([]string{
 	"application/vnd.oci.image.index.v1+json",
 	"application/vnd.oci.image.manifest.v1+json",
@@ -44,18 +41,18 @@ type Client struct {
 	username string
 	password string
 	http     *http.Client
-	// project est le préfixe des dépôts, sans l'hôte.
+	// project is the repository prefix, without the host.
 	project string
 }
 
-// ErrNotConfigured signale une absence d'identifiants.
+// ErrNotConfigured reports missing credentials.
 //
-// Distinct d'une erreur d'accès : le dashboard doit pouvoir tourner sans registre
-// — l'inventaire des images manque alors, le reste fonctionne — et l'interface
-// doit pouvoir le dire au lieu d'afficher une panne.
-var ErrNotConfigured = errors.New("registre non configuré")
+// Distinct from an access error: the dashboard must be able to run without a
+// registry — the image inventory is then missing, the rest works — and the interface
+// must be able to say so instead of showing a fault.
+var ErrNotConfigured = errors.New("registry not configured")
 
-// Open construit le client. Rend ErrNotConfigured si les identifiants manquent.
+// Open builds the client. Returns ErrNotConfigured when credentials are missing.
 func Open(cfg config.RegistryConfig) (*Client, error) {
 	if strings.TrimSpace(cfg.Username) == "" || strings.TrimSpace(cfg.Password) == "" {
 		return nil, ErrNotConfigured
@@ -63,12 +60,11 @@ func Open(cfg config.RegistryConfig) (*Client, error) {
 
 	base, err := url.Parse(cfg.URL)
 	if err != nil {
-		return nil, fmt.Errorf("URL de registre invalide %q: %w", cfg.URL, err)
+		return nil, fmt.Errorf("invalid registry URL %q: %w", cfg.URL, err)
 	}
 
-	// `registry.project` porte l'hôte (`reg.cadoles.com/cnous-mse`) parce que
-	// c'est sous cette forme qu'il entre dans les paramètres de pipeline. L'API
-	// du registre, elle, n'attend que le chemin.
+	// `registry.project` carries the host because that is the form it takes in pipeline
+	// parameters. The registry's API expects only the path.
 	project := cfg.Project
 	if _, path, found := strings.Cut(project, "/"); found {
 		project = path
@@ -83,10 +79,10 @@ func Open(cfg config.RegistryConfig) (*Client, error) {
 	}, nil
 }
 
-// Project rend le préfixe des dépôts, sans l'hôte.
+// Project returns the repository prefix, without the host.
 func (c *Client) Project() string { return c.project }
 
-// Tags liste les tags d'un dépôt, dans l'ordre rendu par le registre.
+// Tags lists a repository's tags, in the order the registry returns them.
 func (c *Client) Tags(ctx context.Context, repository string) ([]string, error) {
 	var payload struct {
 		Tags []string `json:"tags"`
@@ -98,11 +94,11 @@ func (c *Client) Tags(ctx context.Context, repository string) ([]string, error) 
 	return payload.Tags, nil
 }
 
-// Digest rend le digest d'un tag.
+// Digest returns a tag's digest.
 //
-// Il est lu dans l'en-tête `Docker-Content-Digest` d'une requête HEAD : demander
-// le manifeste entier pour n'en garder que l'empreinte ferait télécharger des
-// kilo-octets par tag, et un dépôt en compte des centaines.
+// It is read from the `Docker-Content-Digest` header of a HEAD request: asking for
+// the whole manifest to keep only the digest would download kilobytes per tag, and a
+// repository has hundreds.
 func (c *Client) Digest(ctx context.Context, repository, tag string) (string, error) {
 	request, err := c.request(ctx, http.MethodHead,
 		fmt.Sprintf("/v2/%s/manifests/%s", c.path(repository), url.PathEscape(tag)))
@@ -118,27 +114,26 @@ func (c *Client) Digest(ctx context.Context, repository, tag string) (string, er
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("digest de %s:%s: statut %d", repository, tag, response.StatusCode)
+		return "", fmt.Errorf("digest of %s:%s: status %d", repository, tag, response.StatusCode)
 	}
 
 	digest := response.Header.Get("Docker-Content-Digest")
 	if digest == "" {
-		return "", fmt.Errorf("digest de %s:%s: en-tête absent", repository, tag)
+		return "", fmt.Errorf("digest of %s:%s: header missing", repository, tag)
 	}
 	return digest, nil
 }
 
-// TagsByDigest indexe les tags d'un dépôt par digest.
+// TagsByDigest indexes a repository's tags by digest.
 //
-// C'est l'opération qui donne son intérêt au registre : une promotion étant un
-// re-tag du même digest, les tags d'un digest disent à la fois quelle version
-// c'est et où elle a été promue. Sans elle, il faudrait interroger chaque
-// environnement — impossible pour la production.
+// This is the operation that makes the registry worth reading: a promotion being a
+// re-tag of the same digest, a digest's tags say both which version it is and where
+// it was promoted. Without it, every environment would have to be queried —
+// impossible for production.
 //
-// Le coût est d'une requête HEAD par tag. `limit` borne le balayage aux tags les
-// plus récents rendus par le registre : un dépôt de plusieurs centaines de tags
-// prendrait sinon des minutes, pour une information qui ne concerne que les
-// versions vivantes.
+// The cost is one HEAD request per tag. `limit` bounds the sweep to the most recent
+// tags the registry returns: a repository with hundreds of tags would otherwise take
+// minutes, for information that only concerns live versions.
 func (c *Client) TagsByDigest(ctx context.Context, repository string, limit int) (map[string][]string, error) {
 	tags, err := c.Tags(ctx, repository)
 	if err != nil {
@@ -146,9 +141,8 @@ func (c *Client) TagsByDigest(ctx context.Context, repository string, limit int)
 	}
 
 	if limit > 0 && len(tags) > limit {
-		// Les registres rendent les tags par ordre alphabétique croissant : la
-		// fin de la liste est la plus récente pour un schéma daté comme pour du
-		// SemVer.
+		// Registries return tags in ascending alphabetical order: the end of the list is the
+		// most recent, for a dated scheme as for SemVer.
 		tags = tags[len(tags)-limit:]
 	}
 
@@ -160,9 +154,8 @@ func (c *Client) TagsByDigest(ctx context.Context, repository string, limit int)
 
 		digest, err := c.Digest(ctx, repository, tag)
 		if err != nil {
-			// Un tag illisible — supprimé entre le listing et la résolution, ou
-			// manifeste d'un type inattendu — ne doit pas faire perdre les
-			// autres.
+			// An unreadable tag — deleted between the listing and the resolution, or a manifest
+			// of an unexpected type — must not cost the others.
 			continue
 		}
 		byDigest[digest] = append(byDigest[digest], tag)
@@ -183,24 +176,23 @@ func (c *Client) request(ctx context.Context, method, path string) (*http.Reques
 
 	request, err := http.NewRequestWithContext(ctx, method, target.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("requête vers %s: %w", path, err)
+		return nil, fmt.Errorf("request to %s: %w", path, err)
 	}
 	return request, nil
 }
 
-// do exécute la requête en gérant l'authentification.
+// do runs the request, handling authentication.
 //
-// Deux schémas coexistent selon les registres : `Basic` accepté directement, ou
-// un jeton porteur à obtenir auprès d'un service d'autorisation désigné par
-// l'en-tête `WWW-Authenticate`. Ne traiter que le premier fonctionne sur
-// `reg.cadoles.com` aujourd'hui et échouerait sur un registre qui change de
-// configuration — pour un coût de vingt lignes.
+// Two schemes coexist across registries: Basic accepted directly, or a bearer token
+// to be obtained from an authorization service named by the `WWW-Authenticate`
+// header. Handling only the first works today and would fail on a registry that
+// changes configuration — for the cost of twenty lines.
 func (c *Client) do(request *http.Request) (*http.Response, error) {
 	request.SetBasicAuth(c.username, c.password)
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("appel au registre %s: %w", c.base.Host, err)
+		return nil, fmt.Errorf("call to registry %s: %w", c.base.Host, err)
 	}
 	if response.StatusCode != http.StatusUnauthorized {
 		return response, nil
@@ -210,9 +202,8 @@ func (c *Client) do(request *http.Request) (*http.Response, error) {
 	_ = response.Body.Close()
 
 	if !strings.HasPrefix(strings.ToLower(challenge), "bearer ") {
-		// Le registre refuse en Basic : l'identifiant est en cause, pas le
-		// schéma. Rendre la réponse telle quelle laisse l'appelant produire un
-		// message qui le dit.
+		// The registry refuses Basic: the credential is at fault, not the scheme. Returning
+		// the response as is lets the caller produce a message saying so.
 		return c.retry(request)
 	}
 
@@ -226,7 +217,7 @@ func (c *Client) do(request *http.Request) (*http.Response, error) {
 
 	response, err = c.http.Do(retried)
 	if err != nil {
-		return nil, fmt.Errorf("appel au registre %s: %w", c.base.Host, err)
+		return nil, fmt.Errorf("call to registry %s: %w", c.base.Host, err)
 	}
 	return response, nil
 }
@@ -237,7 +228,7 @@ func (c *Client) retry(request *http.Request) (*http.Response, error) {
 
 	response, err := c.http.Do(retried)
 	if err != nil {
-		return nil, fmt.Errorf("appel au registre %s: %w", c.base.Host, err)
+		return nil, fmt.Errorf("call to registry %s: %w", c.base.Host, err)
 	}
 	return response, nil
 }
@@ -248,7 +239,7 @@ func (c *Client) token(ctx context.Context, challenge string) (string, error) {
 
 	realm := parameters["realm"]
 	if realm == "" {
-		return "", fmt.Errorf("défi d'authentification sans realm: %q", challenge)
+		return "", fmt.Errorf("authentication challenge without a realm: %q", challenge)
 	}
 
 	target, err := url.Parse(realm)
@@ -266,18 +257,18 @@ func (c *Client) token(ctx context.Context, challenge string) (string, error) {
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
-		return "", fmt.Errorf("demande de jeton: %w", err)
+		return "", fmt.Errorf("token request: %w", err)
 	}
 	request.SetBasicAuth(c.username, c.password)
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("demande de jeton: %w", err)
+		return "", fmt.Errorf("token request: %w", err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("demande de jeton refusée: statut %d", response.StatusCode)
+		return "", fmt.Errorf("token request refused: status %d", response.StatusCode)
 	}
 
 	var payload struct {
@@ -288,15 +279,15 @@ func (c *Client) token(ctx context.Context, challenge string) (string, error) {
 		return "", fmt.Errorf("jeton illisible: %w", err)
 	}
 
-	// Les deux noms circulent : `token` dans la spécification Docker,
-	// `access_token` dans les implémentations alignées sur OAuth2.
+	// Both names circulate: `token` in the Docker specification, `access_token` in
+	// implementations aligned on OAuth2.
 	if payload.Token != "" {
 		return payload.Token, nil
 	}
 	if payload.AccessToken != "" {
 		return payload.AccessToken, nil
 	}
-	return "", errors.New("le service d'autorisation n'a rendu aucun jeton")
+	return "", errors.New("the authorization service returned no token")
 }
 
 // parseChallenge découpe un en-tête `WWW-Authenticate` de type Bearer.
@@ -334,10 +325,10 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 		return fmt.Errorf("%s: statut %d", path, response.StatusCode)
 	}
 
-	// Borne de lecture : un registre compromis ou en panne ne doit pas pouvoir
-	// faire enfler la mémoire du worker.
+	// A read bound: a compromised or failing registry must not be able to inflate the
+	// worker's memory.
 	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(target); err != nil {
-		return fmt.Errorf("%s: réponse illisible: %w", path, err)
+		return fmt.Errorf("%s: unreadable response: %w", path, err)
 	}
 	return nil
 }

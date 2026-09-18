@@ -19,48 +19,48 @@ var instant = time.Date(2026, 9, 2, 14, 30, 0, 0, time.UTC)
  * redémarrage.
  */
 
-// Le même fait, constaté deux fois, porte la même clé.
+// The same fact, observed twice, carries the same key.
 //
-// La sonde du suivi rend un **instantané** : elle relit toutes les versions à
-// chaque passe, parce que l'API de Redmine ne les filtre pas. C'est donc le cas
-// nominal, et non un incident de redélivrance.
-func TestLeMemeFaitPorteLaMemeCle(t *testing.T) {
+// The tracker probe returns a snapshot: it re-reads every version on each pass,
+// because the API does not filter them. This is therefore the nominal case, not a
+// redelivery incident.
+func TestTheSameFactCarriesTheSameKey(t *testing.T) {
 	premier := VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", nil)
-	// La passe suivante relit la même version, plus tard, et son statut a changé.
+	// The next pass re-reads the same version, later, and its status has changed.
 	second := VersionCreatedAt(instant.Add(time.Hour), 805, "v3.2.0", "closed", "redmine", "412", nil)
 
 	if premier.DedupKey != second.DedupKey {
-		t.Errorf("clés %q et %q — une version déjà vue serait reconstatée",
+		t.Errorf("keys %q and %q — an already-seen version would be observed again",
 			premier.DedupKey, second.DedupKey)
 	}
 }
 
-// La clé d'une version porte la ligne **locale**, pas l'identifiant du suivi.
+// A version's key carries the local line, not the tracker's identifier.
 //
-// C'est ce qui rend le fait indépendant de l'outil : deux suivis branchés sur le
-// même projet ne constatent pas deux fois la même version, et une instance qui
-// changerait d'outil ne reconstaterait pas tout son historique.
-func TestLaCleDUneVersionPorteLaLigneLocale(t *testing.T) {
+// That is what makes the fact independent of the tool: two trackers connected to the
+// same project do not observe the same version twice, and an instance changing tool
+// would not re-observe its whole history.
+func TestAVersionKeyCarriesTheLocalLine(t *testing.T) {
 	redmine := VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", nil)
 	autre := VersionCreatedAt(instant, 805, "v3.2.0", "open", "jira", "MSE-9", nil)
 
 	if redmine.DedupKey != autre.DedupKey {
-		t.Errorf("clés %q et %q — la même version serait constatée deux fois",
+		t.Errorf("keys %q and %q — the same version would be observed twice",
 			redmine.DedupKey, autre.DedupKey)
 	}
 	if !strings.Contains(redmine.DedupKey, "805") {
-		t.Errorf("clé %q — elle doit porter la version locale", redmine.DedupKey)
+		t.Errorf("key %q — it must carry the local version", redmine.DedupKey)
 	}
 }
 
-// Deux faits de nature différente ne se confondent jamais, même sur le même
-// objet : la clé porte le type.
-func TestDeuxNaturesNeSeConfondentPas(t *testing.T) {
+// Two facts of different kinds are never conflated, even on the same object: the key
+// carries the type.
+func TestTwoKindsAreNeverConflated(t *testing.T) {
 	created := ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0")
 	released := ReleaseReleasedAt(instant, 7, 42, "1.8.0-rc1", "vcarroy")
 
 	if created.DedupKey == released.DedupKey {
-		t.Errorf("clé partagée %q entre deux natures", created.DedupKey)
+		t.Errorf("key %q shared between two kinds", created.DedupKey)
 	}
 }
 
@@ -68,57 +68,56 @@ func TestDeuxNaturesNeSeConfondentPas(t *testing.T) {
  * Ce qu'un fait doit porter pour être exploitable.
  */
 
-// Un fait sans clé est refusé, et le message dit pourquoi.
+// A fact with no key is refused, and the message says why.
 //
-// Le contrôle qui compte : sans lui, l'insertion réussirait et le défaut ne se
-// verrait qu'une fois une réaction branchée, très loin d'ici.
-func TestUnFaitSansCleEstRefuse(t *testing.T) {
+// The check that counts: without it the insert would succeed and the flaw would only
+// show once a reaction was connected, far from here.
+func TestAFactWithoutAKeyIsRefused(t *testing.T) {
 	fait := ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0")
 	fait.DedupKey = ""
 
 	err := fait.Validate()
 	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("validation: %v, attendu ErrInvalid", err)
+		t.Fatalf("validation: %v, expected ErrInvalid", err)
 	}
-	if !strings.Contains(err.Error(), "redélivrance") {
-		t.Errorf("message %q — il doit dire la conséquence", err)
+	if !strings.Contains(err.Error(), "redelivery") {
+		t.Errorf("message %q — it must state the consequence", err)
 	}
 }
 
-// Un fait sans instant est refusé : c'est la date du fait qui l'ordonne, et zéro
-// le placerait en 1970, avant tout le reste.
-func TestUnFaitSansInstantEstRefuse(t *testing.T) {
+// A fact with no instant is refused: the fact's date is what orders it, and zero
+// would place it in 1970, before everything else.
+func TestAFactWithoutAnInstantIsRefused(t *testing.T) {
 	fait := ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0")
 	fait.OccurredAt = time.Time{}
 
 	if err := fait.Validate(); !errors.Is(err, ErrInvalid) {
-		t.Errorf("validation: %v, attendu ErrInvalid", err)
+		t.Errorf("validation: %v, expected ErrInvalid", err)
 	}
 }
 
-// Les faits que les constructeurs produisent se valident tous.
+// Every fact the constructors produce validates.
 //
-// Une garde contre l'oubli : ajouter un constructeur sans lui donner de clé
-// passerait sinon inaperçu jusqu'à la première émission réelle.
-func TestTousLesConstructeursProduisentDesFaitsValides(t *testing.T) {
-	faits := tousLesFaits()
+// A guard against forgetting: adding a constructor without giving it a key would
+// otherwise go unnoticed until the first real emission.
+func TestEveryConstructorProducesAValidFact(t *testing.T) {
+	faits := everyFact()
 
 	for _, fait := range faits {
 		if err := fait.Validate(); err != nil {
 			t.Errorf("fait %q invalide: %v", fait.Type, err)
 		}
 		if fait.Subject == "" {
-			t.Errorf("fait %q sans sujet — l'écran n'aurait rien à afficher", fait.Type)
+			t.Errorf("fact %q with no subject — the screen would have nothing to show", fait.Type)
 		}
-		// Aucun constructeur ne renseigne la source : c'est la boucle des sondes
-		// qui nomme le plugin qui a constaté, et le faire ici aussi donnerait deux
-		// endroits où elle peut diverger.
+		// No constructor fills in the source: it is the probe loop that names the plugin that
+		// observed, and doing it here as well would give two places where they can diverge.
 		if fait.Source != "" {
-			t.Errorf("fait %q: source %q, attendue vide — c'est la sonde qui la pose",
+			t.Errorf("fact %q: source %q, expected empty — the probe is what sets it",
 				fait.Type, fait.Source)
 		}
 		if fait.Depth != 0 {
-			t.Errorf("fait %q: profondeur %d, attendue nulle — rien ne réagit encore",
+			t.Errorf("fact %q: depth %d, expected zero — nothing reacts yet",
 				fait.Type, fait.Depth)
 		}
 	}
@@ -139,36 +138,36 @@ func TestTousLesConstructeursProduisentDesFaitsValides(t *testing.T) {
  * `release.promoted` en est sorti à son tour : c'est le plugin MSE qui définit ce
  * qu'est une promotion, c'est donc lui qui la constate (doc 16 §16.7).
  */
-func TestLeNoyauNeCompteQueTroisFaits(t *testing.T) {
+func TestTheCoreHasOnlyThreeFacts(t *testing.T) {
 	attendus := map[Type]bool{
 		VersionCreated: true, ReleaseCreated: true, ReleaseReleased: true,
 	}
 
-	for _, fait := range tousLesFaits() {
+	for _, fait := range everyFact() {
 		if !attendus[fait.Type] {
-			t.Errorf("fait %q hors des trois du noyau — un plan le cause-t-il ?", fait.Type)
+			t.Errorf("fact %q outside the three core ones — does a plan cause it?", fait.Type)
 		}
 		delete(attendus, fait.Type)
 	}
 	for manquant := range attendus {
-		t.Errorf("le fait %q n'a plus de constructeur", manquant)
+		t.Errorf("fact %q no longer has a constructor", manquant)
 	}
 }
 
-// Une version sans échéance n'en porte pas une vide.
+// A version with no due date does not carry an empty one.
 //
-// Un appariement `due_date=` reconnaîtrait la chaîne vide, alors que l'absence
-// d'échéance n'est pas une échéance.
-func TestUneVersionSansEcheanceNEnPortePasUneVide(t *testing.T) {
+// A `due_date=` match would recognise the empty string, whereas no due date is not a
+// due date.
+func TestAVersionWithNoDueDateDoesNotCarryAnEmptyOne(t *testing.T) {
 	fait := VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", nil)
 
 	if _, present := fait.Payload["due_date"]; present {
-		t.Errorf("échéance inventée: %v", fait.Payload)
+		t.Errorf("invented due date: %v", fait.Payload)
 	}
 }
 
-// tousLesFaits rend un exemplaire de chaque constructeur du noyau.
-func tousLesFaits() []Event {
+// everyFact returns one instance of each core constructor.
+func everyFact() []Event {
 	echeance := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	return []Event{
 		VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", &echeance),

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Deux clés distinctes, produites comme le déploiement les produit.
+// Two distinct keys, produced the way a deployment produces them.
 const (
 	keyA = "sN0Xk1t2Qv8yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sQ="
 	keyB = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
@@ -22,76 +22,76 @@ func mustCipher(t *testing.T, current string, retired ...string) *Cipher {
 	return c
 }
 
-// L'aller-retour, et ce que l'enveloppe ne montre pas.
-func TestUneValeurScelleeSeRouvreEtNeSeLitPas(t *testing.T) {
+// The round trip, and what the envelope does not show.
+func TestASealedValueReopensAndDoesNotRead(t *testing.T) {
 	c := mustCipher(t, keyA)
 
-	sealed, err := c.Seal("clé-redmine-de-production")
+	sealed, err := c.Seal("production-tracker-key")
 	if err != nil {
 		t.Fatalf("scellement: %v", err)
 	}
 	if strings.Contains(sealed, "redmine") {
-		t.Fatalf("le clair transparaît dans %q", sealed)
+		t.Fatalf("the plaintext shows through in %q", sealed)
 	}
 
 	opened, err := c.Open(sealed)
 	if err != nil {
 		t.Fatalf("ouverture: %v", err)
 	}
-	if opened != "clé-redmine-de-production" {
+	if opened != "production-tracker-key" {
 		t.Errorf("valeur ouverte = %q", opened)
 	}
 }
 
-// Deux scellements de la même valeur diffèrent. Sans cela, comparer deux lignes
-// de la base dirait qu'elles portent le même secret — une fuite en soi.
-func TestDeuxScellementsDeLaMemeValeurDifferent(t *testing.T) {
+// Two sealings of the same value differ. Without that, comparing two database rows
+// would say they carry the same secret — a leak in itself.
+func TestTwoSealingsOfTheSameValueDiffer(t *testing.T) {
 	c := mustCipher(t, keyA)
 
 	first, _ := c.Seal("identique")
 	second, _ := c.Seal("identique")
 	if first == second {
-		t.Error("deux enveloppes identiques : le nonce ne varie pas")
+		t.Error("two identical envelopes: the nonce does not vary")
 	}
 }
 
-// Le vide reste vide : c'est l'effacement d'un champ, et une enveloppe le ferait
-// passer pour renseigné.
-func TestLeVideNeSeScellePas(t *testing.T) {
+// Empty stays empty: that is clearing a field, and an envelope would make it look
+// filled.
+func TestEmptinessIsNotSealed(t *testing.T) {
 	c := mustCipher(t, keyA)
 
 	if sealed, err := c.Seal(""); err != nil || sealed != "" {
-		t.Errorf("scellement du vide = %q (%v)", sealed, err)
+		t.Errorf("sealing emptiness = %q (%v)", sealed, err)
 	}
 	if opened, err := c.Open(""); err != nil || opened != "" {
-		t.Errorf("ouverture du vide = %q (%v)", opened, err)
+		t.Errorf("opening emptiness = %q (%v)", opened, err)
 	}
 }
 
-// Sans clé, le chiffreur refuse d'écrire plutôt que de laisser passer du clair.
-func TestSansCleLeChiffreurRefuseDecrire(t *testing.T) {
+// With no key, the cipher refuses to write rather than letting plaintext through.
+func TestWithoutAKeyTheCipherRefusesToWrite(t *testing.T) {
 	var absent *Cipher
 
 	if absent.Configured() {
-		t.Error("un chiffreur absent se dit configuré")
+		t.Error("an absent cipher declares itself configured")
 	}
-	if _, err := absent.Seal("mot de passe"); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("scellement: %v, attendu ErrNotConfigured", err)
+	if _, err := absent.Seal("password"); !errors.Is(err, ErrNotConfigured) {
+		t.Errorf("sealing: %v, expected ErrNotConfigured", err)
 	}
 	if _, err := absent.Open("v1:abcd:xxxx"); !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("ouverture: %v, attendu ErrNotConfigured", err)
+		t.Errorf("opening: %v, expected ErrNotConfigured", err)
 	}
 }
 
-// Une clé mal produite se découvre au démarrage, pas à la première écriture.
-func TestUneCleMalFormeeEstRefuseeALaConstruction(t *testing.T) {
+// A badly produced key is found at start-up, not at the first write.
+func TestAMalformedKeyIsRefusedAtConstruction(t *testing.T) {
 	for _, key := range []string{
 		"",
-		"pas du base64 !",
+		"not base64!",
 		base64.StdEncoding.EncodeToString([]byte("trop court")),
 	} {
 		if _, err := New(key); err == nil {
-			t.Errorf("clé %q acceptée", key)
+			t.Errorf("key %q accepted", key)
 		}
 	}
 }
@@ -100,86 +100,85 @@ func TestUneCleMalFormeeEstRefuseeALaConstruction(t *testing.T) {
  * La rotation, et la raison d'être de l'empreinte.
  */
 
-// L'ancienne clé continue d'ouvrir ce qu'elle avait scellé.
-func TestUneCleRetireeOuvreEncoreCeQuElleAvaitScelle(t *testing.T) {
+// The old key keeps opening what it had sealed.
+func TestARetiredKeyStillOpensWhatItSealed(t *testing.T) {
 	ancien := mustCipher(t, keyB)
-	sealed, err := ancien.Seal("secret d'avant la rotation")
+	sealed, err := ancien.Seal("secret from before the rotation")
 	if err != nil {
 		t.Fatalf("scellement: %v", err)
 	}
 
-	// Après rotation : `keyA` scelle, `keyB` ne fait plus qu'ouvrir.
+	// After rotation: one key seals, the other only opens.
 	nouveau := mustCipher(t, keyA, keyB)
 	opened, err := nouveau.Open(sealed)
 	if err != nil {
-		t.Fatalf("ouverture après rotation: %v", err)
+		t.Fatalf("opening after rotation: %v", err)
 	}
-	if opened != "secret d'avant la rotation" {
+	if opened != "secret from before the rotation" {
 		t.Errorf("valeur = %q", opened)
 	}
 
-	// Et le chiffreur sait dire que cette valeur reste à re-sceller — sans quoi
-	// on ne saurait jamais quand la clé retirée peut quitter la configuration.
+	// And the cipher can say this value is still to be resealed — without which one
+	// would never know when the retired key can leave the configuration.
 	if !nouveau.NeedsResealing(sealed) {
-		t.Error("une valeur de l'ancienne clé devrait demander un re-scellement")
+		t.Error("a value from the old key should ask to be resealed")
 	}
-	resealed, _ := nouveau.Seal("secret d'avant la rotation")
+	resealed, _ := nouveau.Seal("secret from before the rotation")
 	if nouveau.NeedsResealing(resealed) {
-		t.Error("une valeur de la clé courante ne demande rien")
+		t.Error("a value from the current key asks for nothing")
 	}
 }
 
-// Une rotation faite sans garder l'ancienne clé se dit, et nomme l'empreinte
-// manquante : la retrouver parmi des clés archivées serait sinon à l'aveugle.
-func TestUneCleAbsenteSeNommeParSonEmpreinte(t *testing.T) {
+// A rotation done without keeping the old key says so, and names the missing
+// fingerprint: finding it among archived keys would otherwise be blind.
+func TestAMissingKeyIsNamedByItsFingerprint(t *testing.T) {
 	sealed, _ := mustCipher(t, keyB).Seal("valeur orpheline")
 
 	_, err := mustCipher(t, keyA).Open(sealed)
 	if !errors.Is(err, ErrUnknownKey) {
-		t.Fatalf("ouverture: %v, attendu ErrUnknownKey", err)
+		t.Fatalf("opening: %v, expected ErrUnknownKey", err)
 	}
 
 	_, empreinte, _, _ := splitEnvelope(sealed)
 	if !strings.Contains(err.Error(), empreinte) {
-		t.Errorf("message %q — il doit nommer l'empreinte %s", err, empreinte)
+		t.Errorf("message %q — it must name fingerprint %s", err, empreinte)
 	}
 }
 
-// Une enveloppe altérée est refusée, y compris quand seul son préfixe l'est :
-// l'empreinte est authentifiée, on ne fait donc pas ouvrir une valeur par une
-// clé qui n'est pas la sienne.
-func TestUneEnveloppeAltereeEstRefusee(t *testing.T) {
+// An altered envelope is refused, including when only its prefix is: the fingerprint
+// is authenticated, so a value is not opened by a key that is not its own.
+func TestAnAlteredEnvelopeIsRefused(t *testing.T) {
 	c := mustCipher(t, keyA, keyB)
-	sealed, _ := c.Seal("valeur intègre")
+	sealed, _ := c.Seal("intact value")
 
 	version, keyID, payload, ok := splitEnvelope(sealed)
 	if !ok {
-		t.Fatalf("enveloppe non décomposable: %q", sealed)
+		t.Fatalf("envelope cannot be decomposed: %q", sealed)
 	}
 
 	// Charge modifiée.
 	altered := version + ":" + keyID + ":" + payload[:len(payload)-2] + "AA"
 	if _, err := c.Open(altered); err == nil {
-		t.Error("charge modifiée acceptée")
+		t.Error("modified payload accepted")
 	}
 
-	// Préfixe maquillé vers l'autre clé connue.
+	// A prefix doctored towards the other known key.
 	_, autreID, _, _ := splitEnvelope(mustSeal(t, mustCipher(t, keyB), "x"))
 	if _, err := c.Open(version + ":" + autreID + ":" + payload); err == nil {
-		t.Error("empreinte maquillée acceptée")
+		t.Error("doctored fingerprint accepted")
 	}
 
-	for _, malformed := range []string{"sans-separateur", "v1:", "v1::charge", ":abcd:charge"} {
+	for _, malformed := range []string{"no-separator", "v1:", "v1::charge", ":abcd:charge"} {
 		if _, err := c.Open(malformed); err == nil {
-			t.Errorf("enveloppe %q acceptée", malformed)
+			t.Errorf("envelope %q accepted", malformed)
 		}
 	}
 
-	// Version inconnue : le message dit celle que ce binaire lit, faute de quoi
-	// une base écrite par une version future se diagnostiquerait à tâtons.
+	// An unknown version: the message states the one this binary reads, failing which a
+	// database written by a future version would be diagnosed by guesswork.
 	if _, err := c.Open("v2:" + keyID + ":" + payload); err == nil ||
 		!strings.Contains(err.Error(), envelopeVersion) {
-		t.Errorf("version inconnue: %v", err)
+		t.Errorf("unknown version: %v", err)
 	}
 }
 

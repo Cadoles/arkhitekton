@@ -10,17 +10,16 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
-// Test contre un registre réel. Ce qu'il vérifie — le schéma d'authentification
-// effectif, la forme des digests, la présence de l'en-tête Docker-Content-Digest
-// — ne se simule pas utilement : un bouchon ne prouve que la cohérence du
-// bouchon.
+// A test against a real registry. What it checks — the effective authentication
+// scheme, the shape of digests, the presence of the Docker-Content-Digest header —
+// cannot usefully be simulated: a stub only proves the stub is consistent.
 //
-// Ignoré visiblement sans identifiants.
+// Visibly skipped without credentials.
 func TestLiveRegistry(t *testing.T) {
 	username := os.Getenv("TEST_REGISTRY_USERNAME")
 	password := os.Getenv("TEST_REGISTRY_PASSWORD")
 	if username == "" || password == "" {
-		t.Skip("TEST_REGISTRY_USERNAME/PASSWORD non définis: test d'intégration ignoré")
+		t.Skip("TEST_REGISTRY_USERNAME/PASSWORD not set: integration test skipped")
 	}
 
 	client, err := Open(config.RegistryConfig{
@@ -40,23 +39,23 @@ func TestLiveRegistry(t *testing.T) {
 
 	tags, err := client.Tags(ctx, repository)
 	if err != nil {
-		t.Fatalf("liste des tags: %v", err)
+		t.Fatalf("tag list: %v", err)
 	}
 	if len(tags) == 0 {
-		t.Fatal("aucun tag: le dépôt de test est-il le bon ?")
+		t.Fatal("no tag: is the test repository the right one?")
 	}
-	t.Logf("%d tag(s) dans %s", len(tags), repository)
+	t.Logf("%d tag(s) in %s", len(tags), repository)
 
 	digest, err := client.Digest(ctx, repository, tags[len(tags)-1])
 	if err != nil {
-		t.Fatalf("digest de %s: %v", tags[len(tags)-1], err)
+		t.Fatalf("digest of %s: %v", tags[len(tags)-1], err)
 	}
 	if !strings.HasPrefix(digest, "sha256:") {
 		t.Errorf("digest = %q, forme inattendue", digest)
 	}
 
-	// L'opération qui porte tout l'intérêt du registre : plusieurs tags sur un
-	// même digest disent où une image a été promue.
+	// The operation that carries the registry's whole interest: several tags on one
+	// digest say where an image was promoted.
 	byDigest, err := client.TagsByDigest(ctx, repository, 20)
 	if err != nil {
 		t.Fatalf("indexation: %v", err)
@@ -66,10 +65,10 @@ func TestLiveRegistry(t *testing.T) {
 	for _, tagsOfDigest := range byDigest {
 		if len(tagsOfDigest) > 1 {
 			shared++
-			t.Logf("digest partagé par %v", tagsOfDigest)
+			t.Logf("digest shared by %v", tagsOfDigest)
 		}
 	}
-	t.Logf("%d digest(s) sur les 20 derniers tags, dont %d partagés", len(byDigest), shared)
+	t.Logf("%d digest(s) over the last 20 tags, %d of them shared", len(byDigest), shared)
 }
 
 func envOr(key, fallback string) string {

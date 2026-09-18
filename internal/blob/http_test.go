@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// newPutRequest construit un PUT sur une URL pré-signée, sans aucun en-tête
-// d'authentification : la signature est portée par l'URL, et c'est précisément
-// ce que le test doit exercer.
+// newPutRequest builds a PUT on a presigned URL, with no authentication header: the
+// signature is carried by the URL, and that is precisely what the test must
+// exercise.
 func newPutRequest(ctx context.Context, presignedURL, body string) (*http.Request, error) {
 	return http.NewRequestWithContext(ctx, http.MethodPut, presignedURL, strings.NewReader(body))
 }

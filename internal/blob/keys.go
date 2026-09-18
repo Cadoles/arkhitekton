@@ -1,4 +1,5 @@
-// Package blob porte l'accès au stockage objet.
+// Package blob carries access to the object store. The layout is described in
+// docs/08-data-model.md.
 package blob
 
 import (
@@ -8,17 +9,17 @@ import (
 	"strings"
 )
 
-// Préfixes du bucket du dashboard. Le layout est décidé ici et nulle part
-// ailleurs : c'est ce qui permet au dashboard de connaître la clé exacte de
-// chaque artefact sans avoir à la chercher par préfixe.
+// Prefixes of the dashboard's bucket. The layout is decided here and nowhere else:
+// that is what lets the dashboard know the exact key of every artifact without
+// searching by prefix.
 const (
 	prefixRaw       = "raw"
 	prefixLogs      = "logs"
 	prefixArtifacts = "artifacts"
 )
 
-// safeSegment n'accepte que ce qui compose légitimement un nom de PipelineRun,
-// un tag de release ou un nom de fichier.
+// safeSegment accepts only what legitimately makes up a PipelineRun name, a release
+// tag or a file name.
 var safeSegment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // ErrUnsafeSegment signale un segment de clé refusé.
@@ -28,31 +29,30 @@ type ErrUnsafeSegment struct {
 }
 
 func (e ErrUnsafeSegment) Error() string {
-	return fmt.Sprintf("segment de clé refusé %q: %s", e.Segment, e.Reason)
+	return fmt.Sprintf("key segment refused %q: %s", e.Segment, e.Reason)
 }
 
-// checkSegment valide un composant de clé.
+// checkSegment validates one key component.
 //
-// Les segments proviennent de noms de PipelineRun et de tags de release, ces
-// derniers étant saisis par un utilisateur. Un tag valant "../../artifacts"
-// écrirait hors du préfixe prévu — S3 n'a pas de notion de répertoire pour s'y
-// opposer, la clé est une chaîne libre et "a/../b" y désigne littéralement un
-// objet nommé ainsi. La validation est donc la seule barrière.
+// Segments come from PipelineRun names and release tags, the latter typed by a
+// user. A tag reading "../../artifacts" would write outside the intended prefix —
+// S3 has no notion of directory to object, the key is a free string and "a/../b"
+// literally names an object so called. Validation is therefore the only barrier.
 func checkSegment(segment string) error {
 	switch {
 	case segment == "":
 		return ErrUnsafeSegment{segment, "vide"}
 	case strings.Contains(segment, "/"):
-		return ErrUnsafeSegment{segment, "contient une barre oblique"}
+		return ErrUnsafeSegment{segment, "contains a slash"}
 	case segment == "." || segment == "..":
-		return ErrUnsafeSegment{segment, "référence de répertoire"}
+		return ErrUnsafeSegment{segment, "directory reference"}
 	case !safeSegment.MatchString(segment):
-		return ErrUnsafeSegment{segment, "caractères non autorisés"}
+		return ErrUnsafeSegment{segment, "characters not allowed"}
 	}
 	return nil
 }
 
-// join assemble une clé après validation de chaque segment.
+// join assembles a key after validating every segment.
 func join(segments ...string) (string, error) {
 	for _, segment := range segments {
 		if err := checkSegment(segment); err != nil {
@@ -62,37 +62,36 @@ func join(segments ...string) (string, error) {
 	return path.Join(segments...), nil
 }
 
-// Keys construit les clés du bucket. Le type existe pour que la connaissance du
-// layout reste en un seul endroit : la dispersion de chaînes littérales dans le
-// code est ce qui a produit, côté pipelines, des familles de tests rangées de
-// quatre façons différentes.
+// Keys builds the bucket's keys. The type exists so knowledge of the layout stays in
+// one place: scattering string literals through the code is what produced, on the
+// pipeline side, test families filed four different ways.
 type Keys struct{}
 
-// RawArtifact désigne un artefact brut produit par un run.
+// RawArtifact names a raw artifact produced by a run.
 //
-// `runName` est le nom du PipelineRun : unique par construction, et directement
-// corrélable au run qui l'a produit sans recherche ni convention datée.
+// `runName` is the PipelineRun's name: unique by construction, and directly
+// correlatable to the run that produced it without a search or a dated convention.
 func (Keys) RawArtifact(runName, artifact string) (string, error) {
 	return join(prefixRaw, runName, artifact)
 }
 
-// RawMeta désigne le descripteur d'exécution d'un outil. Séparé des artefacts
-// parce qu'il dit si le scanner a tourné, information qu'aucun rapport ne porte.
+// RawMeta names a tool's execution descriptor. Kept apart from the artifacts because
+// it says whether the scanner ran, which no report carries.
 func (Keys) RawMeta(runName, tool string) (string, error) {
 	return join(prefixRaw, runName, "meta", tool+".json")
 }
 
-// TaskLog désigne le log scellé d'une étape.
+// TaskLog names a step's sealed log.
 func (Keys) TaskLog(runName, taskName, step string) (string, error) {
 	return join(prefixLogs, runName, taskName, step+".log")
 }
 
-// TaskLogObject désigne le log scellé d'une task : la concaténation de ses étapes
-// dans l'ordre d'exécution.
+// TaskLogObject names a task's sealed log: its steps concatenated in execution
+// order.
 //
-// Un seul objet par task, et non un par étape, parce que c'est ce qu'on lit :
-// « le log de cette task ». Les étapes d'un TaskRun s'exécutent séquentiellement,
-// leur concaténation est donc chronologique.
+// One object per task rather than one per step, because that is what is read: "this
+// task's log". A TaskRun's steps run sequentially, so their concatenation is
+// chronological.
 func (Keys) TaskLogObject(runName, taskName string) (string, error) {
 	key, err := join(prefixLogs, runName, taskName)
 	if err != nil {
@@ -101,32 +100,20 @@ func (Keys) TaskLogObject(runName, taskName string) (string, error) {
 	return key + ".log", nil
 }
 
-// TaskLogChunk désigne une tranche de log, écrite pendant l'exécution.
+// TaskLogChunk names a log chunk, written while the task runs.
 //
-// Les tranches existent parce que les logs Tekton disparaissent avec les pods : il
-// faut les rendre durables au fil de l'eau, sans attendre la fin de la task. Un
-// objet par tranche, et non un envoi multipart : les parties d'un envoi multipart
-// S3 doivent peser au moins 5 Mio, ce qui interdit une granularité de flush
-// utile — un incident perdrait jusqu'à 5 Mio de journal.
+// Chunks exist because Tekton logs vanish with the pods: they must be made durable
+// as they come, without waiting for the task to end. One object per chunk, and not a
+// multipart upload: S3 multipart parts must weigh at least 5 MiB, which rules out a
+// useful flush granularity — an incident would lose up to 5 MiB of log.
 //
-// Deux numéros sont zéro-paddés, et c'est ce qui fait tout l'intérêt de ce
-// layout : **l'ordre lexicographique des clés est l'ordre chronologique du
-// journal**, sans rien connaître du pipeline.
-//
-//   - `index` est le rang de l'étape dans la task. Sans lui, l'ordre serait
-//     alphabétique par nom de conteneur : une task qui exécute `run-tests` puis
-//     `publish-results` verrait sa publication classée avant ses tests, puisque
-//     `step-publish-results` précède `step-run-tests` dans l'alphabet.
-//   - `sequence` est le rang de la tranche dans l'étape, sans quoi la tranche 10
-//     précéderait la tranche 2.
-//
-// La conséquence pratique est qu'un simple listing trié suffit à lire un journal
-// en cours, avant tout scellement.
+// Two numbers are zero-padded, and that is the point of this layout: the
+// lexicographic order of the keys is the chronological order of the log.
 func (Keys) TaskLogChunk(runName, taskName, step string, index, sequence int) (string, error) {
 	if index < 0 || sequence < 0 {
 		return "", ErrUnsafeSegment{
 			Segment: fmt.Sprintf("%d/%d", index, sequence),
-			Reason:  "rang d'étape ou numéro de tranche négatif",
+			Reason:  "negative step rank or chunk number",
 		}
 	}
 	prefix, err := taskLogChunkPrefix(runName, taskName, step, index)
@@ -136,15 +123,15 @@ func (Keys) TaskLogChunk(runName, taskName, step string, index, sequence int) (s
 	return fmt.Sprintf("%s%08d.log", prefix, sequence), nil
 }
 
-// TaskLogChunkPrefix rend le préfixe des tranches d'une étape, pour les lister au
-// redémarrage ou les purger après scellement.
+// TaskLogChunkPrefix returns the prefix of a step's chunks, to list them at restart
+// or purge them after sealing.
 func (Keys) TaskLogChunkPrefix(runName, taskName, step string, index int) (string, error) {
 	return taskLogChunkPrefix(runName, taskName, step, index)
 }
 
 func taskLogChunkPrefix(runName, taskName, step string, index int) (string, error) {
 	if index < 0 {
-		return "", ErrUnsafeSegment{Segment: fmt.Sprint(index), Reason: "rang d'étape négatif"}
+		return "", ErrUnsafeSegment{Segment: fmt.Sprint(index), Reason: "negative step rank"}
 	}
 	key, err := join(prefixLogs, runName, taskName, "parts", fmt.Sprintf("%03d-%s", index, step))
 	if err != nil {
@@ -153,7 +140,7 @@ func taskLogChunkPrefix(runName, taskName, step string, index int) (string, erro
 	return key + "/", nil
 }
 
-// TaskLogPartsPrefix rend le préfixe de toutes les tranches d'une task.
+// TaskLogPartsPrefix returns the prefix of every chunk of a task.
 func (Keys) TaskLogPartsPrefix(runName, taskName string) (string, error) {
 	key, err := join(prefixLogs, runName, taskName, "parts")
 	if err != nil {
@@ -162,14 +149,13 @@ func (Keys) TaskLogPartsPrefix(runName, taskName string) (string, error) {
 	return key + "/", nil
 }
 
-// ReleaseArtifact désigne un livrable attaché à une release — bon de livraison,
-// rapport de tests. Ces objets doivent survivre à la purge des artefacts bruts.
+// ReleaseArtifact names a deliverable attached to a release — a delivery note, a
+// test report. These objects must outlive the purge of raw artifacts.
 func (Keys) ReleaseArtifact(releaseTag, name string) (string, error) {
 	return join(prefixArtifacts, "releases", releaseTag, name)
 }
 
-// RunPrefix rend le préfixe des artefacts bruts d'un run, pour un listing ou une
-// purge.
+// RunPrefix returns the prefix of a run's raw artifacts, for listing or purging.
 func (Keys) RunPrefix(runName string) (string, error) {
 	key, err := join(prefixRaw, runName)
 	if err != nil {

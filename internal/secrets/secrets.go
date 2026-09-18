@@ -1,37 +1,31 @@
-// Package secrets chiffre les valeurs sensibles que les réglages de plugins
-// gardent en base.
+// Package secrets encrypts the sensitive values plugin settings keep in the
+// database.
 //
-// # Pourquoi la base, alors que la règle disait le contraire
+// The standing rule — no credential in PostgreSQL — was written for registry
+// credentials, and it stays right for them: their consumer is Tekton, which mounts a
+// cluster Secret, and the dashboard only names it. It then never needs to read it,
+// which its RBAC forbids anyway.
 //
-// La règle en vigueur — aucun identifiant dans PostgreSQL (doc 12 §12.7) — a été
-// écrite pour les identifiants de registre, et elle reste juste **pour eux** :
-// leur consommateur est Tekton, qui monte un `Secret` du cluster, et le
-// dashboard n'a qu'à le désigner par son nom. Il n'a alors jamais besoin de le
-// lire, ce que sa RBAC lui interdit d'ailleurs (doc 07 §7.3).
+// A tracker's API key has another consumer: the dashboard itself. Naming it is not
+// enough, it must be presented on every call. Three routes existed, two were ruled
+// out:
 //
-// La clé d'API d'un suivi a un autre consommateur : le dashboard lui-même. La
-// désigner ne suffit pas, il faut la présenter à chaque appel. Trois voies
-// existaient, et deux ont été écartées :
+//   - reading it from a cluster Secret — refused, it would need `get` on secrets,
+//     exactly the right the posture refuses;
+//   - receiving it through the environment, one variable per project — refused, it
+//     would make declaring a project depend on a redeployment.
 //
-//   - la lire dans un `Secret` du cluster — refusée, elle demanderait `get` sur
-//     les secrets, exactement le droit que la posture refuse ;
-//   - la recevoir par l'environnement, une variable par projet — refusée, elle
-//     ferait dépendre la déclaration d'un projet d'un redéploiement, ce que
-//     §12.7 cherche justement à supprimer.
+// That leaves the database, encrypted. It is a real lowering of protection: a
+// database backup becomes a carrier of secrets, and the encryption key must live
+// somewhere other than it. Both consequences are accepted.
 //
-// Reste la base, chiffrée. C'est un abaissement réel du niveau de protection :
-// une sauvegarde de la base devient un porteur de secrets, et la clé de
-// chiffrement doit vivre ailleurs qu'elle. Les deux conséquences sont assumées.
+// What this package guarantees: a value read from a database backup says nothing
+// without the key, and a replaced key does not make values unreadable — the old one
+// keeps decrypting for the duration of a rotation.
 //
-// # Ce que ce paquet garantit, et ce qu'il ne garantit pas
-//
-// Il garantit qu'une valeur lue dans une sauvegarde de la base ne dit rien sans
-// la clé, et qu'une clé remplacée ne rend pas les valeurs illisibles — l'ancienne
-// continue de déchiffrer le temps de la rotation.
-//
-// Il ne garantit rien contre quelqu'un qui obtient à la fois la base et
-// l'environnement du processus. Ce n'est pas un coffre : c'est ce qui fait qu'une
-// fuite de base seule n'est pas une fuite de secrets.
+// It guarantees nothing against someone who obtains both the database and the
+// process's environment. It is not a vault: it is what makes a database leak alone
+// not a leak of secrets.
 package secrets
 
 import (
@@ -46,62 +40,61 @@ import (
 	"strings"
 )
 
-// ErrNotConfigured signale qu'aucune clé n'a été fournie.
+// ErrNotConfigured reports that no key was supplied.
 //
-// Distinguée d'un échec de déchiffrement : « la clé manque » se corrige dans le
-// déploiement, « la valeur est illisible » veut dire qu'on a changé de clé sans
-// garder l'ancienne. Les confondre enverrait chercher au mauvais endroit.
-var ErrNotConfigured = errors.New("aucune clé de chiffrement n'est configurée")
+// Distinct from a decryption failure: "the key is missing" is fixed in the
+// deployment, "the value is unreadable" means a key was changed without keeping the
+// old one. Confusing them would send someone looking in the wrong place.
+var ErrNotConfigured = errors.New("no encryption key is configured")
 
-// ErrUnknownKey signale une valeur scellée par une clé que ce processus n'a pas.
+// ErrUnknownKey reports a value sealed by a key this process does not have.
 //
-// C'est le symptôme d'une rotation faite sans conserver la clé précédente. Le
-// message nomme l'empreinte attendue : sans elle, retrouver laquelle des clés
-// archivées convient serait une recherche à l'aveugle.
-var ErrUnknownKey = errors.New("valeur scellée par une clé absente")
+// It is the symptom of a rotation done without keeping the previous key. The message
+// names the expected fingerprint: without it, finding which archived key fits would
+// be a blind search.
+var ErrUnknownKey = errors.New("value sealed by a missing key")
 
-// envelopeVersion préfixe chaque valeur scellée.
+// envelopeVersion prefixes every sealed value.
 //
-// Présent dès la première version, alors qu'il n'y a rien à distinguer : le jour
-// où la construction change — un autre AEAD, une dérivation de clé — les valeurs
-// déjà en base doivent pouvoir dire de quelle construction elles viennent. Un
-// format sans version se migre en devinant, et deviner sur du chiffré échoue en
-// silence.
+// Present from the first version, although there is nothing to distinguish yet: the
+// day the construction changes, values already stored must be able to say which
+// construction they came from. A format with no version is migrated by guessing, and
+// guessing on ciphertext fails silently.
 const envelopeVersion = "v1"
 
-// keyLength est la taille exigée : AES-256, et rien d'autre.
+// keyLength is the size required: AES-256, and nothing else.
 //
-// Accepter aussi AES-128 offrirait un choix dont personne ne veut : celui de se
-// tromper. La taille étant vérifiée au démarrage, une clé mal produite se
-// découvre au déploiement plutôt qu'à la première écriture.
+// Accepting AES-128 as well would offer a choice nobody wants: the choice of getting
+// it wrong. The size being checked at start-up, a badly produced key is found at
+// deployment rather than at the first write.
 const keyLength = 32
 
-// Cipher scelle et ouvre les valeurs sensibles.
+// Cipher seals and opens sensitive values.
 //
-// Le zéro n'est pas utilisable : un `Cipher` non construit refuse de sceller
-// plutôt que de rendre du clair. C'est la raison de [ErrNotConfigured] — sans
-// elle, un déploiement sans clé écrirait des mots de passe lisibles dans la base
-// sans que rien ne le signale.
+// The zero value is unusable: an unconstructed Cipher refuses to seal rather than
+// returning plaintext. That is the reason for [ErrNotConfigured] — without it, a
+// deployment with no key would write readable passwords into the database with
+// nothing saying so.
 type Cipher struct {
-	// sealer est l'AEAD de la clé courante, celle qui scelle.
+	// sealer is the AEAD of the current key, the one that seals.
 	sealer cipher.AEAD
-	// sealerID est l'empreinte de cette clé, écrite dans l'enveloppe.
+	// sealerID is that key's fingerprint, written into the envelope.
 	sealerID string
-	// openers porte toutes les clés connues, empreinte comprise : la courante et
-	// celles qu'on garde le temps d'une rotation.
+	// openers holds every known key with its fingerprint: the current one and those kept
+	// for the duration of a rotation.
 	openers map[string]cipher.AEAD
 }
 
-// New construit le chiffreur à partir de la clé courante et des clés retirées.
+// New builds the cipher from the current key and the retired ones.
 //
-// Les clés sont en base64 standard, telles que `openssl rand -base64 32` les
-// produit. Une clé vide parmi les précédentes est ignorée : c'est le cas courant
-// d'une variable déclarée mais non renseignée, et le refuser obligerait le
-// déploiement à supprimer la variable plutôt qu'à la vider.
+// Keys are in standard base64, as `openssl rand -base64 32` produces them. An empty
+// key among the previous ones is ignored: that is the common case of a variable
+// declared but not filled in, and refusing it would force the deployment to delete
+// the variable rather than empty it.
 func New(current string, retired ...string) (*Cipher, error) {
 	block, id, err := aeadFor(current)
 	if err != nil {
-		return nil, fmt.Errorf("clé de chiffrement courante: %w", err)
+		return nil, fmt.Errorf("current encryption key: %w", err)
 	}
 
 	c := &Cipher{sealer: block, sealerID: id, openers: map[string]cipher.AEAD{id: block}}
@@ -111,11 +104,10 @@ func New(current string, retired ...string) (*Cipher, error) {
 		}
 		retiredBlock, retiredID, err := aeadFor(key)
 		if err != nil {
-			return nil, fmt.Errorf("clé de chiffrement retirée n°%d: %w", index+1, err)
+			return nil, fmt.Errorf("retired encryption key #%d: %w", index+1, err)
 		}
-		// La courante l'emporte si elle est répétée : sceller avec elle reste le
-		// comportement, et la lister deux fois n'est pas une erreur de
-		// configuration qui mérite un refus de démarrer.
+		// The current key wins if it is repeated: sealing with it stays the behaviour, and
+		// listing it twice is not a configuration mistake worth refusing to start over.
 		if _, known := c.openers[retiredID]; !known {
 			c.openers[retiredID] = retiredBlock
 		}
@@ -123,20 +115,20 @@ func New(current string, retired ...string) (*Cipher, error) {
 	return c, nil
 }
 
-// aeadFor décode une clé et en dérive son empreinte.
+// aeadFor decodes a key and derives its fingerprint.
 //
-// L'empreinte est calculée sur la clé plutôt que sur son rang dans la
-// configuration. Un rang change quand on retire une clé de la liste, et les
-// valeurs déjà scellées désigneraient alors une autre clé — ce qui les rendrait
-// illisibles au moment précis où la rotation croyait les préserver.
+// The fingerprint is computed on the key rather than on its rank in the
+// configuration. A rank changes when a key is removed from the list, and values
+// already sealed would then name another key — making them unreadable at the exact
+// moment the rotation believed it was preserving them.
 func aeadFor(key string) (cipher.AEAD, string, error) {
 	material, err := base64.StdEncoding.DecodeString(strings.TrimSpace(key))
 	if err != nil {
-		// Le message ne cite pas la valeur : une clé mal collée reste une clé.
+		// The message does not quote the value: a badly pasted key is still a key.
 		return nil, "", fmt.Errorf("attendue en base64 (openssl rand -base64 32): %w", err)
 	}
 	if len(material) != keyLength {
-		return nil, "", fmt.Errorf("longueur de %d octets, attendue %d", len(material), keyLength)
+		return nil, "", fmt.Errorf("length of %d bytes, expected %d", len(material), keyLength)
 	}
 
 	block, err := aes.NewCipher(material)
@@ -148,27 +140,27 @@ func aeadFor(key string) (cipher.AEAD, string, error) {
 		return nil, "", err
 	}
 
-	// Quatre octets de l'empreinte suffisent à désigner une clé parmi les
-	// quelques-unes qu'un déploiement garde, et n'en révèlent rien : c'est un
-	// condensat, et il faudrait la clé pour le reproduire.
+	// Four bytes of the fingerprint are enough to name a key among the few a deployment
+	// keeps, and reveal nothing of it: it is a digest, and the key would be needed to
+	// reproduce it.
 	digest := sha256.Sum256(material)
 	return aead, hex.EncodeToString(digest[:4]), nil
 }
 
-// Configured dit si une clé est disponible.
+// Configured says whether a key is available.
 //
-// Sert aux appelants qui doivent dégrader plutôt qu'échouer : un écran de
-// réglages doit pouvoir afficher « le chiffrement n'est pas configuré » au lieu
-// de proposer un champ qui refusera l'enregistrement.
+// It serves callers that must degrade rather than fail: a settings screen must be
+// able to say "encryption is not configured" instead of offering a field that will
+// refuse to save.
 func (c *Cipher) Configured() bool {
 	return c != nil && c.sealer != nil
 }
 
-// Seal chiffre une valeur et rend son enveloppe.
+// Seal encrypts a value and returns its envelope.
 //
-// Une valeur vide ressort vide, sans chiffrement : c'est l'effacement d'un champ,
-// et sceller le vide produirait une enveloppe indiscernable d'une valeur
-// renseignée — l'écran dirait « clé enregistrée » sur un champ vidé.
+// An empty value comes back empty, unencrypted: that is clearing a field, and
+// sealing emptiness would produce an envelope indistinguishable from a filled value
+// — the screen would say "key saved" over a cleared field.
 func (c *Cipher) Seal(plaintext string) (string, error) {
 	if plaintext == "" {
 		return "", nil
@@ -179,21 +171,21 @@ func (c *Cipher) Seal(plaintext string) (string, error) {
 
 	nonce := make([]byte, c.sealer.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
-		return "", fmt.Errorf("tirage du nonce: %w", err)
+		return "", fmt.Errorf("drawing the nonce: %w", err)
 	}
 
-	// L'empreinte de la clé sert de données authentifiées : une enveloppe dont on
-	// aurait maquillé le préfixe pour la faire ouvrir par une autre clé échoue à
-	// l'authentification, au lieu de rendre des octets arbitraires.
+	// The key's fingerprint serves as authenticated data: an envelope whose prefix was
+	// doctored to have it opened by another key fails authentication, instead of
+	// returning arbitrary bytes.
 	sealed := c.sealer.Seal(nonce, nonce, []byte(plaintext), []byte(c.sealerID))
 	return envelopeVersion + ":" + c.sealerID + ":" +
 		base64.RawURLEncoding.EncodeToString(sealed), nil
 }
 
-// Open déchiffre une enveloppe.
+// Open decrypts an envelope.
 //
-// Une chaîne vide ressort vide : c'est le champ jamais renseigné, et le traiter
-// comme une erreur obligerait chaque appelant à le distinguer lui-même.
+// An empty string comes back empty: that is the never-filled field, and treating it
+// as an error would force every caller to tell it apart itself.
 func (c *Cipher) Open(sealed string) (string, error) {
 	if sealed == "" {
 		return "", nil
@@ -204,10 +196,10 @@ func (c *Cipher) Open(sealed string) (string, error) {
 
 	version, keyID, payload, ok := splitEnvelope(sealed)
 	if !ok {
-		return "", errors.New("enveloppe malformée")
+		return "", errors.New("malformed envelope")
 	}
 	if version != envelopeVersion {
-		return "", fmt.Errorf("enveloppe de version %q, ce binaire lit %q",
+		return "", fmt.Errorf("envelope of version %q, this binary reads %q",
 			version, envelopeVersion)
 	}
 
@@ -221,25 +213,24 @@ func (c *Cipher) Open(sealed string) (string, error) {
 		return "", fmt.Errorf("enveloppe illisible: %w", err)
 	}
 	if len(raw) < aead.NonceSize() {
-		return "", errors.New("enveloppe tronquée")
+		return "", errors.New("truncated envelope")
 	}
 
 	nonce, body := raw[:aead.NonceSize()], raw[aead.NonceSize():]
 	plaintext, err := aead.Open(nil, nonce, body, []byte(keyID))
 	if err != nil {
-		// Le message ne dit pas pourquoi : distinguer « clé fausse » de « valeur
-		// altérée » renseignerait qui essaie des clés.
-		return "", errors.New("déchiffrement refusé")
+		// The message does not say why: telling "wrong key" from "altered value" would
+		// inform whoever is trying keys.
+		return "", errors.New("decryption refused")
 	}
 	return string(plaintext), nil
 }
 
-// NeedsResealing dit si une enveloppe a été scellée par une clé retirée.
+// NeedsResealing says whether an envelope was sealed by a retired key.
 //
-// La rotation ne se fait pas d'un coup : les valeurs sont re-scellées quand elles
-// passent par une écriture, et cette question dit lesquelles ne le sont pas
-// encore. Sans elle, on ne saurait jamais quand la clé retirée peut disparaître
-// de la configuration.
+// A rotation does not happen at once: values are resealed as they pass through a
+// write, and this question says which are not yet. Without it, one would never know
+// when the retired key can leave the configuration.
 func (c *Cipher) NeedsResealing(sealed string) bool {
 	if sealed == "" || !c.Configured() {
 		return false

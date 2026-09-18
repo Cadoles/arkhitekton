@@ -22,15 +22,15 @@ func TestKeysFollowDocumentedLayout(t *testing.T) {
 			return k.RawMeta("security-audit-run-xyz", "trivy-fs")
 		}, "raw/security-audit-run-xyz/meta/trivy-fs.json"},
 
-		{"log d'étape", func() (string, error) {
+		{"step log", func() (string, error) {
 			return k.TaskLog("php-integration-test-run-1", "run-integration-tests", "step-0")
 		}, "logs/php-integration-test-run-1/run-integration-tests/step-0.log"},
 
-		{"livrable de release", func() (string, error) {
+		{"release deliverable", func() (string, error) {
 			return k.ReleaseArtifact("1.8.0-rc3", "delivery-note.pdf")
 		}, "artifacts/releases/1.8.0-rc3/delivery-note.pdf"},
 
-		{"préfixe de run", func() (string, error) {
+		{"run prefix", func() (string, error) {
 			return k.RunPrefix("build-image-run-42")
 		}, "raw/build-image-run-42/"},
 	}
@@ -42,14 +42,13 @@ func TestKeysFollowDocumentedLayout(t *testing.T) {
 			continue
 		}
 		if got != c.expected {
-			t.Errorf("%s = %q, attendu %q", c.name, got, c.expected)
+			t.Errorf("%s = %q, expected %q", c.name, got, c.expected)
 		}
 	}
 }
 
-// Les tags de release sont saisis par un utilisateur. S3 n'a pas de notion de
-// répertoire pour s'opposer à « ../ » : la clé est une chaîne libre, et la
-// validation est la seule barrière.
+// Release tags are typed by a user. S3 has no notion of directory to object to
+// "../": the key is a free string, and validation is the only barrier.
 func TestKeysRejectPathTraversal(t *testing.T) {
 	var k Keys
 
@@ -61,23 +60,22 @@ func TestKeysRejectPathTraversal(t *testing.T) {
 		"/absolu",
 		"",
 		"..%2f..%2fpasswd",
-		"tag avec espaces",
-		"-commence-par-tiret",
+		"tag with spaces",
+		"-starts-with-a-dash",
 		"tag\nmultiligne",
 	}
 
 	for _, segment := range hostile {
 		if key, err := k.ReleaseArtifact(segment, "note.pdf"); err == nil {
-			t.Errorf("segment hostile %q accepté, clé produite: %q", segment, key)
+			t.Errorf("hostile segment %q accepted, key produced: %q", segment, key)
 		}
 		if key, err := k.RawArtifact("run-ok", segment); err == nil {
-			t.Errorf("nom d'artefact hostile %q accepté, clé produite: %q", segment, key)
+			t.Errorf("hostile artifact name %q accepted, key produced: %q", segment, key)
 		}
 	}
 }
 
-// Une clé produite ne doit jamais sortir de son préfixe, quelle que soit
-// l'entrée acceptée.
+// A key produced must never leave its prefix, whatever input is accepted.
 func TestValidKeysStayWithinTheirPrefix(t *testing.T) {
 	var k Keys
 
@@ -86,14 +84,14 @@ func TestValidKeysStayWithinTheirPrefix(t *testing.T) {
 	for _, segment := range valid {
 		key, err := k.ReleaseArtifact(segment, "note.pdf")
 		if err != nil {
-			t.Errorf("segment légitime %q refusé: %v", segment, err)
+			t.Errorf("legitimate segment %q refused: %v", segment, err)
 			continue
 		}
 		if !strings.HasPrefix(key, "artifacts/releases/") {
-			t.Errorf("la clé %q est sortie de son préfixe", key)
+			t.Errorf("key %q left its prefix", key)
 		}
 		if strings.Contains(key, "..") {
-			t.Errorf("la clé %q contient une remontée", key)
+			t.Errorf("key %q contains a traversal", key)
 		}
 	}
 }
@@ -103,10 +101,10 @@ func TestUnsafeSegmentErrorNamesTheOffendingValue(t *testing.T) {
 
 	_, err := k.ReleaseArtifact("../evasion", "note.pdf")
 	if err == nil {
-		t.Fatal("segment hostile accepté")
+		t.Fatal("hostile segment accepted")
 	}
 	if !strings.Contains(err.Error(), "../evasion") {
-		t.Errorf("le message ne désigne pas la valeur fautive: %v", err)
+		t.Errorf("the message does not name the offending value: %v", err)
 	}
 }
 
@@ -122,9 +120,8 @@ func TestLogChunkKeysSortChronologically(t *testing.T) {
 		keys = append(keys, key)
 	}
 
-	// L'ordre lexicographique doit être l'ordre chronologique : le listing MinIO
-	// ne trie pas autrement, et une tranche 10 placée avant la tranche 2
-	// produirait un journal mélangé.
+	// Lexicographic order must be chronological order: the store's listing sorts no
+	// other way, and a chunk 10 placed before chunk 2 would produce a jumbled log.
 	sorted := append([]string(nil), keys...)
 	sort.Strings(sorted)
 
@@ -135,7 +132,7 @@ func TestLogChunkKeysSortChronologically(t *testing.T) {
 	}
 	for i := range expected {
 		if sorted[i] != expected[i] {
-			t.Errorf("position %d = %q, attendu %q", i, sorted[i], expected[i])
+			t.Errorf("position %d = %q, expected %q", i, sorted[i], expected[i])
 		}
 	}
 }
@@ -145,20 +142,20 @@ func TestSealedTaskLogAndPrefixes(t *testing.T) {
 
 	sealed, err := k.TaskLogObject("run-abc", "unit-test")
 	if err != nil {
-		t.Fatalf("objet scellé: %v", err)
+		t.Fatalf("sealed object: %v", err)
 	}
 	if sealed != "logs/run-abc/unit-test.log" {
-		t.Errorf("objet scellé = %q", sealed)
+		t.Errorf("sealed object = %q", sealed)
 	}
 
-	// Le préfixe des tranches ne doit pas englober l'objet scellé, sans quoi la
-	// purge des tranches emporterait le journal qu'on vient de constituer.
+	// The chunk prefix must not encompass the sealed object, otherwise purging the
+	// chunks would take away the log just assembled.
 	prefix, err := k.TaskLogPartsPrefix("run-abc", "unit-test")
 	if err != nil {
-		t.Fatalf("préfixe: %v", err)
+		t.Fatalf("prefix: %v", err)
 	}
 	if strings.HasPrefix(sealed, prefix) {
-		t.Errorf("l'objet scellé %q tombe sous le préfixe des tranches %q", sealed, prefix)
+		t.Errorf("the sealed object %q falls under the chunk prefix %q", sealed, prefix)
 	}
 }
 
@@ -166,22 +163,21 @@ func TestLogChunkRejectsHostileSegments(t *testing.T) {
 	var k Keys
 
 	if _, err := k.TaskLogChunk("../evasion", "task", "step", 0, 1); err == nil {
-		t.Error("nom de run hostile accepté")
+		t.Error("hostile run name accepted")
 	}
 	if _, err := k.TaskLogChunk("run", "task", "step", 0, -1); err == nil {
-		t.Error("numéro de tranche négatif accepté")
+		t.Error("negative chunk number accepted")
 	}
 	if _, err := k.TaskLogChunk("run", "task", "step", -1, 1); err == nil {
-		t.Error("rang d'étape négatif accepté")
+		t.Error("negative step rank accepted")
 	}
 }
 
-// Le rang de l'étape dans la clé est ce qui rend l'ordre lexicographique
-// chronologique.
+// The step's rank in the key is what makes lexicographic order chronological.
 //
-// Le couple choisi n'est pas arbitraire : `publish-results` précède `run-tests`
-// dans l'alphabet, alors qu'il s'exécute après. Sans le rang, le journal
-// montrerait la publication avant les tests qui la produisent.
+// The pair chosen is not arbitrary: `publish-results` precedes `run-tests`
+// alphabetically, while it runs afterwards. Without the rank, the log would show
+// publishing before the tests that produce it.
 func TestStepRankOrdersChunksBeforeContainerName(t *testing.T) {
 	var k Keys
 
@@ -195,14 +191,14 @@ func TestStepRankOrdersChunksBeforeContainerName(t *testing.T) {
 	}
 
 	if tests >= publish {
-		t.Errorf("ordre inversé:\n  %s\n  %s", tests, publish)
+		t.Errorf("reversed order:\n  %s\n  %s", tests, publish)
 	}
 
-	// Contre-épreuve : à rangs égaux, l'ordre redevient alphabétique, donc faux.
-	// Sans cette assertion, le test passerait même si le rang ne servait à rien.
+	// The counter-proof: at equal ranks the order becomes alphabetical again, hence
+	// wrong. Without this assertion the test would pass even if the rank did nothing.
 	sameTests, _ := k.TaskLogChunk("run-abc", "integration", "step-run-tests", 0, 1)
 	samePublish, _ := k.TaskLogChunk("run-abc", "integration", "step-publish-results", 0, 1)
 	if samePublish >= sameTests {
-		t.Error("le test ne démontre rien: l'ordre alphabétique est déjà le bon pour ce couple")
+		t.Error("the test proves nothing: alphabetical order is already right for this pair")
 	}
 }

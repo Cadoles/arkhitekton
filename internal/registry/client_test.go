@@ -10,18 +10,18 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
-// Le dashboard doit pouvoir tourner sans registre : l'inventaire des images
-// manque alors, le reste fonctionne. L'erreur doit être distinguable d'un refus
-// d'accès, pour que l'interface le dise au lieu d'afficher une panne.
+// The dashboard must be able to run without a registry: the image inventory is then
+// missing, the rest works. The error must be distinguishable from an access refusal,
+// so the interface says so instead of showing a fault.
 func TestOpenWithoutCredentialsIsDistinguishable(t *testing.T) {
 	_, err := Open(config.RegistryConfig{URL: "https://reg.example.fr"})
 	if !errors.Is(err, ErrNotConfigured) {
-		t.Errorf("erreur = %v, attendu ErrNotConfigured", err)
+		t.Errorf("error = %v, expected ErrNotConfigured", err)
 	}
 }
 
-// `registry.project` porte l'hôte parce que c'est sous cette forme qu'il entre
-// dans les paramètres de pipeline ; l'API du registre n'attend que le chemin.
+// `registry.project` carries the host because that is the form it takes in pipeline
+// parameters; the registry's API expects only the path.
 func TestProjectDropsTheHost(t *testing.T) {
 	client, err := Open(config.RegistryConfig{
 		URL: "https://reg.cadoles.com", Username: "u", Password: "p",
@@ -31,7 +31,7 @@ func TestProjectDropsTheHost(t *testing.T) {
 		t.Fatalf("ouverture: %v", err)
 	}
 	if client.Project() != "cnous-mse" {
-		t.Errorf("projet = %q, attendu cnous-mse", client.Project())
+		t.Errorf("project = %q, expected cnous-mse", client.Project())
 	}
 }
 
@@ -64,9 +64,9 @@ func testClient(t *testing.T, handler http.Handler) *Client {
 	return client
 }
 
-// Le flux de jeton porteur : un registre qui répond 401 avec un défi doit être
-// suivi jusqu'au service d'autorisation. Ne traiter que Basic fonctionnerait
-// aujourd'hui et échouerait au premier changement de configuration du registre.
+// The bearer token flow: a registry answering 401 with a challenge must be followed
+// to its authorization service. Handling Basic alone would work today and fail at
+// the registry's first configuration change.
 func TestBearerChallengeIsFollowed(t *testing.T) {
 	var tokenIssued bool
 
@@ -91,19 +91,19 @@ func TestBearerChallengeIsFollowed(t *testing.T) {
 
 	tags, err := client.Tags(context.Background(), "portal")
 	if err != nil {
-		t.Fatalf("liste des tags: %v", err)
+		t.Fatalf("tag list: %v", err)
 	}
 	if !tokenIssued {
-		t.Error("le défi n'a pas été suivi jusqu'au service d'autorisation")
+		t.Error("the challenge was not followed to the authorization service")
 	}
 	if len(tags) != 2 {
 		t.Errorf("tags = %v", tags)
 	}
 }
 
-// L'opération qui donne son intérêt au registre : une promotion étant un re-tag
-// du même digest, les tags d'un digest disent où une version a été promue — y
-// compris pour la production, dont le cluster est hors de portée.
+// The operation that makes the registry worth reading: a promotion being a re-tag of
+// the same digest, a digest's tags say where a version was promoted — including for
+// production, whose cluster is out of reach.
 func TestTagsByDigestGroupsPromotions(t *testing.T) {
 	digests := map[string]string{
 		"3.1.0":          "sha256:aaa",
@@ -135,15 +135,15 @@ func TestTagsByDigestGroupsPromotions(t *testing.T) {
 	}
 
 	if len(byDigest["sha256:aaa"]) != 3 {
-		t.Errorf("digest aaa = %v, attendu trois tags", byDigest["sha256:aaa"])
+		t.Errorf("digest aaa = %v, expected three tags", byDigest["sha256:aaa"])
 	}
 	if len(byDigest["sha256:bbb"]) != 1 {
 		t.Errorf("digest bbb = %v", byDigest["sha256:bbb"])
 	}
 }
 
-// Un tag illisible — supprimé entre le listing et la résolution — ne doit pas
-// faire perdre les autres.
+// An unreadable tag — deleted between the listing and the resolution — must not cost
+// the others.
 func TestUnreadableTagIsSkipped(t *testing.T) {
 	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead {
@@ -167,8 +167,8 @@ func TestUnreadableTagIsSkipped(t *testing.T) {
 	}
 }
 
-// Le balayage est borné : un dépôt de plusieurs centaines de tags prendrait des
-// minutes, pour une information qui ne concerne que les versions vivantes.
+// The sweep is bounded: a repository with hundreds of tags would take minutes, for
+// information that only concerns live versions.
 func TestTagsByDigestKeepsTheMostRecent(t *testing.T) {
 	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead {
@@ -184,11 +184,10 @@ func TestTagsByDigestKeepsTheMostRecent(t *testing.T) {
 		t.Fatalf("indexation: %v", err)
 	}
 	if len(byDigest) != 2 {
-		t.Fatalf("%d digest(s), attendu 2: %v", len(byDigest), byDigest)
+		t.Fatalf("%d digest(s), expected 2: %v", len(byDigest), byDigest)
 	}
-	// Les registres rendent les tags par ordre croissant : la fin est la plus
-	// récente.
+	// Registries return tags in ascending order: the end is the most recent.
 	if _, present := byDigest["sha256:4.0.0"]; !present {
-		t.Errorf("le tag le plus récent est absent: %v", byDigest)
+		t.Errorf("the most recent tag is missing: %v", byDigest)
 	}
 }
