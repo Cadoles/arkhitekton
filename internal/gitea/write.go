@@ -34,9 +34,9 @@ import (
  * pour un commentaire d'autrui qu'une action mal réglée pourrait réécrire.
  */
 
-// ErrTagExists signale un tag déjà posé. Enveloppe l'issue du contrat : reposer
-// un tag après un échec partiel est un cas normal, et l'appelant doit pouvoir le
-// reconnaître sans savoir à quelle forge il parle.
+// ErrTagExists reports a tag already set. It wraps the contract's sentinel: setting a
+// tag again after a partial failure is a normal case, and the caller must be able to
+// recognise it without knowing which forge it is talking to.
 var ErrTagExists = fmt.Errorf("gitea: %w", provider.ErrTagExists)
 
 var writeMethods = map[string]bool{
@@ -52,7 +52,7 @@ type writeTransport struct {
 
 func (t *writeTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	if !writeMethods[request.Method] {
-		return nil, fmt.Errorf("%w (%s %s): ce client ajoute, il ne retire ni ne réécrit",
+		return nil, fmt.Errorf("%w (%s %s): this client adds, it neither removes nor rewrites",
 			ErrWriteForbidden, request.Method, request.URL.Path)
 	}
 
@@ -62,7 +62,7 @@ func (t *writeTransport) RoundTrip(request *http.Request) (*http.Response, error
 	return t.next.RoundTrip(authenticated)
 }
 
-// Writer pose des tags sur le dépôt de l'application.
+// Writer sets tags on the application's repository.
 type Writer struct {
 	baseURL *url.URL
 	owner   string
@@ -70,7 +70,7 @@ type Writer struct {
 	http    *http.Client
 }
 
-// NewWriter construit un client capable de poser des tags.
+// NewWriter builds a client able to set tags.
 func NewWriter(options Options) (*Writer, error) {
 	read, err := New(options)
 	if err != nil {
@@ -93,15 +93,15 @@ func NewWriter(options Options) (*Writer, error) {
 	}, nil
 }
 
-// CreateTag pose un tag léger sur un commit.
+// CreateTag sets a lightweight tag on a commit.
 //
-// Le commit est passé explicitement, jamais une branche : poser un tag sur une
-// branche le placerait sur ce qu'elle désigne à cet instant, et deux releases
-// créées à une minute d'intervalle pourraient viser des commits différents en
-// croyant viser le même point.
+// The commit is passed explicitly, never a branch: setting a tag on a branch would
+// place it on whatever that branch names at that instant, and two releases created a
+// minute apart could aim at different commits while believing they aim at the same
+// point.
 func (w *Writer) CreateTag(ctx context.Context, tag, commit, message string) error {
 	if strings.TrimSpace(tag) == "" || strings.TrimSpace(commit) == "" {
-		return fmt.Errorf("gitea: tag et commit sont requis pour poser un tag")
+		return fmt.Errorf("gitea: tag and commit are required to set a tag")
 	}
 
 	payload, err := json.Marshal(map[string]string{
@@ -110,19 +110,19 @@ func (w *Writer) CreateTag(ctx context.Context, tag, commit, message string) err
 		"message":  message,
 	})
 	if err != nil {
-		return fmt.Errorf("gitea: encodage de la demande de tag: %w", err)
+		return fmt.Errorf("gitea: encoding the tag request: %w", err)
 	}
 
 	target := w.baseURL.JoinPath("/api/v1/repos/" + w.owner + "/" + w.repo + "/tags")
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("gitea: requête de tag: %w", err)
+		return fmt.Errorf("gitea: tag request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := w.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("gitea: pose du tag %q: %w", tag, err)
+		return fmt.Errorf("gitea: setting tag %q: %w", tag, err)
 	}
 	defer response.Body.Close()
 
@@ -131,32 +131,32 @@ func (w *Writer) CreateTag(ctx context.Context, tag, commit, message string) err
 		return nil
 	case response.StatusCode == http.StatusConflict,
 		response.StatusCode == http.StatusUnprocessableEntity:
-		// Gitea rend 409 ou 422 selon la version quand le tag existe. Les deux
-		// disent la même chose, et ce n'est pas un échec de la release.
+		// The forge returns 409 or 422 depending on its version when the tag exists. Both say
+		// the same thing, and it is not a failure of the release.
 		return fmt.Errorf("%w: %s", ErrTagExists, tag)
 	case response.StatusCode == http.StatusForbidden,
 		response.StatusCode == http.StatusUnauthorized:
-		return fmt.Errorf("gitea: pose du tag refusée (%d) — le jeton a-t-il la portée write:repository ?",
+		return fmt.Errorf("gitea: setting the tag refused (%d) — does the token have the write:repository scope?",
 			response.StatusCode)
 	default:
-		return fmt.Errorf("gitea: pose du tag %q: la forge a répondu %d", tag, response.StatusCode)
+		return fmt.Errorf("gitea: setting tag %q: the forge answered %d", tag, response.StatusCode)
 	}
 }
 
-// SetCommitStatus pose un statut sur un commit.
+// SetCommitStatus sets a status on a commit.
 //
-// Le `context` est la clé de remplacement : la forge n'affiche qu'un statut par
-// contexte et par commit, et reposer le même nom écrase le précédent. C'est ce
-// qui permet à une chaîne de publier `pending` au départ puis de le conclure,
-// plutôt que d'empiler des états contradictoires sur la même demande de fusion.
+// The `context` is the replacement key: the forge displays one status per context per
+// commit, and reusing the same name overwrites the previous one. That is what lets a
+// chain publish `pending` at the start and then conclude it, rather than stacking
+// contradictory states on the same pull request.
 //
-// Le commit est passé résolu. Une branche serait acceptée par la forge et
-// poserait le statut sur ce qu'elle désigne à cet instant — donc, une minute plus
-// tard, ailleurs.
+// The commit is passed resolved. A branch would be accepted by the forge and would
+// place the status on whatever it names at that instant — hence, a minute later,
+// elsewhere.
 func (w *Writer) SetCommitStatus(ctx context.Context, commit, state, context_, description, targetURL string) error {
 	commit = strings.TrimSpace(commit)
 	if commit == "" || strings.TrimSpace(state) == "" || strings.TrimSpace(context_) == "" {
-		return fmt.Errorf("gitea: commit, état et contexte sont requis pour poser un statut")
+		return fmt.Errorf("gitea: commit, state and context are required to set a status")
 	}
 
 	return w.add(ctx, "/api/v1/repos/"+w.owner+"/"+w.repo+"/statuses/"+commit,
@@ -166,47 +166,45 @@ func (w *Writer) SetCommitStatus(ctx context.Context, commit, state, context_, d
 			"description": description,
 			"target_url":  targetURL,
 		},
-		fmt.Sprintf("pose du statut %q sur %s", context_, shortCommit(commit)))
+		fmt.Sprintf("setting status %q on %s", context_, shortCommit(commit)))
 }
 
-// CommentOnPullRequest ajoute un commentaire à une demande de fusion.
+// CommentOnPullRequest adds a comment to a pull request.
 //
-// Passe par l'API des *issues* et non par celle des demandes de fusion, et ce
-// n'est pas un contournement : dans Gitea comme dans Forgejo, une demande de
-// fusion **est** une issue augmentée, et son fil de discussion vit sous cette
-// route. Celle des demandes de fusion ne porte que les revues.
+// It goes through the issues API rather than the pull requests API, and that is not a
+// workaround: in this forge a pull request is an augmented issue, and its discussion
+// thread lives under that route. The pull requests route carries only reviews.
 func (w *Writer) CommentOnPullRequest(ctx context.Context, number int, body string) error {
 	if number <= 0 {
-		return fmt.Errorf("gitea: numéro de demande de fusion invalide: %d", number)
+		return fmt.Errorf("gitea: invalid pull request number: %d", number)
 	}
 	if strings.TrimSpace(body) == "" {
-		// Refusé plutôt qu'envoyé : un commentaire vide se poste sans erreur et
-		// laisse une trace muette dans le fil d'une équipe, qu'il faut aller
-		// retirer à la main.
-		return fmt.Errorf("gitea: un commentaire vide n'est pas posté")
+		// Refused rather than sent: an empty comment posts without error and leaves a silent
+		// trace in a team's thread, which has to be removed by hand.
+		return fmt.Errorf("gitea: an empty comment is not posted")
 	}
 
 	return w.add(ctx,
 		fmt.Sprintf("/api/v1/repos/%s/%s/issues/%d/comments", w.owner, w.repo, number),
 		map[string]string{"body": body},
-		fmt.Sprintf("commentaire sur la demande de fusion n° %d", number))
+		fmt.Sprintf("comment on pull request #%d", number))
 }
 
-// add émet un POST JSON et juge la réponse.
+// add sends a JSON POST and judges the response.
 //
-// Le `geste` décrit ce qu'on tentait, en français, et sert à composer l'erreur :
-// « la forge a répondu 403 » sans dire de quoi oblige à retrouver l'appel dans le
-// journal pour comprendre ce qui a été refusé.
+// The action describes what was being attempted, and composes the error: "the forge
+// answered 403" without saying to what forces someone to find the call in the log to
+// understand what was refused.
 func (w *Writer) add(ctx context.Context, path string, payload map[string]string, geste string) error {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("gitea: encodage de la demande (%s): %w", geste, err)
+		return fmt.Errorf("gitea: encoding the request (%s): %w", geste, err)
 	}
 
 	target := w.baseURL.JoinPath(path)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(encoded))
 	if err != nil {
-		return fmt.Errorf("gitea: requête (%s): %w", geste, err)
+		return fmt.Errorf("gitea: request (%s): %w", geste, err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 
@@ -221,20 +219,20 @@ func (w *Writer) add(ctx context.Context, path string, payload map[string]string
 		return nil
 	case response.StatusCode == http.StatusForbidden,
 		response.StatusCode == http.StatusUnauthorized:
-		return fmt.Errorf("gitea: %s refusé (%d) — le jeton a-t-il la portée write:repository ?",
+		return fmt.Errorf("gitea: %s refused (%d) — does the token have the write:repository scope?",
 			geste, response.StatusCode)
 	case response.StatusCode == http.StatusNotFound:
-		// Distingué du refus : sur ces routes, la forge rend 404 quand le jeton
-		// n'a pas la visibilité du dépôt aussi bien que quand la cible n'existe
-		// pas. Le dire évite de chercher un commit qui est bien là.
-		return fmt.Errorf("gitea: %s: introuvable (404) — la cible ou le dépôt "+
-			"est hors de portée du jeton", geste)
+		// Told apart from a refusal: on these routes the forge returns 404 both when the
+		// token cannot see the repository and when the target does not exist. Saying so
+		// avoids hunting for a commit that is right there.
+		return fmt.Errorf("gitea: %s: not found (404) — the target or the repository "+
+			"is out of the token's reach", geste)
 	default:
-		return fmt.Errorf("gitea: %s: la forge a répondu %d", geste, response.StatusCode)
+		return fmt.Errorf("gitea: %s: the forge answered %d", geste, response.StatusCode)
 	}
 }
 
-// shortCommit abrège un SHA pour un message.
+// shortCommit abbreviates a SHA for a message.
 func shortCommit(commit string) string {
 	if len(commit) <= 8 {
 		return commit
@@ -242,22 +240,22 @@ func shortCommit(commit string) string {
 	return commit[:8]
 }
 
-// ResolveCommit rend le SHA vers lequel pointe une référence.
+// ResolveCommit returns the SHA a reference points at.
 //
-// Une release doit désigner un commit et non une branche : une branche bouge, et
-// reconstruire la même release six mois plus tard produirait alors une autre
-// image. C'est le premier maillon de l'invariant de version (B17).
+// A release must name a commit and not a branch: a branch moves, and rebuilding the
+// same release six months later would then produce a different image. It is the first
+// link of the version invariant.
 func (c *Client) ResolveCommit(ctx context.Context, ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
-		return "", fmt.Errorf("gitea: référence vide")
+		return "", fmt.Errorf("gitea: empty reference")
 	}
 
 	query := url.Values{}
 	query.Set("sha", ref)
 	query.Set("limit", "1")
-	// Le corps des commits ne sert à rien ici et pèse : `stat=false` évite de
-	// rapatrier le détail des fichiers modifiés pour n'en lire que le SHA.
+	// Commit bodies are useless here and costly: `stat=false` avoids fetching the detail
+	// of changed files only to read the SHA.
 	query.Set("stat", "false")
 	query.Set("verification", "false")
 	query.Set("files", "false")
@@ -271,10 +269,10 @@ func (c *Client) ResolveCommit(ctx context.Context, ref string) (string, error) 
 		SHA string `json:"sha"`
 	}
 	if err := json.Unmarshal(body, &commits); err != nil {
-		return "", fmt.Errorf("gitea: réponse de résolution illisible: %w", err)
+		return "", fmt.Errorf("gitea: resolution response unreadable: %w", err)
 	}
 	if len(commits) == 0 || commits[0].SHA == "" {
-		return "", fmt.Errorf("gitea: la référence %q ne désigne aucun commit", ref)
+		return "", fmt.Errorf("gitea: reference %q names no commit", ref)
 	}
 	return commits[0].SHA, nil
 }

@@ -1,9 +1,9 @@
-// Package tekton porte l'accès au cluster : clients, informers, et traduction
-// des objets Tekton vers le modèle du dashboard.
+// Package tekton carries cluster access: clients, informers, and the translation of
+// Tekton objects into the dashboard's model.
 //
-// Une règle tient tout le paquet : le dashboard **observe** Tekton. Il crée des
-// PipelineRun qui référencent des Pipeline existants, il n'écrit jamais sur les
-// Pipeline ni sur les Task — elles appartiennent à `mse-tekton` (doc 03 §3.6).
+// One rule holds the package together: the dashboard observes Tekton. It creates
+// PipelineRuns referencing existing Pipelines; it never writes to Pipelines or
+// Tasks — those belong to whoever maintains them.
 package tekton
 
 import (
@@ -18,38 +18,36 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
-// Client regroupe les accès au cluster.
+// Client gathers the cluster accesses.
 type Client struct {
-	// Kube sert aux pods et à leurs logs : la collecte passe par l'API des
-	// pods, jamais par une exécution dans un conteneur.
+	// Kube serves pods and their logs: collection goes through the pods API, never
+	// through executing anything in a container.
 	Kube kubernetes.Interface
-	// Tekton sert aux PipelineRun et TaskRun.
+	// Tekton serves PipelineRuns and TaskRuns.
 	Tekton tektonclient.Interface
-	// Namespace borne tout ce que fait ce paquet. Aucune opération n'est faite
-	// à l'échelle du cluster : la RBAC accordée est une Role, pas une
-	// ClusterRole (doc 07 §7.3).
+	// Namespace bounds everything this package does. No operation is cluster-wide: the
+	// RBAC granted is a Role, not a ClusterRole. See docs/09-security.md.
 	Namespace string
-	// RESTConfig est réexposée pour les clients qui lisent d'autres API du même
-	// cluster — Flux, PortalData — sans refaire la résolution in-cluster puis
-	// kubeconfig, dont l'ordre est ce qui empêche de parler au mauvais cluster.
+	// RESTConfig is re-exposed for clients reading other APIs of the same cluster —
+	// Flux, the application's own — without redoing the in-cluster then kubeconfig
+	// resolution, whose order is what stops the process talking to the wrong cluster.
 	RESTConfig *rest.Config
 }
 
-// Open construit les clients.
+// Open builds the clients.
 //
-// La configuration in-cluster est essayée d'abord, puis le kubeconfig. L'ordre
-// compte : en production le worker tourne dans un pod, et un kubeconfig traînant
-// dans l'image le ferait parler au mauvais cluster sans que rien ne le signale.
+// The in-cluster configuration is tried first, then the kubeconfig. The order
+// matters: in production the worker runs in a pod, and a kubeconfig left in the
+// image would make it talk to the wrong cluster with nothing saying so.
 func Open(cfg config.TektonConfig) (*Client, error) {
 	restConfig, err := restConfig(cfg.KubeconfigPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Les valeurs par défaut de client-go — 5 requêtes par seconde — sont
-	// dimensionnées pour un contrôleur qui écrit peu. La resynchronisation au
-	// démarrage liste des centaines d'objets d'un coup et s'y ferait étrangler,
-	// avec pour seul symptôme un démarrage anormalement lent.
+	// client-go's defaults — five requests per second — are sized for a controller that
+	// writes little. Resynchronising at start-up lists hundreds of objects at once and
+	// would be throttled, with a slow start-up as the only symptom.
 	restConfig.QPS = 50
 	restConfig.Burst = 100
 	restConfig.Timeout = 30 * time.Second
@@ -72,10 +70,9 @@ func restConfig(kubeconfigPath string) (*rest.Config, error) {
 		return inCluster, nil
 	}
 
-	// Hors cluster : KUBECONFIG, puis ~/.kube/config. Les règles de chargement
-	// de clientcmd sont reprises telles quelles pour que le worker vise le même
-	// contexte que `kubectl` dans le même terminal — une divergence entre les
-	// deux se paie en heures de diagnostic.
+	// Outside a cluster: KUBECONFIG, then ~/.kube/config. clientcmd's loading rules are
+	// taken as they are so the worker targets the same context as `kubectl` in the same
+	// terminal — a divergence between the two costs hours of diagnosis.
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if kubeconfigPath != "" {
 		rules.ExplicitPath = kubeconfigPath

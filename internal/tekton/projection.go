@@ -10,25 +10,23 @@ import (
 	"knative.dev/pkg/apis"
 )
 
-// Labels posés par le dashboard sur les PipelineRun qu'il crée. Leur absence est
-// ce qui distingue un run observé — déclenché par un webhook Gitea ou un CronJob —
-// d'un run piloté.
+// Labels the dashboard puts on the PipelineRuns it creates. Their absence is what
+// distinguishes an observed run — triggered by a webhook or a cron job — from a
+// driven one.
 const (
 	LabelJobID = "arkhitekton/job-id"
-	// LabelInstance porte l'identité de la base qui a lancé le run.
+	// LabelInstance carries the identity of the database that launched the run.
 	//
-	// Le seul `job-id` ne suffit pas : les identifiants repartent à 1 sur une
-	// base neuve, les PipelineRun survivent dans le cluster, et un run resté là
-	// concluait le job homonyme de la nouvelle base. Constaté — `mse-static-
-	// tests-7`, échoué la veille, a fait échouer le job 7 d'une base créée depuis,
-	// qui n'avait pas encore été lancé.
+	// The job id alone is not enough: identifiers restart at 1 on a fresh database,
+	// PipelineRuns outlive it in the cluster, and a leftover run concluded the
+	// identically numbered job of the new database. Observed in practice.
 	LabelInstance = "arkhitekton/instance"
 	LabelKind     = "arkhitekton/kind"
 	LabelRelease  = "arkhitekton/release"
 	LabelPipeline = "tekton.dev/pipeline"
 )
 
-// Status est l'état d'un run dans le modèle du dashboard.
+// Status is a run's state in the dashboard's model.
 type Status string
 
 const (
@@ -40,11 +38,11 @@ const (
 	StatusTimedOut  Status = "timedout"
 )
 
-// Terminal dit si l'état ne peut plus changer.
+// Terminal says whether the state can still change.
 //
-// Sert de garde à la projection : un événement d'informer arrivé en retard — une
-// resynchronisation périodique livre des objets dans un ordre quelconque — ne doit
-// pas ramener un run terminé à `running`.
+// It guards the projection: an informer event arriving late — a periodic resync
+// delivers objects in arbitrary order — must not bring a finished run back to
+// `running`.
 func (s Status) Terminal() bool {
 	switch s {
 	case StatusSucceeded, StatusFailed, StatusCancelled, StatusTimedOut:
@@ -54,7 +52,7 @@ func (s Status) Terminal() bool {
 	}
 }
 
-// Run est la projection d'un PipelineRun.
+// Run is a PipelineRun's projection.
 type Run struct {
 	Name        string
 	Namespace   string
@@ -65,32 +63,31 @@ type Run struct {
 	StartedAt   *time.Time
 	CompletedAt *time.Time
 	Results     map[string]string
-	// JobID vaut 0 pour un run observé, c'est-à-dire non lancé par le dashboard.
+	// JobID is 0 for an observed run, that is, one the dashboard did not launch.
 	JobID int64
-	// Instance est la base qui a lancé le run. Vide sur un run observé, et sur
-	// ceux lancés avant que ce label existe.
+	// Instance is the database that launched the run. Empty on an observed run, and on
+	// those launched before this label existed.
 	Instance string
 	Observed bool
-	// DeclaredTasks énumère les tâches du pipeline, dans l'ordre du graphe.
+	// DeclaredTasks lists the pipeline's tasks, in graph order.
 	//
-	// Tekton ne crée un TaskRun qu'au démarrage d'une tâche : sans cette liste,
-	// un pipeline de huit étapes n'en montre que deux au début, et rien ne dit ce
-	// qu'il reste à faire. Elle vient de `status.pipelineSpec`, que Tekton dépose
-	// à la création du run — la définition résolue est donc connue d'emblée.
+	// Tekton creates a TaskRun only when a task starts: without this list, an
+	// eight-stage pipeline shows two at first, and nothing says what is left to do. It
+	// comes from `status.pipelineSpec`, which Tekton writes when the run is created — the
+	// resolved definition is therefore known from the outset.
 	DeclaredTasks []DeclaredTask
 }
 
-// DeclaredTask est une tâche telle que le pipeline la déclare.
+// DeclaredTask is a task as the pipeline declares it.
 type DeclaredTask struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"display_name,omitempty"`
-	// Finally distingue les tâches de fin : elles s'exécutent quoi qu'il arrive,
-	// et les mêler aux autres ferait lire leur position dans la frise comme une
-	// étape de plus du chemin nominal.
+	// Finally marks the final tasks: they run whatever happens, and mixing them in would
+	// make their position in the timeline read as one more step of the nominal path.
 	Finally bool `json:"finally,omitempty"`
 }
 
-// TaskRunProjection est la projection d'un TaskRun.
+// TaskRunProjection is a TaskRun's projection.
 type TaskRunProjection struct {
 	Name        string
 	DisplayName string
@@ -103,8 +100,8 @@ type TaskRunProjection struct {
 	Steps       []Step
 }
 
-// Step décrit une étape et son conteneur. Le nom du conteneur est ce que l'API
-// des pods attend pour lire les logs.
+// Step describes a step and its container. The container's name is what the pods API
+// expects in order to read logs.
 type Step struct {
 	Name      string
 	Container string
@@ -137,9 +134,9 @@ func ProjectRun(pr *tektonv1.PipelineRun) Run {
 		run.Message = condition.Message
 	}
 
-	// La définition résolue, quand Tekton l'a déposée. Absente sur un run tout
-	// juste créé ou dont la résolution a échoué : la liste est alors vide, et
-	// l'écran retombe sur les seules tâches démarrées — le comportement d'avant.
+	// The resolved definition, when Tekton has written it. Absent on a freshly created
+	// run or one whose resolution failed: the list is then empty, and the screen falls
+	// back to the started tasks alone.
 	if pr.Status.PipelineSpec != nil {
 		for _, task := range pr.Status.PipelineSpec.Tasks {
 			run.DeclaredTasks = append(run.DeclaredTasks, DeclaredTask{
@@ -159,9 +156,9 @@ func ProjectRun(pr *tektonv1.PipelineRun) Run {
 			run.JobID = id
 		}
 	}
-	// Observé plutôt que piloté : le label est la seule marque de paternité, et
-	// un run observé s'affiche en lecture seule — le dashboard ne relance ni
-	// n'annule ce qu'il n'a pas lancé.
+	// Observed rather than driven: the label is the only mark of paternity, and an
+	// observed run displays read-only — the dashboard neither re-runs nor cancels what
+	// it did not launch.
 	run.Observed = run.JobID == 0
 
 	return run
@@ -221,8 +218,8 @@ func projectStep(step tektonv1.StepState) Step {
 	return projected
 }
 
-// succeededCondition extrait la condition `Succeeded`, la seule que Tekton
-// renseigne pour dire si un run a abouti.
+// succeededCondition extracts the `Succeeded` condition, the only one Tekton fills
+// in to say whether a run completed.
 func succeededCondition(conditions []apis.Condition) *apis.Condition {
 	for i := range conditions {
 		if conditions[i].Type == "Succeeded" {
@@ -232,21 +229,20 @@ func succeededCondition(conditions []apis.Condition) *apis.Condition {
 	return nil
 }
 
-// statusFromCondition dérive l'état à partir du **statut** de la condition, et
-// non d'une énumération de motifs.
+// statusFromCondition derives the state from the condition's status, and not from an
+// enumeration of reasons.
 //
-// C'est délibéré, et l'expérience l'impose : un précédent outil de suivi filtrait
-// sur une liste de motifs connus (`Succeeded`, `Failed`, `Completed`…) et
-// attendait indéfiniment sur un run terminé en `ParameterMissing`, motif absent de
-// la liste. Tekton en produit des dizaines et en ajoute à chaque version.
+// That is deliberate, and experience imposes it: an earlier tracking tool filtered on
+// a list of known reasons and waited indefinitely on a run that ended with a reason
+// absent from the list. Tekton produces dozens and adds more with every version.
 //
-// Le motif ne sert donc qu'à distinguer annulation et dépassement de délai parmi
-// les échecs, et un motif inconnu retombe sur `failed` — jamais sur `running`. Se
-// tromper dans ce sens laisse un run bloqué et gèle sa classe d'exclusion ; dans
-// l'autre, il affiche un échec qu'un coup d'œil au motif corrige.
+// The reason therefore serves only to tell cancellation and timeout apart among
+// failures, and an unknown reason falls back to `failed` — never to `running`. Erring
+// this way leaves a run stuck and freezes its exclusion class; erring the other way
+// shows a failure that a glance at the reason corrects.
 func statusFromCondition(condition *apis.Condition, started bool) Status {
 	if condition == nil {
-		// Aucune condition : Tekton n'a pas encore réconcilié l'objet.
+		// No condition: Tekton has not reconciled the object yet.
 		return StatusPending
 	}
 
@@ -266,8 +262,8 @@ func statusFromCondition(condition *apis.Condition, started bool) Status {
 		}
 
 	default:
-		// Unknown : en cours, ou pas encore démarré. La présence de startTime
-		// tranche sans dépendre du motif.
+		// Unknown: running, or not started. The presence of startTime settles it without
+		// depending on the reason.
 		if started {
 			return StatusRunning
 		}
@@ -282,8 +278,8 @@ func pipelineName(pr *tektonv1.PipelineRun) string {
 	if pr.Spec.PipelineRef != nil && pr.Spec.PipelineRef.Name != "" {
 		return pr.Spec.PipelineRef.Name
 	}
-	// Un pipeline défini en ligne n'a pas de nom. Le laisser vide serait pire
-	// qu'un repli explicite : l'interface afficherait une case blanche.
+	// A pipeline defined inline has no name. Leaving it empty would be worse than an
+	// explicit fallback: the interface would show a blank cell.
 	return "(en ligne)"
 }
 

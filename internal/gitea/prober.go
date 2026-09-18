@@ -30,12 +30,12 @@ type Prober struct {
 	Timeout time.Duration
 }
 
-// Probe rend le constat d'accès du dépôt, ou l'erreur qui l'en empêche.
+// Probe returns the repository's access verdict, or the error preventing it.
 //
-// Deux questions dans un seul appel, et c'est voulu : elles portent sur le même
-// dépôt et se posent au même moment, celui où quelqu'un veut savoir si ce projet
-// est prêt à construire. Les séparer en deux boutons obligerait à en actionner
-// deux pour obtenir une réponse qui n'en fait qu'une.
+// Two questions in one call, deliberately: they are about the same repository and are
+// asked at the same moment, when someone wants to know whether this project is ready
+// to build. Separating them into two buttons would mean pressing two to get one
+// answer.
 func (p Prober) Probe(ctx context.Context, repository, publicKey string) (provider.Probe, error) {
 	client, err := New(Options{
 		URL: p.URL, Token: p.Token, Repository: repository, Timeout: p.Timeout,
@@ -49,10 +49,9 @@ func (p Prober) Probe(ctx context.Context, repository, publicKey string) (provid
 		return provider.Probe{}, err
 	}
 	if branch == "" {
-		// Un dépôt sans branche par défaut existe mais n'a jamais reçu de
-		// commit : le clone d'un pipeline y échouerait, et le dire ici évite de
-		// l'apprendre en cours de build.
-		return provider.Probe{}, errors.New("le dépôt est vide : aucune branche par défaut")
+		// A repository with no default branch exists but never received a commit: a
+		// pipeline's clone would fail there, and saying so here avoids learning it mid-build.
+		return provider.Probe{}, errors.New("the repository is empty: no default branch")
 	}
 
 	probe := provider.Probe{DefaultBranch: branch}
@@ -60,35 +59,34 @@ func (p Prober) Probe(ctx context.Context, repository, publicKey string) (provid
 	return probe, nil
 }
 
-// checkKey regarde si la clé du projet figure dans celles du dépôt.
+// checkKey looks for the project's key among the repository's.
 //
-// Rend **trois** états. L'absence de réponse n'est jamais traduite en « clé
-// absente » : le jeton peut ne pas avoir le droit d'administration que Gitea
-// exige pour lister les clés, et conclure à l'absence couperait alors les
-// constructions d'un projet dont la clé est en place.
+// It returns three states. A missing answer is never translated into "key absent":
+// the token may lack the administration right the forge requires to list keys, and
+// concluding absence would then cut off the builds of a project whose key is in
+// place.
 func (p Prober) checkKey(ctx context.Context, client *Client, publicKey string) (*bool, string) {
 	if strings.TrimSpace(publicKey) == "" {
-		return nil, "aucune clé propre n'a encore été posée pour ce projet"
+		return nil, "no key of its own has been set for this project yet"
 	}
 
 	keys, err := client.DeployKeys(ctx)
 	if err != nil {
-		// Le message d'origine est conservé : c'est lui qui distingue un jeton
-		// sans droit d'une forge injoignable, et les deux se corrigent
-		// différemment.
-		return nil, "clés du dépôt illisibles (le jeton a-t-il le droit " +
-			"d'administration ?) : " + err.Error()
+		// The original message is kept: it is what tells a token without rights from an
+		// unreachable forge, and the two are fixed differently.
+		return nil, "repository keys unreadable (does the token have the administration " +
+			"right?): " + err.Error()
 	}
 
 	for _, candidate := range keys {
 		if SameKey(candidate, publicKey) {
 			present := true
-			return &present, "la clé du projet figure dans les clés de déploiement du dépôt"
+			return &present, "the project's key is among the repository's deploy keys"
 		}
 	}
 
 	absent := false
 	return &absent, fmt.Sprintf(
-		"la clé du projet ne figure pas parmi les %d clé(s) de déploiement du dépôt",
+		"the project's key is not among the repository's %d deploy key(s)",
 		len(keys))
 }

@@ -34,13 +34,13 @@ func runWith(conditions duckv1.Conditions, started bool) *tektonv1.PipelineRun {
 	return pr
 }
 
-// Le cœur de la décision : l'état vient du **statut** de la condition, pas d'une
-// liste de motifs.
+// The heart of the decision: the state comes from the condition's status, not from a
+// list of reasons.
 //
-// Les deux premiers cas sont relevés sur le cluster de développement, et le
-// premier suffit à condamner l'approche par énumération : Tekton conclut un run
-// réussi avec le motif `Completed`, et non `Succeeded`. Une liste écrite de
-// mémoire aurait laissé ces runs en cours indéfiniment.
+// The first two cases were observed on the development cluster, and the first alone
+// condemns the enumeration approach: Tekton concludes a successful run with the
+// reason `Completed`, not `Succeeded`. A list written from memory would have left
+// those runs in flight indefinitely.
 func TestStatusComesFromConditionStatusNotReason(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -49,71 +49,70 @@ func TestStatusComesFromConditionStatusNotReason(t *testing.T) {
 		started  bool
 		expected Status
 	}{
-		{"réussite, motif Completed (relevé sur le cluster)", corev1.ConditionTrue, "Completed", true, StatusSucceeded},
-		{"échec, motif Failed (relevé sur le cluster)", corev1.ConditionFalse, "Failed", true, StatusFailed},
-		{"réussite, motif Succeeded", corev1.ConditionTrue, "Succeeded", true, StatusSucceeded},
+		{"success, reason Completed (observed on the cluster)", corev1.ConditionTrue, "Completed", true, StatusSucceeded},
+		{"failure, reason Failed (observed on the cluster)", corev1.ConditionFalse, "Failed", true, StatusFailed},
+		{"success, reason Succeeded", corev1.ConditionTrue, "Succeeded", true, StatusSucceeded},
 
-		// Le motif qui avait piégé le précédent outil de suivi.
-		{"échec, motif ParameterMissing", corev1.ConditionFalse, "ParameterMissing", false, StatusFailed},
-		{"échec, motif inconnu", corev1.ConditionFalse, "MotifQueTektonInventeraDemain", true, StatusFailed},
-		{"échec, motif vide", corev1.ConditionFalse, "", true, StatusFailed},
+		// The reason that trapped the earlier tracking tool.
+		{"failure, reason ParameterMissing", corev1.ConditionFalse, "ParameterMissing", false, StatusFailed},
+		{"failure, unknown reason", corev1.ConditionFalse, "MotifQueTektonInventeraDemain", true, StatusFailed},
+		{"failure, empty reason", corev1.ConditionFalse, "", true, StatusFailed},
 
 		{"annulation", corev1.ConditionFalse, "Cancelled", true, StatusCancelled},
 		{"annulation, ancien motif", corev1.ConditionFalse, "PipelineRunCancelled", true, StatusCancelled},
-		{"dépassement de délai", corev1.ConditionFalse, "PipelineRunTimeout", true, StatusTimedOut},
+		{"timed out", corev1.ConditionFalse, "PipelineRunTimeout", true, StatusTimedOut},
 
 		{"en cours", corev1.ConditionUnknown, "Running", true, StatusRunning},
-		{"en cours, motif inconnu", corev1.ConditionUnknown, "MotifInattendu", true, StatusRunning},
-		{"pas encore démarré", corev1.ConditionUnknown, "Started", false, StatusPending},
+		{"running, unknown reason", corev1.ConditionUnknown, "MotifInattendu", true, StatusRunning},
+		{"not started yet", corev1.ConditionUnknown, "Started", false, StatusPending},
 	}
 
 	for _, c := range cases {
 		got := ProjectRun(runWith(condition(c.status, c.reason), c.started)).Status
 		if got != c.expected {
-			t.Errorf("%s: statut = %q, attendu %q", c.name, got, c.expected)
+			t.Errorf("%s: status = %q, expected %q", c.name, got, c.expected)
 		}
 	}
 }
 
-// Un objet que Tekton n'a pas encore réconcilié n'a aucune condition. Le traiter
-// comme un échec ferait afficher des runs rouges à chaque création.
+// An object Tekton has not yet reconciled has no condition. Treating it as a failure
+// would show red runs on every creation.
 func TestRunWithoutConditionIsPending(t *testing.T) {
 	if got := ProjectRun(runWith(nil, false)).Status; got != StatusPending {
-		t.Errorf("statut = %q, attendu %q", got, StatusPending)
+		t.Errorf("status = %q, expected %q", got, StatusPending)
 	}
 }
 
-// La garde qui protège de la resynchronisation : les événements d'informer
-// n'arrivent pas dans l'ordre, et un run terminé ne doit jamais redevenir en
-// cours.
+// The guard against resynchronisation: informer events do not arrive in order, and a
+// finished run must never go back to running.
 func TestTerminalStatuses(t *testing.T) {
 	terminal := []Status{StatusSucceeded, StatusFailed, StatusCancelled, StatusTimedOut}
 	transient := []Status{StatusPending, StatusRunning}
 
 	for _, status := range terminal {
 		if !status.Terminal() {
-			t.Errorf("%q devrait être terminal", status)
+			t.Errorf("%q should be terminal", status)
 		}
 	}
 	for _, status := range transient {
 		if status.Terminal() {
-			t.Errorf("%q ne devrait pas être terminal", status)
+			t.Errorf("%q should not be terminal", status)
 		}
 	}
 }
 
-// L'absence du label de paternité vaut « observé ». Les 28 PipelineRun présents
-// sur le cluster de développement sont dans ce cas : ils viennent de
-// l'EventListener et des CronJobs de `mse-tekton`, et le dashboard doit les
-// afficher sans jamais prétendre les piloter.
+// The absence of the paternity label means "observed". The PipelineRuns present on
+// the development cluster are in that case: they come from an event listener and
+// cron jobs, and the dashboard must display them without ever claiming to drive
+// them.
 func TestRunWithoutJobLabelIsObserved(t *testing.T) {
 	run := ProjectRun(runWith(condition(corev1.ConditionTrue, "Completed"), true))
 
 	if !run.Observed {
-		t.Error("un run sans label de job doit être marqué observé")
+		t.Error("a run with no job label must be marked observed")
 	}
 	if run.JobID != 0 {
-		t.Errorf("JobID = %d, attendu 0", run.JobID)
+		t.Errorf("JobID = %d, expected 0", run.JobID)
 	}
 }
 
@@ -123,30 +122,30 @@ func TestRunWithJobLabelIsPiloted(t *testing.T) {
 
 	run := ProjectRun(pr)
 	if run.Observed {
-		t.Error("un run portant le label de job ne doit pas être marqué observé")
+		t.Error("a run carrying the job label must not be marked observed")
 	}
 	if run.JobID != 4242 {
-		t.Errorf("JobID = %d, attendu 4242", run.JobID)
+		t.Errorf("JobID = %d, expected 4242", run.JobID)
 	}
 }
 
-// Un label illisible ne doit pas faire passer un run piloté pour un run observé
-// avec un identifiant fantaisiste : mieux vaut le traiter comme observé, donc en
-// lecture seule, que d'agir sur un job qui n'existe pas.
+// An unreadable label must not make a driven run pass for an observed one with a
+// fanciful identifier: better to treat it as observed, hence read-only, than to act
+// on a job that does not exist.
 func TestUnparsableJobLabelFallsBackToObserved(t *testing.T) {
 	pr := runWith(condition(corev1.ConditionUnknown, "Running"), true)
-	pr.Labels[LabelJobID] = "pas-un-nombre"
+	pr.Labels[LabelJobID] = "not-a-number"
 
 	run := ProjectRun(pr)
 	if run.JobID != 0 || !run.Observed {
-		t.Errorf("JobID = %d, Observed = %v ; attendu 0 et true", run.JobID, run.Observed)
+		t.Errorf("JobID = %d, Observed = %v; expected 0 and true", run.JobID, run.Observed)
 	}
 }
 
 func TestPipelineNameFallsBackToRefThenPlaceholder(t *testing.T) {
 	withLabel := runWith(nil, false)
 	if got := ProjectRun(withLabel).Pipeline; got != "php-static-tests" {
-		t.Errorf("depuis le label: %q", got)
+		t.Errorf("from the label: %q", got)
 	}
 
 	withRef := runWith(nil, false)
@@ -159,7 +158,7 @@ func TestPipelineNameFallsBackToRefThenPlaceholder(t *testing.T) {
 	inline := runWith(nil, false)
 	inline.Labels = nil
 	if got := ProjectRun(inline).Pipeline; got != "(en ligne)" {
-		t.Errorf("pipeline en ligne: %q, attendu un repli explicite", got)
+		t.Errorf("inline pipeline: %q, expected an explicit fallback", got)
 	}
 }
 
@@ -193,8 +192,8 @@ func TestTaskRunProjectionCarriesPodAndSteps(t *testing.T) {
 	if projection.DisplayName != "unit-test" {
 		t.Errorf("DisplayName = %q", projection.DisplayName)
 	}
-	// Le nom du pod est ce qui rend la collecte de logs possible : sans lui, il
-	// n'y a rien à lire.
+	// The pod's name is what makes log collection possible: without it there is nothing
+	// to read.
 	if projection.PodName == "" {
 		t.Error("PodName vide")
 	}
@@ -203,27 +202,27 @@ func TestTaskRunProjectionCarriesPodAndSteps(t *testing.T) {
 	}
 
 	if len(projection.Steps) != 3 {
-		t.Fatalf("%d étape(s), attendu 3", len(projection.Steps))
+		t.Fatalf("%d step(s), expected 3", len(projection.Steps))
 	}
 	expected := []Status{StatusSucceeded, StatusRunning, StatusPending}
 	for i, step := range projection.Steps {
 		if step.Status != expected[i] {
-			t.Errorf("étape %s: statut = %q, attendu %q", step.Name, step.Status, expected[i])
+			t.Errorf("step %s: status = %q, expected %q", step.Name, step.Status, expected[i])
 		}
-		// Le nom du conteneur, et non celui de l'étape : c'est ce que l'API des
-		// pods attend, et Tekton les préfixe par `step-`.
+		// The container's name, not the step's: that is what the pods API expects, and Tekton
+		// prefixes them with `step-`.
 		if step.Container == step.Name {
-			t.Errorf("étape %s: nom de conteneur non distingué du nom d'étape", step.Name)
+			t.Errorf("step %s: container name not told apart from the step name", step.Name)
 		}
 	}
 
 	if code := projection.Steps[0].ExitCode; code == nil || *code != 0 {
-		t.Errorf("code de sortie de la première étape = %v", code)
+		t.Errorf("exit code of the first step = %v", code)
 	}
 }
 
-// Un échec de conteneur doit remonter comme échec d'étape, avec son code : c'est
-// ce qui permet de désigner l'étape fautive sans lire les logs.
+// A container failure must surface as a step failure, with its code: that is what
+// allows naming the offending step without reading the logs.
 func TestStepFailureCarriesExitCode(t *testing.T) {
 	tr := &tektonv1.TaskRun{ObjectMeta: metav1.ObjectMeta{Name: "run-x"}}
 	tr.Status.Steps = []tektonv1.StepState{{
@@ -233,10 +232,10 @@ func TestStepFailureCarriesExitCode(t *testing.T) {
 
 	step := ProjectTaskRun(tr).Steps[0]
 	if step.Status != StatusFailed {
-		t.Errorf("statut = %q, attendu %q", step.Status, StatusFailed)
+		t.Errorf("status = %q, expected %q", step.Status, StatusFailed)
 	}
 	if step.ExitCode == nil || *step.ExitCode != 2 {
-		t.Errorf("code de sortie = %v, attendu 2", step.ExitCode)
+		t.Errorf("exit code = %v, expected 2", step.ExitCode)
 	}
 }
 
@@ -249,6 +248,6 @@ func TestRunResultsAreCollected(t *testing.T) {
 
 	results := ProjectRun(pr).Results
 	if results["tag"] != "1.8.0-rc1" || results["digest"] != "sha256:abc" {
-		t.Errorf("résultats = %v", results)
+		t.Errorf("results = %v", results)
 	}
 }

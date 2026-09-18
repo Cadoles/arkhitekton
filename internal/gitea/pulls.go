@@ -19,30 +19,28 @@ import (
  * pas dans l'image.
  */
 
-// maxPulls borne le nombre de PR examinées.
+// maxPulls bounds how many pull requests are examined.
 //
-// La note d'une release couvre ce qui a été fusionné depuis la précédente —
-// quelques dizaines de PR sur un cycle. Deux cents laisse une marge confortable
-// tout en bornant le coût : chaque PR retenue coûte une seconde requête pour ses
-// commits, et remonter l'historique entier du dépôt en coûterait des milliers
-// pour des demandes livrées il y a deux ans.
+// A release note covers what was merged since the previous one — a few dozen requests
+// per cycle. Two hundred leaves comfortable room while bounding the cost: each
+// request kept costs a second query for its commits, and walking the repository's
+// whole history would cost thousands for requests delivered two years ago.
 const maxPulls = 200
 
-// ListMergedPullRequests rend les PR fusionnées, de la plus récente à la plus
-// ancienne.
+// ListMergedPullRequests returns merged requests, newest first.
 //
-// `since` borne la lecture : les PR fusionnées avant sont ignorées. Passer le
-// zéro lit jusqu'à `maxPulls`. La borne est appliquée ici plutôt que par l'API —
-// Gitea ne sait pas filtrer les PR sur leur date de fusion — d'où une lecture
-// qui s'arrête dès qu'elle a dépassé la date.
+// `since` bounds the read: requests merged before it are ignored. Passing the zero
+// value reads up to `maxPulls`. The bound is applied here rather than by the API — the
+// forge cannot filter requests on their merge date — hence a read that stops as soon
+// as it has passed the date.
 func (c *Client) ListMergedPullRequests(ctx context.Context, since time.Time) ([]provider.PullRequest, error) {
 	var pulls []provider.PullRequest
 
 	for page := 1; len(pulls) < maxPulls; page++ {
 		query := url.Values{}
 		query.Set("state", "closed")
-		// Gitea trie par date de mise à jour décroissante : les fusions récentes
-		// arrivent en premier, ce qui permet de s'arrêter tôt.
+		// The forge sorts by descending update date: recent merges come first, which allows
+		// stopping early.
 		query.Set("sort", "recentupdate")
 		query.Set("limit", strconv.Itoa(pageSize))
 		query.Set("page", strconv.Itoa(page))
@@ -60,14 +58,14 @@ func (c *Client) ListMergedPullRequests(ctx context.Context, since time.Time) ([
 			MergedAt *time.Time `json:"merged_at"`
 		}
 		if err := json.Unmarshal(body, &decoded); err != nil {
-			return nil, fmt.Errorf("gitea: réponse des pull requests illisible: %w", err)
+			return nil, fmt.Errorf("gitea: pull requests response unreadable: %w", err)
 		}
 		if len(decoded) == 0 {
 			break
 		}
 
 		for _, item := range decoded {
-			// Fermée sans fusion : la demande n'a rien livré.
+			// Closed without merging: the request delivered nothing.
 			if !item.Merged {
 				continue
 			}
@@ -90,15 +88,15 @@ func (c *Client) ListMergedPullRequests(ctx context.Context, since time.Time) ([
 	return pulls, nil
 }
 
-// LoadCommitMessages complète une PR de ses messages de commit.
+// LoadCommitMessages completes a request with its commit messages.
 //
-// Séparé de la liste parce que Gitea ne les rend pas avec elle, et que la
-// convention autorise le numéro de demande dans le titre **ou** dans un commit :
-// s'en passer manquerait les PR dont le titre ne cite rien.
+// Separate from the listing because the forge does not return them with it, and
+// because the convention allows the issue number in the title or in a commit: going
+// without would miss requests whose title cites nothing.
 //
-// Un échec est rendu tel quel plutôt qu'ignoré : une PR dont les commits n'ont
-// pas pu être lus peut cacher une demande, et le silence ferait passer une note
-// incomplète pour une note exhaustive.
+// A failure is returned as is rather than ignored: a request whose commits could not
+// be read may hide an issue, and silence would make an incomplete note pass for an
+// exhaustive one.
 func (c *Client) LoadCommitMessages(ctx context.Context, pull *provider.PullRequest) error {
 	query := url.Values{}
 	query.Set("limit", strconv.Itoa(pageSize))
@@ -115,7 +113,7 @@ func (c *Client) LoadCommitMessages(ctx context.Context, pull *provider.PullRequ
 		} `json:"commit"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return fmt.Errorf("gitea: commits de la PR %d illisibles: %w", pull.Number, err)
+		return fmt.Errorf("gitea: commits of pull request %d unreadable: %w", pull.Number, err)
 	}
 
 	pull.Commits = make([]string, 0, len(decoded))

@@ -17,31 +17,29 @@ import (
 
 // Request décrit le run à créer.
 type Request struct {
-	// Name est décidé par l'ordonnanceur **avant** l'appel, et déjà inscrit en
-	// base. C'est ce qui rend un run orphelin impossible (doc 06 §6.3).
+	// Name is decided by the scheduler before the call, and already recorded in the
+	// database. That is what makes an orphaned run impossible.
 	Name  string
 	JobID int64
-	// Instance identifie la base. Sans elle, un run resté dans le cluster après
-	// une remise à zéro conclut le job homonyme de la base suivante.
+	// Instance identifies the database. Without it, a run left in the cluster after a
+	// reset concludes the identically numbered job of the next database.
 	Instance string
 	Pipeline catalog.Pipeline
 	Params   map[string]string
 }
 
-// Create matérialise un PipelineRun.
+// Create materialises a PipelineRun.
 //
-// Tout ce qui le compose vient du catalogue : workspaces, compte de service,
-// timeout, secrets de tirage d'image. Rien n'est codé ici, sans quoi une
-// évolution de `mse-tekton` casserait le dashboard sans le dire.
+// Everything composing it comes from the catalogue: workspaces, service account,
+// timeout, image pull secrets. Nothing is hard-coded here, otherwise a
 func (c *Client) Create(ctx context.Context, request Request) (*tektonv1.PipelineRun, error) {
 	run := &tektonv1.PipelineRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      request.Name,
 			Namespace: c.Namespace,
-			// Les labels sont la marque de paternité : c'est par eux que
-			// l'observateur distingue un run piloté d'un run déclenché par un
-			// webhook ou un CronJob, et par eux que la réconciliation retrouve
-			// les runs du dashboard après un redémarrage.
+			// The labels are the mark of paternity: they are how the observer tells a driven run
+			// from one triggered by a webhook or a cron job, and how reconciliation finds the
+			// dashboard's runs again after a restart.
 			Labels: map[string]string{
 				LabelJobID:    fmt.Sprint(request.JobID),
 				LabelKind:     request.Pipeline.Kind,
@@ -67,7 +65,7 @@ func (c *Client) Create(ctx context.Context, request Request) (*tektonv1.Pipelin
 	if timeout := request.Pipeline.Timeout; timeout != "" {
 		parsed, err := time.ParseDuration(timeout)
 		if err != nil {
-			return nil, fmt.Errorf("timeout %q du kind %q: %w", timeout, request.Pipeline.Kind, err)
+			return nil, fmt.Errorf("timeout %q of kind %q: %w", timeout, request.Pipeline.Kind, err)
 		}
 		run.Spec.Timeouts = &tektonv1.TimeoutFields{Pipeline: &metav1.Duration{Duration: parsed}}
 	}
@@ -83,14 +81,14 @@ func (c *Client) Create(ctx context.Context, request Request) (*tektonv1.Pipelin
 	for _, workspace := range request.Pipeline.Workspaces {
 		binding, err := workspaceBinding(workspace)
 		if err != nil {
-			return nil, fmt.Errorf("workspace %q du kind %q: %w", workspace.Name, request.Pipeline.Kind, err)
+			return nil, fmt.Errorf("workspace %q of kind %q: %w", workspace.Name, request.Pipeline.Kind, err)
 		}
 		run.Spec.Workspaces = append(run.Spec.Workspaces, binding)
 	}
 
 	created, err := c.Tekton.TektonV1().PipelineRuns(c.Namespace).Create(ctx, run, metav1.CreateOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("création du PipelineRun %q: %w", request.Name, err)
+		return nil, fmt.Errorf("creating PipelineRun %q: %w", request.Name, err)
 	}
 	return created, nil
 }
@@ -130,39 +128,39 @@ func workspaceBinding(workspace catalog.Workspace) (tektonv1.WorkspaceBinding, e
 		binding.VolumeClaimTemplate = claim
 
 	default:
-		// La validation du catalogue l'interdit déjà ; le répéter ici évite une
-		// liaison vide, que Tekton accepterait avant d'échouer au montage.
-		return binding, fmt.Errorf("aucune source déclarée")
+		// Catalogue validation already forbids it; repeating it here avoids an empty
+		// binding, which Tekton would accept before failing at mount time.
+		return binding, fmt.Errorf("no source declared")
 	}
 
 	return binding, nil
 }
 
-// Cancel demande l'arrêt d'un run.
+// Cancel asks for a run to stop.
 //
-// L'annulation est une **demande** : poser `spec.status: Cancelled` fait arrêter
-// les pods par Tekton, et c'est l'informer qui constate la fin. Le dashboard rend
-// la main tout de suite mais n'affiche `cancelled` qu'une fois le cluster
-// d'accord — annoncer l'inverse ferait croire à un arrêt qui n'a pas eu lieu.
+// Cancellation is a request: setting `spec.status: Cancelled` makes Tekton stop the
+// pods, and the informer observes the end. The dashboard returns at once but only
+// displays `cancelled` once the cluster agrees — announcing otherwise would suggest a
+// stop that did not happen.
 //
-// Le patch est un merge stratégique sur le seul champ concerné : un `Update`
-// écraserait ce que Tekton a écrit entre-temps dans le statut.
+// The patch is a strategic merge on the single field concerned: an Update would
+// overwrite what Tekton wrote to the status meanwhile.
 func (c *Client) Cancel(ctx context.Context, name string) error {
 	patch := []byte(`{"spec":{"status":"Cancelled"}}`)
 
 	_, err := c.Tekton.TektonV1().PipelineRuns(c.Namespace).
 		Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
-		return fmt.Errorf("annulation du PipelineRun %q: %w", name, err)
+		return fmt.Errorf("cancelling PipelineRun %q: %w", name, err)
 	}
 	return nil
 }
 
-// Pipelines rend les Pipeline déployés, pour la validation du catalogue.
+// Pipelines returns the deployed Pipelines, for catalogue validation.
 func (c *Client) Pipelines(ctx context.Context) (map[string]catalog.PipelineSpec, error) {
 	list, err := c.Tekton.TektonV1().Pipelines(c.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("liste des Pipeline de %q: %w", c.Namespace, err)
+		return nil, fmt.Errorf("listing the Pipelines of %q: %w", c.Namespace, err)
 	}
 
 	deployed := make(map[string]catalog.PipelineSpec, len(list.Items))
@@ -176,9 +174,9 @@ func (c *Client) Pipelines(ctx context.Context) (map[string]catalog.PipelineSpec
 			spec.Workspaces[workspace.Name] = workspace.Optional
 		}
 		for _, param := range pipeline.Spec.Params {
-			// Un paramètre à valeur par défaut n'a pas à être fourni par le
-			// catalogue : l'exiger obligerait à recopier des valeurs qui vivent
-			// déjà dans `mse-tekton`, et à les maintenir en double.
+			// A parameter with a default need not be supplied by the catalogue: requiring it
+			// would mean copying values that already live in the Pipeline, and maintaining them
+			// twice.
 			spec.Params[param.Name] = param.Default != nil
 		}
 		deployed[pipeline.Name] = spec

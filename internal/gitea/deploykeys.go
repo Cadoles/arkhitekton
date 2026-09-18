@@ -25,26 +25,25 @@ import (
  * l'écran qui affirmait le contraire.
  */
 
-// deployKey est ce que Gitea rend pour une clé de dépôt.
+// deployKey is what the forge returns for a repository key.
 type deployKey struct {
-	// Key porte le type, la matière et parfois un commentaire, séparés par des
-	// espaces : `ssh-ed25519 AAAAC3Nz… arkhitekton`.
+	// Key carries the type, the material and sometimes a comment, separated by spaces:
+	// `ssh-ed25519 AAAAC3Nz… arkhitekton`.
 	Key   string `json:"key"`
 	Title string `json:"title"`
 }
 
-// DeployKeys rend les clés de déploiement déclarées sur le dépôt du client.
+// DeployKeys returns the deploy keys declared on the client's repository.
 //
-// Le jeton doit avoir un droit d'**administration** sur le dépôt : Gitea réserve
-// cet endpoint, et un jeton de lecture seule reçoit 403. L'appelant doit traiter
-// l'échec comme « je ne sais pas » et non comme « la clé est absente » — les deux
-// n'appellent pas la même réaction.
+// The token must have administration rights on the repository: the forge reserves
+// this endpoint, and a read-only token receives 403. The caller must treat the
+// failure as "I do not know" and not as "the key is absent" — the two do not call for
+// the same response.
 func (c *Client) DeployKeys(ctx context.Context) ([]string, error) {
 	var keys []string
 
-	// Paginé comme les références : un dépôt peut porter plus de clés qu'une page,
-	// et s'arrêter à la première ferait conclure « absente » sur une clé qui vient
-	// après.
+	// Paged like the references: a repository may carry more keys than one page, and
+	// stopping at the first would conclude "absent" about a key that comes later.
 	for page := 1; len(keys) < maxDeployKeys; page++ {
 		query := url.Values{
 			"page":  {strconv.Itoa(page)},
@@ -57,7 +56,7 @@ func (c *Client) DeployKeys(ctx context.Context) ([]string, error) {
 
 		var batch []deployKey
 		if err := json.Unmarshal(body, &batch); err != nil {
-			return nil, fmt.Errorf("gitea: clés de déploiement illisibles: %w", err)
+			return nil, fmt.Errorf("gitea: deploy keys unreadable: %w", err)
 		}
 		for _, entry := range batch {
 			keys = append(keys, entry.Key)
@@ -69,24 +68,23 @@ func (c *Client) DeployKeys(ctx context.Context) ([]string, error) {
 	return keys, nil
 }
 
-// maxDeployKeys borne la lecture. Un dépôt qui en porterait davantage a un autre
-// problème que celui qu'on cherche à diagnostiquer ici.
+// maxDeployKeys bounds the read. A repository carrying more has a different problem
+// from the one being diagnosed here.
 const maxDeployKeys = 200
 
-// SameKey dit si deux clés publiques SSH désignent la même paire.
+// SameKey says whether two SSH public keys name the same pair.
 //
-// La comparaison porte sur le **type et la matière**, jamais sur le commentaire :
-// celui-ci est libre, souvent réécrit par l'interface de la forge au moment du
-// collage, et comparer les chaînes entières ferait répondre « absente » sur une
-// clé pourtant en place. C'est exactement le genre de faux négatif qui enverrait
-// quelqu'un recoller une clé déjà posée.
+// The comparison is on the type and the material, never on the comment: that is free
+// text, often rewritten by the forge's interface when pasted, and comparing whole
+// strings would answer "absent" about a key that is in place. Exactly the kind of
+// false negative that would send someone to paste a key already installed.
 func SameKey(a, b string) bool {
 	typeA, matiereA, okA := splitKey(a)
 	typeB, matiereB, okB := splitKey(b)
 	return okA && okB && typeA == typeB && matiereA == matiereB
 }
 
-// splitKey isole le type et la matière d'une clé publique.
+// splitKey isolates the type and the material of a public key.
 func splitKey(key string) (keyType, material string, ok bool) {
 	fields := strings.Fields(strings.TrimSpace(key))
 	if len(fields) < 2 {

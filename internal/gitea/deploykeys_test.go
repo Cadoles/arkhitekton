@@ -12,54 +12,52 @@ import "testing"
 
 const cle = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBDoQT4jgoSvFdwjmhS3GhAn9/48tIieJhlrx1mpZm93"
 
-// Le commentaire ne compte pas : il est libre, et la forge le réécrit souvent au
-// moment du collage — Gitea y met le titre de la clé. Comparer les chaînes
-// entières répondrait « absente » sur une clé pourtant en place.
-func TestLeCommentaireNeDecidePasDeLIdentiteDUneCle(t *testing.T) {
+// The comment does not count: it is free text, and the forge often rewrites it when
+// pasted. Comparing whole strings would answer "absent" about a key that is in place.
+func TestTheCommentDoesNotDecideAKeysIdentity(t *testing.T) {
 	for _, variante := range []string{
 		cle,
 		cle + " arkhitekton",
-		cle + " un tout autre commentaire",
-		"  " + cle + " avec des espaces  ",
+		cle + " an entirely different comment",
+		"  " + cle + " with spaces  ",
 	} {
 		if !SameKey(variante, cle+" arkhitekton-project-mse-git") {
-			t.Errorf("variante %q jugée différente", variante)
+			t.Errorf("variant %q judged different", variante)
 		}
 	}
 }
 
-// Deux clés distinctes le restent, même sous le même commentaire : c'est le cas
-// d'une rotation où l'ancienne n'a pas été remplacée dans le dépôt.
-func TestDeuxClesDistinctesLeRestent(t *testing.T) {
+// Two distinct keys stay distinct, even under the same comment: that is the case of a
+// rotation where the old one was not replaced in the repository.
+func TestTwoDistinctKeysStayDistinct(t *testing.T) {
 	autre := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAutreMatiereQuiNestPasLaMeme"
 
 	if SameKey(cle+" arkhitekton", autre+" arkhitekton") {
-		t.Error("deux matières différentes jugées identiques")
+		t.Error("two different key materials judged identical")
 	}
-	// Le type compte aussi : une RSA et une ed25519 ne sont pas la même clé,
-	// quand bien même leur matière commencerait pareil.
+	// The type counts too: an RSA and an ed25519 are not the same key, even if their
+	// material started alike.
 	if SameKey("ssh-rsa AAAAB3", "ssh-ed25519 AAAAB3") {
-		t.Error("deux types différents jugés identiques")
+		t.Error("two different key types judged identical")
 	}
 }
 
-// Une entrée sans matière ne correspond à rien, **pas même à elle-même**.
+// An entry with no material matches nothing, not even itself.
 //
-// C'est la garde qui compte ici : un projet dont la clé n'a pas encore été posée
-// porte une chaîne vide, et sans cette règle il se croirait reconnu dans un dépôt
-// qui n'en déclare aucune. Il partirait alors construire avec une clé
-// inexistante, et le clone échouerait loin de la cause.
+// That is the guard that counts here: a project whose key has not been set carries an
+// empty string, and without this rule it would believe itself recognised in a
+// repository that declares none. It would then build with a non-existent key, and the
+// clone would fail far from the cause.
 //
-// La comparaison ne cherche pas à valider la syntaxe d'une clé au-delà : ce n'est
-// pas son rôle, et deux chaînes bien formées mais fantaisistes ont le droit de se
-// ressembler.
-func TestUneEntreeSansMatiereNeCorrespondARien(t *testing.T) {
+// The comparison does not try to validate a key's syntax beyond that: it is not its
+// job, and two well-formed but fanciful strings are allowed to resemble each other.
+func TestAnEntryWithNoMaterialMatchesNothing(t *testing.T) {
 	for _, sansMatiere := range []string{"", "   ", "ssh-ed25519"} {
 		if SameKey(sansMatiere, cle) {
-			t.Errorf("entrée %q jugée identique à une clé valide", sansMatiere)
+			t.Errorf("entry %q judged identical to a valid key", sansMatiere)
 		}
 		if SameKey(sansMatiere, sansMatiere) {
-			t.Errorf("entrée %q jugée identique à elle-même", sansMatiere)
+			t.Errorf("entry %q judged identical to itself", sansMatiere)
 		}
 	}
 }

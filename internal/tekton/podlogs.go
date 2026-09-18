@@ -10,30 +10,29 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// PodLogs lit les journaux des pods du namespace des pipelines.
+// PodLogs reads the logs of pods in the pipelines' namespace.
 //
-// C'est le seul accès du dashboard au contenu d'un pod. `pods/exec` est
-// volontairement absent de la RBAC : lire un journal ne demande pas d'exécuter
-// quoi que ce soit (doc 07 §7.3).
+// This is the dashboard's only access to a pod's content. `pods/exec` is
+// deliberately absent from the RBAC: reading a log does not require executing
+// anything.
 type PodLogs struct {
 	client *Client
 }
 
-// NewPodLogs enveloppe le client pour le collecteur.
+// NewPodLogs wraps the client for the collector.
 func NewPodLogs(client *Client) *PodLogs {
 	return &PodLogs{client: client}
 }
 
-// Stream ouvre le journal d'un conteneur en mode suivi.
+// Stream opens a container's log in follow mode.
 //
-// `Timestamps: true` n'est pas cosmétique : c'est l'horodatage par ligne qui rend
-// la reprise possible après un redémarrage du worker. Sans lui, il n'y aurait aucun
-// moyen de savoir où l'on s'était arrêté, et il faudrait tout relire — ou tout
-// perdre.
+// `Timestamps: true` is not cosmetic: the per-line timestamp is what makes resuming
+// possible after the worker restarts. Without it there would be no way to know where
+// one stopped, and everything would have to be re-read — or lost.
 //
-// `since` a une précision à la seconde côté API : la reprise renvoie donc des
-// lignes déjà connues, que l'appelant écarte. Le compromis est volontaire —
-// dupliquer se corrige, perdre ne se corrige pas.
+// `since` has second precision on the API side: resuming therefore returns lines
+// already known, which the caller discards. The trade is deliberate — duplicating is
+// fixable, losing is not.
 func (p *PodLogs) Stream(
 	ctx context.Context, pod, container string, since *time.Time,
 ) (io.ReadCloser, error) {
@@ -52,9 +51,9 @@ func (p *PodLogs) Stream(
 		GetLogs(pod, options).
 		Stream(ctx)
 	if err != nil {
-		// Cas le plus fréquent : le conteneur n'a pas encore démarré. L'appelant
-		// réessaie, il n'y a rien d'anormal à signaler ici.
-		return nil, fmt.Errorf("journal de %s/%s: %w", pod, container, err)
+		// The most frequent case: the container has not started. The caller retries, and
+		// there is nothing abnormal to report here.
+		return nil, fmt.Errorf("log of %s/%s: %w", pod, container, err)
 	}
 	return stream, nil
 }

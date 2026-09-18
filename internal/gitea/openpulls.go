@@ -21,8 +21,7 @@ import (
  * et la traiter comme tel renotifierait à chaque commentaire.
  */
 
-// OpenPullRequest est une demande de fusion ouverte, réduite à ce qu'un fait
-// porte.
+// OpenPullRequest is an open pull request, reduced to what a fact carries.
 type OpenPullRequest struct {
 	Number       int64
 	Title        string
@@ -33,22 +32,20 @@ type OpenPullRequest struct {
 	CreatedAt    time.Time
 }
 
-// maxOpenPulls borne la lecture.
+// maxOpenPulls bounds the read.
 //
-// Un dépôt actif porte quelques dizaines de demandes ouvertes. Deux cents laisse
-// une marge et borne le coût : la sonde tourne à chaque intervalle, pour chaque
-// projet, et une lecture non bornée ferait payer l'historique entier à chaque
-// passage.
+// An active repository carries a few dozen open requests. Two hundred leaves room and
+// bounds the cost: the probe runs at every interval, for every project, and an
+// unbounded read would pay for the whole history on each pass.
 const maxOpenPulls = 200
 
-// ListOpenPullRequests rend les demandes ouvertes créées après `since`.
+// ListOpenPullRequests returns the open requests created after `since`.
 //
-// `since` nul lit jusqu'à la borne : c'est la passe d'amorçage, dont la boucle
-// n'émet rien — elle ne sert qu'à établir le curseur.
+// A nil `since` reads up to the bound: that is the priming pass, whose loop emits
+// nothing — it only establishes the cursor.
 //
-// Le tri de Gitea porte sur la date de **mise à jour**, pas de création : on ne
-// peut donc pas s'arrêter au premier élément trop ancien, et la borne de pages
-// est ce qui tient le coût.
+// The forge sorts on the update date, not the creation date: one cannot therefore
+// stop at the first item that is too old, and the page bound is what holds the cost.
 func (c *Client) ListOpenPullRequests(ctx context.Context, since time.Time) ([]OpenPullRequest, error) {
 	var pulls []OpenPullRequest
 
@@ -80,13 +77,12 @@ func (c *Client) ListOpenPullRequests(ctx context.Context, since time.Time) ([]O
 			CreatedAt time.Time `json:"created_at"`
 		}
 		if err := json.Unmarshal(body, &batch); err != nil {
-			return nil, fmt.Errorf("gitea: demandes de fusion illisibles: %w", err)
+			return nil, fmt.Errorf("gitea: pull requests unreadable: %w", err)
 		}
 
 		for _, entry := range batch {
-			// La date de **création** décide, jamais celle de mise à jour : une
-			// demande ouverte il y a un mois et commentée ce matin n'est pas un
-			// fait nouveau.
+			// The creation date decides, never the update date: a request opened a month ago and
+			// commented this morning is not a new fact.
 			if !since.IsZero() && !entry.CreatedAt.After(since) {
 				continue
 			}

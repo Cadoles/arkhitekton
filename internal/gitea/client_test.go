@@ -14,16 +14,16 @@ import (
 
 func clientFor(t *testing.T, serverURL string) *Client {
 	t.Helper()
-	client, err := New(Options{URL: serverURL, Token: "jeton-de-test", Repository: "CNOUS/mse"})
+	client, err := New(Options{URL: serverURL, Token: "test-token", Repository: "CNOUS/mse"})
 	if err != nil {
 		t.Fatalf("construction: %v", err)
 	}
 	return client
 }
 
-// La garantie du paquet : aucune méthode d'écriture n'atteint le réseau. Le jour où
-// le dashboard posera des tags sur la forge, ce sera un autre client.
-func TestAucuneEcritureNAtteintLeReseau(t *testing.T) {
+// The package's guarantee: no write method reaches the network. The day the dashboard
+// sets tags on the forge, it will be another client.
+func TestNoWriteReachesTheNetwork(t *testing.T) {
 	reached := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		reached++
@@ -36,16 +36,16 @@ func TestAucuneEcritureNAtteintLeReseau(t *testing.T) {
 		request, _ := http.NewRequestWithContext(context.Background(), method,
 			server.URL+"/api/v1/repos/CNOUS/mse/tags", nil)
 		if _, err := client.http.Do(request); !errors.Is(err, ErrWriteForbidden) {
-			t.Errorf("%s: erreur %v, attendu ErrWriteForbidden", method, err)
+			t.Errorf("%s: error %v, expected ErrWriteForbidden", method, err)
 		}
 	}
 	if reached != 0 {
-		t.Errorf("%d requête(s) d'écriture ont atteint le serveur", reached)
+		t.Errorf("%d write request(s) reached the server", reached)
 	}
 }
 
-// Le jeton voyage en en-tête, jamais dans l'URL, et ne fuit dans aucune erreur.
-func TestLeJetonResteEnEnteteEtHorsDesErreurs(t *testing.T) {
+// The token travels in a header, never in the URL, and leaks into no error.
+func TestTheTokenStaysInTheHeaderAndOutOfErrors(t *testing.T) {
 	var header, query string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header = r.Header.Get("Authorization")
@@ -57,26 +57,26 @@ func TestLeJetonResteEnEnteteEtHorsDesErreurs(t *testing.T) {
 	if _, err := clientFor(t, server.URL).DefaultBranch(context.Background()); err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
-	if header != "token jeton-de-test" {
-		t.Errorf("en-tête %q", header)
+	if header != "token test-token" {
+		t.Errorf("header %q", header)
 	}
-	if strings.Contains(query, "jeton-de-test") {
-		t.Errorf("le jeton est passé dans l'URL: %q", query)
+	if strings.Contains(query, "test-token") {
+		t.Errorf("the token was passed in the URL: %q", query)
 	}
 
-	// Erreur de transport : l'URL complète est recopiée dans url.Error, le jeton ne
-	// doit pas y être.
+	// A transport error: the full URL is copied into url.Error, and the token must not be
+	// in it.
 	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	deadURL := dead.URL
 	dead.Close()
 	_, err := clientFor(t, deadURL).DefaultBranch(context.Background())
-	if err == nil || strings.Contains(err.Error(), "jeton-de-test") {
-		t.Errorf("le jeton fuit dans l'erreur: %v", err)
+	if err == nil || strings.Contains(err.Error(), "test-token") {
+		t.Errorf("the token leaks into the error: %v", err)
 	}
 }
 
-// La pagination réunit les pages et s'arrête sur la page courte.
-func TestLesBranchesSePaginentJusquALaPageCourte(t *testing.T) {
+// Pagination gathers the pages and stops on the short page.
+func TestBranchesPageUntilTheShortPage(t *testing.T) {
 	pages := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pages++
@@ -101,16 +101,16 @@ func TestLesBranchesSePaginentJusquALaPageCourte(t *testing.T) {
 		t.Fatalf("branches: %v", err)
 	}
 	if len(refs) != pageSize+3 || pages != 2 {
-		t.Errorf("%d branches en %d pages, attendu %d en 2", len(refs), pages, pageSize+3)
+		t.Errorf("%d branches over %d pages, expected %d over 2", len(refs), pages, pageSize+3)
 	}
 	if truncated {
-		t.Error("liste complète marquée tronquée")
+		t.Error("a complete list marked truncated")
 	}
 }
 
-// La borne coupe une liste interminable, et le dit : une liste silencieusement
-// incomplète se lirait comme exhaustive.
-func TestUneListeInterminableEstBorneeEtLeDit(t *testing.T) {
+// The bound cuts an endless list, and says so: a silently incomplete list would read
+// as exhaustive.
+func TestAnEndlessListIsBoundedAndSaysSo(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		var payload []map[string]any
 		for i := 0; i < pageSize; i++ {
@@ -127,16 +127,16 @@ func TestUneListeInterminableEstBorneeEtLeDit(t *testing.T) {
 		t.Fatalf("tags: %v", err)
 	}
 	if len(refs) != maxRefs {
-		t.Errorf("%d références, attendu la borne %d", len(refs), maxRefs)
+		t.Errorf("%d references, expected the bound %d", len(refs), maxRefs)
 	}
 	if !truncated {
-		t.Error("la troncature doit être signalée")
+		t.Error("truncation must be reported")
 	}
 }
 
-// Sans configuration complète, pas de client : l'absence est une décision de
-// déploiement, pas une panne à découvrir au premier appel.
-func TestSansConfigurationLeClientNestPasConstruit(t *testing.T) {
+// Without complete configuration, no client: absence is a deployment decision, not a
+// fault to discover at the first call.
+func TestWithoutConfigurationNoClientIsBuilt(t *testing.T) {
 	for _, options := range []Options{
 		{},
 		{URL: "https://forge.example.org", Token: "x"},
@@ -144,36 +144,36 @@ func TestSansConfigurationLeClientNestPasConstruit(t *testing.T) {
 		{Token: "x", Repository: "CNOUS/mse"},
 	} {
 		if _, err := New(options); !errors.Is(err, ErrNotConfigured) {
-			t.Errorf("%+v: erreur %v, attendu ErrNotConfigured", options, err)
+			t.Errorf("%+v: error %v, expected ErrNotConfigured", options, err)
 		}
 	}
 
-	// Un dépôt sans owner est une faute de forme, distincte de l'absence.
+	// A repository without an owner is a malformed value, distinct from an absent one.
 	if _, err := New(Options{URL: "https://forge.example.org", Token: "x", Repository: "mse"}); err == nil {
-		t.Error("un dépôt sans owner devrait être refusé")
+		t.Error("a repository without an owner should be refused")
 	}
 }
 
-// Le jeton ouvre la forge entière au nom de son détenteur : en clair sur le réseau,
-// hors de question.
-func TestUneURLEnClairEstRefuseeHorsLocalhost(t *testing.T) {
+// The token opens the whole forge in its holder's name: in clear text over the
+// network, out of the question.
+func TestACleartextURLIsRefusedOutsideLocalhost(t *testing.T) {
 	if _, err := New(Options{URL: "http://forge.example.org", Token: "x", Repository: "a/b"}); err == nil {
-		t.Error("une URL http distante devrait être refusée")
+		t.Error("a remote http URL should be refused")
 	}
 	if _, err := New(Options{URL: "http://127.0.0.1:3000", Token: "x", Repository: "a/b"}); err != nil {
-		t.Errorf("127.0.0.1 devrait être admis: %v", err)
+		t.Errorf("127.0.0.1 should be allowed: %v", err)
 	}
 }
 
-// Un jeton refusé se distingue d'une panne, et le message oriente.
-func TestUnJetonRefuseEstNommeCommeTel(t *testing.T) {
+// A refused token is told apart from a fault, and the message points somewhere.
+func TestARefusedTokenIsNamedAsSuch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer server.Close()
 
 	_, err := clientFor(t, server.URL).DefaultBranch(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "jeton invalide ou sans droit") {
-		t.Errorf("message peu explicite: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "invalid token") {
+		t.Errorf("unhelpful message: %v", err)
 	}
 }
