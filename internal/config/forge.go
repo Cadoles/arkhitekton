@@ -37,16 +37,31 @@ func (c ForgeConfig) CloneURL(sshPort string) string {
 	if !c.Configured() {
 		return ""
 	}
+	return CloneURLFor(c.URL, c.Repository, sshPort)
+}
+
+// CloneURLFor rend l'URL SSH de clonage d'un dépôt donné.
+//
+// Séparée de [ForgeConfig.CloneURL] parce que chaque **projet** porte sa forge et
+// son dépôt en base : c'est de là que vient ce que ses pipelines clonent, et non
+// d'une clé de configuration valable pour toute l'instance (doc 16 §16.24).
+//
+// Rend une chaîne vide quand l'un des deux manque : l'appelant retombe alors sur
+// la valeur de l'instance, ce qui préserve un projet déclaré avant que sa forge ne
+// soit renseignée.
+func CloneURLFor(forgeURL, repository, sshPort string) string {
+	repo := strings.TrimSuffix(strings.Trim(strings.TrimSpace(repository), "/"), ".git")
+	if strings.TrimSpace(forgeURL) == "" || repo == "" {
+		return ""
+	}
 	if sshPort == "" {
 		sshPort = DefaultForgeSSHPort
 	}
 
-	parsed, err := url.Parse(c.URL)
+	parsed, err := url.Parse(forgeURL)
 	if err != nil || parsed.Hostname() == "" {
 		return ""
 	}
-
-	repo := strings.TrimSuffix(strings.Trim(c.Repository, "/"), ".git")
 
 	return fmt.Sprintf("ssh://git@%s:%s/%s.git", parsed.Hostname(), sshPort, repo)
 }

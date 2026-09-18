@@ -126,7 +126,7 @@ pipelines:
     # croyait auditer. Un audit qui porte sur autre chose que la release est pire
     # qu'un audit absent — il rend un verdict qu'on rapporte à la mauvaise chose.
     params:
-      app-repo-url:        { source: config, key: forge.mse.repoUrl }
+      app-repo-url:        { source: config, key: project.repoUrl }
       app-revision: { source: input,  required: true, suggest: git-ref }
       # L'audit scanne aussi l'infrastructure de déploiement et lit ses règles
       # Semgrep dans `mse-tekton` : trois dépôts, trois accès à accorder à la clé
@@ -214,7 +214,7 @@ pipelines:
     # elles écrivent sous des tags distincts. La sérialisation du registre ne
     # concerne que le re-tag, où deux manifestes visent le même dépôt.
     params:
-      repo-url:    { source: config, key: forge.mse.repoUrl }
+      repo-url:    { source: config, key: project.repoUrl }
       reg-project: { source: config, key: registry.project }
       # Le Dockerfile et son contexte viennent de la **déclaration du projet**, et
       # non de la configuration du déploiement. Un dépôt peut porter un
@@ -320,7 +320,7 @@ pipelines:
     pipelineRef: php-static-tests
     label: Analyse statique
     params:
-      repo-url:     { source: config, key: forge.mse.repoUrl }
+      repo-url:     { source: config, key: project.repoUrl }
       revision: { source: input, required: true, suggest: git-ref }
     # Artefacts attendus. Le dashboard calcule la clé de chacun et mint l'URL
     # d'écriture **avant** de créer le run : le pipeline n'a donc ni bucket, ni
@@ -349,7 +349,7 @@ pipelines:
     pipelineRef: php-unit-tests
     label: Tests unitaires
     params:
-      repo-url:     { source: config, key: forge.mse.repoUrl }
+      repo-url:     { source: config, key: project.repoUrl }
       revision: { source: input, required: true, suggest: git-ref }
     uploads:
       results:
@@ -427,7 +427,7 @@ pipelines:
     serviceAccountName: tekton-kubectl
     timeout: 45m
     params:
-      mse-repo:            { source: config, key: forge.mse.repoUrl }
+      mse-repo:            { source: config, key: project.repoUrl }
       mse-kustom-repo:     { source: config, key: forge.mseKustom.repoUrl }
       overlay-location:    { source: config, key: mse.overlayLocation }
       reg-project:         { source: config, key: registry.project }

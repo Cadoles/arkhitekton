@@ -247,3 +247,55 @@ func TestUnReglageDeProjetRemplaceCeluiDeLInstance(t *testing.T) {
 		t.Errorf("un autre projet a hérité du réglage: %q", settings["forge.mseKustom.repoUrl"])
 	}
 }
+
+type depotsDeProjets map[int64]store.Project
+
+func (d depotsDeProjets) GetProject(_ context.Context, id int64) (store.Project, error) {
+	project, found := d[id]
+	if !found {
+		return store.Project{}, store.ErrProjectNotFound
+	}
+	return project, nil
+}
+
+// Les pipelines d'un projet clonent **son** dépôt, déclaré en base. Sans cela, un
+// second projet construirait le dépôt du premier (doc 16 §16.24).
+func TestLesPipelinesDUnProjetClonentSonDepot(t *testing.T) {
+	scheduler := (&Scheduler{config: map[string]string{
+		projectRepoKey: "ssh://git@forge/CNOUS/mse.git",
+		legacyRepoKey:  "ssh://git@forge/CNOUS/mse.git",
+	}}).WithProjectRepositories(depotsDeProjets{
+		7: {ID: 7, Repository: "vcarroy/themes", ForgeURL: "https://forge.example.fr"},
+		// Déclaré avant que sa forge ne soit renseignée.
+		8: {ID: 8, Repository: "vcarroy/sans-forge"},
+	}, "2222")
+
+	projet := int64(7)
+	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projet})
+	if err != nil {
+		t.Fatalf("réglages: %v", err)
+	}
+	const attendu = "ssh://git@forge.example.fr:2222/vcarroy/themes.git"
+	if settings[projectRepoKey] != attendu {
+		t.Errorf("dépôt = %q, attendu celui du projet", settings[projectRepoKey])
+	}
+	// L'ancienne clé porte la même valeur, tant qu'un catalogue la nomme.
+	if settings[legacyRepoKey] != attendu {
+		t.Errorf("ancienne clé = %q", settings[legacyRepoKey])
+	}
+
+	sansForge := int64(8)
+	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &sansForge})
+	if err != nil {
+		t.Fatalf("réglages: %v", err)
+	}
+	if settings[projectRepoKey] != "ssh://git@forge/CNOUS/mse.git" {
+		t.Errorf("dépôt = %q, attendu celui de l'instance", settings[projectRepoKey])
+	}
+
+	// Un job sans projet garde celui de l'instance.
+	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 3})
+	if err != nil || settings[projectRepoKey] != "ssh://git@forge/CNOUS/mse.git" {
+		t.Errorf("job sans projet: %q (%v)", settings[projectRepoKey], err)
+	}
+}

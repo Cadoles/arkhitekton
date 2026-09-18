@@ -13,6 +13,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
 )
@@ -84,6 +85,11 @@ type Scheduler struct {
 	// instance identifie la base. Entre dans le nom des runs pour qu'une remise à
 	// zéro ne produise pas d'homonymes de PipelineRun restés dans le cluster.
 	instance string
+	// projects rend le dépôt d'un projet, pour que ses pipelines clonent le sien.
+	// Nil : le dépôt de l'instance vaut pour tous.
+	projects ProjectRepositories
+	// projectSSHPort est le port SSH de la forge, que l'URL HTTPS ne dit pas.
+	projectSSHPort string
 	// projectSettings rend les valeurs de configuration qu'un plugin ajoute pour
 	// un projet — la kustomisation du MSE, son overlay. Nil : la configuration de
 	// l'instance seule (doc 16 §16.18).
@@ -135,6 +141,15 @@ func (s *Scheduler) WithUploads(presigner Presigner) *Scheduler {
 	return s
 }
 
+// Les deux clés sous lesquelles le catalogue désigne le dépôt à cloner.
+//
+// `forge.mse.repoUrl` nommait le MSE dans une clé du noyau. Elle reste servie le
+// temps qu'un catalogue déployé la nomme encore (doc 16 §16.24).
+const (
+	projectRepoKey = "project.repoUrl"
+	legacyRepoKey  = "forge.mse.repoUrl"
+)
+
 // NewSchedulerFromCatalog assemble l'ordonnanceur. `config` fournit les valeurs
 // des paramètres de source `config`.
 func NewSchedulerFromCatalog(
@@ -145,6 +160,21 @@ func NewSchedulerFromCatalog(
 		queue: queue, cluster: cluster, catalog: pipelines,
 		config: config, local: map[string]LocalTask{}, logger: logger,
 	}
+}
+
+// ProjectRepositories rend le dépôt déclaré d'un projet.
+type ProjectRepositories interface {
+	GetProject(ctx context.Context, id int64) (store.Project, error)
+}
+
+// WithProjectRepositories branche la résolution du dépôt d'un projet.
+//
+// Sans elle, tous les projets clonent le dépôt de la configuration : c'est l'état
+// d'avant, et celui d'un job qui ne désigne aucun projet.
+func (s *Scheduler) WithProjectRepositories(projects ProjectRepositories, sshPort string) *Scheduler {
+	s.projects = projects
+	s.projectSSHPort = sshPort
+	return s
 }
 
 // WithProjectSettings branche les réglages qu'un plugin ajoute par projet.
@@ -537,6 +567,21 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) (map[string]
 	}
 
 	overrides := map[string]string{}
+
+	// Le dépôt du projet, celui que ses pipelines clonent. Déclaré en base, et
+	// non dans la configuration : un second projet ne construit pas le dépôt du
+	// premier (doc 16 §16.24).
+	if s.projects != nil {
+		project, err := s.projects.GetProject(ctx, *job.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("dépôt du projet %d: %w", *job.ProjectID, err)
+		}
+		if clone := config.CloneURLFor(project.ForgeURL, project.Repository, s.projectSSHPort); clone != "" {
+			overrides[projectRepoKey] = clone
+			// L'ancienne clé, tant qu'un catalogue peut encore la nommer.
+			overrides[legacyRepoKey] = clone
+		}
+	}
 
 	// Ce qu'un plugin ajoute pour ce projet, avant les secrets : les deux portent
 	// sur des clés distinctes, et l'ordre ne fait que dire laquelle est la plus

@@ -991,9 +991,41 @@ C'est ce qui rend la tranche sans effet sur cette instance : ses valeurs — dé
 `vcarroy/mse-kustom-test-project`, révision `main` — sont amorcées telles quelles.
 
 **Ce qui reste au noyau**, parce que ce n'est pas propre au MSE : le dépôt applicatif, le
-registre, MinIO, les secrets de pipeline, le namespace Tekton. `mse.dockerfile`,
-`mse.buildContext` et `mse.pipelineTag` restent aussi : ils ne servent plus qu'à **amorcer les
-projets** au premier démarrage, et leur nom est un reste à corriger avec cet amorçage.
+registre, MinIO, les secrets de pipeline, le namespace Tekton. Restaient aussi `mse.dockerfile`,
+`mse.buildContext` et `mse.pipelineTag`, dont le nom mentait sur ce qu'ils faisaient : §16.24
+les traite.
 
 **Journal.** Le worker journalise, par projet, la kustomisation et l'overlay retenus, à côté du
 namespace Flux.
+
+## 16.24 Le dépôt et le Dockerfile — le nom au bon niveau
+
+Deux restes de l'époque où l'instance servait un seul projet. Ils ne se voyaient pas tant qu'un
+seul projet existait : ils **désignaient** l'instance et **nommaient** le MSE.
+
+**`mse.dockerfile`, `mse.buildContext`, `mse.pipelineTag` disparaissent de l'ordonnanceur.**
+Ces clés ne sont plus lues par aucun pipeline : le plan de construction prend le Dockerfile et
+le contexte **du projet** (`project.DockerfileFor(target)`, `project.BuildContext`), déclarés en
+base à sa création. Ce qu'elles servaient encore, c'est l'amorçage du premier projet au premier
+démarrage — et cela, c'est l'affaire de l'amorçage, pas des réglages de run. Les variables
+d'environnement correspondantes gardent donc leur rôle, mais ne traversent plus l'ordonnanceur.
+`mse.pipelineTag` ne servait plus nulle part du tout.
+
+**`forge.mse.repoUrl` devient `project.repoUrl`, et suit le projet.** Cinq paramètres du
+catalogue clonaient le dépôt applicatif ; sa valeur venait de la configuration de l'instance.
+Un second projet aurait donc construit le dépôt du premier — silencieusement, avec une image
+portant son nom à lui.
+
+L'ordonnanceur résout maintenant cette clé **par job** : il lit le projet du job et compose
+l'URL de clonage depuis sa forge et son dépôt (`config.CloneURLFor`), comme le fait déjà
+`ForgeConfig.CloneURL` pour l'instance. Un job sans projet, ou un projet déclaré avant que sa
+forge ne soit renseignée, retombe sur le dépôt de l'instance — ce qui préserve exactement le
+comportement d'avant.
+
+`forge.mse.repoUrl` reste servi, avec la même valeur. Pendant un déploiement, l'image et le
+ConfigMap du catalogue arrivent en deux temps : sans cet alias, un pod neuf lisant l'ancien
+catalogue ferait échouer la mise en file sur un paramètre non couvert. L'alias part quand plus
+aucun catalogue ne le nomme.
+
+**Le port SSH ne se déduit pas de l'URL de la forge**, qui est en HTTPS : l'ordonnanceur reçoit
+`FORGE_SSH_PORT` au câblage, et retombe sur le port par défaut de la forge sans lui.

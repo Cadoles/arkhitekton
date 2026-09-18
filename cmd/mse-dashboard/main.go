@@ -655,8 +655,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// désigne un chemin sans dire d'où il vient.
 			resolved := schedulerConfig(cfg)
 			logger.Info("cible des pipelines",
-				"repo", resolved["forge.mse.repoUrl"],
-				"dockerfile", resolved["mse.dockerfile"],
+				// Le dépôt d'un job sans projet : ceux qui en ont un clonent le
+				// leur, journalisé par projet plus haut.
+				"repo_par_defaut", resolved["project.repoUrl"],
 				"registry_project", resolved["registry.project"],
 				// La kustomisation, sa révision et l'overlay sont journalisés par
 				// projet, avec le namespace Flux : ils viennent des réglages du
@@ -763,6 +764,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// sur la partagée : c'est l'état d'avant le lot G, et le bon
 				// pour un projet déclaré avant lui.
 				WithProjectKeys(db).
+				// Le dépôt que ce projet clone, lu en base : un second projet ne
+				// construit pas celui du premier (doc 16 §16.24).
+				WithProjectRepositories(db, os.Getenv("FORGE_SSH_PORT")).
 				// Et les réglages que le plugin MSE ajoute pour ce projet : sa
 				// kustomisation, son overlay. Rien quand le module y est éteint.
 				WithProjectSettings(mse.PipelineSettings(db))
@@ -926,6 +930,38 @@ func seedMSESettings(ctx context.Context, db *store.DB, logger *slog.Logger) {
 	logger.Info("réglages du plugin MSE amorcés", "champs", posed)
 }
 
+// appRepositoryURL rend le dépôt applicatif que la configuration désigne.
+//
+// Dérivé de `GITEA_REPO` : c'est le même dépôt que celui dont le formulaire
+// propose les branches, et le nommer deux fois laissait basculer l'un sans
+// l'autre. `FORGE_MSE_REPO_URL` reste une dérogation explicite, non le réglage
+// courant.
+func appRepositoryURL(cfg config.Config) string {
+	if explicit := strings.TrimSpace(os.Getenv("FORGE_MSE_REPO_URL")); explicit != "" {
+		return explicit
+	}
+	if derived := cfg.Forge.CloneURL(os.Getenv("FORGE_SSH_PORT")); derived != "" {
+		return derived
+	}
+	return "ssh://git@forge.cadoles.com:2222/CNOUS/mse.git"
+}
+
+// projectSeedDefaults rend ce qu'un projet reçoit à son amorçage : son dépôt, son
+// Dockerfile, son contexte de build.
+//
+// Un amorçage et non une configuration de pipeline : la base fait foi dès le
+// premier démarrage, et le plan d'une release lit ces valeurs **sur le projet**
+// (doc 16 §16.24).
+func projectSeedDefaults(cfg config.Config) map[string]string {
+	return map[string]string{
+		"repoUrl":    appRepositoryURL(cfg),
+		"dockerfile": envOrDefault("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
+		// Contexte de build, distinct du Dockerfile : `mse` place le sien dans une
+		// sous-arborescence tout en construisant depuis la racine.
+		"buildContext": envOrDefault("MSE_BUILD_CONTEXT", "."),
+	}
+}
+
 // mseSeedSettings rend les réglages du plugin MSE que l'environnement fournit.
 //
 // Un **amorçage**, et non une lecture : ces valeurs posent le premier réglage,
@@ -959,19 +995,6 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		return fallback
 	}
 
-	// Le dépôt applicatif est dérivé de `GITEA_REPO` : c'est le même dépôt que
-	// celui dont le formulaire propose les branches, et le nommer deux fois
-	// laissait basculer l'un sans l'autre. `FORGE_MSE_REPO_URL` reste une
-	// dérogation explicite, non le réglage courant.
-	//
-	// Les deux autres dépôts ne suivent pas : `mse-kustom` et `mse-tests-e2e`
-	// sont d'autres dépôts, pas d'autres vues du même.
-	appRepo := envOr("FORGE_MSE_REPO_URL",
-		cfg.Forge.CloneURL(os.Getenv("FORGE_SSH_PORT")))
-	if appRepo == "" {
-		appRepo = "ssh://git@forge.cadoles.com:2222/CNOUS/mse.git"
-	}
-
 	return map[string]string{
 		"tekton.namespace": cfg.Tekton.Namespace,
 		// Noms des secrets montés sur les workspaces. Le dashboard **désigne** les
@@ -988,7 +1011,12 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// pousser : le pod tire depuis `cnous-mse`, `crane` pousse vers le projet
 		// de la release. Deux portées, potentiellement deux comptes.
 		"pipeline.imagePullSecret": envOr("PIPELINE_IMAGE_PULL_SECRET", "regcred"),
-		"forge.mse.repoUrl":        appRepo,
+		// Le dépôt d'un job qui ne désigne aucun projet. Ceux qui en désignent un
+		// clonent **le sien**, lu en base par l'ordonnanceur (doc 16 §16.24).
+		"project.repoUrl": appRepositoryURL(cfg),
+		// L'ancienne clé, qui nommait le MSE dans le noyau. Servie tant qu'un
+		// catalogue déployé peut encore la nommer.
+		"forge.mse.repoUrl": appRepositoryURL(cfg),
 		// La kustomisation, sa révision, les tests E2E et l'overlay ne sont plus
 		// ici : ils nomment le MSE, et viennent des réglages de son plugin, où un
 		// projet les surcharge (doc 16 §16.18).
@@ -997,11 +1025,10 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// et l'infrastructure de déploiement.
 		"forge.tekton.repoUrl": envOr("FORGE_TEKTON_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tekton.git"),
 		"registry.project":     envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
-		"mse.dockerfile":       envOr("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
-		// Contexte de build, distinct du Dockerfile : `mse` place le sien dans
-		// une sous-arborescence tout en construisant depuis la racine.
-		"mse.buildContext": envOr("MSE_BUILD_CONTEXT", "."),
-		"mse.pipelineTag":  envOr("MSE_PIPELINE_TAG", "pipeline"),
+		// Le Dockerfile et le contexte de build ne sont plus ici : ils décrivent un
+		// dépôt, chaque projet porte les siens en base, et le plan d'une release les
+		// y lit déjà. Ils ne servent plus qu'à **amorcer** un projet, et
+		// `projectSeedDefaults` les rend pour cela (doc 16 §16.24).
 		// Le bucket des pipelines n'est pas celui du dashboard : `mse-pipeline`
 		// porte les artefacts que les Tasks publient, `mse-dashboard` ce que le
 		// dashboard écrit lui-même (doc 03 §3.5).
@@ -1323,6 +1350,7 @@ func configuredProjects(cfg config.Config) []store.Project {
 	// Les dépôts que le plugin MSE règle : l'amorçage des projets les nomme au
 	// même titre que les autres, et il a lieu avant que la base ne les porte.
 	seeds := mseSeedSettings()
+	project := projectSeedDefaults(cfg)
 
 	promoted, held := true, false
 	targets := []store.Target{
@@ -1348,14 +1376,14 @@ func configuredProjects(cfg config.Config) []store.Project {
 		targets    []store.Target
 	}{
 		{
-			clone: resolved["forge.mse.repoUrl"],
+			clone: project["repoUrl"],
 			label: "Application",
 			// Le seul des quatre à avoir un outil de suivi. Les trois autres sont
 			// des dépôts clonés par des pipelines : ils ne portent ni version ni
 			// release, donc rien à rapprocher.
 			tracker:    cfg.Tracker.Project,
-			dockerfile: resolved["mse.dockerfile"],
-			context:    resolved["mse.buildContext"],
+			dockerfile: project["dockerfile"],
+			context:    project["buildContext"],
 			targets:    targets,
 		},
 		{clone: seeds["kustomRepoUrl"], label: "Kustomizations"},

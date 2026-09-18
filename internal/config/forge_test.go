@@ -87,3 +87,26 @@ func TestLeDepotSeRetrouveDepuisSonURLDeClonage(t *testing.T) {
 		}
 	}
 }
+
+// Le dépôt d'un projet donne son URL de clonage : c'est de là que vient ce que
+// ses pipelines clonent, et non d'une clé valable pour toute l'instance.
+func TestCloneURLForSuitLeDepotDUnProjet(t *testing.T) {
+	got := CloneURLFor("https://forge.example.fr", "vcarroy/mse-kustom", "2222")
+	if got != "ssh://git@forge.example.fr:2222/vcarroy/mse-kustom.git" {
+		t.Errorf("URL = %q", got)
+	}
+
+	// Le port SSH n'est pas déductible de l'URL HTTPS : sans lui, la constante.
+	if got := CloneURLFor("https://forge.example.fr", "vcarroy/mse.git", ""); got !=
+		"ssh://git@forge.example.fr:"+DefaultForgeSSHPort+"/vcarroy/mse.git" {
+		t.Errorf("URL sans port = %q", got)
+	}
+
+	// Un projet déclaré avant que sa forge ne soit renseignée ne donne rien :
+	// l'appelant retombe alors sur le dépôt de l'instance.
+	for _, cas := range [][2]string{{"", "vcarroy/mse"}, {"https://forge.example.fr", "  "}} {
+		if got := CloneURLFor(cas[0], cas[1], "2222"); got != "" {
+			t.Errorf("forge %q dépôt %q: %q, attendu aucune URL", cas[0], cas[1], got)
+		}
+	}
+}
