@@ -1,8 +1,8 @@
-// Package mse porte le plugin MSE : les environnements, leur promotion par Flux,
-// leur attestation par PortalData (doc 16).
+// Package mse carries the MSE plugin: the environments, their promotion by Flux, their
+// attestation by PortalData. See docs/06-plugins.md.
 //
-// Le noyau ne l'importe pas. Seul `cmd/arkhitekton` l'assemble, et une instance
-// sans lui reste cohérente.
+// The core does not import it. Only `cmd/arkhitekton` assembles it, and an instance without it
+// stays coherent.
 package mse
 
 import (
@@ -14,21 +14,20 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// ReleasePromoted est le fait d'une promotion aboutie.
+// ReleasePromoted is the fact of a completed promotion.
 //
-// **Le re-tag a réussi**, ce qui est un constat et non l'intention de le
-// demander. Ce que Flux en fait ensuite est une autre affaire, et c'est l'écran
-// des environnements qui la raconte (B8).
+// **The re-tag succeeded**, which is an observation and not the intention of asking for it.
+// What Flux then makes of it is another matter, and it is the environments screen that tells
+// that story.
 const ReleasePromoted = event.Type(plugin.ModuleMSE + ".release.promoted")
 
-// Facts compose les faits que le plugin constate.
+// Facts composes the facts the plugin observes.
 type Facts struct{}
 
-// Promoted rend le fait d'une promotion aboutie.
+// Promoted returns the fact of a completed promotion.
 //
-// Clé sur le job : une même release se promeut plusieurs fois vers le même
-// environnement — une reprise après un re-tag manqué —, et chaque aboutissement
-// est un fait.
+// Keyed on the job: one release is promoted several times to the same environment — a retry
+// after a missed re-tag — and each completion is a fact.
 func (Facts) Promoted(at time.Time, linked store.JobReleaseContext) event.Event {
 	projectID := linked.ProjectID
 	return event.Event{

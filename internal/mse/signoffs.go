@@ -17,17 +17,17 @@ import (
 )
 
 /*
- * Validation de recette.
+ * Acceptance sign-off.
  *
- * Doc 01 §1.2 décrit le sign-off comme la concaténation de deux moitiés : les
- * contrôles automatiques et la validation humaine. Ces routes portent la seconde.
+ * The sign-off is the concatenation of two halves: the automatic checks and the human
+ * validation. These routes carry the second.
  *
- * Dans le plugin parce qu'un avis porte sur une release **dans un environnement**
- * : la table a une clé étrangère vers `environments`, et sans le module il n'y a
- * pas d'environnement sur lequel se prononcer (doc 16 §16.7, couture 5).
+ * In the plugin because an opinion bears on a release **in an environment**: the table has a
+ * foreign key to `environments`, and without the module there is no environment to give an
+ * opinion on.
  */
 
-// SignoffStore est ce que les routes de validation attendent de la base.
+// SignoffStore is what the sign-off routes need from the database.
 type SignoffStore interface {
 	dashhttp.ProjectResolver
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
@@ -39,7 +39,7 @@ type SignoffStore interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// SignoffsHandler sert la validation humaine d'une release.
+// SignoffsHandler serves the human validation of a release.
 type SignoffsHandler struct {
 	store  SignoffStore
 	logger *slog.Logger
@@ -49,13 +49,12 @@ func NewSignoffsHandler(signoffs SignoffStore, logger *slog.Logger) *SignoffsHan
 	return &SignoffsHandler{store: signoffs, logger: logger}
 }
 
-// Routes monte les routes de validation.
+// Routes mounts the sign-off routes.
 //
-// Se prononcer est une décision de livraison : `release:edit`, la même permission
-// que les actions manuelles, parce que ce sont les mêmes personnes qui conduisent
-// une recette. Exiger `release:create:final` réserverait la validation à ceux qui
-// livrent, alors que valider et livrer sont les deux gestes qu'on souhaite voir
-// accomplis par des personnes distinctes.
+// Giving an opinion is a delivery decision: `release:edit`, the same permission as the manual
+// actions, because they are the same people who run an acceptance campaign. Requiring
+// `release:create:final` would reserve validation to those who deliver, whereas validating and
+// delivering are the two acts one wants performed by distinct people.
 func (h *SignoffsHandler) Routes(mux *http.ServeMux, m *dashhttp.Middleware) {
 	module := m.RequireModule(plugin.ModuleMSE)
 
@@ -81,7 +80,7 @@ type environmentSignoffsVw struct {
 	Signoffs    []signoffVw `json:"signoffs"`
 }
 
-// release lit la release du chemin, ou écrit la réponse.
+// release reads the release named in the path, or writes the response.
 func (h *SignoffsHandler) release(w http.ResponseWriter, r *http.Request) (store.Release, int64, bool) {
 	projectID, ok := dashhttp.RequestProject(w, r, h.store)
 	if !ok {
@@ -93,17 +92,17 @@ func (h *SignoffsHandler) release(w http.ResponseWriter, r *http.Request) (store
 			dashhttp.WriteProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return store.Release{}, 0, false
 		}
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return store.Release{}, 0, false
 	}
 	return release, projectID, true
 }
 
-// List rend les validations d'une release, groupées par environnement.
+// List returns a release's sign-offs, grouped by environment.
 //
-// Tous les environnements sont rendus, y compris ceux sans avis : l'interface doit
-// distinguer « personne ne s'est prononcé » de « cet environnement n'existe pas »,
-// et l'attente est précisément l'information utile en recette.
+// Every environment is returned, including those with no opinion: the interface must tell
+// "nobody has given an opinion" from "this environment does not exist", and the waiting is
+// precisely the useful information during acceptance.
 func (h *SignoffsHandler) List(w http.ResponseWriter, r *http.Request) {
 	release, projectID, ok := h.release(w, r)
 	if !ok {
@@ -112,13 +111,13 @@ func (h *SignoffsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	environments, err := h.store.ListEnvironments(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
 		return
 	}
 
 	signoffs, err := h.store.ListSignoffs(r.Context(), release.ID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des validations impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the sign-offs", "")
 		return
 	}
 
@@ -130,12 +129,12 @@ func (h *SignoffsHandler) List(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// L'ordre est celui du flux de promotion, tel que `ListEnvironments` le rend.
+	// The order is that of the promotion flow, as `ListEnvironments` returns it.
 	payload := make([]environmentSignoffsVw, 0, len(environments))
 	for _, environment := range environments {
 		entries := byEnvironment[environment.ID]
 		if entries == nil {
-			// Un tableau vide et non `null` : l'interface itère dessus sans garde.
+			// An empty array and not `null`: the interface iterates over it with no guard.
 			entries = []signoffVw{}
 		}
 		payload = append(payload, environmentSignoffsVw{
@@ -152,24 +151,24 @@ type signoffRequest struct {
 	Detail string `json:"detail"`
 }
 
-// signoffStatuses borne les avis enregistrables.
+// signoffStatuses bounds the recordable opinions.
 //
-// `na` en est absent : l'attente est l'absence de ligne, pas une ligne qui dit
-// « en attente ». L'accepter créerait deux représentations du même état.
+// `na` is absent from it: waiting is the absence of a row, not a row that says "waiting".
+// Accepting it would create two representations of the same state.
 var signoffStatuses = map[string]bool{"pass": true, "warn": true, "fail": true}
 
-// Set enregistre l'avis d'un intervenant sur une release dans un environnement.
+// Set records a participant's opinion on a release in an environment.
 func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	identity, ok := dashhttp.IdentityFrom(r.Context())
 	if !ok {
-		dashhttp.WriteProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		dashhttp.WriteProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	var request signoffRequest
-	// 16 Kio : un motif de refus est une phrase, pas un rapport.
+	// 16 KiB: a reason for refusal is a sentence, not a report.
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&request); err != nil {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		dashhttp.WriteProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
@@ -177,20 +176,20 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	detail := strings.TrimSpace(request.Detail)
 
 	if role == "" {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Rôle absent",
-			"Précisez qui se prononce : « Client », « Recette », « Exploitation ».")
+		dashhttp.WriteProblem(w, http.StatusBadRequest, "Missing role",
+			"State who is giving the opinion: “Client”, “Recette”, “Exploitation”.")
 		return
 	}
 	if !signoffStatuses[request.Status] {
 		dashhttp.WriteProblem(w, http.StatusBadRequest, "Avis invalide",
-			"L'avis vaut « pass », « warn » ou « fail ». L'attente s'obtient en retirant la validation.")
+			"The opinion is “pass”, “warn” or “fail”. Waiting is obtained by removing the sign-off.")
 		return
 	}
-	// Une réserve ou un refus sans motif ne dit rien à qui le lit ensuite. Exigé
-	// par l'API et non par la base : la règle peut évoluer, les données écrites non.
+	// A reservation or a refusal with no reason tells whoever reads it later nothing. Required by
+	// the API and not by the database: the rule may change, the data written may not.
 	if request.Status != "pass" && detail == "" {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Motif absent",
-			"Une réserve ou un refus doit indiquer son motif.")
+		dashhttp.WriteProblem(w, http.StatusBadRequest, "Missing reason",
+			"A reservation or a refusal must state its reason.")
 		return
 	}
 
@@ -202,7 +201,7 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	environmentID := r.PathValue("env")
 	exists, err := h.store.SignoffEnvironmentExists(r.Context(), projectID, environmentID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture de l'environnement impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environment", "")
 		return
 	}
 	if !exists {
@@ -216,9 +215,8 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Le journal porte l'avis complet, motif inclus : la table ne garde que le
-	// dernier état, et « qui avait validé avant de se rétracter » n'a de réponse
-	// qu'ici.
+	// The log carries the whole opinion, reason included: the table keeps only the last state, and
+	// "who had validated before retracting" has an answer only here.
 	h.audit(r, identity, store.AuditSignoffSet, release.Tag, map[string]any{
 		"environment": environmentID, "role": role, "status": request.Status, "detail": detail,
 	})
@@ -226,15 +224,15 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	dashhttp.WriteJSON(w, http.StatusNoContent, nil)
 }
 
-// Clear retire un avis et remet le rôle en attente.
+// Clear removes an opinion and puts the role back to waiting.
 //
-// Retirer n'est pas refuser : un avis rendu sur la mauvaise release doit pouvoir
-// disparaître sans laisser un refus qui bloquerait la livraison.
+// Removing is not refusing: an opinion given on the wrong release must be able to disappear
+// without leaving a refusal that would block the delivery.
 func (h *SignoffsHandler) Clear(w http.ResponseWriter, r *http.Request) {
 	role := strings.TrimSpace(r.URL.Query().Get("role"))
 	if role == "" {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Rôle absent",
-			"Précisez le rôle dont l'avis doit être retiré.")
+		dashhttp.WriteProblem(w, http.StatusBadRequest, "Missing role",
+			"State the role whose opinion is to be removed.")
 		return
 	}
 
@@ -262,7 +260,7 @@ func (h *SignoffsHandler) Clear(w http.ResponseWriter, r *http.Request) {
 	dashhttp.WriteJSON(w, http.StatusNoContent, nil)
 }
 
-// audit consigne une décision sans jamais faire échouer celle-ci.
+// audit records a decision without ever failing it.
 func (h *SignoffsHandler) audit(
 	r *http.Request, identity auth.Identity, action, target string, payload map[string]any,
 ) {

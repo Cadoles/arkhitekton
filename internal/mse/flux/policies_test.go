@@ -2,8 +2,8 @@ package flux
 
 import "testing"
 
-// La détection des pré-releases décide de tout le garde-fou de B7 : une plage
-// sans composante de pré-release ne retient aucune RC, silencieusement.
+// The detection of pre-releases decides the whole guard rail: a range with no pre-release
+// component keeps no RC, silently.
 func TestAcceptsPrerelease(t *testing.T) {
 	cases := map[string]bool{
 		">=0.0.0-0": true,
@@ -15,7 +15,7 @@ func TestAcceptsPrerelease(t *testing.T) {
 	for semverRange, expected := range cases {
 		got := ImagePolicy{Range: semverRange}.AcceptsPrerelease()
 		if got != expected {
-			t.Errorf("plage %q: pré-releases = %v, attendu %v", semverRange, got, expected)
+			t.Errorf("range %q: pre-releases = %v, expected %v", semverRange, got, expected)
 		}
 	}
 }
@@ -26,26 +26,25 @@ func TestSuffixExtraction(t *testing.T) {
 		`^(?P<semver>.+)_unstable$`: "unstable",
 		`^(?P<semver>.+)_prod$`:     "prod",
 
-		// Motifs qui ne suivent pas la convention : rendre vide plutôt que
-		// deviner. Un suffixe inventé ferait correspondre un environnement à une
-		// politique qui ne le concerne pas, et la promotion partirait dans le
-		// vide sans que rien ne le signale.
+		// Patterns that do not follow the convention: return empty rather than guess. An invented suffix
+		// would match an environment to a policy that does not concern it, and the promotion would go
+		// into the void with nothing reporting it.
 		`^v(\d+)\.(\d+)$`:     "",
 		`.*-k8sunstable\..*$`: "",
 		`^(?P<semver>.+)_$`:   "",
-		`sans-underscore`:     "",
+		`no-underscore`:       "",
 	}
 
 	for pattern, expected := range cases {
 		got := ImagePolicy{Pattern: pattern}.Suffix()
 		if got != expected {
-			t.Errorf("motif %q: suffixe = %q, attendu %q", pattern, got, expected)
+			t.Errorf("pattern %q: suffix = %q, expected %q", pattern, got, expected)
 		}
 	}
 }
 
-// `Unknown` veut dire « rapprochement en cours » : le confondre avec un échec
-// ferait afficher une erreur pendant chaque déploiement normal.
+// `Unknown` means "reconciliation in progress": confusing it with a failure would display an
+// error during every normal deployment.
 func TestKustomizationStateDistinguishesReconciling(t *testing.T) {
 	cases := map[string]string{
 		"True":    "ready",
@@ -56,7 +55,7 @@ func TestKustomizationStateDistinguishesReconciling(t *testing.T) {
 
 	for ready, expected := range cases {
 		if got := (Kustomization{Ready: ready}).State(); got != expected {
-			t.Errorf("condition %q: état = %q, attendu %q", ready, got, expected)
+			t.Errorf("condition %q: state = %q, expected %q", ready, got, expected)
 		}
 	}
 }
@@ -69,13 +68,13 @@ func TestFindPolicyMatchesOnSuffix(t *testing.T) {
 
 	policy, found := FindPolicy(policies, "prod")
 	if !found || policy.Name != "portal-prod" {
-		t.Fatalf("politique = %+v, trouvée = %v", policy, found)
+		t.Fatalf("policy = %+v, found = %v", policy, found)
 	}
 	if policy.AcceptsPrerelease() {
-		t.Error("la politique de production ne doit pas accepter les pré-releases")
+		t.Error("the production policy must not accept pre-releases")
 	}
 
 	if _, found := FindPolicy(policies, "testing"); found {
-		t.Error("un suffixe sans politique ne doit pas être trouvé")
+		t.Error("a suffix with no policy must not be found")
 	}
 }

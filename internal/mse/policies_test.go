@@ -7,10 +7,9 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 )
 
-// La sensibilité vient de la section du projet, et un environnement qui ne la
-// déclare pas est sensible : l'oubli doit rendre la promotion plus difficile,
-// jamais plus facile.
-func TestLaSensibiliteVientDuCatalogueEtLOubliEstSensible(t *testing.T) {
+// Sensitivity comes from the project's section, and an environment that does not declare it is
+// sensitive: forgetting must make promotion harder, never easier.
+func TestSensitivityComesFromTheCatalogueAndForgettingIsSensitive(t *testing.T) {
 	non, oui := false, true
 	authorizer := auth.NewAuthorizer(Policies(&catalog.Catalog{Projects: map[string]catalog.ProjectDeclaration{
 		"mse": {Environments: []catalog.Environment{
@@ -21,25 +20,25 @@ func TestLaSensibiliteVientDuCatalogueEtLOubliEstSensible(t *testing.T) {
 	}}))
 
 	operator := auth.Identity{Subject: "s", Role: auth.RoleOperator}
-	for environment, attendu := range map[string]bool{"qualif": true, "prod": false, "oublie": false, "inconnu": false} {
+	for environment, attendu := range map[string]bool{"qualif": true, "prod": false, "oublie": false, "unknown": false} {
 		if got := authorizer.CanDeploy(operator, 0, "mse", environment); got != attendu {
-			t.Errorf("operator vers %s: %v, attendu %v", environment, got, attendu)
+			t.Errorf("operator to %s: %v, expected %v", environment, got, attendu)
 		}
 	}
 	if authorizer.CanDeploy(operator, 0, "autre", "qualif") {
-		t.Error("un projet sans section ne rend aucun environnement promouvable par un operator")
+		t.Error("a project with no section returns no environment an operator can promote to")
 	}
 	if authorizer.Sensitive("mse", "qualif") || !authorizer.Sensitive("mse", "oublie") {
-		t.Error("sensibilité mal rendue à l'interface")
+		t.Error("sensitivity wrongly returned to the interface")
 	}
 }
 
-// Le catalogue réellement déployé garde, pour mse-test-project, la table
-// qu'écrivait `main.go` : la déplacer ne doit rien changer à qui peut promouvoir où.
-func TestLeCatalogueDeployeRepriseLaTableDeMain(t *testing.T) {
+// The catalogue actually deployed keeps, for mse-test-project, the table `main.go` used to
+// write: moving it must change nothing about who can promote where.
+func TestTheDeployedCatalogueKeepsTheTableFromMain(t *testing.T) {
 	deployed, err := catalog.Load("../../deploy/base/config/catalog.yaml")
 	if err != nil {
-		t.Fatalf("catalogue déployé: %v", err)
+		t.Fatalf("deployed catalogue: %v", err)
 	}
 	policies := Policies(deployed)["mse-test-project"]
 
@@ -48,7 +47,7 @@ func TestLeCatalogueDeployeRepriseLaTableDeMain(t *testing.T) {
 	} {
 		policy, found := policies[environment]
 		if !found || policy.Sensitive != sensitive {
-			t.Errorf("%s: %+v (trouvé %v), attendu sensible=%v", environment, policy, found, sensitive)
+			t.Errorf("%s: %+v (found %v), expected sensitive=%v", environment, policy, found, sensitive)
 		}
 	}
 }

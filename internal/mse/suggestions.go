@@ -8,13 +8,12 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 )
 
-// EnvironmentSuggestions rend les environnements que le formulaire de lancement
-// propose pour un paramètre de nature `environment`.
+// EnvironmentSuggestions returns the environments the launch form offers for a parameter of
+// kind `environment`.
 //
-// Le noyau lisait la section du catalogue lui-même. Il demande désormais la liste
-// au plugin, qui n'en rend aucune quand le module est éteint pour le projet, ou
-// sans projet : le champ reste alors en saisie libre (doc 16 §16.7, couture 9 ;
-// §16.18). Lu à chaque requête, comme l'interrupteur des routes.
+// The core used to read the catalogue's section itself. It now asks the plugin for the list,
+// which returns none when the module is switched off for the project, or with no project: the
+// field then stays free-text. Read at each request, like the routes' switch.
 func EnvironmentSuggestions(
 	declared *catalog.Catalog, modules *dashhttp.Modules, projects dashhttp.ProjectResolver,
 ) func(context.Context, string) []dashhttp.Suggestion {

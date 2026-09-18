@@ -7,8 +7,7 @@ import (
 )
 
 func realPolicies() []ImagePolicy {
-	// Les quatre politiques telles qu'elles sont déclarées sur le cluster de
-	// développement, et telles que B7 les décrit.
+	// The four policies as they are declared on the development cluster.
 	return []ImagePolicy{
 		{Name: "portal-unstable", Pattern: `^(?P<semver>.+)_unstable$`, Range: ">=0.0.0-0"},
 		{Name: "portal-testing", Pattern: `^(?P<semver>.+)_testing$`, Range: ">=0.0.0-0"},
@@ -20,7 +19,7 @@ func realPolicies() []ImagePolicy {
 func realEnvironments() []Environment {
 	return []Environment{
 		{ID: "unstable", PromotionSuffix: "unstable", AcceptsPrerelease: true, Observable: true},
-		// Le piège de B7 : qualif est désigné `testing` par Flux.
+		// The trap: qualif is named `testing` by Flux.
 		{ID: "qualif", PromotionSuffix: "testing", AcceptsPrerelease: true, Observable: true},
 		{ID: "preprod", PromotionSuffix: "preprod", AcceptsPrerelease: true, Observable: true},
 		{ID: "prod", PromotionSuffix: "prod", AcceptsPrerelease: false, Observable: true},
@@ -29,54 +28,52 @@ func realEnvironments() []Environment {
 
 func TestGuardAcceptsTheDocumentedConfiguration(t *testing.T) {
 	if err := CheckPromotionTargets(realEnvironments(), realPolicies()); err != nil {
-		t.Errorf("la configuration de B7 est refusée: %v", err)
+		t.Errorf("the real configuration is refused: %v", err)
 	}
 }
 
-// Le mode de défaillance que tout le garde-fou existe pour empêcher : un suffixe
-// que nulle politique ne retient produit un tag valide, poussé sans erreur, que
-// Flux ignore. La promotion paraît réussie et rien ne se déploie.
+// The failure mode the whole guard rail exists to prevent: a suffix no policy keeps produces a
+// valid tag, pushed with no error, which Flux ignores. The promotion looks successful and
+// nothing is deployed.
 func TestGuardDetectsOrphanSuffix(t *testing.T) {
 	environments := realEnvironments()
-	// L'erreur la plus probable en pratique : écrire `qualif` là où Flux attend
-	// `testing`.
+	// The most likely mistake in practice: writing `qualif` where Flux expects `testing`.
 	environments[1].PromotionSuffix = "qualif"
 
 	err := CheckPromotionTargets(environments, realPolicies())
 	if err == nil {
-		t.Fatal("un suffixe orphelin doit être détecté")
+		t.Fatal("an orphan suffix must be detected")
 	}
 	if !strings.Contains(err.Error(), "qualif") {
-		t.Errorf("le message ne nomme pas le suffixe fautif: %v", err)
+		t.Errorf("the message does not name the offending suffix: %v", err)
 	}
-	// Le message liste ce qui existe : sans cela, corriger suppose d'aller
-	// interroger le cluster à la main.
+	// The message lists what exists: without that, fixing it means going and querying the cluster by
+	// hand.
 	if !strings.Contains(err.Error(), "testing") {
-		t.Errorf("le message ne liste pas les suffixes disponibles: %v", err)
+		t.Errorf("the message does not list the available suffixes: %v", err)
 	}
 }
 
-// Une table qui déclare accepter les RC là où la plage les exclut fait proposer
-// une promotion que Flux ignorera. L'inverse fait refuser une promotion qui
-// aurait fonctionné.
+// A table declaring that it accepts RCs where the range excludes them makes a promotion be
+// offered that Flux will ignore. The reverse makes a promotion be refused that would have
+// worked.
 func TestGuardDetectsPrereleaseDisagreement(t *testing.T) {
 	environments := realEnvironments()
 	environments[3].AcceptsPrerelease = true // prod, dont la plage est >=0.0.0
 
 	err := CheckPromotionTargets(environments, realPolicies())
 	if err == nil {
-		t.Fatal("un désaccord sur les pré-releases doit être détecté")
+		t.Fatal("a disagreement about pre-releases must be detected")
 	}
 	for _, expected := range []string{"prod", "portal-prod", ">=0.0.0"} {
 		if !strings.Contains(err.Error(), expected) {
-			t.Errorf("le message ne contient pas %q: %v", expected, err)
+			t.Errorf("the message does not contain %q: %v", expected, err)
 		}
 	}
 }
 
-// La production vit dans un cluster indépendant : ses ImagePolicy ne sont pas
-// lisibles d'ici, et les exiger ferait échouer le démarrage sur une absence
-// normale.
+// Production lives in an independent cluster: its ImagePolicies are not readable from here, and
+// requiring them would fail the start-up over a normal absence.
 func TestGuardSkipsUnobservableEnvironments(t *testing.T) {
 	environments := realEnvironments()
 	environments[3].Observable = false
@@ -85,13 +82,13 @@ func TestGuardSkipsUnobservableEnvironments(t *testing.T) {
 	policies := realPolicies()[:3] // pas de politique de production ici
 
 	if err := CheckPromotionTargets(environments, policies); err != nil {
-		t.Errorf("un environnement non observable a été vérifié: %v", err)
+		t.Errorf("an unobservable environment was checked: %v", err)
 	}
 }
 
-// Le cas de la transition SemVer : les politiques de production emploient encore
-// le canal mktools, dont aucun suffixe n'est extractible. Le garde-fou doit le
-// dire clairement plutôt que de laisser croire à une correspondance.
+// The SemVer transition case: the production policies still use the mktools channel, from which
+// no suffix can be extracted. The guard rail must say so clearly rather than let one believe in a
+// match.
 func TestGuardReportsUnrecognisedPatterns(t *testing.T) {
 	legacy := []ImagePolicy{
 		{Name: "portal-unstable", Pattern: `^.*-k8sunstable\..*$`, Range: ">=0.0.0-0"},
@@ -102,21 +99,19 @@ func TestGuardReportsUnrecognisedPatterns(t *testing.T) {
 
 	err := CheckPromotionTargets(environments, legacy)
 	if err == nil {
-		t.Fatal("un motif non reconnu doit produire un écart")
+		t.Fatal("an unrecognised pattern must produce a gap")
 	}
 	if !strings.Contains(err.Error(), "suffixe non reconnu") {
-		t.Errorf("le message n'explique pas que le motif n'est pas exploitable: %v", err)
+		t.Errorf("the message does not explain that the pattern is unusable: %v", err)
 	}
 }
 
-// La règle reprise du catalogue au lot D : deux environnements ne peuvent pas
-// partager un suffixe.
+// The rule taken back from the catalogue: two environments cannot share a suffix.
 //
-// Elle vivait dans la validation du catalogue, où elle imposait un concept de
-// Flux à tout catalogue — y compris à celui d'un projet sans déployeur, qui ne
-// pouvait alors déclarer aucun environnement. Elle appartient au déployeur qui
-// sélectionne par suffixe, et à lui seul.
-func TestDeuxEnvironnementsNePeuventPartagerUnSuffixe(t *testing.T) {
+// It lived in the catalogue's validation, where it imposed a Flux concept on every catalogue —
+// including that of a project with no deployer, which could then declare no environment. It
+// belongs to the deployer that selects by suffix, and to it alone.
+func TestTwoEnvironmentsCannotShareASuffix(t *testing.T) {
 	environments := []Environment{
 		{ID: "qualif", PromotionSuffix: "testing", AcceptsPrerelease: true, Observable: true},
 		{ID: "preprod", PromotionSuffix: "testing", AcceptsPrerelease: true, Observable: true},
@@ -124,77 +119,73 @@ func TestDeuxEnvironnementsNePeuventPartagerUnSuffixe(t *testing.T) {
 
 	err := CheckPromotionTargets(environments, nil)
 	if err == nil {
-		t.Fatal("deux environnements au même suffixe: l'un ne serait jamais déployé")
+		t.Fatal("two environments with the same suffix: one would never be deployed")
 	}
-	if !strings.Contains(err.Error(), "partagent le suffixe") {
-		t.Errorf("message: %v — il doit nommer le conflit", err)
+	if !strings.Contains(err.Error(), "share the suffix") {
+		t.Errorf("message: %v — it must name the conflict", err)
 	}
 }
 
-// Un environnement sans suffixe ne peut pas être atteint par **ce** déployeur :
-// il sélectionne par métadonnée SemVer et ne saurait pas quoi pousser. Le
-// refuser ici plutôt que dans le catalogue est ce qui laisse un autre déployeur
-// accepter le même environnement.
-func TestUnEnvironnementSansSuffixeEstRefuseParCeDeployeur(t *testing.T) {
+// An environment with no suffix cannot be reached by **this** deployer: it selects by SemVer
+// metadata and would not know what to push. Refusing it here rather than in the catalogue is
+// what lets another deployer accept the same environment.
+func TestAnEnvironmentWithNoSuffixIsRefusedByThisDeployer(t *testing.T) {
 	err := CheckPromotionTargets([]Environment{{ID: "dev", Observable: true}}, nil)
 	if err == nil {
-		t.Fatal("un environnement sans suffixe doit être refusé par un déployeur qui en a besoin")
+		t.Fatal("an environment with no suffix must be refused by a deployer that needs one")
 	}
 }
 
-// Le conflit se voit même sur des environnements non observables : deux
-// environnements homonymes se marchent dessus indépendamment de notre capacité à
-// lire leurs politiques.
-func TestLeConflitDeSuffixeSeVoitHorsDePortee(t *testing.T) {
+// The conflict shows even on unobservable environments: two environments of the same name tread
+// on each other independently of our ability to read their policies.
+func TestTheSuffixConflictShowsOutOfReach(t *testing.T) {
 	environments := []Environment{
 		{ID: "prod", PromotionSuffix: "prod", Observable: false},
 		{ID: "prod-bis", PromotionSuffix: "prod", Observable: false},
 	}
 
 	if err := CheckPromotionTargets(environments, nil); err == nil {
-		t.Error("le conflit ne dépend pas de l'observabilité")
+		t.Error("the conflict does not depend on observability")
 	}
 }
 
-// Le couplage schéma × déployeur, refusé plutôt que découvert.
+// The scheme × deployer coupling, refused rather than discovered.
 //
-// Ce déployeur promeut en écrivant une métadonnée dans le tag, que la plage
-// d'une ImagePolicy retient. Un schéma qui ne sait pas où la poser rend la
-// promotion impossible — et l'échec serait le plus coûteux qui soit : le tag
-// partirait, le registre l'accepterait, Flux l'ignorerait, et la promotion
-// paraîtrait réussie (B7, doc 12 §12.4).
-func TestUnSchemaOpaqueEstRefuseParCeDeployeur(t *testing.T) {
+// This deployer promotes by writing metadata into the tag, which an ImagePolicy's range keeps. A
+// scheme that does not know where to put it makes promotion impossible — and the failure would
+// be the most expensive there is: the tag would go, the registry would accept it, Flux would
+// ignore it, and the promotion would look successful.
+func TestAnOpaqueSchemeIsRefusedByThisDeployer(t *testing.T) {
 	err := NewDeployer(nil, DefaultPromotionKind, "").CheckScheme(version.Opaque{})
 	if err == nil {
-		t.Fatal("un schéma sans marqueur doit être refusé: la promotion serait sans effet")
+		t.Fatal("a scheme with no marker must be refused: the promotion would have no effect")
 	}
-	// Le message doit dire *pourquoi*, sans quoi on cherchera du côté du
-	// registre ou des politiques.
-	if !strings.Contains(err.Error(), "marqueur") {
-		t.Errorf("message %q — il doit nommer ce qui manque", err)
+	// The message must say *why*, otherwise one will hunt on the registry's or the policies' side.
+	if !strings.Contains(err.Error(), "marker") {
+		t.Errorf("message %q — it must name what is missing", err)
 	}
 }
 
-// Le SemVer convient : c'est la grammaire que les ImagePolicy sélectionnent.
-func TestUnSchemaQuiSaitMarquerEstAccepte(t *testing.T) {
+// SemVer fits: it is the grammar the ImagePolicies select by.
+func TestASchemeThatCanMarkIsAccepted(t *testing.T) {
 	if err := NewDeployer(nil, DefaultPromotionKind, "").CheckScheme(version.SemVer{}); err != nil {
-		t.Errorf("schéma SemVer refusé: %v", err)
+		t.Errorf("SemVer scheme refused: %v", err)
 	}
 }
 
-// Le marqueur se pose en underscore : la grammaire des tags OCI exclut le `+`
-// que le SemVer réserve à la métadonnée de build (B7).
-func TestLeMarqueurSePoseEnUnderscore(t *testing.T) {
+// The marker is set with an underscore: the grammar of OCI tags excludes the `+` that SemVer
+// reserves for build metadata.
+func TestTheMarkerIsSetWithAnUnderscore(t *testing.T) {
 	got, err := Mark("1.8.0-rc1", "testing")
 	if err != nil {
 		t.Fatalf("marquage: %v", err)
 	}
 	if got != "1.8.0-rc1_testing" {
-		t.Errorf("tag marqué = %q", got)
+		t.Errorf("marked tag = %q", got)
 	}
-	// Sans marqueur, le tag ressort inchangé plutôt que suffixé d'un underscore
-	// orphelin, que le registre accepterait sans que rien ne le sélectionne.
+	// With no marker, the tag comes out unchanged rather than suffixed with an orphan underscore,
+	// which the registry would accept with nothing selecting it.
 	if got, _ := Mark("1.8.0", ""); got != "1.8.0" {
-		t.Errorf("tag sans marqueur = %q", got)
+		t.Errorf("tag with no marker = %q", got)
 	}
 }

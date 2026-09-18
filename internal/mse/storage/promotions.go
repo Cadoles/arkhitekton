@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Promotion est un tag de promotion poussé pour un environnement.
+// Promotion is a promotion tag pushed for an environment.
 type Promotion struct {
 	ReleaseID     int64
 	EnvironmentID string
@@ -17,22 +17,21 @@ type Promotion struct {
 	PushedAt      time.Time
 }
 
-// RecordPromotion enregistre une promotion demandée.
+// RecordPromotion records a requested promotion.
 //
-// « Demandée » et non « effectuée » : pousser le tag ne déploie rien. C'est ce qui
-// permet de distinguer « promu mais pas déployé » de « jamais promu » (B7).
+// "Requested" and not "performed": pushing the tag deploys nothing. That is what allows telling
+// "promoted but not deployed" from "never promoted".
 //
-// Le projet est celui de la release : le lire en base plutôt que le recevoir
-// empêche d'enregistrer une promotion d'une release vers l'environnement d'un
-// autre projet.
+// The project is the release's: reading it from the database rather than receiving it stops a
+// promotion of a release to another project's environment being recorded.
 func (s *Store) RecordPromotion(ctx context.Context, promotion Promotion) error {
 	_, err := s.pool.Exec(ctx,
 		`insert into image_promotions (
 		     project_id, release_id, environment_id, image_name, tag, digest, pushed_at, job_id
 		 ) values ((select project_id from releases where id = $1),
 		           $1, $2, $3, $4, nullif($5, ''), now(), $6)
-		 -- Repromouvoir un environnement est légitime : reprise après échec, ou
-		 -- correction. La dernière demande fait foi.
+		 -- Promoting an environment again is legitimate: a retry after a failure, or a
+		 -- correction. The last request is authoritative.
 		 on conflict (release_id, environment_id, image_name) do update set
 		     tag = excluded.tag,
 		     digest = coalesce(excluded.digest, image_promotions.digest),
@@ -41,18 +40,18 @@ func (s *Store) RecordPromotion(ctx context.Context, promotion Promotion) error 
 		promotion.ReleaseID, promotion.EnvironmentID, promotion.ImageName,
 		promotion.Tag, promotion.Digest, promotion.JobID)
 	if err != nil {
-		return fmt.Errorf("enregistrement de la promotion de %q: %w", promotion.Tag, err)
+		return fmt.Errorf("recording the promotion of %q: %w", promotion.Tag, err)
 	}
 	return nil
 }
 
-// ListPromotions rend les promotions d'une release.
+// ListPromotions returns a release's promotions.
 func (s *Store) ListPromotions(ctx context.Context, releaseID int64) ([]Promotion, error) {
 	rows, err := s.pool.Query(ctx,
 		`select environment_id, image_name, tag, coalesce(digest, ''), pushed_at, job_id
 		 from image_promotions where release_id = $1 order by pushed_at desc`, releaseID)
 	if err != nil {
-		return nil, fmt.Errorf("promotions de la release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("promotions of release %d: %w", releaseID, err)
 	}
 	defer rows.Close()
 
@@ -61,14 +60,14 @@ func (s *Store) ListPromotions(ctx context.Context, releaseID int64) ([]Promotio
 		promotion := Promotion{ReleaseID: releaseID}
 		if err := rows.Scan(&promotion.EnvironmentID, &promotion.ImageName, &promotion.Tag,
 			&promotion.Digest, &promotion.PushedAt, &promotion.JobID); err != nil {
-			return nil, fmt.Errorf("promotions de la release %d: %w", releaseID, err)
+			return nil, fmt.Errorf("promotions of release %d: %w", releaseID, err)
 		}
 		promotions = append(promotions, promotion)
 	}
 	return promotions, rows.Err()
 }
 
-// EnvironmentPromotion est la dernière promotion demandée pour un environnement.
+// EnvironmentPromotion is the last promotion requested for an environment.
 type EnvironmentPromotion struct {
 	EnvironmentID string
 	ReleaseTag    string
@@ -77,11 +76,10 @@ type EnvironmentPromotion struct {
 	JobID         *int64
 }
 
-// LatestPromotions rend, par environnement d'un projet, la dernière promotion
-// demandée.
+// LatestPromotions returns, per environment of a project, the last promotion requested.
 //
-// La moitié manquante de l'observation : celle-ci dit ce qui tourne, celle-là ce
-// qu'on a demandé (B7, B8).
+// The missing half of the observation: the observation says what is running, this says what was
+// requested.
 func (s *Store) LatestPromotions(ctx context.Context, projectID int64) (map[string]EnvironmentPromotion, error) {
 	rows, err := s.pool.Query(ctx,
 		`select distinct on (p.environment_id)
@@ -91,7 +89,7 @@ func (s *Store) LatestPromotions(ctx context.Context, projectID int64) (map[stri
 		 where p.project_id = $1
 		 order by p.environment_id, p.pushed_at desc`, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("dernières promotions: %w", err)
+		return nil, fmt.Errorf("latest promotions: %w", err)
 	}
 	defer rows.Close()
 
@@ -100,14 +98,14 @@ func (s *Store) LatestPromotions(ctx context.Context, projectID int64) (map[stri
 		var promotion EnvironmentPromotion
 		if err := rows.Scan(&promotion.EnvironmentID, &promotion.ReleaseTag,
 			&promotion.Tag, &promotion.PushedAt, &promotion.JobID); err != nil {
-			return nil, fmt.Errorf("dernières promotions: %w", err)
+			return nil, fmt.Errorf("latest promotions: %w", err)
 		}
 		latest[promotion.EnvironmentID] = promotion
 	}
 	return latest, rows.Err()
 }
 
-// EnvironmentHistory est une promotion demandée pour un environnement.
+// EnvironmentHistory is a promotion requested for an environment.
 type EnvironmentHistory struct {
 	ReleaseTag   string
 	ImageVersion string
@@ -118,12 +116,11 @@ type EnvironmentHistory struct {
 	RequestedBy  string
 }
 
-// ListEnvironmentHistory rend la suite des promotions d'un environnement d'un
-// projet.
+// ListEnvironmentHistory returns the sequence of promotions of a project's environment.
 //
-// La source est ce que le dashboard a demandé, et non l'historique des commits de
-// `mse-kustom` : une promotion refusée par une ImagePolicy n'apparaît nulle part
-// côté Git, alors qu'elle a bien été demandée.
+// The source is what the dashboard requested, and not the history of `mse-kustom`'s commits: a
+// promotion refused by an ImagePolicy appears nowhere on the Git side, although it was indeed
+// requested.
 func (s *Store) ListEnvironmentHistory(
 	ctx context.Context, projectID int64, environmentID string, limit int,
 ) ([]EnvironmentHistory, error) {
@@ -141,7 +138,7 @@ func (s *Store) ListEnvironmentHistory(
 		 order by p.pushed_at desc
 		 limit $3`, projectID, environmentID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("historique de %q: %w", environmentID, err)
+		return nil, fmt.Errorf("history of %q: %w", environmentID, err)
 	}
 	defer rows.Close()
 
@@ -150,19 +147,19 @@ func (s *Store) ListEnvironmentHistory(
 		var entry EnvironmentHistory
 		if err := rows.Scan(&entry.ReleaseTag, &entry.ImageVersion, &entry.Tag,
 			&entry.PushedAt, &entry.JobID, &entry.JobState, &entry.RequestedBy); err != nil {
-			return nil, fmt.Errorf("historique de %q: %w", environmentID, err)
+			return nil, fmt.Errorf("history of %q: %w", environmentID, err)
 		}
 		history = append(history, entry)
 	}
 	return history, rows.Err()
 }
 
-// DeployedByRelease rend, par tag de release d'un projet, les environnements de
-// ce projet qui la font tourner.
+// DeployedByRelease returns, per release tag of a project, the environments of that project
+// running it.
 //
-// Par la même règle que [Store.DeployedRelease] : la version observée désigne la
-// release du projet, une promotion enregistrée tranche entre plusieurs candidates,
-// à défaut la plus récemment créée.
+// By the same rule as [Store.DeployedRelease]: the version observed names the project's release,
+// a recorded promotion settles between several candidates, failing that the most recently
+// created one.
 func (s *Store) DeployedByRelease(ctx context.Context, projectID int64) (map[string][]string, error) {
 	rows, err := s.pool.Query(ctx,
 		`select distinct on (e.id) e.id, r.tag
@@ -177,7 +174,7 @@ func (s *Store) DeployedByRelease(ctx context.Context, projectID int64) (map[str
 		  where e.project_id = $1 and e.visible
 		  order by e.id, p.pushed_at desc nulls last, r.created_at desc`, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("déploiements des releases: %w", err)
+		return nil, fmt.Errorf("deployments of the releases: %w", err)
 	}
 	defer rows.Close()
 
@@ -185,7 +182,7 @@ func (s *Store) DeployedByRelease(ctx context.Context, projectID int64) (map[str
 	for rows.Next() {
 		var environment, tag string
 		if err := rows.Scan(&environment, &tag); err != nil {
-			return nil, fmt.Errorf("déploiements des releases: %w", err)
+			return nil, fmt.Errorf("deployments of the releases: %w", err)
 		}
 		deployed[tag] = append(deployed[tag], environment)
 	}

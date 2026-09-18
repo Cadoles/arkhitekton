@@ -5,11 +5,11 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 )
 
-// Policies rend les exigences de promotion déclarées au catalogue, par projet.
+// Policies returns the promotion requirements declared in the catalogue, per project.
 //
-// Le noyau garde le mécanisme — le rôle minimal selon la sensibilité —, le plugin
-// fournit la table. Chaque projet déclare la sensibilité de ses environnements
-// dans sa section du catalogue (doc 16 §16.7, couture 4 ; §16.18).
+// The core keeps the mechanism — the minimum role according to sensitivity — the plugin
+// supplies the table. Each project declares the sensitivity of its environments in its section
+// of the catalogue.
 func Policies(declared *catalog.Catalog) auth.ProjectPolicies {
 	policies := make(auth.ProjectPolicies, len(declared.Projects))
 	for slug, project := range declared.Projects {

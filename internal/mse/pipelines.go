@@ -10,20 +10,19 @@ import (
 )
 
 /*
- * Ce que les pipelines du MSE ont besoin de savoir, par projet.
+ * What MSE's pipelines need to know, per project.
  *
- * Le noyau exposait ces valeurs à l'ordonnanceur sous des clés qui nomment le MSE
- * — `forge.mseKustom.repoUrl`, `mse.overlayLocation` — lues dans sa configuration
- * (doc 16 §16.18, couture oubliée de §16.7). Elles viennent désormais des réglages
- * du plugin, où un projet peut les surcharger : deux projets ne clonent pas la
- * même kustomisation.
+ * The core exposed these values to the scheduler under keys naming MSE —
+ * `forge.mseKustom.repoUrl`, `mse.overlayLocation` — read from its configuration. They now come
+ * from the plugin's settings, where a project can override them: two projects do not clone the
+ * same kustomization.
  */
 
-// pipelineFields associe un réglage du plugin à la clé que le catalogue référence.
+// pipelineFields associates a plugin setting with the key the catalogue references.
 //
-// Deux vocabulaires, et c'est délibéré : le catalogue nomme ce dont un pipeline a
-// besoin, le plugin ce qu'un administrateur règle. Les confondre obligerait
-// l'écran d'administration à afficher `forge.mseKustom.repoUrl`.
+// Two vocabularies, deliberately: the catalogue names what a pipeline needs, the plugin what an
+// administrator sets. Merging them would force the administration screen to display
+// `forge.mseKustom.repoUrl`.
 var pipelineFields = map[string]string{
 	"kustomRepoUrl":   "forge.mseKustom.repoUrl",
 	"kustomRevision":  "forge.mseKustom.revision",
@@ -31,20 +30,20 @@ var pipelineFields = map[string]string{
 	"overlayLocation": "mse.overlayLocation",
 }
 
-// SettingsReader rend les réglages effectifs d'un plugin pour un projet.
+// SettingsReader returns a plugin's effective settings for a project.
 type SettingsReader interface {
 	ResolvedPlugin(ctx context.Context, projectID int64, pluginID string) (store.PluginSettings, error)
 }
 
-// PipelineSettings rend les valeurs de configuration qu'un projet ajoute aux
-// paramètres de ses pipelines.
+// PipelineSettings returns the configuration values a project adds to the parameters of its
+// pipelines.
 //
-// Rien quand le module est éteint pour lui : ses pipelines n'ont alors aucune
-// raison de cloner une kustomisation, et un paramètre requis non couvert fait
-// échouer la mise en file avec un message qui le nomme.
+// Nothing when the module is switched off for it: its pipelines then have no reason to clone a
+// kustomization, and a required parameter left uncovered fails the queueing with a message that
+// names it.
 //
-// Une valeur vide n'est pas rendue : c'est l'instance qui la fournit, et une
-// chaîne vide écraserait la sienne (voir [plugin.Resolve]).
+// An empty value is not returned: it is the instance that supplies it, and an empty string would
+// overwrite its own (see [plugin.Resolve]).
 func PipelineSettings(settings SettingsReader) func(context.Context, int64) (map[string]string, error) {
 	return func(ctx context.Context, projectID int64) (map[string]string, error) {
 		resolved, err := settings.ResolvedPlugin(ctx, projectID, plugin.ModuleMSE)
@@ -65,11 +64,11 @@ func PipelineSettings(settings SettingsReader) func(context.Context, int64) (map
 	}
 }
 
-// PipelineDefaults rend les réglages globaux à amorcer depuis la configuration.
+// PipelineDefaults returns the global settings to seed from the configuration.
 //
-// L'amorçage, et non la lecture : les variables d'environnement du déploiement
-// posent la première valeur, la base fait foi ensuite. Sans cela, un réglage
-// modifié depuis l'administration serait repris par le déploiement suivant.
+// The seeding, and not the read: the deployment's environment variables set the first value,
+// the database is authoritative afterwards. Without that, a setting changed from the
+// administration screen would be taken back by the next deployment.
 func PipelineDefaults(kustomRepoURL, kustomRevision, e2eRepoURL, overlayLocation string) map[string]string {
 	defaults := map[string]string{
 		"kustomRepoUrl":   kustomRepoURL,

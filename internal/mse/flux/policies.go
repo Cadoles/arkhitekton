@@ -8,41 +8,39 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// ImagePolicy est ce que le dashboard lit d'une politique de sélection.
+// ImagePolicy is what the dashboard reads of a selection policy.
 type ImagePolicy struct {
 	Name string
-	// Pattern est le `filterTags.pattern` : c'est lui qui dit quels tags cette
-	// politique retient, donc quel suffixe de promotion elle attend.
+	// Pattern is the `filterTags.pattern`: it is what says which tags this policy keeps, hence which
+	// promotion suffix it expects.
 	Pattern string
-	// Range est la plage SemVer. Sa forme décide si les pré-releases sont
-	// éligibles, et c'est le point le plus glissant de tout le dispositif.
+	// Range is the SemVer range. Its shape decides whether pre-releases are eligible, and it is the
+	// most slippery point of the whole arrangement.
 	Range string
-	// LatestImage est ce que Flux a retenu, vide tant qu'il n'a rien scanné.
+	// LatestImage is what Flux kept, empty as long as it has scanned nothing.
 	LatestImage string
 }
 
-// AcceptsPrerelease dit si la plage sélectionne les pré-releases.
+// AcceptsPrerelease says whether the range selects pre-releases.
 //
-// Une plage SemVer sans composante de pré-release n'en retient **aucune** :
-// `>=0.0.0` ne correspond pas à `1.8.0-rc1`. C'est le comportement voulu pour la
-// production, et un piège partout ailleurs — une `ImagePolicy` de qualif écrite
-// sans `-0` ignorerait silencieusement toutes les RC promues vers elle.
+// A SemVer range with no pre-release component keeps **none**: `>=0.0.0` does not match
+// `1.8.0-rc1`. It is the intended behaviour for production, and a trap everywhere else — a qualif
+// `ImagePolicy` written without `-0` would silently ignore every RC promoted to it.
 //
-// La détection est volontairement grossière : la présence d'un tiret dans la
-// plage. Reproduire l'analyse de Masterminds/semver donnerait une seconde
-// implémentation à garder d'accord avec la première, pour un gain nul — ce qui
-// compte est de comparer cette lecture à ce que la table `environments` déclare,
-// et de refuser de démarrer si les deux divergent.
+// The detection is deliberately coarse: the presence of a dash in the range. Reproducing
+// Masterminds/semver's parsing would give a second implementation to keep in agreement with the
+// first, for no gain — what counts is comparing this reading with what the `environments` table
+// declares, and refusing to start if the two diverge.
 func (p ImagePolicy) AcceptsPrerelease() bool {
 	return strings.Contains(p.Range, "-")
 }
 
-// Suffix extrait le suffixe de promotion attendu par la politique.
+// Suffix extracts the promotion suffix the policy expects.
 //
-// Le motif documenté est `^(?P<semver>.+)_testing$` : le suffixe est ce qui suit
-// le dernier underscore, avant l'ancre de fin. Rendre vide plutôt que deviner
-// quand le motif ne suit pas cette forme — un motif exotique doit produire un
-// écart visible à la validation, pas une correspondance inventée.
+// The documented pattern is `^(?P<semver>.+)_testing$`: the suffix is what follows the last
+// underscore, before the end anchor. Return empty rather than guess when the pattern does not
+// follow that shape — an exotic pattern must produce a visible gap at validation, not an invented
+// match.
 func (p ImagePolicy) Suffix() string {
 	pattern := strings.TrimSuffix(p.Pattern, "$")
 
@@ -52,15 +50,14 @@ func (p ImagePolicy) Suffix() string {
 	}
 	suffix := pattern[index+1:]
 
-	// Un suffixe qui contient encore de la syntaxe d'expression régulière n'en
-	// est pas un.
+	// A suffix still containing regular-expression syntax is not one.
 	if strings.ContainsAny(suffix, `.*+?()[]{}|\^$`) {
 		return ""
 	}
 	return suffix
 }
 
-// ImagePolicies rend les politiques du namespace Flux.
+// ImagePolicies returns the Flux namespace's policies.
 func (c *Client) ImagePolicies(ctx context.Context) ([]ImagePolicy, error) {
 	items, err := c.list(ctx, c.imagePolicies, c.Namespace)
 	if err != nil {
@@ -76,9 +73,8 @@ func (c *Client) ImagePolicies(ctx context.Context) ([]ImagePolicy, error) {
 		policy.Range, _, _ = unstructured.NestedString(item, "spec", "policy", "semver", "range")
 		policy.LatestImage, _, _ = unstructured.NestedString(item, "status", "latestRef", "name")
 		if policy.LatestImage == "" {
-			// Flux a déplacé l'information de `status.latestImage` vers
-			// `status.latestRef` en cours de route. Lire les deux évite de
-			// dépendre de la version installée, que ce paquet ne code pas.
+			// Flux moved the information from `status.latestImage` to `status.latestRef` along the way.
+			// Reading both avoids depending on the version installed, which this package does not hard-code.
 			policy.LatestImage, _, _ = unstructured.NestedString(item, "status", "latestImage")
 		}
 
@@ -87,25 +83,24 @@ func (c *Client) ImagePolicies(ctx context.Context) ([]ImagePolicy, error) {
 	return policies, nil
 }
 
-// Kustomization est l'état de rapprochement d'un environnement.
+// Kustomization is an environment's reconciliation state.
 type Kustomization struct {
 	Name string
-	// Ready porte la condition du même nom : `True`, `False` ou `Unknown`.
+	// Ready carries the condition of the same name: `True`, `False` or `Unknown`.
 	Ready string
-	// Reason et Message expliquent un rapprochement en échec. Sans eux,
-	// l'interface ne peut qu'afficher « pas prêt ».
+	// Reason and Message explain a failed reconciliation. Without them, the interface can only
+	// display "not ready".
 	Reason  string
 	Message string
-	// LastAppliedRevision est la révision Git effectivement appliquée. C'est elle
-	// qui dit ce qui tourne, par opposition à ce qui a été demandé.
+	// LastAppliedRevision is the Git revision actually applied. It is what says what is running, as
+	// opposed to what was requested.
 	LastAppliedRevision string
 }
 
-// State projette la condition Ready vers l'état affiché.
+// State maps the Ready condition to the displayed state.
 //
-// Trois états et non deux : `Unknown` signifie « rapprochement en cours », ce qui
-// n'est ni un succès ni un échec. Les confondre ferait afficher une erreur
-// pendant chaque déploiement normal.
+// Three states and not two: `Unknown` means "reconciliation in progress", which is neither a
+// success nor a failure. Merging them would display an error during every normal deployment.
 func (k Kustomization) State() string {
 	switch k.Ready {
 	case "True":
@@ -117,7 +112,7 @@ func (k Kustomization) State() string {
 	}
 }
 
-// Kustomizations rend les rapprochements du namespace Flux.
+// Kustomizations returns the Flux namespace's reconciliations.
 func (c *Client) Kustomizations(ctx context.Context) ([]Kustomization, error) {
 	items, err := c.list(ctx, c.kustomizations, c.Namespace)
 	if err != nil {
@@ -151,7 +146,7 @@ func (c *Client) Kustomizations(ctx context.Context) ([]Kustomization, error) {
 	return kustomizations, nil
 }
 
-// FindPolicy retrouve la politique d'un suffixe de promotion.
+// FindPolicy finds the policy of a promotion suffix.
 func FindPolicy(policies []ImagePolicy, suffix string) (ImagePolicy, bool) {
 	for _, policy := range policies {
 		if policy.Suffix() == suffix {
@@ -161,7 +156,7 @@ func FindPolicy(policies []ImagePolicy, suffix string) (ImagePolicy, bool) {
 	return ImagePolicy{}, false
 }
 
-// Describe rend une politique lisible dans un message d'erreur.
+// Describe renders a policy readable in an error message.
 func (p ImagePolicy) Describe() string {
 	return fmt.Sprintf("%s (motif %q, plage %q)", p.Name, p.Pattern, p.Range)
 }

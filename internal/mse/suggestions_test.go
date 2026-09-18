@@ -36,16 +36,16 @@ func (p projets) ProjectBySlug(_ context.Context, slug string) (store.Project, e
 	return store.Project{ID: id, Slug: slug}, nil
 }
 
-// Les environnements visibles sont proposés au projet qui a le module, et à aucun
-// autre : sans projet, projet inconnu ou module éteint, le champ reste libre.
-func TestLesEnvironnementsProposesSuiventLeModuleDuProjet(t *testing.T) {
+// The visible environments are offered to the project that has the module, and to no other:
+// with no project, an unknown project or the module switched off, the field stays free.
+func TestTheOfferedEnvironmentsFollowTheProjectsModule(t *testing.T) {
 	hidden := false
 	environments := &catalog.Catalog{Projects: map[string]catalog.ProjectDeclaration{
 		"mse": {Environments: []catalog.Environment{
 			{ID: "qualif", Label: "Qualification"},
-			{ID: "fantome", Label: "Fantôme", Visible: &hidden},
+			{ID: "fantome", Label: "Ghost", Visible: &hidden},
 		}},
-		// Déclarés, mais pour un projet qui a éteint le module.
+		// Declared, but for a project that switched the module off.
 		"tekton": {Environments: []catalog.Environment{{ID: "qualif", Label: "Qualification"}}},
 	}}
 	resolver := projets{"mse": 1, "tekton": 2}
@@ -54,17 +54,17 @@ func TestLesEnvironnementsProposesSuiventLeModuleDuProjet(t *testing.T) {
 	allume := EnvironmentSuggestions(environments,
 		dashhttp.NewModules(pluginSettings{global: true, eteints: map[int64]bool{2: true}}, quietLogger()), resolver)
 	if proposed := allume(ctx, "mse"); len(proposed) != 1 || proposed[0].Value != "qualif" {
-		t.Errorf("projet avec le module: %+v", proposed)
+		t.Errorf("project with the module: %+v", proposed)
 	}
-	for _, slug := range []string{"tekton", "", "inconnu"} {
+	for _, slug := range []string{"tekton", "", "unknown"} {
 		if proposed := allume(ctx, slug); proposed != nil {
-			t.Errorf("projet %q: %+v, attendu aucune liste", slug, proposed)
+			t.Errorf("project %q: %+v, expected no list", slug, proposed)
 		}
 	}
 
 	eteint := EnvironmentSuggestions(environments,
 		dashhttp.NewModules(pluginSettings{global: false}, quietLogger()), resolver)
 	if proposed := eteint(ctx, "mse"); proposed != nil {
-		t.Errorf("instance éteinte: %+v, attendu aucune liste", proposed)
+		t.Errorf("instance switched off: %+v, expected no list", proposed)
 	}
 }

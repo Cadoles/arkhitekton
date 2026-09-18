@@ -9,59 +9,55 @@ import (
 )
 
 /*
- * Le déployeur GitOps du plugin MSE.
+ * The MSE plugin's GitOps deployer.
  *
- * Il n'agit sur aucun cluster, et c'est la doctrine et non une limitation ([B7]) :
- * promouvoir consiste à poser un tag supplémentaire sur un digest déjà publié,
- * après quoi Flux le constate et déploie. Le dashboard ne se connecte jamais au
- * cluster cible — la production vit d'ailleurs dans un cluster qu'il ne voit pas.
+ * It acts on no cluster, and that is doctrine and not a limitation: promoting consists in
+ * setting an extra tag on an already published digest, after which Flux observes it and deploys.
+ * The dashboard never connects to the target cluster — production, moreover, lives in a cluster
+ * it does not see.
  *
- * Ce que ce type ajoute au client : il **planifie et juge**, là où le client se
- * contente de lire des objets. La planification est dans
- * `promotion.go`, à côté : c'est une convention de Flux (doc 16 §16.4).
+ * What this type adds to the client: it **plans and judges**, where the client merely reads
+ * objects. The planning is in `promotion.go`, alongside: it is a convention of Flux.
  */
 
-// Réglages qu'un environnement doit porter pour ce déployeur.
+// Settings an environment must carry for this deployer.
 //
-// Nommés ici, parce que c'est lui qui les lit.
+// Named here, because it is what reads them.
 const (
-	// SettingSuffix est la métadonnée SemVer que la plage de l'ImagePolicy retient.
+	// SettingSuffix is the SemVer metadata the ImagePolicy's range keeps.
 	SettingSuffix = "promotionSuffix"
-	// SettingAcceptsPrerelease dit si la plage admet les pré-releases. Redondant
-	// avec la politique réelle, et confronté à elle par Check — c'est justement
-	// ce désaccord qui doit empêcher le démarrage.
+	// SettingAcceptsPrerelease says whether the range allows pre-releases. Redundant with the real
+	// policy, and confronted with it by Check — it is precisely that disagreement which must
+	// prevent start-up.
 	SettingAcceptsPrerelease = "acceptsPrerelease"
-	// SettingKustomization nomme la Kustomization à lire pour observer.
+	// SettingKustomization names the Kustomization to read in order to observe.
 	SettingKustomization = "kustomization"
 )
 
-// DefaultPromotionKind est la famille de pipeline qui pose le tag supplémentaire.
+// DefaultPromotionKind is the pipeline kind that sets the extra tag.
 //
-// Portée ici parce que c'est le déployeur qui sait par quel geste son plan se
-// réalise. Le dashboard emploie le même pipeline hors promotion — donner à une
-// release finale son propre tag depuis celui de sa pré-release (B17) —, mais
-// c'est une autre question : l'une achemine vers un environnement, l'autre
-// établit une identité. Les deux constantes coïncident sans se confondre.
+// Carried here because it is the deployer that knows by which act its plan is performed. The
+// dashboard uses the same pipeline outside promotion — giving a final release its own tag from
+// that of its pre-release — but that is another question: one routes to an environment, the
+// other establishes an identity. The two constants coincide without merging.
 const DefaultPromotionKind = "retag"
 
-// Deployer planifie et observe les promotions au-dessus de Flux.
+// Deployer plans and observes the promotions on top of Flux.
 type Deployer struct {
 	client *Client
-	// kind est la famille de pipeline qui pose le tag. Portée par le déployeur
-	// plutôt que devinée par l'appelant : c'est lui qui sait par quel geste son
-	// plan se réalise.
+	// kind is the pipeline kind that sets the tag. Carried by the deployer rather than guessed by
+	// the caller: it is what knows by which act its plan is performed.
 	kind string
-	// template compose le tag de promotion. Configurable, `+` étant exclu de la
-	// grammaire des tags OCI.
+	// template composes the promotion tag. Configurable, `+` being excluded from the grammar of OCI
+	// tags.
 	template string
 }
 
-// NewDeployer construit le déployeur GitOps.
+// NewDeployer builds the GitOps deployer.
 //
-// Le client peut être nil : le dashboard reste utilisable sans accès au cluster
-// Flux, l'observation répond alors « non observable » et le démarrage ne vérifie
-// rien. Mieux vaut un écran qui le dit qu'un binaire qui refuse de démarrer sur
-// une dépendance facultative.
+// The client may be nil: the dashboard stays usable without access to the Flux cluster,
+// observation then answers "not observable" and start-up checks nothing. Better a screen that
+// says so than a binary that refuses to start over an optional dependency.
 func NewDeployer(client *Client, kind, template string) *Deployer {
 	if kind == "" {
 		kind = DefaultPromotionKind
@@ -69,11 +65,11 @@ func NewDeployer(client *Client, kind, template string) *Deployer {
 	return &Deployer{client: client, kind: kind, template: template}
 }
 
-// Plan compose le tag à poser pour atteindre un environnement.
+// Plan composes the tag to set in order to reach an environment.
 //
-// Le refus est l'essentiel : une pré-release vers un environnement dont la plage
-// SemVer les exclut produirait un tag valide, poussé sans erreur, que Flux
-// ignorerait. [PromotionTag] porte cette règle et la rend telle quelle.
+// The refusal is the essential part: a pre-release towards an environment whose SemVer range
+// excludes them would produce a valid tag, pushed with no error, which Flux would ignore.
+// [PromotionTag] carries that rule and returns it as it is.
 func (d *Deployer) Plan(_ context.Context, request Deployment) (Plan, error) {
 	target := PromotionTarget{
 		ID:                request.Target.ID,
@@ -97,19 +93,17 @@ func (d *Deployer) Plan(_ context.Context, request Deployment) (Plan, error) {
 	}, nil
 }
 
-// Observe rend ce que Flux a retenu pour cet environnement.
+// Observe returns what Flux kept for this environment.
 //
-// Une **intention**, jamais un constat : la Kustomization dit ce que Flux a
-// appliqué, pas ce qui tourne. Le niveau de preuve rendu est donc `declared`, et
-// c'est l'attestation de PortalData qui peut l'élever — leur écart est ce que l'écran
-// des environnements existe pour montrer (B8).
+// An **intention**, never an observation: the Kustomization says what Flux applied, not what is
+// running. The proof level returned is therefore `declared`, and it is PortalData's attestation
+// that can raise it — their gap is what the environments screen exists to show.
 func (d *Deployer) Observe(ctx context.Context, target Target) (Observation, error) {
 	observation := Observation{Resolution: ResolutionUnobservable}
 
 	if !target.Observable || d.client == nil {
-		// La production, dans son cluster indépendant, ou aucun accès Flux. Non
-		// observable et non « inconnu » : l'interface doit distinguer les deux,
-		// sans quoi une carte figée ressemble à une panne.
+		// Production, in its independent cluster, or no Flux access. Not observable and not "unknown":
+		// the interface must tell the two apart, otherwise a frozen card looks like an outage.
 		return observation, nil
 	}
 
@@ -134,50 +128,46 @@ func (d *Deployer) Observe(ctx context.Context, target Target) (Observation, err
 	return observation, nil
 }
 
-// CheckScheme refuse un schéma auquel ce déployeur ne peut pas attacher de
-// marqueur.
+// CheckScheme refuses a scheme to which this deployer cannot attach a marker.
 //
-// Ce déployeur promeut en **écrivant une métadonnée** dans le tag, que la plage
-// d'une ImagePolicy retient ensuite. Un schéma qui ne sait pas où poser cette
-// métadonnée rend la promotion impossible — et l'échec serait le plus coûteux
-// qui soit : le tag partirait, le registre l'accepterait, Flux l'ignorerait, et
-// la promotion paraîtrait réussie (B7).
+// This deployer promotes by **writing metadata** into the tag, which an ImagePolicy's range then
+// keeps. A scheme that does not know where to put that metadata makes promotion impossible —
+// and the failure would be the most expensive there is: the tag would go, the registry would
+// accept it, Flux would ignore it, and the promotion would look successful.
 //
-// # Le SemVer, et lui seul
+// # SemVer, and it alone
 //
-// Le schéma était interrogé par une méthode `Mark` de son interface, pour qu'un
-// schéma calendaire puisse un jour convenir sans que ce contrôle change. Ce
-// déployeur n'existe que pour le MSE, dont les tags sont SemVer : la question
-// posée au noyau pour un cas qui n'arrivera pas a été retirée, et le marqueur est
-// posé ici, par la règle qui l'utilise (doc 16 §16.4).
+// The scheme was queried through a `Mark` method of its interface, so that a calendar scheme
+// could one day fit without this check changing. This deployer exists only for MSE, whose tags
+// are SemVer: the question asked of the core for a case that will not arise was removed, and the
+// marker is set here, by the rule that uses it.
 func (d *Deployer) CheckScheme(scheme version.Scheme) error {
-	// Un tag sonde, jamais poussé : on demande au schéma s'il **sait** poser un
-	// marqueur, pas ce qu'il produirait.
+	// A probe tag, never pushed: the scheme is asked whether it **can** set a marker, not what it
+	// would produce.
 	probe, err := scheme.Parse(probeTag)
 	if err != nil {
-		// Le schéma refuse jusqu'à un tag canonique : il ne peut pas décrire les
-		// versions que ce déployeur achemine.
+		// The scheme refuses even a canonical tag: it cannot describe the versions this deployer routes.
 		return fmt.Errorf(
-			"le schéma %q ne reconnaît pas une version de la forme %q, "+
-				"que ce déployeur doit savoir écrire: %w", scheme.ID(), probeTag, err)
+			"scheme %q does not recognise a version of the form %q, "+
+				"which this deployer must be able to write: %w", scheme.ID(), probeTag, err)
 	}
 
 	if _, semver := scheme.(version.SemVer); !semver {
 		return fmt.Errorf(
-			"le schéma %q ne sait pas attacher de marqueur de promotion, "+
-				"or ce déployeur sélectionne par métadonnée SemVer: une promotion "+
-				"produirait un tag que rien ne retiendrait", scheme.ID())
+			"scheme %q cannot attach a promotion marker, "+
+				"yet this deployer selects by SemVer metadata: a promotion "+
+				"would produce a tag nothing would keep", scheme.ID())
 	}
 	if _, err := Mark(probe.Raw, "prod"); err != nil {
-		return fmt.Errorf("le schéma %q ne sait pas marquer %q: %w", scheme.ID(), probe.Raw, err)
+		return fmt.Errorf("scheme %q cannot mark %q: %w", scheme.ID(), probe.Raw, err)
 	}
 	return nil
 }
 
-// Mark suffixe un tag SemVer de son marqueur, séparé par un underscore.
+// Mark suffixes a SemVer tag with its marker, separated by an underscore.
 //
-// Underscore et non `+` : la grammaire des tags OCI exclut le second, alors que
-// le SemVer le réserve à la métadonnée de build.
+// An underscore and not `+`: the grammar of OCI tags excludes the latter, whereas SemVer
+// reserves it for build metadata.
 func Mark(tag, marker string) (string, error) {
 	parsed, err := version.SemVer{}.Parse(tag)
 	if err != nil {
@@ -189,15 +179,15 @@ func Mark(tag, marker string) (string, error) {
 	return parsed.Raw + "_" + marker, nil
 }
 
-// probeTag est la version canonique servant à interroger un schéma. Jamais
-// poussée : elle ne sert qu'à savoir si le schéma sait répondre.
+// probeTag is the canonical version used to query a scheme. Never pushed: it serves only to know
+// whether the scheme can answer.
 const probeTag = "1.0.0"
 
-// Check confronte les environnements déclarés aux ImagePolicy réelles.
+// Check confronts the declared environments with the real ImagePolicies.
 //
-// Sans client, rien n'est vérifié plutôt que tout refusé : un déploiement sans
-// accès Flux est une configuration valide, et faire échouer le démarrage dessus
-// empêcherait d'utiliser le reste du dashboard.
+// With no client, nothing is checked rather than everything refused: a deployment with no Flux
+// access is a valid configuration, and failing the start-up over it would prevent using the rest
+// of the dashboard.
 func (d *Deployer) Check(ctx context.Context, targets []Target) error {
 	if d.client == nil {
 		return nil
@@ -205,7 +195,7 @@ func (d *Deployer) Check(ctx context.Context, targets []Target) error {
 
 	policies, err := d.client.ImagePolicies(ctx)
 	if err != nil {
-		return fmt.Errorf("lecture des ImagePolicy: %w", err)
+		return fmt.Errorf("reading the ImagePolicies: %w", err)
 	}
 
 	environments := make([]Environment, 0, len(targets))

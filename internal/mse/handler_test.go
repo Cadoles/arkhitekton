@@ -44,7 +44,7 @@ func newFakeStore() *fakeStore {
 	}
 }
 
-// fixtureProject porte trois images, dont une construite sans être promue.
+// fixtureProject carries three images, one of them built without being promoted.
 func fixtureProject() store.Project {
 	promoted, held := true, false
 	return store.Project{
@@ -123,7 +123,7 @@ func newHandler(fake *fakeStore) *Handler {
 	authorizer := auth.NewAuthorizer(auth.ProjectPolicies{projectSlug: {
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	}})
-	// Le déployeur Flux, sans client : planifier n'en demande pas.
+	// The Flux deployer, with no client: planning needs none.
 	return NewHandler(fake, pipelines, authorizer,
 		flux.NewDeployer(nil, flux.DefaultPromotionKind, ""), quietLogger())
 }
@@ -143,8 +143,8 @@ func promote(handler *Handler, tag, environment string) *httptest.ResponseRecord
 	return recorder
 }
 
-// Pousser vers la production un tag qu'aucune ImagePolicy ne retient ne produit
-// aucune erreur. Le refus doit donc venir d'ici, avant la mise en file.
+// Pushing to production a tag no ImagePolicy keeps produces no error. The refusal must
+// therefore come from here, before the queueing.
 func TestPromoteRefusesAPrereleaseTowardsProduction(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0-rc1"] = store.Release{
@@ -154,15 +154,15 @@ func TestPromoteRefusesAPrereleaseTowardsProduction(t *testing.T) {
 	recorder := promote(newHandler(fake), "1.8.0-rc1", "prod")
 
 	if recorder.Code != http.StatusConflict {
-		t.Errorf("code = %d, attendu 409", recorder.Code)
+		t.Errorf("code = %d, expected 409", recorder.Code)
 	}
 	if len(fake.jobs) != 0 {
-		t.Errorf("%d job(s) mis en file alors que la promotion est refusée", len(fake.jobs))
+		t.Errorf("%d job(s) queued although the promotion is refused", len(fake.jobs))
 	}
 }
 
-// Une release finale produite par re-tag atteint la production, et le tag poussé
-// est composé depuis son tag — non depuis la version de son image.
+// A final release produced by re-tag reaches production, and the tag pushed is composed from
+// its tag — not from its image's version.
 func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0"] = store.Release{
@@ -172,18 +172,18 @@ func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
 	recorder := promote(newHandler(fake), "1.8.0", "prod")
 
 	if recorder.Code != http.StatusAccepted {
-		t.Fatalf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("code = %d, expected 202: %s", recorder.Code, recorder.Body.String())
 	}
 	promotable := fixtureProject().Promotable()
 	if len(fake.jobs) != len(promotable) {
-		t.Fatalf("%d job(s) mis en file, attendu %d", len(fake.jobs), len(promotable))
+		t.Fatalf("%d job(s) queued, expected %d", len(fake.jobs), len(promotable))
 	}
 	job := fake.jobs[0]
 	if job.Params["image-name"] != "portal" || job.Params["new-tag"] != "1.8.0_prod" ||
 		job.Params["old-tag"] != "1.8.0-rc3" {
-		t.Errorf("paramètres = %+v", job.Params)
+		t.Errorf("parameters = %+v", job.Params)
 	}
-	// Une ligne de promotion par image, enregistrée **demandée**, sans digest.
+	// One promotion row per image, recorded as **requested**, with no digest.
 	if len(fake.promotions) != len(promotable) {
 		t.Fatalf("promotions = %+v", fake.promotions)
 	}
@@ -205,12 +205,11 @@ func TestPromoteRefusesAReleaseWithoutImage(t *testing.T) {
 	}
 
 	if recorder := promote(newHandler(fake), "1.9.0-rc1", "qualif"); recorder.Code != http.StatusConflict {
-		t.Errorf("code = %d, attendu 409 pour une release non construite", recorder.Code)
+		t.Errorf("code = %d, expected 409 for an unbuilt release", recorder.Code)
 	}
 }
 
-// Le journal est une trace, pas une transaction : son échec n'annule pas une
-// promotion mise en file.
+// The log is a trace, not a transaction: its failure does not cancel a queued promotion.
 func TestAFailingAuditDoesNotBlockThePromotion(t *testing.T) {
 	fake := newFakeStore()
 	fake.auditErr = errors.New("journal indisponible")
@@ -221,15 +220,15 @@ func TestAFailingAuditDoesNotBlockThePromotion(t *testing.T) {
 	recorder := promote(newHandler(fake), "1.8.0", "prod")
 
 	if recorder.Code != http.StatusAccepted {
-		t.Errorf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
+		t.Errorf("code = %d, expected 202: %s", recorder.Code, recorder.Body.String())
 	}
 	if len(fake.jobs) != len(fixtureProject().Promotable()) {
 		t.Errorf("%d job(s) mis en file", len(fake.jobs))
 	}
 }
 
-// L'interface a besoin de savoir non seulement qu'une cible est refusée, mais
-// pourquoi : un bouton grisé sans motif se lit comme une panne.
+// The interface needs to know not only that a target is refused, but why: a greyed-out button
+// with no reason reads as an outage.
 func TestTargetsExplainWhyATargetIsRefused(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0-rc1"] = store.Release{
@@ -248,17 +247,17 @@ func TestTargetsExplainWhyATargetIsRefused(t *testing.T) {
 		Targets []promotionTargetVw `json:"targets"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("décodage: %v", err)
+		t.Fatalf("decoding: %v", err)
 	}
 	targets := map[string]promotionTargetVw{}
 	for _, target := range payload.Targets {
 		targets[target.Environment] = target
 	}
 	if qualif := targets["qualif"]; !qualif.Allowed || qualif.Tag != "1.8.0-rc1_testing" {
-		t.Errorf("qualif = %+v, attendu autorisée avec le suffixe Flux", qualif)
+		t.Errorf("qualif = %+v, expected allowed with the Flux suffix", qualif)
 	}
 	if prod := targets["prod"]; prod.Allowed || prod.Reason == "" {
-		t.Errorf("prod = %+v, attendu refusée avec un motif", prod)
+		t.Errorf("prod = %+v, expected refused with a reason", prod)
 	}
 }
 
@@ -278,7 +277,7 @@ func TestHistoryFollowsWhatWasRequested(t *testing.T) {
 		History []historyPayload `json:"history"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("décodage: %v", err)
+		t.Fatalf("decoding: %v", err)
 	}
 	if len(payload.History) != 2 || payload.History[0].Release != "1.8.0-rc2" {
 		t.Errorf("historique = %+v", payload.History)

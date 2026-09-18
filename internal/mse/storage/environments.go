@@ -9,19 +9,19 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Environment décrit un environnement de déploiement d'un projet.
+// Environment describes a project's deployment environment.
 type Environment struct {
-	// ProjectID est le projet qui déploie vers cet environnement. Deux projets
-	// peuvent chacun avoir un `qualif` (doc 16 §16.18).
+	// ProjectID is the project deploying to this environment. Two projects may each have a
+	// `qualif`.
 	ProjectID int64
 	ID        string
 	Label     string
 	Rank      int
 	Namespace string
-	// DeployerSettings porte les réglages de Flux, dans son vocabulaire.
+	// DeployerSettings carries Flux's settings, in its vocabulary.
 	DeployerSettings map[string]string
-	// Observable vaut false pour la production, dans un cluster indépendant : ni
-	// attestation, ni Deployment, ni statut du déployeur n'y sont lisibles.
+	// Observable is false for production, in an independent cluster: neither attestation, nor
+	// Deployment, nor deployer status is readable there.
 	Observable bool
 	Visible    bool
 }
@@ -36,40 +36,39 @@ func scanEnvironments(rows pgx.Rows) ([]Environment, error) {
 		if err := rows.Scan(&environment.ProjectID, &environment.ID, &environment.Label,
 			&environment.Rank, &environment.Namespace, &environment.DeployerSettings,
 			&environment.Observable, &environment.Visible); err != nil {
-			return nil, fmt.Errorf("liste des environnements: %w", err)
+			return nil, fmt.Errorf("listing the environments: %w", err)
 		}
 		environments = append(environments, environment)
 	}
 	return environments, rows.Err()
 }
 
-// ListEnvironments rend les environnements d'un projet dans leur ordre de
-// promotion.
+// ListEnvironments returns a project's environments in their promotion order.
 func (s *Store) ListEnvironments(ctx context.Context, projectID int64) ([]Environment, error) {
 	rows, err := s.pool.Query(ctx,
 		`select `+environmentColumns+`
 		 from environments
 		 where project_id = $1
-		 -- Le rang est l'ordre de promotion : unstable, qualif, préprod, prod.
+		 -- The rank is the promotion order: unstable, qualif, preprod, prod.
 		 order by rank`, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("liste des environnements: %w", err)
+		return nil, fmt.Errorf("listing the environments: %w", err)
 	}
 	return scanEnvironments(rows)
 }
 
-// ListAllEnvironments rend les environnements de tous les projets. Sert à
-// l'observation, qui relève chacun d'eux.
+// ListAllEnvironments returns every project's environments. Serves the observation, which reads
+// each of them.
 func (s *Store) ListAllEnvironments(ctx context.Context) ([]Environment, error) {
 	rows, err := s.pool.Query(ctx,
 		`select `+environmentColumns+` from environments order by project_id, rank`)
 	if err != nil {
-		return nil, fmt.Errorf("liste des environnements: %w", err)
+		return nil, fmt.Errorf("listing the environments: %w", err)
 	}
 	return scanEnvironments(rows)
 }
 
-// UpsertEnvironment enregistre ou met à jour un environnement.
+// UpsertEnvironment records or updates an environment.
 func (s *Store) UpsertEnvironment(ctx context.Context, environment Environment) error {
 	_, err := s.pool.Exec(ctx,
 		`insert into environments (
@@ -87,30 +86,30 @@ func (s *Store) UpsertEnvironment(ctx context.Context, environment Environment) 
 		environment.Namespace, environment.DeployerSettings, environment.Observable,
 		environment.Visible)
 	if err != nil {
-		return fmt.Errorf("enregistrement de l'environnement %q du projet %d: %w",
+		return fmt.Errorf("recording environment %q of project %d: %w",
 			environment.ID, environment.ProjectID, err)
 	}
 	return nil
 }
 
-// Observation est ce que l'environnement dit réellement de lui-même.
+// Observation is what the environment really says about itself.
 type Observation struct {
 	ProjectID     int64
 	EnvironmentID string
-	// PortalVersion est la version de l'image ayant réalisé le dernier bootstrap
-	// réussi, à rapprocher de `releases.image_version` et jamais du tag.
+	// PortalVersion is the version of the image that performed the last successful bootstrap, to be
+	// matched against `releases.image_version` and never against the tag.
 	PortalVersion  string
 	MigrationState string
-	// DeclaredState est l'état que Flux rapporte. Une **intention** : il dit ce
-	// qu'il a appliqué, pas ce qui tourne.
+	// DeclaredState is the state Flux reports. An **intention**: it says what it applied, not what
+	// is running.
 	DeclaredState string
-	// Resolution dit d'où vient l'information : `portaldata` atteste qu'une
-	// version tourne et que ses migrations ont abouti, `git` seulement que Flux a
-	// retenu ce tag, `unobservable` qu'on ne peut rien en dire.
+	// Resolution says where the information comes from: `portaldata` attests that a version is
+	// running and that its migrations completed, `git` only that Flux kept this tag, `unobservable`
+	// that nothing can be said about it.
 	Resolution string
 }
 
-// SaveObservation enregistre l'état constaté d'un environnement.
+// SaveObservation records an environment's observed state.
 func (s *Store) SaveObservation(ctx context.Context, observation Observation) error {
 	_, err := s.pool.Exec(ctx,
 		`insert into environment_observations (
@@ -127,20 +126,19 @@ func (s *Store) SaveObservation(ctx context.Context, observation Observation) er
 		observation.ProjectID, observation.EnvironmentID, observation.PortalVersion,
 		observation.MigrationState, observation.DeclaredState, observation.Resolution)
 	if err != nil {
-		return fmt.Errorf("observation de %q: %w", observation.EnvironmentID, err)
+		return fmt.Errorf("observation of %q: %w", observation.EnvironmentID, err)
 	}
 	return nil
 }
 
-// EnvironmentView associe un environnement à sa dernière observation.
+// EnvironmentView associates an environment with its last observation.
 type EnvironmentView struct {
 	Environment Environment
 	Observation *Observation
 	ObservedAt  *string
 }
 
-// ListEnvironmentViews rend les environnements visibles d'un projet et ce qu'on
-// sait d'eux.
+// ListEnvironmentViews returns a project's visible environments and what is known about them.
 func (s *Store) ListEnvironmentViews(ctx context.Context, projectID int64) ([]EnvironmentView, error) {
 	rows, err := s.pool.Query(ctx,
 		`select e.project_id, e.id, e.label, e.rank, e.namespace, e.deployer_settings,
@@ -153,7 +151,7 @@ func (s *Store) ListEnvironmentViews(ctx context.Context, projectID int64) ([]En
 		 where e.project_id = $1 and e.visible
 		 order by e.rank`, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("vue des environnements: %w", err)
+		return nil, fmt.Errorf("view of the environments: %w", err)
 	}
 	defer rows.Close()
 
@@ -167,7 +165,7 @@ func (s *Store) ListEnvironmentViews(ctx context.Context, projectID int64) ([]En
 			&view.Environment.DeployerSettings, &view.Environment.Observable,
 			&view.Environment.Visible,
 			&portalVersion, &migrationState, &declaredState, &resolution, &observedAt); err != nil {
-			return nil, fmt.Errorf("vue des environnements: %w", err)
+			return nil, fmt.Errorf("view of the environments: %w", err)
 		}
 
 		if resolution != nil {
@@ -187,41 +185,40 @@ func (s *Store) ListEnvironmentViews(ctx context.Context, projectID int64) ([]En
 	return views, rows.Err()
 }
 
-// DeployedRelease est la release qu'un environnement fait tourner.
+// DeployedRelease is the release an environment is running.
 //
-// « Fait tourner » et non « a reçu » : une promotion pousse un tag ; ce qui tourne
-// est ce que `PortalData` rapporte. Les deux peuvent différer — pendant une
-// réconciliation, ou indéfiniment si Flux a ignoré le tag.
+// "Is running" and not "received": a promotion pushes a tag; what is running is what
+// `PortalData` reports. The two may differ — during a reconciliation, or indefinitely if Flux
+// ignored the tag.
 type DeployedRelease struct {
 	Tag string
-	// ImageVersion est la version que l'image porte, et c'est **elle** qui a été
-	// rapprochée de l'observation (B17).
+	// ImageVersion is the version the image carries, and it is **that** which was matched against
+	// the observation.
 	ImageVersion string
 	Kind         string
 	State        string
 	GitRef       string
 	CreatedBy    string
 	CreatedAt    time.Time
-	// PromotedAt date la promotion vers cet environnement. Nil quand la version
-	// observée correspond à une release que le dashboard n'a jamais promue ici.
+	// PromotedAt dates the promotion to this environment. Nil when the version observed corresponds
+	// to a release the dashboard never promoted here.
 	PromotedAt  *time.Time
 	PromotedTag string
-	// Ambiguous vaut true quand plusieurs releases portent la version observée et
-	// qu'aucune promotion ne tranche. Le re-tag rend ce cas normal.
+	// Ambiguous is true when several releases carry the version observed and no promotion settles
+	// it. The re-tag makes this case normal.
 	Ambiguous bool
 }
 
-// ErrNoDeployedRelease signale une version observée qui ne correspond à aucune
-// release connue. Cas normal : le dashboard ne connaît que les releases créées
-// par lui.
-var ErrNoDeployedRelease = errors.New("aucune release connue ne correspond à la version observée")
+// ErrNoDeployedRelease reports a version observed that corresponds to no known release. A normal
+// case: the dashboard knows only the releases it created.
+var ErrNoDeployedRelease = errors.New("no known release matches the version observed")
 
-// DeployedRelease rapproche la version observée sur un environnement d'un projet
-// de la release de ce projet qui la porte.
+// DeployedRelease matches the version observed on a project's environment with the release of
+// that project carrying it.
 //
-// La jointure se fait sur `image_version` et jamais sur le tag (B8, B17), et
-// **dans le projet** : une release d'un autre projet portant la même version
-// d'image ne tourne pas ici. L'ambiguïté est résolue par la promotion.
+// The join is done on `image_version` and never on the tag, and **within the project**: a
+// release of another project carrying the same image version is not running here. Ambiguity is
+// resolved by the promotion.
 func (s *Store) DeployedRelease(ctx context.Context, projectID int64, environmentID string) (DeployedRelease, error) {
 	var release DeployedRelease
 
@@ -237,8 +234,8 @@ func (s *Store) DeployedRelease(ctx context.Context, projectID int64, environmen
 		           count(*) over () as total
 		    from releases r
 		    join observed o on o.portal_version = r.image_version
-		    -- Jointure externe : une release peut porter la version observée sans
-		    -- avoir été promue ici par le dashboard.
+		    -- Outer join: a release may carry the version observed without having been
+		    -- promoted here by the dashboard.
 		    left join image_promotions p
 		         on p.release_id = r.id and p.project_id = $1 and p.environment_id = $2
 		    where r.project_id = $1
@@ -246,7 +243,7 @@ func (s *Store) DeployedRelease(ctx context.Context, projectID int64, environmen
 		select tag, image_version, kind, state, git_ref, created_by, created_at,
 		       pushed_at, promoted_tag, total
 		from candidates
-		-- La promotion tranche ; à défaut, la plus récemment créée.
+		-- The promotion settles it; failing that, the most recently created one.
 		order by pushed_at desc nulls last, created_at desc
 		limit 1`
 
@@ -259,7 +256,7 @@ func (s *Store) DeployedRelease(ctx context.Context, projectID int64, environmen
 		if errors.Is(err, pgx.ErrNoRows) {
 			return release, ErrNoDeployedRelease
 		}
-		return release, fmt.Errorf("release déployée sur %q: %w", environmentID, err)
+		return release, fmt.Errorf("release deployed on %q: %w", environmentID, err)
 	}
 
 	release.Ambiguous = total > 1 && release.PromotedAt == nil

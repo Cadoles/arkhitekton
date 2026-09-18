@@ -1,13 +1,12 @@
-// Package flux lit ce que Flux publie : sélection d'image et rapprochement.
+// Package flux reads what Flux publishes: image selection and reconciliation.
 //
-// Il ne lit **plus** l'état applicatif : celui-ci vit dans `internal/mse/portaldata`
-// depuis le lot D. Flux dit l'intention — le tag qu'une Kustomization a retenu —,
-// le portail dit le constat, et les fondre dans un client faisait échouer le
-// déployeur sur un cluster dépourvu du CRD du portail (doc 12 §12.9).
+// It no **longer** reads the application's state: that lives in `internal/mse/portaldata`. Flux
+// says the intention — the tag a Kustomization kept — the portal says the observation, and
+// merging them into one client made the deployer fail on a cluster without the portal's CRD.
 //
-// Le dashboard n'écrit jamais rien ici. Il **demande** une promotion en poussant
-// un tag sur le registre, et Flux décide ensuite ; tout ce paquet sert à constater
-// ce que Flux a fait, pas à le piloter (B7).
+// The dashboard never writes anything here. It **requests** a promotion by pushing a tag to the
+// registry, and Flux then decides; this whole package serves to observe what Flux did, not to
+// drive it.
 package flux
 
 import (
@@ -29,27 +28,25 @@ const (
 	kustomizeGroup = "kustomize.toolkit.fluxcd.io"
 )
 
-// Client lit les objets Flux.
+// Client reads the Flux objects.
 //
-// Il emploie le client dynamique et **découvre la version servie** au lieu de la
-// coder. La raison n'est pas théorique : `kustomize.toolkit.fluxcd.io/v1` est
-// stable depuis Flux 2.0, tandis que `image.toolkit.fluxcd.io/v1` n'existe que
-// depuis Flux 2.7 — une même installation sert donc `v1` d'un côté et `v1beta2`
-// de l'autre. Coder l'une ou l'autre ferait échouer le dashboard sur la moitié des
-// installations, avec un « the server could not find the requested resource » qui
-// ne désigne pas la cause.
+// It uses the dynamic client and **discovers the version served** instead of hard-coding it.
+// The reason is not theoretical: `kustomize.toolkit.fluxcd.io/v1` has been stable since Flux
+// 2.0, whereas `image.toolkit.fluxcd.io/v1` exists only since Flux 2.7 — one installation
+// therefore serves `v1` on one side and `v1beta2` on the other. Hard-coding either would make
+// the dashboard fail on half the installations, with a "the server could not find the requested
+// resource" that does not name the cause.
 type Client struct {
 	dynamic dynamic.Interface
 
 	imagePolicies  schema.GroupVersionResource
 	kustomizations schema.GroupVersionResource
 
-	// Namespace des objets Flux. Distinct de celui des pipelines : Flux vit dans
-	// `flux-system`.
+	// Namespace of the Flux objects. Distinct from the pipelines': Flux lives in `flux-system`.
 	Namespace string
 }
 
-// Open construit le client et résout les versions servies.
+// Open builds the client and resolves the versions served.
 func Open(config *rest.Config, namespace string) (*Client, error) {
 	dynamicClient, err := dynamic.NewForConfig(config)
 	if err != nil {
@@ -58,7 +55,7 @@ func Open(config *rest.Config, namespace string) (*Client, error) {
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("client de découverte: %w", err)
+		return nil, fmt.Errorf("discovery client: %w", err)
 	}
 
 	mapper, err := resolver(discoveryClient)
@@ -79,7 +76,7 @@ func Open(config *rest.Config, namespace string) (*Client, error) {
 		mapping, err := mapper.RESTMapping(schema.GroupKind{Group: entry.group, Kind: entry.kind})
 		if err != nil {
 			return nil, fmt.Errorf(
-				"le CRD %s.%s est absent du cluster: %w", entry.kind, entry.group, err)
+				"the CRD %s.%s is missing from the cluster: %w", entry.kind, entry.group, err)
 		}
 		*entry.target = mapping.Resource
 	}
@@ -90,21 +87,19 @@ func Open(config *rest.Config, namespace string) (*Client, error) {
 func resolver(discoveryClient discovery.DiscoveryInterface) (meta.RESTMapper, error) {
 	resources, err := restmapper.GetAPIGroupResources(discoveryClient)
 	if err != nil {
-		// La découverte remonte une erreur partielle quand un groupe d'API est
-		// injoignable — un agrégateur en panne, par exemple. Ce qui a été obtenu
-		// reste exploitable, et ce sont peut-être justement nos groupes.
+		// The discovery reports a partial error when a group of APIs is unreachable — a failed
+		// aggregator, for instance. What was obtained stays usable, and it may be precisely our groups.
 		if len(resources) == 0 {
-			return nil, fmt.Errorf("découverte des API du cluster: %w", err)
+			return nil, fmt.Errorf("discovering the cluster's APIs: %w", err)
 		}
 	}
 	return restmapper.NewDiscoveryRESTMapper(resources), nil
 }
 
-// Versions rend les versions retenues, pour le journal de démarrage.
+// Versions returns the versions kept, for the start-up log.
 //
-// Les inscrire au journal n'est pas cosmétique : c'est la seule trace qui
-// permette, devant un comportement inattendu, de savoir contre quelle version
-// d'API le dashboard a parlé.
+// Logging them is not cosmetic: it is the only trace that allows, faced with unexpected
+// behaviour, knowing which API version the dashboard spoke against.
 func (c *Client) Versions() map[string]string {
 	return map[string]string{
 		"imagepolicies":  c.imagePolicies.GroupVersion().String(),
@@ -117,7 +112,7 @@ func (c *Client) list(
 ) ([]map[string]any, error) {
 	list, err := c.dynamic.Resource(resource).Namespace(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("liste de %s dans %q: %w", resource.Resource, namespace, err)
+		return nil, fmt.Errorf("listing %s in %q: %w", resource.Resource, namespace, err)
 	}
 
 	items := make([]map[string]any, 0, len(list.Items))

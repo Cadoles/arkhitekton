@@ -17,7 +17,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// Store est ce que les routes du plugin attendent de la base.
+// Store is what the plugin's routes need from the database.
 type Store interface {
 	dashhttp.ProjectResolver
 	GetProject(ctx context.Context, id int64) (store.Project, error)
@@ -32,13 +32,13 @@ type Store interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// Handler sert la promotion et les environnements.
+// Handler serves promotion and the environments.
 type Handler struct {
 	store      Store
 	catalog    *catalog.Catalog
 	authorizer *auth.Authorizer
-	// deployer planifie une promotion sans toucher au cluster : il compose un tag
-	// et refuse ce que la plage SemVer exclut (B7).
+	// deployer plans a promotion without touching the cluster: it composes a tag and refuses what
+	// the SemVer range excludes.
 	deployer *flux.Deployer
 	logger   *slog.Logger
 }
@@ -53,23 +53,23 @@ func NewHandler(
 	}
 }
 
-// Routes monte les routes du plugin. Chacune exige le module allumé : éteint,
-// elles répondent 404 comme une route qui n'existe pas.
+// Routes mounts the plugin's routes. Each requires the module switched on: switched off, they
+// answer 404 like a route that does not exist.
 func (h *Handler) Routes(mux *http.ServeMux, m *dashhttp.Middleware) {
 	module := m.RequireModule(plugin.ModuleMSE)
 
-	// Les cibles d'une release dépendent de l'identité qui demande : le refus par
-	// rôle se calcule ici plutôt que dans la page.
+	// A release's targets depend on the identity asking: the refusal by role is computed here
+	// rather than in the page.
 	mux.Handle("GET /projects/{project}/releases/{tag}/targets", dashhttp.Chain(http.HandlerFunc(h.Targets),
 		m.Authenticate, module, m.RequireIn(auth.PermRead)))
 
-	// L'environnement est dans le chemin et non dans le corps, pour que
-	// l'autorisation — qui est par environnement — reste décidée par la route.
+	// The environment is in the path and not in the body, so that the authorization — which is per
+	// environment — stays decided by the route.
 	mux.Handle("POST /projects/{project}/releases/{tag}/promote/{environment}", dashhttp.Chain(http.HandlerFunc(h.Promote),
 		m.Authenticate, module, m.CSRF, m.RequireDeploy("environment")))
 
-	// Savoir ce qui tourne où ne demande aucun privilège. Sous le projet : chaque
-	// projet déploie vers ses propres environnements (doc 16 §16.18).
+	// Knowing what runs where needs no privilege. Under the project: each project deploys to its
+	// own environments.
 	mux.Handle("GET /projects/{project}/environments", dashhttp.Chain(http.HandlerFunc(h.Environments),
 		m.Authenticate, module, m.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/environments/{environment}", dashhttp.Chain(http.HandlerFunc(h.Environment),
@@ -78,12 +78,12 @@ func (h *Handler) Routes(mux *http.ServeMux, m *dashhttp.Middleware) {
 		m.Authenticate, module, m.RequireIn(auth.PermRead)))
 }
 
-// promotionTargetVw dit, environnement par environnement, si la release peut y
-// aller — et sinon pourquoi.
+// promotionTargetVw says, environment by environment, whether the release can go there — and
+// if not, why.
 //
-// Le refus est calculé ici plutôt que laissé au clic : une promotion qu'aucune
-// ImagePolicy ne retiendrait ne produit **aucune erreur**. Afficher un bouton
-// actif dans ce cas revient à promettre un déploiement qui n'aura pas lieu (B7).
+// The refusal is computed here rather than left to the click: a promotion no ImagePolicy would
+// keep produces **no error**. Displaying an active button in that case amounts to promising a
+// deployment that will not happen.
 type promotionTargetVw struct {
 	Environment string `json:"environment"`
 	Label       string `json:"label"`
@@ -92,7 +92,7 @@ type promotionTargetVw struct {
 	Reason      string `json:"reason,omitempty"`
 }
 
-// release lit la release du chemin, ou écrit la réponse.
+// release reads the release named in the path, or writes the response.
 func (h *Handler) release(w http.ResponseWriter, r *http.Request) (store.Release, int64, bool) {
 	projectID, ok := dashhttp.RequestProject(w, r, h.store)
 	if !ok {
@@ -104,13 +104,13 @@ func (h *Handler) release(w http.ResponseWriter, r *http.Request) (store.Release
 			dashhttp.WriteProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return store.Release{}, 0, false
 		}
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return store.Release{}, 0, false
 	}
 	return item, projectID, true
 }
 
-// Targets rend les environnements vers lesquels une release peut être promue.
+// Targets returns the environments a release can be promoted to.
 func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 	item, projectID, ok := h.release(w, r)
 	if !ok {
@@ -119,7 +119,7 @@ func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 
 	environments, err := h.store.ListEnvironments(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
 		return
 	}
 
@@ -133,13 +133,13 @@ func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case item.State != string(release.StateReady):
 			target.Allowed = false
-			target.Reason = "l'image de cette release n'est pas construite"
+			target.Reason = "this release's image is not built"
 		case !h.authorizer.CanDeploy(identity, projectID, r.PathValue("project"), environment.ID):
 			target.Allowed = false
-			target.Reason = "votre rôle ne permet pas de promouvoir vers cet environnement"
+			target.Reason = "your role does not allow promoting to this environment"
 		default:
-			// La même question que la promotion elle-même, posée sans la faire.
-			// `Name` est vide : la référence est la même pour toutes les images.
+			// The same question as the promotion itself, asked without doing it. `Name` is empty: the
+			// reference is the same for every image.
 			plan, err := h.deployer.Plan(r.Context(), flux.Deployment{
 				Target: targetOf(environment), Version: item.Tag, Artifact: item.ImageVersion,
 			})
@@ -156,16 +156,16 @@ func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 	dashhttp.WriteJSON(w, http.StatusOK, map[string]any{"targets": targets})
 }
 
-// Promote met en file la promotion d'une release vers un environnement.
+// Promote queues the promotion of a release to an environment.
 //
-// Le handler ne pousse rien : il met en file. Le re-tag est fait par la task
-// `promote-image`, avec ses propres identifiants — le dashboard lit le registre,
-// il n'y écrit jamais. Et la file, seule à connaître la classe
-// `exclusive-registry`, évite deux re-tags concurrents sur le même dépôt.
+// The handler pushes nothing: it queues. The re-tag is done by the `promote-image` task, with
+// its own credentials — the dashboard reads the registry, it never writes to it. And the
+// queue, alone in knowing the `exclusive-registry` class, avoids two concurrent re-tags on the
+// same repository.
 func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 	identity, ok := dashhttp.IdentityFrom(r.Context())
 	if !ok {
-		dashhttp.WriteProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		dashhttp.WriteProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -175,14 +175,14 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 	}
 	if item.State != string(release.StateReady) {
 		dashhttp.WriteProblem(w, http.StatusConflict, "Release non promouvable",
-			"l'image de cette release n'est pas construite")
+			"this release's image is not built")
 		return
 	}
 
 	name := r.PathValue("environment")
 	environments, err := h.store.ListEnvironments(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
 		return
 	}
 	var environment storage.Environment
@@ -193,7 +193,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if environment.ID == "" {
-		dashhttp.WriteProblem(w, http.StatusNotFound, "Environnement inconnu", name)
+		dashhttp.WriteProblem(w, http.StatusNotFound, "Unknown environment", name)
 		return
 	}
 
@@ -204,7 +204,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 	}
 	images := project.Promotable()
 
-	// Une fois par image : le déployeur ne sait pas ce qu'une release contient.
+	// Once per image: the deployer does not know what a release contains.
 	plans := make([]flux.Plan, 0, len(images))
 	for _, image := range images {
 		plan, err := h.deployer.Plan(r.Context(), flux.Deployment{
@@ -212,8 +212,8 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 			Artifact: item.ImageVersion, Name: image.Image,
 		})
 		if err != nil {
-			// 409 et non 400 : la requête est bien formée, c'est la combinaison
-			// release/environnement qui n'a pas de sens.
+			// 409 and not 400: the request is well formed, it is the release/environment combination that
+			// makes no sense.
 			dashhttp.WriteProblem(w, http.StatusConflict, "Promotion impossible", err.Error())
 			return
 		}
@@ -221,7 +221,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(plans) == 0 {
 		dashhttp.WriteProblem(w, http.StatusUnprocessableEntity, "Promotion impossible",
-			"aucune image de cette release n'est promue")
+			"no image of this release is promoted")
 		return
 	}
 
@@ -230,8 +230,8 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Une exécution et une ligne de promotion par image : rien d'autre ne dirait
-	// qu'un des re-tags a échoué.
+	// One run and one promotion row per image: nothing else would say that one of the re-tags
+	// failed.
 	jobIDs := make([]int64, 0, len(plans))
 	for index, plan := range plans {
 		jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
@@ -244,20 +244,19 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 		}
 		jobIDs = append(jobIDs, jobID)
 
-		// La promotion **demandée**, sans digest : le re-tag n'a pas eu lieu.
-		// C'est ce qui distingue « promu mais pas encore déployé » de « jamais
-		// promu ».
+		// The promotion **requested**, with no digest: the re-tag has not happened. That is what tells
+		// "promoted but not deployed yet" from "never promoted".
 		if err := h.store.RecordPromotion(r.Context(), storage.Promotion{
 			ReleaseID: item.ID, EnvironmentID: environment.ID,
 			ImageName: images[index].Image, Tag: plan.Reference, JobID: &jobID,
 		}); err != nil {
-			dashhttp.WriteProblem(w, http.StatusInternalServerError, "Enregistrement de la promotion impossible", "")
+			dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot record the promotion", "")
 			return
 		}
 	}
 
-	// Le journal est une trace, pas une transaction : son échec n'annule pas une
-	// promotion déjà mise en file.
+	// The log is a trace, not a transaction: its failure does not cancel a promotion already
+	// queued.
 	if err := h.store.Audit(r.Context(), identity.Subject, store.AuditReleasePromote, item.Tag, map[string]any{
 		"environment": environment.ID, "tag": plans[0].Reference,
 		"from": item.ImageVersion, "job_ids": jobIDs,
@@ -274,15 +273,13 @@ type environmentPayload struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Rank  int    `json:"rank"`
-	// DeployerSettings est rendu tel quel : l'interface en affiche le suffixe de
-	// promotion, qui ne se devine pas — Flux connaît `qualif` sous le nom
-	// `testing`.
+	// DeployerSettings is returned as it is: the interface displays its promotion suffix, which
+	// cannot be guessed — Flux knows `qualif` under the name `testing`.
 	DeployerSettings map[string]string `json:"deployer_settings,omitempty"`
-	// Observable distingue « on ne peut pas savoir » de « on ne sait pas encore »
-	// (B8).
+	// Observable tells "we cannot know" from "we do not know yet".
 	Observable bool `json:"observable"`
-	// Sensitive déclenche la ressaisie de la version à la confirmation. Décidé par
-	// l'autorisateur, seul à savoir ce qu'un environnement reçoit.
+	// Sensitive triggers retyping the version at confirmation. Decided by the authorizer, alone in
+	// knowing what an environment receives.
 	Sensitive      bool           `json:"sensitive"`
 	PortalVersion  string         `json:"portal_version,omitempty"`
 	MigrationState string         `json:"migration_state,omitempty"`
@@ -293,8 +290,8 @@ type environmentPayload struct {
 	LastPromotion  *lastPromotion `json:"last_promotion,omitempty"`
 }
 
-// lastPromotion est ce qui a été **demandé** pour un environnement, à confronter
-// à ce que l'observation y constate.
+// lastPromotion is what was **requested** for an environment, to be set against what
+// observation finds there.
 type lastPromotion struct {
 	Tag      string    `json:"tag"`
 	Release  string    `json:"release"`
@@ -302,7 +299,7 @@ type lastPromotion struct {
 	JobID    *int64    `json:"job_id,omitempty"`
 }
 
-// Environments rend la vue d'ensemble des environnements.
+// Environments returns the overview of the environments.
 func (h *Handler) Environments(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := dashhttp.RequestProject(w, r, h.store)
 	if !ok {
@@ -311,13 +308,13 @@ func (h *Handler) Environments(w http.ResponseWriter, r *http.Request) {
 
 	views, err := h.store.ListEnvironmentViews(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des environnements impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
 		return
 	}
 
 	promotions, err := h.store.LatestPromotions(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the promotions", "")
 		return
 	}
 
@@ -364,11 +361,11 @@ type historyPayload struct {
 	RequestedBy  string    `json:"requested_by,omitempty"`
 }
 
-// History rend la suite des promotions d'un environnement.
+// History returns the sequence of an environment's promotions.
 //
-// La source est ce que le dashboard a demandé, et non l'historique des commits
-// que Flux écrit dans `mse-kustom` : une promotion qu'aucune ImagePolicy ne
-// retient n'apparaît nulle part côté Git alors qu'elle a bien été demandée.
+// The source is what the dashboard requested, and not the history of the commits Flux writes
+// in `mse-kustom`: a promotion no ImagePolicy keeps appears nowhere on the Git side although it
+// was indeed requested.
 func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := dashhttp.RequestProject(w, r, h.store)
 	if !ok {
@@ -376,7 +373,7 @@ func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := h.store.ListEnvironmentHistory(r.Context(), projectID, r.PathValue("environment"), 50)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture de l'historique impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the history", "")
 		return
 	}
 
@@ -393,8 +390,8 @@ func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
 
 type deployedPayload struct {
 	Tag string `json:"tag"`
-	// ImageVersion est ce qui a été rapproché de l'observation. Rendue parce que
-	// l'écart avec le tag est la chose la plus contre-intuitive du dispositif.
+	// ImageVersion is what was matched against the observation. Returned because the gap with the
+	// tag is the most counter-intuitive part of the arrangement.
 	ImageVersion string     `json:"image_version"`
 	Kind         string     `json:"kind"`
 	State        string     `json:"state"`
@@ -403,16 +400,16 @@ type deployedPayload struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	PromotedAt   *time.Time `json:"promoted_at,omitempty"`
 	PromotedTag  string     `json:"promoted_tag,omitempty"`
-	// Ambiguous : plusieurs releases portent cette image et aucune promotion ne
-	// tranche. Normal après un re-tag.
+	// Ambiguous: several releases carry this image and no promotion settles it. Normal after a
+	// re-tag.
 	Ambiguous bool `json:"ambiguous"`
 }
 
-// Environment rend l'état détaillé d'un environnement.
+// Environment returns an environment's detailed state.
 //
-// Le rapprochement avec une release se fait sur `image_version` et jamais sur le
-// tag : ce que le portail rapporte est la version bakée dans l'image, restée
-// celle de la RC pour toute release finale produite par re-tag (B8, B17).
+// The matching with a release is done on `image_version` and never on the tag: what the portal
+// reports is the version baked into the image, still the RC's for any final release produced by
+// re-tag.
 func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 	projectID, ok := dashhttp.RequestProject(w, r, h.store)
 	if !ok {
@@ -422,7 +419,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 
 	views, err := h.store.ListEnvironmentViews(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture de l'environnement impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environment", "")
 		return
 	}
 
@@ -434,7 +431,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if view.Environment.ID == "" {
-		dashhttp.WriteProblem(w, http.StatusNotFound, "Environnement inconnu", name)
+		dashhttp.WriteProblem(w, http.StatusNotFound, "Unknown environment", name)
 		return
 	}
 
@@ -460,8 +457,8 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		payload["observed_at"] = *view.ObservedAt
 	}
 
-	// Le fil de promotion, rendu ici plutôt que reconstruit côté navigateur, où
-	// l'ordre des rangs devrait être redeviné.
+	// The promotion thread, returned here rather than rebuilt in the browser, where the order of
+	// the ranks would have to be guessed again.
 	flow := make([]map[string]any, 0, len(views))
 	for _, candidate := range views {
 		flow = append(flow, map[string]any{
@@ -484,7 +481,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 			Ambiguous: deployed.Ambiguous,
 		}
 	case errors.Is(err, storage.ErrNoDeployedRelease):
-		// Cas normal : le dashboard ne connaît que les releases créées par lui.
+		// A normal case: the dashboard knows only the releases it created.
 		payload["deployed"] = nil
 	default:
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Rapprochement impossible", "")
@@ -493,7 +490,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 
 	promotions, err := h.store.LatestPromotions(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the promotions", "")
 		return
 	}
 	if promotion, found := promotions[name]; found {
@@ -506,7 +503,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 	dashhttp.WriteJSON(w, http.StatusOK, payload)
 }
 
-// observedVersion rend la version constatée sur un environnement, ou vide.
+// observedVersion returns the version observed on an environment, or empty.
 func observedVersion(view storage.EnvironmentView) string {
 	if view.Observation == nil {
 		return ""

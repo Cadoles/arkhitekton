@@ -1,13 +1,13 @@
-// Package storage porte les tables du plugin MSE et leurs migrations.
+// Package storage carries the MSE plugin's tables and their migrations.
 //
-// Environnements, promotions demandées, relevés et validations de recette : le
-// noyau ne les lit plus, et ne les crée plus (doc 16 §16.17). Le plugin tient son
-// propre historique de migrations, dans sa propre table de versions.
+// Environments, requested promotions, readings and acceptance sign-offs: the core no longer
+// reads them, and no longer creates them. The plugin keeps its own migration history, in its own
+// version table.
 package storage
 
 import "github.com/jackc/pgx/v5/pgxpool"
 
-// Store lit et écrit les tables du plugin, sur le pool du dashboard.
+// Store reads and writes the plugin's tables, on the dashboard's pool.
 type Store struct {
 	pool *pgxpool.Pool
 }

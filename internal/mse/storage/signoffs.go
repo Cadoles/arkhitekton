@@ -9,27 +9,27 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrSignoffNotFound signale une validation absente.
+// ErrSignoffNotFound reports a missing sign-off.
 var ErrSignoffNotFound = errors.New("validation introuvable")
 
-// Signoff est l'avis d'un intervenant sur une release dans un environnement.
+// Signoff is a participant's opinion on a release in an environment.
 //
-// La validation porte sur le couple release-environnement : une release validée
-// en qualif ne l'est pas en préproduction, et l'environnement qui passe à la
-// version suivante ne doit pas hériter de l'avis rendu sur la précédente.
+// The sign-off bears on the release-environment pair: a release validated in qualif is not
+// validated in pre-production, and the environment that moves to the next version must not
+// inherit the opinion given on the previous one.
 type Signoff struct {
 	ReleaseTag    string
 	EnvironmentID string
 	Role          string
-	// Status vaut `pass`, `warn` ou `fail`. L'attente est l'absence de ligne.
+	// Status is `pass`, `warn` or `fail`. Waiting is the absence of a row.
 	Status    string
 	Detail    string
 	DecidedBy string
 	DecidedAt time.Time
 }
 
-// ListSignoffs rend les validations d'une release, dans l'ordre du flux de
-// promotion de son projet puis des rôles.
+// ListSignoffs returns a release's sign-offs, in the order of its project's promotion flow then
+// of the roles.
 func (s *Store) ListSignoffs(ctx context.Context, releaseID int64) ([]Signoff, error) {
 	rows, err := s.pool.Query(ctx,
 		`select e.id, s.role, s.status, coalesce(s.detail, ''), s.decided_by, s.decided_at
@@ -38,7 +38,7 @@ func (s *Store) ListSignoffs(ctx context.Context, releaseID int64) ([]Signoff, e
 		 where s.release_id = $1
 		 order by e.rank, s.role`, releaseID)
 	if err != nil {
-		return nil, fmt.Errorf("validations de la release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("sign-offs of release %d: %w", releaseID, err)
 	}
 	defer rows.Close()
 
@@ -47,18 +47,18 @@ func (s *Store) ListSignoffs(ctx context.Context, releaseID int64) ([]Signoff, e
 		var signoff Signoff
 		if err := rows.Scan(&signoff.EnvironmentID, &signoff.Role, &signoff.Status,
 			&signoff.Detail, &signoff.DecidedBy, &signoff.DecidedAt); err != nil {
-			return nil, fmt.Errorf("validations de la release %d: %w", releaseID, err)
+			return nil, fmt.Errorf("sign-offs of release %d: %w", releaseID, err)
 		}
 		signoffs = append(signoffs, signoff)
 	}
 	return signoffs, rows.Err()
 }
 
-// SetSignoff enregistre l'avis d'un intervenant, ou remplace le sien.
+// SetSignoff records a participant's opinion, or replaces their own.
 //
-// Le projet est celui de la release, lu en base : un avis ne peut viser que
-// l'environnement du projet de la release. L'avis précédent n'est pas perdu : le
-// journal d'audit conserve chaque décision.
+// The project is the release's, read from the database: an opinion can target only the
+// environment of the release's project. The previous opinion is not lost: the audit log keeps
+// every decision.
 func (s *Store) SetSignoff(ctx context.Context, releaseID int64, environmentID, role, status, detail, decidedBy string) error {
 	_, err := s.pool.Exec(ctx,
 		`insert into release_signoffs
@@ -70,19 +70,19 @@ func (s *Store) SetSignoff(ctx context.Context, releaseID int64, environmentID, 
 		     decided_by = excluded.decided_by, decided_at = excluded.decided_at`,
 		releaseID, environmentID, role, status, detail, decidedBy)
 	if err != nil {
-		return fmt.Errorf("enregistrement de la validation: %w", err)
+		return fmt.Errorf("recording the sign-off: %w", err)
 	}
 	return nil
 }
 
-// DeleteSignoff retire un avis et remet le rôle en attente.
+// DeleteSignoff removes an opinion and puts the role back to waiting.
 func (s *Store) DeleteSignoff(ctx context.Context, releaseID int64, environmentID, role string) error {
 	tag, err := s.pool.Exec(ctx,
 		`delete from release_signoffs
 		 where release_id = $1 and environment_id = $2 and role = $3`,
 		releaseID, environmentID, role)
 	if err != nil {
-		return fmt.Errorf("retrait de la validation: %w", err)
+		return fmt.Errorf("removing the sign-off: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrSignoffNotFound
@@ -90,8 +90,8 @@ func (s *Store) DeleteSignoff(ctx context.Context, releaseID int64, environmentI
 	return nil
 }
 
-// EnvironmentSignoffs rend les validations d'une release pour un seul
-// environnement, dans l'ordre des rôles.
+// EnvironmentSignoffs returns a release's sign-offs for a single environment, in the order of
+// the roles.
 func (s *Store) EnvironmentSignoffs(ctx context.Context, releaseID int64, environmentID string) ([]Signoff, error) {
 	rows, err := s.pool.Query(ctx,
 		`select role, status, coalesce(detail, ''), decided_by, decided_at
@@ -99,7 +99,7 @@ func (s *Store) EnvironmentSignoffs(ctx context.Context, releaseID int64, enviro
 		 where release_id = $1 and environment_id = $2
 		 order by role`, releaseID, environmentID)
 	if err != nil {
-		return nil, fmt.Errorf("validations de l'environnement %s: %w", environmentID, err)
+		return nil, fmt.Errorf("sign-offs of environment %s: %w", environmentID, err)
 	}
 	defer rows.Close()
 
@@ -108,17 +108,17 @@ func (s *Store) EnvironmentSignoffs(ctx context.Context, releaseID int64, enviro
 		signoff := Signoff{EnvironmentID: environmentID}
 		if err := rows.Scan(&signoff.Role, &signoff.Status, &signoff.Detail,
 			&signoff.DecidedBy, &signoff.DecidedAt); err != nil {
-			return nil, fmt.Errorf("validations de l'environnement %s: %w", environmentID, err)
+			return nil, fmt.Errorf("sign-offs of environment %s: %w", environmentID, err)
 		}
 		signoffs = append(signoffs, signoff)
 	}
 	return signoffs, rows.Err()
 }
 
-// SignoffEnvironmentExists dit si l'environnement visé est déclaré pour le projet.
+// SignoffEnvironmentExists says whether the environment targeted is declared for the project.
 //
-// La clé étrangère le garantirait, mais son échec remonte en erreur 500 alors que
-// l'environnement inconnu est une faute de l'appelant.
+// The foreign key would guarantee it, but its failure surfaces as a 500 whereas an unknown
+// environment is a fault of the caller.
 func (s *Store) SignoffEnvironmentExists(ctx context.Context, projectID int64, environmentID string) (bool, error) {
 	var exists bool
 	err := s.pool.QueryRow(ctx,

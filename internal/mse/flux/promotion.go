@@ -9,80 +9,76 @@ import (
 )
 
 /*
- * La règle de formation d'un tag de promotion.
+ * The rule for forming a promotion tag.
  *
- * Elle vivait dans `internal/release`, un paquet du noyau, alors que son seul
- * appelant était ce déployeur : le suffixe par environnement, l'underscore et le
- * refus des pré-releases sont des conventions de Flux et de ses ImagePolicy, pas
- * du cycle de vie d'une release (doc 16 §16.4).
+ * It lived in `internal/release`, a core package, although its only caller was this deployer:
+ * the per-environment suffix, the underscore and the refusal of pre-releases are conventions of
+ * Flux and its ImagePolicies, not of a release's life cycle.
  */
 
-// DefaultTagTemplate compose le tag de promotion.
+// DefaultTagTemplate composes the promotion tag.
 //
-// Le gabarit est configurable plutôt que codé : `+` est exclu de la grammaire des
-// tags OCI (`[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}`), d'où l'underscore ; si la
-// convention évolue, le séparateur reste un paramètre (B7).
+// The template is configurable rather than hard-coded: `+` is excluded from the grammar of OCI
+// tags (`[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}`), hence the underscore; if the convention changes,
+// the separator stays a parameter.
 const DefaultTagTemplate = "{version}_{suffix}"
 
-// PromotionTarget décrit l'environnement visé par une promotion.
+// PromotionTarget describes the environment a promotion targets.
 type PromotionTarget struct {
 	ID string
-	// Suffix est la métadonnée SemVer attendue par Flux — `testing` pour la
-	// qualification, dont Flux ignore le nom courant.
+	// Suffix is the SemVer metadata Flux expects — `testing` for qualification, whose current name
+	// Flux does not know.
 	Suffix string
-	// AcceptsPrerelease reflète la plage SemVer de l'ImagePolicy correspondante,
-	// vérifiée au démarrage contre le cluster.
+	// AcceptsPrerelease mirrors the matching ImagePolicy's SemVer range, checked against the
+	// cluster at start-up.
 	AcceptsPrerelease bool
 }
 
-// ociTag borne ce qu'un registre accepte comme tag.
+// ociTag bounds what a registry accepts as a tag.
 var ociTag = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$`)
 
-// PromotionTag compose le tag à pousser pour atteindre un environnement.
+// PromotionTag composes the tag to push in order to reach an environment.
 //
-// Le tag est composé depuis le **tag de la release**, jamais depuis la version de
-// son image. Les deux diffèrent sur toute release finale produite par re-tag, et
-// l'erreur y serait fatale : l'image de `1.8.0` porte la version `1.8.0-rc3`, et
-// composer depuis elle donnerait `1.8.0-rc3_prod` — une pré-release, que la plage
-// SemVer de la production exclut. La release finale se verrait refuser la
-// production, ou pire y serait poussée sans que rien ne se déploie (B7, B17).
+// The tag is composed from the **release's tag**, never from its image's version. The two differ
+// on every final release produced by re-tag, and the mistake would be fatal there: the image of
+// `1.8.0` carries the version `1.8.0-rc3`, and composing from it would give `1.8.0-rc3_prod` — a
+// pre-release, which production's SemVer range excludes. The final release would be refused
+// production, or worse pushed there with nothing being deployed.
 //
-// La fonction refuse une promotion que Flux ignorerait plutôt que de la laisser
-// partir. C'est le point le plus important de tout le dispositif de promotion :
-// pousser un tag qu'aucune `ImagePolicy` ne retient **ne produit aucune erreur**.
-// Le tag est accepté par le registre, la task réussit, et rien ne se déploie —
-// l'échec le plus coûteux qui soit, puisqu'il ressemble à un succès.
+// The function refuses a promotion Flux would ignore rather than let it go. It is the most
+// important point of the whole promotion arrangement: pushing a tag no `ImagePolicy` keeps
+// **produces no error**. The tag is accepted by the registry, the task succeeds, and nothing is
+// deployed — the most expensive failure there is, since it looks like a success.
 //
-// Deux refus, donc :
+// Two refusals, therefore:
 //
-//  1. **Pré-release vers un environnement qui n'en accepte pas.** La plage SemVer
-//     de sa politique s'écrit sans `-0`, ce qui rend une RC structurellement
-//     inéligible. Le dashboard refuse en amont, avec un message explicite, plutôt
-//     que de s'en remettre à un silence.
-//  2. **Tag hors grammaire OCI.** Le registre le refuserait, mais plus tard et
-//     avec un message qui parle de manifeste.
+//  1. **A pre-release towards an environment that accepts none.** Its policy's SemVer range is
+//     written without `-0`, which makes an RC structurally ineligible. The dashboard refuses
+//     upstream, with an explicit message, rather than relying on silence.
+//  2. **A tag outside the OCI grammar.** The registry would refuse it, but later and with a
+//     message that speaks of a manifest.
 func PromotionTag(releaseTag string, target PromotionTarget, template string) (string, error) {
 	version := strings.TrimSpace(releaseTag)
 	if version == "" {
-		return "", fmt.Errorf("aucune version d'image à promouvoir")
+		return "", fmt.Errorf("no image version to promote")
 	}
 	if strings.TrimSpace(target.Suffix) == "" {
-		return "", fmt.Errorf("environnement %q: aucun suffixe de promotion", target.ID)
+		return "", fmt.Errorf("environment %q: no promotion suffix", target.ID)
 	}
 
 	parsed, err := versionpkg.SemVer{}.Parse(version)
 	if err != nil {
-		return "", fmt.Errorf("tag de release %q: %w", version, err)
+		return "", fmt.Errorf("release tag %q: %w", version, err)
 	}
 
-	// `known` est ignoré ici, et c'est correct : ce chemin n'est atteint que
-	// depuis un déployeur qui a déjà refusé les schémas incapables de répondre
-	// ([Deployer.CheckScheme]). Un schéma muet ne promeut pas par plage.
+	// `known` is ignored here, and that is right: this path is reached only from a deployer that has
+	// already refused the schemes unable to answer ([Deployer.CheckScheme]). A mute scheme does not
+	// promote by range.
 	prerelease, _ := parsed.Prereleased()
 	if prerelease && !target.AcceptsPrerelease {
 		return "", fmt.Errorf(
-			"l'environnement %q n'accepte pas les pré-releases: promouvoir %q y produirait un tag "+
-				"que Flux ignorerait, sans erreur ni déploiement",
+			"the environment %q does not accept pre-releases: promoting %q there would produce a tag "+
+				"Flux would ignore, with neither error nor deployment",
 			target.ID, version)
 	}
 
@@ -96,39 +92,36 @@ func PromotionTag(releaseTag string, target PromotionTarget, template string) (s
 
 	if !ociTag.MatchString(tag) {
 		return "", fmt.Errorf(
-			"le tag %q n'est pas un tag OCI valide: le gabarit %q produit une valeur que le registre refuserait",
+			"the tag %q is not a valid OCI tag: the template %q produces a value the registry would refuse",
 			tag, template)
 	}
 
 	return tag, nil
 }
 
-// PromotionPlan décrit ce qu'une promotion doit faire.
+// PromotionPlan describes what a promotion must do.
 type PromotionPlan struct {
 	EnvironmentID string
-	// OldTag est le tag qui existe déjà dans le registre — celui sous lequel
-	// l'image a été construite, c'est-à-dire la version de l'image et non le tag
-	// de la release. C'est de lui que part le re-tag.
+	// OldTag is the tag that already exists in the registry — the one the image was built under,
+	// that is, the image's version and not the release's tag. It is where the re-tag starts from.
 	OldTag string
-	// NewTag est le tag suffixé à ajouter, composé lui depuis le tag de la
-	// release. Le digest est le même des deux côtés : promouvoir n'est pas
-	// reconstruire.
+	// NewTag is the suffixed tag to add, composed from the release's tag. The digest is the same on
+	// both sides: promoting is not rebuilding.
 	NewTag string
 }
 
-// PlanPromotion prépare la promotion d'une release vers un environnement.
+// PlanPromotion prepares the promotion of a release to an environment.
 //
-// Deux tags en entrée, et c'est tout l'enjeu : `releaseTag` est l'identité de la
-// release, `imageVersion` est ce sous quoi son image existe réellement dans le
-// registre. Ils coïncident pour une pré-release et divergent pour toute finale
-// produite par re-tag. Confondre les deux donne soit un re-tag d'une image
-// inexistante, soit un tag de promotion que Flux ignore.
+// Two tags as input, and that is the whole point: `releaseTag` is the release's identity,
+// `imageVersion` is what its image really exists under in the registry. They coincide for a
+// pre-release and diverge for any final produced by re-tag. Confusing the two gives either a
+// re-tag of a non-existent image, or a promotion tag Flux ignores.
 func PlanPromotion(releaseTag, imageVersion string, target PromotionTarget, template string) (PromotionPlan, error) {
 	source := strings.TrimSpace(imageVersion)
 	if source == "" {
-		// Sans image dans le registre, il n'y a rien à re-taguer. Le dire ici
-		// évite un job qui échouera sur un manifeste absent.
-		return PromotionPlan{}, fmt.Errorf("la release %q ne porte aucune version d'image", releaseTag)
+		// With no image in the registry, there is nothing to re-tag. Saying so here avoids a job that
+		// will fail on a missing manifest.
+		return PromotionPlan{}, fmt.Errorf("release %q carries no image version", releaseTag)
 	}
 
 	tag, err := PromotionTag(releaseTag, target, template)

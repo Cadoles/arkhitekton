@@ -7,7 +7,7 @@ import (
 
 func targets() (unstable, qualif, prod PromotionTarget) {
 	return PromotionTarget{ID: "unstable", Suffix: "unstable", AcceptsPrerelease: true},
-		// Le piège de B7 : Flux désigne la qualification sous son ancien nom.
+		// The trap: Flux names qualification by its old name.
 		PromotionTarget{ID: "qualif", Suffix: "testing", AcceptsPrerelease: true},
 		PromotionTarget{ID: "prod", Suffix: "prod", AcceptsPrerelease: false}
 }
@@ -17,26 +17,26 @@ func TestPromotionTagUsesTheFluxSuffixNotTheEnvironmentName(t *testing.T) {
 
 	tag, err := PromotionTag("1.8.0-rc1", qualif, "")
 	if err != nil {
-		t.Fatalf("promotion refusée: %v", err)
+		t.Fatalf("promotion refused: %v", err)
 	}
 	if tag != "1.8.0-rc1_testing" {
-		t.Errorf("tag = %q, attendu 1.8.0-rc1_testing", tag)
+		t.Errorf("tag = %q, expected 1.8.0-rc1_testing", tag)
 	}
 }
 
-// Le refus qui compte le plus : pousser un tag qu'aucune ImagePolicy ne retient
-// ne produit aucune erreur. Le registre l'accepte, la task réussit, rien ne se
-// déploie — un échec qui ressemble à un succès.
+// The refusal that counts most: pushing a tag no ImagePolicy keeps produces no error. The
+// registry accepts it, the task succeeds, nothing is deployed — a failure that looks like a
+// success.
 func TestPromotionRefusesPrereleaseWhereFluxWouldIgnoreIt(t *testing.T) {
 	_, _, prod := targets()
 
 	_, err := PromotionTag("1.8.0-rc1", prod, "")
 	if err == nil {
-		t.Fatal("une pré-release vers la production doit être refusée")
+		t.Fatal("a pre-release towards production must be refused")
 	}
-	for _, expected := range []string{"prod", "1.8.0-rc1", "ignorerait"} {
+	for _, expected := range []string{"prod", "1.8.0-rc1", "would ignore"} {
 		if !strings.Contains(err.Error(), expected) {
-			t.Errorf("le message ne contient pas %q: %v", expected, err)
+			t.Errorf("the message does not contain %q: %v", expected, err)
 		}
 	}
 }
@@ -46,38 +46,37 @@ func TestPromotionAcceptsFinalReleaseInProduction(t *testing.T) {
 
 	tag, err := PromotionTag("1.8.0", prod, "")
 	if err != nil {
-		t.Fatalf("promotion refusée: %v", err)
+		t.Fatalf("promotion refused: %v", err)
 	}
 	if tag != "1.8.0_prod" {
 		t.Errorf("tag = %q", tag)
 	}
 }
 
-// Le séparateur reste un paramètre : `+` est exclu de la grammaire des tags OCI,
-// et si la convention évolue le gabarit suit sans changement de code.
+// The separator stays a parameter: `+` is excluded from the grammar of OCI tags, and if the
+// convention changes the template follows with no code change.
 func TestPromotionTagHonoursTheTemplate(t *testing.T) {
 	unstable, _, _ := targets()
 
 	tag, err := PromotionTag("3.1.0", unstable, "{suffix}-{version}")
 	if err != nil {
-		t.Fatalf("gabarit refusé: %v", err)
+		t.Fatalf("template refused: %v", err)
 	}
 	if tag != "unstable-3.1.0" {
 		t.Errorf("tag = %q", tag)
 	}
 }
 
-// Un gabarit qui produirait un tag hors grammaire OCI doit être refusé ici : le
-// registre le refuserait aussi, mais plus tard et avec un message qui parle de
-// manifeste.
+// A template that would produce a tag outside the OCI grammar must be refused here: the registry
+// would refuse it too, but later and with a message that speaks of a manifest.
 func TestPromotionTagRejectsInvalidOCITags(t *testing.T) {
 	unstable, _, _ := targets()
 
 	if _, err := PromotionTag("3.1.0", unstable, "{version}+{suffix}"); err == nil {
-		t.Error("un tag portant un + doit être refusé")
+		t.Error("a tag carrying a + must be refused")
 	}
 	if _, err := PromotionTag("3.1.0", unstable, "{version}/{suffix}"); err == nil {
-		t.Error("un tag portant une barre oblique doit être refusé")
+		t.Error("a tag carrying a slash must be refused")
 	}
 }
 
@@ -85,42 +84,41 @@ func TestPromotionRefusesUnusableInputs(t *testing.T) {
 	unstable, _, _ := targets()
 
 	if _, err := PromotionTag("", unstable, ""); err == nil {
-		t.Error("une version vide doit être refusée")
+		t.Error("an empty version must be refused")
 	}
-	if _, err := PromotionTag("1.8.0", PromotionTarget{ID: "sans-suffixe"}, ""); err == nil {
-		t.Error("un environnement sans suffixe doit être refusé")
+	if _, err := PromotionTag("1.8.0", PromotionTarget{ID: "no-suffix"}, ""); err == nil {
+		t.Error("an environment with no suffix must be refused")
 	}
 }
 
-// L'ancien schéma de tag mktools **est** du SemVer valide : `2026.8.3` avec la
-// pré-release `k8sunstable.1249.520c9a020`. Cette fonction l'accepte donc, et
-// c'est correct — elle ne juge que la forme.
+// The old mktools tag scheme **is** valid SemVer: `2026.8.3` with the pre-release
+// `k8sunstable.1249.520c9a020`. This function therefore accepts it, and that is right — it judges
+// only the shape.
 //
-// Le test existe pour fixer la limite de sa responsabilité. Le garde-fou contre
-// ce schéma est ailleurs, à la création de release, où le tag est confronté au
-// nom de version Redmine. Et la conséquence, si un tel tag était promu, est
-// documentée en B7 : son majeur étant une année, il primerait sur toute version
-// SemVer sur les environnements qui acceptent les pré-releases.
+// The test exists to fix the limit of its responsibility. The guard rail against that scheme is
+// elsewhere, when a release is created, where the tag is confronted with the Redmine version
+// name. And the consequence, were such a tag promoted: its major being a year, it would take
+// precedence over any SemVer version on the environments that accept pre-releases.
 func TestPromotionTagJudgesFormOnly(t *testing.T) {
 	unstable, _, _ := targets()
 
 	tag, err := PromotionTag("2026.8.3-k8sunstable.1249.520c9a020", unstable, "")
 	if err != nil {
-		t.Fatalf("un tag SemVer valide ne doit pas être refusé ici: %v", err)
+		t.Fatalf("a valid SemVer tag must not be refused here: %v", err)
 	}
 	if tag != "2026.8.3-k8sunstable.1249.520c9a020_unstable" {
 		t.Errorf("tag = %q", tag)
 	}
 }
 
-// Promouvoir n'est pas reconstruire : le plan porte l'ancien et le nouveau tag,
-// et le digest reste le même.
+// Promoting is not rebuilding: the plan carries the old and the new tag, and the digest stays the
+// same.
 func TestPlanPromotionCarriesBothTags(t *testing.T) {
 	_, qualif, _ := targets()
 
 	plan, err := PlanPromotion("1.8.0-rc3", "1.8.0-rc3", qualif, "")
 	if err != nil {
-		t.Fatalf("plan refusé: %v", err)
+		t.Fatalf("plan refused: %v", err)
 	}
 	if plan.OldTag != "1.8.0-rc3" || plan.NewTag != "1.8.0-rc3_testing" {
 		t.Errorf("plan = %+v", plan)
@@ -130,28 +128,27 @@ func TestPlanPromotionCarriesBothTags(t *testing.T) {
 	}
 }
 
-// Le cas qui justifie les deux paramètres : une release finale produite par
-// re-tag. Son image porte encore la version de la RC, et composer le tag de
-// promotion depuis cette version lui interdirait la production — la plage SemVer
-// de la production excluant les pré-releases (B7, B17).
+// The case that justifies the two parameters: a final release produced by re-tag. Its image still
+// carries the RC's version, and composing the promotion tag from that version would forbid it
+// production — production's SemVer range excluding pre-releases.
 func TestPlanPromotionComposesFromTheReleaseTagAndRetagsFromTheImage(t *testing.T) {
 	prod := PromotionTarget{ID: "prod", Suffix: "prod", AcceptsPrerelease: false}
 
 	plan, err := PlanPromotion("1.8.0", "1.8.0-rc3", prod, "")
 	if err != nil {
-		t.Fatalf("une release finale doit pouvoir atteindre la production: %v", err)
+		t.Fatalf("a final release must be able to reach production: %v", err)
 	}
 	if plan.NewTag != "1.8.0_prod" {
-		t.Errorf("nouveau tag = %q, attendu 1.8.0_prod", plan.NewTag)
+		t.Errorf("new tag = %q, expected 1.8.0_prod", plan.NewTag)
 	}
-	// Le re-tag part de ce qui existe dans le registre, et c'est l'image de la RC.
+	// The re-tag starts from what exists in the registry, and that is the RC's image.
 	if plan.OldTag != "1.8.0-rc3" {
-		t.Errorf("ancien tag = %q, attendu celui de l'image construite", plan.OldTag)
+		t.Errorf("old tag = %q, expected that of the image built", plan.OldTag)
 	}
 }
 
 func TestPlanPromotionRefusesAReleaseWithoutImage(t *testing.T) {
 	if _, err := PlanPromotion("1.8.0", "", PromotionTarget{ID: "unstable", Suffix: "unstable"}, ""); err == nil {
-		t.Error("une release sans image ne peut pas être promue")
+		t.Error("a release with no image cannot be promoted")
 	}
 }

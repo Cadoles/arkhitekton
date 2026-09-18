@@ -24,18 +24,16 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-// VersionTable est la table de versions du plugin.
+// VersionTable is the plugin's version table.
 //
-// Distincte de celle du noyau : les deux historiques avancent chacun à son
-// rythme, et un numéro du plugin ne doit jamais se lire comme une migration du
-// noyau déjà appliquée.
+// Distinct from the core's: the two histories advance each at its own pace, and a number of the
+// plugin must never read as a core migration already applied.
 const VersionTable = "goose_mse_db_version"
 
-// withProvider ouvre une connexion le temps d'une opération de migration.
+// withProvider opens a connection for the duration of one migration operation.
 //
-// Un provider et non l'API globale de goose : le noyau s'en sert pour ses propres
-// migrations, et changer la table ou le système de fichiers globaux en cours de
-// route ferait migrer l'un avec l'historique de l'autre.
+// A provider and not goose's global API: the core uses it for its own migrations, and changing
+// the global table or file system along the way would migrate one with the other's history.
 func withProvider(cfg config.DatabaseConfig, run func(*goose.Provider) error) error {
 	db, err := sql.Open("pgx", cfg.DSN)
 	if err != nil {
@@ -54,45 +52,44 @@ func withProvider(cfg config.DatabaseConfig, run func(*goose.Provider) error) er
 	provider, err := goose.NewProvider(goose.DialectCustom, db, files,
 		goose.WithStore(versions), goose.WithDisableGlobalRegistry(true))
 	if err != nil {
-		return fmt.Errorf("migrations du plugin MSE: %w", err)
+		return fmt.Errorf("MSE plugin migrations: %w", err)
 	}
 	return run(provider)
 }
 
-// Migrate applique les migrations du plugin.
+// Migrate applies the plugin's migrations.
 //
-// À lancer **après** celles du noyau : ses tables référencent `releases` et
-// `jobs`.
+// To be run **after** the core's: its tables reference `releases` and `jobs`.
 func Migrate(ctx context.Context, cfg config.DatabaseConfig, logger *slog.Logger) error {
 	return withProvider(cfg, func(provider *goose.Provider) error {
 		results, err := provider.Up(ctx)
 		if err != nil {
-			return fmt.Errorf("application des migrations du plugin MSE: %w", store.RedactError(err, cfg.DSN))
+			return fmt.Errorf("applying the MSE plugin's migrations: %w", store.RedactError(err, cfg.DSN))
 		}
 		for _, result := range results {
-			logger.Info("migration du plugin MSE", "file", result.Source.Path, "duration", result.Duration)
+			logger.Info("MSE plugin migration", "file", result.Source.Path, "duration", result.Duration)
 		}
 		return nil
 	})
 }
 
-// Rollback annule la dernière migration du plugin. Réservé aux tests.
+// Rollback undoes the plugin's last migration. Reserved for tests.
 func Rollback(ctx context.Context, cfg config.DatabaseConfig) error {
 	return withProvider(cfg, func(provider *goose.Provider) error {
 		if _, err := provider.Down(ctx); err != nil {
-			return fmt.Errorf("annulation d'une migration du plugin MSE: %w", store.RedactError(err, cfg.DSN))
+			return fmt.Errorf("rolling back an MSE plugin migration: %w", store.RedactError(err, cfg.DSN))
 		}
 		return nil
 	})
 }
 
-// PendingMigrations rend les migrations du plugin que la base n'a pas encore.
+// PendingMigrations returns the plugin's migrations the database does not have yet.
 func PendingMigrations(ctx context.Context, cfg config.DatabaseConfig) ([]string, error) {
 	var pending []string
 	err := withProvider(cfg, func(provider *goose.Provider) error {
 		statuses, err := provider.Status(ctx)
 		if err != nil {
-			return fmt.Errorf("état des migrations du plugin MSE: %w", store.RedactError(err, cfg.DSN))
+			return fmt.Errorf("state of the MSE plugin's migrations: %w", store.RedactError(err, cfg.DSN))
 		}
 		for _, status := range statuses {
 			if status.State == goose.StatePending {
@@ -104,12 +101,12 @@ func PendingMigrations(ctx context.Context, cfg config.DatabaseConfig) ([]string
 	return pending, err
 }
 
-// WaitForSchema attend que la base porte les migrations du plugin.
+// WaitForSchema waits until the database carries the plugin's migrations.
 //
-// Même raison que [store.WaitForSchema] : le Job de migration et les pods
-// démarrent ensemble, et le worker synchronise les environnements dès son
-// démarrage. Le plugin migre après le noyau, donc attendre le noyau seul
-// laisserait une fenêtre où `environments` n'existe pas encore.
+// The same reason as [store.WaitForSchema]: the migration Job and the pods start together, and
+// the worker synchronises the environments as soon as it starts. The plugin migrates after the
+// core, so waiting for the core alone would leave a window in which `environments` does not
+// exist yet.
 func WaitForSchema(
 	ctx context.Context, cfg config.DatabaseConfig, timeout time.Duration, logger *slog.Logger,
 ) error {
@@ -118,18 +115,18 @@ func WaitForSchema(
 		pending, err := PendingMigrations(ctx, cfg)
 		if err == nil && len(pending) == 0 {
 			if attempt > 1 {
-				logger.Info("schéma du plugin MSE à jour", "tentatives", attempt)
+				logger.Info("MSE plugin schema up to date", "tentatives", attempt)
 			}
 			return nil
 		}
 		if time.Now().After(deadline) {
 			if err != nil {
-				return fmt.Errorf("état du schéma du plugin MSE illisible après %s: %w", timeout, err)
+				return fmt.Errorf("state of the MSE plugin's schema unreadable after %s: %w", timeout, err)
 			}
-			return fmt.Errorf("%w: plugin MSE, %d migration(s) en attente après %s",
+			return fmt.Errorf("%w: MSE plugin, %d migration(s) pending after %s",
 				store.ErrSchemaOutdated, len(pending), timeout)
 		}
-		logger.Info("schéma du plugin MSE en attente", "tentative", attempt, "en_attente", len(pending))
+		logger.Info("MSE plugin schema pending", "tentative", attempt, "en_attente", len(pending))
 
 		select {
 		case <-ctx.Done():
@@ -139,7 +136,7 @@ func WaitForSchema(
 	}
 }
 
-// ExpectedVersion rend le numéro de la dernière migration embarquée.
+// ExpectedVersion returns the number of the last embedded migration.
 func ExpectedVersion() (int64, error) {
 	entries, err := fs.ReadDir(migrationFiles, "migrations")
 	if err != nil {
@@ -149,24 +146,24 @@ func ExpectedVersion() (int64, error) {
 	for _, entry := range entries {
 		prefix, _, found := strings.Cut(entry.Name(), "_")
 		if !found {
-			return 0, fmt.Errorf("migration %q: nom sans préfixe de version", entry.Name())
+			return 0, fmt.Errorf("migration %q: name with no version prefix", entry.Name())
 		}
 		version, err := strconv.ParseInt(prefix, 10, 64)
 		if err != nil {
-			return 0, fmt.Errorf("migration %q: préfixe illisible: %w", entry.Name(), err)
+			return 0, fmt.Errorf("migration %q: unreadable prefix: %w", entry.Name(), err)
 		}
 		highest = max(highest, version)
 	}
 	if highest == 0 {
-		return 0, errors.New("aucune migration du plugin MSE embarquée")
+		return 0, errors.New("no MSE plugin migration embedded")
 	}
 	return highest, nil
 }
 
-// CheckSchema rend la sonde de préparation du schéma du plugin.
+// CheckSchema returns the readiness probe of the plugin's schema.
 //
-// Par le pool plutôt que par goose : la sonde tourne toutes les quelques
-// secondes, et ouvrir une connexion à chaque passage ne se justifie pas.
+// Through the pool rather than through goose: the probe runs every few seconds, and opening a
+// connection at each pass is not justified.
 func CheckSchema(pool *pgxpool.Pool) func(context.Context) error {
 	return func(ctx context.Context) error {
 		expected, err := ExpectedVersion()
@@ -177,10 +174,10 @@ func CheckSchema(pool *pgxpool.Pool) func(context.Context) error {
 		if err := pool.QueryRow(ctx,
 			`select coalesce(max(version_id), 0) from `+VersionTable+` where is_applied`,
 		).Scan(&applied); err != nil {
-			return fmt.Errorf("lecture de la version du schéma du plugin MSE: %w", err)
+			return fmt.Errorf("reading the MSE plugin's schema version: %w", err)
 		}
 		if applied < expected {
-			return fmt.Errorf("%w: plugin MSE, version %d appliquée, %d attendue",
+			return fmt.Errorf("%w: MSE plugin, version %d applied, %d expected",
 				store.ErrSchemaOutdated, applied, expected)
 		}
 		return nil

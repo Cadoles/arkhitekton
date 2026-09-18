@@ -20,22 +20,20 @@ func (r reglages) ResolvedPlugin(_ context.Context, _ int64, pluginID string) (s
 	return store.PluginSettings{PluginID: pluginID, Enabled: true, Config: r.config}, nil
 }
 
-// Les réglages du plugin deviennent les valeurs que le catalogue référence, sous
-// les clés qu'il nomme.
-func TestLesReglagesDevisennentLesClesDuCatalogue(t *testing.T) {
+// The plugin's settings become the values the catalogue references, under the keys it names.
+func TestTheSettingsBecomeTheCataloguesKeys(t *testing.T) {
 	settings := PipelineSettings(reglages{config: map[string]string{
 		"kustomRepoUrl":   "ssh://git@forge/vcarroy/kustom.git",
 		"kustomRevision":  "main",
 		"e2eRepoUrl":      "ssh://git@forge/vcarroy/e2e.git",
 		"overlayLocation": "overlays/pipeline",
-		// Un réglage qui ne concerne pas les pipelines : il ne doit pas fuir dans
-		// leurs paramètres.
+		// A setting that has nothing to do with the pipelines: it must not leak into their parameters.
 		"namespace": "flux-system",
 	}})
 
 	values, err := settings(context.Background(), 1)
 	if err != nil {
-		t.Fatalf("réglages: %v", err)
+		t.Fatalf("settings: %v", err)
 	}
 	attendu := map[string]string{
 		"forge.mseKustom.repoUrl":  "ssh://git@forge/vcarroy/kustom.git",
@@ -48,48 +46,48 @@ func TestLesReglagesDevisennentLesClesDuCatalogue(t *testing.T) {
 	}
 	for key, value := range attendu {
 		if values[key] != value {
-			t.Errorf("%s = %q, attendu %q", key, values[key], value)
+			t.Errorf("%s = %q, expected %q", key, values[key], value)
 		}
 	}
 }
 
-// Un réglage vide n'est pas rendu : c'est l'instance qui le fournit, et une
-// chaîne vide écraserait la sienne.
-func TestUnReglageVideLaisseCeluiDeLInstance(t *testing.T) {
+// An empty setting is not returned: it is the instance that supplies it, and an empty string
+// would overwrite its own.
+func TestAnEmptySettingLeavesTheInstances(t *testing.T) {
 	settings := PipelineSettings(reglages{config: map[string]string{
 		"kustomRepoUrl": "  ", "kustomRevision": "main",
 	}})
 
 	values, err := settings(context.Background(), 1)
 	if err != nil {
-		t.Fatalf("réglages: %v", err)
+		t.Fatalf("settings: %v", err)
 	}
 	if _, present := values["forge.mseKustom.repoUrl"]; present {
-		t.Errorf("un réglage vide a été rendu: %v", values)
+		t.Errorf("an empty setting was returned: %v", values)
 	}
 	if values["forge.mseKustom.revision"] != "main" {
 		t.Errorf("valeurs = %v", values)
 	}
 }
 
-// Module éteint pour le projet : aucune valeur. Ses pipelines n'ont pas de
-// kustomisation à cloner, et le dire ici évite un run qui pointerait ailleurs.
-func TestUnProjetSansLeModuleNApporteRien(t *testing.T) {
+// Module switched off for the project: no value. Its pipelines have no kustomization to clone,
+// and saying so here avoids a run that would point elsewhere.
+func TestAProjectWithoutTheModuleBringsNothing(t *testing.T) {
 	settings := PipelineSettings(reglages{disabled: true})
 
 	values, err := settings(context.Background(), 2)
 	if err != nil || values != nil {
-		t.Errorf("valeurs = %v (%v), attendu aucune", values, err)
+		t.Errorf("values = %v (%v), expected none", values, err)
 	}
 }
 
-// Une lecture impossible remonte : un run parti avec la kustomisation d'un autre
-// projet serait pire qu'un run refusé.
-func TestUneLectureImpossibleRemonte(t *testing.T) {
+// A failed read is reported: a run started with another project's kustomization would be worse
+// than a run refused.
+func TestAFailedReadIsReported(t *testing.T) {
 	settings := PipelineSettings(lectureEnEchec{})
 
 	if _, err := settings(context.Background(), 1); err == nil {
-		t.Error("une lecture impossible doit remonter")
+		t.Error("a failed read must be reported")
 	}
 }
 
@@ -99,11 +97,11 @@ func (lectureEnEchec) ResolvedPlugin(context.Context, int64, string) (store.Plug
 	return store.PluginSettings{}, errors.New("base injoignable")
 }
 
-// L'amorçage ne pose que ce que la configuration fournit.
-func TestLAmorcageIgnoreLesValeursAbsentes(t *testing.T) {
+// The seeding sets only what the configuration supplies.
+func TestTheSeedingIgnoresMissingValues(t *testing.T) {
 	defaults := PipelineDefaults("ssh://git@forge/kustom.git", "", "", "overlays/pipeline")
 
 	if len(defaults) != 2 || defaults["kustomRepoUrl"] == "" || defaults["overlayLocation"] == "" {
-		t.Errorf("défauts = %v", defaults)
+		t.Errorf("defaults = %v", defaults)
 	}
 }

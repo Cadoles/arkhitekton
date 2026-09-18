@@ -9,9 +9,8 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// Backend réunit les deux magasins dont les routes du plugin ont besoin : celui
-// du noyau pour les releases, les projets, la file et l'audit, celui du plugin
-// pour ses propres tables.
+// Backend brings together the two stores the plugin's routes need: the core's for the
+// releases, the projects, the queue and the audit, the plugin's for its own tables.
 type Backend struct {
 	*store.DB
 	*storage.Store
@@ -21,11 +20,10 @@ func NewBackend(db *store.DB) Backend {
 	return Backend{DB: db, Store: storage.New(db.Pool())}
 }
 
-// Deployments rend, par tag de release, les environnements qui la font tourner.
+// Deployments returns, per release tag, the environments running it.
 //
-// Le noyau affiche la pastille « déployée sur » sans lire les tables du plugin :
-// il appelle cette fonction, qui ne rend rien quand le module est éteint pour le
-// projet (doc 16 §16.17, §16.18).
+// The core displays the "deployed on" badge without reading the plugin's tables: it calls this
+// function, which returns nothing when the module is switched off for the project.
 func Deployments(environments *storage.Store, modules *dashhttp.Modules) func(context.Context, int64) (map[string][]string, error) {
 	return func(ctx context.Context, projectID int64) (map[string][]string, error) {
 		if !modules.EnabledIn(ctx, projectID, plugin.ModuleMSE) {
@@ -35,8 +33,8 @@ func Deployments(environments *storage.Store, modules *dashhttp.Modules) func(co
 	}
 }
 
-// Promotions rend les promotions demandées d'une release, dans le vocabulaire du
-// noyau. Rien quand le module est éteint.
+// Promotions returns a release's requested promotions, in the core's vocabulary. Nothing when
+// the module is switched off.
 func Promotions(
 	environments *storage.Store, modules *dashhttp.Modules,
 ) func(context.Context, int64, int64) ([]dashhttp.ReleasePromotion, error) {

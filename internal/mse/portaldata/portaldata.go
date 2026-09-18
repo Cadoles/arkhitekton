@@ -1,18 +1,15 @@
-// Package portaldata lit ce que les applications du portail rapportent
-// d'elles-mêmes, par le CRD `PortalData`.
+// Package portaldata reads what the portal's applications report about themselves, through the
+// `PortalData` CRD.
 //
-// Séparé de `internal/mse/flux` par le lot D (doc 12 §12.9), et la séparation n'est
-// pas un rangement. Les deux paquets répondaient à deux questions différentes
-// depuis un seul client : Flux dit **l'intention** — le tag qu'une Kustomization
-// a retenu —, le portail dit le **constat** — telle version tourne, et ses
-// migrations ont abouti. C'est leur écart que l'écran des environnements existe
-// pour montrer (B8).
+// Separate from `internal/mse/flux`, and the separation is no tidying. Both packages answered two
+// different questions from a single client: Flux says the **intention** — the tag a Kustomization
+// kept — the portal says the **observation** — such a version is running, and its migrations
+// completed. It is their gap that the environments screen exists to show.
 //
-// La conséquence concrète de la fusion était une panne : `flux.Open` résolvait
-// les trois CRD d'un coup et **échouait si l'un manquait**. Un cluster sans le
-// CRD du portail — c'est-à-dire tout cluster qui n'est pas celui du MSE — ne
-// pouvait donc pas avoir de déployeur, alors que Flux y était parfaitement
-// installé. La dépendance facultative faisait échouer la dépendance principale.
+// The concrete consequence of the merge was an outage: `flux.Open` resolved the three CRDs at
+// once and **failed if one was missing**. A cluster without the portal's CRD — that is, any
+// cluster that is not MSE's — could therefore have no deployer, although Flux was perfectly
+// installed there. The optional dependency failed the main dependency.
 package portaldata
 
 import (
@@ -29,28 +26,26 @@ import (
 	"k8s.io/client-go/restmapper"
 )
 
-// group est le groupe d'API du CRD. Propre au portail MSE — c'est exactement ce
-// qu'un plugin porterait le jour venu (doc 12 §12.5) — mais ce que le CRD
-// rapporte, « telle version tourne et elle est exploitable », ne l'est pas.
+// group is the CRD's API group. Specific to the MSE portal — exactly what a plugin would carry
+// when the time comes — but what the CRD reports, "such a version is running and it is usable",
+// is not.
 const group = "mse.cnous.fr"
 
-// Client lit le CRD `PortalData`.
+// Client reads the `PortalData` CRD.
 //
-// Comme le client Flux, il emploie le client dynamique et **découvre la version
-// servie** au lieu de la coder : un CRD versionné par son auteur change de
-// version sans nous prévenir, et coder `v1alpha1` ferait échouer la lecture avec
-// un « the server could not find the requested resource » qui ne désigne pas la
-// cause.
+// Like the Flux client, it uses the dynamic client and **discovers the version served** instead
+// of hard-coding it: a CRD versioned by its author changes version without warning us, and
+// hard-coding `v1alpha1` would fail the read with a "the server could not find the requested
+// resource" that does not name the cause.
 type Client struct {
 	dynamic  dynamic.Interface
 	resource schema.GroupVersionResource
 }
 
-// Open construit le client et résout la version servie.
+// Open builds the client and resolves the version served.
 //
-// Rend une erreur nommée quand le CRD est absent : l'appelant doit pouvoir
-// distinguer « ce cluster n'atteste rien », qui est une configuration valide,
-// d'une panne d'accès.
+// Returns a named error when the CRD is absent: the caller must be able to tell "this cluster
+// attests nothing", which is a valid configuration, from an access failure.
 func Open(config *rest.Config) (*Client, error) {
 	dynamicClient, err := dynamic.NewForConfig(config)
 	if err != nil {
@@ -59,7 +54,7 @@ func Open(config *rest.Config) (*Client, error) {
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("client de découverte: %w", err)
+		return nil, fmt.Errorf("discovery client: %w", err)
 	}
 
 	mapper, err := resolver(discoveryClient)
@@ -75,47 +70,45 @@ func Open(config *rest.Config) (*Client, error) {
 	return &Client{dynamic: dynamicClient, resource: mapping.Resource}, nil
 }
 
-// ErrAbsent signale que le cluster ne sert pas le CRD.
+// ErrAbsent reports that the cluster does not serve the CRD.
 //
-// Ce n'est pas une panne : un cluster sans portail est un cluster où rien
-// n'atteste, et le dashboard y retombe sur ce que le déploiement déclare. Le
-// dire ainsi évite de faire chercher un incident là où il n'y a qu'une absence.
-var ErrAbsent = fmt.Errorf("le CRD PortalData.%s est absent du cluster", group)
+// It is not an outage: a cluster with no portal is a cluster where nothing attests, and the
+// dashboard falls back there to what the deployment declares. Saying it this way avoids sending
+// someone hunting for an incident where there is only an absence.
+var ErrAbsent = fmt.Errorf("the CRD PortalData.%s is missing from the cluster", group)
 
 func resolver(discoveryClient discovery.DiscoveryInterface) (meta.RESTMapper, error) {
 	resources, err := restmapper.GetAPIGroupResources(discoveryClient)
 	if err != nil {
-		// La découverte remonte une erreur partielle quand un groupe d'API est
-		// injoignable — un agrégateur en panne, par exemple. Ce qui a été obtenu
-		// reste exploitable, et c'est peut-être justement notre groupe.
+		// The discovery reports a partial error when a group of APIs is unreachable — a failed
+		// aggregator, for instance. What was obtained stays usable, and it may be precisely our group.
 		if len(resources) == 0 {
-			return nil, fmt.Errorf("découverte des API du cluster: %w", err)
+			return nil, fmt.Errorf("discovering the cluster's APIs: %w", err)
 		}
 	}
 	return restmapper.NewDiscoveryRESTMapper(resources), nil
 }
 
-// Version rend la version retenue, pour le journal de démarrage.
+// Version returns the version kept, for the start-up log.
 //
-// L'inscrire au journal n'est pas cosmétique : c'est la seule trace qui permette,
-// devant un comportement inattendu, de savoir contre quelle version d'API le
-// dashboard a parlé.
+// Logging it is not cosmetic: it is the only trace that allows, faced with unexpected behaviour,
+// knowing which API version the dashboard spoke against.
 func (c *Client) Version() string {
 	return c.resource.GroupVersion().String()
 }
 
-// Attestations lit ce que les applications d'un namespace rapportent d'elles-mêmes.
+// Attestations reads what a namespace's applications report about themselves.
 //
-// Seule source issue de l'application **en exécution**, et la seule à dire si les
-// migrations ont abouti : une image déployée dont les migrations ont échoué n'est
-// pas une version livrée, et rien d'autre ne le signale (B8).
+// The only source coming from the application **while running**, and the only one to say whether
+// the migrations completed: a deployed image whose migrations failed is not a delivered version,
+// and nothing else reports it.
 func (c *Client) Attestations(
 	ctx context.Context, namespace string,
 ) ([]Attestation, error) {
 	list, err := c.dynamic.Resource(c.resource).Namespace(namespace).
 		List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("liste des PortalData dans %q: %w", namespace, err)
+		return nil, fmt.Errorf("listing the PortalData objects in %q: %w", namespace, err)
 	}
 
 	states := make([]Attestation, 0, len(list.Items))
@@ -124,16 +117,13 @@ func (c *Client) Attestations(
 
 		state := Attestation{Namespace: namespace, Name: item.GetName()}
 		state.State, _, _ = unstructured.NestedString(object, "status", "phase")
-		// `dataVersion` est la version de l'**image** ayant réalisé le dernier
-		// bootstrap, non celle de la release. Une release finale réutilisant
-		// l'image de sa RC, le rapprochement se fait sur `releases.image_version`
-		// et jamais sur le tag (B17, B8).
+		// `dataVersion` is the version of the **image** that performed the last bootstrap, not that of
+		// the release. A final release reusing its RC's image, the matching is done on
+		// `releases.image_version` and never on the tag.
 		state.Version, _, _ = unstructured.NestedString(object, "status", "dataVersion")
-		// `Ready` est le verdict, et il est rendu ici parce que le vocabulaire
-		// qui le porte appartient au CRD. `status.schemaVersion` existe aussi
-		// mais n'est pas lu : c'est un nom de classe Doctrine, et le confondre
-		// avec une version de release est l'erreur que la relecture du CRD a
-		// corrigée.
+		// `Ready` is the verdict, and it is returned here because the vocabulary carrying it belongs to
+		// the CRD. `status.schemaVersion` also exists but is not read: it is a Doctrine class name, and
+		// confusing it with a release version is the mistake that re-reading the CRD fixed.
 		state.Ready = state.State == "Ready"
 
 		states = append(states, state)
@@ -141,17 +131,16 @@ func (c *Client) Attestations(
 	return states, nil
 }
 
-// Attestation est ce qu'une application en exécution rapporte d'elle-même.
+// Attestation is what a running application reports about itself.
 type Attestation struct {
 	Namespace string
 	Name      string
-	// Version est celle de l'**image** qui tourne, non celle de la release. Une
-	// release finale réutilisant l'image de sa pré-release, le rapprochement se
-	// fait sur `releases.image_version` et jamais sur le tag (B17, B8).
+	// Version is that of the **image** running, not that of the release. A final release reusing its
+	// pre-release's image, the matching is done on `releases.image_version` and never on the tag.
 	Version string
-	// State est l'état rapporté, repris tel quel pour l'affichage.
+	// State is the state reported, taken as it is for display.
 	State string
-	// Ready dit que les migrations ont abouti. C'est le seul cas où l'on peut
-	// affirmer qu'une version est **livrée** (B8).
+	// Ready says that the migrations completed. It is the only case where a version can be asserted
+	// **delivered**.
 	Ready bool
 }

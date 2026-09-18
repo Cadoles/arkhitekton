@@ -14,12 +14,11 @@ import (
 )
 
 /*
- * Ce que l'observateur d'environnements doit tenir.
+ * What the environment observer must hold.
  *
- * Le sujet n'est pas la mécanique — deux appels et une écriture — mais la
- * **hiérarchie des preuves** de B8 : ce que Flux déclare est une intention, ce que
- * l'application atteste est un constat, et seul le second autorise à dire
- * « livré ».
+ * The subject is not the mechanics — two calls and a write — but the **hierarchy of proofs**:
+ * what Flux declares is an intention, what the application attests is an observation, and only
+ * the second allows saying "delivered".
  */
 
 func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -75,9 +74,9 @@ func observable() storage.Environment {
 	return storage.Environment{ID: "dev", Namespace: "mse-dev", Observable: true}
 }
 
-// Flux seul ne peut porter qu'une intention. Rendre `portaldata` sur ce qu'une
-// Kustomization déclare ferait annoncer livré ce qui n'est qu'appliqué.
-func TestSansAttestationLaPreuveResteCelleDuDeployeur(t *testing.T) {
+// Flux alone can carry only an intention. Returning `portaldata` for what a Kustomization
+// declares would announce as delivered what is merely applied.
+func TestWithNoAttestationTheProofStaysTheDeployers(t *testing.T) {
 	deployer := &fakeDeployer{observation: flux.Observation{
 		Version: "1.8.0", State: "Ready", Resolution: flux.ResolutionDeclared,
 	}}
@@ -86,19 +85,19 @@ func TestSansAttestationLaPreuveResteCelleDuDeployeur(t *testing.T) {
 	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.Resolution != string(flux.ResolutionDeclared) {
-		t.Errorf("résolution %q, attendu %q", got.Resolution, flux.ResolutionDeclared)
+		t.Errorf("resolution %q, expected %q", got.Resolution, flux.ResolutionDeclared)
 	}
 	if got.DeclaredState != "Ready" {
-		t.Errorf("état déclaré %q", got.DeclaredState)
+		t.Errorf("declared state %q", got.DeclaredState)
 	}
 	if got.PortalVersion != "" {
-		t.Errorf("version attestée %q — rien ne l'a attestée", got.PortalVersion)
+		t.Errorf("version attested %q — nothing attested it", got.PortalVersion)
 	}
 }
 
-// Le seul cas qui autorise « livré » : l'application rapporte sa version **et**
-// que ses migrations ont abouti.
-func TestUneAttestationPreteEleveLaPreuve(t *testing.T) {
+// The only case that allows "delivered": the application reports its version **and** that its
+// migrations completed.
+func TestAReadyAttestationRaisesTheProof(t *testing.T) {
 	deployer := &fakeDeployer{observation: flux.Observation{
 		State: "Ready", Resolution: flux.ResolutionDeclared,
 	}}
@@ -110,16 +109,16 @@ func TestUneAttestationPreteEleveLaPreuve(t *testing.T) {
 	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.Resolution != string(flux.ResolutionAttested) {
-		t.Errorf("résolution %q, attendu %q", got.Resolution, flux.ResolutionAttested)
+		t.Errorf("resolution %q, expected %q", got.Resolution, flux.ResolutionAttested)
 	}
 	if got.PortalVersion != "1.8.0" {
-		t.Errorf("version attestée %q", got.PortalVersion)
+		t.Errorf("version attested %q", got.PortalVersion)
 	}
 }
 
-// L'image est déployée, mais ses migrations ont échoué : la preuve doit
-// **redescendre** au niveau de l'intention.
-func TestUneAttestationNonPreteNeFaitPasLivre(t *testing.T) {
+// The image is deployed, but its migrations failed: the proof must **step back down** to the
+// level of the intention.
+func TestAnUnreadyAttestationDoesNotMakeItDelivered(t *testing.T) {
 	deployer := &fakeDeployer{observation: flux.Observation{
 		State: "Ready", Resolution: flux.ResolutionDeclared,
 	}}
@@ -131,16 +130,16 @@ func TestUneAttestationNonPreteNeFaitPasLivre(t *testing.T) {
 	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.Resolution == string(flux.ResolutionAttested) {
-		t.Error("des migrations en échec ne peuvent pas valoir attestation")
+		t.Error("failed migrations cannot count as an attestation")
 	}
 	if got.MigrationState != "MigrationFailed" {
-		t.Errorf("état des migrations %q — l'écran doit pouvoir dire pourquoi", got.MigrationState)
+		t.Errorf("migration state %q — the screen must be able to say why", got.MigrationState)
 	}
 }
 
-// La production vit dans un cluster que le dashboard ne voit pas : l'attestation
-// n'y est même pas tentée.
-func TestUnEnvironnementNonObservableNestPasInterroge(t *testing.T) {
+// Production lives in a cluster the dashboard does not see: the attestation is not even
+// attempted there.
+func TestAnUnobservableEnvironmentIsNotQueried(t *testing.T) {
 	environment := storage.Environment{ID: "prod", Namespace: "mse-prod", Observable: false}
 	deployer := &fakeDeployer{observation: flux.Observation{Resolution: flux.ResolutionUnobservable}}
 	attester := &fakeAttester{}
@@ -149,16 +148,16 @@ func TestUnEnvironnementNonObservableNestPasInterroge(t *testing.T) {
 	got := observer.observe(context.Background(), deployer, environment)
 
 	if got.Resolution != string(flux.ResolutionUnobservable) {
-		t.Errorf("résolution %q, attendu %q", got.Resolution, flux.ResolutionUnobservable)
+		t.Errorf("resolution %q, expected %q", got.Resolution, flux.ResolutionUnobservable)
 	}
 	if attester.calls != 0 {
-		t.Errorf("%d appel(s) à l'attestation d'un environnement hors de portée", attester.calls)
+		t.Errorf("%d call(s) to the attestation of an environment out of reach", attester.calls)
 	}
 }
 
-// Un Flux muet ne doit pas emporter l'attestation avec lui : c'est quand il est
-// en panne que le constat applicatif compte le plus.
-func TestUnDeployeurEnErreurNempechePasLAttestation(t *testing.T) {
+// A mute Flux must not carry off the attestation with it: it is when Flux is down that the
+// application's own observation counts most.
+func TestAFailingDeployerDoesNotPreventTheAttestation(t *testing.T) {
 	deployer := &fakeDeployer{err: errors.New("API injoignable")}
 	attester := &fakeAttester{states: []portaldata.Attestation{
 		{Version: "1.8.0", State: "Ready", Ready: true},
@@ -168,35 +167,35 @@ func TestUnDeployeurEnErreurNempechePasLAttestation(t *testing.T) {
 	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.PortalVersion != "1.8.0" {
-		t.Errorf("version attestée %q — l'échec du déployeur l'a emportée", got.PortalVersion)
+		t.Errorf("version attested %q — the deployer's failure won", got.PortalVersion)
 	}
 	if got.Resolution != string(flux.ResolutionAttested) {
-		t.Errorf("résolution %q — l'attestation reste la meilleure preuve disponible", got.Resolution)
+		t.Errorf("resolution %q — the attestation stays the best proof available", got.Resolution)
 	}
 }
 
-// Une source d'attestation illisible est un cas normal : le relevé retombe sur
-// ce que Flux déclare au lieu d'être perdu.
-func TestUneAttestationIllisibleRetombeSurLeDeployeur(t *testing.T) {
+// An unreadable attestation source is a normal case: the reading falls back to what Flux
+// declares instead of being lost.
+func TestAnUnreadableAttestationFallsBackToTheDeployer(t *testing.T) {
 	deployer := &fakeDeployer{observation: flux.Observation{
 		State: "Ready", Resolution: flux.ResolutionDeclared,
 	}}
-	attester := &fakeAttester{err: errors.New("CRD absent du namespace")}
+	attester := &fakeAttester{err: errors.New("CRD missing from the namespace")}
 	observer := observerFor(observable(), attester)
 
 	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.Resolution != string(flux.ResolutionDeclared) {
-		t.Errorf("résolution %q, attendu %q", got.Resolution, flux.ResolutionDeclared)
+		t.Errorf("resolution %q, expected %q", got.Resolution, flux.ResolutionDeclared)
 	}
 	if got.DeclaredState != "Ready" {
-		t.Errorf("état déclaré %q — l'échec de l'attestation l'a emporté", got.DeclaredState)
+		t.Errorf("declared state %q — the attestation's failure won", got.DeclaredState)
 	}
 }
 
-// Chaque projet est observé par le déployeur de son namespace, et un projet qui
-// n'a pas été synchronisé — module éteint — ne l'est plus du tout.
-func TestChaqueProjetEstObserveParSonDeployeur(t *testing.T) {
+// Each project is observed by its namespace's deployer, and a project that was not synchronised
+// — module switched off — is no longer observed at all.
+func TestEachProjectIsObservedByItsDeployer(t *testing.T) {
 	mse := &fakeDeployer{observation: flux.Observation{Resolution: flux.ResolutionDeclared}}
 	themes := &fakeDeployer{observation: flux.Observation{Resolution: flux.ResolutionDeclared}}
 	environments := &fakeEnvironmentStore{environments: []storage.Environment{
@@ -218,13 +217,13 @@ func TestChaqueProjetEstObserveParSonDeployeur(t *testing.T) {
 	observer.observeAll(ctx)
 
 	if len(mse.seen) != 1 || len(themes.seen) != 1 {
-		t.Errorf("relevés par déployeur: mse %d, themes %d — attendu un chacun", len(mse.seen), len(themes.seen))
+		t.Errorf("readings per deployer: mse %d, themes %d — expected one each", len(mse.seen), len(themes.seen))
 	}
 	observed := map[int64]bool{}
 	for _, observation := range environments.saved {
 		observed[observation.ProjectID] = true
 	}
 	if !observed[1] || !observed[2] || observed[3] {
-		t.Errorf("projets relevés = %v, attendu 1 et 2 seulement", observed)
+		t.Errorf("projects read = %v, expected 1 and 2 only", observed)
 	}
 }

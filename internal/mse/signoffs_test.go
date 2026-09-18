@@ -89,9 +89,9 @@ func signoffRequestFor(t *testing.T, method, target, body string) *http.Request 
 	return request.WithContext(dashhttp.ContextWithIdentity(request.Context(), identity))
 }
 
-// Une réserve ou un refus sans motif ne dit rien à qui le lit ensuite, et c'est
-// pourtant à ce moment que la question « pourquoi ? » se pose.
-func TestUnRefusSansMotifEstRefuse(t *testing.T) {
+// A reservation or a refusal with no reason tells whoever reads it later nothing, and yet that
+// is the moment when the question "why?" arises.
+func TestARefusalWithNoReasonIsRefused(t *testing.T) {
 	for _, status := range []string{"warn", "fail"} {
 		fake := newSignoffStore()
 		handler := NewSignoffsHandler(fake, quietLogger())
@@ -102,18 +102,17 @@ func TestUnRefusSansMotifEstRefuse(t *testing.T) {
 		handler.Set(recorder, request)
 
 		if recorder.Code != http.StatusBadRequest {
-			t.Errorf("avis %s sans motif: code %d, attendu 400", status, recorder.Code)
+			t.Errorf("opinion %s with no reason: code %d, expected 400", status, recorder.Code)
 		}
 		if len(fake.set) != 0 {
-			t.Errorf("avis %s sans motif enregistré: %v", status, fake.set)
+			t.Errorf("opinion %s with no reason recorded: %v", status, fake.set)
 		}
 	}
 }
 
-// Une validation n'a pas besoin de motif : c'est le cas courant, et l'exiger
-// ferait écrire « ok » à tout le monde — un champ obligatoire vide de sens se
-// remplit quand même.
-func TestUneValidationSansMotifEstAcceptee(t *testing.T) {
+// A validation needs no reason: it is the common case, and requiring one would have everyone
+// write "ok" — a required field empty of meaning is filled in anyway.
+func TestAValidationWithNoReasonIsAccepted(t *testing.T) {
 	fake := newSignoffStore()
 	handler := NewSignoffsHandler(fake, quietLogger())
 
@@ -123,40 +122,39 @@ func TestUneValidationSansMotifEstAcceptee(t *testing.T) {
 	handler.Set(recorder, request)
 
 	if recorder.Code != http.StatusNoContent {
-		t.Fatalf("code %d, attendu 204: %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("code %d, expected 204: %s", recorder.Code, recorder.Body.String())
 	}
 	if len(fake.set) != 1 || !strings.HasPrefix(fake.set[0], "qualif|Client|pass|") {
-		t.Errorf("avis enregistré: %v", fake.set)
+		t.Errorf("opinion recorded: %v", fake.set)
 	}
-	// L'avis est enregistré sur le sujet réel et non sur le nom de compte : c'est
-	// la même distinction qui avait fait échouer l'amorçage des administrateurs.
+	// The opinion is recorded on the real subject and not on the account name: the same distinction
+	// that had made the administrators' bootstrap fail.
 	if !strings.HasSuffix(fake.set[0], "|121") {
-		t.Errorf("avis attribué à %q, attendu le sujet 121", fake.set[0])
+		t.Errorf("opinion attributed to %q, expected subject 121", fake.set[0])
 	}
 }
 
-// `na` n'est pas enregistrable : l'attente est l'absence de ligne. L'accepter
-// créerait deux représentations du même état, dont une que le retrait ne saurait
-// pas distinguer.
-func TestLAttenteNestPasUnAvisEnregistrable(t *testing.T) {
+// `na` is not recordable: waiting is the absence of a row. Accepting it would create two
+// representations of the same state, one of which removal would not know how to tell apart.
+func TestWaitingIsNotARecordableOpinion(t *testing.T) {
 	for _, status := range []string{"na", "", "valide", "PASS"} {
 		fake := newSignoffStore()
 		handler := NewSignoffsHandler(fake, quietLogger())
 
 		request := signoffRequestFor(t, http.MethodPut, "/releases/1.8.0-rc1/signoffs/qualif",
-			`{"role":"Client","status":"`+status+`","detail":"peu importe"}`)
+			`{"role":"Client","status":"`+status+`","detail":"no matter"}`)
 		recorder := httptest.NewRecorder()
 		handler.Set(recorder, request)
 
 		if recorder.Code != http.StatusBadRequest {
-			t.Errorf("statut %q: code %d, attendu 400", status, recorder.Code)
+			t.Errorf("status %q: code %d, expected 400", status, recorder.Code)
 		}
 	}
 }
 
-// Un avis sans intervenant ne peut pas être lu : « validé » sans dire par qui
-// n'apprend rien.
-func TestUnAvisSansRoleEstRefuse(t *testing.T) {
+// An opinion with no participant cannot be read: "validated" without saying by whom teaches
+// nothing.
+func TestAnOpinionWithNoRoleIsRefused(t *testing.T) {
 	fake := newSignoffStore()
 	handler := NewSignoffsHandler(fake, quietLogger())
 
@@ -166,13 +164,13 @@ func TestUnAvisSansRoleEstRefuse(t *testing.T) {
 	handler.Set(recorder, request)
 
 	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code %d, attendu 400", recorder.Code)
+		t.Errorf("code %d, expected 400", recorder.Code)
 	}
 }
 
-// Un environnement non déclaré est une faute de l'appelant, pas une panne : 404
-// avec son nom, et non 500 remonté d'une clé étrangère.
-func TestUnEnvironnementNonDeclareRepond404(t *testing.T) {
+// An undeclared environment is a fault of the caller, not an outage: 404 with its name, and not
+// a 500 surfacing from a foreign key.
+func TestAnUndeclaredEnvironmentAnswers404(t *testing.T) {
 	fake := newSignoffStore()
 	fake.unknownEnv = true
 	handler := NewSignoffsHandler(fake, quietLogger())
@@ -183,18 +181,18 @@ func TestUnEnvironnementNonDeclareRepond404(t *testing.T) {
 	handler.Set(recorder, request)
 
 	if recorder.Code != http.StatusNotFound {
-		t.Errorf("code %d, attendu 404", recorder.Code)
+		t.Errorf("code %d, expected 404", recorder.Code)
 	}
 }
 
-// La décision est consignée : la table ne garde que le dernier état, et « qui
-// avait validé avant de se rétracter » n'a de réponse que dans le journal.
-func TestChaqueDecisionEstConsignee(t *testing.T) {
+// The decision is recorded: the table keeps only the last state, and "who had validated before
+// retracting" has an answer only in the log.
+func TestEveryDecisionIsRecorded(t *testing.T) {
 	fake := newSignoffStore()
 	handler := NewSignoffsHandler(fake, quietLogger())
 
 	request := signoffRequestFor(t, http.MethodPut, "/releases/1.8.0-rc1/signoffs/qualif",
-		`{"role":"Client","status":"fail","detail":"panier cassé"}`)
+		`{"role":"Client","status":"fail","detail":"broken cart"}`)
 	handler.Set(httptest.NewRecorder(), request)
 
 	if len(fake.audit) != 1 || fake.audit[0] != store.AuditSignoffSet+":1.8.0-rc1" {
@@ -205,13 +203,13 @@ func TestChaqueDecisionEstConsignee(t *testing.T) {
 	handler.Clear(httptest.NewRecorder(), retrait)
 
 	if len(fake.audit) != 2 || fake.audit[1] != store.AuditSignoffClear+":1.8.0-rc1" {
-		t.Errorf("journal après retrait: %v", fake.audit)
+		t.Errorf("log after removal: %v", fake.audit)
 	}
 }
 
-// Le retrait exige le rôle : sans lui, on ne saurait pas quel avis effacer, et
-// effacer tous les avis d'un environnement serait bien pire qu'une erreur 400.
-func TestLeRetraitExigeUnRole(t *testing.T) {
+// Removal requires the role: without it, one would not know which opinion to erase, and erasing
+// every opinion of an environment would be far worse than a 400.
+func TestRemovalRequiresARole(t *testing.T) {
 	fake := newSignoffStore()
 	handler := NewSignoffsHandler(fake, quietLogger())
 
@@ -220,17 +218,17 @@ func TestLeRetraitExigeUnRole(t *testing.T) {
 	handler.Clear(recorder, request)
 
 	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code %d, attendu 400", recorder.Code)
+		t.Errorf("code %d, expected 400", recorder.Code)
 	}
 	if len(fake.deleted) != 0 {
-		t.Errorf("retrait effectué sans rôle: %v", fake.deleted)
+		t.Errorf("removal carried out with no role: %v", fake.deleted)
 	}
 }
 
-// Tous les environnements sont rendus, y compris ceux sans avis. Ne renvoyer que
-// les validés laisserait l'interface incapable de distinguer « personne ne s'est
-// prononcé » de « cet environnement n'existe pas ».
-func TestTousLesEnvironnementsSontRendusMemeSansAvis(t *testing.T) {
+// Every environment is returned, including those with no opinion. Returning only the validated
+// ones would leave the interface unable to tell "nobody has given an opinion" from "this
+// environment does not exist".
+func TestEveryEnvironmentIsReturnedEvenWithNoOpinion(t *testing.T) {
 	fake := newSignoffStore()
 	fake.signoffs = []storage.Signoff{
 		{EnvironmentID: "qualif", Role: "Client", Status: "pass", DecidedBy: "121"},
@@ -254,23 +252,23 @@ func TestTousLesEnvironnementsSontRendusMemeSansAvis(t *testing.T) {
 		} `json:"environments"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 
 	if len(response.Environments) != 2 {
-		t.Fatalf("%d environnement(s), attendu 2", len(response.Environments))
+		t.Fatalf("%d environment(s), expected 2", len(response.Environments))
 	}
 	if response.Environments[1].Environment != "prod" {
 		t.Errorf("second environnement %q", response.Environments[1].Environment)
 	}
-	// Un tableau vide et non `null` : l'interface itère dessus sans garde.
+	// An empty array and not `null`: the interface iterates over it with no guard.
 	if response.Environments[1].Signoffs == nil {
-		t.Error("les avis d'un environnement sans avis doivent être un tableau vide")
+		t.Error("the opinions of an environment with none must be an empty array")
 	}
 }
 
-// ProjectBySlug résout le projet nommé dans le chemin. Un seul ici : ces tests
-// portent sur ce que le handler fait du projet, pas sur sa résolution.
+// ProjectBySlug resolves the project named in the path. One only here: these tests bear on what
+// the handler does with the project, not on resolving it.
 func (f *fakeSignoffStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
 	if slug != projectSlug {
 		return store.Project{}, store.ErrProjectNotFound
