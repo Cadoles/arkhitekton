@@ -15,10 +15,9 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// index.html embarque un script en ligne — celui qui applique le thème avant le
-// premier rendu. L'autoriser par empreinte plutôt que par `unsafe-inline` est ce
-// qui garde la politique utile : `unsafe-inline` autoriserait aussi le script
-// qu'une injection y placerait.
+// index.html embeds an inline script — the one applying the theme before the first
+// render. Allowing it by hash rather than by `unsafe-inline` is what keeps the policy
+// useful: `unsafe-inline` would also allow the script an injection put there.
 func TestPolicyAllowsInlineScriptByHashNotUnsafeInline(t *testing.T) {
 	index := []byte(`<!doctype html><html><head>
 <script>document.documentElement.classList.add('dark')</script>
@@ -34,26 +33,26 @@ func TestPolicyAllowsInlineScriptByHashNotUnsafeInline(t *testing.T) {
 	sum := sha256.Sum256([]byte("document.documentElement.classList.add('dark')"))
 	expected := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
 	if !strings.Contains(policy.scriptSrc, expected) {
-		t.Errorf("empreinte du script en ligne absente\n  script-src = %s\n  attendu    = %s", policy.scriptSrc, expected)
+		t.Errorf("inline script hash missing\n  script-src = %s\n  expected   = %s", policy.scriptSrc, expected)
 	}
 
-	// Le script externe est couvert par 'self' : lui calculer une empreinte de
-	// corps vide autoriserait tout script vide de la page.
+	// The external script is covered by 'self': computing a hash of its empty body would
+	// allow any empty script on the page.
 	empty := sha256.Sum256(nil)
 	if strings.Contains(policy.scriptSrc, base64.StdEncoding.EncodeToString(empty[:])) {
-		t.Error("une empreinte de corps vide a été émise pour le script externe")
+		t.Error("a hash of an empty body was emitted for the external script")
 	}
 }
 
-// Le calcul part du fichier réellement embarqué : modifier le script anti-flash
-// doit déplacer l'empreinte sans intervention, sans quoi la politique bloquerait
-// la page au premier changement.
+// The computation starts from the file actually embedded: changing the anti-flash
+// script must move the hash with no intervention, otherwise the policy would block
+// the page at the first change.
 func TestPolicyFollowsTheScriptContent(t *testing.T) {
 	first := contentSecurityPolicy([]byte(`<script>var a = 1</script>`))
 	second := contentSecurityPolicy([]byte(`<script>var a = 2</script>`))
 
 	if first.scriptSrc == second.scriptSrc {
-		t.Error("l'empreinte n'a pas suivi le changement de script")
+		t.Error("the hash did not follow the script change")
 	}
 }
 
@@ -68,22 +67,21 @@ func TestPolicyForbidsFramingAndExternalConnections(t *testing.T) {
 		"font-src 'self'",
 	} {
 		if !strings.Contains(policy.value, directive) {
-			t.Errorf("directive absente: %s", directive)
+			t.Errorf("missing directive: %s", directive)
 		}
 	}
 }
 
-// Une route du navigateur n'est pas un fichier : `/releases/1.8.0` doit rendre
-// index.html. Sans ce repli, la navigation interne fonctionnerait et un
-// rechargement ou un lien partagé donnerait un 404 — panne déroutante, parce
-// qu'elle ne se produit jamais en cliquant.
+// A browser route is not a file: `/releases/1.8.0` must return index.html. Without
+// that fallback, internal navigation would work while a reload or a shared link gave
+// a 404 — a confusing failure, because it never happens while clicking.
 func TestDeepLinkServesIndex(t *testing.T) {
 	handler := newHandler(t)
 
 	for _, path := range []string{"/", "/environments", "/releases/1.8.0/tests/unit", "/queue"} {
 		response := get(t, handler, path)
 		if response.Code != http.StatusOK {
-			t.Errorf("%s = %d, attendu 200", path, response.Code)
+			t.Errorf("%s = %d, expected 200", path, response.Code)
 			continue
 		}
 		if contentType := response.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/html") {
@@ -92,25 +90,25 @@ func TestDeepLinkServesIndex(t *testing.T) {
 	}
 }
 
-// index.html ne doit jamais être mis en cache : il porte les noms des fichiers
-// empreintés, et un index caché rendrait un déploiement invisible.
+// index.html must never be cached: it carries the names of the fingerprinted files,
+// and a cached index would make a deployment invisible.
 func TestIndexIsNotCachedButAssetsAre(t *testing.T) {
 	handler := newHandler(t)
 
 	if got := get(t, handler, "/").Header().Get("Cache-Control"); got != "no-cache" {
-		t.Errorf("Cache-Control de index.html = %q, attendu no-cache", got)
+		t.Errorf("Cache-Control of index.html = %q, expected no-cache", got)
 	}
 
 	asset := firstAsset(t)
 	if asset == "" {
-		t.Skip("aucun asset embarqué: interface non construite")
+		t.Skip("no embedded asset: the interface was not built")
 	}
 	response := get(t, handler, "/"+asset)
 	if response.Code != http.StatusOK {
 		t.Fatalf("%s = %d", asset, response.Code)
 	}
 	if got := response.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
-		t.Errorf("Cache-Control de %s = %q, attendu immutable", asset, got)
+		t.Errorf("Cache-Control of %s = %q, expected immutable", asset, got)
 	}
 }
 
@@ -122,11 +120,11 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 		"Referrer-Policy":        "same-origin",
 	} {
 		if got := response.Header().Get(header); got != expected {
-			t.Errorf("%s = %q, attendu %q", header, got, expected)
+			t.Errorf("%s = %q, expected %q", header, got, expected)
 		}
 	}
 	if response.Header().Get("Content-Security-Policy") == "" {
-		t.Error("Content-Security-Policy absent")
+		t.Error("Content-Security-Policy missing")
 	}
 }
 

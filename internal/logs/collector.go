@@ -1,21 +1,19 @@
-// Package logs capte les journaux des pods Tekton avant qu'ils disparaissent.
+// Package logs captures Tekton pod logs before they disappear.
 //
-// Les logs Tekton sont les logs des pods : ils s'évanouissent avec eux, et le pod
-// d'une task est supprimé peu après sa fin. Les lire à la demande ne marche donc
-// que quelques minutes. Il faut les capter **pendant** l'exécution
-// (doc 06 §6.5).
+// Tekton logs are pod logs: they vanish with the pod, and a task's pod is deleted
+// shortly after it ends. Reading them on demand therefore works for a few minutes
+// only. They must be captured while the task runs.
 //
-// Deux écarts au document valent d'être signalés, tous deux imposés par S3 :
+// Two consequences imposed by S3:
 //
-//  1. **Pas d'envoi multipart.** Une partie d'envoi multipart doit peser au moins
-//     5 Mio, ce qui interdit la granularité de flush utile — un incident perdrait
-//     jusqu'à 5 Mio de journal. Chaque flush écrit donc un objet complet, durable
-//     immédiatement, et le scellement les concatène.
-//  2. **Une goroutine par étape, et non un flux unique.** Les étapes d'un TaskRun
-//     démarrent l'une après l'autre, mais une étape non démarrée fait échouer la
-//     lecture de son conteneur : suivre les étapes en série demanderait d'attendre
-//     et de réessayer sur chacune. Chaque étape écrit dans son propre espace de
-//     tranches, et l'ordre est rétabli au scellement — il est connu d'avance.
+//  1. No multipart upload. A multipart part must weigh at least 5 MiB, which rules
+//     out a useful flush granularity — an incident would lose up to 5 MiB of log.
+//     Each flush therefore writes a complete object, durable immediately, and
+//     sealing concatenates them.
+//  2. One goroutine per step rather than a single stream. A TaskRun's steps start
+//     one after another, and a step that has not started fails the read of its
+//     container. Each step writes into its own chunk space, and the order is
+//     restored at sealing — it is known in advance.
 package logs
 
 import (
@@ -39,46 +37,46 @@ const (
 	DefaultFlushSize     = 1 << 20 // 1 Mio
 )
 
-// retryDelay sépare deux tentatives de lecture d'un conteneur pas encore démarré.
+// retryDelay separates two attempts to read a container that has not started.
 const retryDelay = 2 * time.Second
 
-// drainGrace borne l'attente, au scellement, que les lectures en cours atteignent
-// la fin du flux.
+// drainGrace bounds how long sealing waits for reads in flight to reach the end of
+// the stream.
 //
-// Le délai existe parce qu'un TaskRun devient terminal avant que le flux de logs
-// soit épuisé côté client : couper à cet instant tronquerait la fin du journal,
-// c'est-à-dire précisément le message d'échec qu'on vient chercher.
+// The delay exists because a TaskRun becomes terminal before the log stream is
+// exhausted client-side: cutting at that instant would truncate the end of the log,
+// which is precisely the failure message one came for.
 const drainGrace = 30 * time.Second
 
-// Pods lit les journaux. L'interface existe pour que le collecteur soit testable
-// sans cluster : ce qu'on veut éprouver — le découpage, la reprise, le
-// scellement — n'a rien de kubernetes.
+// Pods reads logs. The interface exists so the collector is testable without a
+// cluster: what is worth exercising — chunking, resuming, sealing — has nothing to
+// do with Kubernetes.
 type Pods interface {
-	// Stream ouvre le journal d'un conteneur. `since` non nul reprend à partir de
-	// cet instant. L'appelant referme.
+	// Stream opens a container's log. A non-nil `since` resumes from that instant. The
+	// caller closes it.
 	Stream(ctx context.Context, pod, container string, since *time.Time) (io.ReadCloser, error)
 }
 
-// Sink reçoit les lignes au fil de l'eau, pour le direct.
+// Sink receives lines as they come, for live viewing.
 //
-// Aucune persistance à ce niveau : un client qui se branche en cours de route
-// reçoit d'abord les tranches déjà écrites, puis ce flux.
+// No persistence at this level: a client connecting mid-run first receives the
+// chunks already written, then this stream.
 type Sink interface {
 	Publish(runName, taskName string, line Line)
 }
 
-// Line est une ligne de journal horodatée par kubelet.
+// Line is a log line timestamped by kubelet.
 type Line struct {
 	Timestamp time.Time
 	Text      string
 }
 
-// Store est ce que le collecteur écrit en base à la fin.
+// Store is what the collector writes to the database at the end.
 type Store interface {
 	SealTaskLog(ctx context.Context, runName, taskName, object string) error
 }
 
-// Step désigne une étape et son conteneur.
+// Step names a step and its container.
 type Step struct {
 	Name      string
 	Container string
@@ -94,7 +92,7 @@ type Target struct {
 
 func (t Target) key() string { return t.RunName + "/" + t.TaskName }
 
-// Collector suit les tasks en cours et scelle leurs journaux.
+// Collector follows running tasks and seals their logs.
 type Collector struct {
 	pods    Pods
 	storage *blob.Client
@@ -111,9 +109,9 @@ type Collector struct {
 
 type collection struct {
 	cancel context.CancelFunc
-	// drain est fermé pour dire « plus de nouvelle tentative ». Les lectures en
-	// cours continuent jusqu'à la fin du flux : c'est la différence entre un
-	// journal complet et un journal tronqué à la dernière seconde.
+	// drain is closed to say "no more attempts". Reads in flight carry on to the end of
+	// the stream: that is the difference between a complete log and one truncated at the
+	// last second.
 	drain chan struct{}
 	done  chan struct{}
 }
@@ -135,14 +133,14 @@ func New(pods Pods, storage *blob.Client, store Store, live Sink, logger *slog.L
 	}
 }
 
-// Start lance la capture d'une task, si elle n'est pas déjà en cours.
+// Start begins capturing a task, unless it is already under way.
 //
-// L'idempotence n'est pas un raffinement : l'informer répète l'événement de mise à
-// jour à chaque changement de statut d'étape, et une capture par événement
-// ouvrirait des dizaines de flux sur le même conteneur.
+// Idempotence is not a refinement: the informer repeats the update event on every
+// step status change, and one capture per event would open dozens of streams on the
+// same container.
 func (c *Collector) Start(ctx context.Context, target Target) {
 	if target.PodName == "" || len(target.Steps) == 0 {
-		// Sans pod, il n'y a rien à lire. L'événement suivant l'apportera.
+		// With no pod there is nothing to read. The next event will bring one.
 		return
 	}
 
@@ -153,14 +151,14 @@ func (c *Collector) Start(ctx context.Context, target Target) {
 		return
 	}
 
-	// Contexte détaché de celui de l'événement : la capture survit à l'événement
-	// qui l'a déclenchée, et ne s'arrête qu'avec le collecteur ou la task.
+	// A context detached from the event's: the capture outlives the event that started
+	// it, and stops only with the collector or the task.
 	captureCtx, cancel := context.WithCancel(ctx)
 	entry := &collection{cancel: cancel, drain: make(chan struct{}), done: make(chan struct{})}
 	c.active[target.key()] = entry
 
-	c.logger.Info("capture de journal démarrée",
-		"run", target.RunName, "task", target.TaskName, "pod", target.PodName, "etapes", len(target.Steps))
+	c.logger.Info("log capture started",
+		"run", target.RunName, "task", target.TaskName, "pod", target.PodName, "steps", len(target.Steps))
 
 	go func() {
 		defer close(entry.done)
@@ -168,11 +166,11 @@ func (c *Collector) Start(ctx context.Context, target Target) {
 	}()
 }
 
-// Finish arrête la capture d'une task et scelle son journal.
+// Finish stops capturing a task and seals its log.
 //
-// Appelé quand le TaskRun devient terminal. Le scellement attend la fin des
-// goroutines : sceller pendant qu'une étape écrit encore produirait un journal
-// tronqué, et c'est irréversible puisque les tranches sont ensuite purgées.
+// Called when the TaskRun becomes terminal. Sealing waits for the goroutines to
+// finish: sealing while a step is still writing would produce a truncated log, and
+// that is irreversible since the chunks are purged afterwards.
 func (c *Collector) Finish(ctx context.Context, target Target) error {
 	c.mu.Lock()
 	entry, running := c.active[target.key()]
@@ -182,15 +180,15 @@ func (c *Collector) Finish(ctx context.Context, target Target) error {
 	c.mu.Unlock()
 
 	if running {
-		// Les lectures en cours vont jusqu'au bout du flux ; seules les nouvelles
-		// tentatives cessent. Le conteneur étant terminé, l'EOF arrive dans la
-		// seconde — le délai de grâce couvre le cas où le flux tarde.
+		// Reads in flight run to the end of the stream; only new attempts stop. With the
+		// container finished, EOF arrives within the second — the grace period covers the
+		// case where the stream lags.
 		close(entry.drain)
 
 		select {
 		case <-entry.done:
 		case <-time.After(drainGrace):
-			c.logger.Warn("délai de grâce dépassé, capture interrompue",
+			c.logger.Warn("grace period exceeded, capture interrupted",
 				"run", target.RunName, "task", target.TaskName)
 			entry.cancel()
 			<-entry.done
@@ -203,9 +201,9 @@ func (c *Collector) Finish(ctx context.Context, target Target) error {
 	return c.seal(ctx, target)
 }
 
-// Stop interrompt toutes les captures sans sceller : c'est l'arrêt du worker, pas
-// la fin des tasks. Les tranches déjà écrites restent, et la reprise s'appuiera
-// dessus.
+// Stop interrupts every capture without sealing: this is the worker stopping, not
+// the tasks ending. The chunks already written stay, and a resume will build on
+// them.
 func (c *Collector) Stop() {
 	c.mu.Lock()
 	entries := make([]*collection, 0, len(c.active))
@@ -235,24 +233,24 @@ func (c *Collector) capture(ctx context.Context, drain <-chan struct{}, target T
 	wg.Wait()
 }
 
-// captureStep suit une étape jusqu'à la fin de son conteneur.
+// captureStep follows a step until its container ends.
 func (c *Collector) captureStep(
 	ctx context.Context, drain <-chan struct{}, target Target, step Step, index int,
 ) {
 	writer, err := newChunkWriter(ctx, c.storage, target, step, index, c.flushSize)
 	if err != nil {
-		c.logger.Error("préparation des tranches", "task", target.TaskName, "etape", step.Name, "error", err)
+		c.logger.Error("preparing the chunks", "task", target.TaskName, "step", step.Name, "error", err)
 		return
 	}
 
-	// Reprise : le dernier horodatage déjà écrit borne à la fois la demande au
-	// kubelet et le filtrage local. `sinceTime` a une précision à la seconde, il
-	// renvoie donc des lignes déjà connues — mieux vaut en dupliquer que d'en
-	// perdre, et le filtre les écarte.
+	// Resuming: the last timestamp already written bounds both the request to the
+	// kubelet and the local filtering. `sinceTime` has second precision, so it returns
+	// lines already known — better to duplicate some than to lose any, and the filter
+	// discards them.
 	since := writer.lastTimestamp
 	if since != nil {
-		c.logger.Info("reprise de capture",
-			"task", target.TaskName, "etape", step.Name, "depuis", since.Format(time.RFC3339))
+		c.logger.Info("capture resumed",
+			"task", target.TaskName, "step", step.Name, "since", since.Format(time.RFC3339))
 	}
 
 	for {
@@ -263,9 +261,8 @@ func (c *Collector) captureStep(
 
 		stream, err := c.pods.Stream(ctx, target.PodName, step.Container, since)
 		if err != nil {
-			// Cas courant, pas une anomalie : l'étape n'a pas encore démarré. Les
-			// étapes d'un TaskRun s'exécutent en série, et la dernière peut
-			// attendre plusieurs minutes.
+			// The common case, not an anomaly: the step has not started. A TaskRun's steps run
+			// in series, and the last one may wait several minutes.
 			if ctx.Err() != nil {
 				c.flushQuietly(ctx, writer, target, step)
 				return
@@ -275,9 +272,8 @@ func (c *Collector) captureStep(
 				c.flushQuietly(ctx, writer, target, step)
 				return
 			case <-drain:
-				// La task est terminée et ce conteneur n'a jamais rien donné —
-				// étape ignorée par Tekton, ou pod déjà supprimé. Insister
-				// n'apporterait rien.
+				// The task is over and this container never produced anything — a step Tekton
+				// skipped, or a pod already deleted. Insisting would achieve nothing.
 				c.flushQuietly(ctx, writer, target, step)
 				return
 			case <-time.After(retryDelay):
@@ -292,8 +288,8 @@ func (c *Collector) captureStep(
 			since = lastRead
 		}
 
-		// EOF signifie conteneur terminé : le journal est complet. Toute autre
-		// erreur — flux coupé, connexion perdue — justifie une reprise.
+		// EOF means the container finished: the log is complete. Any other error — a cut
+		// stream, a lost connection — justifies resuming.
 		if err == nil || errors.Is(err, io.EOF) {
 			c.flushQuietly(ctx, writer, target, step)
 			return
@@ -303,10 +299,10 @@ func (c *Collector) captureStep(
 			return
 		}
 
-		c.logger.Warn("flux de journal interrompu, reprise",
-			"task", target.TaskName, "etape", step.Name, "error", err)
+		c.logger.Warn("log stream interrupted, resuming",
+			"task", target.TaskName, "step", step.Name, "error", err)
 		if err := writer.flush(ctx); err != nil {
-			c.logger.Error("écriture d'une tranche", "task", target.TaskName, "error", err)
+			c.logger.Error("writing a chunk", "task", target.TaskName, "error", err)
 		}
 
 		select {
@@ -319,7 +315,7 @@ func (c *Collector) captureStep(
 	}
 }
 
-// consume lit le flux ligne à ligne et rend le dernier horodatage vu.
+// consume reads the stream line by line and returns the last timestamp seen.
 func (c *Collector) consume(
 	ctx context.Context, stream io.Reader, writer *chunkWriter, target Target, step Step,
 ) (*time.Time, error) {
@@ -327,9 +323,9 @@ func (c *Collector) consume(
 	ticker := time.NewTicker(c.flushInterval)
 	defer ticker.Stop()
 
-	// Le flush périodique est porté par une goroutine : la lecture est bloquante,
-	// et un pipeline silencieux pendant deux minutes ne doit pas retarder d'autant
-	// la durabilité de ce qui précède.
+	// The periodic flush is carried by a goroutine: reading blocks, and a pipeline
+	// silent for two minutes must not delay the durability of what came before by as
+	// much.
 	flushDone := make(chan struct{})
 	defer func() { close(flushDone) }()
 	go func() {
@@ -341,8 +337,8 @@ func (c *Collector) consume(
 				return
 			case <-ticker.C:
 				if err := writer.flush(ctx); err != nil {
-					c.logger.Error("écriture périodique d'une tranche",
-						"task", target.TaskName, "etape", step.Name, "error", err)
+					c.logger.Error("periodic chunk write",
+						"task", target.TaskName, "step", step.Name, "error", err)
 				}
 			}
 		}
@@ -354,8 +350,8 @@ func (c *Collector) consume(
 		if raw != "" {
 			line := parseLine(raw)
 			if !writer.accept(line) {
-				// Ligne déjà connue, renvoyée par `sinceTime` : écartée sans
-				// bruit, c'est le prix de ne rien perdre.
+				// A line already known, returned by `sinceTime`: discarded quietly, the price of
+				// losing nothing.
 				continue
 			}
 			timestamp := line.Timestamp
@@ -373,28 +369,28 @@ func (c *Collector) consume(
 }
 
 func (c *Collector) flushQuietly(ctx context.Context, writer *chunkWriter, target Target, step Step) {
-	// Contexte propre : celui de la capture est peut-être déjà annulé, et la
-	// dernière tranche est justement celle qu'il ne faut pas perdre.
+	// A fresh context: the capture's may already be cancelled, and the last chunk is
+	// precisely the one not to lose.
 	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 
 	if err := writer.flush(flushCtx); err != nil {
-		c.logger.Error("écriture de la dernière tranche",
-			"task", target.TaskName, "etape", step.Name, "error", err)
+		c.logger.Error("writing the last chunk",
+			"task", target.TaskName, "step", step.Name, "error", err)
 	}
 }
 
-// Plain rend le texte d'un journal stocké, débarrassé de ses horodatages.
+// Plain returns the text of a stored log, stripped of its timestamps.
 //
-// Les tranches stockées **conservent** le préfixe RFC3339Nano ajouté par kubelet :
-// c'est lui qui rend la reprise possible après un redémarrage du collecteur. Tout
-// lecteur qui cherche autre chose qu'un affichage doit donc le retirer d'abord.
+// Stored chunks keep the RFC3339Nano prefix kubelet adds: it is what makes resuming
+// possible after the collector restarts. Any reader after something other than
+// display must therefore strip it first.
 //
-// Écrit ici et non chez l'appelant parce que le format appartient à ce paquet.
-// L'oublier ne casse rien de visible : les lignes se lisent parfaitement, et
-// seule une recherche en début de ligne échoue — silencieusement. C'est ce qui
-// est arrivé au canal de marqueurs, dont chaque descripteur était précédé d'un
-// horodatage et n'a donc jamais été reconnu.
+// Written here and not in the caller because the format belongs to this package.
+// Forgetting it breaks nothing visible: the lines read perfectly, and only a search
+// anchored at the start of a line fails — silently. That is what happened to the
+// marker channel, whose descriptors were each preceded by a timestamp and therefore
+// never recognised.
 func Plain(stored string) string {
 	lines := strings.Split(stored, "\n")
 	for index, line := range lines {
@@ -403,11 +399,11 @@ func Plain(stored string) string {
 	return strings.Join(lines, "\n")
 }
 
-// parseLine sépare l'horodatage ajouté par kubelet du texte.
+// parseLine separates the timestamp kubelet adds from the text.
 //
-// `timestamps=true` préfixe chaque ligne d'un RFC3339Nano suivi d'un espace. Le
-// préfixe est conservé dans la tranche stockée — c'est lui qui rend la reprise
-// possible — et retiré pour le direct, où il serait du bruit.
+// `timestamps=true` prefixes every line with an RFC3339Nano followed by a space. The
+// prefix is kept in the stored chunk — it is what makes resuming possible — and
+// stripped for live viewing, where it would be noise.
 func parseLine(raw string) Line {
 	trimmed := strings.TrimRight(raw, "\r\n")
 
@@ -417,8 +413,8 @@ func parseLine(raw string) Line {
 	}
 	timestamp, err := time.Parse(time.RFC3339Nano, prefix)
 	if err != nil {
-		// Ligne sans horodatage exploitable : conservée telle quelle. Perdre une
-		// ligne parce qu'elle est mal formée serait le pire des arbitrages.
+		// A line with no usable timestamp: kept as is. Losing a line because it is malformed
+		// would be the worst trade.
 		return Line{Text: trimmed}
 	}
 	return Line{Timestamp: timestamp, Text: text}
@@ -428,12 +424,12 @@ type discardSink struct{}
 
 func (discardSink) Publish(string, string, Line) {}
 
-// seal concatène les tranches d'une task en un objet unique, puis les purge.
+// seal concatenates a task's chunks into a single object, then purges them.
 //
-// L'objet unique est ce qui rend la lecture par plage possible : l'interface
-// n'affiche que la fin d'un journal de plusieurs dizaines de mégaoctets et remonte
-// à la demande. Le faire sur une collection de tranches demanderait de les lister
-// et de calculer des décalages à chaque requête.
+// The single object is what makes ranged reads possible: the interface displays only
+// the end of a log tens of megabytes long and goes back on demand. Doing that over a
+// collection of chunks would mean listing them and computing offsets on every
+// request.
 func (c *Collector) seal(ctx context.Context, target Target) error {
 	partsPrefix, err := c.storage.Keys.TaskLogPartsPrefix(target.RunName, target.TaskName)
 	if err != nil {
@@ -445,8 +441,8 @@ func (c *Collector) seal(ctx context.Context, target Target) error {
 		return err
 	}
 	if len(chunks) == 0 {
-		// Rien n'a été capté : task sans journal, ou déjà scellée. Les deux cas
-		// sont normaux et ne justifient pas d'erreur.
+		// Nothing was captured: a task with no log, or one already sealed. Both are normal
+		// and do not justify an error.
 		return nil
 	}
 
@@ -455,27 +451,27 @@ func (c *Collector) seal(ctx context.Context, target Target) error {
 		return err
 	}
 
-	// Les clés portent le rang de l'étape puis celui de la tranche, tous deux
-	// zéro-paddés : un tri lexicographique suffit à rétablir la chronologie. Il
-	// n'y a donc rien à savoir du pipeline pour assembler son journal.
+	// Keys carry the step's rank then the chunk's, both zero-padded: a lexicographic
+	// sort is enough to restore chronology. Nothing about the pipeline need be known to
+	// assemble its log.
 	ordered := make([]string, 0, len(chunks))
 	for _, chunk := range chunks {
 		ordered = append(ordered, chunk.Key)
 	}
 	sortStrings(ordered)
 
-	// Assemblage en mémoire tampon puis écriture d'un objet unique. Un tube vers
-	// PutObject éviterait le tampon, mais empêcherait de connaître la taille — et
-	// donc de la journaliser et de la vérifier.
+	// Assembled in a buffer then written as a single object. Piping into PutObject would
+	// avoid the buffer but hide the size — and therefore the ability to log and check
+	// it.
 	var assembled bytes.Buffer
 	for _, key := range ordered {
 		reader, err := c.storage.Get(ctx, key)
 		if err != nil {
-			return fmt.Errorf("lecture de la tranche %q: %w", key, err)
+			return fmt.Errorf("reading chunk %q: %w", key, err)
 		}
 		if _, err := io.Copy(&assembled, reader); err != nil {
 			_ = reader.Close()
-			return fmt.Errorf("assemblage de la tranche %q: %w", key, err)
+			return fmt.Errorf("assembling chunk %q: %w", key, err)
 		}
 		_ = reader.Close()
 	}
@@ -485,23 +481,22 @@ func (c *Collector) seal(ctx context.Context, target Target) error {
 		return err
 	}
 
-	// La base n'est mise à jour qu'après l'écriture de l'objet : l'ordre inverse
-	// annoncerait un journal scellé que personne ne pourrait lire.
+	// The database is updated only after the object is written: the reverse order would
+	// announce a sealed log nobody could read.
 	if err := c.store.SealTaskLog(ctx, target.RunName, target.TaskName, object); err != nil {
 		return err
 	}
 
-	// La purge vient en dernier, et son échec n'invalide pas le scellement : des
-	// tranches orphelines coûtent du stockage, un journal manquant coûte une
-	// investigation.
+	// The purge comes last, and its failure does not invalidate the sealing: orphaned
+	// chunks cost storage, a missing log costs an investigation.
 	for _, key := range ordered {
 		if err := c.storage.Remove(ctx, key); err != nil {
-			c.logger.Warn("purge d'une tranche", "objet", key, "error", err)
+			c.logger.Warn("purging a chunk", "object", key, "error", err)
 		}
 	}
 
-	c.logger.Info("journal scellé",
-		"run", target.RunName, "task", target.TaskName, "objet", object,
-		"octets", assembled.Len(), "tranches", len(ordered))
+	c.logger.Info("log sealed",
+		"run", target.RunName, "task", target.TaskName, "object", object,
+		"bytes", assembled.Len(), "chunks", len(ordered))
 	return nil
 }

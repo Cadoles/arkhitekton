@@ -15,16 +15,15 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
-// Ces tests exigent un MinIO réel. Ce qu'ils vérifient — découpage en tranches
-// durables, ordre du scellement, reprise après interruption — porte sur ce qui est
-// effectivement écrit dans le stockage objet, et un bouchon en mémoire ne
-// prouverait que la cohérence du bouchon.
+// These tests require a real MinIO. What they check — durable chunking, sealing
+// order, resuming after an interruption — is about what is actually written to the
+// object store, and an in-memory stub would only prove the stub is consistent.
 func testStorage(t *testing.T) *blob.Client {
 	t.Helper()
 
 	endpoint := os.Getenv("TEST_MINIO_ENDPOINT")
 	if endpoint == "" {
-		t.Skip("TEST_MINIO_ENDPOINT non défini: test d'intégration ignoré")
+		t.Skip("TEST_MINIO_ENDPOINT not set: integration test skipped")
 	}
 
 	client, err := blob.Open(context.Background(), config.StorageConfig{
@@ -36,7 +35,7 @@ func testStorage(t *testing.T) *blob.Client {
 		PresignTTL: 2 * time.Hour,
 	})
 	if err != nil {
-		t.Fatalf("ouverture du stockage: %v", err)
+		t.Fatalf("opening the store: %v", err)
 	}
 	return client
 }
@@ -52,13 +51,13 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// fakePods rend, par conteneur, un contenu figé puis EOF — ce que fait un
-// conteneur terminé.
+// fakePods returns, per container, a fixed content then EOF — what a finished
+// container does.
 type fakePods struct {
 	mu       sync.Mutex
 	byName   map[string]string
 	requests []request
-	// missing simule un conteneur pas encore démarré : la lecture échoue.
+	// missing simulates a container that has not started: the read fails.
 	missing map[string]bool
 }
 
@@ -78,16 +77,16 @@ func (p *fakePods) Stream(_ context.Context, _, container string, since *time.Ti
 	p.requests = append(p.requests, request{container: container, since: since})
 
 	if p.missing[container] {
-		return nil, fmt.Errorf("conteneur %q en attente de démarrage", container)
+		return nil, fmt.Errorf("container %q waiting to start", container)
 	}
 
 	content, ok := p.byName[container]
 	if !ok {
-		return nil, fmt.Errorf("conteneur %q inconnu", container)
+		return nil, fmt.Errorf("unknown container %q", container)
 	}
 
-	// Filtrage à la seconde, comme le fait l'API Kubernetes : c'est ce qui rend
-	// les doublons inévitables après une reprise.
+	// Filtering to the second, as the Kubernetes API does: that is what makes duplicates
+	// unavoidable after a resume.
 	if since != nil {
 		var kept []string
 		for _, line := range strings.SplitAfter(content, "\n") {
@@ -154,7 +153,7 @@ func (s *recordingSink) count() int {
 	return len(s.lines)
 }
 
-// stamp fabrique une ligne au format que produit kubelet avec `timestamps=true`.
+// stamp builds a line in the format kubelet produces with `timestamps=true`.
 func stamp(offset time.Duration, text string) string {
 	base := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
 	return base.Add(offset).Format(time.RFC3339Nano) + " " + text + "\n"
@@ -162,8 +161,8 @@ func stamp(offset time.Duration, text string) string {
 
 func uniqueTarget(t *testing.T, steps ...Step) Target {
 	t.Helper()
-	// Un nom de run unique par test : le bucket est partagé, et deux tests qui
-	// écriraient sous la même clé se masqueraient l'un l'autre.
+	// A unique run name per test: the bucket is shared, and two tests writing under the
+	// same key would mask each other.
 	return Target{
 		RunName:  fmt.Sprintf("run-%d", time.Now().UnixNano()),
 		TaskName: "unit-test",
@@ -194,16 +193,16 @@ func cleanup(t *testing.T, storage *blob.Client, target Target) {
 
 func newCollector(storage *blob.Client, pods Pods, store Store, sink Sink) *Collector {
 	collector := New(pods, storage, store, sink, discardLogger())
-	// Seuils resserrés : les valeurs de production — 5 s et 1 Mio — rendraient
-	// les tests lents ou incapables de produire plus d'une tranche.
+	// Tightened thresholds: production values would make the tests slow or unable to
+	// produce more than one chunk.
 	collector.flushInterval = 50 * time.Millisecond
 	collector.flushSize = 120
 	return collector
 }
 
-// Le scellement doit rendre un journal dont l'ordre est celui de l'exécution.
-// Trier sur les clés seules mélangerait les étapes par ordre alphabétique, et un
-// journal où `publish` précède `phpunit` ne se lit pas.
+// Sealing must return a log whose order is the order of execution. Sorting on keys
+// alone would interleave the steps alphabetically, and a log where `publish`
+// precedes `phpunit` does not read.
 func TestSealConcatenatesStepsInDeclaredOrder(t *testing.T) {
 	storage := testStorage(t)
 	ctx := context.Background()
@@ -216,9 +215,9 @@ func TestSealConcatenatesStepsInDeclaredOrder(t *testing.T) {
 	cleanup(t, storage, target)
 
 	pods := newFakePods(map[string]string{
-		// L'ordre alphabétique des conteneurs est composer, phpunit, publish ;
-		// l'ordre déclaré est le même, mais les contenus permettent de vérifier
-		// que la concaténation suit bien les étapes et non les clés.
+		// The containers' alphabetical order is composer, phpunit, publish; the declared
+		// order is the same, but the contents allow checking that the concatenation follows
+		// the steps and not the keys.
 		"step-composer": stamp(0, "composer install"),
 		"step-phpunit":  stamp(time.Second, "phpunit ok"),
 		"step-publish":  stamp(2*time.Second, "publication"),
@@ -233,7 +232,7 @@ func TestSealConcatenatesStepsInDeclaredOrder(t *testing.T) {
 
 	object, err := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
 	if err != nil {
-		t.Fatalf("clé: %v", err)
+		t.Fatalf("key: %v", err)
 	}
 	content := readObject(t, storage, object)
 
@@ -242,21 +241,21 @@ func TestSealConcatenatesStepsInDeclaredOrder(t *testing.T) {
 	for _, text := range positions {
 		index := strings.Index(content, text)
 		if index < 0 {
-			t.Fatalf("%q absent du journal scellé:\n%s", text, content)
+			t.Fatalf("%q missing from the sealed log:\n%s", text, content)
 		}
 		if index < previous {
-			t.Errorf("%q apparaît avant l'étape précédente", text)
+			t.Errorf("%q appears before the previous step", text)
 		}
 		previous = index
 	}
 
 	if store.sealed[target.RunName+"/"+target.TaskName] != object {
-		t.Errorf("la base n'a pas été mise à jour: %v", store.sealed)
+		t.Errorf("the database was not updated: %v", store.sealed)
 	}
 }
 
-// Les tranches sont purgées après scellement, mais seulement après : l'inverse
-// perdrait le journal si l'écriture de l'objet échouait.
+// The chunks are purged after sealing, but only after: the reverse would lose the
+// log if writing the object failed.
 func TestSealPurgesChunksButKeepsTheSealedObject(t *testing.T) {
 	storage := testStorage(t)
 	ctx := context.Background()
@@ -264,7 +263,7 @@ func TestSealPurgesChunksButKeepsTheSealedObject(t *testing.T) {
 	target := uniqueTarget(t, Step{Name: "phpunit", Container: "step-phpunit"})
 	cleanup(t, storage, target)
 
-	// Assez de contenu pour produire plusieurs tranches avec un seuil de 120 o.
+	// Enough content to produce several chunks at a 120-byte threshold.
 	var content strings.Builder
 	for i := range 20 {
 		content.WriteString(stamp(time.Duration(i)*time.Second, fmt.Sprintf("ligne %d", i)))
@@ -277,14 +276,14 @@ func TestSealPurgesChunksButKeepsTheSealedObject(t *testing.T) {
 
 	partsPrefix, err := storage.Keys.TaskLogPartsPrefix(target.RunName, target.TaskName)
 	if err != nil {
-		t.Fatalf("préfixe: %v", err)
+		t.Fatalf("prefix: %v", err)
 	}
-	// Attendre que la capture ait produit des tranches avant de sceller, sinon le
-	// test ne prouve rien sur la purge.
+	// Wait for the capture to have produced chunks before sealing, otherwise the test
+	// proves nothing about the purge.
 	waitFor(t, func() bool {
 		objects, err := storage.List(ctx, partsPrefix)
 		return err == nil && len(objects) > 1
-	}, "plusieurs tranches écrites")
+	}, "several chunks written")
 
 	if err := collector.Finish(ctx, target); err != nil {
 		t.Fatalf("scellement: %v", err)
@@ -295,21 +294,21 @@ func TestSealPurgesChunksButKeepsTheSealedObject(t *testing.T) {
 		t.Fatalf("listing: %v", err)
 	}
 	if len(remaining) != 0 {
-		t.Errorf("%d tranche(s) subsistent après scellement", len(remaining))
+		t.Errorf("%d chunk(s) remain after sealing", len(remaining))
 	}
 
 	object, _ := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
 	sealed := readObject(t, storage, object)
 	if !strings.Contains(sealed, "ligne 0") || !strings.Contains(sealed, "ligne 19") {
-		t.Errorf("journal scellé incomplet (%d octets)", len(sealed))
+		t.Errorf("incomplete sealed log (%d bytes)", len(sealed))
 	}
 }
 
-// La reprise après redémarrage du worker : les tranches déjà écrites bornent la
-// demande au kubelet, et les lignes renvoyées en double sont écartées.
+// Resuming after the worker restarts: the chunks already written bound the request
+// to the kubelet, and lines returned twice are discarded.
 //
-// C'est le comportement qui distingue « perdre des lignes » de « en dupliquer », et
-// le document tranche explicitement en faveur du second.
+// This is the behaviour that separates "losing lines" from "duplicating them", and
+// the second is deliberately preferred.
 func TestResumeSkipsAlreadyStoredLinesWithoutLosingAny(t *testing.T) {
 	storage := testStorage(t)
 	ctx := context.Background()
@@ -320,11 +319,11 @@ func TestResumeSkipsAlreadyStoredLinesWithoutLosingAny(t *testing.T) {
 	full := stamp(0, "ligne A") + stamp(time.Second, "ligne B") + stamp(2*time.Second, "ligne C")
 	pods := newFakePods(map[string]string{"step-phpunit": full})
 
-	// Première capture, interrompue : seules les deux premières lignes existent.
+	// A first capture, interrupted: only the first two lines exist.
 	partial := stamp(0, "ligne A") + stamp(time.Second, "ligne B")
 	chunkKey, err := storage.Keys.TaskLogChunk(target.RunName, target.TaskName, "step-phpunit", 0, 1)
 	if err != nil {
-		t.Fatalf("clé: %v", err)
+		t.Fatalf("key: %v", err)
 	}
 	if err := storage.Put(ctx, chunkKey, strings.NewReader(partial), int64(len(partial)), "text/plain"); err != nil {
 		t.Fatalf("tranche initiale: %v", err)
@@ -336,11 +335,11 @@ func TestResumeSkipsAlreadyStoredLinesWithoutLosingAny(t *testing.T) {
 		t.Fatalf("scellement: %v", err)
 	}
 
-	// Le kubelet a bien été interrogé avec une borne : sans elle, tout le journal
-	// serait relu à chaque redémarrage.
+	// The kubelet was indeed queried with a bound: without it, the whole log would be
+	// re-read at every restart.
 	sinces := pods.sinceFor("step-phpunit")
 	if len(sinces) == 0 || sinces[0] == nil {
-		t.Fatalf("la reprise n'a pas positionné de borne: %v", sinces)
+		t.Fatalf("the resume set no bound: %v", sinces)
 	}
 
 	object, _ := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
@@ -348,35 +347,35 @@ func TestResumeSkipsAlreadyStoredLinesWithoutLosingAny(t *testing.T) {
 
 	for _, text := range []string{"ligne A", "ligne B", "ligne C"} {
 		if strings.Count(sealed, text) == 0 {
-			t.Errorf("%q perdue au scellement:\n%s", text, sealed)
+			t.Errorf("%q lost during sealing:\n%s", text, sealed)
 		}
 		if strings.Count(sealed, text) > 1 {
-			t.Errorf("%q dupliquée %d fois:\n%s", text, strings.Count(sealed, text), sealed)
+			t.Errorf("%q duplicated %d times:\n%s", text, strings.Count(sealed, text), sealed)
 		}
 	}
 }
 
-// Une étape pas encore démarrée fait échouer la lecture de son conteneur. Ce n'est
-// pas une anomalie : les étapes s'exécutent en série, et la dernière peut attendre
-// plusieurs minutes. La capture doit réessayer, pas abandonner.
+// A step that has not started fails the read of its container. That is not an
+// anomaly: steps run in series, and the last may wait several minutes. The capture
+// must retry, not give up.
 func TestStepNotStartedYetIsRetried(t *testing.T) {
 	storage := testStorage(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	target := uniqueTarget(t, Step{Name: "tardive", Container: "step-tardive"})
+	target := uniqueTarget(t, Step{Name: "late", Container: "step-tardive"})
 	cleanup(t, storage, target)
 
-	pods := newFakePods(map[string]string{"step-tardive": stamp(0, "enfin démarrée")})
+	pods := newFakePods(map[string]string{"step-tardive": stamp(0, "started at last")})
 	pods.missing["step-tardive"] = true
 
 	collector := newCollector(storage, pods, newFakeStore(), nil)
 	collector.flushInterval = 20 * time.Millisecond
 	collector.Start(ctx, target)
 
-	waitFor(t, func() bool { return len(pods.sinceFor("step-tardive")) >= 2 }, "au moins deux tentatives")
+	waitFor(t, func() bool { return len(pods.sinceFor("step-tardive")) >= 2 }, "at least two attempts")
 
-	// L'étape démarre : la capture doit alors aboutir.
+	// The step starts: the capture must then succeed.
 	pods.mu.Lock()
 	pods.missing["step-tardive"] = false
 	pods.mu.Unlock()
@@ -385,13 +384,13 @@ func TestStepNotStartedYetIsRetried(t *testing.T) {
 	waitFor(t, func() bool {
 		objects, err := storage.List(ctx, partsPrefix)
 		return err == nil && len(objects) > 0
-	}, "journal capté après démarrage")
+	}, "log captured after start")
 
 	collector.Stop()
 }
 
-// L'informer répète l'événement de mise à jour à chaque changement d'étape. Une
-// capture par événement ouvrirait des dizaines de flux sur le même conteneur.
+// The informer repeats the update event on every step change. One capture per event
+// would open dozens of streams on the same container.
 func TestStartIsIdempotent(t *testing.T) {
 	storage := testStorage(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -400,8 +399,8 @@ func TestStartIsIdempotent(t *testing.T) {
 	target := uniqueTarget(t, Step{Name: "phpunit", Container: "step-phpunit"})
 	cleanup(t, storage, target)
 
-	// Conteneur absent : la capture boucle, ce qui laisse le temps d'observer les
-	// démarrages concurrents.
+	// Container absent: the capture loops, which leaves time to observe concurrent
+	// starts.
 	pods := newFakePods(map[string]string{})
 	pods.missing["step-phpunit"] = true
 
@@ -416,27 +415,27 @@ func TestStartIsIdempotent(t *testing.T) {
 	collector.mu.Unlock()
 
 	if active != 1 {
-		t.Errorf("%d capture(s) active(s), attendu 1", active)
+		t.Errorf("%d active capture(s), expected 1", active)
 	}
 
 	collector.Stop()
 }
 
-// Sceller une task sans journal — pipeline sans étape, ou task déjà scellée — ne
-// doit pas produire d'erreur : les deux cas sont normaux.
+// Sealing a task with no log — a pipeline with no step, or a task already sealed —
+// must not produce an error: both cases are normal.
 func TestSealWithoutChunksIsNotAnError(t *testing.T) {
 	storage := testStorage(t)
 	target := uniqueTarget(t, Step{Name: "phpunit", Container: "step-phpunit"})
 
 	collector := newCollector(storage, newFakePods(map[string]string{}), newFakeStore(), nil)
 	if err := collector.Finish(context.Background(), target); err != nil {
-		t.Errorf("scellement à vide: %v", err)
+		t.Errorf("sealing with nothing: %v", err)
 	}
 }
 
-// Le direct : chaque ligne captée part aussi vers les abonnés, sans horodatage —
-// il serait du bruit à l'écran, alors qu'il est indispensable dans la tranche
-// stockée pour la reprise.
+// Live viewing: every captured line also goes to subscribers, without its timestamp
+// — it would be noise on screen, while it is indispensable in the stored chunk for
+// resuming.
 func TestLinesArePublishedLiveWithoutTimestampPrefix(t *testing.T) {
 	storage := testStorage(t)
 	ctx := context.Background()
@@ -456,37 +455,37 @@ func TestLinesArePublishedLiveWithoutTimestampPrefix(t *testing.T) {
 	}
 
 	if sink.count() != 2 {
-		t.Fatalf("%d ligne(s) publiée(s), attendu 2", sink.count())
+		t.Fatalf("%d line(s) published, expected 2", sink.count())
 	}
 
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
 	for _, line := range sink.lines {
 		if strings.HasPrefix(line.Text, "2026-") {
-			t.Errorf("l'horodatage n'a pas été retiré du direct: %q", line.Text)
+			t.Errorf("the timestamp was not stripped from the live stream: %q", line.Text)
 		}
 		if line.Timestamp.IsZero() {
-			t.Errorf("horodatage perdu pour %q", line.Text)
+			t.Errorf("timestamp lost for %q", line.Text)
 		}
 	}
 
 	// Le stockage, lui, conserve l'horodatage.
 	object, _ := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
 	if sealed := readObject(t, storage, object); !strings.Contains(sealed, "2026-08-14T10:00:00Z") {
-		t.Errorf("l'horodatage manque dans le journal stocké:\n%s", sealed)
+		t.Errorf("the timestamp is missing from the stored log:\n%s", sealed)
 	}
 }
 
-// Une ligne sans horodatage exploitable doit être conservée telle quelle : la
-// perdre pour un défaut de format serait le pire des arbitrages.
+// A line with no usable timestamp must be kept as is: losing it over a formatting
+// flaw would be the worst trade.
 func TestUnstampedLineIsKept(t *testing.T) {
-	line := parseLine("une ligne sans horodatage\n")
+	line := parseLine("a line with no timestamp\n")
 
-	if line.Text != "une ligne sans horodatage" {
+	if line.Text != "a line with no timestamp" {
 		t.Errorf("texte = %q", line.Text)
 	}
 	if !line.Timestamp.IsZero() {
-		t.Errorf("horodatage inventé: %v", line.Timestamp)
+		t.Errorf("invented timestamp: %v", line.Timestamp)
 	}
 }
 
@@ -506,13 +505,13 @@ func readObject(t *testing.T, storage *blob.Client, key string) string {
 
 	reader, err := storage.Get(context.Background(), key)
 	if err != nil {
-		t.Fatalf("lecture de %q: %v", key, err)
+		t.Fatalf("reading %q: %v", key, err)
 	}
 	defer reader.Close()
 
 	content, err := io.ReadAll(reader)
 	if err != nil {
-		t.Fatalf("lecture de %q: %v", key, err)
+		t.Fatalf("reading %q: %v", key, err)
 	}
 	return string(content)
 }

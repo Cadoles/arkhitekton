@@ -7,24 +7,23 @@ import (
 	"testing"
 )
 
-// putChunk écrit une tranche à un rang d'étape et de séquence donnés.
+// putChunk writes a chunk at a given step and sequence rank.
 func putChunk(t *testing.T, target Target, index, sequence int, container, content string) {
 	t.Helper()
 
 	storage := testStorage(t)
 	key, err := storage.Keys.TaskLogChunk(target.RunName, target.TaskName, container, index, sequence)
 	if err != nil {
-		t.Fatalf("clé: %v", err)
+		t.Fatalf("key: %v", err)
 	}
 	if err := storage.Put(context.Background(), key,
 		strings.NewReader(content), int64(len(content)), "text/plain"); err != nil {
-		t.Fatalf("écriture: %v", err)
+		t.Fatalf("write: %v", err)
 	}
 }
 
-// Un journal en cours et un journal scellé se lisent de la même façon : c'est ce
-// qui permet de suivre un run puis de continuer après son scellement, sans que le
-// client ait à changer de mode.
+// A log in flight and a sealed log read the same way: that is what lets one follow a
+// run and then keep reading after it is sealed, without the client changing mode.
 func TestUnsealedLogIsReadAsOneContinuousStream(t *testing.T) {
 	storage := testStorage(t)
 	ctx := context.Background()
@@ -34,8 +33,7 @@ func TestUnsealedLogIsReadAsOneContinuousStream(t *testing.T) {
 
 	putChunk(t, target, 0, 1, "step-run-tests", "AAAA")
 	putChunk(t, target, 0, 2, "step-run-tests", "BBBB")
-	// Étape suivante : son rang la place après, malgré un nom alphabétiquement
-	// antérieur.
+	// The next step: its rank places it after, despite an alphabetically earlier name.
 	putChunk(t, target, 1, 1, "step-publish-results", "CCCC")
 
 	reader := NewReader(storage)
@@ -48,16 +46,15 @@ func TestUnsealedLogIsReadAsOneContinuousStream(t *testing.T) {
 		t.Errorf("contenu = %q", segment.Content)
 	}
 	if segment.Sealed {
-		t.Error("un journal en tranches ne doit pas être annoncé scellé")
+		t.Error("a chunked log must not be announced as sealed")
 	}
 	if segment.Size != 12 || segment.NextOffset != 12 {
-		t.Errorf("taille = %d, prochain décalage = %d", segment.Size, segment.NextOffset)
+		t.Errorf("size = %d, next offset = %d", segment.Size, segment.NextOffset)
 	}
 }
 
-// La lecture par plage ne doit toucher que les tranches concernées : afficher la
-// fin d'un journal de cinquante mégaoctets ne doit pas coûter la lecture de son
-// début.
+// A ranged read must touch only the chunks concerned: displaying the end of a
+// fifty-megabyte log must not cost reading its beginning.
 func TestTailReadsOnlyTheEnd(t *testing.T) {
 	storage := testStorage(t)
 	ctx := context.Background()
@@ -66,7 +63,7 @@ func TestTailReadsOnlyTheEnd(t *testing.T) {
 	cleanup(t, storage, target)
 
 	putChunk(t, target, 0, 1, "step-run-tests", strings.Repeat("x", 1000))
-	putChunk(t, target, 0, 2, "step-run-tests", "FIN-DU-JOURNAL")
+	putChunk(t, target, 0, 2, "step-run-tests", "END-OF-LOG")
 
 	reader := NewReader(storage)
 	segment, err := reader.Tail(ctx, target.RunName, target.TaskName, 14)
@@ -74,16 +71,16 @@ func TestTailReadsOnlyTheEnd(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 
-	if string(segment.Content) != "FIN-DU-JOURNAL" {
+	if string(segment.Content) != "END-OF-LOG" {
 		t.Errorf("contenu = %q", segment.Content)
 	}
 	if segment.Offset != 1000 {
-		t.Errorf("décalage = %d, attendu 1000", segment.Offset)
+		t.Errorf("offset = %d, expected 1000", segment.Offset)
 	}
 }
 
-// Le suivi en direct : le client redemande à partir du décalage rendu et ne
-// reçoit que ce qui s'est ajouté.
+// Following live: the client asks again from the returned offset and receives only
+// what was added.
 func TestFromOffsetReturnsOnlyWhatWasAppended(t *testing.T) {
 	storage := testStorage(t)
 	ctx := context.Background()
@@ -96,13 +93,13 @@ func TestFromOffsetReturnsOnlyWhatWasAppended(t *testing.T) {
 
 	first, err := reader.From(ctx, target.RunName, target.TaskName, 0, 0)
 	if err != nil {
-		t.Fatalf("première lecture: %v", err)
+		t.Fatalf("first read: %v", err)
 	}
 
-	// Rien de neuf : un segment vide, et non une erreur.
+	// Nothing new: an empty segment, not an error.
 	empty, err := reader.From(ctx, target.RunName, target.TaskName, first.NextOffset, 0)
 	if err != nil {
-		t.Fatalf("lecture à vide: %v", err)
+		t.Fatalf("empty read: %v", err)
 	}
 	if len(empty.Content) != 0 {
 		t.Errorf("contenu inattendu: %q", empty.Content)
@@ -115,12 +112,12 @@ func TestFromOffsetReturnsOnlyWhatWasAppended(t *testing.T) {
 		t.Fatalf("seconde lecture: %v", err)
 	}
 	if string(next.Content) != "second\n" {
-		t.Errorf("contenu = %q, attendu la seule nouveauté", next.Content)
+		t.Errorf("content = %q, expected only what was added", next.Content)
 	}
 }
 
-// Après scellement, l'objet unique prime sur les tranches. La purge peut échouer
-// sans remettre le scellement en cause : lire les deux produirait un doublon.
+// After sealing, the single object wins over the chunks. The purge may fail without
+// calling the sealing into question: reading both would produce duplicates.
 func TestSealedObjectWinsOverLeftoverChunks(t *testing.T) {
 	storage := testStorage(t)
 	ctx := context.Background()
@@ -128,15 +125,15 @@ func TestSealedObjectWinsOverLeftoverChunks(t *testing.T) {
 	target := uniqueTarget(t, Step{Name: "tests", Container: "step-run-tests"})
 	cleanup(t, storage, target)
 
-	putChunk(t, target, 0, 1, "step-run-tests", "tranche oubliée\n")
+	putChunk(t, target, 0, 1, "step-run-tests", "forgotten chunk\n")
 
 	object, err := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
 	if err != nil {
-		t.Fatalf("clé: %v", err)
+		t.Fatalf("key: %v", err)
 	}
-	const sealed = "journal scellé\n"
+	const sealed = "sealed log\n"
 	if err := storage.Put(ctx, object, strings.NewReader(sealed), int64(len(sealed)), "text/plain"); err != nil {
-		t.Fatalf("écriture de l'objet scellé: %v", err)
+		t.Fatalf("writing the sealed object: %v", err)
 	}
 
 	segment, err := NewReader(storage).From(ctx, target.RunName, target.TaskName, 0, 0)
@@ -144,15 +141,15 @@ func TestSealedObjectWinsOverLeftoverChunks(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if string(segment.Content) != sealed {
-		t.Errorf("contenu = %q, attendu l'objet scellé seul", segment.Content)
+		t.Errorf("content = %q, expected the sealed object alone", segment.Content)
 	}
 	if !segment.Sealed {
-		t.Error("le journal devrait être annoncé scellé")
+		t.Error("the log should be announced as sealed")
 	}
 }
 
-// Une task sans journal — jamais démarrée, ou déjà purgée — rend un segment vide,
-// pas une erreur : c'est un état normal de l'interface.
+// A task with no log — never started, or already purged — returns an empty segment,
+// not an error: it is a normal state of the interface.
 func TestMissingLogIsEmptyNotAnError(t *testing.T) {
 	storage := testStorage(t)
 	target := uniqueTarget(t, Step{Name: "tests", Container: "step-run-tests"})
@@ -175,9 +172,8 @@ func TestReadIsBounded(t *testing.T) {
 
 	putChunk(t, target, 0, 1, "step-run-tests", strings.Repeat("y", 2000))
 
-	// Une longueur démesurée est ramenée au plafond, pas honorée : un client qui
-	// demande tout d'un journal de cinquante mégaoctets ne doit pas pouvoir
-	// saturer la mémoire du serveur.
+	// An outsized length is clamped to the ceiling rather than honoured: a client asking
+	// for all of a fifty-megabyte log must not be able to exhaust the server's memory.
 	segment, err := NewReader(storage).From(ctx, target.RunName, target.TaskName, 0, MaxRead*10)
 	if err != nil {
 		t.Fatalf("lecture: %v", err)
@@ -190,12 +186,12 @@ func TestReadIsBounded(t *testing.T) {
 	}
 }
 
-// La numérotation absolue repose là-dessus : combien de lignes complètes
-// précèdent la fenêtre affichée.
+// Absolute numbering rests on this: how many complete lines precede the displayed
+// window.
 //
-// Sans ce compte, la visionneuse numérotait à partir de ce qu'elle avait chargé,
-// et « ligne 42 » désignait deux lignes différentes de part et d'autre d'un lien
-// partagé — l'un ayant lu la fin seule, l'autre le journal entier.
+// Without the count, the viewer numbered from what it had loaded, and "line 42"
+// named two different lines on either side of a shared link — one having read only
+// the end, the other the whole log.
 func TestLinesBeforeCountsAcrossChunks(t *testing.T) {
 	storage := testStorage(t)
 	ctx := context.Background()
@@ -203,33 +199,32 @@ func TestLinesBeforeCountsAcrossChunks(t *testing.T) {
 	target := uniqueTarget(t, Step{Name: "tests", Container: "step-run-tests"})
 	cleanup(t, storage, target)
 
-	// Deux tranches, la coupure tombant au milieu d'une ligne : c'est le cas
-	// réel, le collecteur découpe sur la taille et non sur les sauts de ligne.
-	putChunk(t, target, 0, 1, "step-run-tests", "une\ndeux\ntro")
+	// Two chunks, with the cut falling mid-line: the real case, since the collector
+	// splits on size and not on newlines.
+	putChunk(t, target, 0, 1, "step-run-tests", "one\ntwo\nthr")
 	putChunk(t, target, 0, 2, "step-run-tests", "is\nquatre\n")
 
 	reader := NewReader(storage)
 
-	// Un décalage nul ne coûte rien et ne précède rien.
+	// A zero offset costs nothing and precedes nothing.
 	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 0); err != nil || count != 0 {
-		t.Errorf("avant le début: %d, %v", count, err)
+		t.Errorf("before the start: %d, %v", count, err)
 	}
 
-	// Position 9 : juste après « une\ndeux\n », donc deux lignes complètes.
+	// Position 9: just after the first two lines, hence two complete lines.
 	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 9); err != nil || count != 2 {
-		t.Errorf("après deux lignes: %d, %v — attendu 2", count, err)
+		t.Errorf("after two lines: %d, %v — expected 2", count, err)
 	}
 
-	// Position 14, au milieu de « trois » et donc dans la seconde tranche : les
-	// deux mêmes lignes complètes précèdent, la troisième est entamée. C'est ce
-	// qui fait qu'une fenêtre ouverte en plein milieu d'une ligne la numérote
-	// comme la ligne à laquelle elle appartient.
+	// Position 14, mid-word and therefore in the second chunk: the same two complete
+	// lines precede, the third is started. That is what makes a window opened
+	// mid-line number it as the line it belongs to.
 	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 14); err != nil || count != 2 {
-		t.Errorf("au milieu d'une ligne: %d, %v — attendu 2", count, err)
+		t.Errorf("mid-line: %d, %v — expected 2", count, err)
 	}
 
-	// La fin : toutes les lignes précèdent.
+	// The end: every line precedes.
 	if count, err := reader.LinesBefore(ctx, target.RunName, target.TaskName, 22); err != nil || count != 4 {
-		t.Errorf("à la fin: %d, %v — attendu 4", count, err)
+		t.Errorf("at the end: %d, %v — expected 4", count, err)
 	}
 }

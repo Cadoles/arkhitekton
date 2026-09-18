@@ -1,10 +1,9 @@
-// Package web sert l'interface, embarquée dans le binaire.
+// Package web serves the interface, embedded in the binary.
 //
-// Embarquer plutôt que monter un volume ou déployer un second conteneur : le
-// binaire et l'interface qu'il sert sont alors le même artefact, versionné
-// ensemble. Une interface déployée en avance sur son API appelle des routes qui
-// n'existent pas encore, et le symptôme — des 404 sur une page qui s'affiche —
-// ne désigne pas sa cause.
+// Embedded rather than mounted as a volume or deployed as a second container: the
+// binary and the interface it serves are then the same artifact, versioned together.
+// An interface deployed ahead of its API calls routes that do not exist yet, and the
+// symptom — 404s on a page that displays — does not point at its cause.
 package web
 
 import (
@@ -20,38 +19,37 @@ import (
 	"strings"
 )
 
-// all: inclut les fichiers commençant par un point, dont le .gitkeep qui permet
-// à ce répertoire d'exister dans le dépôt sans y verser de produit de build.
+// all: includes files starting with a dot, among them the .gitkeep that lets this
+// directory exist in the repository without committing build output.
 //
-//go:embed all:dist
+// go:embed all:dist
 var assets embed.FS
 
-// ErrNotBuilt signale une interface absente du binaire.
+// ErrNotBuilt reports an interface missing from the binary.
 var ErrNotBuilt = errors.New("interface non construite")
 
-// Handler sert les fichiers statiques et renvoie index.html pour toute route
-// inconnue.
+// Handler serves the static files and returns index.html for any unknown route.
 //
-// Ce repli est ce qui fait fonctionner les URL profondes : `/releases/1.8.0` est
-// une route du navigateur, pas un fichier. Sans lui, un rechargement de page ou
-// un lien partagé donnerait un 404 alors que la navigation interne marche —
-// panne classique, et déroutante parce qu'elle ne se produit jamais en cliquant.
+// That fallback is what makes deep URLs work: `/releases/1.8.0` is a browser route,
+// not a file. Without it, reloading a page or following a shared link would give a
+// 404 while internal navigation works — a classic failure, and a confusing one,
+// because it never happens while clicking.
 func Handler(logger *slog.Logger) (http.Handler, error) {
 	dist, err := fs.Sub(assets, "dist")
 	if err != nil {
-		return nil, fmt.Errorf("racine des fichiers statiques: %w", err)
+		return nil, fmt.Errorf("root of the static files: %w", err)
 	}
 
 	index, err := fs.ReadFile(dist, "index.html")
 	if err != nil {
-		// Cas normal en développement backend : le front n'a pas été construit.
-		// Refuser de démarrer serait excessif — l'API, elle, fonctionne.
-		logger.Warn("interface non embarquée: lancer `make web`", "error", err)
+		// A normal case in backend development: the front end was not built. Refusing to
+		// start would be excessive — the API works.
+		logger.Warn("interface not embedded: run `make web`", "error", err)
 		return notBuiltHandler(), nil
 	}
 
 	policy := contentSecurityPolicy(index)
-	logger.Info("interface embarquée", "csp_script_src", policy.scriptSrc)
+	logger.Info("embedded interface", "csp_script_src", policy.scriptSrc)
 
 	files := http.FileServerFS(dist)
 
@@ -65,16 +63,15 @@ func Handler(logger *slog.Logger) (http.Handler, error) {
 		}
 
 		if _, err := fs.Stat(dist, clean); err != nil {
-			// Route du navigateur, pas un fichier : index.html, et surtout pas
-			// un 404 — c'est au routeur côté client de décider.
+			// A browser route, not a file: index.html, and certainly not a 404 — it is for the
+			// client-side router to decide.
 			serveIndex(w, index)
 			return
 		}
 
-		// Les fichiers d'`assets/` portent une empreinte dans leur nom : leur
-		// contenu ne change jamais sous un nom donné, ils sont donc cachables
-		// indéfiniment. index.html, lui, ne doit jamais l'être, sans quoi un
-		// déploiement resterait invisible.
+		// Files under `assets/` carry a fingerprint in their name: their content never
+		// changes under a given name, so they can be cached indefinitely. index.html must
+		// never be, or a deployment would stay invisible.
 		if strings.HasPrefix(clean, "assets/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}
@@ -92,11 +89,11 @@ func notBuiltHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = fmt.Fprintln(w, "Interface non construite. Lancer `make web`, puis reconstruire le binaire.")
+		_, _ = fmt.Fprintln(w, "Interface not built. Run `make web`, then rebuild the binary.")
 	})
 }
 
-// inlineScript capture le contenu des scripts en ligne d'index.html.
+// inlineScript captures the content of index.html's inline scripts.
 var inlineScript = regexp.MustCompile(`(?s)<script(?:\s[^>]*)?>(.*?)</script>`)
 
 type csp struct {
@@ -110,22 +107,22 @@ func (p csp) apply(w http.ResponseWriter) {
 	w.Header().Set("Referrer-Policy", "same-origin")
 }
 
-// contentSecurityPolicy construit une politique sans `unsafe-inline`.
+// contentSecurityPolicy builds a policy without `unsafe-inline`.
 //
-// index.html porte un script en ligne — celui qui applique le thème avant le
-// premier rendu, sans quoi un aplat blanc apparaît une frame à chaque
-// chargement en thème sombre. Un script en ligne exige normalement
-// `unsafe-inline`, qui vide la politique de sa substance : elle autoriserait
-// alors aussi le script qu'une injection y placerait.
+// index.html carries one inline script — the one applying the theme before the first
+// render, without which a white flash appears for a frame on every load in dark
+// theme. An inline script normally requires `unsafe-inline`, which empties the
+// policy of its substance: it would then also allow the script an injection put
+// there.
 //
-// L'alternative est d'autoriser ce script précis par son empreinte. Elle est
-// calculée ici à partir du fichier réellement embarqué : le jour où le script
-// change, la politique suit, sans intervention et sans risque d'oubli.
+// The alternative is to allow that exact script by its hash. It is computed here
+// from the file actually embedded: the day the script changes, the policy follows,
+// with no intervention and no risk of forgetting.
 func contentSecurityPolicy(index []byte) csp {
 	sources := []string{"'self'"}
 
 	for _, match := range inlineScript.FindAllSubmatch(index, -1) {
-		// Un <script src=…> a un corps vide : il est couvert par 'self'.
+		// A <script src=…> has an empty body: it is covered by 'self'.
 		if len(strings.TrimSpace(string(match[1]))) == 0 {
 			continue
 		}
@@ -140,13 +137,13 @@ func contentSecurityPolicy(index []byte) csp {
 		value: strings.Join([]string{
 			"default-src 'self'",
 			"script-src " + scriptSrc,
-			// Tailwind produit des styles en ligne pour les propriétés
-			// personnalisées ; les interdire casserait la mise en page.
+			// Tailwind produces inline styles for custom properties; forbidding them would break
+			// the layout.
 			"style-src 'self' 'unsafe-inline'",
 			"img-src 'self' data:",
 			"font-src 'self'",
-			// Les polices sont auto-hébergées et l'API est de même origine :
-			// aucune destination externe n'est légitime.
+			// Fonts are self-hosted and the API is same-origin: no external destination is
+			// legitimate.
 			"connect-src 'self'",
 			"frame-ancestors 'none'",
 			"base-uri 'none'",

@@ -12,25 +12,25 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 )
 
-// chunkWriter accumule les lignes d'une étape et les écrit par tranches.
+// chunkWriter accumulates a step's lines and writes them in chunks.
 //
-// Chaque tranche est un objet complet, durable dès son écriture. C'est ce qui rend
-// la capture résistante à un arrêt du worker : ce qui est écrit est acquis, et la
-// reprise ne recommence qu'à partir de la dernière ligne connue.
+// Each chunk is a complete object, durable as soon as it is written. That is what
+// makes capture resistant to the worker stopping: what is written is acquired, and
+// resuming starts again from the last known line.
 type chunkWriter struct {
 	storage *blob.Client
 	target  Target
 	step    Step
-	// index est le rang de l'étape dans la task. Il entre dans la clé pour que
-	// l'ordre lexicographique des tranches soit l'ordre du journal.
+	// index is the step's rank within the task. It goes into the key so that the
+	// lexicographic order of the chunks is the order of the log.
 	index int
 
 	limit    int
 	buffer   bytes.Buffer
 	sequence int
 
-	// lastTimestamp borne la reprise. Il vaut, au démarrage, l'horodatage de la
-	// dernière ligne déjà stockée ; ensuite, celui de la dernière ligne acceptée.
+	// lastTimestamp bounds the resume. At start-up it is the timestamp of the last line
+	// already stored; afterwards, that of the last accepted line.
 	lastTimestamp *time.Time
 }
 
@@ -61,28 +61,28 @@ func newChunkWriter(
 
 	writer.sequence = len(keys)
 
-	// Le point de reprise se lit dans la dernière tranche, et non en base : le
-	// stockage est la source de vérité de ce qui a été écrit, et une base en
-	// avance sur lui ferait perdre des lignes.
+	// The resume point is read from the last chunk, not from the database: the store is
+	// the source of truth about what was written, and a database ahead of it would lose
+	// lines.
 	last := keys[len(keys)-1]
 	timestamp, err := lastTimestampOf(ctx, storage, last)
 	if err != nil {
-		return nil, fmt.Errorf("lecture du point de reprise dans %q: %w", last, err)
+		return nil, fmt.Errorf("reading the resume point in %q: %w", last, err)
 	}
 	writer.lastTimestamp = timestamp
 
 	return writer, nil
 }
 
-// accept écarte les lignes déjà stockées.
+// accept discards lines already stored.
 //
-// `sinceTime` de l'API Kubernetes a une précision à la seconde : il renvoie
-// nécessairement des lignes déjà connues après une reprise. Les dupliquer serait
-// visible dans le journal ; les écarter ici est possible parce que kubelet
-// horodate chaque ligne à la nanoseconde.
+// The Kubernetes API's `sinceTime` has second precision: it necessarily returns
+// lines already known after a resume. Duplicating them would be visible in the log;
+// discarding them here is possible because kubelet timestamps every line to the
+// nanosecond.
 //
-// Une ligne sans horodatage exploitable est toujours acceptée : la perdre pour un
-// défaut de format serait le mauvais arbitrage.
+// A line with no usable timestamp is always accepted: losing it over a formatting
+// flaw would be the wrong trade.
 func (w *chunkWriter) accept(line Line) bool {
 	if w.lastTimestamp == nil || line.Timestamp.IsZero() {
 		return true
@@ -90,7 +90,7 @@ func (w *chunkWriter) accept(line Line) bool {
 	return line.Timestamp.After(*w.lastTimestamp)
 }
 
-// append ajoute une ligne au tampon, et écrit une tranche si le seuil est atteint.
+// append adds a line to the buffer, and writes a chunk when the threshold is met.
 func (w *chunkWriter) append(ctx context.Context, raw string) error {
 	if !strings.HasSuffix(raw, "\n") {
 		raw += "\n"
@@ -108,7 +108,7 @@ func (w *chunkWriter) append(ctx context.Context, raw string) error {
 	return nil
 }
 
-// flush écrit le tampon comme nouvelle tranche. Sans contenu, ne fait rien.
+// flush writes the buffer as a new chunk. With no content, it does nothing.
 func (w *chunkWriter) flush(ctx context.Context) error {
 	if w.buffer.Len() == 0 {
 		return nil
@@ -124,9 +124,9 @@ func (w *chunkWriter) flush(ctx context.Context) error {
 	payload := w.buffer.Bytes()
 	if err := w.storage.Put(ctx, key,
 		bytes.NewReader(payload), int64(len(payload)), "text/plain; charset=utf-8"); err != nil {
-		// Le tampon est conservé : la prochaine tentative réécrira tout. Le
-		// vider ici perdrait définitivement des lignes déjà lues du pod, que
-		// personne ne pourra relire.
+		// The buffer is kept: the next attempt will rewrite everything. Emptying it here
+		// would permanently lose lines already read from the pod, which nobody can read
+		// again.
 		return err
 	}
 
@@ -134,11 +134,11 @@ func (w *chunkWriter) flush(ctx context.Context) error {
 	return nil
 }
 
-// readAll lit un flux en entier. Enveloppe nommée pour garder l'import io hors du
-// reste du fichier.
+// readAll reads a stream in full. A named wrapper to keep the io import out of the
+// rest of the file.
 func readAll(reader io.Reader) ([]byte, error) { return io.ReadAll(reader) }
 
-// lastTimestampOf rend l'horodatage de la dernière ligne d'un objet.
+// lastTimestampOf returns the timestamp of an object's last line.
 func lastTimestampOf(ctx context.Context, storage *blob.Client, key string) (*time.Time, error) {
 	reader, err := storage.Get(ctx, key)
 	if err != nil {
@@ -146,9 +146,9 @@ func lastTimestampOf(ctx context.Context, storage *blob.Client, key string) (*ti
 	}
 	defer reader.Close()
 
-	// La tranche est relue entièrement. Une lecture par plage depuis la fin
-	// suffirait, mais une tranche pèse au plus le seuil de flush — un mégaoctet —
-	// et cela n'arrive qu'une fois par étape au démarrage.
+	// The chunk is read back in full. A ranged read from the end would do, but a chunk
+	// weighs at most the flush threshold — one megabyte — and this happens once per step
+	// at start-up.
 	content, err := readAll(reader)
 	if err != nil {
 		return nil, err
@@ -161,8 +161,8 @@ func lastTimestampOf(ctx context.Context, storage *blob.Client, key string) (*ti
 			return &timestamp, nil
 		}
 	}
-	// Tranche sans aucune ligne horodatée : la reprise se fera sans borne, au
-	// risque de doublons. Préférable à un saut qui perdrait des lignes.
+	// A chunk with no timestamped line: the resume will be unbounded, at the risk of
+	// duplicates. Preferable to a skip that would lose lines.
 	return nil, nil
 }
 
