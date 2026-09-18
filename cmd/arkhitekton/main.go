@@ -1,9 +1,9 @@
-// Commande arkhitekton : un binaire unique, trois rôles.
+// Command arkhitekton: a single binary, three roles. See docs/02-architecture.md.
 //
-// `api` encaisse le trafic utilisateur et se réplique. `worker` porte les boucles
-// de fond — ordonnanceur de file, collecte de logs, synchronisations — et reste
-// unique : un ordonnanceur dupliqué lance deux fois le même pipeline. `migrate`
-// applique le schéma, depuis un Job d'initialisation.
+// `api` takes the user traffic and replicates. `worker` carries the background loops —
+// queue scheduler, log collection, synchronisations — and stays single: a duplicated
+// scheduler launches the same pipeline twice. `migrate` applies the schema, from an
+// initialisation Job.
 package main
 
 import (
@@ -50,30 +50,30 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
 )
 
-// Renseignés à la compilation via -ldflags (voir Dockerfile et Makefile).
+// Filled in at compile time through -ldflags (see Dockerfile and Makefile).
 //
-// La version est journalisée à chaque démarrage : diagnostiquer un comportement
-// inattendu commence par savoir quel binaire tourne, information qu'un tag
-// d'image ne donne pas de façon fiable — un tag peut être republié.
+// The version is logged at every start-up: diagnosing unexpected behaviour begins with
+// knowing which binary is running, which an image tag does not tell reliably — a tag can be
+// republished.
 var (
 	version  = "dev"
-	revision = "inconnue"
+	revision = "unknown"
 )
 
-const usage = `arkhitekton: pilotage des releases MSE
+const usage = `arkhitekton: release management
 
 Usage:
-  arkhitekton api       Serveur HTTP (réplicable)
-  arkhitekton worker    Boucles de fond (instance unique, élection de leader)
-  arkhitekton migrate   Applique les migrations de schéma
-  arkhitekton reprocess Rejoue les résultats depuis les artefacts bruts
+  arkhitekton api       HTTP server (replicable)
+  arkhitekton worker    Background loops (single instance, leader election)
+  arkhitekton migrate   Applies the schema migrations
+  arkhitekton reprocess Replays the results from the raw artifacts
 
-Diagnostic:
-  arkhitekton check-tracker  Vérifie l'accès au suivi et s'arrête (lecture seule)
+Diagnosis:
+  arkhitekton check-tracker  Checks access to the tracker and stops (read-only)
 
-Options de reprocess:
-  --release <tag>  Limite le rejeu à une release (défaut: tout l'historique)
-  --dry-run        Énumère ce qui serait rejoué, sans rien effacer
+Options for reprocess:
+  --release <tag>  Limits the replay to one release (default: the whole history)
+  --dry-run        Lists what would be replayed, erasing nothing
 `
 
 func main() {
@@ -86,7 +86,7 @@ func main() {
 func run() error {
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
-		return errors.New("aucun rôle fourni")
+		return errors.New("no role supplied")
 	}
 
 	role := config.Role(os.Args[1])
@@ -95,9 +95,8 @@ func run() error {
 
 	cfg, err := config.Load(role)
 	if err != nil {
-		// La configuration est validée avant l'ouverture du moindre port : un
-		// démarrage à moitié configuré reporte la panne sur le premier
-		// utilisateur, souvent lors de l'opération la plus rare.
+		// The configuration is validated before a single port is opened: a half-configured start-up
+		// postpones the failure to the first user, often during the rarest operation.
 		return fmt.Errorf("configuration invalide:\n%w", err)
 	}
 
@@ -117,26 +116,26 @@ func run() error {
 		return runCheckRedmine(ctx, cfg, logger)
 	default:
 		fmt.Fprint(os.Stderr, usage)
-		return fmt.Errorf("rôle inconnu %q", role)
+		return fmt.Errorf("unknown role %q", role)
 	}
 }
 
 func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	logger.Info("démarrage", "role", cfg.Role, "addr", cfg.HTTP.Addr, "issuer", cfg.OIDC.IssuerURL)
+	logger.Info("starting", "role", cfg.Role, "addr", cfg.HTTP.Addr, "issuer", cfg.OIDC.IssuerURL)
 
-	// Attente bornée : la base repart souvent en même temps que le pod. Au-delà
-	// de la borne, la sonde de démarrage prend le relais et fait redémarrer le
-	// pod — le comportement de repli reste celui de Kubernetes.
+	// A bounded wait: the database often comes back at the same time as the pod. Beyond the
+	// bound, the startup probe takes over and restarts the pod — the fallback behaviour stays
+	// Kubernetes's.
 	if err := store.WaitForDatabase(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
-	// Puis le **schéma**, et pas seulement la connexion : le Job de migration
-	// démarre en même temps que ce pod, et servir des requêtes contre un schéma
-	// incomplet rendrait des 500 sur des tables qui vont exister.
+	// Then the **schema**, and not only the connection: the migration Job starts at the same time
+	// as this pod, and serving requests against an incomplete schema would return 500s on tables
+	// that are about to exist.
 	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
-	// Puis celui du plugin MSE, migré juste après le noyau par le même Job.
+	// Then the MSE plugin's, migrated just after the core by the same Job.
 	if err := msestorage.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
@@ -147,35 +146,33 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 	defer db.Close()
 
-	// L'accès au stockage est vérifié au démarrage : sans cela, un identifiant
-	// erroné ne se manifesterait qu'à la première publication d'artefact,
-	// c'est-à-dire à la fin d'un pipeline.
+	// Storage access is checked at start-up: without that, a wrong credential would show only at
+	// the first artifact publication, that is, at the end of a pipeline.
 	storage, err := blob.Open(ctx, cfg.Storage)
 	if err != nil {
 		return err
 	}
-	logger.Info("stockage objet", "bucket", storage.Bucket(), "region", cfg.Storage.Region)
+	logger.Info("object storage", "bucket", storage.Bucket(), "region", cfg.Storage.Region)
 
 	sessions := auth.NewSessionStore(db.Pool(), cfg.OIDC.SessionTTL)
 
-	// L'amorçage n'a plus lieu ici : il est posé une fois, avec la migration du
-	// schéma, et la base en est ensuite seule maîtresse. Ce qui reste au démarrage
-	// est le constat de ce qui attend encore son titulaire — un identifiant mal
-	// orthographié n'a aucun autre symptôme que « cet utilisateur n'a aucune
-	// permission ».
+	// The bootstrap no longer happens here: it is applied once, with the schema migration, and
+	// the database is then its sole master. What remains at start-up is the observation of what
+	// is still waiting for its holder — a misspelled identifier has no other symptom than "this
+	// user has no permission".
 	if pending, err := db.PendingGrants(ctx); err != nil {
-		logger.Error("rôles d'amorçage en attente", "error", err)
+		logger.Error("bootstrap roles pending", "error", err)
 	} else if len(pending) > 0 {
 		identifiers := make([]string, 0, len(pending))
 		for _, grant := range pending {
 			identifiers = append(identifiers, grant.Identifier+":"+grant.Role)
 		}
-		logger.Info("rôles d'amorçage en attente d'une première connexion",
+		logger.Info("bootstrap roles waiting for a first sign-in",
 			"count", len(pending), "declarations", identifiers)
 	}
 
-	// La découverte OIDC a lieu ici : un fournisseur injoignable doit empêcher le
-	// démarrage plutôt que de produire des erreurs opaques au premier utilisateur.
+	// OIDC discovery happens here: an unreachable provider must prevent start-up rather than
+	// produce opaque errors for the first user.
 	provider, err := auth.NewProvider(ctx, cfg.OIDC)
 	if err != nil {
 		return err
@@ -185,28 +182,28 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	// Les lignes manquantes des plugins embarqués, à chaque démarrage. L'amorçage
-	// ne les pose qu'une fois : un plugin apparu dans une version ultérieure
-	// n'aurait jamais de ligne, et l'écran l'afficherait sans état.
+	// The missing rows of the embedded plugins, at every start-up. The bootstrap sets them only
+	// once: a plugin appearing in a later version would never have a row, and the screen would
+	// display it with no state.
 	if err := db.EnsurePlugins(ctx, pluginIDs()); err != nil {
-		logger.Error("amorçage des plugins", "error", err)
+		logger.Error("seeding the plugins", "error", err)
 	}
 	seedMSESettings(ctx, db, logger)
 
-	// En base et non en mémoire : deux répliques d'api sans affinité de session
-	// servent `/auth/login` et `/auth/callback` par des instances différentes, et
-	// l'état de transition serait introuvable une fois sur deux.
+	// In the database and not in memory: two api replicas with no session affinity serve
+	// `/auth/login` and `/auth/callback` through different instances, and the transition state
+	// would be missing half the time.
 	flows := auth.NewDBFlowStore(db.Pool(), 10*time.Minute)
-	// Le catalogue est chargé par l'`api` aussi : c'est lui qui dit ce qui est
-	// lançable et quels paramètres sont requis. Il n'est pas validé contre le
-	// cluster ici — l'api n'y a pas accès, et le `worker` le fait au démarrage.
+	// The catalogue is loaded by the `api` too: it is what says what is launchable and which
+	// parameters are required. It is not validated against the cluster here — the api has no
+	// access to it, and the `worker` does it at start-up.
 	pipelines, err := catalog.Load(cfg.Tekton.CatalogPath)
 	if err != nil {
 		return err
 	}
-	logger.Info("catalogue chargé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
-	// La sensibilité des environnements est déclarée au catalogue et lue par le
-	// plugin MSE. Journalisée : c'est elle qui décide qui peut promouvoir où.
+	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
+	// The sensitivity of the environments is declared in the catalogue and read by the MSE
+	// plugin. Logged: it is what decides who may promote where.
 	policies := mse.Policies(pipelines)
 	declaredProjects := make([]string, 0, len(policies))
 	for slug := range policies {
@@ -221,90 +218,85 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			}
 		}
 		sort.Strings(sensitive)
-		logger.Info("environnements sensibles", "projet", slug, "environnements", sensitive)
+		logger.Info("sensitive environments", "project", slug, "environments", sensitive)
 	}
 	authorizer := auth.NewAuthorizer(policies)
-	// Les modules sont lus à chaque requête : l'interrupteur se bascule depuis
-	// l'administration, et le lire au démarrage le ferait mentir jusqu'au
-	// prochain déploiement.
+	// The modules are read at each request: the switch is flipped from the administration screen,
+	// and reading it at start-up would make it lie until the next deployment.
 	modules := dashhttp.NewModules(db, logger)
 	authHandler := dashhttp.NewAuthHandler(
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL),
 		cfg.OIDC.SessionTTL).
-		// `/me` rend le projet courant : l'interface en a besoin pour composer ses
-		// URL, et la liste des projets exige `admin` qu'elle n'a pas forcément.
+		// `/me` returns the current project: the interface needs it to compose its URLs, and the list
+		// of projects requires `admin`, which it does not necessarily have.
 		WithProjects(db).
 		WithModules(modules)
-	// Les contrôles rattachés à un projet ont besoin de traduire le nom porté par
-	// l'URL : c'est lui qui dit dans quel périmètre le rôle est vérifié.
+	// The checks attached to a project need to translate the name the URL carries: it is what
+	// says in which scope the role is checked.
 	middleware := dashhttp.NewMiddleware(sessions, authorizer, logger).WithProjects(db).WithModules(modules)
 	runsHandler := dashhttp.NewRunsHandler(db).
 		WithTektonDashboard(cfg.Tekton.DashboardURL).
-		// L'annuaire traduit le sujet OIDC du demandeur en nom : c'est « qui a
-		// lancé » qu'on lit sur un écran d'exécution, pas un identifiant.
+		// The directory translates the requester's OIDC subject into a name: it is "who launched"
+		// that one reads on a run screen, not an identifier.
 		WithDirectory(db, logger)
-	// Le lecteur de journaux vit côté `api` et lit le stockage : le collecteur
-	// écrit depuis le `worker`, et les deux processus n'ont pas d'autre point de
-	// rencontre que MinIO et PostgreSQL.
+	// The log reader lives on the `api` side and reads storage: the collector writes from the
+	// `worker`, and the two processes have no meeting point other than MinIO and PostgreSQL.
 	logsHandler := dashhttp.NewLogsHandler(logs.NewReader(storage))
 
 	queueHandler := dashhttp.NewQueueHandler(db, pipelines).
-		// Les listes du formulaire de lancement : tags de release et images
-		// publiées. Le préfixe du registre vient de la même configuration que
-		// celle employée pour lire les tags — le déduire ailleurs ferait diverger
-		// ce qu'on propose de ce qu'on tire.
+		// The launch form's lists: release tags and published images. The registry's prefix comes
+		// from the same configuration as the one used to read the tags — deducing it elsewhere would
+		// make what is offered diverge from what is pulled.
 		WithSuggestions(db, cfg.Registry.Project, logger).
 		WithEnvironmentSuggestions(mse.EnvironmentSuggestions(pipelines, modules, db))
-	// Le nom du dépôt promu vient de la configuration du registre : c'est le même
-	// préfixe que celui employé pour lire les tags, et le déduire ailleurs ferait
-	// diverger lecture et promotion.
-	// Le registre est optionnel : sans identifiants, la page de release affiche
-	// les tags sans leurs digests et le dit. Faire échouer le démarrage priverait
-	// le dashboard de tout le reste pour une information secondaire.
+	// The name of the promoted repository comes from the registry's configuration: it is the same
+	// prefix as the one used to read the tags, and deducing it elsewhere would make reading and
+	// promotion diverge.
+	// The registry is optional: with no credentials, the release page displays the tags without
+	// their digests and says so. Failing the start-up would deprive the dashboard of everything
+	// else over a secondary piece of information.
 	var images dashhttp.Images
 	if client, err := registry.Open(cfg.Registry); err != nil {
 		if !errors.Is(err, registry.ErrNotConfigured) {
-			return fmt.Errorf("accès au registre: %w", err)
+			return fmt.Errorf("registry access: %w", err)
 		}
-		logger.Warn("registre non configuré", "raison", "les digests d'images ne seront pas lisibles")
+		logger.Warn("registry not configured", "reason", "image digests will not be readable")
 	} else {
 		images = client
 	}
 
-	// Les tables du plugin MSE, lues par ses routes et fournies au noyau par fonctions.
+	// The MSE plugin's tables, read by its routes and supplied to the core as functions.
 	mseBackend := mse.NewBackend(db)
 
 	releasesHandler := dashhttp.NewReleasesHandler(
 		db, pipelines, authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project).
-		// Même pondération que le gestionnaire des tests : la pastille de la
-		// liste et l'écran d'une release affichent le même chiffre.
+		// The same weighting as the test manager: the list's badge and a release's screen display the
+		// same figure.
 		WithScoreCatalog(pipelines).
 		WithArtifactReader(db).
-		// La pastille « déployée sur » et les promotions demandées : le noyau ne
-		// lit plus les tables du plugin, qui ne rend rien quand il est éteint.
+		// The "deployed on" badge and the requested promotions: the core no longer reads the plugin's
+		// tables, which return nothing when it is switched off.
 		WithDeployments(mse.Deployments(mseBackend.Store, modules)).
 		WithPromotions(mse.Promotions(mseBackend.Store, modules)).
 		WithTrackerURL(cfg.Tracker.URL).
-		// L'ouverture du plan d'une release, à sa création.
+		// Opening a release's plan, when it is created.
 		//
-		// Un moteur côté `api`, et ce n'est pas un second ordonnanceur : ouvrir un
-		// plan écrit une exécution et met des jobs en file, ce que ce handler
-		// faisait déjà. Le worker garde l'exclusivité de ce qui **sort** — créer
-		// les PipelineRun — et de l'avancement des gestes conclus.
+		// An engine on the `api` side, and it is not a second scheduler: opening a plan writes a run
+		// and queues jobs, which this handler already did. The worker keeps exclusive charge of what
+		// **leaves** — creating the PipelineRuns — and of advancing concluded steps.
 		WithPlans(worker.NewReleasePlanner(
 			worker.NewEngine(db, worker.NewReleaseRunner(pipelines, db, logger), logger).
 				WithArtifacts(db, worker.ProductOf(pipelines)),
 			pipelines, db, cfg.Registry.Project, logger))
 
-	// Les routes du plugin MSE : cibles, promotion, environnements. Montées
-	// toujours, et refusées par route quand le module est éteint. Le déployeur
-	// est sans client : planifier une promotion ne demande pas le cluster.
+	// The MSE plugin's routes: targets, promotion, environments. Always mounted, and refused per
+	// route when the module is switched off. The deployer has no client: planning a promotion
+	// does not need the cluster.
 	mseHandler := mse.NewHandler(mseBackend, pipelines, authorizer,
 		flux.NewDeployer(nil, flux.DefaultPromotionKind, ""), logger)
 
-	// La forge est optionnelle : sans jeton, le formulaire de création de release
-	// retombe sur la saisie libre du git_ref et le dit. Le client est en lecture
-	// seule par transport, comme celui de Redmine.
+	// The forge is optional: with no token, the release creation form falls back to free-text
+	// entry of the git_ref and says so. The client is read-only by transport, like Redmine's.
 	var forgeReader dashhttp.ForgeReader
 	if cfg.Forge.Configured() {
 		forgeClient, err := gitea.New(gitea.Options{
@@ -316,68 +308,65 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		}
 		forgeReader = forgeClient
 
-		// Le client d'écriture pose le tag Git d'une release (B3). Distinct du
-		// client de lecture, dont le transport refuse tout ce qui n'est pas GET :
-		// l'assouplir aurait fait qu'un appel de lecture mal écrit puisse écrire.
+		// The writing client sets a release's Git tag. Distinct from the reading client, whose
+		// transport refuses anything that is not GET: relaxing it would have let a badly written read
+		// call write.
 		//
-		// Sa construction ne vérifie pas la portée du jeton — seule une écriture
-		// réelle le dirait. Un jeton en lecture seule produit donc une réserve à
-		// la première release, pas un échec au démarrage.
+		// Its construction does not check the token's scope — only a real write would say. A
+		// read-only token therefore produces a reservation at the first release, not a failure at
+		// start-up.
 		writer, err := gitea.NewWriter(gitea.Options{
 			URL: cfg.Forge.URL, Token: cfg.Forge.Token,
 			Repository: cfg.Forge.Repository, Timeout: cfg.Forge.Timeout,
 		})
 		if err != nil {
-			return fmt.Errorf("client Gitea en écriture: %w", err)
+			return fmt.Errorf("Gitea writing client: %w", err)
 		}
 		releasesHandler = releasesHandler.WithForge(forgeClient, writer)
 
-		logger.Info("forge configurée", "url", cfg.Forge.URL, "repo", cfg.Forge.Repository)
+		logger.Info("forge configured", "url", cfg.Forge.URL, "repo", cfg.Forge.Repository)
 	} else {
-		logger.Warn("forge non configurée",
-			"raison", "FORGE_URL, FORGE_TOKEN ou FORGE_REPO absent",
-			"consequence", "le git_ref des releases se saisira à la main")
+		logger.Warn("forge not configured",
+			"reason", "FORGE_URL, FORGE_TOKEN or FORGE_REPO missing",
+			"consequence", "the git_ref of releases will be typed by hand")
 	}
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
 			releasesHandler, dashhttp.NewBenchHandler(db),
-			// La pondération du score vient du catalogue : elle a été acceptée par
-			// le client et reste ajustable sans redéploiement (B11).
+			// The score's weighting comes from the catalogue: it was accepted by the client and stays
+			// adjustable without a redeployment.
 			dashhttp.NewTestsHandler(db, pipelines),
-			// L'URL de Redmine sert à construire les liens sortants. Absente, les
-			// liens sont omis plutôt que rendus cassés.
+			// Redmine's URL serves to build the outgoing links. Absent, the links are omitted rather than
+			// rendered broken.
 			dashhttp.NewVersionsHandler(db, cfg.Tracker.URL),
 			dashhttp.NewSyncAdminHandler(db),
 			dashhttp.NewForgeHandler(forgeReader),
 			dashhttp.NewAdminHandler(db),
-			// Le test d'accès emploie le jeton de la forge, avec un client par
-			// dépôt : celui de la configuration est lié au sien, et le test porte
-			// justement sur un autre. Sans jeton, l'écran le dit plutôt que de
-			// rendre un échec qu'on prendrait pour un défaut de droits.
+			// The access test uses the forge's token, with one client per repository: the configuration's
+			// is bound to its own, and the test bears precisely on another. With no token, the screen
+			// says so rather than returning a failure one would take for a permission problem.
 			projectsHandler(cfg, db, modules),
-			// Le chiffreur peut être nil : sans clé, les réglages se lisent et
-			// s'activent, seule l'écriture d'un champ sensible est refusée — avec
-			// un message qui nomme la variable, à l'endroit où on le saisit.
+			// The cipher may be nil: with no key, the settings are read and enabled, only writing a
+			// sensitive field is refused — with a message that names the variable, in the place where one
+			// types it.
 			dashhttp.NewPluginsHandler(db, cipher, logger),
-			// Le même catalogue que la file : l'écran montre ce que l'instance
-			// sait lancer, et un second chargement pourrait montrer autre chose.
+			// The same catalogue as the queue: the screen shows what the instance can launch, and a
+			// second load could show something else.
 			dashhttp.NewProjectPipelinesHandler(db, pipelines, logger),
-			// Le fil des faits, en lecture. Rien n'y réagit encore : il sert à
-			// répondre à « pourquoi rien ne s'est passé ? », question qui n'a de
-			// sens qu'une fois qu'on peut voir ce qui a bien été constaté.
+			// The fact feed, read-only. Nothing reacts to it yet: it serves to answer "why did nothing
+			// happen?", a question that only makes sense once one can see what was actually observed.
 			dashhttp.NewEventsHandler(db),
-			// Le même catalogue que la file : l'éditeur propose ce que l'instance
-			// sait lancer, et un second chargement pourrait proposer autre chose.
+			// The same catalogue as the queue: the editor offers what the instance can launch, and a
+			// second load could offer something else.
 			dashhttp.NewAutomationsHandler(db, pipelines, logger),
-			// Ce qu'une réaction a réellement fait. Un moteur qu'on ne peut pas
-			// déboguer est pire qu'un comportement figé (doc 14 §14.10).
+			// What a reaction actually did. An engine one cannot debug is worse than frozen behaviour.
 			dashhttp.NewPlanRunsHandler(db),
 			middleware, mseHandler.Routes, mse.NewSignoffsHandler(mseBackend, logger).Routes),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
-		// Distinct du ping : PostgreSQL peut répondre alors que le Job de
-		// migration n'a pas encore tourné. Sans ce contrôle, le pod se
-		// déclarerait prêt puis répondrait 500 sur chaque table absente.
+		// Distinct from the ping: PostgreSQL may answer although the migration Job has not run yet.
+		// Without this check, the pod would declare itself ready then answer 500 on every missing
+		// table.
 		dashhttp.ReadinessCheck{Name: "schema", Check: db.CheckSchema},
 		dashhttp.ReadinessCheck{Name: "schema-mse", Check: msestorage.CheckSchema(db.Pool())},
 		dashhttp.ReadinessCheck{Name: "minio", Check: storage.Ping})
@@ -385,44 +374,43 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	return server.Run(ctx)
 }
 
-// exportRegistry ouvre le registre pour la génération de livrables.
+// exportRegistry opens the registry for generating deliverables.
 //
-// Nil quand il n'est pas configuré : un bon de livraison reste produisible sans
-// empreintes, à condition de nommer ce qu'il n'a pas pu vérifier — ce que fait le
-// document. Refuser de le produire serait pire.
+// Nil when it is not configured: a delivery note stays producible without digests, provided
+// it names what it could not check — which the document does. Refusing to produce it would be
+// worse.
 func exportRegistry(cfg config.Config, logger *slog.Logger) worker.Registry {
 	client, err := registry.Open(cfg.Registry)
 	if err != nil {
 		if !errors.Is(err, registry.ErrNotConfigured) {
-			logger.Error("accès au registre", "error", err)
+			logger.Error("registry access", "error", err)
 		}
-		logger.Warn("registre non configuré",
-			"conséquence", "les bons de livraison ne porteront pas d'empreinte d'image")
+		logger.Warn("registry not configured",
+			"consequence", "the delivery notes will carry no image digest")
 		return nil
 	}
 	return client
 }
 
-// secureCookies n'autorise les cookies non sécurisés que sur http, c'est-à-dire
-// en développement local. Déduire du schéma évite un drapeau qu'on oublie de
-// positionner en production.
+// secureCookies allows insecure cookies only over http, that is, in local development.
+// Deducing it from the scheme avoids a flag one forgets to set in production.
 func secureCookies(publicURL string) bool {
 	return !strings.HasPrefix(publicURL, "http://")
 }
 
 func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	logger.Info("démarrage", "role", cfg.Role, "namespace", cfg.Tekton.Namespace)
+	logger.Info("starting", "role", cfg.Role, "namespace", cfg.Tekton.Namespace)
 
 	if err := store.WaitForDatabase(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
-	// Puis le schéma. Le worker se réconcilie au démarrage — il rattrape les runs
-	// conclus pendant son absence — et cette réconciliation touche des tables que
-	// le Job de migration n'a peut-être pas encore créées.
+	// Then the schema. The worker reconciles at start-up — it catches up the runs concluded
+	// during its absence — and that reconciliation touches tables the migration Job may not have
+	// created yet.
 	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
-	// Puis celui du plugin MSE, migré juste après le noyau par le même Job.
+	// Then the MSE plugin's, migrated just after the core by the same Job.
 	if err := msestorage.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
@@ -433,39 +421,37 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	}
 	defer db.Close()
 
-	// Le worker **ouvre** les champs sensibles des réglages, il n'en scelle
-	// aucun : c'est lui qui présente une clé d'API au suivi à chaque passe.
+	// The worker **opens** the settings' sensitive fields, it seals none: it is what presents an
+	// API key to the tracker at every pass.
 	cipher, err := openCipher(cfg, logger)
 	if err != nil {
 		return err
 	}
 	if err := db.EnsurePlugins(ctx, pluginIDs()); err != nil {
-		logger.Error("amorçage des plugins", "error", err)
+		logger.Error("seeding the plugins", "error", err)
 	}
 	seedMSESettings(ctx, db, logger)
 
-	// `versions.normalized_name` est une colonne dérivée : changer la règle de
-	// normalisation la rend obsolète, et le rapprochement comparerait alors une
-	// forme calculée avec la nouvelle règle à une forme écrite avec l'ancienne. Le worker
-	// est seul à le faire — l'api tourne à plusieurs répliques, et trois
-	// renormalisations concurrentes écriraient la même chose trois fois.
+	// `versions.normalized_name` is a derived column: changing the normalisation rule makes it
+	// stale, and the matching would then compare a form computed with the new rule to a form
+	// written with the old one. The worker alone does it — the api runs with several replicas,
+	// and three concurrent renormalisations would write the same thing three times.
 	corrected, err := db.RenormalizeVersions(ctx)
 	if err != nil {
 		return err
 	}
 	if corrected > 0 {
-		logger.Info("noms de version renormalisés", "corrigees", corrected)
+		logger.Info("version names renormalised", "corrigees", corrected)
 	}
 
 	storage, err := blob.Open(ctx, cfg.Storage)
 	if err != nil {
 		return err
 	}
-	logger.Info("stockage objet", "bucket", storage.Bucket())
+	logger.Info("object storage", "bucket", storage.Bucket())
 
-	// L'accès au cluster est vérifié au démarrage, comme la base et le stockage :
-	// un worker qui démarre sans pouvoir lire les PipelineRun n'observe rien et
-	// ne le dit pas.
+	// Cluster access is checked at start-up, like the database and storage: a worker starting
+	// without being able to read the PipelineRuns observes nothing and does not say so.
 	cluster, err := tekton.Open(cfg.Tekton)
 	if err != nil {
 		return err
@@ -476,43 +462,38 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
-	// La validation contre le cluster a lieu ici et pas ailleurs : c'est le
-	// `worker` qui crée les PipelineRun, et un catalogue en désaccord avec les
-	// Pipeline déployés produirait des runs invalides à la première utilisation
-	// plutôt qu'une erreur au démarrage (doc 06 §6.2).
+	// The validation against the cluster happens here and nowhere else: it is the `worker` that
+	// creates the PipelineRuns, and a catalogue at odds with the deployed Pipelines would produce
+	// invalid runs at the first use rather than an error at start-up.
 	validateCtx, cancelValidate := context.WithTimeout(ctx, 30*time.Second)
 	err = pipelines.ValidateAgainst(validateCtx, cluster)
 	cancelValidate()
 	if err != nil {
-		return fmt.Errorf("catalogue incompatible avec le cluster:\n%w", err)
+		return fmt.Errorf("catalogue incompatible with the cluster:\n%w", err)
 	}
-	logger.Info("catalogue validé", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
+	logger.Info("catalogue validated", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
 
-	// Les projets qui n'ont jamais déclaré leur automatisation la reçoivent,
-	// composée depuis leurs cibles. Sans elle, tous cesseraient de construire au
-	// déploiement de cette version (doc 15 §15.8).
+	// The projects that never declared their automation receive it, composed from their targets.
+	// Without it, all of them would stop building on the deployment of this version.
 	//
-	// **Après la validation du catalogue**, et pas avant : la reprise compose des
-	// gestes qui désignent des familles, et les figer depuis un catalogue en
-	// désaccord avec le cluster écrirait en base des plans qui ne partiront
-	// jamais. Une reprise ne repasse pas.
+	// **After the catalogue's validation**, and not before: the catch-up composes steps naming
+	// kinds, and freezing them from a catalogue at odds with the cluster would write into the
+	// database plans that will never start. A catch-up does not come round again.
 	//
-	// Ici et pas dans l'`api`, pour la même raison que la renormalisation :
-	// celle-ci tourne à plusieurs répliques, et trois reprises concurrentes
-	// écriraient la même chose trois fois. L'`api` lit la déclaration, elle ne la
-	// compose pas.
+	// Here and not in the `api`, for the same reason as the renormalisation: the api runs with
+	// several replicas, and three concurrent catch-ups would write the same thing three times.
+	// The `api` reads the declaration, it does not compose it.
 	if err := worker.NewAutomationCatchUp(db, pipelines, logger).Run(ctx); err != nil {
 		return err
 	}
 
-	// Le plugin MSE décide de tout ce qui suit : Flux, PortalData, l'observation
-	// des environnements. Éteint, le worker démarre sur un cluster qui ne porte ni
-	// les CRD de Flux ni celui du portail (doc 16 §16.8).
+	// The MSE plugin decides everything that follows: Flux, PortalData, observing the
+	// environments. Switched off, the worker starts on a cluster carrying neither Flux's CRDs nor
+	// the portal's.
 	//
-	// **Lu au démarrage**, contrairement à l'`api` : ouvrir un client Flux ou le
-	// refermer en cours de route toucherait au bail et à la boucle d'observation.
-	// Basculer l'interrupteur demande donc un redémarrage du worker pour prendre
-	// effet ici.
+	// **Read at start-up**, unlike in the `api`: opening a Flux client or closing it along the
+	// way would touch the lease and the observation loop. Flipping the switch therefore needs a
+	// worker restart to take effect here.
 	pluginSettings, err := db.PluginSettingsAll(ctx)
 	if err != nil {
 		return err
@@ -521,44 +502,40 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	var environments *mse.Observer
 	if !mseSettings.Enabled {
 		logger.Info("module MSE inactif",
-			"consequence", "ni Flux, ni PortalData, ni observation des environnements")
+			"consequence", "neither Flux, nor PortalData, nor environment observation")
 	} else {
-		// Deux dépendances distinctes, et depuis le lot D deux clients distincts :
-		// l'une dit ce que le déploiement a appliqué, l'autre ce que l'application
-		// rapporte d'elle-même. C'est leur écart qui fait la valeur de l'écran des
-		// environnements, et les confondre le ferait disparaître (B8).
+		// Two distinct dependencies, and two distinct clients: one says what the deployment applied,
+		// the other what the application reports about itself. It is their gap that gives the
+		// environments screen its value, and merging them would make it disappear.
 		//
-		// L'attestation est **facultative** : un cluster sans le CRD du portail est
-		// une configuration valide, et le dashboard y retombe sur ce que le
-		// déploiement déclare.
+		// The attestation is **optional**: a cluster without the portal's CRD is a valid
+		// configuration, and the dashboard falls back there to what the deployment declares.
 		var attester mse.Attester
 		switch portalClient, err := portaldata.Open(cluster.RESTConfig); {
 		case errors.Is(err, portaldata.ErrAbsent):
-			logger.Info("aucune source d'attestation dans ce cluster",
-				"consequence", "l'état des environnements sera celui que le déployeur déclare")
+			logger.Info("no attestation source in this cluster",
+				"consequence", "the environments' state will be the one the deployer declares")
 		case err != nil:
 			return err
 		default:
 			attester = portalClient
-			// `api_version` et non `version` : le logger porte déjà un attribut
-			// `version` — celui du binaire —, et deux clés homonymes dans un même
-			// enregistrement le rendent illisible.
+			// `api_version` and not `version`: the logger already carries a `version` attribute — the
+			// binary's — and two keys of the same name in one record make it unreadable.
 			logger.Info("source d'attestation", "api_version", portalClient.Version())
 		}
 		environments = mse.NewObserver(msestorage.New(db.Pool()), attester, logger)
 
-		// Les environnements sont écrits pour chaque projet qui a le module, lu au
-		// démarrage comme l'interrupteur de l'instance. Chacun est observé par le
-		// Flux de son namespace : celui du projet, à défaut celui de l'instance, à
-		// défaut la configuration (doc 16 §16.18).
+		// The environments are written for each project that has the module, read at start-up like
+		// the instance's switch. Each is observed by the Flux of its namespace: the project's,
+		// failing that the instance's, failing that the configuration's.
 		projects, err := db.ListProjects(ctx)
 		if err != nil {
 			return err
 		}
 		projectModules := dashhttp.NewModules(db, logger)
-		// Un client par namespace distinct, partagé par les projets qui le
-		// partagent : le client découvre les versions d'API servies, et le faire
-		// une fois par projet multiplierait les appels pour la même réponse.
+		// One client per distinct namespace, shared by the projects that share it: the client
+		// discovers the API versions served, and doing it once per project would multiply the calls
+		// for the same answer.
 		deployers := map[string]*flux.Deployer{}
 		var declared []mse.ProjectEnvironments
 		enabled := map[string]bool{}
@@ -580,12 +557,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			}
 			deployer, opened := deployers[namespace]
 			if !opened {
-				// Le client Flux découvre les versions d'API servies au lieu de les
-				// coder : une même installation peut servir `kustomize` et `image`
-				// dans des versions différentes.
+				// The Flux client discovers the API versions served instead of hard-coding them: one
+				// installation may serve `kustomize` and `image` in different versions.
 				fluxClient, err := flux.Open(cluster.RESTConfig, namespace)
 				if err != nil {
-					return fmt.Errorf("client Flux du projet %s: %w", project.Slug, err)
+					return fmt.Errorf("Flux client of project %s: %w", project.Slug, err)
 				}
 				logger.Info("client Flux", "namespace", namespace, "versions", fluxClient.Versions())
 				deployer = flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
@@ -594,33 +570,32 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 			own := pipelines.EnvironmentsOf(project.Slug)
 			if len(own) == 0 {
-				logger.Warn("projet du module MSE sans environnement déclaré",
-					"projet", project.Slug, "consequence", "ni promotion ni observation pour lui")
+				logger.Warn("project of the MSE module with no declared environment",
+					"project", project.Slug, "consequence", "neither promotion nor observation for it")
 			}
 			declared = append(declared, mse.ProjectEnvironments{
 				ProjectID: project.ID, Slug: project.Slug, Environments: own, Deployer: deployer,
 			})
-			logger.Info("projet du module MSE", "projet", project.Slug, "namespace_flux", namespace,
-				"environnements", len(own),
-				// Ce que ses pipelines cloneront : un dépôt qui ne correspond pas à
-				// ce qu'on croit piloter ne se voit sinon qu'à l'échec du clone.
+			logger.Info("project of the MSE module", "project", project.Slug, "flux_namespace", namespace,
+				"environments", len(own),
+				// What its pipelines will clone: a repository that does not match what one believes one is
+				// driving is otherwise visible only when the clone fails.
 				"kustom_repo", settings.Config["kustomRepoUrl"],
 				"kustom_revision", settings.Config["kustomRevision"],
 				"kustom_overlay", settings.Config["overlayLocation"])
 		}
 		for slug := range pipelines.Projects {
 			if !enabled[slug] {
-				// Une section pour un projet absent ou qui a éteint le module : sans
-				// effet, et le dire évite de chercher pourquoi rien n'apparaît.
-				logger.Warn("environnements déclarés pour un projet sans le module MSE",
-					"projet", slug, "consequence", "ignorés")
+				// A section for a project that is absent or has switched the module off: without effect, and
+				// saying so avoids hunting for why nothing appears.
+				logger.Warn("environments declared for a project without the MSE module",
+					"project", slug, "consequence", "ignored")
 			}
 		}
-		logger.Info("projets du module MSE", "projets", slugs)
+		logger.Info("projects of the MSE module", "projects", slugs)
 
-		// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
-		// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux
-		// ignorerait. Mieux vaut ne pas démarrer.
+		// The guard rail: a promotion suffix matching no ImagePolicy would produce a valid tag,
+		// pushed with no error, which Flux would ignore. Better not to start.
 		syncCtx, cancelSync := context.WithTimeout(ctx, 30*time.Second)
 		err = environments.SyncEnvironments(syncCtx, declared)
 		cancelSync()
@@ -630,90 +605,81 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	}
 
 	identity := worker.LeaderIdentity()
-	logger.Info("candidature au bail", "identity", identity, "lease_namespace", cfg.Tekton.LeaseNamespace)
+	logger.Info("standing for the lease", "identity", identity, "lease_namespace", cfg.Tekton.LeaseNamespace)
 
-	// Tout ce qui suit ne tourne qu'en un exemplaire. Le `replicas: 1` du
-	// Deployment n'y suffit pas : pendant un rolling update deux pods coexistent,
-	// et c'est l'instant où un ordonnanceur dupliqué lancerait deux fois le même
-	// pipeline.
+	// Everything that follows runs in a single copy. The Deployment's `replicas: 1` is not enough
+	// for that: during a rolling update two pods coexist, and that is the instant when a
+	// duplicated scheduler would launch the same pipeline twice.
 	return worker.RunAsLeader(ctx, cluster.Kube,
 		worker.LeaderConfig{Namespace: cfg.Tekton.LeaseNamespace, Identity: identity},
 		logger,
 		func(leadingCtx context.Context) error {
-			// Le collecteur est arrêté avant que la fonction rende la main : les
-			// captures en cours doivent cesser d'écrire avant qu'un autre worker
-			// prenne le bail, sinon deux processus écrivent les mêmes tranches.
+			// The collector is stopped before the function returns: the captures in progress must stop
+			// writing before another worker takes the lease, otherwise two processes write the same
+			// chunks.
 			collector := logs.New(tekton.NewPodLogs(cluster), storage, db, nil, logger)
 			defer collector.Stop()
 
-			// L'ingestion des campagnes de charge est branchée sur la fin des
-			// runs : le runner k6 vit hors du cluster et n'a aucun chemin de
-			// retour vers le dashboard (B16).
-			// Ce que les pipelines recevront, journalisé avant toute exécution.
-			// Un dépôt ou un Dockerfile qui ne correspond pas à ce qu'on croit
-			// piloter ne se voit sinon qu'à l'échec du build, où le message
-			// désigne un chemin sans dire d'où il vient.
+			// The ingestion of the load campaigns is wired to the end of the runs: the k6 runner lives
+			// outside the cluster and has no return path to the dashboard.
+			// What the pipelines will receive, logged before any run. A repository or a Dockerfile that
+			// does not match what one believes one is driving is otherwise visible only when the build
+			// fails, where the message names a path without saying where it comes from.
 			resolved := schedulerConfig(cfg)
-			logger.Info("cible des pipelines",
-				// Le dépôt d'un job sans projet : ceux qui en ont un clonent le
-				// leur, journalisé par projet plus haut.
-				"repo_par_defaut", resolved["project.repoUrl"],
+			logger.Info("pipeline target",
+				// The repository of a job with no project: those that have one clone their own, logged per
+				// project above.
+				"default_repo", resolved["project.repoUrl"],
 				"registry_project", resolved["registry.project"],
-				// La kustomisation, sa révision et l'overlay sont journalisés par
-				// projet, avec le namespace Flux : ils viennent des réglages du
-				// plugin MSE.
+				// The kustomization, its revision and the overlay are logged per project, with the Flux
+				// namespace: they come from the MSE plugin's settings.
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"],
-				// Le stockage des pipelines n'est pas celui du dashboard, et il
-				// ne se manifeste qu'à la dernière étape d'un audit : une heure
-				// de scans aboutis, puis un refus d'identifiants.
+				// The pipelines' storage is not the dashboard's, and it shows only at the last step of an
+				// audit: an hour of completed scans, then a credentials refusal.
 				"pipeline_minio", resolved["minio.host"])
 
-			// L'identité de la base entre dans le nom des runs : sans elle, une
-			// base neuve réattribue des identifiants de jobs déjà portés par des
-			// PipelineRun restés dans le cluster, et l'ordonnanceur lit le conflit
-			// comme « c'était déjà fait » sans rien lancer.
+			// The database's identity enters the runs' names: without it, a fresh database reassigns job
+			// identifiers already carried by PipelineRuns left in the cluster, and the scheduler reads
+			// the conflict as "it was already done" without launching anything.
 			instance, err := db.InstanceID(ctx)
 			if err != nil {
 				return err
 			}
-			logger.Info("identité de la base", "instance", instance)
+			logger.Info("database identity", "instance", instance)
 
 			objects := worker.NewObjectStore(storage)
 			sink := worker.NewRunSink(db).
 				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
 				WithTestIngester(worker.NewTestIngester(db, objects, logger)).
 				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger)).
-				// La lecture des descripteurs d'exécution. Elle passe par le
-				// lecteur de journaux et non par le stockage d'artefacts : un
-				// outil qui n'a pas conclu n'a rien publié, et c'est précisément
-				// ce cas qu'elle rend visible.
+				// The reading of the run descriptors. It goes through the log reader and not through artifact
+				// storage: a tool that did not conclude published nothing, and that is precisely the case it
+				// makes visible.
 				WithMarkerIngester(worker.NewMarkerIngester(
 					db, logs.NewReader(storage),
 					results.NewMarkerSet(cfg.Results.MarkerToken), logger)).
-				// Le catalogue permet d'enchaîner les vérifications d'une
-				// construction réussie : sans lui, l'observation continue mais
-				// une release construite reste en attente d'un test que rien
-				// ne lance.
+				// The catalogue makes it possible to chain the verifications of a successful build: without
+				// it, observation continues but a built release stays waiting for a test nothing launches.
 				WithCatalog(pipelines, resolved["registry.project"]).
-				// Sans l'identité de la base, un run resté dans le cluster après
-				// une remise à zéro conclut le job homonyme de la base courante.
+				// Without the database's identity, a run left in the cluster after a reset concludes the
+				// namesake job of the current database.
 				WithInstance(instance).
-				// L'émission des faits (doc 14).
+				// The emission of facts.
 				WithEvents(db)
-			// Une promotion n'est constatée que si le plugin qui promeut est là.
+			// A promotion is observed only if the plugin that promotes is there.
 			if mseSettings.Enabled {
 				sink.WithPromotionFacts(mse.Facts{})
 			}
 
-			// Le moteur de plans, qui enchaîne les vérifications d'une
-			// construction réussie et conclut leurs gestes à la fin de leur job.
+			// The plan engine, which chains the verifications of a successful build and concludes their
+			// steps at the end of their job.
 			//
-			// Assemblé après le sink parce qu'il en dépend : le runner a besoin du
-			// catalogue et de la file, que le sink porte déjà.
-			// Les appels sortants, avec leur transport à cible contrôlée. Les
-			// autorisations viennent du déploiement et sont fausses par défaut :
-			// une URL saisie dans l'interface est émise depuis le cluster.
+			// Assembled after the sink because it depends on it: the runner needs the catalogue and the
+			// queue, which the sink already carries.
+			// The outgoing calls, with their target-controlled transport. The permissions come from the
+			// deployment and are false by default: a URL typed into the interface is issued from the
+			// cluster.
 			actions := worker.NewActionRunner(
 				webhook.New(webhook.Options{
 					AllowPrivate:  cfg.Webhooks.AllowPrivate,
@@ -721,105 +687,93 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 					Timeout:       cfg.Webhooks.Timeout,
 				}),
 				secretResolver{store: db, cipher: cipher}, logger).
-				// Les gestes qu'un plugin fournit. Ils n'empruntent pas le
-				// transport ci-dessus : leur cible n'est pas saisie dans un
-				// formulaire mais lue dans la configuration du plugin, et le
-				// contrôle d'adresse existe précisément parce qu'ailleurs elle
-				// l'est. Le jeton est celui du plugin, ouvert le temps de l'appel.
+				// The steps a plugin supplies. They do not use the transport above: their target is not typed
+				// into a form but read from the plugin's configuration, and the address check exists
+				// precisely because elsewhere it is. The token is the plugin's, opened for the duration of
+				// the call.
 				WithPlugins(worker.NewPluginActionRunner(
 					db, cipher, cfg.Forge.Timeout, logger))
 			if cfg.Webhooks.AllowPrivate || cfg.Webhooks.AllowInsecure {
-				logger.Warn("appels sortants élargis",
+				logger.Warn("outgoing calls widened",
 					"cibles_privees", cfg.Webhooks.AllowPrivate,
 					"clair", cfg.Webhooks.AllowInsecure,
-					"consequence", "une réaction mal réglée peut atteindre le réseau interne")
+					"consequence", "a badly set reaction can reach the internal network")
 			}
 
-			// Le moteur, et l'ancrage du cycle de vie sur les étapes à rôle :
-			// c'est le règlement d'une étape qui avance la release, là où
-			// l'observateur comptait les constructions job par job (doc 15 §15.3).
+			// The engine, and the anchoring of the life cycle on the stages with a role: it is the
+			// settling of a stage that advances the release, where the observer counted the builds job by
+			// job.
 			engine := worker.NewVerificationEngine(sink, db, actions, logger).
 				WithStages(worker.NewReleaseLifecycle(db, logger)).
-				// Ce que les gestes produisent, relevé à leur conclusion et offert
-				// aux étapes suivantes sous `{artifacts.<geste>.<nom>}`.
+				// What the steps produce, collected when they conclude and offered to the following stages
+				// under `{artifacts.<step>.<name>}`.
 				WithArtifacts(db, worker.ProductOf(pipelines))
-			// L'aiguillage : ce qui relie un fait constaté aux réactions qu'un
-			// projet a déclarées. Sans lui, les faits s'écrivent et personne n'y
-			// réagit — l'état des tranches 2 à 5.
+			// The routing: what links an observed fact to the reactions a project declared. Without it,
+			// facts are written and nobody reacts to them.
 			dispatcher := worker.NewDispatcher(db, engine, logger)
 			sink = sink.WithEngine(engine).WithDispatcher(dispatcher)
 			observer := tekton.NewObserver(cluster, sink, sink, worker.NewLogAdapter(collector), logger)
 
-			// Les URLs d'écriture des artefacts sont minées ici : le layout de
-			// stockage appartient au dashboard, et c'est ce qui sort le secret
-			// MinIO des Tasks de test (B14).
+			// The artifacts' write URLs are minted here: the storage layout belongs to the dashboard, and
+			// that is what takes the MinIO secret out of the test Tasks.
 
-			// Les réglages que le plugin MSE ajoute aux pipelines d'un projet.
+			// The settings the MSE plugin adds to a project's pipelines.
 			scheduler := worker.NewSchedulerFromCatalog(
 				db, cluster, pipelines, resolved, logger).
 				WithUploads(storage).
 				WithInstance(instance).
-				// La clé de déploiement du projet remplace la clé partagée au
-				// moment de composer le run. Un projet sans clé propre retombe
-				// sur la partagée : c'est l'état d'avant le lot G, et le bon
-				// pour un projet déclaré avant lui.
+				// The project's deploy key replaces the shared key when the run is composed. A project with
+				// no key of its own falls back to the shared one.
 				WithProjectKeys(db).
-				// Le dépôt que ce projet clone, lu en base : un second projet ne
-				// construit pas celui du premier (doc 16 §16.24).
+				// The repository this project clones, read from the database: a second project does not build
+				// the first one's.
 				WithProjectRepositories(db, os.Getenv("FORGE_SSH_PORT")).
-				// Et les réglages que le plugin MSE ajoute pour ce projet : sa
-				// kustomisation, son overlay. Rien quand le module y est éteint.
+				// And the settings the MSE plugin adds for this project: its kustomization, its overlay.
+				// Nothing when the module is switched off for it.
 				WithProjectSettings(mse.PipelineSettings(db))
 
-			// Les livrables passent par la file comme le reste, mais sont
-			// produits ici : générer un bon de livraison lit la base et écrit un
-			// objet. Le faire traverser Tekton coûterait un pod et un workspace
-			// pour produire deux pages.
+			// The deliverables go through the queue like the rest, but are produced here: generating a
+			// delivery note reads the database and writes an object. Making it cross Tekton would cost a
+			// pod and a workspace to produce two pages.
 			scheduler.Handle(worker.NewExporter(db, storage, exportRegistry(cfg, logger), cfg.Registry.Image, logger))
 
-			// La note de release, pour la même raison : elle lit Redmine, la
-			// forge et la base. Sans forge configurée, la tâche n'est pas
-			// enregistrée et les jobs de note échouent en le disant — plutôt que
-			// de composer des notes vides sans expliquer pourquoi.
+			// The release note, for the same reason: it reads Redmine, the forge and the database. With
+			// no forge configured, the task is not registered and the note jobs fail saying so — rather
+			// than composing empty notes without explaining why.
 			if cfg.Forge.Configured() {
 				forgeClient, err := gitea.New(gitea.Options{
 					URL: cfg.Forge.URL, Token: cfg.Forge.Token,
 					Repository: cfg.Forge.Repository, Timeout: cfg.Forge.Timeout,
 				})
 				if err != nil {
-					return fmt.Errorf("client Gitea du worker: %w", err)
+					return fmt.Errorf("worker's Gitea client: %w", err)
 				}
 				scheduler.Handle(worker.NewNoteBuilder(
 					forgeClient, db, cfg.Tracker.ReviewStatuses, logger))
-				logger.Info("note de release",
+				logger.Info("release note",
 					"statuts_en_revue", cfg.Tracker.ReviewStatuses)
 			} else {
-				logger.Warn("forge non configurée: les notes de release ne seront pas composées")
+				logger.Warn("forge not configured: the release notes will not be composed")
 			}
 
-			// L'observation et l'ordonnancement tournent en parallèle : la
-			// seconde dépend de la première pour apprendre qu'un run est fini,
-			// et les sérialiser bloquerait la file derrière la synchronisation
-			// du cache.
-			// La purge des sessions échues et des transactions
-			// d'authentification abandonnées : sa boucle manquait, et
-			// `PurgeExpired` était documentée comme appelée périodiquement sans
-			// que personne ne l'appelle.
+			// Observation and scheduling run in parallel: the second depends on the first to learn that a
+			// run is finished, and serialising them would block the queue behind the cache's
+			// synchronisation.
+			// The purge of lapsed sessions and abandoned authentication transactions: its loop was
+			// missing, and `PurgeExpired` was documented as called periodically with nobody calling it.
 			purger := worker.NewPurger(
 				auth.NewSessionStore(db.Pool(), cfg.OIDC.SessionTTL),
 				auth.NewDBFlowStore(db.Pool(), 10*time.Minute),
 				logger)
 
-			// Une place par boucle, et pas moins : seule la **première** erreur est
-			// lue — une boucle morte doit faire perdre le bail plutôt que de
-			// laisser l'autre tourner à moitié — et les suivantes ne sont donc
-			// jamais dépilées.
+			// One slot per loop, and no fewer: only the **first** error is read — a dead loop must make
+			// the lease be lost rather than let the other run half-way — and the following ones are
+			// therefore never taken off.
 			//
-			// Sur un canal saturé, elles bloqueraient leur goroutine pour toujours,
-			// y compris à l'arrêt où chacune rend `ctx.Err()`. Le processus
-			// sortirait quand même, mais en laissant derrière lui des boucles qui
-			// n'ont jamais pu se conclure — et un profil de goroutines qui accuse
-			// une fuite là où il n'y a qu'un canal trop court.
+			// On a saturated channel, they would block their goroutine forever, including at shutdown
+			// where each returns `ctx.Err()`. The process would still exit, but leaving behind loops that
+			// were never able to conclude — and a goroutine profile that accuses a leak where there is
+			// only a channel that is too short.
 			errs := make(chan error, 8)
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
@@ -828,81 +782,75 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			}
 			go func() { errs <- purger.Run(leadingCtx) }()
 
-			// La pose des clés de déploiement. Sous le bail comme le reste : deux
-			// workers qui poseraient la même clé se la remplaceraient l'un
-			// l'autre, et la moitié publique enregistrée ne serait plus celle du
-			// Secret déposé.
+			// Setting the deploy keys. Under the lease like the rest: two workers setting the same key
+			// would replace each other's, and the public half recorded would no longer be that of the
+			// Secret deposited.
 			keys := projectKeys(cluster, cfg, pipelines, logger)
 			go func() {
 				errs <- worker.NewKeyReconciler(db, keys, logger).Run(leadingCtx)
 			}()
 
-			// Les bibliothèques de référence, posées pour les piles que les
-			// projets déclarent. Sous le bail comme le reste : deux workers qui
-			// poseraient la même définition se la réécriraient l'un l'autre.
+			// The reference libraries, put in place for the stacks the projects declare. Under the lease
+			// like the rest: two workers putting the same definition in place would rewrite each other's.
 			if installer, err := libraryInstaller(cluster, cfg); err != nil {
-				logger.Warn("bibliothèques de pipelines indisponibles",
-					"raison", err,
-					"consequence", "les projets emploieront les pipelines déjà présents")
+				logger.Warn("pipeline libraries unavailable",
+					"reason", err,
+					"consequence", "the projects will use the pipelines already present")
 			} else {
 				go func() {
 					errs <- worker.NewLibraryReconciler(db, installer, logger).Run(leadingCtx)
 				}()
 			}
 
-			// La synchronisation du suivi. Elle ne porte plus sa boucle : elle est
-			// devenue une **sonde**, et c'est la boucle commune qui résout ses
-			// réglages, desselle sa clé, tient son curseur et isole ses échecs.
+			// The tracker synchronisation. It no longer carries its loop: it has become a **probe**, and
+			// it is the common loop that resolves its settings, unseals its key, keeps its cursor and
+			// isolates its failures.
 			//
-			// La projection n'a pas bougé — versions, adoptions, demandes et leurs
-			// seaux. Ce qui s'ajoute, ce sont les faits qu'elle constate au
-			// passage, et sur lesquels une réaction peut désormais se brancher.
+			// The projection has not moved — versions, adoptions, requests and their buckets. What is
+			// added are the facts it observes on the way, and which a reaction can now be wired to.
 			tracker := worker.NewTrackerSync(db, trackerConnector(cfg), logger)
 
-			// Les sondes, qui produisent les faits d'un plugin. Sous le bail comme
-			// le reste : deux workers interrogeant la même instance doubleraient
-			// la charge sur un service tiers pour un résultat identique.
+			// The probes, which produce a plugin's facts. Under the lease like the rest: two workers
+			// querying the same instance would double the load on a third-party service for an identical
+			// result.
 			//
-			// Une sonde n'est interrogée que pour les projets dont le plugin est
-			// actif, chacune à sa cadence, et sa première passe ne déclenche rien —
-			// une activation ne réveille pas le passé (doc 14 §14.4).
+			// A probe is queried only for the projects whose plugin is active, each at its own cadence,
+			// and its first pass triggers nothing — enabling something does not wake the past.
 			probes := worker.NewProbeRunner(db, cipher, cfg.Probes.Interval, logger,
 				worker.NewGiteaPullProbe(cfg.Forge.Timeout),
 				worker.NewRedmineProbe(tracker)).
 				WithDispatcher(dispatcher)
 			go func() { errs <- probes.Run(leadingCtx) }()
 
-			// La première erreur l'emporte : une boucle morte doit faire perdre
-			// le bail plutôt que de laisser l'autre tourner à moitié.
+			// The first error wins: a dead loop must make the lease be lost rather than let the other run
+			// half-way.
 			return <-errs
 		})
 }
 
-// schedulerConfig expose à l'ordonnanceur les valeurs que le catalogue référence
-// par clé.
+// schedulerConfig exposes to the scheduler the values the catalogue references by key.
 //
-// La table est explicite plutôt que dérivée par réflexion : ce qu'un catalogue
-// peut injecter dans un PipelineRun doit être une liste qu'on peut lire, pas
-// l'ensemble de la configuration du dashboard.
-// seedMSESettings pose les réglages du plugin MSE que l'environnement fournit.
+// The table is explicit rather than derived by reflection: what a catalogue can inject into a
+// PipelineRun must be a list one can read, not the whole of the dashboard's configuration.
+// seedMSESettings sets the MSE plugin's settings that the environment supplies.
 //
-// Ne remplit que ce qui manque : la base fait foi dès la première valeur écrite,
-// et un réglage changé depuis l'administration ne doit pas être repris au
-// redémarrage suivant. Sans cet amorçage, une instance mise à jour verrait ses
-// pipelines refuser de partir — le noyau n'expose plus ces clés (doc 16 §16.18).
+// Fills in only what is missing: the database is authoritative from the first value written,
+// and a setting changed from the administration screen must not be taken back at the next
+// restart. Without this seeding, an updated instance would see its pipelines refuse to start
+// — the core no longer exposes these keys.
 //
-// Journalisé et non fatal : le dashboard démarre, et l'écran d'administration
-// permet de poser ces valeurs à la main.
+// Logged and not fatal: the dashboard starts, and the administration screen allows setting
+// these values by hand.
 func seedMSESettings(ctx context.Context, db *store.DB, logger *slog.Logger) {
 	settings, err := db.PluginSettingsAll(ctx)
 	if err != nil {
-		logger.Error("amorçage des réglages du plugin MSE", "error", err)
+		logger.Error("seeding the MSE plugin's settings", "error", err)
 		return
 	}
 	entry, declared := settings[plugin.ModuleMSE]
 	if !declared {
-		// La ligne n'existe pas encore : l'écrire ici la poserait éteinte, alors
-		// que c'est `EnsurePlugins` qui décide de son état initial.
+		// The row does not exist yet: writing it here would set it switched off, whereas it is
+		// `EnsurePlugins` that decides its initial state.
 		return
 	}
 
@@ -923,19 +871,18 @@ func seedMSESettings(ctx context.Context, db *store.DB, logger *slog.Logger) {
 
 	entry.PluginID = plugin.ModuleMSE
 	entry.Config = config
-	if err := db.SetPluginSettings(ctx, entry, "amorçage"); err != nil {
-		logger.Error("amorçage des réglages du plugin MSE", "error", err)
+	if err := db.SetPluginSettings(ctx, entry, "seeding"); err != nil {
+		logger.Error("seeding the MSE plugin's settings", "error", err)
 		return
 	}
-	logger.Info("réglages du plugin MSE amorcés", "champs", posed)
+	logger.Info("MSE plugin settings seeded", "champs", posed)
 }
 
-// appRepositoryURL rend le dépôt applicatif que la configuration désigne.
+// appRepositoryURL returns the application repository the configuration names.
 //
-// Dérivé de `GITEA_REPO` : c'est le même dépôt que celui dont le formulaire
-// propose les branches, et le nommer deux fois laissait basculer l'un sans
-// l'autre. `FORGE_MSE_REPO_URL` reste une dérogation explicite, non le réglage
-// courant.
+// Derived from `GITEA_REPO`: it is the same repository whose branches the form offers, and
+// naming it twice let one move without the other. `FORGE_MSE_REPO_URL` stays an explicit
+// exception, not the current setting.
 func appRepositoryURL(cfg config.Config) string {
 	if explicit := strings.TrimSpace(os.Getenv("FORGE_MSE_REPO_URL")); explicit != "" {
 		return explicit
@@ -946,34 +893,32 @@ func appRepositoryURL(cfg config.Config) string {
 	return "ssh://git@forge.cadoles.com:2222/CNOUS/mse.git"
 }
 
-// projectSeedDefaults rend ce qu'un projet reçoit à son amorçage : son dépôt, son
-// Dockerfile, son contexte de build.
+// projectSeedDefaults returns what a project receives when it is seeded: its repository, its
+// Dockerfile, its build context.
 //
-// Un amorçage et non une configuration de pipeline : la base fait foi dès le
-// premier démarrage, et le plan d'une release lit ces valeurs **sur le projet**
-// (doc 16 §16.24).
+// A seeding and not a pipeline configuration: the database is authoritative from the first
+// start-up, and a release's plan reads these values **on the project**.
 func projectSeedDefaults(cfg config.Config) map[string]string {
 	return map[string]string{
 		"repoUrl":    appRepositoryURL(cfg),
 		"dockerfile": envOrDefault("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
-		// Contexte de build, distinct du Dockerfile : `mse` place le sien dans une
-		// sous-arborescence tout en construisant depuis la racine.
+		// Build context, distinct from the Dockerfile: `mse` puts its own in a subtree while building
+		// from the root.
 		"buildContext": envOrDefault("MSE_BUILD_CONTEXT", "."),
 	}
 }
 
-// mseSeedSettings rend les réglages du plugin MSE que l'environnement fournit.
+// mseSeedSettings returns the MSE plugin's settings that the environment supplies.
 //
-// Un **amorçage**, et non une lecture : ces valeurs posent le premier réglage,
-// puis la base fait foi. Les relire à chaque démarrage reprendrait ce qu'un
-// administrateur a changé depuis.
+// A **seeding**, and not a read: these values set the first setting, then the database is
+// authoritative. Re-reading them at every start-up would take back what an administrator has
+// changed since.
 func mseSeedSettings() map[string]string {
 	return mse.PipelineDefaults(
 		envOrDefault("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
-		// La branche de l'infrastructure de déploiement à auditer. Sans elle,
-		// l'audit retombait sur le défaut du pipeline — `unstable`, la convention
-		// de `CNOUS/mse-kustom` — et échouait au clone sur tout dépôt qui ne la
-		// porte pas : « couldn't find remote ref unstable ».
+		// The branch of the deployment infrastructure to audit. Without it, the audit fell back to
+		// the pipeline's default — `unstable`, `CNOUS/mse-kustom`'s convention — and failed at the
+		// clone on any repository that does not carry it: "couldn't find remote ref unstable".
 		envOrDefault("FORGE_MSE_KUSTOM_REVISION", "unstable"),
 		envOrDefault("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
 		envOrDefault("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
@@ -997,52 +942,47 @@ func schedulerConfig(cfg config.Config) map[string]string {
 
 	return map[string]string{
 		"tekton.namespace": cfg.Tekton.Namespace,
-		// Noms des secrets montés sur les workspaces. Le dashboard **désigne** les
-		// identifiants, il ne les manipule jamais : `secrets` est volontairement
-		// absent de sa RBAC (doc 07 §7.3), et une clé passée en paramètre
-		// atterrirait dans la spec du PipelineRun. Même principe que les URLs
-		// pré-signées de B14.
+		// Names of the secrets mounted on the workspaces. The dashboard **names** the credentials, it
+		// never handles them: `secrets` is deliberately absent from its RBAC
+		// (docs/09-security.md), and a key passed as a parameter would land in the PipelineRun's
+		// spec. The same principle as the presigned URLs.
 		//
-		// Les secrets vivent dans le namespace des PipelineRun, pas dans celui du
-		// dashboard : c'est là que Tekton les monte.
+		// The secrets live in the PipelineRuns' namespace, not in the dashboard's: that is where
+		// Tekton mounts them.
 		"pipeline.gitSecret":      envOr("PIPELINE_GIT_SECRET", "git-credentials"),
 		"pipeline.registrySecret": envOr("PIPELINE_REGISTRY_SECRET", "regcred"),
-		// Secret de tirage des images d'outillage, distinct de celui qui sert à
-		// pousser : le pod tire depuis `cnous-mse`, `crane` pousse vers le projet
-		// de la release. Deux portées, potentiellement deux comptes.
+		// Secret for pulling the tooling images, distinct from the one used to push: the pod pulls
+		// from `cnous-mse`, `crane` pushes to the release's project. Two scopes, potentially two
+		// accounts.
 		"pipeline.imagePullSecret": envOr("PIPELINE_IMAGE_PULL_SECRET", "regcred"),
-		// Le dépôt d'un job qui ne désigne aucun projet. Ceux qui en désignent un
-		// clonent **le sien**, lu en base par l'ordonnanceur (doc 16 §16.24).
+		// The repository of a job that names no project. Those that name one clone **their own**,
+		// read from the database by the scheduler.
 		"project.repoUrl": appRepositoryURL(cfg),
-		// L'ancienne clé, qui nommait le MSE dans le noyau. Servie tant qu'un
-		// catalogue déployé peut encore la nommer.
+		// The old key, which named MSE in the core. Served for as long as a deployed catalogue can
+		// still name it.
 		"forge.mse.repoUrl": appRepositoryURL(cfg),
-		// La kustomisation, sa révision, les tests E2E et l'overlay ne sont plus
-		// ici : ils nomment le MSE, et viennent des réglages de son plugin, où un
-		// projet les surcharge (doc 16 §16.18).
-		// L'audit de sécurité lit ses règles Semgrep et ses politiques dans
-		// `mse-tekton` : c'est un dépôt qu'il clone, au même titre que l'application
-		// et l'infrastructure de déploiement.
+		// The kustomization, its revision, the E2E tests and the overlay are no longer here: they
+		// name MSE, and come from its plugin's settings, where a project overrides them.
+		// The security audit reads its Semgrep rules and its policies in `mse-tekton`: it is a
+		// repository it clones, just like the application and the deployment infrastructure.
 		"forge.tekton.repoUrl": envOr("FORGE_TEKTON_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tekton.git"),
 		"registry.project":     envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
-		// Le Dockerfile et le contexte de build ne sont plus ici : ils décrivent un
-		// dépôt, chaque projet porte les siens en base, et le plan d'une release les
-		// y lit déjà. Ils ne servent plus qu'à **amorcer** un projet, et
-		// `projectSeedDefaults` les rend pour cela (doc 16 §16.24).
-		// Le bucket des pipelines n'est pas celui du dashboard : `mse-pipeline`
-		// porte les artefacts que les Tasks publient, `arkhitekton` ce que le
-		// dashboard écrit lui-même (doc 03 §3.5).
+		// The Dockerfile and the build context are no longer here: they describe a repository, each
+		// project carries its own in the database, and a release's plan already reads them there.
+		// They now serve only to **seed** a project, and `projectSeedDefaults` returns them for that.
+		// The pipelines' bucket is not the dashboard's: `mse-pipeline` carries the artifacts the
+		// Tasks publish, `arkhitekton` what the dashboard writes itself.
 		"minio.host":           envOr("PIPELINE_MINIO_HOST", "https://nuo-s3.nuonet.fr"),
 		"minio.pipelineBucket": envOr("PIPELINE_MINIO_BUCKET", "mse-pipeline"),
 	}
 }
 
 func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	logger.Info("migration du schéma", "dsn", cfg.Redacted().Database.DSN)
+	logger.Info("schema migration", "dsn", cfg.Redacted().Database.DSN)
 
-	// Le Job de migration démarre en même temps que la base dans un déploiement
-	// neuf : sans cette attente, il échoue, Kubernetes le relance, et chaque
-	// déploiement laisse un pod en `Error` derrière lui.
+	// The migration Job starts at the same time as the database in a fresh deployment: without
+	// this wait, it fails, Kubernetes restarts it, and every deployment leaves a pod in `Error`
+	// behind it.
 	if err := store.WaitForDatabase(ctx, cfg.Database, databaseWait, logger); err != nil {
 		return err
 	}
@@ -1050,9 +990,9 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 	if err := store.Migrate(ctx, cfg.Database, logger); err != nil {
 		return err
 	}
-	// Le plugin MSE après le noyau : ses tables référencent `releases` et `jobs`.
-	// Appliqué que le module soit allumé ou non : l'interrupteur se bascule sans
-	// redéploiement, et le schéma doit déjà être là.
+	// The MSE plugin after the core: its tables reference `releases` and `jobs`. Applied whether
+	// the module is switched on or not: the switch is flipped without a redeployment, and the
+	// schema must already be there.
 	if err := msestorage.Migrate(ctx, cfg.Database, logger); err != nil {
 		return err
 	}
@@ -1065,26 +1005,24 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 		logger.Info("migration", "file", migration.Name, "applied", migration.Applied)
 	}
 
-	logger.Info("schéma à jour", "count", len(state))
+	logger.Info("schema up to date", "count", len(state))
 
-	// L'amorçage suit la migration, dans le même Job : le schéma qu'il alimente
-	// vient d'être posé, et lui donner son propre déclencheur laisserait une
-	// fenêtre où l'api démarre sur une base sans administrateur — personne ne
-	// pourrait alors rien attribuer depuis l'interface.
+	// The bootstrap follows the migration, in the same Job: the schema it fills has just been
+	// applied, and giving it its own trigger would leave a window in which the api starts on a
+	// database with no administrator — nobody could then grant anything from the interface.
 	//
-	// Une étape déjà appliquée n'est jamais rejouée, même si la configuration a
-	// changé depuis. C'est ce qui rend la base seule maîtresse après le premier
-	// passage : un dépôt retiré de l'interface ne revient pas, et un rôle retiré à
-	// quelqu'un ne se réattribue pas à la faveur d'un redéploiement.
+	// A step already applied is never replayed, even if the configuration has changed since. That
+	// is what makes the database sole master after the first pass: a repository removed from the
+	// interface does not come back, and a role taken from someone is not granted again by virtue
+	// of a redeployment.
 	return bootstrap(ctx, cfg, logger)
 }
 
-// bootstrap pose les données d'amorçage, une fois.
+// bootstrap applies the seed data, once.
 //
-// Il ouvre sa propre connexion plutôt que d'en recevoir une : `runMigrate`
-// travaille jusqu'ici sans pool, chaque opération ouvrant la sienne, et lui en
-// faire porter un pour la seule étape qui en a besoin étendrait sa durée de vie à
-// tout le Job.
+// It opens its own connection rather than receiving one: `runMigrate` works up to here with
+// no pool, each operation opening its own, and making it carry one for the single step that
+// needs it would extend its lifetime to the whole Job.
 func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
@@ -1108,36 +1046,33 @@ func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		TrackerPluginID: trackerPluginID,
 	})
 
-	// Le rapport est journalisé avant l'erreur : une étape peut avoir abouti
-	// pendant qu'une autre échouait, et le taire ferait croire à un amorçage
-	// entièrement raté.
+	// The report is logged before the error: one step may have completed while another failed,
+	// and keeping quiet about it would suggest the whole bootstrap failed.
 	if report.GrantsApplied > 0 || report.ProjectsApplied > 0 ||
 		report.TrackersApplied > 0 || report.PluginsApplied > 0 {
-		logger.Info("amorçage appliqué",
-			"roles", report.GrantsApplied, "depots", report.ProjectsApplied,
+		logger.Info("bootstrap applied",
+			"roles", report.GrantsApplied, "repositories", report.ProjectsApplied,
 			"suivis", report.TrackersApplied, "plugins", report.PluginsApplied)
 	}
 	if len(report.Skipped) > 0 {
-		logger.Info("amorçage déjà fait, étapes ignorées",
-			"steps", report.Skipped, "source", "la base fait foi")
+		logger.Info("bootstrap already done, steps skipped",
+			"steps", report.Skipped, "source", "the database is authoritative")
 	}
 	if err != nil {
-		return fmt.Errorf("amorçage: %w", err)
+		return fmt.Errorf("bootstrap: %w", err)
 	}
 	return nil
 }
 
-// configuredGrants rend les rôles déclarés dans la configuration.
+// configuredGrants returns the roles declared in the configuration.
 //
-// Deux variables, et la seconde n'est pas un doublon : `BOOTSTRAP_ADMINS` ne sait
-// dire qu'« administrateur », ce qui suffit à débloquer une base neuve mais oblige
-// à passer par l'interface pour tout le reste. `BOOTSTRAP_USERS` porte le rôle
-// avec le compte — `alice:releaser` — et permet de décrire une équipe entière
-// avant sa première connexion.
+// Two variables, and the second is no duplicate: `BOOTSTRAP_ADMINS` can only say
+// "administrator", which is enough to unblock a fresh database but forces everything else
+// through the interface. `BOOTSTRAP_USERS` carries the role with the account —
+// `alice:releaser` — and allows describing a whole team before its first sign-in.
 //
-// Un compte nommé dans les deux prend le rôle le plus explicite : une déclaration
-// qui précise `viewer` ne doit pas être écrasée par un raccourci qui dit
-// « administrateur ».
+// An account named in both takes the more explicit role: a declaration that states `viewer`
+// must not be overwritten by a shortcut that says "administrator".
 func configuredGrants(cfg config.Config) []store.Grant {
 	grants := make([]store.Grant, 0, len(cfg.OIDC.BootstrapAdmins)+len(cfg.OIDC.BootstrapUsers))
 
@@ -1151,44 +1086,41 @@ func configuredGrants(cfg config.Config) []store.Grant {
 		grants = append(grants, store.Grant{Identifier: identifier, Role: string(auth.RoleAdmin)})
 	}
 
-	// L'ordre d'une map n'est pas stable, et un amorçage doit produire la même
-	// chose à chaque exécution — ne serait-ce que pour que ses journaux se
-	// comparent.
+	// A map's order is not stable, and a bootstrap must produce the same thing at every run — if
+	// only so that its logs can be compared.
 	sort.Slice(grants, func(i, j int) bool { return grants[i].Identifier < grants[j].Identifier })
 	return grants
 }
 
-// databaseWait borne l'attente de la base au démarrage d'une migration.
+// databaseWait bounds the wait for the database at a migration's start-up.
 //
-// Deux minutes : de quoi couvrir l'initialisation d'un PostgreSQL neuf — création
-// du cluster, premier démarrage — sans laisser un Job tourner indéfiniment contre
-// une base qui n'existe pas.
+// Two minutes: enough to cover the initialisation of a fresh PostgreSQL — creating the
+// cluster, first start-up — without letting a Job run indefinitely against a database that
+// does not exist.
 const databaseWait = 2 * time.Minute
 
-// startupWait borne l'attente de la base au démarrage de l'`api` et du `worker`.
+// startupWait bounds the wait for the database at the start-up of the `api` and the `worker`.
 //
-// Volontairement **plus courte** que le budget de la sonde de démarrage — 20
-// tentatives toutes les 3 secondes, soit 60 s. C'est ce qui préserve la
-// propriété qui compte : si la base est réellement absente, la sonde tue le pod
-// et Kubernetes le redémarre, comme avant.
+// Deliberately **shorter** than the startup probe's budget — 20 attempts every 3 seconds,
+// that is 60 s. That is what preserves the property that counts: if the database is really
+// absent, the probe kills the pod and Kubernetes restarts it, as before.
 //
-// L'attente ne sert qu'au cas fréquent et bénin : la base repart en même temps
-// que le pod. Sans elle, le processus sortait en erreur, était redémarré, et
-// réussissait au second essai — un `RESTARTS 1` sur chaque déploiement neuf, et
-// un `skaffold run` qui rend 1 sur un déploiement sain. Le même défaut que le
-// Job de migration, sous une autre forme.
+// The wait serves only the frequent and benign case: the database comes back at the same time
+// as the pod. Without it, the process exited with an error, was restarted, and succeeded on
+// the second attempt — a `RESTARTS 1` on every fresh deployment, and a `skaffold run`
+// returning 1 on a healthy deployment. The same defect as the migration Job's, in another
+// form.
 const startupWait = 45 * time.Second
 
-// runReprocess rejoue les résultats depuis les artefacts bruts.
+// runReprocess replays the results from the raw artifacts.
 //
-// Rôle ponctuel et non boucle de fond : on le lance après avoir corrigé un
-// parseur, pour que l'historique reflète le code actuel plutôt que celui qui
-// tournait le jour du run. Le brut conservé est ce qui rend cette
-// reconstruction possible sans réexécuter le moindre pipeline.
+// A one-off role and not a background loop: it is launched after fixing a parser, so that the
+// history reflects the current code rather than the code that ran on the day of the run. The
+// raw data kept is what makes this rebuild possible without re-running a single pipeline.
 func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, args []string) error {
 	flags := flag.NewFlagSet("reprocess", flag.ContinueOnError)
-	releaseTag := flags.String("release", "", "limiter le rejeu à une release")
-	dryRun := flags.Bool("dry-run", false, "énumérer sans effacer ni reconstruire")
+	releaseTag := flags.String("release", "", "limit the replay to one release")
+	dryRun := flags.Bool("dry-run", false, "list without erasing or rebuilding")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -1206,18 +1138,16 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 
 	var releaseID int64
 	if *releaseTag != "" {
-		// Le tag n'est unique que dans un projet : le rejeu vise donc celui qui
-		// se construit, comme le reste du dashboard tant que les routes ne
-		// portent pas le projet.
+		// The tag is unique only within a project: the replay therefore targets the one being built,
+		// like the rest of the dashboard as long as the routes do not carry the project.
 		project, err := db.BuildableProject(ctx)
 		if err != nil {
 			return err
 		}
 		release, err := db.GetRelease(ctx, project.ID, *releaseTag)
 		if err != nil {
-			// Refuser plutôt que rejouer tout : un tag mal orthographié
-			// déclencherait sinon un rejeu de l'historique entier, c'est-à-dire
-			// l'effacement de tout ce qui est projeté.
+			// Refuse rather than replay everything: a misspelled tag would otherwise trigger a replay of
+			// the whole history, that is, the erasure of everything projected.
 			return fmt.Errorf("release %q: %w", *releaseTag, err)
 		}
 		releaseID = release.ID
@@ -1230,9 +1160,9 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 		worker.NewLoadIngester(db, objects, logger),
 		logger)
 
-	logger.Info("rejeu démarré",
-		"release", *releaseTag, "simulation", *dryRun, "portée",
-		portee(*releaseTag))
+	logger.Info("replay started",
+		"release", *releaseTag, "simulation", *dryRun, "scope",
+		scope(*releaseTag))
 
 	report, err := reprocessor.Run(ctx, worker.ReprocessOptions{
 		ReleaseID: releaseID, DryRun: *dryRun,
@@ -1241,35 +1171,34 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 		return err
 	}
 
-	logger.Info("rejeu terminé",
-		"runs examinés", report.Examined, "runs rejoués", report.Replayed,
-		"rapports effacés", report.Deleted, "échecs", report.Failed)
+	logger.Info("replay finished",
+		"runs examined", report.Examined, "runs replayed", report.Replayed,
+		"reports erased", report.Deleted, "failures", report.Failed)
 
 	if len(report.Failed) > 0 {
-		// Sortie non nulle : un rejeu partiel ne doit pas passer pour un succès
-		// dans un pipeline ou un script d'exploitation.
-		return fmt.Errorf("%d run(s) non rejoué(s): %s",
+		// A non-zero exit: a partial replay must not pass for a success in a pipeline or an
+		// operations script.
+		return fmt.Errorf("%d run(s) not replayed: %s",
 			len(report.Failed), strings.Join(report.Failed, ", "))
 	}
 	return nil
 }
 
-func portee(releaseTag string) string {
+func scope(releaseTag string) string {
 	if releaseTag == "" {
 		return "tout l'historique"
 	}
-	return "une release"
+	return "one release"
 }
 
-// runCheckRedmine vérifie l'accès à Redmine, puis s'arrête.
+// runCheckRedmine checks access to Redmine, then stops.
 //
-// Rôle de diagnostic, pour être sûr qu'une clé déposée fonctionne avant qu'un écran
-// n'en dépende. Il ne fait qu'une lecture — `/users/current.json` — et le transport
-// du paquet `redmine` interdit structurellement toute autre méthode que GET et
-// HEAD, ce qui rend cette vérification sans risque sur l'instance de production.
+// A diagnostic role, to be sure a deposited key works before a screen depends on it. It does
+// one read only — `/users/current.json` — and the `redmine` package's transport structurally
+// forbids any method other than GET and HEAD, which makes this check risk-free on the
+// production instance.
 //
-// La clé n'est jamais journalisée. Ce qui l'est : l'URL, le compte auquel elle
-// appartient, et son drapeau `admin`.
+// The key is never logged. What is: the URL, the account it belongs to, and its `admin` flag.
 func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	client, err := redmine.New(redmine.Options{
 		URL:     cfg.Tracker.URL,
@@ -1282,41 +1211,39 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 
 	account, err := client.CheckAccess(ctx)
 	if err != nil {
-		return fmt.Errorf("vérification de l'accès Redmine: %w", err)
+		return fmt.Errorf("checking Redmine access: %w", err)
 	}
 
-	logger.Info("accès Redmine vérifié",
+	logger.Info("Redmine access checked",
 		"url", cfg.Tracker.URL,
 		"project", cfg.Tracker.Project,
 		"login", account.Login,
 		"user_id", account.ID,
-		// Signalé parce qu'il mérite d'être vu : une clé d'administrateur donne
-		// bien plus que ce dont le dashboard a besoin. La lecture seule du
-		// transport protège d'une erreur de code, pas d'un compte trop puissant.
+		// Reported because it deserves to be seen: an administrator key gives far more than the
+		// dashboard needs. The transport's read-only nature protects against a coding mistake, not
+		// against an over-powerful account.
 		"admin", account.Admin)
 
 	if account.Admin {
-		logger.Warn("cette clé appartient à un compte administrateur Redmine ; " +
-			"un compte en lecture seule sur le projet suffirait")
+		logger.Warn("this key belongs to a Redmine administrator account; " +
+			"a read-only account on the project would be enough")
 	}
 	return nil
 }
 
-// projectsHandler assemble la déclaration des dépôts pilotés.
+// projectsHandler assembles the declaration of the driven repositories.
 //
-// Une seule clé désormais, celle du projet, posée par le worker : l'API tourne
-// sans jeton de cluster, délibérément, parce que c'est la surface exposée
-// (doc 12 §12.7). La clé **partagée** qui coexistait avec elle a été retirée —
-// une clé unique ajoutée à plusieurs dépôts fait de sa révocation une panne pour
-// tous à la fois, et ne dit rien de qui a cloné quoi.
+// A single key now, the project's, set by the worker: the API runs with no cluster token,
+// deliberately, because it is the exposed surface (docs/09-security.md). The **shared** key
+// that coexisted with it has been removed — a single key added to several repositories makes
+// its revocation an outage for all of them at once, and says nothing about who cloned what.
 func projectsHandler(cfg config.Config, db *store.DB, modules *dashhttp.Modules) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
 		WithForgeURL(cfg.Forge.URL).
 		WithImageRegistry(cfg.Registry.Project).
-		// Le même déployeur que celui qui promeut, et sans client : la question
-		// posée — « sais-tu acheminer ce schéma ? » — ne demande pas le cluster.
-		// Posée seulement quand le plugin MSE est allumé : sans lui, rien ne
-		// promeut, et aucun schéma n'a à être refusé.
+		// The same deployer as the one that promotes, and with no client: the question asked — "can
+		// you route this scheme?" — does not need the cluster. Asked only when the MSE plugin is
+		// switched on: without it, nothing promotes, and no scheme has to be refused.
 		WithSchemeCheck(func(ctx context.Context, scheme versionpkg.Scheme) error {
 			if !modules.Enabled(ctx, plugin.ModuleMSE) {
 				return nil
@@ -1332,23 +1259,20 @@ func projectsHandler(cfg config.Config, db *store.DB, modules *dashhttp.Modules)
 	})
 }
 
-// configuredProjects rend les dépôts que la configuration désigne.
+// configuredProjects returns the repositories the configuration names.
 //
-// Quatre, et ils ne jouent pas le même rôle : l'application est construite, les
-// trois autres sont clonés — la kustomization par les tests d'intégration, les
-// pipelines par l'audit qui y lit ses règles, la campagne E2E par elle-même.
-// Seule la première porte donc un Dockerfile.
+// Four, and they do not play the same role: the application is built, the other three are
+// cloned — the kustomization by the integration tests, the pipelines by the audit that reads
+// its rules there, the E2E campaign by itself. Only the first therefore carries a Dockerfile.
 //
-// Les étapes de l'application sont nommées ici, et nulle part ailleurs. Elles
-// vivaient en constantes Go — `portal`, `portal-cli`, `portal-dev` — que le
-// dashboard parcourait pour savoir quoi construire. Elles décrivent un dépôt
-// donné, pas le produit : leur place est dans l'amorçage, qui est justement ce
-// qui installe une vérité propre à un déploiement avant que la base ne prenne le
-// relais (doc 12 §12.9).
+// The application's stages are named here, and nowhere else. They lived in Go constants —
+// `portal`, `portal-cli`, `portal-dev` — that the dashboard walked to know what to build.
+// They describe a given repository, not the product: their place is in the seeding, which is
+// precisely what installs a truth specific to a deployment before the database takes over.
 func configuredProjects(cfg config.Config) []store.Project {
 	resolved := schedulerConfig(cfg)
-	// Les dépôts que le plugin MSE règle : l'amorçage des projets les nomme au
-	// même titre que les autres, et il a lieu avant que la base ne les porte.
+	// The repositories the MSE plugin sets: the seeding of the projects names them just like the
+	// others, and it happens before the database carries them.
 	seeds := mseSeedSettings()
 	project := projectSeedDefaults(cfg)
 
@@ -1356,14 +1280,12 @@ func configuredProjects(cfg config.Config) []store.Project {
 	targets := []store.Target{
 		// Le runtime HTTP : front office, back office, web services.
 		{Stage: "web", Image: "portal", Promote: &promoted},
-		// Les consumers Messenger, les cronjobs et les jobs. Nommée
-		// `portal-consumer` jusqu'à la migration FrankenPHP, où elle a cessé de
-		// ne servir que les consumers.
+		// The Messenger consumers, the cronjobs and the jobs. Named `portal-consumer` until the
+		// FrankenPHP migration, where it stopped serving the consumers only.
 		{Stage: "cli", Image: "portal-cli", Promote: &promoted},
-		// L'image « grasse » : xdebug, xhprof, client PostgreSQL. Elle fait
-		// tourner le job de bootstrap des overlays à fausses données et permet de
-		// reproduire un défaut sur exactement la version livrée. Construite mais
-		// non promue : aucun environnement du flux ne la déploie.
+		// The "fat" image: xdebug, xhprof, PostgreSQL client. It runs the bootstrap job of the
+		// fake-data overlays and allows reproducing a defect on exactly the version delivered. Built
+		// but not promoted: no environment of the flow deploys it.
 		{Stage: "dev", Image: "portal-dev", Promote: &held},
 	}
 
@@ -1378,9 +1300,8 @@ func configuredProjects(cfg config.Config) []store.Project {
 		{
 			clone: project["repoUrl"],
 			label: "Application",
-			// Le seul des quatre à avoir un outil de suivi. Les trois autres sont
-			// des dépôts clonés par des pipelines : ils ne portent ni version ni
-			// release, donc rien à rapprocher.
+			// The only one of the four to have a tracker. The other three are repositories cloned by
+			// pipelines: they carry neither version nor release, so there is nothing to match.
 			tracker:    cfg.Tracker.Project,
 			dockerfile: project["dockerfile"],
 			context:    project["buildContext"],
@@ -1403,9 +1324,8 @@ func configuredProjects(cfg config.Config) []store.Project {
 			buildContext = "."
 		}
 
-		// Le registre n'est renseigné que sur ce qui se construit : un dépôt
-		// cloné sans image n'en publie aucune, et lui en attribuer un ferait
-		// croire le contraire.
+		// The registry is filled in only for what is built: a cloned repository with no image
+		// publishes none, and giving it one would suggest the opposite.
 		registry := ""
 		if declaration.dockerfile != "" {
 			registry = resolved["registry.project"]
@@ -1416,50 +1336,48 @@ func configuredProjects(cfg config.Config) []store.Project {
 			TrackerProject: declaration.tracker,
 			Dockerfile:     declaration.dockerfile, BuildContext: buildContext,
 			ImageRegistry: registry,
-			// Plusieurs cibles seulement là où il y en a : un Dockerfile simple
-			// coché « multi-étapes » ferait attendre une liste qui n'existe pas.
+			// Several targets only where there are any: a simple Dockerfile ticked "multi-stage" would
+			// make one expect a list that does not exist.
 			MultiStage: len(declaration.targets) > 0,
 			Targets:    declaration.targets,
-			// L'auteur est la configuration elle-même, et le dire évite
-			// d'attribuer à quelqu'un une déclaration que personne n'a faite.
+			// The author is the configuration itself, and saying so avoids attributing to someone a
+			// declaration nobody made.
 			CreatedBy: "configuration",
 		})
 	}
 	return projects
 }
 
-// projectKeys ouvre de quoi poser une clé de déploiement par projet.
+// projectKeys opens what is needed to set one deploy key per project.
 //
-// Appelé depuis le rôle `api`, parce que c'est lui qui déclare les projets — et
-// non le worker, qui n'en voit que les jobs. Les deux partagent le même compte
-// de service, donc la même Role : le droit d'écrire un Secret sans pouvoir en
-// lire aucun est déjà accordé (doc 12 §12.7).
+// Called from the `api` role, because it is what declares the projects — and not the worker,
+// which sees only their jobs. Both share the same service account, therefore the same Role:
+// the right to write a Secret without being able to read any is already granted.
 //
-// **Rend nil plutôt qu'une erreur.** Un dashboard sans accès au cluster reste
-// parfaitement utilisable : les projets s'y déclarent, et emploient la clé
-// partagée du déploiement. Faire échouer le démarrage sur une dépendance qui ne
-// sert qu'à une fonction serait le même défaut que celui corrigé au lot D, où
-// l'attestation absente empêchait le déployeur d'exister.
+// **Returns nil rather than an error.** A dashboard with no cluster access stays perfectly
+// usable: projects are declared in it, and use the deployment's shared key. Failing the
+// start-up on a dependency that serves only one feature would be the same defect as the one
+// fixed earlier, where a missing attestation prevented the deployer from existing.
 func projectKeys(
 	cluster *tekton.Client, cfg config.Config, pipelines *catalog.Catalog, logger *slog.Logger,
 ) *deploykeys.Issuer {
 	namespace := cfg.Tekton.Namespace
 	owner := deploykeys.NewOwner(cluster.Kube, namespace)
-	// Tous les comptes que le catalogue emploie : n'en tenir qu'un rendrait la
-	// clé montable pour certains pipelines du projet et pas pour les autres.
+	// Every account the catalogue uses: keeping only one would make the key mountable for some of
+	// the project's pipelines and not for the others.
 	accounts := pipelines.ServiceAccounts()
 	mounter := deploykeys.NewMounter(cluster.Kube, namespace, accounts...)
-	logger.Info("clés de déploiement par projet",
+	logger.Info("per-project deploy keys",
 		"namespace", namespace, "comptes_de_service", accounts)
 	return deploykeys.NewIssuer(owner, mounter)
 }
 
-// libraryInstaller ouvre de quoi poser les bibliothèques de référence.
+// libraryInstaller opens what is needed to put the reference libraries in place.
 //
-// La découverte des versions servies est refaite ici plutôt qu'empruntée au
-// client Tekton : celui-ci est typé, alors que la pose manipule des manifestes
-// quelconques par le client dynamique. Les deux parlent au même cluster, avec la
-// même résolution.
+// The discovery of the versions served is done again here rather than borrowed from the
+// Tekton client: that one is typed, whereas putting libraries in place handles arbitrary
+// manifests through the dynamic client. Both speak to the same cluster, with the same
+// resolution.
 func libraryInstaller(
 	cluster *tekton.Client, cfg config.Config,
 ) (*pipelinelib.Installer, error) {
@@ -1470,12 +1388,12 @@ func libraryInstaller(
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(cluster.RESTConfig)
 	if err != nil {
-		return nil, fmt.Errorf("client de découverte: %w", err)
+		return nil, fmt.Errorf("discovery client: %w", err)
 	}
 
 	resources, err := restmapper.GetAPIGroupResources(discoveryClient)
 	if err != nil && len(resources) == 0 {
-		return nil, fmt.Errorf("découverte des API du cluster: %w", err)
+		return nil, fmt.Errorf("discovering the cluster's APIs: %w", err)
 	}
 
 	return pipelinelib.NewInstaller(dynamicClient,
