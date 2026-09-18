@@ -2,147 +2,142 @@ package release
 
 import "testing"
 
-// Les deux chemins de doc 04 §4.2, parcourus de bout en bout.
+// The two paths, walked end to end.
 //
-// Le chemin dérivé ne passe ni par `building` ni par `verifying` : rien n'est
-// construit, donc rien ne s'exécute (B17). Modéliser un `building` fictif ferait
-// attendre l'interface sur un pipeline qui ne viendra jamais.
-func TestLesDeuxCheminsDocumentesSontFranchissables(t *testing.T) {
+// The derived path passes through neither `building` nor `verifying`: nothing is
+// built, so nothing runs. Modelling a fictional `building` would make the interface
+// wait for a pipeline that will never come.
+func TestBothPathsCanBeWalked(t *testing.T) {
 	chemins := map[string][]State{
 		"construite": {StateDraft, StateBuilding, StateVerifying, StateReady, StateReleased},
-		"dérivée":    {StateDraft, StateReady, StateReleased},
+		"derived":    {StateDraft, StateReady, StateReleased},
 	}
 
 	for nom, chemin := range chemins {
 		for i := 0; i < len(chemin)-1; i++ {
 			from, to := chemin[i], chemin[i+1]
 			if !CanTransition(from, to) {
-				t.Errorf("chemin %s: %s → %s refusé", nom, from, to)
+				t.Errorf("path %s: %s → %s refused", nom, from, to)
 			}
 		}
 	}
 }
 
-// Une release livrée ne redescend pas vers les tests : rejouer sa validation
-// après coup réécrirait l'histoire d'un livrable déjà parti chez le client.
-func TestUneReleaseLivreeNeRedescendPas(t *testing.T) {
+// A shipped release does not go back down to the tests: replaying its approval
+// afterwards would rewrite the history of something already delivered.
+func TestAShippedReleaseDoesNotGoBackDown(t *testing.T) {
 	for _, to := range []State{StateDraft, StateBuilding, StateVerifying, StateReady, StateFailed} {
 		if CanTransition(StateReleased, to) {
-			t.Errorf("released → %s devrait être refusé", to)
+			t.Errorf("released → %s should be refused", to)
 		}
 	}
-	// Elle peut en revanche être abandonnée : une régression découverte après
-	// livraison doit pouvoir se constater.
+	// It may however be abandoned: a regression found after shipping must be
+	// recordable.
 	if !CanTransition(StateReleased, StateCancelled) {
-		t.Error("released → cancelled devrait être permis")
+		t.Error("released → cancelled should be allowed")
 	}
 }
 
-// `cancelled` est terminal à dessein : reprendre une release abandonnée
-// masquerait la raison de son abandon, alors qu'en créer une nouvelle la laisse
-// lisible.
-func TestUneReleaseAbandonneeEstTerminale(t *testing.T) {
+// `cancelled` is terminal by design: resuming an abandoned release would hide the
+// reason it was abandoned, while creating a new one leaves it readable.
+func TestAnAbandonedReleaseIsTerminal(t *testing.T) {
 	if !StateCancelled.Terminal() {
-		t.Error("cancelled devrait être terminal")
+		t.Error("cancelled should be terminal")
 	}
 	for _, to := range []State{StateDraft, StateBuilding, StateVerifying, StateReady, StateReleased, StateFailed} {
 		if CanTransition(StateCancelled, to) {
-			t.Errorf("cancelled → %s devrait être refusé", to)
+			t.Errorf("cancelled → %s should be refused", to)
 		}
 	}
-	// Aucun autre état n'est terminal : tous doivent pouvoir au moins être
-	// abandonnés, sans quoi une release resterait coincée sans issue.
+	// No other state is terminal: every one must at least be abandonable, or a release
+	// would be stuck with no way out.
 	for _, state := range []State{StateDraft, StateBuilding, StateVerifying, StateReady, StateReleased, StateFailed} {
 		if state.Terminal() {
-			t.Errorf("%s ne devrait pas être terminal", state)
+			t.Errorf("%s should not be terminal", state)
 		}
 	}
 }
 
-// Tout état non terminal doit pouvoir être abandonné : c'est la porte de sortie
-// d'une release qu'on renonce à livrer, et son absence laisserait des lignes
-// vivantes que rien ne peut clore.
+// Every non-terminal state must be abandonable: it is the way out of a release
+// nobody will ship, and its absence would leave live rows nothing can close.
 func TestToutEtatVivantPeutEtreAbandonne(t *testing.T) {
 	for _, state := range []State{
 		StateDraft, StateBuilding, StateVerifying, StateReady, StateReleased, StateFailed,
 	} {
 		if !CanTransition(state, StateCancelled) {
-			t.Errorf("%s → cancelled devrait être permis", state)
+			t.Errorf("%s → cancelled should be allowed", state)
 		}
 	}
 }
 
-// Un échec est relançable dans les deux sens : `verifying` quand les images
-// existent déjà, `building` quand il faut reconstruire.
-func TestUnEchecEstRelancable(t *testing.T) {
+// A failure is re-runnable both ways: `verifying` when the images already exist,
+// `building` when a rebuild is needed.
+func TestAFailureIsReRunnable(t *testing.T) {
 	if !CanTransition(StateFailed, StateBuilding) {
-		t.Error("failed → building devrait être permis")
+		t.Error("failed → building should be allowed")
 	}
 	if !CanTransition(StateFailed, StateVerifying) {
-		t.Error("failed → verifying devrait être permis")
+		t.Error("failed → verifying should be allowed")
 	}
-	// Mais un échec ne devient pas livrable sans décision humaine.
+	// But a failure does not become shippable without a human decision.
 	if CanTransition(StateFailed, StateReleased) {
-		t.Error("failed → released devrait être refusé")
+		t.Error("failed → released should be refused")
 	}
 }
 
-// `failed → ready` est permis, et cette règle a changé.
+// `failed → ready` is allowed, and this rule changed.
 //
-// Elle était refusée au motif qu'« il faut repasser par les tests ». C'était
-// précisément le cas qu'elle interdisait : relancer une famille de vérification
-// **est** repasser par les tests, et son verdict remplace le précédent. La
-// release restait donc en échec pour un résultat périmé, et le bouton
-// « Rejouer » ne rattrapait rien. Constaté sur 3.2.0-rc3, dont les trois
-// familles étaient vertes au dernier essai.
+// It was refused on the grounds that "the tests must be run again". That was exactly
+// the case it forbade: re-running a verification family is running the tests again,
+// and its verdict replaces the previous one. The release therefore stayed failed over
+// a stale result, and the "replay" button caught nothing up.
 //
-// Ce que la règle protégeait est ailleurs, et tient toujours : `failed` ne mène
-// pas à `released`. Passer en `ready` ne livre rien — c'est l'état « décision en
-// attente », et la décision reste humaine.
-func TestUnEchecRattrapeParUneRelanceRedevientDecidable(t *testing.T) {
+// What the rule protected is elsewhere, and still holds: `failed` does not lead to
+// `released`. Moving to `ready` ships nothing — it is the "decision pending" state,
+// and the decision stays human.
+func TestAFailureCaughtUpByAReRunBecomesDecidableAgain(t *testing.T) {
 	if !CanTransition(StateFailed, StateReady) {
-		t.Error("failed → ready devrait être permis: une relance réussie remplace le verdict")
+		t.Error("failed → ready should be allowed: a successful re-run replaces the verdict")
 	}
 }
 
-// Aucun état ne se transite vers lui-même : une transition sans effet masquerait
-// un appelant qui croit faire avancer quelque chose.
-func TestAucunEtatNeSeTransiteVersLuiMeme(t *testing.T) {
+// No state transitions to itself: a transition with no effect would hide a caller
+// that believes it is advancing something.
+func TestNoStateTransitionsToItself(t *testing.T) {
 	for _, state := range []State{
 		StateDraft, StateBuilding, StateVerifying, StateReady,
 		StateReleased, StateFailed, StateCancelled,
 	} {
 		if CanTransition(state, state) {
-			t.Errorf("%s → %s devrait être refusé", state, state)
+			t.Errorf("%s → %s should be refused", state, state)
 		}
 	}
 }
 
-// Un état inconnu n'ouvre rien : une valeur lue en base qui ne correspond à aucun
-// état déclaré ne doit pas se comporter comme un joker.
-func TestUnEtatInconnuNouvreRien(t *testing.T) {
-	inconnu := State("inventé")
+// An unknown state opens nothing: a value read from the database matching no
+// declared state must not behave as a wildcard.
+func TestAnUnknownStateOpensNothing(t *testing.T) {
+	inconnu := State("invented")
 	for _, to := range []State{StateBuilding, StateReady, StateReleased, StateCancelled} {
 		if CanTransition(inconnu, to) {
-			t.Errorf("inventé → %s devrait être refusé", to)
+			t.Errorf("invented → %s should be refused", to)
 		}
 	}
-	// Et il est vu comme terminal, ce qui est le comportement sûr : rien ne
-	// l'avancera tant que personne n'aura corrigé la donnée.
+	// And it is seen as terminal, which is the safe behaviour: nothing will advance it
+	// until someone fixes the data.
 	if !inconnu.Terminal() {
-		t.Error("un état inconnu devrait être vu comme terminal")
+		t.Error("an unknown state should be seen as terminal")
 	}
 }
 
-// La construction ne saute pas les tests dans le chemin construit, mais
-// `building → ready` reste ouvert : toutes les familles de tests ne sont pas
-// obligatoires, et une release dont aucune ne l'est passe directement en
-// attente de décision.
-func TestLaConstructionPeutConclureSansTests(t *testing.T) {
+// Building does not skip the tests on the built path, but `building → ready` stays
+// open: not every test family is mandatory, and a release with none goes straight to
+// awaiting a decision.
+func TestABuildCanConcludeWithoutTests(t *testing.T) {
 	if !CanTransition(StateBuilding, StateReady) {
 		t.Error("building → ready devrait rester permis")
 	}
 	if !CanTransition(StateBuilding, StateVerifying) {
-		t.Error("building → verifying devrait être permis")
+		t.Error("building → verifying should be allowed")
 	}
 }

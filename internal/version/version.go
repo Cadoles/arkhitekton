@@ -1,39 +1,33 @@
-// Package version porte le schéma de version, à qui le reste **pose des
-// questions** au lieu de lire des champs.
+// Package version carries the version scheme, which the rest asks questions of
+// rather than reading fields from.
 //
-// Le SemVer n'était pas une brique de ce projet, c'était une **hypothèse
-// ambiante** : la forme `MAJEUR.MINEUR.CORRECTIF[-prerelease]` était codée dans
-// `internal/release`, et tout ce qui s'y appuie — la sélection par plage, la
-// déduction de la RC suivante, la jointure avec le suivi — la supposait acquise
-// sans jamais la nommer (doc 12 §12.4).
+// SemVer was not a building block of this project, it was an ambient assumption: the
+// shape MAJOR.MINOR.PATCH[-prerelease] was coded into internal/release, and
+// everything relying on it — range selection, deducing the next candidate, the join
+// with the tracker — took it for granted without ever naming it.
 //
-// Elle n'est pourtant pas universelle. Le voisinage immédiat en donne
-// l'exemple : les tags de `mse-kustom` s'écrivent
-// `2026.7.27-k8sunstable.1651.91a39c48b`, du calendaire déguisé. D'autres projets
-// numérotent leurs constructions, ou n'ordonnent rien du tout.
+// It is not universal. The immediate neighbourhood gives the example: a GitOps
+// repository's tags read like disguised calendar versions. Other projects number
+// their builds, or order nothing at all.
 //
-// # Ce que le schéma répond, et ce qu'il peut ignorer
+// Six questions, and each may go unanswered. That is the design point: an opaque
+// scheme must stay usable. A project whose tags read `build-4711` loses the next
+// version suggestion and range selection, but keeps everything else — building,
+// testing, grading, deploying by explicit tag. The tool must say so rather than
+// compute something arbitrary.
 //
-// Six questions, et **chacune peut rester sans réponse**. C'est le point de
-// conception : un schéma opaque doit rester *utilisable*. Un projet dont les tags
-// s'écrivent `build-4711` perd la suggestion de version suivante et la sélection
-// par plage, mais garde tout le reste — construire, tester, noter, déployer par
-// tag explicite. L'outil doit le **dire** plutôt que calculer n'importe quoi.
+//	Question                        SemVer         Opaque
+//	-----------------------------   ------------   --------------
+//	Is this tag well formed?        yes            everything is
+//	What is its version line?       `3.2.0`        unknown
+//	Is it a pre-release?            yes/no         unknown
+//	What is the next one?           computable     unknown
+//	How to attach a marker to it?   metadata       impossible
+//	How to order two versions?      precedence     unknown
 //
-//	Question                         SemVer        Opaque
-//	------------------------------   -----------   --------------
-//	Ce tag est-il bien formé ?       oui           tout l'est
-//	Quelle est sa ligne de version ? `3.2.0`       inconnue
-//	Est-ce une pré-release ?         oui/non       inconnue
-//	Quelle est la suivante ?         calculable    inconnue
-//	Comment y attacher un marqueur ? métadonnée    impossible
-//	Comment ordonner deux versions ? précédence    inconnu
-//
-// # Pourquoi une capacité et non un fournisseur
-//
-// Ce n'est pas une source extérieure : rien n'est lu ailleurs, aucune panne n'est
-// possible. C'est une **convention du projet**, déclarée dans sa configuration,
-// et c'est pourquoi ce paquet vit à part de `internal/provider`.
+// This is not an outside source: nothing is read elsewhere, no failure is possible.
+// It is a convention of the project, declared in its configuration, which is why
+// this package lives apart from internal/provider.
 package version
 
 import (
@@ -43,42 +37,37 @@ import (
 	"strings"
 )
 
-// ErrUnsupported dit qu'un schéma ne sait pas répondre à cette question.
+// ErrUnsupported says a scheme cannot answer this question.
 //
-// Pas une panne, et c'est toute la nuance : le schéma opaque rend cette erreur
-// pour la moitié des questions, et un projet qui l'emploie fonctionne. L'appelant
-// doit **dire** qu'il ne sait pas, jamais deviner — une version suivante inventée
-// ou un ordre arbitraire produiraient des décisions fausses que rien ne
-// signalerait.
-var ErrUnsupported = errors.New("le schéma de version ne répond pas à cette question")
+// Not a failure, and that is the nuance: the opaque scheme returns this error for
+// half the questions, and a project using it works. The caller must say it does not
+// know, never guess — an invented next version or an arbitrary order would produce
+// false decisions nothing would flag.
+var ErrUnsupported = errors.New("the version scheme does not answer this question")
 
-// Version est un tag décomposé autant que le schéma en est capable.
+// Version is a tag decomposed as far as the scheme can.
 type Version struct {
-	// Raw est le tag tel qu'il a été écrit. Toujours renseigné : c'est la seule
-	// chose que tout schéma connaît.
+	// Raw is the tag as it was written. Always set: it is the only thing every scheme
+	// knows.
 	Raw string
-	// Base est la ligne de version — `1.8.0` pour `1.8.0-rc1`. Vide quand le
-	// schéma ne la connaît pas.
-	//
-	// Nommée `Base` et non `Line` comme le fait le document : c'est le mot déjà
-	// employé partout dans le code et dans les messages que l'utilisateur lit,
-	// et le changer n'aurait rien apporté qu'un risque.
+	// Base is the version line — `1.8.0` for `1.8.0-rc1`. Empty when the scheme does not
+	// know it.
 	Base string
-	// Prerelease est la composante de pré-release. Vide quand il n'y en a pas —
-	// ou quand le schéma ne sait pas la distinguer, d'où [Version.Prereleased].
+	// Prerelease is the pre-release component. Empty when there is none — or when the
+	// scheme cannot tell, hence [Version.Prereleased].
 	Prerelease string
-	// KnowsPrerelease dit si la question « est-ce une pré-release » a un sens
-	// pour ce schéma. Faux, `Prerelease` vide ne signifie **pas** « release
-	// finale » : il signifie « on ne sait pas ».
+	// KnowsPrerelease says whether "is this a pre-release" means anything for this
+	// scheme. When false, an empty Prerelease does not mean "final release": it means
+	// "unknown".
 	KnowsPrerelease bool
 }
 
-// Prereleased dit si le tag est une pré-release, et si la question a un sens.
+// Prereleased says whether the tag is a pre-release, and whether the question means
+// anything.
 //
-// Deux retours plutôt qu'un booléen : sur un schéma opaque, rendre `false` seul
-// affirmerait qu'une release est finale alors que rien ne le dit. C'est
-// exactement le genre d'affirmation qui fait promouvoir en production un tag que
-// personne n'a validé.
+// Two returns rather than a boolean: on an opaque scheme, returning false alone
+// would assert that a release is final when nothing says so. That is exactly the
+// kind of assertion that promotes to production a tag nobody approved.
 func (v Version) Prereleased() (bool, bool) {
 	if !v.KnowsPrerelease {
 		return false, false
@@ -86,42 +75,39 @@ func (v Version) Prereleased() (bool, bool) {
 	return v.Prerelease != "", true
 }
 
-// Scheme répond de la forme des tags d'un projet.
+// Scheme answers for the shape of a project's tags.
 type Scheme interface {
-	// ID nomme le schéma, tel qu'il est déclaré en configuration.
+	// ID names the scheme, as it is declared in configuration.
 	ID() string
-	// Parse décompose un tag, ou refuse celui qui n'a pas la forme attendue.
+	// Parse decomposes a tag, or refuses one that does not have the expected shape.
 	Parse(tag string) (Version, error)
-	// Compare ordonne deux tags — négatif, nul, positif — ou rend
-	// [ErrUnsupported]. Sans lui, l'interface affiche l'ordre de création plutôt
-	// qu'un ordre de version, et le dit.
+	// Compare orders two tags — negative, zero, positive — or returns [ErrUnsupported].
+	// Without it the interface shows creation order rather than version order, and says
+	// so.
 	Compare(a, b string) (int, error)
 
-	// NextPrerelease propose la pré-release suivante d'une ligne de version, au
-	// vu de celles qui existent déjà, ou rend [ErrUnsupported].
+	// NextPrerelease proposes the next pre-release of a version line, given those that
+	// already exist, or returns [ErrUnsupported].
 	//
-	// C'est la sixième question du tableau de doc 12 §12.4, et elle manquait.
-	// L'interface y répondait elle-même, en codant `-rc<N>` : la convention du
-	// MSE, imposée à tout projet dont les pré-releases s'écrivent autrement. Une
-	// suggestion fausse n'est pas dramatique — le champ reste modifiable — mais
-	// elle **enseigne** une convention à qui découvre l'outil, et c'est ainsi
-	// qu'une hypothèse ambiante se réinstalle.
+	// The interface used to answer it itself, hard-coding `-rc<N>`: one project's
+	// convention imposed on every project whose pre-releases read otherwise. A wrong
+	// suggestion is not dramatic — the field stays editable — but it teaches a convention
+	// to whoever discovers the tool, and that is how an ambient assumption reinstalls
+	// itself.
 	NextPrerelease(base string, existing []string) (string, error)
 }
 
-// Schemes énumère les schémas déclarables, dans l'ordre où l'écran les propose.
+// Schemes lists the declarable schemes, in the order the screen offers them.
 //
-// Le calendaire, que le document cite, n'y est pas : aucun projet déclaré n'en
-// emploie, et l'écrire d'avance reviendrait à deviner une convention — la faute
-// que §12.4 décrit, du code qui compile et des verdicts faux. Il s'ajoutera avec
-// le premier projet qui en a un, contre un cas réel.
+// Calendar versioning is not among them: no declared project uses one, and writing
+// it in advance would mean guessing a convention. It will be added with the first
+// project that has one, against a real case.
 func Schemes() []Scheme { return []Scheme{SemVer{}, Opaque{}} }
 
-// For rend le schéma déclaré, ou une erreur nommant ceux qui existent.
+// For returns the declared scheme, or an error naming those that exist.
 //
-// Vide vaut SemVer : c'est ce que tous les projets déclarés emploient, et exiger
-// une déclaration explicite aurait rendu invalides des lignes que personne n'a
-// écrites.
+// Empty means SemVer: it is what every declared project uses, and requiring an
+// explicit declaration would have invalidated rows nobody wrote.
 func For(id string) (Scheme, error) {
 	if strings.TrimSpace(id) == "" {
 		return SemVer{}, nil
@@ -136,26 +122,25 @@ func For(id string) (Scheme, error) {
 	for _, scheme := range Schemes() {
 		known = append(known, scheme.ID())
 	}
-	return nil, fmt.Errorf("schéma de version inconnu %q (connus: %s)",
+	return nil, fmt.Errorf("unknown version scheme %q (known: %s)",
 		id, strings.Join(known, ", "))
 }
 
-// semverPattern couvre la forme retenue : `MAJEUR.MINEUR.CORRECTIF` avec
-// pré-release facultative. Les métadonnées de build (`+…`) sont volontairement
-// absentes — le séparateur retenu pour la promotion est l'underscore, la
-// grammaire des tags OCI excluant le `+` (B7).
+// semverPattern covers the shape kept: MAJOR.MINOR.PATCH with an optional
+// pre-release. Build metadata is deliberately absent — the separator kept for
+// promotion is the underscore, since OCI tag grammar excludes `+`.
 var semverPattern = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$`)
 
-// SemVer est le schéma qui répond à tout.
+// SemVer is the scheme that answers everything.
 type SemVer struct{}
 
 var _ Scheme = SemVer{}
 
 func (SemVer) ID() string { return "semver" }
 
-// Parse refuse plutôt que de tolérer : un tag hors forme casserait la jointure
-// avec le suivi et la sélection par plage, et il vaut mieux le dire à la création
-// que le découvrir en constatant qu'un environnement ne bouge pas.
+// Parse refuses rather than tolerates: a malformed tag would break the join with the
+// tracker and range selection, and it is better said at creation than discovered by
+// noticing an environment never moves.
 func (SemVer) Parse(tag string) (Version, error) {
 	matches := semverPattern.FindStringSubmatch(strings.TrimSpace(tag))
 	if matches == nil {
@@ -171,11 +156,11 @@ func (SemVer) Parse(tag string) (Version, error) {
 	}, nil
 }
 
-// Compare ordonne par précédence SemVer.
+// Compare orders by SemVer precedence.
 //
-// La règle qui compte, et qu'un tri lexical rate : une pré-release précède
-// toujours sa version finale — `1.8.0-rc1` vient avant `1.8.0` —, alors que
-// `-` trie après la chaîne vide dans l'autre sens.
+// The rule that counts, and that a lexical sort misses: a pre-release always precedes
+// its final version — `1.8.0-rc1` comes before `1.8.0` — whereas `-` sorts after the
+// empty string the other way round.
 func (s SemVer) Compare(a, b string) (int, error) {
 	first, err := s.Parse(a)
 	if err != nil {
@@ -194,7 +179,7 @@ func (s SemVer) Compare(a, b string) (int, error) {
 	case first.Prerelease == second.Prerelease:
 		return 0, nil
 	case first.Prerelease == "":
-		// Une finale suit toutes ses pré-releases.
+		// A final version follows all its pre-releases.
 		return 1, nil
 	case second.Prerelease == "":
 		return -1, nil
@@ -202,10 +187,10 @@ func (s SemVer) Compare(a, b string) (int, error) {
 	return strings.Compare(first.Prerelease, second.Prerelease), nil
 }
 
-// compareNumericBase compare deux lignes `X.Y.Z` composante par composante.
+// compareNumericBase compares two `X.Y.Z` lines component by component.
 //
-// Numériquement et non lexicalement : `1.10.0` suit `1.9.0`, alors que la
-// comparaison de chaînes le place avant.
+// Numerically and not lexically: `1.10.0` follows `1.9.0`, where string comparison
+// puts it before.
 func compareNumericBase(a, b string) int {
 	left, right := strings.Split(a, "."), strings.Split(b, ".")
 	for i := range left {
@@ -223,9 +208,9 @@ func compareNumericBase(a, b string) int {
 }
 
 func compareNumbers(a, b string) int {
-	// Les composantes viennent du motif : elles ne portent que des chiffres, et
-	// comparer d'abord leur longueur suffit à les ordonner numériquement sans
-	// conversion — donc sans débordement possible sur un numéro absurde.
+	// The components come from the pattern: they carry digits only, and comparing their
+	// length first is enough to order them numerically without conversion — hence with
+	// no possible overflow on an absurd number.
 	switch {
 	case len(a) != len(b):
 		if len(a) > len(b) {
@@ -236,13 +221,12 @@ func compareNumbers(a, b string) int {
 	return strings.Compare(a, b)
 }
 
-// NextPrerelease propose `<base>-rc<N+1>`.
+// NextPrerelease proposes `<base>-rc<N+1>`.
 //
-// La convention `rc` est celle du projet et non du SemVer, qui n'impose rien de
-// la composante de pré-release. Elle est portée ici plutôt que dans l'interface
-// parce que c'est le schéma qui sait **où** cette composante se place ; le jour
-// où un projet en voudra une autre, ce sera un schéma de plus, pas un formulaire
-// à corriger.
+// The `rc` convention is the project's and not SemVer's, which imposes nothing on
+// the pre-release component. It lives here rather than in the interface because the
+// scheme is what knows where that component goes; the day a project wants another,
+// it will be one more scheme, not a form to fix.
 func (s SemVer) NextPrerelease(base string, existing []string) (string, error) {
 	if _, err := s.Parse(base); err != nil {
 		return "", err
@@ -261,11 +245,11 @@ func (s SemVer) NextPrerelease(base string, existing []string) (string, error) {
 	return fmt.Sprintf("%s-rc%d", base, highest+1), nil
 }
 
-// rcNumber lit le rang d'une pré-release `rcN`.
+// rcNumber reads the rank of an `rcN` pre-release.
 //
-// Les autres formes sont ignorées plutôt que refusées : un projet peut porter
-// `1.8.0-beta1` dans son historique, et s'en offusquer ferait échouer une
-// suggestion pour une release qui existe légitimement.
+// Other forms are ignored rather than refused: a project may carry `1.8.0-beta1` in
+// its history, and taking offence would fail a suggestion for a release that
+// legitimately exists.
 func rcNumber(prerelease string) (int, bool) {
 	digits, found := strings.CutPrefix(prerelease, "rc")
 	if !found || digits == "" {
@@ -281,40 +265,40 @@ func rcNumber(prerelease string) (int, bool) {
 	return number, true
 }
 
-// Opaque est le schéma qui n'affirme rien.
+// Opaque is the scheme that asserts nothing.
 //
-// Il **doit rester utilisable**, et c'est lui qui prouve le contrat : un schéma
-// écrit sur la seule réalisation SemVer en aurait épousé la forme sans qu'on s'en
-// aperçoive. Confronté à l'ignorance, le contrat a dû rendre chaque question
-// faillible plutôt que de rendre des zéros — un `Base` vide et un `false` de
-// pré-release auraient été indiscernables de réponses affirmatives.
+// It must stay usable, and it is what proves the contract: a scheme written against
+// the SemVer implementation alone would have taken its shape without anyone
+// noticing. Faced with ignorance, the contract had to make every question fallible
+// rather than return zero values — an empty Base and a false pre-release would have
+// been indistinguishable from affirmative answers.
 type Opaque struct{}
 
 var _ Scheme = Opaque{}
 
 func (Opaque) ID() string { return "opaque" }
 
-// Parse accepte tout tag non vide. « Tout l'est » : sans convention déclarée,
-// rien ne permet de dire qu'un tag est mal formé, et le refuser serait imposer
-// une règle que le projet n'a pas.
+// Parse accepts any non-empty tag. With no declared convention, nothing allows
+// saying a tag is malformed, and refusing it would impose a rule the project does
+// not have.
 func (Opaque) Parse(tag string) (Version, error) {
 	trimmed := strings.TrimSpace(tag)
 	if trimmed == "" {
 		return Version{}, errors.New("tag vide")
 	}
-	// `Base` reste vide et `KnowsPrerelease` faux : le tag ne se décompose pas.
+	// Base stays empty and KnowsPrerelease false: the tag does not decompose.
 	return Version{Raw: trimmed}, nil
 }
 
-// NextPrerelease refuse : sans grammaire, la « suivante » n'existe pas. Proposer
-// `-rc1` enseignerait une convention que le projet n'a pas choisie.
+// NextPrerelease refuses: with no grammar, "the next one" does not exist. Proposing
+// `-rc1` would teach a convention the project did not choose.
 func (Opaque) NextPrerelease(string, []string) (string, error) {
-	return "", fmt.Errorf("%w: proposer la version suivante", ErrUnsupported)
+	return "", fmt.Errorf("%w: proposing the next version", ErrUnsupported)
 }
 
-// Compare refuse : deux tags opaques n'ont pas d'ordre connu. Un tri lexical
-// serait un ordre **inventé**, et l'interface l'afficherait comme s'il était le
-// bon.
+// Compare refuses: two opaque tags have no known order. A lexical sort would be an
+// invented order, and the interface would display it as though it were the right
+// one.
 func (Opaque) Compare(string, string) (int, error) {
-	return 0, fmt.Errorf("%w: ordonner deux versions", ErrUnsupported)
+	return 0, fmt.Errorf("%w: ordering two versions", ErrUnsupported)
 }

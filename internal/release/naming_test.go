@@ -12,49 +12,48 @@ func TestNormalizeVersionName(t *testing.T) {
 	}{
 		{"v3.2.0", "3.2.0", "convention courante"},
 		{"V3.2.0", "3.2.0", "majuscule admise"},
-		{"3.2.0", "3.2.0", "déjà normalisé"},
+		{"3.2.0", "3.2.0", "already normalised"},
 		{"  v3.2.0  ", "3.2.0", "espaces autour"},
 
-		// `v` n'est retiré que devant un chiffre : sinon on amputerait un nom.
-		{"validation", "validation", "v non suivi d'un chiffre"},
-		{"vNext", "vNext", "v non suivi d'un chiffre"},
-		{"v", "v", "préfixe seul"},
+		// `v` is stripped only before a digit: otherwise a name would be amputated.
+		{"validation", "validation", "v not followed by a digit"},
+		{"vNext", "vNext", "v not followed by a digit"},
+		{"v", "v", "prefix alone"},
 		{"", "", "vide"},
 
-		// Plus aucun autre préfixe n'est retiré (doc 16 §16.3). Ces noms existent
-		// dans le suivi du MSE, sur des versions closes : ils restent intacts, et
-		// ne se rattachent donc à aucun tag.
-		{"MSE 3.1.2", "MSE 3.1.2", "préfixe client, retiré de la règle"},
+		// No other prefix is stripped. Such names exist in the tracker, on closed versions:
+		// they stay intact, and therefore attach to no tag.
+		{"MSE 3.1.2", "MSE 3.1.2", "deployment prefix, dropped from the rule"},
 		{"MSE3-1.5", "MSE3-1.5", "convention historique"},
 	}
 
 	for _, c := range cases {
 		if got := NormalizeVersionName(c.name); got != c.want {
-			t.Errorf("%s: NormalizeVersionName(%q) = %q, attendu %q", c.why, c.name, got, c.want)
+			t.Errorf("%s: NormalizeVersionName(%q) = %q, expected %q", c.why, c.name, got, c.want)
 		}
 	}
 }
 
-// La normalisation n'est pas injective : tout rapprochement doit traiter ce cas au
-// lieu de supposer une correspondance unique.
-func TestLaNormalisationNestPasInjective(t *testing.T) {
+// Normalisation is not injective: any matching must handle that case instead of
+// assuming a unique correspondence.
+func TestNormalisationIsNotInjective(t *testing.T) {
 	if NormalizeVersionName("3.1.2") != NormalizeVersionName("v3.1.2") {
-		t.Error("ces deux noms doivent se réduire au même numéro")
+		t.Error("these two names must reduce to the same number")
 	}
 }
 
-// L'égalité stricte, telle que B8 et B17 la posaient, rejetait toute release réelle.
-func TestUneReleaseSeRattacheAUneVersionPrefixee(t *testing.T) {
+// Strict equality, as originally specified, rejected every real release.
+func TestAReleaseAttachesToAPrefixedVersion(t *testing.T) {
 	version, err := versionpkg.SemVer{}.Parse("3.2.0-rc1")
 	if err != nil {
 		t.Fatalf("analyse: %v", err)
 	}
 
 	if err := CheckTrackedVersion(version, "v3.2.0"); err != nil {
-		t.Errorf("une RC 3.2.0-rc1 doit se rattacher à la version v3.2.0: %v", err)
+		t.Errorf("a candidate 3.2.0-rc1 must attach to version v3.2.0: %v", err)
 	}
-	// La normalisation assouplit la forme, pas le fond.
+	// Normalisation loosens the form, not the substance.
 	if err := CheckTrackedVersion(version, "v3.3.0"); err == nil {
-		t.Error("3.2.0-rc1 ne doit pas se rattacher à v3.3.0")
+		t.Error("3.2.0-rc1 must not attach to v3.3.0")
 	}
 }

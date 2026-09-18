@@ -8,102 +8,103 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
-// Le cycle historique doit décrire exactement ce que l'énumération en base
-// décrivait : un projet déclaré avant la bascule continue sans que personne
-// n'ait rien à écrire.
-func TestLeCycleParDefautReproduitLesTroisNatures(t *testing.T) {
+// The historical cycle must describe exactly what the database enumeration
+// described: a project declared before the change carries on with nobody writing
+// anything.
+func TestTheDefaultCycleReproducesTheThreeKinds(t *testing.T) {
 	cycle := DefaultCycle()
 
 	if err := cycle.Validate(version.SemVer{}); err != nil {
-		t.Fatalf("le cycle par défaut doit être valide: %v", err)
+		t.Fatalf("the default cycle must be valid: %v", err)
 	}
 
-	// Le trait qui portait B17 : une finale re-tague, elle ne construit pas.
+	// The trait that carried the no-rebuild rule: a final release re-tags, it does not
+	// build.
 	final, err := cycle.Find("final")
 	if err != nil {
 		t.Fatalf("nature final: %v", err)
 	}
 	if final.Mode != ModeRetag || final.Source != "pre" {
-		t.Errorf("final: %+v — B17 tient au mode, pas au nom", final)
+		t.Errorf("final: %+v — the rule holds through the mode, not the name", final)
 	}
 
-	// Et le défaut que la séparation révèle : `pre` et `patch` ne diffèrent que
-	// par la forme du tag et la permission, leur comportement est le même.
+	// And the flaw the separation reveals: two of the historical kinds differ only by
+	// the shape of the tag and the permission; their behaviour is the same.
 	pre, _ := cycle.Find("pre")
 	patch, _ := cycle.Find("patch")
 	if pre.Mode != ModeBuild || patch.Mode != ModeBuild {
-		t.Errorf("pre=%s patch=%s — les deux construisent", pre.Mode, patch.Mode)
+		t.Errorf("pre=%s patch=%s — both build", pre.Mode, patch.Mode)
 	}
 	if pre.Tag == patch.Tag && pre.Permission == patch.Permission {
 		t.Error("pre et patch seraient alors indiscernables")
 	}
 }
 
-// Une nature inconnue est nommée avec celles qui existent : chercher dans le
-// code ce qu'on aurait pu écrire est une perte de temps évitable.
-func TestUneNatureInconnueNommeCellesQuiExistent(t *testing.T) {
+// An unknown kind is named alongside the ones that exist: searching the source for
+// what one might have written is avoidable waste.
+func TestAnUnknownKindNamesTheOnesThatExist(t *testing.T) {
 	_, err := DefaultCycle().Find("ga")
 	if !errors.Is(err, ErrUnknownKind) {
-		t.Fatalf("erreur %v, attendu ErrUnknownKind", err)
+		t.Fatalf("error %v, expected ErrUnknownKind", err)
 	}
 	for _, name := range []string{"pre", "final", "patch"} {
 		if !strings.Contains(err.Error(), name) {
-			t.Errorf("message %q — il doit nommer les natures déclarées", err)
+			t.Errorf("message %q — it must name the declared kinds", err)
 		}
 	}
 }
 
-// Le cycle qu'aucune des trois cases historiques ne pouvait décrire, et qui est
-// tout l'objet de la bascule.
-func TestUnCycleAlphaBetaGaEstDeclarable(t *testing.T) {
+// The cycle none of the three historical slots could describe, which is the whole
+// point of the change.
+func TestAnAlphaBetaGaCycleIsDeclarable(t *testing.T) {
 	cycle := Cycle{
 		{ID: "alpha", Label: "Alpha", Mode: ModeBuild, Tag: TagPrereleaseRequired},
-		{ID: "beta", Label: "Bêta", Mode: ModeBuild, Tag: TagPrereleaseRequired},
+		{ID: "beta", Label: "Beta", Mode: ModeBuild, Tag: TagPrereleaseRequired},
 		{ID: "ga", Label: "Livraison", Mode: ModeRetag, Source: "beta",
 			Tag: TagPrereleaseForbidden, Permission: "release:create:final"},
 	}
 
 	if err := cycle.Validate(version.SemVer{}); err != nil {
-		t.Fatalf("cycle refusé: %v", err)
+		t.Fatalf("cycle refused: %v", err)
 	}
 }
 
-// Un projet qui ne distingue rien — une seule sorte de release — devait
-// auparavant en choisir une arbitrairement.
-func TestUnCycleAUneSeuleNatureEstValide(t *testing.T) {
+// A project that distinguishes nothing — a single sort of release — previously had
+// to pick one arbitrarily.
+func TestASingleKindCycleIsValid(t *testing.T) {
 	cycle := Cycle{{ID: "release", Label: "Release", Mode: ModeBuild}}
 
 	if err := cycle.Validate(version.SemVer{}); err != nil {
-		t.Errorf("cycle à une nature refusé: %v", err)
+		t.Errorf("single-kind cycle refused: %v", err)
 	}
 }
 
-// Le couplage nature × schéma, refusé à la configuration.
+// The kind × scheme coupling, refused at configuration time.
 //
-// Sur un schéma opaque, `prerelease-required` n'est jamais vérifiable : une
-// release créée en la croyant tenue partirait dans un environnement qui l'exclut,
-// et rien ne le dirait.
-func TestUneRegleDeTagSupposeUnSchemaQuiSaitRepondre(t *testing.T) {
+// On an opaque scheme, `prerelease-required` can never be checked: a release
+// created believing it held would go to an environment that excludes it, with
+// nothing saying so.
+func TestATagRuleAssumesASchemeThatCanAnswer(t *testing.T) {
 	cycle := Cycle{{ID: "rc", Mode: ModeBuild, Tag: TagPrereleaseRequired}}
 
 	err := cycle.Validate(version.Opaque{})
 	if err == nil {
-		t.Fatal("une règle que le schéma ne sait pas vérifier doit être refusée")
+		t.Fatal("a rule the scheme cannot check must be refused")
 	}
-	if !strings.Contains(err.Error(), "pré-release") {
-		t.Errorf("message %q — il doit dire ce que le schéma ignore", err)
+	if !strings.Contains(err.Error(), "pre-release") {
+		t.Errorf("message %q — it must say what the scheme does not know", err)
 	}
 
-	// Sans règle, le même schéma convient : un projet opaque reste utilisable.
+	// With no rule, the same scheme is fine: an opaque project stays usable.
 	libre := Cycle{{ID: "release", Mode: ModeBuild}}
 	if err := libre.Validate(version.Opaque{}); err != nil {
-		t.Errorf("un cycle sans règle de tag doit convenir à un schéma opaque: %v", err)
+		t.Errorf("a cycle with no tag rule must suit an opaque scheme: %v", err)
 	}
 }
 
-// Une source inexistante ne se découvrirait qu'au moment de livrer, c'est-à-dire
-// au pire moment.
-func TestUneSourceInexistanteEstRefusee(t *testing.T) {
+// A non-existent source would only be discovered when shipping, which is the worst
+// moment.
+func TestANonExistentSourceIsRefused(t *testing.T) {
 	cycle := Cycle{
 		{ID: "rc", Mode: ModeBuild},
 		{ID: "ga", Mode: ModeRetag, Source: "beta"},
@@ -111,79 +112,78 @@ func TestUneSourceInexistanteEstRefusee(t *testing.T) {
 
 	err := cycle.Validate(version.SemVer{})
 	if err == nil || !strings.Contains(err.Error(), "beta") {
-		t.Errorf("erreur %v — la source manquante doit être nommée", err)
+		t.Errorf("error %v — the missing source must be named", err)
 	}
 }
 
-// Une source déclarée **après** celle qui la cite reste valide : l'ordre de la
-// liste est celui de l'affichage, pas une dépendance.
-func TestUneSourceDeclareePlusBasResteValide(t *testing.T) {
+// A source declared after the kind that cites it stays valid: the order of the list
+// is the display order, not a dependency.
+func TestASourceDeclaredLowerDownStaysValid(t *testing.T) {
 	cycle := Cycle{
 		{ID: "ga", Mode: ModeRetag, Source: "rc"},
 		{ID: "rc", Mode: ModeBuild},
 	}
 
 	if err := cycle.Validate(version.SemVer{}); err != nil {
-		t.Errorf("cycle refusé: %v", err)
+		t.Errorf("cycle refused: %v", err)
 	}
 }
 
-// Les incohérences structurelles.
-func TestUnCycleIncoherentEstRefuse(t *testing.T) {
+// The structural inconsistencies.
+func TestAnInconsistentCycleIsRefused(t *testing.T) {
 	cases := map[string]Cycle{
 		"vide":           {},
-		"sans id":        {{Mode: ModeBuild}},
-		"mode inconnu":   {{ID: "rc", Mode: "deploy"}},
-		"règle inconnue": {{ID: "rc", Mode: ModeBuild, Tag: "prerelease-maybe"}},
-		"nature doublée": {{ID: "rc", Mode: ModeBuild}, {ID: "rc", Mode: ModeRetag}},
+		"without an id":        {{Mode: ModeBuild}},
+		"unknown mode":   {{ID: "rc", Mode: "deploy"}},
+		"unknown rule": {{ID: "rc", Mode: ModeBuild, Tag: "prerelease-maybe"}},
+		"duplicated kind": {{ID: "rc", Mode: ModeBuild}, {ID: "rc", Mode: ModeRetag}},
 	}
 
 	for name, cycle := range cases {
 		if err := cycle.Validate(version.SemVer{}); err == nil {
-			t.Errorf("%s: accepté", name)
+			t.Errorf("%s: accepted", name)
 		}
 	}
 }
 
-// La vérification de forme, et son silence délibéré sur un schéma qui ne sait
-// pas : la configuration a déjà interdit ce cas, et échouer ici sur un cycle
-// valide bloquerait une création pour une raison incorrigible.
-func TestLaVerificationDeFormeSeTaitQuandLeSchemaIgnore(t *testing.T) {
+// Shape checking, and its deliberate silence on a scheme that cannot tell:
+// configuration has already forbidden that case, and failing here on a valid cycle
+// would block a creation for an unfixable reason.
+func TestShapeCheckingStaysSilentWhenTheSchemeCannotTell(t *testing.T) {
 	spec := KindSpec{ID: "rc", Tag: TagPrereleaseRequired}
 
 	opaque, _ := version.Opaque{}.Parse("build-4711")
 	if err := CheckTag(spec, opaque); err != nil {
-		t.Errorf("le schéma ne sait pas répondre: %v", err)
+		t.Errorf("the scheme cannot answer: %v", err)
 	}
 
 	finale, _ := version.SemVer{}.Parse("1.8.0")
 	if err := CheckTag(spec, finale); err == nil {
-		t.Error("une nature exigeant une pré-release doit refuser une finale")
+		t.Error("a kind requiring a pre-release must refuse a final version")
 	}
 
 	rc, _ := version.SemVer{}.Parse("1.8.0-rc1")
 	if err := CheckTag(spec, rc); err != nil {
-		t.Errorf("une RC doit être acceptée: %v", err)
+		t.Errorf("a candidate must be accepted: %v", err)
 	}
 }
 
-// Une nature vide n'est pas une nature mal orthographiée : c'est un appelant qui
-// n'a rien choisi, et le message doit le dire plutôt que de citer des guillemets
-// vides.
+// An empty kind is not a misspelled kind: it is a caller that chose nothing, and the
+// message must say so rather than quote empty quotes.
 //
-// Le cas s'est produit : le formulaire de création soumettait son état initial
-// — la chaîne vide — plutôt que la nature qu'il affichait cochée. L'erreur
-// désignait une valeur que l'utilisateur n'avait jamais vue.
-func TestUneNatureVideEstDistingueeDUneNatureInconnue(t *testing.T) {
+// It happened: the creation form submitted its initial state — the empty string —
+// rather than the kind it displayed as checked. The error named a value the user had
+// never seen.
+func TestAnEmptyKindIsToldApartFromAnUnknownOne(t *testing.T) {
 	_, err := DefaultCycle().Find("")
 	if !errors.Is(err, ErrUnknownKind) {
-		t.Fatalf("erreur %v, attendu ErrUnknownKind", err)
+		t.Fatalf("error %v, expected ErrUnknownKind", err)
 	}
-	if !strings.Contains(err.Error(), "aucune nature") {
-		t.Errorf("message %q — il doit dire que rien n'a été choisi", err)
+	if !strings.Contains(err.Error(), "no kind") {
+		t.Errorf("message %q — it must say that nothing was chosen", err)
 	}
-	// Et il nomme quand même ce qui existe : c'est ce qui permet de corriger.
+	// And it still names what exists: that is what allows fixing it.
 	if !strings.Contains(err.Error(), "pre") {
-		t.Errorf("message %q — il doit nommer les natures déclarées", err)
+		t.Errorf("message %q — it must name the declared kinds", err)
 	}
 }

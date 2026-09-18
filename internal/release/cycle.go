@@ -34,65 +34,61 @@ import (
  * nom, et le code qui la tient ne cite plus aucune nature.
  */
 
-// Mode est ce qu'une nature fait pour produire son image.
+// Mode is what a kind does to produce its image.
 //
-// Jeu **fermé**, et c'est ce qui le distingue des natures : ce sont les deux
-// primitives que le dashboard sait exécuter. En ajouter une demanderait du code
-// nouveau, alors qu'ajouter une nature ne demande qu'une ligne de configuration.
+// A closed set, and that is what distinguishes it from kinds: these are the two
+// primitives the dashboard can execute. Adding one takes new code, where adding a
+// kind takes a line of configuration.
 type Mode string
 
 const (
-	// ModeBuild construit une image depuis une référence Git.
+	// ModeBuild builds an image from a git reference.
 	ModeBuild Mode = "build"
-	// ModeRetag reprend l'image d'une release existante, bit à bit.
-	//
-	// C'est ici que vit B17 depuis que les natures sont déclarées : promouvoir
-	// ou livrer ne reconstruit jamais, sous peine de livrer une image que
-	// personne n'a testée.
+	// ModeRetag reuses an existing release's image, bit for bit. Promoting or shipping
+	// never rebuilds, on pain of shipping an image nobody tested.
 	ModeRetag Mode = "retag"
 )
 
-// TagRule dit ce que la nature exige de la forme du tag.
+// TagRule says what the kind requires of the tag's shape.
 type TagRule string
 
 const (
-	// TagAny n'exige rien. Seule règle déclarable sur un schéma qui ne sait pas
-	// distinguer une pré-release.
+	// TagAny requires nothing. The only rule declarable on a scheme that cannot tell a
+	// pre-release apart.
 	TagAny TagRule = "any"
-	// TagPrereleaseRequired exige une composante de pré-release.
+	// TagPrereleaseRequired requires a pre-release component.
 	TagPrereleaseRequired TagRule = "prerelease-required"
 	// TagPrereleaseForbidden l'interdit.
 	TagPrereleaseForbidden TagRule = "prerelease-forbidden"
 )
 
-// KindSpec déclare une nature de release.
+// KindSpec declares a kind of release.
 type KindSpec struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Mode  Mode   `json:"mode"`
-	// Tag borne la forme du tag. Vide vaut [TagAny].
+	// Tag bounds the shape of the tag. Empty means [TagAny].
 	Tag TagRule `json:"tag,omitempty"`
-	// Permission exigée pour créer une release de cette nature. Vide vaut la
-	// permission de création ordinaire.
+	// Permission required to create a release of this kind. Empty means the ordinary
+	// creation permission.
 	Permission string `json:"permission,omitempty"`
-	// Source nomme la nature dont une nature en `retag` reprend l'image. Vide,
-	// n'importe quelle release antérieure convient.
+	// Source names the kind a `retag` kind takes its image from. Empty: any earlier
+	// release will do.
 	Source string `json:"source,omitempty"`
 }
 
-// Cycle est le jeu des natures d'un projet, dans l'ordre où l'écran les propose.
+// Cycle is a project's set of kinds, in the order the screen offers them.
 type Cycle []KindSpec
 
-// DefaultCycle rend le cycle historique — `pre`, `final`, `patch`.
+// DefaultCycle returns the historical cycle — `pre`, `final`, `patch`.
 //
-// Exactement ce que l'énumération en base décrivait, traits pour traits : c'est
-// ce qui permet à un projet déclaré avant cette bascule de continuer sans que
-// personne n'ait rien à écrire. Le tableau de doc 12 §12.4 est la source de ces
-// valeurs.
+// Exactly what the enumeration in the database described, trait for trait: that is
+// what lets a project declared before this change carry on with nobody writing
+// anything.
 func DefaultCycle() Cycle {
 	return Cycle{
 		{
-			ID: "pre", Label: "Pré-release", Mode: ModeBuild,
+			ID: "pre", Label: "Pre-release", Mode: ModeBuild,
 			Tag: TagPrereleaseRequired, Permission: "release:create",
 		},
 		{
@@ -106,18 +102,18 @@ func DefaultCycle() Cycle {
 	}
 }
 
-// ErrUnknownKind signale une nature que le cycle du projet ne déclare pas.
-var ErrUnknownKind = errors.New("nature de release inconnue")
+// ErrUnknownKind reports a kind the project's cycle does not declare.
+var ErrUnknownKind = errors.New("unknown release kind")
 
-// Find rend la nature déclarée sous cet identifiant.
+// Find returns the kind declared under this identifier.
 //
-// L'identifiant vide est distingué : c'est un appelant qui n'a rien choisi, pas
-// une nature mal orthographiée, et le dire ainsi évite un message citant des
-// guillemets vides. Le cas s'est produit — un formulaire soumettait son état
-// initial plutôt que la nature qu'il affichait cochée.
+// The empty identifier is told apart: it is a caller that chose nothing, not a
+// misspelled kind, and saying so avoids a message quoting empty quotes. It
+// happened — a form submitted its initial state rather than the kind it displayed
+// as checked.
 func (c Cycle) Find(id string) (KindSpec, error) {
 	if strings.TrimSpace(id) == "" {
-		return KindSpec{}, fmt.Errorf("%w: aucune nature n'a été indiquée (déclarées: %s)",
+		return KindSpec{}, fmt.Errorf("%w: no kind was given (declared: %s)",
 			ErrUnknownKind, strings.Join(c.ids(), ", "))
 	}
 
@@ -126,11 +122,11 @@ func (c Cycle) Find(id string) (KindSpec, error) {
 			return spec, nil
 		}
 	}
-	return KindSpec{}, fmt.Errorf("%w %q (déclarées: %s)",
+	return KindSpec{}, fmt.Errorf("%w %q (declared: %s)",
 		ErrUnknownKind, id, strings.Join(c.ids(), ", "))
 }
 
-// ids énumère les natures déclarées, pour les nommer dans un message d'erreur.
+// ids lists the declared kinds, to name them in an error message.
 func (c Cycle) ids() []string {
 	declared := make([]string, 0, len(c))
 	for _, spec := range c {
@@ -139,18 +135,18 @@ func (c Cycle) ids() []string {
 	return declared
 }
 
-// Validate refuse un cycle incohérent, ou incompatible avec le schéma.
+// Validate refuses an inconsistent cycle, or one incompatible with the scheme.
 //
-// Vérifié à la **configuration** et non au premier usage : une nature en `retag`
-// dont la source n'existe pas ne se découvrirait qu'au moment de livrer, c'est-à-
-// dire au pire moment.
+// Checked at configuration time and not at first use: a `retag` kind whose source
+// does not exist would only be discovered when shipping, which is the worst
+// moment.
 func (c Cycle) Validate(scheme version.Scheme) error {
 	if len(c) == 0 {
-		return errors.New("un projet doit déclarer au moins une nature de release")
+		return errors.New("a project must declare at least one release kind")
 	}
 
-	// Le schéma sait-il distinguer une pré-release ? La question lui est posée
-	// une fois, sur un tag canonique, plutôt que déduite de son nom.
+	// Can the scheme tell a pre-release apart? The question is put to it once, on a
+	// canonical tag, rather than inferred from its name.
 	probe, err := scheme.Parse("1.0.0")
 	knowsPrerelease := err == nil && probe.KnowsPrerelease
 
@@ -159,11 +155,11 @@ func (c Cycle) Validate(scheme version.Scheme) error {
 
 	for _, spec := range c {
 		if strings.TrimSpace(spec.ID) == "" {
-			problems = append(problems, errors.New("une nature est déclarée sans identifiant"))
+			problems = append(problems, errors.New("a kind is declared without an identifier"))
 			continue
 		}
 		if seen[spec.ID] {
-			problems = append(problems, fmt.Errorf("la nature %q est déclarée deux fois", spec.ID))
+			problems = append(problems, fmt.Errorf("kind %q is declared twice", spec.ID))
 		}
 		seen[spec.ID] = true
 
@@ -171,57 +167,53 @@ func (c Cycle) Validate(scheme version.Scheme) error {
 		case ModeBuild, ModeRetag:
 		default:
 			problems = append(problems, fmt.Errorf(
-				"nature %q: mode %q inconnu (attendu %s ou %s)",
+				"kind %q: unknown mode %q (expected %s or %s)",
 				spec.ID, spec.Mode, ModeBuild, ModeRetag))
 		}
 
 		switch spec.Tag {
 		case "", TagAny:
 		case TagPrereleaseRequired, TagPrereleaseForbidden:
-			// Le couplage nature × schéma, refusé ici plutôt que découvert. Sur
-			// un schéma qui ne distingue pas les pré-releases, cette contrainte
-			// n'a pas de sens : elle ne serait jamais vérifiable, et une
-			// release créée en la croyant tenue partirait dans un environnement
-			// qui l'exclut.
+			// The kind × scheme coupling, refused here rather than discovered. On a scheme that
+			// does not distinguish pre-releases this constraint is meaningless: it could never
+			// be checked, and a release created believing it held would go to an environment
+			// that excludes it.
 			if !knowsPrerelease {
 				problems = append(problems, fmt.Errorf(
-					"nature %q: la règle %q suppose un schéma qui distingue les "+
-						"pré-releases, or %q ne sait pas répondre",
+					"kind %q: rule %q assumes a scheme that distinguishes "+
+						"pre-releases, and %q cannot answer",
 					spec.ID, spec.Tag, scheme.ID()))
 			}
 		default:
 			problems = append(problems, fmt.Errorf(
-				"nature %q: règle de tag %q inconnue", spec.ID, spec.Tag))
+				"kind %q: unknown tag rule %q", spec.ID, spec.Tag))
 		}
 	}
 
-	// Les sources sont vérifiées en second : elles se référencent entre natures,
-	// et les contrôler au fil de la boucle rejetterait une source déclarée plus
-	// bas dans la liste.
+	// Sources are checked second: they reference other kinds, and checking them inside
+	// the loop would reject a source declared further down the list.
 	for _, spec := range c {
 		if spec.Mode != ModeRetag || spec.Source == "" {
 			continue
 		}
 		if !seen[spec.Source] {
 			problems = append(problems, fmt.Errorf(
-				"nature %q: sa source %q n'est pas déclarée", spec.ID, spec.Source))
+				"kind %q: its source %q is not declared", spec.ID, spec.Source))
 		}
 	}
 
 	return errors.Join(problems...)
 }
 
-// CheckTag vérifie que la forme du tag correspond à ce que la nature exige.
+// CheckTag checks that the tag's shape matches what the kind requires.
 //
-// L'erreur que cela attrape est banale et coûteuse : créer `1.8.0-rc1` en
-// déclarant une nature qui interdit les pré-releases, puis constater que la
-// production ne la prend jamais — sa plage SemVer les excluant, le déployeur
-// l'ignore sans rien dire (B7).
+// The mistake it catches is banal and costly: creating `1.8.0-rc1` under a kind
+// that forbids pre-releases, then finding production never picks it up — its
+// version range excluding them, the deployer ignores it silently.
 //
-// Une règle que le schéma ne sait pas vérifier est **acceptée en silence** plutôt
-// que refusée : la configuration l'a déjà interdite ([Cycle.Validate]), et
-// échouer ici sur un cycle valide bloquerait une création pour une raison que
-// l'utilisateur ne peut pas corriger.
+// A rule the scheme cannot check is accepted silently rather than refused:
+// configuration has already forbidden it ([Cycle.Validate]), and failing here on a
+// valid cycle would block a creation for a reason the user cannot fix.
 func CheckTag(spec KindSpec, parsed version.Version) error {
 	prerelease, known := parsed.Prereleased()
 	if !known {
@@ -232,13 +224,13 @@ func CheckTag(spec KindSpec, parsed version.Version) error {
 	case TagPrereleaseRequired:
 		if !prerelease {
 			return fmt.Errorf(
-				"le tag %q n'a pas de composante de pré-release: une release %q s'écrit par exemple %s-rc1",
+				"tag %q has no pre-release component: a %q release is written, for example, %s-rc1",
 				parsed.Raw, spec.ID, parsed.Base)
 		}
 	case TagPrereleaseForbidden:
 		if prerelease {
 			return fmt.Errorf(
-				"le tag %q porte une composante de pré-release %q: une release %q s'écrit %s",
+				"tag %q carries a pre-release component %q: a %q release is written %s",
 				parsed.Raw, parsed.Prerelease, spec.ID, parsed.Base)
 		}
 	}

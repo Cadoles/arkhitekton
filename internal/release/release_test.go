@@ -6,17 +6,17 @@ import (
 	"testing"
 )
 
-// La forme et la nature sont désormais éprouvées dans `internal/version` et
-// `cycle_test.go` : c'est là que vivent le schéma et le cycle. Les rejouer ici
-// testerait deux fois la même règle depuis le paquet qui ne la possède plus.
+// Shape and kind are now exercised in internal/version and cycle_test.go: that is
+// where the scheme and the cycle live. Replaying them here would test the same rule
+// twice from the package that no longer owns it.
 func TestCheckRedmineVersionTiesPrereleaseToItsScope(t *testing.T) {
 	rc, _ := versionpkg.SemVer{}.Parse("1.8.0-rc3")
 
 	if err := CheckTrackedVersion(rc, "1.8.0"); err != nil {
-		t.Errorf("une RC doit se rattacher à sa version de base: %v", err)
+		t.Errorf("a candidate must attach to its base version: %v", err)
 	}
 	if err := CheckTrackedVersion(rc, "1.7.0"); err == nil {
-		t.Error("un rattachement à la mauvaise version doit être refusé")
+		t.Error("attaching to the wrong version must be refused")
 	}
 }
 
@@ -25,23 +25,20 @@ func TestTransitions(t *testing.T) {
 		{StateDraft, StateBuilding},
 		{StateBuilding, StateReady},
 		{StateBuilding, StateFailed},
-		// Une reconstruction reste possible : un build peut échouer pour une
-		// raison extérieure à la release.
+		// A rebuild stays possible: a build can fail for a reason outside the release.
 		{StateFailed, StateBuilding},
 		{StateReady, StateBuilding},
-		// `draft → ready` est la porte du chemin **dérivé** : une release finale
-		// est un re-tag, rien n'est construit ni exécuté, elle entre donc
-		// directement en attente de décision (doc 04 §4.2, B17). Ce passage était
-		// refusé tant que le code ne modélisait que le chemin construit.
+		// `draft → ready` is the gate of the derived path: a final release is a re-tag,
+		// nothing is built or run, so it goes straight to awaiting a decision. That passage
+		// was refused while the code modelled only the built path.
 		{StateDraft, StateReady},
-		// `ready → failed` : le diagramme de doc 04 rend `failed` atteignable
-		// depuis `building`, `verifying` **et** `ready` — une release en attente
-		// de décision peut voir un pipeline obligatoire retomber en échec.
+		// `ready → failed`: a release awaiting a decision can see a mandatory pipeline fall
+		// back into failure.
 		{StateReady, StateFailed},
 	}
 	refused := [][2]State{
-		// Rien ne revient à `draft` : cet état dit « pas encore construite », et y
-		// retourner effacerait ce qui a été produit depuis.
+		// Nothing returns to `draft`: that state says "not built yet", and going back would
+		// erase what has been produced since.
 		{StateReady, StateDraft},
 		{StateBuilding, StateDraft},
 		{StateReleased, StateDraft},
@@ -49,43 +46,43 @@ func TestTransitions(t *testing.T) {
 
 	for _, pair := range allowed {
 		if !CanTransition(pair[0], pair[1]) {
-			t.Errorf("%s → %s devrait être permis", pair[0], pair[1])
+			t.Errorf("%s → %s should be allowed", pair[0], pair[1])
 		}
 	}
 	for _, pair := range refused {
 		if CanTransition(pair[0], pair[1]) {
-			t.Errorf("%s → %s devrait être refusé", pair[0], pair[1])
+			t.Errorf("%s → %s should be refused", pair[0], pair[1])
 		}
 	}
 }
 
-// Le re-tag : ce qui part en production est bit pour bit ce qui a été validé.
-// L'image continue donc de porter la version de la RC, et c'est `image_version`
-// qui absorbe l'écart — comparer PortalData au tag échouerait sur toute release
-// finale.
+// The re-tag: what goes to production is bit for bit what was approved. The image
+// therefore still carries the candidate's version, and `image_version` absorbs the
+// difference — comparing the running version with the tag would fail on every final
+// release.
 func TestFinalFromSourceKeepsTheSourceImageVersion(t *testing.T) {
 	imageVersion, warnings, err := FinalFromSource(Source{
 		Tag: "1.8.0-rc3", ImageVersion: "1.8.0-rc3", State: StateReleased, TestsGreen: true,
 	})
 	if err != nil {
-		t.Fatalf("re-tag refusé: %v", err)
+		t.Fatalf("re-tag refused: %v", err)
 	}
 	if imageVersion != "1.8.0-rc3" {
-		t.Errorf("version d'image = %q, attendu celle de la RC", imageVersion)
+		t.Errorf("image version = %q, expected the candidate's", imageVersion)
 	}
 	if len(warnings) != 0 {
 		t.Errorf("avertissements inattendus: %v", warnings)
 	}
 }
 
-// Livrer une RC dont un test est rouge appartient au client. Le taire serait en
-// revanche une faute.
+// Shipping a candidate with a red test belongs to the deployment. Staying silent
+// about it would be a fault.
 func TestFinalFromSourceWarnsOnRedTests(t *testing.T) {
 	_, warnings, err := FinalFromSource(Source{
 		Tag: "1.8.0-rc3", ImageVersion: "1.8.0-rc3", State: StateReleased, TestsGreen: false,
 	})
 	if err != nil {
-		t.Fatalf("le re-tag ne doit pas être refusé: %v", err)
+		t.Fatalf("the re-tag must not be refused: %v", err)
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "1.8.0-rc3") {
 		t.Errorf("avertissement = %v", warnings)
@@ -94,32 +91,32 @@ func TestFinalFromSourceWarnsOnRedTests(t *testing.T) {
 
 func TestFinalFromSourceRefusesUnusableSources(t *testing.T) {
 	if _, _, err := FinalFromSource(Source{}); err == nil {
-		t.Error("une release finale sans source doit être refusée")
+		t.Error("a final release with no source must be refused")
 	}
 
 	if _, _, err := FinalFromSource(Source{
 		Tag: "1.8.0-rc3", ImageVersion: "1.8.0-rc3", State: StateBuilding,
 	}); err == nil {
-		t.Error("une RC encore en construction ne doit pas être re-taguée")
+		t.Error("a candidate still building must not be re-tagged")
 	}
 
 	if _, _, err := FinalFromSource(Source{
 		Tag: "1.8.0-rc3", State: StateReleased,
 	}); err == nil {
-		t.Error("une RC sans version d'image ne doit pas être re-taguée")
+		t.Error("a candidate with no image version must not be re-tagged")
 	}
 }
 
-// La RC source doit être **validée**, pas seulement prête. C'est tout le sens du
-// re-tag : il transporte la validation vers la release finale, et il n'y a rien à
-// transporter tant que personne n'a validé.
-func TestUneRCNonValideeNePeutPasEtreReTaguee(t *testing.T) {
+// The source candidate must be approved, not merely ready. That is the whole meaning
+// of the re-tag: it carries approval over to the final release, and there is nothing
+// to carry while nobody has approved.
+func TestAnUnapprovedCandidateCannotBeReTagged(t *testing.T) {
 	for _, state := range []State{StateDraft, StateBuilding, StateVerifying, StateReady, StateFailed} {
 		_, _, err := FinalFromSource(Source{
 			Tag: "1.8.0-rc3", ImageVersion: "1.8.0-rc3", State: state, TestsGreen: true,
 		})
 		if err == nil {
-			t.Errorf("état %q: le re-tag devrait être refusé tant que la RC n'est pas validée", state)
+			t.Errorf("state %q: the re-tag should be refused while the candidate is not approved", state)
 		}
 	}
 }

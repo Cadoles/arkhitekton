@@ -18,46 +18,42 @@ import (
  * l'appelant, qui seul connaît l'état des demandes.
  */
 
-// issueReference reconnaît `#1234`.
+// issueReference recognises `#1234`.
 //
-// Bornes explicites des deux côtés, et elles portent tout le sens de
-// l'expression :
+// Explicit bounds on both sides, and they carry the whole meaning:
 //
-//   - `(^|[^\w#])` refuse `##1234` et `abc#1234`. Le premier est une ancre
-//     Markdown, le second un identifiant qui contient un croisillon sans le
-//     signifier ;
-//   - `\b` en fin refuse `#1234abc`, qui n'est pas un numéro.
+//   - `(^|[^\w#])` refuses `##1234` and `abc#1234`. The first is a Markdown anchor,
+//     the second an identifier that contains a hash without meaning one;
+//   - the trailing `\b` refuses `#1234abc`, which is not a number.
 //
-// Sans elles, un lien Markdown `[#12](…)` ou une empreinte `sha#1234` auraient
-// rattaché des demandes qui n'ont rien à voir à une release — et une note de
-// release fausse est pire qu'une note vide : elle se lit comme une liste
-// vérifiée.
+// Without them, a Markdown link `[#12](…)` or a fingerprint `sha#1234` would have
+// attached unrelated issues to a release — and a false release note is worse than an
+// empty one: it reads like a checked list.
 var issueReference = regexp.MustCompile(`(^|[^\w#])#(\d+)\b`)
 
-// maxIssueNumber borne ce qu'on accepte comme numéro de demande.
+// maxIssueNumber bounds what is accepted as an issue number.
 //
-// Un `#123456789012345` dans un texte est tout sauf une demande, et le convertir
-// déborderait ou produirait un identifiant absurde qu'on irait chercher en base.
+// A `#123456789012345` in a text is anything but an issue, and converting it would
+// overflow or produce an absurd identifier that would be looked up in the database.
 const maxIssueNumber = 1 << 31
 
-// ExtractIssueIDs rend les numéros de demande cités dans un texte.
+// ExtractIssueIDs returns the issue numbers cited in a text.
 //
-// Sans doublon et dans l'ordre d'apparition : une PR qui cite `#1234` dans son
-// titre et dans trois commits désigne une seule demande, et l'ordre est celui
-// que l'auteur a écrit.
+// Without duplicates and in order of appearance: a pull request citing `#1234` in
+// its title and in three commits names one issue, and the order is the one its
+// author wrote.
 func ExtractIssueRefs(texts ...string) []string {
 	var found []string
 	seen := map[string]bool{}
 
 	for _, text := range texts {
 		for _, match := range issueReference.FindAllStringSubmatch(text, -1) {
-			// La borne reste numérique parce que le motif l'est : `#1234` est la
-			// convention de cette équipe, et elle écarte les numéros absurdes —
-			// un `#0` ou un identifiant à huit chiffres est un faux positif.
+			// The bound stays numeric because the pattern is: `#1234` is this team's
+			// convention, and it rules out absurd numbers — a `#0` or an eight-digit identifier
+			// is a false positive.
 			//
-			// Ce que rend la fonction, en revanche, est du **texte** : c'est ce
-			// qui sera comparé aux identifiants du suivi, et tous ne numérotent
-			// pas.
+			// What the function returns, however, is text: it will be compared with the
+			// tracker's identifiers, and not every tracker numbers.
 			number, err := strconv.ParseInt(match[2], 10, 64)
 			if err != nil || number <= 0 || number >= maxIssueNumber {
 				continue
