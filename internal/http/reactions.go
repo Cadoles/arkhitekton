@@ -26,7 +26,7 @@ import (
  * # Les références sont vérifiées ici
  *
  * `internal/reaction` porte la forme ; cette couche porte les **références** —
- * qu'un type de fait soit produit, qu'un geste désigne une famille du catalogue ou
+ * qu'un type de fait soit produit, qu'un step désigne une famille du catalogue ou
  * une action du registre. C'est ici parce que c'est ici que les registres sont
  * sous la main.
  *
@@ -39,11 +39,11 @@ import (
  * L'écran ne code aucune liste. Il demande ce que cette version sait faire : les
  * faits qu'on peut écouter, avec les champs de leur charge ; les actions, avec
  * leurs paramètres ; les familles du catalogue. Une liste écrite dans l'interface
- * divergerait du binaire au premier ajout, et l'écart se verrait par un geste
+ * divergerait du binaire au premier ajout, et l'écart se verrait par un step
  * qu'on peut choisir et que rien n'exécute.
  */
 
-// AutomationStore est ce que les automatisations attendent de la base.
+// AutomationStore is what the automations need from the database.
 type AutomationStore interface {
 	ListReactions(ctx context.Context, projectID int64) ([]reaction.Reaction, error)
 	GetReaction(ctx context.Context, projectID, id int64) (reaction.Reaction, error)
@@ -57,7 +57,7 @@ type AutomationStore interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// AutomationsHandler expose les réactions et le catalogue de l'éditeur.
+// AutomationsHandler exposes the reactions and the editor's catalogue.
 type AutomationsHandler struct {
 	store   AutomationStore
 	catalog *catalog.Catalog
@@ -80,17 +80,16 @@ type reactionPayload struct {
 	Enabled   bool              `json:"enabled"`
 	Match     map[string]string `json:"match"`
 	Plan      plan.Plan         `json:"plan"`
-	// Inert dit que la réaction ne peut plus se déclencher : son fait n'est plus
-	// produit par cette version, ou le plugin qui le produisait est éteint.
+	// Inert says the reaction can no longer trigger: its fact is no longer produced by this
+	// version, or the plugin that produced it is switched off.
 	//
-	// Rendu plutôt que la réaction effacée : une extinction peut être temporaire,
-	// et effacer silencieusement ferait perdre une configuration. L'écran
-	// l'affiche inerte, en le disant.
+	// Returned rather than the reaction deleted: a switch-off may be temporary, and deleting
+	// silently would lose a configuration. The screen displays it as inert, and says so.
 	Inert  bool   `json:"inert,omitempty"`
 	Reason string `json:"inert_reason,omitempty"`
 }
 
-// List rend les réactions d'un projet.
+// List returns a project's reactions.
 func (h *AutomationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -99,13 +98,13 @@ func (h *AutomationsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	reactions, err := h.store.ListReactions(r.Context(), project.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des réactions impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the reactions", "")
 		return
 	}
 
 	live, err := h.liveEventTypes(r.Context(), project.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des plugins impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the plugins", "")
 		return
 	}
 
@@ -117,8 +116,8 @@ func (h *AutomationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		if !slices.Contains(live, entry.EventType) {
 			view.Inert = true
-			view.Reason = "ce fait n'est plus produit : le plugin qui l'observe est " +
-				"éteint, ou cette version ne le déclare plus"
+			view.Reason = "this fact is no longer produced: the plugin that observes it is " +
+				"switched off, or this version no longer declares it"
 		}
 		payload = append(payload, view)
 	}
@@ -137,7 +136,7 @@ type reactionRequest struct {
 	Plan      plan.Plan         `json:"plan"`
 }
 
-// Save crée ou remplace une réaction.
+// Save creates or replaces a reaction.
 func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -146,13 +145,13 @@ func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 
 	var request reactionRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
-	// L'identifiant vient du chemin et non du corps : un corps qui le porterait
-	// permettrait de déplacer une réaction d'un projet à l'autre en modifiant deux
-	// champs, et l'URL cesserait de dire ce qu'on écrit.
+	// The identifier comes from the path and not from the body: a body carrying it would
+	// allow moving a reaction from one project to another by editing two fields, and the URL
+	// would stop saying what is being written.
 	var id int64
 	if raw := strings.TrimSpace(r.PathValue("reaction")); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
@@ -170,11 +169,11 @@ func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := entry.Validate(); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Réaction invalide", err.Error())
+		writeProblem(w, http.StatusBadRequest, "Invalid reaction", err.Error())
 		return
 	}
 	if err := h.checkRefs(r.Context(), entry); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Réaction invalide", err.Error())
+		writeProblem(w, http.StatusBadRequest, "Invalid reaction", err.Error())
 		return
 	}
 
@@ -182,21 +181,21 @@ func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 	saved, err := h.store.SaveReaction(r.Context(), entry, identity.Subject)
 	switch {
 	case errors.Is(err, store.ErrReactionExists):
-		writeProblem(w, http.StatusConflict, "Nom déjà pris",
-			"une réaction de ce projet porte déjà ce nom")
+		writeProblem(w, http.StatusConflict, "Name already taken",
+			"a reaction of this project already carries this name")
 		return
 	case errors.Is(err, store.ErrReactionNotFound):
-		writeProblem(w, http.StatusNotFound, "Réaction introuvable", "")
+		writeProblem(w, http.StatusNotFound, "Reaction not found", "")
 		return
 	case err != nil:
-		h.logger.Error("enregistrement d'une réaction",
+		h.logger.Error("recording a reaction",
 			"projet", project.Slug, "nom", entry.Name, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
 		return
 	}
 
-	// Le journal porte le fait écouté et l'activation. Pas le plan : il porte des
-	// gabarits, et un journal d'audit se lit avec moins de précautions qu'une base.
+	// The log carries the fact listened for and whether it is enabled. Not the plan: it
+	// carries templates, and an audit log is read with fewer precautions than a database.
 	h.audit(r, "reaction.save", project.Slug+"/"+entry.Name, map[string]any{
 		"event_type": entry.EventType, "enabled": entry.Enabled,
 	})
@@ -204,7 +203,7 @@ func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": saved})
 }
 
-// Delete retire une réaction.
+// Delete removes a reaction.
 func (h *AutomationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -219,7 +218,7 @@ func (h *AutomationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.DeleteReaction(r.Context(), project.ID, id); err != nil {
 		if errors.Is(err, store.ErrReactionNotFound) {
-			writeProblem(w, http.StatusNotFound, "Réaction introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Reaction not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Suppression impossible", "")
@@ -237,9 +236,9 @@ func (h *AutomationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 type eventChoice struct {
 	Type  string `json:"type"`
 	Label string `json:"label"`
-	// Source distingue le noyau d'un plugin. Vide pour le noyau.
+	// Source distinguishes the core from a plugin. Empty for the core.
 	Source string `json:"source,omitempty"`
-	// Fields énumère les champs appariables, et donc les variables de gabarit.
+	// Fields lists the matchable fields, and therefore the template variables.
 	Fields []string `json:"fields"`
 }
 
@@ -247,36 +246,35 @@ type gesteChoice struct {
 	Kind  string `json:"kind"`
 	Ref   string `json:"ref"`
 	Label string `json:"label"`
-	// Summary n'est renseigné que pour une action : une famille du catalogue se
-	// décrit par son libellé.
+	// Summary is set only for an action: a catalogue kind is described by its label.
 	Summary string         `json:"summary,omitempty"`
 	Fields  []fieldPayload `json:"fields,omitempty"`
-	// Produces énumère ce que le pipeline laisse derrière lui, dans le vocabulaire
-	// du catalogue. Vide pour une action, qui ne produit rien d'observable.
+	// Produces lists what the pipeline leaves behind, in the catalogue's vocabulary. Empty
+	// for an action, which produces nothing observable.
 	Produces []string `json:"produces,omitempty"`
-	// Source nomme le plugin qui fournit le geste. Vide pour le noyau.
+	// Source names the plugin supplying the step. Empty for the core.
 	//
-	// Rendu pour la même raison que sur un fait : deux gestes peuvent porter le
-	// même libellé — « Statut de commit » — et ne pas parler à la même forge.
+	// Returned for the same reason as on a fact: two steps may carry the same label and not
+	// talk to the same forge.
 	Source string `json:"source,omitempty"`
 }
 
-// Catalogue rend ce que cette version sait faire.
+// Catalogue returns what this version can do.
 //
-// L'écran ne code aucune liste : il demande, et compose son formulaire. Une liste
-// écrite dans l'interface divergerait du binaire au premier ajout, et l'écart se
-// verrait par un geste qu'on peut choisir et que rien n'exécute.
+// The screen hard-codes no list: it asks, and composes its form. A list written in the
+// interface would diverge from the binary at the first addition, and the gap would show
+// as a step one can choose and nothing executes.
 func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.store.PluginSettingsAll(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des plugins impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the plugins", "")
 		return
 	}
 
 	events := coreEventChoices()
 	for _, descriptor := range plugin.Registry() {
-		// Un fait dont le plugin est éteint n'apparaît pas dans l'éditeur : un
-		// choix qui ne se déclencherait jamais est pire qu'une absence.
+		// A fact whose plugin is switched off does not appear in the editor: a choice that would
+		// never trigger is worse than an absence.
 		if !settings[descriptor.ID].Enabled {
 			continue
 		}
@@ -288,15 +286,15 @@ func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	gestes := make([]gesteChoice, 0, 8)
+	steps := make([]gesteChoice, 0, 8)
 	for _, descriptor := range action.All() {
-		// Une action dont le plugin est éteint n'apparaît pas, exactement comme un
-		// fait qu'il n'observe plus : un geste qu'on peut choisir et qui refusera
-		// de partir est pire qu'une absence.
+		// An action whose plugin is switched off does not appear, exactly like a fact it no
+		// longer observes: a step one can choose and that will refuse to leave is worse than an
+		// absence.
 		if descriptor.Plugin != "" && !settings[descriptor.Plugin].Enabled {
 			continue
 		}
-		gestes = append(gestes, gesteChoice{
+		steps = append(steps, gesteChoice{
 			Kind: string(plan.GesteAction), Ref: descriptor.ID,
 			Label: descriptor.Label, Summary: descriptor.Summary,
 			Fields: actionFields(descriptor), Source: descriptor.Plugin,
@@ -308,17 +306,15 @@ func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 			if !found {
 				continue
 			}
-			gestes = append(gestes, gesteChoice{
+			steps = append(steps, gesteChoice{
 				Kind: string(plan.GestePipeline), Ref: pipeline.Kind, Label: pipeline.Label,
-				// Les paramètres qu'un pipeline demande, avec leurs libellés. Ils
-				// n'étaient pas rendus tant qu'un plan de release était composé en
-				// Go : personne n'avait à lire un nom de paramètre. Déclarer la
-				// construction renverse cela (doc 15 §15.5).
+				// The parameters a pipeline asks for, with their labels. They were not returned while a
+				// release plan was composed in Go: nobody had to read a parameter name. Declaring the
+				// build reverses that.
 				Fields: pipelineFields(pipeline),
-				// Ce que le pipeline produit, pour que l'éditeur sache dans quelle
-				// étape il a le droit d'aller. Le serveur refuse de toute façon, mais
-				// un formulaire qui laisse choisir puis refuse est un formulaire
-				// qu'on apprend à contourner.
+				// What the pipeline produces, so the editor knows which stage it may go into. The server
+				// refuses anyway, but a form that lets one choose and then refuses is a form people learn
+				// to work around.
 				Produces: produces(pipeline),
 			})
 		}
@@ -326,23 +322,23 @@ func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"events": events,
-		"gestes": gestes,
+		"steps":  steps,
 		"when":   []string{string(plan.WhenSuccess), string(plan.WhenFailure), string(plan.WhenAlways)},
-		// Les rôles d'étape, et ce que chacun exige de ses gestes. L'éditeur
-		// présente deux blocs — « Construction », « Vérification » — et doit
-		// pouvoir dire lequel accepte quoi sans coder la table.
+		// The stage roles, and what each requires of its steps. The editor presents two blocks —
+		// "Build", "Verification" — and must be able to say which accepts what without hard-coding
+		// the table.
 		"roles": roleChoices(),
 	})
 }
 
-// roleChoice décrit un rôle d'étape pour l'éditeur.
+// roleChoice describes a stage role for the editor.
 type roleChoice struct {
 	Role string `json:"role"`
-	// Label est le titre du bloc dans l'éditeur.
+	// Label is the block's title in the editor.
 	Label string `json:"label"`
-	// Requires est le produit qu'un geste doit déclarer pour y entrer.
+	// Requires is the product a step must declare to enter it.
 	Requires string `json:"requires"`
-	// Advances dit ce que la conclusion de cette étape fait à la release.
+	// Advances says what concluding this stage does to the release.
 	Advances string `json:"advances"`
 }
 
@@ -351,17 +347,17 @@ func roleChoices() []roleChoice {
 		{
 			Role: string(plan.RoleBuild), Label: "Construction",
 			Requires: string(catalog.ProductImage),
-			Advances: "la release passe en vérification, ou échoue",
+			Advances: "the release moves into verification, or fails",
 		},
 		{
-			Role: string(plan.RoleTest), Label: "Vérification",
+			Role: string(plan.RoleTest), Label: "Verification",
 			Requires: string(catalog.ProductResults),
-			Advances: "la release devient prête, ou échoue",
+			Advances: "the release becomes ready, or fails",
 		},
 	}
 }
 
-// pipelineFields rend les paramètres qu'une déclaration peut renseigner.
+// pipelineFields returns the parameters a declaration may fill.
 func pipelineFields(pipeline catalog.Pipeline) []fieldPayload {
 	declared := pipeline.Declared()
 	fields := make([]fieldPayload, 0, len(declared))
@@ -383,19 +379,18 @@ func produces(pipeline catalog.Pipeline) []string {
 	return names
 }
 
-// coreEventChoices énumère les faits du noyau, avec leurs champs appariables.
+// coreEventChoices lists the core facts, with their matchable fields.
 //
-// Écrits ici et non déduits : les faits du noyau n'ont pas de descripteur — ils
-// sont émis par du code, pas déclarés par un plugin — et leur donner un registre
-// pour la seule commodité de cette liste ajouterait une seconde vérité à tenir
-// alignée.
+// Written here and not derived: core facts have no descriptor — they are emitted by code,
+// not declared by a plugin — and giving them a registry for the sole convenience of this
+// list would add a second truth to keep aligned.
 func coreEventChoices() []eventChoice {
 	return []eventChoice{
-		{Type: string(event.VersionCreated), Label: "Version déclarée dans le suivi",
+		{Type: string(event.VersionCreated), Label: "Version declared in the tracker",
 			Fields: []string{"version_id", "name", "status", "tool", "external_id", "due_date"}},
-		{Type: string(event.ReleaseCreated), Label: "Release déclarée",
+		{Type: string(event.ReleaseCreated), Label: "Release declared",
 			Fields: []string{"release_id", "tag", "kind", "git_ref", "version"}},
-		{Type: string(event.ReleaseReleased), Label: "Release validée",
+		{Type: string(event.ReleaseReleased), Label: "Release validated",
 			Fields: []string{"release_id", "tag", "released_by"}},
 	}
 }
@@ -424,7 +419,7 @@ func actionFields(descriptor action.Descriptor) []fieldPayload {
  * Les contrôles de référence.
  */
 
-// checkRefs refuse une réaction dont une référence ne désigne rien.
+// checkRefs refuses a reaction one of whose references names nothing.
 func (h *AutomationsHandler) checkRefs(ctx context.Context, entry reaction.Reaction) error {
 	var problems []error
 
@@ -434,18 +429,17 @@ func (h *AutomationsHandler) checkRefs(ctx context.Context, entry reaction.React
 	}
 	if !slices.Contains(live, entry.EventType) {
 		problems = append(problems, fmt.Errorf(
-			"le fait %q n'est produit par aucun plugin actif de cette version (connus: %s)",
+			"fact %q is produced by no active plugin of this version (known: %s)",
 			entry.EventType, strings.Join(live, ", ")))
 	}
 
-	// Un rôle sur l'étape d'une **réaction** n'a pas de sens et serait ignoré :
-	// ce sont les étapes du plan d'une release qui font avancer son état, et une
-	// réaction ne vise aucune release en particulier.
+	// A role on a reaction's stage makes no sense and would be ignored: it is the stages of a
+	// release's plan that advance its state, and a reaction aims at no particular release.
 	for index, stage := range entry.Plan.Stages {
 		if stage.Role != "" {
 			problems = append(problems, fmt.Errorf(
-				"l'étape %d d'une réaction porte le rôle %q : un rôle ne fait avancer "+
-					"que l'automatisation d'une release", index+1, stage.Role))
+				"stage %d of a reaction carries the role %q: a role only advances "+
+					"a release's automation", index+1, stage.Role))
 		}
 	}
 
@@ -453,10 +447,10 @@ func (h *AutomationsHandler) checkRefs(ctx context.Context, entry reaction.React
 	return errors.Join(problems...)
 }
 
-// checkPlanRefs refuse un plan dont un geste ne désigne rien d'exécutable.
+// checkPlanRefs refuses a plan one of whose steps names nothing executable.
 //
-// Partagé par les réactions et l'automatisation d'une release : les deux portent
-// la même structure, et deux contrôles divergeraient au premier ajout.
+// Shared by the reactions and a release's automation: both carry the same structure, and
+// two checks would diverge at the first addition.
 func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan) error {
 	var problems []error
 
@@ -464,18 +458,18 @@ func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan)
 	for _, ref := range pipelines {
 		if h.catalog == nil {
 			problems = append(problems, fmt.Errorf(
-				"la famille %q ne peut pas être vérifiée: aucun catalogue n'est chargé", ref))
+				"kind %q cannot be checked: no catalogue is loaded", ref))
 			continue
 		}
 		if _, found := h.catalog.Find(ref); !found {
 			problems = append(problems, fmt.Errorf(
-				"la famille %q est absente du catalogue (déclarées: %s)",
+				"kind %q is missing from the catalogue (declared: %s)",
 				ref, strings.Join(h.catalog.Kinds(), ", ")))
 		}
 	}
-	// Les réglages sont relus ici plutôt que passés depuis `liveEventTypes` : ce
-	// chemin est celui d'un enregistrement, pas d'un affichage, et une seconde
-	// lecture y coûte moins qu'un paramètre de plus à faire circuler.
+	// The settings are read back here rather than passed from liveEventTypes: this path is a
+	// save, not a display, and a second read costs less here than one more parameter to carry
+	// around.
 	settings, err := h.store.PluginSettingsAll(ctx)
 	if err != nil {
 		return err
@@ -486,30 +480,28 @@ func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan)
 			problems = append(problems, err)
 			continue
 		}
-		// Un geste dont le plugin est éteint est refusé à l'enregistrement, comme
-		// un fait qu'aucun plugin actif ne produit. La symétrie n'est pas
-		// esthétique : dans les deux cas la réaction serait déclarée, visible, et
-		// sans effet — et c'est ce qu'on ne veut pas laisser croire.
+		// A step whose plugin is switched off is refused when saved, like a fact no active plugin
+		// produces. The symmetry is not aesthetic: in both cases the reaction would be declared,
+		// visible, and without effect — which is what must not be suggested.
 		if descriptor.Plugin != "" && !settings[descriptor.Plugin].Enabled {
 			problems = append(problems, fmt.Errorf(
-				"le geste %q vient du plugin %q, qui est éteint pour cette instance : "+
-					"il ne partirait pas", ref, descriptor.Plugin))
+				"step %q comes from plugin %q, which is switched off for this instance: "+
+					"it would not start", ref, descriptor.Plugin))
 		}
 	}
 
-	// Les paramètres d'une action sont validés contre son descripteur : une URL
-	// malformée ou un gabarit mal apparié se corrige devant le formulaire, pas
-	// devant une chaîne arrêtée.
+	// An action's parameters are validated against its descriptor: a malformed URL or a
+	// mismatched template is corrected in front of the form, not in front of a halted chain.
 	for _, stage := range entry.Stages {
-		for _, geste := range stage.Gestes {
-			if geste.Kind != plan.GesteAction {
+		for _, step := range stage.Gestes {
+			if step.Kind != plan.GesteAction {
 				continue
 			}
-			descriptor, err := action.Get(geste.Ref)
+			descriptor, err := action.Get(step.Ref)
 			if err != nil {
 				continue
 			}
-			if err := descriptor.Validate(geste.Params); err != nil {
+			if err := descriptor.Validate(step.Params); err != nil {
 				problems = append(problems, err)
 			}
 		}
@@ -518,11 +510,11 @@ func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan)
 	return errors.Join(problems...)
 }
 
-// liveEventTypes énumère les faits qu'un projet peut effectivement écouter.
+// liveEventTypes lists the facts a project can actually listen for.
 //
-// Ceux du noyau, plus ceux des plugins **actifs pour ce projet** : un fait dont le
-// plugin est éteint ne sera jamais produit, et l'accepter donnerait une réaction
-// qui ne part jamais sans qu'on sache pourquoi.
+// The core's, plus those of the plugins active for this project: a fact whose plugin is
+// switched off will never be produced, and accepting it would give a reaction that never
+// leaves with nobody knowing why.
 func (h *AutomationsHandler) liveEventTypes(ctx context.Context, projectID int64) ([]string, error) {
 	settings, err := h.store.PluginSettingsAll(ctx)
 	if err != nil {
@@ -556,10 +548,10 @@ func (h *AutomationsHandler) project(w http.ResponseWriter, r *http.Request) (st
 		strings.TrimSpace(r.PathValue("project")))
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet inconnu", "")
+			writeProblem(w, http.StatusNotFound, "Unknown project", "")
 			return store.Project{}, false
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
 		return store.Project{}, false
 	}
 	return project, true

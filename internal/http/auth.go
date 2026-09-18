@@ -16,42 +16,40 @@ const (
 	csrfHeaderName    = "X-CSRF-Token"
 )
 
-// Sessions décrit ce que les handlers attendent du magasin de sessions.
+// Sessions describes what the handlers need from the session store.
 type Sessions interface {
 	Create(ctx context.Context, subject, username, email string) (auth.Session, error)
-	// ApplyBootstrap promeut administrateur un compte déclaré en configuration.
-	// Appelée à la connexion : le sujet du fournisseur d'identité n'est pas
-	// connaissable avant.
+	// ApplyBootstrap promotes an account declared in configuration to administrator. Called
+	// at sign-in: the identity provider's subject is not knowable before.
 	ApplyBootstrap(ctx context.Context, subject, username string) (string, error)
-	// LookupRoles rend le rôle global **et** les rôles par projet. Les deux
-	// portées coexistent : un rôle de projet n'a pas de sens hors de lui, et un
-	// rôle global ne peut pas être déduit d'eux.
+	// LookupRoles returns the global role and the per-project roles. Both scopes coexist: a
+	// project role makes no sense outside it, and a global role cannot be derived from them.
 	LookupRoles(ctx context.Context, id string) (auth.Session, auth.Role, map[int64]auth.Role, error)
 	Revoke(ctx context.Context, id string) error
 }
 
-// AuthHandler porte le flux d'authentification.
+// AuthHandler carries the authentication flow.
 type AuthHandler struct {
 	exchanger auth.Exchanger
 	flows     Flows
 	sessions  Sessions
 	logger    *slog.Logger
-	// secureCookies doit valoir true partout sauf en développement sur http.
+	// secureCookies must be true everywhere except in development over http.
 	secureCookies bool
 	sessionTTL    time.Duration
-	// projects énumère les projets déclarés, rendus avec l'identité. Nil quand il
-	// n'est pas branché : `/me` répond alors sans liste, et l'interface le dit
-	// plutôt que de composer des URL creuses.
+	// projects lists the declared projects, returned with the identity. Nil when it is not
+	// wired: `/me` then answers without a list, and the interface says so rather than
+	// composing hollow URLs.
 	projects projectLister
-	// modules rend les modules actifs avec l'identité. Nil : `/me` n'en dit rien.
+	// modules returns the active modules with the identity. Nil: `/me` says nothing about
+	// them.
 	modules *Modules
 }
 
-// WithModules rend les modules actifs sur `/me`.
+// WithModules returns the active modules on `/me`.
 //
-// Là parce que c'est la seule réponse que toute personne connectée peut lire :
-// la liste des plugins exige `admin`, et la navigation en dépend dès le premier
-// écran.
+// There because it is the only answer anyone signed in can read: listing the plugins
+// requires `admin`, and navigation depends on it from the first screen.
 func (h *AuthHandler) WithModules(modules *Modules) *AuthHandler {
 	h.modules = modules
 	return h
@@ -81,22 +79,22 @@ func NewAuthHandler(
 	}
 }
 
-// Flows est ce que le handler attend du magasin de transactions.
+// Flows is what the handler needs from the transaction store.
 //
-// Une interface, et non le type concret : le magasin en mémoire suffit aux tests,
-// tandis que la production exige un stockage partagé — deux répliques d'api sans
-// affinité de session servent `/auth/login` et `/auth/callback` par des instances
-// différentes, et l'état serait introuvable une fois sur deux.
+// An interface, and not the concrete type: the in-memory store is enough for tests, while
+// production requires shared storage — two api replicas with no session affinity serve
+// /auth/login and /auth/callback from different instances, and the state would be missing
+// one time in two.
 type Flows interface {
 	Begin(ctx context.Context, redirectAfter string) (auth.FlowState, error)
 	Consume(ctx context.Context, state string) (auth.FlowState, error)
 }
 
-// Login ouvre une transaction et redirige vers le fournisseur.
+// Login opens a transaction and redirects to the provider.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	flow, err := h.flows.Begin(r.Context(), safeRedirect(r.URL.Query().Get("redirect")))
 	if err != nil {
-		h.logger.Error("ouverture de transaction d'authentification", "error", err)
+		h.logger.Error("opening an authentication transaction", "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Authentification indisponible", "")
 		return
 	}
@@ -110,62 +108,60 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
-	// Le fournisseur signale un refus par `error` : le distinguer d'un échec
-	// technique évite d'afficher « erreur interne » à qui a simplement cliqué
-	// sur « Annuler ».
+	// The provider reports a refusal through `error`: telling it from a technical failure
+	// avoids showing "internal error" to someone who simply clicked Cancel.
 	if providerError := query.Get("error"); providerError != "" {
-		h.logger.Info("authentification refusée par le fournisseur", "error", providerError)
-		writeProblem(w, http.StatusUnauthorized, "Authentification refusée",
-			"Le fournisseur d'identité a refusé la demande.")
+		h.logger.Info("authentication refused by the provider", "error", providerError)
+		writeProblem(w, http.StatusUnauthorized, "Authentication refused",
+			"The identity provider refused the request.")
 		return
 	}
 
 	flow, err := h.flows.Consume(r.Context(), query.Get("state"))
 	if err != nil {
-		// Rejeu, expiration ou state forgé : tous se traitent pareil, et sans
-		// détail — distinguer les cas donnerait un oracle.
-		h.logger.Warn("state d'authentification rejeté")
-		writeProblem(w, http.StatusBadRequest, "Session d'authentification expirée",
-			"Relancez la connexion.")
+		// Replay, expiry or a forged state: all treated alike, and without detail —
+		// distinguishing the cases would give an oracle.
+		h.logger.Warn("authentication state rejected")
+		writeProblem(w, http.StatusBadRequest, "Authentication session expired",
+			"Start the sign-in again.")
 		return
 	}
 
 	code := query.Get("code")
 	if code == "" {
-		writeProblem(w, http.StatusBadRequest, "Code d'autorisation absent", "")
+		writeProblem(w, http.StatusBadRequest, "Missing authorization code", "")
 		return
 	}
 
 	claims, err := h.exchanger.Exchange(r.Context(), code, flow.CodeVerifier, flow.Nonce)
 	if err != nil {
-		h.logger.Error("échange du code d'autorisation", "error", err)
-		writeProblem(w, http.StatusUnauthorized, "Authentification refusée", "")
+		h.logger.Error("exchanging the authorization code", "error", err)
+		writeProblem(w, http.StatusUnauthorized, "Authentication refused", "")
 		return
 	}
 
-	// Avant la création de session : c'est ici que le sujet du fournisseur est
-	// enfin connu, et donc le seul moment où un rôle déclaré à l'avance peut lui
-	// être rattaché.
+	// Before the session is created: this is where the provider's subject is finally known,
+	// and therefore the only moment a role declared in advance can be attached to it.
 	if role, err := h.sessions.ApplyBootstrap(
 		r.Context(), claims.Subject, claims.Username); err != nil {
-		// L'amorçage n'est pas bloquant : échouer ici priverait de connexion un
-		// utilisateur qui a peut-être déjà un rôle.
-		h.logger.Error("amorçage d'un rôle", "subject", claims.Subject, "error", err)
+		// The bootstrap is not blocking: failing here would deny sign-in to a user who may
+		// already have a role.
+		h.logger.Error("bootstrapping a role", "subject", claims.Subject, "error", err)
 	} else if role != "" {
-		h.logger.Info("rôle d'amorçage attribué",
+		h.logger.Info("bootstrap role granted",
 			"subject", claims.Subject, "username", claims.Username, "role", role)
 	}
 
 	session, err := h.sessions.Create(r.Context(), claims.Subject, claims.Username, claims.Email)
 	if err != nil {
-		h.logger.Error("création de session", "error", err)
+		h.logger.Error("creating a session", "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Session indisponible", "")
 		return
 	}
 
 	h.setSessionCookie(w, session.ID)
 	if err := h.setCSRFCookie(w); err != nil {
-		h.logger.Error("génération du jeton CSRF", "error", err)
+		h.logger.Error("generating the CSRF token", "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Session indisponible", "")
 		return
 	}
@@ -174,16 +170,16 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, flow.RedirectAfter, http.StatusFound)
 }
 
-// Logout révoque la session et efface les cookies.
+// Logout revokes the session and clears the cookies.
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
 		if err := h.sessions.Revoke(r.Context(), cookie.Value); err != nil {
-			// La révocation en base a échoué : effacer quand même le cookie
-			// serait trompeur, l'utilisateur se croirait déconnecté alors que sa
-			// session reste utilisable par qui la détiendrait.
-			h.logger.Error("révocation de session", "error", err)
-			writeProblem(w, http.StatusInternalServerError, "Déconnexion incomplète",
-				"La session n'a pas pu être révoquée, réessayez.")
+			// Revoking in the database failed: clearing the cookie anyway would be misleading, the
+			// user would believe they were signed out while their session stays usable by whoever
+			// holds it.
+			h.logger.Error("revoking a session", "error", err)
+			writeProblem(w, http.StatusInternalServerError, "Incomplete sign-out",
+				"The session could not be revoked, try again.")
 			return
 		}
 	}
@@ -193,19 +189,16 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged-out"})
 }
 
-// Me rend l'identité et les permissions effectives.
+// Me returns the identity and the effective permissions.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
-	// Le projet courant accompagne l'identité, et c'est le seul endroit où toute
-	// personne connectée peut le lire : la liste des projets exige `admin`, alors
-	// que l'interface a besoin de composer ses URL dès le premier écran.
-	//
-	// Un seul projet aujourd'hui. Le jour où il y en aura plusieurs, c'est ici que
-	// le choix courant sera rendu — pas dans une seconde route à consulter.
+	// The current project comes with the identity, and it is the only place anyone signed in
+	// can read it: listing the projects requires `admin`, while the interface needs to compose
+	// its URLs from the first screen.
 	payload := map[string]any{
 		"subject":  identity.Subject,
 		"username": identity.Username,
@@ -213,22 +206,21 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"role":     identity.Role,
 	}
 	if h.projects != nil {
-		// La **liste**, et non un projet unique. `/me` rendait « le projet
-		// constructible », ce qui supposait qu'il n'y en ait qu'un : déclarer un
-		// second faisait échouer la résolution, et l'interface se retrouvait sans
-		// aucune URL composable — tout l'écran des releases avec.
+		// The list, and not a single project. `/me` used to return "the buildable project", which
+		// assumed there was only one: declaring a second made the resolution fail, and the
+		// interface was left with no composable URL — the whole releases screen with it.
 		//
-		// C'est aussi ce que le multi-projet veut dire côté interface : le choix
-		// appartient à qui regarde, pas au dashboard.
+		// It is also what multi-project means on the interface side: the choice belongs to whoever
+		// is looking, not to the dashboard.
 		projects, err := h.projects.ListProjects(r.Context())
 		if err != nil && h.logger != nil {
-			h.logger.Warn("liste des projets indisponible", "error", err)
+			h.logger.Warn("project list unavailable", "error", err)
 		}
 		visible := make([]map[string]any, 0, len(projects))
 		for _, project := range projects {
 			entry := map[string]any{"slug": project.Slug, "label": project.Label}
-			// Les modules du projet : l'interface suit le projet courant, et un
-			// module allumé sur l'instance peut être éteint pour lui.
+			// The project's modules: the interface follows the current project, and a module switched
+			// on for the instance may be off for it.
 			if h.modules != nil {
 				entry["modules"] = h.modules.ActiveIn(r.Context(), project.ID)
 			}
@@ -247,21 +239,20 @@ func (h *AuthHandler) setSessionCookie(w http.ResponseWriter, id string) {
 		Name:  sessionCookieName,
 		Value: id,
 		Path:  "/",
-		// HttpOnly : un jeton lisible par un script de la page est un jeton
-		// volable par n'importe quelle injection.
+		// HttpOnly: a token readable by a script on the page is a token stealable by any
+		// injection.
 		HttpOnly: true,
 		Secure:   h.secureCookies,
-		// Lax et non Strict : Strict empêcherait le cookie d'accompagner la
-		// redirection de retour du fournisseur, et la session paraîtrait perdue
-		// juste après une connexion réussie.
+		// Lax and not Strict: Strict would stop the cookie accompanying the provider's return
+		// redirect, and the session would look lost just after a successful sign-in.
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(h.sessionTTL.Seconds()),
 	})
 }
 
-// setCSRFCookie pose un jeton lisible par le frontend, à renvoyer en en-tête sur
-// les méthodes non sûres. SameSite=Lax couvre la navigation intersite, pas les
-// requêtes émises par une page tierce déjà chargée.
+// setCSRFCookie sets a token readable by the front end, to be returned in a header on
+// unsafe methods. SameSite=Lax covers cross-site navigation, not requests issued by a
+// third-party page already loaded.
 func (h *AuthHandler) setCSRFCookie(w http.ResponseWriter) error {
 	token, err := auth.NewCSRFToken()
 	if err != nil {
@@ -271,8 +262,8 @@ func (h *AuthHandler) setCSRFCookie(w http.ResponseWriter) error {
 		Name:  csrfCookieName,
 		Value: token,
 		Path:  "/",
-		// Volontairement lisible par le script : c'est le principe de la double
-		// soumission. Sa valeur ne donne rien sans le cookie de session.
+		// Deliberately readable by the script: that is the principle of double submission. Its
+		// value gives nothing without the session cookie.
 		HttpOnly: false,
 		Secure:   h.secureCookies,
 		SameSite: http.SameSiteLaxMode,
@@ -293,19 +284,18 @@ func (h *AuthHandler) clearCookie(w http.ResponseWriter, name string) {
 	})
 }
 
-// safeRedirect n'accepte qu'un chemin interne.
+// safeRedirect accepts only an internal path.
 //
-// Sans ce filtrage, `?redirect=https://exemple.invalide` transformerait la page
-// de connexion en redirecteur ouvert : un lien vers le dashboard, hébergé sur le
-// bon domaine, renverrait l'utilisateur authentifié vers un site tiers. Les
-// chemins protocol-relative (`//hôte`) comptent comme externes.
+// Without that filtering, `?redirect=https://example.invalid` would turn the sign-in page
+// into an open redirector: a link to the dashboard, hosted on the right domain, would send
+// the authenticated user to a third-party site. Protocol-relative paths count as external.
 func safeRedirect(target string) string {
 	const fallback = "/"
 
 	if target == "" || !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") {
 		return fallback
 	}
-	// `/\hôte` est interprété comme une URL absolue par certains navigateurs.
+	// `/\host` is read as an absolute URL by some browsers.
 	if strings.HasPrefix(target, "/\\") {
 		return fallback
 	}

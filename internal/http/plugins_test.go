@@ -116,7 +116,7 @@ func putPlugin(t *testing.T, handler http.HandlerFunc, path, plugin, body string
 	return recorder
 }
 
-// projectOf extrait le slug d'un chemin `/projects/<slug>/...`.
+// projectOf extracts the slug from a `/projects/<slug>/...` path.
 func projectOf(path string) string {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) >= 2 && parts[0] == "projects" {
@@ -129,7 +129,7 @@ func decodePlugin(t *testing.T, recorder *httptest.ResponseRecorder) map[string]
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("réponse illisible: %v — %s", err, recorder.Body.String())
+		t.Fatalf("unreadable response: %v — %s", err, recorder.Body.String())
 	}
 	return payload
 }
@@ -138,50 +138,50 @@ func decodePlugin(t *testing.T, recorder *httptest.ResponseRecorder) map[string]
  * Ce qui ne sort jamais.
  */
 
-// Une clé d'API enregistrée n'est jamais réaffichée — ni dans la réponse à
-// l'écriture, ni dans la liste.
+// A recorded API key is never displayed again — neither in the write's response nor in
+// the list.
 //
-// C'est ce qui rend la saisie d'un secret depuis un navigateur acceptable : la
-// relire ne suffit pas à la voler. L'écran n'en connaît que la présence.
-func TestUneCleDApiNestJamaisReaffichee(t *testing.T) {
+// That is what makes typing a secret from a browser acceptable: reading it back is not
+// enough to steal it. The screen knows only that it is there.
+func TestAnApiKeyIsNeverDisplayedAgain(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
 
 	recorder := putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
-		`{"enabled":true,"config":{"url":"https://redmine.example.fr","api_key":"clé-de-production"}}`)
+		`{"enabled":true,"config":{"url":"https://redmine.example.fr","api_key":"production-key"}}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("code %d — %s", recorder.Code, recorder.Body.String())
 	}
-	if strings.Contains(recorder.Body.String(), "clé-de-production") {
-		t.Fatalf("la clé transparaît dans la réponse: %s", recorder.Body.String())
+	if strings.Contains(recorder.Body.String(), "production-key") {
+		t.Fatalf("the key shows through in the response: %s", recorder.Body.String())
 	}
 
 	listed := httptest.NewRecorder()
 	handler.List(listed, httptest.NewRequest(http.MethodGet, "/admin/plugins", nil))
-	if strings.Contains(listed.Body.String(), "clé-de-production") {
-		t.Fatalf("la clé transparaît dans la liste: %s", listed.Body.String())
+	if strings.Contains(listed.Body.String(), "production-key") {
+		t.Fatalf("the key shows through in the list: %s", listed.Body.String())
 	}
 
-	// Mais sa **présence** se lit : sans elle, l'écran ne saurait pas distinguer
-	// un champ jamais rempli d'un champ rempli qu'il n'affiche pas.
+	// Its presence, though, is readable: without it the screen could not tell a field never
+	// filled in from a field filled in that it does not display.
 	payload := decodePlugin(t, recorder)
 	names, _ := payload["secrets_set"].([]any)
 	if len(names) != 1 || names[0] != "api_key" {
-		t.Errorf("champs sensibles renseignés = %v", names)
+		t.Errorf("sensitive fields set = %v", names)
 	}
 }
 
-// Ce qui est écrit en base est scellé, et se rouvre avec la clé.
-func TestLaValeurEcriteEnBaseEstScellee(t *testing.T) {
+// What is written to the database is sealed, and reopens with the key.
+func TestTheValueWrittenToTheDatabaseIsSealed(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
-		`{"enabled":true,"config":{"api_key":"clé-de-production"}}`)
+		`{"enabled":true,"config":{"api_key":"production-key"}}`)
 
 	stored := fake.global["redmine"].Config["api_key"]
-	if stored == "" || strings.Contains(stored, "clé-de-production") {
-		t.Fatalf("valeur stockée = %q", stored)
+	if stored == "" || strings.Contains(stored, "production-key") {
+		t.Fatalf("stored value = %q", stored)
 	}
 
 	cipher, _ := secrets.New(cleDeTest)
@@ -189,35 +189,34 @@ func TestLaValeurEcriteEnBaseEstScellee(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ouverture: %v", err)
 	}
-	if opened != "clé-de-production" {
+	if opened != "production-key" {
 		t.Errorf("valeur ouverte = %q", opened)
 	}
 }
 
-// Sans clé de scellement, l'écriture d'un champ sensible est refusée — et le
-// message nomme la variable manquante.
+// With no sealing key, writing a sensitive field is refused — and the message names the
+// missing variable.
 //
-// Refusée plutôt qu'écrite en clair : c'est le seul endroit où la distinction se
-// joue, et un enregistrement qui « réussit » en stockant le clair serait la pire
-// des issues.
-func TestSansCleDeScellementLeChampSensibleEstRefuse(t *testing.T) {
+// Refused rather than written in the clear: this is the only place where the distinction
+// is made, and a save that "succeeds" by storing plaintext would be the worst outcome.
+func TestWithoutASealingKeyTheSensitiveFieldIsRefused(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, "")
 
 	recorder := putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
-		`{"enabled":true,"config":{"api_key":"clé-de-production"}}`)
+		`{"enabled":true,"config":{"api_key":"production-key"}}`)
 	if recorder.Code != http.StatusConflict {
-		t.Fatalf("code %d, attendu 409 — %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("code %d, expected 409 — %s", recorder.Code, recorder.Body.String())
 	}
 	if !strings.Contains(recorder.Body.String(), "SECRETS_KEY") {
-		t.Errorf("message %q — il doit nommer la variable", recorder.Body.String())
+		t.Errorf("message %q — it must name the variable", recorder.Body.String())
 	}
 	if _, written := fake.global["redmine"].Config["api_key"]; written {
-		t.Error("la clé a été écrite malgré le refus")
+		t.Error("the key was written despite the refusal")
 	}
 
-	// Le reste reste réglable : un déploiement sans scellement doit pouvoir
-	// activer un plugin et saisir ses champs ordinaires.
+	// The rest stays settable: a deployment without sealing must be able to enable a plugin
+	// and type its ordinary fields.
 	ok := putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{"url":"https://redmine.example.fr"}}`)
 	if ok.Code != http.StatusOK {
@@ -229,68 +228,68 @@ func TestSansCleDeScellementLeChampSensibleEstRefuse(t *testing.T) {
  * Les deux façons de perdre une valeur.
  */
 
-// Un champ sensible laissé vide est **conservé**, pas effacé.
+// A sensitive field left empty is kept, not cleared.
 //
-// L'écran ne reçoit jamais la clé, donc ne peut pas la renvoyer : la traiter
-// comme un effacement ferait perdre la clé au premier enregistrement du moindre
-// autre champ — modifier une URL suffirait à couper la synchronisation.
-func TestUnChampSensibleLaisseVideEstConserve(t *testing.T) {
+// The screen never receives the key, so it cannot send it back: treating that as a
+// deletion would lose the key the first time any other field was saved — editing a URL
+// would be enough to cut synchronisation.
+func TestASensitiveFieldLeftEmptyIsKept(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
-		`{"enabled":true,"config":{"api_key":"clé-de-production"}}`)
+		`{"enabled":true,"config":{"api_key":"production-key"}}`)
 	sealed := fake.global["redmine"].Config["api_key"]
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{"url":"https://redmine.example.fr","api_key":""}}`)
 
 	if got := fake.global["redmine"].Config["api_key"]; got != sealed {
-		t.Errorf("clé = %q, attendue conservée telle quelle", got)
+		t.Errorf("key = %q, expected kept as it is", got)
 	}
 	if got := fake.global["redmine"].Config["url"]; got != "https://redmine.example.fr" {
 		t.Errorf("URL = %q", got)
 	}
 }
 
-// L'effacement existe, et demande un geste distinct.
-func TestLEffacementDUnChampSensibleEstExplicite(t *testing.T) {
+// L'effacement existe, et demande un step distinct.
+func TestClearingASensitiveFieldIsExplicit(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
-		`{"enabled":true,"config":{"api_key":"clé-de-production"}}`)
+		`{"enabled":true,"config":{"api_key":"production-key"}}`)
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{},"cleared_secrets":["api_key"]}`)
 
 	if got, present := fake.global["redmine"].Config["api_key"]; present {
-		t.Errorf("clé = %q, attendue effacée", got)
+		t.Errorf("key = %q, expected cleared", got)
 	}
 }
 
-// Un réglage que le plugin ne déclare pas est refusé, et non enregistré en
-// silence : une faute de frappe se découvrirait sinon des semaines plus tard.
-func TestUnReglageInconnuEstRefuse(t *testing.T) {
+// A setting the plugin does not declare is refused, and not saved silently: a typo would
+// otherwise surface weeks later.
+func TestAnUnknownSettingIsRefused(t *testing.T) {
 	handler := pluginsHandlerWith(t, newFakePluginStore(), cleDeTest)
 
 	recorder := putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{"cle_api":"x"}}`)
 	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("code %d, attendu 400 — %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("code %d, expected 400 — %s", recorder.Code, recorder.Body.String())
 	}
 }
 
-// Un plugin inconnu répond 404 en nommant ceux qui existent.
-func TestUnPluginInconnuRepond404(t *testing.T) {
+// An unknown plugin answers 404 naming the ones that exist.
+func TestAnUnknownPluginAnswers404(t *testing.T) {
 	handler := pluginsHandlerWith(t, newFakePluginStore(), cleDeTest)
 
 	recorder := putPlugin(t, handler.Set, "/admin/plugins/jira", "jira", `{"enabled":true}`)
 	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("code %d, attendu 404", recorder.Code)
+		t.Fatalf("code %d, expected 404", recorder.Code)
 	}
 	if !strings.Contains(recorder.Body.String(), "redmine") {
-		t.Errorf("message %q — il doit nommer les plugins embarqués", recorder.Body.String())
+		t.Errorf("message %q — it must name the embedded plugins", recorder.Body.String())
 	}
 }
 
@@ -298,14 +297,14 @@ func TestUnPluginInconnuRepond404(t *testing.T) {
  * La portée projet.
  */
 
-// N'apparaissent au projet que les plugins qui se décident par projet, et que
-// l'instance n'a pas éteints.
+// Only the plugins that are decided per project, and that the instance has not switched
+// off, appear to a project.
 //
-// Un interrupteur qui ne fait rien est pire qu'une absence : il invite à
-// l'actionner, puis à chercher pourquoi rien ne change.
-func TestLeProjetNeVoitQueCeQuIlPeutDecider(t *testing.T) {
+// A switch that does nothing is worse than an absence: it invites pressing it, then
+// wondering why nothing changes.
+func TestTheProjectSeesOnlyWhatItCanDecide(t *testing.T) {
 	fake := newFakePluginStore()
-	// L'instance éteint le bon de livraison : le projet ne doit plus le voir.
+	// The instance switches off the delivery note: the project must no longer see it.
 	fake.global["bon-de-livraison"] = store.PluginSettings{PluginID: "bon-de-livraison", Enabled: false}
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
 
@@ -325,31 +324,30 @@ func TestLeProjetNeVoitQueCeQuIlPeutDecider(t *testing.T) {
 		} `json:"plugins"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 
 	ids := make([]string, 0, len(payload.Plugins))
 	for _, entry := range payload.Plugins {
 		ids = append(ids, entry.ID)
-		// Sans décision du projet, l'héritage vaut « oui » : c'est ce qui fait
-		// qu'un projet déclaré avant ces tables continue de recevoir ce que
-		// l'instance lui offre.
+		// With no decision from the project, inheritance means yes: that is what keeps a project
+		// declared before these tables receiving what the instance offers it.
 		if !entry.Enabled {
-			t.Errorf("plugin %q éteint alors que le projet n'a rien décidé", entry.ID)
+			t.Errorf("plugin %q switched off although the project decided nothing", entry.ID)
 		}
 	}
 
 	if slices.Contains(ids, "bon-de-livraison") {
-		t.Error("un plugin éteint sur l'instance est proposé au projet")
+		t.Error("a plugin switched off on the instance is offered to the project")
 	}
 	if !slices.Contains(ids, "redmine") {
-		t.Errorf("plugins proposés = %v", ids)
+		t.Errorf("plugins offered = %v", ids)
 	}
 }
 
-// Un projet ne peut pas rallumer ce que l'instance a éteint : le déploiement ne
-// le porte pas, et chaque appel échouerait.
-func TestUnProjetNePeutPasRallumerCeQueLInstanceAEteint(t *testing.T) {
+// A project cannot switch back on what the instance switched off: the deployment does not
+// carry it, and every call would fail.
+func TestAProjectCannotSwitchBackOnWhatTheInstanceSwitchedOff(t *testing.T) {
 	fake := newFakePluginStore()
 	fake.global["bon-de-livraison"] = store.PluginSettings{PluginID: "bon-de-livraison", Enabled: false}
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
@@ -357,16 +355,16 @@ func TestUnProjetNePeutPasRallumerCeQueLInstanceAEteint(t *testing.T) {
 	recorder := putPlugin(t, handler.SetProject,
 		"/projects/mse/plugins/bon-de-livraison", "bon-de-livraison", `{"enabled":true}`)
 	if recorder.Code != http.StatusConflict {
-		t.Fatalf("code %d, attendu 409 — %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("code %d, expected 409 — %s", recorder.Code, recorder.Body.String())
 	}
 }
 
-// Le module MSE se règle par projet : allumé sur l'instance, un projet qui ne
-// relève pas du portail l'éteint pour lui (doc 16 §16.18).
+// The MSE module is set per project: switched on for the instance, a project outside its
+// scope switches it off for itself.
 //
-// Aucun plugin du registre ne vaut plus pour la seule instance ; le refus d'un
-// réglage par projet reste dans le handler pour le jour où il en reviendra un.
-func TestLeModuleMSESeRegleParProjet(t *testing.T) {
+// No plugin in the registry is instance-only any more; the refusal of a per-project
+// setting stays in the handler for the day one comes back.
+func TestTheMSEModuleIsSetPerProject(t *testing.T) {
 	fake := newFakePluginStore()
 	fake.global["mse"] = store.PluginSettings{PluginID: "mse", Enabled: true}
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
@@ -374,13 +372,13 @@ func TestLeModuleMSESeRegleParProjet(t *testing.T) {
 	recorder := putPlugin(t, handler.SetProject,
 		"/projects/mse/plugins/mse", "mse", `{"enabled":false}`)
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("code %d, attendu 200 — %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("code %d, expected 200 — %s", recorder.Code, recorder.Body.String())
 	}
 }
 
-// L'obligation d'un champ porte sur la valeur **résolue** : un projet qui laisse
-// l'URL vide parce que l'instance la fournit est accepté.
-func TestUnProjetHeriteDesValeursDeLInstance(t *testing.T) {
+// A field's requirement is about the resolved value: a project leaving the URL empty
+// because the instance provides it is accepted.
+func TestAProjectInheritsTheInstancesValues(t *testing.T) {
 	fake := newFakePluginStore()
 	fake.global["redmine"] = store.PluginSettings{
 		PluginID: "redmine", Enabled: true,
@@ -396,40 +394,39 @@ func TestUnProjetHeriteDesValeursDeLInstance(t *testing.T) {
 	}
 
 	if got := fake.byProject[7]["redmine"].Config["project"]; got != "mse-dev" {
-		t.Errorf("projet de suivi = %q", got)
+		t.Errorf("tracker project = %q", got)
 	}
-	// L'URL n'est pas recopiée : le projet n'a rien de particulier à dire, et
-	// figer la valeur de l'instance ferait qu'un changement global ne
-	// l'atteindrait plus.
+	// The URL is not copied across: the project has nothing particular to say, and freezing
+	// the instance's value would mean a global change no longer reaches it.
 	if _, copied := fake.byProject[7]["redmine"].Config["url"]; copied {
-		t.Error("l'URL de l'instance a été recopiée dans le projet")
+		t.Error("the instance's URL was copied into the project")
 	}
 }
 
-// Sans identifiant de projet nulle part, le réglage est refusé : c'est la
-// différence entre « rien de particulier à dire » et « la valeur manque partout ».
-func TestUnChampObligatoireAbsentPartoutEstRefuse(t *testing.T) {
+// With no project identifier anywhere, the setting is refused: that is the difference
+// between "nothing particular to say" and "the value is missing everywhere".
+func TestARequiredFieldMissingEverywhereIsRefused(t *testing.T) {
 	handler := pluginsHandlerWith(t, newFakePluginStore(), cleDeTest)
 
 	recorder := putPlugin(t, handler.SetProject,
 		"/projects/mse/plugins/redmine", "redmine", `{"enabled":true,"config":{}}`)
 	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("code %d, attendu 400 — %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("code %d, expected 400 — %s", recorder.Code, recorder.Body.String())
 	}
 }
 
-// Le retrait rend le projet à l'héritage, et n'est pas une désactivation.
+// Removal returns the project to inheritance, and is not a disabling.
 //
-// Les confondre ferait qu'un projet, une fois écarté du réglage commun, ne
-// pourrait plus jamais le suivre à nouveau.
-func TestLeRetraitRendLeProjetALHeritage(t *testing.T) {
+// Confusing them would mean a project, once departed from the common setting, could never
+// follow it again.
+func TestRemovalReturnsTheProjectToInheritance(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
 
 	putPlugin(t, handler.SetProject, "/projects/mse/plugins/bon-de-livraison",
 		"bon-de-livraison", `{"enabled":false}`)
 	if fake.byProject[7]["bon-de-livraison"].Enabled {
-		t.Fatal("la désactivation n'a pas été enregistrée")
+		t.Fatal("the switch-off was not recorded")
 	}
 
 	request := asAdmin(httptest.NewRequest(http.MethodDelete,
@@ -443,18 +440,18 @@ func TestLeRetraitRendLeProjetALHeritage(t *testing.T) {
 		t.Fatalf("code %d — %s", recorder.Code, recorder.Body.String())
 	}
 	if _, declared := fake.byProject[7]["bon-de-livraison"]; declared {
-		t.Error("la décision du projet subsiste après le retrait")
+		t.Error("the project's decision survives the removal")
 	}
 }
 
-// Le journal d'audit porte l'activation, jamais la configuration : il se lit avec
-// moins de précautions qu'une base, c'est précisément son but.
-func TestLeJournalNePorteJamaisLaConfiguration(t *testing.T) {
+// The audit log carries whether it is enabled, never the configuration: it is read with
+// fewer precautions than a database, which is precisely its purpose.
+func TestTheLogNeverCarriesTheConfiguration(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
-		`{"enabled":true,"config":{"api_key":"clé-de-production"}}`)
+		`{"enabled":true,"config":{"api_key":"production-key"}}`)
 
 	if len(fake.audit) != 1 || fake.audit[0] != "plugin.settings:redmine" {
 		t.Errorf("journal = %v", fake.audit)

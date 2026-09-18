@@ -15,7 +15,7 @@ type contextKey string
 
 const identityKey contextKey = "identity"
 
-// IdentityFrom rend l'identité posée par le middleware d'authentification.
+// IdentityFrom returns the identity the authentication middleware set.
 func IdentityFrom(ctx context.Context) (auth.Identity, bool) {
 	identity, ok := ctx.Value(identityKey).(auth.Identity)
 	return identity, ok
@@ -25,12 +25,11 @@ func IdentityFrom(ctx context.Context) (auth.Identity, bool) {
 type Middleware struct {
 	sessions   Sessions
 	authorizer *auth.Authorizer
-	// projects traduit le nom porté par une URL en projet, pour les contrôles
-	// rattachés à un projet. Nil tant qu'il n'est pas branché : [Middleware.RequireIn]
-	// refuse alors tout, ce qui est le bon sens du doute — sans projet résolu, il
-	// n'y a pas de rôle à vérifier.
+	// projects translates the name a URL carries into a project, for the project-scoped
+	// checks. Nil while it is not wired: [Middleware.RequireIn] then refuses everything, which
+	// is the right benefit of the doubt — with no resolved project, there is no role to check.
 	projects projectResolver
-	// modules dit quels modules sont allumés. Nil : tous le sont.
+	// modules says which modules are switched on. Nil: all of them are.
 	modules *Modules
 	logger  *slog.Logger
 }
@@ -39,38 +38,37 @@ func NewMiddleware(sessions Sessions, authorizer *auth.Authorizer, logger *slog.
 	return &Middleware{sessions: sessions, authorizer: authorizer, logger: logger}
 }
 
-// WithProjects branche la résolution des projets pour les contrôles rattachés.
+// WithProjects wires project resolution for the scoped checks.
 func (m *Middleware) WithProjects(projects projectResolver) *Middleware {
 	m.projects = projects
 	return m
 }
 
-// Authenticate résout la session et pose l'identité dans le contexte.
+// Authenticate resolves the session and puts the identity into the context.
 //
-// Un utilisateur authentifié sans rôle reçoit un 403 explicite plutôt qu'un 401 :
-// se réauthentifier n'y changerait rien, et le message doit dire quoi faire —
-// demander une attribution — plutôt que de renvoyer vers la page de connexion en
-// boucle.
+// An authenticated user with no role receives an explicit 403 rather than a 401:
+// re-authenticating would change nothing, and the message must say what to do — ask for a
+// grant — rather than send them back to the sign-in page in a loop.
 func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookieName)
 		if err != nil || cookie.Value == "" {
-			writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+			writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 			return
 		}
 
 		session, role, projects, err := m.sessions.LookupRoles(r.Context(), cookie.Value)
 		switch {
 		case errors.Is(err, auth.ErrNoRole):
-			m.logger.Info("utilisateur sans rôle", "subject", session.Subject, "username", session.Username)
-			writeProblem(w, http.StatusForbidden, "Aucun rôle attribué",
-				"Votre compte est reconnu mais aucun rôle ne lui est attribué. Demandez une attribution à un administrateur.")
+			m.logger.Info("user with no role", "subject", session.Subject, "username", session.Username)
+			writeProblem(w, http.StatusForbidden, "No role granted",
+				"Your account is recognised but no role is granted to it. Ask an administrator to grant one.")
 			return
 		case errors.Is(err, auth.ErrSessionNotFound):
-			writeProblem(w, http.StatusUnauthorized, "Session expirée", "")
+			writeProblem(w, http.StatusUnauthorized, "Session expired", "")
 			return
 		case err != nil:
-			m.logger.Error("résolution de session", "error", err)
+			m.logger.Error("resolving the session", "error", err)
 			writeProblem(w, http.StatusInternalServerError, "Session indisponible", "")
 			return
 		}
@@ -86,14 +84,14 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 	})
 }
 
-// safeMethods ne modifient rien et ne sont pas soumises au contrôle CSRF.
+// safeMethods modify nothing and are not subject to the CSRF check.
 var safeMethods = []string{http.MethodGet, http.MethodHead, http.MethodOptions}
 
-// CSRF exige la double soumission sur les méthodes non sûres.
+// CSRF requires double submission on unsafe methods.
 //
-// SameSite=Lax couvre la navigation intersite mais pas une requête émise par une
-// page tierce déjà chargée. Le frontend lit le cookie CSRF et le renvoie en
-// en-tête ; une page tierce peut déclencher la requête, jamais lire le cookie.
+// SameSite=Lax covers cross-site navigation but not a request issued by a third-party page
+// already loaded. The front end reads the CSRF cookie and returns it in a header; a
+// third-party page can trigger the request, never read the cookie.
 func (m *Middleware) CSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if slices.Contains(safeMethods, r.Method) {
@@ -105,27 +103,26 @@ func (m *Middleware) CSRF(next http.Handler) http.Handler {
 		header := r.Header.Get(csrfHeaderName)
 
 		if err != nil || cookie.Value == "" || header == "" || !auth.ConstantTimeEqual(cookie.Value, header) {
-			m.logger.Warn("requête rejetée par le contrôle CSRF", "method", r.Method, "path", r.URL.Path)
-			writeProblem(w, http.StatusForbidden, "Jeton CSRF absent ou invalide", "")
+			m.logger.Warn("request rejected by the CSRF check", "method", r.Method, "path", r.URL.Path)
+			writeProblem(w, http.StatusForbidden, "CSRF token missing or invalid", "")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-// Require exige une permission. L'autorisation est décidée ici, jamais dans un
-// handler : un contrôle dispersé finit par manquer sur une route ajoutée plus
-// tard.
+// Require demands a permission. Authorization is decided here, never in a handler: a
+// scattered check ends up missing on a route added later.
 func (m *Middleware) Require(permission auth.Permission) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identity, ok := IdentityFrom(r.Context())
 			if !ok {
-				writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+				writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 				return
 			}
 			if !m.authorizer.Can(identity, permission) {
-				m.logger.Info("permission refusée",
+				m.logger.Info("permission refused",
 					"subject", identity.Subject, "role", identity.Role, "permission", permission)
 				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
 				return
@@ -135,27 +132,25 @@ func (m *Middleware) Require(permission auth.Permission) func(http.Handler) http
 	}
 }
 
-// RequireIn exige une permission **dans le projet que le chemin désigne**.
+// RequireIn demands a permission in the project the path names.
 //
-// Distincte de [Require] et non un paramètre : une route rattachée à un projet
-// qui vérifierait globalement accorderait sur tous les projets ce qui n'a été
-// accordé que sur un. L'écart se verrait mal en relecture ; deux noms se
-// distinguent.
+// Distinct from [Require] and not a parameter: a project-scoped route checking globally
+// would grant on every project what was granted on one. The discrepancy would be hard to
+// see on re-reading; two names are distinguishable.
 //
-// Un projet inconnu est refusé ici plutôt que par le handler : sans identifiant,
-// il n'y a pas de rôle à vérifier, et laisser passer reviendrait à décider que
-// c'est permis.
+// An unknown project is refused here rather than by the handler: with no identifier there
+// is no role to check, and letting it through would amount to deciding it is allowed.
 func (m *Middleware) RequireIn(permission auth.Permission) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identity, ok := IdentityFrom(r.Context())
 			if !ok {
-				writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+				writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 				return
 			}
 
 			if m.projects == nil {
-				m.logger.Error("contrôle par projet sans résolution branchée",
+				m.logger.Error("per-project check with no resolution wired",
 					"permission", permission, "path", r.URL.Path)
 				writeProblem(w, http.StatusInternalServerError, "Autorisation indisponible", "")
 				return
@@ -167,7 +162,7 @@ func (m *Middleware) RequireIn(permission auth.Permission) func(http.Handler) ht
 			}
 
 			if !m.authorizer.CanIn(identity, projectID, permission) {
-				m.logger.Info("permission refusée",
+				m.logger.Info("permission refused",
 					"subject", identity.Subject, "role", identity.RoleIn(projectID),
 					"projet", projectID, "permission", permission)
 				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
@@ -178,23 +173,21 @@ func (m *Middleware) RequireIn(permission auth.Permission) func(http.Handler) ht
 	}
 }
 
-// RequireDeploy exige la permission de promotion d'un environnement, lu dans le
-// segment de chemin indiqué, **dans le projet que le chemin désigne**.
+// RequireDeploy demands the promotion permission of an environment, read from the given
+// path segment, in the project the path names.
 //
-// Promouvoir est le geste le plus coûteux du dashboard : il pousse une image vers
-// un environnement réel. Le vérifier globalement accorderait sur tous les projets
-// ce qui n'a été accordé que sur un — précisément ce que cette tranche existe pour
-// empêcher.
+// Promoting is the dashboard's most committing gesture: it pushes an image to a real
+// environment. Checking it globally would grant on every project what was granted on one.
 func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identity, ok := IdentityFrom(r.Context())
 			if !ok {
-				writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+				writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 				return
 			}
 			if m.projects == nil {
-				m.logger.Error("contrôle de promotion sans résolution de projet branchée",
+				m.logger.Error("promotion check with no project resolution wired",
 					"path", r.URL.Path)
 				writeProblem(w, http.StatusInternalServerError, "Autorisation indisponible", "")
 				return
@@ -207,7 +200,7 @@ func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Han
 
 			environment := r.PathValue(pathValue)
 			if !m.authorizer.CanDeploy(identity, projectID, r.PathValue("project"), environment) {
-				m.logger.Info("promotion refusée",
+				m.logger.Info("promotion refused",
 					"subject", identity.Subject, "role", identity.RoleIn(projectID),
 					"projet", projectID, "environment", environment)
 				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
@@ -218,8 +211,7 @@ func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Han
 	}
 }
 
-// Chain applique les middlewares dans l'ordre de lecture : Chain(h, a, b) exécute
-// a, puis b, puis h.
+// Chain applies the middlewares in reading order: Chain(h, a, b) runs a, then b, then h.
 func Chain(handler http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		handler = middlewares[i](handler)
@@ -234,10 +226,10 @@ type problem struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// writeProblem rend une erreur exploitable par le frontend.
+// writeProblem returns an error the front end can use.
 //
-// Le détail est destiné à l'utilisateur : il ne doit jamais porter d'information
-// d'infrastructure. Les causes techniques vont au log.
+// The detail is meant for the user: it must never carry infrastructure information.
+// Technical causes go to the log.
 func writeProblem(w http.ResponseWriter, status int, title, detail string) {
 	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")

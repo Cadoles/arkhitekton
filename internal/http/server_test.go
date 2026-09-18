@@ -27,16 +27,16 @@ func do(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
 	return rec
 }
 
-// La vivacité ne doit dépendre d'aucune dépendance externe : sinon une panne de
-// PostgreSQL fait redémarrer des processus sains et la transforme en crashloop.
+// Liveness must depend on no external dependency: otherwise a PostgreSQL outage restarts
+// healthy processes and turns it into a crash loop.
 func TestHealthzIgnoresFailingDependencies(t *testing.T) {
 	s := testServer(ReadinessCheck{
 		Name:  "postgres",
-		Check: func(context.Context) error { return errors.New("connexion refusée") },
+		Check: func(context.Context) error { return errors.New("connection refused") },
 	})
 
 	if rec := do(t, s, "/healthz"); rec.Code != http.StatusOK {
-		t.Fatalf("/healthz = %d, attendu 200 malgré une dépendance en panne", rec.Code)
+		t.Fatalf("/healthz = %d, expected 200 despite a failing dependency", rec.Code)
 	}
 }
 
@@ -48,7 +48,7 @@ func TestReadyzReportsOKWhenAllChecksPass(t *testing.T) {
 
 	rec := do(t, s, "/readyz")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("/readyz = %d, attendu 200", rec.Code)
+		t.Fatalf("/readyz = %d, expected 200", rec.Code)
 	}
 
 	var body struct {
@@ -56,7 +56,7 @@ func TestReadyzReportsOKWhenAllChecksPass(t *testing.T) {
 		Checks map[string]string `json:"checks"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	if body.Status != "ready" || body.Checks["postgres"] != "ok" || body.Checks["minio"] != "ok" {
 		t.Errorf("corps inattendu: %+v", body)
@@ -71,25 +71,25 @@ func TestReadyzReturns503WhenADependencyFails(t *testing.T) {
 
 	rec := do(t, s, "/readyz")
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("/readyz = %d, attendu 503", rec.Code)
+		t.Fatalf("/readyz = %d, expected 503", rec.Code)
 	}
 }
 
-// Un message de connexion peut porter un hôte, un port, voire un identifiant.
-// /readyz est souvent exposé plus largement que le reste de l'API.
+// A connection message can carry a host, a port, even a credential. /readyz is often exposed
+// more widely than the rest of the API.
 func TestReadyzDoesNotLeakErrorDetails(t *testing.T) {
 	s := testServer(ReadinessCheck{
 		Name: "postgres",
 		Check: func(context.Context) error {
-			return errors.New("dial tcp 10.42.0.7:5432: mot de passe refusé pour mse_app")
+			return errors.New("dial tcp 10.42.0.7:5432: password refused for mse_app")
 		},
 	})
 
 	body := do(t, s, "/readyz").Body.String()
 
-	for _, leak := range []string{"10.42.0.7", "5432", "mse_app", "mot de passe"} {
+	for _, leak := range []string{"10.42.0.7", "5432", "mse_app", "password"} {
 		if strings.Contains(body, leak) {
-			t.Errorf("la réponse divulgue %q: %s", leak, body)
+			t.Errorf("the response leaks %q: %s", leak, body)
 		}
 	}
 }
@@ -110,6 +110,6 @@ func TestRunStopsOnContextCancellation(t *testing.T) {
 			t.Fatalf("extinction en erreur: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("le serveur ne s'est pas éteint après annulation du contexte")
+		t.Fatal("the server did not shut down after the context was cancelled")
 	}
 }

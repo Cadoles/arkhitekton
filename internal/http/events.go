@@ -24,13 +24,13 @@ import (
  * bien avant l'agrément de voir passer des lignes.
  */
 
-// EventStore est ce que le fil attend de la base.
+// EventStore is what the feed needs from the database.
 type EventStore interface {
 	ListEvents(ctx context.Context, projectID int64, limit int) ([]store.RecordedEvent, error)
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 }
 
-// EventsHandler sert le fil des faits.
+// EventsHandler serves the fact feed.
 type EventsHandler struct{ store EventStore }
 
 func NewEventsHandler(events EventStore) *EventsHandler { return &EventsHandler{store: events} }
@@ -38,45 +38,42 @@ func NewEventsHandler(events EventStore) *EventsHandler { return &EventsHandler{
 type eventPayload struct {
 	ID   int64  `json:"id"`
 	Type string `json:"type"`
-	// Source distingue le noyau d'un plugin. Vide pour le noyau.
+	// Source distinguishes the core from a plugin. Empty for the core.
 	Source  string `json:"source,omitempty"`
 	Subject string `json:"subject,omitempty"`
-	// Payload est rendue telle quelle. L'écran n'en connaît pas les clés — elles
-	// dépendent du type, et le jour où un plugin en déclarera d'autres, une liste
-	// codée ici les laisserait invisibles.
+	// Payload is returned as it is. The screen does not know its keys — they depend on the
+	// type, and the day a plugin declares others, a list hard-coded here would leave them
+	// invisible.
 	Payload    map[string]string `json:"payload"`
 	OccurredAt time.Time         `json:"occurred_at"`
-	// RecordedAt n'est rendu que lorsqu'il **diffère** de l'instant du fait.
+	// RecordedAt is returned only when it differs from the fact's instant.
 	//
-	// Les deux coïncident pour tout ce que le noyau constate ; ils divergeront
-	// quand des sondes rattraperont de l'historique, et c'est précisément là que
-	// l'écart mérite d'être montré. L'afficher toujours ferait deux dates
-	// identiques sur chaque ligne, que personne ne lirait plus.
+	// The two coincide for everything the core observes; they will diverge when probes catch up
+	// on history, and that is precisely where the gap deserves showing. Always displaying it
+	// would put two identical dates on every row, which nobody would read any more.
 	RecordedAt *time.Time `json:"recorded_at,omitempty"`
-	// Depth est la profondeur d'enchaînement. Rendue dès maintenant, et toujours
-	// nulle : c'est elle qui dira, quand des réactions existeront, qu'un fait a
-	// été causé par un autre.
+	// Depth is the chaining depth. Returned from now on, and always zero: it is what will say,
+	// once reactions exist, that a fact was caused by another.
 	Depth int `json:"depth"`
 }
 
-// List rend le fil d'un projet, du plus récent au plus ancien.
+// List returns a project's feed, newest first.
 func (h *EventsHandler) List(w http.ResponseWriter, r *http.Request) {
 	project, err := h.store.ProjectBySlug(r.Context(),
 		strings.TrimSpace(r.PathValue("project")))
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet inconnu", "")
+			writeProblem(w, http.StatusNotFound, "Unknown project", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
 		return
 	}
 
 	limit := 0
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		// Une borne illisible est ignorée plutôt que refusée : c'est un confort
-		// d'affichage, et rendre 400 sur un paramètre décoratif ferait échouer un
-		// écran pour une URL recopiée de travers.
+		// An unreadable bound is ignored rather than refused: it is a display convenience, and a
+		// 400 on a decorative parameter would fail a screen over a mistyped URL.
 		if parsed, err := strconv.Atoi(raw); err == nil {
 			limit = parsed
 		}
@@ -84,7 +81,7 @@ func (h *EventsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	events, err := h.store.ListEvents(r.Context(), project.ID, limit)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des faits impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the facts", "")
 		return
 	}
 
@@ -95,9 +92,8 @@ func (h *EventsHandler) List(w http.ResponseWriter, r *http.Request) {
 			Subject: entry.Subject, Payload: orEmptyMap(entry.Payload),
 			OccurredAt: entry.OccurredAt, Depth: entry.Depth,
 		}
-		// La seconde près : les deux instants sont écrits dans la même
-		// transaction pour un fait du noyau, et une différence de microsecondes
-		// afficherait un écart qui n'en est pas un.
+		// To the second: both instants are written in the same transaction for a core fact, and a
+		// difference of microseconds would display a gap that is not one.
 		if entry.RecordedAt.Sub(entry.OccurredAt).Abs() >= time.Second {
 			recorded := entry.RecordedAt
 			view.RecordedAt = &recorded

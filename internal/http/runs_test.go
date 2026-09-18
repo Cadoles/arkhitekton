@@ -6,13 +6,11 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// Tekton ne crée un TaskRun qu'au démarrage d'une tâche : un pipeline de huit
-// étapes n'en montrait donc que deux au début, et rien ne disait ce qu'il
-// restait à faire.
-func TestLesTachesNonDemarreesSontListees(t *testing.T) {
-	// Une tâche observée porte deux noms : celui de son TaskRun et, dans
-	// `DisplayName`, celui de la tâche du pipeline qu'elle exécute. C'est le
-	// second qui rapproche de la déclaration.
+// Tekton creates a TaskRun only when a task starts: an eight-stage pipeline therefore
+// showed two at first, and nothing said what was left to do.
+func TestTasksNotStartedAreListed(t *testing.T) {
+	// An observed task carries two names: its TaskRun's and, in DisplayName, that of the
+	// pipeline task it runs. The second is what matches the declaration.
 	tasks := mergeTasks(store.RunDetail{
 		Tasks: []store.TaskSummary{
 			{Name: "mse-unit-tests-1-git-clone", DisplayName: "git-clone", Status: "succeeded"},
@@ -27,49 +25,48 @@ func TestLesTachesNonDemarreesSontListees(t *testing.T) {
 	})
 
 	if len(tasks) != 4 {
-		t.Fatalf("%d tâches, attendu les 4 déclarées: %+v", len(tasks), tasks)
+		t.Fatalf("%d tasks, expected the 4 declared: %+v", len(tasks), tasks)
 	}
-	// L'ordre est celui du graphe : une tâche non démarrée n'a pas de date, et
-	// trier par ce qu'elle n'a pas la rejetterait en fin de liste.
+	// The order is the graph's: an unstarted task has no date, and sorting by what it does not
+	// have would push it to the end of the list.
 	order := []string{"Clone mse", "composer-install", "Run phpstan", "save-results"}
 	for i, label := range order {
 		if tasks[i].DisplayName != label {
-			t.Errorf("position %d: %q, attendu %q", i, tasks[i].DisplayName, label)
+			t.Errorf("position %d: %q, expected %q", i, tasks[i].DisplayName, label)
 		}
 	}
-	// Le nom du TaskRun est conservé sur ce qui a démarré : c'est par lui que les
-	// journaux se lisent.
+	// The TaskRun's name is kept on what started: it is how the logs are read.
 	if tasks[0].Name != "mse-unit-tests-1-git-clone" {
-		t.Errorf("nom du TaskRun perdu: %q", tasks[0].Name)
+		t.Errorf("TaskRun name lost: %q", tasks[0].Name)
 	}
 	if tasks[2].Status != "pending" || tasks[3].Status != "pending" {
-		t.Errorf("statuts: %q, %q — attendu pending", tasks[2].Status, tasks[3].Status)
+		t.Errorf("statuses: %q, %q — expected pending", tasks[2].Status, tasks[3].Status)
 	}
-	// Le libellé déclaré est repris quand il existe, le nom technique sinon.
+	// The declared label is used where it exists, the technical name otherwise.
 	if tasks[2].DisplayName != "Run phpstan" || tasks[3].DisplayName != "save-results" {
-		t.Errorf("libellés: %q, %q", tasks[2].DisplayName, tasks[3].DisplayName)
+		t.Errorf("labels: %q, %q", tasks[2].DisplayName, tasks[3].DisplayName)
 	}
-	// Le défaut constaté : la même étape apparaissait deux fois, exécutée sous
-	// son nom technique et « en attente » sous son libellé.
+	// The observed defect: the same step appeared twice, run under its technical name and
+	// "pending" under its label.
 	seen := map[string]int{}
 	for _, task := range tasks {
 		seen[task.DisplayName]++
 	}
 	for label, count := range seen {
 		if count > 1 {
-			t.Errorf("%q apparaît %d fois", label, count)
+			t.Errorf("%q appears %d times", label, count)
 		}
 	}
-	// Ce qui a démarré garde son statut réel.
+	// What started keeps its real status.
 	if tasks[0].Status != "succeeded" || tasks[1].Status != "running" {
-		t.Errorf("statuts observés perdus: %+v", tasks[:2])
+		t.Errorf("observed statuses lost: %+v", tasks[:2])
 	}
 }
 
-// Une tâche qui a tourné sans figurer dans la déclaration — pipeline modifié
-// entre-temps, run projeté avant l'enregistrement des déclarations — reste
-// affichée. La taire perdrait une exécution réelle au profit d'une définition.
-func TestUneTacheObserveeHorsDeclarationResteAffichee(t *testing.T) {
+// A task that ran without appearing in the declaration — a pipeline modified meanwhile, a
+// run projected before the declarations were recorded — stays displayed. Hiding it would
+// lose a real run in favour of a definition.
+func TestAnObservedTaskOutsideTheDeclarationStaysDisplayed(t *testing.T) {
 	tasks := mergeTasks(store.RunDetail{
 		Tasks: []store.TaskSummary{
 			{Name: "mse-run-1-tache-disparue", DisplayName: "tache-disparue", Status: "failed"},
@@ -81,13 +78,13 @@ func TestUneTacheObserveeHorsDeclarationResteAffichee(t *testing.T) {
 		t.Fatalf("%d tâches: %+v", len(tasks), tasks)
 	}
 	if tasks[0].DisplayName != "tache-disparue" || tasks[0].Status != "failed" {
-		t.Errorf("la tâche observée devrait passer en tête: %+v", tasks[0])
+		t.Errorf("the observed task should move to the front: %+v", tasks[0])
 	}
 }
 
-// Sans déclaration — run projeté avant que la colonne existe — le comportement
-// d'avant subsiste : les seules tâches démarrées.
-func TestSansDeclarationSeulesLesTachesDemarreesSontRendues(t *testing.T) {
+// With no declaration — a run projected before the column existed — the previous behaviour
+// holds: only the started tasks.
+func TestWithoutADeclarationOnlyStartedTasksAreReturned(t *testing.T) {
 	tasks := mergeTasks(store.RunDetail{
 		Tasks: []store.TaskSummary{
 			{Name: "mse-run-1-git-clone", DisplayName: "git-clone", Status: "succeeded"},
@@ -99,26 +96,25 @@ func TestSansDeclarationSeulesLesTachesDemarreesSontRendues(t *testing.T) {
 	}
 }
 
-// Le lien vers le dashboard Tekton, et les deux cas où il ne doit pas exister.
-func TestLeLienTektonEstOmisQuandIlSeraitMort(t *testing.T) {
+// The link to the Tekton dashboard, and the two cases where it must not exist.
+func TestTheTektonLinkIsOmittedWhenItWouldBeDead(t *testing.T) {
 	run := store.RunSummary{Name: "mse-unit-tests-1", Namespace: "mse-tekton-pipelines"}
 
 	configured := NewRunsHandler(nil).WithTektonDashboard("https://tekton.example.fr/")
 	want := "https://tekton.example.fr/#/namespaces/mse-tekton-pipelines/pipelineruns/mse-unit-tests-1"
 	if got := configured.dashboardLink(run); got != want {
-		t.Errorf("lien: %q, attendu %q", got, want)
+		t.Errorf("link: %q, expected %q", got, want)
 	}
 
-	// Sans dashboard configuré, pas de lien : le déployer n'est pas une exigence
-	// de ce dashboard-ci.
+	// With no dashboard configured, no link: deploying one is not a requirement of this
+	// dashboard.
 	if got := NewRunsHandler(nil).dashboardLink(run); got != "" {
-		t.Errorf("lien sans configuration: %q", got)
+		t.Errorf("link with no configuration: %q", got)
 	}
 
-	// Sans namespace, l'URL s'ouvrirait sur une page d'erreur. Mieux vaut ne rien
-	// proposer.
+	// With no namespace, the URL would open on an error page. Better to offer nothing.
 	orphan := store.RunSummary{Name: "mse-unit-tests-1"}
 	if got := configured.dashboardLink(orphan); got != "" {
-		t.Errorf("lien sans namespace: %q", got)
+		t.Errorf("link with no namespace: %q", got)
 	}
 }

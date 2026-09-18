@@ -19,22 +19,22 @@ import (
  * tranche et s'arrêter donnerait un fichier tronqué sans que rien ne le signale.
  */
 
-// chunkedReader rend le journal par tranches, comme le vrai lecteur borné.
+// chunkedReader returns the log in chunks, like the real bounded reader.
 type chunkedReader struct {
 	content []byte
 	chunk   int64
-	// calls compte les lectures : c'est ce qui distingue une pagination réelle
-	// d'un coup de chance où tout tiendrait dans le premier appel.
+	// calls counts the reads: that is what tells real pagination from a lucky case where
+	// everything fitted in the first call.
 	calls int
 	err   error
 }
 
 func (r *chunkedReader) Tail(context.Context, string, string, int64) (logs.Segment, error) {
-	return logs.Segment{}, errors.New("Tail n'a pas à servir le texte brut")
+	return logs.Segment{}, errors.New("Tail has no business serving the raw text")
 }
 
-// LinesBefore ne sert pas la vue brute — elle rend le journal tel quel, sans
-// numéroter — mais l'interface l'exige.
+// LinesBefore does not serve the raw view — it returns the log as it is, without numbering —
+// but the interface requires it.
 func (r *chunkedReader) LinesBefore(_ context.Context, _, _ string, offset int64) (int64, error) {
 	if r.err != nil {
 		return 0, r.err
@@ -76,9 +76,9 @@ func rawRequest(t *testing.T, reader LogReader, query string) *httptest.Response
 	return recorder
 }
 
-// Un journal plus long qu'une lecture unitaire doit sortir entier.
-func TestLeJournalBrutEstServiEnEntier(t *testing.T) {
-	reader := &chunkedReader{content: []byte("une ligne\ndeux lignes\ntrois lignes\n"), chunk: 8}
+// A log longer than a single read must come out whole.
+func TestTheRawLogIsServedWhole(t *testing.T) {
+	reader := &chunkedReader{content: []byte("one line\ntwo lines\nthree lines\n"), chunk: 8}
 
 	recorder := rawRequest(t, reader, "")
 
@@ -86,34 +86,34 @@ func TestLeJournalBrutEstServiEnEntier(t *testing.T) {
 		t.Fatalf("code %d", recorder.Code)
 	}
 	if got := recorder.Body.String(); got != string(reader.content) {
-		t.Errorf("corps tronqué: %q", got)
+		t.Errorf("truncated body: %q", got)
 	}
 	if reader.calls < 2 {
-		t.Errorf("%d lecture(s) — le test ne prouve rien sans pagination", reader.calls)
+		t.Errorf("%d read(s) — the test proves nothing without pagination", reader.calls)
 	}
 	if got := recorder.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
 		t.Errorf("type: %q", got)
 	}
-	// Sans `download`, la réponse s'affiche dans l'onglet : une disposition en
-	// pièce jointe la ferait enregistrer, ce qui est l'autre usage.
+	// Without `download`, the response displays in the tab: an attachment disposition would
+	// save it, which is the other use.
 	if got := recorder.Header().Get("Content-Disposition"); got != "" {
-		t.Errorf("disposition posée sans demande: %q", got)
+		t.Errorf("disposition set with no request: %q", got)
 	}
 }
 
-// `download` fait basculer la même ressource en fichier, nommé des deux
-// identifiants : un dossier où dix fichiers s'appellent `log.txt` ne sert à rien.
-func TestLeTelechargementNommeLeFichier(t *testing.T) {
+// `download` switches the same resource to a file, named from both identifiers: a folder
+// where ten files are called `log.txt` is useless.
+func TestTheDownloadNamesTheFile(t *testing.T) {
 	recorder := rawRequest(t, &chunkedReader{content: []byte("bonjour\n"), chunk: 64}, "?download=1")
 
 	want := `attachment; filename="mse-run-1-git-clone.txt"`
 	if got := recorder.Header().Get("Content-Disposition"); got != want {
-		t.Errorf("disposition: %q, attendu %q", got, want)
+		t.Errorf("disposition: %q, expected %q", got, want)
 	}
 }
 
-// Un journal vide n'est pas une erreur, et la boucle doit s'arrêter dessus.
-func TestUnJournalVideNeBouclePas(t *testing.T) {
+// An empty log is not an error, and the loop must stop on it.
+func TestAnEmptyLogDoesNotLoop(t *testing.T) {
 	recorder := rawRequest(t, &chunkedReader{content: nil, chunk: 64}, "")
 
 	if recorder.Code != http.StatusOK || recorder.Body.Len() != 0 {
@@ -121,9 +121,9 @@ func TestUnJournalVideNeBouclePas(t *testing.T) {
 	}
 }
 
-// Un échec à la première lecture donne un code d'erreur : c'est le seul moment
-// où il en reste un à donner, l'en-tête n'étant pas encore parti.
-func TestUnEchecDeLectureRendUneErreur(t *testing.T) {
+// A failure on the first read gives an error code: it is the only moment one is left to
+// give, the header not having gone yet.
+func TestAReadFailureReturnsAnError(t *testing.T) {
 	recorder := rawRequest(t, &chunkedReader{err: errors.New("minio injoignable")}, "")
 
 	if recorder.Code != http.StatusInternalServerError {
@@ -131,8 +131,8 @@ func TestUnEchecDeLectureRendUneErreur(t *testing.T) {
 	}
 }
 
-// Le nom de fichier ne garde que ce qui traverse un en-tête sans dommage.
-func TestLeNomDeFichierEstAssaini(t *testing.T) {
+// The file name keeps only what crosses a header unharmed.
+func TestTheFileNameIsSanitised(t *testing.T) {
 	if got := sanitizeFilename(`mse "run"/1`); got != "mse--run--1" {
 		t.Errorf("nom: %q", got)
 	}

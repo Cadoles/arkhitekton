@@ -32,12 +32,11 @@ fonctionne avec plusieurs répliques d'`api`, il est repris à l'octet près par
 il n'y a pas deux implémentations à garder d'accord.
 */
 
-// sseHeartbeat maintient la connexion ouverte à travers les intermédiaires.
+// sseHeartbeat keeps the connection open through intermediaries.
 //
-// nginx ferme une connexion inactive, et l'Ingress du dashboard porte un
-// `proxy-read-timeout` d'une heure : un pipeline silencieux pendant ce délai
-// verrait son flux coupé sans raison visible. Un commentaire SSE ne déclenche
-// aucun événement côté client.
+// nginx closes an idle connection, and the dashboard's ingress carries a one-hour read
+// timeout: a pipeline silent for that long would see its stream cut for no visible reason. An
+// SSE comment triggers no event on the client side.
 const sseHeartbeat = 20 * time.Second
 
 // sseWriter encapsule le protocole.
@@ -46,8 +45,8 @@ type sseWriter struct {
 	flusher http.Flusher
 }
 
-// newSSEWriter prépare la réponse. Rend false si le client ne peut pas être servi
-// en flux — cas d'un intermédiaire qui met en tampon.
+// newSSEWriter prepares the response. Returns false if the client cannot be served as a
+// stream — the case of a buffering intermediary.
 func newSSEWriter(w http.ResponseWriter) (*sseWriter, bool) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -58,8 +57,8 @@ func newSSEWriter(w http.ResponseWriter) (*sseWriter, bool) {
 	header.Set("Content-Type", "text/event-stream")
 	header.Set("Cache-Control", "no-cache")
 	header.Set("Connection", "keep-alive")
-	// Sans cet en-tête, nginx accumule les événements et les délivre en bloc :
-	// l'interface affiche un run figé, puis saute à son état final.
+	// Without that header, nginx accumulates the events and delivers them in a block: the
+	// interface shows a frozen run, then jumps to its final state.
 	header.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
@@ -67,7 +66,7 @@ func newSSEWriter(w http.ResponseWriter) (*sseWriter, bool) {
 	return &sseWriter{w: w, flusher: flusher}, true
 }
 
-// event émet un événement nommé, avec son identifiant de reprise.
+// event emits a named event, with its resume identifier.
 func (s *sseWriter) event(name, id, data string) error {
 	var builder strings.Builder
 	if id != "" {
@@ -76,8 +75,8 @@ func (s *sseWriter) event(name, id, data string) error {
 	if name != "" {
 		fmt.Fprintf(&builder, "event: %s\n", name)
 	}
-	// Une charge utile multiligne doit être découpée : un `\n` brut terminerait
-	// l'événement, et le client ne recevrait que sa première ligne.
+	// A multi-line payload must be split: a raw newline would terminate the event, and the client
+	// would receive only its first line.
 	for line := range strings.SplitSeq(data, "\n") {
 		fmt.Fprintf(&builder, "data: %s\n", line)
 	}
@@ -90,7 +89,7 @@ func (s *sseWriter) event(name, id, data string) error {
 	return nil
 }
 
-// comment émet un battement de cœur, invisible pour le client.
+// comment emits a heartbeat, invisible to the client.
 func (s *sseWriter) comment(text string) error {
 	if _, err := fmt.Fprintf(s.w, ": %s\n\n", text); err != nil {
 		return err

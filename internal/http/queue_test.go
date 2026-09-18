@@ -26,8 +26,8 @@ type fakeQueueStore struct {
 	releases []store.Release
 	limits   map[string]int
 	set      map[string]int
-	// cleared retient les retours au défaut : la distinction entre régler et
-	// défaire est ce qui rend un réglage réversible.
+	// cleared keeps the returns to default: telling setting from undoing is what makes a
+	// setting reversible.
 	cleared []string
 }
 
@@ -73,8 +73,8 @@ func queueHandler(fake *fakeQueueStore) *QueueHandler {
 				Kind: "unit-tests", PipelineRef: "php-unit-tests", Label: "Tests unitaires",
 				Params: map[string]catalog.Param{
 					"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
-					// Facultatif, et sans nature : c'est le cas qui doit rester
-					// une saisie libre, et qui n'apparaissait pas du tout avant.
+					// Optional, and with no nature: the case that must stay free-text, and which did not
+					// appear at all before.
 					"debug":    {Source: catalog.SourceInput},
 					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mse.repoUrl"},
 				},
@@ -83,9 +83,8 @@ func queueHandler(fake *fakeQueueStore) *QueueHandler {
 				Kind: "e2e-tests", PipelineRef: "e2e-test", Label: "Tests E2E", MaxConcurrent: 1,
 				Params: map[string]catalog.Param{
 					"image-tag": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestReleaseTag},
-					// La liste des références se constitue à partir de ce que le
-					// catalogue déclare : sans ce paramètre, aucune image ne serait
-					// proposée, ce qui est le comportement voulu.
+					// The reference list is built from what the catalogue declares: without this parameter no
+					// image would be offered, which is the intended behaviour.
 					"portal-image": {
 						Source: catalog.SourceInput, Required: true,
 						Suggest: catalog.SuggestImage, Image: "portal"},
@@ -133,13 +132,13 @@ func listQueues(t *testing.T, handler *QueueHandler) queueListing {
 
 	var listing queueListing
 	if err := json.Unmarshal(recorder.Body.Bytes(), &listing); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	return listing
 }
 
-// Une file par type déclaré, occupée ou non.
-func TestChaqueTypeALaSienneMemeVide(t *testing.T) {
+// One queue per declared kind, busy or not.
+func TestEachTypeHasItsOwnQueueEvenEmpty(t *testing.T) {
 	fake := newFakeQueueStore()
 	fake.jobs = []store.Job{
 		{ID: 1, Kind: "unit-tests", State: store.JobRunning, RequestedBy: "121"},
@@ -149,7 +148,7 @@ func TestChaqueTypeALaSienneMemeVide(t *testing.T) {
 	listing := listQueues(t, queueHandler(fake))
 
 	if len(listing.Queues) != 2 {
-		t.Fatalf("%d file(s), attendu une par type déclaré: %+v", len(listing.Queues), listing.Queues)
+		t.Fatalf("%d queue(s), expected one per declared type: %+v", len(listing.Queues), listing.Queues)
 	}
 
 	unit := listing.Queues[0]
@@ -158,22 +157,22 @@ func TestChaqueTypeALaSienneMemeVide(t *testing.T) {
 	}
 	// Le plafond du catalogue, faute de réglage.
 	if unit.MaxConcurrent != catalog.DefaultKindConcurrency || unit.Overridden {
-		t.Errorf("plafond = %d, réglé %v", unit.MaxConcurrent, unit.Overridden)
+		t.Errorf("cap = %d, set %v", unit.MaxConcurrent, unit.Overridden)
 	}
-	// Le sujet OIDC est traduit : c'est « qui » qu'on lit sur une file.
+	// The OIDC subject is translated: what one reads on a queue is who.
 	if len(unit.Jobs) != 2 || unit.Jobs[0].RequestedBy != "vcarroy" {
 		t.Errorf("jobs = %+v", unit.Jobs)
 	}
 
 	e2e := listing.Queues[1]
 	if e2e.MaxConcurrent != 1 || len(e2e.Jobs) != 0 {
-		t.Errorf("file e2e = %+v — une file vide reste affichée", e2e)
+		t.Errorf("e2e queue = %+v — an empty queue stays displayed", e2e)
 	}
 }
 
-// Un réglage remplace le plafond du catalogue, qui reste rendu à côté : l'écran
-// doit pouvoir proposer d'y revenir.
-func TestUnReglageEstRenduAvecSonDefaut(t *testing.T) {
+// A setting replaces the catalogue's ceiling, which is still returned beside it: the
+// screen must be able to offer going back to it.
+func TestASettingIsReturnedWithItsDefault(t *testing.T) {
 	fake := newFakeQueueStore()
 	fake.limits["unit-tests"] = 2
 
@@ -181,21 +180,20 @@ func TestUnReglageEstRenduAvecSonDefaut(t *testing.T) {
 
 	unit := listing.Queues[0]
 	if unit.MaxConcurrent != 2 || unit.DefaultMax != catalog.DefaultKindConcurrency || !unit.Overridden {
-		t.Errorf("file réglée = %+v", unit)
+		t.Errorf("queue set = %+v", unit)
 	}
 }
 
-// Les tâches locales ne deviennent pas des PipelineRun et n'ont pas d'entrée au
-// catalogue, mais occupent bien une file. Les taire ferait disparaître de
-// l'écran des jobs qui attendent réellement.
-func TestUneFileHorsCatalogueResteAffichee(t *testing.T) {
+// Local tasks do not become PipelineRuns and have no catalogue entry, but they do occupy a
+// queue. Hiding them would make jobs that really are waiting disappear from the screen.
+func TestAQueueOutsideTheCatalogueStaysDisplayed(t *testing.T) {
 	fake := newFakeQueueStore()
 	fake.jobs = []store.Job{{ID: 7, Kind: "delivery-note", State: store.JobQueued, RequestedBy: "121"}}
 
 	listing := listQueues(t, queueHandler(fake))
 
 	if len(listing.Queues) != 3 {
-		t.Fatalf("%d file(s), attendu les deux du catalogue plus la constatée", len(listing.Queues))
+		t.Fatalf("%d queue(s), expected the catalogue's two plus the observed one", len(listing.Queues))
 	}
 	local := listing.Queues[2]
 	if local.Kind != "delivery-note" || local.Known {
@@ -219,34 +217,34 @@ func setLimit(t *testing.T, handler *QueueHandler, kind, body string) *httptest.
 	return recorder
 }
 
-// Un plafond nul ou négatif immobiliserait la file pour toujours, sans que rien
-// ne le dise. Il est refusé, comme celui qui dépasse ce que le cluster tient.
-func TestUnPlafondHorsBornesEstRefuse(t *testing.T) {
+// A zero or negative ceiling would immobilise the queue for ever, with nothing saying so.
+// It is refused, like one exceeding what the cluster holds.
+func TestAnOutOfBoundsCapIsRefused(t *testing.T) {
 	fake := newFakeQueueStore()
 	handler := queueHandler(fake)
 
 	for _, body := range []string{`{"max_concurrent":0}`, `{"max_concurrent":-1}`, `{"max_concurrent":999}`} {
 		recorder := setLimit(t, handler, "unit-tests", body)
 		if recorder.Code != http.StatusBadRequest {
-			t.Errorf("%s: code %d, attendu 400", body, recorder.Code)
+			t.Errorf("%s: code %d, expected 400", body, recorder.Code)
 		}
 	}
 	if len(fake.set) != 0 {
-		t.Errorf("un plafond invalide a été enregistré: %v", fake.set)
+		t.Errorf("an invalid cap was recorded: %v", fake.set)
 	}
 
 	if recorder := setLimit(t, handler, "unit-tests", `{"max_concurrent":3}`); recorder.Code != http.StatusOK {
 		t.Fatalf("code %d", recorder.Code)
 	}
 	if fake.set["unit-tests"] != 3 {
-		t.Errorf("plafond enregistré = %v", fake.set)
+		t.Errorf("cap recorded = %v", fake.set)
 	}
 }
 
-// Défaire un réglage est une opération distincte de le poser à sa valeur d'avant :
-// envoyer un nombre ne dirait pas « comme le catalogue », mais « exactement ce
-// nombre », qui cesserait de suivre le catalogue s'il change.
-func TestLeRetourAuDefautEffaceLeReglage(t *testing.T) {
+// Undoing a setting is a distinct operation from setting it back to its previous value:
+// sending a number would not say "as the catalogue does", but "exactly this number", which
+// would stop following the catalogue if it changed.
+func TestReturningToTheDefaultClearsTheSetting(t *testing.T) {
 	fake := newFakeQueueStore()
 	handler := queueHandler(fake)
 
@@ -262,16 +260,15 @@ func TestLeRetourAuDefautEffaceLeReglage(t *testing.T) {
 		t.Fatalf("code %d", recorder.Code)
 	}
 	if len(fake.cleared) != 1 || fake.cleared[0] != "unit-tests" {
-		t.Errorf("réglages effacés = %v", fake.cleared)
+		t.Errorf("settings cleared = %v", fake.cleared)
 	}
 }
 
-// Le formulaire de lancement se peuple depuis le catalogue et la base.
+// The launch form is populated from the catalogue and the database.
 //
-// Ses champs étaient des saisies libres : un `revision` vide oblige à aller
-// chercher le nom d'une branche ailleurs pour le recopier, et la faute de frappe
-// ne se découvre qu'à l'échec du clone.
-func TestLeFormulaireDeLancementEstPeuple(t *testing.T) {
+// Its fields used to be free-text: an empty revision forces going elsewhere to find a
+// branch name and copy it, and the typo only surfaces when the clone fails.
+func TestTheLaunchFormIsPopulated(t *testing.T) {
 	fake := newFakeQueueStore()
 	fake.releases = []store.Release{{Tag: "3.2.0-rc3"}, {Tag: "3.1.0"}}
 
@@ -281,35 +278,34 @@ func TestLeFormulaireDeLancementEstPeuple(t *testing.T) {
 		t.Fatalf("%d type(s)", len(listing.Kinds))
 	}
 
-	// Les requis d'abord, puis l'ordre alphabétique : une map Go n'a pas d'ordre,
-	// et un formulaire dont les champs changent de place à chaque ouverture est
-	// impraticable.
+	// Required first, then alphabetical: a Go map has no order, and a form whose fields move
+	// on every opening is unusable.
 	unit := listing.Kinds[0].Inputs
 	if len(unit) != 2 {
-		t.Fatalf("paramètres de unit-tests = %+v — les facultatifs comptent aussi", unit)
+		t.Fatalf("unit-tests parameters = %+v — the optional ones count too", unit)
 	}
 	if unit[0].Name != "revision" || !unit[0].Required || unit[0].Suggest != catalog.SuggestGitRef {
-		t.Errorf("premier paramètre = %+v", unit[0])
+		t.Errorf("first parameter = %+v", unit[0])
 	}
 	if unit[1].Name != "debug" || unit[1].Required || unit[1].Suggest != "" {
-		t.Errorf("second paramètre = %+v — un facultatif sans nature reste libre", unit[1])
+		t.Errorf("second parameter = %+v — an optional one with no kind stays free", unit[1])
 	}
 
-	// Les tags de release, et les images composées du préfixe du registre. Le
-	// navigateur ne connaît pas ce préfixe : le lui transmettre pour qu'il
-	// assemble reviendrait à le publier pour un gain nul.
+	// Release tags, and images composed with the registry's prefix. The browser does not know
+	// that prefix: sending it so the browser can assemble them would amount to publishing it
+	// for no gain.
 	tags := listing.Suggestions[catalog.SuggestReleaseTag]
 	if len(tags) != 2 || tags[0].Value != "3.2.0-rc3" {
-		t.Errorf("tags proposés = %+v", tags)
+		t.Errorf("tags offered = %+v", tags)
 	}
 	images := listing.Suggestions[catalog.Input{Suggest: catalog.SuggestImage, Image: "portal"}.SuggestionKey()]
 	if len(images) != 2 || images[0].Value != "reg.example.fr/mse/portal:3.2.0-rc3" {
-		t.Errorf("images proposées = %+v", images)
+		t.Errorf("images offered = %+v", images)
 	}
-	// Les environnements viennent du plugin MSE : sans lui, aucun n'est proposé
-	// et le champ reste libre, même si le catalogue en déclare.
+	// The environments come from the MSE plugin: without it none is offered and the field
+	// stays free, even when the catalogue declares some.
 	if environments, present := listing.Suggestions[catalog.SuggestEnvironment]; present {
-		t.Errorf("environnements proposés sans plugin = %+v", environments)
+		t.Errorf("environments offered with no plugin = %+v", environments)
 	}
 
 	proposed := []Suggestion{{Value: "dev", Label: "Unstable"}}
@@ -317,14 +313,13 @@ func TestLeFormulaireDeLancementEstPeuple(t *testing.T) {
 		func(context.Context, string) []Suggestion { return proposed }))
 	if environments := withPlugin.Suggestions[catalog.SuggestEnvironment]; len(environments) != 1 ||
 		environments[0].Value != "dev" {
-		t.Errorf("environnements proposés par le plugin = %+v", environments)
+		t.Errorf("environments offered by the plugin = %+v", environments)
 	}
 
-	// Les références Git manquent délibérément : elles se lisent en direct chez
-	// la forge, et les recharger avec la file les ferait payer toutes les deux
-	// secondes.
+	// Git references are deliberately missing: they are read live from the forge, and
+	// reloading them with the queue would make it pay every two seconds.
 	if _, present := listing.Suggestions[catalog.SuggestGitRef]; present {
-		t.Error("les références Git ne doivent pas transiter par la file")
+		t.Error("Git references must not travel through the queue")
 	}
 }
 
@@ -340,35 +335,33 @@ func launch(t *testing.T, handler *QueueHandler, body string) *httptest.Response
 	return recorder
 }
 
-// Les paramètres supplémentaires atterrissent dans la spec d'un objet
-// Kubernetes : un nom fantaisiste y produit une erreur de validation illisible
-// plutôt qu'un refus clair.
-func TestUnNomDeParametreFantaisisteEstRefuse(t *testing.T) {
+// Extra parameters land in a Kubernetes object's spec: a fanciful name produces an
+// unreadable validation error there rather than a clear refusal.
+func TestAFancifulParameterNameIsRefused(t *testing.T) {
 	handler := queueHandler(newFakeQueueStore())
 
 	refused := launch(t, handler,
 		`{"kind":"unit-tests","params":{"revision":"main","mauvais nom":"x"}}`)
 	if refused.Code != http.StatusBadRequest {
-		t.Errorf("code %d, attendu 400", refused.Code)
+		t.Errorf("code %d, expected 400", refused.Code)
 	}
 
-	// Un nom acceptable passe, et le paramètre n'a pas à être déclaré au
-	// catalogue : c'est ce qui rend une exécution personnalisée possible.
+	// An acceptable name goes through, and the parameter need not be declared in the
+	// catalogue: that is what makes a customised run possible.
 	accepted := launch(t, handler, `{"kind":"unit-tests","params":{"revision":"main","debug-mode":"1"}}`)
 	if accepted.Code != http.StatusAccepted {
-		t.Errorf("code %d, attendu 202", accepted.Code)
+		t.Errorf("code %d, expected 202", accepted.Code)
 	}
 }
 
-// BuildableProject nomme le projet d'accueil. Un seul suffit ici : ces tests
-// portent sur ce que le handler fait du projet, pas sur son choix.
+// BuildableProject names the host project. One is enough here: these tests are about what
+// the handler does with the project, not about choosing it.
 func (f *fakeQueueStore) BuildableProject(context.Context) (store.Project, error) {
 	return store.Project{ID: 1, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
 }
 
-// ProjectBySlug résout le projet nommé dans le chemin. Un seul ici, et il répond
-// à tout slug : ces tests portent sur ce que le handler fait du projet, pas sur
-// sa résolution.
+// ProjectBySlug resolves the project named in the path. One here, answering any slug:
+// these tests are about what the handler does with the project, not about resolving it.
 func (f *fakeQueueStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
 	if slug != testProjectSlug {
 		return store.Project{}, store.ErrProjectNotFound

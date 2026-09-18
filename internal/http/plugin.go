@@ -15,19 +15,19 @@ import (
  * même format que le reste de l'API.
  */
 
-// Mount monte les routes d'un plugin. Chaque route pose elle-même son contrôle
-// d'accès, [Middleware.RequireModule] compris.
+// Mount mounts a plugin's routes. Each route sets its own access control, including
+// [Middleware.RequireModule].
 type Mount func(mux *http.ServeMux, middleware *Middleware)
 
-// ProjectResolver traduit le nom porté par une URL en projet.
+// ProjectResolver translates the name a URL carries into a project.
 type ProjectResolver = projectResolver
 
-// WriteJSON rend une réponse JSON.
+// WriteJSON returns a JSON response.
 func WriteJSON(w http.ResponseWriter, status int, payload any) {
 	writeJSON(w, status, payload)
 }
 
-// WriteProblem rend une erreur au format RFC 9457.
+// WriteProblem returns an error in RFC 9457 form.
 func WriteProblem(w http.ResponseWriter, status int, title, detail string) {
 	writeProblem(w, status, title, detail)
 }
@@ -37,8 +37,8 @@ func RequestProject(w http.ResponseWriter, r *http.Request, source ProjectResolv
 	return requestProject(w, r, source)
 }
 
-// ContextWithIdentity pose une identité comme le ferait l'authentification. Sert
-// aux tests des handlers de plugin.
+// ContextWithIdentity sets an identity as authentication would. It serves the plugin
+// handlers' tests.
 func ContextWithIdentity(ctx context.Context, identity auth.Identity) context.Context {
 	return context.WithValue(ctx, identityKey, identity)
 }

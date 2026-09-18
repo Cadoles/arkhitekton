@@ -12,20 +12,20 @@ import (
 )
 
 /*
- * Le score, geste par geste.
+ * Le score, step par step.
  *
- * Ce que ces tests tiennent est le **changement d'axe** : deux gestes de même
+ * Ce que ces tests tiennent est le **changement d'axe** : deux steps de même
  * nature comptent séparément, et chacun pèse ce qu'il déclare. Le modèle par
  * signal ne savait dire ni l'un ni l'autre.
  */
 
-// scoreDeTest réalise ce dont le score a besoin, et rien d'autre.
+// testScore implements what the score needs, and nothing else.
 type scoreDeTest struct {
 	run     store.PlanRun
 	sansRun bool
-	// gestes rattache un résultat à la position du geste qui l'a produit, comme
-	// le ferait la chaîne résultat → run → job → geste.
-	gestes map[int64]store.GesteRef
+	// steps attaches a result to the position of the step that produced it, as the chain
+	// result → run → job → step would.
+	steps map[int64]store.GesteRef
 }
 
 func (s *scoreDeTest) PlanRunByEvent(_ context.Context, _, _ string) (store.PlanRun, error) {
@@ -36,7 +36,7 @@ func (s *scoreDeTest) PlanRunByEvent(_ context.Context, _, _ string) (store.Plan
 }
 
 func (s *scoreDeTest) ResultGestes(context.Context, int64) (map[int64]store.GesteRef, error) {
-	return s.gestes, nil
+	return s.steps, nil
 }
 
 func (s *scoreDeTest) LatestSecurityAudit(context.Context, int64) (store.SecurityAudit, error) {
@@ -55,43 +55,42 @@ func (s *scoreDeTest) Baselines(context.Context, string) (map[string]store.Basel
 	return nil, nil
 }
 
-// planDeVerification rend un plan à une étape de vérification.
-func planDeVerification(gestes ...plan.Geste) store.PlanRun {
+// verificationPlan returns a plan with one verification stage.
+func verificationPlan(steps ...plan.Geste) store.PlanRun {
 	return store.PlanRun{
 		Trigger: plan.ReleaseTrigger, EventKey: event.ReleaseCreatedKey(7),
 		Plan: plan.Plan{Stages: []plan.Stage{
 			{Role: plan.RoleBuild, Gestes: []plan.Geste{
 				{Kind: plan.GestePipeline, Ref: "build", Label: "portal"},
 			}},
-			{Role: plan.RoleTest, Gestes: gestes},
+			{Role: plan.RoleTest, Gestes: steps},
 		}},
 	}
 }
 
-func rapport(id int64, family string, total, failed int) store.TestResult {
+func testReport(id int64, family string, total, failed int) store.TestResult {
 	return store.TestResult{
 		ID: id, Family: family, Tool: family, Status: "passed",
 		Total: total, Passed: total - failed, Failed: failed,
 	}
 }
 
-func poidsDe(value float64) *float64 { return &value }
+func weightOf(value float64) *float64 { return &value }
 
-// Deux campagnes de même nature comptent séparément, et pèsent chacune la sienne.
+// Two campaigns of the same nature count separately, and each carries its own weight.
 //
-// C'est le cas que le modèle par signal ne savait pas exprimer : les deux se
-// confondaient dans un composant unique, et aucune pondération ne pouvait les
-// séparer (doc 15 §15.6).
-func TestDeuxGestesDeMemeNatureComptentSeparement(t *testing.T) {
+// That is the case the per-signal model could not express: the two were conflated into a
+// single component, and no weighting could separate them.
+func TestTwoStepsOfTheSameKindCountSeparately(t *testing.T) {
 	source := &scoreDeTest{
-		run: planDeVerification(
+		run: verificationPlan(
 			plan.Geste{Kind: plan.GestePipeline, Ref: "e2e-tests",
-				Label: "E2E portail", Weight: poidsDe(90)},
+				Label: "E2E portail", Weight: weightOf(90)},
 			plan.Geste{Kind: plan.GestePipeline, Ref: "e2e-tests",
-				Label: "E2E back-office", Weight: poidsDe(10)},
+				Label: "E2E back-office", Weight: weightOf(10)},
 		),
-		// Le premier rapport vient du geste 1.0, le second du geste 1.1.
-		gestes: map[int64]store.GesteRef{
+		// Le premier testReport vient du step 1.0, le second du step 1.1.
+		steps: map[int64]store.GesteRef{
 			1: {Stage: 1, Position: 0},
 			2: {Stage: 1, Position: 1},
 		},
@@ -99,8 +98,8 @@ func TestDeuxGestesDeMemeNatureComptentSeparement(t *testing.T) {
 
 	// Le portail passe, le back-office échoue entièrement.
 	reports := []store.TestResult{
-		rapport(1, "e2e", 10, 0),
-		rapport(2, "e2e", 10, 10),
+		testReport(1, "e2e", 10, 0),
+		testReport(2, "e2e", 10, 10),
 	}
 
 	breakdown, err := computeScore(context.Background(), source, 7, reports, nil)
@@ -109,35 +108,35 @@ func TestDeuxGestesDeMemeNatureComptentSeparement(t *testing.T) {
 	}
 
 	if len(breakdown.Signals) != 2 {
-		t.Fatalf("%d composant(s), attendu deux gestes", len(breakdown.Signals))
+		t.Fatalf("%d component(s), expected two steps", len(breakdown.Signals))
 	}
 	if breakdown.Signals[0].Label != "E2E portail" ||
 		breakdown.Signals[1].Label != "E2E back-office" {
-		t.Errorf("libellés = %q / %q — l'ordre du plan n'est pas conservé",
+		t.Errorf("labels = %q / %q — the plan's order is not kept",
 			breakdown.Signals[0].Label, breakdown.Signals[1].Label)
 	}
-	// 90 % à 100 et 10 % à 0. Un axe par signal aurait cumulé les deux rapports
-	// en un seul — 10 échecs sur 20 — et rendu 50.
+	// 90% at 100 and 10% at 0. One axis per signal would have summed both reports into one —
+	// 10 failures out of 20 — and returned 50.
 	if breakdown.Score != 90 {
-		t.Errorf("score = %d, attendu 90", breakdown.Score)
+		t.Errorf("score = %d, expected 90", breakdown.Score)
 	}
 }
 
-// Un geste qui ne déclare rien pèse ce que sa nature pesait (B11).
+// A step that declares nothing weighs what its nature weighed.
 //
-// Personne ne perd la pondération convenue en ne saisissant rien.
-func TestUnGesteSansPoidsPeseLaPonderationDorigine(t *testing.T) {
+// Nobody loses the agreed weighting by typing nothing.
+func TestAStepWithNoWeightCarriesTheOriginalWeighting(t *testing.T) {
 	source := &scoreDeTest{
-		run: planDeVerification(
+		run: verificationPlan(
 			plan.Geste{Kind: plan.GestePipeline, Ref: "unit-tests", Label: "Tests unitaires"},
 			plan.Geste{Kind: plan.GestePipeline, Ref: "e2e-tests", Label: "Tests E2E"},
 		),
-		gestes: map[int64]store.GesteRef{
+		steps: map[int64]store.GesteRef{
 			1: {Stage: 1, Position: 0},
 			2: {Stage: 1, Position: 1},
 		},
 	}
-	reports := []store.TestResult{rapport(1, "unit", 10, 0), rapport(2, "e2e", 10, 0)}
+	reports := []store.TestResult{testReport(1, "unit", 10, 0), testReport(2, "e2e", 10, 0)}
 
 	breakdown, err := computeScore(context.Background(), source, 7, reports, nil)
 	if err != nil {
@@ -147,17 +146,17 @@ func TestUnGesteSansPoidsPeseLaPonderationDorigine(t *testing.T) {
 	attendus := map[string]float64{"Tests unitaires": 25, "Tests E2E": 20}
 	for _, composant := range breakdown.Signals {
 		if attendu, connu := attendus[composant.Label]; connu && composant.Declared != attendu {
-			t.Errorf("%s: poids déclaré = %v, attendu %v (pondération d'origine)",
+			t.Errorf("%s: declared weight = %v, expected %v (original weighting)",
 				composant.Label, composant.Declared, attendu)
 		}
 	}
 }
 
-// Un geste qui n'a rien produit reste affiché, et son poids se lit.
+// A step that produced nothing stays displayed, and its weight reads.
 //
-// Le catalogue dit ce qu'il aurait mesuré : sans lui, la case disparaîtrait au
-// lieu de dire qu'elle attend.
-func TestUnGesteSansResultatResteAfficheAvecSonPoids(t *testing.T) {
+// The catalogue says what it would have measured: without it, the cell would disappear
+// instead of saying it is waiting.
+func TestAStepWithNoResultStaysDisplayedWithItsWeight(t *testing.T) {
 	registry := &catalog.Catalog{Pipelines: []catalog.Pipeline{{
 		Kind: "unit-tests", PipelineRef: "unit",
 		Produces: []catalog.Product{catalog.ProductResults},
@@ -167,10 +166,10 @@ func TestUnGesteSansResultatResteAfficheAvecSonPoids(t *testing.T) {
 	}}}
 
 	source := &scoreDeTest{
-		run: planDeVerification(plan.Geste{
+		run: verificationPlan(plan.Geste{
 			Kind: plan.GestePipeline, Ref: "unit-tests", Label: "Tests unitaires",
 		}),
-		gestes: map[int64]store.GesteRef{},
+		steps: map[int64]store.GesteRef{},
 	}
 
 	breakdown, err := computeScore(context.Background(), source, 7, nil, registry)
@@ -183,55 +182,55 @@ func TestUnGesteSansResultatResteAfficheAvecSonPoids(t *testing.T) {
 	}
 	composant := breakdown.Signals[0]
 	if composant.Measured {
-		t.Error("un geste sans résultat se déclare mesuré")
+		t.Error("a step with no result declares itself measured")
 	}
-	// Le poids vient du signal, que seul le catalogue pouvait nommer ici.
+	// The weight comes from the signal, which only the catalogue could name here.
 	if composant.Declared != 25 {
-		t.Errorf("poids déclaré = %v, attendu 25 — le catalogue n'a pas nommé sa nature",
+		t.Errorf("declared weight = %v, expected 25 — the catalogue did not name its kind",
 			composant.Declared)
 	}
 	if len(breakdown.Redistributed) != 1 {
-		t.Errorf("redistribués = %v", breakdown.Redistributed)
+		t.Errorf("redistributed = %v", breakdown.Redistributed)
 	}
 }
 
-// Un poids nul retire le geste du score, et le dit.
-func TestUnGesteAPoidsNulNeNotePas(t *testing.T) {
+// A zero weight removes the step from the score, and says so.
+func TestAZeroWeightStepDoesNotScore(t *testing.T) {
 	source := &scoreDeTest{
-		run: planDeVerification(
+		run: verificationPlan(
 			plan.Geste{Kind: plan.GestePipeline, Ref: "unit-tests",
-				Label: "Tests unitaires", Weight: poidsDe(100)},
+				Label: "Tests unitaires", Weight: weightOf(100)},
 			plan.Geste{Kind: plan.GestePipeline, Ref: "e2e-tests",
-				Label: "E2E indicatif", Weight: poidsDe(0)},
+				Label: "E2E indicatif", Weight: weightOf(0)},
 		),
-		gestes: map[int64]store.GesteRef{
+		steps: map[int64]store.GesteRef{
 			1: {Stage: 1, Position: 0},
 			2: {Stage: 1, Position: 1},
 		},
 	}
-	// Les E2E échouent entièrement, et ne doivent pas peser.
-	reports := []store.TestResult{rapport(1, "unit", 10, 0), rapport(2, "e2e", 10, 10)}
+	// The end-to-end tests fail entirely, and must not count.
+	reports := []store.TestResult{testReport(1, "unit", 10, 0), testReport(2, "e2e", 10, 10)}
 
 	breakdown, err := computeScore(context.Background(), source, 7, reports, nil)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
 	if breakdown.Score != 100 {
-		t.Errorf("score = %d, attendu 100 — le geste à poids nul a pesé", breakdown.Score)
+		t.Errorf("score = %d, expected 100 — the zero-weight step counted", breakdown.Score)
 	}
 	if len(breakdown.Signals) != 2 {
-		t.Errorf("%d composant(s) — celui à poids nul a disparu de l'écran",
+		t.Errorf("%d component(s) — the zero-weight one vanished from the screen",
 			len(breakdown.Signals))
 	}
 }
 
-// Une release sans plan garde son score, calculé par famille.
+// A release with no plan keeps its score, computed by family.
 //
-// Les releases antérieures au plan d'une release n'en ont pas. Perdre leur score
-// serait pire que le calculer sur un axe qui n'existe plus.
-func TestUneReleaseSansPlanGardeSonScoreParFamille(t *testing.T) {
+// Releases predating plans have none. Losing their score would be worse than computing it
+// on an axis that no longer exists.
+func TestAReleaseWithNoPlanKeepsItsScoreByKind(t *testing.T) {
 	source := &scoreDeTest{sansRun: true}
-	reports := []store.TestResult{rapport(1, "unit", 10, 0)}
+	reports := []store.TestResult{testReport(1, "unit", 10, 0)}
 
 	breakdown, err := computeScore(context.Background(), source, 7, reports, nil)
 	if err != nil {
@@ -239,35 +238,34 @@ func TestUneReleaseSansPlanGardeSonScoreParFamille(t *testing.T) {
 	}
 
 	if !breakdown.Measured || breakdown.Score != 100 {
-		t.Errorf("score = %d (mesuré: %v)", breakdown.Score, breakdown.Measured)
+		t.Errorf("score = %d (measured: %v)", breakdown.Score, breakdown.Measured)
 	}
-	// Six composants, un par nature, et leurs clés le disent.
+	// Six components, one per nature, and their keys say so.
 	if len(breakdown.Signals) != 6 {
-		t.Fatalf("%d composant(s), attendu les six natures", len(breakdown.Signals))
+		t.Fatalf("%d component(s), expected the six kinds", len(breakdown.Signals))
 	}
 	if breakdown.Signals[0].Key != results.SignalKey(results.SignalUnit) {
-		t.Errorf("clé = %q, attendue celle d'un composant par famille",
+		t.Errorf("key = %q, expected that of one component per kind",
 			breakdown.Signals[0].Key)
 	}
 }
 
-// Un résultat qu'aucun geste n'a produit n'entre pas au score.
+// A result no step produced does not enter the score.
 //
-// Il vient d'un lancement manuel depuis la file, qu'aucun plan n'a causé. Le
-// compter ferait noter une release sur une exécution que son automatisation n'a
-// pas demandée.
-func TestUnResultatHorsPlanNentrePasAuScore(t *testing.T) {
+// It comes from a manual launch from the queue, which no plan caused. Counting it would
+// grade a release on a run its automation did not ask for.
+func TestAResultOutsideThePlanDoesNotEnterTheScore(t *testing.T) {
 	source := &scoreDeTest{
-		run: planDeVerification(plan.Geste{
+		run: verificationPlan(plan.Geste{
 			Kind: plan.GestePipeline, Ref: "unit-tests",
-			Label: "Tests unitaires", Weight: poidsDe(100),
+			Label: "Tests unitaires", Weight: weightOf(100),
 		}),
-		gestes: map[int64]store.GesteRef{1: {Stage: 1, Position: 0}},
+		steps: map[int64]store.GesteRef{1: {Stage: 1, Position: 0}},
 	}
 	reports := []store.TestResult{
-		rapport(1, "unit", 10, 0),
-		// Relancé à la main, et catastrophique. Il ne doit pas peser.
-		rapport(2, "unit", 10, 10),
+		testReport(1, "unit", 10, 0),
+		// Relaunched by hand, and catastrophic. It must not count.
+		testReport(2, "unit", 10, 10),
 	}
 
 	breakdown, err := computeScore(context.Background(), source, 7, reports, nil)
@@ -275,6 +273,6 @@ func TestUnResultatHorsPlanNentrePasAuScore(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 	if breakdown.Score != 100 {
-		t.Errorf("score = %d — un résultat hors plan a pesé", breakdown.Score)
+		t.Errorf("score = %d — a result outside the plan counted", breakdown.Score)
 	}
 }

@@ -22,7 +22,7 @@ import (
 
 type lecteurDePlugins struct {
 	settings map[string]store.PluginSettings
-	// projets porte les décisions explicites, par projet.
+	// projects carries the explicit decisions, per project.
 	projets map[int64]map[string]store.PluginSettings
 	err     error
 }
@@ -35,36 +35,35 @@ func (l lecteurDePlugins) ProjectPluginSettings(_ context.Context, projectID int
 	return l.projets[projectID], l.err
 }
 
-func modulesAvec(mse bool) *Modules {
+func modulesWith(mse bool) *Modules {
 	return NewModules(lecteurDePlugins{settings: map[string]store.PluginSettings{
 		plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: mse},
 		"redmine":        {PluginID: "redmine", Enabled: true},
 	}}, quietLogger())
 }
 
-// Seuls les plugins de genre module sont annoncés : un suivi allumé n'apporte
-// pas d'écran.
-func TestSeulsLesModulesAllumesSontAnnonces(t *testing.T) {
-	if got := modulesAvec(true).Active(context.Background()); !slices.Equal(got, []string{"mse"}) {
-		t.Errorf("modules = %v, attendu [mse]", got)
+// Only plugins of kind module are announced: a switched-on tracker brings no screen.
+func TestOnlySwitchedOnModulesAreAnnounced(t *testing.T) {
+	if got := modulesWith(true).Active(context.Background()); !slices.Equal(got, []string{"mse"}) {
+		t.Errorf("modules = %v, expected [mse]", got)
 	}
-	if got := modulesAvec(false).Active(context.Background()); len(got) != 0 {
-		t.Errorf("modules = %v, attendu aucun", got)
+	if got := modulesWith(false).Active(context.Background()); len(got) != 0 {
+		t.Errorf("modules = %v, expected none", got)
 	}
 }
 
-// Une lecture impossible masque les modules plutôt que d'afficher des écrans dont
-// chaque requête échouerait.
-func TestUneLectureImpossibleMasqueLesModules(t *testing.T) {
+// An unreadable read hides the modules rather than showing screens whose every request would
+// fail.
+func TestAFailedReadHidesTheModules(t *testing.T) {
 	modules := NewModules(lecteurDePlugins{err: errors.New("base injoignable")}, quietLogger())
 	if modules.Enabled(context.Background(), plugin.ModuleMSE) {
-		t.Error("un module dont l'état est illisible est annoncé allumé")
+		t.Error("a module whose state is unreadable is announced switched on")
 	}
 }
 
-// Une route d'un module éteint répond 404, et le handler n'est pas atteint.
-func TestUneRouteDUnModuleEteintRepond404(t *testing.T) {
-	middleware := NewMiddleware(nil, nil, quietLogger()).WithModules(modulesAvec(false))
+// A route of a switched-off module answers 404, and the handler is not reached.
+func TestARouteOfASwitchedOffModuleAnswers404(t *testing.T) {
+	middleware := NewMiddleware(nil, nil, quietLogger()).WithModules(modulesWith(false))
 	atteint := false
 	handler := middleware.RequireModule(plugin.ModuleMSE)(http.HandlerFunc(
 		func(http.ResponseWriter, *http.Request) { atteint = true }))
@@ -73,28 +72,28 @@ func TestUneRouteDUnModuleEteintRepond404(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/environments", nil))
 
 	if recorder.Code != http.StatusNotFound {
-		t.Errorf("code %d, attendu 404", recorder.Code)
+		t.Errorf("code %d, expected 404", recorder.Code)
 	}
 	if atteint {
-		t.Error("le handler d'un module éteint a été atteint")
+		t.Error("the handler of a switched-off module was reached")
 	}
 }
 
-func TestUneRouteDUnModuleAllumePasse(t *testing.T) {
-	middleware := NewMiddleware(nil, nil, quietLogger()).WithModules(modulesAvec(true))
+func TestARouteOfASwitchedOnModulePasses(t *testing.T) {
+	middleware := NewMiddleware(nil, nil, quietLogger()).WithModules(modulesWith(true))
 	atteint := false
 	handler := middleware.RequireModule(plugin.ModuleMSE)(http.HandlerFunc(
 		func(http.ResponseWriter, *http.Request) { atteint = true }))
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/environments", nil))
 	if !atteint {
-		t.Error("le handler d'un module allumé n'a pas été atteint")
+		t.Error("the handler of a switched-on module was not reached")
 	}
 }
 
-// `/me` annonce les modules allumés : c'est ce que la navigation lit.
-func TestMeAnnonceLesModules(t *testing.T) {
-	handler := (&AuthHandler{logger: quietLogger()}).WithModules(modulesAvec(true))
+// `/me` announces the switched-on modules: that is what navigation reads.
+func TestMeAnnouncesTheModules(t *testing.T) {
+	handler := (&AuthHandler{logger: quietLogger()}).WithModules(modulesWith(true))
 
 	request := httptest.NewRequest(http.MethodGet, "/me", nil)
 	request = request.WithContext(context.WithValue(request.Context(), identityKey,
@@ -106,16 +105,16 @@ func TestMeAnnonceLesModules(t *testing.T) {
 		Modules []string `json:"modules"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	if !slices.Equal(payload.Modules, []string{"mse"}) {
-		t.Errorf("modules = %v, attendu [mse]", payload.Modules)
+		t.Errorf("modules = %v, expected [mse]", payload.Modules)
 	}
 }
 
-// Un projet hérite du module allumé sur l'instance, peut l'éteindre pour lui, et
-// ne peut pas le rallumer quand l'instance l'a éteint (doc 16 §16.18).
-func TestUnModuleSeResoutDansLeProjet(t *testing.T) {
+// A project inherits the module switched on for the instance, may switch it off for itself,
+// and cannot switch it back on when the instance has switched it off.
+func TestAModuleResolvesWithinTheProject(t *testing.T) {
 	lecteur := func(global bool) *Modules {
 		return NewModules(lecteurDePlugins{
 			settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: global}},
@@ -133,12 +132,12 @@ func TestUnModuleSeResoutDansLeProjet(t *testing.T) {
 		attendu bool
 		libelle string
 	}{
-		{true, 1, true, "sans décision, le projet hérite"},
-		{true, 2, false, "éteint pour le projet"},
-		{false, 3, false, "l'instance éteinte l'emporte sur le projet"},
+		{true, 1, true, "with no decision, the project inherits"},
+		{true, 2, false, "switched off for the project"},
+		{false, 3, false, "the switched-off instance wins over the project"},
 	} {
 		if got := lecteur(cas.global).EnabledIn(ctx, cas.projet, plugin.ModuleMSE); got != cas.attendu {
-			t.Errorf("%s: %v, attendu %v", cas.libelle, got, cas.attendu)
+			t.Errorf("%s: %v, expected %v", cas.libelle, got, cas.attendu)
 		}
 	}
 }
@@ -153,9 +152,9 @@ func (r resolveurDeProjets) ProjectBySlug(_ context.Context, slug string) (store
 	return store.Project{ID: id, Slug: slug}, nil
 }
 
-// Une route qui nomme un projet répond 404 quand le module est éteint pour lui,
-// même allumé sur l'instance.
-func TestUneRouteDeProjetSuitLeModuleDuProjet(t *testing.T) {
+// A route naming a project answers 404 when the module is off for it, even when it is on for
+// the instance.
+func TestAProjectRouteFollowsTheProjectsModule(t *testing.T) {
 	modules := NewModules(lecteurDePlugins{
 		settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: true}},
 		projets: map[int64]map[string]store.PluginSettings{
@@ -173,7 +172,7 @@ func TestUneRouteDeProjetSuitLeModuleDuProjet(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, request)
 		if recorder.Code != attendu {
-			t.Errorf("projet %s: code %d, attendu %d", slug, recorder.Code, attendu)
+			t.Errorf("project %s: code %d, expected %d", slug, recorder.Code, attendu)
 		}
 	}
 }

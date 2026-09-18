@@ -32,8 +32,8 @@ func (f *fakeAdminStore) SetRoleIn(
 	if f.err != nil {
 		return f.err
 	}
-	// La portée fait partie de la trace : une attribution globale et une
-	// attribution de projet ne doivent pas se ressembler dans les assertions.
+	// The scope is part of the record: a global grant and a project grant must not look alike
+	// in the assertions.
 	scope := ""
 	if projectID != nil {
 		scope = fmt.Sprintf("@%d", *projectID)
@@ -42,7 +42,7 @@ func (f *fakeAdminStore) SetRoleIn(
 	return nil
 }
 
-// ProjectBySlug résout la portée nommée dans la requête.
+// ProjectBySlug resolves the scope named in the request.
 func (f *fakeAdminStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
 	if slug != "test" {
 		return store.Project{}, store.ErrProjectNotFound
@@ -52,9 +52,8 @@ func (f *fakeAdminStore) ProjectBySlug(_ context.Context, slug string) (store.Pr
 
 func (f *fakeAdminStore) RevokeRoleIn(ctx context.Context, subject string, projectID *int64) error {
 	if projectID != nil {
-		// La portée fait partie de la trace : retirer un rôle de projet et
-		// retirer le rôle global ne doivent pas se ressembler dans les
-		// assertions.
+		// The scope is part of the record: removing a project role and removing the global role
+		// must not look alike in the assertions.
 		if f.err != nil {
 			return f.err
 		}
@@ -100,8 +99,8 @@ func adminRequest(method, path, body string) *http.Request {
 	return asRole(request, auth.RoleAdmin)
 }
 
-// Le catalogue accompagne la liste : l'interface propose les rôles possibles
-// sans les coder en dur, et ce qu'un rôle permet reste décidé par internal/auth.
+// The catalogue comes with the list: the interface offers the possible roles without
+// hard-coding them, and what a role allows stays decided by internal/auth.
 func TestRolesCarryTheCatalogue(t *testing.T) {
 	fake := &fakeAdminStore{roles: []store.UserRole{
 		{Subject: "alice", Username: "alice", Role: "admin", GrantedBy: "bootstrap"},
@@ -119,13 +118,13 @@ func TestRolesCarryTheCatalogue(t *testing.T) {
 		} `json:"catalogue"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("décodage: %v", err)
+		t.Fatalf("decoding: %v", err)
 	}
 	if len(payload.Catalogue) != len(auth.AllRoles) {
-		t.Errorf("catalogue = %d entrées", len(payload.Catalogue))
+		t.Errorf("catalogue = %d entries", len(payload.Catalogue))
 	}
 
-	// Les permissions sont cumulées : un releaser peut lancer un pipeline.
+	// Permissions are cumulative: a releaser can launch a pipeline.
 	for _, entry := range payload.Catalogue {
 		if entry.Role != "releaser" {
 			continue
@@ -137,18 +136,18 @@ func TestRolesCarryTheCatalogue(t *testing.T) {
 			}
 		}
 		if !canRun {
-			t.Errorf("permissions de releaser = %v, attendues cumulées", entry.Permissions)
+			t.Errorf("releaser permissions = %v, expected cumulative", entry.Permissions)
 		}
 	}
-	// `bootstrap` remonte : retirer un tel rôle sans toucher à la configuration
-	// le ferait réapparaître au redémarrage.
+	// `bootstrap` surfaces: removing such a role without touching the configuration would make
+	// it reappear at the next restart.
 	if payload.Roles[0].GrantedBy != "bootstrap" {
 		t.Errorf("provenance = %q", payload.Roles[0].GrantedBy)
 	}
 }
 
-// L'autorisation porte sur le sujet du fournisseur d'identité. Un nom
-// d'utilisateur change, un sujet non.
+// Authorization is about the identity provider's subject. A username changes, a subject
+// does not.
 func TestGrantRequiresASubject(t *testing.T) {
 	fake := &fakeAdminStore{}
 	handler := NewAdminHandler(fake)
@@ -158,10 +157,10 @@ func TestGrantRequiresASubject(t *testing.T) {
 		`{"username":"bob","role":"operator"}`))
 
 	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code = %d, attendu 400", recorder.Code)
+		t.Errorf("code = %d, expected 400", recorder.Code)
 	}
 	if len(fake.granted) != 0 {
-		t.Error("aucun rôle ne doit être attribué sans sujet")
+		t.Error("no role must be granted without a subject")
 	}
 }
 
@@ -174,7 +173,7 @@ func TestGrantRejectsAnUnknownRole(t *testing.T) {
 		`{"subject":"bob","role":"superadmin"}`))
 
 	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code = %d, attendu 400", recorder.Code)
+		t.Errorf("code = %d, expected 400", recorder.Code)
 	}
 }
 
@@ -192,23 +191,22 @@ func TestGrantIsAudited(t *testing.T) {
 	if len(fake.granted) != 1 || fake.granted[0] != "bob=releaser" {
 		t.Errorf("attributions = %v", fake.granted)
 	}
-	// Attribuer un rôle décide de qui peut livrer : la trace n'est pas
-	// optionnelle.
+	// Granting a role decides who can ship: the record is not optional.
 	if len(fake.audit) != 1 || fake.audit[0] != "role.grant:bob" {
 		t.Errorf("journal = %v", fake.audit)
 	}
 
-	// L'interface doit savoir que les sessions sont tombées, sans quoi un
-	// administrateur croirait l'ancien rôle encore actif.
+	// The interface must know the sessions were closed, otherwise an administrator would
+	// believe the old role still active.
 	var payload map[string]any
 	json.Unmarshal(recorder.Body.Bytes(), &payload)
 	if payload["sessions_closed"] != true {
-		t.Errorf("réponse = %v", payload)
+		t.Errorf("response = %v", payload)
 	}
 }
 
-// 409 et non 403 : la requête est légitime et l'appelant a le droit, c'est
-// l'état du système qui l'interdit.
+// 409 and not 403: the request is legitimate and the caller has the right, it is the
+// system's state that forbids it.
 func TestLastAdminIsAConflictNotAForbidden(t *testing.T) {
 	fake := &fakeAdminStore{err: store.ErrLastAdmin}
 	handler := NewAdminHandler(fake)
@@ -217,9 +215,9 @@ func TestLastAdminIsAConflictNotAForbidden(t *testing.T) {
 	handler.Revoke(recorder, withSubject(adminRequest(http.MethodDelete, "/admin/roles/alice", ""), "alice"))
 
 	if recorder.Code != http.StatusConflict {
-		t.Errorf("code = %d, attendu 409", recorder.Code)
+		t.Errorf("code = %d, expected 409", recorder.Code)
 	}
-	// Le motif est rendu : « impossible » sans explication laisse chercher.
+	// The reason is returned: "impossible" with no explanation leaves people searching.
 	if !strings.Contains(recorder.Body.String(), "administrateur") {
 		t.Errorf("corps = %s", recorder.Body.String())
 	}
@@ -233,12 +231,12 @@ func TestRevokeAnUnknownSubjectIsNotFound(t *testing.T) {
 	handler.Revoke(recorder, withSubject(adminRequest(http.MethodDelete, "/admin/roles/x", ""), "x"))
 
 	if recorder.Code != http.StatusNotFound {
-		t.Errorf("code = %d, attendu 404", recorder.Code)
+		t.Errorf("code = %d, expected 404", recorder.Code)
 	}
 }
 
-// « Qu'est-il arrivé à cette release » est la lecture réellement faite, et
-// l'index existe pour elle.
+// "What happened to this release" is the read actually performed, and the index exists for
+// it.
 func TestAuditCanBeScopedToATarget(t *testing.T) {
 	fake := &fakeAdminStore{entries: []store.AuditEntry{
 		{ID: 1, Actor: "alice", Action: "release.promote", Target: "1.8.0"},
@@ -254,7 +252,7 @@ func TestAuditCanBeScopedToATarget(t *testing.T) {
 	}
 	json.Unmarshal(recorder.Body.Bytes(), &payload)
 	if len(payload.Entries) != 1 || payload.Entries[0].Target != "1.8.0" {
-		t.Errorf("entrées = %+v", payload.Entries)
+		t.Errorf("entries = %+v", payload.Entries)
 	}
 }
 
@@ -263,9 +261,8 @@ func withSubject(request *http.Request, subject string) *http.Request {
 	return request
 }
 
-// L'annuaire des noms d'acteurs. Vide : ces tests portent sur des comportements,
-// pas sur l'affichage, et un annuaire vide fait retomber sur le sujet — le
-// comportement exact d'un acteur inconnu.
+// The directory of actor names. Empty: these tests are about behaviour, not display, and
+// an empty directory falls back to the subject — exactly what an unknown actor does.
 func (f *fakeAdminStore) Directory(context.Context) (map[string]string, error) {
 	return map[string]string{}, nil
 }

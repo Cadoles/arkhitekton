@@ -17,9 +17,9 @@ import (
  * en publie trois n'en voyait qu'un, et un projet qui produit un binaire ne
  * voyait rien du tout.
  *
- * Elle liste désormais ce que les gestes ont réellement rendu, relevé à leur
+ * Elle liste désormais ce que les steps ont réellement rendu, relevé à leur
  * conclusion depuis les résultats Tekton (doc 15 §15.7). Trois constructions,
- * trois lignes, nommées par le geste qui les a produites.
+ * trois lignes, nommées par le step qui les a produites.
  *
  * # Le contrôle de digest est conservé, et élargi
  *
@@ -29,33 +29,33 @@ import (
  * au lieu du seul dépôt configuré.
  */
 
-// planArtifactPayload est un artefact produit, tel que l'écran le lit.
+// planArtifactPayload is a produced artifact, as the screen reads it.
 type planArtifactPayload struct {
-	// Geste nomme ce qui l'a produit, dans les mots de la déclaration.
+	// Geste names what produced it, in the words of the declaration.
 	Geste string `json:"geste"`
-	// Name est le nom du résultat rendu par le pipeline : `image`, `tag`.
+	// Name is the result name the pipeline returned: `image`, `tag`.
 	Name string `json:"name"`
-	// Kind reprend le vocabulaire de `produces` du catalogue.
+	// Kind reuses the catalogue's `produces` vocabulary.
 	//
-	// Descriptif et volontairement pas structurant : il vaut `image` pour tous les
-	// résultats d'un pipeline qui produit des images, y compris pour un `tag` qui
-	// n'en est pas une. L'écran se fie au **nom**, qui est juste.
+	// Descriptive and deliberately not structural: it is `image` for every result of a pipeline
+	// that produces images, including for a `tag`, which is not one. The screen relies on the
+	// name, which is right.
 	Kind string `json:"kind,omitempty"`
-	// Reference désigne l'artefact : pour une image, sa référence complète.
+	// Reference names the artifact: for an image, its full reference.
 	Reference string `json:"reference"`
-	// Digest prouve ce qui a été publié. Vide quand le registre n'est pas
-	// interrogeable, ou quand l'artefact n'est pas une image.
+	// Digest proves what was published. Empty when the registry cannot be queried, or when the
+	// artifact is not an image.
 	Digest string `json:"digest,omitempty"`
-	// Diverged dit qu'un tag de promotion porte un digest différent de celui-ci —
-	// donc qu'une image a été reconstruite entre la validation et la livraison.
+	// Diverged says a promotion tag carries a different digest from this one — hence that an
+	// image was rebuilt between approval and delivery.
 	Diverged bool `json:"diverged,omitempty"`
 }
 
-// releaseArtifacts compose ce que l'automatisation a produit pour cette release.
+// releaseArtifacts composes what the automation produced for this release.
 //
-// Un artefact dont l'exécution n'est plus lisible garde son nom de geste vide
-// plutôt que de disparaître : c'est ce qui a été publié, et la perte du plan
-// figé n'y change rien.
+// An artifact whose run is no longer readable keeps an empty step name rather than
+// disappearing: it is what was published, and losing the frozen plan changes nothing about
+// that.
 func (h *ReleasesHandler) releaseArtifacts(
 	ctx context.Context, releaseID int64, promotions []ReleasePromotion,
 ) []planArtifactPayload {
@@ -65,21 +65,21 @@ func (h *ReleasesHandler) releaseArtifacts(
 
 	artifacts, err := h.artifactReader.ReleaseArtifacts(ctx, releaseID)
 	if err != nil {
-		// Journalisé et non rendu : un artefact illisible ne doit pas rendre la
-		// page d'une release inaccessible. Ce qui reste s'affiche.
-		h.logger.Error("artefacts d'une release", "release", releaseID, "error", err)
+		// Logged and not returned: an unreadable artifact must not make a release's page
+		// inaccessible. What remains is displayed.
+		h.logger.Error("a release's artifacts", "release", releaseID, "error", err)
 		return nil
 	}
 
-	// Les libellés des gestes viennent du plan **figé** de l'exécution qui a
-	// produit l'artefact. Une automatisation renommée depuis ne réécrit donc pas
-	// l'histoire : la ligne porte le nom qu'elle avait ce jour-là.
+	// The steps' labels come from the frozen plan of the run that produced the artifact. An
+	// automation renamed since therefore does not rewrite history: the row carries the name it
+	// had that day.
 	labels := map[int64]map[store.GesteRef]string{}
 
 	payload := make([]planArtifactPayload, 0, len(artifacts))
 	for _, artifact := range artifacts {
 		if _, lu := labels[artifact.RunID]; !lu {
-			labels[artifact.RunID] = h.gesteLabels(ctx, artifact.RunID)
+			labels[artifact.RunID] = h.stepLabels(ctx, artifact.RunID)
 		}
 		ref := store.GesteRef{Stage: artifact.Stage, Position: artifact.Position}
 
@@ -87,8 +87,8 @@ func (h *ReleasesHandler) releaseArtifacts(
 			Geste: labels[artifact.RunID][ref], Name: artifact.Name,
 			Kind: artifact.Kind, Reference: artifact.Reference,
 		}
-		// Seules les images ont un digest. Le nom fait foi et non `kind`, qui vaut
-		// `image` pour tout ce qu'un pipeline d'images rend — le tag compris.
+		// Only images have a digest. The name is authoritative and not `kind`, which is `image` for
+		// everything an image pipeline returns — the tag included.
 		if artifact.Name == "image" {
 			entry.Digest, entry.Diverged = h.digestOf(ctx, artifact.Reference, promotions)
 		}
@@ -97,31 +97,31 @@ func (h *ReleasesHandler) releaseArtifacts(
 	return payload
 }
 
-// gesteLabels rend le nom de chaque geste du plan figé d'une exécution.
-func (h *ReleasesHandler) gesteLabels(
+// stepLabels returns the name of each step of a run's frozen plan.
+func (h *ReleasesHandler) stepLabels(
 	ctx context.Context, runID int64,
 ) map[store.GesteRef]string {
 	labels := map[store.GesteRef]string{}
 
 	run, err := h.artifactReader.PlanRunByID(ctx, runID)
 	if err != nil {
-		// L'exécution a pu être purgée. L'artefact reste vrai et s'affiche sans
-		// le nom de ce qui l'a produit.
+		// The run may have been purged. The artifact stays true and is displayed without the name
+		// of what produced it.
 		return labels
 	}
 	for stage, entry := range run.Plan.Stages {
-		for position, geste := range entry.Gestes {
-			labels[store.GesteRef{Stage: stage, Position: position}] = geste.Name()
+		for position, step := range entry.Gestes {
+			labels[store.GesteRef{Stage: stage, Position: position}] = step.Name()
 		}
 	}
 	return labels
 }
 
-// digestOf lit le digest d'une image publiée, et dit s'il a divergé.
+// digestOf reads a published image's digest, and says whether it diverged.
 //
-// La divergence est l'invariant de livraison : un tag de promotion doit porter le
-// digest de l'image validée. Un écart signale une image reconstruite entre-temps,
-// c'est-à-dire une livraison qui n'est plus celle qui a été validée (B17).
+// Divergence is the delivery invariant: a promotion tag must carry the approved image's
+// digest. A gap reports an image rebuilt meanwhile, that is, a delivery that is no longer
+// the one that was approved.
 func (h *ReleasesHandler) digestOf(
 	ctx context.Context, reference string, promotions []ReleasePromotion,
 ) (string, bool) {
@@ -141,9 +141,9 @@ func (h *ReleasesHandler) digestOf(
 	for _, promotion := range promotions {
 		promoted, err := h.images.Digest(ctx, repository, promotion.Tag)
 		if err != nil || promoted == "" {
-			// Un tag absent du registre n'est pas une divergence : la promotion
-			// n'a peut-être pas encore abouti. L'annoncer comme un écart enverrait
-			// chercher une reconstruction là où il n'y a qu'une attente.
+			// A tag absent from the registry is not a divergence: the promotion may simply not have
+			// completed. Announcing it as a gap would send someone hunting for a rebuild where there is
+			// only a wait.
 			continue
 		}
 		if promoted != digest {
@@ -153,11 +153,10 @@ func (h *ReleasesHandler) digestOf(
 	return digest, false
 }
 
-// splitReference sépare le dépôt court et le tag d'une référence complète.
+// splitReference separates the short repository and the tag of a full reference.
 //
-// Le dépôt **court** parce que c'est ce que le client de registre attend : il
-// porte déjà son organisation. `reg.example.fr/vcarroy/portal:1.0` rend donc
-// `portal` et `1.0`.
+// The short repository because that is what the registry client expects: it already carries
+// its organisation.
 func splitReference(reference string) (repository, tag string, ok bool) {
 	colon := strings.LastIndex(reference, ":")
 	slash := strings.LastIndex(reference, "/")

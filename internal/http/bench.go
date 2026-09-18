@@ -11,11 +11,11 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// BenchStore est ce que les handlers de charge attendent de la base.
+// BenchStore is what the load handlers need from the database.
 type BenchStore interface {
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
-	// Les deux façons de nommer un projet : par le chemin de la requête, ou à
-	// défaut par celui qui se construit. Voir internal/http/project.go.
+	// The two ways of naming a project: by the request's path, or failing that by the one being
+	// built. See internal/http/project.go.
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	BuildableProject(ctx context.Context) (store.Project, error)
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
@@ -26,21 +26,21 @@ type BenchStore interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// BenchHandler expose les campagnes de charge d'une release.
+// BenchHandler exposes a release's load campaigns.
 type BenchHandler struct{ store BenchStore }
 
 func NewBenchHandler(benches BenchStore) *BenchHandler { return &BenchHandler{store: benches} }
 
-// historyPoints borne la tendance. Six points : c'est ce qu'affiche la maquette,
-// et au-delà la courbe cesse d'être lisible dans la largeur d'une carte.
+// historyPoints bounds the trend. Six points: beyond that the curve stops being readable
+// within a card's width.
 const historyPoints = 6
 
 type campaignPayload struct {
 	ID       int64  `json:"id"`
 	Scenario string `json:"scenario"`
-	// Exclusive et ConcurrentJobs sont les conditions constatées. Rendues même
-	// quand tout va bien : c'est ce qui permet à l'interface de dire qu'une
-	// mesure est comparable, plutôt que de le laisser deviner.
+	// Exclusive and ConcurrentJobs are the observed conditions. Returned even when all is well:
+	// that is what lets the interface say a measure is comparable, rather than leaving it to be
+	// guessed.
 	Exclusive      bool      `json:"exclusive"`
 	ConcurrentJobs int       `json:"concurrent_jobs"`
 	Comparable     bool      `json:"comparable"`
@@ -48,8 +48,8 @@ type campaignPayload struct {
 	DurationMS     int64     `json:"duration_ms"`
 	Summary        string    `json:"summary,omitempty"`
 	MeasuredAt     time.Time `json:"measured_at"`
-	// Verdict est le point le plus faible de la campagne : une moyenne noierait
-	// une régression dans la conformité des autres mesures.
+	// Verdict is the campaign's weakest point: an average would drown a regression in the other
+	// measures' compliance.
 	Verdict  string               `json:"verdict"`
 	Measures []measurePayload     `json:"measures"`
 	History  map[string][]float64 `json:"history,omitempty"`
@@ -64,18 +64,18 @@ type measurePayload struct {
 	LowerBetter bool     `json:"lower_better"`
 	Volume      bool     `json:"volume"`
 	Baseline    *float64 `json:"baseline,omitempty"`
-	// BaselineAt date la référence : une baseline vieillit, et savoir de quand
-	// elle date fait partie du verdict.
+	// BaselineAt dates the reference: a baseline ages, and knowing when it dates from is part of
+	// the verdict.
 	BaselineAt *time.Time `json:"baseline_at,omitempty"`
 	Verdict    string     `json:"verdict"`
 	Ratio      float64    `json:"ratio,omitempty"`
-	// ThresholdOK est le verdict que k6 rend sur ses propres seuils. Il dit « le
-	// contrat est tenu » là où la baseline dit « c'est aussi bon qu'avant » : les
-	// deux peuvent se contredire, et l'interface doit pouvoir montrer les deux.
+	// ThresholdOK is the verdict the load tool returns on its own thresholds. It says "the
+	// contract is met" where the baseline says "it is as good as before": the two can
+	// contradict each other, and the interface must be able to show both.
 	ThresholdOK *bool `json:"threshold_ok,omitempty"`
 }
 
-// Bench rend les campagnes de charge d'une release, comparées à leurs baselines.
+// Bench returns a release's load campaigns, compared with their baselines.
 func (h *BenchHandler) Bench(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -88,13 +88,13 @@ func (h *BenchHandler) Bench(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
 	results, err := h.store.ListReleaseLoadResults(r.Context(), release.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des campagnes impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the campaigns", "")
 		return
 	}
 
@@ -102,7 +102,7 @@ func (h *BenchHandler) Bench(w http.ResponseWriter, r *http.Request) {
 	for _, result := range results {
 		campaign, err := h.buildCampaign(r.Context(), result)
 		if err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Lecture des mesures impossible", "")
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the measurements", "")
 			return
 		}
 		payload = append(payload, campaign)
@@ -122,9 +122,9 @@ func (h *BenchHandler) buildCampaign(ctx context.Context, result store.LoadResul
 		return campaignPayload{}, err
 	}
 
-	// La comparaison est faite par `internal/bench`, paquet pur : la règle qui
-	// écarte les mesures non exclusives est une décision, pas de la présentation,
-	// et elle doit être éprouvable sans monter de base (B16).
+	// The comparison is made by internal/bench, a pure package: the rule that sets aside
+	// non-exclusive measures is a decision, not presentation, and it must be testable without
+	// standing up a database.
 	summary := bench.Summary{Scenario: result.Scenario}
 	values := map[string]float64{}
 	for _, measure := range measures {
@@ -171,9 +171,8 @@ func (h *BenchHandler) buildCampaign(ctx context.Context, result store.LoadResul
 		if err != nil {
 			return campaignPayload{}, err
 		}
-		// Seules les mesures comparables entrent dans la tendance. Une courbe qui
-		// mêle des conditions différentes est une tendance inventée, et le
-		// Sparkline la présenterait comme un fait.
+		// Only comparable measures enter the trend. A curve mixing different conditions is an
+		// invented trend, and the sparkline would present it as a fact.
 		var points []float64
 		for index := len(history) - 1; index >= 0; index-- {
 			point := history[index]
@@ -190,14 +189,14 @@ func (h *BenchHandler) buildCampaign(ctx context.Context, result store.LoadResul
 	return campaign, nil
 }
 
-// PinBaseline désigne une mesure comme référence.
+// PinBaseline designates a measure as the reference.
 //
-// Le geste déplace la référence de tous les verdicts suivants : il exige le rôle
-// qui engage la livraison, et il est consigné.
+// The gesture moves the reference of every later verdict: it requires the role that commits
+// delivery, and it is recorded.
 func (h *BenchHandler) PinBaseline(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -212,13 +211,13 @@ func (h *BenchHandler) PinBaseline(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Mesure introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Épinglage impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot pin", "")
 		return
 	}
 
 	if err := h.store.Audit(r.Context(), identity.Subject, store.AuditBaselinePin,
 		r.PathValue("tag"), map[string]any{"measure_id": id}); err != nil {
-		// Trace et non transaction : la baseline est épinglée.
+		// A record and not a transaction: the baseline is pinned.
 		writeJSON(w, http.StatusOK, map[string]any{"measure_id": id})
 		return
 	}

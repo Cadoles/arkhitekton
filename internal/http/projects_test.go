@@ -119,12 +119,12 @@ func (f *fakeProjectStore) Audit(_ context.Context, _, action, _ string, _ map[s
 
 type fakeProber struct {
 	err error
-	// keyPresent porte les trois états du constat sur la clé. Nil est le défaut,
-	// et c'est délibéré : « la question n'a pas pu être posée » doit être le cas
-	// qu'un test oublie de configurer, pas « la clé est absente ».
+	// keyPresent carries the three states of the verdict on the key. Nil is the default, and
+	// that is deliberate: "the question could not be asked" must be the case a test forgets to
+	// configure, not "the key is absent".
 	keyPresent *bool
-	// vuePublicKey retient la clé que le handler a transmise : c'est elle qui
-	// décide de ce que la forge est allée chercher.
+	// seenPublicKey keeps the key the handler passed on: it is what decides what the forge
+	// went looking for.
 	vuePublicKey *string
 }
 
@@ -138,12 +138,12 @@ func (p fakeProber) Probe(_ context.Context, _, publicKey string) (provider.Prob
 	return provider.Probe{
 		DefaultBranch: "main",
 		KeyPresent:    p.keyPresent,
-		KeyNote:       "constat de test",
+		KeyNote:       "test check",
 	}, nil
 }
 
-func vrai() *bool { valeur := true; return &valeur }
-func faux() *bool { valeur := false; return &valeur }
+func trueFlag() *bool  { valeur := true; return &valeur }
+func falseFlag() *bool { valeur := false; return &valeur }
 
 func asAdmin(request *http.Request) *http.Request {
 	return request.WithContext(context.WithValue(request.Context(), identityKey,
@@ -158,22 +158,22 @@ func createProject(t *testing.T, handler *ProjectsHandler, body string) *httptes
 	return recorder
 }
 
-// Un dépôt sans `owner/nom` ferait échouer le test d'accès sur une URL
-// malformée, et l'échec se lirait comme un défaut de droits.
-func TestUnDepotMalformeEstRefuse(t *testing.T) {
+// A repository without `owner/name` would fail the access check on a malformed URL, and
+// the failure would read as a rights problem.
+func TestAMalformedRepositoryIsRefused(t *testing.T) {
 	handler := NewProjectsHandler(newFakeProjectStore())
 
 	for _, repository := range []string{"mse", "", "CNOUS/", "/mse", "CNOUS/mse/sous"} {
 		body := `{"repository":"` + repository + `"}`
 		if code := createProject(t, handler, body).Code; code != http.StatusBadRequest {
-			t.Errorf("dépôt %q: code %d, attendu 400", repository, code)
+			t.Errorf("repository %q: code %d, expected 400", repository, code)
 		}
 	}
 }
 
-// Les valeurs évidentes sont déduites plutôt qu'exigées : buter sur un libellé
-// dont la valeur va de soi n'apprend rien.
-func TestLesDefautsSontDeduits(t *testing.T) {
+// Obvious values are derived rather than required: stumbling over a label whose value goes
+// without saying teaches nothing.
+func TestTheDefaultsAreInferred(t *testing.T) {
 	fake := newFakeProjectStore()
 	handler := NewProjectsHandler(fake).WithForgeURL("https://forge.example.fr")
 
@@ -183,22 +183,22 @@ func TestLesDefautsSontDeduits(t *testing.T) {
 
 	project := fake.projects[1]
 	if project.Label != "mse" {
-		t.Errorf("libellé = %q, attendu le nom du dépôt", project.Label)
+		t.Errorf("label = %q, expected the repository's name", project.Label)
 	}
 	if project.ForgeURL != "https://forge.example.fr" {
-		t.Errorf("forge = %q, attendue celle de la configuration", project.ForgeURL)
+		t.Errorf("forge = %q, expected the one from the configuration", project.ForgeURL)
 	}
 	if project.BuildContext != "." {
 		t.Errorf("contexte = %q", project.BuildContext)
 	}
 }
 
-func TestUnDepotDejaDeclareRend409(t *testing.T) {
+func TestAnAlreadyDeclaredRepositoryReturns409(t *testing.T) {
 	handler := NewProjectsHandler(newFakeProjectStore())
 
 	createProject(t, handler, `{"repository":"CNOUS/mse"}`)
 	if code := createProject(t, handler, `{"repository":"CNOUS/mse"}`).Code; code != http.StatusConflict {
-		t.Errorf("code %d, attendu 409", code)
+		t.Errorf("code %d, expected 409", code)
 	}
 }
 
@@ -211,31 +211,31 @@ func probe(t *testing.T, handler *ProjectsHandler, id string) *httptest.Response
 	return recorder
 }
 
-// Sans forge configurée, le test n'a pas lieu. Le consigner en échec ferait
-// chercher un défaut d'accès là où il n'y a qu'un jeton absent.
-func TestUnTestImpossibleNeSeConsignePasEnEchec(t *testing.T) {
+// With no forge configured, the check does not happen. Recording it as a failure would
+// send someone hunting for an access problem where there is only a missing token.
+func TestAnImpossibleTestIsNotRecordedAsAFailure(t *testing.T) {
 	fake := newFakeProjectStore()
 	handler := NewProjectsHandler(fake)
 	createProject(t, handler, `{"repository":"CNOUS/mse"}`)
 
 	if code := probe(t, handler, "1").Code; code != http.StatusServiceUnavailable {
-		t.Errorf("code %d, attendu 503", code)
+		t.Errorf("code %d, expected 503", code)
 	}
 	if len(fake.checks) != 0 {
-		t.Errorf("constat enregistré sans test: %v", fake.checks)
+		t.Errorf("check recorded with no test: %v", fake.checks)
 	}
 }
 
-// Un dépôt injoignable est un constat, pas une panne du dashboard : la réponse
-// est 200 et porte le motif, que l'écran affiche.
-func TestUnDepotInjoignableEstUnConstat(t *testing.T) {
+// An unreachable repository is a verdict, not a dashboard fault: the response is 200 and
+// carries the reason, which the screen displays.
+func TestAnUnreachableRepositoryIsACheck(t *testing.T) {
 	fake := newFakeProjectStore()
-	handler := NewProjectsHandler(fake).WithProbe(fakeProber{err: errors.New("gitea: 404 sur /repos/CNOUS/mse")})
+	handler := NewProjectsHandler(fake).WithProbe(fakeProber{err: errors.New("gitea: 404 on /repos/CNOUS/mse")})
 	createProject(t, handler, `{"repository":"CNOUS/mse"}`)
 
 	recorder := probe(t, handler, "1")
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("code %d, attendu 200: un dépôt injoignable n'est pas une panne", recorder.Code)
+		t.Fatalf("code %d, expected 200: an unreachable repository is not an outage", recorder.Code)
 	}
 
 	var payload struct {
@@ -243,17 +243,17 @@ func TestUnDepotInjoignableEstUnConstat(t *testing.T) {
 		Note string `json:"note"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	if payload.OK || payload.Note == "" {
-		t.Errorf("constat = %+v — le motif doit accompagner l'échec", payload)
+		t.Errorf("check = %+v — the reason must accompany the failure", payload)
 	}
 	if len(fake.checks) != 1 || fake.checks[0] {
 		t.Errorf("constats = %v", fake.checks)
 	}
 }
 
-func TestUnTestReussiConsigneLaBranche(t *testing.T) {
+func TestASuccessfulTestRecordsTheBranch(t *testing.T) {
 	fake := newFakeProjectStore()
 	handler := NewProjectsHandler(fake).WithProbe(fakeProber{})
 	createProject(t, handler, `{"repository":"CNOUS/mse"}`)
@@ -265,17 +265,17 @@ func TestUnTestReussiConsigneLaBranche(t *testing.T) {
 		t.Fatalf("constats = %v", fake.checks)
 	}
 	if !strings.Contains(fake.projects[1].CheckNote, "main") {
-		t.Errorf("note = %q, attendue la branche par défaut", fake.projects[1].CheckNote)
+		t.Errorf("note = %q, expected the default branch", fake.projects[1].CheckNote)
 	}
 }
 
-// Aucune clé **partagée** n'est plus rendue avec les projets.
+// No shared key is returned with the projects any more.
 //
-// Elle l'était, et l'écran l'affichait aux projets qui n'avaient pas encore la
-// leur. La laisser aujourd'hui serait pire qu'inutile : elle inviterait à la
-// coller dans un dépôt, alors que plus rien ne la monte — le run refuse de partir
-// sans la clé du projet.
-func TestAucuneClePartageeNestRendueAvecLesProjets(t *testing.T) {
+// It used to be, and the screen displayed it to projects that did not yet have their own.
+// Leaving it today would be worse than useless: it would invite pasting it into a
+// repository, while nothing mounts it any more — the run refuses to leave without the
+// project's key.
+func TestNoSharedKeyIsReturnedWithTheProjects(t *testing.T) {
 	handler := NewProjectsHandler(newFakeProjectStore()).
 		WithForgeURL("https://forge.example.fr")
 
@@ -284,30 +284,29 @@ func TestAucuneClePartageeNestRendueAvecLesProjets(t *testing.T) {
 
 	var payload map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	if _, present := payload["deploy_key"]; present {
-		t.Errorf("une clé partagée est encore rendue: %v", payload["deploy_key"])
+		t.Errorf("a shared key is still returned: %v", payload["deploy_key"])
 	}
-	// Sans sonde, l'écran doit pouvoir désactiver le bouton plutôt que de
-	// laisser cliquer sur un test qui ne conclura pas.
+	// With no prober, the screen must be able to disable the button rather than let someone
+	// click a check that will not conclude.
 	if configured, _ := payload["probe_configured"].(bool); configured {
-		t.Error("la sonde est annoncée alors qu'aucune n'est branchée")
+		t.Error("the probe is announced although none is wired")
 	}
 }
 
-// La déclaration de suivi survit à une modification du projet.
+// The tracker declaration survives editing the project.
 //
-// Elle n'y survivait pas, et c'est la panne la plus coûteuse rencontrée sur cet
-// écran : le formulaire ne portait pas `tracker_project`, l'update l'écrivait
-// quand même — donc à la valeur vide —, et **enregistrer le libellé d'un projet
-// effaçait sa déclaration de suivi**. La synchronisation s'arrêtait alors sans
-// un mot : plus de projet suivi, donc plus rien à faire, donc aucune erreur.
+// It did not, and it is the most expensive failure met on this screen: the form did not
+// carry `tracker_project`, the update wrote it anyway — hence empty — and saving a
+// project's label cleared its tracker declaration. Synchronisation then stopped without a
+// word: no tracked project, so nothing to do, so no error.
 //
-// Constaté en production locale : le projet MSE avait perdu son `mse-dev` en
-// éditant son libellé, et l'écran des versions proposait de déclarer une version
-// à la main comme s'il n'avait jamais eu de Redmine.
-func TestLaDeclarationDeSuiviSurvitAUneModification(t *testing.T) {
+// Observed locally: a project had lost its tracker identifier while its label was edited,
+// and the versions screen offered to declare a version by hand as though it had never had
+// a tracker.
+func TestTheTrackedFlagSurvivesAModification(t *testing.T) {
 	projects := newFakeProjectStore()
 	handler := NewProjectsHandler(projects)
 
@@ -316,13 +315,13 @@ func TestLaDeclarationDeSuiviSurvitAUneModification(t *testing.T) {
 		"tracker_project": "mse-dev", "dockerfile": "Dockerfile"
 	}`)
 	if recorder.Code != http.StatusCreated {
-		t.Fatalf("création: %d %s", recorder.Code, recorder.Body)
+		t.Fatalf("creation: %d %s", recorder.Code, recorder.Body)
 	}
 	if projects.projects[1].TrackerProject != "mse-dev" {
-		t.Fatalf("suivi à la création: %q", projects.projects[1].TrackerProject)
+		t.Fatalf("tracked at creation: %q", projects.projects[1].TrackerProject)
 	}
 
-	// Le geste qui effaçait tout : renommer le projet.
+	// The gesture that cleared everything: renaming the project.
 	update := httptest.NewRequest(http.MethodPut, "/projects/1", strings.NewReader(`{
 		"repository": "vcarroy/app", "label": "Application",
 		"tracker_project": "mse-dev", "dockerfile": "Dockerfile"
@@ -332,24 +331,24 @@ func TestLaDeclarationDeSuiviSurvitAUneModification(t *testing.T) {
 	handler.Update(recorder, asAdmin(update))
 
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("mise à jour: %d %s", recorder.Code, recorder.Body)
+		t.Fatalf("update: %d %s", recorder.Code, recorder.Body)
 	}
 	if got := projects.projects[1].TrackerProject; got != "mse-dev" {
-		t.Errorf("suivi après modification: %q — la synchronisation s'arrêterait", got)
+		t.Errorf("tracked after modification: %q — synchronisation would stop", got)
 	}
 }
 
-// Le suivi est **rendu** avec le projet, sans quoi le formulaire ne pourrait pas
-// le repréciser : il repartirait vide à chaque édition, et le champ vide
-// effacerait la déclaration aussi sûrement que son absence.
-func TestLeSuiviEstRenduAvecLeProjet(t *testing.T) {
+// The tracker is returned with the project, without which the form could not restate it:
+// it would come back empty on every edit, and the empty field would clear the declaration
+// as surely as its absence.
+func TestTheTrackedFlagIsReturnedWithTheProject(t *testing.T) {
 	projects := newFakeProjectStore()
 	handler := NewProjectsHandler(projects)
 
 	if recorder := createProject(t, handler, `{
 		"repository": "vcarroy/app", "label": "App", "tracker_project": "mse-dev"
 	}`); recorder.Code != http.StatusCreated {
-		t.Fatalf("création: %d", recorder.Code)
+		t.Fatalf("creation: %d", recorder.Code)
 	}
 
 	recorder := httptest.NewRecorder()
@@ -364,7 +363,7 @@ func TestLeSuiviEstRenduAvecLeProjet(t *testing.T) {
 		t.Fatalf("corps illisible: %v", err)
 	}
 	if len(payload.Projects) != 1 || payload.Projects[0].TrackerProject != "mse-dev" {
-		t.Errorf("suivi rendu: %+v", payload.Projects)
+		t.Errorf("tracked returned: %+v", payload.Projects)
 	}
 }
 
@@ -378,8 +377,8 @@ func TestLeSuiviEstRenduAvecLeProjet(t *testing.T) {
  * affirmait le contraire.
  */
 
-// projetAvecCle déclare un projet dont le worker a déjà posé la clé.
-func projetAvecCle(t *testing.T, fake *fakeProjectStore, active bool) {
+// projectWithKey declares a project whose key the worker has already set.
+func projectWithKey(t *testing.T, fake *fakeProjectStore, active bool) {
 	t.Helper()
 	fake.projects[1] = store.Project{
 		ID: 1, Repository: "CNOUS/mse", Slug: "mse", Label: "mse",
@@ -389,61 +388,61 @@ func projetAvecCle(t *testing.T, fake *fakeProjectStore, active bool) {
 	fake.next = 2
 }
 
-// Le test transmet la clé du projet : c'est elle que la forge doit chercher.
-func TestLeTestCherIcheLaCleDuProjet(t *testing.T) {
+// The check passes on the project's key: it is what the forge must look for.
+func TestTheTestLooksForTheProjectsKey(t *testing.T) {
 	fake := newFakeProjectStore()
-	projetAvecCle(t, fake, false)
+	projectWithKey(t, fake, false)
 
 	var vue string
 	handler := NewProjectsHandler(fake).
-		WithProbe(fakeProber{keyPresent: vrai(), vuePublicKey: &vue})
+		WithProbe(fakeProber{keyPresent: trueFlag(), vuePublicKey: &vue})
 
 	if code := probe(t, handler, "1").Code; code != http.StatusOK {
 		t.Fatalf("code %d", code)
 	}
 	if vue != "ssh-ed25519 AAAAC3Nz arkhitekton" {
-		t.Errorf("clé transmise = %q", vue)
+		t.Errorf("key returned = %q", vue)
 	}
 }
 
-// Trouvée dans le dépôt, la clé devient employée — sans que personne l'affirme.
-func TestUneCleTrouveeDansLeDepotDevientEmployee(t *testing.T) {
+// Found in the repository, the key becomes used — without anyone asserting it.
+func TestAKeyFoundInTheRepositoryBecomesInUse(t *testing.T) {
 	fake := newFakeProjectStore()
-	projetAvecCle(t, fake, false)
-	handler := NewProjectsHandler(fake).WithProbe(fakeProber{keyPresent: vrai()})
+	projectWithKey(t, fake, false)
+	handler := NewProjectsHandler(fake).WithProbe(fakeProber{keyPresent: trueFlag()})
 
 	if code := probe(t, handler, "1").Code; code != http.StatusOK {
 		t.Fatalf("code %d", code)
 	}
 	if !fake.projects[1].DeployKeyActive {
-		t.Error("la clé constatée présente n'a pas été retenue")
+		t.Error("the key found present was not kept")
 	}
 }
 
-// Absente du dépôt, elle cesse de l'être — c'est le cas qu'une confirmation
-// manuelle ne savait pas rattraper : elle restait vraie indéfiniment.
-func TestUneCleRetireeDuDepotCesseDetreEmployee(t *testing.T) {
+// Absent from the repository, it stops being used — the case a manual confirmation could
+// not catch up: it stayed true indefinitely.
+func TestAKeyRemovedFromTheRepositoryStopsBeingInUse(t *testing.T) {
 	fake := newFakeProjectStore()
-	projetAvecCle(t, fake, true)
-	handler := NewProjectsHandler(fake).WithProbe(fakeProber{keyPresent: faux()})
+	projectWithKey(t, fake, true)
+	handler := NewProjectsHandler(fake).WithProbe(fakeProber{keyPresent: falseFlag()})
 
 	if code := probe(t, handler, "1").Code; code != http.StatusOK {
 		t.Fatalf("code %d", code)
 	}
 	if fake.projects[1].DeployKeyActive {
-		t.Error("la clé absente du dépôt est toujours annoncée employée")
+		t.Error("the key missing from the repository is still announced as in use")
 	}
 }
 
-// Le silence ne renverse rien.
+// Silence overturns nothing.
 //
-// Quand la question n'a pas pu être posée — jeton sans droit d'administration sur
-// le dépôt —, l'état précédent est laissé tel quel. L'écraser à faux couperait
-// les constructions d'un projet dont la clé est peut-être en place, pour la seule
-// raison que le dashboard n'a pas le droit de lire les clés du dépôt.
-func TestUneQuestionSansReponseNeRenverseRien(t *testing.T) {
+// When the question could not be asked — a token with no administration right on the
+// repository — the previous state is left as it is. Overwriting it to false would cut the
+// builds of a project whose key may well be in place, for the sole reason that the
+// dashboard may not read the repository's keys.
+func TestAQuestionWithNoAnswerOverturnsNothing(t *testing.T) {
 	fake := newFakeProjectStore()
-	projetAvecCle(t, fake, true)
+	projectWithKey(t, fake, true)
 	handler := NewProjectsHandler(fake).WithProbe(fakeProber{})
 
 	recorder := probe(t, handler, "1")
@@ -451,10 +450,10 @@ func TestUneQuestionSansReponseNeRenverseRien(t *testing.T) {
 		t.Fatalf("code %d", recorder.Code)
 	}
 	if !fake.projects[1].DeployKeyActive {
-		t.Error("un constat sans réponse a renversé l'état précédent")
+		t.Error("a check with no answer overturned the previous state")
 	}
 
-	// Et l'écran reçoit `null`, qu'il doit dire autrement qu'une absence.
+	// And the screen receives null, which it must say differently from an absence.
 	var payload struct {
 		KeyPresent *bool `json:"key_present"`
 	}
@@ -462,6 +461,6 @@ func TestUneQuestionSansReponseNeRenverseRien(t *testing.T) {
 		t.Fatalf("corps illisible: %v", err)
 	}
 	if payload.KeyPresent != nil {
-		t.Errorf("key_present = %v, attendu null", *payload.KeyPresent)
+		t.Errorf("key_present = %v, expected null", *payload.KeyPresent)
 	}
 }

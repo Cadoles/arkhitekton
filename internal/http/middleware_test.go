@@ -32,7 +32,7 @@ func TestAuthenticateRejectsRequestWithoutCookie(t *testing.T) {
 	m.Authenticate(okHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/versions", nil))
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("code = %d, attendu 401", rec.Code)
+		t.Fatalf("code = %d, expected 401", rec.Code)
 	}
 }
 
@@ -40,18 +40,18 @@ func TestAuthenticateRejectsExpiredSession(t *testing.T) {
 	m := testMiddleware(&stubSessions{lookupErr: auth.ErrSessionNotFound})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/versions", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "expirée"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "expired"})
 
 	rec := httptest.NewRecorder()
 	m.Authenticate(okHandler()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("code = %d, attendu 401", rec.Code)
+		t.Fatalf("code = %d, expected 401", rec.Code)
 	}
 }
 
-// Se réauthentifier ne changerait rien : renvoyer 401 boucherait l'utilisateur
-// dans un cycle de connexion. Le 403 dit ce qu'il faut faire.
+// Re-authenticating would change nothing: returning 401 would trap the user in a sign-in
+// loop. The 403 says what to do.
 func TestAuthenticateReturns403ForUserWithoutRole(t *testing.T) {
 	m := testMiddleware(&stubSessions{
 		lookup:    auth.Session{Subject: "sub", Username: "nouveau"},
@@ -65,10 +65,10 @@ func TestAuthenticateReturns403ForUserWithoutRole(t *testing.T) {
 	m.Authenticate(okHandler()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("code = %d, attendu 403", rec.Code)
+		t.Fatalf("code = %d, expected 403", rec.Code)
 	}
-	if body := rec.Body.String(); !strings.Contains(body, "rôle") {
-		t.Errorf("le message n'explique pas la situation: %s", body)
+	if body := rec.Body.String(); !strings.Contains(body, "role") {
+		t.Errorf("the message does not explain the situation: %s", body)
 	}
 }
 
@@ -88,7 +88,7 @@ func TestAuthenticatePlacesIdentityInContext(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	if seen.Subject != "sub-1" || seen.Username != "alice" || seen.Role != auth.RoleOperator {
-		t.Errorf("identité incorrecte: %+v", seen)
+		t.Errorf("wrong identity: %+v", seen)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestRequireEnforcesPermission(t *testing.T) {
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != c.expected {
-			t.Errorf("role=%s perm=%s: code = %d, attendu %d", c.role, c.perm, rec.Code, c.expected)
+			t.Errorf("role=%s perm=%s: code = %d, expected %d", c.role, c.perm, rec.Code, c.expected)
 		}
 	}
 }
@@ -130,12 +130,12 @@ func TestRequireRejectsRequestWithoutIdentity(t *testing.T) {
 	m.Require(auth.PermRead)(okHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("code = %d, attendu 401", rec.Code)
+		t.Fatalf("code = %d, expected 401", rec.Code)
 	}
 }
 
-// Un projet à résoudre pour les contrôles rattachés. Un seul, reconnu par son
-// slug : ces tests portent sur la permission, pas sur la résolution.
+// A project to resolve for the scoped checks. One, recognised by its slug: these tests are
+// about the permission, not about resolution.
 type stubProjects struct{}
 
 func (stubProjects) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
@@ -146,8 +146,8 @@ func (stubProjects) ProjectBySlug(_ context.Context, slug string) (store.Project
 }
 
 func TestRequireDeployReadsEnvironmentFromPath(t *testing.T) {
-	// La promotion se vérifie désormais **dans un projet** : le chemin le porte,
-	// et le middleware refuse s'il ne peut pas le résoudre.
+	// Promotion is now checked within a project: the path carries it, and the middleware
+	// refuses if it cannot resolve it.
 	m := testMiddleware(&stubSessions{}).WithProjects(stubProjects{})
 
 	mux := http.NewServeMux()
@@ -162,7 +162,7 @@ func TestRequireDeployReadsEnvironmentFromPath(t *testing.T) {
 		{auth.RoleOperator, "prod", http.StatusForbidden},
 		{auth.RoleReleaser, "prod", http.StatusOK},
 		// Environnement non déclaré : échec fermé.
-		{auth.RoleOperator, "inconnu", http.StatusForbidden},
+		{auth.RoleOperator, "unknown", http.StatusForbidden},
 	}
 
 	for _, c := range cases {
@@ -173,7 +173,7 @@ func TestRequireDeployReadsEnvironmentFromPath(t *testing.T) {
 		mux.ServeHTTP(rec, req)
 
 		if rec.Code != c.expected {
-			t.Errorf("role=%s env=%s: code = %d, attendu %d", c.role, c.env, rec.Code, c.expected)
+			t.Errorf("role=%s env=%s: code = %d, expected %d", c.role, c.env, rec.Code, c.expected)
 		}
 	}
 }
@@ -186,14 +186,13 @@ func TestCSRFAllowsSafeMethods(t *testing.T) {
 		m.CSRF(okHandler()).ServeHTTP(rec, httptest.NewRequest(method, "/x", nil))
 
 		if rec.Code != http.StatusOK {
-			t.Errorf("%s refusé sans jeton CSRF: %d", method, rec.Code)
+			t.Errorf("%s refused with no CSRF token: %d", method, rec.Code)
 		}
 	}
 }
 
-// SameSite=Lax ne couvre pas une requête émise par une page tierce déjà chargée :
-// une page tierce peut la déclencher, jamais lire le cookie pour en recopier la
-// valeur dans l'en-tête.
+// SameSite=Lax does not cover a request issued by a third-party page already loaded: such a
+// page can trigger it, never read the cookie to copy its value into the header.
 func TestCSRFRejectsUnsafeMethodWithoutMatchingToken(t *testing.T) {
 	m := testMiddleware(&stubSessions{})
 
@@ -202,10 +201,10 @@ func TestCSRFRejectsUnsafeMethodWithoutMatchingToken(t *testing.T) {
 		cookie string
 		header string
 	}{
-		{"aucun jeton", "", ""},
+		{"no token", "", ""},
 		{"cookie seul", "jeton-abc", ""},
-		{"en-tête seul", "", "jeton-abc"},
-		{"valeurs différentes", "jeton-a", "jeton-b"},
+		{"header only", "", "jeton-abc"},
+		{"different values", "jeton-a", "jeton-b"},
 	}
 
 	for _, c := range cases {
@@ -221,7 +220,7 @@ func TestCSRFRejectsUnsafeMethodWithoutMatchingToken(t *testing.T) {
 		m.CSRF(okHandler()).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusForbidden {
-			t.Errorf("%s: code = %d, attendu 403", c.name, rec.Code)
+			t.Errorf("%s: code = %d, expected 403", c.name, rec.Code)
 		}
 	}
 }
@@ -237,7 +236,7 @@ func TestCSRFAcceptsMatchingToken(t *testing.T) {
 	m.CSRF(okHandler()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d, attendu 200", rec.Code)
+		t.Fatalf("code = %d, expected 200", rec.Code)
 	}
 }
 
@@ -256,29 +255,29 @@ func TestChainAppliesMiddlewaresInReadingOrder(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil))
 
 	if len(order) != 2 || order[0] != "premier" || order[1] != "second" {
-		t.Errorf("ordre d'exécution inattendu: %v", order)
+		t.Errorf("unexpected execution order: %v", order)
 	}
 }
 
-// withIdentity simule ce que pose le middleware d'authentification, pour tester
-// l'autorisation isolément.
+// withIdentity simulates what the authentication middleware sets, to test authorization in
+// isolation.
 func withIdentity(r *http.Request, identity auth.Identity) context.Context {
 	return context.WithValue(r.Context(), identityKey, identity)
 }
 
-// Une permission accordée sur un projet ne franchit pas la frontière du suivant.
+// A permission granted on one project does not cross into the next.
 //
-// C'est le contrôle que `RequireIn` existe pour poser : vérifier globalement
-// accorderait sur tous les projets ce qui n'a été accordé que sur un, et l'écart
-// ne se verrait qu'en constatant qu'une personne agit là où elle ne devrait pas.
-func TestRequireInNaccordeQueDansSonProjet(t *testing.T) {
+// That is the check RequireIn exists to make: checking globally would grant on every project
+// what was granted on one, and the gap would show only by noticing someone acting where they
+// should not.
+func TestRequireInGrantsOnlyWithinItsProject(t *testing.T) {
 	m := testMiddleware(&stubSessions{}).WithProjects(stubProjects{})
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /projects/{project}/build",
 		m.RequireIn(auth.PermReleaseCreate)(okHandler()))
 
-	// `operator` sur le projet 1 seulement, aucun rôle global.
+	// `operator` on project 1 only, no global role.
 	identity := auth.Identity{Subject: "s", Projects: map[int64]auth.Role{1: auth.RoleOperator}}
 
 	req := httptest.NewRequest(http.MethodPost, "/projects/test/build", nil)
@@ -286,24 +285,24 @@ func TestRequireInNaccordeQueDansSonProjet(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("le rôle du projet doit s'y appliquer: code = %d", rec.Code)
+		t.Errorf("the project's role must apply there: code = %d", rec.Code)
 	}
 
-	// Un projet que le résolveur ne connaît pas : 404, et surtout pas un passage.
+	// A project the resolver does not know: 404, and certainly not a pass.
 	req = httptest.NewRequest(http.MethodPost, "/projects/absent/build", nil)
 	req = req.WithContext(withIdentity(req, identity))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
-		t.Errorf("un projet inconnu doit être refusé: code = %d", rec.Code)
+		t.Errorf("an unknown project must be refused: code = %d", rec.Code)
 	}
 }
 
-// Sans résolution branchée, le contrôle refuse au lieu de laisser passer.
+// With no resolution wired, the check refuses instead of letting through.
 //
-// C'est le sens du doute qui compte : un middleware mal câblé qui accorderait
-// serait une faille silencieuse, alors qu'un refus se voit au premier essai.
-func TestRequireInRefuseSansResolutionDeProjet(t *testing.T) {
+// It is the direction of the doubt that counts: a badly wired middleware that granted would
+// be a silent hole, whereas a refusal shows on the first attempt.
+func TestRequireInRefusesWithoutProjectResolution(t *testing.T) {
 	m := testMiddleware(&stubSessions{})
 
 	mux := http.NewServeMux()
@@ -316,6 +315,6 @@ func TestRequireInRefuseSansResolutionDeProjet(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code == http.StatusOK {
-		t.Error("un contrôle sans résolution de projet ne doit jamais accorder")
+		t.Error("a check with no project resolution must never grant")
 	}
 }

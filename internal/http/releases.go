@@ -26,7 +26,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
-// ReleaseStore est ce que les handlers de release attendent de la base.
+// ReleaseStore is what the release handlers need from the database.
 type ReleaseStore interface {
 	EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error)
 	CreateRelease(ctx context.Context, release store.Release) (int64, error)
@@ -35,21 +35,20 @@ type ReleaseStore interface {
 	SetManualActions(ctx context.Context, tag, markdown, author string) error
 	ListReleaseJobs(ctx context.Context, releaseID int64) ([]store.ReleaseJob, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
-	// RecordEvent consigne un fait constaté (doc 14). Rend `false` quand il était
-	// déjà connu, ce qui n'est pas une erreur.
+	// RecordEvent records an observed fact. Returns false when it was already known,
+	// which is not an error.
 	RecordEvent(ctx context.Context, fact event.Event) (bool, error)
 	ListArtifacts(ctx context.Context, releaseID int64) ([]store.Artifact, error)
 	GetArtifact(ctx context.Context, id int64) (store.Artifact, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
-	// GetProject dit quelles images une release construit et lesquelles un re-tag
-	// propage. Lu à chaque mise en file plutôt que mémorisé au démarrage : les
-	// étapes se modifient depuis l'administration, et une release lancée après le
-	// changement doit construire ce qui est déclaré maintenant.
+	// GetProject says which images a release builds and which a re-tag propagates. Read
+	// on every enqueue rather than memorised at start-up: the stages are edited from
+	// administration, and a release launched after the change must build what is
+	// declared now.
 	//
-	// Par identifiant, celui que la route porte : chercher « le projet
-	// constructible » supposait qu'il n'y en ait qu'un, ce qu'un second projet
-	// déclaré rend faux (doc 12 §12.9, lot B).
+	// By identifier, the one the route carries: looking for "the buildable project"
+	// assumed there was only one, which a second declared project makes false.
 	GetProject(ctx context.Context, id int64) (store.Project, error)
 	SetReleaseState(ctx context.Context, id int64, state string) error
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
@@ -60,9 +59,8 @@ type ReleaseStore interface {
 	LinkNoteIssue(ctx context.Context, releaseID int64, reference, source, pullRequest, actor string) error
 	UnlinkNoteIssue(ctx context.Context, releaseID int64, reference string) error
 	Directory(ctx context.Context) (map[string]string, error)
-	// Les deux lectures du score. Rendues ici parce que la liste des releases
-	// affiche le même chiffre que l'écran d'une release, et que deux calculs
-	// distincts finiraient par diverger.
+	// The two score reads. Here because the release list shows the same figure as a
+	// release's screen, and two separate computations would eventually diverge.
 	ListReleaseTestResults(ctx context.Context, releaseID int64) ([]store.TestResult, error)
 	LatestSecurityAudit(ctx context.Context, releaseID int64) (store.SecurityAudit, error)
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
@@ -70,15 +68,15 @@ type ReleaseStore interface {
 	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
 }
 
-// ReleasePlanner ouvre le plan d'une release.
+// ReleasePlanner opens a release's plan.
 //
-// Interface déclarée ici plutôt qu'un import de `internal/worker` : les deux
-// paquets sont frères, reliés par `main`, et faire dépendre l'api du worker lui
-// ferait porter l'observateur Tekton, l'ordonnanceur et les sondes pour une
-// seule méthode.
+// The interface is declared here rather than imported from internal/worker: the two
+// packages are siblings, joined by main, and making the api depend on the worker
+// would have it carry the Tekton observer, the scheduler and the probes for one
+// method.
 type ReleasePlanner interface {
-	// OpenReleasePlan compose le plan d'une release et le fait partir. Rend le
-	// nombre de gestes effectivement partis.
+	// OpenReleasePlan composes a release's plan and sets it going. Returns how many
+	// steps actually left.
 	OpenReleasePlan(ctx context.Context, project store.Project,
 		record store.Release, revision string) int
 }
@@ -87,59 +85,55 @@ type ReleasesHandler struct {
 	store      ReleaseStore
 	catalog    *catalog.Catalog
 	authorizer *auth.Authorizer
-	// plans ouvre le plan d'une release. Nil : aucune construction ne part, et
-	// la création le dit en avertissement plutôt que d'annoncer une release en
-	// construction qui ne l'est pas.
+	// plans opens a release's plan. Nil: no build leaves, and creation says so as a
+	// warning rather than announcing a release as building when it is not.
 	plans ReleasePlanner
-	// images résout les digests. Nil quand le registre n'est pas configuré : le
-	// dashboard reste utilisable sans lui, l'écran affiche alors les tags sans
-	// leurs digests et le dit.
+	// images resolves the digests. Nil when the registry is not configured: the
+	// dashboard stays usable without it, the screen then shows tags without their
+	// digests and says so.
 	images Images
-	// artifacts sert le contenu des livrables. Le téléchargement transite par
-	// l'api plutôt que par une URL pré-signée : ces objets portent la preuve
-	// d'une livraison, et une URL pré-signée est transmissible.
+	// artifacts serves the content of deliverables. The download goes through the api
+	// rather than a presigned URL: these objects carry the evidence of a delivery, and a
+	// presigned URL is forwardable.
 	artifacts Artifacts
-	// imageName est le dépôt promu. Une seule image aujourd'hui ; la table des
-	// promotions en accepte plusieurs par release, ce qui évite d'avoir à migrer
-	// le jour où le portail se scinde.
+	// imageName is the promoted repository. One image today; the promotions table
+	// accepts several per release, which avoids a migration the day the application is
+	// split.
 	imageName string
-	// logger sert à dire ce qui échoue sans faire échouer l'écran. Nil-safe :
-	// `slog.Default()` par défaut, pour que les tests n'aient pas à le fournir.
+	// logger serves to say what fails without failing the screen. Nil-safe:
+	// `slog.Default()` by default, so tests need not supply one.
 	logger *slog.Logger
-	// trackerURL sert à construire les liens vers les demandes d'une note. Vide,
-	// les liens sont omis plutôt que rendus morts.
+	// trackerURL serves to build the links to a note's issues. Empty, the links are
+	// omitted rather than rendered dead.
 	trackerURL string
-	// registryProject préfixe les images publiées. Sert à nommer à l'audit celles
-	// qu'il doit analyser lors d'une relance — il analyse une image **déjà
-	// publiée**, jamais une reconstruction (B17).
+	// registryProject prefixes the published images. It serves to name, to the audit,
+	// the ones it must analyse on a re-run — it analyses an image already published,
+	// never a rebuild.
 	registryProject string
-	// forge résout une référence en commit. Nil quand la forge n'est pas
-	// configurée.
+	// forge resolves a reference into a commit. Nil when the forge is not configured.
 	forge CommitResolver
-	// tagger pose le tag Git. Nil quand le jeton est en lecture seule.
+	// tagger sets the git tag. Nil when the token is read-only.
 	tagger Tagger
-	// artifactReader lit ce que l'automatisation d'une release a produit, et le
-	// plan figé qui donne leur nom aux gestes. Nil : la section reste vide plutôt
-	// que d'empêcher la page.
+	// artifactReader reads what a release's automation produced, and the frozen plan
+	// that gives the steps their names. Nil: the section stays empty rather than
+	// preventing the page.
 	artifactReader ArtifactReader
-	// deployments rend, par tag, les environnements où une release tourne. Nil :
-	// la pastille n'est jamais affichée. Fourni par le plugin MSE, qui possède ces
-	// tables (doc 16 §16.17).
+	// deployments returns, by tag, the environments where a release runs. Nil: the badge
+	// is never shown. Supplied by the MSE plugin, which owns those tables.
 	deployments func(context.Context, int64) (map[string][]string, error)
-	// promotions rend les promotions demandées d'une release. Nil : aucune.
+	// promotions returns a release's requested promotions. Nil: none.
 	promotions func(context.Context, int64, int64) ([]ReleasePromotion, error)
-	// scoreCatalog sert au score, et pour la même raison que dans le gestionnaire
-	// des tests : nommer la famille d'un geste qui n'a rien produit. La pastille
-	// de la liste et l'écran d'une release doivent afficher le même chiffre, donc
-	// partir du même catalogue.
+	// scoreCatalog serves the score, and for the same reason as in the tests handler: to
+	// name the family of a step that produced nothing. The list's badge and a release's
+	// screen must show the same figure, so they must start from the same catalogue.
 	scoreCatalog *catalog.Catalog
 }
 
-// WithTrackerURL branche les liens vers les demandes.
+// WithTrackerURL wires the links to the issues.
 //
-// Le chemin `/issues/` reste celui de Redmine : un second suivi le composerait
-// autrement, et c'est la dernière chose que cette frontière ne sait pas encore
-// demander à sa réalisation (doc 12 §12.9, lot E).
+// The `/issues/` path is still the tracker's own: a second tracker would compose it
+// differently, and it is the last thing this boundary cannot yet ask its
+// implementation for.
 func (h *ReleasesHandler) WithTrackerURL(url string) *ReleasesHandler {
 	h.trackerURL = url
 	return h
@@ -152,23 +146,23 @@ func (h *ReleasesHandler) issueURL(reference string) string {
 	return h.trackerURL + "/issues/" + reference
 }
 
-// ArtifactReader rend ce qu'une release a produit, et le plan qui l'a produit.
+// ArtifactReader returns what a release produced, and the plan that produced it.
 //
-// Interface étroite plutôt que le magasin entier : l'écran n'a besoin que de ces
-// deux réponses.
+// A narrow interface rather than the whole store: the screen needs only those two
+// answers.
 type ArtifactReader interface {
 	ReleaseArtifacts(ctx context.Context, releaseID int64) ([]store.PlanArtifact, error)
 	PlanRunByID(ctx context.Context, id int64) (store.PlanRun, error)
 }
 
-// WithArtifactReader branche la lecture des artefacts d'une release.
+// WithArtifactReader wires the reading of a release's artifacts.
 func (h *ReleasesHandler) WithArtifactReader(reader ArtifactReader) *ReleasesHandler {
 	h.artifactReader = reader
 	return h
 }
 
-// ReleasePromotion est une promotion demandée, telle que l'écran d'une release
-// l'affiche et que ses artefacts la confrontent au registre.
+// ReleasePromotion is a requested promotion, as a release's screen displays it and
+// as its artifacts compare it with the registry.
 type ReleasePromotion struct {
 	Environment string
 	Image       string
@@ -184,29 +178,29 @@ func (h *ReleasesHandler) WithDeployments(deployments func(ctx context.Context, 
 	return h
 }
 
-// WithPromotions branche la lecture des promotions demandées.
+// WithPromotions wires the reading of requested promotions.
 func (h *ReleasesHandler) WithPromotions(promotions func(ctx context.Context, projectID, releaseID int64) ([]ReleasePromotion, error)) *ReleasesHandler {
 	h.promotions = promotions
 	return h
 }
 
-// deployedOn rend les environnements où tournent les releases, ou rien.
+// deployedOn returns the environments where the releases run, or nothing.
 //
-// Une lecture impossible ne fait pas échouer l'écran : la pastille est un repère,
-// pas une information dont dépend une décision prise ici.
+// A failed read does not fail the screen: the badge is a landmark, not information
+// any decision taken here depends on.
 func (h *ReleasesHandler) deployedOn(ctx context.Context, projectID int64) map[string][]string {
 	if h.deployments == nil {
 		return nil
 	}
 	deployed, err := h.deployments(ctx, projectID)
 	if err != nil {
-		h.logger.Error("environnements des releases", "error", err)
+		h.logger.Error("releases' environments", "error", err)
 		return nil
 	}
 	return deployed
 }
 
-// releasePromotions rend les promotions demandées d'une release.
+// releasePromotions returns a release's requested promotions.
 func (h *ReleasesHandler) releasePromotions(ctx context.Context, projectID, releaseID int64) ([]ReleasePromotion, error) {
 	if h.promotions == nil {
 		return nil, nil
@@ -214,72 +208,69 @@ func (h *ReleasesHandler) releasePromotions(ctx context.Context, projectID, rele
 	return h.promotions(ctx, projectID, releaseID)
 }
 
-// WithScoreCatalog branche le catalogue employé par le score.
+// WithScoreCatalog wires the catalogue the score uses.
 //
-// Remplace `WithWeights` : la pondération ne vient plus de la configuration mais
-// des gestes de l'automatisation, figés dans le plan de chaque release
-// (doc 15 §15.6). Le catalogue reste nécessaire pour nommer ce qu'un geste
-// mesurerait s'il avait tourné.
+// The weighting no longer comes from configuration but from the automation's steps,
+// frozen in each release's plan. The catalogue is still needed to name what a step
+// would have measured had it run.
 func (h *ReleasesHandler) WithScoreCatalog(registry *catalog.Catalog) *ReleasesHandler {
 	h.scoreCatalog = registry
 	return h
 }
 
-// WithForge branche la résolution de commits et la pose de tags.
+// WithForge wires commit resolution and tag setting.
 //
-// Les deux ensemble parce qu'ils sont un seul geste : résoudre une branche en
-// commit puis poser le tag sur ce commit. Poser un tag sur une branche le
-// placerait sur ce qu'elle désigne à cet instant, et deux releases créées à une
-// minute d'intervalle pourraient viser des commits différents.
+// Both together because they are one gesture: resolving a branch into a commit then
+// setting the tag on that commit. Setting a tag on a branch would place it on
+// whatever the branch names at that instant, and two releases created a minute apart
+// could aim at different commits.
 func (h *ReleasesHandler) WithForge(forge CommitResolver, tagger Tagger) *ReleasesHandler {
 	h.forge = forge
 	h.tagger = tagger
 	return h
 }
 
-// Images est ce que le handler attend du registre : lire, jamais écrire. Le
-// re-tag est fait par la Task `promote-image` avec ses propres identifiants.
+// Images is what the handler needs from the registry: reading, never writing. The
+// re-tag is done by a Task with its own credentials.
 type Images interface {
 	Digest(ctx context.Context, repository, tag string) (string, error)
 }
 
-// CommitResolver est ce que le handler attend de la forge pour ancrer une release.
+// CommitResolver is what the handler needs from the forge to anchor a release.
 //
-// Optionnelle : sans elle, la release est créée depuis la référence saisie et le
-// dit. Faire échouer la création parce que la forge est injoignable priverait du
-// reste de la chaîne pour un ancrage qu'on peut ajouter ensuite.
+// Optional: without it, the release is created from the reference typed in and the
 type CommitResolver interface {
 	ResolveCommit(ctx context.Context, ref string) (string, error)
 }
 
-// Tagger pose le tag Git d'une release (B3).
+// Tagger sets a release's git tag.
 //
-// Séparée de [CommitResolver] : lire la forge et y écrire sont deux permissions, portées
-// par deux clients. Nil quand le jeton ne peut pas écrire.
+// Separate from [CommitResolver]: reading the forge and writing to it are two
+// permissions, carried by two clients. Nil when the token cannot write.
 type Tagger interface {
 	CreateTag(ctx context.Context, tag, commit, message string) error
 }
 
-// Artifacts est ce que le handler attend du stockage objet.
+// Artifacts is what the handler needs from the object store.
 type Artifacts interface {
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 }
 
-// Contrat avec l'ordonnanceur. Répétés ici plutôt qu'importés de `worker` :
-// l'`api` ne dépend pas du worker, et l'inverse non plus — les deux se parlent
-// par la base.
+// The contract with the scheduler. Repeated here rather than imported from `worker`:
+// the api does not depend on the worker, nor the other way round — the two talk
+// through the database.
 const (
 	exportJobKind = "export"
-	// Écrit ici plutôt qu'importé de `worker` : ce paquet ne dépend pas de
-	// l'ordonnanceur, et l'inverse est vrai — l'y faire dépendre créerait un
-	// cycle avec les tests de `worker`, qui lisent ce paquet. Un test de
-	// cohérence garde les deux alignés.
+	// Written here rather than imported from `worker`: this package does not depend on
+	// the scheduler, and the reverse holds — depending on it would create a cycle with
+	// the worker's tests, which read this package. A consistency test keeps the two
+	// aligned.
 	ReleaseNotesJobKind = "release-notes"
 	exportParamKind     = "export-kind"
 	exportParamFormat   = "export-format"
 )
 
-// WithPlans branche l'ouverture du plan d'une release.
+// WithPlans wires the opening of a release's plan.
 func (h *ReleasesHandler) WithPlans(plans ReleasePlanner) *ReleasesHandler {
 	h.plans = plans
 	return h
@@ -302,15 +293,14 @@ type releasePayload struct {
 	Tag   string `json:"tag"`
 	Kind  string `json:"kind"`
 	State string `json:"state"`
-	// ImageVersion diffère du tag pour toute release finale produite par re-tag :
-	// l'image porte la version de la RC validée, `version.txt` compris. C'est
-	// cette valeur, et non le tag, qu'il faut comparer à ce que rapporte
-	// PortalData (B17).
+	// ImageVersion differs from the tag for every final release produced by re-tag: the
+	// image carries the approved candidate's version, including the version baked into
+	// it. It is that value, and not the tag, that must be compared with what the
+	// application reports.
 	ImageVersion string `json:"image_version"`
 	GitRef       string `json:"git_ref,omitempty"`
-	// GitCommit est ce qui a réellement été construit. Distinct de `GitRef`, qui
-	// dit seulement d'où la release est partie : une branche bouge, un commit non
-	// (B17).
+	// GitCommit is what was actually built. Distinct from GitRef, which only says where
+	// the release started from: a branch moves, a commit does not.
 	GitCommit  string              `json:"git_commit,omitempty"`
 	SourceTag  string              `json:"source_tag,omitempty"`
 	CreatedBy  string              `json:"created_by"`
@@ -318,38 +308,36 @@ type releasePayload struct {
 	ReleasedAt *time.Time          `json:"released_at,omitempty"`
 	Promotions []promotionPayload  `json:"promotions,omitempty"`
 	Jobs       []releaseJobPayload `json:"jobs,omitempty"`
-	// Artifacts liste ce que l'automatisation a produit.
+	// Artifacts lists what the automation produced.
 	//
-	// Remplace la section « images », qui déclinait **un seul dépôt** — celui que
-	// la configuration nomme — en ses tags. Un projet qui en publie trois n'en
-	// voyait qu'un, et un projet qui produit un binaire ne voyait rien
-	// (doc 15 §15.7).
+	// It replaces the "images" section, which broke down a single repository — the one
+	// the configuration names — into its tags. A project publishing three saw only one,
+	// and a project producing a binary saw nothing.
 	Artifacts []planArtifactPayload `json:"artifacts,omitempty"`
-	// ArtifactsNote dit pourquoi les digests manquent. L'absence de digest et
-	// l'impossibilité de le lire ne se ressemblent pas : la première signale une
-	// image qui n'existe pas, la seconde un registre injoignable ou non
-	// configuré. Les confondre ferait chercher une panne de build.
+	// ArtifactsNote says why the digests are missing. An absent digest and an unreadable
+	// one do not look alike: the first reports an image that does not exist, the second
+	// an unreachable or unconfigured registry. Confusing them would send someone hunting
+	// for a build failure.
 	ArtifactsNote string          `json:"artifacts_note,omitempty"`
 	ManualAction  *manualActionVw `json:"manual_actions,omitempty"`
 
-	// Ce qu'un écran affiche à côté du nom, sans avoir à déplier la release.
+	// What a screen shows beside the name, without having to unfold the release.
 	//
-	// `BuildFailed` porte sur la **dernière** construction : une release relancée
-	// après un échec d'infrastructure garderait sinon une pastille que plus rien
-	// ne justifie.
+	// BuildFailed is about the last build: a release retried after an infrastructure
+	// failure would otherwise keep a badge nothing justifies.
 	BuildFailed bool `json:"build_failed,omitempty"`
-	// DeployedOn énumère les environnements qui font tourner cette release. Vide
-	// dès qu'une autre y a été déployée depuis : la liste vient de ce que chaque
-	// environnement rapporte, pas de l'historique des promotions.
+	// DeployedOn lists the environments running this release. Empty as soon as another
+	// has been deployed there since: the list comes from what each environment reports,
+	// not from the history of promotions.
 	DeployedOn []string     `json:"deployed_on,omitempty"`
 	Score      *scoreDigest `json:"score,omitempty"`
 }
 
-// scoreDigest est le score sans sa décomposition.
+// scoreDigest is the score without its breakdown.
 //
-// Le détail vit sur l'écran d'une release ; une pastille n'a besoin que du
-// chiffre et de son verdict. `Measured` distingue « non évalué » de « zéro », que
-// le seul chiffre confondrait (B11).
+// The detail lives on a release's screen; a badge needs only the figure and its
+// verdict. Measured separates "not evaluated" from "zero", which the figure alone
+// would conflate.
 type scoreDigest struct {
 	Value    int    `json:"value"`
 	Health   string `json:"health"`
@@ -392,12 +380,12 @@ func toReleasePayload(release store.Release, sourceTag string, who actors) relea
 	}
 }
 
-// actorsFor charge l'annuaire pour la durée d'une requête.
+// actorsFor loads the directory for the duration of a request.
 func (h *ReleasesHandler) actorsFor(ctx context.Context) actors {
 	return resolveActors(ctx, h.store, h.logger)
 }
 
-// List rend les releases les plus récentes.
+// List returns the most recent releases.
 func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 	project, err := requestProjectRecord(w, r, h.store)
 	if err != nil {
@@ -407,13 +395,13 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	releases, err := h.store.ListReleases(r.Context(), currentID, 50)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des releases impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the releases", "")
 		return
 	}
 
 	badges, err := h.store.ReleaseBadgesByTag(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des releases impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the releases", "")
 		return
 	}
 
@@ -425,35 +413,33 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 		entry := toReleasePayload(item, "", who)
 		entry.BuildFailed = badges[item.Tag].BuildFailed
 		entry.DeployedOn = deployed[item.Tag]
-		// Le score est calculé release par release, donc deux lectures chacune.
-		// C'est assumé : la liste est bornée à cinquante entrées, les requêtes
-		// sont indexées, et le même chiffre doit sortir ici et sur l'écran d'une
-		// release — un calcul approché pour la liste les aurait fait diverger.
+		// The score is computed release by release, hence two reads each. That is accepted:
+		// the list is bounded to fifty entries, the queries are indexed, and the same figure
+		// must come out here and on a release's screen — an approximate computation for the
+		// list would have let them diverge.
 		entry.Score = h.scoreDigest(r.Context(), item.ID)
 		payload = append(payload, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"releases": payload,
-		// Le cycle accompagne la liste : l'écran de création était piloté par
-		// une liste en dur — `pre` / `final` / `patch` — qui n'aurait rien
-		// proposé à un projet en `alpha` / `beta` / `ga`. Il le lit désormais
-		// (doc 12 §12.4).
+		// The cycle comes with the list: the creation screen used to be driven by a
+		// hard-coded list, which would have offered nothing to a project using other kinds.
+		// It now reads it.
 		"kinds": kindsPayload(project.ReleaseKinds),
 	})
 }
 
-// releaseKindPayload décrit une nature déclarée, telle que l'écran de création la
-// propose.
+// releaseKindPayload describes a declared kind, as the creation screen offers it.
 //
-// `Mode` et `Source` y figurent parce que le formulaire s'en sert : une nature
-// en re-tag demande une release source et non une référence Git, et sans cette
-// information l'écran redemanderait les deux.
+// Mode and Source appear because the form uses them: a re-tag kind asks for a source
+// release and not a git reference, and without that information the screen would ask
+// for both.
 type releaseKindPayload struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Mode  string `json:"mode"`
-	// Source nomme la nature dont celle-ci reprend l'image. Vide, n'importe
-	// quelle release antérieure convient.
+	// Source names the kind this one takes its image from. Empty: any earlier release
+	// will do.
 	Source string `json:"source,omitempty"`
 }
 
@@ -471,11 +457,11 @@ func kindsPayload(cycle release.Cycle) []releaseKindPayload {
 	return payload
 }
 
-// scoreDigest rend le score d'une release, ou rien.
+// scoreDigest returns a release's score, or nothing.
 //
-// Un échec de lecture ne fait pas échouer l'écran : la liste reste utile sans
-// pastille de score, et refuser de l'afficher pour un signal secondaire serait
-// disproportionné. Le cas est silencieux parce qu'il n'appelle aucune action.
+// A failed read does not fail the screen: the list stays useful without a score
+// badge, and refusing to display it over a secondary signal would be
+// disproportionate. The case is silent because it calls for no action.
 func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *scoreDigest {
 	reports, err := h.store.ListReleaseTestResults(ctx, releaseID)
 	if err != nil {
@@ -492,8 +478,8 @@ func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *sco
 	}
 }
 
-// Get rend une release et ses promotions. Ses cibles sont servies par le plugin
-// MSE, qui seul sait les juger.
+// Get returns a release and its promotions. Its targets are served by the MSE plugin,
+// which alone can judge them.
 func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -506,7 +492,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
@@ -515,7 +501,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	promotions, err := h.releasePromotions(r.Context(), currentID, item.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des promotions impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the promotions", "")
 		return
 	}
 	for _, promotion := range promotions {
@@ -528,7 +514,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	jobs, err := h.store.ListReleaseJobs(r.Context(), item.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des exécutions impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the runs", "")
 		return
 	}
 	for _, job := range jobs {
@@ -539,9 +525,9 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Les mêmes pastilles que dans la liste, et par le même chemin : deux
-	// dérivations de « la construction a-t-elle échoué » auraient fini par se
-	// contredire d'un écran à l'autre.
+	// The same badges as in the list, and by the same path: two derivations of "did the
+	// build fail" would have ended up contradicting each other from one screen to the
+	// next.
 	if badges, err := h.store.ReleaseBadgesByTag(r.Context()); err == nil {
 		payload.BuildFailed = badges[item.Tag].BuildFailed
 	}
@@ -558,7 +544,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	payload.Artifacts = h.releaseArtifacts(r.Context(), item.ID, promotions)
 	if h.images == nil && len(payload.Artifacts) > 0 {
-		payload.ArtifactsNote = "Le registre n'est pas configuré : les digests ne peuvent pas être lus."
+		payload.ArtifactsNote = "The registry is not configured: the digests cannot be read."
 	}
 
 	writeJSON(w, http.StatusOK, payload)
@@ -567,47 +553,45 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 type createReleaseRequest struct {
 	Tag  string `json:"tag"`
 	Kind string `json:"kind"`
-	// TrackedVersion est le nom de la version visée. Facultatif : il se déduit du
-	// tag. Fourni, il est **vérifié** — c'est le seul moyen d'attraper une release
-	// rattachée à la mauvaise version avant que la note de release ne compare des
-	// périmètres sans rapport (B17).
+	// TrackedVersion is the name of the version aimed at. Optional: it is derived from
+	// the tag. Supplied, it is checked — the only way to catch a release attached to the
+	// wrong version before the release note compares unrelated scopes.
 	TrackedVersion string `json:"tracked_version,omitempty"`
 	GitRef         string `json:"git_ref,omitempty"`
-	// SourceTag est la pré-release re-taguée. Exigé pour une release finale.
+	// SourceTag is the pre-release being re-tagged. Required for a final release.
 	SourceTag string `json:"source_tag,omitempty"`
-	// TestsGreen dit si les résultats de la RC sont au vert. Faux n'interdit pas
-	// la release — c'est une décision qui appartient au client — mais elle est
-	// signalée.
+	// TestsGreen says whether the candidate's results are green. False does not forbid
+	// the release — that decision belongs to the deployment — but it is flagged.
 	TestsGreen bool `json:"tests_green,omitempty"`
 }
 
-// Create enregistre une release.
+// Create records a release.
 //
-// La validation est faite par `internal/release`, paquet pur, et jamais ici :
-// l'invariant de version se vérifie sans base ni cluster, et c'est ce qui permet
-// de l'éprouver.
+// Validation is done by internal/release, a pure package, and never here: the version
+// invariant is checkable without a database or a cluster, and that is what makes it
+// testable.
 func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	var request createReleaseRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
-	// Le projet décide de la forme de ses tags et de ses natures : les deux se
-	// lisent avant toute validation, puisque c'est lui qui dit ce qui est valide.
+	// The project decides the shape of its tags and its kinds: both are read before any
+	// validation, since it is the project that says what is valid.
 	project, err := requestProjectRecord(w, r, h.store)
 	if err != nil {
 		return
 	}
 	scheme, err := version.For(project.VersionScheme)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Schéma de version illisible", "")
+		writeProblem(w, http.StatusInternalServerError, "Unreadable version scheme", "")
 		return
 	}
 
@@ -619,39 +603,38 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	spec, err := project.ReleaseKinds.Find(request.Kind)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Nature de release inconnue", err.Error())
+		writeProblem(w, http.StatusBadRequest, "Unknown release kind", err.Error())
 		return
 	}
 	if err := release.CheckTag(spec, parsed); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Nature de release incohérente", err.Error())
+		writeProblem(w, http.StatusBadRequest, "Inconsistent release kind", err.Error())
 		return
 	}
 
-	// La permission est celle que la **nature déclare**, et non celle qu'un nom
-	// suggère. Livrer engage ce qui part chez l'utilisateur : la route exige
-	// `release:create`, la nature peut exiger davantage.
+	// The permission is the one the kind declares, and not the one a name suggests.
+	// Shipping commits what reaches the user: the route requires `release:create`, the
+	// kind may require more.
 	if spec.Permission != "" && !h.authorizer.Can(identity, auth.Permission(spec.Permission)) {
 		writeProblem(w, http.StatusForbidden, "Permission insuffisante",
-			fmt.Sprintf("créer une release %q exige la permission %q", spec.ID, spec.Permission))
+			fmt.Sprintf("creating a %q release requires the %q permission", spec.ID, spec.Permission))
 		return
 	}
 
 	if request.TrackedVersion != "" {
 		if err := release.CheckTrackedVersion(parsed, request.TrackedVersion); err != nil {
-			writeProblem(w, http.StatusBadRequest, "Version de suivi incohérente", err.Error())
+			writeProblem(w, http.StatusBadRequest, "Inconsistent tracker version", err.Error())
 			return
 		}
 	}
 
 	record := store.Release{
-		// Le projet, sans quoi la clé étrangère refuse l'insertion : la valeur
-		// zéro d'un `int64` n'est pas nulle, c'est l'identifiant 0, qui ne
-		// désigne aucun projet.
+		// The project, without which the foreign key refuses the insert: an int64's zero
+		// value is not null, it is identifier 0, which names no project.
 		//
-		// Il manquait depuis que la migration 0025 a rattaché les releases à leur
-		// projet. Personne ne l'a vu parce que l'échec se lisait « cette release
-		// existe peut-être déjà » : le gestionnaire traduisait toute erreur de la
-		// base en conflit, et le message envoyait chercher un doublon.
+		// It was missing after the migration attached releases to their project. Nobody saw
+		// it because the failure read as "this release may already exist": the handler
+		// translated every database error into a conflict, and the message sent someone
+		// looking for a duplicate.
 		ProjectID: project.ID,
 		Tag:       parsed.Raw, Kind: spec.ID, GitRef: request.GitRef,
 		CreatedBy: identity.Subject,
@@ -659,13 +642,12 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var warnings []string
 
 	if spec.Mode == release.ModeBuild {
-		// L'image n'existe pas encore : elle portera le tag lui-même, et c'est
-		// `build-image` qui fera passer la release en `ready`.
+		// The image does not exist yet: it will carry the tag itself, and the build pipeline
+		// is what moves the release to `ready`.
 		//
-		// Le branchement porte sur le **mode** et non sur un nom de nature. C'est
-		// ce qui faisait que `pre` et `patch` demandaient deux branches pour un
-		// seul comportement — construire depuis du code — et qu'une quatrième
-		// nature aurait demandé une troisième branche (doc 12 §12.4).
+		// The branch is on the mode and not on a kind's name. That is what made two kinds ask
+		// for two branches for a single behaviour — building from code — and a fourth kind
+		// would have asked for a third.
 		record.State = string(release.StateDraft)
 		record.ImageVersion = parsed.Raw
 	} else {
@@ -678,10 +660,10 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			if errors.Is(err, store.ErrReleaseNotFound) {
 				writeProblem(w, http.StatusBadRequest,
-					"Pré-release source introuvable", request.SourceTag)
+					"Source pre-release not found", request.SourceTag)
 				return
 			}
-			writeProblem(w, http.StatusInternalServerError, "Lecture de la source impossible", "")
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the source", "")
 			return
 		}
 
@@ -696,39 +678,38 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Re-tag : l'image est déjà construite et validée, donc la release est
-		// promouvable immédiatement. C'est tout l'intérêt du procédé — ce qui part
-		// en production est bit pour bit ce qui a été testé.
+		// Re-tag: the image is already built and approved, so the release is promotable
+		// immediately. That is the whole point of the procedure — what goes to production is
+		// bit for bit what was tested.
 		record.State = string(release.StateReady)
 		record.ImageVersion = imageVersion
 		record.SourceReleaseID = &source.ID
 		warnings = sourceWarnings
 	}
 
-	// Ancrage sur un commit, puis pose du tag (B3, B17).
+	// Anchoring on a commit, then setting the tag.
 	//
-	// L'ordre importe : on résout la référence en commit **avant** de créer la
-	// release, pour que ce qui est enregistré désigne un point immuable. Poser le
-	// tag ensuite donne à ce point un nom lisible dans la forge.
+	// The order matters: the reference is resolved into a commit before the release is
+	// created, so that what is recorded names an immutable point. Setting the tag
+	// afterwards gives that point a name readable in the forge.
 	//
-	// Les deux sont facultatifs et le disent : sans forge configurée, ou sans
-	// jeton capable d'écrire, la release existe quand même — avec une réserve.
-	// Refuser la création priverait de toute la chaîne pour un ancrage qu'on peut
-	// ajouter après coup.
-	// `tagged` est une variable locale et non un champ du handler : celui-ci est
-	// partagé par toutes les requêtes, et deux créations simultanées liraient le
-	// drapeau l'une de l'autre.
-	// Le mode et non le nom : seule une nature qui **construit** part d'une
-	// référence Git, et c'est elle qui mérite un tag et un commit d'ancrage.
+	// Both are optional and say so: with no forge configured, or no token able to write,
+	// the release still exists — with a caveat. Refusing the creation would deny the whole
+	// chain for an anchor that can be added afterwards.
+	//
+	// `tagged` is a local variable and not a handler field: the handler is shared by every
+	// request, and two simultaneous creations would read each other's flag.
+	//
+	// The mode and not the name: only a kind that builds starts from a git reference, and
+	// it is the one that deserves a tag and an anchoring commit.
 	if spec.Mode == release.ModeBuild {
 		commit, resolveWarnings := h.anchorCommit(r.Context(), request.GitRef)
 		record.GitCommit = commit
 		warnings = append(warnings, resolveWarnings...)
 
 		if commit != "" {
-			// Le tag est posé pour les humains et pour la traçabilité ; la
-			// construction, elle, part du commit. Son échec est donc une réserve
-			// et n'empêche pas de construire.
+			// The tag is set for humans and for traceability; the build starts from the commit.
+			// Its failure is therefore a caveat and does not prevent building.
 			_, tagWarnings := h.tagRelease(r.Context(), parsed.Raw, commit)
 			warnings = append(warnings, tagWarnings...)
 		}
@@ -736,9 +717,9 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	currentID := project.ID
 
-	// La ligne de version, quand le schéma la connaît. Sur un schéma opaque elle
-	// est vide, et le tag entier sert alors de nom : c'est ce que le projet a
-	// écrit, et l'inventer serait pire que de le reprendre.
+	// The version line, when the scheme knows it. On an opaque scheme it is empty, and
+	// the whole tag then serves as the name: it is what the project wrote, and inventing
+	// one would be worse than reusing it.
 	line := parsed.Base
 	if line == "" {
 		line = parsed.Raw
@@ -753,41 +734,39 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	releaseID, err := h.store.CreateRelease(r.Context(), record)
 	if err != nil {
-		// Le doublon est distingué du reste. Traduire **toute** erreur de la base
-		// en conflit a coûté cher : une clé étrangère violée se lisait « cette
-		// release existe peut-être déjà », ce qui fait chercher un doublon
-		// inexistant pendant que la vraie cause reste invisible.
+		// The duplicate is told apart from the rest. Translating every database error into a
+		// conflict cost dearly: a violated foreign key read as "this release may already
+		// exist", which sends someone looking for a duplicate that does not exist while the
+		// real cause stays invisible.
 		if isDuplicate(err) {
-			writeProblem(w, http.StatusConflict, "Release déjà créée",
-				fmt.Sprintf("le tag %q existe déjà dans ce projet", record.Tag))
+			writeProblem(w, http.StatusConflict, "Release already created",
+				fmt.Sprintf("tag %q already exists in this project", record.Tag))
 			return
 		}
-		h.logger.Error("création d'une release",
+		h.logger.Error("creating a release",
 			"tag", record.Tag, "projet", project.Slug, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Création impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot create", "")
 		return
 	}
 
-	// L'identifiant rendu par l'insertion est reporté sur l'enregistrement.
+	// The identifier returned by the insert is carried back onto the record.
 	//
-	// Sans cela `record.ID` reste à zéro — il a été composé **avant** d'être
-	// écrit — et tout ce qui suit désigne la release par un identifiant qui
-	// n'existe pas. Constaté en production : l'ouverture du plan échouait sur
-	// `plan_runs_release_id_fkey`, avec une clé de fait `release.created:0`, et la
-	// release restait en brouillon sans qu'aucune construction ne parte.
+	// Without it `record.ID` stays zero — it was composed before being written — and
+	// everything that follows names the release by an identifier that does not exist.
+	// Observed in production: opening the plan failed on the release foreign key, with a
+	// fact key ending in `:0`, and the release stayed a draft with no build leaving.
 	//
-	// L'ancienne mise en file prenait `releaseID` en paramètre explicite, ce qui
-	// masquait le piège. Le corriger ici plutôt qu'à chaque appelant : il n'y a
-	// qu'un endroit où l'identifiant devient connu.
+	// The earlier enqueue took the release id as an explicit parameter, which hid the
+	// trap. Fixed here rather than in every caller: there is only one place where the
+	// identifier becomes known.
 	record.ID = releaseID
 
 	h.audit(r, store.AuditReleaseCreate, record.Tag, map[string]any{
 		"kind": record.Kind, "image_version": record.ImageVersion, "source": request.SourceTag,
 	})
-	// Le premier fait de la vie d'une release. Émis dès l'insertion, avant les
-	// mises en file qui suivent : celles-ci peuvent échouer sans que la release
-	// cesse d'exister, et un fait qui attendrait leur succès manquerait
-	// précisément les créations qui ont mal tourné.
+	// The first fact of a release's life. Emitted as soon as it is inserted, before the
+	// enqueues that follow: those can fail without the release ceasing to exist, and a
+	// fact waiting for their success would miss precisely the creations that went wrong.
 	h.emit(r, event.ReleaseCreatedAt(
 		time.Now(), currentID, releaseID,
 		record.Tag, record.Kind, record.GitRef, line))
@@ -797,40 +776,36 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		"release": toReleasePayload(record, request.SourceTag, who), "warnings": warnings,
 	}
 
-	// Une release construite enchaîne sur `build-image`. Sans cet enchaînement,
-	// elle restait `draft` indéfiniment : le pipeline existait dans le cluster,
-	// mais rien ne le déclenchait, et l'écran affichait un brouillon que personne
-	// ne savait faire avancer.
+	// A built release chains onto the build pipeline. Without that chaining it stayed
+	// `draft` indefinitely: the pipeline existed in the cluster, but nothing triggered
+	// it, and the screen showed a draft nobody knew how to advance.
 	if record.State == string(release.StateDraft) && spec.Mode == release.ModeBuild {
-		// Jamais d'une branche quand le commit est connu : reconstruire la même
-		// release six mois plus tard doit produire la même image (B17).
+		// Never from a branch when the commit is known: rebuilding the same release six
+		// months later must produce the same image.
 		buildRef := buildReference(record, request.GitRef)
-		// **Le plan de la release**, et non plus une boucle sur ses cibles.
+		// The release's plan, and no longer a loop over its targets.
 		//
-		// La même chose part — un job par image — mais elle part comme une étape
-		// d'un plan dont la suivante enchaîne les vérifications. L'aller-retour
-		// par le fait `release.built`, qui reliait cette boucle-ci à une seconde
-		// dans l'observateur, disparaît avec elle (doc 15 §15.2).
+		// The same thing leaves — one job per image — but it leaves as a stage of a plan whose
+		// next stage chains the verifications. The round trip through a `release.built` fact,
+		// which joined this loop to a second one in the observer, goes with it.
 		started := 0
 		if h.plans != nil {
 			started = h.plans.OpenReleasePlan(r.Context(), project, record, buildRef)
 		}
 		switch {
 		case started == 0:
-			// Rien n'est parti. La release est créée : le dire, plutôt que de
-			// laisser croire à un échec de création — et ne **pas** l'annoncer en
-			// construction, ce qu'elle n'est pas.
+			// Nothing left. The release is created: say so, rather than suggest a creation
+			// failure — and do not announce it as building, which it is not.
 			warnings = append(warnings,
-				"la release est créée mais aucune construction n'a pu être mise en file")
+				"the release is created but no build could be queued")
 			response["warnings"] = warnings
 		default:
 			response["build_jobs"] = started
-			// L'état suit la mise en file et non la fin du pipeline : `building`
-			// signifie « construction demandée », ce qui est exactement ce qu'on
-			// sait à cet instant.
+			// The state follows the enqueue and not the end of the pipeline: `building` means
+			// "build requested", which is exactly what is known at that instant.
 			if err := h.store.SetReleaseState(r.Context(), releaseID, string(release.StateBuilding)); err != nil {
 				warnings = append(warnings,
-					"construction mise en file, mais l'état de la release n'a pas pu être avancé")
+					"build queued, but the release's state could not be advanced")
 				response["warnings"] = warnings
 			} else {
 				record.State = string(release.StateBuilding)
@@ -839,10 +814,9 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// La note de release est composée en tâche de fond : la détection interroge
-	// jusqu'à deux cents pull requests, et la faire ici aurait fait attendre
-	// l'utilisateur devant son formulaire. Son échec ne remet pas la création en
-	// cause — la note se complète à la main.
+	// The release note is composed in the background: detection queries up to two hundred
+	// pull requests, and doing it here would have made the user wait in front of their
+	// form. Its failure does not call the creation into
 	if _, err := h.store.Enqueue(r.Context(), store.JobRequest{
 		Kind:        ReleaseNotesJobKind,
 		Params:      map[string]string{},
@@ -850,21 +824,20 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ReleaseID:   &releaseID,
 	}); err != nil {
 		warnings = append(warnings,
-			"la note de release n'a pas pu être mise en file: "+err.Error())
+			"the release note could not be queued: "+err.Error())
 		response["warnings"] = warnings
 	}
 
-	// Une release finale doit exister sous son propre tag dans le registre, pas
-	// seulement sous celui de sa RC. Sans ce re-tag, `1.8.0` ne désigne rien :
-	// aucune ImagePolicy ne peut le retenir, et la release n'est promouvable nulle
-	// part alors que son image est prête (B17).
+	// A final release must exist under its own tag in the registry, not only under its
+	// candidate's. Without that re-tag, the final tag names nothing: no image policy can
+	// select it, and the release is promotable nowhere although its image is ready.
 	if record.ImageVersion != record.Tag {
 		jobIDs, err := h.enqueueRetag(r.Context(), currentID, releaseID, record, identity.Subject)
 		if err != nil {
-			// La release est créée : le dire, plutôt que de laisser croire à un
-			// échec de création. Le re-tag se relance.
+			// The release is created: say so, rather than suggest a creation failure. The re-tag
+			// can be run again.
 			response["warnings"] = append(warnings,
-				"la release est créée mais le re-tag vers son propre tag n'a pas pu être mis en file")
+				"the release is created but the re-tag to its own tag could not be queued")
 		} else {
 			response["retag_job_ids"] = jobIDs
 		}
@@ -873,18 +846,18 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, response)
 }
 
-// Release valide une release et l'autorise à partir en environnement.
+// Release approves a release and allows it to go to an environment.
 //
-// C'est la décision humaine du cycle documenté (doc 04 §4.2) : les tests ont
-// conclu, quelqu'un tranche. Rien ne l'automatise, et c'est le point — un
-// pipeline vert dit que le code fonctionne, pas qu'on veut le livrer.
+// This is the human decision of the documented cycle: the tests concluded, someone
+// settles it. Nothing automates it, and that is the point — a green pipeline says the
+// code works, not that anyone wants to ship it.
 //
-// `release:create:final` et non `release:edit` : valider engage ce qui partira
-// chez l'utilisateur, au même titre que produire une release finale.
+// `release:create:final` and not `release:edit`: approving commits what will reach the
+// user, as much as producing a final release does.
 func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -900,17 +873,17 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
-	// La transition est vérifiée avant l'écriture, et par le paquet qui en porte
-	// la table : une validation depuis `building` ou depuis `cancelled` n'a pas de
-	// sens, et le message doit dire lequel des deux cas s'applique.
+	// The transition is checked before the write, and by the package that owns its table:
+	// approving from `building` or from `cancelled` makes no sense, and the message must
+	// say which of the two applies.
 	from := release.State(record.State)
 	if !release.CanTransition(from, release.StateReleased) {
 		writeProblem(w, http.StatusConflict, "Validation impossible",
-			fmt.Sprintf("la release %q est dans l'état %q: seule une release %q se valide",
+			fmt.Sprintf("release %q is in state %q: only a %q release is validated",
 				tag, record.State, release.StateReady))
 		return
 	}
@@ -921,19 +894,18 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validated {
-		// La release a bougé entre la lecture et l'écriture. Un 409 plutôt qu'un
-		// succès muet : l'appelant a pris sa décision sur un état qui n'est plus
-		// celui de la base.
+		// The release moved between the read and the write. A 409 rather than a silent
+		// success: the caller made their decision on a state that is no longer the database's.
 		writeProblem(w, http.StatusConflict, "Validation impossible",
-			"l'état de la release a changé entre-temps, rechargez la page")
+			"the release's state changed in the meantime, reload the page")
 		return
 	}
 
 	h.audit(r, store.AuditReleaseRelease, tag, map[string]any{
 		"from": record.State, "image_version": record.ImageVersion,
 	})
-	// Après l'écriture conditionnelle : c'est elle qui rend la validation unique,
-	// et le fait en hérite. Une seconde tentative reçoit un 409 et n'émet rien.
+	// After the conditional write: it is what makes the approval unique, and the fact
+	// inherits that. A second attempt receives a 409 and emits nothing.
 	h.emit(r, event.ReleaseReleasedAt(
 		time.Now(), currentID, record.ID, tag, identity.Subject))
 
@@ -943,20 +915,19 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Rebuild relance la construction des images d'une release.
+// Rebuild relaunches the build of a release's images.
 //
-// Sert après un échec dont la cause est extérieure au code — clé de déploiement
-// mal déclarée, registre injoignable, nœud saturé. Créer une RC de plus pour
-// contourner un incident d'infrastructure ferait porter au numéro de version
-// l'historique des pannes du cluster.
+// It serves after a failure whose cause is outside the code — a badly declared deploy
+// key, an unreachable registry, a saturated node. Creating one more candidate to work
+// around an infrastructure incident would make the version number carry the history of
+// the cluster's outages.
 //
-// La référence Git n'est pas redemandée : elle est celle de la release, décidée à
-// sa création. La rouvrir permettrait de reconstruire un tag donné depuis un
-// autre commit, et deux images porteraient alors le même numéro sans être la même
-// chose (B17).
+// The git reference is not asked for again: it is the release's, decided at its
+// creation. Reopening it would allow rebuilding a given tag from another commit, and
+// two images would then carry the same number without being the same thing.
 func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	if _, ok := IdentityFrom(r.Context()); !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -972,14 +943,13 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
-	// Une release en mode re-tag n'a rien à construire : son image est celle de
-	// sa source. La règle porte sur le **mode** et non sur un nom de nature —
-	// c'est ainsi que B17 vaut pour toute nature qui déclare `retag`, quel que
-	// soit le vocabulaire du projet.
+	// A release in re-tag mode has nothing to build: its image is its source's. The rule
+	// is on the mode and not on a kind's name — that is how it holds for any kind
+	// declaring `retag`, whatever the project's vocabulary.
 	project, err := requestProjectRecord(w, r, h.store)
 	if err != nil {
 		return
@@ -987,22 +957,22 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	if spec, err := project.ReleaseKinds.Find(record.Kind); err == nil &&
 		spec.Mode == release.ModeRetag {
 		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
-			fmt.Sprintf("une release %q reprend l'image de sa source: la reconstruire "+
-				"produirait une image que personne n'a testée", spec.ID))
+			fmt.Sprintf("a %q release takes its source's image: rebuilding it "+
+				"would produce an image nobody has tested", spec.ID))
 		return
 	}
 
 	from := release.State(record.State)
 	if !release.CanTransition(from, release.StateBuilding) {
 		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
-			fmt.Sprintf("la release %q est dans l'état %q, d'où aucune reconstruction n'est permise",
+			fmt.Sprintf("release %q is in state %q, from which no rebuild is allowed",
 				tag, record.State))
 		return
 	}
 
-	// La reconstruction ouvre **le même plan** que la création, et c'est
-	// nécessaire : enfiler hors plan laisserait la release en construction pour
-	// toujours, puisque c'est le règlement de l'étape qui l'avance désormais.
+	// The rebuild opens the same plan as the creation, and that is necessary: enqueueing
+	// outside a plan would leave the release building for ever, since it is the stage
+	// settling that advances it now.
 	project, projectErr := h.store.GetProject(r.Context(), currentID)
 	if projectErr != nil {
 		writeProblem(w, http.StatusInternalServerError, "Reconstruction impossible", "")
@@ -1014,13 +984,13 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	}
 	if started == 0 {
 		writeProblem(w, http.StatusUnprocessableEntity, "Reconstruction impossible",
-			"aucune construction n'a pu être mise en file")
+			"no build could be queued")
 		return
 	}
 
-	// L'état suit la mise en file, comme à la création : `building` signifie
-	// « construction demandée ». L'écriture est conditionnée à l'état lu — deux
-	// relances simultanées ne doivent pas produire deux runs.
+	// The state follows the enqueue, as at creation: `building` means "build requested".
+	// The write is conditioned on the state that was read — two simultaneous relaunches
+	// must not produce two runs.
 	advanced, err := h.store.AdvanceReleaseState(r.Context(), record.ID, record.State, string(release.StateBuilding))
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Reconstruction impossible", "")
@@ -1028,7 +998,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	}
 	if !advanced {
 		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
-			"l'état de la release a changé entre-temps, rechargez la page")
+			"the release's state changed in the meantime, reload the page")
 		return
 	}
 
@@ -1042,45 +1012,43 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// verifiable dit si une famille est relançable à l'unité.
+// verifiable says whether a family can be re-run on its own.
 //
-// Le catalogue tranche, et il ne suffit pas d'y être : `build` et `retag` y
-// figurent aussi, et une relance de construction déguisée en relance de test
-// ferait bien plus que ce que l'utilisateur a demandé. C'est le drapeau
-// `verification` qui distingue.
+// The catalogue settles it, and being in it is not enough: `build` and `retag` are in
+// it too, and a rebuild disguised as a test re-run would do far more than the user
+// asked. The `verification` flag is what distinguishes them.
 //
-// Il était impossible de le déduire tant que ce drapeau n'existait pas, d'où une
-// liste en dur ici, jumelle de celle de l'ordonnanceur et tenue alignée par un
-// test. Deux listes qui divergent donnent un bouton qui lance ce que la chaîne ne
-// lance pas, ou une famille enchaînée qu'on ne peut pas rattraper sans
-// reconstruire toute la release.
+// That could not be inferred while the flag did not exist, hence a hard-coded list
+// here, twin to the scheduler's and kept aligned by a test. Two lists that diverge
+// give a button that launches what the chain does not, or a chained family that cannot
+// be caught up without rebuilding the whole release.
 func (h *ReleasesHandler) verifiable(kind string) bool {
 	return h.catalog != nil && h.catalog.IsVerification(kind)
 }
 
-// Verify relance une seule famille de vérification sur une release.
+// Verify re-runs a single verification family on a release.
 //
-// Le geste manquait : une vérification en échec pour une cause extérieure —
-// registre injoignable, nœud saturé, dépôt momentanément inaccessible —
-// n'obligeait à rien de moins qu'une reconstruction complète, qui republie les
-// images et rejoue *toutes* les vérifications. Rejouer celle qui a échoué coûte
-// une fraction de cela et ne touche pas à l'artefact.
+// The gesture was missing: a verification that failed for an outside cause — an
+// unreachable registry, a saturated node, a momentarily inaccessible repository —
+// required nothing less than a complete rebuild, which republishes the images and
+// replays every verification. Replaying the one that failed costs a fraction of that
+// and does not touch the artifact.
 //
-// L'état de la release n'est **pas** modifié. Une relance ne dit rien de neuf sur
-// la release tant qu'elle n'a pas conclu, et la faire retomber en `verifying`
-// depuis `ready` annulerait une décision déjà prise sur les autres familles.
+// The release's state is not modified. A re-run says nothing new about the release
+// until it has concluded, and dropping it back to `verifying` from `ready` would undo
+// a decision already taken on the other families.
 func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	tag := r.PathValue("tag")
 	kind := r.PathValue("kind")
 	if !h.verifiable(kind) {
-		writeProblem(w, http.StatusBadRequest, "Famille inconnue",
-			fmt.Sprintf("%q n'est pas une famille de vérification relançable", kind))
+		writeProblem(w, http.StatusBadRequest, "Unknown kind",
+			fmt.Sprintf("%q is not a re-runnable verification kind", kind))
 		return
 	}
 
@@ -1095,34 +1063,34 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
-	// La révision vérifiée est le commit construit, jamais la branche dont il
-	// vient : celle-ci a pu bouger, et les tests porteraient alors sur autre chose
-	// que l'image (B17).
+	// The revision verified is the commit that was built, never the branch it came from:
+	// that may have moved, and the tests would then be about something other than the
+	// image.
 	revision := record.GitCommit
 	if revision == "" {
 		revision = record.GitRef
 	}
 	if revision == "" {
 		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
-			"cette release ne désigne aucune référence Git: il n'y a rien à vérifier")
+			"this release names no Git reference: there is nothing to verify")
 		return
 	}
 
 	pipeline, found := h.catalog.Find(kind)
 	if !found {
 		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
-			fmt.Sprintf("le catalogue ne déclare aucun pipeline %q", kind))
+			fmt.Sprintf("the catalogue declares no %q pipeline", kind))
 		return
 	}
 
 	params, missing := pipeline.VerificationInputs(revision, record.Tag, h.registryProject)
 	if missing != "" {
 		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
-			fmt.Sprintf("le paramètre %q ne peut pas être renseigné pour cette release", missing))
+			fmt.Sprintf("parameter %q cannot be set for this release", missing))
 		return
 	}
 
@@ -1150,30 +1118,29 @@ func imageReference(registryProject, name, tag string) string {
 	return imagenames.Reference(registryProject, name, tag)
 }
 
-// notePayload est une ligne de note de release.
+// notePayload is one line of a release note.
 type notePayload struct {
-	// ExternalID est l'identifiant de la demande dans le suivi, en texte : même
-	// nom et même forme que sur une version.
+	// ExternalID is the issue's identifier in the tracker, as text: the same name and the
+	// same shape as on a version.
 	ExternalID string `json:"external_id"`
 	Subject    string `json:"subject,omitempty"`
 	Tracker    string `json:"tracker,omitempty"`
 	Status     string `json:"status,omitempty"`
-	// Anomaly range la ligne : les anomalies vont aux corrections, le reste aux
-	// nouveautés. Le tracker et non le statut : c'est la nature de la demande qui
-	// décide, pas son avancement.
+	// Anomaly files the line: anomalies go to the fixes, the rest to the new features. The
+	// tracker and not the status: the nature of the issue decides, not its progress.
 	Anomaly bool `json:"anomaly"`
-	// Known est faux tant que la synchronisation du suivi n'a pas vu la demande.
-	// La ligne reste affichée : la masquer ferait disparaître un ajout manuel.
+	// Known is false while tracker synchronisation has not seen the issue. The line stays
+	// displayed: hiding it would make a manual addition disappear.
 	Known       bool   `json:"known"`
 	Source      string `json:"source"`
 	PullRequest string `json:"pull_request,omitempty"`
 	AddedBy     string `json:"added_by"`
-	// URL vers la demande dans le suivi. Vide quand aucun suivi n'est configuré :
-	// un lien mort vaut moins que pas de lien.
+	// URL to the issue in the tracker. Empty when no tracker is configured: a dead link is
+	// worth less than no link.
 	URL string `json:"url,omitempty"`
 }
 
-// Notes rend la note d'une release.
+// Notes returns a release's note.
 func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -1186,13 +1153,13 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
 	entries, err := h.store.ListNoteEntries(r.Context(), record.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la note impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the note", "")
 		return
 	}
 
@@ -1211,23 +1178,22 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Le vivier dans lequel compléter la note à la main : les demandes de la
-	// version, moins celles déjà rattachées. Rendu avec la note plutôt que par un
-	// second appel — les deux se lisent ensemble, et l'écran n'a pas à composer
-	// une différence que le serveur connaît déjà.
+	// The pool to complete the note by hand: the version's issues, minus those already
+	// linked. Returned with the note rather than through a second call — the two are read
+	// together, and the screen need not compose a difference the server already knows.
 	//
-	// Un échec de lecture n'empêche pas d'afficher la note — le rattachement par
-	// numéro reste possible — mais il est **dit**. Le taire rendait une liste vide
-	// indiscernable d'une version sans demandes, et l'écran annonçait alors que
-	// tout était déjà rattaché alors qu'il n'avait rien pu lire. Même règle que
-	// `images_error` : l'absence et l'impossibilité de lire ne se ressemblent pas.
+	// A failed read does not prevent displaying the note — linking by number stays
+	// possible — but it is said. Hiding it made an empty list indistinguishable from a
+	// version with no issues, and the screen then announced that everything was already
+	// linked when it had been unable to read anything. Same rule as the images error:
+	// absence and an unreadable source do not look alike.
 	available := make([]notePayload, 0)
 	var availableError string
 
 	issues, err := h.store.ListReleaseVersionIssues(r.Context(), record.ID)
 	if err != nil {
-		availableError = "Les demandes de la version n'ont pas pu être lues."
-		h.logger.Error("demandes de la version d'une release",
+		availableError = "The version's requests could not be read."
+		h.logger.Error("requests of a release's version",
 			"release", record.Tag, "error", err)
 	}
 	for _, issue := range issues {
@@ -1248,33 +1214,33 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-// issueReference lit l'identifiant de demande porté par l'URL.
+// issueReference reads the issue identifier the URL carries.
 //
-// L'identifiant vient du suivi et le dashboard ne le fabrique pas : Redmine
-// numérote, Jira écrit `MSE-1234`. On ne peut donc pas exiger un entier — mais
-// on refuse ce qui ne ressemble à aucun identifiant, pour que la faute se voie
-// ici plutôt qu'en base sous forme de ligne orpheline.
+// The identifier comes from the tracker and the dashboard does not make it up: one
+// tracker numbers, another writes `MSE-1234`. An integer therefore cannot be required
+// — but what resembles no identifier at all is refused, so the mistake shows here
+// rather than in the database as an orphaned row.
 var issueReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 func issueReference(w http.ResponseWriter, r *http.Request) (string, bool) {
 	reference := r.PathValue("issue")
 	if !issueReferencePattern.MatchString(reference) {
 		writeProblem(w, http.StatusBadRequest, "Demande invalide",
-			"l'identifiant de demande est vide ou contient des caractères interdits")
+			"the request identifier is empty or carries forbidden characters")
 		return "", false
 	}
 	return reference, true
 }
 
-// AddNote rattache une demande à la main.
+// AddNote links an issue by hand.
 //
-// Le geste existe parce que la détection ne peut pas tout voir : une PR dont le
-// titre ne suit pas la convention, une demande passée en revue après la création
-// de la release. Sans lui, la seule issue serait de recréer la release.
+// The gesture exists because detection cannot see everything: a pull request whose
+// title does not follow the convention, an issue reviewed after the release was
+// created. Without it, the only way out would be to recreate the release.
 func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -1289,7 +1255,7 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
@@ -1301,8 +1267,8 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 	switch err := h.store.LinkNoteIssue(r.Context(), record.ID, reference,
 		store.NoteSourceManual, "", identity.Subject); {
 	case errors.Is(err, store.ErrNoteAlreadyLinked):
-		writeProblem(w, http.StatusConflict, "Demande déjà rattachée",
-			fmt.Sprintf("la demande %s figure déjà dans la note de %s", reference, record.Tag))
+		writeProblem(w, http.StatusConflict, "Request already attached",
+			fmt.Sprintf("request %s already appears in the note of %s", reference, record.Tag))
 		return
 	case err != nil:
 		writeProblem(w, http.StatusInternalServerError, "Rattachement impossible", "")
@@ -1313,7 +1279,7 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"issue": reference})
 }
 
-// RemoveNote retire une demande de la note.
+// RemoveNote removes an issue from the note.
 func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -1326,7 +1292,7 @@ func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
@@ -1344,39 +1310,39 @@ func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// anchorCommit résout une référence en commit, et dit pourquoi il ne l'a pas fait.
+// anchorCommit resolves a reference into a commit, and says why it did not.
 //
-// Une release qui désigne une branche n'est pas reproductible : la branche bouge,
-// et reconstruire produirait une autre image. Résoudre à la création fige le
-// point de départ, même quand le tag ne peut pas être posé.
+// A release naming a branch is not reproducible: the branch moves, and rebuilding
+// would produce a different image. Resolving at creation freezes the starting point,
+// even when the tag cannot be set.
 func (h *ReleasesHandler) anchorCommit(ctx context.Context, ref string) (string, []string) {
 	if strings.TrimSpace(ref) == "" {
-		return "", []string{"aucune référence Git fournie: la release n'est rattachée à aucun commit"}
+		return "", []string{"no Git reference supplied: the release is attached to no commit"}
 	}
 	if h.forge == nil {
 		return "", []string{
-			"forge non configurée: la release retient la référence " + ref +
-				" sans la résoudre en commit, et n'est donc pas reproductible",
+			"forge not configured: the release keeps the reference " + ref +
+				" without resolving it to a commit, and is therefore not reproducible",
 		}
 	}
 
 	commit, err := h.forge.ResolveCommit(ctx, ref)
 	if err != nil {
-		return "", []string{"la référence " + ref + " n'a pas pu être résolue en commit: " + err.Error()}
+		return "", []string{"reference " + ref + " could not be resolved to a commit: " + err.Error()}
 	}
 	return commit, nil
 }
 
-// tagRelease pose le tag Git de la release sur son commit.
+// tagRelease sets the release's git tag on its commit.
 //
-// C'est le segment que B3 confie au dashboard et qui restait manuel. Un échec est
-// une réserve et non un refus : le tag se repose, alors qu'une release refusée
-// oblige à tout recommencer.
+// This is the segment the dashboard takes over and which used to be manual. A failure
+// is a caveat and not a refusal: the tag can be set again, whereas a refused release
+// forces starting over.
 func (h *ReleasesHandler) tagRelease(ctx context.Context, tag, commit string) (bool, []string) {
 	if h.tagger == nil {
 		return false, []string{
-			"aucun jeton capable d'écrire sur la forge: le tag " + tag +
-				" n'a pas été posé, la release reste identifiée par son commit",
+			"no token able to write to the forge: tag " + tag +
+				" was not set, the release stays identified by its commit",
 		}
 	}
 
@@ -1385,30 +1351,29 @@ func (h *ReleasesHandler) tagRelease(ctx context.Context, tag, commit string) (b
 	case err == nil:
 		return true, nil
 	case errors.Is(err, provider.ErrTagExists):
-		// Reposer un tag après une reprise est normal. Il désigne déjà ce qu'il
-		// faut, et le signaler suffit.
-		return true, []string{"le tag " + tag + " existait déjà sur la forge et n'a pas été modifié"}
+		// Setting a tag again after a retry is normal. It already names what it should, and
+		// reporting it is enough.
+		return true, []string{"tag " + tag + " already existed on the forge and was not modified"}
 	default:
-		return false, []string{"le tag " + tag + " n'a pas pu être posé: " + err.Error()}
+		return false, []string{"tag " + tag + " could not be set: " + err.Error()}
 	}
 }
 
-// buildReference choisit ce que la construction va cloner.
+// buildReference chooses what the build will clone.
 //
-// **Le commit d'abord, pas le tag.** B3 décrit une construction depuis
-// `refs/tags/<tag>`, et c'est ce qui était fait ici : le clone réussissait, puis
-// `generate-image-tag` échouait sur `pathspec 3.2.0-rc2 did not match`. La cause
-// est que `git-clone` travaille en `--depth=1` : un clone superficiel positionne
-// l'arbre sur la révision demandée mais ne crée pas la référence locale du tag,
-// et le `git checkout` que la Task fait ensuite ne trouve rien. Un SHA, lui, est
-// toujours présent — c'est `HEAD`.
+// The commit first, not the tag. Building from `refs/tags/<tag>` is what used to be
+// done here: the clone succeeded, then tag generation failed on a pathspec that did
+// not match. The cause is that the clone Task works at `--depth=1`: a shallow clone
+// positions the tree on the requested revision but does not create the tag's local
+// reference, and the checkout that follows finds nothing. A SHA is always present —
+// it is HEAD.
 //
-// Le tag reste posé sur la forge, où il sert aux humains, et `version` continue
-// de le porter jusqu'au `version.txt` de l'image : l'invariant est intact, seule
-// la façon de désigner le point de départ change.
+// The tag stays set on the forge, where it serves humans, and the version keeps
+// carrying it through to the image: the invariant is intact, only the way of naming
+// the starting point changes.
 //
-// Ordre : commit résolu, puis référence saisie faute de mieux. Cette dernière
-// n'est pas immuable et ne devrait servir que quand la forge est injoignable.
+// Order: the resolved commit, then the typed reference for want of better. The latter
+// is not immutable and should serve only when the forge is unreachable.
 func buildReference(record store.Release, requested string) string {
 	if record.GitCommit != "" {
 		return record.GitCommit
@@ -1416,16 +1381,16 @@ func buildReference(record store.Release, requested string) string {
 	return requested
 }
 
-// enqueueRetag met en file le re-tag d'une release vers son propre tag.
+// enqueueRetag queues the re-tag of a release towards its own tag.
 //
-// Une exécution par image promue — l'image de développement n'en est pas : aucun
-// environnement du flux de promotion ne la déploie.
+// One run per promoted image — the development image is not one: no environment of the
+// promotion flow deploys it.
 func (h *ReleasesHandler) enqueueRetag(
 	ctx context.Context, projectID, releaseID int64, record store.Release, subject string,
 ) ([]int64, error) {
 	pipeline, found := h.catalog.Find(retagJobKind)
 	if !found {
-		return nil, errors.New("catalogue sans pipeline de re-tag")
+		return nil, errors.New("catalogue with no re-tag pipeline")
 	}
 
 	project, err := h.store.GetProject(ctx, projectID)
@@ -1447,42 +1412,41 @@ func (h *ReleasesHandler) enqueueRetag(
 			ReleaseID:   &releaseID,
 		})
 		if err != nil {
-			return jobs, fmt.Errorf("re-tag de %s: %w", target.Image, err)
+			return jobs, fmt.Errorf("re-tag of %s: %w", target.Image, err)
 		}
 		jobs = append(jobs, jobID)
 	}
 	return jobs, nil
 }
 
-// retagJobKind est la nature de job qui pose un tag supplémentaire.
+// retagJobKind is the job kind that sets an additional tag.
 //
-// Nommée `promote` jusqu'ici, ce qui décrivait l'intention plutôt que l'acte : le
-// pipeline ne promeut rien, il re-tague, et le dashboard s'en sert aussi hors
-// promotion — donner à une release finale son propre tag depuis celui de sa
-// pré-release source.
+// It used to be called `promote`, which described the intent rather than the act: the
+// pipeline promotes nothing, it re-tags, and the dashboard also uses it outside
+// promotion — to give a final release its own tag from its source candidate's.
 const retagJobKind = "retag"
 
 type manualActionsRequest struct {
 	Markdown string `json:"markdown"`
 }
 
-// UpdateActions enregistre le récit des gestes manuels d'une livraison.
+// UpdateActions records the account of a delivery's manual steps.
 //
-// Champ libre et non liste de cases à cocher : les gestes manuels d'une
-// livraison ne se répètent pas assez d'une version à l'autre pour qu'une
-// checklist les couvre, et une checklist incomplète se remplit quand même — elle
-// donnerait l'impression d'un contrôle qui n'a pas eu lieu.
+// A free-text field and not a list of checkboxes: a delivery's manual steps do not
+// repeat enough from one version to the next for a checklist to cover them, and an
+// incomplete checklist gets filled in anyway — it would suggest a control that did not
+// happen.
 func (h *ReleasesHandler) UpdateActions(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	var request manualActionsRequest
-	// 256 Kio : le texte est libre, mais il finit dans un PDF de livraison.
+	// 256 KiB: the text is free, but it ends up in a delivery document.
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
@@ -1498,8 +1462,8 @@ func (h *ReleasesHandler) UpdateActions(w http.ResponseWriter, r *http.Request) 
 
 	h.audit(r, store.AuditReleaseActions, tag, map[string]any{"length": len(request.Markdown)})
 
-	// La release est relue plutôt que reconstruite : l'horodatage est posé par la
-	// base, et le renvoyer depuis une valeur calculée ici les ferait diverger.
+	// The release is read back rather than recomposed: the timestamp is set by the
+	// database, and returning it from a value computed here would let the two diverge.
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
 		return
@@ -1517,11 +1481,11 @@ func (h *ReleasesHandler) UpdateActions(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// audit consigne une action sortante, sans jamais faire échouer celle-ci.
+// audit records an outgoing action, without ever failing it.
 //
-// Le journal est une trace, pas une transaction : refuser une promotion parce que
-// son enregistrement a échoué serait une régression de disponibilité pour un gain
-// nul — la promotion, elle, a bien eu lieu. L'échec part au journal applicatif.
+// The log is a record, not a transaction: refusing a promotion because recording it
+// failed would be an availability regression for no gain — the promotion did happen.
+// The failure goes to the application log.
 func (h *ReleasesHandler) audit(r *http.Request, action, target string, payload map[string]any) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
@@ -1532,25 +1496,25 @@ func (h *ReleasesHandler) audit(r *http.Request, action, target string, payload 
 	}
 }
 
-// emit consigne un fait sans faire échouer la requête qui l'a produit.
+// emit records a fact without failing the request that produced it.
 //
-// Le geste de l'utilisateur a abouti : la release est créée, ou validée. Rendre
-// une erreur parce que le fait n'a pas pu être écrit ferait croire à un échec de
-// l'action, et inviterait à la refaire — sur une release qui existe déjà.
+// The user's gesture succeeded: the release is created, or approved. Returning an error
+// because the fact could not be written would suggest the action failed, and invite
+// redoing it — on a release that already exists.
 //
-// **Il n'y a pas de filet ici**, contrairement au worker : l'observateur
-// redélivre les runs terminés et réémet donc ce qu'il a perdu, alors qu'un geste
-// humain ne se rejoue pas. Un fait perdu l'est définitivement. Acceptable tant
-// que rien n'y réagit ; à traiter quand le moteur arrivera (doc 14 §14.6).
+// There is no safety net here, unlike in the worker: the observer redelivers finished
+// runs and therefore re-emits what it lost, whereas a human gesture is not replayed. A
+// lost fact is lost for good. Acceptable while nothing reacts to it; to be handled when
+// the engine arrives.
 func (h *ReleasesHandler) emit(r *http.Request, fact event.Event) {
 	recorded, err := h.store.RecordEvent(r.Context(), fact)
 	if err != nil {
-		slog.Default().Error("émission d'un fait",
+		slog.Default().Error("emitting a fact",
 			"type", fact.Type, "sujet", fact.Subject, "err", err)
 		return
 	}
 	if !recorded {
-		slog.Default().Debug("fait déjà connu, non réémis",
+		slog.Default().Debug("fact already known, not re-emitted",
 			"type", fact.Type, "sujet", fact.Subject)
 	}
 }
@@ -1564,7 +1528,7 @@ type artifactPayload struct {
 	GeneratedAt time.Time `json:"generated_at"`
 }
 
-// Exports rend les livrables déjà produits pour une release.
+// Exports returns the deliverables already produced for a release.
 func (h *ReleasesHandler) Exports(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -1577,13 +1541,13 @@ func (h *ReleasesHandler) Exports(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
 	artifacts, err := h.store.ListArtifacts(r.Context(), item.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des livrables impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the deliverables", "")
 		return
 	}
 
@@ -1603,22 +1567,21 @@ type exportRequest struct {
 	Format string `json:"format"`
 }
 
-// Export met en file la génération d'un livrable.
+// Export queues the generation of a deliverable.
 //
-// Asynchrone bien que la génération soit rapide : elle passe par la file comme
-// tout le reste, ce qui lui donne l'ordonnancement, la trace et la visibilité. Un
-// export apparaît alors dans la file avec les autres jobs, et son échec se lit au
-// même endroit que celui d'un pipeline.
+// Asynchronous although generation is quick: it goes through the queue like everything
+// else, which gives it ordering, a record and visibility. An export then appears in the
+// queue with the other jobs, and its failure reads in the same place as a pipeline's.
 func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	var request exportRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&request); err != nil && err != io.EOF {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 	if request.Kind == "" {
@@ -1628,7 +1591,7 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 		request.Format = "pdf"
 	}
 	if request.Format != "pdf" && request.Format != "json" {
-		writeProblem(w, http.StatusBadRequest, "Format inconnu", request.Format)
+		writeProblem(w, http.StatusBadRequest, "Unknown format", request.Format)
 		return
 	}
 
@@ -1643,14 +1606,14 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
 	jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
 		Kind: exportJobKind,
-		// `parallel` : un export ne touche ni le registre ni le cluster, rien ne
-		// justifie de le sérialiser avec des pipelines.
+		// `parallel`: an export touches neither the registry nor the cluster, so nothing
+		// justifies serialising it with pipelines.
 		Params: map[string]string{
 			exportParamKind:   request.Kind,
 			exportParamFormat: request.Format,
@@ -1668,11 +1631,10 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Download sert un livrable.
+// Download serves a deliverable.
 //
-// Le contenu transite par l'api plutôt que par une URL pré-signée : ces objets
-// portent la preuve d'une livraison, et une URL pré-signée est transmissible —
-// elle échapperait au contrôle de rôle dès le premier copier-coller.
+// The content goes through the api rather than a presigned URL: these objects carry the
+// evidence of a delivery, and a presigned URL is forwardable —
 func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("artifact"), 10, 64)
 	if err != nil {
@@ -1686,7 +1648,7 @@ func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Livrable introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture du livrable impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the deliverable", "")
 		return
 	}
 
@@ -1700,8 +1662,8 @@ func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 		return
 	}
-	// Le livrable doit appartenir à la release du chemin : sans ce contrôle, un
-	// identifiant deviné donnerait le bon de livraison d'une autre release.
+	// The deliverable must belong to the release in the path: without that check, a guessed
+	// identifier would give another release's delivery note.
 	if artifact.ReleaseID != item.ID {
 		writeProblem(w, http.StatusNotFound, "Livrable introuvable", "")
 		return
@@ -1714,9 +1676,9 @@ func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
 
 	content, err := h.artifacts.Get(r.Context(), artifact.Object)
 	if err != nil {
-		// L'objet est référencé mais absent : la ligne survit à une purge du
-		// bucket, et le dire vaut mieux qu'un fichier vide.
-		writeProblem(w, http.StatusNotFound, "Contenu du livrable introuvable", "")
+		// The object is referenced but missing: the row outlives a purge of the bucket, and
+		// saying so beats an empty file.
+		writeProblem(w, http.StatusNotFound, "Deliverable content not found", "")
 		return
 	}
 	defer content.Close()
@@ -1724,13 +1686,12 @@ func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", artifactContentType(artifact.Format))
 	w.Header().Set("Content-Disposition",
 		fmt.Sprintf(`attachment; filename="%s-%s.%s"`, artifact.Kind, item.Tag, artifact.Format))
-	// Un livrable est immuable : chaque génération écrit une nouvelle ligne.
+	// A deliverable is immutable: every generation writes a new row.
 	w.Header().Set("Cache-Control", "private, max-age=300")
 
 	if _, err := io.Copy(w, content); err != nil {
-		// L'en-tête est déjà parti : rien à annoncer au client, seulement à
-		// consigner.
-		slog.Default().Error("téléchargement interrompu", "artefact", artifact.ID, "err", err)
+		// The header has already gone: nothing to announce to the client, only to record.
+		slog.Default().Error("download interrupted", "artefact", artifact.ID, "err", err)
 	}
 }
 
@@ -1745,11 +1706,10 @@ func artifactContentType(format string) string {
 	}
 }
 
-// isDuplicate reconnaît la violation d'unicité de PostgreSQL.
+// isDuplicate recognises PostgreSQL's uniqueness violation.
 //
-// Le code plutôt que le message : celui-ci est localisé par le serveur, et un
-// `strings.Contains` sur du texte anglais casserait sur une base configurée
-// autrement.
+// The code rather than the message: the latter is localised by the server, and matching
+// English text would break on a database configured otherwise.
 func isDuplicate(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"

@@ -24,15 +24,14 @@ import (
  * Ces deux tests sont le contrepoids de ce choix.
  */
 
-// instant fixe la date des faits d'exemple.
+// instant fixes the date of the example facts.
 var instant = time.Date(2026, 9, 2, 14, 30, 0, 0, time.UTC)
 
-// Le catalogue offre exactement les trois faits du noyau.
+// The catalogue offers exactly the three core facts.
 //
-// La réduction de doc 15 §15.3 en a retiré trois — `release.built`,
-// `release.verified`, `pipeline.finished`. Les laisser ici les aurait laissés
-// choisissables dans l'éditeur, pour des réactions que plus rien ne déclenche.
-func TestLeCatalogueOffreLesTroisFaitsDuNoyau(t *testing.T) {
+// The reduction removed three of them. Leaving them here would have left them choosable in
+// the editor, for reactions nothing triggers any more.
+func TestTheCatalogueOffersTheCoresThreeFacts(t *testing.T) {
 	attendus := map[string]bool{
 		string(event.VersionCreated): true, string(event.ReleaseCreated): true,
 		string(event.ReleaseReleased): true,
@@ -40,28 +39,27 @@ func TestLeCatalogueOffreLesTroisFaitsDuNoyau(t *testing.T) {
 
 	for _, choice := range coreEventChoices() {
 		if !attendus[choice.Type] {
-			t.Errorf("fait %q offert — il n'est pas des trois du noyau", choice.Type)
+			t.Errorf("fact %q offered — it is not one of the core's three", choice.Type)
 		}
 		delete(attendus, choice.Type)
 		if choice.Label == "" {
-			t.Errorf("fait %q sans libellé — la liste de l'éditeur serait muette", choice.Type)
+			t.Errorf("fact %q with no label — the editor's list would be mute", choice.Type)
 		}
 	}
 	for manquant := range attendus {
-		t.Errorf("le fait %q n'est pas offert à l'éditeur", manquant)
+		t.Errorf("fact %q is not offered to the editor", manquant)
 	}
 }
 
-// Chaque champ annoncé existe dans la charge que le constructeur produit.
+// Every announced field exists in the payload the constructor produces.
 //
-// C'est le contrôle qui compte : un champ mal orthographié ici se proposerait
-// dans l'éditeur, s'enregistrerait sans broncher, et l'appariement n'apparierait
-// jamais. Rien ne le dirait — une réaction qui ne part pas ressemble à une
-// réaction qu'on n'a pas déclenchée.
-func TestChaqueChampAnnonceExisteDansLaCharge(t *testing.T) {
+// That is the check that counts: a misspelled field here would be offered in the editor,
+// saved without complaint, and the match would never match. Nothing would say so — a
+// reaction that does not leave looks like a reaction nobody triggered.
+func TestEveryAnnouncedFieldExistsInThePayload(t *testing.T) {
 	echeance := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	// Les constructeurs renseignés **au complet** : un champ facultatif laissé nu
-	// ferait passer son absence pour une faute de frappe.
+	// The constructors filled in completely: an optional field left bare would make its
+	// absence look like a typo.
 	charges := map[string]map[string]string{
 		string(event.VersionCreated): event.VersionCreatedAt(
 			instant, 805, "v3.2.0", "open", "redmine", "412", &echeance).Payload,
@@ -74,21 +72,20 @@ func TestChaqueChampAnnonceExisteDansLaCharge(t *testing.T) {
 	for _, choice := range coreEventChoices() {
 		charge, connu := charges[choice.Type]
 		if !connu {
-			t.Errorf("fait %q sans exemplaire — le contrôle ne le couvre pas", choice.Type)
+			t.Errorf("fact %q with no sample — the check does not cover it", choice.Type)
 			continue
 		}
 		for _, champ := range choice.Fields {
 			if _, present := charge[champ]; !present {
-				t.Errorf("fait %q: le champ %q est offert et la charge ne le porte pas",
+				t.Errorf("fact %q: field %q is offered and the payload does not carry it",
 					choice.Type, champ)
 			}
 		}
-		// Et l'inverse : un champ porté mais non annoncé est appariable sans être
-		// proposé. Moins grave — rien ne casse —, mais c'est une capacité qu'on
-		// offre sans le dire.
+		// And the reverse: a field carried but not announced is matchable without being offered.
+		// Less serious — nothing breaks — but it is a capability offered without saying so.
 		for champ := range charge {
 			if !slices.Contains(choice.Fields, champ) {
-				t.Errorf("fait %q: la charge porte %q et l'éditeur ne le propose pas",
+				t.Errorf("fact %q: the payload carries %q and the editor does not offer it",
 					choice.Type, champ)
 			}
 		}
@@ -103,8 +100,8 @@ func TestChaqueChampAnnonceExisteDansLaCharge(t *testing.T) {
  * vérification dépendrait d'un webhook (doc 15 §15.3).
  */
 
-// catalogueDesRoles rend un catalogue portant une construction et un test.
-func catalogueDesRoles() *catalog.Catalog {
+// roleCatalogue returns a catalogue carrying a build and a test.
+func roleCatalogue() *catalog.Catalog {
 	return &catalog.Catalog{Pipelines: []catalog.Pipeline{
 		{Kind: "build", PipelineRef: "build-image",
 			Produces: []catalog.Product{catalog.ProductImage}},
@@ -113,72 +110,72 @@ func catalogueDesRoles() *catalog.Catalog {
 	}}
 }
 
-func etape(role plan.Role, gestes ...plan.Geste) plan.Plan {
-	return plan.Plan{Stages: []plan.Stage{{Role: role, Gestes: gestes}}}
+func planWithStage(role plan.Role, steps ...plan.Geste) plan.Plan {
+	return plan.Plan{Stages: []plan.Stage{{Role: role, Gestes: steps}}}
 }
 
 func pipelineGeste(ref string) plan.Geste {
 	return plan.Geste{Kind: plan.GestePipeline, Ref: ref}
 }
 
-// Une étape de construction dont le geste ne produit pas d'image est refusée.
-func TestUneEtapeDeConstructionExigeUnGesteQuiProduitUneImage(t *testing.T) {
-	handler := &AutomationsHandler{catalog: catalogueDesRoles()}
+// A build stage whose step produces no image is refused.
+func TestABuildStageRequiresAStepThatProducesAnImage(t *testing.T) {
+	handler := &AutomationsHandler{catalog: roleCatalogue()}
 
-	err := handler.checkRoles(etape(plan.RoleBuild, pipelineGeste("unit-tests")))
+	err := handler.checkRoles(planWithStage(plan.RoleBuild, pipelineGeste("unit-tests")))
 	if err == nil {
-		t.Fatal("un pipeline de test a été admis dans une étape de construction")
+		t.Fatal("a test pipeline was admitted into a build stage")
 	}
-	// Le message doit dire ce qui manquait **et** ce que le pipeline produit :
-	// sans le second, on cherche l'erreur dans le rôle plutôt que dans le geste.
+	// The message must say what was missing and what the pipeline produces: without the second,
+	// one looks for the mistake in the role rather than in the step.
 	for _, attendu := range []string{"build", "unit-tests", "image", "results"} {
 		if !strings.Contains(err.Error(), attendu) {
-			t.Errorf("motif %q — il doit porter %q", err, attendu)
+			t.Errorf("reason %q — it must carry %q", err, attendu)
 		}
 	}
 }
 
-// Une action dans une étape à rôle est refusée.
+// An action in a stage with a role is refused.
 //
-// Le cas le plus insidieux : un webhook en échec ferait échouer la release,
-// alors qu'il n'a rien à dire de sa qualité.
-func TestUneActionNentrePasDansUneEtapeARole(t *testing.T) {
-	handler := &AutomationsHandler{catalog: catalogueDesRoles()}
+// The most insidious case: a failed webhook would fail the release, although it has nothing
+// to say about its quality.
+func TestAnActionDoesNotEnterAStageWithARole(t *testing.T) {
+	handler := &AutomationsHandler{catalog: roleCatalogue()}
 
-	err := handler.checkRoles(etape(plan.RoleTest,
+	err := handler.checkRoles(planWithStage(plan.RoleTest,
 		plan.Geste{Kind: plan.GesteAction, Ref: "webhook"}))
 	if err == nil {
-		t.Fatal("une action a été admise dans une étape à rôle")
+		t.Fatal("an action was admitted into a stage with a role")
 	}
-	if !strings.Contains(err.Error(), "qualité") {
-		t.Errorf("motif %q — il doit dire pourquoi c'est refusé", err)
+	if !strings.Contains(err.Error(), "quality") {
+		t.Errorf("reason %q — it must say why it is refused", err)
 	}
 }
 
-// Une étape **sans rôle** porte ce qu'elle veut.
+// A stage with no role carries what it likes.
 //
-// C'est elle qui permet de prévenir une équipe sans mettre en jeu l'état de la
-// release : le défaut que le rôle sur l'étape corrige.
-func TestUneEtapeSansRolePorteCeQuelleVeut(t *testing.T) {
-	handler := &AutomationsHandler{catalog: catalogueDesRoles()}
+// It is what allows warning a team without putting the release's state at stake: the defect
+// the stage role corrects.
+func TestAStageWithNoRoleCarriesWhatItLikes(t *testing.T) {
+	handler := &AutomationsHandler{catalog: roleCatalogue()}
 
-	err := handler.checkRoles(etape("",
+	err := handler.checkRoles(planWithStage("",
 		plan.Geste{Kind: plan.GesteAction, Ref: "webhook"},
 		pipelineGeste("unit-tests")))
 	if err != nil {
-		t.Errorf("une étape sans rôle a été refusée: %v", err)
+		t.Errorf("a stage with no role was refused: %v", err)
 	}
 }
 
-// Les deux rôles admettent ce qui leur correspond.
-func TestChaqueRoleAdmetCeQuiLuiCorrespond(t *testing.T) {
-	handler := &AutomationsHandler{catalog: catalogueDesRoles()}
+// Both roles accept what matches them.
+func TestEachRoleAdmitsWhatMatchesIt(t *testing.T) {
+	handler := &AutomationsHandler{catalog: roleCatalogue()}
 
 	for role, ref := range map[plan.Role]string{
 		plan.RoleBuild: "build", plan.RoleTest: "unit-tests",
 	} {
-		if err := handler.checkRoles(etape(role, pipelineGeste(ref))); err != nil {
-			t.Errorf("rôle %q avec %q refusé: %v", role, ref, err)
+		if err := handler.checkRoles(planWithStage(role, pipelineGeste(ref))); err != nil {
+			t.Errorf("role %q with %q refused: %v", role, ref, err)
 		}
 	}
 }

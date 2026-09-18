@@ -15,8 +15,8 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 )
 
-// stubExchanger remplace le fournisseur d'identité : c'est le seul point du flux
-// qui sort du processus, et le simuler permet de vérifier tout le reste.
+// stubExchanger replaces the identity provider: it is the only point of the flow that
+// leaves the process, and simulating it allows checking all the rest.
 type stubExchanger struct {
 	claims       auth.Claims
 	err          error
@@ -47,8 +47,8 @@ type stubSessions struct {
 	revoked    []string
 }
 
-// L'amorçage est neutre dans ces tests : ils éprouvent le flux, pas la
-// promotion. Un stub qui promeut masquerait un défaut d'autorisation.
+// The bootstrap is neutral in these tests: they exercise the flow, not promotion. A stub
+// that promoted would hide an authorization defect.
 func (s *stubSessions) ApplyBootstrap(context.Context, string, string) (string, error) {
 	return "", nil
 }
@@ -97,24 +97,23 @@ func TestLoginRedirectsWithPKCEChallenge(t *testing.T) {
 	handler.Login(rec, httptest.NewRequest(http.MethodGet, "/api/v1/auth/login", nil))
 
 	if rec.Code != http.StatusFound {
-		t.Fatalf("code = %d, attendu 302", rec.Code)
+		t.Fatalf("code = %d, expected 302", rec.Code)
 	}
 	if ex.authCodeCall.state == "" || ex.authCodeCall.nonce == "" {
-		t.Error("state ou nonce absent de la demande d'autorisation")
+		t.Error("state or nonce missing from the authorization request")
 	}
 	if ex.authCodeCall.challenge == "" {
-		t.Error("challenge PKCE absent")
+		t.Error("PKCE challenge missing")
 	}
-	// Le vérificateur ne doit jamais quitter le serveur : seul son condensé part.
+	// The verifier must never leave the server: only its digest goes.
 	if strings.Contains(rec.Header().Get("Location"), ex.authCodeCall.challenge) &&
 		ex.authCodeCall.challenge == ex.authCodeCall.nonce {
-		t.Error("le challenge ne doit pas être le nonce")
+		t.Error("the challenge must not be the nonce")
 	}
 }
 
-// Sans ce filtrage, la page de connexion deviendrait un redirecteur ouvert : un
-// lien vers le dashboard, sur le bon domaine, renverrait l'utilisateur
-// authentifié vers un site tiers.
+// Without that filtering, the sign-in page would become an open redirector: a link to the
+// dashboard, on the right domain, would send the authenticated user to a third-party site.
 func TestSafeRedirectRejectsExternalTargets(t *testing.T) {
 	cases := map[string]string{
 		"":                          "/",
@@ -130,7 +129,7 @@ func TestSafeRedirectRejectsExternalTargets(t *testing.T) {
 
 	for input, expected := range cases {
 		if got := safeRedirect(input); got != expected {
-			t.Errorf("safeRedirect(%q) = %q, attendu %q", input, got, expected)
+			t.Errorf("safeRedirect(%q) = %q, expected %q", input, got, expected)
 		}
 	}
 }
@@ -147,38 +146,38 @@ func TestCallbackOpensSessionAndSetsCookies(t *testing.T) {
 
 	res := rec.Result()
 	if res.StatusCode != http.StatusFound {
-		t.Fatalf("code = %d, attendu 302", res.StatusCode)
+		t.Fatalf("code = %d, expected 302", res.StatusCode)
 	}
 	if location := res.Header.Get("Location"); location != "/versions" {
-		t.Errorf("redirection = %q, la destination demandée est perdue", location)
+		t.Errorf("redirect = %q, the requested destination is lost", location)
 	}
 
-	// Le vérificateur PKCE et le nonce doivent venir de la transaction, pas du
-	// client : c'est ce qui empêche de rejouer un code intercepté.
+	// The PKCE verifier and the nonce must come from the transaction, not from the client: that
+	// is what prevents replaying an intercepted code.
 	if ex.gotVerifier != flow.CodeVerifier || ex.gotNonce != flow.Nonce {
-		t.Error("le vérificateur ou le nonce de la transaction n'a pas été transmis")
+		t.Error("the transaction's verifier or nonce was not passed")
 	}
 
 	session := cookieByName(res, sessionCookieName)
 	if session == nil {
-		t.Fatal("cookie de session absent")
+		t.Fatal("session cookie missing")
 	}
 	if !session.HttpOnly {
-		t.Error("le cookie de session doit être HttpOnly: un jeton lisible par un script est volable")
+		t.Error("the session cookie must be HttpOnly: a token a script can read can be stolen")
 	}
 	if !session.Secure {
-		t.Error("le cookie de session doit être Secure")
+		t.Error("the session cookie must be Secure")
 	}
 	if session.SameSite != http.SameSiteLaxMode {
-		t.Errorf("SameSite = %v, attendu Lax", session.SameSite)
+		t.Errorf("SameSite = %v, expected Lax", session.SameSite)
 	}
 
 	csrf := cookieByName(res, csrfCookieName)
 	if csrf == nil {
-		t.Fatal("cookie CSRF absent")
+		t.Fatal("CSRF cookie missing")
 	}
 	if csrf.HttpOnly {
-		t.Error("le cookie CSRF doit être lisible par le script: c'est le principe de la double soumission")
+		t.Error("the CSRF cookie must be readable by the script: that is the principle of double submission")
 	}
 }
 
@@ -187,13 +186,13 @@ func TestCallbackRejectsUnknownState(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	handler.Callback(rec, httptest.NewRequest(http.MethodGet,
-		"/api/v1/auth/callback?code=abc&state=forgé", nil))
+		"/api/v1/auth/callback?code=abc&state=forged", nil))
 
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("code = %d, attendu 400", rec.Code)
+		t.Fatalf("code = %d, expected 400", rec.Code)
 	}
 	if cookieByName(rec.Result(), sessionCookieName) != nil {
-		t.Error("une session a été ouverte malgré un state invalide")
+		t.Error("a session was opened despite an invalid state")
 	}
 }
 
@@ -208,18 +207,18 @@ func TestCallbackRejectsReplayedState(t *testing.T) {
 	first := httptest.NewRecorder()
 	handler.Callback(first, httptest.NewRequest(http.MethodGet, target, nil))
 	if first.Code != http.StatusFound {
-		t.Fatalf("première tentative refusée: %d", first.Code)
+		t.Fatalf("first attempt refused: %d", first.Code)
 	}
 
 	second := httptest.NewRecorder()
 	handler.Callback(second, httptest.NewRequest(http.MethodGet, target, nil))
 	if second.Code != http.StatusBadRequest {
-		t.Errorf("le state a été accepté une seconde fois: %d", second.Code)
+		t.Errorf("the state was accepted a second time: %d", second.Code)
 	}
 }
 
-// Un refus du fournisseur — l'utilisateur a cliqué sur « Annuler » — n'est pas un
-// échec technique et ne doit pas s'afficher comme tel.
+// A refusal from the provider — the user clicked Cancel — is not a technical failure and
+// must not be displayed as one.
 func TestCallbackDistinguishesProviderRefusal(t *testing.T) {
 	handler, _ := newAuthHandler(&stubExchanger{}, &stubSessions{})
 
@@ -228,7 +227,7 @@ func TestCallbackDistinguishesProviderRefusal(t *testing.T) {
 		"/api/v1/auth/callback?error=access_denied", nil))
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("code = %d, attendu 401", rec.Code)
+		t.Errorf("code = %d, expected 401", rec.Code)
 	}
 }
 
@@ -242,10 +241,10 @@ func TestCallbackRejectsFailedExchange(t *testing.T) {
 		"/api/v1/auth/callback?code=abc&state="+url.QueryEscape(flow.State), nil))
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("code = %d, attendu 401", rec.Code)
+		t.Fatalf("code = %d, expected 401", rec.Code)
 	}
 	if cookieByName(rec.Result(), sessionCookieName) != nil {
-		t.Error("une session a été ouverte malgré un échange refusé")
+		t.Error("a session was opened despite a refused exchange")
 	}
 }
 
@@ -260,18 +259,18 @@ func TestLogoutRevokesAndClearsCookies(t *testing.T) {
 	handler.Logout(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d, attendu 200", rec.Code)
+		t.Fatalf("code = %d, expected 200", rec.Code)
 	}
 	if len(sessions.revoked) != 1 || sessions.revoked[0] != "session-id" {
-		t.Errorf("session non révoquée: %v", sessions.revoked)
+		t.Errorf("session not revoked: %v", sessions.revoked)
 	}
 	if cookie := cookieByName(rec.Result(), sessionCookieName); cookie == nil || cookie.MaxAge >= 0 {
-		t.Error("le cookie de session n'a pas été effacé")
+		t.Error("the session cookie was not cleared")
 	}
 }
 
-// Effacer le cookie alors que la révocation a échoué ferait croire l'utilisateur
-// déconnecté, tandis que sa session resterait utilisable par qui la détiendrait.
+// Clearing the cookie while revocation failed would make the user believe they are signed
+// out, while their session stays usable by whoever holds it.
 func TestLogoutKeepsCookieWhenRevocationFails(t *testing.T) {
 	sessions := &stubSessions{revokeErr: errors.New("base indisponible")}
 	handler, _ := newAuthHandler(&stubExchanger{}, sessions)
@@ -283,9 +282,9 @@ func TestLogoutKeepsCookieWhenRevocationFails(t *testing.T) {
 	handler.Logout(rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("code = %d, attendu 500", rec.Code)
+		t.Fatalf("code = %d, expected 500", rec.Code)
 	}
 	if cookieByName(rec.Result(), sessionCookieName) != nil {
-		t.Error("le cookie a été effacé alors que la session reste active")
+		t.Error("the cookie was cleared while the session stays active")
 	}
 }

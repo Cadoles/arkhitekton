@@ -19,12 +19,12 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
 )
 
-// fakeReleaseStore remplace la base : les décisions testées ici sont celles du
-// handler, et les faire dépendre d'un PostgreSQL les rendrait plus lentes sans
-// les rendre plus sûres.
+// fakeReleaseStore replaces the database: the decisions tested here are the handler's,
+// and making them depend on a PostgreSQL would make them slower without making them
+// safer.
 type fakeReleaseStore struct {
-	// planRuns et planSteps portent les exécutions ouvertes par la création
-	// d'une release. Voir plus bas : c'est le plan qui met en file désormais.
+	// planRuns and planSteps carry the runs opened by creating a release. See below: it is
+	// the plan that enqueues now.
 	planRuns  map[int64]store.PlanRun
 	planSteps map[int64][]store.PlanStep
 
@@ -32,31 +32,29 @@ type fakeReleaseStore struct {
 	jobs       []store.JobRequest
 	promotions []ReleasePromotion
 	audit      []string
-	// facts porte les faits émis, indexés par leur clé de déduplication : c'est
-	// la structure de la base, et un tableau ne dirait pas si un doublon a été
-	// écarté.
+	// facts carries the emitted facts, keyed by their deduplication key: that is the
+	// database's shape, and a slice would not say whether a duplicate was discarded.
 	facts     map[string]event.Event
 	actions   map[string]string
 	artifacts []store.Artifact
 	objects   map[string]string
 	registry  Images
 	states    map[int64]string
-	// project décrit ce que la release construit. Nil, la fixture ci-dessous
-	// s'applique : les tests portent sur le nombre d'exécutions enfilées et sur
-	// leurs paramètres, pas sur le contenu de la table.
+	// project describes what the release builds. Nil, the fixture below applies: these
+	// tests are about how many runs are queued and with which parameters, not about the
+	// table's content.
 	project *store.Project
-	// produits porte ce que l'automatisation a produit, tel que la table
-	// `plan_artifacts` le rendrait. Distinct d'`artifacts`, qui porte les exports
-	// du bon de livraison — deux natures, deux tables, deux noms.
+	// produced carries what the automation produced, as the `plan_artifacts` table would
+	// return it. Distinct from `artifacts`, which carries the delivery note's exports — two
+	// natures, two tables, two names.
 	produits []store.PlanArtifact
-	// pipelines est le catalogue que le handler emploie. Le magasin le porte
-	// parce qu'il doit rendre l'automatisation du projet, et que celle-ci se
-	// compose depuis les familles déclarées.
+	// pipelines is the catalogue the handler uses. The store carries it because it must
+	// return the project's automation, which is composed from the declared kinds.
 	pipelines *catalog.Catalog
 }
 
-// fixtureProject reproduit ce que l'amorçage installe : trois étapes, dont une
-// construite sans être promue.
+// fixtureProject reproduces what the bootstrap installs: three stages, one of them
+// built without being promoted.
 func fixtureProject() store.Project {
 	promoted, held := true, false
 	return store.Project{
@@ -70,24 +68,24 @@ func fixtureProject() store.Project {
 	}
 }
 
-// GetProject rend le projet que la route désigne. Un seul ici : ces tests
-// portent sur ce que le handler fait du projet, pas sur son choix.
+// GetProject returns the project the route names. Only one here: these tests are about
+// what the handler does with the project, not about choosing it.
 func (f *fakeReleaseStore) GetProject(context.Context, int64) (store.Project, error) {
 	return fixtureProject(), nil
 }
 
-// ReleaseArtifacts rend ce que l'automatisation a produit pour cette release.
+// ReleaseArtifacts returns what the automation produced for this release.
 func (f *fakeReleaseStore) ReleaseArtifacts(
 	context.Context, int64,
 ) ([]store.PlanArtifact, error) {
 	return f.produits, nil
 }
 
-// ReleaseAutomation rend ce que la reprise aurait composé pour ce projet.
+// ReleaseAutomation returns what the catch-up would have composed for this project.
 //
-// Le plan d'une release est **lu** et non plus composé à son ouverture (doc 15
-// §15.5). Rendre un plan vide ici ferait constater à ces tests que rien ne part,
-// sans que rien ne dise que c'est la déclaration qui manque.
+// A release's plan is read and no longer composed when it opens. Returning an empty
+// plan here would have these tests observe that nothing leaves, with nothing saying it
+// is the declaration that is missing.
 func (f *fakeReleaseStore) ReleaseAutomation(
 	_ context.Context, projectID int64,
 ) (store.ReleaseAutomation, error) {
@@ -151,8 +149,8 @@ func (f *fakeReleaseStore) Audit(_ context.Context, _, action, target string, _ 
 	return nil
 }
 
-// RecordEvent retient les faits émis, et applique la même déduplication que la
-// base : c'est elle que les tests d'émission éprouvent.
+// RecordEvent keeps the emitted facts, and applies the same deduplication as the
+// database: that is what the emission tests exercise.
 func (f *fakeReleaseStore) RecordEvent(_ context.Context, fact event.Event) (bool, error) {
 	if err := fact.Validate(); err != nil {
 		return false, err
@@ -186,11 +184,11 @@ func (f *fakeReleaseStore) GetArtifact(_ context.Context, id int64) (store.Artif
 	return store.Artifact{}, store.ErrArtifactNotFound
 }
 
-// Get sert aussi de stockage objet : le handler n'en attend qu'une lecture.
+// Get doubles as the object store: the handler expects only a read from it.
 func (f *fakeReleaseStore) Get(_ context.Context, key string) (io.ReadCloser, error) {
 	content, found := f.objects[key]
 	if !found {
-		return nil, errors.New("objet absent")
+		return nil, errors.New("object missing")
 	}
 	return io.NopCloser(strings.NewReader(content)), nil
 }
@@ -200,10 +198,11 @@ func (f *fakeReleaseStore) Enqueue(_ context.Context, request store.JobRequest) 
 	return int64(len(f.jobs)), nil
 }
 
-// states retient les états écrits, pour vérifier qu'une pré-release passe bien en
-// `building` après mise en file de sa construction.
-// MarkReleased applique la même condition que la base : l'écriture n'aboutit que
-// si la release est encore dans l'état lu.
+// states keeps the written states, to check that a pre-release moves to `building`
+// after its build is queued.
+//
+// MarkReleased applies the same condition as the database: the write succeeds only if
+// the release is still in the state that was read.
 func (f *fakeReleaseStore) MarkReleased(_ context.Context, id int64, from string) (bool, error) {
 	for tag, release := range f.releases {
 		if release.ID != id {
@@ -242,7 +241,7 @@ func (f *fakeReleaseStore) SetReleaseState(_ context.Context, id int64, state st
 	return nil
 }
 
-// testProjectSlug est le projet que les routes nomment dans leur chemin.
+// testProjectSlug is the project the routes name in their path.
 const testProjectSlug = "test"
 
 func newFakeStore() *fakeReleaseStore {
@@ -253,7 +252,7 @@ func newFakeStore() *fakeReleaseStore {
 	}
 }
 
-// fakeForge résout et pose des tags, en retenant ce qu'on lui a demandé.
+// fakeForge resolves and sets tags, keeping what it was asked for.
 type fakeForge struct {
 	commit     string
 	resolveErr error
@@ -285,11 +284,9 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		{
 			Kind: "build", PipelineRef: "build-image",
 			Produces: []catalog.Product{catalog.ProductImage},
-			// Les paramètres réels de la famille. Le plan d'une release ne pose
-			// plus la révision ni le tag en clair : il lit ce que le catalogue
-			// déclare vouloir (doc 15 §15.5). Un catalogue de test muet ferait
-			// partir des constructions sans révision, ce que ces tests vérifient
-			// justement.
+			// The kind's real parameters. A release's plan no longer sets the revision and the tag
+			// in the clear: it reads what the catalogue declares it wants. A silent test catalogue
+			// would send builds off with no revision, which is exactly what these tests check.
 			Params: map[string]catalog.Param{
 				"revision": {Source: catalog.SourceInput, Required: true,
 					Suggest: catalog.SuggestGitRef},
@@ -319,11 +316,10 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	}})
 	return NewReleasesHandler(store, pipelines, authorizer, store.registry, store,
 		"portal", "reg.cadoles.com/vcarroy").
-		// Le planificateur **réel**, sur le même faux magasin. Un substitut ici
-		// ferait passer ces tests sans rien dire de ce que la création met
-		// réellement en file.
+		// The real planner, on the same fake store. A substitute here would make these tests
+		// pass while saying nothing about what creation actually queues.
 		WithArtifactReader(store).
-		// Les promotions demandées, telles que le plugin MSE les fournirait.
+		// The requested promotions, as the MSE plugin would supply them.
 		WithPromotions(func(context.Context, int64, int64) ([]ReleasePromotion, error) {
 			return store.promotions, nil
 		}).
@@ -335,17 +331,16 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 
 func asRole(request *http.Request, role auth.Role) *http.Request {
 	identity := auth.Identity{Subject: "vcarroy", Username: "vcarroy", Role: role}
-	// Le projet est posé ici parce que toute requête d'un handler rattaché à un
-	// projet passe par cette porte : les routes le portent dans leur chemin, et
-	// une requête de test qui l'oublierait échouerait sur « projet non désigné »
-	// au lieu de mesurer ce qu'elle vise. Les tests qui éprouvent la résolution
-	// elle-même le remplacent après coup.
+	// The project is set here because every request to a project-scoped handler goes
+	// through this door: the routes carry it in their path, and a test request that forgot
+	// it would fail on "no project named" instead of measuring what it aims at. The tests
+	// that exercise the resolution itself replace it afterwards.
 	request.SetPathValue("project", testProjectSlug)
 	return request.WithContext(context.WithValue(request.Context(), identityKey, identity))
 }
 
-// Créer `1.8.0-rc1` en la déclarant finale produit une release que la production
-// ignorera silencieusement. Le refus doit être immédiat.
+// Creating a pre-release tag while declaring it final produces a release production
+// will silently ignore. The refusal must be immediate.
 func TestCreateRefusesAKindThatContradictsTheTag(t *testing.T) {
 	fake := newFakeStore()
 	handler := newReleasesHandler(t, fake)
@@ -357,7 +352,7 @@ func TestCreateRefusesAKindThatContradictsTheTag(t *testing.T) {
 	handler.Create(recorder, asRole(request, auth.RoleReleaser))
 
 	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code = %d, attendu 400", recorder.Code)
+		t.Errorf("code = %d, expected 400", recorder.Code)
 	}
 }
 
@@ -372,12 +367,12 @@ func TestCreateRefusesAMismatchedRedmineVersion(t *testing.T) {
 	handler.Create(recorder, asRole(request, auth.RoleReleaser))
 
 	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code = %d, attendu 400: la jointure avec Redmine serait rompue", recorder.Code)
+		t.Errorf("code = %d, expected 400: the join with Redmine would be broken", recorder.Code)
 	}
 }
 
-// La release finale hérite de l'image de sa RC, et son propre tag doit exister
-// dans le registre pour qu'une ImagePolicy puisse le retenir.
+// The final release inherits its candidate's image, and its own tag must exist in the
+// registry for an image policy to select it.
 func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0-rc3"] = store.Release{
@@ -397,28 +392,28 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 
 	created := fake.releases["1.8.0"]
 	if created.ImageVersion != "1.8.0-rc3" {
-		t.Errorf("version d'image = %q, attendu celle de la RC", created.ImageVersion)
+		t.Errorf("image version = %q, expected the RC's", created.ImageVersion)
 	}
 	if created.State != "ready" {
-		t.Errorf("état = %q: l'image existe déjà, la release est promouvable", created.State)
+		t.Errorf("state = %q: the image already exists, the release is promotable", created.State)
 	}
 
 	retags := fake.jobsOfKind("retag")
 	if len(retags) != len(fixtureProject().Promotable()) {
-		t.Fatalf("%d job(s) de re-tag, attendu %d", len(retags), len(fixtureProject().Promotable()))
+		t.Fatalf("%d re-tag job(s), expected %d", len(retags), len(fixtureProject().Promotable()))
 	}
 	if retags[0].Params["old-tag"] != "1.8.0-rc3" || retags[0].Params["new-tag"] != "1.8.0" {
 		t.Errorf("re-tag = %+v", retags[0].Params)
 	}
-	// La note est composée pour toute release, finale comprise : ce qu'elle
-	// apporte au client ne dépend pas de la façon dont son image a été produite.
+	// The note is composed for every release, final ones included: what it brings the
+	// client does not depend on how its image was produced.
 	if len(fake.jobsOfKind(ReleaseNotesJobKind)) != 1 {
-		t.Error("la composition de la note devrait être mise en file")
+		t.Error("composing the note should be queued")
 	}
 }
 
-// Une RC dont l'image n'est pas construite ne peut pas être re-taguée : il n'y a
-// rien à promouvoir.
+// A candidate whose image is not built cannot be re-tagged: there is nothing to
+// promote.
 func TestCreateFinalRefusesAnUnbuiltSource(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0-rc3"] = store.Release{
@@ -433,12 +428,12 @@ func TestCreateFinalRefusesAnUnbuiltSource(t *testing.T) {
 	handler.Create(recorder, asRole(request, auth.RoleReleaser))
 
 	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code = %d, attendu 400", recorder.Code)
+		t.Errorf("code = %d, expected 400", recorder.Code)
 	}
 }
 
-// Livrer une version finale engage ce qui part chez l'utilisateur : la nature est
-// dans le corps, donc c'est au handler de la contrôler.
+// Shipping a final version commits what reaches the user: the kind is in the body, so
+// it is for the handler to check it.
 func TestCreateFinalRequiresTheReleaserRole(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0-rc3"] = store.Release{
@@ -453,27 +448,27 @@ func TestCreateFinalRequiresTheReleaserRole(t *testing.T) {
 	handler.Create(recorder, asRole(request, auth.RoleOperator))
 
 	if recorder.Code != http.StatusForbidden {
-		t.Errorf("code = %d, attendu 403", recorder.Code)
+		t.Errorf("code = %d, expected 403", recorder.Code)
 	}
 }
 
-// fakeRegistry rend un digest par tag connu, et échoue sur les autres — un tag
-// de promotion mis en file n'existe pas encore dans le registre.
+// fakeRegistry returns a digest per known tag, and fails on the others — a promotion tag
+// that has been queued does not exist in the registry yet.
 type fakeRegistry map[string]string
 
 func (f fakeRegistry) Digest(_ context.Context, _, tag string) (string, error) {
 	digest, found := f[tag]
 	if !found {
-		return "", errors.New("manifeste absent")
+		return "", errors.New("manifest missing")
 	}
 	return digest, nil
 }
 
-// Le digest est ce qui prouve qu'une promotion n'a pas reconstruit : le tag
-// suffixé et le tag d'origine portent le même.
+// The digest is what proves a promotion did not rebuild: the suffixed tag and the
+// original tag carry the same one.
 func TestGetResolvesDigestsForEveryTag(t *testing.T) {
 	fake := newFakeStore()
-	// Le tag de promotion porte le **même** digest : rien n'a été reconstruit.
+	// The promotion tag carries the same digest: nothing was rebuilt.
 	fake.registry = fakeRegistry{"1.8.0-rc3": "sha256:aaa", "1.8.0_prod": "sha256:aaa"}
 	fake.releases["1.8.0"] = store.Release{
 		ID: 8, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
@@ -504,41 +499,41 @@ func TestGetResolvesDigestsForEveryTag(t *testing.T) {
 
 	var payload releasePayload
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("décodage: %v", err)
+		t.Fatalf("decoding: %v", err)
 	}
 
 	if len(payload.Artifacts) != 2 {
-		t.Fatalf("%d artefact(s), attendu ceux du geste", len(payload.Artifacts))
+		t.Fatalf("%d artifact(s), expected the step's", len(payload.Artifacts))
 	}
-	// Chacun porte le nom du geste qui l'a produit : c'est ce qui distingue trois
-	// constructions partageant la même référence de catalogue.
+	// Each carries the name of the step that produced it: that is what tells three builds
+	// sharing the same catalogue reference apart.
 	for _, artifact := range payload.Artifacts {
 		if artifact.Geste != "portal" {
-			t.Errorf("artefact %q produit par %q, attendu le geste", artifact.Name, artifact.Geste)
+			t.Errorf("artifact %q produced by %q, expected the step", artifact.Name, artifact.Geste)
 		}
 	}
 
 	image := payload.Artifacts[0]
 	if image.Name != "image" || image.Digest != "sha256:aaa" {
-		t.Errorf("image = %+v, attendue avec son digest", image)
+		t.Errorf("image = %+v, expected with its digest", image)
 	}
 	if image.Diverged {
-		t.Error("divergence annoncée alors que la promotion porte le même digest")
+		t.Error("divergence announced although the promotion carries the same digest")
 	}
-	// Le tag n'est pas une image, et n'a donc pas de digest — bien que `kind`
-	// vaille `image` pour tout ce que ce pipeline rend.
+	// The tag is not an image, and therefore has no digest — although `kind` is `image` for
+	// everything this pipeline returns.
 	if payload.Artifacts[1].Digest != "" {
-		t.Errorf("le tag porte un digest: %+v", payload.Artifacts[1])
+		t.Errorf("the tag carries a digest: %+v", payload.Artifacts[1])
 	}
 }
 
-// Une image reconstruite entre la validation et la livraison se voit.
+// An image rebuilt between approval and delivery shows.
 //
-// C'est l'invariant que l'ancienne section « images » protégeait sur le seul
-// dépôt configuré, et qui vaut maintenant pour chaque image produite (B17).
+// That is the invariant the old "images" section protected on the single configured
+// repository, and which now holds for every image produced.
 func TestGetSignalsARebuiltImage(t *testing.T) {
 	fake := newFakeStore()
-	// Le tag de promotion porte un **autre** digest : quelqu'un a reconstruit.
+	// The promotion tag carries a different digest: someone rebuilt.
 	fake.registry = fakeRegistry{"1.8.0-rc3": "sha256:aaa", "1.8.0_prod": "sha256:bbb"}
 	fake.releases["1.8.0"] = store.Release{
 		ID: 8, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
@@ -559,16 +554,15 @@ func TestGetSignalsARebuiltImage(t *testing.T) {
 
 	var payload releasePayload
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("décodage: %v", err)
+		t.Fatalf("decoding: %v", err)
 	}
 	if len(payload.Artifacts) != 1 || !payload.Artifacts[0].Diverged {
-		t.Errorf("artefacts = %+v — la reconstruction doit se voir", payload.Artifacts)
+		t.Errorf("artifacts = %+v — the rebuild must show", payload.Artifacts)
 	}
 }
 
-// Un registre absent ne doit pas rendre la page illisible, mais il doit se dire :
-// « pas de digest » et « impossible de lire le digest » n'appellent pas la même
-// réaction.
+// A missing registry must not make the page unreadable, but it must say so: "no digest"
+// and "cannot read the digest" do not call for the same response.
 func TestGetSaysWhyDigestsAreMissing(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0-rc1"] = store.Release{
@@ -579,7 +573,7 @@ func TestGetSaysWhyDigestsAreMissing(t *testing.T) {
 		Reference: "reg.example.fr/vcarroy/portal:1.8.0-rc1",
 	}}
 	handler := newReleasesHandler(t, fake)
-	// Sans registre : les artefacts restent affichables, sans leur digest.
+	// Without a registry: the artifacts stay displayable, without their digest.
 	handler.images = nil
 
 	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0-rc1", nil)
@@ -589,16 +583,16 @@ func TestGetSaysWhyDigestsAreMissing(t *testing.T) {
 
 	var payload releasePayload
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("décodage: %v", err)
+		t.Fatalf("decoding: %v", err)
 	}
 	if recorder.Code != http.StatusOK {
-		t.Errorf("code = %d: un registre absent ne doit pas casser la page", recorder.Code)
+		t.Errorf("code = %d: a missing registry must not break the page", recorder.Code)
 	}
 	if payload.ArtifactsNote == "" {
-		t.Error("l'absence de digest doit être expliquée")
+		t.Error("the missing digest must be explained")
 	}
 	if len(payload.Artifacts) == 0 {
-		t.Error("les artefacts restent affichables sans leur digest")
+		t.Error("the artifacts stay displayable without their digest")
 	}
 }
 
@@ -607,7 +601,7 @@ func TestUpdateActionsRecordsTheAuthor(t *testing.T) {
 	fake.releases["1.8.0"] = store.Release{ID: 10, Tag: "1.8.0", Kind: "final", State: "ready"}
 	handler := newReleasesHandler(t, fake)
 
-	body := `{"markdown":"- purge du cache"}`
+	body := `{"markdown":"- cache purge"}`
 	request := httptest.NewRequest(http.MethodPut, "/releases/1.8.0/actions", strings.NewReader(body))
 	request.SetPathValue("tag", "1.8.0")
 	recorder := httptest.NewRecorder()
@@ -617,11 +611,11 @@ func TestUpdateActionsRecordsTheAuthor(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if fake.actions["1.8.0"] != "- purge du cache" {
+	if fake.actions["1.8.0"] != "- cache purge" {
 		t.Errorf("texte = %q", fake.actions["1.8.0"])
 	}
-	// L'auteur est posé par le serveur, jamais par le client : ce texte finit
-	// dans un document contractuel.
+	// The author is set by the server, never by the client: this text ends up in a
+	// contractual document.
 	if fake.releases["1.8.0"].ManualActionsUpdatedBy != "vcarroy" {
 		t.Errorf("auteur = %q", fake.releases["1.8.0"].ManualActionsUpdatedBy)
 	}
@@ -638,7 +632,7 @@ func TestUpdateActionsOnAnUnknownRelease(t *testing.T) {
 	handler.UpdateActions(recorder, asRole(request, auth.RoleOperator))
 
 	if recorder.Code != http.StatusNotFound {
-		t.Errorf("code = %d, attendu 404", recorder.Code)
+		t.Errorf("code = %d, expected 404", recorder.Code)
 	}
 }
 
@@ -662,10 +656,10 @@ func TestExportEnqueuesAJobBoundToTheRelease(t *testing.T) {
 	if job.Kind != exportJobKind || job.ReleaseID == nil || *job.ReleaseID != 20 {
 		t.Errorf("job = %+v", job)
 	}
-	// Le générateur part de la release, pas du tag : sans le rattachement il ne
-	// saurait pas quoi produire.
+	// The generator starts from the release, not from the tag: without the attachment it
+	// would not know what to produce.
 	if job.Params[exportParamKind] != store.ArtifactDeliveryNote || job.Params[exportParamFormat] != "pdf" {
-		t.Errorf("paramètres = %v", job.Params)
+		t.Errorf("parameters = %v", job.Params)
 	}
 }
 
@@ -680,10 +674,10 @@ func TestExportRefusesAnUnknownFormat(t *testing.T) {
 	handler.Export(recorder, asRole(request, auth.RoleReleaser))
 
 	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code = %d, attendu 400", recorder.Code)
+		t.Errorf("code = %d, expected 400", recorder.Code)
 	}
 	if len(fake.jobs) != 0 {
-		t.Error("aucun job ne doit partir pour un format inconnu")
+		t.Error("no job must start for an unknown format")
 	}
 }
 
@@ -714,8 +708,8 @@ func TestDownloadServesTheArtifact(t *testing.T) {
 	}
 }
 
-// Sans ce contrôle, un identifiant deviné donnerait le bon de livraison d'une
-// autre release — un document contractuel qui n'est pas le sien.
+// Without that check, a guessed identifier would give another release's delivery note —
+// a contractual document that is not its own.
 func TestDownloadRefusesAnArtifactOfAnotherRelease(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0"] = store.Release{ID: 23, Tag: "1.8.0"}
@@ -729,15 +723,15 @@ func TestDownloadRefusesAnArtifactOfAnotherRelease(t *testing.T) {
 	handler.Download(recorder, asRole(request, auth.RoleViewer))
 
 	if recorder.Code != http.StatusNotFound {
-		t.Errorf("code = %d, attendu 404", recorder.Code)
+		t.Errorf("code = %d, expected 404", recorder.Code)
 	}
 }
 
-// La ligne survit à une purge du bucket : le dire vaut mieux qu'un fichier vide.
+// The row outlives a purge of the bucket: saying so beats an empty file.
 func TestDownloadReportsAMissingObject(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0"] = store.Release{ID: 24, Tag: "1.8.0"}
-	fake.artifacts = []store.Artifact{{ID: 9, ReleaseID: 24, Format: "pdf", Object: "purgé"}}
+	fake.artifacts = []store.Artifact{{ID: 9, ReleaseID: 24, Format: "pdf", Object: "purged"}}
 	handler := newReleasesHandler(t, fake)
 
 	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0/exports/9/download", nil)
@@ -747,14 +741,14 @@ func TestDownloadReportsAMissingObject(t *testing.T) {
 	handler.Download(recorder, asRole(request, auth.RoleViewer))
 
 	if recorder.Code != http.StatusNotFound {
-		t.Errorf("code = %d, attendu 404", recorder.Code)
+		t.Errorf("code = %d, expected 404", recorder.Code)
 	}
 }
 
-// Le chaînon qui manquait : créer une pré-release doit mettre sa construction en
-// file et l'annoncer. Sans cela la release restait `draft` indéfiniment, le
-// pipeline existant dans le cluster mais rien ne le déclenchant.
-func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
+// The missing link: creating a pre-release must queue its build and announce it.
+// Without that the release stayed `draft` indefinitely, the pipeline existing in the
+// cluster but nothing triggering it.
+func TestAPreReleaseQueuesItsBuild(t *testing.T) {
 	fake := newFakeStore()
 	handler := newReleasesHandler(t, fake)
 
@@ -769,61 +763,59 @@ func TestUnePrereleaseEnfileSaConstruction(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 
-	// Une exécution par image : le pipeline n'en construit qu'une, et c'est le
-	// dashboard qui décide combien il en lance.
+	// One run per image: the pipeline builds only one, and it is the dashboard that decides
+	// how many it launches.
 	builds := fake.jobsOfKind("build")
 	if len(builds) != len(fixtureProject().Buildable()) {
-		t.Fatalf("%d construction(s) en file, attendu %d", len(builds), len(fixtureProject().Buildable()))
+		t.Fatalf("%d build(s) queued, expected %d", len(builds), len(fixtureProject().Buildable()))
 	}
 	for index, target := range fixtureProject().Buildable() {
 		if builds[index].Params["image-name"] != target.Image ||
 			builds[index].Params["target"] != target.Stage {
-			t.Errorf("construction %d = %+v, attendu %s/%s",
+			t.Errorf("build %d = %+v, expected %s/%s",
 				index, builds[index].Params, target.Image, target.Stage)
 		}
 	}
 	job := builds[0]
 	if len(fake.jobsOfKind(ReleaseNotesJobKind)) != 1 {
-		t.Error("la composition de la note devrait être mise en file")
+		t.Error("composing the note should be queued")
 	}
-	// `version` porte le tag SemVer et prime sur `tag-name` : sans lui, la Task
-	// dériverait le tag de la branche et l'image ne porterait pas la version de
-	// la release qui l'a demandée (B17, P10).
+	// `version` carries the SemVer tag and prevails over `tag-name`: without it the Task
+	// would derive the tag from the branch and the image would not carry the version of the
+	// release that asked for it.
 	if job.Params["version"] != "3.2.0-rc1" {
 		t.Errorf("version transmise %q", job.Params["version"])
 	}
 	if job.Params["revision"] != "develop" {
-		t.Errorf("révision transmise %q", job.Params["revision"])
+		t.Errorf("revision passed %q", job.Params["revision"])
 	}
 	if job.ReleaseID == nil {
-		t.Error("le job doit porter sa release, sans quoi sa conclusion ne fera rien avancer")
+		t.Error("the job must carry its release, otherwise its conclusion will advance nothing")
 	}
 
 	var response struct {
-		// Un **compte**, et non une liste d'identifiants. La création ouvre
-		// désormais un plan : ce qui part est une étape, dont les gestes se lisent
-		// sur l'écran des exécutions plutôt que dans cette réponse.
+		// A count, and not a list of identifiers. Creation now opens a plan: what leaves is a
+		// stage, whose steps read on the runs screen rather than in this response.
 		BuildJobs int `json:"build_jobs"`
 		Release   struct {
 			State string `json:"state"`
 		} `json:"release"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	if response.BuildJobs != len(fixtureProject().Buildable()) {
-		t.Errorf("%d construction(s) rendues, attendu %d",
+		t.Errorf("%d build(s) returned, expected %d",
 			response.BuildJobs, len(fixtureProject().Buildable()))
 	}
 	if response.Release.State != "building" {
-		t.Errorf("état rendu %q, attendu building", response.Release.State)
+		t.Errorf("state returned %q, expected building", response.Release.State)
 	}
 }
 
-// Une release finale ne construit rien : c'est un re-tag, et lui réclamer une
-// construction ferait tourner un pipeline pour produire une image qui existe
-// déjà (B17).
-func TestUneReleaseFinaleNenfilePasDeConstruction(t *testing.T) {
+// A final release builds nothing: it is a re-tag, and demanding a build of it would run
+// a pipeline to produce an image that already exists.
+func TestAFinalReleaseDoesNotQueueABuild(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["3.2.0-rc1"] = store.Release{
 		ID: 1, Tag: "3.2.0-rc1", Kind: "pre", State: "released", ImageVersion: "3.2.0-rc1",
@@ -842,15 +834,15 @@ func TestUneReleaseFinaleNenfilePasDeConstruction(t *testing.T) {
 	}
 	for _, job := range fake.jobs {
 		if job.Kind == "build" {
-			t.Error("une release finale ne doit pas enfiler de construction")
+			t.Error("a final release must not queue a build")
 		}
 	}
 }
 
-// Une pré-release sans référence Git est créée quand même, et la réserve le dit :
-// transmettre une référence vide ferait échouer le clone plusieurs minutes plus
-// tard, sur un message qui ne désignerait pas la cause.
-func TestUnePrereleaseSansReferenceEstCreeeAvecReserve(t *testing.T) {
+// A pre-release with no git reference is created anyway, and the caveat says so: passing
+// an empty reference would fail the clone several minutes later, with a message that
+// would not name the cause.
+func TestAPreReleaseWithNoReferenceIsCreatedWithAReservation(t *testing.T) {
 	fake := newFakeStore()
 	handler := newReleasesHandler(t, fake)
 
@@ -867,21 +859,21 @@ func TestUnePrereleaseSansReferenceEstCreeeAvecReserve(t *testing.T) {
 		Warnings []string `json:"warnings"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	if len(response.Warnings) == 0 {
-		t.Error("la réserve doit être rendue: la release existe mais rien ne se construit")
+		t.Error("the reservation must be returned: the release exists but nothing is building")
 	}
 	for _, job := range fake.jobs {
 		if job.Kind == "build" {
-			t.Error("aucune construction ne doit partir sans référence Git")
+			t.Error("no build must start without a Git reference")
 		}
 	}
 }
 
-// La validation est la décision humaine du cycle : elle fait passer `ready` à
-// `released`, ce qui autorise la promotion et le re-tag.
-func TestValiderUneReleasePreteLaRendLivrable(t *testing.T) {
+// Approval is the cycle's human decision: it moves `ready` to `released`, which allows
+// promotion and re-tagging.
+func TestValidatingAReadyReleaseMakesItDeliverable(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["3.2.0-rc1"] = store.Release{
 		ID: 7, Tag: "3.2.0-rc1", Kind: "pre", State: "ready", ImageVersion: "3.2.0-rc1",
@@ -898,18 +890,18 @@ func TestValiderUneReleasePreteLaRendLivrable(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 	if fake.releases["3.2.0-rc1"].State != "released" {
-		t.Errorf("état %q, attendu released", fake.releases["3.2.0-rc1"].State)
+		t.Errorf("state %q, expected released", fake.releases["3.2.0-rc1"].State)
 	}
-	// La décision engage ce qui partira : elle est consignée.
+	// The decision commits what will ship: it is recorded.
 	if len(fake.audit) == 0 {
-		t.Error("la validation doit être consignée au journal d'audit")
+		t.Error("the validation must be written to the audit log")
 	}
 }
 
-// Valider n'a de sens que depuis `ready` : rien à valider avant les tests, plus
-// rien à décider après. Le refus est un 409 et non un 400 — la requête est
-// correcte, c'est l'état qui ne s'y prête pas.
-func TestValiderDepuisUnAutreEtatEstRefuse(t *testing.T) {
+// Approving only makes sense from `ready`: nothing to approve before the tests, nothing
+// left to decide after. The refusal is a 409 and not a 400 — the request is correct, it
+// is the state that does not lend itself to it.
+func TestValidatingFromAnotherStateIsRefused(t *testing.T) {
 	for _, state := range []string{"draft", "building", "verifying", "released", "cancelled"} {
 		fake := newFakeStore()
 		fake.releases["3.2.0-rc1"] = store.Release{
@@ -924,18 +916,17 @@ func TestValiderDepuisUnAutreEtatEstRefuse(t *testing.T) {
 		handler.Release(recorder, request)
 
 		if recorder.Code != http.StatusConflict {
-			t.Errorf("état %q: code %d, attendu 409", state, recorder.Code)
+			t.Errorf("state %q: code %d, expected 409", state, recorder.Code)
 		}
 		if fake.releases["3.2.0-rc1"].State != state {
-			t.Errorf("état %q modifié en %q", state, fake.releases["3.2.0-rc1"].State)
+			t.Errorf("state %q changed to %q", state, fake.releases["3.2.0-rc1"].State)
 		}
 	}
 }
 
-// Relancer après un échec reconstruit depuis la même référence, sans créer de
-// version : faire porter au numéro de version l'historique des pannes du cluster
-// serait absurde.
-func TestRelancerUneConstructionEchoueeReutiliseLaMemeReference(t *testing.T) {
+// Retrying after a failure rebuilds from the same reference, without creating a version:
+// making the version number carry the history of the cluster's outages would be absurd.
+func TestRerunningAFailedBuildReusesTheSameReference(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["3.2.0-rc1"] = store.Release{
 		ID: 9, Tag: "3.2.0-rc1", Kind: "pre", State: "failed",
@@ -956,19 +947,19 @@ func TestRelancerUneConstructionEchoueeReutiliseLaMemeReference(t *testing.T) {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if fake.jobs[0].Params["revision"] != "main" {
-		t.Errorf("révision %q, attendu celle de la release", fake.jobs[0].Params["revision"])
+		t.Errorf("revision %q, expected the release's", fake.jobs[0].Params["revision"])
 	}
 	if fake.jobs[0].Params["version"] != "3.2.0-rc1" {
 		t.Errorf("version %q", fake.jobs[0].Params["version"])
 	}
 	if fake.releases["3.2.0-rc1"].State != "building" {
-		t.Errorf("état %q, attendu building", fake.releases["3.2.0-rc1"].State)
+		t.Errorf("state %q, expected building", fake.releases["3.2.0-rc1"].State)
 	}
 }
 
-// Une release finale n'a rien à reconstruire : son image est celle de sa RC
-// source, et un pipeline produirait une seconde image sous le même tag.
-func TestUneReleaseFinaleNeSeReconstruitPas(t *testing.T) {
+// A final release has nothing to rebuild: its image is its source candidate's, and a
+// pipeline would produce a second image under the same tag.
+func TestAFinalReleaseIsNotRebuilt(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["3.2.0"] = store.Release{
 		ID: 9, Tag: "3.2.0", Kind: "final", State: "failed", ImageVersion: "3.2.0-rc1",
@@ -982,16 +973,16 @@ func TestUneReleaseFinaleNeSeReconstruitPas(t *testing.T) {
 	handler.Rebuild(recorder, request)
 
 	if recorder.Code != http.StatusConflict {
-		t.Errorf("code %d, attendu 409", recorder.Code)
+		t.Errorf("code %d, expected 409", recorder.Code)
 	}
 	if len(fake.jobs) != 0 {
-		t.Errorf("aucun job ne devait partir: %+v", fake.jobs)
+		t.Errorf("no job should have started: %+v", fake.jobs)
 	}
 }
 
-// Reconstruire une release déjà livrée écraserait une image en service. La table
-// de transitions l'interdit, et le handler s'y tient.
-func TestUneReleaseLivreeNeSeReconstruitPas(t *testing.T) {
+// Rebuilding a release already shipped would overwrite an image in service. The
+// transition table forbids it, and the handler abides by that.
+func TestADeliveredReleaseIsNotRebuilt(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["3.2.0-rc1"] = store.Release{
 		ID: 9, Tag: "3.2.0-rc1", Kind: "pre", State: "released",
@@ -1006,16 +997,16 @@ func TestUneReleaseLivreeNeSeReconstruitPas(t *testing.T) {
 	handler.Rebuild(recorder, request)
 
 	if recorder.Code != http.StatusConflict {
-		t.Errorf("code %d, attendu 409", recorder.Code)
+		t.Errorf("code %d, expected 409", recorder.Code)
 	}
 	if len(fake.jobs) != 0 {
-		t.Errorf("aucun job ne devait partir: %+v", fake.jobs)
+		t.Errorf("no job should have started: %+v", fake.jobs)
 	}
 }
 
-// Une release doit désigner un commit, pas une branche : la branche bouge, et
-// reconstruire six mois plus tard produirait une autre image (B17).
-func TestUnePrereleaseEstAncreeSurUnCommitEtTaguee(t *testing.T) {
+// A release must name a commit, not a branch: the branch moves, and rebuilding six
+// months later would produce a different image.
+func TestAPreReleaseIsAnchoredOnACommitAndTagged(t *testing.T) {
 	fake := newFakeStore()
 	forge := &fakeForge{commit: "abc123def456"}
 	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
@@ -1030,38 +1021,38 @@ func TestUnePrereleaseEstAncreeSurUnCommitEtTaguee(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 
-	// La branche est résolue en commit, et le tag posé sur ce commit — jamais sur
-	// la branche, qui désignerait autre chose une minute plus tard.
+	// The branch is resolved into a commit, and the tag set on that commit — never on the
+	// branch, which would name something else a minute later.
 	if len(forge.resolved) != 1 || forge.resolved[0] != "main" {
-		t.Errorf("références résolues: %v", forge.resolved)
+		t.Errorf("references resolved: %v", forge.resolved)
 	}
 	if len(forge.tags) != 1 || forge.tags[0] != "3.2.0-rc1@abc123def456" {
-		t.Errorf("tags posés: %v", forge.tags)
+		t.Errorf("tags set: %v", forge.tags)
 	}
 
-	// La construction part du **commit**, pas du tag ni de la branche : un clone
-	// superficiel ne crée pas la référence locale d'un tag, et le checkout que la
-	// Task fait ensuite échouerait.
+	// The build starts from the commit, not from the tag or the branch: a shallow clone does
+	// not create a tag's local reference, and the checkout the Task then performs would
+	// fail.
 	builds := fake.jobsOfKind("build")
 	if len(builds) != len(fixtureProject().Buildable()) {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if got := builds[0].Params["revision"]; got != "abc123def456" {
-		t.Errorf("révision construite %q, attendu le commit", got)
+		t.Errorf("revision built %q, expected the commit", got)
 	}
-	// Le tag reste porté par `version`, qui devient le tag de l'image (B17, P10).
+	// The tag is still carried by `version`, which becomes the image's tag.
 	if got := builds[0].Params["version"]; got != "3.2.0-rc1" {
-		t.Errorf("version %q, attendu le tag de la release", got)
+		t.Errorf("version %q, expected the release's tag", got)
 	}
 }
 
-// Sans jeton capable d'écrire, la release existe quand même : elle est ancrée sur
-// son commit et la réserve le dit. Refuser priverait de toute la chaîne pour un
-// tag qu'on peut poser ensuite.
-func TestSansEcritureLaReleaseResteAncreeSurSonCommit(t *testing.T) {
+// With no token able to write, the release still exists: it is anchored on its commit
+// and the caveat says so. Refusing would deny the whole chain for a tag that can be set
+// afterwards.
+func TestWithoutWriteAccessTheReleaseStaysAnchoredOnItsCommit(t *testing.T) {
 	fake := newFakeStore()
 	forge := &fakeForge{commit: "abc123def456"}
-	// Forge branchée en lecture seule : pas de tagger.
+	// Forge wired read-only: no tagger.
 	handler := newReleasesHandler(t, fake).WithForge(forge, nil)
 
 	recorder := httptest.NewRecorder()
@@ -1078,21 +1069,21 @@ func TestSansEcritureLaReleaseResteAncreeSurSonCommit(t *testing.T) {
 		Warnings []string `json:"warnings"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	if len(response.Warnings) == 0 {
-		t.Error("l'absence de tag doit être signalée")
+		t.Error("the missing tag must be reported")
 	}
 
-	// La construction part du commit : immuable, même sans tag.
+	// The build starts from the commit: immutable, even with no tag.
 	if got := fake.jobs[0].Params["revision"]; got != "abc123def456" {
-		t.Errorf("révision construite %q, attendu le commit résolu", got)
+		t.Errorf("revision built %q, expected the resolved commit", got)
 	}
 }
 
-// Forge injoignable : la release est créée, la réserve dit qu'elle n'est pas
-// reproductible, et la construction retombe sur la référence saisie.
-func TestUneForgeInjoignableNempechePasLaCreation(t *testing.T) {
+// Forge unreachable: the release is created, the caveat says it is not reproducible, and
+// the build falls back to the typed reference.
+func TestAnUnreachableForgeDoesNotPreventCreation(t *testing.T) {
 	fake := newFakeStore()
 	forge := &fakeForge{resolveErr: errors.New("forge injoignable")}
 	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
@@ -1107,16 +1098,16 @@ func TestUneForgeInjoignableNempechePasLaCreation(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 	if len(forge.tags) != 0 {
-		t.Error("aucun tag ne doit être posé sans commit résolu")
+		t.Error("no tag must be set without a resolved commit")
 	}
 	if got := fake.jobs[0].Params["revision"]; got != "main" {
-		t.Errorf("révision construite %q, attendu le repli sur la référence saisie", got)
+		t.Errorf("revision built %q, expected the fallback to the reference typed", got)
 	}
 }
 
-// Une release finale n'est ni ancrée ni taguée ici : c'est un re-tag, son commit
-// est celui de sa RC source, déjà taguée à sa propre création.
-func TestUneReleaseFinaleNestPasTagueeUneSecondeFois(t *testing.T) {
+// A final release is neither anchored nor tagged here: it is a re-tag, its commit is its
+// source candidate's, already tagged at its own creation.
+func TestAFinalReleaseIsNotTaggedASecondTime(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["3.2.0-rc1"] = store.Release{
 		ID: 1, Tag: "3.2.0-rc1", Kind: "pre", State: "released", ImageVersion: "3.2.0-rc1",
@@ -1134,7 +1125,7 @@ func TestUneReleaseFinaleNestPasTagueeUneSecondeFois(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 	if len(forge.tags) != 0 || len(forge.resolved) != 0 {
-		t.Errorf("une finale ne doit ni résoudre ni taguer: résolus=%v tags=%v",
+		t.Errorf("a final must neither resolve nor tag: resolved=%v tags=%v",
 			forge.resolved, forge.tags)
 	}
 }
@@ -1171,15 +1162,15 @@ func (f *fakeReleaseStore) Baselines(context.Context, string) (map[string]store.
 	return map[string]store.Baseline{}, nil
 }
 
-// La note de release : ces tests ne la couvrent pas, la détection étant éprouvée
-// dans `internal/worker`. Une note vide est le comportement attendu d'une
-// release dont aucune demande n'a été rattachée.
-// jobsOfKind rend les jobs d'une nature donnée.
+// The release note: these tests do not cover it, detection being exercised in
+// internal/worker. An empty note is the expected behaviour for a release with no issue
+// linked.
 //
-// Les tests désignent le job qu'ils examinent par sa nature plutôt que par sa
-// position : toute création en enfile désormais deux — la construction ou le
-// re-tag, et la composition de la note — et un indice figé se serait cassé au
-// premier ajout suivant.
+// jobsOfKind returns the jobs of a given kind.
+//
+// The tests name the job they examine by its kind rather than by its position: every
+// creation now queues two — the build or the re-tag, and composing the note — and a fixed
+// index would have broken at the first addition.
 func (f *fakeReleaseStore) jobsOfKind(kind string) []store.JobRequest {
 	var found []store.JobRequest
 	for _, job := range f.jobs {
@@ -1206,20 +1197,19 @@ func (f *fakeReleaseStore) ListReleaseVersionIssues(context.Context, int64) ([]s
 	return nil, nil
 }
 
-// L'annuaire des noms d'acteurs. Vide : ces tests portent sur des comportements,
-// pas sur l'affichage, et un annuaire vide fait retomber sur le sujet — le
-// comportement exact d'un acteur inconnu.
+// The directory of actor names. Empty: these tests are about behaviour, not display, and
+// an empty directory falls back to the subject — exactly what an unknown actor does.
 func (f *fakeReleaseStore) Directory(context.Context) (map[string]string, error) {
 	return map[string]string{}, nil
 }
 
-// La relance à l'unité lit désormais le catalogue au lieu d'une liste en dur, et
-// c'est le drapeau `verification` qui distingue ce qu'on peut rejouer.
+// Re-running a single family now reads the catalogue instead of a hard-coded list, and
+// it is the `verification` flag that says what can be replayed.
 //
-// Le point qui compte est le refus : `build` figure aussi au catalogue, et une
-// relance de construction déguisée en relance de test republierait les images de
-// la release au lieu de rejouer un test.
-func TestLaRelanceALUniteNaccepteQueLesVerifications(t *testing.T) {
+// The point that matters is the refusal: a build is in the catalogue too, and a rebuild
+// disguised as a test re-run would republish the release's images instead of replaying a
+// test.
+func TestRerunningOneKindAcceptsOnlyVerifications(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0"] = store.Release{
 		ID: 42, Tag: "1.8.0", State: "failed", GitCommit: "abc123def456",
@@ -1237,59 +1227,56 @@ func TestLaRelanceALUniteNaccepteQueLesVerifications(t *testing.T) {
 
 	recorder := verify("unit-tests")
 	if recorder.Code != http.StatusAccepted {
-		t.Fatalf("code = %d, attendu 202: %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("code = %d, expected 202: %s", recorder.Code, recorder.Body.String())
 	}
 	if len(fake.jobs) != 1 || fake.jobs[0].Kind != "unit-tests" {
 		t.Fatalf("jobs mis en file: %+v", fake.jobs)
 	}
-	// La révision vérifiée est le commit construit, jamais la branche dont il
-	// vient : celle-ci a pu bouger, et les tests porteraient alors sur autre chose
-	// que l'image (B17).
+	// The revision verified is the commit that was built, never the branch it came from:
+	// that may have moved, and the tests would then be about something other than the image.
 	if got := fake.jobs[0].Params["revision"]; got != "abc123def456" {
-		t.Errorf("révision relancée = %q, attendu le commit construit", got)
+		t.Errorf("revision re-run = %q, expected the commit built", got)
 	}
 
 	if recorder := verify("build"); recorder.Code != http.StatusBadRequest {
-		t.Errorf("relancer `build` doit être refusé, code = %d", recorder.Code)
+		t.Errorf("re-running `build` must be refused, code = %d", recorder.Code)
 	}
-	if recorder := verify("inconnue"); recorder.Code != http.StatusBadRequest {
-		t.Errorf("une famille absente du catalogue doit être refusée, code = %d", recorder.Code)
+	if recorder := verify("unknown-kind"); recorder.Code != http.StatusBadRequest {
+		t.Errorf("a kind missing from the catalogue must be refused, code = %d", recorder.Code)
 	}
 	if len(fake.jobs) != 1 {
-		t.Errorf("un refus ne doit rien mettre en file: %+v", fake.jobs)
+		t.Errorf("a refusal must queue nothing: %+v", fake.jobs)
 	}
 }
 
-// ProjectBySlug résout le projet nommé dans le chemin. Un seul ici : ces tests
-// portent sur ce que le handler fait du projet, pas sur sa résolution.
+// ProjectBySlug resolves the project named in the path. Only one here: these tests are
+// about what the handler does with the project, not about resolving it.
 func (f *fakeReleaseStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
 	if slug != testProjectSlug {
 		return store.Project{}, store.ErrProjectNotFound
 	}
-	// **Le même projet que `GetProject`**, et c'est une correction.
+	// The same project as GetProject, and that is a correction.
 	//
-	// Ce faux rendait ici un projet sans cibles, et le projet complet par
-	// `GetProject` — deux réponses pour une seule ligne de la base. L'écart ne se
-	// voyait pas tant que la construction lisait par `GetProject` ; depuis que le
-	// plan d'une release est composé à partir du projet servi par la route, il
-	// décide de ce qui se construit, et un faux incohérent ferait passer des
-	// tests sur un projet qui n'existe pas.
+	// This fake used to return a project with no targets here, and the complete project
+	// through GetProject — two answers for one row of the database. The discrepancy did not
+	// show while the build read through GetProject; now that a release's plan is composed
+	// from the project the route serves, it decides what gets built, and an inconsistent fake
+	// would make tests pass on a project that does not exist.
 	//
-	// Le cycle par défaut est posé comme la vraie lecture le fait : sans lui le
-	// faux décrirait un projet dont aucune release n'est créable.
+	// The default cycle is set as the real read sets it: without it the fake would describe a
+	// project with no creatable release.
 	project := fixtureProject()
 	project.Slug = slug
 	project.ReleaseKinds = release.DefaultCycle()
 	return project, nil
 }
 
-// Un projet inconnu rend 404, jamais la release d'un autre.
+// An unknown project returns 404, never another's release.
 //
-// C'est ce que la migration 0025 rend possible et ce que la route rend
-// obligatoire : le tag n'est unique que dans un projet, et une URL qui en nomme
-// un qui n'existe pas doit le dire. Répondre 500 ferait chercher une panne pour
-// une adresse périmée ; répondre 200 avec la release d'ailleurs serait pire.
-func TestUnProjetInconnuNeRendPasLaReleaseDunAutre(t *testing.T) {
+// A tag is unique only within a project, and a URL naming one that does not exist must
+// say so. Answering 500 would send someone hunting for a fault over a stale address;
+// answering 200 with someone else's release would be worse.
+func TestAnUnknownProjectDoesNotReturnAnothersRelease(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0"] = store.Release{ID: 42, Tag: "1.8.0", State: "ready"}
 	handler := newReleasesHandler(t, fake)
@@ -1297,26 +1284,26 @@ func TestUnProjetInconnuNeRendPasLaReleaseDunAutre(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/projects/absent/releases/1.8.0", nil)
 	request.SetPathValue("tag", "1.8.0")
 	recorder := httptest.NewRecorder()
-	// `asRole` pose le projet connu : ce test le remplace, puisque c'est
-	// justement la résolution qu'il éprouve.
+	// `asRole` sets the known project: this test replaces it, since resolution is precisely
+	// what it exercises.
 	request = asRole(request, auth.RoleViewer)
 	request.SetPathValue("project", "absent")
 
 	handler.Get(recorder, request)
 
 	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("code = %d, attendu 404: %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("code = %d, expected 404: %s", recorder.Code, recorder.Body.String())
 	}
 	if strings.Contains(recorder.Body.String(), "1.8.0") {
-		t.Error("la réponse ne doit rien dire de la release d'un autre projet")
+		t.Error("the response must say nothing of another project's release")
 	}
 }
 
 /*
- * Le magasin de plans du faux store.
+ * Le magasin de plans du falseFlag store.
  *
  * La création d'une release ouvre désormais **son plan**, et c'est lui qui met
- * les constructions en file (doc 15 §15.2). Le faux store porte donc, en plus de
+ * les constructions en file (doc 15 §15.2). Le falseFlag store porte donc, en plus de
  * la file, de quoi ouvrir une exécution — sans quoi ces tests éprouveraient un
  * planificateur nul plutôt que le chemin réel.
  *
@@ -1331,8 +1318,8 @@ func (f *fakeReleaseStore) CreatePlanRun(
 		f.planRuns = map[int64]store.PlanRun{}
 		f.planSteps = map[int64][]store.PlanStep{}
 	}
-	// L'unicité par (déclencheur, fait), comme en base : une redélivrance rend
-	// l'exécution existante plutôt que d'en ouvrir une seconde.
+	// Uniqueness by (trigger, fact), as in the database: a redelivery returns the existing
+	// run rather than opening a second one.
 	for _, known := range f.planRuns {
 		if known.Trigger == run.Trigger && known.EventKey == run.EventKey {
 			return known, false, nil
@@ -1342,8 +1329,8 @@ func (f *fakeReleaseStore) CreatePlanRun(
 	run.ID = int64(len(f.planRuns) + 1)
 	run.State = store.PlanRunning
 	f.planRuns[run.ID] = run
-	for stage, etape := range run.Plan.Stages {
-		for position := range etape.Gestes {
+	for stage, planWithStage := range run.Plan.Stages {
+		for position := range planWithStage.Gestes {
 			f.planSteps[run.ID] = append(f.planSteps[run.ID], store.PlanStep{
 				Stage: stage, Position: position, State: string(plan.Pending),
 			})
@@ -1404,19 +1391,16 @@ func (f *fakeReleaseStore) FinishPlanRun(
 	return true, nil
 }
 
-// Le plan d'une release vise l'identifiant que l'insertion a rendu.
+// A release's plan aims at the identifier the insert returned.
 //
-// # Le défaut que ce test aurait attrapé
+// `record` is composed before being written: its ID is zero until the insert returns it.
+// Passing `record` as is when opening the plan named a release that does not exist — the
+// run failed on the foreign key, with a fact key ending in `:0`, and the release stayed a
+// draft with no build leaving.
 //
-// `record` est composé **avant** d'être écrit : son `ID` vaut zéro jusqu'à ce
-// que l'insertion le rende. Passer `record` tel quel à l'ouverture du plan faisait
-// désigner une release inexistante — l'exécution échouait sur la clé étrangère,
-// avec une clé de fait `release.created:0`, et la release restait en brouillon
-// sans qu'aucune construction ne parte.
-//
-// Rien ne l'attrapait : les tests existants vérifiaient ce qui arrive **dans la
-// file**, où l'identifiant de release ne se lit pas.
-func TestLePlanViseLidentifiantRenduParLinsertion(t *testing.T) {
+// Nothing caught it: the existing tests checked what arrives in the queue, where a
+// release identifier is not read.
+func TestThePlanTargetsTheIdentifierReturnedByTheInsert(t *testing.T) {
 	fake := newFakeStore()
 	forge := &fakeForge{commit: "abc123def456"}
 	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
@@ -1432,17 +1416,17 @@ func TestLePlanViseLidentifiantRenduParLinsertion(t *testing.T) {
 	}
 
 	if len(fake.planRuns) != 1 {
-		t.Fatalf("%d exécution(s) de plan, attendu 1", len(fake.planRuns))
+		t.Fatalf("%d plan run(s), expected 1", len(fake.planRuns))
 	}
 	for _, run := range fake.planRuns {
 		if run.ReleaseID == nil || *run.ReleaseID == 0 {
-			t.Errorf("release visée = %v — zéro désigne une release inexistante",
+			t.Errorf("release targeted = %v — zero names a release that does not exist",
 				run.ReleaseID)
 		}
-		// La clé du fait porte le même identifiant : deux orthographes ouvriraient
-		// deux exécutions pour une seule release.
+		// The fact's key carries the same identifier: two spellings would open two runs for one
+		// release.
 		if strings.HasSuffix(run.EventKey, ":0") {
-			t.Errorf("clé du fait %q — elle porte un identifiant nul", run.EventKey)
+			t.Errorf("fact key %q — it carries a null identifier", run.EventKey)
 		}
 	}
 }

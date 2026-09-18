@@ -29,7 +29,7 @@ import (
  * trancher ce que l'ordonnanceur accepte d'une demande.
  */
 
-// ProjectStore est ce que le handler attend de la base.
+// ProjectStore is what the handler needs from the database.
 type ProjectStore interface {
 	ListProjects(ctx context.Context) ([]store.Project, error)
 	GetProject(ctx context.Context, id int64) (store.Project, error)
@@ -42,33 +42,32 @@ type ProjectStore interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// ProjectProber vérifie qu'un dépôt est atteignable.
+// ProjectProber checks that a repository is reachable.
 //
-// Extrait en interface pour que le handler s'éprouve sans forge : ce qui mérite
-// d'être testé ici est la traduction d'un échec en constat lisible, pas le client
-// HTTP qui le produit.
+// Extracted as an interface so the handler can be exercised without a forge: what
+// deserves testing here is turning a failure into a readable verdict, not the HTTP
+// client that produces it.
 type ProjectProber interface {
 	Probe(ctx context.Context, repository, publicKey string) (provider.Probe, error)
 }
 
-// ProjectsHandler expose la déclaration des dépôts.
+// ProjectsHandler exposes the declaration of repositories.
 type ProjectsHandler struct {
 	store ProjectStore
-	// prober teste l'accès. Nil quand la forge n'est pas configurée : le test
-	// répond alors qu'il ne peut pas conclure, ce qui vaut mieux qu'un échec
-	// qu'on prendrait pour un défaut d'accès.
+	// prober tests access. Nil when the forge is not configured: the check then answers
+	// that it cannot conclude, which beats a failure that would be read as an access
+	// problem.
 	prober ProjectProber
-	// schemeCheck refuse un schéma de version qu'un plugin ne saurait pas
-	// acheminer. Nil : tout schéma est acceptable, puisque rien ne promeut.
+	// schemeCheck refuses a version scheme a plugin could not carry. Nil: any scheme is
+	// acceptable, since nothing promotes.
 	//
-	// Une fonction et non un déployeur : le noyau n'a pas à savoir qui promeut,
-	// seulement qu'une configuration de projet peut être refusée par qui le fait
-	// (doc 16 §16.7, couture 8).
+	// A function and not a deployer: the core need not know who promotes, only that a
+	// project's configuration may be refused by whoever does.
 	schemeCheck func(context.Context, version.Scheme) error
 	forgeURL    string
-	// imageRegistry est le registre proposé par défaut à la déclaration. Celui de
-	// la configuration : c'est là que publient les projets existants, et le
-	// resaisir à chaque déclaration inviterait la faute de frappe.
+	// imageRegistry is the registry offered by default when declaring a project. The
+	// configuration's: that is where existing projects publish, and retyping it on every
+	// declaration would invite a typo.
 	imageRegistry string
 }
 
@@ -76,7 +75,7 @@ func NewProjectsHandler(projects ProjectStore) *ProjectsHandler {
 	return &ProjectsHandler{store: projects}
 }
 
-// WithSchemeCheck branche le refus des schémas qu'un plugin ne sait pas acheminer.
+// WithSchemeCheck wires the refusal of schemes a plugin cannot carry.
 func (h *ProjectsHandler) WithSchemeCheck(check func(context.Context, version.Scheme) error) *ProjectsHandler {
 	h.schemeCheck = check
 	return h
@@ -88,13 +87,13 @@ func (h *ProjectsHandler) WithProbe(prober ProjectProber) *ProjectsHandler {
 	return h
 }
 
-// WithForgeURL déclare la forge proposée par défaut à la déclaration.
+// WithForgeURL declares the forge offered by default when declaring a project.
 //
-// Remplace `WithDeployKey`, qui portait aussi la moitié publique d'une clé
-// **partagée** par tous les projets. Elle n'existe plus : chaque projet a la
-// sienne, posée par le worker, et sa présence dans le dépôt est constatée par le
-// test d'accès. Une clé unique ajoutée à plusieurs dépôts faisait de sa
-// révocation une panne pour tout le monde, et ne disait rien de qui clonait quoi.
+// It replaces WithDeployKey, which also carried the public half of a key shared by
+// every project. That no longer exists: each project has its own, set by the worker,
+// and its presence in the repository is observed by the access check. One key added to
+// several repositories made its revocation an outage for everyone, and said nothing
+// about who cloned what.
 func (h *ProjectsHandler) WithForgeURL(forgeURL string) *ProjectsHandler {
 	h.forgeURL = strings.TrimRight(forgeURL, "/")
 	return h
@@ -109,15 +108,15 @@ func (h *ProjectsHandler) WithImageRegistry(registry string) *ProjectsHandler {
 type targetPayload struct {
 	Stage string `json:"stage"`
 	Image string `json:"image"`
-	// Dockerfile propre à cette image, quand il diffère de celui du projet.
+	// Dockerfile specific to this image, when it differs from the project's.
 	Dockerfile string `json:"dockerfile,omitempty"`
-	// Promote dit si un re-tag propage cette image. Toujours rendu, jamais
-	// omis : un booléen absent se lit `false` côté formulaire, ce qui dirait
-	// « non promue » d'une étape sur laquelle personne ne s'est prononcé.
+	// Promote says whether a re-tag propagates this image. Always returned, never omitted:
+	// an absent boolean reads as false on the form side, which would say "not promoted"
+	// about a stage nobody has pronounced on.
 	Promote bool `json:"promote"`
-	// Reference est la référence complète, registre compris. Composée par le
-	// serveur : l'écran l'affiche pour qu'on la reconnaisse, et la recomposer
-	// côté navigateur la ferait diverger de ce que le pipeline recevra.
+	// Reference is the full reference, registry included. Composed by the server: the
+	// screen shows it so it can be recognised, and recomposing it in the browser would let
+	// it diverge from what the pipeline will receive.
 	Reference string `json:"reference,omitempty"`
 }
 
@@ -129,67 +128,65 @@ type projectPayload struct {
 	URL          string `json:"url"`
 	Dockerfile   string `json:"dockerfile"`
 	BuildContext string `json:"build_context"`
-	// Slug nomme le projet dans les URL : `/projects/mse/releases/1.8.0`. Rendu
-	// et modifiable — ces adresses finissent en favori, et un nom qu'on ne peut
-	// pas corriger est un nom qu'on subit.
+	// Slug names the project in URLs: `/projects/mse/releases/1.8.0`. Returned and
+	// editable — these addresses end up bookmarked, and a name one cannot correct is a name
+	// one endures.
 	Slug          string `json:"slug"`
 	ImageRegistry string `json:"image_registry"`
-	// RegistrySecret nomme le secret autorisant à pousser vers ce registre. Vide
-	// vaut celui du déploiement.
+	// RegistrySecret names the secret allowing pushes to this registry. Empty means the
+	// deployment's.
 	//
-	// **Un nom, jamais un identifiant.** Le secret lui-même est provisionné par
-	// le déploiement — par Vault en production —, et le dashboard se contente de
-	// le désigner : faire entrer un mot de passe de registre par ce formulaire le
-	// ferait transiter par le navigateur et l'API (doc 07 §7.3, doc 12 §12.7).
+	// A name, never a credential. The secret itself is provisioned by the deployment, and
+	// the dashboard merely names it: letting a registry password in through this form would
+	// route it through the browser and the API.
 	RegistrySecret string `json:"registry_secret"`
-	// VersionScheme nomme la forme des tags. Un schéma opaque reste utilisable :
-	// il perd la suggestion de version suivante et la sélection par plage, et
-	// l'écran doit le dire plutôt que de calculer n'importe quoi.
+	// VersionScheme names the shape of the tags. An opaque scheme stays usable: it loses
+	// the next-version suggestion and range selection, and the screen must say so rather
+	// than compute something arbitrary.
 	VersionScheme string `json:"version_scheme"`
-	// Stack nomme la pile dont la bibliothèque de référence est posée. Vide :
-	// le projet apporte ses propres pipelines, ce qui est parfaitement valide —
-	// le normatif est le contrat, pas la bibliothèque.
+	// Stack names the stack whose reference library is installed. Empty: the project brings
+	// its own pipelines, which is perfectly valid — the normative part is the contract, not
+	// the library.
 	Stack string `json:"stack"`
-	// TrackerProject nomme ce projet dans l'outil de suivi. Vide : aucun suivi,
-	// et ses versions se déclarent à la main.
+	// TrackerProject names this project in the tracking tool. Empty: no tracker, and its
+	// versions are declared by hand.
 	TrackerProject string          `json:"tracker_project"`
 	MultiStage     bool            `json:"multi_stage"`
 	Targets        []targetPayload `json:"targets"`
-	// CheckedAt absent : aucun test n'a eu lieu. État distinct d'un test qui a
-	// échoué, et qui ne doit pas se lire comme lui.
+	// CheckedAt absent: no check has happened. A state distinct from a check that failed,
+	// and which must not read like one.
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
 	CheckOK   *bool      `json:"check_ok,omitempty"`
 	CheckNote string     `json:"check_note,omitempty"`
-	// DeployKey est la moitié **publique** de la clé propre au projet. Vide tant
-	// que le worker ne l'a pas posée.
+	// DeployKey is the public half of the project's own key. Empty while the worker has not
+	// set it.
 	//
-	// La moitié privée n'apparaît jamais ici, ni ailleurs. Elle est écrite une
-	// fois dans un Secret et n'en ressort plus (doc 07 §7.3).
+	// The private half never appears here, nor anywhere else. It is written once into a
+	// Secret and does not come back out.
 	DeployKey          string     `json:"deploy_key,omitempty"`
 	DeployKeyCreatedAt *time.Time `json:"deploy_key_created_at,omitempty"`
-	// DeployKeyActive dit que la clé ouvre vraiment le dépôt : sa moitié publique
-	// figure dans les clés de déploiement de la forge.
+	// DeployKeyActive says the key really opens the repository: its public half appears
+	// among the forge's deploy keys.
 	//
-	// **Constaté** par le test d'accès, non déclaré par un humain : une
-	// confirmation manuelle restait vraie après qu'on avait retiré la clé du
-	// dépôt, et les pipelines échouaient alors sur une erreur SSH que rien ne
-	// rattachait à l'écran qui affirmait le contraire (B8).
+	// Observed by the access check, not declared by a human: a manual confirmation stayed
+	// true after the key had been removed from the repository, and pipelines then failed on
+	// an SSH error that nothing connected to the screen asserting the contrary.
 	//
-	// Faux, **rien ne construit**. Il n'y a plus de clé partagée sur laquelle
-	// retomber : elle faisait de sa révocation une panne pour tous les projets à
-	// la fois, et ne disait rien de qui clonait quoi.
+	// False, nothing builds. There is no shared key to fall back on any more: it made its
+	// revocation an outage for every project at once, and said nothing about who cloned
+	// what.
 	DeployKeyActive bool   `json:"deploy_key_active"`
 	CreatedBy       string `json:"created_by"`
 }
 
-// List rend les projets, la clé de déploiement et la forge par défaut.
+// List returns the projects, the deploy key and the default forge.
 //
-// Les trois ensemble : l'écran n'a pas d'usage de l'un sans les autres, et la
-// clé est ce qu'on vient chercher au moment d'en déclarer un.
+// All three together: the screen has no use for one without the others, and the key is
+// what one comes looking for when declaring a project.
 func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.store.ListProjects(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des projets impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the projects", "")
 		return
 	}
 
@@ -201,12 +198,11 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"projects":  payload,
 		"forge_url": h.forgeURL,
-		// Proposé à la déclaration : c'est là que publient les projets existants.
+		// Offered when declaring: that is where existing projects publish.
 		"image_registry": h.imageRegistry,
-		// Le test ne prouve que l'accès **du dashboard**, par jeton et en HTTPS.
-		// Les pipelines clonent en SSH avec la clé de déploiement, et rien ici ne
-		// l'éprouve : le dire évite de lire un test vert comme une garantie de
-		// clone.
+		// The check proves only the dashboard's access, by token and over HTTPS. Pipelines
+		// clone over SSH with the deploy key, and nothing here exercises that: saying so avoids
+		// reading a green check as a guarantee that a clone will work.
 		"probe_configured": h.prober != nil,
 	})
 }
@@ -239,8 +235,8 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 	}
 }
 
-// repositoryURL compose le lien vers le dépôt. Vide si l'un des deux manque :
-// un lien tronqué mène à la forge sans mener au dépôt.
+// repositoryURL composes the link to the repository. Empty if either half is missing: a
+// truncated link leads to the forge without leading to the repository.
 func repositoryURL(forgeURL, repository string) string {
 	forge := strings.TrimRight(forgeURL, "/")
 	if forge == "" || repository == "" {
@@ -255,55 +251,51 @@ type projectRequest struct {
 	ForgeURL     string `json:"forge_url"`
 	Dockerfile   string `json:"dockerfile"`
 	BuildContext string `json:"build_context"`
-	// Slug nomme le projet dans les URL : `/projects/mse/releases/1.8.0`. Rendu
-	// et modifiable — ces adresses finissent en favori, et un nom qu'on ne peut
-	// pas corriger est un nom qu'on subit.
+	// Slug names the project in URLs: `/projects/mse/releases/1.8.0`. Returned and
+	// editable — these addresses end up bookmarked, and a name one cannot correct is a name
+	// one endures.
 	Slug           string `json:"slug"`
 	ImageRegistry  string `json:"image_registry"`
 	RegistrySecret string `json:"registry_secret"`
-	// VersionScheme nomme la forme des tags de ce projet. Vide vaut `semver`.
+	// VersionScheme names the shape of this project's tags. Empty means `semver`.
 	VersionScheme string `json:"version_scheme"`
-	// Stack nomme la pile dont la bibliothèque de référence sera posée. Vide :
-	// le projet apporte ses propres pipelines.
+	// Stack names the stack whose reference library will be installed. Empty: the project
+	// brings its own pipelines.
 	Stack string `json:"stack"`
-	// TrackerProject nomme ce projet dans l'outil de suivi. Vide : aucun suivi,
-	// et ses versions se déclarent à la main.
+	// TrackerProject names this project in the tracking tool. Empty: no tracker, and its
+	// versions are declared by hand.
 	//
-	// **Absent de ce formulaire jusqu'ici**, alors que la colonne existe depuis
-	// le lot C : la seule façon de la renseigner était l'amorçage, qui ne passe
-	// qu'une fois. Pire, `UpdateProject` l'écrivait quand même — donc à la
-	// valeur vide —, et enregistrer le libellé d'un projet effaçait sa
-	// déclaration de suivi. La synchronisation s'arrêtait alors sans un mot.
+	// Absent from this form until now, although the column has existed since
 	TrackerProject string          `json:"tracker_project"`
 	MultiStage     bool            `json:"multi_stage"`
 	Targets        []targetPayload `json:"targets"`
 }
 
-// repositoryPattern borne la forme d'un dépôt.
+// repositoryPattern bounds the shape of a repository.
 //
-// `owner/nom`, ce que l'API Gitea attend. Le vérifier ici plutôt qu'au premier
-// appel évite un test d'accès qui échouerait sur une URL malformée et se lirait
-// comme un défaut de droits.
+// `owner/name`, which the forge API expects. Checking it here rather than at the first
+// call avoids an access check failing on a malformed URL and reading as a rights
+// problem.
 const repositorySeparator = "/"
 
 func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projectRequest, bool) {
 	var request projectRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return request, false
 	}
 
 	request.Repository = strings.Trim(strings.TrimSpace(request.Repository), "/")
 	owner, name, found := strings.Cut(request.Repository, repositorySeparator)
 	if !found || owner == "" || name == "" || strings.Contains(name, repositorySeparator) {
-		writeProblem(w, http.StatusBadRequest, "Dépôt invalide", "attendu owner/nom")
+		writeProblem(w, http.StatusBadRequest, "Invalid repository", "expected owner/name")
 		return request, false
 	}
 
 	request.Label = strings.TrimSpace(request.Label)
 	if request.Label == "" {
-		// Le nom du dépôt fait un libellé acceptable, et l'exiger ferait buter
-		// sur un champ dont la valeur est évidente.
+		// The repository's name makes an acceptable label, and requiring one would stumble over
+		// a field whose value is obvious.
 		request.Label = name
 	}
 
@@ -317,42 +309,41 @@ func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projec
 		request.BuildContext = "."
 	}
 	request.Dockerfile = strings.TrimSpace(request.Dockerfile)
-	// Les barres de fin sont retirées : composer la référence les redoublerait,
-	// et `reg.example.fr/projet//portal` n'est pas la même image que
-	// `reg.example.fr/projet/portal` pour un registre.
+	// Trailing slashes are stripped: composing the reference would double them, and
+	// `registry/project//image` is not the same image as `registry/project/image` to a
+	// registry.
 	request.ImageRegistry = strings.Trim(strings.TrimSpace(request.ImageRegistry), "/")
 	if request.ImageRegistry == "" {
 		request.ImageRegistry = h.imageRegistry
 	}
 
-	// Le couplage schéma × déployeur est refusé **ici**, à la configuration, et
-	// non découvert au premier déploiement qui ne part pas.
+	// The scheme × deployer coupling is refused here, at configuration time, and not
+	// discovered at the first deployment that does not leave.
 	//
-	// C'est le mode de défaillance que doc 12 §12.4 désigne : Flux sélectionne
-	// par plage SemVer, et avec un schéma opaque le tag de promotion serait
-	// poussé, accepté par le registre, ignoré par Flux — la promotion paraîtrait
-	// réussie et rien ne bougerait.
+	// It is the failure mode of a GitOps controller selecting by SemVer range: with an
+	// opaque scheme the promotion tag would be pushed, accepted by the registry, ignored by
+	// the controller — the promotion would look successful and nothing would move.
 	request.VersionScheme = strings.TrimSpace(request.VersionScheme)
 	scheme, err := version.For(request.VersionScheme)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Schéma de version inconnu", err.Error())
+		writeProblem(w, http.StatusBadRequest, "Unknown version scheme", err.Error())
 		return request, false
 	}
 	if h.schemeCheck != nil {
 		if err := h.schemeCheck(r.Context(), scheme); err != nil {
 			writeProblem(w, http.StatusBadRequest,
-				"Schéma de version incompatible avec le déployeur", err.Error())
+				"Version scheme incompatible with the deployer", err.Error())
 			return request, false
 		}
 	}
 
-	// La pile est refusée à la déclaration si aucune bibliothèque ne la couvre.
-	// L'apprendre ici plutôt qu'au premier lancement évite de constater qu'un
-	// pipeline est introuvable sans savoir pourquoi — et le message dit quoi
-	// faire : un projet dont la pile n'est pas couverte écrit les siens.
+	// The stack is refused at declaration time if no library covers it. Learning it here
+	// rather than at the first launch avoids finding a pipeline missing without knowing
+	// why — and the message says what to do: a project whose stack is not covered writes its
+	// own.
 	request.Stack = strings.TrimSpace(request.Stack)
 	if _, err := pipelines.For(request.Stack); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Pile inconnue", err.Error())
+		writeProblem(w, http.StatusBadRequest, "Unknown stack", err.Error())
 		return request, false
 	}
 
@@ -362,9 +353,8 @@ func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projec
 func targetsOf(request projectRequest) []store.Target {
 	targets := make([]store.Target, 0, len(request.Targets))
 	for _, target := range request.Targets {
-		// Écrit explicitement, y compris quand il vaut vrai : le formulaire a
-		// tranché, et laisser l'entrée muette la rendrait indiscernable de celles
-		// que la migration a rattrapées.
+		// Written explicitly, including when it is true: the form settled it, and leaving the
+		// entry silent would make it indistinguishable from those the migration caught up.
 		promote := target.Promote
 		targets = append(targets, store.Target{
 			Stage:      strings.TrimSpace(target.Stage),
@@ -380,7 +370,7 @@ func targetsOf(request projectRequest) []store.Target {
 func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -403,36 +393,34 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrProjectExists) {
-			writeProblem(w, http.StatusConflict, "Dépôt déjà déclaré", request.Repository)
+			writeProblem(w, http.StatusConflict, "Repository already declared", request.Repository)
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Déclaration impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot declare", "")
 		return
 	}
 
 	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectSet, request.Repository,
 		map[string]any{"label": request.Label})
 
-	// La clé du projet est posée par le worker, qui seul parle au cluster. Le
-	// projet est utilisable immédiatement : en attendant, ses pipelines montent
-	// la clé partagée du déploiement.
+	// The project's key is set by the worker, which alone talks to the cluster. The project
+	// is usable immediately: meanwhile its pipelines mount the deployment's shared key.
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
-// RotateDeployKey demande le remplacement de la clé d'un projet.
+// RotateDeployKey asks for a project's key to be replaced.
 //
-// Une **demande**, réalisée par le worker. L'API tourne sans jeton de cluster —
-// `automountServiceAccountToken: false`, délibérément, parce que c'est la
-// surface exposée — et lui en accorder un pour la commodité d'une pose synchrone
-// serait un recul de sécurité déguisé en fonctionnalité (doc 12 §12.7).
+// A request, carried out by the worker. The API runs without a cluster token —
+// `automountServiceAccountToken: false`, deliberately, because it is the exposed
+// surface — and granting it one for the convenience of a synchronous set would be a
+// security regression disguised as a feature.
 //
-// L'ancienne clé reste valable jusqu'à ce que la nouvelle soit posée : la
-// rotation ne casse donc pas les clones en cours, et l'écran dit qu'elle est
-// demandée plutôt que faite.
+// The old key stays valid until the new one is set: rotation therefore does not break
+// clones in flight, and the screen says it is requested rather than done.
 func (h *ProjectsHandler) RotateDeployKey(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -451,18 +439,18 @@ func (h *ProjectsHandler) RotateDeployKey(w http.ResponseWriter, r *http.Request
 	}
 
 	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectSet,
-		strconv.FormatInt(id, 10), map[string]any{"deploy_key": "rotation demandée"})
+		strconv.FormatInt(id, 10), map[string]any{"deploy_key": "rotation requested"})
 
-	// 202 et non 200 : la clé n'est pas encore remplacée, et répondre 200
-	// laisserait croire qu'on peut déjà la coller dans la forge.
+	// 202 and not 200: the key is not replaced yet, and answering 200 would suggest it can
+	// already be pasted into the forge.
 	writeJSON(w, http.StatusAccepted, map[string]any{"requested": true})
 }
 
-// Update remplace la description d'un projet.
+// Update replaces a project's description.
 func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -476,10 +464,9 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Le dépôt est modifiable, et c'est le cas d'usage principal : les projets
-	// amorcés portent celui que la configuration a nommé, et le corriger est
-	// exactement ce qu'on vient faire. Le changer efface le constat d'accès —
-	// il portait sur ce qu'on ne pilote plus.
+	// The repository is editable, and that is the main use case: bootstrapped projects
+	// carry the one the configuration named, and correcting it is exactly what this is for.
+	// Changing it clears the access verdict — it was about something no longer driven.
 	err := h.store.UpdateProject(r.Context(), store.Project{
 		ID: id, Repository: request.Repository, Label: request.Label,
 		ForgeURL: request.ForgeURL, Dockerfile: request.Dockerfile,
@@ -497,10 +484,10 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, store.ErrProjectExists) {
-			writeProblem(w, http.StatusConflict, "Dépôt déjà déclaré", request.Repository)
+			writeProblem(w, http.StatusConflict, "Repository already declared", request.Repository)
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Mise à jour impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot update", "")
 		return
 	}
 
@@ -514,7 +501,7 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -523,8 +510,8 @@ func (h *ProjectsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Le dépôt est relu avant d'être retiré : le journal d'audit doit nommer ce
-	// qui a disparu, et après la suppression il n'y a plus rien à nommer.
+	// The repository is read back before being removed: the audit log must name what
+	// disappeared, and after the deletion there is nothing left to name.
 	project, err := h.store.GetProject(r.Context(), id)
 	if err != nil && !errors.Is(err, store.ErrProjectNotFound) {
 		writeProblem(w, http.StatusInternalServerError, "Suppression impossible", "")
@@ -545,17 +532,17 @@ func (h *ProjectsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
-// Probe vérifie que le dashboard atteint le dépôt.
+// Probe checks that the dashboard reaches the repository.
 //
-// Ce que le test prouve, et rien de plus : le dashboard lit ce dépôt par l'API
-// Gitea, avec son jeton, en HTTPS. Les pipelines, eux, clonent en SSH avec la clé
-// de déploiement, depuis un pod qui n'est pas celui-ci. Un test vert ne garantit
-// donc pas qu'un clone aboutira — c'est dit à l'écran, faute de quoi une clé
-// oubliée se découvrirait au premier build.
+// What the check proves, and nothing more: the dashboard reads this repository through
+// the forge API, with its token, over HTTPS. The pipelines clone over SSH with the
+// deploy key, from a pod that is not this one. A green check therefore does not
+// guarantee a clone will work — that is said on screen, failing which a forgotten key
+// would surface at the first build.
 func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -575,10 +562,10 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.prober == nil {
-		// Ni vert ni rouge : le test n'a pas eu lieu. Le consigner en échec
-		// ferait chercher un défaut d'accès là où il n'y a qu'un jeton absent.
+		// Neither green nor red: the check did not happen. Recording it as a failure would send
+		// someone hunting for an access problem where there is only a missing token.
 		writeProblem(w, http.StatusServiceUnavailable, "Test indisponible",
-			"la forge n'est pas configurée : GITEA_URL et GITEA_TOKEN sont requis")
+			"the forge is not configured: GITEA_URL and GITEA_TOKEN are required")
 		return
 	}
 
@@ -587,7 +574,7 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	if probeErr != nil {
 		note = probeErr.Error()
 	} else {
-		note = "branche par défaut : " + probe.DefaultBranch
+		note = "default branch: " + probe.DefaultBranch
 	}
 
 	if err := h.store.RecordProjectCheck(r.Context(), id, probeErr == nil, note); err != nil {
@@ -595,21 +582,20 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Le sort de la clé, **constaté** et non déclaré.
+	// The key's fate, observed and not declared.
 	//
-	// Il était confirmé à la main : quelqu'un collait la moitié publique dans les
-	// réglages du dépôt, puis venait le dire. Une intention, donc, avec le défaut
-	// des intentions (B8) — elle restait vraie après qu'on avait retiré la clé du
-	// dépôt, et les pipelines échouaient sur une erreur SSH que rien ne rattachait
-	// à l'écran qui affirmait le contraire.
+	// It used to be confirmed by hand: someone pasted the public half into the repository's
+	// settings, then came to say so. An intention, therefore, with the flaw of intentions —
+	// it stayed true after the key had been removed from the repository, and the pipelines
+	// failed on an SSH error that nothing connected to the screen asserting the contrary.
 	//
-	// Le silence est respecté : quand la question n'a pas pu être posée, l'état
-	// précédent est **laissé tel quel**. L'écraser à faux couperait les
-	// constructions d'un projet dont la clé est peut-être en place, pour la seule
-	// raison que le jeton n'a pas le droit de lire les clés du dépôt.
+	// Silence is respected: when the question could not be asked, the previous state is
+	// left as it is. Overwriting it to false would cut the builds of a project whose key
+	// may well be in place, for the sole reason that the token may not read the
+	// repository's keys.
 	if probe.KeyPresent != nil {
 		if err := h.store.ActivateDeployKey(r.Context(), id, *probe.KeyPresent); err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Constat de la clé impossible", "")
+			writeProblem(w, http.StatusInternalServerError, "Cannot check the key", "")
 			return
 		}
 	}
@@ -620,8 +606,8 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   probeErr == nil,
 		"note": note,
-		// Trois états rendus tels quels : `null` veut dire « la question n'a pas
-		// pu être posée », ce que l'écran doit dire autrement qu'une absence.
+		// Three states returned as they are: null means "the question could not be asked",
+		// which the screen must say differently from an absence.
 		"key_present": probe.KeyPresent,
 		"key_note":    probe.KeyNote,
 	})

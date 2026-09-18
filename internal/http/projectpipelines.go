@@ -25,7 +25,7 @@ import (
  * savent — et, en regard, ce que le projet en retient.
  */
 
-// ProjectPipelineStore est ce que cet écran attend de la base.
+// ProjectPipelineStore is what this screen needs from the database.
 type ProjectPipelineStore interface {
 	ProjectPipelines(ctx context.Context, projectID int64) (map[string]store.ProjectPipeline, error)
 	SetProjectPipeline(ctx context.Context, projectID int64, kind string, enabled bool, actor string) error
@@ -33,7 +33,7 @@ type ProjectPipelineStore interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// ProjectPipelinesHandler expose le registre et les décisions d'un projet.
+// ProjectPipelinesHandler exposes the registry and a project's decisions.
 type ProjectPipelinesHandler struct {
 	store   ProjectPipelineStore
 	catalog *catalog.Catalog
@@ -49,23 +49,23 @@ func NewProjectPipelinesHandler(
 	return &ProjectPipelinesHandler{store: pipelines, catalog: registry, logger: logger}
 }
 
-// pipelineVw est une famille du registre et ce que le projet en dit.
+// pipelineVw is a registry kind and what the project says about it.
 type pipelineVw struct {
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
-	// Verification dit que la famille s'enchaîne après une construction réussie.
-	// Les autres se lancent à la main depuis la file, et les désactiver n'a pas le
-	// même effet : l'écran doit pouvoir le dire.
+	// Verification says the kind chains after a successful build. The others are launched by
+	// hand from the queue, and disabling them does not have the same effect: the screen must be
+	// able to say so.
 	Verification bool `json:"verification"`
 	Enabled      bool `json:"enabled"`
-	// Declared distingue « le projet a décidé » de « le projet n'a rien dit ».
-	// Sans lui, l'écran ne saurait pas si l'état affiché est un choix ou un
-	// défaut, et ne pourrait pas proposer de revenir au défaut.
+	// Declared separates "the project decided" from "the project said nothing". Without it, the
+	// screen would not know whether the state displayed is a choice or a default, and could not
+	// offer a return to the default.
 	Declared  bool   `json:"declared"`
 	UpdatedBy string `json:"updated_by,omitempty"`
 }
 
-// List rend le registre et les décisions du projet.
+// List returns the registry and the project's decisions.
 func (h *ProjectPipelinesHandler) List(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -74,7 +74,7 @@ func (h *ProjectPipelinesHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	decisions, err := h.store.ProjectPipelines(r.Context(), project.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des pipelines impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the pipelines", "")
 		return
 	}
 
@@ -82,9 +82,8 @@ func (h *ProjectPipelinesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if h.catalog != nil {
 		for _, pipeline := range h.catalog.Pipelines {
 			entry, declared := decisions[pipeline.Kind]
-			// L'absence de décision vaut **activé** : c'est ce qui fait qu'un
-			// projet déclaré avant cette table continue de recevoir ce qu'il
-			// recevait.
+			// The absence of a decision means enabled: that is what keeps a project declared before
+			// this table receiving what it used to receive.
 			enabled := true
 			if declared {
 				enabled = entry.Enabled
@@ -107,7 +106,7 @@ type projectPipelineRequest struct {
 	Enabled bool `json:"enabled"`
 }
 
-// Set enregistre la décision d'un projet sur une famille.
+// Set records a project's decision about a kind.
 func (h *ProjectPipelinesHandler) Set(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -121,31 +120,29 @@ func (h *ProjectPipelinesHandler) Set(w http.ResponseWriter, r *http.Request) {
 	}
 	pipeline, found := h.catalog.Find(kind)
 	if !found {
-		// Refusé plutôt qu'enregistré : une ligne pour une famille inexistante
-		// donnerait un écran qui dit « désactivé » d'un pipeline que personne ne
-		// lance, et masquerait la faute de frappe.
-		writeProblem(w, http.StatusNotFound, "Famille inconnue du catalogue", kind)
+		// Refused rather than recorded: a row for a non-existent kind would give a screen saying
+		// "disabled" about a pipeline nobody launches, and would hide the typo.
+		writeProblem(w, http.StatusNotFound, "Kind unknown to the catalogue", kind)
 		return
 	}
 
 	var request projectPipelineRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
 	identity, _ := IdentityFrom(r.Context())
 	if err := h.store.SetProjectPipeline(
 		r.Context(), project.ID, pipeline.Kind, request.Enabled, identity.Subject); err != nil {
-		h.logger.Error("enregistrement d'un pipeline de projet",
+		h.logger.Error("recording a project pipeline",
 			"projet", project.Slug, "kind", pipeline.Kind, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
 		return
 	}
 
-	// Consigné : désactiver une vérification change ce qu'une release aura
-	// traversé avant d'être livrée, et c'est le genre de décision qu'on veut
-	// pouvoir retrouver.
+	// Recorded: disabling a verification changes what a release will have gone through before
+	// being shipped, and that is the kind of decision one wants to be able to find again.
 	h.audit(r, "project.pipeline", project.Slug+"/"+pipeline.Kind,
 		map[string]any{"enabled": request.Enabled})
 
@@ -160,10 +157,10 @@ func (h *ProjectPipelinesHandler) project(w http.ResponseWriter, r *http.Request
 	project, err := h.store.ProjectBySlug(r.Context(), strings.TrimSpace(r.PathValue("project")))
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet inconnu", "")
+			writeProblem(w, http.StatusNotFound, "Unknown project", "")
 			return store.Project{}, false
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
 		return store.Project{}, false
 	}
 	return project, true

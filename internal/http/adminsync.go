@@ -35,7 +35,7 @@ import (
  * déplacerait un taux de complétion affiché à un autre.
  */
 
-// SyncAdminStore est ce que l'administration de la synchronisation attend de la base.
+// SyncAdminStore is what synchronisation administration needs from the database.
 type SyncAdminStore interface {
 	GetSyncState(ctx context.Context, source string, projectID int64) (store.SyncState, error)
 	ResetSyncCursor(ctx context.Context, source string, projectID int64) error
@@ -49,16 +49,16 @@ type SyncAdminStore interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// SyncAdminHandler expose l'état des synchronisations et leurs correctifs.
+// SyncAdminHandler exposes the state of the synchronisations and their corrections.
 type SyncAdminHandler struct {
 	store SyncAdminStore
 }
 
-// NewSyncAdminHandler construit le handler.
+// NewSyncAdminHandler builds the handler.
 //
-// Il ne reçoit plus de drapeau « configuré » : la configuration du suivi est
-// désormais un réglage de plugin, propre au projet, et c'est la déclaration du
-// projet qui dit si le suivi le concerne. Un drapeau global répondrait pour tous.
+// It no longer receives a "configured" flag: the tracker's configuration is now a plugin
+// setting, specific to the project, and it is the project's declaration that says whether
+// the tracker concerns it. A global flag would answer for everyone.
 func NewSyncAdminHandler(admin SyncAdminStore) *SyncAdminHandler {
 	return &SyncAdminHandler{store: admin}
 }
@@ -68,16 +68,16 @@ func (h *SyncAdminHandler) project(w http.ResponseWriter, r *http.Request) (stor
 	project, err := h.store.ProjectBySlug(r.Context(), strings.TrimSpace(r.PathValue("project")))
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet inconnu", "")
+			writeProblem(w, http.StatusNotFound, "Unknown project", "")
 			return store.Project{}, false
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
 		return store.Project{}, false
 	}
 	return project, true
 }
 
-// State rend l'état de la synchronisation et ce qui demande une décision humaine.
+// State returns the synchronisation's state and what needs a human decision.
 func (h *SyncAdminHandler) State(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -86,31 +86,31 @@ func (h *SyncAdminHandler) State(w http.ResponseWriter, r *http.Request) {
 
 	state, err := h.store.GetSyncState(r.Context(), "redmine", project.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture de l'état impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the state", "")
 		return
 	}
 
 	unmapped, err := h.store.UnmappedStatuses(r.Context(), project.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des statuts impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the statuses", "")
 		return
 	}
 
 	ambiguous, err := h.store.AmbiguousVersions(r.Context(), project.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des versions impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the versions", "")
 		return
 	}
 
 	pending, err := h.store.PendingVersions(r.Context(), project.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des versions provisoires impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the provisional versions", "")
 		return
 	}
 
 	mapping, err := h.store.StatusMapping(r.Context(), project.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la projection impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the mapping", "")
 		return
 	}
 
@@ -129,9 +129,9 @@ func (h *SyncAdminHandler) State(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		// « Configuré » se lit désormais sur le projet : il déclare son suivi, ou
-		// non. Sans cette distinction, l'écran dirait « jamais synchronisé » d'un
-		// projet qui n'a simplement pas de suivi, et enverrait chercher une panne.
+		// "Configured" is now read from the project: it declares its tracker, or it does not.
+		// Without that distinction the screen would say "never synchronised" of a project that
+		// simply has no tracker, and send someone hunting for a fault.
 		"configured": strings.TrimSpace(project.TrackerProject) != "",
 		"project":    project.Slug,
 		"sync":       syncStateView(state),
@@ -149,30 +149,30 @@ func orEmptyStrings(values []string) []string {
 	return values
 }
 
-// Resync efface le curseur pour que la passe suivante relise tout.
+// Resync clears the cursor so the next pass re-reads everything.
 //
-// N'interroge pas le suivi ici : la synchronisation vit dans le `worker`, sous le bail
-// de leader, et l'`api` n'a pas de chemin vers elle. Effacer le curseur est le signal,
-// et la passe suivante — au plus tard cinq minutes après — relira l'ensemble.
+// It does not query the tracker here: synchronisation lives in the worker, under the leader
+// lease, and the api has no path to it. Clearing the cursor is the signal, and the next
+// pass re-reads everything.
 func (h *SyncAdminHandler) Resync(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
 		return
 	}
 
-	// Borné au projet : relire l'ensemble sollicite un service tiers, et rien ne
-	// justifie de faire porter à un client le doute qu'on a sur un autre.
+	// Bounded to the project: re-reading everything calls a third-party service, and nothing
+	// justifies making one deployment bear the doubt one has about another.
 	if err := h.store.ResetSyncCursor(r.Context(), "redmine", project.ID); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Réinitialisation impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot reset", "")
 		return
 	}
 
 	h.audit(r, "sync.redmine.reset", project.Slug, nil)
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		// Le message dit l'attente : sans lui, un utilisateur qui ne voit rien
-		// changer relancerait en boucle.
-		"message": "Curseur réinitialisé. La prochaine synchronisation relira l'ensemble, dans les cinq minutes.",
+		// The message states the wait: without it, a user seeing nothing change would keep
+		// relaunching.
+		"message": "Cursor reset. The next synchronisation will read everything again, within five minutes.",
 	})
 }
 
@@ -180,14 +180,14 @@ type statusMappingRequest struct {
 	Bucket string `json:"bucket"`
 }
 
-// Les seaux admis viennent du magasin : une seconde énumération ici divergerait de
-// la contrainte de la base au premier ajout.
+// The accepted buckets come from the store: a second enumeration here would diverge from
+// the database constraint at the first addition.
 
-// SetMapping déclare la projection d'un statut, puis la réapplique.
+// SetMapping declares a status's mapping, then reapplies it.
 //
-// La réapplication est faite dans le même geste, et ce n'est pas un détail : sans
-// elle, la nouvelle règle ne vaudrait que pour les demandes modifiées ensuite dans
-// Redmine, et l'écran mélangerait deux règles sans le dire.
+// Reapplying happens in the same gesture, and that is not a detail: without it the new rule
+// would hold only for issues modified afterwards in the tracker, and the screen would mix
+// two rules without saying so.
 func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -196,18 +196,18 @@ func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
 
 	statusName := strings.TrimSpace(r.PathValue("status"))
 	if statusName == "" {
-		writeProblem(w, http.StatusBadRequest, "Statut absent", "")
+		writeProblem(w, http.StatusBadRequest, "Missing status", "")
 		return
 	}
 
 	var request statusMappingRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 	if !store.ValidBucket(request.Bucket) {
 		writeProblem(w, http.StatusBadRequest, "Seau invalide",
-			"Le seau vaut « todo », « doing », « client-test », « done » ou « rejected ».")
+			"The bucket is one of “todo”, “doing”, “client-test”, “done” or “rejected”.")
 		return
 	}
 
@@ -216,17 +216,16 @@ func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bornée au projet, comme la déclaration : réappliquer la projection de l'un
-	// ne doit pas déplacer les demandes de l'autre, dont le vocabulaire n'est pas
-	// le même.
+	// Bounded to the project, like the declaration: reapplying one's mapping must not move the
+	// other's issues, whose vocabulary is not the same.
 	moved, err := h.store.ReprojectIssues(r.Context(), project.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Réapplication impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot reapply", "")
 		return
 	}
 
-	// Le journal porte le déplacement : changer la projection d'un statut déplace un
-	// taux de complétion affiché au client, ce qui mérite une trace.
+	// The log carries how many moved: changing a status's mapping moves a completion rate
+	// displayed to the client, which deserves a record.
 	h.audit(r, "sync.redmine.mapping", project.Slug+"/"+statusName, map[string]any{
 		"bucket": request.Bucket, "issues_moved": moved,
 	})

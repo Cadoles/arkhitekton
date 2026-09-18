@@ -14,25 +14,24 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// RunDetails est ce que le handler attend pour servir un run.
+// RunDetails is what the handler needs to serve a run.
 type RunDetails interface {
 	GetRun(ctx context.Context, name string) (store.RunDetail, error)
 }
 
-// Runs décrit ce que le handler attend de la base.
+// Runs describes what the handler needs from the database.
 type Runs interface {
 	ListRuns(ctx context.Context, limit int) ([]store.RunSummary, error)
 }
 
-// RunsHandler expose les runs observés.
+// RunsHandler exposes the observed runs.
 type RunsHandler struct {
 	runs Runs
-	// dashboardURL est la racine du dashboard Tekton. Vide, le lien est omis
-	// plutôt que rendu mort : un lien qui mène nulle part coûte plus qu'il ne
-	// rapporte.
+	// dashboardURL is the root of the Tekton dashboard. Empty, the link is omitted rather
+	// than rendered dead: a link that leads nowhere costs more than it returns.
 	dashboardURL string
-	// directory traduit les sujets OIDC en noms. Nil-safe : sans lui le sujet
-	// s'affiche tel quel, ce qui reste identifiable.
+	// directory translates OIDC subjects into names. Nil-safe: without it the subject is
+	// displayed as is, which stays identifiable.
 	directory DirectoryReader
 	logger    *slog.Logger
 }
@@ -41,30 +40,29 @@ func NewRunsHandler(runs Runs) *RunsHandler {
 	return &RunsHandler{runs: runs}
 }
 
-// WithTektonDashboard branche le lien vers l'exécution telle que Tekton la voit.
+// WithTektonDashboard wires the link to the run as Tekton sees it.
 //
-// Le dashboard de ce projet montre ce qu'il a retenu d'un run : statut, étapes,
-// journaux collectés. Celui de Tekton montre l'objet lui-même — ses paramètres
-// résolus, ses workspaces, ses résultats. Quand les deux divergent, c'est le
-// second qui tranche, et il faut pouvoir y aller sans reconstruire l'URL à la
-// main.
+// This dashboard shows what it kept of a run: status, steps, collected logs. Tekton's
+// shows the object itself — its resolved parameters, its workspaces, its results. When the
+// two diverge, the second settles it, and one must be able to get there without
+// rebuilding the URL by hand.
 func (h *RunsHandler) WithTektonDashboard(url string) *RunsHandler {
 	h.dashboardURL = strings.TrimRight(url, "/")
 	return h
 }
 
-// WithDirectory branche la traduction des sujets en noms.
+// WithDirectory wires the translation of subjects into names.
 func (h *RunsHandler) WithDirectory(directory DirectoryReader, logger *slog.Logger) *RunsHandler {
 	h.directory = directory
 	h.logger = logger
 	return h
 }
 
-// dashboardLink compose l'URL de l'exécution dans le dashboard Tekton.
+// dashboardLink composes the run's URL in the Tekton dashboard.
 //
-// La forme `#/namespaces/<ns>/pipelineruns/<nom>` est celle du routeur du
-// dashboard Tekton. Un namespace vide donnerait une URL qui s'ouvre sur une page
-// d'erreur : mieux vaut alors ne pas proposer le lien.
+// The `#/namespaces/<ns>/pipelineruns/<name>` shape is that of the Tekton dashboard's
+// router. An empty namespace would give a URL that opens on an error page: better not to
+// offer the link then.
 func (h *RunsHandler) dashboardLink(run store.RunSummary) string {
 	if h.dashboardURL == "" || run.Namespace == "" {
 		return ""
@@ -73,11 +71,11 @@ func (h *RunsHandler) dashboardLink(run store.RunSummary) string {
 		"/pipelineruns/" + url.PathEscape(run.Name)
 }
 
-// runPayload est la représentation transmise au frontend.
+// runPayload is the representation sent to the front end.
 //
-// Un type dédié plutôt que la structure de `store` : le contrat d'API ne doit pas
-// suivre les évolutions du schéma, et les noms passent en snake_case, convention
-// du reste de l'API.
+// A dedicated type rather than the store's structure: the API contract must not follow
+// the schema's evolution, and the names go to snake_case, the convention of the rest of
+// the API.
 type runPayload struct {
 	ID          int64      `json:"id"`
 	Name        string     `json:"name"`
@@ -86,34 +84,33 @@ type runPayload struct {
 	Reason      string     `json:"reason,omitempty"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	// Observed distingue un run que le dashboard a lancé d'un run qu'il
-	// constate : l'interface n'offre ni annulation ni relance sur le second.
+	// Observed tells a run the dashboard launched from one it merely observes: the interface
+	// offers neither cancellation nor re-run on the second.
 	Observed bool `json:"observed"`
 
-	// Origin dit d'où vient l'exécution : la release qu'elle sert, ou à défaut
-	// la personne qui l'a demandée. Les deux champs sont omis quand ils sont
-	// vides — un run observé n'a ni l'un ni l'autre, et afficher « — » à leur
-	// place ferait croire à une donnée perdue.
+	// Origin says where the run came from: the release it serves, or failing that the person
+	// who asked for it. Both fields are omitted when empty — an observed run has neither, and
+	// showing a dash in their place would suggest lost data.
 	ReleaseTag  string `json:"release_tag,omitempty"`
 	TriggeredBy string `json:"triggered_by,omitempty"`
-	// DashboardURL pointe vers l'objet dans le dashboard Tekton.
+	// DashboardURL points at the object in the Tekton dashboard.
 	DashboardURL string `json:"dashboard_url,omitempty"`
 }
 
-// List rend les runs les plus récents.
+// List returns the most recent runs.
 func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil {
 			limit = parsed
 		}
-		// Une limite illisible est ignorée plutôt que refusée : le défaut est
-		// sûr, et un 400 sur un paramètre d'affichage n'apprend rien.
+		// An unreadable limit is ignored rather than refused: the default is safe, and a 400 on a
+		// display parameter teaches nothing.
 	}
 
 	runs, err := h.runs.ListRuns(r.Context(), limit)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des exécutions impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the runs", "")
 		return
 	}
 
@@ -131,29 +128,29 @@ type taskPayload struct {
 	Status      string     `json:"status"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	// HasLog dit s'il y a quelque chose à lire ; Sealed, s'il est inutile de
-	// continuer à suivre.
+	// HasLog says whether there is anything to read; Sealed, whether there is any point in
+	// following it.
 	HasLog bool `json:"has_log"`
 	Sealed bool `json:"log_sealed"`
 }
 
-// Get rend un run et ses tasks.
+// Get returns a run and its tasks.
 func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	details, ok := h.runs.(RunDetails)
 	if !ok {
-		writeProblem(w, http.StatusNotImplemented, "Détail indisponible", "")
+		writeProblem(w, http.StatusNotImplemented, "Detail unavailable", "")
 		return
 	}
 
 	detail, err := details.GetRun(r.Context(), r.PathValue("run"))
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
-			// 404 et non 500 : un run purgé par les CronJobs de nettoyage est un
-			// cas normal, et l'interface doit pouvoir le dire.
-			writeProblem(w, http.StatusNotFound, "Exécution introuvable", "")
+			// 404 and not 500: a run purged by clean-up cron jobs is a normal case, and the interface
+			// must be able to say so.
+			writeProblem(w, http.StatusNotFound, "Run not found", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de l'exécution impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the run", "")
 		return
 	}
 
@@ -172,31 +169,28 @@ func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// mergeTasks compose la liste des tâches d'un run : celles qui ont démarré, et
-// celles que le pipeline déclare sans les avoir encore lancées.
+// mergeTasks composes a run's task list: those that started, and those the pipeline
+// declares without having launched them yet.
 //
-// Tekton ne crée un TaskRun qu'au démarrage d'une tâche. Sans ce complément, un
-// pipeline de huit étapes en montrait deux au début, et rien ne disait ce qu'il
-// restait à faire — ni combien de temps il fallait encore attendre.
+// Tekton creates a TaskRun only when a task starts. Without this completion, an
+// eight-stage pipeline showed two at first, and nothing said what was left to do — nor how
+// long there was still to wait.
 //
-// L'ordre est celui du graphe, donné par la déclaration, et non celui des
-// démarrages : une tâche non démarrée n'a pas de date, et la trier par ce
-// qu'elle n'a pas l'aurait rejetée en fin de liste quelle que soit sa place
-// réelle. Les tâches observées qui ne figurent pas dans la déclaration —
-// pipeline modifié entre-temps, run projeté avant l'enregistrement des
-// déclarations — sont conservées en tête : les taire perdrait une exécution
-// réelle au profit d'une définition.
+// The order is the graph's, given by the declaration, and not the order of starts: an
+// unstarted task has no date, and sorting it by what it does not have would have pushed
+// it to the end of the list whatever its real place. Observed tasks absent from the
+// declaration — a pipeline modified meanwhile, a run projected before the declarations
+// were recorded — are kept at the head: hiding them would lose a real run in favour of a
+// definition.
 func mergeTasks(detail store.RunDetail) []taskPayload {
-	// Le rapprochement se fait sur le nom de la **tâche du pipeline**, et c'est
-	// tout le sujet : une tâche observée porte deux noms — celui de son TaskRun,
-	// `mse-…-git-clone`, et celui de la tâche qu'elle exécute, `git-clone`. Seul
-	// le second existe dans la déclaration. Les confondre affichait la même étape
-	// deux fois : une fois exécutée sous son nom technique, une fois « en
-	// attente » sous son libellé.
+	// The matching is on the pipeline task's name, and that is the whole subject: an observed
+	// task carries two names — its TaskRun's, and that of the task it runs. Only the second
+	// exists in the declaration. Confusing them displayed the same step twice: once run under
+	// its technical name, once "pending" under its label.
 	//
-	// Le champ qui le porte s'appelle `DisplayName` par accident d'histoire : il
-	// reçoit le label `tekton.dev/pipelineTask`, qui est une identité, pas un
-	// libellé. Le vrai libellé humain ne vit que dans la déclaration.
+	// The field carrying it is called DisplayName by an accident of history: it receives the
+	// `tekton.dev/pipelineTask` label, which is an identity, not a label. The real human label
+	// lives only in the declaration.
 	observed := make(map[string]store.TaskSummary, len(detail.Tasks))
 	for _, task := range detail.Tasks {
 		observed[task.DisplayName] = task
@@ -204,7 +198,7 @@ func mergeTasks(detail store.RunDetail) []taskPayload {
 
 	tasks := make([]taskPayload, 0, len(detail.Tasks)+len(detail.Declared))
 
-	// Ce qui a tourné sans être déclaré passe d'abord, dans son ordre d'origine.
+	// What ran without being declared comes first, in its original order.
 	declared := make(map[string]bool, len(detail.Declared))
 	for _, task := range detail.Declared {
 		declared[task.Name] = true
@@ -217,13 +211,13 @@ func mergeTasks(detail store.RunDetail) []taskPayload {
 
 	for _, task := range detail.Declared {
 		if started, ok := observed[task.Name]; ok {
-			// Le libellé vient de la déclaration : « Clone mse » plutôt que
-			// `git-clone`. Une tâche ne doit pas changer de nom en démarrant.
+			// The label comes from the declaration rather than the technical name. A task must not
+			// change name when it starts.
 			tasks = append(tasks, toTaskPayload(started, task.DisplayName))
 			continue
 		}
-		// Pas encore démarrée. `pending` est le même vocabulaire que celui d'un
-		// run qui n'a pas commencé : l'interface sait déjà le rendre.
+		// Not started yet. `pending` is the same vocabulary as a run that has not begun: the
+		// interface already knows how to render it.
 		tasks = append(tasks, taskPayload{
 			Name: task.Name, DisplayName: taskLabel(task.DisplayName, task.Name),
 			Status: "pending",
@@ -232,7 +226,7 @@ func mergeTasks(detail store.RunDetail) []taskPayload {
 	return tasks
 }
 
-// taskLabel rend le libellé humain, ou le nom technique à défaut.
+// taskLabel returns the human label, or the technical name failing that.
 func taskLabel(displayName, fallback string) string {
 	if displayName != "" {
 		return displayName
@@ -240,10 +234,10 @@ func taskLabel(displayName, fallback string) string {
 	return fallback
 }
 
-// toTaskPayload traduit une tâche observée.
+// toTaskPayload translates an observed task.
 //
-// `label` est le libellé de la déclaration, vide quand la tâche n'y figure pas.
-// `Name` reste le nom du TaskRun : c'est par lui que les journaux se lisent.
+// `label` is the declaration's label, empty when the task is not in it. Name stays the
+// TaskRun's name: it is how the logs are read.
 func toTaskPayload(task store.TaskSummary, label string) taskPayload {
 	return taskPayload{
 		Name:        task.Name,
@@ -264,41 +258,40 @@ func (h *RunsHandler) actorName(ctx context.Context, subject string) string {
 	return resolveActors(ctx, h.directory, h.logger).name(subject)
 }
 
-// RunEvents est ce que le flux d'état attend de la base.
+// RunEvents is what the state stream needs from the database.
 type RunEvents interface {
 	RunsUpdatedSince(ctx context.Context, since time.Time) ([]store.RunSummary, time.Time, error)
 }
 
-// runPollInterval espace deux relectures de la table des runs.
+// runPollInterval separates two reads of the runs table.
 const runPollInterval = 2 * time.Second
 
-// Stream pousse les changements d'état des runs.
+// Stream pushes the runs' state changes.
 //
-// Le flux ne transmet que ce qui a changé : renvoyer la liste entière à chaque
-// tour ferait retransmettre des centaines de runs figés pour un seul changement,
-// et l'interface ne saurait pas lequel a bougé.
+// The stream transmits only what changed: returning the whole list on every turn would
+// retransmit hundreds of frozen runs for a single change, and the interface would not know
+// which one moved.
 //
-// L'identifiant de reprise est l'horodatage de la dernière modification vue. Un
-// client qui se reconnecte ne redemande donc que la différence — mais le
-// mécanisme n'a rien d'une garantie de livraison : ce flux accélère l'affichage,
-// il ne le fonde pas. La liste reste la source de vérité, et l'interface s'en
-// contente si le flux tombe.
+// The resume identifier is the timestamp of the last modification seen. A client that
+// reconnects therefore asks only for the difference — but the mechanism is no delivery
+// guarantee: this stream speeds up display, it does not found it. The list stays the
+// source of truth, and the interface makes do with it if the stream falls over.
 func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	events, ok := h.runs.(RunEvents)
 	if !ok {
-		writeProblem(w, http.StatusNotImplemented, "Flux d'état indisponible", "")
+		writeProblem(w, http.StatusNotImplemented, "State stream unavailable", "")
 		return
 	}
 
 	stream, streaming := newSSEWriter(w)
 	if !streaming {
-		writeProblem(w, http.StatusInternalServerError, "Flux non supporté", "")
+		writeProblem(w, http.StatusInternalServerError, "Streaming not supported", "")
 		return
 	}
 
-	// Sans reprise, le flux part de maintenant : l'état initial vient de la liste,
-	// que l'interface a déjà chargée. Rejouer tout l'historique doublerait ce
-	// travail pour rien.
+	// With no resume point, the stream starts from now: the initial state comes from the
+	// list, which the interface has already loaded. Replaying the whole history would double
+	// that work for nothing.
 	since := time.Now()
 	if resume := r.Header.Get("Last-Event-ID"); resume != "" {
 		if parsed, err := time.Parse(time.RFC3339Nano, resume); err == nil {
@@ -318,7 +311,7 @@ func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			_ = stream.event("error", "", "lecture des exécutions impossible")
+			_ = stream.event("error", "", "cannot read the runs")
 			return
 		}
 		since = latest

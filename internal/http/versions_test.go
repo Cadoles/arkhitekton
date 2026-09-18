@@ -88,8 +88,8 @@ func untracked() *fakeVersionStore {
 	return &fakeVersionStore{project: store.Project{ID: 1, Slug: "app"}}
 }
 
-// Le cas qui débloque tout : un projet sans suivi déclare sa première version.
-func TestUnProjetSansSuiviDeclareSaVersion(t *testing.T) {
+// The case that unblocks everything: a project with no tracker declares its first version.
+func TestAProjectWithNoTrackerDeclaresItsVersion(t *testing.T) {
 	projects := untracked()
 
 	recorder := declareVersion(t, projects, `{"name":"1.8.0"}`)
@@ -98,64 +98,64 @@ func TestUnProjetSansSuiviDeclareSaVersion(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body)
 	}
 	if len(projects.created) != 1 || projects.created[0] != "1.8.0" {
-		t.Errorf("versions créées: %v", projects.created)
+		t.Errorf("versions created: %v", projects.created)
 	}
-	// Tracée : c'est la seule chose qui dira qui a décidé qu'un périmètre
-	// existait, puisque aucune synchronisation ne le dira à sa place.
+	// Recorded: it is the only thing that will say who decided a scope existed, since no
+	// synchronisation will say it in its place.
 	if len(projects.audits) != 1 || projects.audits[0] != store.AuditVersionDeclare {
 		t.Errorf("journal: %v", projects.audits)
 	}
 }
 
-// Sur un projet suivi, la déclaration est refusée : les versions y appartiennent
-// à l'outil, qui en fait autorité. Une version créée ici resterait en attente
-// d'une adoption qui n'arriverait jamais.
-func TestUnProjetSuiviRefuseLaDeclarationManuelle(t *testing.T) {
+// On a tracked project the declaration is refused: its versions belong to the tool, which is
+// authoritative. A version created here would stay awaiting an adoption that would never
+// come.
+func TestATrackedProjectRefusesTheManualDeclaration(t *testing.T) {
 	projects := untracked()
 	projects.project.TrackerProject = "mse-dev"
 
 	recorder := declareVersion(t, projects, `{"name":"1.8.0"}`)
 
 	if recorder.Code != http.StatusConflict {
-		t.Fatalf("code %d, attendu 409: %s", recorder.Code, recorder.Body)
+		t.Fatalf("code %d, expected 409: %s", recorder.Code, recorder.Body)
 	}
 	if len(projects.created) != 0 {
-		t.Errorf("versions créées: %v", projects.created)
+		t.Errorf("versions created: %v", projects.created)
 	}
-	// Le message doit dire *pourquoi*, sans quoi on croira à une panne.
-	if !strings.Contains(recorder.Body.String(), "autorité") {
+	// The message must say why, otherwise it will be taken for a fault.
+	if !strings.Contains(recorder.Body.String(), "authoritative") {
 		t.Errorf("corps %s", recorder.Body)
 	}
 }
 
-// Un nom vide ne désigne rien, et le laisser passer produirait une version que
-// l'écran afficherait sans titre.
-func TestUnNomDeVersionVideEstRefuse(t *testing.T) {
+// An empty name names nothing, and letting it through would produce a version the screen
+// would display with no title.
+func TestAnEmptyVersionNameIsRefused(t *testing.T) {
 	for _, body := range []string{`{"name":""}`, `{"name":"   "}`, `{}`} {
 		recorder := declareVersion(t, untracked(), body)
 		if recorder.Code != http.StatusBadRequest {
-			t.Errorf("%s: code %d, attendu 400", body, recorder.Code)
+			t.Errorf("%s: code %d, expected 400", body, recorder.Code)
 		}
 	}
 }
 
-// La forme est vérifiée contre le schéma du projet, préfixes retirés : `v1.8.0`
-// et `1.8.0` désignent la même version, et refuser le premier obligerait à
-// connaître une convention interne pour saisir un numéro.
-func TestLaFormeEstVerifieeContreLeSchemaDuProjet(t *testing.T) {
+// The shape is checked against the project's scheme, prefixes stripped: `v1.8.0` and `1.8.0`
+// name the same version, and refusing the first would require knowing an internal convention
+// to type a number.
+func TestTheShapeIsCheckedAgainstTheProjectsScheme(t *testing.T) {
 	if recorder := declareVersion(t, untracked(), `{"name":"v1.8.0"}`); recorder.Code != http.StatusCreated {
-		t.Errorf("un nom préfixé doit être accepté: %d %s", recorder.Code, recorder.Body)
+		t.Errorf("a prefixed name must be accepted: %d %s", recorder.Code, recorder.Body)
 	}
 
-	recorder := declareVersion(t, untracked(), `{"name":"pas une version"}`)
+	recorder := declareVersion(t, untracked(), `{"name":"not a version"}`)
 	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code %d, attendu 400", recorder.Code)
+		t.Errorf("code %d, expected 400", recorder.Code)
 	}
 }
 
-// Un schéma opaque accepte tout : refuser imposerait une convention que le
-// projet n'a pas déclarée.
-func TestUnSchemaOpaqueAccepteNimporteQuelNom(t *testing.T) {
+// An opaque scheme accepts everything: refusing would impose a convention the project has not
+// declared.
+func TestAnOpaqueSchemeAcceptsAnyName(t *testing.T) {
 	projects := untracked()
 	projects.project.VersionScheme = "opaque"
 
@@ -164,9 +164,9 @@ func TestUnSchemaOpaqueAccepteNimporteQuelNom(t *testing.T) {
 	}
 }
 
-// Le nom créé est celui qui a été saisi, jamais la forme normalisée : celle-ci
-// sert à comparer, pas à renommer ce que l'utilisateur a écrit.
-func TestLeNomSaisiEstConserveTelQuel(t *testing.T) {
+// The name created is the one typed, never the normalised form: that serves to compare, not
+// to rename what the user wrote.
+func TestTheNameTypedIsKeptAsItIs(t *testing.T) {
 	projects := untracked()
 
 	recorder := declareVersion(t, projects, `{"name":"v1.8.0"}`)
@@ -177,24 +177,23 @@ func TestLeNomSaisiEstConserveTelQuel(t *testing.T) {
 	var payload struct{ Name string }
 	_ = json.Unmarshal(recorder.Body.Bytes(), &payload)
 	if payload.Name != "v1.8.0" || projects.created[0] != "v1.8.0" {
-		t.Errorf("nom rendu %q, créé %v", payload.Name, projects.created)
+		t.Errorf("name returned %q, created %v", payload.Name, projects.created)
 	}
 }
 
-// Le drapeau qui décide de l'affichage du bouton.
+// The flag that decides whether the button is shown.
 //
-// Le refus côté serveur était testé, l'émission du drapeau ne l'était pas : un
-// `tracked` absent du corps rendrait `!data.sync.tracked` vrai côté interface, et
-// le bouton apparaîtrait sur un projet suivi — exactement ce qu'il ne doit pas
-// faire. Le serveur refuserait ensuite, mais l'utilisateur aurait cliqué vers un
-// mur.
-func TestLaListeDitSiLeProjetEstSuivi(t *testing.T) {
+// The server-side refusal was tested, emitting the flag was not: a missing `tracked` in the
+// body would make the interface's check true, and the button would appear on a tracked
+// project — exactly what it must not do. The server would then refuse, but the user would
+// have clicked into a wall.
+func TestTheListSaysWhetherTheProjectIsTracked(t *testing.T) {
 	cases := map[string]struct {
 		tracker string
 		want    bool
 	}{
-		"projet suivi":      {tracker: "mse-dev", want: true},
-		"projet sans suivi": {tracker: "", want: false},
+		"projet suivi":            {tracker: "mse-dev", want: true},
+		"project with no tracker": {tracker: "", want: false},
 	}
 
 	for name, expected := range cases {
@@ -221,7 +220,7 @@ func TestLaListeDitSiLeProjetEstSuivi(t *testing.T) {
 			t.Fatalf("%s: corps illisible: %v", name, err)
 		}
 		if payload.Sync.Tracked != expected.want {
-			t.Errorf("%s: tracked = %v, attendu %v — le bouton s'afficherait à tort",
+			t.Errorf("%s: tracked = %v, expected %v — the button would show wrongly",
 				name, payload.Sync.Tracked, expected.want)
 		}
 	}

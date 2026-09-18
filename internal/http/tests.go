@@ -13,11 +13,11 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// TestStore est ce que les handlers de résultats attendent de la base.
+// TestStore is what the results handlers need from the database.
 type TestStore interface {
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
-	// Les deux façons de nommer un projet : par le chemin de la requête, ou à
-	// défaut par celui qui se construit. Voir internal/http/project.go.
+	// The two ways of naming a project: by the request's path, or failing that by the one
+	// being built. See internal/http/project.go.
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	BuildableProject(ctx context.Context) (store.Project, error)
 	ListReleaseTestResults(ctx context.Context, releaseID int64) ([]store.TestResult, error)
@@ -31,21 +31,20 @@ type TestStore interface {
 	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
 }
 
-// TestsHandler expose les résultats de tests et le score de qualité.
+// TestsHandler exposes test results and the quality score.
 type TestsHandler struct {
 	store TestStore
-	// catalog sert à nommer la famille d'un geste qui n'a **rien** produit : sans
-	// lui, un pipeline qui n'a pas tourné n'aurait ni signal ni poids par défaut,
-	// et sa case disparaîtrait au lieu de dire qu'elle attend.
+	// catalog serves to name the family of a step that produced nothing: without it, a
+	// pipeline that did not run would have neither signal nor default weight, and its cell
+	// would disappear instead of saying it is waiting.
 	catalog *catalog.Catalog
 }
 
-// NewTestsHandler assemble le handler.
+// NewTestsHandler assembles the handler.
 //
-// La pondération n'est plus reçue ici : elle se déclare sur les gestes de
-// l'automatisation, et le plan figé d'une release la porte (doc 15 §15.6). Ce qui
-// reste de la pondération du catalogue est le **défaut par signal**, dans
-// `results.DefaultWeights`.
+// The weighting is no longer received here: it is declared on the automation's steps, and
+// each release's frozen plan carries it. What remains of the catalogue's weighting is the
+// per-signal default.
 func NewTestsHandler(tests TestStore, registry *catalog.Catalog) *TestsHandler {
 	return &TestsHandler{store: tests, catalog: registry}
 }
@@ -66,35 +65,35 @@ type testResultPayload struct {
 }
 
 type signalPayload struct {
-	// Key identifie le composant : le geste qui a mesuré — `geste:1.0` — ou la
-	// famille, pour une release antérieure aux plans. C'est elle qui rend l'écran
-	// dynamique : une case par composant rendu, et non six cases écrites d'avance.
+	// Key identifies the component: the step that measured — `geste:1.0` — or the family for a release
+	// predating plans. It is what makes the screen dynamic: one cell per component returned,
+	// and not six cells written in advance.
 	Key string `json:"key"`
-	// Label le nomme, dans les mots de qui l'a déclaré.
+	// Label names it, in the words of whoever declared it.
 	Label string `json:"label"`
-	// Signal dit la **nature** de ce qui est mesuré, et sert encore à choisir une
-	// icône. Il a cessé d'être l'identité : deux gestes peuvent le partager.
+	// Signal says the nature of what is measured, and still picks an icon. It has stopped
+	// being the identity: two steps may share it.
 	Signal string `json:"signal"`
-	// Ref est la famille de pipeline à relancer pour remesurer ce composant.
-	// Vide quand rien ne le remesure depuis le dashboard.
+	// Ref is the pipeline family to re-run in order to measure this component again. Empty
+	// when nothing re-measures it from the dashboard.
 	Ref string `json:"ref,omitempty"`
-	// Family est la famille de rapports à ouvrir en détail.
+	// Family is the report family to open in detail.
 	Family string  `json:"family,omitempty"`
 	Value  float64 `json:"value"`
-	// Weight est le poids **effectif**, après redistribution des signaux non
-	// mesurés. C'est lui qui explique la contribution réelle au score.
+	// Weight is the effective weight, after redistributing the unmeasured signals. It is what
+	// explains the real contribution to the score.
 	Weight float64 `json:"weight"`
-	// Declared est le poids saisi, avant redistribution. Sans lui, une pondération
-	// ne se relit pas : « 33 » ne dit pas si quelqu'un a écrit 20 ou 40.
+	// Declared is the weight as typed, before redistribution. Without it a weighting cannot
+	// be read back: "33" does not say whether someone wrote 20 or 40.
 	Declared float64 `json:"declared"`
 	Measured bool    `json:"measured"`
 	Detail   string  `json:"detail,omitempty"`
-	// Health est le verdict du signal — `healthy`, `warn`, `critique` ou `na`.
-	// Rendu par le serveur pour que l'interface ne dérive aucun seuil (B11).
+	// Health is the signal's verdict — `healthy`, `warn`, `critique` or `na`. Returned by the
+	// server so the interface derives no threshold.
 	Health string `json:"health"`
 }
 
-// Tests rend les rapports d'une release et le score qu'ils composent.
+// Tests returns a release's reports and the score they compose.
 func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -107,13 +106,13 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
 	reports, err := h.store.ListReleaseTestResults(r.Context(), release.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des résultats impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the results", "")
 		return
 	}
 
@@ -129,7 +128,7 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 
 	breakdown, err := h.score(r.Context(), release.ID, reports)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Calcul du score impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot compute the score", "")
 		return
 	}
 
@@ -140,14 +139,13 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 			Signal: string(signal.Signal), Ref: signal.Ref, Family: string(signal.Family),
 			Value: signal.Value, Weight: signal.Weight,
 			Declared: signal.Declared, Measured: signal.Measured, Detail: signal.Detail,
-			// Le verdict d'un signal vient du serveur comme celui du score : le
-			// dériver côté client en ferait un second avis, divergent au premier
-			// changement de seuil (B11).
+			// A signal's verdict comes from the server like the score's: deriving it client-side
+			// would make it a second opinion, diverging at the first threshold change.
 			Health: results.SignalHealth(signal),
 		})
 	}
 
-	// Déjà des chaînes : ce sont les clés des composants sortis du calcul.
+	// Already strings: these are the keys of the components left out of the computation.
 	redistributed := breakdown.Redistributed
 	if redistributed == nil {
 		redistributed = []string{}
@@ -160,20 +158,20 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 			"measured": breakdown.Measured,
 			"health":   results.Health(breakdown),
 			"signals":  signals,
-			// Le lecteur doit savoir sur quoi porte le score qu'il lit : un 100
-			// sur trois signaux n'est pas un 100 sur six.
+			// The reader must know what the score they read covers: a 100 over three signals is not
+			// a 100 over six.
 			"redistributed": redistributed,
 		},
 	})
 }
 
-// severity ordonne les statuts de rapport, du plus clément au plus sévère.
+// severity orders report statuses, from the mildest to the harshest.
 var severity = map[string]int{"pass": 0, "warn": 1, "fail": 2}
 
-// worstStatus rend le plus sévère de deux statuts.
+// worstStatus returns the harsher of two statuses.
 //
-// Un statut inconnu est traité comme le plus sévère : mieux vaut signaler à tort
-// qu'absoudre en silence un verdict qu'on ne sait pas lire.
+// An unknown status is treated as the harshest: better to flag wrongly than to silently
+// absolve a verdict one cannot read.
 func worstStatus(a, b string) string {
 	if a == "" {
 		return b
@@ -195,24 +193,18 @@ func worstStatus(a, b string) string {
 	}
 }
 
-// score compose le score d'une release à partir de ce qui a été mesuré.
-//
-// Chaque signal est cherché explicitement plutôt que dérivé d'une boucle sur les
-// rapports : un signal absent doit produire une mesure « non exécutée », et une
-// boucle sur ce qui existe ne produirait rien du tout — donc un score calculé sur
-// un sous-ensemble silencieux.
+// score composes a release's score from what was measured.
 func (h *TestsHandler) score(
 	ctx context.Context, releaseID int64, reports []store.TestResult,
 ) (results.Breakdown, error) {
 	return computeScore(ctx, h.store, releaseID, reports, h.catalog)
 }
 
-// scoreStore est ce dont le calcul du score a besoin.
+// scoreStore is what computing the score needs.
 //
-// Une interface plutôt qu'un type concret parce que deux gestionnaires
-// l'appellent : celui des tests, pour l'écran d'une release, et celui des
-// releases, pour la pastille de la liste. Le même chiffre doit sortir des deux,
-// et deux implémentations auraient divergé.
+// An interface rather than a concrete type because two handlers call it: the tests one,
+// for a release's screen, and the releases one, for the list's badge. The same figure must
+// come out of both, and two implementations would have diverged.
 type scoreStore interface {
 	LatestSecurityAudit(ctx context.Context, releaseID int64) (store.SecurityAudit, error)
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
@@ -224,18 +216,17 @@ func computeScore(
 	ctx context.Context, source scoreStore, releaseID int64,
 	reports []store.TestResult, registry *catalog.Catalog,
 ) (results.Breakdown, error) {
-	// Les gestes d'abord : c'est l'axe voulu, et le seul qui sache séparer deux
-	// campagnes de même nature.
-	measures, err := gesteMeasures(ctx, source, releaseID, reports, registry)
+	// The steps first: that is the intended axis, and the only one able to separate two
+	// campaigns of the same nature.
+	measures, err := stepMeasures(ctx, source, releaseID, reports, registry)
 	if err != nil {
 		return results.Breakdown{}, err
 	}
 
 	if measures == nil {
-		// La release n'a pas de plan. Elle est antérieure à doc 15 §15.2, ou ses
-		// tests ont été lancés à la main depuis la file. Son score se calcule par
-		// **famille**, comme avant — le perdre serait pire que le calculer sur un
-		// axe qui n'existe plus.
+		// The release has no plan. It predates plans, or its tests were launched by hand from the
+		// queue. Its score is computed by family, as before — losing it would be worse than
+		// computing it on an axis that no longer exists.
 		if measures, err = familyMeasures(ctx, source, releaseID, reports); err != nil {
 			return results.Breakdown{}, err
 		}
@@ -244,22 +235,20 @@ func computeScore(
 	return results.Score(measures), nil
 }
 
-// familyMeasures rend un composant par famille, pour une release sans plan.
+// familyMeasures returns one component per family, for a release with no plan.
 //
-// Chaque famille est cherchée explicitement plutôt que dérivée d'une boucle sur
-// les rapports : une famille absente doit produire une mesure « non exécutée », et
-// une boucle sur ce qui existe ne produirait rien du tout — donc un score calculé
-// sur un sous-ensemble silencieux.
+// Each family is looked up explicitly rather than derived from a loop over the reports: a
+// missing family must produce a "did not run" measure, and a loop over what exists would
+// produce nothing at all — hence a score computed over a silent subset.
 func familyMeasures(
 	ctx context.Context, source scoreStore, releaseID int64, reports []store.TestResult,
 ) ([]results.Measure, error) {
-	// Le dernier rapport de chaque **outil**, puis la somme par famille.
+	// The last report of each tool, then the sum per family.
 	//
-	// Retenir un seul rapport par famille perdait les familles à plusieurs
-	// outils. `static` en compte deux — PHPStan et PHP-CS-Fixer — et seul le plus
-	// récent des deux entrait au score : une release avec quarante erreurs
-	// PHPStan et un cs-fixer propre affichait 100 dès lors que cs-fixer avait
-	// conclu en dernier.
+	// Keeping a single report per family lost the families with several tools. Static analysis
+	// has two, and only the more recent of them entered the score: a release with forty errors
+	// from one and a clean result from the other showed 100 as soon as the clean one concluded
+	// last.
 	byFamily := map[string]results.Report{}
 	seen := map[string]bool{}
 	seenTool := map[string]bool{}
@@ -282,8 +271,8 @@ func familyMeasures(
 		byFamily[report.Family] = combined
 	}
 
-	// Les violations d'analyse statique se comptent en cas, pas en tests réussis :
-	// la règle de score n'est pas la même.
+	// Static analysis violations are counted as cases, not as passing tests: the scoring rule
+	// is not the same.
 	staticViolations, staticRan := 0, seen[string(results.FamilyStatic)]
 	if staticRan {
 		staticViolations = byFamily[string(results.FamilyStatic)].Failed
@@ -311,16 +300,15 @@ func familyMeasures(
 	}
 	brutes = append(brutes, performance)
 
-	// L'identité et le poids, que les fonctions de mesure ne posent pas : elles
-	// disent ce qui a été mesuré, pas ce que cela vaut dans le score.
+	// The identity and the weight, which the measuring functions do not set: they say what was
+	// measured, not what it is worth in the score.
 	measures := make([]results.Measure, 0, len(brutes))
 	for _, measure := range brutes {
 		measure.Key = results.SignalKey(measure.Signal)
 		measure.Label = signalLabels[measure.Signal]
 		measure.Weight = results.WeightOf(nil, measure.Signal)
-		// Le pipeline et la famille du repli, tirés du signal : ici et nulle part
-		// ailleurs, parce que c'est le seul chemin où l'on n'a pas de geste pour
-		// les dire.
+		// The pipeline and the family of the fallback, derived from the signal: here and nowhere
+		// else, because this is the only path with no step to say them.
 		measure.Ref = signalKinds[measure.Signal]
 		measure.Family = signalFamilies[measure.Signal]
 		measures = append(measures, measure)
@@ -328,15 +316,15 @@ func familyMeasures(
 	return measures, nil
 }
 
-// signalLabels nomme les composants du repli par famille, en français.
+// signalLabels names the fallback components by family, in French.
 //
-// Écrits ici parce qu'ils n'ont pas de déclaration : ce sont des natures, pas des
-// gestes. Un geste, lui, porte le libellé que quelqu'un lui a donné.
-// signalKinds et signalFamilies complètent le repli par famille.
+// Written here because they have no declaration: they are natures, not steps. A step
+// carries the label somebody gave it.
 //
-// La famille de pipeline à relancer, et celle des rapports à ouvrir. Vides pour
-// la performance, dont les campagnes viennent d'un runner extérieur que le
-// dashboard ne déclenche pas (B16).
+// signalKinds and signalFamilies complete the per-family fallback.
+//
+// The pipeline family to re-run, and the report family to open. Empty for performance,
+// whose campaigns come from an outside runner the dashboard does not trigger.
 var signalKinds = map[results.Signal]string{
 	results.SignalUnit:        "unit-tests",
 	results.SignalIntegration: "integration-tests",
@@ -363,12 +351,11 @@ var signalLabels = map[results.Signal]string{
 	results.SignalPerformance: "Performance",
 }
 
-// securityMeasure rend le signal de sécurité du dernier audit.
+// securityMeasure returns the security signal of the latest audit.
 //
-// L'audit décide lui-même s'il est mesurable : un scanner en échec produit zéro
-// finding, exactement comme un audit propre, et seul son descripteur les
-// distingue. Le compter comme conforme serait l'erreur la plus chère possible
-// sur ce signal (P2, B11).
+// The audit decides for itself whether it is measurable: a failed scanner produces zero
+// findings, exactly like a clean audit, and only its descriptor tells them apart. Counting
+// it as clean would be the most expensive possible error on this signal.
 func securityMeasure(
 	ctx context.Context, source scoreStore, releaseID int64,
 ) (results.Measure, error) {
@@ -382,16 +369,16 @@ func securityMeasure(
 
 	if !audit.Measured() {
 		return results.Measure{Signal: results.SignalSecurity,
-			Detail: "audit incomplet : " + strings.Join(audit.FailedScanners, ", ") + " n'a pas conclu"}, nil
+			Detail: "audit incomplet : " + strings.Join(audit.FailedScanners, ", ") + " did not conclude"}, nil
 	}
 
-	// Les compteurs viennent de `summary.json`, qui exclut déjà les findings
-	// supprimés par exception. Une exception est une décision humaine datée : la
-	// respecter ici est ce qui rend le score actionnable plutôt que subi.
+	// The counters come from the summary report, which already excludes findings suppressed by
+	// exception. An exception is a dated human decision: honouring it here is what makes the
+	// score actionable rather than endured.
 	return results.FromSecurity(audit.Critical, audit.High, true), nil
 }
 
-// benchMeasure rend le signal de performance de la campagne la plus récente.
+// benchMeasure returns the performance signal of the most recent campaign.
 func benchMeasure(
 	ctx context.Context, source scoreStore, releaseID int64,
 ) (results.Measure, error) {
@@ -444,11 +431,11 @@ type caseDiffPayload struct {
 	Change string `json:"change"`
 }
 
-// casePageSize borne une page de cas de test (doc 08 §8.6).
+// casePageSize bounds a page of test cases.
 //
-// Cinq cents lignes tiennent dans une table utilisable et couvrent la totalité des
-// familles sauf Cypress sur une release complète. La taille n'est pas négociable
-// par l'appelant : un `limit` libre dans l'URL rendrait la borne décorative.
+// Five hundred rows fit in a usable table and cover every family except an end-to-end suite
+// on a complete release. The size is not negotiable by the caller: a free `limit` in the URL
+// would make the bound decorative.
 const casePageSize = 500
 
 type casePayload struct {
@@ -460,11 +447,11 @@ type casePayload struct {
 	Trace      string `json:"trace,omitempty"`
 }
 
-// Family rend les cas d'une famille et sa comparaison à la release précédente.
+// Family returns a family's cases and its comparison with the previous release.
 //
-// La comparaison est la vue qui répond à la question réellement posée en recette
-// — « qu'est-ce qui a changé ? » — et non « combien de tests passent ». Un
-// compteur stable peut cacher un échec résolu et un échec apparu.
+// The comparison is the view that answers the question actually asked before shipping —
+// "what changed?" — and not "how many tests pass". A stable counter can hide a resolved
+// failure and a new one.
 func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -477,7 +464,7 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
@@ -490,15 +477,14 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 
 	reports, err := h.store.ListReleaseTestResults(r.Context(), release.ID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des résultats impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the results", "")
 		return
 	}
 
 	cases := make([]casePayload, 0, casePageSize)
 	total := 0
-	// Le run qui a produit le rapport affiché. Rendu avec les cas pour que le
-	// lecteur puisse ouvrir l'exécution — ses journaux disent pourquoi un test a
-	// échoué là où le rapport dit seulement qu'il a échoué.
+	// The run that produced the displayed report. Returned with the cases so the reader can
+	// open the run — its logs say why a test failed where the report only says it failed.
 	var runName, tool string
 	var measuredAt time.Time
 	for _, report := range reports {
@@ -507,7 +493,7 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 		}
 		stored, count, err := h.store.ListTestCases(r.Context(), report.ID, page)
 		if err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Lecture des cas impossible", "")
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the cases", "")
 			return
 		}
 		total = count
@@ -519,14 +505,13 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		runName, tool, measuredAt = report.RunName, report.Tool, report.CreatedAt
-		// Le rapport le plus récent de la famille suffit : c'est lui qui décrit
-		// l'état de la release.
+		// The family's most recent report is enough: it is what describes the release's state.
 		break
 	}
 
-	// La comparaison n'est pas paginée : elle est déjà réduite à ce qui a changé,
-	// et c'est la partie que l'on vient lire. La tronquer reviendrait à cacher un
-	// échec apparu parce qu'il tombe en deuxième page.
+	// The comparison is not paginated: it is already reduced to what changed, and that is the
+	// part one comes to read. Truncating it would hide a new failure because it falls on a
+	// second page.
 	response := map[string]any{
 		"family": family,
 		"cases":  cases,
@@ -552,8 +537,8 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 
 		changed := make([]caseDiffPayload, 0, len(diffs))
 		for _, diff := range diffs {
-			// `unchanged` est le gros du volume et n'apprend rien : la vue
-			// existe pour ce qui a bougé.
+			// `unchanged` is the bulk of the volume and teaches nothing: the view exists for what
+			// moved.
 			if diff.Change == store.ChangeUnchanged {
 				continue
 			}
@@ -564,8 +549,8 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 		}
 		response["diff"] = changed
 	}
-	// Pas de release précédente : pas de comparaison, et ce n'est pas une erreur.
-	// La première release d'un projet n'a rien à quoi se comparer.
+	// No previous release: no comparison, and that is not an error. A project's first release
+	// has nothing to compare against.
 
 	writeJSON(w, http.StatusOK, response)
 }
@@ -581,24 +566,23 @@ type findingPayload struct {
 	Target      string  `json:"target,omitempty"`
 	Location    string  `json:"location,omitempty"`
 	Package     string  `json:"package,omitempty"`
-	// Installed et Fixed ensemble : ce qui décide d'une action est l'écart entre
-	// la version en place et celle qui corrige.
+	// Installed and Fixed together: what decides an action is the gap between the installed
+	// version and the one that fixes it.
 	Installed string `json:"installed,omitempty"`
 	Fixed     string `json:"fixed,omitempty"`
 	Fixable   bool   `json:"fixable"`
-	// Status vaut `new`, `existing` ou `resolved`, établi par le manager en
-	// comparant au run précédent. C'est ce qui distingue une régression d'une
-	// dette connue.
+	// Status is `new`, `existing` or `resolved`, established by the tool by comparing with the
+	// previous run. That is what separates a regression from known debt.
 	Status      string `json:"status"`
 	Description string `json:"description,omitempty"`
 	Suppressed  bool   `json:"suppressed"`
-	// Reason accompagne toujours une suppression : une exception sans motif est
-	// indéfendable en revue.
+	// Reason always accompanies a suppression: an exception with no reason is indefensible in
+	// review.
 	SuppressionReason  string `json:"suppression_reason,omitempty"`
 	SuppressionExpires string `json:"suppression_expires,omitempty"`
 }
 
-// Security rend le dernier audit d'une release et ses findings.
+// Security returns a release's latest audit and its findings.
 func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -611,29 +595,28 @@ func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la release impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
 		return
 	}
 
 	audit, err := h.store.LatestSecurityAudit(r.Context(), release.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrAuditNotFound) {
-			// Aucun audit n'est un état légitime, distinct d'un audit vide : le
-			// dire plutôt que rendre des compteurs à zéro, qui se liraient comme
-			// « rien trouvé ».
+			// No audit is a legitimate state, distinct from an empty audit: say so rather than return
+			// zeroed counters, which would read as "found nothing".
 			writeJSON(w, http.StatusOK, map[string]any{"audited": false})
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de l'audit impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the audit", "")
 		return
 	}
 
-	// Les supprimés sont inclus : la trace de ce qui a été écarté, et par quelle
-	// exception, vaut autant que la liste de ce qui reste. L'interface les
-	// sépare, elle ne les cache pas.
+	// Suppressed findings are included: the record of what was set aside, and under which
+	// exception, is worth as much as the list of what remains. The interface separates them, it
+	// does not hide them.
 	findings, err := h.store.ListSecurityFindings(r.Context(), audit.TestResultID, true)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des findings impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the findings", "")
 		return
 	}
 
@@ -657,9 +640,9 @@ func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
 		"audited":  true,
 		"run_id":   audit.RunID,
 		"run_name": audit.RunName,
-		// Measured dit si l'audit peut prononcer un verdict. Faux, les compteurs
-		// restent affichés mais ne notent rien : un audit partiel qui afficherait
-		// « conforme » est le pire résultat possible ici.
+		// Measured says whether the audit can pronounce a verdict. False, the counters stay
+		// displayed but grade nothing: a partial audit showing "clean" is the worst possible result
+		// here.
 		"measured":        audit.Measured(),
 		"failed_scanners": audit.FailedScanners,
 		"scanner_status":  audit.ScannerStatus,

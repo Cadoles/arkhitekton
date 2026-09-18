@@ -1,4 +1,5 @@
-// Package http porte le serveur HTTP du rôle `api`.
+// Package http carries the HTTP server of the `api` role. The routes are listed in
+// docs/07-http-api.md.
 package http
 
 import (
@@ -13,9 +14,8 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/web"
 )
 
-// ReadinessCheck renvoie une erreur quand la dépendance n'est pas exploitable.
-// Le nom apparaît tel quel dans la réponse de /readyz : il doit désigner la
-// dépendance, pas la fonction qui la teste.
+// ReadinessCheck returns an error when the dependency is unusable. The name appears as it is
+// in /readyz's response: it must name the dependency, not the function that tests it.
 type ReadinessCheck struct {
 	Name  string
 	Check func(context.Context) error
@@ -29,9 +29,9 @@ type Server struct {
 	http   *http.Server
 }
 
-// NewServer assemble les sondes et, si fourni, le routeur applicatif monté sous
-// /api/v1. Les sondes restent hors de ce préfixe : elles sont interrogées par le
-// kubelet, pas par le frontend, et ne doivent pas dépendre du routage applicatif.
+// NewServer assembles the probes and, when supplied, the application router mounted under
+// /api/v1. The probes stay outside that prefix: they are queried by the kubelet, not by the
+// front end, and must not depend on application routing.
 func NewServer(cfg config.HTTPConfig, logger *slog.Logger, api http.Handler, checks ...ReadinessCheck) *Server {
 	s := &Server{cfg: cfg, logger: logger, checks: checks}
 
@@ -42,12 +42,11 @@ func NewServer(cfg config.HTTPConfig, logger *slog.Logger, api http.Handler, che
 		mux.Handle("/api/v1/", http.StripPrefix("/api/v1", api))
 	}
 
-	// L'interface est montée en dernier, sur la racine. Le motif "/" du
-	// ServeMux est le moins spécifique : les sondes et l'API gardent la main sur
-	// leurs préfixes, et tout le reste — y compris les routes du navigateur —
-	// arrive ici.
+	// The interface is mounted last, on the root. The ServeMux's "/" pattern is the least
+	// specific: the probes and the API keep their prefixes, and everything else — including the
+	// browser's routes — arrives here.
 	if ui, err := web.Handler(logger); err != nil {
-		logger.Error("interface non montée", "error", err)
+		logger.Error("interface not mounted", "error", err)
 	} else {
 		mux.Handle("/", ui)
 	}
@@ -61,16 +60,16 @@ func NewServer(cfg config.HTTPConfig, logger *slog.Logger, api http.Handler, che
 	return s
 }
 
-// Handler expose le routeur, pour les tests et pour un éventuel montage externe.
+// Handler exposes the router, for tests and for a possible external mount.
 func (s *Server) Handler() http.Handler { return s.http.Handler }
 
-// Run sert jusqu'à annulation du contexte, puis rend la main après extinction
-// progressive. Couper net fermerait les flux SSE en cours et interromprait une
-// collecte de logs de pipeline en plein vol.
+// Run serves until the context is cancelled, then returns after a graceful shutdown. Cutting
+// abruptly would close the SSE streams in flight and interrupt a pipeline log collection
+// mid-air.
 func (s *Server) Run(ctx context.Context) error {
 	errs := make(chan error, 1)
 	go func() {
-		s.logger.Info("serveur http démarré", "addr", s.cfg.Addr)
+		s.logger.Info("http server started", "addr", s.cfg.Addr)
 		if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
 			return
@@ -84,21 +83,20 @@ func (s *Server) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
 		defer cancel()
-		s.logger.Info("extinction du serveur http", "timeout", s.cfg.ShutdownTimeout)
+		s.logger.Info("http server shutting down", "timeout", s.cfg.ShutdownTimeout)
 		return s.http.Shutdown(shutdownCtx)
 	}
 }
 
-// handleHealth répond dès que le processus est vivant. Volontairement sans
-// dépendance : une sonde de vivacité qui échoue parce que PostgreSQL est
-// indisponible fait redémarrer un processus sain, et transforme une panne de
-// base en boucle de crash.
+// handleHealth answers as soon as the process is alive. Deliberately without a dependency: a
+// liveness probe that fails because PostgreSQL is unavailable restarts a healthy process, and
+// turns a database outage into a crash loop.
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleReady vérifie les dépendances : c'est le rôle de la sonde de préparation,
-// qui retire l'instance du service sans la tuer.
+// handleReady checks the dependencies: that is the readiness probe's role, which removes the
+// instance from the Service without killing it.
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -108,10 +106,9 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 
 	for _, check := range s.checks {
 		if err := check.Check(ctx); err != nil {
-			// Le détail de l'erreur va au log, pas à la réponse : /readyz est
-			// souvent exposé plus largement que le reste, et un message de
-			// connexion peut porter un hôte, un port, voire un identifiant.
-			s.logger.Error("dépendance non prête", "dependency", check.Name, "error", err)
+			// The error's detail goes to the log, not to the response: /readyz is often exposed more
+			// widely than the rest, and a connection message can carry a host, a port, even a credential.
+			s.logger.Error("dependency not ready", "dependency", check.Name, "error", err)
 			results[check.Name] = "erreur"
 			status = http.StatusServiceUnavailable
 			continue

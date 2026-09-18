@@ -24,7 +24,7 @@ import (
  *
  * # Le rôle est vérifié, pas cru sur parole
  *
- * Une étape `build` dont un geste ne produit pas d'image est refusée. C'est le
+ * Une étape `build` dont un step ne produit pas d'image est refusée. C'est le
  * contrôle qui empêche un changement silencieux de cycle de vie : ajouter une
  * action de notification à l'étape de construction ferait que la conclusion de
  * cette étape — donc le passage de la release en vérification — dépendrait d'un
@@ -34,21 +34,20 @@ import (
  * heuristique.
  */
 
-// automationPayload est ce que l'écran lit et écrit.
+// automationPayload is what the screen reads and writes.
 type automationPayload struct {
 	Plan plan.Plan `json:"plan"`
-	// Declared distingue « personne n'a rien saisi » de « quelqu'un a vidé ».
+	// Declared separates "nobody typed anything" from "somebody emptied it".
 	//
-	// L'écran ne peut pas le déduire d'un plan vide : les deux se présentent
-	// identiquement, et seul le premier sera repris depuis les cibles du projet au
-	// prochain démarrage du worker. Le dire évite d'annoncer « ce projet ne
-	// construit plus » à quelqu'un dont l'automatisation est simplement en attente
-	// de reprise.
+	// The screen cannot infer it from an empty plan: both look identical, and only the first
+	// will be recomposed from the project's targets at the worker's next start-up. Saying so
+	// avoids announcing "this project no longer builds" to someone whose automation is simply
+	// awaiting the catch-up.
 	Declared  bool   `json:"declared"`
 	UpdatedBy string `json:"updated_by,omitempty"`
 }
 
-// Automation rend l'automatisation d'un projet.
+// Automation returns a project's automation.
 func (h *AutomationsHandler) Automation(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -58,13 +57,12 @@ func (h *AutomationsHandler) Automation(w http.ResponseWriter, r *http.Request) 
 	entry, err := h.store.ReleaseAutomation(r.Context(), project.ID)
 	switch {
 	case errors.Is(err, store.ErrNoAutomation):
-		// Un plan vide et `declared: false`. Ce n'est pas une 404 : le projet
-		// existe, et la question « que construit-il ? » a une réponse — « rien de
-		// déclaré pour l'instant ».
+		// An empty plan and `declared: false`. This is not a 404: the project exists, and the
+		// question "what does it build?" has an answer — "nothing declared for now".
 		writeJSON(w, http.StatusOK, automationPayload{Plan: plan.Plan{}, Declared: false})
 		return
 	case err != nil:
-		h.logger.Error("lecture de l'automatisation", "projet", project.Slug, "error", err)
+		h.logger.Error("reading the automation", "projet", project.Slug, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Lecture impossible", "")
 		return
 	}
@@ -78,7 +76,7 @@ type automationRequest struct {
 	Plan plan.Plan `json:"plan"`
 }
 
-// SaveAutomation remplace l'automatisation d'un projet.
+// SaveAutomation replaces a project's automation.
 func (h *AutomationsHandler) SaveAutomation(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -87,14 +85,13 @@ func (h *AutomationsHandler) SaveAutomation(w http.ResponseWriter, r *http.Reque
 
 	var request automationRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
-	// Un plan **vide** est accepté, et c'est délibéré : c'est la façon de dire
-	// « ce projet ne construit plus ». `plan.Validate` le refuserait — une
-	// réaction sans étape ne réagit à rien —, donc il n'est contrôlé que lorsqu'il
-	// porte quelque chose.
+	// An empty plan is accepted, deliberately: it is how to say "this project no longer
+	// builds". plan.Validate would refuse it — a reaction with no stage reacts to nothing — so
+	// it is only checked when it carries something.
 	if len(request.Plan.Stages) > 0 {
 		if err := request.Plan.Validate(); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Automatisation invalide", err.Error())
@@ -115,23 +112,23 @@ func (h *AutomationsHandler) SaveAutomation(w http.ResponseWriter, r *http.Reque
 		ProjectID: project.ID, Plan: request.Plan,
 	}, identity.Subject)
 	if err != nil {
-		h.logger.Error("enregistrement de l'automatisation",
+		h.logger.Error("recording the automation",
 			"projet", project.Slug, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
 		return
 	}
 
-	// Le journal porte le **compte** des étapes et des gestes, pas le plan : il
-	// porte des gabarits, et un journal d'audit se lit avec moins de précautions
-	// qu'une base. Le compte suffit à voir qu'une automatisation a été vidée.
+	// The log carries the count of stages and steps, not the plan: it carries templates, and an
+	// audit log is read with fewer precautions than a database. The count is enough to see that
+	// an automation was emptied.
 	h.audit(r, "automation.save", project.Slug, map[string]any{
-		"stages": len(request.Plan.Stages), "gestes": gesteCount(request.Plan),
+		"stages": len(request.Plan.Stages), "steps": stepCount(request.Plan),
 	})
 
 	writeJSON(w, http.StatusOK, automationPayload{Plan: request.Plan, Declared: true})
 }
 
-func gesteCount(p plan.Plan) int {
+func stepCount(p plan.Plan) int {
 	total := 0
 	for _, stage := range p.Stages {
 		total += len(stage.Gestes)
@@ -143,62 +140,61 @@ func gesteCount(p plan.Plan) int {
  * Le contrôle des rôles.
  */
 
-// roleProduct dit ce qu'un geste doit produire pour tenir un rôle.
+// roleProduct says what a step must produce to hold a role.
 //
-// Une table et non un `switch` : elle se lit d'un coup, et le message d'erreur
-// s'en sert pour nommer ce qu'il attendait.
+// A table and not a switch: it reads at a glance, and the error message uses it to name
+// what it expected.
 var roleProduct = map[plan.Role]catalog.Product{
 	plan.RoleBuild: catalog.ProductImage,
 	plan.RoleTest:  catalog.ProductResults,
 }
 
-// checkRoles refuse une étape dont les gestes ne tiennent pas son rôle.
+// checkRoles refuses a stage whose steps do not hold its role.
 //
-// Sans ce contrôle, le cycle de vie d'une release changerait par accident. Deux
-// cas, et le second est le plus insidieux :
+// Without that check, a release's life cycle would change by accident. Two cases, and the
+// second is the more insidious:
 //
-//   - un geste de test dans une étape `build` : la release passerait en
-//     vérification dès que les tests concluent, c'est-à-dire après eux ;
-//   - une **action** dans une étape à rôle : un webhook en échec ferait échouer
-//     la release, alors qu'il n'a rien à dire de sa qualité.
+//   - a test step in a `build` stage: the release would move to verification as soon as the
+//     tests concluded, that is, after them;
+//   - an action in a stage with a role: a failed webhook would fail the release, although it
+//     has nothing to say about its quality.
 func (h *AutomationsHandler) checkRoles(entry plan.Plan) error {
 	var problems []error
 
 	for index, stage := range entry.Stages {
 		attendu, porte := roleProduct[stage.Role]
 		if !porte {
-			// Une étape sans rôle ne touche à rien : elle peut porter ce qu'elle
-			// veut. C'est elle qui permet de prévenir une équipe sans mettre en jeu
-			// l'état de la release.
+			// A stage with no role touches nothing: it may carry what it likes. It is what allows
+			// warning a team without putting the release's state at stake.
 			continue
 		}
 
-		for _, geste := range stage.Gestes {
-			if geste.Kind != plan.GestePipeline {
+		for _, step := range stage.Gestes {
+			if step.Kind != plan.GestePipeline {
 				problems = append(problems, fmt.Errorf(
-					"l'étape %d porte le rôle %q et le geste %q n'est pas un pipeline : "+
-						"son échec ferait échouer la release sans rien dire de sa qualité",
-					index+1, stage.Role, geste.Ref))
+					"stage %d carries the role %q and the step %q is not a pipeline: "+
+						"its failure would fail the release without saying anything about its quality",
+					index+1, stage.Role, step.Ref))
 				continue
 			}
 			if h.catalog == nil {
 				problems = append(problems, fmt.Errorf(
-					"le rôle de l'étape %d ne peut pas être vérifié: aucun catalogue "+
-						"n'est chargé", index+1))
+					"the role of stage %d cannot be checked: no catalogue "+
+						"is loaded", index+1))
 				continue
 			}
-			pipeline, found := h.catalog.Find(geste.Ref)
+			pipeline, found := h.catalog.Find(step.Ref)
 			if !found {
-				// Déjà signalé par le contrôle des références. Le redire ici
-				// donnerait deux messages pour une seule faute.
+				// Already reported by the reference check. Repeating it here would give two messages for
+				// one mistake.
 				continue
 			}
 			if !pipeline.Yields(attendu) {
 				problems = append(problems, fmt.Errorf(
-					"l'étape %d porte le rôle %q et le pipeline %q ne produit pas %q "+
+					"stage %d carries the role %q and the pipeline %q does not produce %q "+
 						"(il produit: %s)",
-					index+1, stage.Role, geste.Ref, attendu,
-					produitsDe(pipeline)))
+					index+1, stage.Role, step.Ref, attendu,
+					productsOf(pipeline)))
 			}
 		}
 	}
@@ -206,10 +202,10 @@ func (h *AutomationsHandler) checkRoles(entry plan.Plan) error {
 	return errors.Join(problems...)
 }
 
-// produitsDe nomme ce qu'un pipeline déclare produire, pour un message.
-func produitsDe(pipeline catalog.Pipeline) string {
+// productsOf names what a pipeline declares it produces, for a message.
+func productsOf(pipeline catalog.Pipeline) string {
 	if len(pipeline.Produces) == 0 {
-		return "rien de déclaré"
+		return "nothing declared"
 	}
 	names := make([]string, 0, len(pipeline.Produces))
 	for _, product := range pipeline.Produces {

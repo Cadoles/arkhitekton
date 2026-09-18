@@ -12,9 +12,8 @@ import (
 )
 
 type fakeSyncStore struct {
-	// tracked dit si le projet déclare un suivi. C'est ce que « configuré »
-	// signifie depuis que la connexion est un réglage de projet : un drapeau
-	// global répondait pour tout le monde.
+	// tracked says whether the project declares a tracker. That is what "configured" means now
+	// that the connection is a project setting: a global flag answered for everyone.
 	tracked   bool
 	state     store.SyncState
 	unmapped  []store.UnmappedStatus
@@ -61,8 +60,8 @@ func (f *fakeSyncStore) ReprojectIssues(context.Context, int64) (int64, error) {
 	return f.moved, nil
 }
 
-// ProjectBySlug résout le projet du chemin. Le suivi qu'il déclare — ou pas — est
-// ce que l'écran lit désormais pour dire « configuré ».
+// ProjectBySlug resolves the path's project. The tracker it declares — or does not — is what
+// the screen now reads to say "configured".
 func (f *fakeSyncStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
 	if slug != "mse" {
 		return store.Project{}, store.ErrProjectNotFound
@@ -74,7 +73,7 @@ func (f *fakeSyncStore) ProjectBySlug(_ context.Context, slug string) (store.Pro
 	return project, nil
 }
 
-// syncRequest compose une requête portant le projet dans son chemin.
+// syncRequest composes a request carrying the project in its path.
 func syncRequest(method, path, body string) *http.Request {
 	request := adminRequest(method, path, body)
 	request.SetPathValue("project", "mse")
@@ -86,15 +85,13 @@ func (f *fakeSyncStore) Audit(_ context.Context, _, action, target string, _ map
 	return nil
 }
 
-// La projection **complète** doit être transmise, et pas seulement les statuts
-// inconnus.
+// The complete mapping must be sent, and not only the unknown statuses.
 //
-// C'est le contrat dont dépend le réglage dans l'interface. Il était rendu par
-// l'API et jamais affiché : l'écran n'exposait que les statuts non mappés, donc rien
-// du tout dès que l'amorçage les couvrait tous — ce qui est le cas sur l'instance
-// réelle, où aucun statut n'est resté sans projection. Les cinq statuts qui attendent
-// l'arbitrage du client étaient ainsi inaccessibles.
-func TestLEtatPorteLaProjectionCompleteEtPasSeulementLesInconnus(t *testing.T) {
+// That is the contract the setting in the interface depends on. It was returned by the API
+// and never displayed: the screen exposed only the unmapped statuses, hence nothing at all
+// once the bootstrap covered them all — which is the case on the real instance. The statuses
+// awaiting the deployment's arbitration were therefore unreachable.
+func TestTheStateCarriesTheWholeMappingAndNotOnlyTheUnknowns(t *testing.T) {
 	fake := &fakeSyncStore{
 		tracked: true,
 		mapping: map[string]string{
@@ -104,7 +101,7 @@ func TestLEtatPorteLaProjectionCompleteEtPasSeulementLesInconnus(t *testing.T) {
 			"Rejeté":        "rejected",
 			"Nouveau":       "todo",
 		},
-		// Aucun statut inconnu : la situation réelle après l'amorçage.
+		// No unknown status: the real situation after the bootstrap.
 		unmapped: nil,
 	}
 	handler := NewSyncAdminHandler(fake)
@@ -124,35 +121,35 @@ func TestLEtatPorteLaProjectionCompleteEtPasSeulementLesInconnus(t *testing.T) {
 		Ambiguous  []any             `json:"ambiguous"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 
 	if len(response.Mapping) != 5 {
-		t.Errorf("%d statuts transmis, attendu 5 — la projection complète est ce qui rend le réglage possible",
+		t.Errorf("%d statuses returned, expected 5 — the complete mapping is what makes the setting possible",
 			len(response.Mapping))
 	}
-	// Les statuts en attente d'arbitrage doivent en faire partie.
+	// The statuses awaiting arbitration must be part of it.
 	for _, status := range []string{"Livré", "Prêt à livrer"} {
 		if _, ok := response.Mapping[status]; !ok {
-			t.Errorf("statut %q absent de la projection transmise", status)
+			t.Errorf("status %q missing from the returned mapping", status)
 		}
 	}
-	// Tableaux vides et non `null` : l'interface itère dessus sans garde.
+	// Empty arrays and not null: the interface iterates over them without a guard.
 	if response.Unmapped == nil || response.Pending == nil || response.Ambiguous == nil {
-		t.Error("les listes vides doivent être des tableaux, non null")
+		t.Error("empty lists must be arrays, not null")
 	}
 	if !response.Configured {
-		t.Error("configured devrait être vrai")
+		t.Error("configured should be true")
 	}
 }
 
-// Un projet **sans suivi déclaré** doit dire « non configuré » et non « jamais
-// synchronisé », qui ferait chercher une panne.
+// A project with no declared tracker must say "not configured" and not "never
+// synchronised", which would send someone hunting for a fault.
 //
-// La question a changé de nature : elle portait sur la clé de l'instance, elle
-// porte désormais sur ce que le projet déclare. Un projet qui n'a pas de suivi
-// n'est pas en panne de synchronisation — il n'en attend aucune.
-func TestUnProjetSansSuiviDitNonConfigure(t *testing.T) {
+// The question changed nature: it used to be about the instance's key, it is now about
+// what the project declares. A project with no tracker is not failing to synchronise — it
+// expects no synchronisation.
+func TestAProjectWithNoTrackerSaysNotConfigured(t *testing.T) {
 	handler := NewSyncAdminHandler(&fakeSyncStore{})
 
 	recorder := httptest.NewRecorder()
@@ -162,17 +159,17 @@ func TestUnProjetSansSuiviDitNonConfigure(t *testing.T) {
 		Configured bool `json:"configured"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	if response.Configured {
-		t.Error("configured devrait être faux sans clé")
+		t.Error("configured should be false without a key")
 	}
 }
 
-// Déclarer un statut réapplique la règle dans le même geste, et rend le nombre
-// déplacé : sans cela la nouvelle règle ne vaudrait que pour les demandes modifiées
-// ensuite dans Redmine, et l'écran mélangerait deux règles sans le dire.
-func TestDeclarerUnStatutReappliqueEtRendLeNombreDeplace(t *testing.T) {
+// Declaring a status reapplies the rule in the same gesture, and returns how many issues
+// moved: without that the new rule would hold only for issues modified afterwards in the
+// tracker, and the screen would mix two rules without saying so.
+func TestDeclaringAStatusReappliesAndReturnsTheNumberMoved(t *testing.T) {
 	fake := &fakeSyncStore{tracked: true, moved: 17}
 	handler := NewSyncAdminHandler(fake)
 
@@ -185,28 +182,28 @@ func TestDeclarerUnStatutReappliqueEtRendLeNombreDeplace(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 	if len(fake.set) != 1 || fake.set[0] != "Livré=done" {
-		t.Errorf("projection enregistrée: %v", fake.set)
+		t.Errorf("mapping recorded: %v", fake.set)
 	}
 
 	var response struct {
 		IssuesMoved int64 `json:"issues_moved"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
 	if response.IssuesMoved != 17 {
-		t.Errorf("%d demandes déplacées annoncées, attendu 17", response.IssuesMoved)
+		t.Errorf("%d moved requests reported, expected 17", response.IssuesMoved)
 	}
 
-	// Changer une projection déplace un taux affiché au client : c'est consigné.
+	// Changing a mapping moves a rate displayed to the client: it is recorded.
 	if len(fake.audit) != 1 || !strings.HasPrefix(fake.audit[0], "sync.redmine.mapping:") {
 		t.Errorf("journal: %v", fake.audit)
 	}
 }
 
-// Un seau inventé est refusé : la contrainte de base l'interdirait, mais une erreur
-// 500 remontée d'une violation de contrainte ne dit pas à l'appelant ce qui est admis.
-func TestUnSeauInventeEstRefuse(t *testing.T) {
+// An invented bucket is refused: the database constraint would forbid it, but a 500 raised
+// from a constraint violation does not tell the caller what is accepted.
+func TestAnInventedBucketIsRefused(t *testing.T) {
 	for _, bucket := range []string{"", "termine", "DONE", "en-cours"} {
 		fake := &fakeSyncStore{}
 		handler := NewSyncAdminHandler(fake)
@@ -217,18 +214,18 @@ func TestUnSeauInventeEstRefuse(t *testing.T) {
 		handler.SetMapping(recorder, request)
 
 		if recorder.Code != http.StatusBadRequest {
-			t.Errorf("seau %q: code %d, attendu 400", bucket, recorder.Code)
+			t.Errorf("bucket %q: code %d, expected 400", bucket, recorder.Code)
 		}
 		if len(fake.set) != 0 {
-			t.Errorf("seau %q enregistré malgré tout: %v", bucket, fake.set)
+			t.Errorf("bucket %q recorded anyway: %v", bucket, fake.set)
 		}
 	}
 }
 
-// La resynchronisation n'interroge pas Redmine : elle efface le curseur, et la passe
-// suivante du worker relit tout. Le message doit dire l'attente, sans quoi un
-// utilisateur qui ne voit rien changer relancerait en boucle.
-func TestLaResynchronisationEffaceLeCurseurEtAnnonceLAttente(t *testing.T) {
+// Resynchronising does not query the tracker: it clears the cursor, and the worker's next
+// pass re-reads everything. The message must say so, otherwise a user seeing nothing change
+// would keep relaunching.
+func TestResyncClearsTheCursorAndAnnouncesTheWait(t *testing.T) {
 	fake := &fakeSyncStore{}
 	handler := NewSyncAdminHandler(fake)
 
@@ -239,17 +236,17 @@ func TestLaResynchronisationEffaceLeCurseurEtAnnonceLAttente(t *testing.T) {
 		t.Fatalf("code %d", recorder.Code)
 	}
 	if fake.reset != 1 {
-		t.Errorf("%d réinitialisations", fake.reset)
+		t.Errorf("%d resets", fake.reset)
 	}
 
 	var response struct {
 		Message string `json:"message"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("réponse illisible: %v", err)
+		t.Fatalf("unreadable response: %v", err)
 	}
-	if !strings.Contains(response.Message, "cinq minutes") {
-		t.Errorf("le message doit annoncer l'attente: %q", response.Message)
+	if !strings.Contains(response.Message, "five minutes") {
+		t.Errorf("the message must announce the wait: %q", response.Message)
 	}
 	if len(fake.audit) != 1 {
 		t.Errorf("journal: %v", fake.audit)

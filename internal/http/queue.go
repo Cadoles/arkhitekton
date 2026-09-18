@@ -16,7 +16,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// QueueStore est ce que les handlers attendent de la base.
+// QueueStore is what the handlers need from the database.
 type QueueStore interface {
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	ListQueue(ctx context.Context) ([]store.Job, error)
@@ -30,15 +30,15 @@ type QueueStore interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// Releases est ce que le formulaire de lancement attend des releases.
+// Releases is what the launch form needs from the releases.
 //
-// Il ne s'agit que de peupler des listes : un paramètre `image-tag` ou `old-tag`
-// désigne une release existante, et un champ vide oblige à aller la chercher
-// dans un autre écran pour la recopier — avec la faute de frappe qui va avec.
+// It is only about populating lists: a parameter naming an existing release leaves an
+// empty field that forces going to another screen to copy it — with the typo that comes
+// with it.
 type Releases interface {
 	ListReleases(ctx context.Context, projectID int64, limit int) ([]store.Release, error)
-	// Les deux façons de nommer un projet : par le chemin de la requête, ou à
-	// défaut par celui qui se construit. Voir internal/http/project.go.
+	// The two ways of naming a project: by the request's path, or failing that by the one
+	// being built. See internal/http/project.go.
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	BuildableProject(ctx context.Context) (store.Project, error)
 }
@@ -47,16 +47,15 @@ type Releases interface {
 type QueueHandler struct {
 	queue   QueueStore
 	catalog *catalog.Catalog
-	// releases peuple les listes de tags. Nil-safe : sans lui, les champs
-	// concernés restent en saisie libre, ce qui est le comportement d'avant.
+	// releases populates the tag lists. Nil-safe: without it the fields concerned stay
+	// free-text, which is the previous behaviour.
 	releases Releases
-	// registryProject préfixe les images proposées. Vide, aucune image n'est
-	// suggérée : un nom tronqué ressemblerait à une référence tirable sans
-	// l'être.
+	// registryProject prefixes the images offered. Empty, no image is suggested: a
+	// truncated name would look like a pullable reference without being one.
 	registryProject string
 	logger          *slog.Logger
-	// environments rend les environnements proposés. Nil : aucun, le champ
-	// reste en saisie libre. Apporté par le plugin MSE (doc 16 §16.7, couture 9).
+	// environments returns the environments offered. Nil: none, the field stays free-text.
+	// Supplied by the MSE plugin.
 	environments func(ctx context.Context, projectSlug string) []Suggestion
 }
 
@@ -64,7 +63,7 @@ func NewQueueHandler(queue QueueStore, pipelines *catalog.Catalog) *QueueHandler
 	return &QueueHandler{queue: queue, catalog: pipelines}
 }
 
-// WithSuggestions branche les listes que le formulaire de lancement propose.
+// WithSuggestions wires the lists the launch form offers.
 func (h *QueueHandler) WithSuggestions(
 	releases Releases, registryProject string, logger *slog.Logger,
 ) *QueueHandler {
@@ -84,8 +83,8 @@ type jobPayload struct {
 	RequestedAt time.Time  `json:"requested_at"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	Attempt     int        `json:"attempt"`
-	// QueueReason explique l'attente. Une file qui ne l'explique pas engendre
-	// systématiquement des relances inutiles.
+	// QueueReason explains the waiting. A queue that does not explain it systematically
+	// produces needless retries.
 	QueueReason string `json:"queue_reason,omitempty"`
 	RunName     string `json:"run_name,omitempty"`
 }
@@ -94,81 +93,78 @@ type jobPayload struct {
 type inputPayload struct {
 	Name     string `json:"name"`
 	Required bool   `json:"required"`
-	// Suggest nomme la liste à proposer. Vide, le champ reste libre — c'est le
-	// cas d'un paramètre dont le dashboard ne sait pas énumérer les valeurs.
+	// Suggest names the list to offer. Empty, the field stays free — the case of a parameter
+	// whose values the dashboard cannot enumerate.
 	Suggest string `json:"suggest,omitempty"`
 }
 
 type kindPayload struct {
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
-	// Inputs porte **tous** les paramètres saisis, pas seulement les requis : un
-	// paramètre facultatif qu'on ne voit pas est un paramètre qu'on ne renseigne
-	// jamais.
+	// Inputs carries every typed parameter, not only the required ones: an optional
+	// parameter nobody sees is a parameter nobody ever fills in.
 	Inputs []inputPayload `json:"inputs"`
 }
 
-// option est une valeur proposée.
+// option is an offered value.
 //
-// Une valeur et un libellé, distincts : un environnement s'envoie sous son
-// identifiant `dev` et se lit « Unstable ».
+// A value and a label, kept distinct: an environment is sent under its identifier and
+// read under its name.
 type option struct {
 	Value string `json:"value"`
 	Label string `json:"label,omitempty"`
 }
 
-// Suggestion est une valeur proposée par le formulaire de lancement.
+// Suggestion is a value the launch form offers.
 type Suggestion = option
 
-// WithEnvironmentSuggestions branche la liste des environnements proposés.
+// WithEnvironmentSuggestions wires the list of environments offered.
 func (h *QueueHandler) WithEnvironmentSuggestions(environments func(ctx context.Context, projectSlug string) []Suggestion) *QueueHandler {
 	h.environments = environments
 	return h
 }
 
-// queuePayload est une file : son plafond, son occupation, ses jobs.
+// queuePayload is one queue: its ceiling, its occupancy, its jobs.
 //
-// Une file par type, y compris vide. Ne rendre que les files occupées ferait
-// disparaître de l'écran la moitié des réglages, et c'est justement quand une
-// file est vide qu'on veut vérifier ce qu'elle autorise.
+// One queue per kind, including empty ones. Returning only the busy queues would make
+// half the settings disappear from the screen, and it is precisely when a queue is
+// empty that one wants to check what it allows.
 type queuePayload struct {
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
-	// MaxConcurrent est le plafond effectif : le réglage s'il existe, celui du
-	// catalogue sinon.
+	// MaxConcurrent is the effective ceiling: the setting if there is one, the catalogue's
+	// otherwise.
 	MaxConcurrent int `json:"max_concurrent"`
-	// DefaultMax est celui du catalogue. Rendu à côté de l'effectif pour que
-	// l'écran puisse dire « réglé à 2, par défaut 5 » plutôt qu'un nombre seul,
-	// et proposer le retour au défaut.
+	// DefaultMax is the catalogue's. Returned beside the effective one so the screen can
+	// say "set to 2, default 5" rather than a bare number, and offer a return to the
+	// default.
 	DefaultMax int  `json:"default_max_concurrent"`
 	Overridden bool `json:"overridden"`
-	// Known distingue une file du catalogue d'une file constatée : les tâches
-	// locales — bon de livraison, note de release — ne deviennent pas des
-	// PipelineRun et n'y figurent pas, mais occupent bien une file.
+	// Known tells a catalogue queue from an observed one: local tasks — the delivery note,
+	// the release note — do not become PipelineRuns and are absent from it, but they do
+	// occupy a queue.
 	Known   bool         `json:"known"`
 	Running int          `json:"running"`
 	Waiting int          `json:"waiting"`
 	Jobs    []jobPayload `json:"jobs"`
 }
 
-// List rend les files, leur occupation et le catalogue.
+// List returns the queues, their occupancy and the catalogue.
 //
-// Les trois ensemble parce que l'écran a besoin des trois : afficher des jobs
-// sans dire ce qui est lançable oblige à une seconde requête pour peupler le
-// moindre bouton, et sans les plafonds on ne peut ni expliquer une attente ni
-// proposer de la lever.
+// All three together because the screen needs all three: showing jobs without saying
+// what can be launched forces a second request to populate the smallest button, and
+// without the ceilings one can neither explain a wait nor offer to lift it.
 func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 	jobs, err := h.queue.ListQueue(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la file impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the queue", "")
 		return
 	}
 
 	who := resolveActors(r.Context(), h.queue, slog.Default())
 
-	// Les jobs sont répartis dans leur file en conservant l'ordre reçu, qui est
-	// celui du service. Retrier par type suffirait à mentir sur qui passe en
-	// premier.
+	// The jobs are distributed into their queue keeping the order received, which is the
+	// order of service. Re-sorting by kind would be enough to lie about who goes first.
 	byKind := map[string][]jobPayload{}
 	order := make([]string, 0, len(jobs))
 	for _, job := range jobs {
@@ -180,10 +176,9 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	overrides, err := h.queue.QueueLimits(r.Context())
 	if err != nil {
-		// Un réglage illisible ne doit pas faire disparaître la file : les
-		// plafonds du catalogue s'affichent alors, ce qui est le comportement
-		// d'avant les réglages.
-		slog.Default().Error("lecture des plafonds de file", "error", err)
+		// An unreadable setting must not make the queue disappear: the catalogue's ceilings are
+		// then shown, which is the behaviour before settings existed.
+		slog.Default().Error("reading the queue caps", "error", err)
 		overrides = map[string]int{}
 	}
 
@@ -194,8 +189,8 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 			true, overrides, byKind))
 		delete(byKind, pipeline.Kind)
 	}
-	// Les files constatées hors catalogue passent ensuite : ce sont les tâches
-	// locales, qui ne deviennent pas des PipelineRun mais occupent bien une file.
+	// Observed queues outside the catalogue come next: they are the local tasks, which do
+	// not become PipelineRuns but do occupy a queue.
 	for _, kind := range order {
 		if _, remaining := byKind[kind]; !remaining {
 			continue
@@ -224,24 +219,23 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 		"queues":      queues,
 		"kinds":       kinds,
 		"suggestions": h.suggestions(r.Context(), r.URL.Query().Get("project")),
-		// Le plafond global, toutes files confondues. Il prime sur les plafonds
-		// par type : sans lui, sept files à cinq places autoriseraient
-		// trente-cinq exécutions simultanées.
+		// The global ceiling, across every queue. It prevails over the per-kind ones: without
+		// it, seven queues of five places would allow thirty-five simultaneous runs.
 		"max_concurrent": h.catalog.MaxConcurrentRuns,
 	})
 }
 
-// suggestions constitue les listes proposées par le formulaire de lancement.
+// suggestions builds the lists the launch form offers.
 //
-// Composées ici et non par le client : les tags viennent de la base, les
-// environnements du plugin MSE, et les images d'un préfixe de configuration que
-// le navigateur ne connaît pas. Les faire assembler côté client demanderait de
-// lui transmettre ce préfixe, donc de le publier, pour un gain nul.
+// Composed here and not by the client: the tags come from the database, the
+// environments from the MSE plugin, and the images from a configuration prefix the
+// browser does not know. Having the client assemble them would mean sending it that
+// prefix, hence publishing it, for no gain.
 //
-// Les références Git manquent délibérément à l'appel : elles se lisent en direct
-// chez la forge, l'appel coûte des secondes, et le client les demande déjà pour
-// le formulaire de création de release. Les recharger ici les ferait payer à
-// chaque rafraîchissement de la file, toutes les deux secondes.
+// Git references are deliberately absent: they are read live from the forge, the call
+// costs seconds, and the client already requests them for the release creation form.
+// Reloading them here would make the queue pay for it on every refresh, every two
+// seconds.
 func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string][]option {
 	proposed := map[string][]option{}
 
@@ -255,32 +249,33 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 		return proposed
 	}
 
-	// Les plus récentes d'abord, et pas toutes : une liste de deux cents entrées
-	// ne se parcourt pas, et ce qu'on relance porte sur ce qui vient de sortir.
-	// La file n'est pas propre à un projet : ses plafonds sont ceux du cluster, et
-	// son chemin ne porte donc pas de projet. Les suggestions, elles, listent des
-	// **releases**, qui n'existent que dans un projet — d'où le projet en requête.
+	// The most recent first, and not all of them: a list of two hundred entries is not
+	// browsed, and what one re-runs concerns what has just come out.
 	//
-	// Déduit auparavant du seul dépôt constructible, ce qui a cessé d'être une
-	// question décidable dès qu'un second a été déclaré : les suggestions
-	// disparaissaient alors entièrement (doc 12 §12.9, lot B).
+	// The queue is not project-specific: its ceilings are the cluster's, so its path
+	// carries no project. The suggestions, though, list releases, which exist only within a
+	// project — hence the project in the query.
 	//
-	// Absent, les champs concernés restent en saisie libre. Une file utilisable
-	// sans suggestions vaut mieux qu'une file en erreur.
+	// It used to be derived from the single buildable repository, which stopped being a
+	// decidable question as soon as a second was declared: the suggestions then disappeared
+	// entirely.
+	//
+	// Absent, the fields concerned stay free-text. A queue usable without suggestions beats
+	// a queue in error.
 	currentID, err := h.projectOf(ctx, slug)
 	if err != nil {
 		if h.logger != nil {
-			h.logger.Warn("suggestions sans projet", "projet", slug, "error", err)
+			h.logger.Warn("suggestions with no project", "projet", slug, "error", err)
 		}
 		return proposed
 	}
 
 	releases, err := h.releases.ListReleases(ctx, currentID, suggestedReleases)
 	if err != nil {
-		// Une liste illisible ne fait pas échouer la file : les champs concernés
-		// restent en saisie libre, ce qui est le comportement d'avant.
+		// An unreadable list does not fail the queue: the fields concerned stay free-text,
+		// which is the previous behaviour.
 		if h.logger != nil {
-			h.logger.Error("suggestions de releases", "error", err)
+			h.logger.Error("release suggestions", "error", err)
 		}
 		return proposed
 	}
@@ -291,9 +286,9 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 	}
 	proposed[catalog.SuggestReleaseTag] = tags
 
-	// Une liste par image **déclarée par le catalogue**, et non par image connue
-	// du code : deux paramètres qui veulent tous deux une référence n'attendent
-	// pas la même, et publier une image de plus ne doit pas demander de recompiler.
+	// One list per image declared by the catalogue, and not per image known to the code:
+	// two parameters that both want a reference do not expect the same one, and publishing
+	// one more image must not require a recompile.
 	for _, name := range h.catalog.SuggestedImages() {
 		references := make([]option, 0, len(releases))
 		for _, release := range releases {
@@ -301,9 +296,8 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 			if reference == "" {
 				continue
 			}
-			// Le tag en étiquette : la référence complète est longue et identique
-			// à un préfixe près, la seule chose qui distingue deux lignes est ce
-			// qui serait tronqué.
+			// The tag as the label: the full reference is long and identical but for a prefix, and
+			// the only thing distinguishing two rows is what would be truncated.
 			references = append(references, option{Value: reference, Label: release.Tag})
 		}
 		proposed[catalog.Input{Suggest: catalog.SuggestImage, Image: name}.SuggestionKey()] = references
@@ -312,11 +306,11 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 	return proposed
 }
 
-// projectOf résout le projet des suggestions.
+// projectOf resolves the project of the suggestions.
 //
-// Le slug quand la requête en porte un, le dépôt constructible sinon — ce dernier
-// reste juste tant qu'il n'y en a qu'un, et rend une erreur dès qu'il y en a
-// plusieurs plutôt que d'en choisir un au hasard.
+// The slug when the request carries one, the buildable repository otherwise — the latter
+// stays right while there is only one, and returns an error as soon as there are
+// several rather than picking one at random.
 func (h *QueueHandler) projectOf(ctx context.Context, slug string) (int64, error) {
 	if slug == "" {
 		return buildableProject(ctx, h.releases)
@@ -372,8 +366,7 @@ func (h *QueueHandler) toQueuePayload(
 		queue.Overridden = true
 	}
 	if queue.Jobs == nil {
-		// Un tableau vide et non `null` : l'interface itère dessus sans avoir à
-		// se prémunir de l'absence.
+		// An empty array and not null: the interface iterates over it without having to
 		queue.Jobs = []jobPayload{}
 	}
 	for _, job := range queue.Jobs {
@@ -386,72 +379,70 @@ func (h *QueueHandler) toQueuePayload(
 	return queue
 }
 
-// limitRequest porte un nouveau plafond.
+// limitRequest carries a new ceiling.
 type limitRequest struct {
 	MaxConcurrent int `json:"max_concurrent"`
 }
 
-// maxQueueLimit borne ce qu'un réglage peut demander.
+// maxQueueLimit bounds what a setting may ask for.
 //
-// Le plafond global reste au-dessus de toute façon, mais accepter 10 000 dans le
-// formulaire laisserait croire que le nombre a un sens. Vingt est déjà plus que
-// ce que le cluster tient.
+// The global ceiling stays above it anyway, but accepting 10,000 in the form would
+// suggest the number means something. Twenty is already more than the cluster holds.
 const maxQueueLimit = 20
 
-// SetLimit règle le plafond d'une file.
+// SetLimit sets a queue's ceiling.
 //
-// Réservé à l'administration : relever un plafond engage le cluster, et le
-// baisser peut immobiliser une vérification en cours de route. La valeur vit en
-// base et non dans le catalogue — un réglage qui exige de reconstruire un
-// ConfigMap n'est pas un réglage.
+// Reserved to administration: raising a ceiling commits the cluster, and lowering it can
+// immobilise a verification mid-way. The value lives in the database and not in the
+// catalogue — a setting that requires rebuilding a ConfigMap is not a setting.
 func (h *QueueHandler) SetLimit(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	kind := r.PathValue("kind")
 	if kind == "" {
-		writeProblem(w, http.StatusBadRequest, "Type de file manquant", "")
+		writeProblem(w, http.StatusBadRequest, "Missing queue type", "")
 		return
 	}
 
 	var request limitRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 	if request.MaxConcurrent < 1 || request.MaxConcurrent > maxQueueLimit {
 		writeProblem(w, http.StatusBadRequest, "Plafond invalide",
-			fmt.Sprintf("attendu entre 1 et %d", maxQueueLimit))
+			fmt.Sprintf("expected between 1 and %d", maxQueueLimit))
 		return
 	}
 
 	if err := h.queue.SetQueueLimit(r.Context(), kind, request.MaxConcurrent, identity.Subject); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Réglage impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot set", "")
 		return
 	}
 
-	// Consigné comme les autres décisions d'exploitation : « qui a ouvert la file
-	// à dix » doit avoir une réponse sans consulter les journaux applicatifs.
+	// Recorded like the other operational decisions: "who opened the queue to ten" must have
+	// an answer without consulting the application logs.
 	_ = h.queue.Audit(r.Context(), identity.Subject, store.AuditQueueLimit, kind,
 		map[string]any{"max_concurrent": request.MaxConcurrent})
 
 	writeJSON(w, http.StatusOK, map[string]any{"kind": kind, "max_concurrent": request.MaxConcurrent})
 }
 
-// ClearLimit rend une file à son plafond de catalogue.
+// ClearLimit returns a queue to its catalogue ceiling.
 func (h *QueueHandler) ClearLimit(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	kind := r.PathValue("kind")
 	if err := h.queue.ClearQueueLimit(r.Context(), kind); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Réglage impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot set", "")
 		return
 	}
 
@@ -461,18 +452,18 @@ func (h *QueueHandler) ClearLimit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"kind": kind})
 }
 
-// maxLaunchParams borne ce qu'un lancement peut porter.
+// maxLaunchParams bounds what a launch may carry.
 //
-// Le corps est déjà borné en octets ; ce plafond-ci borne le nombre, parce qu'un
-// millier de paramètres d'un octet passerait la première borne et produirait une
-// spec de PipelineRun ingérable.
+// The body is already bounded in bytes; this ceiling bounds the count, because a
+// thousand one-byte parameters would pass the first bound and produce an unmanageable
+// PipelineRun spec.
 const maxLaunchParams = 40
 
-// paramName borne la forme d'un nom de paramètre.
+// paramName bounds the shape of a parameter name.
 //
-// Tekton est plus permissif, mais ces noms voyagent aussi dans des libellés et
-// des messages : s'en tenir à ce qu'un identifiant peut porter évite d'avoir à
-// s'en préoccuper partout ailleurs.
+// Tekton is more permissive, but these names also travel in labels and messages:
+// sticking to what an identifier can carry avoids having to worry about it everywhere
+// else.
 var paramName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 
 type launchRequest struct {
@@ -481,58 +472,56 @@ type launchRequest struct {
 	Priority int               `json:"priority"`
 }
 
-// Launch met un job en file.
+// Launch puts a job in the queue.
 //
-// Le lancement n'est jamais direct : il passe par la file, seule à connaître les
-// classes d'exclusion. Créer un PipelineRun depuis le handler ferait démarrer une
-// seconde campagne E2E pendant la première, ce que toute la mécanique existe pour
-// empêcher.
+// Launching is never direct: it goes through the queue, the only thing that knows the
+// exclusion classes. Creating a PipelineRun from the handler would start a second
+// end-to-end campaign during the first, which the whole mechanism exists to prevent.
 func (h *QueueHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	var request launchRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
 	pipeline, found := h.catalog.Find(request.Kind)
 	if !found {
-		writeProblem(w, http.StatusBadRequest, "Type d'exécution inconnu", request.Kind)
+		writeProblem(w, http.StatusBadRequest, "Unknown run type", request.Kind)
 		return
 	}
 
-	// Les entrées requises sont vérifiées ici et pas seulement à l'ordonnancement :
-	// un job accepté puis rejeté deux secondes plus tard laisse l'utilisateur
-	// devant une file qui refuse sans le dire.
+	// The required inputs are checked here and not only at scheduling time: a job accepted
+	// then rejected two seconds later leaves the user in front of a queue that refuses
+	// without saying so.
 	for _, name := range pipeline.RequiredInputs() {
 		if request.Params[name] == "" {
-			writeProblem(w, http.StatusBadRequest, "Paramètre requis manquant", name)
+			writeProblem(w, http.StatusBadRequest, "Missing required parameter", name)
 			return
 		}
 	}
 
-	// Les paramètres supplémentaires — ceux que le catalogue ne déclare pas —
-	// sont transmis tels quels au PipelineRun. C'est ce qui permet une exécution
-	// personnalisée, et c'est aussi ce qui exige de borner la forme des noms :
-	// ils atterrissent dans la spec d'un objet Kubernetes, où un nom fantaisiste
-	// produit une erreur de validation illisible plutôt qu'un refus clair.
+	// Extra parameters — those the catalogue does not declare — are passed to the PipelineRun
+	// as they are. That is what allows a customised run, and it is also what requires
+	// bounding the shape of names: they land in a Kubernetes object's spec, where a fanciful
+	// name produces an unreadable validation error rather than a clear refusal.
 	//
-	// La séparation des sources n'en est pas affaiblie : l'ordonnanceur ne
-	// reprend un paramètre fourni que si le catalogue l'ignore, donc une valeur
-	// envoyée sous le nom d'un paramètre de configuration reste sans effet.
+	// The separation of sources is not weakened by it: the scheduler takes a supplied
+	// parameter only when the catalogue ignores it, so a value sent under the name of a
+	// configuration parameter has no effect.
 	if len(request.Params) > maxLaunchParams {
-		writeProblem(w, http.StatusBadRequest, "Trop de paramètres",
-			fmt.Sprintf("%d au maximum", maxLaunchParams))
+		writeProblem(w, http.StatusBadRequest, "Too many parameters",
+			fmt.Sprintf("%d at most", maxLaunchParams))
 		return
 	}
 	for name := range request.Params {
 		if !paramName.MatchString(name) {
-			writeProblem(w, http.StatusBadRequest, "Nom de paramètre invalide", name)
+			writeProblem(w, http.StatusBadRequest, "Invalid parameter name", name)
 			return
 		}
 	}
@@ -551,16 +540,16 @@ func (h *QueueHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "kind": pipeline.Kind})
 }
 
-// Cancel annule un job.
+// Cancel cancels a job.
 //
-// Deux chemins selon l'état, et la distinction n'est pas cosmétique : un job en
-// file s'annule en base, un job en cours demande au cluster d'arrêter les pods.
+// Two paths depending on the state, and the distinction is not cosmetic: a queued job is
+// cancelled in the database, a running job asks the cluster to stop the pods.
 //
-// Ce second chemin passe par une **intention** enregistrée en base, que
-// l'ordonnanceur exécute : l'`api` ne parle pas à Kubernetes, son compte de
-// service ne monte même pas de jeton. Le dashboard rend donc la main tout de
-// suite, mais n'affichera `cancelled` qu'une fois le cluster d'accord — annoncer
-// l'inverse ferait croire à un arrêt qui n'a pas eu lieu.
+// That second path goes through an intent recorded in the database, which the scheduler
+// carries out: the api does not talk to Kubernetes, its service account does not even
+// mount a token. The dashboard therefore returns at once, but will only display
+// `cancelled` once the cluster agrees — announcing otherwise would suggest a stop that did
+// not happen.
 func (h *QueueHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -568,7 +557,7 @@ func (h *QueueHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cancelled, err := h.queue.CancelQueuedJob(r.Context(), id, "annulation demandée")
+	cancelled, err := h.queue.CancelQueuedJob(r.Context(), id, "cancellation requested")
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Annulation impossible", "")
 		return
@@ -589,13 +578,12 @@ func (h *QueueHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if job.State != store.JobRunning || job.RunName == "" {
-		// Déjà terminé : ce n'est pas une erreur, il n'y a simplement rien à
-		// annuler.
+		// Already finished: not an error, there is simply nothing to cancel.
 		writeJSON(w, http.StatusOK, map[string]string{"state": job.State})
 		return
 	}
 
-	if _, err := h.queue.RequestCancel(r.Context(), id, "annulation demandée"); err != nil {
+	if _, err := h.queue.RequestCancel(r.Context(), id, "cancellation requested"); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Annulation impossible", "")
 		return
 	}

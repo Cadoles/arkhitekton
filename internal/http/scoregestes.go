@@ -15,23 +15,23 @@ import (
 )
 
 /*
- * Le score, geste par geste.
+ * Le score, step par step.
  *
  * # Ce qui change d'axe
  *
  * Le score pesait six **signaux** de poids fixes. Deux campagnes E2E distinctes
  * s'y confondaient donc en une, et aucune pondération ne pouvait les séparer. Le
- * composant est désormais le **geste** de l'étape de vérification : deux
- * campagnes sont deux gestes, chacun avec son poids (doc 15 §15.6).
+ * composant est désormais le **step** de l'étape de vérification : deux
+ * campagnes sont deux steps, chacun avec son poids (doc 15 §15.6).
  *
  * Le signal ne disparaît pas. Il dit toujours **comment** noter ce qui a été
- * mesuré — un rapport de tests ne se note pas comme un audit — et sert encore à
+ * mesuré — un testReport de tests ne se note pas comme un audit — et sert encore à
  * choisir une icône. Il a seulement cessé d'être l'identité.
  *
  * # D'où vient le rattachement
  *
  * Rien n'a été ajouté au schéma : un résultat porte son run, un run porte son
- * job, et un geste est le seul à porter ce job. `ResultGestes` suit cette chaîne.
+ * job, et un step est le seul à porter ce job. `ResultGestes` suit cette chaîne.
  *
  * # Les poids sont ceux du plan qui a tourné
  *
@@ -40,20 +40,18 @@ import (
  * jour-là. Un chiffre communiqué ne se réécrit pas.
  */
 
-// planScoreStore est ce que le score par geste attend de la base, en plus du
-// reste.
+// planScoreStore is what the per-step score needs from the database, beyond the rest.
 type planScoreStore interface {
 	PlanRunByEvent(ctx context.Context, trigger, eventKey string) (store.PlanRun, error)
 	ResultGestes(ctx context.Context, releaseID int64) (map[int64]store.GesteRef, error)
 }
 
-// gesteMeasures rend un composant de score par geste de vérification.
+// stepMeasures returns one score component per verification step.
 //
-// Rend `nil, nil` quand la release n'a pas de plan, ou qu'il ne vérifie rien :
-// l'appelant retombe alors sur les familles. Ce repli n'est pas une commodité —
-// les releases antérieures au plan d'une release (doc 15 §15.2) n'en ont pas, et
-// leur score doit rester lisible.
-func gesteMeasures(
+// Returns nil, nil when the release has no plan, or when it verifies nothing: the caller
+// then falls back to the families. That fallback is not a convenience — releases predating
+// plans have none, and their score must stay readable.
+func stepMeasures(
 	ctx context.Context, source scoreStore, releaseID int64,
 	reports []store.TestResult, registry *catalog.Catalog,
 ) ([]results.Measure, error) {
@@ -71,9 +69,8 @@ func gesteMeasures(
 		return nil, err
 	}
 
-	// La **dernière** étape de vérification, comme le cycle de vie : un plan peut
-	// vérifier en deux temps, et c'est la conclusion du dernier qui dit que la
-	// release est vérifiée.
+	// The last verification stage, as in the life cycle: a plan may verify in two passes, and
+	// it is the conclusion of the last that says the release is verified.
 	stage := run.Plan.LastWithRole(plan.RoleTest)
 	if stage < 0 || len(run.Plan.Stages[stage].Gestes) == 0 {
 		return nil, nil
@@ -91,56 +88,55 @@ func gesteMeasures(
 		}
 	}
 
-	audit, auditGeste, err := auditDuGeste(ctx, source, releaseID, byResult)
+	audit, auditGeste, err := stepAudit(ctx, source, releaseID, byResult)
 	if err != nil {
 		return nil, err
 	}
-	campagne, campagneGeste, err := campagneDuGeste(ctx, source, releaseID, byResult)
+	campagne, campagneGeste, err := stepCampaign(ctx, source, releaseID, byResult)
 	if err != nil {
 		return nil, err
 	}
 
 	measures := make([]results.Measure, 0, len(run.Plan.Stages[stage].Gestes))
-	for position, geste := range run.Plan.Stages[stage].Gestes {
+	for position, step := range run.Plan.Stages[stage].Gestes {
 		ref := store.GesteRef{Stage: stage, Position: position}
 		siens := reportsByGeste[ref]
 
-		famille := familleDuGeste(geste, siens, registry)
+		famille := stepKind(step, siens, registry)
 		signal, connu := results.SignalOf(famille)
 
 		measure := results.Measure{
-			Key: gesteKey(ref), Label: geste.Name(), Signal: signal,
-			// Ce qui a produit la mesure : le pipeline que « Rejouer » relance, et
-			// la famille de rapports que le détail ouvre.
-			Ref: geste.Ref, Family: famille,
-			Weight: results.WeightOf(geste.Weight, signal),
+			Key: stepKey(ref), Label: step.Name(), Signal: signal,
+			// What produced the measure: the pipeline the replay button relaunches, and the report
+			// family the detail opens.
+			Ref: step.Ref, Family: famille,
+			Weight: results.WeightOf(step.Weight, signal),
 		}
 
 		switch {
 		case !connu:
-			// Un geste dont on ne sait pas lire ce qu'il produit. Son poids reste
-			// affiché — sinon on croirait qu'il ne compte pas — mais il ne note
-			// rien, et le détail dit pourquoi.
-			measure.Detail = "aucune famille de résultats connue pour ce pipeline"
+			// A step whose output cannot be read. Its weight stays displayed — otherwise one would
+			// think it does not count — but it grades nothing, and the detail says why.
+			measure.Detail = "no known result kind for this pipeline"
 		case famille == results.FamilySecurity:
 			measure.Measured, measure.Value, measure.Detail =
-				valeurDe(mesureAudit(audit, auditGeste == ref))
+				valueOf(auditMeasure(audit, auditGeste == ref))
 		case famille == results.FamilyLoad:
-			mesure, err := mesureCampagne(ctx, source, campagne, campagneGeste == ref)
+			mesure, err := campaignMeasure(ctx, source, campagne, campagneGeste == ref)
 			if err != nil {
 				return nil, err
 			}
-			measure.Measured, measure.Value, measure.Detail = valeurDe(mesure)
+			measure.Measured, measure.Value, measure.Detail = valueOf(mesure)
 		case famille == results.FamilyStatic:
-			combine, ran := cumule(siens)
-			// Les violations d'analyse statique se comptent en cas, pas en tests
-			// réussis : la règle de score n'est pas la même.
+			combine, ran := cumulative(siens)
+			// Static analysis violations are counted as cases, not as passing tests: the scoring rule
+			// is not the same.
 			measure.Measured, measure.Value, measure.Detail =
-				valeurDe(results.FromStatic(combine.Failed, ran))
+				valueOf(results.FromStatic(combine.Failed, ran))
 		default:
-			combine, ran := cumule(siens)
+			combine, ran := cumulative(siens)
 			measure.Measured, measure.Value, measure.Detail =
-				valeurDe(results.FromReport(signal, combine, ran))
+				valueOf(results.FromReport(signal, combine, ran))
 		}
 
 		measures = append(measures, measure)
@@ -148,24 +144,22 @@ func gesteMeasures(
 	return measures, nil
 }
 
-// gesteKey compose la clé d'un composant porté par un geste.
+// stepKey composes the key of a component carried by a step.
 //
-// Sa position dans le plan figé, et non son libellé : deux gestes peuvent le
-// partager, et un plan renommé ne doit pas casser le rapprochement d'un score
-// avec la case qui l'affiche.
-func gesteKey(ref store.GesteRef) string {
+// Its position in the frozen plan, and not its label: two steps may share one, and a
+// renamed plan must not break matching a score with the cell that displays it.
+func stepKey(ref store.GesteRef) string {
 	return "geste:" + strconv.Itoa(ref.Stage) + "." + strconv.Itoa(ref.Position)
 }
 
-// familleDuGeste rend la famille de résultats que ce geste alimente.
+// familyOfStep returns the result family this step feeds.
 //
-// **Ce qu'il a produit d'abord**, le catalogue ensuite. L'ordre compte : un geste
-// qui a tourné dit lui-même ce qu'il a rendu, et le catalogue peut avoir changé
-// depuis. Le catalogue sert au geste qui n'a rien produit — c'est le seul moyen
-// de savoir quel poids par défaut lui donner, et donc de l'afficher plutôt que de
-// le taire.
-func familleDuGeste(
-	geste plan.Geste, siens []store.TestResult, registry *catalog.Catalog,
+// What it produced first, the catalogue second. The order matters: a step that ran says
+// itself what it returned, and the catalogue may have changed since. The catalogue serves
+// the step that produced nothing — the only way to know what default weight to give it, and
+// therefore to display it rather than hide it.
+func stepKind(
+	step plan.Geste, siens []store.TestResult, registry *catalog.Catalog,
 ) results.Family {
 	for _, report := range siens {
 		if report.Family != "" {
@@ -175,27 +169,26 @@ func familleDuGeste(
 	if registry == nil {
 		return ""
 	}
-	pipeline, found := registry.Find(geste.Ref)
+	pipeline, found := registry.Find(step.Ref)
 	if !found {
 		return ""
 	}
 	return results.Family(pipeline.Family())
 }
 
-// cumule somme les rapports d'un geste, un seul par outil.
+// accumulate sums a step's reports, one per tool.
 //
-// Retenir un seul rapport perdrait les pipelines à plusieurs outils. `static` en
-// compte deux — PHPStan et PHP-CS-Fixer — et seul le plus récent entrait au
-// score : une release avec quarante erreurs PHPStan et un cs-fixer propre
-// affichait 100 dès lors que cs-fixer avait conclu en dernier.
-func cumule(siens []store.TestResult) (results.Report, bool) {
+// Keeping a single report would lose the pipelines with several tools. Static analysis has
+// two, and only the more recent entered the score: a release with forty errors from one and
+// a clean result from the other showed 100 as soon as the clean one concluded last.
+func cumulative(siens []store.TestResult) (results.Report, bool) {
 	combine := results.Report{}
 	vus := map[string]bool{}
 	ran := false
 
 	for _, report := range siens {
-		// La liste est antichronologique : le premier rencontré pour un outil est
-		// le plus récent, les suivants sont son historique.
+		// The list is newest first: the first one met for a tool is the most recent, the rest are
+		// its history.
 		if vus[report.Tool] {
 			continue
 		}
@@ -207,25 +200,25 @@ func cumule(siens []store.TestResult) (results.Report, bool) {
 		combine.Failed += report.Failed
 		combine.Skipped += report.Skipped
 		combine.Flaky += report.Flaky
-		// Le statut le plus sévère l'emporte : deux outils d'un même geste rendent
-		// un verdict commun, et le plus clément masquerait l'autre.
+		// The harshest status wins: two tools of one step return a common verdict, and the milder
+		// would mask the other.
 		combine.Status = worstStatus(combine.Status, report.Status)
 	}
 	return combine, ran
 }
 
-// valeurDe extrait ce qu'une mesure dit, pour le reporter sur un composant.
-func valeurDe(measure results.Measure) (bool, float64, string) {
+// valueOf extracts what a measure says, to carry it onto a component.
+func valueOf(measure results.Measure) (bool, float64, string) {
 	return measure.Measured, measure.Value, measure.Detail
 }
 
 /*
- * L'audit et la campagne, rattachés au geste qui les a produits.
+ * L'audit et la campagne, rattachés au step qui les a produits.
  *
  * # Une limite assumée
  *
  * Les deux se lisent « le plus récent de la release », et non « celui de ce
- * geste ». Deux gestes de sécurité dans un même plan ne seraient donc pas notés
+ * step ». Deux steps de sécurité dans un même plan ne seraient donc pas notés
  * séparément : le second se déclarerait non mesuré, en le disant, plutôt que
  * d'afficher la valeur du premier sous son nom.
  *
@@ -234,7 +227,7 @@ func valeurDe(measure results.Measure) (bool, float64, string) {
  * catalogue déployé.
  */
 
-func auditDuGeste(
+func stepAudit(
 	ctx context.Context, source scoreStore, releaseID int64,
 	byResult map[int64]store.GesteRef,
 ) (store.SecurityAudit, store.GesteRef, error) {
@@ -252,7 +245,7 @@ func auditDuGeste(
 	return audit, ref, nil
 }
 
-func campagneDuGeste(
+func stepCampaign(
 	ctx context.Context, source scoreStore, releaseID int64,
 	byResult map[int64]store.GesteRef,
 ) (*store.LoadResult, store.GesteRef, error) {
@@ -270,29 +263,28 @@ func campagneDuGeste(
 	return &campagnes[0], ref, nil
 }
 
-// mesureAudit note la sécurité depuis l'audit d'un geste.
+// auditMeasure grades security from a step's audit.
 //
-// L'audit décide lui-même s'il est mesurable : un scanner en échec produit zéro
-// finding, exactement comme un audit propre, et seul son descripteur les
-// distingue. Le compter comme conforme serait l'erreur la plus chère possible
-// sur ce signal (P2, B11).
-func mesureAudit(audit store.SecurityAudit, sien bool) results.Measure {
+// The audit decides for itself whether it is measurable: a failed scanner produces zero
+// findings, exactly like a clean audit, and only its descriptor tells them apart. Counting
+// it as clean would be the most expensive possible error on this signal.
+func auditMeasure(audit store.SecurityAudit, sien bool) results.Measure {
 	if !sien {
 		return results.FromSecurity(0, 0, false)
 	}
 	if !audit.Measured() {
 		return results.Measure{Signal: results.SignalSecurity,
 			Detail: "audit incomplet : " + strings.Join(audit.FailedScanners, ", ") +
-				" n'a pas conclu"}
+				" did not conclude"}
 	}
-	// Les compteurs viennent de `summary.json`, qui exclut déjà les findings
-	// supprimés par exception. Une exception est une décision humaine datée : la
-	// respecter ici est ce qui rend le score actionnable plutôt que subi.
+	// The counters come from the summary report, which already excludes findings suppressed by
+	// exception. An exception is a dated human decision: honouring it here is what makes the
+	// score actionable rather than endured.
 	return results.FromSecurity(audit.Critical, audit.High, true)
 }
 
-// mesureCampagne note la performance depuis la campagne d'un geste.
-func mesureCampagne(
+// campaignMeasure grades performance from a step's campaign.
+func campaignMeasure(
 	ctx context.Context, source scoreStore, campagne *store.LoadResult, sien bool,
 ) (results.Measure, error) {
 	if !sien || campagne == nil {
@@ -303,9 +295,8 @@ func mesureCampagne(
 		Exclusive: campagne.Exclusive, ConcurrentJobs: campagne.ConcurrentJobs,
 	}
 	if !conditions.Comparable() {
-		// Une campagne non comparable n'est pas une campagne absente, mais elle ne
-		// peut pas noter la performance : la juger imputerait à la release une
-		// lenteur causée par un voisin (B16).
+		// A campaign that cannot be compared is not an absent campaign, but it cannot grade
+		// performance: grading it would blame the release for slowness caused by a neighbour.
 		return results.FromBench("", false), nil
 	}
 

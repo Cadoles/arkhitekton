@@ -14,7 +14,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
-// VersionStore est ce que les routes de versions attendent de la base.
+// VersionStore is what the version routes need from the database.
 type VersionStore interface {
 	ListVersionSummaries(ctx context.Context, projectID int64) ([]store.VersionSummary, error)
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
@@ -22,21 +22,21 @@ type VersionStore interface {
 	ListVersionIssues(ctx context.Context, versionID int64) ([]store.VersionIssue, error)
 	ListVersionReleases(ctx context.Context, versionID int64) ([]store.VersionRelease, error)
 	GetSyncState(ctx context.Context, source string, projectID int64) (store.SyncState, error)
-	// EnsureVersion crée la version d'un projet, ou rend celle qui porte déjà ce
-	// nom. Idempotente par nom, ce qui est le bon comportement pour une
-	// déclaration manuelle : demander une version qui existe doit y mener.
+	// EnsureVersion creates a project's version, or returns the one already carrying that
+	// name. Idempotent by name, which is the right behaviour for a manual declaration: asking
+	// for a version that exists must lead to it.
 	EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
-	// GetProject sert au tag proposé : c'est le projet qui déclare son schéma de
-	// version et son cycle, donc ce qu'un formulaire doit proposer.
+	// GetProject serves the suggested tag: the project declares its version scheme and its
+	// cycle, hence what a form must offer.
 	GetProject(ctx context.Context, id int64) (store.Project, error)
 }
 
-// VersionsHandler sert les versions du suivi et leur avancement.
+// VersionsHandler serves the tracker's versions and their progress.
 type VersionsHandler struct {
 	store VersionStore
-	// trackerURL sert à construire les liens sortants. Vide, les liens sont omis
-	// plutôt que rendus cassés.
+	// trackerURL serves to build the outgoing links. Empty, the links are omitted rather than
+	// rendered broken.
 	trackerURL string
 }
 
@@ -44,21 +44,21 @@ func NewVersionsHandler(versions VersionStore, trackerURL string) *VersionsHandl
 	return &VersionsHandler{store: versions, trackerURL: trackerURL}
 }
 
-// completionVw porte les deux mesures de complétion (doc 04 §4.5).
+// completionVw carries the two completion measures.
 //
-// Les deux sont transmises parce qu'elles ne disent pas la même chose : par nombre de
-// demandes, lisible mais une grosse demande vaut une petite ; pondérée par
-// `done_ratio`, plus fine mais tributaire de la rigueur de saisie dans le suivi.
+// Both are sent because they do not say the same thing: by issue count, readable but a
+// large issue counts as much as a small one; weighted by `done_ratio`, finer but dependent
+// on how carefully the tracker is filled in.
 //
-// Le calcul est fait ici et non dans le navigateur : c'est une règle métier (doc 04),
-// et la dupliquer côté client la ferait diverger — la même erreur que les seuils de
-// santé, déjà corrigée.
+// The computation is done here and not in the browser: it is a business rule, and
+// duplicating it client-side would let it diverge — the same mistake as the health
+// thresholds, already corrected.
 type completionVw struct {
-	// Counted est le dénominateur : les demandes hors `rejected`.
+	// Counted is the denominator: the issues other than `rejected`.
 	Counted int `json:"counted"`
 	Done    int `json:"done"`
-	// Ratio vaut null quand rien n'est comptable : zéro pour cent laisserait croire
-	// qu'une version vide est en retard.
+	// Ratio is null when nothing is countable: zero per cent would suggest an empty version is
+	// behind.
 	Ratio         *float64 `json:"ratio"`
 	WeightedRatio *float64 `json:"weighted_ratio"`
 }
@@ -82,12 +82,12 @@ type versionVw struct {
 	Status     string     `json:"status"`
 	DueDate    *time.Time `json:"due_date"`
 	SyncedAt   time.Time  `json:"synced_at"`
-	// Pending marque une version provisoire : une release s'y rattache, mais la
-	// synchronisation n'a pas trouvé la version correspondante dans le suivi.
+	// Pending marks a provisional version: a release attaches to it, but synchronisation did
+	// not find the corresponding version in the tracker.
 	Pending    bool         `json:"pending"`
 	Completion completionVw `json:"completion"`
-	// OpenAnomalies est compté à part et n'entre pas dans la complétion : une version
-	// peut être fonctionnellement complète et en porter.
+	// OpenAnomalies is counted separately and does not enter completion: a version may be
+	// functionally complete and carry some.
 	OpenAnomalies int    `json:"open_anomalies"`
 	Releases      int    `json:"releases"`
 	URL           string `json:"url,omitempty"`
@@ -100,8 +100,8 @@ func (h *VersionsHandler) view(summary store.VersionSummary) versionVw {
 		Completion: completionOf(summary), OpenAnomalies: summary.OpenAnomalies,
 		Releases: summary.Releases,
 	}
-	// Une provisoire, ou une version d'un projet sans suivi, n'a pas
-	// d'identifiant externe : le client n'a alors aucun lien à construire.
+	// A provisional version, or one of a project with no tracker, has no external identifier:
+	// the client then has no link to build.
 	if !summary.Pending && summary.ExternalID != "" {
 		view.ExternalID = summary.ExternalID
 		if h.trackerURL != "" {
@@ -111,7 +111,7 @@ func (h *VersionsHandler) view(summary store.VersionSummary) versionVw {
 	return view
 }
 
-// List rend les versions et leur avancement.
+// List returns the versions and their progress.
 func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
@@ -120,7 +120,7 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	summaries, err := h.store.ListVersionSummaries(r.Context(), currentID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des versions impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the versions", "")
 		return
 	}
 
@@ -129,15 +129,15 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		payload = append(payload, h.view(summary))
 	}
 
-	// L'âge des données accompagne la liste : le suivi peut ne pas répondre, et un
-	// écran qui affiche des chiffres sans dire de quand ils datent est trompeur
-	// (doc 08 §8.2).
-	// L'état du **projet consulté**, et non celui de l'instance : deux projets
-	// suivis peuvent viser deux serveurs, et afficher l'âge des données de l'un
-	// sur l'écran de l'autre dirait « à jour » d'un suivi en panne.
+	// The age of the data comes with the list: the tracker may not answer, and a screen
+	// showing figures without saying when they date from is misleading.
+	//
+	// The state of the project being consulted, and not the instance's: two tracked projects
+	// may target two servers, and showing one's data age on the other's screen would say "up
+	// to date" of a tracker that is down.
 	state, err := h.store.GetSyncState(r.Context(), "redmine", currentID)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture de l'état de synchronisation impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the synchronisation state", "")
 		return
 	}
 
@@ -169,15 +169,15 @@ type issueVw struct {
 	URL        string `json:"url,omitempty"`
 }
 
-// Get rend le périmètre d'une version.
+// Get returns a version's scope.
 //
-// Les demandes sont réparties en trois seaux et les anomalies listées à part. Le
-// regroupement est fait ici parce qu'il suit la règle de doc 04 §4.5, la même qui
-// décide de la complétion : la séparer de son calcul les ferait diverger.
+// The issues are split into three buckets and the anomalies listed separately. The
+// grouping is done here because it follows the same rule that decides completion:
+// separating it from its computation would let them diverge.
 func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Identifiant de version invalide", "")
+		writeProblem(w, http.StatusBadRequest, "Invalid version identifier", "")
 		return
 	}
 
@@ -187,18 +187,18 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Version introuvable", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture de la version impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the version", "")
 		return
 	}
 
 	issues, err := h.store.ListVersionIssues(r.Context(), id)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des demandes impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the requests", "")
 		return
 	}
 
-	// Initialisé depuis la liste ordonnée du magasin : un seau ajouté là apparaît
-	// ici sans retouche, et un seau oublié rendrait `null` là où l'interface itère.
+	// Initialised from the store's ordered list: a bucket added there appears here with no
+	// edit, and a forgotten bucket would return null where the interface iterates.
 	buckets := map[string][]issueVw{store.BucketRejected: {}}
 	for _, bucket := range store.Buckets {
 		buckets[bucket] = []issueVw{}
@@ -218,21 +218,20 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		if bucket, known := buckets[issue.Bucket]; known {
 			buckets[issue.Bucket] = append(bucket, view)
 		} else {
-			// Un seau inconnu ne doit pas faire disparaître la demande de l'écran.
-			// La contrainte de base l'interdit, mais une demande invisible serait
-			// une perte silencieuse là où une demande mal rangée se voit.
+			// An unknown bucket must not make the issue disappear from the screen. The database
+			// constraint forbids it, but an invisible issue would be a silent loss where a misfiled
+			// issue shows.
 			buckets[store.BucketTodo] = append(buckets[store.BucketTodo], view)
 		}
 
-		// Les anomalies sont **aussi** dans leur seau : elles font partie du
-		// périmètre. La liste séparée est un second angle de lecture, pas un
-		// déplacement — une anomalie retirée du périmètre serait invisible pour qui
-		// regarde les colonnes.
+		// Anomalies are also in their bucket: they are part of the scope. The separate list is a
+		// second reading angle, not a move — an anomaly removed from the scope would be invisible
+		// to whoever looks at the columns.
 		//
-		// « Ouverte » se lit sur le seau projeté et non sur le drapeau `is_closed` de
-		// Redmine. Les deux divergent — `Testé` y est déclaré non clos alors qu'il est
-		// projeté en `done` — et employer deux notions de « clos » dans le même écran
-		// faisait apparaître des anomalies terminées dans le bandeau des ouvertes.
+		// "Open" is read from the mapped bucket and not from the tracker's `is_closed` flag. The
+		// two diverge — one status is declared not closed while it maps to `done` — and using two
+		// notions of "closed" in the same screen made finished anomalies appear in the open
+		// banner.
 		if issue.Anomaly && store.BucketIsOpen(issue.Bucket) {
 			anomalies = append(anomalies, view)
 		}
@@ -240,7 +239,7 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	releases, err := h.store.ListVersionReleases(r.Context(), id)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des releases impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the releases", "")
 		return
 	}
 	releasePayload := make([]map[string]any, 0, len(releases))
@@ -256,13 +255,11 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		"buckets":   buckets,
 		"anomalies": anomalies,
 		"releases":  releasePayload,
-		// Le tag proposé au formulaire de création, calculé **ici**.
+		// The tag offered to the creation form, computed here.
 		//
-		// L'interface le composait elle-même : elle retirait les préfixes `v` et
-		// `MSE ` — devenus configurables au chantier 5 — et suffixait `-rc<N>`,
-		// la convention du MSE. Deux règles que le serveur possède, recopiées
-		// dans un formulaire, et qui n'avaient plus aucune raison d'y être
-		// justes.
+		// The interface used to compose it itself: it stripped prefixes — since made
+		// configurable — and appended a candidate suffix, one deployment's convention. Two rules
+		// the server owns, copied into a form, with no reason left to be right there.
 		"suggested_tags": h.suggestedTags(r.Context(), summary, releases),
 	})
 }
@@ -270,20 +267,18 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 type syncStateVw struct {
 	LastRun *time.Time `json:"last_run"`
 	LastOK  *time.Time `json:"last_ok"`
-	// LastError est le message de la dernière tentative en échec. Non vide alors que
-	// `LastOK` est renseigné signifie « données valides mais vieillissantes », ce qui
-	// n'appelle pas la même réaction qu'une absence totale de données.
+	// LastError is the message of the last failed attempt. Non-empty while LastOK is set means
+	// "valid but ageing data", which does not call for the same response as no data at all.
 	LastError string `json:"last_error,omitempty"`
-	// Configured dit si la synchronisation a jamais tourné. Faux avec une base vide
-	// distingue « pas encore synchronisé » de « synchronisé, rien à afficher ».
+	// Configured says whether synchronisation has ever run. False with an empty database
+	// separates "not synchronised yet" from "synchronised, nothing to show".
 	EverRan bool `json:"ever_ran"`
-	// Tracked dit si le projet **déclare** un outil de suivi.
+	// Tracked says whether the project declares a tracking tool.
 	//
-	// Sans lui, l'interface ne pouvait pas distinguer « le suivi n'a pas encore
-	// tourné » de « ce projet n'en a pas », et affichait « Aucune version
-	// déclarée dans le projet Redmine » à un projet qui n'a jamais eu de
-	// Redmine. C'est exactement le trou que le jalon de vérification interdit :
-	// l'interface doit **le dire proprement** (doc 12 §12.9).
+	// Without it, the interface could not tell "the tracker has not run yet" from "this
+	// project has none", and announced "no version declared in the tracker project" to a
+	// project that never had one. That is exactly the gap the verification milestone forbids:
+	// the interface must say it properly.
 	Tracked bool `json:"tracked"`
 }
 
@@ -294,11 +289,10 @@ func syncStateView(state store.SyncState) syncStateVw {
 	}
 }
 
-// suggestedTags propose un tag par nature déclarée.
+// suggestedTags offers one tag per declared kind.
 //
-// Vide quand le schéma ne sait pas répondre — un projet opaque n'a aucune
-// « suivante » —, et l'interface propose alors une saisie libre plutôt qu'un
-// numéro inventé.
+// Empty when the scheme cannot answer — an opaque project has no "next one" — and the
+// interface then offers free-text input rather than an invented number.
 func (h *VersionsHandler) suggestedTags(
 	ctx context.Context, summary store.VersionSummary, releases []store.VersionRelease,
 ) map[string]string {
@@ -311,7 +305,7 @@ func (h *VersionsHandler) suggestedTags(
 		return nil
 	}
 
-	// La ligne de version, normalisée : `v3.1.0` et `3.1.0` désignent la même.
+	// The version line, normalised: `v3.1.0` and `3.1.0` name the same one.
 	base := release.NormalizeVersionName(summary.Name)
 
 	existing := make([]string, 0, len(releases))
@@ -327,9 +321,8 @@ func (h *VersionsHandler) suggestedTags(
 				suggestions[spec.ID] = next
 			}
 		default:
-			// Les natures qui interdisent ou n'exigent rien reprennent la ligne
-			// telle quelle : c'est ce qu'une finale porte, et le seul choix qui
-			// n'invente rien pour les autres.
+			// The kinds that forbid or require nothing take the line as it is: that is what a final
+			// version carries, and the only choice that invents nothing for the others.
 			if _, err := scheme.Parse(base); err == nil {
 				suggestions[spec.ID] = base
 			}
@@ -338,27 +331,21 @@ func (h *VersionsHandler) suggestedTags(
 	return suggestions
 }
 
-// Create déclare une version à la main.
+// Create declares a version by hand.
 //
-// # Pourquoi cette route existe
+// A project with no tracker had no way to start. Its versions were born from
+// EnsureVersion when a release was created; but the creation form lives on a version's
+// screen, which did not exist. An empty screen, no button, no way out.
 //
-// Un projet **sans suivi** n'avait aucun moyen de démarrer. Ses versions
-// naissaient de `EnsureVersion` à la création d'une release ; mais le formulaire
-// de création vit sur l'écran **d'une version**, qui n'existait pas. Écran vide,
-// aucun bouton, aucune issue — le jalon de vérification bloqué à sa première
-// étape (doc 12 §12.9).
-//
-// # Pourquoi elle refuse sur un projet suivi
-//
-// Les versions d'un projet suivi appartiennent à son outil : c'est lui qui fait
-// autorité, et le dashboard n'y écrit jamais. Une version créée ici serait une
-// provisoire que la synchronisation chercherait à adopter, sans jamais y
-// parvenir — elle resterait signalée « en attente » indéfiniment, ce qui est
-// exactement l'anomalie que `PendingVersions` existe pour faire remonter.
+// It refuses on a tracked project because those versions belong to its tool: that tool is
+// authoritative, and the dashboard never writes to it. A version created here would be a
+// provisional one that synchronisation would try to adopt without ever succeeding — it
+// would stay flagged "pending" indefinitely, which is exactly the anomaly PendingVersions
+// exists to surface.
 func (h *VersionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -368,9 +355,9 @@ func (h *VersionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(project.TrackerProject) != "" {
 		writeProblem(w, http.StatusConflict, "Projet suivi",
-			"les versions de ce projet viennent de son outil de suivi, qui en fait "+
-				"autorité: en déclarer une ici resterait en attente d'une adoption "+
-				"qui n'arriverait jamais")
+			"this project's versions come from its tracker, which is "+
+				"authoritative: declaring one here would stay awaiting an adoption "+
+				"that would never come")
 		return
 	}
 
@@ -378,33 +365,33 @@ func (h *VersionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
 	name := strings.TrimSpace(request.Name)
 	if name == "" {
-		writeProblem(w, http.StatusBadRequest, "Nom de version vide",
-			"une version se désigne par son numéro, par exemple 1.8.0")
+		writeProblem(w, http.StatusBadRequest, "Empty version name",
+			"a version is named by its number, for example 1.8.0")
 		return
 	}
 
-	// La forme est vérifiée contre le schéma du projet. Un schéma opaque accepte
-	// tout, ce qui est sa réponse : refuser ici imposerait une convention que le
-	// projet n'a pas déclarée.
+	// The shape is checked against the project's scheme. An opaque scheme accepts everything,
+	// which is its answer: refusing here would impose a convention the project has not
+	// declared.
 	scheme, err := version.For(project.VersionScheme)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Schéma de version illisible", "")
+		writeProblem(w, http.StatusInternalServerError, "Unreadable version scheme", "")
 		return
 	}
 	if _, err := scheme.Parse(release.NormalizeVersionName(name)); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Nom de version invalide", err.Error())
+		writeProblem(w, http.StatusBadRequest, "Invalid version name", err.Error())
 		return
 	}
 
 	id, err := h.store.EnsureVersion(r.Context(), project.ID, name)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Création impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot create", "")
 		return
 	}
 

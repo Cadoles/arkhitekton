@@ -12,21 +12,21 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
 )
 
-// LogReader est ce que les handlers attendent du lecteur de journaux.
+// LogReader is what the handlers need from the log reader.
 type LogReader interface {
 	Tail(ctx context.Context, runName, taskName string, length int64) (logs.Segment, error)
 	From(ctx context.Context, runName, taskName string, offset, length int64) (logs.Segment, error)
-	// LinesBefore numérote la fenêtre rendue dans le journal entier.
+	// LinesBefore numbers the returned window within the whole log.
 	LinesBefore(ctx context.Context, runName, taskName string, offset int64) (int64, error)
 }
 
-// logPollInterval espace deux relectures du stockage pendant un suivi.
+// logPollInterval separates two reads of the store while following.
 //
-// Plus court que l'intervalle de flush du collecteur serait du gaspillage : rien
-// de neuf ne peut apparaître entre deux flushs.
+// Shorter than the collector's flush interval would be waste: nothing new can appear
+// between two flushes.
 const logPollInterval = 2 * time.Second
 
-// LogsHandler sert les journaux, en lecture ponctuelle comme en suivi.
+// LogsHandler serves the logs, both as a single read and as a follow.
 type LogsHandler struct {
 	reader LogReader
 }
@@ -40,21 +40,16 @@ type logPayload struct {
 	Offset     int64  `json:"offset"`
 	NextOffset int64  `json:"next_offset"`
 	Size       int64  `json:"size"`
-	// FirstLine est le rang, dans le journal entier, de la première ligne rendue.
-	// Sans lui le client numérote à partir de ce qu'il a chargé, et « ligne 42 »
-	// ne désigne pas la même chose selon la quantité lue — un lien partagé tombe
-	// alors à côté.
+	// FirstLine is the rank, within the whole log, of the first line returned. Without it the
+	// client numbers from what it has loaded, and "line 42" does not name the same thing
+	// depending on how much was read — a shared link then lands beside the point.
 	FirstLine int64 `json:"first_line"`
-	// Sealed dit à l'interface qu'il est inutile de continuer à suivre : le
-	// journal ne changera plus.
+	// Sealed tells the interface there is no point in following any more: the log will not
+	// change again.
 	Sealed bool `json:"sealed"`
 }
 
-// Read rend une portion de journal.
-//
-// Sans paramètre, la fin — c'est ce qu'on regarde en premier, l'échec est à la
-// fin. Avec `offset`, la suite à partir de cette position, ce qui permet de
-// remonter dans l'historique comme de poursuivre un suivi.
+// Read returns a portion of a log.
 func (h *LogsHandler) Read(w http.ResponseWriter, r *http.Request) {
 	runName := r.PathValue("run")
 	taskName := r.PathValue("task")
@@ -69,15 +64,15 @@ func (h *LogsHandler) Read(w http.ResponseWriter, r *http.Request) {
 		segment, err = h.reader.Tail(r.Context(), runName, taskName, length)
 	}
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture du journal impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the log", "")
 		return
 	}
 
-	// Le comptage n'a lieu que pour la lecture d'une fenêtre, jamais pour le
-	// suivi : le flux n'ajoute qu'à la fin, ce qui ne renumérote rien.
+	// The counting happens only for reading a window, never for following: the stream only
+	// appends, which renumbers nothing.
 	firstLine, err := h.reader.LinesBefore(r.Context(), runName, taskName, segment.Offset)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture du journal impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the log", "")
 		return
 	}
 
@@ -91,38 +86,37 @@ func (h *LogsHandler) Read(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Stream suit un journal en direct.
+// Stream follows a log live.
 //
-// La reprise passe par `Last-Event-ID`, dont la valeur est le décalage en octets :
-// un client qui se reconnecte reprend exactement où il s'était arrêté, sans
-// doublon ni trou. C'est le mécanisme standard de SSE, et il tombe juste ici parce
-// que le journal est une suite d'octets numérotée de façon stable.
+// Resuming goes through `Last-Event-ID`, whose value is the byte offset: a client that
+// reconnects resumes exactly where it stopped, with no duplicate and no gap. It is the
+// standard SSE mechanism, and it fits here because the log is a sequence of bytes numbered
+// stably.
 func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	runName := r.PathValue("run")
 	taskName := r.PathValue("task")
 
 	stream, ok := newSSEWriter(w)
 	if !ok {
-		writeProblem(w, http.StatusInternalServerError, "Flux non supporté", "")
+		writeProblem(w, http.StatusInternalServerError, "Streaming not supported", "")
 		return
 	}
 
-	// Sans reprise, le client reçoit d'abord la fin du journal : se brancher sur
-	// un run en cours et ne rien voir avant la prochaine ligne serait déroutant.
+	// With no resume point, the client first receives the end of the log: connecting to a
+	// running run and seeing nothing until the next line would be disconcerting.
 	offset := int64(-1)
 
-	// Le paramètre de requête sert à la **première** connexion : EventSource ne
-	// permet pas de poser un en-tête, et un client qui a déjà chargé la fin par
-	// l'API de lecture doit pouvoir démarrer le flux à sa suite plutôt que de
-	// recevoir cette fin une seconde fois.
+	// The query parameter serves the first connection: EventSource does not allow setting a
+	// header, and a client that has already loaded the end through the read API must be able
+	// to start the stream after it rather than receive that end a second time.
 	if raw := r.URL.Query().Get("offset"); raw != "" {
 		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed >= 0 {
 			offset = parsed
 		}
 	}
 
-	// Last-Event-ID l'emporte : il vient des reconnexions du navigateur, et sa
-	// valeur est plus récente que celle inscrite dans l'URL au premier abonnement.
+	// Last-Event-ID wins: it comes from the browser's reconnections, and its value is more
+	// recent than the one written into the URL at the first subscription.
 	if resume := r.Header.Get("Last-Event-ID"); resume != "" {
 		if parsed, err := strconv.ParseInt(resume, 10, 64); err == nil && parsed >= 0 {
 			offset = parsed
@@ -141,7 +135,7 @@ func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			_ = stream.event("error", "", "lecture du journal impossible")
+			_ = stream.event("error", "", "cannot read the log")
 			return
 		}
 		offset = segment.NextOffset
@@ -153,8 +147,8 @@ func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if segment.Sealed && offset >= segment.Size {
-			// Le journal ne changera plus : l'annoncer permet au client de fermer
-			// la connexion au lieu de sonder indéfiniment.
+			// The log will not change again: announcing it lets the client close the connection
+			// instead of polling indefinitely.
 			_ = stream.event("sealed", strconv.FormatInt(segment.Size, 10), "")
 			return
 		}
@@ -171,56 +165,51 @@ func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Raw sert le journal entier en texte.
+// Raw serves the whole log as text.
 //
-// Deux usages pour une seule route, distingués par `download` : ouvrir le
-// journal brut dans un onglet — la visionneuse virtualise, ce qui empêche de
-// chercher avec le navigateur ou de tout sélectionner — et l'enregistrer en
-// fichier. La ressource est la même, seule la façon de la présenter change ;
-// deux routes pour cela auraient dupliqué la lecture.
+// Two uses for one route, told apart by `download`: opening the raw log in a tab — the
+// viewer virtualises, which prevents searching with the browser or selecting everything —
+// and saving it as a file. The resource is the same, only the presentation changes; two
+// routes for that would have duplicated the read.
 //
-// Le contenu est rendu tel qu'il est stocké, horodatages du kubelet compris.
-// C'est le sens de « brut » : ce que la visionneuse retire pour l'affichage doit
-// se retrouver ici, sans quoi le fichier téléchargé ne permettrait plus de
-// recouper avec un autre journal.
+// The content is served as stored, kubelet timestamps included. That is what "raw" means:
+// what the viewer strips for display must be found here, otherwise the downloaded file
+// could no longer be cross-referenced with another log.
 func (h *LogsHandler) Raw(w http.ResponseWriter, r *http.Request) {
 	runName := r.PathValue("run")
 	taskName := r.PathValue("task")
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if r.URL.Query().Get("download") != "" {
-		// Le nom de fichier est composé des deux identifiants : un dossier de
-		// téléchargements où dix fichiers s'appellent `log.txt` ne sert à rien.
+		// The file name is composed from both identifiers: a downloads folder where ten files are
+		// called `log.txt` is useless.
 		w.Header().Set("Content-Disposition",
 			fmt.Sprintf("attachment; filename=%q", sanitizeFilename(runName+"-"+taskName)+".txt"))
 	}
 
-	// La lecture est paginée parce que le lecteur borne chaque appel à MaxRead :
-	// un journal d'intégration dépasse largement cette taille. Les tranches sont
-	// écrites au fil de l'eau plutôt qu'accumulées — le journal complet n'a
-	// aucune raison de tenir en mémoire du serveur avant de partir.
+	// The read is paginated because the reader bounds every call to MaxRead: an integration log
+	// far exceeds that size. The chunks are written as they come rather than accumulated — the
+	// whole log has no reason to sit in the server's memory before leaving.
 	var offset int64
 	for {
 		segment, err := h.reader.From(r.Context(), runName, taskName, offset, 0)
 		if err != nil {
 			if offset == 0 {
-				writeProblem(w, http.StatusInternalServerError, "Lecture du journal impossible", "")
+				writeProblem(w, http.StatusInternalServerError, "Cannot read the log", "")
 				return
 			}
-			// L'en-tête est parti et une partie du corps aussi : il n'y a plus de
-			// code d'état à changer. Interrompre laisse une réponse tronquée, ce
-			// qui est le moins mauvais des états possibles.
+			// The header has gone and part of the body with it: there is no status code left to change.
+			// Interrupting leaves a truncated response, which is the least bad of the possible states.
 			return
 		}
 
 		if _, err := w.Write(segment.Content); err != nil {
-			// Onglet fermé en cours de téléchargement : rien à signaler.
+			// Tab closed mid-download: nothing to report.
 			return
 		}
 
-		// La progression est la condition d'arrêt, et pas seulement l'égalité à
-		// la taille : un journal qui grossit pendant la lecture ferait tourner
-		// cette boucle indéfiniment si l'on attendait de la rattraper.
+		// Progress is the stopping condition, and not merely equality with the size: a log growing
+		// during the read would make this loop run indefinitely if it waited to catch up.
 		if segment.NextOffset <= offset || segment.NextOffset >= segment.Size {
 			return
 		}
@@ -228,9 +217,9 @@ func (h *LogsHandler) Raw(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// sanitizeFilename ne garde que ce qui traverse sans dommage un en-tête et un
-// système de fichiers. Les noms de PipelineRun sont déjà des identifiants DNS,
-// mais l'en-tête est construit ici et rien ne garantit qu'il le restera.
+// sanitizeFilename keeps only what crosses a header and a file system unharmed.
+// PipelineRun names are already DNS identifiers, but the header is built here and nothing
+// guarantees it will stay that way.
 func sanitizeFilename(name string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
@@ -260,8 +249,8 @@ func intQuery(r *http.Request, name string, fallback int64) int64 {
 	}
 	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
-		// Un paramètre d'affichage illisible retombe sur le défaut : refuser la
-		// requête n'apprendrait rien à personne.
+		// An unreadable display parameter falls back to the default: refusing the request would
+		// teach nobody anything.
 		return fallback
 	}
 	return value

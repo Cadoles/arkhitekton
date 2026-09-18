@@ -14,23 +14,22 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// AdminStore est ce que l'administration attend de la base.
+// AdminStore is what administration needs from the database.
 type AdminStore interface {
 	ListUserRoles(ctx context.Context) ([]store.UserRole, error)
-	// SetRoleIn attribue un rôle dans un projet, ou partout quand il est nil.
+	// SetRoleIn grants a role in a project, or everywhere when it is nil.
 	SetRoleIn(ctx context.Context, subject, username, role string, projectID *int64, grantedBy string) error
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
-	// RevokeRoleIn retire le rôle d'une portée. La portée est obligatoire dans le
-	// raisonnement même quand elle est nulle : effacer toutes les lignes d'un
-	// sujet supprimerait, en voulant lui retirer un projet, le rôle global qui
-	// vaut partout ailleurs.
+	// RevokeRoleIn removes the role of one scope. The scope matters in the reasoning even when
+	// it is nil: deleting every row of a subject would, while meaning to remove one project,
+	// delete the global role that holds everywhere else.
 	RevokeRoleIn(ctx context.Context, subject string, projectID *int64) error
 	ListAudit(ctx context.Context, target string, limit int) ([]store.AuditEntry, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	Directory(ctx context.Context) (map[string]string, error)
 }
 
-// AdminHandler expose l'attribution des rôles et le journal d'audit.
+// AdminHandler exposes role granting and the audit log.
 type AdminHandler struct{ store AdminStore }
 
 func NewAdminHandler(admin AdminStore) *AdminHandler { return &AdminHandler{store: admin} }
@@ -39,24 +38,24 @@ type userRolePayload struct {
 	Subject  string `json:"subject"`
 	Username string `json:"username,omitempty"`
 	Role     string `json:"role"`
-	// GrantedBy vaut `bootstrap` pour les comptes promus par la configuration.
-	// L'interface le signale : retirer un tel rôle sans toucher à la
-	// configuration le fait réapparaître au redémarrage suivant.
+	// GrantedBy is `bootstrap` for accounts promoted by configuration. The interface flags it:
+	// removing such a role without touching the configuration makes it reappear at the next
+	// restart.
 	GrantedBy string    `json:"granted_by"`
 	GrantedAt time.Time `json:"granted_at"`
-	// Project nomme la portée. Vide pour un rôle global — la grande majorité.
+	// Project names the scope. Empty for a global role — the vast majority.
 	Project string `json:"project,omitempty"`
-	// ProjectLabel est son libellé lisible, pour ne pas afficher un slug seul.
+	// ProjectLabel is its readable label, so as not to display a bare slug.
 	ProjectLabel string     `json:"project_label,omitempty"`
 	LastSeen     *time.Time `json:"last_seen,omitempty"`
 	Sessions     int        `json:"sessions"`
 }
 
-// Roles rend les rôles attribués et ce qu'ils permettent.
+// Roles returns the granted roles and what they allow.
 func (h *AdminHandler) Roles(w http.ResponseWriter, r *http.Request) {
 	roles, err := h.store.ListUserRoles(r.Context())
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture des rôles impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the roles", "")
 		return
 	}
 
@@ -72,9 +71,8 @@ func (h *AdminHandler) Roles(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Le catalogue des rôles accompagne la liste : l'interface doit proposer les
-	// valeurs possibles sans les coder en dur, et ce qu'un rôle permet est décidé
-	// par `internal/auth`.
+	// The catalogue of roles comes with the list: the interface must offer the possible values
+	// without hard-coding them, and what a role allows is decided by internal/auth.
 	catalogue := make([]map[string]any, 0, len(auth.AllRoles))
 	for _, role := range auth.AllRoles {
 		catalogue = append(catalogue, map[string]any{
@@ -87,15 +85,13 @@ func (h *AdminHandler) Roles(w http.ResponseWriter, r *http.Request) {
 }
 
 type grantRequest struct {
-	// Subject est l'identifiant du fournisseur d'identité, pas le nom affiché :
-	// c'est lui qui apparaît dans le jeton, et c'est sur lui que porte
-	// l'autorisation. Un nom d'utilisateur change, un sujet non.
+	// Subject is the identity provider's identifier, not the displayed name: it is what appears
+	// in the token, and what authorization is about. A username changes, a subject does not.
 	Subject  string `json:"subject"`
 	Username string `json:"username"`
 	Role     string `json:"role"`
-	// Project restreint l'attribution à un projet, nommé par son slug. Vide, le
-	// rôle vaut partout — ce qui reste le cas courant, et ce que toutes les
-	// attributions antérieures signifient.
+	// Project restricts the grant to one project, named by its slug. Empty, the role holds
+	// everywhere — which is still the common case, and what every earlier grant means.
 	Project string `json:"project,omitempty"`
 }
 
@@ -103,40 +99,40 @@ type grantRequest struct {
 func (h *AdminHandler) Grant(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Non authentifié", "")
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	var request grantRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&request); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Requête illisible", "")
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
 	request.Subject = strings.TrimSpace(request.Subject)
 	if request.Subject == "" {
-		writeProblem(w, http.StatusBadRequest, "Sujet requis",
-			"l'identifiant du fournisseur d'identité, et non le nom affiché")
+		writeProblem(w, http.StatusBadRequest, "Subject required",
+			"the identity provider's identifier, not the displayed name")
 		return
 	}
 
 	role, err := auth.ParseRole(request.Role)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Rôle inconnu", err.Error())
+		writeProblem(w, http.StatusBadRequest, "Unknown role", err.Error())
 		return
 	}
 
-	// La portée est facultative : sans elle, le rôle vaut partout, ce qui reste
-	// le cas courant. Un projet nommé restreint l'attribution à lui seul.
+	// The scope is optional: without it the role holds everywhere, which is still the common
+	// case. A named project restricts the grant to it alone.
 	var projectID *int64
 	if slug := strings.TrimSpace(request.Project); slug != "" {
 		project, err := h.store.ProjectBySlug(r.Context(), slug)
 		if err != nil {
 			if errors.Is(err, store.ErrProjectNotFound) {
-				writeProblem(w, http.StatusNotFound, "Projet inconnu", slug)
+				writeProblem(w, http.StatusNotFound, "Unknown project", slug)
 				return
 			}
-			writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
 			return
 		}
 		projectID = &project.ID
@@ -145,14 +141,14 @@ func (h *AdminHandler) Grant(w http.ResponseWriter, r *http.Request) {
 	err = h.store.SetRoleIn(r.Context(), request.Subject,
 		strings.TrimSpace(request.Username), string(role), projectID, identity.Subject)
 	if err != nil && projectID != nil && role == auth.RoleAdmin {
-		writeProblem(w, http.StatusUnprocessableEntity, "Portée impossible",
-			"le rôle d'administrateur gouverne les comptes et les dépôts, qui n'appartiennent à aucun projet")
+		writeProblem(w, http.StatusUnprocessableEntity, "Impossible scope",
+			"the administrator role governs the accounts and the repositories, which belong to no project")
 		return
 	}
 	if err != nil {
 		if errors.Is(err, store.ErrLastAdmin) {
-			// 409 et non 403 : la requête est légitime et l'appelant a le droit,
-			// c'est l'état du système qui l'interdit.
+			// 409 and not 403: the request is legitimate and the caller has the right, it is the
+			// system's state that forbids it.
 			writeProblem(w, http.StatusConflict, "Dernier administrateur", err.Error())
 			return
 		}
@@ -166,27 +162,27 @@ func (h *AdminHandler) Grant(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"subject": request.Subject, "role": string(role),
-		// Le changement ferme les sessions de l'intéressé : le dire évite qu'un
-		// administrateur croie l'ancien rôle encore en vigueur, ou l'inverse.
+		// The change closes the person's sessions: saying so keeps an administrator from believing
+		// the old role is still in force, or the opposite.
 		"sessions_closed": true,
 	})
 }
 
-// Revoke retire le rôle d'un utilisateur.
+// Revoke removes a user's role.
 func (h *AdminHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 	subject := r.PathValue("subject")
 
-	// La portée vient de la requête : retirer « le rôle de quelqu'un » n'a plus
-	// de sens unique depuis qu'il peut en avoir un par projet.
+	// The scope comes from the request: removing "someone's role" no longer has a single
+	// meaning now that they may have one per project.
 	var projectID *int64
 	if slug := strings.TrimSpace(r.URL.Query().Get("project")); slug != "" {
 		project, err := h.store.ProjectBySlug(r.Context(), slug)
 		if err != nil {
 			if errors.Is(err, store.ErrProjectNotFound) {
-				writeProblem(w, http.StatusNotFound, "Projet inconnu", slug)
+				writeProblem(w, http.StatusNotFound, "Unknown project", slug)
 				return
 			}
-			writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
 			return
 		}
 		projectID = &project.ID
@@ -195,7 +191,7 @@ func (h *AdminHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.RevokeRoleIn(r.Context(), subject, projectID); err != nil {
 		switch {
 		case errors.Is(err, store.ErrRoleNotFound):
-			writeProblem(w, http.StatusNotFound, "Rôle introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Role not found", "")
 		case errors.Is(err, store.ErrLastAdmin):
 			writeProblem(w, http.StatusConflict, "Dernier administrateur", err.Error())
 		default:
@@ -217,10 +213,10 @@ type auditPayload struct {
 	At      time.Time      `json:"at"`
 }
 
-// Audit rend le journal.
+// Audit returns the log.
 //
-// Filtrable par cible : c'est la lecture qu'on fait réellement — « qu'est-il
-// arrivé à cette release » — et l'index existe pour elle.
+// Filterable by target: that is the read people actually perform — "what happened to this
+// release" — and the index exists for it.
 func (h *AdminHandler) Audit(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if raw := r.URL.Query().Get("limit"); raw != "" {
@@ -231,7 +227,7 @@ func (h *AdminHandler) Audit(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := h.store.ListAudit(r.Context(), r.URL.Query().Get("target"), limit)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Lecture du journal impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the log", "")
 		return
 	}
 
@@ -247,10 +243,10 @@ func (h *AdminHandler) Audit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"entries": payload})
 }
 
-// audit consigne une action d'administration sans la faire échouer.
+// audit records an administration action without failing it.
 //
-// Même règle qu'ailleurs : le journal est une trace, pas une transaction. Le
-// rôle, lui, est déjà attribué.
+// The same rule as elsewhere: the log is a record, not a transaction. The role is already
+// granted.
 func (h *AdminHandler) audit(r *http.Request, action, target string, payload map[string]any) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {

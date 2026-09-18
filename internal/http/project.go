@@ -27,88 +27,83 @@ import (
  * (doc 12 §12.9, lot B).
  */
 
-// projectResolver traduit le nom porté par une URL en projet.
+// projectResolver translates the name a URL carries into a project.
 //
-// Séparé de [projectSource] : la résolution par chemin est ce dont **tous** les
-// handlers rattachés à un projet ont besoin, alors que le repli sur le projet
-// constructible ne concerne plus que ceux qui n'ont pas de chemin à leur
-// disposition. Les fondre obligerait les premiers à porter une méthode qu'ils
-// n'appellent pas.
+// Separate from [projectSource]: resolving by path is what every project-scoped handler
+// needs, whereas falling back to the buildable project now concerns only those with no path
+// to hand. Merging them would force the former to carry a method they never call.
 type projectResolver interface {
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 }
 
-// projectLister énumère les projets déclarés, pour que l'interface propose un
-// choix plutôt que d'en subir un.
+// projectLister lists the declared projects, so the interface can offer a choice rather than
+// endure one.
 type projectLister interface {
 	ListProjects(ctx context.Context) ([]store.Project, error)
 }
 
-// projectSource sait en plus nommer le projet qui se construit.
+// projectSource can in addition name the project being built.
 type projectSource interface {
 	projectResolver
 	BuildableProject(ctx context.Context) (store.Project, error)
 }
 
-// requestProject résout le projet désigné par le chemin.
+// requestProject resolves the project the path names.
 //
-// Écrit la réponse et rend `false` quand il n'y en a pas : 404 sur un slug
-// inconnu — une URL périmée n'est pas une panne, et répondre 500 ferait chercher
-// un incident.
+// It writes the response and returns false when there is none: 404 on an unknown slug — a
+// stale URL is not a fault, and answering 500 would send someone hunting for an incident.
 func requestProject(w http.ResponseWriter, r *http.Request, source projectResolver) (int64, bool) {
 	slug := r.PathValue("project")
 	if slug == "" {
-		writeProblem(w, http.StatusBadRequest, "Projet non désigné",
-			"cette route attend un projet dans son chemin")
+		writeProblem(w, http.StatusBadRequest, "No project named",
+			"this route expects a project in its path")
 		return 0, false
 	}
 
 	project, err := source.ProjectBySlug(r.Context(), slug)
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet inconnu", slug)
+			writeProblem(w, http.StatusNotFound, "Unknown project", slug)
 			return 0, false
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
 		return 0, false
 	}
 	return project.ID, true
 }
 
-// requestProjectRecord rend le projet **entier** désigné par le chemin.
+// requestProjectRecord returns the whole project the path names.
 //
-// Distinct de [requestProject], qui n'en rend que la clé : depuis que le schéma
-// de version et le cycle de release sont déclarés par projet, la création d'une
-// release a besoin de la ligne et non de son identifiant. Les deux coexistent
-// parce que la plupart des lectures n'ont besoin que de la clé, et charger le
-// projet entier partout ferait payer une jointure pour rien.
+// Distinct from [requestProject], which returns only its key: now that the version scheme
+// and the release cycle are declared per project, creating a release needs the row and not
+// its identifier. Both coexist because most reads need only the key, and loading the whole
+// project everywhere would pay for a join for nothing.
 func requestProjectRecord(
 	w http.ResponseWriter, r *http.Request, source projectResolver,
 ) (store.Project, error) {
 	slug := r.PathValue("project")
 	if slug == "" {
-		writeProblem(w, http.StatusBadRequest, "Projet non désigné",
-			"cette route attend un projet dans son chemin")
-		return store.Project{}, errors.New("projet non désigné")
+		writeProblem(w, http.StatusBadRequest, "No project named",
+			"this route expects a project in its path")
+		return store.Project{}, errors.New("no project named")
 	}
 
 	project, err := source.ProjectBySlug(r.Context(), slug)
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet inconnu", slug)
+			writeProblem(w, http.StatusNotFound, "Unknown project", slug)
 			return store.Project{}, err
 		}
-		writeProblem(w, http.StatusInternalServerError, "Lecture du projet impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
 		return store.Project{}, err
 	}
 	return project, nil
 }
 
-// buildableProject rend le projet qui se construit.
+// buildableProject returns the project being built.
 //
-// Repli des lectures qui n'ont pas de projet dans leur chemin. Un seul
-// aujourd'hui ; plusieurs candidats sont refusés par le magasin plutôt que
-// départagés au hasard.
+// The fallback for reads with no project in their path. One today; several candidates are
+// refused by the store rather than settled at random.
 func buildableProject(ctx context.Context, source projectSource) (int64, error) {
 	project, err := source.BuildableProject(ctx)
 	if err != nil {

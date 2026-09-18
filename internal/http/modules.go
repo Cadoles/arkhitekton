@@ -25,13 +25,13 @@ import (
  * table de quelques lignes.
  */
 
-// PluginReader rend les réglages des plugins, de l'instance et d'un projet.
+// PluginReader returns the plugins' settings, for the instance and for a project.
 type PluginReader interface {
 	PluginSettingsAll(ctx context.Context) (map[string]store.PluginSettings, error)
 	ProjectPluginSettings(ctx context.Context, projectID int64) (map[string]store.PluginSettings, error)
 }
 
-// Modules dit quels modules sont actifs.
+// Modules says which modules are active.
 type Modules struct {
 	store  PluginReader
 	logger *slog.Logger
@@ -44,14 +44,14 @@ func NewModules(reader PluginReader, logger *slog.Logger) *Modules {
 	return &Modules{store: reader, logger: logger}
 }
 
-// Active rend les identifiants des modules allumés.
+// Active returns the identifiers of the switched-on modules.
 //
-// Une lecture impossible rend une liste vide : l'interface masque alors les
-// modules plutôt que d'afficher des écrans dont chaque requête échouerait.
+// An unreadable read returns an empty list: the interface then hides the modules rather than
+// showing screens whose every request would fail.
 func (m *Modules) Active(ctx context.Context) []string {
 	settings, err := m.store.PluginSettingsAll(ctx)
 	if err != nil {
-		m.logger.Error("lecture des modules actifs", "error", err)
+		m.logger.Error("reading the active modules", "error", err)
 		return []string{}
 	}
 	active := []string{}
@@ -63,11 +63,10 @@ func (m *Modules) Active(ctx context.Context) []string {
 	return active
 }
 
-// Enabled dit si un module est allumé.
+// Enabled says whether a module is switched on.
 //
-// Un `Modules` nil répond oui : c'est l'état d'un assemblage qui ne branche pas
-// la vérification — les tests des handlers —, et il reproduit le comportement
-// d'avant les modules.
+// A nil Modules answers yes: that is the state of an assembly that does not wire the check —
+// the handler tests — and it reproduces the behaviour before modules existed.
 func (m *Modules) Enabled(ctx context.Context, id string) bool {
 	if m == nil {
 		return true
@@ -80,20 +79,20 @@ func (m *Modules) Enabled(ctx context.Context, id string) bool {
 	return false
 }
 
-// ActiveIn rend les modules allumés pour un projet.
+// ActiveIn returns the modules switched on for a project.
 //
-// Le global vaut autorisation : un module éteint sur l'instance l'est pour tous
-// les projets. Allumé, un projet en hérite sauf décision contraire — la même règle
-// que la liste des plugins d'un projet (doc 16 §16.18).
+// The instance switch is permission: a module switched off there is off for every project.
+// Switched on, a project inherits it unless it decides otherwise — the same rule as a
+// project's plugin list.
 func (m *Modules) ActiveIn(ctx context.Context, projectID int64) []string {
 	settings, err := m.store.PluginSettingsAll(ctx)
 	if err != nil {
-		m.logger.Error("lecture des modules actifs", "error", err)
+		m.logger.Error("reading the active modules", "error", err)
 		return []string{}
 	}
 	own, err := m.store.ProjectPluginSettings(ctx, projectID)
 	if err != nil {
-		m.logger.Error("lecture des modules d'un projet", "projet", projectID, "error", err)
+		m.logger.Error("reading a project's modules", "projet", projectID, "error", err)
 		return []string{}
 	}
 	active := []string{}
@@ -109,7 +108,7 @@ func (m *Modules) ActiveIn(ctx context.Context, projectID int64) []string {
 	return active
 }
 
-// EnabledIn dit si un module est allumé pour un projet. Nil répond oui, comme
+// EnabledIn says whether a module is switched on for a project. Nil answers yes, like
 // [Modules.Enabled].
 func (m *Modules) EnabledIn(ctx context.Context, projectID int64, id string) bool {
 	if m == nil {
@@ -118,16 +117,16 @@ func (m *Modules) EnabledIn(ctx context.Context, projectID int64, id string) boo
 	return slices.Contains(m.ActiveIn(ctx, projectID), id)
 }
 
-// RequireModule répond 404 quand le module est éteint.
+// RequireModule answers 404 when the module is switched off.
 //
-// 404 et non 403 : la route n'existe pas sur cette instance, et aucun rôle ne la
-// ferait apparaître.
+// 404 and not 403: the route does not exist on this instance, and no role would make it
+// appear.
 func (m *Middleware) RequireModule(id string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			enabled := m.modules.Enabled(r.Context(), id)
-			// Une route qui nomme un projet se résout dans ce projet : un module
-			// allumé sur l'instance peut être éteint pour lui.
+			// A route naming a project resolves within that project: a module switched on for the
+			// instance may be off for it.
 			if enabled && r.PathValue("project") != "" && m.projects != nil {
 				projectID, ok := requestProject(w, r, m.projects)
 				if !ok {
@@ -137,7 +136,7 @@ func (m *Middleware) RequireModule(id string) func(http.Handler) http.Handler {
 			}
 			if !enabled {
 				writeProblem(w, http.StatusNotFound, "Module inactif",
-					"le module "+id+" est éteint")
+					"module "+id+" is switched off")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -145,7 +144,7 @@ func (m *Middleware) RequireModule(id string) func(http.Handler) http.Handler {
 	}
 }
 
-// WithModules branche la vérification des modules.
+// WithModules wires the module check.
 func (m *Middleware) WithModules(modules *Modules) *Middleware {
 	m.modules = modules
 	return m

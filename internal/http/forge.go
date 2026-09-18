@@ -8,22 +8,21 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// ForgeReader est ce que la route des références attend de la forge.
+// ForgeReader is what the references route needs from the forge.
 type ForgeReader interface {
 	DefaultBranch(ctx context.Context) (string, error)
 	ListBranches(ctx context.Context) ([]provider.Ref, bool, error)
 	ListTags(ctx context.Context) ([]provider.Ref, bool, error)
 }
 
-// ForgeHandler sert les branches et les tags du dépôt de l'application.
+// ForgeHandler serves the application repository's branches and tags.
 //
-// Il existe pour le formulaire de création de release : `git_ref` doit pointer
-// une branche ou un tag réels, et un champ libre reporte la faute de frappe au
-// moment du build — le pire moment pour la découvrir.
+// It exists for the release creation form: `git_ref` must point at a real branch or tag,
+// and a free-text field postpones the typo to build time — the worst moment to discover it.
 type ForgeHandler struct {
-	// forge est nul quand l'accès n'est pas configuré. La route répond alors
-	// `configured: false` et le formulaire retombe sur la saisie libre : l'absence
-	// de jeton ne doit pas empêcher de créer une release.
+	// forge is nil when access is not configured. The route then answers `configured: false`
+	// and the form falls back to free-text input: a missing token must not prevent creating a
+	// release.
 	forge ForgeReader
 }
 
@@ -36,11 +35,11 @@ type refVw struct {
 	SHA  string `json:"sha,omitempty"`
 }
 
-// Refs rend la branche par défaut, les branches et les tags.
+// Refs returns the default branch, the branches and the tags.
 //
-// Lecture en direct, sans cache serveur : les branches bougent au rythme des
-// développeurs, et l'appel n'a lieu qu'à l'ouverture du formulaire. Le client met
-// sa propre réponse en cache le temps de la saisie.
+// Read live, with no server-side cache: branches move at the developers' pace, and the call
+// happens only when the form opens. The client caches its own answer for the duration of
+// typing.
 func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
 	if h.forge == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -51,10 +50,9 @@ func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Les trois lectures en parallèle. En séquence, dépôt réel à l'appui, elles
-	// coûtaient huit secondes — la pagination des tags à elle seule en vaut
-	// plusieurs — et huit secondes d'attente sur un formulaire se lisent comme une
-	// liste vide.
+	// The three reads in parallel. In sequence, against the real repository, they cost eight
+	// seconds — paginating the tags alone is worth several — and eight seconds of waiting on a
+	// form reads as an empty list.
 	var (
 		defaultBranch                    string
 		branches, tags                   []provider.Ref
@@ -74,8 +72,8 @@ func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err := group.Wait(); err != nil {
-		// 502 et le message du client : la panne est chez la forge ou dans le
-		// jeton, pas dans le dashboard, et le formulaire doit pouvoir le dire.
+		// 502 and the client's message: the fault is with the forge or with the token, not in the
+		// dashboard, and the form must be able to say so.
 		writeProblem(w, http.StatusBadGateway, "Forge injoignable", err.Error())
 		return
 	}
@@ -85,8 +83,8 @@ func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
 		"default_branch": defaultBranch,
 		"branches":       refViews(branches),
 		"tags":           refViews(tags),
-		// La troncature est dite : une liste silencieusement incomplète se lit
-		// comme exhaustive, et la référence absente semblerait ne pas exister.
+		// Truncation is stated: a silently incomplete list reads as exhaustive, and the missing
+		// reference would look as though it did not exist.
 		"truncated": branchesTruncated || tagsTruncated,
 	})
 }
@@ -99,12 +97,11 @@ func refViews(refs []provider.Ref) []refVw {
 	return views
 }
 
-// Ce que ce paquet demande à la forge est un sous-ensemble de ce qu'être une
-// forge veut dire. L'assertion le prouve à la compilation, et c'est là son
-// intérêt : une méthode propre à Gitea qui entrerait dans une de ces interfaces
-// ne casserait rien à l'exécution — le client concret la porte — mais rendrait
-// silencieusement le dashboard inapte à toute autre forge. Ici, elle ne compile
-// pas (doc 12 §12.9, chantier 4).
+// What this package asks of the forge is a subset of what being a forge means. The
+// assertion proves it at compile time, and that is its point: a method specific to one
+// forge slipping into one of these interfaces would break nothing at runtime — the concrete
+// client carries it — but would silently make the dashboard unfit for any other forge. Here
+// it does not compile.
 var (
 	_ ForgeReader    = provider.Forge(nil)
 	_ CommitResolver = provider.Forge(nil)
