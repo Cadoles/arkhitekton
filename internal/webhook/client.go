@@ -14,49 +14,44 @@ import (
 	"time"
 )
 
-// Options borne ce qu'un appel sortant peut atteindre et coûter.
+// Options bounds what an outgoing call can reach and cost.
 type Options struct {
-	// AllowPrivate autorise les cibles privées et la boucle locale.
+	// AllowPrivate allows private targets and the loopback.
 	//
-	// Faux par défaut, et c'est le bon défaut : une instance de production n'a
-	// aucune raison d'appeler son propre réseau, et l'autorisation générale est
-	// exactement ce par quoi une falsification passe. Un déploiement local la
-	// déclare, en connaissance de cause.
+	// False by default, and that is the right default: a production instance has no reason to call
+	// its own network, and a blanket authorization is exactly what a forgery goes through. A local
+	// deployment declares it, knowingly.
 	//
-	// Elle ne rouvre **jamais** le lien-local : les métadonnées d'instance ne sont
-	// pas une cible qu'un déploiement veut atteindre.
+	// It **never** reopens link-local: instance metadata is not a target a deployment wants to reach.
 	AllowPrivate bool
-	// AllowInsecure autorise `http://`.
+	// AllowInsecure allows `http://`.
 	//
-	// Faux par défaut : une charge de webhook porte le tag d'une release, parfois
-	// le titre d'une demande, et le jeton qui l'authentifie. En clair, tout cela
-	// traverse le réseau lisible.
+	// False by default: a webhook payload carries a release's tag, sometimes a request's title, and
+	// the token that authenticates it. In clear text, all of that crosses a readable network.
 	AllowInsecure bool
-	// Timeout borne l'appel entier. Un destinataire lent ne doit pas retenir le
-	// moteur de plans : les gestes d'une étape partent ensemble, et un appel
-	// suspendu bloquerait la conclusion de l'étape.
+	// Timeout bounds the whole call. A slow recipient must not hold back the plan engine: a stage's
+	// steps start together, and a hung call would block the stage's conclusion.
 	Timeout time.Duration
-	// MaxResponseBytes borne ce qu'on lit en retour.
+	// MaxResponseBytes bounds what is read back.
 	//
-	// La réponse sert au diagnostic — un code, un extrait de corps — et non à
-	// être exploitée. Sans borne, un destinataire hostile ferait grossir la
-	// mémoire du worker par une réponse sans fin.
+	// The response serves diagnosis — a code, an excerpt of the body — and is not to be used. With no
+	// bound, a hostile recipient would grow the worker's memory through an endless response.
 	MaxResponseBytes int64
 }
 
-// Valeurs par défaut, appliquées à ce qui n'est pas déclaré.
+// Default values, applied to what is not declared.
 const (
 	defaultTimeout          = 15 * time.Second
 	defaultMaxResponseBytes = 8 << 10
 )
 
-// Client émet des appels sortants vers des cibles contrôlées.
+// Client issues outgoing calls towards controlled targets.
 type Client struct {
 	http    *http.Client
 	options Options
 }
 
-// New construit un client dont le transport refuse les cibles interdites.
+// New builds a client whose transport refuses forbidden targets.
 func New(options Options) *Client {
 	if options.Timeout <= 0 {
 		options.Timeout = defaultTimeout
@@ -65,10 +60,9 @@ func New(options Options) *Client {
 		options.MaxResponseBytes = defaultMaxResponseBytes
 	}
 
-	// Le contrôle vit ici, dans le composeur, et non dans une vérification d'URL
-	// faite en amont. La pile réseau appelle `Control` avec l'adresse
-	// **résolue**, juste avant de connecter : il n'y a pas de seconde résolution
-	// à tromper, et le réamorçage DNS n'a pas de prise.
+	// The check lives here, in the dialler, and not in a URL check done upstream. The network stack
+	// calls `Control` with the **resolved** address, just before connecting: there is no second
+	// resolution to fool, and DNS rebinding gets no purchase.
 	dialer := &net.Dialer{
 		Timeout:   options.Timeout,
 		KeepAlive: 30 * time.Second,
@@ -81,10 +75,9 @@ func New(options Options) *Client {
 		DialContext:           dialer.DialContext,
 		TLSHandshakeTimeout:   options.Timeout,
 		ResponseHeaderTimeout: options.Timeout,
-		// Les connexions ne sont pas réutilisées entre cibles : un pool partagé
-		// ferait qu'une cible autorisée puis re-résolue vers une adresse
-		// interdite emprunterait une connexion déjà ouverte, sans repasser par
-		// le contrôle.
+		// Connections are not reused between targets: a shared pool would mean an allowed target then
+		// re-resolved to a forbidden address would borrow an already open connection, without passing
+		// through the check again.
 		DisableKeepAlives: true,
 		Proxy:             nil,
 	}
@@ -94,45 +87,43 @@ func New(options Options) *Client {
 		http: &http.Client{
 			Transport: transport,
 			Timeout:   options.Timeout,
-			// Aucune redirection suivie. Une redirection est le contournement
-			// évident d'un contrôle fait sur l'URL de départ : le destinataire
-			// répond 302 vers `169.254.169.254`, et un client complaisant y va.
+			// No redirect is followed. A redirect is the obvious way around a check done on the starting URL:
+			// the recipient answers 302 towards `169.254.169.254`, and an obliging client goes there.
 			//
-			// Le composeur refuserait de connecter, mais échouer **ici** dit la
-			// vraie cause plutôt qu'une adresse refusée que personne n'a saisie.
+			// The dialler would refuse to connect, but failing **here** states the real cause rather than a
+			// refused address nobody typed.
 			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-				return fmt.Errorf("%w: redirection vers %s refusée",
+				return fmt.Errorf("%w: redirect to %s refused",
 					ErrBlockedTarget, safeURL(req.URL))
 			},
 		},
 	}
 }
 
-// Response est ce qu'un appel a rapporté.
+// Response is what a call brought back.
 //
-// Assez pour diagnostiquer, pas davantage : un code, et un extrait de corps.
-// Les en-têtes **envoyés** n'y figurent jamais — ils portent l'authentification,
-// et cette réponse finit dans une base que l'écran affiche.
+// Enough to diagnose, no more: a code, and an excerpt of the body. The headers **sent** never
+// appear in it — they carry the authentication, and this response ends up in a database the screen
+// displays.
 type Response struct {
 	Status int
-	// Body est tronqué à [Options.MaxResponseBytes].
+	// Body is truncated to [Options.MaxResponseBytes].
 	Body string
 }
 
-// OK dit que le destinataire a accepté.
+// OK says the recipient accepted.
 //
-// Tout code 2xx, et rien d'autre. Un 3xx n'est pas un succès — la redirection
-// n'ayant pas été suivie, personne n'a reçu la charge.
+// Any 2xx code, and nothing else. A 3xx is not a success — the redirect not having been followed,
+// nobody received the payload.
 func (r Response) OK() bool { return r.Status >= 200 && r.Status < 300 }
 
-// ErrInsecureTarget signale une cible en clair sans autorisation.
+// ErrInsecureTarget reports a cleartext target with no authorization.
 var ErrInsecureTarget = errors.New("cible en clair")
 
-// Post émet une requête et rend ce qu'elle a rapporté.
+// Post issues a request and returns what it brought back.
 //
-// `headers` porte l'authentification. Ses valeurs ne sont **jamais** journalisées
-// ni rendues : c'est la contrepartie de la règle qui veut qu'un champ sensible ne
-// traverse pas un gabarit (doc 14 §14.7).
+// `headers` carries the authentication. Its values are **never** logged nor returned: it is the
+// counterpart of the rule that a sensitive field does not cross a template.
 func (c *Client) Post(
 	ctx context.Context, target string, headers map[string]string, body []byte,
 ) (Response, error) {
@@ -144,7 +135,7 @@ func (c *Client) Post(
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, parsed.String(),
 		bytes.NewReader(body))
 	if err != nil {
-		return Response{}, fmt.Errorf("requête sortante: %w", err)
+		return Response{}, fmt.Errorf("outgoing request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	for name, value := range headers {
@@ -153,10 +144,9 @@ func (c *Client) Post(
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		// Le message d'erreur d'un client HTTP porte l'URL. Elle peut contenir un
-		// jeton dans sa chaîne de requête — une pratique courante des webhooks de
-		// messagerie —, d'où la forme expurgée.
-		return Response{}, fmt.Errorf("appel de %s: %w", safeURL(parsed), unwrapURLError(err))
+		// An HTTP client's error message carries the URL. It may contain a token in its query string — a
+		// common practice of chat webhooks — hence the redacted form.
+		return Response{}, fmt.Errorf("call to %s: %w", safeURL(parsed), unwrapURLError(err))
 	}
 	defer response.Body.Close()
 
@@ -167,17 +157,17 @@ func (c *Client) Post(
 	return Response{Status: response.StatusCode, Body: strings.TrimSpace(string(extract))}, nil
 }
 
-// checkURL refuse ce qui ne doit même pas être composé.
+// checkURL refuses what must not even be dialled.
 //
-// Le schéma se juge ici et non dans le composeur : celui-ci ne voit que des
-// adresses, et ne saurait pas distinguer un appel en clair d'un appel chiffré.
+// The scheme is judged here and not in the dialler: the dialler sees only addresses, and would
+// not be able to tell a cleartext call from an encrypted one.
 func (c *Client) checkURL(target string) (*url.URL, error) {
 	parsed, err := url.Parse(strings.TrimSpace(target))
 	if err != nil {
 		return nil, fmt.Errorf("%w: URL illisible", ErrBlockedTarget)
 	}
 	if parsed.Host == "" {
-		return nil, fmt.Errorf("%w: URL sans hôte (%q)", ErrBlockedTarget, target)
+		return nil, fmt.Errorf("%w: URL with no host (%q)", ErrBlockedTarget, target)
 	}
 
 	switch parsed.Scheme {
@@ -185,27 +175,25 @@ func (c *Client) checkURL(target string) (*url.URL, error) {
 	case "http":
 		if !c.options.AllowInsecure {
 			return nil, fmt.Errorf(
-				"%w: %s — la charge et son jeton traverseraient le réseau en clair",
+				"%w: %s — the payload and its token would cross the network in clear text",
 				ErrInsecureTarget, safeURL(parsed))
 		}
 	default:
-		return nil, fmt.Errorf("%w: schéma %q (attendu https)", ErrBlockedTarget, parsed.Scheme)
+		return nil, fmt.Errorf("%w: scheme %q (expected https)", ErrBlockedTarget, parsed.Scheme)
 	}
 
 	return parsed, nil
 }
 
-// safeURL rend une URL nommable dans un message d'erreur.
+// safeURL returns a URL that can be named in an error message.
 //
-// **`url.Redacted` ne suffit pas.** Elle masque le mot de passe de la partie
-// utilisateur et laisse la chaîne de requête intacte — or c'est précisément là
-// que les webhooks de messagerie portent leur jeton :
-// `https://hooks.example.fr/services/T00/B00/xxxxxxxx` en chemin, ou
-// `?token=…` en requête.
+// **`url.Redacted` is not enough.** It masks the password of the user part and leaves the query
+// string intact — and that is precisely where chat webhooks carry their token:
+// `https://hooks.example.fr/services/T00/B00/xxxxxxxx` in the path, or `?token=…` in the query.
 //
-// Un message d'erreur finit dans un journal, et un journal se lit avec moins de
-// précautions qu'une base. Ne restent donc que le schéma et l'hôte : de quoi
-// dire quelle cible a échoué, sans emporter ce qui l'autorise.
+// An error message ends up in a log, and a log is read with fewer precautions than a database.
+// Only the scheme and the host therefore remain: enough to say which target failed, without
+// carrying off what authorizes it.
 func safeURL(target *url.URL) string {
 	if target == nil {
 		return ""
@@ -213,11 +201,11 @@ func safeURL(target *url.URL) string {
 	return target.Scheme + "://" + target.Host
 }
 
-// unwrapURLError dégage l'erreur utile d'un `*url.Error`.
+// unwrapURLError frees the useful error from a `*url.Error`.
 //
-// Sans cela, un refus de cible ressort enveloppé dans un message qui répète
-// l'URL, et `errors.Is(err, ErrBlockedTarget)` cesse de fonctionner pour
-// l'appelant — qui traiterait un refus comme une panne réseau.
+// Without it, a target refusal comes out wrapped in a message that repeats the URL, and
+// `errors.Is(err, ErrBlockedTarget)` stops working for the caller — who would treat a refusal as
+// a network outage.
 func unwrapURLError(err error) error {
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) && urlErr.Err != nil {

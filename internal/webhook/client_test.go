@@ -10,12 +10,11 @@ import (
 )
 
 /*
- * Le contrôle de cible.
+ * The target check.
  *
- * C'est la partie du dépôt où se tromper coûte le plus cher : une URL saisie dans
- * l'interface devient une requête émise depuis le cluster, par un processus qui
- * porte un jeton de compte de service. Les tests portent donc d'abord sur ce qui
- * doit être **refusé**.
+ * It is the part of the repository where getting it wrong costs most: a URL typed into the
+ * interface becomes a request issued from the cluster, by a process carrying a service account
+ * token. The tests therefore bear first on what must be **refused**.
  */
 
 func clientFor(options Options) *Client {
@@ -25,66 +24,65 @@ func clientFor(options Options) *Client {
 	return New(options)
 }
 
-// Les cibles interdites, et la plus dangereuse en tête.
+// The forbidden targets, and the most dangerous first.
 //
-// `169.254.169.254` sert les métadonnées d'instance chez tous les hébergeurs,
-// identifiants compris. Une falsification qui l'atteint ne vole pas une donnée
-// applicative : elle vole le cluster.
-func TestLesCiblesInterditesSontRefusees(t *testing.T) {
+// `169.254.169.254` serves instance metadata at every hosting provider, credentials included. A
+// forgery that reaches it does not steal an application's data: it steals the cluster.
+func TestForbiddenTargetsAreRefused(t *testing.T) {
 	client := clientFor(Options{})
 
 	cas := map[string]string{
-		"métadonnées cloud":     "https://169.254.169.254/latest/meta-data/",
-		"métadonnées en IPv6":   "https://[::ffff:169.254.169.254]/latest/",
-		"boucle locale":         "https://127.0.0.1/hook",
-		"boucle locale nommée":  "https://localhost/hook",
-		"boucle locale IPv6":    "https://[::1]/hook",
-		"plage privée 10":       "https://10.0.0.5/hook",
-		"plage privée 172":      "https://172.16.3.1/hook",
-		"plage privée 192":      "https://192.168.1.10/hook",
-		"report d'opérateur":    "https://100.64.1.1/hook",
-		"adresse non spécifiée": "https://0.0.0.0/hook",
+		"cloud metadata":      "https://169.254.169.254/latest/meta-data/",
+		"metadata over IPv6":  "https://[::ffff:169.254.169.254]/latest/",
+		"boucle locale":       "https://127.0.0.1/hook",
+		"named loopback":      "https://localhost/hook",
+		"boucle locale IPv6":  "https://[::1]/hook",
+		"private range 10":    "https://10.0.0.5/hook",
+		"private range 172":   "https://172.16.3.1/hook",
+		"private range 192":   "https://192.168.1.10/hook",
+		"carrier-grade NAT":   "https://100.64.1.1/hook",
+		"unspecified address": "https://0.0.0.0/hook",
 	}
 
 	for nom, cible := range cas {
 		_, err := client.Post(context.Background(), cible, nil, []byte(`{}`))
 		if !errors.Is(err, ErrBlockedTarget) {
-			t.Errorf("%s (%s): %v, attendu ErrBlockedTarget", nom, cible, err)
+			t.Errorf("%s (%s): %v, expected ErrBlockedTarget", nom, cible, err)
 		}
 	}
 }
 
-// Le motif accompagne le refus : « refusé » sans raison envoie chercher une
-// panne, alors que « lien-local » se corrige en une lecture.
-func TestLeRefusNommeSaRaison(t *testing.T) {
+// The reason accompanies the refusal: "refused" with no ground sends one hunting for an outage,
+// whereas "link-local" is fixed in one read.
+func TestTheRefusalNamesItsReason(t *testing.T) {
 	_, err := clientFor(Options{}).Post(
 		context.Background(), "https://169.254.169.254/", nil, []byte(`{}`))
 
 	if err == nil {
-		t.Fatal("cible de métadonnées acceptée")
+		t.Fatal("metadata target accepted")
 	}
-	if !strings.Contains(err.Error(), "métadonnées") {
-		t.Errorf("message %q — il doit nommer ce qui est refusé", err)
+	if !strings.Contains(err.Error(), "metadata") {
+		t.Errorf("message %q — it must name what is refused", err)
 	}
 }
 
-// Le clair est refusé par défaut : la charge porte le tag d'une release et le
-// jeton qui l'authentifie, et tout cela traverserait un réseau lisible.
-func TestLeClairEstRefuseParDefaut(t *testing.T) {
+// Clear text is refused by default: the payload carries a release's tag and the token that
+// authenticates it, and all of that would cross a readable network.
+func TestClearTextIsRefusedByDefault(t *testing.T) {
 	_, err := clientFor(Options{}).Post(
 		context.Background(), "http://example.test/hook", nil, []byte(`{}`))
 
 	if !errors.Is(err, ErrInsecureTarget) {
-		t.Fatalf("%v, attendu ErrInsecureTarget", err)
+		t.Fatalf("%v, expected ErrInsecureTarget", err)
 	}
 	if !strings.Contains(err.Error(), "clair") {
-		t.Errorf("message %q — il doit dire ce qui fuirait", err)
+		t.Errorf("message %q — it must say what would leak", err)
 	}
 }
 
-// Un schéma qui n'est pas HTTP est refusé sans même être composé : `file://` et
-// `gopher://` sont des vecteurs classiques de falsification.
-func TestUnSchemaEtrangerEstRefuse(t *testing.T) {
+// A scheme that is not HTTP is refused without even being dialled: `file://` and `gopher://` are
+// classic forgery vectors.
+func TestAForeignSchemeIsRefused(t *testing.T) {
 	client := clientFor(Options{AllowInsecure: true, AllowPrivate: true})
 
 	for _, cible := range []string{
@@ -100,14 +98,14 @@ func TestUnSchemaEtrangerEstRefuse(t *testing.T) {
  * Ce que l'autorisation explicite ouvre — et ce qu'elle n'ouvre pas.
  */
 
-// Un déploiement local a besoin de sa boucle locale, et le déclare.
-func TestLAutorisationExpliciteOuvreLesCiblesPrivees(t *testing.T) {
+// A local deployment needs its loopback, and declares it.
+func TestTheExplicitAuthorizationOpensPrivateTargets(t *testing.T) {
 	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer jeton" {
-			t.Errorf("en-tête d'authentification absent: %v", r.Header.Get("Authorization"))
+			t.Errorf("authentication header missing: %v", r.Header.Get("Authorization"))
 		}
 		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write([]byte("reçu"))
+		_, _ = w.Write([]byte("received"))
 	}))
 	defer serveur.Close()
 
@@ -118,32 +116,31 @@ func TestLAutorisationExpliciteOuvreLesCiblesPrivees(t *testing.T) {
 		t.Fatalf("appel: %v", err)
 	}
 	if !response.OK() || response.Status != http.StatusAccepted {
-		t.Errorf("réponse = %+v", response)
+		t.Errorf("response = %+v", response)
 	}
-	if response.Body != "reçu" {
+	if response.Body != "received" {
 		t.Errorf("corps = %q", response.Body)
 	}
 }
 
-// **Elle ne rouvre jamais le lien-local.** Les métadonnées d'instance ne sont pas
-// une cible qu'un déploiement veut atteindre, et l'autorisation générale ne doit
-// pas les rendre accessibles par la bande.
-func TestLAutorisationPriveeNOuvrePasLeLienLocal(t *testing.T) {
+// **It never reopens link-local.** Instance metadata is not a target a deployment wants to reach,
+// and the blanket authorization must not make it reachable on the side.
+func TestThePrivateAuthorizationDoesNotOpenLinkLocal(t *testing.T) {
 	client := clientFor(Options{AllowPrivate: true, AllowInsecure: true})
 
 	_, err := client.Post(context.Background(), "http://169.254.169.254/", nil, nil)
 	if !errors.Is(err, ErrBlockedTarget) {
-		t.Fatalf("%v, attendu ErrBlockedTarget malgré l'autorisation privée", err)
+		t.Fatalf("%v, expected ErrBlockedTarget despite the private authorization", err)
 	}
 }
 
 /*
- * La redirection, contournement évident du contrôle.
+ * The redirect, the obvious way around the check.
  */
 
-// Aucune redirection n'est suivie : le destinataire répond 302 vers les
-// métadonnées, et un client complaisant y va.
-func TestAucuneRedirectionNestSuivie(t *testing.T) {
+// No redirect is followed: the recipient answers 302 towards the metadata, and an obliging client
+// goes there.
+func TestNoRedirectIsFollowed(t *testing.T) {
 	var atteint bool
 	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/suite" {
@@ -159,10 +156,10 @@ func TestAucuneRedirectionNestSuivie(t *testing.T) {
 	_, err := client.Post(context.Background(), serveur.URL+"/depart", nil, []byte(`{}`))
 
 	if !errors.Is(err, ErrBlockedTarget) {
-		t.Fatalf("%v, attendu un refus de redirection", err)
+		t.Fatalf("%v, expected a redirect refusal", err)
 	}
 	if atteint {
-		t.Error("la redirection a été suivie")
+		t.Error("the redirect was followed")
 	}
 }
 
@@ -170,9 +167,9 @@ func TestAucuneRedirectionNestSuivie(t *testing.T) {
  * Ce que le client rapporte, et ce qu'il tait.
  */
 
-// Un refus du destinataire est un **constat**, pas une panne du dashboard : la
-// réponse est rendue avec son code, et l'appelant décide.
-func TestUnRefusDuDestinataireEstUnConstat(t *testing.T) {
+// A refusal from the recipient is an **observation**, not a failure of the dashboard: the response
+// is returned with its code, and the caller decides.
+func TestARefusalFromTheRecipientIsAnObservation(t *testing.T) {
 	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte("jeton invalide"))
@@ -182,32 +179,31 @@ func TestUnRefusDuDestinataireEstUnConstat(t *testing.T) {
 	client := clientFor(Options{AllowPrivate: true, AllowInsecure: true})
 	response, err := client.Post(context.Background(), serveur.URL, nil, []byte(`{}`))
 	if err != nil {
-		t.Fatalf("un refus du destinataire ne doit pas être une erreur: %v", err)
+		t.Fatalf("a refusal from the recipient must not be an error: %v", err)
 	}
 	if response.OK() {
-		t.Error("un 403 est annoncé comme réussi")
+		t.Error("a 403 is announced as successful")
 	}
 	if response.Status != http.StatusForbidden || response.Body != "jeton invalide" {
-		t.Errorf("réponse = %+v", response)
+		t.Errorf("response = %+v", response)
 	}
 }
 
-// Un 3xx n'est pas un succès : la redirection n'ayant pas été suivie, personne
-// n'a reçu la charge.
-func TestUneRedirectionNestPasUnSucces(t *testing.T) {
+// A 3xx is not a success: the redirect not having been followed, nobody received the payload.
+func TestARedirectIsNotASuccess(t *testing.T) {
 	if (Response{Status: http.StatusFound}).OK() {
-		t.Error("un 302 est annoncé comme réussi")
+		t.Error("a 302 is announced as successful")
 	}
 	for _, code := range []int{200, 201, 202, 204} {
 		if !(Response{Status: code}).OK() {
-			t.Errorf("%d n'est pas annoncé comme réussi", code)
+			t.Errorf("%d is not announced as successful", code)
 		}
 	}
 }
 
-// La réponse est bornée : un destinataire hostile ferait sinon grossir la mémoire
-// du worker par un corps sans fin.
-func TestLaReponseEstBornee(t *testing.T) {
+// The response is bounded: a hostile recipient would otherwise grow the worker's memory through an
+// endless body.
+func TestTheResponseIsBounded(t *testing.T) {
 	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(strings.Repeat("a", 100_000)))
 	}))
@@ -219,29 +215,28 @@ func TestLaReponseEstBornee(t *testing.T) {
 		t.Fatalf("appel: %v", err)
 	}
 	if len(response.Body) > 64 {
-		t.Errorf("corps de %d octets, borné à 64", len(response.Body))
+		t.Errorf("body of %d bytes, bounded at 64", len(response.Body))
 	}
 }
 
-// L'URL est expurgée dans les messages d'erreur : un webhook de messagerie porte
-// souvent son jeton dans sa chaîne de requête, et un message d'erreur finit dans
-// un journal.
-func TestLURLEstExpurgeeDansLesErreurs(t *testing.T) {
+// The URL is redacted in the error messages: a chat webhook often carries its token in its query
+// string, and an error message ends up in a log.
+func TestTheURLIsRedactedInTheErrors(t *testing.T) {
 	_, err := clientFor(Options{}).Post(context.Background(),
-		"http://example.test/hook?token=secret-a-ne-pas-journaliser", nil, nil)
+		"http://example.test/hook?token=secret-not-to-be-logged", nil, nil)
 
 	if err == nil {
-		t.Fatal("appel en clair accepté")
+		t.Fatal("cleartext call accepted")
 	}
-	if strings.Contains(err.Error(), "secret-a-ne-pas-journaliser") {
-		t.Errorf("le jeton transparaît dans %q", err)
+	if strings.Contains(err.Error(), "secret-not-to-be-logged") {
+		t.Errorf("the token shows through in %q", err)
 	}
 }
 
-// Une URL sans hôte est refusée plutôt que composée : `https:///hook` n'atteint
-// personne, et l'erreur réseau ne dirait pas pourquoi.
-func TestUneURLSansHoteEstRefusee(t *testing.T) {
-	for _, cible := range []string{"", "   ", "https:///hook", "pas une url"} {
+// A URL with no host is refused rather than dialled: `https:///hook` reaches nobody, and the
+// network error would not say why.
+func TestAURLWithNoHostIsRefused(t *testing.T) {
+	for _, cible := range []string{"", "   ", "https:///hook", "not a url"} {
 		if _, err := clientFor(Options{}).Post(
 			context.Background(), cible, nil, nil); !errors.Is(err, ErrBlockedTarget) {
 			t.Errorf("cible %q: %v", cible, err)

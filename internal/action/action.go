@@ -1,34 +1,31 @@
-// Package action déclare les actions qu'un plan peut mettre en œuvre.
+// Package action declares the actions a plan can carry out.
 //
-// # Un registre, pas un moteur
+// # A registry, not an engine
 //
-// Ce paquet dit ce qu'une action **attend** et vérifie qu'on le lui donne. Il ne
-// l'exécute pas : sortir du cluster demande un client contrôlé, qui vit dans
-// `internal/webhook`, et le mélanger ici ferait de ce registre une dépendance de
-// tout ce qui veut seulement lire la liste des actions — l'éditeur, notamment.
+// This package says what an action **expects** and checks that it is given. It does not run it:
+// leaving the cluster needs a controlled client, which lives in `internal/webhook`, and mixing it
+// in here would make this registry a dependency of everything that only wants to read the list of
+// actions — the editor, notably.
 //
-// C'est le même partage que pour `internal/plugin` : la déclaration d'un côté,
-// l'exécution de l'autre.
+// It is the same split as for `internal/plugin`: the declaration on one side, the execution on
+// the other.
 //
-// # Une action interne, et les autres viennent des plugins
+// # One internal action, and the others come from plugins
 //
-// [Registry] n'en déclare qu'une : l'appel sortant. C'est ce qui reste quand on
-// retire ce qui appartient à une frontière — poser un statut de commit est un
-// geste de **forge**, et le déclarer ici ferait qu'ajouter une seconde forge
-// demanderait de modifier ce paquet.
+// [Registry] declares only one: the outgoing call. It is what remains once what belongs to a
+// boundary is removed — setting a commit status is an act of a **forge**, and declaring it here
+// would mean adding a second forge required modifying this package.
 //
-// La notification de messagerie n'est pas une seconde action : Mattermost, Slack
-// et le reste sont des webhooks, et leur donner une action dédiée serait trois
-// fois le même code sous trois noms.
+// A chat notification is not a second action: Mattermost, Slack and the rest are webhooks, and
+// giving them a dedicated action would be the same code three times under three names.
 //
-// [All] réunit les deux registres. C'est cette liste-là que voient l'éditeur et
-// la validation ; la distinction entre une action du noyau et une action de
-// plugin ne les regarde pas.
+// [All] brings both registries together. That is the list the editor and the validation see; the
+// distinction between a core action and a plugin action is none of their business.
 //
-// Ce qui n'y est toujours pas et qu'il vaut mieux nommer : écrire dans le suivi.
-// Le transport de `internal/redmine` refuse structurellement toute méthode autre
-// que GET et HEAD, et c'est un choix documenté — pris parce que la clé visée est
-// celle de la production du client. L'ouvrir est un chantier à part.
+// What is still not there and is worth naming: writing into the tracker. `internal/redmine`'s
+// transport structurally refuses any method other than GET and HEAD, and that is a documented
+// choice — taken because the key targeted is that of the client's production. Opening it is a
+// separate piece of work.
 package action
 
 import (
@@ -42,54 +39,50 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 )
 
-// Field déclare un paramètre attendu par une action.
+// Field declares a parameter an action expects.
 //
-// La même forme que les champs de `internal/plugin`, et pour la même raison :
-// c'est ce qui permet à l'éditeur de composer un formulaire, et à la validation
-// de refuser une saisie fautive à l'enregistrement plutôt qu'à l'exécution.
+// The same shape as `internal/plugin`'s fields, and for the same reason: it is what lets the
+// editor compose a form, and the validation refuse a faulty entry at recording time rather than
+// at run time.
 type Field struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
 	Help  string `json:"help,omitempty"`
-	// Required : la valeur doit être là, éventuellement après interpolation du
-	// contexte du fait.
+	// Required: the value must be there, possibly after interpolating the fact's context.
 	Required bool `json:"required,omitempty"`
-	// Template dit que la valeur admet des variables `{clé}`, liées à la charge
-	// du fait déclencheur.
+	// Template says the value allows `{key}` variables, bound to the triggering fact's payload.
 	Template bool `json:"template,omitempty"`
-	// SecretRef dit que la valeur **nomme** un champ sensible d'un plugin, et
-	// n'en porte jamais le contenu.
+	// SecretRef says the value **names** a plugin's sensitive field, and never carries its content.
 	//
-	// C'est la règle de doc 14 §14.7 rendue structurelle : un champ sensible n'est
-	// jamais une variable de gabarit. Il ne peut être que désigné, et le moteur
-	// le pose comme en-tête sans jamais le rendre lisible.
+	// It is the rule made structural: a sensitive field is never a template variable. It can only be
+	// named, and the engine sets it as a header without ever making it readable.
 	SecretRef bool `json:"secret_ref,omitempty"`
-	// OneOf ferme le jeu des valeurs acceptées. Vide, la valeur est libre.
+	// OneOf closes the set of accepted values. Empty, the value is free.
 	OneOf       []string `json:"one_of,omitempty"`
 	Placeholder string   `json:"placeholder,omitempty"`
 }
 
-// Descriptor déclare une action.
+// Descriptor declares an action.
 type Descriptor struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
-	// Summary dit ce qu'elle fait, en une phrase, dans l'éditeur.
+	// Summary says what it does, in one sentence, in the editor.
 	Summary string  `json:"summary"`
 	Fields  []Field `json:"fields"`
-	// Plugin nomme le plugin qui fournit l'action, vide pour une action du noyau.
+	// Plugin names the plugin supplying the action, empty for a core action.
 	//
-	// Rendu à l'éditeur pour qu'il puisse dire d'où vient un geste, et lu par
-	// l'exécution pour savoir à qui le confier.
+	// Returned to the editor so that it can say where an act comes from, and read by the runtime to
+	// know whom to hand it to.
 	Plugin string `json:"plugin,omitempty"`
 }
 
-// Webhook émet un POST JSON vers une URL. Seule action du noyau.
+// Webhook issues a JSON POST to a URL. The core's only action.
 const Webhook = "webhook"
 
-// Registry énumère les actions internes.
+// Registry lists the internal actions.
 //
-// Une fonction et non une variable : rendre une tranche partagée laisserait un
-// appelant la trier ou y écrire, et le registre suivant en hériterait.
+// A function and not a variable: returning a shared slice would let a caller sort it or write
+// into it, and the next registry would inherit that.
 func Registry() []Descriptor {
 	descriptors := []Descriptor{
 		{
@@ -127,22 +120,20 @@ func Registry() []Descriptor {
 	return descriptors
 }
 
-// All réunit les actions du noyau et celles que les plugins déclarent.
+// All brings together the core's actions and those the plugins declare.
 //
-// # Le registre ouvert dans l'autre sens
+// # The registry opened in the other direction
 //
-// Les plugins déclaraient déjà les faits qu'ils observent ; ils déclarent
-// maintenant les gestes qu'ils savent faire. Sans cette moitié, on branche
-// n'importe quelle **cause** sur un jeu de **conséquences** figé, et agir sur une
-// frontière que le noyau ne connaît pas redemande de modifier le noyau.
+// The plugins already declared the facts they observe; they now declare the acts they can
+// perform. Without that half, any **cause** is wired to a frozen set of **consequences**, and
+// acting on a boundary the core does not know requires modifying the core again.
 //
-// # Sans filtrer sur l'activation
+// # Without filtering on activation
 //
-// Un plugin éteint garde ses actions dans cette liste. C'est délibéré : la
-// validation d'un plan **figé** dans une exécution doit rester possible après
-// extinction, sans quoi une vue d'historique perdrait ses libellés. C'est à
-// l'éditeur d'écarter ce qui ne se déclencherait pas — il le fait déjà pour les
-// faits, et pour la même raison.
+// A switched-off plugin keeps its actions in this list. That is deliberate: validating a plan
+// **frozen** into a run must stay possible after it is switched off, otherwise a history view
+// would lose its labels. It is for the editor to set aside what would not trigger — it already
+// does so for the facts, and for the same reason.
 func All() []Descriptor {
 	descriptors := Registry()
 	for _, provider := range plugin.Registry() {
@@ -155,12 +146,11 @@ func All() []Descriptor {
 	return descriptors
 }
 
-// fromPlugin traduit la déclaration d'un plugin en descripteur d'action.
+// fromPlugin translates a plugin's declaration into an action descriptor.
 //
-// La traduction est étroite, et le champ qu'elle n'a pas à porter dit pourquoi :
-// [Field.SecretRef] reste faux. Une action de plugin parle à sa propre frontière,
-// dont la connexion est déjà scellée ; elle ne désigne aucun jeton, et ne peut
-// donc pas servir à en faire sortir un vers une cible saisie dans un formulaire.
+// The translation is narrow, and the field it does not have to carry says why: [Field.SecretRef]
+// stays false. A plugin action speaks to its own boundary, whose connection is already sealed; it
+// names no token, and therefore cannot serve to extract one towards a target typed into a form.
 func fromPlugin(provider plugin.Descriptor, spec plugin.ActionSpec) Descriptor {
 	fields := make([]Field, 0, len(spec.Fields))
 	for _, field := range spec.Fields {
@@ -177,13 +167,13 @@ func fromPlugin(provider plugin.Descriptor, spec plugin.ActionSpec) Descriptor {
 	}
 }
 
-// ErrUnknown signale une action qu'aucun descripteur ne déclare.
-var ErrUnknown = errors.New("action inconnue")
+// ErrUnknown reports an action no descriptor declares.
+var ErrUnknown = errors.New("unknown action")
 
-// Get rend le descripteur d'une action, du noyau ou d'un plugin.
+// Get returns an action's descriptor, from the core or from a plugin.
 //
-// L'erreur nomme celles qui existent : chercher laquelle dans le code source
-// n'est pas une réponse à donner à qui lit un message d'API.
+// The error names those that exist: hunting for which one in the source code is not an answer to
+// give to whoever reads an API message.
 func Get(id string) (Descriptor, error) {
 	registry := All()
 	for _, descriptor := range registry {
@@ -196,18 +186,18 @@ func Get(id string) (Descriptor, error) {
 	for _, descriptor := range registry {
 		known = append(known, descriptor.ID)
 	}
-	return Descriptor{}, fmt.Errorf("%w %q (déclarées: %s)",
+	return Descriptor{}, fmt.Errorf("%w %q (declared: %s)",
 		ErrUnknown, id, strings.Join(known, ", "))
 }
 
-// ErrInvalid signale des paramètres qu'on refuse.
-var ErrInvalid = errors.New("paramètres d'action invalides")
+// ErrInvalid reports parameters that are refused.
+var ErrInvalid = errors.New("invalid action parameters")
 
-// Validate refuse des paramètres incohérents avec le descripteur.
+// Validate refuses parameters inconsistent with the descriptor.
 //
-// Vérifié à l'enregistrement d'un plan et non à son exécution : un geste fautif
-// découvert au moment de partir laisse une chaîne arrêtée, et le diagnostic se
-// fait alors sur une release en attente plutôt que devant un formulaire.
+// Checked when a plan is recorded and not when it runs: a faulty act discovered at the moment of
+// starting leaves a chain stopped, and the diagnosis then happens on a waiting release rather
+// than in front of a form.
 func (d Descriptor) Validate(params map[string]string) error {
 	declared := make(map[string]Field, len(d.Fields))
 	for _, field := range d.Fields {
@@ -216,8 +206,8 @@ func (d Descriptor) Validate(params map[string]string) error {
 
 	var problems []error
 
-	// Un paramètre inconnu est refusé plutôt qu'ignoré : ignoré, il donne un
-	// écran qui dit « enregistré » sur une valeur que rien ne relira.
+	// An unknown parameter is refused rather than ignored: ignored, it gives a screen that says
+	// "recorded" on a value nothing will read back.
 	names := make([]string, 0, len(params))
 	for name := range params {
 		names = append(names, name)
@@ -226,14 +216,14 @@ func (d Descriptor) Validate(params map[string]string) error {
 	for _, name := range names {
 		if _, known := declared[name]; !known {
 			problems = append(problems, fmt.Errorf(
-				"%w: l'action %q ne déclare aucun paramètre %q", ErrInvalid, d.ID, name))
+				"%w: the action %q declares no parameter %q", ErrInvalid, d.ID, name))
 		}
 	}
 
 	for _, field := range d.Fields {
 		value := strings.TrimSpace(params[field.Name])
 		if field.Required && value == "" {
-			problems = append(problems, fmt.Errorf("%w: %s est requis", ErrInvalid, field.Label))
+			problems = append(problems, fmt.Errorf("%w: %s is required", ErrInvalid, field.Label))
 			continue
 		}
 		if value == "" {
@@ -248,67 +238,63 @@ func (d Descriptor) Validate(params map[string]string) error {
 func (f Field) validate(value string) []error {
 	var problems []error
 
-	// L'URL est vérifiée dans sa forme, pas dans sa cible : celle-ci est jugée au
-	// moment de connecter, sur l'adresse résolue, par le transport. Les deux
-	// contrôles ne se remplacent pas — celui-ci attrape une faute de frappe, le
-	// second attrape une falsification.
+	// The URL's shape is checked, not its target: the target is judged when connecting, on the
+	// resolved address, by the transport. The two checks do not replace each other — this one catches
+	// a typo, the second catches a forgery.
 	if f.Name == "url" {
 		parsed, err := url.Parse(value)
 		switch {
 		case err != nil || parsed.Host == "":
 			problems = append(problems, fmt.Errorf(
-				"%w: %s doit être une URL absolue, reçu %q", ErrInvalid, f.Label, value))
+				"%w: %s must be an absolute URL, received %q", ErrInvalid, f.Label, value))
 		case parsed.Scheme != "https" && parsed.Scheme != "http":
 			problems = append(problems, fmt.Errorf(
-				"%w: %s: schéma %q (attendu https)", ErrInvalid, f.Label, parsed.Scheme))
+				"%w: %s: scheme %q (expected https)", ErrInvalid, f.Label, parsed.Scheme))
 		}
 	}
 
-	// Un jeu fermé se vérifie ici plutôt que chez le destinataire : l'état d'un
-	// statut de commit appartient au vocabulaire de la forge, et une valeur
-	// inventée serait refusée par elle — au moment le moins utile.
+	// A closed set is checked here rather than at the recipient's: the state of a commit status
+	// belongs to the forge's vocabulary, and an invented value would be refused by it — at the least
+	// useful moment.
 	//
-	// La liste vient du descripteur et non d'une condition sur l'identifiant de
-	// l'action : c'est ce qui permet à un second plugin de forge d'avoir ses
-	// propres états sans que ce paquet ait à le connaître.
+	// The list comes from the descriptor and not from a condition on the action's identifier: that is
+	// what lets a second forge plugin have its own states without this package having to know it.
 	//
-	// Sauté quand la valeur porte un gabarit : ce qu'elle vaudra dépend de la
-	// charge du fait, et refuser `{outcome}` ici obligerait à écrire l'état en dur.
+	// Skipped when the value carries a template: what it will be worth depends on the fact's payload,
+	// and refusing `{outcome}` here would force the state to be written literally.
 	if len(f.OneOf) > 0 && !strings.Contains(value, "{") && !slices.Contains(f.OneOf, value) {
 		problems = append(problems, fmt.Errorf(
-			"%w: %s vaut %s, reçu %q",
+			"%w: %s is one of %s, received %q",
 			ErrInvalid, f.Label, strings.Join(f.OneOf, ", "), value))
 	}
 
-	// Un gabarit dont une accolade n'est pas fermée produirait une valeur
-	// littérale incompréhensible chez le destinataire.
+	// A template with an unclosed brace would produce a literal value the recipient could not
+	// understand.
 	if f.Template && strings.Count(value, "{") != strings.Count(value, "}") {
 		problems = append(problems, fmt.Errorf(
-			"%w: %s: accolades non appariées", ErrInvalid, f.Label))
+			"%w: %s: unmatched braces", ErrInvalid, f.Label))
 	}
 
 	return problems
 }
 
-// Expand remplace les variables `{clé}` par la charge du fait.
+// Expand replaces the `{key}` variables with the fact's payload.
 //
-// # Une accolade n'est pas toujours une variable
+// # A brace is not always a variable
 //
-// Le corps d'un webhook est du **JSON**, et le JSON est fait d'accolades. Un
-// balayage naïf — première accolade ouvrante, première fermante — ferait de
-// `{"release":"{tag}"` un nom de variable, avalerait la vraie et rendrait le
-// gabarit littéral. C'est le cas principal de cette fonction, pas un cas tordu.
+// A webhook's body is **JSON**, and JSON is made of braces. A naive sweep — first opening brace,
+// first closing one — would make `{"release":"{tag}"` a variable name, swallow the real one and
+// leave the template literal. That is this function's main case, not a contrived one.
 //
-// Ne sont donc reconnues comme variables que les accolades dont le contenu est un
-// **nom plausible** : lettres, chiffres, `_`, `.`, `-`. Tout le reste — une
-// accolade de structure JSON, un fragment — traverse tel quel.
+// Only braces whose content is a **plausible name** are therefore recognised as variables:
+// letters, digits, `_`, `.`, `-`. Everything else — a JSON structural brace, a fragment — passes
+// through as it is.
 //
-// # Une variable inconnue reste littérale
+// # An unknown variable stays literal
 //
-// Plutôt que remplacée par du vide, et c'est délibéré : un `{tag}` visible dans
-// un message de messagerie se remarque et se corrige, là qu'un trou silencieux se
-// lit comme une release sans nom — et personne ne saurait dire si c'est le
-// gabarit ou la donnée qui manque.
+// Rather than replaced by nothing, and that is deliberate: a `{tag}` visible in a chat message is
+// noticed and fixed, whereas a silent hole reads as a release with no name — and nobody could
+// say whether it is the template or the data that is missing.
 func Expand(template string, values map[string]string) string {
 	if !strings.Contains(template, "{") {
 		return template
@@ -326,7 +312,7 @@ func Expand(template string, values map[string]string) string {
 
 		end := strings.IndexByte(template[index:], '}')
 		if end < 0 {
-			// Plus aucune fermante : le reste est littéral.
+			// No closing brace left: the rest is literal.
 			out.WriteString(template[index:])
 			break
 		}
@@ -334,9 +320,8 @@ func Expand(template string, values map[string]string) string {
 
 		name := template[index+1 : end]
 		if !plausibleName(name) {
-			// Une accolade de structure. On écrit celle-ci et on reprend juste
-			// après : la fermante qu'on vient de voir appartient peut-être à une
-			// vraie variable, et la consommer ici la ferait disparaître.
+			// A structural brace. This one is written and we resume just after it: the closing brace just
+			// seen may belong to a real variable, and consuming it here would make it disappear.
 			out.WriteByte('{')
 			index++
 			continue
@@ -353,12 +338,11 @@ func Expand(template string, values map[string]string) string {
 	return out.String()
 }
 
-// plausibleName dit si le contenu d'une paire d'accolades peut être un nom de
-// variable.
+// plausibleName says whether the content of a pair of braces can be a variable name.
 //
-// Volontairement étroit : mieux vaut laisser passer une accolade qui aurait pu
-// être une variable — elle se voit et se corrige — que d'interpréter une
-// structure JSON comme une interpolation, qui produirait une charge muette.
+// Deliberately narrow: better to let through a brace that could have been a variable — it is
+// visible and gets fixed — than to interpret a JSON structure as an interpolation, which would
+// produce a mute payload.
 func plausibleName(name string) bool {
 	if name == "" {
 		return false

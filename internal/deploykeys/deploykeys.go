@@ -1,35 +1,31 @@
-// Package deploykeys donne à chaque projet sa propre clé de déploiement.
+// Package deploykeys gives each project its own deploy key.
 //
-// Une seule clé ouvrait jusqu'ici tous les dépôts déclarés. À l'échelle d'un
-// produit, cela ne tient pas : une clé compromise se révoque projet par projet,
-// et un projet nouvellement déclaré ne devrait pas recevoir l'accès à ceux qui
-// l'ont précédé (doc 12 §12.7, lot G).
+// A single key used to open every declared repository. At the scale of a product that does not
+// hold: a compromised key is revoked project by project, and a newly declared project should not
+// receive access to those that preceded it.
 //
-// # Ce que le dashboard fait, et ce qu'il ne fait pas
+// # What the dashboard does, and what it does not
 //
-// Il **génère** la paire dans le cluster, écrit la moitié privée dans un Secret
-// que les pipelines montent, et ne conserve que la moitié publique — celle qu'on
-// colle dans les réglages d'un dépôt. Il ne relit jamais ce qu'il a écrit.
+// It **generates** the pair in the cluster, writes the private half into a Secret the pipelines
+// mount, and keeps only the public half — the one pasted into a repository's settings. It never
+// reads back what it wrote.
 //
-// Cela honore l'invariant de [07 §7.3] à la lettre : « le dashboard désigne, il
-// ne distribue pas ». La matière du secret ne transite ni par une spec, ni par un
-// paramètre, ni par un journal, ni par une réponse d'API. Elle passe une fois, du
-// générateur au Secret, et n'en ressort plus.
+// That honours the invariant to the letter: the dashboard designates, it does not distribute.
+// The secret material passes through no spec, no parameter, no log, no API response. It passes
+// once, from the generator to the Secret, and does not come out again.
 //
-// # Pourquoi il ne peut pas lire, et ce que cela impose
+// # Why it cannot read, and what that imposes
 //
-// La RBAC accorde `create`, `patch` et `delete` sur les Secrets, **sans** `get`
-// ni `list`. En RBAC Kubernetes les verbes sont indépendants, et c'est ce qui
-// permet à un rôle de posséder ce qu'il crée sans rien pouvoir lire du namespace
-// — lequel contient les identifiants de registre, de MinIO et la clé partagée.
+// The RBAC grants `create`, `patch` and `delete` on Secrets, **without** `get` or `list`. In
+// Kubernetes RBAC the verbs are independent, and that is what lets a role own what it creates
+// without being able to read anything of the namespace — which contains the registry and MinIO
+// credentials and the shared key.
 //
-// Conséquence directe sur la conception : **on ne peut pas interroger le cluster
-// pour savoir si un Secret nous appartient**. La propriété se lit donc ailleurs,
-// dans la base : un projet dont `deploy_key_public` est renseigné a reçu sa clé
-// de nous. Si le Secret existe alors que la base ne connaît aucune clé, c'est une
-// collision de noms avec quelque chose que nous n'avons pas créé — et le
-// dashboard **refuse** plutôt que d'adopter (doc 12 §12.7, « il n'adopte jamais
-// un secret préexistant »).
+// A direct consequence on the design: **the cluster cannot be queried to know whether a Secret
+// belongs to us**. Ownership is therefore read elsewhere, in the database: a project whose
+// `deploy_key_public` is set received its key from us. If the Secret exists while the database
+// knows of no key, it is a name collision with something we did not create — and the dashboard
+// **refuses** rather than adopt: it never adopts a pre-existing secret.
 package deploykeys
 
 import (
@@ -48,45 +44,41 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// ManagedBy marque les ressources que le dashboard possède.
+// ManagedBy marks the resources the dashboard owns.
 //
-// Elle ne sert pas à décider quoi que ce soit — sans `get`, on ne la relit
-// jamais — mais à ce qu'un humain devant `kubectl get secret` sache d'où vient
-// l'objet et qui le supprimera.
+// It does not serve to decide anything — without `get`, it is never read back — but so that a
+// human in front of `kubectl get secret` knows where the object comes from and who will delete
+// it.
 const ManagedBy = "arkhitekton"
 
-// PrivateKeyFile est le nom sous lequel la clé est déposée dans le Secret.
+// PrivateKeyFile is the name under which the key is deposited in the Secret.
 //
-// # Ce nom-là, et pas un autre
+// # That name, and no other
 //
-// Le workspace `ssh-directory` de la Task `git-clone` est **recopié tel quel dans
-// `~/.ssh`**. OpenSSH n'y charge que les identités qu'il connaît — `id_ed25519`,
-// `id_rsa` — ou celles qu'un `config` désigne. Un fichier nommé autrement est
-// présent et ignoré.
+// The `git-clone` Task's `ssh-directory` workspace is **copied as it is into `~/.ssh`**. OpenSSH
+// loads there only the identities it knows — `id_ed25519`, `id_rsa` — or those a `config` names.
+// A file named otherwise is present and ignored.
 //
-// C'est le défaut qui a fait échouer toutes les constructions après le passage
-// aux clés par projet : le Secret ne portait que `ssh-privatekey`, le nom imposé
-// par le **type** `kubernetes.io/ssh-auth`. Ce nom est juste pour le type, et
-// muet pour SSH. La clé partagée qu'il remplaçait portait `id_ed25519`, et c'est
-// pour cela qu'elle fonctionnait.
+// It is the defect that failed every build after the move to per-project keys: the Secret
+// carried only `ssh-privatekey`, the name the `kubernetes.io/ssh-auth` **type** imposes. That
+// name is right for the type, and mute for SSH. The shared key it replaced carried `id_ed25519`,
+// and that is why it worked.
 //
-// Symptôme, pour qui le reverrait : `git-init` prévient « appears to need SSH
-// authentication but no SSH credentials have been provided », puis la forge
-// répond `Permission denied (publickey)` — alors même que la clé publique est
-// bien déclarée sur le dépôt.
+// The symptom, for whoever sees it again: `git-init` warns "appears to need SSH authentication
+// but no SSH credentials have been provided", then the forge answers `Permission denied
+// (publickey)` — even though the public key is indeed declared on the repository.
 const PrivateKeyFile = "id_ed25519"
 
-// secretData compose le contenu du Secret.
+// secretData composes the Secret's content.
 //
-// La clé est déposée **deux fois**, sous les deux noms. Ce n'est pas une
-// hésitation :
+// The key is deposited **twice**, under both names. It is no hesitation:
 //
-//   - `ssh-privatekey` est exigé par le type `kubernetes.io/ssh-auth`, qu'on
-//     garde pour que l'objet reste typé et reconnaissable ;
-//   - [PrivateKeyFile] est celui que SSH lit une fois le workspace recopié.
+//   - `ssh-privatekey` is required by the `kubernetes.io/ssh-auth` type, which is kept so that
+//     the object stays typed and recognisable;
+//   - [PrivateKeyFile] is the one SSH reads once the workspace is copied.
 //
-// Les deux désignent la même matière, donc la même portée : rien n'est exposé de
-// plus qu'avec un seul fichier.
+// Both name the same material, therefore the same scope: nothing is exposed beyond what a single
+// file would expose.
 func secretData(private []byte) map[string][]byte {
 	return map[string][]byte{
 		corev1.SSHAuthPrivateKey: private,
@@ -94,53 +86,50 @@ func secretData(private []byte) map[string][]byte {
 	}
 }
 
-// ErrNameTaken signale qu'un Secret porte déjà le nom que le projet réclame.
+// ErrNameTaken reports that a Secret already carries the name the project claims.
 //
-// Ce n'est pas une erreur d'écriture : c'est le refus d'adopter. Le Secret
-// existe, la base ne connaît aucune clé pour ce projet, donc il vient d'ailleurs.
-// L'écraser détruirait la clé de quelqu'un d'autre, et l'adopter reviendrait à
-// affirmer une propriété qu'on ne peut pas vérifier.
-var ErrNameTaken = errors.New("un secret porte déjà ce nom et n'a pas été créé par le dashboard")
+// It is not a write error: it is the refusal to adopt. The Secret exists, the database knows of
+// no key for this project, so it comes from elsewhere. Overwriting it would destroy someone
+// else's key, and adopting it would amount to asserting an ownership that cannot be checked.
+var ErrNameTaken = errors.New("a secret already carries this name and was not created by the dashboard")
 
-// SecretName rend le nom du Secret portant la clé d'un projet.
+// SecretName returns the name of the Secret carrying a project's key.
 //
-// Dérivé du slug, qui est déjà contraint à `^[a-z0-9][a-z0-9-]*$` par la
-// migration 0026 — donc un nom de ressource Kubernetes valide sans échappement.
-// Le préfixe rend la propriété lisible sans consulter les étiquettes.
+// Derived from the slug, which is already constrained to `^[a-z0-9][a-z0-9-]*$` by a migration —
+// hence a valid Kubernetes resource name with no escaping. The prefix makes ownership readable
+// without consulting the labels.
 func SecretName(slug string) string {
 	return "arkhitekton-project-" + slug + "-git"
 }
 
-// Pair est une paire de clés fraîchement engendrée.
+// Pair is a freshly generated key pair.
 type Pair struct {
-	// Private est la clé privée au format OpenSSH. Elle ne quitte cette
-	// structure que pour entrer dans un Secret.
+	// Private is the private key in OpenSSH format. It leaves this structure only to enter a Secret.
 	Private []byte
-	// Public est la ligne `authorized_keys`. C'est la seule moitié que le
-	// dashboard conserve, et la seule qu'il affiche.
+	// Public is the `authorized_keys` line. It is the only half the dashboard keeps, and the only
+	// one it displays.
 	Public string
 }
 
-// Generate engendre une paire ed25519.
+// Generate generates an ed25519 pair.
 //
-// ed25519 et non RSA : les clés sont courtes, la génération est immédiate, et
-// toutes les forges que ce produit vise l'acceptent depuis des années. Une clé
-// RSA de taille suffisante prendrait un temps sensible dans une requête HTTP,
-// pour un gain nul.
+// ed25519 and not RSA: the keys are short, generation is immediate, and every forge this product
+// targets has accepted it for years. An RSA key of sufficient size would take a noticeable time
+// inside an HTTP request, for no gain.
 func Generate(comment string) (Pair, error) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return Pair{}, fmt.Errorf("génération de la paire: %w", err)
+		return Pair{}, fmt.Errorf("generating the pair: %w", err)
 	}
 
 	block, err := ssh.MarshalPrivateKey(private, comment)
 	if err != nil {
-		return Pair{}, fmt.Errorf("encodage de la clé privée: %w", err)
+		return Pair{}, fmt.Errorf("encoding the private key: %w", err)
 	}
 
 	signer, err := ssh.NewPublicKey(public)
 	if err != nil {
-		return Pair{}, fmt.Errorf("encodage de la clé publique: %w", err)
+		return Pair{}, fmt.Errorf("encoding the public key: %w", err)
 	}
 
 	line := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer)))
@@ -151,7 +140,7 @@ func Generate(comment string) (Pair, error) {
 	return Pair{Private: pem.EncodeToMemory(block), Public: line}, nil
 }
 
-// Owner crée et supprime les Secrets de clé, sans jamais en lire aucun.
+// Owner creates and deletes the key Secrets, without ever reading any of them.
 type Owner struct {
 	kube      kubernetes.Interface
 	namespace string
@@ -161,16 +150,15 @@ func NewOwner(kube kubernetes.Interface, namespace string) *Owner {
 	return &Owner{kube: kube, namespace: namespace}
 }
 
-// Create dépose la moitié privée dans un Secret et rend la moitié publique.
+// Create deposits the private half into a Secret and returns the public half.
 //
-// `known` dit si la base connaît déjà une clé pour ce projet. C'est ce paramètre
-// qui remplace la lecture du cluster : sans lui, on ne saurait pas distinguer
-// « notre Secret, à remplacer » de « le Secret d'un autre, à ne pas toucher ».
+// `known` says whether the database already knows a key for this project. It is that parameter
+// which replaces reading the cluster: without it, "our Secret, to be replaced" could not be told
+// from "someone else's Secret, not to be touched".
 //
-// Quand la clé est connue, le Secret est **remplacé** : c'est une rotation, geste
-// délibéré dont l'ancienne moitié publique devient caduque côté forge. Quand elle
-// ne l'est pas, la création est la seule opération tentée, et un conflit rend
-// [ErrNameTaken].
+// When the key is known, the Secret is **replaced**: it is a rotation, a deliberate act whose
+// old public half becomes void on the forge's side. When it is not, creation is the only
+// operation attempted, and a conflict returns [ErrNameTaken].
 func (o *Owner) Create(ctx context.Context, slug, comment string, known bool) (string, error) {
 	pair, err := Generate(comment)
 	if err != nil {
@@ -199,66 +187,61 @@ func (o *Owner) Create(ctx context.Context, slug, comment string, known bool) (s
 		return pair.Public, nil
 
 	case apierrors.IsAlreadyExists(err) && !known:
-		// Le refus d'adopter. Sans `get`, on ne peut pas vérifier que ce Secret
-		// est le nôtre, et la base dit qu'il ne l'est pas.
+		// The refusal to adopt. Without `get`, it cannot be checked that this Secret is ours, and the
+		// database says it is not.
 		return "", fmt.Errorf("%w: %s", ErrNameTaken, name)
 
 	case apierrors.IsAlreadyExists(err):
-		// Rotation : la base atteste que cette clé est la nôtre. `Update`
-		// remplace la matière sans qu'on ait eu à la lire.
+		// Rotation: the database attests that this key is ours. `Update` replaces the material without
+		// our having had to read it.
 		if _, err := secrets.Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
-			return "", fmt.Errorf("rotation de la clé du projet %q: %w", slug, err)
+			return "", fmt.Errorf("rotating the key of project %q: %w", slug, err)
 		}
 		return pair.Public, nil
 
 	default:
-		return "", fmt.Errorf("création de la clé du projet %q: %w", slug, err)
+		return "", fmt.Errorf("creating the key of project %q: %w", slug, err)
 	}
 }
 
-// Delete retire le Secret d'un projet.
+// Delete removes a project's Secret.
 //
-// L'absence n'est pas une erreur : supprimer un projet dont la clé a déjà
-// disparu doit aboutir, sans quoi une suppression resterait bloquée sur un état
-// qu'on ne peut de toute façon pas constater.
+// Absence is not an error: deleting a project whose key has already disappeared must complete,
+// otherwise a deletion would stay stuck on a state that cannot be observed anyway.
 func (o *Owner) Delete(ctx context.Context, slug string) error {
 	err := o.kube.CoreV1().Secrets(o.namespace).
 		Delete(ctx, SecretName(slug), metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("suppression de la clé du projet %q: %w", slug, err)
+		return fmt.Errorf("deleting the key of project %q: %w", slug, err)
 	}
 	return nil
 }
 
 /*
- * La liste des secrets montables.
+ * The list of mountable secrets.
  *
- * `kubernetes.io/enforce-mountable-secrets: "true"` sur le compte de service est
- * ce qui empêche réellement une Task de se servir dans le namespace — pas la
- * RBAC du dashboard, qui ne régit que ses propres appels. Le dashboard crée déjà
- * des PipelineRun, donc indirectement des pods : sans cette annotation, il
- * pourrait déjà faire monter n'importe quel secret montable (doc 12 §12.7).
+ * `kubernetes.io/enforce-mountable-secrets: "true"` on the service account is what actually stops
+ * a Task helping itself in the namespace — not the dashboard's RBAC, which governs only its own
+ * calls. The dashboard already creates PipelineRuns, hence indirectly pods: without that
+ * annotation, it could already have any mountable secret mounted.
  *
- * En devenant propriétaire de secrets, il devient responsable de ce qui peut les
- * monter. C'est une charge nouvelle, et le prix de la posture d'opérateur.
+ * By becoming the owner of secrets, it becomes responsible for what can mount them. It is a new
+ * burden, and the price of the operator posture.
  *
- * Deux règles la bornent :
+ * Two rules bound it:
  *
- *   1. Il n'ajoute que des noms qu'il **possède** — ceux que [SecretName]
- *      produit. Un nom quelconque passé ici ouvrirait au montage un secret dont
- *      il ne sait rien.
- *   2. Il ne **retire** jamais une entrée qu'il n'a pas posée. Le compte de
- *      service porte aussi les identifiants du déploiement, et les élaguer
- *      casserait les pipelines qui les emploient.
+ *   1. It adds only names it **owns** — those [SecretName] produces. An arbitrary name passed
+ *      here would open for mounting a secret it knows nothing about.
+ *   2. It **never** removes an entry it did not set. The service account also carries the
+ *      deployment's credentials, and pruning them would break the pipelines that use them.
  */
 
-// Mounter tient à jour la liste des secrets montables des comptes de service.
+// Mounter keeps up to date the list of the service accounts' mountable secrets.
 //
-// **Plusieurs**, et c'est nécessaire : le catalogue nomme un compte par
-// pipeline — `tekton-kubectl` pour celui qui déploie, le compte par défaut pour
-// les autres. N'en tenir qu'un rendrait la clé d'un projet montable pour
-// certains de ses pipelines et pas pour les autres, et l'échec désignerait le
-// clone plutôt que le montage.
+// **Several**, and it is necessary: the catalogue names one account per pipeline —
+// `tekton-kubectl` for the one that deploys, the default account for the others. Keeping only
+// one would make a project's key mountable for some of its pipelines and not for the others, and
+// the failure would name the clone rather than the mount.
 type Mounter struct {
 	kube      kubernetes.Interface
 	namespace string
@@ -269,11 +252,11 @@ func NewMounter(kube kubernetes.Interface, namespace string, accounts ...string)
 	return &Mounter{kube: kube, namespace: namespace, accounts: accounts}
 }
 
-// Allow rend montable la clé d'un projet.
+// Allow makes a project's key mountable.
 //
-// Idempotent : réappeler après un redémarrage ne doit pas dupliquer l'entrée, et
-// la liste est comparée avant d'écrire pour ne pas produire un `patch` par
-// démarrage sur un compte de service qui n'a pas bougé.
+// Idempotent: calling it again after a restart must not duplicate the entry, and the list is
+// compared before writing so as not to produce one `patch` per start-up on a service account
+// that has not moved.
 func (m *Mounter) Allow(ctx context.Context, slug string) error {
 	name := SecretName(slug)
 
@@ -288,7 +271,7 @@ func (m *Mounter) allowOn(ctx context.Context, target, name string) error {
 	accounts := m.kube.CoreV1().ServiceAccounts(m.namespace)
 	account, err := accounts.Get(ctx, target, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("lecture du compte de service %q: %w", target, err)
+		return fmt.Errorf("reading the service account %q: %w", target, err)
 	}
 
 	for _, reference := range account.Secrets {
@@ -299,19 +282,17 @@ func (m *Mounter) allowOn(ctx context.Context, target, name string) error {
 
 	account.Secrets = append(account.Secrets, corev1.ObjectReference{Name: name})
 	if _, err := accounts.Update(ctx, account, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("autorisation du montage de %q sur %q: %w", name, target, err)
+		return fmt.Errorf("allowing %q to be mounted on %q: %w", name, target, err)
 	}
 	return nil
 }
 
-// Deny retire la clé d'un projet de la liste.
+// Deny removes a project's key from the list.
 //
-// Ne retire que ce que [SecretName] produit : les identifiants du déploiement
-// restent en place. La garantie est **structurelle** et non vérifiée à
-// l'exécution — ces deux méthodes prennent un slug, jamais un nom de secret, et
-// dérivent le nom elles-mêmes. Un appelant ne peut donc pas désigner une entrée
-// qui ne nous appartient pas, ce qui est plus solide qu'un contrôle qu'on
-// pourrait oublier d'écrire.
+// Removes only what [SecretName] produces: the deployment's credentials stay in place. The
+// guarantee is **structural** and not checked at run time — these two methods take a slug, never
+// a secret name, and derive the name themselves. A caller therefore cannot name an entry that is
+// not ours, which is sturdier than a check one might forget to write.
 func (m *Mounter) Deny(ctx context.Context, slug string) error {
 	name := SecretName(slug)
 
@@ -326,7 +307,7 @@ func (m *Mounter) denyOn(ctx context.Context, target, name string) error {
 	accounts := m.kube.CoreV1().ServiceAccounts(m.namespace)
 	account, err := accounts.Get(ctx, target, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("lecture du compte de service %q: %w", target, err)
+		return fmt.Errorf("reading the service account %q: %w", target, err)
 	}
 
 	kept := make([]corev1.ObjectReference, 0, len(account.Secrets))
@@ -344,18 +325,17 @@ func (m *Mounter) denyOn(ctx context.Context, target, name string) error {
 
 	account.Secrets = kept
 	if _, err := accounts.Update(ctx, account, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("retrait du montage de %q sur %q: %w", name, target, err)
+		return fmt.Errorf("removing the mount of %q on %q: %w", name, target, err)
 	}
 	return nil
 }
 
-// Issuer réunit les deux gestes que la pose d'une clé demande.
+// Issuer brings together the two acts that setting a key requires.
 //
-// Créer le Secret ne suffit pas : sans entrée dans la liste montable du compte
-// de service, le pod est refusé à la création, avec un message qui désigne le
-// clone et non le montage. C'est ce couplage qui justifie un type plutôt que
-// deux appels laissés à l'appelant — l'un sans l'autre produit une panne dont la
-// cause est invisible.
+// Creating the Secret is not enough: with no entry in the service account's mountable list, the
+// pod is refused at creation, with a message that names the clone and not the mount. It is that
+// coupling which justifies a type rather than two calls left to the caller — one without the
+// other produces an outage whose cause is invisible.
 type Issuer struct {
 	owner   *Owner
 	mounter *Mounter
@@ -365,11 +345,10 @@ func NewIssuer(owner *Owner, mounter *Mounter) *Issuer {
 	return &Issuer{owner: owner, mounter: mounter}
 }
 
-// Issue dépose la clé et l'autorise au montage.
+// Issue deposits the key and allows it to be mounted.
 //
-// L'ordre compte : le Secret d'abord. Autoriser au montage un secret qui
-// n'existe pas laisserait une entrée pendante dans le compte de service, que
-// personne n'irait retirer.
+// The order counts: the Secret first. Allowing the mounting of a secret that does not exist would
+// leave a dangling entry in the service account, which nobody would go and remove.
 func (i *Issuer) Issue(ctx context.Context, slug string, known bool) (string, error) {
 	public, err := i.owner.Create(ctx, slug, slug, known)
 	if err != nil {
@@ -381,14 +360,14 @@ func (i *Issuer) Issue(ctx context.Context, slug string, known bool) (string, er
 	return public, nil
 }
 
-// Revoke retire l'autorisation puis la clé.
+// Revoke removes the authorization then the key.
 //
-// L'ordre inverse de la pose, et pour la même raison : retirer d'abord le Secret
-// laisserait une entrée pendante si le second geste échouait.
+// The reverse order of setting, and for the same reason: removing the Secret first would leave a
+// dangling entry if the second act failed.
 //
-// Les deux erreurs sont réunies plutôt que la première rendue : un échec sur
-// l'une n'empêche pas de tenter l'autre, et laisser le Secret en place parce que
-// le compte de service n'a pas répondu serait le pire des deux mondes.
+// Both errors are joined rather than the first returned: a failure on one does not prevent
+// attempting the other, and leaving the Secret in place because the service account did not
+// answer would be the worst of both worlds.
 func (i *Issuer) Revoke(ctx context.Context, slug string) error {
 	return errors.Join(i.mounter.Deny(ctx, slug), i.owner.Delete(ctx, slug))
 }

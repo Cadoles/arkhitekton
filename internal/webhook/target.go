@@ -1,40 +1,35 @@
-// Package webhook porte les appels sortants configurables, et le contrôle de
-// leur cible.
+// Package webhook carries the configurable outgoing calls, and the control of their target.
 //
-// # Le risque, nommé
+// # The risk, named
 //
-// Une URL saisie dans l'interface devient une requête HTTP émise **depuis
-// l'intérieur du cluster**, par le worker, qui porte un jeton de compte de
-// service. C'est une falsification de requête côté serveur offerte, et les cibles
-// intéressantes sont connues :
+// A URL typed into the interface becomes an HTTP request issued **from inside the cluster**, by
+// the worker, which carries a service account token. It is server-side request forgery offered on
+// a plate, and the interesting targets are known:
 //
-//   - `169.254.169.254` — les métadonnées cloud, donc des identifiants d'instance ;
-//   - l'API Kubernetes elle-même ;
-//   - les services internes du cluster, que rien n'expose autrement ;
-//   - la boucle locale du pod.
+//   - `169.254.169.254` — the cloud metadata, hence instance credentials;
+//   - the Kubernetes API itself;
+//   - the cluster's internal services, which nothing else exposes;
+//   - the pod's loopback.
 //
-// # La parade suit le précédent de la maison
+// # The defence follows the house precedent
 //
-// `internal/redmine` et `internal/gitea` refusent l'écriture **dans leur
-// transport**, avant le réseau, plutôt que par la discipline des appelants —
-// parce qu'une garantie structurelle ne s'oublie pas. Le même geste ici : le
-// contrôle est dans le `Control` du composeur, appelé par la pile réseau juste
-// avant de connecter, avec l'adresse **réellement résolue**.
+// `internal/redmine` and `internal/gitea` refuse writing **in their transport**, before the
+// network, rather than through the callers' discipline — because a structural guarantee is not
+// forgotten. The same act here: the check is in the dialler's `Control`, called by the network
+// stack just before connecting, with the **actually resolved** address.
 //
-// C'est ce qui défait le réamorçage DNS. Vérifier l'URL puis laisser le client
-// résoudre à nouveau laisse une fenêtre où le nom change de réponse ; ici, il n'y
-// a pas de seconde résolution à tromper — ce qui est contrôlé est ce qui est
-// connecté.
+// That is what defeats DNS rebinding. Checking the URL then letting the client resolve again
+// leaves a window in which the name changes its answer; here, there is no second resolution to
+// fool — what is checked is what is connected.
 //
-// # Ce qui est refusé, et ce qui ne l'est pas
+// # What is refused, and what is not
 //
-// Refusé : les plages privées, la boucle locale, le lien-local, le multicast, et
-// toute redirection. Autorisé sous réserve d'une déclaration explicite du
-// déploiement : les cibles privées — un dashboard local a besoin de `localhost` —
-// et le clair.
+// Refused: the private ranges, the loopback, link-local, multicast, and any redirect. Allowed
+// subject to an explicit declaration by the deployment: private targets — a local dashboard needs
+// `localhost` — and clear text.
 //
-// Ce paquet ne décide pas **quoi** envoyer. Il décide seulement qu'on n'ira pas
-// là où il ne faut pas.
+// This package does not decide **what** to send. It decides only that we will not go where we
+// must not.
 package webhook
 
 import (
@@ -44,25 +39,25 @@ import (
 	"net/netip"
 )
 
-// ErrBlockedTarget signale une cible que le transport refuse d'atteindre.
+// ErrBlockedTarget reports a target the transport refuses to reach.
 //
-// Nommée pour que l'appelant puisse la distinguer d'une panne réseau : « refusé »
-// se corrige dans la configuration de la réaction, « injoignable » chez le
-// destinataire, et confondre les deux envoie chercher au mauvais endroit.
-var ErrBlockedTarget = errors.New("cible refusée")
+// Named so that the caller can tell it from a network outage: "refused" is fixed in the reaction's
+// configuration, "unreachable" at the recipient's, and confusing the two sends one hunting in the
+// wrong place.
+var ErrBlockedTarget = errors.New("target refused")
 
-// cgnat est la plage de report d'adresses des opérateurs (RFC 6598).
+// cgnat is the operators' carrier-grade NAT range (RFC 6598).
 //
-// Absente des prédicats de la bibliothèque standard, et pourtant du même ordre
-// que les plages privées : elle désigne le réseau de l'hébergeur, pas Internet.
+// Absent from the standard library's predicates, and yet of the same order as the private ranges:
+// it names the hosting provider's network, not the Internet.
 var cgnat = netip.MustParsePrefix("100.64.0.0/10")
 
-// checkAddress refuse une adresse que le transport ne doit pas atteindre.
+// checkAddress refuses an address the transport must not reach.
 //
-// Prend l'adresse **résolue**, telle que la pile réseau s'apprête à la composer.
-// C'est ce qui distingue ce contrôle d'une inspection d'URL : un nom qui répond
-// `93.184.216.34` à la vérification et `127.0.0.1` à la connexion ne passe pas
-// deux fois ici, il passe une fois — au moment qui compte.
+// Takes the **resolved** address, as the network stack is about to dial it. That is what tells
+// this check from an inspection of a URL: a name that answers `93.184.216.34` at the check and
+// `127.0.0.1` at the connection does not pass twice here, it passes once — at the moment that
+// counts.
 func checkAddress(address string, allowPrivate bool) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
@@ -71,15 +66,13 @@ func checkAddress(address string, allowPrivate bool) error {
 
 	parsed, err := netip.ParseAddr(host)
 	if err != nil {
-		// La pile réseau ne compose que des adresses. Un nom ici serait le signe
-		// que le contrôle n'est pas au bon endroit, et le laisser passer
-		// annulerait tout le mécanisme.
-		return fmt.Errorf("%w: %q n'est pas une adresse résolue", ErrBlockedTarget, host)
+		// The network stack dials only addresses. A name here would be the sign that the check is in the
+		// wrong place, and letting it through would cancel the whole mechanism.
+		return fmt.Errorf("%w: %q is not a resolved address", ErrBlockedTarget, host)
 	}
 
-	// Une adresse IPv4 encapsulée dans de l'IPv6 doit être jugée sur son fond :
-	// `::ffff:169.254.169.254` désigne bien les métadonnées cloud, et les
-	// prédicats IPv6 ne le verraient pas.
+	// An IPv4 address wrapped in IPv6 must be judged on its substance: `::ffff:169.254.169.254` does
+	// name the cloud metadata, and the IPv6 predicates would not see it.
 	if parsed.Is4In6() {
 		parsed = parsed.Unmap()
 	}
@@ -93,41 +86,39 @@ func checkAddress(address string, allowPrivate bool) error {
 	return nil
 }
 
-// forbidden nomme ce qui interdit une adresse, ou rend une chaîne vide.
+// forbidden names what forbids an address, or returns an empty string.
 //
-// Le motif est rendu plutôt qu'un booléen : « refusé » sans raison envoie
-// chercher une panne, alors que « boucle locale » se corrige en une lecture.
+// The reason is returned rather than a boolean: "refused" with no ground sends one hunting for an
+// outage, whereas "loopback" is fixed in one read.
 func forbidden(address netip.Addr) string {
 	switch {
 	case !address.IsValid():
 		return "adresse invalide"
 	case address.IsUnspecified():
-		return "adresse non spécifiée"
+		return "unspecified address"
 	case address.IsLoopback():
 		return "boucle locale"
 	case address.IsLinkLocalUnicast():
-		// La plus dangereuse : `169.254.169.254` sert les métadonnées d'instance
-		// chez tous les hébergeurs, identifiants compris.
-		return "lien-local — métadonnées d'instance"
+		// The most dangerous: `169.254.169.254` serves instance metadata at every hosting provider,
+		// credentials included.
+		return "link-local — instance metadata"
 	case address.IsLinkLocalMulticast(), address.IsInterfaceLocalMulticast(), address.IsMulticast():
 		return "multicast"
 	case address.IsPrivate():
-		return "plage privée"
+		return "private range"
 	case cgnat.Contains(address):
-		return "plage de report d'opérateur"
+		return "carrier-grade NAT range"
 	default:
 		return ""
 	}
 }
 
-// privatelyReachable dit qu'une adresse relève de l'autorisation explicite du
-// déploiement.
+// privatelyReachable says that an address falls under the deployment's explicit authorization.
 //
-// Elle couvre la boucle locale et les plages privées — de quoi faire tourner un
-// dashboard local ou joindre un service interne délibérément désigné. Elle ne
-// couvre **jamais** le lien-local : les métadonnées d'instance ne sont pas une
-// cible qu'un déploiement veut atteindre, et l'autorisation générale ne doit pas
-// les rouvrir par la bande.
+// It covers the loopback and the private ranges — enough to run a local dashboard or reach an
+// internal service deliberately named. It **never** covers link-local: instance metadata is not a
+// target a deployment wants to reach, and the blanket authorization must not reopen it on the
+// side.
 func privatelyReachable(address netip.Addr) bool {
 	return address.IsLoopback() || address.IsPrivate() || cgnat.Contains(address)
 }

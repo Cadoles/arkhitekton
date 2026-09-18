@@ -7,65 +7,64 @@ import (
 	"testing"
 )
 
-// Le registre se lit, et chaque action se décrit assez pour qu'un éditeur en
-// compose le formulaire.
-func TestChaqueActionSeDecritAssezPourEtreEditee(t *testing.T) {
+// The registry can be read, and each action describes itself well enough for an editor to compose
+// its form.
+func TestEachActionDescribesItselfWellEnoughToBeEdited(t *testing.T) {
 	ids := map[string]bool{}
 	for _, descriptor := range Registry() {
 		if ids[descriptor.ID] {
-			t.Errorf("identifiant %q déclaré deux fois", descriptor.ID)
+			t.Errorf("identifier %q declared twice", descriptor.ID)
 		}
 		ids[descriptor.ID] = true
 
 		if descriptor.Label == "" || descriptor.Summary == "" {
-			t.Errorf("action %q sans libellé ou sans résumé", descriptor.ID)
+			t.Errorf("action %q with no label or no summary", descriptor.ID)
 		}
 		for _, field := range descriptor.Fields {
 			if field.Name == "" || field.Label == "" {
-				t.Errorf("action %q: champ mal déclaré %+v", descriptor.ID, field)
+				t.Errorf("action %q: badly declared field %+v", descriptor.ID, field)
 			}
 		}
 	}
 
 	if !ids[Webhook] {
-		t.Errorf("actions déclarées = %v", ids)
+		t.Errorf("declared actions = %v", ids)
 	}
 }
 
-// Le registre s'ouvre dans l'autre sens : un plugin déclare ses gestes comme il
-// déclare ses faits, et l'appelant ne voit qu'une liste.
+// The registry opens in the other direction: a plugin declares its acts as it declares its facts,
+// and the caller sees only one list.
 //
-// Ce que ce test tient est la jonction : sans elle, on branche n'importe quelle
-// cause sur un jeu de conséquences figé.
-func TestLesActionsDUnPluginRejoignentLeRegistre(t *testing.T) {
+// What this test holds is the junction: without it, any cause is wired to a frozen set of
+// consequences.
+func TestAPluginsActionsJoinTheRegistry(t *testing.T) {
 	found := false
 	for _, descriptor := range All() {
 		if descriptor.Plugin == "" {
 			continue
 		}
 		found = true
-		// Préfixée par son plugin : deux forges déclarant `status` produiraient
-		// sinon des gestes indiscernables.
+		// Prefixed by its plugin: two forges declaring `status` would otherwise produce indistinguishable
+		// acts.
 		if !strings.HasPrefix(descriptor.ID, descriptor.Plugin+".") {
-			t.Errorf("action %q du plugin %q: référence non préfixée",
+			t.Errorf("action %q of plugin %q: unprefixed reference",
 				descriptor.ID, descriptor.Plugin)
 		}
-		// Aucun champ sensible, et c'est structurel : une action de plugin parle à
-		// sa propre frontière, déjà réglée. Elle ne désigne aucun jeton, et ne peut
-		// donc pas servir à en faire sortir un vers une cible saisie ailleurs.
+		// No sensitive field, and that is structural: a plugin action speaks to its own boundary, already
+		// set. It names no token, and therefore cannot serve to extract one towards a target typed
+		// elsewhere.
 		for _, field := range descriptor.Fields {
 			if field.SecretRef {
-				t.Errorf("action %q: le champ %q désigne un secret",
+				t.Errorf("action %q: the field %q names a secret",
 					descriptor.ID, field.Name)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("aucun plugin ne déclare d'action — la jonction n'est pas branchée")
+		t.Fatal("no plugin declares an action — the junction is not wired")
 	}
 
-	// Résolue par le registre réuni, sans que l'appelant ait à savoir d'où elle
-	// vient.
+	// Resolved by the joined registry, without the caller having to know where it comes from.
 	descriptor, err := Get("gitea.status")
 	if err != nil {
 		t.Fatalf("gitea.status: %v", err)
@@ -75,37 +74,37 @@ func TestLesActionsDUnPluginRejoignentLeRegistre(t *testing.T) {
 	}
 }
 
-// Une action inconnue nomme celles qui existent.
-func TestUneActionInconnueNommeCellesQuiExistent(t *testing.T) {
+// An unknown action names those that exist.
+func TestAnUnknownActionNamesThoseThatExist(t *testing.T) {
 	_, err := Get("slack.post")
 	if !errors.Is(err, ErrUnknown) {
-		t.Fatalf("%v, attendu ErrUnknown", err)
+		t.Fatalf("%v, expected ErrUnknown", err)
 	}
 	if !strings.Contains(err.Error(), Webhook) {
-		t.Errorf("message %q — il doit nommer les actions internes", err)
+		t.Errorf("message %q — it must name the internal actions", err)
 	}
 }
 
 /*
- * La validation, faite à l'enregistrement plutôt qu'à l'exécution.
+ * The validation, done when a plan is recorded rather than when it runs.
  */
 
-// Un paramètre requis manquant est refusé, et nommé.
-func TestUnParametreRequisManquantEstRefuse(t *testing.T) {
+// A missing required parameter is refused, and named.
+func TestAMissingRequiredParameterIsRefused(t *testing.T) {
 	webhook, _ := Get(Webhook)
 
 	err := webhook.Validate(map[string]string{"body": `{"tag":"{tag}"}`})
 	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("%v, attendu ErrInvalid", err)
+		t.Fatalf("%v, expected ErrInvalid", err)
 	}
 	if !strings.Contains(err.Error(), "URL") {
-		t.Errorf("message %q — il doit nommer le champ manquant", err)
+		t.Errorf("message %q — it must name the missing field", err)
 	}
 }
 
-// Un paramètre que l'action ne déclare pas est refusé plutôt qu'ignoré : ignoré,
-// il donne un écran qui dit « enregistré » sur une valeur que rien ne relira.
-func TestUnParametreInconnuEstRefuse(t *testing.T) {
+// A parameter the action does not declare is refused rather than ignored: ignored, it gives a
+// screen that says "recorded" on a value nothing will read back.
+func TestAnUnknownParameterIsRefused(t *testing.T) {
 	webhook, _ := Get(Webhook)
 
 	err := webhook.Validate(map[string]string{
@@ -116,32 +115,30 @@ func TestUnParametreInconnuEstRefuse(t *testing.T) {
 	}
 }
 
-// La forme de l'URL est vérifiée ici ; sa **cible** l'est au moment de connecter,
-// par le transport. Les deux ne se remplacent pas : celui-ci attrape une faute de
-// frappe, le second attrape une falsification.
-func TestLaFormeDeLURLEstVerifieeALaSaisie(t *testing.T) {
+// The URL's shape is checked here; its **target** is checked when connecting, by the transport.
+// The two do not replace each other: this one catches a typo, the second catches a forgery.
+func TestTheURLShapeIsCheckedAtEntry(t *testing.T) {
 	webhook, _ := Get(Webhook)
 
 	for _, cible := range []string{"hooks.example.fr", "/hook", "file:///etc/passwd"} {
 		if err := webhook.Validate(map[string]string{"url": cible}); !errors.Is(err, ErrInvalid) {
-			t.Errorf("URL %q acceptée: %v", cible, err)
+			t.Errorf("URL %q accepted: %v", cible, err)
 		}
 	}
 
 	if err := webhook.Validate(map[string]string{
 		"url": "https://hooks.example.fr/services/abc",
 	}); err != nil {
-		t.Errorf("URL valide refusée: %v", err)
+		t.Errorf("valid URL refused: %v", err)
 	}
 }
 
-// Un jeu fermé se vérifie ici plutôt que chez le destinataire : une valeur
-// inventée serait refusée par la forge, au moment le moins utile.
+// A closed set is checked here rather than at the recipient's: an invented value would be refused
+// by the forge, at the least useful moment.
 //
-// La liste vient du descripteur du plugin et non d'une condition sur
-// l'identifiant : c'est ce qui permettra à une seconde forge d'avoir ses propres
-// états sans modifier ce paquet.
-func TestUneValeurHorsDuJeuFermeEstRefusee(t *testing.T) {
+// The list comes from the plugin's descriptor and not from a condition on the identifier: that is
+// what will let a second forge have its own states without modifying this package.
+func TestAValueOutsideTheClosedSetIsRefused(t *testing.T) {
 	status, err := Get("gitea.status")
 	if err != nil {
 		t.Fatalf("gitea.status: %v", err)
@@ -156,34 +153,34 @@ func TestUneValeurHorsDuJeuFermeEstRefusee(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 	if !strings.Contains(err.Error(), "success") {
-		t.Errorf("message %q — il doit nommer les états admis", err)
+		t.Errorf("message %q — it must name the allowed states", err)
 	}
 
 	for _, state := range []string{"pending", "success", "failure", "error"} {
 		params := maps.Clone(base)
 		params["state"] = state
 		if err := status.Validate(params); err != nil {
-			t.Errorf("état %q refusé: %v", state, err)
+			t.Errorf("state %q refused: %v", state, err)
 		}
 	}
 }
 
-// Un jeu fermé ne doit pas interdire le gabarit qui le remplira.
+// A closed set must not forbid the template that will fill it.
 //
-// Sans cette exception, un état ne pourrait s'écrire qu'en dur, et une réaction
-// qui veut refléter l'issue du fait déclencheur deviendrait deux réactions.
-func TestUnGabaritTraverseUnJeuFerme(t *testing.T) {
+// Without that exception, a state could only be written literally, and a reaction that wants to
+// mirror the triggering fact's outcome would become two reactions.
+func TestATemplateCrossesAClosedSet(t *testing.T) {
 	status, _ := Get("gitea.status")
 
 	if err := status.Validate(map[string]string{
 		"commit": "{git_commit}", "state": "{outcome}", "context": "dashboard",
 	}); err != nil {
-		t.Errorf("gabarit refusé sur un champ à jeu fermé: %v", err)
+		t.Errorf("template refused on a closed-set field: %v", err)
 	}
 }
 
-// Un gabarit dont une accolade n'est pas fermée produirait une valeur littérale
-// incompréhensible chez le destinataire.
+// A template with an unclosed brace would produce a literal value the recipient could not
+// understand.
 func TestUnGabaritMalAppariéEstRefuse(t *testing.T) {
 	webhook, _ := Get(Webhook)
 
@@ -199,71 +196,70 @@ func TestUnGabaritMalAppariéEstRefuse(t *testing.T) {
  * L'interpolation.
  */
 
-// Les variables connues sont remplacées par la charge du fait.
-func TestLesVariablesConnuesSontRemplacees(t *testing.T) {
+// The known variables are replaced with the fact's payload.
+func TestKnownVariablesAreReplaced(t *testing.T) {
 	got := Expand(`{"release":"{tag}","issue":"{outcome}"}`, map[string]string{
 		"tag": "1.8.0-rc1", "outcome": "succeeded",
 	})
 
 	want := `{"release":"1.8.0-rc1","issue":"succeeded"}`
 	if got != want {
-		t.Errorf("gabarit rendu = %q", got)
+		t.Errorf("template returned = %q", got)
 	}
 }
 
-// **Une variable inconnue reste littérale.**
+// **An unknown variable stays literal.**
 //
-// Un `{tag}` visible dans un message de messagerie se remarque et se corrige,
-// là qu'un trou silencieux se lit comme une release sans nom — et personne ne
-// saurait dire si c'est le gabarit ou la donnée qui manque.
-func TestUneVariableInconnueResteLitterale(t *testing.T) {
+// A `{tag}` visible in a chat message is noticed and fixed, whereas a silent hole reads as a
+// release with no name — and nobody could say whether it is the template or the data that is
+// missing.
+func TestAnUnknownVariableStaysLiteral(t *testing.T) {
 	got := Expand("release {tag} en {environnement}", map[string]string{"tag": "1.8.0"})
 
 	if got != "release 1.8.0 en {environnement}" {
-		t.Errorf("gabarit rendu = %q", got)
+		t.Errorf("template returned = %q", got)
 	}
 }
 
-// Une accolade ouverte sans fermeture ne fait pas boucler l'interpolation, et
-// ressort telle quelle.
-func TestUneAccoladeOuverteNeFaitPasBoucler(t *testing.T) {
+// A brace opened with no closing one does not make the interpolation loop, and comes out as it is.
+func TestAnOpenBraceDoesNotLoop(t *testing.T) {
 	for _, gabarit := range []string{"a {b", "{", "}", "{}", "{a}{", ""} {
 		got := Expand(gabarit, map[string]string{"a": "x"})
 		if got == "" && gabarit != "" {
-			t.Errorf("gabarit %q rendu vide", gabarit)
+			t.Errorf("template %q returned empty", gabarit)
 		}
 	}
 
 	// Le cas nominal reste juste au milieu du bruit.
 	if got := Expand("{a}{", map[string]string{"a": "x"}); got != "x{" {
-		t.Errorf("gabarit rendu = %q", got)
+		t.Errorf("template returned = %q", got)
 	}
 }
 
-// Un gabarit sans variable traverse inchangé, sans allocation inutile.
-func TestUnGabaritSansVariableTraverseInchange(t *testing.T) {
+// A template with no variable passes through unchanged, with no needless allocation.
+func TestATemplateWithNoVariablePassesThroughUnchanged(t *testing.T) {
 	if got := Expand("texte simple", map[string]string{"a": "x"}); got != "texte simple" {
-		t.Errorf("gabarit rendu = %q", got)
+		t.Errorf("template returned = %q", got)
 	}
 }
 
-// Le cas principal, et celui qui a été trouvé de travers : un corps JSON.
+// The main case, and the one that was found wrong: a JSON body.
 //
-// Un balayage naïf — première accolade ouvrante, première fermante — faisait de
-// `{"release":"{tag}"` un nom de variable, avalait la vraie et rendait le gabarit
-// littéral. Ce n'est pas un cas tordu : c'est **la** forme d'un corps de webhook.
-func TestUnCorpsJSONNestPasAvaleParSesAccolades(t *testing.T) {
+// A naive sweep — first opening brace, first closing one — made `{"release":"{tag}"` a variable
+// name, swallowed the real one and left the template literal. It is no contrived case: it is
+// **the** shape of a webhook body.
+func TestAJSONBodyIsNotSwallowedByItsBraces(t *testing.T) {
 	got := Expand(`{"text":"release {tag} : {outcome}","nested":{"a":"{tag}"}}`,
 		map[string]string{"tag": "1.8.0-rc1", "outcome": "succeeded"})
 
 	want := `{"text":"release 1.8.0-rc1 : succeeded","nested":{"a":"1.8.0-rc1"}}`
 	if got != want {
-		t.Errorf("gabarit rendu = %q\nattendu           = %q", got, want)
+		t.Errorf("template returned = %q\nexpected          = %q", got, want)
 	}
 }
 
-// Ce qui ressemble à une structure et non à un nom traverse tel quel.
-func TestCeQuiNestPasUnNomTraverseInchange(t *testing.T) {
+// What looks like a structure and not like a name passes through as it is.
+func TestWhatIsNotANamePassesThroughUnchanged(t *testing.T) {
 	cas := map[string]string{
 		`{}`:                `{}`,
 		`{ }`:               `{ }`,
@@ -274,7 +270,7 @@ func TestCeQuiNestPasUnNomTraverseInchange(t *testing.T) {
 
 	for gabarit, want := range cas {
 		if got := Expand(gabarit, map[string]string{"tag": "x"}); got != want {
-			t.Errorf("gabarit %q rendu %q, attendu %q", gabarit, got, want)
+			t.Errorf("template %q returned %q, expected %q", gabarit, got, want)
 		}
 	}
 }
