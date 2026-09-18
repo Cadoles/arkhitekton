@@ -6,8 +6,7 @@ import (
 	"time"
 )
 
-// setEnv positionne les variables pour la durée du test et restaure l'état
-// antérieur, t.Setenv s'en chargeant.
+// setEnv sets variables for the duration of the test; t.Setenv restores them.
 func setEnv(t *testing.T, values map[string]string) {
 	t.Helper()
 	for k, v := range values {
@@ -45,8 +44,8 @@ func TestLoadAPISucceedsWithCompleteEnvironment(t *testing.T) {
 	}
 }
 
-// L'erreur doit énumérer tous les manques d'un coup : corriger une configuration
-// à raison d'un redémarrage par variable est une perte de temps évitable.
+// The error must list every missing variable at once: fixing a configuration at
+// one restart per variable is avoidable waste.
 func TestLoadReportsEveryMissingVariableAtOnce(t *testing.T) {
 	setEnv(t, map[string]string{"DATABASE_URL": ""})
 
@@ -64,8 +63,8 @@ func TestLoadReportsEveryMissingVariableAtOnce(t *testing.T) {
 	}
 }
 
-// Sans administrateur d'amorçage, l'authentification marche mais personne ne peut
-// rien faire ni débloquer la situation. Le symptôme ne désigne pas sa cause.
+// Without a bootstrap administrator, authentication works but nobody can do
+// anything or unblock it. The symptom does not point at its cause.
 func TestLoadRejectsAPIWithoutBootstrapAdmins(t *testing.T) {
 	env := validAPIEnv()
 	delete(env, "BOOTSTRAP_ADMINS")
@@ -78,8 +77,8 @@ func TestLoadRejectsAPIWithoutBootstrapAdmins(t *testing.T) {
 	}
 }
 
-// L'audit de sécurité dure jusqu'à 90 minutes. Une URL qui expire avant fait
-// échouer la publication après que le travail coûteux a été fait.
+// The longest pipeline runs for well over an hour. A URL that expires before it
+// ends fails the upload after the expensive work is done.
 func TestLoadRejectsPresignTTLShorterThanLongestPipeline(t *testing.T) {
 	setEnv(t, validAPIEnv())
 	t.Setenv("MINIO_PRESIGN_TTL", "30m")
@@ -90,8 +89,8 @@ func TestLoadRejectsPresignTTLShorterThanLongestPipeline(t *testing.T) {
 	}
 }
 
-// `migrate` n'a besoin ni de stockage objet, ni d'OIDC : exiger l'un ou l'autre
-// empêcherait d'appliquer un schéma depuis un Job d'initialisation minimal.
+// `migrate` needs neither object store nor OIDC: requiring either would stop a
+// minimal init Job from applying the schema.
 func TestLoadMigrateRequiresOnlyDatabase(t *testing.T) {
 	setEnv(t, map[string]string{"DATABASE_URL": "postgres://u:p@db:5432/mse"})
 
@@ -121,8 +120,8 @@ func TestLoadRejectsUnknownRole(t *testing.T) {
 	}
 }
 
-// Un DSN entièrement masqué empêche de diagnostiquer une erreur de connexion —
-// précisément la situation où on le journalise.
+// A fully masked DSN cannot be used to diagnose a connection error — precisely
+// the situation in which it is logged.
 func TestRedactedKeepsDSNStructureAndHidesPassword(t *testing.T) {
 	cfg := Config{
 		Database: DatabaseConfig{DSN: "postgres://mse:s3cr3t@db.example.fr:5432/mse?sslmode=require"},
@@ -145,8 +144,8 @@ func TestRedactedKeepsDSNStructureAndHidesPassword(t *testing.T) {
 	}
 }
 
-// Un secret absent doit rester visiblement absent : le masquer en "<masqué>"
-// ferait croire à une valeur configurée.
+// A missing secret must stay visibly missing: masking it would suggest a value is
+// configured.
 func TestRedactedDistinguishesEmptyFromHidden(t *testing.T) {
 	got := Config{}.Redacted()
 
@@ -173,12 +172,12 @@ func TestDurationOrFallsBackOnInvalidValue(t *testing.T) {
 	}
 }
 
-// Le renommage du lot E doit se voir au démarrage, pas à l'usage.
+// A rename must surface at start-up, not in use.
 //
-// Une variable héritée laissée en place ne produirait aucune erreur : la forge
-// serait « non configurée », état parfaitement valide où le formulaire retombe
-// sur la saisie libre, et le suivi cesserait simplement de se synchroniser.
-// Deux dégradations silencieuses que personne ne relierait au renommage.
+// A leftover variable would produce no error: the forge would be "unconfigured", a
+// perfectly valid state where the form falls back to free-text input, and the
+// tracker would simply stop synchronising. Two silent degradations nobody would
+// connect to the rename.
 func TestUneVariableRenommeeEmpecheLeDemarrage(t *testing.T) {
 	env := validAPIEnv()
 	env["GITEA_TOKEN"] = "jeton"
@@ -188,16 +187,15 @@ func TestUneVariableRenommeeEmpecheLeDemarrage(t *testing.T) {
 	if err == nil {
 		t.Fatal("une variable retirée doit empêcher le démarrage")
 	}
-	// Le message doit nommer le remplaçant : dire seulement « inconnue »
-	// obligerait à chercher dans le code ce par quoi la remplacer.
+	// The message must name the replacement: saying only "unknown" would force
+	// reading the source to find out what to use instead.
 	if !strings.Contains(err.Error(), "GITEA_TOKEN") ||
 		!strings.Contains(err.Error(), "FORGE_TOKEN") {
 		t.Errorf("message %q — il doit nommer l'ancienne et la nouvelle", err)
 	}
 }
 
-// Toutes signalées d'un coup : corriger une configuration en découvrant ses
-// fautes une par une demande autant de redémarrages.
+// All reported at once: discovering mistakes one by one costs one restart each.
 func TestToutesLesVariablesRenommeesSontSignaleesEnsemble(t *testing.T) {
 	env := validAPIEnv()
 	env["GITEA_URL"] = "https://forge.example"
@@ -215,9 +213,8 @@ func TestToutesLesVariablesRenommeesSontSignaleesEnsemble(t *testing.T) {
 	}
 }
 
-// Une variable héritée vide compte quand même : c'est une déclaration, et sa
-// présence dans un fichier d'environnement dit que quelqu'un croit encore
-// configurer quelque chose avec.
+// An empty leftover variable still counts: its presence in an environment file
+// says someone still believes they configure something with it.
 func TestUneVariableRenommeeVideCompteAussi(t *testing.T) {
 	env := validAPIEnv()
 	env["REDMINE_PROJECT"] = ""
@@ -228,7 +225,7 @@ func TestUneVariableRenommeeVideCompteAussi(t *testing.T) {
 	}
 }
 
-// Le nouveau vocabulaire, lui, est accepté sans réserve.
+// The current names are accepted without reservation.
 func TestLeNouveauVocabulaireEstAccepte(t *testing.T) {
 	env := validAPIEnv()
 	env["FORGE_URL"] = "https://forge.example"

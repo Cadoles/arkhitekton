@@ -1,11 +1,10 @@
-// Package config charge et valide la configuration du dashboard.
+// Package config loads and validates the configuration. Every variable is
+// documented in docs/04-configuration.md.
 //
-// Toute la validation a lieu au démarrage, avant qu'un seul port ne soit ouvert.
-// Le principe vaut d'être explicite : un dashboard qui démarre avec une
-// configuration incomplète découvre le problème au premier clic d'un utilisateur,
-// souvent sur l'opération la plus rare — une promotion en production. Échouer au
-// démarrage transforme une panne fonctionnelle diffuse en erreur de déploiement,
-// visible immédiatement et par la bonne personne.
+// All validation happens at start-up, before a single port is opened. An instance
+// that starts on an incomplete configuration discovers the problem at a user's
+// first click, often on the rarest operation; failing at start-up turns a diffuse
+// functional outage into a deployment error, seen at once by the right person.
 package config
 
 import (
@@ -19,8 +18,8 @@ import (
 	"time"
 )
 
-// Config regroupe la configuration du binaire, quel que soit son rôle (api,
-// worker, migrate). Chaque rôle n'en valide que ce qu'il utilise.
+// Config holds the configuration of the binary whatever its role. Each role
+// validates only what it uses.
 type Config struct {
 	Role     Role
 	HTTP     HTTPConfig
@@ -38,187 +37,169 @@ type Config struct {
 	Probes   ProbeConfig
 }
 
-// ProbeConfig borne l'interrogation des sources extérieures.
+// ProbeConfig bounds how often outside sources are polled.
 //
-// La charge se compte : *projets × sondes × fréquence*, et le multiplicande est
-// une machine qui n'est pas la nôtre. Un plancher est appliqué à la construction
-// de la boucle — déclarer dix secondes ne les obtient pas.
+// The load is projects × probes × frequency, and the multiplicand is someone
+// else's machine. A floor is applied when the loop is built: declaring ten seconds
+// does not obtain them.
 type ProbeConfig struct {
 	Interval time.Duration
 }
 
-// WebhookConfig borne ce qu'un appel sortant configurable peut atteindre.
+// WebhookConfig bounds what a configurable outgoing call may reach.
 //
-// Les deux autorisations sont **fausses par défaut**, et c'est le bon défaut :
-// une URL saisie dans l'interface devient une requête émise depuis le cluster,
-// par un processus qui porte un jeton de compte de service. Ouvrir d'office
-// reviendrait à offrir une falsification de requête côté serveur (doc 14 §14.7).
+// Both permissions default to false. A URL typed in the interface becomes a
+// request issued from inside the cluster by a process holding a service account
+// token: opening that by default would hand out a server-side request forgery.
 type WebhookConfig struct {
-	// AllowPrivate autorise les cibles privées et la boucle locale. Un
-	// déploiement local en a besoin ; une production, non.
-	//
-	// Ne rouvre jamais le lien-local : les métadonnées d'instance ne sont pas une
-	// cible qu'un déploiement veut atteindre.
+	// AllowPrivate allows private and loopback targets. A local deployment needs
+	// it, a production one does not. It never reopens link-local: instance
+	// metadata is not a target any deployment wants to reach.
 	AllowPrivate bool
-	// AllowInsecure autorise `http://`. La charge porte le tag d'une release et
-	// le jeton qui l'authentifie ; en clair, tout cela traverse un réseau
-	// lisible.
+	// AllowInsecure allows `http://`. The payload carries a release tag and the
+	// token that authenticates it; in the clear, all of it crosses a readable
+	// network.
 	AllowInsecure bool
-	// Timeout borne un appel. Un destinataire lent ne doit pas retenir le moteur
-	// de plans : les gestes d'une étape partent ensemble, et un appel suspendu
-	// bloquerait la conclusion de l'étape.
+	// Timeout bounds one call. A slow recipient must not hold up the plan engine:
+	// the steps of a stage are issued together, and a hung call would block the
+	// stage from concluding.
 	Timeout time.Duration
 }
 
-// SecretsConfig porte la clé qui scelle les valeurs sensibles des réglages.
+// SecretsConfig carries the key that seals the secret values of plugin settings.
 //
-// Elle vit dans l'environnement et non dans la base — c'est tout l'intérêt : une
-// sauvegarde de la base ne dit rien sans elle. Le corollaire est qu'elle doit
-// être sauvegardée **ailleurs**, faute de quoi une restauration rend des réglages
-// que plus rien n'ouvre.
+// It lives in the environment and not in the database — that is the whole point: a
+// database backup says nothing without it. The corollary is that it must be backed
+// up elsewhere, or a restore yields settings nothing can open.
 //
-// Son absence n'empêche pas de démarrer. Elle rend impossible l'enregistrement
-// d'un champ sensible, ce que l'interface dit à l'endroit où on le saisit :
-// refuser de démarrer punirait un déploiement qui n'a encore aucun réglage à
-// protéger, et le message serait lu loin de la personne qui peut agir.
+// Its absence does not prevent start-up. It makes saving a secret field
+// impossible, which the interface says where the field is typed; refusing to start
+// would punish a deployment that has nothing to protect yet, and the message would
+// be read far from whoever can act on it.
 type SecretsConfig struct {
-	// Key est la clé courante, en base64 de 32 octets : `openssl rand -base64 32`.
-	// Elle ne doit apparaître ni dans un log, ni dans un message d'erreur.
+	// Key is the current key, 32 bytes base64: `openssl rand -base64 32`. It must
+	// appear in no log and in no error message.
 	Key string
-	// RetiredKeys porte les clés remplacées, qui n'ouvrent plus que l'existant.
+	// RetiredKeys carries replaced keys, which only open what already exists.
 	//
-	// Une rotation se fait en deux temps — la nouvelle scelle, l'ancienne ouvre —
-	// parce que les valeurs déjà en base ne se re-scellent qu'au fil des
-	// écritures. Retirer l'ancienne trop tôt les rendrait illisibles.
+	// Rotation is two-staged — the new key seals, the old one opens — because
+	// values already stored are re-sealed only as they are rewritten. Retiring the
+	// old key too early makes them unreadable.
 	RetiredKeys []string
 }
 
-// Configured dit si le scellement est possible.
+// Configured says whether sealing is possible.
 func (c SecretsConfig) Configured() bool { return strings.TrimSpace(c.Key) != "" }
 
-// ResultsConfig porte la lecture des résultats laissés par les pipelines.
+// ResultsConfig carries how results left by pipelines are read.
 type ResultsConfig struct {
-	// MarkerToken est la marque des lignes de protocole qu'une Task écrit sur sa
-	// sortie standard : `MSE` donne `##MSE-META##`, vide donne `##META##`.
+	// MarkerToken prefixes the protocol lines a Task writes on stdout: `MSE` gives
+	// `##MSE-META##`, empty gives `##META##`. See docs/05-pipeline-catalogue.md.
 	//
-	// Configurable parce que le nom d'un projet dans un **protocole** est un
-	// couplage d'une autre nature que dans une interface : un pipeline générique
-	// qui émet `##MSE-META##` reste marqué MSE dans son code source. Le
-	// déploiement MSE déclare donc `MSE`, ce que ses Tasks émettent déjà
-	// (doc 13 §13.3).
+	// Configurable because a deployment's name inside a protocol is a different
+	// kind of coupling than inside an interface: a generic pipeline emitting
+	// `##MSE-META##` stays MSE-branded in its own source.
 	MarkerToken string
 }
 
-// ForgeConfig porte l'accès en lecture à la forge.
+// ForgeConfig carries read access to the forge.
 //
-// **Lecture seule**, appliquée par le transport de `internal/gitea` comme pour
-// Redmine. Sert au formulaire de création de release : proposer les branches et
-// les tags du dépôt plutôt qu'un champ libre, où une faute de frappe ne se
-// découvre qu'à l'échec du build.
+// Read-only, enforced by the transport in internal/gitea as it is for the tracker.
+// It feeds the release form: offering the repository's branches and tags rather
+// than a free-text field where a typo only surfaces when the build fails.
 //
-// Poser un tag ou publier une release Gitea restera un client distinct et une
-// décision explicite, pas un assouplissement de celui-ci.
+// Writing to the forge stays a separate client and an explicit decision, not a
+// loosening of this one.
 type ForgeConfig struct {
 	URL string
-	// Token ne doit apparaître ni dans un log, ni dans un message d'erreur, ni
-	// dans une URL. Il ouvre la forge entière au nom de son détenteur : demander
-	// un jeton à portée `read:repository` suffit et vaut mieux.
+	// Token must appear in no log, no error message and no URL. It opens the whole
+	// forge in its holder's name: a `read:repository` token is enough, and better.
 	Token string
 	// Repository au format `owner/nom` — `CNOUS/mse`.
 	Repository string
 	Timeout    time.Duration
 }
 
-// Configured dit si l'accès est renseigné. L'absence est un état normal : le
-// formulaire retombe sur la saisie libre et le dit.
+// Configured says whether access is set. Its absence is a normal state: the form
+// falls back to free-text input and says so.
 func (c ForgeConfig) Configured() bool {
 	return c.URL != "" && c.Token != "" && c.Repository != ""
 }
 
-// TrackerConfig porte l'accès en lecture aux demandes et aux versions.
+// TrackerConfig carries read access to issues and versions.
 //
-// **Lecture seule, et l'instance visée est la production.** Le dashboard consulte
-// les versions et les demandes ; il n'en crée ni n'en modifie aucune. Créer une
-// version, fermer une demande, poster une note restent des gestes humains faits
-// dans Redmine.
+// Read-only, and the instance it targets is production. Creating a version,
+// closing an issue, posting a note stay human gestures made in the tracker.
 //
-// L'interdiction n'est pas confiée à la discipline des appelants : le transport de
-// `internal/redmine` refuse toute méthode autre que GET et HEAD avant d'atteindre
-// le réseau. Une clé de production circule ici, sur une base sans sauvegarde à
-// notre disposition — la garantie devait être structurelle.
+// The prohibition is not left to callers' discipline: the transport in
+// internal/redmine refuses any method other than GET and HEAD before reaching the
+// network. A production key circulates here, so the guarantee had to be
+// structural.
 type TrackerConfig struct {
 	URL string
-	// APIKey ne doit apparaître ni dans un log, ni dans un message d'erreur, ni
-	// dans une URL. Elle est transmise en en-tête `X-Redmine-API-Key`, jamais en
-	// chaîne de requête, où elle finirait dans les journaux d'accès.
+	// APIKey must appear in no log, no error message and no URL. It travels in the
+	// `X-Redmine-API-Key` header, never in a query string, where it would end up in
+	// access logs.
 	APIKey string
-	// Project est l'identifiant du projet, tel qu'il apparaît dans l'URL Redmine.
+	// Project is the identifier as it appears in the tracker's URL.
 	Project string
-	// Timeout borne un appel : une lenteur de Redmine ne doit pas devenir une
-	// lenteur du dashboard.
+	// Timeout bounds one call: a slow tracker must not become a slow dashboard.
 	Timeout time.Duration
-	// ReviewStatuses énumère les statuts qui rendent une demande éligible à la
-	// note d'une release. Le vocabulaire appartient au client : il peut renommer
-	// « En revue » sans qu'aucun code ait à changer.
+	// ReviewStatuses lists the statuses that make an issue eligible for a release
+	// note. The vocabulary belongs to the deployment, which can rename them without
+	// any code changing.
 	ReviewStatuses []string
 }
 
-// Configured dit si l'accès est renseigné.
-//
-// L'absence est un état normal, pas une erreur : le dashboard tourne sans Redmine,
-// les écrans qui en dépendent affichant un état dégradé explicite (doc 08 §8.2).
+// Configured says whether access is set. Its absence is a normal state, not an
+// error: the dashboard runs without a tracker, and the screens that depend on one
+// show an explicit degraded state.
 func (c TrackerConfig) Configured() bool {
 	return c.URL != "" && c.APIKey != ""
 }
 
-// RegistryConfig porte l'accès en lecture au registre d'images.
+// RegistryConfig carries read access to the image registry.
 //
-// Lecture seule : le dashboard ne pousse jamais d'image. Le re-tag de promotion
-// est fait par la Task `promote-image`, avec ses propres identifiants — donner
-// l'écriture ici ferait porter au dashboard un pouvoir qu'il n'exerce pas.
+// Read-only: the dashboard never pushes an image. Promotion re-tags through a Task
+// carrying its own credentials — granting write access here would give the
+// dashboard a power it does not exercise.
 type RegistryConfig struct {
 	URL      string
 	Username string
-	// Password ne doit apparaître ni dans un log, ni dans un message d'erreur.
+	// Password must appear in no log and in no error message.
 	Password string
-	// Project est le préfixe des dépôts (`cnous-mse`, ou `vcarroy` en local).
+	// Project is the repository prefix.
 	Project string
-	// Image est le dépôt promu à l'intérieur du projet. Configurable parce que le
-	// nom du portail n'est pas une constante du dashboard.
+	// Image is the repository that promotion re-tags, configurable because the
+	// application's name is not a constant of the dashboard.
 	//
-	// La seconde image publiée par une release — `portal-cli` — n'est pas ici :
-	// elle n'est pas promue, elle suit. Son nom vit dans `internal/images`, avec
-	// celui du portail par défaut, parce qu'il doit rester le même que celui que
-	// `build-image` publie et que `mse-kustom` déploie.
+	// The second image a release publishes is not here: it is not promoted, it
+	// follows. Its name lives in internal/images, because it must stay the one the
+	// build publishes and the GitOps repository deploys.
 	Image string
 }
 
-// FluxConfig borne la lecture des objets Flux.
+// FluxConfig bounds how Flux objects are read.
 type FluxConfig struct {
-	// Namespace où vivent ImagePolicy et Kustomization. Distinct de celui des
-	// pipelines : Flux vit dans `flux-system`.
+	// Namespace where ImagePolicy and Kustomization objects live, distinct from the
+	// pipelines' namespace.
 	Namespace string
 }
 
-// Role décrit ce que fait le processus. Le binaire est unique, déployé en
-// plusieurs exemplaires aux responsabilités distinctes (voir doc 03).
+// Role says what this process does. One binary, deployed several times with
+// distinct responsibilities — see docs/02-architecture.md.
 type Role string
 
 const (
 	RoleAPI     Role = "api"
 	RoleWorker  Role = "worker"
 	RoleMigrate Role = "migrate"
-	// RoleReprocess rejoue les résultats depuis les artefacts bruts. Rôle
-	// ponctuel, lancé à la main après correction d'un parseur : il n'a pas
-	// vocation à tourner en permanence, d'où l'absence de Deployment.
+	// RoleReprocess replays results from raw artifacts. A one-off role, run by hand
+	// after a parser is fixed, which is why it has no Deployment.
 	RoleReprocess Role = "reprocess"
-	// RoleCheckTracker vérifie l'accès à Redmine et s'arrête. Rôle de diagnostic,
-	// lancé à la main après avoir déposé une clé.
-	//
-	// Il existe parce que la clé visée est celle de la **production** : la seule
-	// façon de savoir si elle fonctionne, sans lui, serait d'attendre qu'un écran
-	// s'en serve. Une vérification explicite en lecture évite d'apprendre par une
-	// panne qu'une clé était révoquée.
+	// RoleCheckTracker verifies tracker access and exits. It exists because the key
+	// it targets is a production one: without it, the only way to know whether a
+	// key works is to wait for a screen to use it.
 	RoleCheckTracker Role = "check-tracker"
 )
 
@@ -231,8 +212,8 @@ type HTTPConfig struct {
 }
 
 type DatabaseConfig struct {
-	// DSN porte le mot de passe : il ne doit apparaître ni dans un log, ni dans
-	// un message d'erreur. Voir Redacted().
+	// DSN carries the password: it must appear in no log and in no error message.
+	// See Redacted().
 	DSN             string
 	MaxConns        int
 	ConnMaxLifetime time.Duration
@@ -243,33 +224,30 @@ type StorageConfig struct {
 	Bucket    string
 	AccessKey string
 	SecretKey string
-	// Region n'est pas décorative : une région erronée invalide la signature
-	// SigV4, avec un message du serveur qui n'y renvoie pas. L'instance cible
-	// utilise "NUO-Region" et non "us-east-1".
+	// Region is not decorative: a wrong region invalidates the SigV4 signature,
+	// with a server message that does not point at it.
 	Region string
-	// PresignTTL doit couvrir le pipeline le plus long (90 min pour l'audit de
-	// sécurité) sans excéder ce qui est raisonnable pour une capacité d'écriture.
+	// PresignTTL must outlast the longest pipeline without granting a write
+	// capability for longer than is reasonable.
 	PresignTTL time.Duration
 	UseSSL     bool
 }
 
 type OIDCConfig struct {
-	// IssuerURL doit correspondre exactement à la claim `iss` du jeton, slash
-	// final compris. Gitea annonce "https://forge.cadoles.com/" : l'omettre fait
-	// échouer la vérification avec un message peu parlant.
+	// IssuerURL must match the token's `iss` claim exactly, trailing slash
+	// included. Omitting it fails verification with an unhelpful message.
 	IssuerURL    string
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
 	Scopes       []string
-	// BootstrapAdmins reçoit les identifiants (`sub` ou nom d'utilisateur) promus
-	// administrateurs au démarrage. Sans cette liste, personne ne peut attribuer
-	// le premier rôle et l'interface est inutilisable après déploiement.
+	// BootstrapAdmins lists the identifiers (`sub` or username) promoted to
+	// administrator at start-up. Without it nobody can grant the first role and the
+	// interface is unusable after deployment.
 	BootstrapAdmins []string
-	// BootstrapUsers déclare un rôle par compte — `alice:releaser` — là où
-	// BootstrapAdmins ne sait dire qu'« administrateur ». Les deux servent au
-	// même amorçage, posé une fois : ils ne sont plus relus ensuite, et la base
-	// fait foi.
+	// BootstrapUsers declares one role per account — `alice:releaser` — where
+	// BootstrapAdmins can only say "administrator". Both are read once and never
+	// again: the database is authoritative afterwards.
 	BootstrapUsers map[string]string
 	SessionTTL     time.Duration
 }
@@ -278,22 +256,19 @@ type TektonConfig struct {
 	Namespace      string
 	KubeconfigPath string
 	CatalogPath    string
-	// LeaseNamespace porte le Lease d'élection de leader. Distinct de Namespace :
-	// le bail vit dans le namespace du dashboard, où le compte de service a le
-	// droit de l'écrire, et non dans celui des pipelines, où il n'a que la
-	// lecture (doc 07 §7.3).
+	// LeaseNamespace holds the leader election Lease. Distinct from Namespace: the
+	// lease lives in the dashboard's own namespace, where the service account may
+	// write it, and not in the pipelines' namespace, where it may only read.
 	LeaseNamespace string
-	// DashboardURL est la racine du dashboard Tekton, s'il est déployé. Facultatif :
-	// vide, l'interface n'affiche simplement pas le lien vers l'objet. En faire une
-	// exigence obligerait à déployer un composant dont ce dashboard n'a pas besoin
-	// pour fonctionner.
+	// DashboardURL is the root of a Tekton Dashboard, if one is deployed. Empty
+	// simply hides the link; requiring it would force deploying a component this
+	// dashboard does not need.
 	DashboardURL string
 }
 
-// Load lit la configuration depuis l'environnement et la valide pour le rôle
-// demandé. L'erreur retournée agrège tous les problèmes rencontrés : corriger
-// une configuration à raison d'un redémarrage par variable manquante est une
-// perte de temps évitable.
+// Load reads the configuration from the environment and validates it for the
+// given role. The error aggregates every problem found: fixing a configuration at
+// one restart per missing variable is avoidable waste.
 func Load(role Role) (Config, error) {
 	cfg := Config{
 		Role: role,
@@ -349,9 +324,9 @@ func Load(role Role) (Config, error) {
 			MarkerToken: os.Getenv("MARKER_TOKEN"),
 		},
 		Tracker: TrackerConfig{
-			// Les statuts qui rendent une demande éligible à la note de release.
-			// Configurables parce que le vocabulaire appartient au client : il
-			// peut renommer « En revue » sans qu'aucun code ait à changer.
+			// The statuses that make an issue eligible for a release note.
+			// Configurable because the vocabulary belongs to the deployment, which
+			// can rename them without any code changing.
 			ReviewStatuses: listOr("TRACKER_REVIEW_STATUSES", []string{"En revue"}),
 			URL:            strings.TrimRight(os.Getenv("TRACKER_URL"), "/"),
 			APIKey:         os.Getenv("TRACKER_API_KEY"),
@@ -381,18 +356,16 @@ func Load(role Role) (Config, error) {
 	return cfg, cfg.validate()
 }
 
-// renamedVariables associe chaque variable d'environnement retirée à celle qui
-// la remplace.
+// renamedVariables maps each retired environment variable to its replacement.
 //
-// La configuration nommait les produits — `GITEA_TOKEN`, `REDMINE_API_KEY` —
-// comme le schéma les nommait avant les lots C et D. Le vocabulaire est
-// désormais celui des frontières : une forge, un suivi (doc 12 §12.9, lot E).
+// The configuration used to name products — GITEA_TOKEN, REDMINE_API_KEY. It now
+// names boundaries: a forge, a tracker.
 //
-// Le renommage est **refusé bruyamment** plutôt qu'absorbé. Un déploiement resté
-// sur l'ancien nom se retrouverait avec une forge « non configurée » — un état
-// valide, que le dashboard traite en retombant sur la saisie libre — et personne
-// ne ferait le lien avec le renommage. Le suivi, lui, cesserait simplement de se
-// synchroniser. Deux dégradations silencieuses, que le démarrage doit empêcher.
+// A retired name is refused loudly rather than absorbed. A deployment left on the
+// old name would end up with an "unconfigured" forge — a valid state, handled by
+// falling back to free-text input — and nobody would connect that to the rename.
+// The tracker would simply stop synchronising. Two silent degradations that
+// start-up must prevent.
 var renamedVariables = map[string]string{
 	"GITEA_URL":               "FORGE_URL",
 	"GITEA_TOKEN":             "FORGE_TOKEN",
@@ -405,26 +378,21 @@ var renamedVariables = map[string]string{
 	"REDMINE_REVIEW_STATUSES": "TRACKER_REVIEW_STATUSES",
 }
 
-// removedVariables associe chaque variable supprimée à la raison de sa
-// suppression.
-//
-// Distinctes des renommées : il n'y a pas de remplaçante à indiquer, seulement un
-// mécanisme qui n'existe plus. Le refus reste bruyant pour la même raison —
-// laisser la variable en place ferait croire à un déploiement qu'il configure
-// quelque chose, alors que plus rien ne la lit.
+// removedVariables maps each deleted variable to why it went. Distinct from the
+// renamed ones: there is no replacement to point at, only a mechanism that no
+// longer exists. Leaving it in place would let a deployment believe it configures
+// something nothing reads.
 var removedVariables = map[string]string{
 	"PIPELINE_GIT_PUBLIC_KEY": "la clé de déploiement partagée n'existe plus: " +
 		"chaque projet a la sienne, posée par le dashboard et activée depuis " +
 		"l'écran du projet",
 }
 
-// checkRenamed refuse de démarrer sur une variable retirée.
-//
-// Vérifié quel que soit le rôle : une variable héritée est une faute de
-// configuration, indépendamment de ce que le processus s'apprête à faire.
+// checkRenamed refuses to start on a retired variable, whatever the role: a
+// leftover name is a configuration mistake regardless of what the process is about
+// to do.
 func checkRenamed() []error {
-	// Trié, pour que deux démarrages sur la même configuration rendent le même
-	// message. Une liste dont l'ordre change à chaque exécution se relit mal.
+	// Sorted, so two start-ups on the same configuration produce the same message.
 	legacy := make([]string, 0, len(renamedVariables))
 	for name := range renamedVariables {
 		if _, present := os.LookupEnv(name); present {
@@ -459,14 +427,9 @@ func (c Config) validate() error {
 
 	problems = append(problems, checkRenamed()...)
 
-	// La base est requise par tous les rôles de service : `migrate` l'applique,
-	// `api`, `worker` et `reprocess` la lisent.
-	//
-	// `check-tracker` en est exempt, et c'est sa raison d'être : vérifier une clé
-	// doit être possible depuis un poste qui n'a accès ni à la base ni au cluster.
-	// Exiger un DSN ferait échouer le diagnostic pour une dépendance dont il ne se
-	// sert pas, ce qui est exactement le genre de contrainte qui pousse à
-	// contourner l'outil.
+	// Every service role needs the database. check-tracker is exempt, and that is
+	// its point: verifying a key must be possible from a machine with access to
+	// neither the database nor the cluster.
 	if c.Role != RoleCheckTracker {
 		if strings.TrimSpace(c.Database.DSN) == "" {
 			problems = append(problems, errors.New("DATABASE_URL est requis"))
@@ -478,20 +441,18 @@ func (c Config) validate() error {
 
 	switch c.Role {
 	case RoleMigrate:
-		// Rien d'autre : appliquer des migrations ne demande ni stockage objet,
-		// ni fournisseur d'identité, ni accès au cluster.
+		// Nothing else: applying migrations needs no object store, no identity
+		// provider and no cluster access.
 	case RoleAPI:
 		problems = append(problems, c.validateHTTP()...)
 		problems = append(problems, c.validateOIDC()...)
 		problems = append(problems, c.validateStorage()...)
 	case RoleReprocess:
-		// Le stockage suffit : le rejeu lit le brut et écrit en base, sans
-		// toucher au cluster ni créer le moindre run.
+		// The object store is enough: replaying reads raw artifacts and writes to
+		// the database, without touching the cluster or creating any run.
 		problems = append(problems, c.validateStorage()...)
 	case RoleCheckTracker:
-		// Ni base, ni stockage, ni cluster : ce rôle ne fait qu'une lecture HTTP.
-		// L'exiger davantage empêcherait de vérifier une clé depuis un poste qui
-		// n'a pas accès au reste.
+		// No database, no store, no cluster: this role only performs an HTTP read.
 		if !c.Tracker.Configured() {
 			problems = append(problems, errors.New("TRACKER_URL et TRACKER_API_KEY sont requis"))
 		}
@@ -537,10 +498,9 @@ func (c Config) validateOIDC() []error {
 		}
 	}
 
-	// Sans administrateur d'amorçage, l'authentification fonctionne mais aucun
-	// utilisateur ne peut rien faire, et personne ne peut débloquer la situation
-	// depuis l'interface. Le symptôme — « tout le monde est refusé » — ne désigne
-	// pas sa cause ; autant refuser de démarrer.
+	// Without a bootstrap administrator, authentication works but no user can do
+	// anything and nobody can unblock it from the interface. The symptom —
+	// "everyone is refused" — does not point at its cause.
 	if len(c.OIDC.BootstrapAdmins) == 0 {
 		problems = append(problems, errors.New(
 			"BOOTSTRAP_ADMINS est requis: sans lui aucun rôle ne peut être attribué"))
@@ -566,9 +526,9 @@ func (c Config) validateStorage() []error {
 		}
 	}
 	if c.Storage.PresignTTL < 90*time.Minute {
-		// Le pipeline security-audit a un timeout de 90 minutes. Une URL qui
-		// expire avant la fin du run fait échouer la publication au tout dernier
-		// moment, après que le travail coûteux a été fait.
+		// The longest pipeline runs for well over an hour. A URL expiring before the
+		// run ends fails the upload at the last moment, after the expensive work is
+		// done.
 		problems = append(problems, fmt.Errorf(
 			"MINIO_PRESIGN_TTL vaut %s, insuffisant: le pipeline le plus long dure 90m",
 			c.Storage.PresignTTL))
@@ -576,8 +536,8 @@ func (c Config) validateStorage() []error {
 	return problems
 }
 
-// Redacted rend une copie sûre à journaliser : les secrets sont remplacés par un
-// marqueur, sans masquer leur présence ou leur absence.
+// Redacted returns a copy safe to log: secrets are replaced by a marker, without
+// hiding whether they are set.
 func (c Config) Redacted() Config {
 	out := c
 	out.Database.DSN = redactDSN(c.Database.DSN)
@@ -587,9 +547,9 @@ func (c Config) Redacted() Config {
 	out.Tracker.APIKey = redact(c.Tracker.APIKey)
 	out.Forge.Token = redact(c.Forge.Token)
 	out.Secrets.Key = redact(c.Secrets.Key)
-	// Les clés retirées sont masquées une à une plutôt que remplacées par une
-	// liste vide : leur **nombre** dit où en est une rotation, et c'est justement
-	// ce qu'on vient lire dans un journal de démarrage.
+	// Retired keys are masked one by one rather than replaced by an empty list:
+	// how many there are says where a rotation stands, which is what a start-up log
+	// is read for.
 	if len(c.Secrets.RetiredKeys) > 0 {
 		retired := make([]string, len(c.Secrets.RetiredKeys))
 		for index, key := range c.Secrets.RetiredKeys {
@@ -607,9 +567,9 @@ func redact(value string) string {
 	return "<masqué>"
 }
 
-// redactDSN conserve la structure de l'URL — hôte, base, options — et n'ôte que
-// le mot de passe. Un DSN entièrement masqué ne permet plus de diagnostiquer une
-// erreur de connexion, ce qui est précisément le moment où on le journalise.
+// redactDSN keeps the shape of the URL — host, database, options — and removes
+// only the password. A fully masked DSN cannot be used to diagnose a connection
+// error, which is precisely when it gets logged.
 func redactDSN(dsn string) string {
 	if strings.TrimSpace(dsn) == "" {
 		return ""
@@ -656,8 +616,8 @@ func durationOr(key string, fallback time.Duration) time.Duration {
 	return v
 }
 
-// listOr découpe une valeur séparée par des virgules, en ignorant les entrées
-// vides — "a,,b" et "a, b" donnent le même résultat.
+// listOr splits a comma-separated value, ignoring empty entries: "a,,b" and
+// "a, b" give the same result.
 func listOr(key string, fallback []string) []string {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
@@ -675,22 +635,19 @@ func listOr(key string, fallback []string) []string {
 	return out
 }
 
-// bootstrapRoles borne ce qu'un amorçage peut attribuer.
-//
-// Alignée sur la contrainte du schéma : une valeur hors liste ferait échouer
-// l'insertion en cours d'amorçage, sur un message qui désignerait une contrainte
-// plutôt qu'une variable mal remplie.
+// bootstrapRoles bounds what a bootstrap may grant. It mirrors the schema
+// constraint: a value outside the list would fail the insert mid-bootstrap, with a
+// message naming a constraint rather than a mistyped variable.
 var bootstrapRoles = map[string]bool{
 	"viewer": true, "operator": true, "releaser": true, "admin": true,
 }
 
-// parseGrants lit `compte:role,autre:role`.
+// parseGrants reads `account:role,other:role`.
 //
-// Une entrée sans rôle reconnu est **écartée** plutôt que refusée au démarrage :
-// l'amorçage n'est pas la raison d'être du dashboard, et le priver de démarrage
-// pour une virgule en trop empêcherait aussi de corriger depuis l'interface. Les
-// déclarations en attente sont journalisées au démarrage de l'api, où l'absence
-// se voit.
+// An entry with an unrecognised role is dropped rather than refused at start-up:
+// blocking start-up over a stray comma would also block fixing it from the
+// interface. Pending grants are logged when the api starts, where their absence
+// shows.
 func parseGrants(raw string) map[string]string {
 	grants := map[string]string{}
 	for _, entry := range strings.Split(raw, ",") {

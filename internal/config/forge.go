@@ -7,32 +7,25 @@ import (
 )
 
 /*
- * Dérivation de l'URL de clonage à partir de la configuration de la forge.
+ * Deriving the clone URL from the forge configuration.
  *
- * Le dépôt de l'application est nommé à deux endroits qui doivent dire la même
- * chose : `FORGE_REPO`, que le dashboard interroge par l'API pour proposer les
- * branches, et l'URL de clonage que les Tasks reçoivent en `repo-url`. Les tenir
- * séparés laissait basculer l'un sans l'autre — on désignait alors un dépôt de
- * test dans le formulaire pendant que les pipelines continuaient de construire
- * l'application réelle, sans qu'aucun message ne le signale.
- *
- * L'URL est donc dérivée, et `FORGE_MSE_REPO_URL` ne subsiste que comme
- * dérogation explicite pour les cas que la dérivation ne couvre pas.
+ * The application's repository is named in two places that must agree: FORGE_REPO,
+ * which the dashboard queries to offer branches, and the clone URL the Tasks
+ * receive as `repo-url`. Keeping them separate let one be switched without the
+ * other — pointing the form at a test repository while the pipelines kept building
+ * the real application, with nothing to say so.
  */
 
-// DefaultForgeSSHPort est le port SSH de la forge.
-//
-// 2222 et non 22 : Gitea y est exposé derrière un ingress qui réserve 22 à
-// l'hôte. Le port n'est pas déductible de l'URL HTTPS, d'où la constante.
+// DefaultForgeSSHPort is the forge's SSH port. It is not derivable from an HTTPS
+// forge URL, hence the constant.
 const DefaultForgeSSHPort = "2222"
 
-// CloneURL rend l'URL SSH de clonage du dépôt applicatif.
+// CloneURL returns the SSH clone URL of the instance's repository, built from the
+// host of FORGE_URL and the path of FORGE_REPO, so that naming a repository in the
+// configuration is enough for the pipelines to build it.
 //
-// Construite depuis l'hôte de `FORGE_URL` et le chemin de `FORGE_REPO`, pour que
-// désigner un dépôt dans la configuration suffise à ce que les pipelines le
-// construisent. Rend une chaîne vide si la forge n'est pas configurée : l'appelant
-// retombe alors sur sa valeur par défaut, ce qui préserve le fonctionnement d'un
-// déploiement qui n'a jamais renseigné la forge.
+// Empty when the forge is not configured: the caller then falls back to its own
+// default, which keeps a deployment that never set the forge working.
 func (c ForgeConfig) CloneURL(sshPort string) string {
 	if !c.Configured() {
 		return ""
@@ -40,15 +33,14 @@ func (c ForgeConfig) CloneURL(sshPort string) string {
 	return CloneURLFor(c.URL, c.Repository, sshPort)
 }
 
-// CloneURLFor rend l'URL SSH de clonage d'un dépôt donné.
+// CloneURLFor returns the SSH clone URL of a given repository.
 //
-// Séparée de [ForgeConfig.CloneURL] parce que chaque **projet** porte sa forge et
-// son dépôt en base : c'est de là que vient ce que ses pipelines clonent, et non
-// d'une clé de configuration valable pour toute l'instance (doc 16 §16.24).
+// Separate from [ForgeConfig.CloneURL] because each project carries its own forge
+// and repository in the database: that is where what its pipelines clone comes
+// from, not an instance-wide configuration key.
 //
-// Rend une chaîne vide quand l'un des deux manque : l'appelant retombe alors sur
-// la valeur de l'instance, ce qui préserve un projet déclaré avant que sa forge ne
-// soit renseignée.
+// Empty when either is missing: the caller then falls back to the instance value,
+// which keeps a project declared before its forge was set working.
 func CloneURLFor(forgeURL, repository, sshPort string) string {
 	repo := strings.TrimSuffix(strings.Trim(strings.TrimSpace(repository), "/"), ".git")
 	if strings.TrimSpace(forgeURL) == "" || repo == "" {
@@ -66,27 +58,25 @@ func CloneURLFor(forgeURL, repository, sshPort string) string {
 	return fmt.Sprintf("ssh://git@%s:%s/%s.git", parsed.Hostname(), sshPort, repo)
 }
 
-// RepositoryFromCloneURL retrouve `owner/nom` et la forge depuis une URL de
-// clonage.
+// RepositoryFromCloneURL recovers `owner/name` and the forge from a clone URL.
 //
-// L'opération inverse de CloneURL, et elle sert au même souci de cohérence : les
-// dépôts que les pipelines clonent sont écrits dans la configuration sous forme
-// d'URL SSH, alors que l'API Gitea et l'écran des projets les nomment
-// `owner/nom`. Les ressaisir à la main ferait diverger les deux formes au premier
-// changement — on déclarerait un dépôt tout en clonant l'autre.
+// The inverse of CloneURL, serving the same concern: pipelines clone repositories
+// written as SSH URLs, while the forge API and the projects screen name them
+// `owner/name`. Retyping them by hand would let the two forms diverge — declaring
+// one repository while cloning another.
 //
-// Rend deux chaînes vides quand l'URL ne porte pas de dépôt : l'appelant écarte
-// alors l'entrée plutôt que d'en déclarer une qui ne désigne rien.
+// Both strings are empty when the URL carries no repository: the caller then drops
+// the entry rather than declaring one that points at nothing.
 func RepositoryFromCloneURL(clone string) (repository, forgeURL string) {
 	clone = strings.TrimSpace(clone)
 	if clone == "" {
 		return "", ""
 	}
 
-	// Deux formes circulent : `ssh://git@hote:2222/owner/nom.git`, que la
-	// configuration emploie, et `git@hote:owner/nom.git`, que Git accepte aussi.
-	// La seconde n'est pas une URL au sens de `net/url` — son `:` sépare l'hôte
-	// du chemin, pas un port — d'où le traitement séparé.
+	// Two forms circulate: `ssh://git@host:2222/owner/name.git`, which the
+	// configuration uses, and `git@host:owner/name.git`, which Git also accepts.
+	// The second is not a URL as far as net/url is concerned — its colon separates
+	// host from path, not a port — hence the separate handling.
 	if !strings.Contains(clone, "://") {
 		_, rest, found := strings.Cut(clone, "@")
 		if !found {
@@ -111,11 +101,9 @@ func RepositoryFromCloneURL(clone string) (repository, forgeURL string) {
 	return repository, "https://" + parsed.Hostname()
 }
 
-// normaliseRepository ramène un chemin de clonage à `owner/nom`.
-//
-// Un chemin plus profond est écarté plutôt que tronqué : `owner/groupe/nom` ne
-// désigne pas un dépôt Gitea, et en fabriquer un donnerait un test d'accès qui
-// échoue sans qu'on sache que la saisie était fautive.
+// normaliseRepository reduces a clone path to `owner/name`. A deeper path is
+// dropped rather than truncated: fabricating one would give an access check that
+// fails without saying the input was wrong.
 func normaliseRepository(path string) string {
 	trimmed := strings.TrimSuffix(strings.Trim(path, "/"), ".git")
 	owner, name, found := strings.Cut(trimmed, "/")
