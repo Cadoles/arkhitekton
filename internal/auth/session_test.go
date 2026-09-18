@@ -15,21 +15,21 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-// Les sessions et les rôles vivent en base : les simuler ne prouverait rien des
-// requêtes, qui sont l'essentiel du code testé ici.
+// Sessions and roles live in the database: faking them would prove nothing about
+// the queries, which are most of the code under test here.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL non défini: test d'intégration ignoré")
+		t.Skip("TEST_DATABASE_URL not set: integration test skipped")
 	}
 
-	// Le schéma est appliqué ici plutôt que supposé : les tests de `store`
-	// réinitialisent la base, et rien ne garantit l'ordre entre paquets. Un
-	// paquet qui dépend d'un schéma doit savoir l'établir.
+	// The schema is applied here rather than assumed: the store tests reset the
+	// database, and nothing guarantees the order between packages. A package that
+	// depends on a schema must know how to establish it.
 	if err := store.Migrate(context.Background(), config.DatabaseConfig{DSN: dsn, MaxConns: 2}, discardTestLogger()); err != nil {
-		t.Fatalf("migration du schéma: %v", err)
+		t.Fatalf("migrating the schema: %v", err)
 	}
 
 	pool, err := pgxpool.New(context.Background(), dsn)
@@ -38,11 +38,10 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 
-	// Chaque test part d'un état propre : une session héritée du test précédent
-	// ferait passer un test qui ne prouve rien.
-	// `bootstrap_grants` en fait partie : une déclaration consommée par le test
-	// précédent laisserait le suivant sans rien à réclamer, et son échec
-	// désignerait la résolution plutôt que l'isolation.
+	// Each test starts from a clean state: a session inherited from the previous test
+	// would make a test pass while proving nothing. `bootstrap_grants` is part of it: a
+	// declaration consumed by the previous test would leave the next with nothing to
+	// claim, and its failure would point at resolution rather than at isolation.
 	if _, err := pool.Exec(context.Background(),
 		"truncate sessions, user_roles, bootstrap_grants"); err != nil {
 		t.Fatalf("nettoyage: %v", err)
@@ -64,7 +63,7 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	if len(session.ID) < 32 {
-		t.Errorf("identifiant de session trop court: %q", session.ID)
+		t.Errorf("session identifier too short: %q", session.ID)
 	}
 
 	found, role, err := store.Lookup(ctx, session.ID)
@@ -79,12 +78,12 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatalf("Revoke: %v", err)
 	}
 	if _, _, err := store.Lookup(ctx, session.ID); !errors.Is(err, ErrSessionNotFound) {
-		t.Fatalf("session révoquée toujours valide: %v", err)
+		t.Fatalf("revoked session still valid: %v", err)
 	}
 }
 
-// Une session expirée ne doit pas pouvoir être retournée puis oubliée par un
-// appelant distrait : le filtrage a lieu en SQL.
+// An expired session must not be returnable and then forgotten by a distracted
+// caller: the filtering happens in SQL.
 func TestLookupRejectsExpiredSession(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -104,12 +103,12 @@ func TestLookupRejectsExpiredSession(t *testing.T) {
 	current = current.Add(2 * time.Hour)
 
 	if _, _, err := store.Lookup(ctx, session.ID); !errors.Is(err, ErrSessionNotFound) {
-		t.Fatalf("session expirée acceptée: %v", err)
+		t.Fatalf("expired session accepted: %v", err)
 	}
 }
 
-// Authentifié sans rôle : l'utilisateur doit être identifiable pour apparaître
-// en attente d'attribution, plutôt que de recevoir une erreur opaque.
+// Authenticated without a role: the user must be identifiable so as to appear
+// awaiting a grant, rather than receive an opaque error.
 func TestLookupReportsMissingRoleButKeepsIdentity(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -122,18 +121,18 @@ func TestLookupReportsMissingRoleButKeepsIdentity(t *testing.T) {
 
 	found, role, err := store.Lookup(ctx, session.ID)
 	if !errors.Is(err, ErrNoRole) {
-		t.Fatalf("attendu ErrNoRole, obtenu %v", err)
+		t.Fatalf("expected ErrNoRole, got %v", err)
 	}
 	if found.Username != "charlie" {
-		t.Errorf("identité perdue: %+v", found)
+		t.Errorf("identity lost: %+v", found)
 	}
 	if role != "" {
-		t.Errorf("rôle inattendu: %q", role)
+		t.Errorf("unexpected role: %q", role)
 	}
 }
 
-// Le retrait d'un rôle ou une réponse à incident doit pouvoir couper toutes les
-// sessions d'un utilisateur d'un coup.
+// Removing a role, or responding to an incident, must be able to cut all of a
+// user's sessions at once.
 func TestRevokeSubjectClosesEverySession(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -156,8 +155,8 @@ func TestRevokeSubjectClosesEverySession(t *testing.T) {
 	}
 }
 
-// Un compte rétrogradé volontairement ne doit pas redevenir administrateur à sa
-// prochaine connexion.
+// An account deliberately demoted must not become an administrator again at its
+// next sign-in.
 func TestBootstrapDoesNotOverrideExistingRole(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -174,7 +173,7 @@ func TestBootstrapDoesNotOverrideExistingRole(t *testing.T) {
 		t.Fatalf("ApplyBootstrap: %v", err)
 	}
 	if granted != "" {
-		t.Errorf("un rôle existant ne doit pas être écrasé, rôle rendu = %q", granted)
+		t.Errorf("an existing role must not be overwritten, role returned = %q", granted)
 	}
 
 	session, _ := store.Create(ctx, "121", "vcarroy", "")
@@ -183,14 +182,14 @@ func TestBootstrapDoesNotOverrideExistingRole(t *testing.T) {
 		t.Fatalf("Lookup: %v", err)
 	}
 	if role != RoleViewer {
-		t.Errorf("le rôle a été écrasé par l'amorçage: %s", role)
+		t.Errorf("the role was overwritten by the bootstrap: %s", role)
 	}
 }
 
-// La panne à corriger : Gitea met son identifiant numérique dans `sub`, là où un
-// humain écrit un nom de compte dans la configuration. L'ancienne version créait
-// un rôle pour le nom, l'utilisateur se connectait sous le numéro, et personne
-// n'avait de permission.
+// The failure being fixed: the provider puts its numeric identifier in `sub`, where
+// a human writes an account name in the configuration. The earlier version created
+// a role for the name, the user signed in under the number, and nobody had any
+// permission.
 func TestBootstrapMatchesTheUsernameNotOnlyTheSubject(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -203,22 +202,22 @@ func TestBootstrapMatchesTheUsernameNotOnlyTheSubject(t *testing.T) {
 		t.Fatalf("ApplyBootstrap: %v", err)
 	}
 	if granted == "" {
-		t.Fatal("un nom de compte déclaré doit promouvoir le sujet correspondant")
+		t.Fatal("a declared account name must promote the matching subject")
 	}
 
-	// Le rôle porte le sujet réel, pas le nom : c'est lui qui portera
-	// l'autorisation aux requêtes suivantes.
+	// The role carries the real subject, not the name: it is what will carry
+	// authorization on subsequent requests.
 	session, _ := store.Create(ctx, "121", "vcarroy", "")
 	_, role, err := store.Lookup(ctx, session.ID)
 	if err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
 	if role != RoleAdmin {
-		t.Errorf("rôle = %s, attendu admin", role)
+		t.Errorf("role = %s, expected admin", role)
 	}
 }
 
-// Le sujet reste accepté : il est immuable, donc plus sûr pour qui le connaît.
+// The subject stays accepted: it is immutable, so safer for whoever knows it.
 func TestBootstrapAlsoMatchesTheSubject(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -232,8 +231,8 @@ func TestBootstrapAlsoMatchesTheSubject(t *testing.T) {
 	}
 }
 
-// Un compte absent de la liste ne gagne rien : sans quoi l'amorçage promouvrait
-// le premier venu.
+// An account absent from the list gains nothing: otherwise the bootstrap would
+// promote the first comer.
 func TestBootstrapIgnoresUndeclaredAccounts(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -246,13 +245,13 @@ func TestBootstrapIgnoresUndeclaredAccounts(t *testing.T) {
 		t.Fatalf("ApplyBootstrap: %v", err)
 	}
 	if granted != "" {
-		t.Errorf("un compte non déclaré ne doit pas être promu, rôle = %q", granted)
+		t.Errorf("an undeclared account must not be promoted, role = %q", granted)
 	}
 
 	session, _ := store.Create(ctx, "999", "intrus", "")
 	_, role, _ := store.Lookup(ctx, session.ID)
 	if role == RoleAdmin {
-		t.Error("rôle administrateur accordé à un compte non déclaré")
+		t.Error("administrator role granted to an undeclared account")
 	}
 }
 
@@ -273,14 +272,14 @@ func TestPurgeExpiredRemovesOnlyExpiredSessions(t *testing.T) {
 		t.Fatalf("PurgeExpired: %v", err)
 	}
 	if removed != 1 {
-		t.Errorf("attendu 1 session purgée, obtenu %d", removed)
+		t.Errorf("expected 1 session purged, got %d", removed)
 	}
 
 	if _, _, err := store.Lookup(ctx, old.ID); !errors.Is(err, ErrSessionNotFound) {
-		t.Error("la session expirée subsiste")
+		t.Error("the expired session remains")
 	}
 	if _, _, err := store.Lookup(ctx, fresh.ID); !errors.Is(err, ErrNoRole) {
-		t.Errorf("la session valide a été purgée: %v", err)
+		t.Errorf("the valid session was purged: %v", err)
 	}
 }
 
@@ -288,26 +287,26 @@ func discardTestLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// declare pose une déclaration d'amorçage, comme le fait la migration.
+// declare writes a bootstrap declaration, as the migration does.
 //
-// Les rôles ne viennent plus d'une liste passée à chaque connexion mais d'une
-// table écrite une fois : c'est ce qui empêche une variable d'environnement de
-// redonner un rôle indéfiniment.
+// Roles no longer come from a list passed on every sign-in but from a table
+// written once: that is what stops an environment variable from granting a role
+// indefinitely.
 func declare(t *testing.T, pool *pgxpool.Pool, identifier, role string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),
 		`insert into bootstrap_grants (identifier, role) values ($1, $2)
 		 on conflict (identifier) do nothing`, identifier, role); err != nil {
-		t.Fatalf("déclaration de %q: %v", identifier, err)
+		t.Fatalf("declaring %q: %v", identifier, err)
 	}
 }
 
-// Une déclaration consommée ne repromeut plus personne.
+// A consumed declaration promotes nobody again.
 //
-// C'est la différence avec la configuration relue à chaque connexion : celle-ci
-// donnait à qui pouvait l'éditer le pouvoir de se redonner un rôle indéfiniment,
-// sans autre trace qu'une connexion. Une déclaration se réclame une fois.
-func TestUneDeclarationNeSeReclameQuUneFois(t *testing.T) {
+// That is the difference from a configuration re-read on every sign-in: it gave
+// whoever could edit it the power to grant themselves a role indefinitely, with no
+// trace but a sign-in. A declaration is claimed once.
+func TestADeclarationIsClaimedOnlyOnce(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	store := NewSessionStore(pool, time.Hour)
@@ -315,32 +314,32 @@ func TestUneDeclarationNeSeReclameQuUneFois(t *testing.T) {
 	declare(t, pool, "vcarroy", "admin")
 
 	if granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy"); err != nil || granted == "" {
-		t.Fatalf("première réclamation: %q, %v", granted, err)
+		t.Fatalf("first claim: %q, %v", granted, err)
 	}
 
 	// Un administrateur rétrograde le compte.
 	if err := store.GrantRole(ctx, "121", "vcarroy", RoleViewer, "admin"); err != nil {
-		t.Fatalf("rétrogradation: %v", err)
+		t.Fatalf("demotion: %v", err)
 	}
 
-	// La reconnexion ne doit pas le repromouvoir.
+	// Signing in again must not re-promote them.
 	granted, err := store.ApplyBootstrap(ctx, "121", "vcarroy")
 	if err != nil {
-		t.Fatalf("seconde réclamation: %v", err)
+		t.Fatalf("second claim: %v", err)
 	}
 	if granted != "" {
-		t.Errorf("rôle rendu = %q: une déclaration consommée a repromu", granted)
+		t.Errorf("role returned = %q: a consumed declaration promoted again", granted)
 	}
 
 	session, _ := store.Create(ctx, "121", "vcarroy", "")
 	_, role, _ := store.Lookup(ctx, session.ID)
 	if role != RoleViewer {
-		t.Errorf("rôle = %s, attendu viewer: la rétrogradation a été annulée", role)
+		t.Errorf("role = %s, expected viewer: the demotion was undone", role)
 	}
 }
 
-// Le rôle déclaré est celui posé, et pas seulement « administrateur ».
-func TestLeRoleDeclareEstCeluiAttribue(t *testing.T) {
+// The declared role is the one written, not merely "administrator".
+func TestTheDeclaredRoleIsTheOneGranted(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	store := NewSessionStore(pool, time.Hour)
@@ -349,46 +348,46 @@ func TestLeRoleDeclareEstCeluiAttribue(t *testing.T) {
 
 	granted, err := store.ApplyBootstrap(ctx, "204", "alice")
 	if err != nil {
-		t.Fatalf("réclamation: %v", err)
+		t.Fatalf("claim: %v", err)
 	}
 	if granted != string(RoleReleaser) {
-		t.Fatalf("rôle rendu = %q, attendu releaser", granted)
+		t.Fatalf("role returned = %q, expected releaser", granted)
 	}
 
 	session, _ := store.Create(ctx, "204", "alice", "")
 	_, role, _ := store.Lookup(ctx, session.ID)
 	if role != RoleReleaser {
-		t.Errorf("rôle = %s, attendu releaser", role)
+		t.Errorf("role = %s, expected releaser", role)
 	}
 }
 
-// Un rôle global et un rôle de projet coexistent pour le même compte.
+// A global role and a project role coexist for one account.
 //
-// C'est ce que les deux index partiels garantissent : au plus un rôle global, au
-// plus un par projet. Une clé composite `(subject, project_id)` aurait laissé
-// passer plusieurs globaux, `null` n'étant jamais égal à `null`.
-func TestLesDeuxPorteesCoexistent(t *testing.T) {
+// That is what the two partial indexes guarantee: at most one global role, at most
+// one per project. A composite key would have let several global ones through,
+// `null` never equalling `null`.
+func TestBothScopesCoexist(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	store := NewSessionStore(pool, time.Hour)
 
 	var projectID int64
 	if err := pool.QueryRow(ctx,
-		// `projects` n'est pas purgée entre les tests de ce paquet — seules les
-		// sessions, les rôles et les déclarations le sont. L'insertion est donc
-		// idempotente plutôt que de dépendre de l'ordre d'exécution.
+		// `projects` is not purged between this package's tests — only sessions, roles and
+		// declarations are. The insert is therefore idempotent rather than dependent on
+		// execution order.
 		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
-		 values ('theme', 'CNOUS/theme', 'Thème', 'https://forge.example', '.', 'test')
+		 values ('theme', 'CNOUS/theme', 'Theme', 'https://forge.example', '.', 'test')
 		 on conflict (repository) do update set label = excluded.label
 		 returning id`).Scan(&projectID); err != nil {
 		t.Fatalf("projet: %v", err)
 	}
 
 	if err := store.GrantRole(ctx, "121", "vcarroy", RoleViewer, "test"); err != nil {
-		t.Fatalf("rôle global: %v", err)
+		t.Fatalf("global role: %v", err)
 	}
 	if err := store.GrantRoleIn(ctx, "121", "vcarroy", RoleReleaser, &projectID, "test"); err != nil {
-		t.Fatalf("rôle de projet: %v", err)
+		t.Fatalf("project role: %v", err)
 	}
 
 	session, err := store.Create(ctx, "121", "vcarroy", "v@example.fr")
@@ -401,16 +400,16 @@ func TestLesDeuxPorteesCoexistent(t *testing.T) {
 		t.Fatalf("lecture: %v", err)
 	}
 	if global != RoleViewer {
-		t.Errorf("rôle global = %q, attendu viewer", global)
+		t.Errorf("global role = %q, expected viewer", global)
 	}
 	if projects[projectID] != RoleReleaser {
-		t.Errorf("rôle du projet = %q, attendu releaser", projects[projectID])
+		t.Errorf("project role = %q, expected releaser", projects[projectID])
 	}
 
-	// Et le remplacement reste par portée : réattribuer le global ne touche pas
-	// celui du projet.
+	// And replacement stays per scope: re-granting the global role does not touch the
+	// project one.
 	if err := store.GrantRole(ctx, "121", "vcarroy", RoleOperator, "test"); err != nil {
-		t.Fatalf("réattribution globale: %v", err)
+		t.Fatalf("global re-grant: %v", err)
 	}
 	_, global, projects, err = store.LookupRoles(ctx, session.ID)
 	if err != nil {
@@ -421,26 +420,26 @@ func TestLesDeuxPorteesCoexistent(t *testing.T) {
 	}
 }
 
-// `admin` ne s'attribue pas par projet : il gouverne les comptes, les dépôts et
-// la synchronisation, dont aucun n'appartient à un projet.
-func TestAdminNeSattribuePasParProjet(t *testing.T) {
+// `admin` is not granted per project: it governs accounts, repositories and
+// synchronisation, none of which belongs to a project.
+func TestAdminIsNotGrantedPerProject(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	store := NewSessionStore(pool, time.Hour)
 
 	var projectID int64
 	if err := pool.QueryRow(ctx,
-		// `projects` n'est pas purgée entre les tests de ce paquet — seules les
-		// sessions, les rôles et les déclarations le sont. L'insertion est donc
-		// idempotente plutôt que de dépendre de l'ordre d'exécution.
+		// `projects` is not purged between this package's tests — only sessions, roles and
+		// declarations are. The insert is therefore idempotent rather than dependent on
+		// execution order.
 		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
-		 values ('theme', 'CNOUS/theme', 'Thème', 'https://forge.example', '.', 'test')
+		 values ('theme', 'CNOUS/theme', 'Theme', 'https://forge.example', '.', 'test')
 		 on conflict (repository) do update set label = excluded.label
 		 returning id`).Scan(&projectID); err != nil {
 		t.Fatalf("projet: %v", err)
 	}
 
 	if err := store.GrantRoleIn(ctx, "121", "vcarroy", RoleAdmin, &projectID, "test"); err == nil {
-		t.Error("un administrateur de projet ne doit pas pouvoir être attribué")
+		t.Error("a project administrator must not be grantable")
 	}
 }

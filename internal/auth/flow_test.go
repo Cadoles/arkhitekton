@@ -21,10 +21,10 @@ func TestBeginProducesDistinctUnpredictableValues(t *testing.T) {
 		}
 		for _, value := range []string{flow.State, flow.Nonce, flow.CodeVerifier} {
 			if len(value) < 32 {
-				t.Errorf("valeur trop courte pour être imprévisible: %q", value)
+				t.Errorf("value too short to be unpredictable: %q", value)
 			}
 			if seen[value] {
-				t.Fatalf("valeur répétée entre deux transactions: %q", value)
+				t.Fatalf("value repeated across two transactions: %q", value)
 			}
 			seen[value] = true
 		}
@@ -41,18 +41,18 @@ func TestConsumeIsSingleUse(t *testing.T) {
 	}
 
 	if _, err := store.Consume(context.Background(), flow.State); err != nil {
-		t.Fatalf("première consommation refusée: %v", err)
+		t.Fatalf("first consumption refused: %v", err)
 	}
 	if _, err := store.Consume(context.Background(), flow.State); !errors.Is(err, ErrUnknownState) {
-		t.Fatalf("le state a été accepté une seconde fois: %v", err)
+		t.Fatalf("the state was accepted a second time: %v", err)
 	}
 }
 
 func TestConsumeRejectsUnknownState(t *testing.T) {
 	store := NewFlowStore(time.Minute)
 
-	if _, err := store.Consume(context.Background(), "state-forgé"); !errors.Is(err, ErrUnknownState) {
-		t.Fatalf("attendu ErrUnknownState, obtenu %v", err)
+	if _, err := store.Consume(context.Background(), "forged-state"); !errors.Is(err, ErrUnknownState) {
+		t.Fatalf("expected ErrUnknownState, got %v", err)
 	}
 }
 
@@ -69,11 +69,11 @@ func TestConsumeRejectsExpiredState(t *testing.T) {
 	current = current.Add(6 * time.Minute)
 
 	if _, err := store.Consume(context.Background(), flow.State); !errors.Is(err, ErrUnknownState) {
-		t.Fatalf("un state expiré a été accepté: %v", err)
+		t.Fatalf("an expired state was accepted: %v", err)
 	}
 }
 
-// Une connexion commencée puis abandonnée ne doit pas laisser d'entrée à vie.
+// A sign-in started and then abandoned must not leave an entry for good.
 func TestBeginEvictsAbandonedTransactions(t *testing.T) {
 	store := NewFlowStore(time.Minute)
 	current := time.Now()
@@ -85,7 +85,7 @@ func TestBeginEvictsAbandonedTransactions(t *testing.T) {
 		}
 	}
 	if store.Len() != 10 {
-		t.Fatalf("attendu 10 transactions en cours, obtenu %d", store.Len())
+		t.Fatalf("expected 10 transactions in flight, got %d", store.Len())
 	}
 
 	current = current.Add(2 * time.Minute)
@@ -94,7 +94,7 @@ func TestBeginEvictsAbandonedTransactions(t *testing.T) {
 	}
 
 	if store.Len() != 1 {
-		t.Errorf("les transactions abandonnées n'ont pas été purgées: %d restantes", store.Len())
+		t.Errorf("abandoned transactions were not purged: %d left", store.Len())
 	}
 }
 
@@ -119,19 +119,19 @@ func TestFlowStoreIsSafeForConcurrentUse(t *testing.T) {
 	wg.Wait()
 
 	if store.Len() != 0 {
-		t.Errorf("%d transaction(s) résiduelle(s)", store.Len())
+		t.Errorf("%d leftover transaction(s)", store.Len())
 	}
 }
 
-// Le challenge doit être le SHA-256 du vérificateur en base64url sans padding,
-// faute de quoi le fournisseur rejette l'échange de code.
+// The challenge must be the SHA-256 of the verifier, base64url without padding, or
+// the provider rejects the code exchange.
 func TestCodeChallengeMatchesS256(t *testing.T) {
-	verifier := "un-vérificateur-de-test"
+	verifier := "a-test-verifier"
 	sum := sha256.Sum256([]byte(verifier))
 	expected := base64.RawURLEncoding.EncodeToString(sum[:])
 
 	if got := CodeChallenge(verifier); got != expected {
-		t.Errorf("CodeChallenge = %q, attendu %q", got, expected)
+		t.Errorf("CodeChallenge = %q, expected %q", got, expected)
 	}
 }
 

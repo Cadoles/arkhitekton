@@ -45,7 +45,7 @@ func TestRoleHierarchyGrantsLowerPermissions(t *testing.T) {
 
 	for _, c := range cases {
 		if got := a.Can(identity(c.role), c.perm); got != c.allowed {
-			t.Errorf("Can(%s, %s) = %v, attendu %v", c.role, c.perm, got, c.allowed)
+			t.Errorf("Can(%s, %s) = %v, expected %v", c.role, c.perm, got, c.allowed)
 		}
 	}
 }
@@ -72,40 +72,40 @@ func TestDeployRequiresReleaserOnSensitiveEnvironments(t *testing.T) {
 
 	for _, c := range cases {
 		if got := a.CanDeploy(identity(c.role), 0, "mse", c.env); got != c.allowed {
-			t.Errorf("Can(%s, deploy:%s) = %v, attendu %v", c.role, c.env, got, c.allowed)
+			t.Errorf("Can(%s, deploy:%s) = %v, expected %v", c.role, c.env, got, c.allowed)
 		}
 	}
 }
 
-// Un environnement créé puis oublié dans la configuration doit être plus
-// difficile à atteindre, jamais plus facile : se tromper dans ce sens fait
-// perdre du temps, se tromper dans l'autre laisse promouvoir en production.
+// An environment created and then forgotten in the configuration must be harder to
+// reach, never easier: erring this way costs time, erring the other way lets
+// someone promote to production.
 func TestDeployOnUnknownEnvironmentFailsClosed(t *testing.T) {
 	a := testAuthorizer()
 
 	if a.CanDeploy(identity(RoleOperator), 0, "mse", "nouveau-env") {
-		t.Error("un environnement inconnu ne doit pas être déployable par un operator")
+		t.Error("an unknown environment must not be deployable by an operator")
 	}
 	if a.CanDeploy(identity(RoleOperator), 0, "autre-projet", "unstable") {
-		t.Error("l'environnement d'un projet sans déclaration ne doit pas être déployable par un operator")
+		t.Error("an environment of an undeclared project must not be deployable by an operator")
 	}
 	if a.Can(identity(RoleOperator), PermDeploy("unstable")) {
-		t.Error("sans projet, la sensibilité est inconnue : un operator ne promeut pas")
+		t.Error("without a project the sensitivity is unknown: an operator does not promote")
 	}
 	if !a.CanDeploy(identity(RoleReleaser), 0, "mse", "nouveau-env") {
-		t.Error("un releaser doit pouvoir déployer un environnement inconnu")
+		t.Error("a releaser must be able to deploy an unknown environment")
 	}
 }
 
-// Un rôle vide ou fantaisiste ne doit satisfaire aucune exigence — pas même la
-// lecture. C'est le cas d'un utilisateur authentifié mais sans rôle attribué.
+// An empty or invented role must satisfy no requirement — not even read. That is
+// the case of a user who is authenticated but has no role.
 func TestInvalidRoleGrantsNothing(t *testing.T) {
 	a := testAuthorizer()
 
 	for _, role := range []Role{"", "superadmin", "VIEWER", "root"} {
 		for _, perm := range []Permission{PermRead, PermAdmin, PermDeploy("unstable")} {
 			if a.Can(Identity{Role: role}, perm) {
-				t.Errorf("le rôle invalide %q a obtenu %s", role, perm)
+				t.Errorf("invalid role %q obtained %s", role, perm)
 			}
 		}
 	}
@@ -114,59 +114,58 @@ func TestInvalidRoleGrantsNothing(t *testing.T) {
 func TestParseRole(t *testing.T) {
 	for _, valid := range []string{"viewer", " OPERATOR ", "Releaser", "admin"} {
 		if _, err := ParseRole(valid); err != nil {
-			t.Errorf("ParseRole(%q) refusé: %v", valid, err)
+			t.Errorf("ParseRole(%q) refused: %v", valid, err)
 		}
 	}
 	for _, invalid := range []string{"", "superuser", "read-only"} {
 		if _, err := ParseRole(invalid); err == nil {
-			t.Errorf("ParseRole(%q) accepté à tort", invalid)
+			t.Errorf("ParseRole(%q) wrongly accepted", invalid)
 		}
 	}
 }
 
-// Sans environnement déclaré, aucune promotion ne doit passer sous le rôle
-// releaser : une configuration vide ne doit pas ouvrir les vannes.
+// With no environment declared, no promotion may pass below the releaser role: an
+// empty configuration must not open the gates.
 func TestEmptyAuthorizerFailsClosed(t *testing.T) {
 	a := NewAuthorizer(nil)
 
 	if a.CanDeploy(identity(RoleOperator), 0, "mse", "unstable") {
-		t.Error("une configuration vide ne doit autoriser aucune promotion à un operator")
+		t.Error("an empty configuration must allow an operator no promotion")
 	}
 	if !a.Can(identity(RoleOperator), PermPipelineRun) {
-		t.Error("les permissions non liées au déploiement restent inchangées")
+		t.Error("permissions unrelated to deployment stay unchanged")
 	}
 }
 
-// Un rôle accordé sur un projet ne vaut que là.
+// A role granted on a project holds only there.
 //
-// C'est la raison d'être des rôles par projet : trois dépôts sont déclarés, dont
-// deux thèmes qui n'ont rien à voir avec l'application. Y donner `releaser` à
-// quelqu'un parce qu'il l'est sur MSE est une autorisation que personne n'a
-// demandée.
-func TestUnRoleDeProjetNeVautQueLa(t *testing.T) {
+// That is what per-project roles are for: granting releaser on an unrelated
+// repository because someone holds it on the main one is an authorization nobody
+// asked for.
+func TestAProjectRoleHoldsOnlyThere(t *testing.T) {
 	authorizer := NewAuthorizer(nil)
 
-	// Aucun rôle global, `releaser` sur le projet 1 seulement.
+	// No global role, releaser on project 1 only.
 	identity := Identity{Subject: "121", Projects: map[int64]Role{1: RoleReleaser}}
 
 	if !authorizer.CanIn(identity, 1, PermReleaseCreate) {
-		t.Error("le rôle du projet 1 doit s'y appliquer")
+		t.Error("the role on project 1 must apply there")
 	}
 	if authorizer.CanIn(identity, 2, PermReleaseCreate) {
-		t.Error("le rôle du projet 1 ne doit rien accorder sur le projet 2")
+		t.Error("the role on project 1 must grant nothing on project 2")
 	}
-	// Et globalement, rien : sans rôle global, une vérification hors projet doit
-	// refuser plutôt que retomber sur le rôle le plus élevé trouvé ailleurs.
+	// And globally, nothing: with no global role, a check outside a project must
+	// refuse rather than fall back to the highest role found elsewhere.
 	if authorizer.Can(identity, PermRead) {
-		t.Error("un rôle de projet ne doit rien accorder hors projet")
+		t.Error("a project role must grant nothing outside its project")
 	}
 }
 
-// Le plus spécifique gagne, y compris pour restreindre.
+// The most specific wins, including to restrict.
 //
-// Sans cela une restriction serait inexprimable : il faudrait retirer le rôle
-// global pour l'imposer sur un seul projet.
-func TestUnRoleDeProjetPeutRestreindreLeRoleGlobal(t *testing.T) {
+// Without that a restriction would be inexpressible: the global role would have to
+// be removed to impose one on a single project.
+func TestAProjectRoleCanRestrictTheGlobalRole(t *testing.T) {
 	authorizer := NewAuthorizer(nil)
 
 	identity := Identity{
@@ -176,33 +175,33 @@ func TestUnRoleDeProjetPeutRestreindreLeRoleGlobal(t *testing.T) {
 	}
 
 	if !authorizer.CanIn(identity, 1, PermReleaseCreate) {
-		t.Error("le rôle global doit s'appliquer aux projets qui n'en déclarent pas")
+		t.Error("the global role must apply to projects declaring none")
 	}
 	if authorizer.CanIn(identity, 2, PermReleaseCreate) {
-		t.Error("le rôle du projet 2 doit l'emporter sur le rôle global")
+		t.Error("the role on project 2 must beat the global role")
 	}
 	if !authorizer.CanIn(identity, 2, PermRead) {
-		t.Error("le `viewer` du projet 2 garde tout de même la lecture")
+		t.Error("the viewer on project 2 still keeps read access")
 	}
 }
 
-// Promouvoir est le geste le plus coûteux : il doit se vérifier dans le projet.
-func TestLaPromotionSeVerifieDansSonProjet(t *testing.T) {
+// Promoting is the costliest gesture: it must be checked inside the project.
+func TestPromotionIsCheckedInItsProject(t *testing.T) {
 	authorizer := NewAuthorizer(ProjectPolicies{"mse": {"prod": {Sensitive: true}}})
 
 	identity := Identity{Subject: "121", Projects: map[int64]Role{1: RoleReleaser}}
 
 	if !authorizer.CanDeploy(identity, 1, "mse", "prod") {
-		t.Error("le releaser du projet 1 doit pouvoir y promouvoir")
+		t.Error("the releaser on project 1 must be able to promote there")
 	}
 	if authorizer.CanDeploy(identity, 2, "mse", "prod") {
-		t.Error("il ne doit rien pouvoir promouvoir sur le projet 2")
+		t.Error("they must be able to promote nothing on project 2")
 	}
 }
 
-// Le même identifiant d'environnement peut être sensible dans un projet et pas
-// dans l'autre : la sensibilité se lit dans la déclaration du projet.
-func TestLaSensibiliteSeLitDansLeProjet(t *testing.T) {
+// The same environment id may be sensitive in one project and not in another: the
+// sensitivity is read from the project's declaration.
+func TestSensitivityIsReadFromTheProject(t *testing.T) {
 	authorizer := NewAuthorizer(ProjectPolicies{
 		"mse":    {"qualif": {Sensitive: false}},
 		"themes": {"qualif": {Sensitive: true}},
@@ -210,9 +209,9 @@ func TestLaSensibiliteSeLitDansLeProjet(t *testing.T) {
 	operator := identity(RoleOperator)
 
 	if !authorizer.CanDeploy(operator, 0, "mse", "qualif") || authorizer.Sensitive("mse", "qualif") {
-		t.Error("qualif du projet mse n'est pas sensible")
+		t.Error("qualif on project mse is not sensitive")
 	}
 	if authorizer.CanDeploy(operator, 0, "themes", "qualif") || !authorizer.Sensitive("themes", "qualif") {
-		t.Error("qualif du projet themes est sensible")
+		t.Error("qualif on project themes is sensitive")
 	}
 }

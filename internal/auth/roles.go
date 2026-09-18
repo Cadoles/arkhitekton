@@ -1,4 +1,5 @@
-// Package auth porte l'authentification OIDC et l'autorisation du dashboard.
+// Package auth carries OIDC authentication and authorization.
+// See docs/09-security.md.
 package auth
 
 import (
@@ -7,8 +8,8 @@ import (
 	"strings"
 )
 
-// Role décrit ce qu'un utilisateur peut faire. Les rôles sont ordonnés : chacun
-// inclut les permissions du précédent.
+// Role says what a user may do. Roles are ordered: each includes the permissions
+// of the previous one.
 type Role string
 
 const (
@@ -18,18 +19,16 @@ const (
 	RoleAdmin    Role = "admin"
 )
 
-// AllRoles est ordonné du moins au plus permissif.
+// AllRoles is ordered from least to most permissive.
 var AllRoles = []Role{RoleViewer, RoleOperator, RoleReleaser, RoleAdmin}
 
 func (r Role) Valid() bool { return slices.Contains(AllRoles, r) }
 
-// rank permet de comparer deux rôles. Un rôle inconnu vaut -1 : il ne satisfait
-// donc aucune exigence, pas même celle du rôle le plus faible.
+// rank allows comparing two roles. An unknown role ranks -1: it satisfies no
+// requirement, not even the weakest role's.
 func (r Role) rank() int { return slices.Index(AllRoles, r) }
 
-// Permission nomme une capacité. Le déploiement est indexé par environnement
-// (`deploy:prod`) : ajouter un environnement ne doit pas demander de modifier le
-// modèle de permissions.
+// Permission names a capability. Deployment is indexed by environment.
 type Permission string
 
 const (
@@ -45,18 +44,17 @@ const (
 
 const deployPrefix = "deploy:"
 
-// PermDeploy construit la permission de déploiement d'un environnement.
+// PermDeploy builds the deploy permission of an environment.
 func PermDeploy(environment string) Permission {
 	return Permission(deployPrefix + environment)
 }
 
-// rolePermissions associe à chaque rôle ce qu'il ajoute au précédent.
+// rolePermissions maps each role to what it adds to the previous one.
 //
-// Le découpage en quatre rôles anticipe une distinction qui apparaît toujours à
-// l'usage : lancer une campagne de tests sur `unstable` et promouvoir en
-// production ne sont pas le même geste, et ne concernent pas les mêmes personnes.
-// Si le client n'en veut que deux, `operator` et `releaser` se confondent par
-// configuration, sans changement de code.
+// Four roles anticipate a distinction that always appears in practice: running a
+// test campaign and promoting to production are not the same gesture and do not
+// concern the same people. A deployment wanting only two can merge operator and
+// releaser by configuration, with no code change.
 var rolePermissions = map[Role][]Permission{
 	RoleViewer: {PermRead, PermReleaseExport},
 	RoleOperator: {
@@ -67,72 +65,67 @@ var rolePermissions = map[Role][]Permission{
 	RoleAdmin:    {PermAdmin},
 }
 
-// Identity est l'utilisateur authentifié, tel que le middleware le pose dans le
-// contexte de la requête.
+// Identity is the authenticated user, as the middleware puts it in the request
+// context.
 type Identity struct {
 	Subject  string
 	Username string
 	Email    string
-	// Projects porte les rôles accordés **par projet**, indexés par identifiant.
-	// Vide dans le cas courant : la plupart des attributions valent partout.
+	// Projects carries roles granted per project, keyed by identifier. Empty in the
+	// common case: most grants hold everywhere.
 	//
-	// Un rôle de projet **remplace** le rôle global sur ce projet, dans les deux
-	// sens. C'est ce qui rend une restriction exprimable — accorder `viewer` sur
-	// un projet à quelqu'un qui est `operator` ailleurs — et une règle qui prendrait
-	// le plus élevé des deux ne le permettrait pas. Le plus spécifique gagne.
+	// A project role replaces the global role on that project, in both directions.
+	// That is what makes a restriction expressible — granting viewer on one project to
+	// someone who is operator elsewhere — which a rule taking the higher of the two
+	// could not. The most specific wins.
 	Projects map[int64]Role
 	Role     Role
 }
 
-// ProjectPolicies porte les exigences de promotion, par slug de projet puis par
-// identifiant d'environnement. Deux projets peuvent avoir chacun un `qualif`, et
-// l'un le déclarer sensible sans que l'autre le soit (doc 16 §16.18).
+// ProjectPolicies carries promotion requirements, by project slug then by
+// environment id. Two projects may each have a `qualif`, and one may declare it
+// sensitive without the other doing so.
 type ProjectPolicies map[string]map[string]EnvironmentPolicy
 
-// EnvironmentPolicy décrit les exigences de promotion d'un environnement.
+// EnvironmentPolicy describes an environment's promotion requirements.
 type EnvironmentPolicy struct {
-	// Sensitive impose le rôle `releaser`. Vaut pour la pré-production et la
-	// production, qui reçoivent ce qui part chez l'utilisateur final.
+	// Sensitive requires the releaser role. It holds for environments that receive
+	// what reaches the end user.
 	Sensitive bool
 }
 
-// Authorizer décide si une identité peut exercer une permission.
+// Authorizer decides whether an identity may exercise a permission.
 type Authorizer struct {
 	environments ProjectPolicies
 }
 
-// NewAuthorizer construit l'autorisateur à partir des environnements déclarés.
+// NewAuthorizer builds the authorizer from the declared environments.
 //
-// Un environnement absent de cette table est traité comme sensible : un
-// environnement nouvellement créé et oublié dans la configuration doit être plus
-// difficile à atteindre, jamais plus facile. Se tromper dans ce sens fait perdre
-// du temps ; se tromper dans l'autre laisse promouvoir en production.
+// An environment absent from this table is treated as sensitive: one newly created
+// and forgotten in the configuration must be harder to reach, never easier. Erring
+// this way costs time; erring the other way lets someone promote to production.
 func NewAuthorizer(environments ProjectPolicies) *Authorizer {
 	return &Authorizer{environments: environments}
 }
 
-// Sensitive dit si un environnement reçoit ce qui part chez l'utilisateur final.
+// Sensitive says whether an environment receives what reaches the end user.
 //
-// Exposé parce que l'interface en a besoin : c'est ce qui déclenche la ressaisie
-// de la version à la confirmation (doc 08 §8.5). Le déduire côté navigateur — de
-// l'observabilité, du rang — reviendrait à traiter une coïncidence comme une
-// règle : la production est aujourd'hui non observable, mais c'est sa sensibilité
-// qui justifie la friction, pas son isolement.
+// Exposed because the interface needs it: it is what triggers retyping the version
+// on confirmation. Inferring it in the browser — from observability, from rank —
+// would treat a coincidence as a rule: production happens to be unobservable, but
+// it is its sensitivity that justifies the friction, not its isolation.
 //
-// Un environnement absent de la table est sensible, comme pour l'autorisation :
-// se tromper dans ce sens fait perdre du temps, dans l'autre laisse promouvoir
-// sans y penser.
+// An environment absent from the table is sensitive, as for authorization.
 func (a *Authorizer) Sensitive(project, environment string) bool {
 	policy, known := a.environments[project][environment]
 	return !known || policy.Sensitive
 }
 
-// CanDeploy dit si l'identité peut promouvoir vers un environnement d'un projet.
+// CanDeploy says whether the identity may promote to an environment of a project.
 //
-// Le rôle est celui du projet, la sensibilité celle que le projet déclare. Le
-// projet est désigné deux fois — par son identifiant pour le rôle, par son slug
-// pour la déclaration — parce que ce sont les deux clés sous lesquelles chacune
-// est tenue.
+// The role is the project's, the sensitivity the one the project declares. The
+// project is named twice — by identifier for the role, by slug for the declaration
+// — because those are the two keys each is held under.
 func (a *Authorizer) CanDeploy(identity Identity, projectID int64, project, environment string) bool {
 	role := identity.RoleIn(projectID)
 	if !role.Valid() {
@@ -141,16 +134,15 @@ func (a *Authorizer) CanDeploy(identity Identity, projectID int64, project, envi
 	return role.rank() >= a.minRoleForDeploy(project, environment).rank()
 }
 
-// PermissionsOf rend les permissions cumulées d'un rôle.
+// PermissionsOf returns a role's cumulative permissions.
 //
-// Cumulées, parce que les rôles sont ordonnés : `releaser` ajoute aux droits de
-// `operator`, qui ajoute à ceux de `viewer`. Une interface qui n'afficherait que
-// l'apport d'un rôle laisserait croire qu'un releaser ne peut pas lancer de
-// pipeline.
+// Cumulative, because roles are ordered: releaser adds to operator's rights, which
+// add to viewer's. An interface showing only a role's own additions would suggest
+// a releaser cannot launch a pipeline.
 //
-// Exposé pour que l'écran d'administration décrive ce qu'il attribue. Le
-// dupliquer côté navigateur ferait diverger la description de la règle au
-// premier ajout de permission.
+// Exposed so the administration screen can describe what it grants. Duplicating it
+// in the browser would let the description diverge from the rule at the first
+// permission added.
 func PermissionsOf(role Role) []Permission {
 	if !role.Valid() {
 		return nil
@@ -170,20 +162,20 @@ func (a *Authorizer) Can(identity Identity, permission Permission) bool {
 	return a.allows(identity.Role, permission)
 }
 
-// CanIn décide dans le périmètre d'un projet.
+// CanIn decides within a project's scope.
 //
-// Le rôle du projet quand il y en a un, le rôle global sinon. Distincte de [Can]
-// et non un paramètre optionnel : une permission vérifiée sans projet là où il en
-// faudrait un passerait inaperçue, alors qu'un appel au mauvais nom se voit.
+// The project role when there is one, the global role otherwise. Distinct from
+// [Can] rather than an optional parameter: a permission checked without a project
+// where one was needed would go unnoticed, whereas calling the wrong name shows.
 func (a *Authorizer) CanIn(identity Identity, projectID int64, permission Permission) bool {
 	return a.allows(identity.RoleIn(projectID), permission)
 }
 
-// RoleIn rend le rôle effectif dans un projet.
+// RoleIn returns the effective role in a project.
 //
-// Le plus spécifique gagne, y compris pour restreindre : un `viewer` accordé sur
-// un projet l'emporte sur un `operator` global. Sans cela, une restriction serait
-// inexprimable, et il faudrait retirer le rôle global pour la poser.
+// The most specific wins, including to restrict: a viewer granted on one project
+// beats a global operator. Without that, a restriction would be inexpressible and
+// the global role would have to be removed to impose one.
 func (i Identity) RoleIn(projectID int64) Role {
 	if role, found := i.Projects[projectID]; found {
 		return role
@@ -197,8 +189,8 @@ func (a *Authorizer) allows(role Role, permission Permission) bool {
 	}
 
 	if _, isDeploy := strings.CutPrefix(string(permission), deployPrefix); isDeploy {
-		// Sans projet, la sensibilité n'est pas connue : l'exigence la plus forte
-		// s'applique. [Authorizer.CanDeploy] est le chemin qui la connaît.
+		// Without a project the sensitivity is unknown: the strongest requirement applies.
+		// [Authorizer.CanDeploy] is the path that knows it.
 		return role.rank() >= RoleReleaser.rank()
 	}
 
@@ -213,9 +205,8 @@ func (a *Authorizer) allows(role Role, permission Permission) bool {
 	return false
 }
 
-// minRoleForDeploy rend le rôle minimal requis pour promouvoir sur un
-// environnement. Inconnu ou sensible : `releaser`. Connu et non sensible :
-// `operator`.
+// minRoleForDeploy returns the minimum role required to promote to an environment.
+// Unknown or sensitive: releaser. Known and not sensitive: operator.
 func (a *Authorizer) minRoleForDeploy(project, environment string) Role {
 	policy, known := a.environments[project][environment]
 	if !known || policy.Sensitive {
@@ -224,11 +215,12 @@ func (a *Authorizer) minRoleForDeploy(project, environment string) Role {
 	return RoleOperator
 }
 
-// ParseRole valide un rôle venu de la base ou d'une saisie d'administration.
+// ParseRole validates a role coming from the database or from an administrator's
+// input.
 func ParseRole(value string) (Role, error) {
 	role := Role(strings.TrimSpace(strings.ToLower(value)))
 	if !role.Valid() {
-		return "", fmt.Errorf("rôle inconnu %q (attendu: viewer, operator, releaser, admin)", value)
+		return "", fmt.Errorf("unknown role %q (expected: viewer, operator, releaser, admin)", value)
 	}
 	return role, nil
 }

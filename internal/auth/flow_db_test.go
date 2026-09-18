@@ -19,14 +19,14 @@ func flowStores(t *testing.T) (*pgxpool.Pool, *DBFlowStore) {
 	return pool, NewDBFlowStore(pool, 10*time.Minute)
 }
 
-// La panne à corriger, reproduite : `/auth/login` est servi par une réplique et
-// `/auth/callback` par une autre. Chaque réplique a son propre magasin ; seul un
-// stockage partagé leur permet de se comprendre.
+// The failure being fixed, reproduced: /auth/login served by one replica and
+// /auth/callback by another. Each replica has its own store; only shared storage
+// lets them understand each other.
 func TestAFlowOpenedByOneReplicaIsConsumableByAnother(t *testing.T) {
 	pool, first := flowStores(t)
 	ctx := context.Background()
 
-	// Une seconde instance, comme un second pod : même base, magasin distinct.
+	// A second instance, like a second pod: same database, distinct store.
 	second := NewDBFlowStore(pool, 10*time.Minute)
 
 	flow, err := first.Begin(ctx, "/releases/1.8.0")
@@ -36,13 +36,13 @@ func TestAFlowOpenedByOneReplicaIsConsumableByAnother(t *testing.T) {
 
 	consumed, err := second.Consume(ctx, flow.State)
 	if err != nil {
-		t.Fatalf("consommation par l'autre réplique: %v", err)
+		t.Fatalf("consumption by the other replica: %v", err)
 	}
 	if consumed.CodeVerifier != flow.CodeVerifier || consumed.Nonce != flow.Nonce {
-		t.Error("le vérificateur PKCE et le nonce doivent traverser les répliques")
+		t.Error("the PKCE verifier and the nonce must cross replicas")
 	}
-	// Le contexte de navigation est conservé : ramener l'utilisateur à l'accueil
-	// lui ferait perdre sa place.
+	// The browsing context is kept: sending the user back to the home page would lose
+	// their place.
 	if consumed.RedirectAfter != "/releases/1.8.0" {
 		t.Errorf("redirection = %q", consumed.RedirectAfter)
 	}
@@ -55,16 +55,15 @@ func TestDBConsumeIsSingleUse(t *testing.T) {
 
 	flow, _ := store.Begin(ctx, "")
 	if _, err := store.Consume(ctx, flow.State); err != nil {
-		t.Fatalf("première consommation: %v", err)
+		t.Fatalf("first consumption: %v", err)
 	}
 	if _, err := store.Consume(ctx, flow.State); !errors.Is(err, ErrUnknownState) {
-		t.Errorf("seconde consommation = %v, attendu ErrUnknownState", err)
+		t.Errorf("second consumption = %v, expected ErrUnknownState", err)
 	}
 }
 
-// Deux retours concurrents portant le même `state` — un rejeu — ne doivent pas
-// réussir tous les deux. C'est ce que garantit le `delete ... returning` en une
-// seule requête, là où un `select` suivi d'un `delete` ouvrirait la fenêtre.
+// Two concurrent callbacks carrying the same `state` — a replay — must not both
+// succeed. That is what the single `delete ... returning` guarantees.
 func TestConcurrentConsumeLetsExactlyOneThrough(t *testing.T) {
 	pool, store := flowStores(t)
 	ctx := context.Background()
@@ -78,7 +77,7 @@ func TestConcurrentConsumeLetsExactlyOneThrough(t *testing.T) {
 		wait.Add(1)
 		go func(index int) {
 			defer wait.Done()
-			// Chaque goroutine emploie sa propre instance, comme autant de pods.
+			// Each goroutine uses its own instance, as separate pods would.
 			_, err := NewDBFlowStore(pool, 10*time.Minute).Consume(ctx, flow.State)
 			results[index] = err
 		}(i)
@@ -92,12 +91,12 @@ func TestConcurrentConsumeLetsExactlyOneThrough(t *testing.T) {
 		}
 	}
 	if succeeded != 1 {
-		t.Errorf("%d consommations réussies, attendu exactement 1", succeeded)
+		t.Errorf("%d successful consumptions, expected exactly 1", succeeded)
 	}
 }
 
-// Un état échu est retiré **et** refusé : un `state` déjà présenté ne doit pas
-// pouvoir l'être une seconde fois, même expiré.
+// A lapsed state is removed and refused: a `state` already presented must not be
+// presentable a second time, even expired.
 func TestAnExpiredFlowIsRefusedAndRemoved(t *testing.T) {
 	pool, _ := flowStores(t)
 	ctx := context.Background()
@@ -111,28 +110,28 @@ func TestAnExpiredFlowIsRefusedAndRemoved(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 
 	if _, err := store.Consume(ctx, flow.State); !errors.Is(err, ErrUnknownState) {
-		t.Errorf("erreur = %v, attendu ErrUnknownState", err)
+		t.Errorf("error = %v, expected ErrUnknownState", err)
 	}
 
 	var remaining int
 	pool.QueryRow(ctx, `select count(*) from auth_flows where state = $1`, flow.State).Scan(&remaining)
 	if remaining != 0 {
-		t.Error("un état présenté doit être retiré, même expiré")
+		t.Error("a presented state must be removed, even expired")
 	}
 }
 
-// Rejeu, expiration purgée ou `state` forgé : les trois se traitent pareil, et
-// distinguer les cas renseignerait un attaquant.
+// Replay, a purged expiry or a forged `state`: all three are treated alike, and
+// distinguishing them would inform an attacker.
 func TestAnUnknownStateIsRefused(t *testing.T) {
 	_, store := flowStores(t)
 
 	if _, err := store.Consume(context.Background(), "jamais-emis"); !errors.Is(err, ErrUnknownState) {
-		t.Errorf("erreur = %v, attendu ErrUnknownState", err)
+		t.Errorf("error = %v, expected ErrUnknownState", err)
 	}
 }
 
-// Une connexion commencée puis abandonnée laisse une ligne que personne ne
-// consommera : sans purge, elle y reste à vie.
+// A sign-in started and then abandoned leaves a row nobody will consume: without
+// a purge it stays for good.
 func TestPurgeRemovesAbandonedFlows(t *testing.T) {
 	pool, _ := flowStores(t)
 	ctx := context.Background()
@@ -153,11 +152,11 @@ func TestPurgeRemovesAbandonedFlows(t *testing.T) {
 		t.Fatalf("purge: %v", err)
 	}
 	if removed != 3 {
-		t.Errorf("%d ligne(s) purgée(s), attendu 3", removed)
+		t.Errorf("%d row(s) purged, expected 3", removed)
 	}
-	// La transaction en cours survit : purger sans discernement déconnecterait
-	// quelqu'un en pleine authentification.
+	// The transaction in flight survives: purging indiscriminately would disconnect
+	// someone mid-authentication.
 	if _, err := live.Consume(ctx, kept.State); err != nil {
-		t.Errorf("la transaction vivante a été purgée: %v", err)
+		t.Errorf("the live transaction was purged: %v", err)
 	}
 }

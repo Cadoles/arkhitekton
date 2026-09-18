@@ -12,34 +12,31 @@ import (
 	"time"
 )
 
-// FlowState retient ce qui doit survivre à l'aller-retour vers le fournisseur
-// d'identité, entre /auth/login et /auth/callback.
+// FlowState holds what must survive the round trip to the identity provider,
+// between /auth/login and /auth/callback.
 //
-// Ces valeurs ne transitent pas par le navigateur autrement que sous forme du
-// `state` opaque : le vérificateur PKCE et le nonce restent côté serveur. Les
-// confier au client — cookie, paramètre — reviendrait à les offrir à qui
-// intercepte la redirection.
+// These values never reach the browser other than as the opaque `state`: the PKCE
+// verifier and the nonce stay server-side. Handing them to the client — a cookie,
+// a parameter — would offer them to whoever intercepts the redirect.
 type FlowState struct {
 	State        string
 	Nonce        string
 	CodeVerifier string
-	// RedirectAfter est la page demandée avant l'authentification. Ramener
-	// l'utilisateur à l'accueil après une reconnexion lui fait perdre son
-	// contexte, souvent au milieu d'une opération.
+	// RedirectAfter is the page requested before authentication. Returning the user
+	// to the home page after signing in again loses their context, often mid-task.
 	RedirectAfter string
 	CreatedAt     time.Time
 }
 
-// FlowStore conserve les transactions d'authentification en mémoire.
+// FlowStore keeps authentication transactions in memory.
 //
-// **Réservé aux tests et à un usage mono-instance.** Le raisonnement d'origine —
-// ces états vivent quelques secondes et les perdre ne coûte qu'une reconnexion —
-// négligeait le cas qui compte : avec plusieurs répliques et sans affinité de
-// session, `/auth/login` est servi par l'une et `/auth/callback` par l'autre.
-// L'état est alors introuvable, et une connexion sur deux échoue.
+// For tests and single-instance use only. The original reasoning — these states
+// live a few seconds and losing one costs a sign-in — missed the case that
+// matters: with several replicas and no session affinity, /auth/login is served
+// by one and /auth/callback by another, and one sign-in in two fails.
 //
-// La production emploie donc [DBFlowStore]. Celui-ci reste utile là où il n'y a
-// qu'un processus, et évite une base aux tests du flux.
+// Production therefore uses [DBFlowStore]. This one stays useful where there is a
+// single process, and spares the flow tests a database.
 type FlowStore struct {
 	mu     sync.Mutex
 	states map[string]FlowState
@@ -58,10 +55,10 @@ func NewFlowStore(ttl time.Duration) *FlowStore {
 	}
 }
 
-// Begin crée une transaction d'authentification et rend son état.
+// Begin creates an authentication transaction and returns its state.
 //
-// Le contexte est ignoré : il n'existe que pour que ce magasin reste
-// interchangeable avec [DBFlowStore], qui en a besoin.
+// The context is ignored: it exists only so this store stays interchangeable with
+// [DBFlowStore], which needs one.
 func (s *FlowStore) Begin(_ context.Context, redirectAfter string) (FlowState, error) {
 	state, err := randomToken(32)
 	if err != nil {
@@ -92,15 +89,15 @@ func (s *FlowStore) Begin(_ context.Context, redirectAfter string) (FlowState, e
 }
 
 var (
-	// ErrUnknownState signale un `state` absent : rejeu, expiration, ou tentative
-	// de forger un retour d'authentification. Les trois se traitent pareil.
-	ErrUnknownState = errors.New("state d'authentification inconnu ou expiré")
+	// ErrUnknownState reports an absent `state`: a replay, an expiry, or an attempt to
+	// forge a callback. All three are treated alike.
+	ErrUnknownState = errors.New("unknown or expired authentication state")
 )
 
-// Consume rend l'état associé et le retire.
+// Consume returns the associated state and removes it.
 //
-// À usage unique : un `state` rejouable permettrait de rejouer un code
-// d'autorisation intercepté. Le retrait a lieu que l'état soit valide ou expiré.
+// Single-use: a replayable `state` would allow replaying an intercepted
+// authorization code. Removal happens whether the state is valid or expired.
 func (s *FlowStore) Consume(_ context.Context, state string) (FlowState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -117,15 +114,15 @@ func (s *FlowStore) Consume(_ context.Context, state string) (FlowState, error) 
 	return flow, nil
 }
 
-// Len sert au diagnostic et aux tests.
+// Len serves diagnostics and tests.
 func (s *FlowStore) Len() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.states)
 }
 
-// evictExpiredLocked purge les transactions abandonnées. Sans elle, chaque
-// connexion commencée puis interrompue laisserait une entrée à vie.
+// evictExpiredLocked purges abandoned transactions. Without it, every sign-in
+// started and interrupted would leave an entry for good.
 func (s *FlowStore) evictExpiredLocked() {
 	cutoff := s.now().Add(-s.ttl)
 	for key, flow := range s.states {
@@ -135,18 +132,18 @@ func (s *FlowStore) evictExpiredLocked() {
 	}
 }
 
-// CodeChallenge dérive le challenge PKCE S256 du vérificateur. Gitea annonce
-// `S256` parmi ses méthodes supportées ; `plain` ne protégerait de rien.
+// CodeChallenge derives the S256 PKCE challenge from the verifier. `plain` would
+// protect nothing.
 func CodeChallenge(verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// randomToken produit une valeur imprévisible encodée en base64 URL.
+// randomToken produces an unpredictable value encoded as URL-safe base64.
 func randomToken(bytes int) (string, error) {
 	buf := make([]byte, bytes)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("génération aléatoire: %w", err)
+		return "", fmt.Errorf("random generation: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
@@ -156,8 +153,8 @@ func NewCSRFToken() (string, error) {
 	return randomToken(32)
 }
 
-// ConstantTimeEqual compare deux jetons sans fuite temporelle. Une comparaison
-// naïve laisse deviner un préfixe correct par la durée de la réponse.
+// ConstantTimeEqual compares two tokens without a timing leak. A naive comparison
+// lets a correct prefix be guessed from how long the answer takes.
 func ConstantTimeEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

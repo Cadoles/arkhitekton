@@ -10,12 +10,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Session est une session authentifiée, conservée côté serveur.
+// Session is an authenticated session, held server-side.
 //
-// Le navigateur ne détient qu'un identifiant opaque. C'est ce qui permet de
-// révoquer une session — impossible avec un JWT auto-porté, qui reste valide
-// jusqu'à son expiration quoi qu'il arrive. Le dashboard déclenche des
-// promotions en production : la révocation immédiate doit exister.
+// The browser holds only an opaque identifier. That is what allows revoking a
+// session — impossible with a self-contained JWT, which stays valid until it
+// expires whatever happens. The dashboard triggers promotions to production:
+// immediate revocation must exist.
 type Session struct {
 	ID        string
 	Subject   string
@@ -26,14 +26,14 @@ type Session struct {
 }
 
 var (
-	// ErrSessionNotFound couvre l'absence, l'expiration et la révocation. Les
-	// distinguer côté client donnerait un oracle sur l'existence des sessions.
-	ErrSessionNotFound = errors.New("session inconnue ou expirée")
-	// ErrNoRole signale un utilisateur authentifié sans rôle attribué.
-	ErrNoRole = errors.New("aucun rôle attribué")
+	// ErrSessionNotFound covers absence, expiry and revocation. Distinguishing them
+	// client-side would give an oracle on which sessions exist.
+	ErrSessionNotFound = errors.New("unknown or expired session")
+	// ErrNoRole reports an authenticated user with no role granted.
+	ErrNoRole = errors.New("no role granted")
 )
 
-// SessionStore gère les sessions et les rôles dans PostgreSQL.
+// SessionStore manages sessions and roles in PostgreSQL.
 type SessionStore struct {
 	pool *pgxpool.Pool
 	ttl  time.Duration
@@ -44,7 +44,7 @@ func NewSessionStore(pool *pgxpool.Pool, ttl time.Duration) *SessionStore {
 	return &SessionStore{pool: pool, ttl: ttl, now: time.Now}
 }
 
-// Create ouvre une session pour l'utilisateur identifié.
+// Create opens a session for the identified user.
 func (s *SessionStore) Create(ctx context.Context, subject, username, email string) (Session, error) {
 	id, err := randomToken(32)
 	if err != nil {
@@ -66,39 +66,38 @@ func (s *SessionStore) Create(ctx context.Context, subject, username, email stri
 		 values ($1, $2, $3, $4, $5, $6, $6)`,
 		session.ID, session.Subject, session.Username, session.Email, session.ExpiresAt, now)
 	if err != nil {
-		return Session{}, fmt.Errorf("création de session: %w", err)
+		return Session{}, fmt.Errorf("creating the session: %w", err)
 	}
 
-	// La date de dernière connexion rend praticable la revue périodique des
-	// rôles : sans elle, un rôle `releaser` survit silencieusement au départ de
-	// son titulaire.
+	// The last sign-in date makes periodic role review practicable: without it a
+	// releaser role silently outlives its holder's departure.
 	if _, err := s.pool.Exec(ctx,
 		`update user_roles set last_seen = $2, username = coalesce($3, username) where subject = $1`,
 		subject, now, nullable(username)); err != nil {
-		return Session{}, fmt.Errorf("mise à jour de la dernière connexion: %w", err)
+		return Session{}, fmt.Errorf("updating the last sign-in: %w", err)
 	}
 
 	return session, nil
 }
 
-// Lookup rend la session et le rôle associés à un identifiant.
+// Lookup returns the session and role for an identifier.
 //
-// L'expiration est filtrée en SQL plutôt qu'en Go : une session expirée ne doit
-// pas pouvoir être retournée puis oubliée par un appelant distrait.
+// Expiry is filtered in SQL rather than in Go: an expired session must not be
+// returnable and then forgotten by a distracted caller.
 func (s *SessionStore) Lookup(ctx context.Context, id string) (Session, Role, error) {
 	session, role, _, err := s.LookupRoles(ctx, id)
 	return session, role, err
 }
 
-// LookupRoles rend la session, le rôle global, et les rôles par projet.
+// LookupRoles returns the session, the global role, and the per-project roles.
 //
-// La jointure ne peut plus rendre une ligne : un sujet peut porter un rôle
-// global **et** des rôles de projet, et les fondre en une seule réponse ferait
-// perdre celui qui ne s'applique pas partout.
+// The join can no longer return one row: a subject may hold a global role and
+// project roles, and merging them into one answer would lose whichever does not
+// apply everywhere.
 //
-// Deux requêtes plutôt qu'une jointure qui multiplierait la session par ses
-// rôles : la session doit être lue même sans aucun rôle — l'utilisateur existe et
-// doit apparaître dans l'écran d'administration en attente d'attribution.
+// Two queries rather than a join multiplying the session by its roles: the session
+// must be read even with no role at all — the user exists and must appear in the
+// administration screen, awaiting a grant.
 func (s *SessionStore) LookupRoles(
 	ctx context.Context, id string,
 ) (Session, Role, map[int64]Role, error) {
@@ -117,13 +116,13 @@ func (s *SessionStore) LookupRoles(
 		return Session{}, "", nil, ErrSessionNotFound
 	}
 	if err != nil {
-		return Session{}, "", nil, fmt.Errorf("lecture de session: %w", err)
+		return Session{}, "", nil, fmt.Errorf("reading the session: %w", err)
 	}
 
 	rows, err := s.pool.Query(ctx,
 		`select role, project_id from user_roles where subject = $1`, session.Subject)
 	if err != nil {
-		return session, "", nil, fmt.Errorf("lecture des rôles: %w", err)
+		return session, "", nil, fmt.Errorf("reading the roles: %w", err)
 	}
 	defer rows.Close()
 
@@ -133,7 +132,7 @@ func (s *SessionStore) LookupRoles(
 		var raw string
 		var projectID *int64
 		if err := rows.Scan(&raw, &projectID); err != nil {
-			return session, "", nil, fmt.Errorf("lecture des rôles: %w", err)
+			return session, "", nil, fmt.Errorf("reading the roles: %w", err)
 		}
 		parsed, err := ParseRole(raw)
 		if err != nil {
@@ -146,19 +145,19 @@ func (s *SessionStore) LookupRoles(
 		projects[*projectID] = parsed
 	}
 	if err := rows.Err(); err != nil {
-		return session, "", nil, fmt.Errorf("lecture des rôles: %w", err)
+		return session, "", nil, fmt.Errorf("reading the roles: %w", err)
 	}
 
 	if global == "" && len(projects) == 0 {
-		// Authentifié mais sans rôle : l'utilisateur existe et doit apparaître
-		// dans l'écran d'administration en attente d'attribution, plutôt que de
-		// recevoir une erreur opaque suivie d'un ticket.
+		// Authenticated but without a role: the user exists and must appear in the
+		// administration screen awaiting a grant, rather than receive an opaque error
+		// followed by a ticket.
 		return session, "", nil, ErrNoRole
 	}
 	return session, global, projects, nil
 }
 
-// Touch prolonge la session et note son dernier usage.
+// Touch extends the session and records its last use.
 func (s *SessionStore) Touch(ctx context.Context, id string) error {
 	now := s.now().UTC()
 	_, err := s.pool.Exec(ctx,
@@ -167,20 +166,20 @@ func (s *SessionStore) Touch(ctx context.Context, id string) error {
 	return err
 }
 
-// Revoke supprime une session : c'est la déconnexion.
+// Revoke deletes a session: this is signing out.
 func (s *SessionStore) Revoke(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `delete from sessions where id = $1`, id)
 	return err
 }
 
-// RevokeSubject supprime toutes les sessions d'un utilisateur. Sert au retrait
-// d'un rôle et à la réponse à incident.
+// RevokeSubject deletes every session of a user. Used when removing a role and in
+// incident response.
 func (s *SessionStore) RevokeSubject(ctx context.Context, subject string) error {
 	_, err := s.pool.Exec(ctx, `delete from sessions where subject = $1`, subject)
 	return err
 }
 
-// PurgeExpired supprime les sessions échues. Appelé périodiquement par le worker.
+// PurgeExpired deletes lapsed sessions. Called periodically by the worker.
 func (s *SessionStore) PurgeExpired(ctx context.Context) (int64, error) {
 	tag, err := s.pool.Exec(ctx, `delete from sessions where expires_at <= $1`, s.now().UTC())
 	if err != nil {
@@ -189,29 +188,28 @@ func (s *SessionStore) PurgeExpired(ctx context.Context) (int64, error) {
 	return tag.RowsAffected(), nil
 }
 
-// GrantRole attribue ou remplace le rôle d'un utilisateur.
+// GrantRole grants or replaces a user's role.
 func (s *SessionStore) GrantRole(ctx context.Context, subject, username string, role Role, grantedBy string) error {
 	return s.GrantRoleIn(ctx, subject, username, role, nil, grantedBy)
 }
 
-// GrantRoleIn attribue un rôle dans un projet, ou partout quand il est nil.
+// GrantRoleIn grants a role in a project, or everywhere when it is nil.
 //
-// Deux `on conflict` plutôt qu'un : les index qui portent l'unicité sont
-// partiels — au plus un rôle global, au plus un par projet — et `on conflict`
-// exige de nommer celui qu'il vise. Une clé composite `(subject, project_id)`
-// aurait permis une seule clause, mais laissé passer plusieurs rôles globaux,
-// `null` n'étant jamais égal à `null`.
+// Two `on conflict` clauses rather than one: the indexes carrying uniqueness are
+// partial — at most one global role, at most one per project — and `on conflict`
+// requires naming the one it targets. A composite key would have allowed a single
+// clause but let several global roles through, `null` never equalling `null`.
 func (s *SessionStore) GrantRoleIn(
 	ctx context.Context, subject, username string, role Role, projectID *int64, grantedBy string,
 ) error {
 	if !role.Valid() {
-		return fmt.Errorf("rôle invalide %q", role)
+		return fmt.Errorf("invalid role %q", role)
 	}
-	// `admin` gouverne les comptes, les dépôts et la synchronisation — rien de
-	// tout cela n'appartient à un projet. La base le refuse aussi ; le dire ici
-	// rend le message lisible plutôt que de laisser remonter une contrainte.
+	// `admin` governs accounts, repositories and synchronisation — none of which
+	// belongs to a project. The database refuses it too; saying it here makes the
+	// message readable rather than surfacing a constraint.
 	if role == RoleAdmin && projectID != nil {
-		return fmt.Errorf("le rôle %q ne s'attribue pas par projet", role)
+		return fmt.Errorf("role %q is not granted per project", role)
 	}
 
 	conflict := "(subject) where project_id is null"
@@ -230,37 +228,33 @@ func (s *SessionStore) GrantRoleIn(
 	return err
 }
 
-// ApplyBootstrap consomme le rôle déclaré pour ce compte, s'il en existe un.
+// ApplyBootstrap consumes the role declared for this account, if any, and returns
+// the role granted or an empty string when nothing was pending.
 //
-// Rend le rôle attribué, ou une chaîne vide quand rien n'était en attente.
+// `user_roles` is keyed by `subject`, the identifier the provider puts in the
+// token — a number, in Gitea's case. It is knowable only after the first sign-in: a
+// row written in advance would target a non-existent subject, and the real user
+// would sign in with no permission at all.
 //
-// `user_roles` est indexée par `subject`, l'identifiant que le fournisseur met
-// dans le jeton — un nombre, chez Gitea. Il n'est connaissable qu'après la
-// première connexion : une ligne écrite à l'avance viserait un sujet inexistant,
-// et l'utilisateur réel se connecterait sans aucune permission. Le projet l'a
-// fait, et l'a retiré. La déclaration porte donc l'intention, et la connexion la
-// transforme en rôle.
+// The declarations come from `bootstrap_grants`, written once by the bootstrap —
+// not from a configuration re-read on every sign-in. The difference is a power: a
+// variable read every time lets whoever can edit it grant themselves a role
+// indefinitely, with no trace but a sign-in. A consumed declaration promotes
+// nobody again.
 //
-// Les déclarations viennent de `bootstrap_grants`, posée **une fois** par
-// l'amorçage — et non d'une configuration relue à chaque connexion. La
-// différence est un pouvoir : une variable d'environnement toujours lue permet à
-// qui peut l'éditer de se redonner un rôle indéfiniment, sans autre trace qu'une
-// connexion. Une déclaration consommée ne repromeut plus personne.
-//
-// La ligne produite porte `granted_by = 'bootstrap'`, ce qui la rend
-// reconnaissable dans l'écran d'administration.
+// The row produced carries `granted_by = 'bootstrap'`, which makes it
+// recognisable in the administration screen.
 func (s *SessionStore) ApplyBootstrap(ctx context.Context, subject, username string) (string, error) {
-	// La correspondance accepte les deux formes, et l'ordre compte : le sujet
-	// d'abord, immuable, puis le nom de compte, qui peut être réattribué dans
-	// Gitea. Une déclaration par sujet doit l'emporter sur une homonymie.
+	// The match accepts both forms, and the order matters: the subject first, which is
+	// immutable, then the account name, which can be reassigned. A declaration by
+	// subject must beat a name collision.
 	//
-	// `claimed_at is null` est ce qui rend la réclamation unique : une
-	// déclaration consommée ne repromeut personne, y compris le même compte
-	// après qu'un administrateur l'a rétrogradé.
+	// `claimed_at is null` is what makes the claim single-use: a consumed declaration
+	// promotes nobody, including the same account after an administrator demoted it.
 	//
-	// Tout tient dans une requête. La répartir entre du SQL et du Go ouvrirait
-	// une fenêtre entre la lecture et l'écriture, pendant laquelle deux
-	// connexions simultanées réclameraient la même déclaration.
+	// It all fits in one query. Splitting it between SQL and Go would open a window
+	// between the read and the write, during which two concurrent sign-ins would claim
+	// the same declaration.
 	const query = `
 		with candidate as (
 		    select identifier, role from bootstrap_grants
@@ -277,13 +271,12 @@ func (s *SessionStore) ApplyBootstrap(ctx context.Context, subject, username str
 		)
 		insert into user_roles (subject, username, role, project_id, granted_by, granted_at)
 		select $1, nullif($2, ''), role, null, 'bootstrap', $3 from claimed
-		-- Un rôle existant n'est jamais écrasé : un compte rétrogradé
-		-- volontairement ne doit pas redevenir administrateur à sa prochaine
-		-- connexion.
+		-- An existing role is never overwritten: an account deliberately demoted
+		-- must not become an administrator again at its next sign-in.
 		--
-		-- La clause vise l'index partiel des rôles **globaux** : l'amorçage n'en
-		-- accorde pas d'autres, et un rôle de projet déjà posé ne doit pas
-		-- empêcher l'attribution globale qu'une déclaration réclame.
+		-- The clause targets the partial index of global roles: the bootstrap
+		-- grants no others, and a project role already set must not block the
+		-- global grant a declaration claims.
 		on conflict (subject) where project_id is null do nothing
 		returning role`
 
@@ -291,12 +284,11 @@ func (s *SessionStore) ApplyBootstrap(ctx context.Context, subject, username str
 	err := s.pool.QueryRow(ctx, query, subject, username, s.now().UTC()).Scan(&role)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Aucune déclaration en attente pour ce compte, ou un rôle existe
-			// déjà. Ni l'un ni l'autre n'est une anomalie : c'est le cas de
-			// toutes les connexions après la première.
+			// No declaration pending for this account, or a role already exists. Neither is an
+			// anomaly: it is the case of every sign-in after the first.
 			return "", nil
 		}
-		return "", fmt.Errorf("amorçage de %q: %w", subject, err)
+		return "", fmt.Errorf("bootstrapping %q: %w", subject, err)
 	}
 	return role, nil
 }

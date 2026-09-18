@@ -11,7 +11,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
-// Claims porte l'identité extraite du jeton d'identité.
+// Claims carries the identity extracted from the ID token.
 type Claims struct {
 	Subject  string `json:"sub"`
 	Username string `json:"preferred_username"`
@@ -19,38 +19,37 @@ type Claims struct {
 	Email    string `json:"email"`
 }
 
-// Exchanger échange un code d'autorisation contre une identité vérifiée.
+// Exchanger exchanges an authorization code for a verified identity.
 //
-// L'interface existe pour que les handlers soient testables sans fournisseur
-// d'identité : c'est le seul point du flux qui sort du processus.
+// The interface exists so the handlers are testable without an identity provider:
+// it is the only point of the flow that leaves the process.
 type Exchanger interface {
 	AuthCodeURL(state, nonce, codeChallenge string) string
 	Exchange(ctx context.Context, code, codeVerifier, expectedNonce string) (Claims, error)
 }
 
-// ErrInvalidNonce signale un jeton dont le nonce ne correspond pas à la
-// transaction en cours : jeton rejoué, ou obtenu pour une autre session.
-var ErrInvalidNonce = errors.New("nonce du jeton d'identité invalide")
+// ErrInvalidNonce reports a token whose nonce does not match the transaction in
+// flight: a replayed token, or one obtained for another session.
+var ErrInvalidNonce = errors.New("invalid ID token nonce")
 
-// Provider implémente Exchanger avec go-oidc.
+// Provider implements Exchanger with go-oidc.
 type Provider struct {
 	oauth    oauth2.Config
 	verifier *oidc.IDTokenVerifier
 }
 
-// NewProvider interroge la découverte du fournisseur et prépare la vérification.
+// NewProvider queries the provider's discovery document and prepares verification.
 //
-// La découverte a lieu au démarrage : un fournisseur injoignable doit empêcher
-// le démarrage plutôt que de produire des erreurs d'authentification opaques au
-// premier utilisateur.
+// Discovery happens at start-up: an unreachable provider must prevent start-up
+// rather than produce opaque authentication errors for the first user.
 //
-// L'issuer doit correspondre au caractère près à la claim `iss`. Gitea annonce
-// « https://forge.cadoles.com/ », slash final compris : l'omettre fait échouer
-// la vérification avec un message qui n'y renvoie pas.
+// The issuer must match the `iss` claim character for character, trailing slash
+// included; omitting it fails verification with a message that does not point at
+// it.
 func NewProvider(ctx context.Context, cfg config.OIDCConfig) (*Provider, error) {
 	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
 	if err != nil {
-		return nil, fmt.Errorf("découverte OIDC de %q: %w", cfg.IssuerURL, err)
+		return nil, fmt.Errorf("OIDC discovery of %q: %w", cfg.IssuerURL, err)
 	}
 
 	return &Provider{
@@ -77,35 +76,35 @@ func (p *Provider) Exchange(ctx context.Context, code, codeVerifier, expectedNon
 	token, err := p.oauth.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("code_verifier", codeVerifier))
 	if err != nil {
-		return Claims{}, fmt.Errorf("échange du code d'autorisation: %w", err)
+		return Claims{}, fmt.Errorf("exchanging the authorization code: %w", err)
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
-		return Claims{}, errors.New("réponse sans jeton d'identité")
+		return Claims{}, errors.New("response without an ID token")
 	}
 
 	// Vérifie signature, issuer, audience et expiration.
 	idToken, err := p.verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		return Claims{}, fmt.Errorf("vérification du jeton d'identité: %w", err)
+		return Claims{}, fmt.Errorf("verifying the ID token: %w", err)
 	}
 
-	// Le nonce lie le jeton à la transaction ouverte par /auth/login. Sans cette
-	// vérification, un jeton valide obtenu ailleurs serait accepté ici.
+	// The nonce binds the token to the transaction opened by /auth/login. Without this
+	// check, a valid token obtained elsewhere would be accepted here.
 	if idToken.Nonce != expectedNonce {
 		return Claims{}, ErrInvalidNonce
 	}
 
 	var claims Claims
 	if err := idToken.Claims(&claims); err != nil {
-		return Claims{}, fmt.Errorf("lecture des claims: %w", err)
+		return Claims{}, fmt.Errorf("reading the claims: %w", err)
 	}
 	if claims.Subject == "" {
 		claims.Subject = idToken.Subject
 	}
 	if claims.Subject == "" {
-		return Claims{}, errors.New("jeton sans identifiant de sujet")
+		return Claims{}, errors.New("token without a subject identifier")
 	}
 	return claims, nil
 }
