@@ -1,15 +1,15 @@
-// Package catalog porte la description déclarative des pipelines lançables.
+// Package catalog carries the declarative description of runnable pipelines.
+// See docs/05-pipeline-catalogue.md for the format.
 //
-// Créer un PipelineRun à la main suppose de reproduire ce que faisaient les
-// TriggerTemplate de `mse-tekton` : workspaces, secrets, volumeClaimTemplate,
-// compte de service, secrets de tirage d'image, valeurs par défaut. Coder cela en
-// Go ferait que toute évolution de `mse-tekton` casse le dashboard sans que rien
-// ne le signale — au mieux à la première utilisation, souvent bien plus tard.
+// Building a PipelineRun by hand means reproducing what a TriggerTemplate did:
+// workspaces, secrets, volume claim templates, service account, image pull
+// secrets, defaults. Coding that in Go would let any change on the pipelines'
+// side break the dashboard with nothing to signal it.
 //
-// Le catalogue vit donc en ConfigMap, hors du binaire, et il est **validé au
-// démarrage contre les Pipeline réellement présents dans le cluster**. Un écart
-// empêche le démarrage avec un message qui le nomme, plutôt que de produire des
-// runs invalides (doc 06 §6.2).
+// The catalogue therefore lives in a ConfigMap, outside the binary, and is
+// validated at start-up against the Pipelines actually present in the cluster. A
+// mismatch stops start-up with a message naming it, rather than producing invalid
+// runs.
 package catalog
 
 import (
@@ -26,100 +26,86 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 )
 
-// DefaultKindConcurrency est le plafond d'un type qui n'en déclare pas.
+// DefaultKindConcurrency is the ceiling for a kind that declares none.
 //
-// Cinq, et non un : la plupart des pipelines — analyse statique, tests
-// unitaires, audit — n'ont aucune raison de s'exclure, et les faire attendre
-// l'un l'autre allongerait la vérification d'une release sans rien protéger.
+// Five rather than one: most pipelines — static analysis, unit tests, audit —
+// have no reason to exclude each other, and making them queue would lengthen the
+// verification of a release without protecting anything.
 const DefaultKindConcurrency = 5
 
-// ExclusiveKindConcurrency est le plafond d'un type qui ne supporte pas le
-// parallélisme : tests d'intégration, E2E, charge. Chacun déploie ou mesure une
-// cible unique, et deux exécutions simultanées se marchent dessus.
+// ExclusiveKindConcurrency is the ceiling for a kind that cannot run in
+// parallel: integration tests, end-to-end, load. Each deploys to or measures a
+// single target, and two runs at once tread on each other.
 const ExclusiveKindConcurrency = 1
 
-// Catalog est le catalogue chargé.
+// Catalog is a loaded catalogue.
 type Catalog struct {
 	Pipelines []Pipeline `json:"pipelines"`
-	// Projects porte ce que le catalogue déclare pour un projet, par slug : ses
-	// environnements (doc 16 §16.18).
+	// Projects carries what the catalogue declares per project, keyed by slug.
 	//
-	// Dans le même fichier que les pipelines : les deux décrivent ce que le
-	// dashboard peut déclencher, et les séparer imposerait deux montages et deux
-	// chargements pour une même intention.
+	// In the same file as the pipelines: both describe what the dashboard can
+	// trigger, and separating them would mean two mounts and two loads for one
+	// intent.
 	Projects map[string]ProjectDeclaration `json:"projects,omitempty"`
-	// ScoreWeights porte la pondération du score de qualité. Vide, la pondération
-	// acceptée par le client s'applique — l'absence de configuration ne doit pas
-	// rendre le score incalculable (B11).
+	// ScoreWeights carries the quality score weighting. Empty applies the default:
+	// missing configuration must not make the score incomputable.
 	Score map[string]float64 `json:"score,omitempty"`
-	// MaxConcurrentRuns protège le cluster : les pipelines demandent des PVC et
-	// des pods de build, et rien n'empêche mécaniquement d'en lancer vingt.
+	// MaxConcurrentRuns protects the cluster: pipelines ask for volumes and build
+	// pods, and nothing mechanically prevents launching twenty.
 	MaxConcurrentRuns int `json:"maxConcurrentRuns"`
-	// PodTemplate s'applique à tous les pipelines, sauf à ceux qui en déclarent
-	// un.
+	// PodTemplate applies to every pipeline except those declaring their own.
 	//
-	// Global plutôt que répété par entrée, et c'est le correctif d'un défaut
-	// constaté : **les cinq pipelines tirent au moins une image de
-	// `reg.cadoles.com`**, projet privé, et aucun ne déclarait de secret de
-	// tirage. Les runs échouaient en `TaskRunImagePullFailed` — pas au moment de
-	// pousser, mais avant même de démarrer l'étape. Répéter le réglage sur chaque
-	// entrée l'aurait fait oublier sur la suivante ; ici, une entrée nouvelle en
-	// hérite sans qu'on y pense.
+	// Global rather than repeated per entry, and that fixes an observed failure:
+	// every pipeline pulls at least one image from a private registry, and none
+	// declared a pull secret. Runs failed with TaskRunImagePullFailed before even
+	// starting their first step. Repeating the setting per entry would get it
+	// forgotten on the next one.
 	PodTemplate *PodTemplate `json:"podTemplate,omitempty"`
 }
 
-// Environment décrit un environnement de déploiement.
+// Environment describes a deployment environment.
 //
-// Ces valeurs sont de la configuration et non des constantes : le libellé, le
-// rang et surtout le suffixe de promotion sont propres au déploiement — Flux
-// désigne `qualif` sous le nom `testing`. Coder cette correspondance reviendrait
-// à promouvoir vers le mauvais environnement au premier oubli (B13).
+// These are configuration, not constants: the label, the rank and above all the
+// promotion suffix belong to the deployment — a GitOps controller may know
+// `qualif` as `testing`. Hard-coding that mapping means promoting to the wrong
+// environment the first time someone forgets.
 type Environment struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	Rank      int    `json:"rank"`
 	Namespace string `json:"namespace"`
-	// Deployer porte ce dont l'outil de déploiement a besoin, dans **son**
-	// vocabulaire et sans que le catalogue le connaisse.
+	// Deployer carries what the deployment tool needs, in its own vocabulary and
+	// without the catalogue knowing it.
 	//
-	// Trois champs nommés vivaient ici jusqu'au lot D — `promotionSuffix`,
-	// `acceptsPrerelease`, `fluxKustomization` —, et le dernier disait son
-	// origine dans son nom. Les deux premiers la disaient moins fort mais tout
-	// autant : une métadonnée SemVer retenue par une plage n'a de sens que pour
-	// une sélection par plage, et rien de tout cela ne s'applique à un déployeur
-	// qui procède autrement.
+	// Named fields used to live here, and the validation required a non-empty
+	// promotion suffix on every environment — so a project with no deployment tool
+	// could not declare an environment at all. The catalogue imposed one tool on
+	// whoever had none.
 	//
-	// La validation, surtout, **exigeait** un `promotionSuffix` non vide sur
-	// chaque environnement. Un projet sans outil de déploiement ne pouvait donc
-	// pas déclarer un environnement — le catalogue imposait Flux à qui n'en
-	// avait pas (doc 12 §12.9, lot D).
-	//
-	// Chaînes plutôt qu'un type : c'est ce qu'une configuration transporte, et la
-	// validation revient au déployeur, qui seul sait ce que ces clés veulent
-	// dire. Le prix d'une frontière que l'on veut franchissable.
+	// Strings rather than a type: that is what configuration carries, and validation
+	// belongs to the deployer, which alone knows what these keys mean.
 	Deployer map[string]string `json:"deployer,omitempty"`
-	// Observable vaut false pour la production, dans un cluster indépendant.
+	// Observable is false for an environment in a cluster the dashboard cannot see.
 	Observable *bool `json:"observable,omitempty"`
 	Visible    *bool `json:"visible,omitempty"`
-	// Sensitive réserve la promotion au rôle `releaser`. Vaut pour les
-	// environnements qui reçoivent ce qui part chez l'utilisateur final.
+	// Sensitive reserves promotion to the releaser role. It holds for environments
+	// that receive what reaches the end user.
 	Sensitive *bool `json:"sensitive,omitempty"`
 }
 
-// IsObservable rend la valeur effective, l'absence valant « observable ».
+// IsObservable returns the effective value; absence means observable.
 func (e Environment) IsObservable() bool { return e.Observable == nil || *e.Observable }
 
-// IsVisible rend la valeur effective, l'absence valant « visible ».
+// IsVisible returns the effective value; absence means visible.
 func (e Environment) IsVisible() bool { return e.Visible == nil || *e.Visible }
 
-// ProjectDeclaration est ce que le catalogue déclare pour un projet.
+// ProjectDeclaration is what the catalogue declares for one project.
 type ProjectDeclaration struct {
-	// Environments sont les environnements vers lesquels le projet déploie, dans
-	// leur ordre de promotion.
+	// Environments are the environments the project deploys to, in promotion order.
 	Environments []Environment `json:"environments,omitempty"`
 }
 
-// EnvironmentsOf rend les environnements déclarés pour un projet, ou aucun.
+// EnvironmentsOf returns the environments declared for a project, or none.
 func (c *Catalog) EnvironmentsOf(project string) []Environment {
 	if c == nil {
 		return nil
@@ -127,9 +113,8 @@ func (c *Catalog) EnvironmentsOf(project string) []Environment {
 	return c.Projects[project].Environments
 }
 
-// IsSensitive rend la valeur effective, l'absence valant « sensible » : un
-// environnement déclaré sans y penser doit être plus difficile à atteindre, jamais
-// plus facile.
+// IsSensitive returns the effective value; absence means sensitive. An
+// environment declared without thinking must be harder to reach, never easier.
 func (e Environment) IsSensitive() bool { return e.Sensitive == nil || *e.Sensitive }
 
 /*
@@ -153,77 +138,67 @@ func (e Environment) IsSensitive() bool { return e.Sensitive == nil || *e.Sensit
  * haut aurait produit deux sens du même mot, à demeure.
  */
 
-// Product nomme une chose qu'un pipeline produit.
+// Product names something a pipeline produces.
 //
-// Jeu **fermé** : ce sont les issues que le dashboard sait lire, et en ajouter une
-// demande du code — un lecteur, un écran — pas une ligne de configuration.
+// A closed set: these are the outcomes the dashboard can read, and adding one
+// takes code — a parser, a screen — not a line of configuration.
 type Product string
 
 const (
-	// ProductImage : le pipeline publie des images, dont le dashboard lit les
-	// digests et qu'un re-tag pourra reprendre.
+	// ProductImage: the pipeline publishes images, whose digests the dashboard reads
+	// and which a re-tag can promote.
 	ProductImage Product = "image"
-	// ProductResults : le pipeline publie des rapports conformes à doc 13 —
-	// familles, marqueurs, artefacts pré-signés.
+	// ProductResults: the pipeline publishes reports — families, markers, presigned
+	// artifacts. See docs/05-pipeline-catalogue.md.
 	ProductResults Product = "results"
-	// ProductNone : le pipeline ne rend que son verdict. Un déploiement, une
-	// migration, un nettoyage.
+	// ProductNone: the pipeline yields only its verdict. A deployment, a migration,
+	// a clean-up.
 	//
-	// Déclaré explicitement plutôt que représenté par une liste vide : « ce
-	// pipeline ne produit rien » et « personne n'a répondu à la question » sont
-	// deux choses différentes, et seule la seconde doit être refusée.
+	// Declared explicitly rather than represented by an empty list: "this pipeline
+	// produces nothing" and "nobody answered the question" are different, and only
+	// the second must be refused.
 	ProductNone Product = "none"
 )
 
-// products énumère les valeurs admises, pour les nommer dans un message.
+// products lists the accepted values, to name them in a message.
 var products = []Product{ProductImage, ProductResults, ProductNone}
 
-// Pipeline décrit un pipeline lançable.
+// Pipeline describes a runnable pipeline.
 type Pipeline struct {
-	// Kind est l'identifiant employé par le dashboard. Distinct de PipelineRef :
-	// il survit à un renommage côté `mse-tekton`, que le catalogue absorbe.
+	// Kind is the identifier the dashboard uses. Distinct from PipelineRef: it
+	// survives a rename on the Tekton side, which the catalogue absorbs.
 	Kind string `json:"kind"`
-	// PipelineRef est le nom du Pipeline dans le cluster.
+	// PipelineRef is the name of the Pipeline in the cluster.
 	PipelineRef string `json:"pipelineRef"`
 	Label       string `json:"label"`
-	// Verification dit qu'une construction réussie enchaîne ce pipeline, et qu'il
-	// est relançable seul depuis l'écran d'une release.
+	// Verification says a successful build chains this pipeline, and that it can be
+	// re-run on its own from a release's screen.
 	//
-	// C'est une décision de **processus** — « ce projet vérifie ceci après avoir
-	// construit » — qui vivait en Go, dans deux listes en dur tenues alignées par
-	// un test : une dans l'ordonnanceur, une dans l'API. Elle appartient au
-	// catalogue, à côté du pipeline qu'elle décrit : un déploiement sans campagne
-	// E2E cesse ainsi d'avoir un pipeline fantôme dans sa file, sans recompiler
-	// (doc 12 §12.9, chantier 6).
+	// A process decision — "this project verifies this after building" — which used
+	// to live in Go, in two hard-coded lists kept aligned by a test. It belongs in
+	// the catalogue, next to the pipeline it describes: a deployment without an
+	// end-to-end campaign then stops having a phantom pipeline in its queue.
 	//
-	// Porté par chaque pipeline plutôt que par une liste en tête du catalogue :
-	// une liste peut nommer une famille absente, et l'ordre d'enchaînement
-	// deviendrait une seconde vérité à côté de l'ordre de déclaration.
-	//
-	// **Ne dit plus que l'enchaînement.** Ce qu'un pipeline produit se déclare
-	// désormais dans `Produces`, et les deux axes cessent d'être confondus. Ce
-	// drapeau disparaîtra le jour où l'enchaînement deviendra un plan déclaré
-	// (doc 14).
+	// Carried by each pipeline rather than by a list at the top: a list can name an
+	// absent family, and the chaining order would become a second truth beside the
+	// declaration order.
 	Verification bool `json:"verification,omitempty"`
-	// Produces énumère ce que le pipeline laisse derrière lui.
+	// Produces lists what the pipeline leaves behind.
 	//
-	// Une **liste** et non une valeur : un pipeline qui construit une image puis
-	// lance ses tests dans la foulée rend les deux, et n'a pas à être coupé en
-	// deux pour entrer dans le modèle.
+	// A list rather than a value: a pipeline that builds an image and then runs its
+	// tests yields both, and need not be split in two to fit the model.
 	Produces []Product `json:"produces,omitempty"`
-	// MaxConcurrent borne la file de ce type. Zéro vaut DefaultKindConcurrency :
-	// un type nouveau démarre parallélisable, ce qui est le cas courant, et
-	// s'exclut en le déclarant plutôt qu'en l'oubliant.
+	// MaxConcurrent bounds this kind's queue. Zero means DefaultKindConcurrency: a
+	// new kind starts parallelisable, which is the common case, and excludes itself
+	// by declaring it rather than by forgetting.
 	//
-	// Remplace la classe d'exclusion du modèle précédent, qui groupait plusieurs
-	// types dans une même file sans que rien ne dise lesquels. Un plafond répond
-	// à la seule question posée — combien peuvent tourner ensemble — et se lit
-	// sans avoir à parcourir le catalogue entier.
+	// A ceiling answers the only question asked — how many may run together — and
+	// reads without walking the whole catalogue.
 	MaxConcurrent int `json:"maxConcurrent,omitempty"`
-	// Timeout borne l'exécution. Vide vaut le défaut de Tekton.
+	// Timeout bounds execution. Empty means Tekton's default.
 	Timeout string `json:"timeout,omitempty"`
-	// ServiceAccountName n'est pas décoratif : `php-integration-test` déploie
-	// dans un namespace applicatif et exige `tekton-kubectl`.
+	// ServiceAccountName is not decorative: a pipeline that deploys into an
+	// application namespace needs an account allowed to do so.
 	ServiceAccountName string            `json:"serviceAccountName,omitempty"`
 	Params             map[string]Param  `json:"params,omitempty"`
 	Uploads            map[string]Upload `json:"uploads,omitempty"`
@@ -231,56 +206,46 @@ type Pipeline struct {
 	PodTemplate        *PodTemplate      `json:"podTemplate,omitempty"`
 }
 
-// Param décrit d'où vient la valeur d'un paramètre.
+// Param describes where a parameter's value comes from.
 type Param struct {
-	// Source vaut "input" (fourni au lancement), "config" (tiré de la
-	// configuration) ou "literal" (valeur fixe).
+	// Source is "input" (given at launch), "config" (read from configuration) or
+	// "literal" (a fixed value).
 	Source   string `json:"source"`
 	Key      string `json:"key,omitempty"`
 	Value    string `json:"value,omitempty"`
 	Required bool   `json:"required,omitempty"`
-	// Suggest nomme la nature de la valeur attendue, pour que le formulaire de
-	// lancement propose une liste plutôt qu'un champ vide.
+	// Suggest names the nature of the expected value, so the launch form can offer a
+	// list instead of an empty field.
 	//
-	// Déclaré ici et non déduit du nom du paramètre : `revision`,
-	// `app-revision` et `mse-revision` désignent la même chose sous trois noms,
-	// et coder cette correspondance en Go la ferait diverger du catalogue au
-	// premier pipeline ajouté. Le catalogue sait ce qu'il demande.
+	// Declared here rather than inferred from the parameter's name: `revision`,
+	// `app-revision` and `mse-revision` mean the same thing under three names, and
+	// coding that correspondence in Go would diverge from the catalogue at the first
+	// pipeline added.
 	//
-	// Sans effet sur l'exécution : une suggestion est une aide à la saisie, pas
-	// une contrainte. Le champ reste libre — une référence absente d'une liste
-	// n'est pas une référence inexistante.
-	// Elle sert aussi à **renseigner** un paramètre lors d'un enchaînement
-	// automatique, où personne ne saisit rien : c'est elle qui dit qu'un
-	// `app-revision` veut une référence Git, sans que le code ait à connaître ce
-	// nom-là. Voir Pipeline.VerificationInputs.
+	// It has no effect on execution: a suggestion is an aid, not a constraint. It
+	// also fills a parameter during automatic chaining, where nobody types anything —
+	// it is what says an `app-revision` wants a git ref, without the code knowing
+	// that name. See Pipeline.VerificationInputs.
 	Suggest string `json:"suggest,omitempty"`
-	// Image nomme le dépôt d'image court — `portal`, `portal-cli` — que ce
-	// paramètre doit recevoir. N'a de sens qu'avec `suggest: image`.
+	// Image names the short image repository this parameter must receive. It only
+	// means something with `suggest: image`.
 	//
-	// Déclaré ici parce que la correspondance « ce paramètre veut cette image »
-	// appartient au pipeline, pas au dashboard. Elle vivait dans une table de
-	// noms en dur — `portal-image` → `portal` — recopiée à deux endroits, et qui
-	// obligeait à modifier le Go pour tout pipeline nommant autrement ses
-	// paramètres.
+	// Declared here because "this parameter wants that image" belongs to the
+	// pipeline, not to the dashboard. It used to live in a hard-coded table, copied
+	// in two places, which forced a Go change for any pipeline naming its parameters
+	// differently.
 	Image string `json:"image,omitempty"`
-	// Label, Help et Placeholder rendent le paramètre **saisissable**.
+	// Label, Help and Placeholder make the parameter fillable.
 	//
-	// # Pourquoi ils arrivent maintenant
+	// While a release plan was composed in Go, nobody had to read a parameter name.
+	// Declaring the build from the automation screen reverses that: a human chooses a
+	// pipeline and must fill in what it asks for, without reading the catalogue.
 	//
-	// Tant qu'un plan de release était composé en Go, personne n'avait à lire un
-	// nom de paramètre : `buildStage` écrivait `image-name` et `target` en clair.
-	// Déclarer la construction depuis l'onglet automatisation renverse cela — un
-	// humain choisit un pipeline et doit renseigner ce qu'il demande, sans lire
-	// le catalogue (doc 15 §15.5).
+	// This is what plugin.ActionField already does for actions, and the symmetry is
+	// deliberate: both kinds of step are typed into the same form.
 	//
-	// C'est exactement ce que `plugin.ActionField` fait déjà pour les actions. La
-	// symétrie est voulue : les deux natures de geste se saisissent dans le même
-	// formulaire, et rien ne justifierait qu'une action s'explique et qu'un
-	// pipeline se devine.
-	//
-	// Facultatifs. Sans libellé, le nom du paramètre en tient lieu : un catalogue
-	// existant reste utilisable, il est seulement plus sec.
+	// Optional. Without a label, the parameter's name stands in: an existing
+	// catalogue stays usable, only drier.
 	Label       string `json:"label,omitempty"`
 	Help        string `json:"help,omitempty"`
 	Placeholder string `json:"placeholder,omitempty"`
@@ -293,25 +258,23 @@ const (
 	SourceLiteral = "literal"
 )
 
-// Natures suggérées reconnues.
+// Recognised suggestion natures.
 //
-// Volontairement peu nombreuses : chacune correspond à une liste que le
-// dashboard sait constituer. En ajouter une sans la source qui la peuple
-// donnerait un menu déroulant vide, pire qu'un champ libre.
+// Deliberately few: each corresponds to a list the dashboard can build. Adding
+// one without the source that populates it would give an empty dropdown, worse
+// than a free-text field.
 const (
 	SuggestGitRef      = "git-ref"
 	SuggestReleaseTag  = "release-tag"
 	SuggestEnvironment = "environment"
-	// SuggestImage attend une **référence** d'image complète, registre et tag
-	// compris. Laquelle est dite par `Param.Image` : une seule nature suffit donc
-	// là où il en fallait une par image — `portal-image`, `consumer-image` —, et
-	// publier une image de plus ne demande plus de toucher au code.
+	// SuggestImage expects a full image reference, registry and tag included. Which
+	// one is said by Param.Image, so a single nature covers what used to need one per
+	// image, and publishing one more image no longer touches the code.
 	SuggestImage = "image"
-	// SuggestImageName propose les dépôts publiés — `portal`, `portal-cli`,
-	// `portal-dev` — pour les pipelines qui en prennent un en paramètre depuis
-	// qu'ils n'en traitent qu'un par exécution.
+	// SuggestImageName offers the published repositories, for pipelines that take one
+	// as a parameter since they handle a single image per run.
 	SuggestImageName = "image-name"
-	// SuggestBuildTarget propose les cibles du Dockerfile qui les alimentent.
+	// SuggestBuildTarget offers the Dockerfile targets that feed them.
 	SuggestBuildTarget = "build-target"
 )
 
@@ -320,47 +283,45 @@ var suggestions = map[string]bool{
 	SuggestImage: true, SuggestImageName: true, SuggestBuildTarget: true,
 }
 
-// Input décrit un paramètre à fournir au lancement.
+// Input describes a parameter to supply at launch.
 type Input struct {
 	Name     string
 	Required bool
 	Suggest  string
 	Image    string
-	// Label retombe sur le nom quand le catalogue n'en déclare pas : un
-	// formulaire avec un champ sans étiquette est un champ qu'on ne remplit pas.
+	// Label falls back to the name when the catalogue declares none: a form field
+	// without a label is a field nobody fills in.
 	Label       string
 	Help        string
 	Placeholder string
 }
 
-// Origin dit **qui renseigne** un paramètre dans le plan d'une release.
+// Origin says who fills a parameter in a release's plan.
 //
-// La distinction existait, écrite en Go : `buildParams` posait `revision`,
-// `version` et `tag-name` après les paramètres du geste, pour qu'une déclaration
-// ne puisse pas les changer. Elle vaut pour tout pipeline, et le catalogue la
-// disait déjà par ses `suggest` — il suffisait de la lire.
+// The distinction existed, written in Go: the build stage set the revision, the
+// version and the tag after the step's parameters, so that a declaration could
+// not change them. It holds for every pipeline, and the catalogue already said it
+// through its suggestions — it only had to be read.
 type Origin string
 
 const (
-	// OriginContext : l'exécution l'impose, une déclaration ne peut pas le
-	// changer. La révision construite et le tag de la release, et rien d'autre :
-	// deux gestes d'une même release qui viseraient deux commits publieraient
-	// deux images sous le même tag (B17).
+	// OriginContext: the run imposes it and a declaration cannot change it. The
+	// revision built and the release tag, and nothing else: two steps of one release
+	// aiming at two commits would publish two images under the same tag.
 	OriginContext Origin = "context"
-	// OriginFallback : l'exécution le renseigne **à défaut** de déclaration.
+	// OriginFallback: the run fills it only in the absence of a declaration.
 	//
-	// La référence d'une image publiée. Sans déclaration, elle se recompose
-	// depuis le registre et le tag, comme avant ; une déclaration peut viser
-	// l'artefact qu'une étape de construction a réellement produit —
-	// `{artifacts.portal.image}` — ce qui est plus vrai et échoue quand rien ne
-	// l'a produit (doc 15 §15.4).
+	// The reference of a published image. With no declaration it is recomposed from
+	// the registry and the tag; a declaration may instead point at the artifact a
+	// build step actually produced, which is truer and fails when nothing produced
+	// it.
 	OriginFallback Origin = "fallback"
-	// OriginDeclared : seule une déclaration le renseigne. Le dépôt à publier, la
-	// cible du Dockerfile, l'environnement visé.
+	// OriginDeclared: only a declaration fills it. The repository to publish, the
+	// Dockerfile target, the environment aimed at.
 	OriginDeclared Origin = "declared"
 )
 
-// Origin classe ce paramètre.
+// Origin classifies this parameter.
 func (i Input) Origin() Origin {
 	switch i.Suggest {
 	case SuggestGitRef, SuggestReleaseTag:
@@ -372,24 +333,24 @@ func (i Input) Origin() Origin {
 	}
 }
 
-// Upload déclare un artefact attendu.
+// Upload declares an expected artifact.
 //
-// C'est cette déclaration qui permet au dashboard de calculer les clés de
-// stockage et de minter les URLs pré-signées **avant** de créer le run : sans
-// elle, il faudrait deviner ce que le pipeline produit (B14).
+// This declaration is what lets the dashboard compute storage keys and mint
+// presigned URLs before creating the run: without it, what the pipeline produces
+// would have to be guessed.
 type Upload struct {
-	// Param est le paramètre du Pipeline qui reçoit l'URL pré-signée. Sans lui, la
-	// clé serait calculée sans que personne ne sache où l'envoyer.
+	// Param is the Pipeline parameter that receives the presigned URL. Without it the
+	// key would be computed with nobody knowing where to send it.
 	Param string `json:"param"`
-	// Artifact est le nom de l'objet sous `raw/<run>/`. Il porte l'extension du
-	// contenu réel — `.tar.gz` pour un répertoire empaqueté — parce que la Task
-	// publie ce que le mode déclare, et non ce qu'elle trouve.
+	// Artifact is the object's name under `raw/<run>/`. It carries the extension of
+	// the real content — `.tar.gz` for a packed directory — because the Task uploads
+	// what the mode declares, not what it happens to find.
 	Artifact string `json:"artifact"`
 	Family   string `json:"family"`
 	Format   string `json:"format"`
 }
 
-// Workspace décrit un workspace du PipelineRun.
+// Workspace describes a workspace of the PipelineRun.
 type Workspace struct {
 	Name                string               `json:"name"`
 	Secret              *SecretSource        `json:"secret,omitempty"`
@@ -397,23 +358,22 @@ type Workspace struct {
 	EmptyDir            bool                 `json:"emptyDir,omitempty"`
 }
 
-// SecretSource désigne le secret monté sur un workspace.
+// SecretSource names the secret mounted on a workspace.
 //
-// Deux formes, exclusives :
+// Two mutually exclusive forms:
 //
-//	secret: { secretName: git-credentials }         # nom littéral
-//	secret: { configKey: pipeline.gitSecret }       # nom tiré de la configuration
+//	secret: { secretName: git-credentials }         # a literal name
+//	secret: { configKey: pipeline.gitSecret }       # a name from configuration
 //
-// La seconde existe pour qu'on puisse viser un dépôt de test sans modifier le
-// catalogue versionné : les identifiants qui donnent accès à `CNOUS/mse` ne sont
-// pas ceux qui donnent accès à un bac à sable, et le nom du secret est la seule
-// chose qui distingue les deux.
+// The second exists so a test repository can be targeted without editing the
+// versioned catalogue: the credentials that open the real repository are not the
+// ones that open a sandbox, and the secret's name is all that distinguishes them.
 //
-// **C'est le nom qui circule, jamais la matière.** Le dashboard n'a pas
-// `secrets` dans sa RBAC (doc 07 §7.3) et ne doit pas l'avoir : transmettre une
-// clé en paramètre la ferait atterrir dans la spec du PipelineRun, lisible par
-// quiconque a `pipelineruns: get` sur le namespace. C'est le même principe que
-// les URLs pré-signées de B14 — le dashboard désigne, il ne distribue pas.
+// The name travels, never the material. The dashboard has no read access to
+// secrets and must not have any: passing a key as a parameter would land it in
+// the PipelineRun's spec, readable by anyone who can get pipelineruns in the
+// namespace. Same principle as the presigned URLs — the dashboard designates, it
+// does not distribute. See docs/09-security.md.
 type SecretSource struct {
 	SecretName string `json:"secretName,omitempty"`
 	ConfigKey  string `json:"configKey,omitempty"`
@@ -427,40 +387,39 @@ type VolumeClaimTemplate struct {
 
 type PodTemplate struct {
 	ImagePullSecrets []string `json:"imagePullSecrets,omitempty"`
-	// ImagePullSecretsConfigKey nomme une clé de configuration portant le nom du
-	// secret, pour la même raison que `SecretSource.ConfigKey` : viser un autre
-	// registre ne doit pas demander de modifier le catalogue versionné.
+	// ImagePullSecretsConfigKey names a configuration key holding the secret's name,
+	// for the same reason as SecretSource.ConfigKey: targeting another registry must
+	// not require editing the versioned catalogue.
 	ImagePullSecretsConfigKey string `json:"imagePullSecretsConfigKey,omitempty"`
 }
 
-// DefaultMaxConcurrentRuns est le plafond global retenu à défaut.
+// DefaultMaxConcurrentRuns is the global ceiling applied by default.
 //
-// Au-dessus du plafond par type, et pas par confort : à quatre, aucune file de
-// cinq places n'atteindrait jamais la sienne et le réglage par type serait
-// décoratif.
+// Above the per-kind ceiling, and not for comfort: at four, no queue of five
+// would ever reach its own and the per-kind setting would be decorative.
 const DefaultMaxConcurrentRuns = 10
 
-// Load lit un catalogue depuis un fichier.
+// Load reads a catalogue from a file.
 func Load(path string) (*Catalog, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("lecture du catalogue %q: %w", path, err)
+		return nil, fmt.Errorf("reading catalogue %q: %w", path, err)
 	}
 	return Parse(content)
 }
 
-// Parse analyse un catalogue et le valide structurellement.
+// Parse parses a catalogue and validates it structurally.
 //
-// La validation structurelle est séparée de la validation contre le cluster : la
-// première n'a besoin de rien, la seconde d'une connexion. Les distinguer permet
-// de tester la première sans Kubernetes, et de donner deux messages d'erreur qui
-// ne se confondent pas.
+// Structural validation is separate from validation against the cluster: the
+// first needs nothing, the second needs a connection. Keeping them apart allows
+// testing the first without Kubernetes, and gives two error messages that cannot
+// be confused.
 func Parse(content []byte) (*Catalog, error) {
 	var catalog Catalog
 	if err := yaml.UnmarshalStrict(content, &catalog); err != nil {
-		// `UnmarshalStrict` refuse les champs inconnus. C'est voulu : une clé mal
-		// orthographiée dans un ConfigMap serait sinon ignorée en silence, et le
-		// pipeline tournerait sans le workspace ou le compte de service attendu.
+		// UnmarshalStrict refuses unknown fields. A misspelled key in a ConfigMap would
+		// otherwise be ignored silently, and the pipeline would run without the workspace
+		// or the service account it expects.
 		return nil, fmt.Errorf("catalogue illisible: %w", err)
 	}
 
@@ -468,8 +427,8 @@ func Parse(content []byte) (*Catalog, error) {
 		catalog.MaxConcurrentRuns = DefaultMaxConcurrentRuns
 	}
 
-	// La déduction vient **avant** la validation : elle comble ce qui se déduit
-	// sans risque, et laisse la validation refuser le reste.
+	// Deduction comes before validation: it fills in what can be inferred safely, and
+	// leaves validation to refuse the rest.
 	catalog.deduceProducts()
 
 	if err := catalog.validate(); err != nil {
@@ -478,23 +437,21 @@ func Parse(content []byte) (*Catalog, error) {
 	return &catalog, nil
 }
 
-// deduceProducts complète les pipelines dont le produit se déduit sans ambiguïté.
+// deduceProducts completes the pipelines whose product is unambiguous.
 //
-// Une seule règle, et c'est délibérément peu : `verification: true` implique la
-// publication de rapports — la validation l'exige déjà, un pipeline enchaîné sans
-// artefact ayant un verdict qui n'atteint jamais le dashboard.
+// One rule only, deliberately: `verification: true` implies publishing reports —
+// validation already requires it, since a chained pipeline without artifacts has
+// a verdict that never reaches the dashboard.
 //
-// # Ce qui n'est pas déduit, et pourquoi
+// The rest needs a human answer, because the catalogue carries no signal that
+// says it. A build and a re-tag both publish images; neither declares an
+// artifact, and nothing structurally distinguishes them from a pipeline that
+// deploys. Guessing from their names would restore the naming convention this
+// declaration exists to remove.
 //
-// Le reste demande une réponse humaine, parce que le catalogue ne porte aucun
-// signal qui le dise. `build` et `retag` publient des images ; ni l'un ni l'autre
-// ne déclare d'artefact, et rien ne les distingue structurellement d'un pipeline
-// qui déploie. Les deviner par leur **nom** rétablirait la convention de nommage
-// que cette déclaration existe pour supprimer.
-//
-// Et le cas qui décide : `e2e-tests` publie trois artefacts avec
-// `verification: false`. Une déduction qui le rangerait dans « rien » perpétuerait
-// exactement la confusion qu'on corrige. Il vaut mieux exiger la réponse.
+// And the deciding case: an end-to-end pipeline publishes three artifacts with
+// `verification: false`. A deduction filing it under "nothing" would perpetuate
+// exactly the confusion being fixed.
 func (c *Catalog) deduceProducts() {
 	for index, pipeline := range c.Pipelines {
 		if len(pipeline.Produces) > 0 || !pipeline.Verification {
@@ -510,10 +467,10 @@ func (c *Catalog) validate() error {
 	var problems []error
 
 	if c.MaxConcurrentRuns < 1 {
-		problems = append(problems, fmt.Errorf("maxConcurrentRuns doit être >= 1, vaut %d", c.MaxConcurrentRuns))
+		problems = append(problems, fmt.Errorf("maxConcurrentRuns must be >= 1, got %d", c.MaxConcurrentRuns))
 	}
 	if len(c.Pipelines) == 0 {
-		problems = append(problems, errors.New("le catalogue ne déclare aucun pipeline"))
+		problems = append(problems, errors.New("the catalogue declares no pipeline"))
 	}
 
 	projects := make([]string, 0, len(c.Projects))
@@ -523,24 +480,24 @@ func (c *Catalog) validate() error {
 	sort.Strings(projects)
 	for _, slug := range projects {
 		if strings.TrimSpace(slug) == "" {
-			problems = append(problems, errors.New("une déclaration de projet est sans slug"))
+			problems = append(problems, errors.New("a project declaration has no slug"))
 		}
 		ids := make(map[string]bool, len(c.Projects[slug].Environments))
 		ranks := make(map[int]string, len(c.Projects[slug].Environments))
 		for _, environment := range c.Projects[slug].Environments {
 			if strings.TrimSpace(environment.ID) == "" {
-				problems = append(problems, fmt.Errorf("projet %q: un environnement est déclaré sans id", slug))
+				problems = append(problems, fmt.Errorf("project %q: an environment is declared without an id", slug))
 			}
 			if ids[environment.ID] {
-				problems = append(problems, fmt.Errorf("projet %q: environnement %q déclaré deux fois", slug, environment.ID))
+				problems = append(problems, fmt.Errorf("project %q: environment %q declared twice", slug, environment.ID))
 			}
 			ids[environment.ID] = true
-			// Ce que le catalogue ne vérifie **pas** : que le suffixe de promotion
-			// existe et soit unique. C'est une règle du déployeur, vérifiée par lui
-			// contre les politiques réelles du cluster.
+			// What the catalogue does not check: that the promotion suffix exists and is
+			// unique. That is the deployer's rule, checked by it against the cluster's real
+			// policies.
 			if other, clash := ranks[environment.Rank]; clash {
 				problems = append(problems, fmt.Errorf(
-					"projet %q: environnements %q et %q partagent le rang %d", slug, other, environment.ID, environment.Rank))
+					"project %q: environments %q and %q share rank %d", slug, other, environment.ID, environment.Rank))
 			}
 			ranks[environment.Rank] = environment.ID
 		}
@@ -549,9 +506,9 @@ func (c *Catalog) validate() error {
 	seen := make(map[string]bool, len(c.Pipelines))
 	for _, pipeline := range c.Pipelines {
 		if seen[pipeline.Kind] {
-			// Un doublon rendrait le lancement non déterministe : deux entrées
-			// pour un même `kind`, et rien ne dit laquelle s'applique.
-			problems = append(problems, fmt.Errorf("kind %q déclaré deux fois", pipeline.Kind))
+			// A duplicate would make launching non-deterministic: two entries for one kind,
+			// and nothing says which applies.
+			problems = append(problems, fmt.Errorf("kind %q declared twice", pipeline.Kind))
 		}
 		seen[pipeline.Kind] = true
 		problems = append(problems, pipeline.validate()...)
@@ -568,20 +525,20 @@ func (p Pipeline) validate() []error {
 			"kind %q invalide: minuscules, chiffres et tirets uniquement", p.Kind))
 	}
 	if strings.TrimSpace(p.PipelineRef) == "" {
-		problems = append(problems, fmt.Errorf("kind %q: pipelineRef est requis", p.Kind))
+		problems = append(problems, fmt.Errorf("kind %q: pipelineRef is required", p.Kind))
 	}
-	// Une vérification sans artefact déclaré a un verdict qui n'atteint jamais le
-	// dashboard : le run tourne, conclut, et la release reste en attente d'un
-	// résultat que rien ne remonte. Refusé au démarrage plutôt que constaté au
-	// bout d'une campagne de quarante minutes (doc 06 §6.2).
+	// A verification with no declared artifact has a verdict that never reaches the
+	// dashboard: the run runs, concludes, and the release keeps waiting for a result
+	// nothing reports. Refused at start-up rather than discovered after a
+	// forty-minute campaign.
 	if p.Verification && len(p.Uploads) == 0 {
 		problems = append(problems, fmt.Errorf(
-			"kind %q: une vérification doit déclarer au moins un artefact", p.Kind))
+			"kind %q: a verification must declare at least one artifact", p.Kind))
 	}
 	problems = append(problems, p.validateProducts()...)
 	if p.MaxConcurrent < 0 {
 		problems = append(problems, fmt.Errorf(
-			"kind %q: maxConcurrent doit être >= 1 (ou absent), vaut %d", p.Kind, p.MaxConcurrent))
+			"kind %q: maxConcurrent must be >= 1 (or absent), got %d", p.Kind, p.MaxConcurrent))
 	}
 
 	for name, param := range p.Params {
@@ -589,41 +546,40 @@ func (p Pipeline) validate() []error {
 		case SourceInput:
 			if param.Suggest != "" && !suggestions[param.Suggest] {
 				problems = append(problems, fmt.Errorf(
-					"kind %q, paramètre %q: suggestion %q inconnue", p.Kind, name, param.Suggest))
+					"kind %q, parameter %q: unknown suggestion %q", p.Kind, name, param.Suggest))
 			}
-			// Une image non nommée ne se devine pas : l'enchaînement rendrait une
-			// référence tronquée, et le run échouerait au tirage sur un message
-			// qui ne désigne pas le catalogue.
+			// An unnamed image cannot be guessed: chaining would yield a truncated
+			// reference, and the run would fail on a pull with a message that does not point
+			// at the catalogue.
 			if param.Suggest == SuggestImage && param.Image == "" {
 				problems = append(problems, fmt.Errorf(
-					"kind %q, paramètre %q: suggestion %q exige le nom de l'image",
+					"kind %q, parameter %q: suggestion %q requires the image name",
 					p.Kind, name, SuggestImage))
 			}
 			if param.Image != "" && param.Suggest != SuggestImage {
 				problems = append(problems, fmt.Errorf(
-					"kind %q, paramètre %q: image nommée sans suggestion %q",
+					"kind %q, parameter %q: image named without suggestion %q",
 					p.Kind, name, SuggestImage))
 			}
 		case SourceConfig:
 			if param.Suggest != "" {
-				// Une suggestion sur un paramètre que l'utilisateur ne saisit pas
-				// ne s'afficherait nulle part : la signaler évite de croire le
-				// formulaire cassé.
+				// A suggestion on a parameter the user never types would be displayed nowhere:
+				// reporting it avoids believing the form is broken.
 				problems = append(problems, fmt.Errorf(
-					"kind %q, paramètre %q: suggestion sur une source %q", p.Kind, name, param.Source))
+					"kind %q, parameter %q: suggestion on a %q source", p.Kind, name, param.Source))
 			}
 			if param.Key == "" {
 				problems = append(problems, fmt.Errorf(
-					"kind %q, paramètre %q: source config exige une clé", p.Kind, name))
+					"kind %q, parameter %q: a config source requires a key", p.Kind, name))
 			}
 		case SourceLiteral:
 			if param.Value == "" {
 				problems = append(problems, fmt.Errorf(
-					"kind %q, paramètre %q: source literal exige une valeur", p.Kind, name))
+					"kind %q, parameter %q: a literal source requires a value", p.Kind, name))
 			}
 		default:
 			problems = append(problems, fmt.Errorf(
-				"kind %q, paramètre %q: source %q inconnue (attendu %s, %s ou %s)",
+				"kind %q, parameter %q: unknown source %q (expected %s, %s or %s)",
 				p.Kind, name, param.Source, SourceInput, SourceConfig, SourceLiteral))
 		}
 	}
@@ -632,7 +588,7 @@ func (p Pipeline) validate() []error {
 	for _, workspace := range p.Workspaces {
 		if declared[workspace.Name] {
 			problems = append(problems, fmt.Errorf(
-				"kind %q: workspace %q déclaré deux fois", p.Kind, workspace.Name))
+				"kind %q: workspace %q declared twice", p.Kind, workspace.Name))
 		}
 		declared[workspace.Name] = true
 
@@ -649,7 +605,7 @@ func (p Pipeline) validate() []error {
 		}
 		if sources != 1 {
 			problems = append(problems, fmt.Errorf(
-				"kind %q, workspace %q: exactement une source attendue (secret, volumeClaimTemplate ou emptyDir)",
+				"kind %q, workspace %q: exactly one source expected (secret, volumeClaimTemplate or emptyDir)",
 				p.Kind, name))
 		}
 	}
@@ -657,24 +613,22 @@ func (p Pipeline) validate() []error {
 	return problems
 }
 
-// validateProducts refuse un produit absent, inconnu, ou en contradiction avec ce
-// que le pipeline déclare par ailleurs.
+// validateProducts refuses a product that is missing, unknown, or contradicted by
+// what the pipeline declares elsewhere.
 //
-// **L'absence est refusée au démarrage**, et c'est la doctrine du dépôt : une
-// configuration incomplète découverte au premier clic se manifeste sur
-// l'opération la plus rare, alors qu'un refus au démarrage est une erreur de
-// déploiement, visible immédiatement et par la bonne personne.
+// Absence is refused at start-up: incomplete configuration discovered at the
+// first click surfaces on the rarest operation, while a refusal at start-up is a
+// deployment error, visible immediately and to the right person.
 //
-// Le prix de la laisser passer est connu : sans produit déclaré, le dashboard ne
-// sait pas si un run muet est un pipeline qui n'avait rien à dire ou un pipeline
-// en rupture de contrat. C'est précisément le diagnostic qu'on cherche à rendre
-// possible.
+// The cost of letting it pass is known: with no declared product, the dashboard
+// cannot tell a silent run that had nothing to say from one in breach of the
+// contract — precisely the diagnosis this makes possible.
 func (p Pipeline) validateProducts() []error {
 	if len(p.Produces) == 0 {
 		return []error{fmt.Errorf(
-			"kind %q: `produces` est requis (%s) — ce qu'un pipeline laisse "+
-				"derrière lui ne se devine pas, et le déduire de son nom "+
-				"rétablirait la convention que cette déclaration remplace",
+			"kind %q: `produces` is required (%s) — what a pipeline leaves "+
+				"behind cannot be guessed, and inferring it from its name "+
+				"would restore the convention this declaration replaces",
 			p.Kind, joinProducts(products))}
 	}
 
@@ -686,40 +640,39 @@ func (p Pipeline) validateProducts() []error {
 		case ProductImage, ProductResults, ProductNone:
 		default:
 			problems = append(problems, fmt.Errorf(
-				"kind %q: produit %q inconnu (admis: %s)",
+				"kind %q: unknown product %q (accepted: %s)",
 				p.Kind, product, joinProducts(products)))
 			continue
 		}
 		if seen[product] {
 			problems = append(problems, fmt.Errorf(
-				"kind %q: produit %q déclaré deux fois", p.Kind, product))
+				"kind %q: product %q declared twice", p.Kind, product))
 		}
 		seen[product] = true
 	}
 
-	// « Rien » ne se cumule pas : un pipeline qui déclare `none` à côté d'un autre
-	// produit se contredit, et rien ne dit laquelle des deux moitiés croire.
+	// "Nothing" does not accumulate: a pipeline declaring `none` beside another
+	// product contradicts itself, and nothing says which half to believe.
 	if seen[ProductNone] && len(seen) > 1 {
 		problems = append(problems, fmt.Errorf(
-			"kind %q: %q ne se cumule pas avec un autre produit", p.Kind, ProductNone))
+			"kind %q: %q does not combine with another product", p.Kind, ProductNone))
 	}
 
-	// Des résultats annoncés sans artefact déclaré ne remonteraient jamais : le
-	// run tourne, conclut, et l'écran reste vide. Même contrôle que pour une
-	// vérification, désormais adossé au produit plutôt qu'au drapeau.
+	// Results announced without a declared artifact would never arrive: the run runs,
+	// concludes, and the screen stays empty. The same check as for a verification,
+	// now hung off the product rather than the flag.
 	if seen[ProductResults] && len(p.Uploads) == 0 {
 		problems = append(problems, fmt.Errorf(
-			"kind %q: annonce des résultats sans déclarer d'artefact — son verdict "+
-				"n'atteindrait jamais le dashboard", p.Kind))
+			"kind %q: announces results without declaring an artifact — its verdict "+
+				"would never reach the dashboard", p.Kind))
 	}
 
-	// L'écart inverse est refusé lui aussi : des artefacts publiés que rien ne
-	// vient lire. C'est le cas qu'`e2e-tests` illustrait — trois artefacts, et un
-	// drapeau disant « pas une vérification » parce qu'il parlait d'autre chose.
+	// The opposite mismatch is refused too: published artifacts that nothing reads
+	// back.
 	if !seen[ProductResults] && len(p.Uploads) > 0 {
 		problems = append(problems, fmt.Errorf(
-			"kind %q: déclare %d artefact(s) sans annoncer %q — ils seraient "+
-				"publiés puis jamais lus", p.Kind, len(p.Uploads), ProductResults))
+			"kind %q: declares %d artifact(s) without announcing %q — they would be "+
+				"published and never read", p.Kind, len(p.Uploads), ProductResults))
 	}
 
 	return problems
@@ -733,22 +686,22 @@ func joinProducts(list []Product) string {
 	return strings.Join(names, ", ")
 }
 
-// Yields dit si le pipeline produit cette chose.
+// Yields says whether the pipeline produces this thing.
 func (p Pipeline) Yields(product Product) bool {
 	return slices.Contains(p.Produces, product)
 }
 
-// Yields dit si le type nommé produit cette chose.
+// Yields says whether the named kind produces this thing.
 //
-// Rendue par le catalogue et non calculée par l'appelant : c'est la question que
-// posent l'ingestion, les faits et la validation d'un plan, et trois façons de la
-// poser finiraient par diverger.
+// Answered by the catalogue rather than computed by the caller: ingestion, facts
+// and plan validation all ask it, and three ways of asking would eventually
+// diverge.
 func (c *Catalog) Yields(kind string, product Product) bool {
 	pipeline, found := c.Find(kind)
 	return found && pipeline.Yields(product)
 }
 
-// Concurrency rend le plafond effectif d'un type.
+// Concurrency returns a kind's effective ceiling.
 func (p Pipeline) Concurrency() int {
 	if p.MaxConcurrent > 0 {
 		return p.MaxConcurrent
@@ -756,11 +709,10 @@ func (p Pipeline) Concurrency() int {
 	return DefaultKindConcurrency
 }
 
-// Concurrency rend les plafonds déclarés, par type.
+// Concurrency returns the declared ceilings, by kind.
 //
-// Les types absents du catalogue — les tâches locales, qui ne deviennent pas des
-// PipelineRun — n'y figurent pas : l'ordonnanceur leur applique le défaut, comme
-// à un type nouveau.
+// Kinds absent from the catalogue — local tasks, which never become PipelineRuns
+// — are not listed: the scheduler applies the default to them, as to a new kind.
 func (c *Catalog) Concurrency() map[string]int {
 	limits := make(map[string]int, len(c.Pipelines))
 	for _, pipeline := range c.Pipelines {
@@ -769,13 +721,13 @@ func (c *Catalog) Concurrency() map[string]int {
 	return limits
 }
 
-// Find rend l'entrée d'un kind.
+// Find returns a kind's entry.
 func (c *Catalog) Find(kind string) (Pipeline, bool) {
 	for _, pipeline := range c.Pipelines {
 		if pipeline.Kind == kind {
-			// Le podTemplate global s'applique à qui n'en déclare pas. Hérité ici
-			// plutôt qu'au chargement : le catalogue reste alors le reflet exact
-			// du fichier, et ce qui est hérité se lit dans une seule fonction.
+			// The global pod template applies to whoever declares none. Inherited here rather
+			// than at load time: the catalogue then stays an exact reflection of the file,
+			// and what is inherited reads in a single function.
 			if pipeline.PodTemplate == nil {
 				pipeline.PodTemplate = c.PodTemplate
 			}
@@ -785,7 +737,7 @@ func (c *Catalog) Find(kind string) (Pipeline, bool) {
 	return Pipeline{}, false
 }
 
-// Kinds rend les kinds déclarés, triés.
+// Kinds returns the declared kinds, sorted.
 func (c *Catalog) Kinds() []string {
 	kinds := make([]string, 0, len(c.Pipelines))
 	for _, pipeline := range c.Pipelines {
@@ -795,7 +747,7 @@ func (c *Catalog) Kinds() []string {
 	return kinds
 }
 
-// RequiredInputs rend les paramètres que le lancement doit fournir.
+// RequiredInputs returns the parameters a launch must provide.
 func (p Pipeline) RequiredInputs() []string {
 	var required []string
 	for name, param := range p.Params {
@@ -807,18 +759,16 @@ func (p Pipeline) RequiredInputs() []string {
 	return required
 }
 
-// VerificationInputs renseigne les entrées obligatoires d'un enchaînement.
+// VerificationInputs fills the mandatory inputs of a chained run.
 //
-// Les valeurs viennent de ce que le catalogue **déclare vouloir**, et non d'une
-// table de noms tenue dans le code. Celle-ci existait en double — une copie dans
-// l'enchaînement automatique, une dans la relance manuelle, qu'il fallait penser
-// à modifier ensemble — et énumérait `revision`, `app-revision`, `mse-revision`,
-// `portal-image`, `consumer-image` : cinq noms propres à un projet, qu'un
-// pipeline nommant autrement ses paramètres ne pouvait pas employer.
+// The values come from what the catalogue declares it wants, not from a table of
+// names kept in the code. That table existed twice — one copy in automatic
+// chaining, one in manual re-runs — and listed five names specific to one
+// project, which a pipeline naming its parameters differently could not use.
 //
-// Rend le nom du paramètre resté vide plutôt qu'une table incomplète : un run
-// créé sans ses entrées requises échoue à l'ordonnancement, sur un message qui
-// ne désigne pas la cause.
+// It returns the name of the parameter left empty rather than an incomplete
+// table: a run created without its required inputs fails at scheduling, with a
+// message that does not name the cause.
 func (p Pipeline) VerificationInputs(revision, tag, registry string) (map[string]string, string) {
 	params := map[string]string{}
 
@@ -836,10 +786,10 @@ func (p Pipeline) VerificationInputs(revision, tag, registry string) (map[string
 	return params, ""
 }
 
-// FromContext rend la valeur que l'exécution d'une release donne à ce paramètre.
+// FromContext returns the value a release's run gives this parameter.
 //
-// Vide quand elle n'en donne aucune : c'est alors à la déclaration de le
-// renseigner, et [Input.Origin] dit lequel des deux a le dernier mot.
+// Empty when it gives none: it is then for the declaration to fill it, and
+// [Input.Origin] says which of the two has the last word.
 func (i Input) FromContext(revision, tag, registry string) string {
 	switch i.Suggest {
 	case SuggestGitRef:
@@ -847,20 +797,20 @@ func (i Input) FromContext(revision, tag, registry string) string {
 	case SuggestReleaseTag:
 		return tag
 	case SuggestImage:
-		// La vérification analyse les images **publiées** par la construction,
-		// jamais une reconstruction : elle produirait un artefact différent de
-		// celui qui sera déployé, et le verdict porterait à côté (B17).
+		// Verification analyses the images the build published, never a rebuild: a
+		// rebuild would produce a different artifact from the one that will be deployed,
+		// and the verdict would miss its target.
 		return images.Reference(registry, i.Image, tag)
 	default:
 		return ""
 	}
 }
 
-// Declared rend les entrées qu'une déclaration peut renseigner.
+// Declared returns the inputs a declaration may fill.
 //
-// Tout sauf celles que l'exécution impose : les proposer inviterait à saisir une
-// révision qui serait écrasée, ce qui est pire qu'une absence — on croirait
-// l'avoir fixée.
+// Everything except those the run imposes: offering them would invite typing a
+// revision that is then overwritten, which is worse than an absence — one would
+// believe it had been set.
 func (p Pipeline) Declared() []Input {
 	var declared []Input
 	for _, input := range p.Inputs() {
@@ -872,12 +822,11 @@ func (p Pipeline) Declared() []Input {
 	return declared
 }
 
-// Inputs rend tous les paramètres saisis au lancement, requis ou non.
+// Inputs returns every parameter typed at launch, required or not.
 //
-// Distinct de RequiredInputs, qui sert à refuser un lancement incomplet : le
-// formulaire, lui, doit montrer aussi les facultatifs — un paramètre qu'on ne
-// voit pas est un paramètre qu'on ne renseigne jamais, et il fallait alors
-// passer par le champ libre pour l'atteindre.
+// Distinct from RequiredInputs, which serves to refuse an incomplete launch: the
+// form must also show the optional ones — a parameter nobody sees is a parameter
+// nobody ever fills in.
 func (p Pipeline) Inputs() []Input {
 	inputs := make([]Input, 0, len(p.Params))
 	for name, param := range p.Params {
@@ -894,9 +843,8 @@ func (p Pipeline) Inputs() []Input {
 			Label: label, Help: param.Help, Placeholder: param.Placeholder,
 		})
 	}
-	// Les requis d'abord, puis l'ordre alphabétique : une map Go n'a pas d'ordre,
-	// et un formulaire dont les champs changent de place à chaque ouverture est
-	// impraticable.
+	// Required first, then alphabetical: a Go map has no order, and a form whose
+	// fields move on every opening is unusable.
 	sort.Slice(inputs, func(i, j int) bool {
 		if inputs[i].Required != inputs[j].Required {
 			return inputs[i].Required
@@ -906,17 +854,16 @@ func (p Pipeline) Inputs() []Input {
 	return inputs
 }
 
-// Family rend la famille de signal que ce pipeline mesure.
+// Family returns the signal family this pipeline measures.
 //
-// Vide quand il n'en déclare aucune — `build`, `retag` — ou plusieurs, cas où
-// rien ne dit à laquelle rattacher un outil : mieux vaut ne pas classer que
-// classer au hasard, une famille erronée déplaçant un verdict sur un signal qui
-// n'a pas été mesuré.
+// Empty when it declares none, or several, in which case nothing says which one
+// to attach a tool to: better not to classify than to classify at random, since a
+// wrong family moves a verdict onto a signal that was never measured.
 //
-// Lue des `uploads`, qui la déclarent déjà pour ranger les artefacts. Le canal de
-// marqueurs s'en sert pour attribuer une famille à un outil qui n'a **rien**
-// publié : il n'a alors pas d'artefact d'où la déduire, et c'est précisément le
-// cas qu'on cherche à rendre visible.
+// Read from the uploads, which already declare it to file artifacts. The marker
+// channel uses it to attribute a family to a tool that published nothing — it
+// then has no artifact to infer it from, which is precisely the case worth making
+// visible.
 func (p Pipeline) Family() string {
 	var found string
 	for _, upload := range p.Uploads {
@@ -931,16 +878,16 @@ func (p Pipeline) Family() string {
 	return found
 }
 
-// VerificationKinds énumère ce qu'une construction réussie enchaîne.
+// VerificationKinds lists what a successful build chains.
 //
-// Dans l'ordre de déclaration, qui devient l'ordre de mise en file : une map Go
-// n'a pas d'ordre, et des runs qui changent de rang à chaque construction rendent
-// impossible de comparer deux releases d'un coup d'œil.
+// In declaration order, which becomes queueing order: a Go map has no order, and
+// runs that change rank on every build make two releases impossible to compare at
+// a glance.
 //
-// Sert aussi à décider ce qui est relançable à l'unité. Les deux questions ont la
-// même réponse, et les avoir séparées donnait un bouton qui pouvait lancer ce que
-// la chaîne ne lançait pas — ou l'inverse, une famille enchaînée qu'on ne pouvait
-// pas rattraper sans reconstruire toute la release.
+// It also decides what can be re-run individually. Both questions have the same
+// answer, and keeping them separate gave a button that could launch what the
+// chain did not — or a chained family that could not be caught up without
+// rebuilding the whole release.
 func (c *Catalog) VerificationKinds() []string {
 	kinds := make([]string, 0, len(c.Pipelines))
 	for _, pipeline := range c.Pipelines {
@@ -951,18 +898,18 @@ func (c *Catalog) VerificationKinds() []string {
 	return kinds
 }
 
-// IsVerification dit si une famille est une vérification enchaînée.
+// IsVerification says whether a family is a chained verification.
 func (c *Catalog) IsVerification(kind string) bool {
 	pipeline, found := c.Find(kind)
 	return found && pipeline.Verification
 }
 
-// SuggestionKey nomme la liste à proposer pour cette entrée.
+// SuggestionKey names the list to offer for this input.
 //
-// La nature seule ne suffit plus depuis que `image` les désigne toutes : deux
-// paramètres qui veulent tous deux une référence d'image n'attendent pas la même
-// liste. La clé compose donc la nature et l'image, et c'est elle — et non le nom
-// du paramètre — qui indexe les listes envoyées au formulaire.
+// The nature alone no longer suffices now that `image` covers them all: two
+// parameters both wanting an image reference do not expect the same list. The key
+// therefore combines nature and image, and it — not the parameter's name — indexes
+// the lists sent to the form.
 func (i Input) SuggestionKey() string {
 	if i.Suggest == "" || i.Image == "" {
 		return i.Suggest
@@ -970,11 +917,12 @@ func (i Input) SuggestionKey() string {
 	return i.Suggest + ":" + i.Image
 }
 
-// SuggestedImages rend les dépôts d'image que le catalogue déclare attendre.
+// SuggestedImages returns the image repositories the catalogue declares it
+// expects.
 //
-// Constituer les listes à partir de là plutôt que d'une énumération en Go veut
-// dire qu'un pipeline référençant une image de plus obtient son menu déroulant
-// sans qu'on touche au dashboard.
+// Building the lists from there rather than from an enumeration in Go means a
+// pipeline referencing one more image gets its dropdown without touching the
+// dashboard.
 func (c *Catalog) SuggestedImages() []string {
 	seen := map[string]bool{}
 	for _, pipeline := range c.Pipelines {
@@ -992,12 +940,11 @@ func (c *Catalog) SuggestedImages() []string {
 	return names
 }
 
-// ScoreWeights rend la pondération du score, sous la forme attendue par le
-// calcul.
+// ScoreWeights returns the score weighting in the shape the computation expects.
 //
-// La conversion se fait ici plutôt qu'au chargement : le catalogue est du YAML
-// générique, et lui faire connaître le type d'un autre paquet le lierait à une
-// implémentation qu'il n'a pas à connaître.
+// Converted here rather than at load time: the catalogue is generic YAML, and
+// teaching it another package's type would tie it to an implementation it need
+// not know.
 func (c *Catalog) ScoreWeights() map[string]float64 {
 	if len(c.Score) == 0 {
 		return nil
@@ -1009,12 +956,12 @@ func (c *Catalog) ScoreWeights() map[string]float64 {
 	return weights
 }
 
-// ResolveSecrets rend une copie du pipeline dont les noms de secrets sont
-// résolus depuis la configuration.
+// ResolveSecrets returns a copy of the pipeline with secret names resolved from
+// configuration.
 //
-// Résolu avant la création du PipelineRun plutôt qu'au chargement du catalogue :
-// le catalogue est lu une fois au démarrage, et une clé de configuration absente
-// doit se signaler au moment où elle manque, avec le kind qui la réclame.
+// Resolved before creating the PipelineRun rather than when loading the
+// catalogue, which happens once at start-up: a missing configuration key must
+// report itself when it is missing, naming the kind that asks for it.
 func (p Pipeline) ResolveSecrets(config map[string]string) (Pipeline, error) {
 	resolved := p
 	resolved.Workspaces = make([]Workspace, len(p.Workspaces))
@@ -1024,10 +971,10 @@ func (p Pipeline) ResolveSecrets(config map[string]string) (Pipeline, error) {
 		name, present := config[template.ImagePullSecretsConfigKey]
 		if !present || name == "" {
 			return Pipeline{}, fmt.Errorf(
-				"kind %q, secret de tirage: clé de configuration %q absente",
+				"kind %q, image pull secret: configuration key %q is missing",
 				p.Kind, template.ImagePullSecretsConfigKey)
 		}
-		// Copie, pour la même raison que les workspaces : le catalogue est partagé.
+		// Copied, for the same reason as the workspaces: the catalogue is shared.
 		resolved.PodTemplate = &PodTemplate{ImagePullSecrets: []string{name}}
 	}
 
@@ -1039,29 +986,27 @@ func (p Pipeline) ResolveSecrets(config map[string]string) (Pipeline, error) {
 		name, present := config[workspace.Secret.ConfigKey]
 		if !present || name == "" {
 			return Pipeline{}, fmt.Errorf(
-				"kind %q, workspace %q: clé de configuration %q absente",
+				"kind %q, workspace %q: configuration key %q is missing",
 				p.Kind, workspace.Name, workspace.Secret.ConfigKey)
 		}
 
-		// La copie du pointeur est nécessaire : sans elle, la résolution
-		// écrirait dans le catalogue partagé, et le second run verrait le nom
-		// résolu du premier comme s'il était littéral.
+		// Copying the pointer is necessary: without it, resolution would write into the
+		// shared catalogue, and the second run would see the first run's resolved name as
+		// if it were literal.
 		resolved.Workspaces[i].Secret = &SecretSource{SecretName: name}
 	}
 
 	return resolved, nil
 }
 
-// ServiceAccounts rend les comptes de service que les pipelines emploient.
+// ServiceAccounts returns the service accounts the pipelines use.
 //
-// Trié et dédoublonné. Sert au lot G : la clé d'un projet doit être montable par
-// **chacun** d'eux, faute de quoi elle le serait pour certains de ses pipelines
-// et pas pour les autres — et l'échec désignerait le clone plutôt que le
-// montage.
+// Sorted and deduplicated. A project's key must be mountable by every one of
+// them, failing which it would work for some of its pipelines and not others —
+// and the failure would point at the clone rather than at the mount.
 //
-// Le compte par défaut, celui qu'un pipeline qui n'en nomme aucun emploie, est
-// rendu sous le nom `default` : c'est ainsi que Kubernetes le nomme, et c'est
-// bien lui qu'il faudra autoriser.
+// The default account, used by a pipeline naming none, is returned as `default`:
+// that is what Kubernetes calls it, and it is what must be granted.
 func (c *Catalog) ServiceAccounts() []string {
 	seen := map[string]bool{}
 	for _, pipeline := range c.Pipelines {

@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// Une faute de frappe dans `uploads[].param` ne se manifesterait qu'au premier
-// run, rejeté par Tekton pour paramètre inconnu — c'est-à-dire après avoir
-// attendu qu'un job soit ordonnancé.
+// A typo in `uploads[].param` would only surface at the first run, rejected by
+// Tekton as an unknown parameter — that is, after waiting for a job to be
+// scheduled.
 func TestValidateRejectsAnUploadParamThePipelineIgnores(t *testing.T) {
 	pipelines := &Catalog{Pipelines: []Pipeline{{
 		Kind: "static-tests", PipelineRef: "php-static-tests",
@@ -23,15 +23,15 @@ func TestValidateRejectsAnUploadParamThePipelineIgnores(t *testing.T) {
 		}},
 	}})
 	if err == nil {
-		t.Fatal("un paramètre d'artefact inconnu doit empêcher le démarrage")
+		t.Fatal("an unknown upload parameter must prevent start-up")
 	}
 	if !strings.Contains(err.Error(), "result-upload-url") {
-		t.Errorf("erreur = %v, attendu le nom du paramètre fautif", err)
+		t.Errorf("error = %v, expected the offending parameter's name", err)
 	}
 }
 
-// Le paramètre d'artefact ne figure pas dans `params` : il est miné au
-// lancement. Le compter comme manquant refuserait un catalogue correct.
+// The upload parameter is absent from `params`: it is minted at launch. Counting
+// it as missing would refuse a correct catalogue.
 func TestAnUploadParamCountsAsProvided(t *testing.T) {
 	pipelines := &Catalog{Pipelines: []Pipeline{{
 		Kind: "static-tests", PipelineRef: "php-static-tests",
@@ -42,12 +42,12 @@ func TestAnUploadParamCountsAsProvided(t *testing.T) {
 
 	err := pipelines.ValidateAgainst(context.Background(), fakeCluster{pipelines: map[string]PipelineSpec{
 		"php-static-tests": {Name: "php-static-tests", Params: map[string]bool{
-			// Sans défaut : le Pipeline l'exige.
+			// No default: the Pipeline requires it.
 			"results-upload-url": false,
 		}},
 	}})
 	if err != nil {
-		t.Errorf("erreur = %v, attendu aucune", err)
+		t.Errorf("error = %v, expected none", err)
 	}
 }
 
@@ -63,6 +63,6 @@ func TestAnIncompleteUploadIsRejected(t *testing.T) {
 		}},
 	}})
 	if err == nil {
-		t.Error("un artefact sans nom d'objet ne permet pas de calculer sa clé")
+		t.Error("an artifact with no object name makes its key uncomputable")
 	}
 }

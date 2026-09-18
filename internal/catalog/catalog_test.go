@@ -24,16 +24,16 @@ func TestParseAppliesTheDefaultConcurrencyCap(t *testing.T) {
 		t.Fatalf("analyse: %v", err)
 	}
 	if catalog.MaxConcurrentRuns != DefaultMaxConcurrentRuns {
-		t.Errorf("plafond = %d, attendu %d", catalog.MaxConcurrentRuns, DefaultMaxConcurrentRuns)
+		t.Errorf("ceiling = %d, expected %d", catalog.MaxConcurrentRuns, DefaultMaxConcurrentRuns)
 	}
 	if _, found := catalog.Find("static-tests"); !found {
-		t.Error("kind déclaré introuvable")
+		t.Error("declared kind not found")
 	}
 }
 
-// Une clé mal orthographiée dans un ConfigMap doit faire échouer le chargement.
-// Ignorée en silence, elle produirait un run privé du workspace ou du compte de
-// service attendu, et l'échec serait attribué au pipeline.
+// A misspelled key in a ConfigMap must fail the load. Ignored silently, it would
+// produce a run missing the workspace or the service account it expects, and the
+// failure would be blamed on the pipeline.
 func TestUnknownFieldIsRejected(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
@@ -43,22 +43,21 @@ pipelines:
     serviceAccount: tekton-kubectl
 `))
 	if err == nil {
-		t.Fatal("un champ inconnu doit être refusé")
+		t.Fatal("an unknown field must be refused")
 	}
 	if !strings.Contains(err.Error(), "serviceAccount") {
-		t.Errorf("le message ne désigne pas le champ fautif: %v", err)
+		t.Errorf("the message does not name the offending field: %v", err)
 	}
 }
 
-// Le plafond d'un type : déclaré, ou celui du défaut. Un type nouveau démarre
-// parallélisable — le cas courant — et s'exclut en le déclarant plutôt qu'en
-// l'oubliant.
-func TestLePlafondDunTypeRetombeSurLeDefaut(t *testing.T) {
+// A kind's ceiling: declared, or the default. A new kind starts parallelisable —
+// the common case — and excludes itself by declaring it rather than by forgetting.
+func TestAKindCeilingFallsBackToTheDefault(t *testing.T) {
 	if got := (Pipeline{Kind: "unit-tests"}).Concurrency(); got != DefaultKindConcurrency {
-		t.Errorf("plafond = %d, attendu le défaut %d", got, DefaultKindConcurrency)
+		t.Errorf("ceiling = %d, expected the default %d", got, DefaultKindConcurrency)
 	}
 	if got := (Pipeline{Kind: "e2e-tests", MaxConcurrent: 1}).Concurrency(); got != 1 {
-		t.Errorf("plafond déclaré = %d, attendu 1", got)
+		t.Errorf("declared ceiling = %d, expected 1", got)
 	}
 }
 
@@ -72,8 +71,8 @@ pipelines:
     produces: [image]
     pipelineRef: build-image-bis
 `))
-	if err == nil || !strings.Contains(err.Error(), "deux fois") {
-		t.Errorf("un kind dupliqué doit être refusé: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "declared twice") {
+		t.Errorf("a duplicate kind must be refused: %v", err)
 	}
 }
 
@@ -87,7 +86,7 @@ pipelines:
       - name: sans-source
 `))
 	if err == nil {
-		t.Fatal("un workspace sans source doit être refusé")
+		t.Fatal("a workspace with no source must be refused")
 	}
 
 	_, err = Parse([]byte(`
@@ -101,15 +100,15 @@ pipelines:
         secret: { secretName: git-credentials }
 `))
 	if err == nil {
-		t.Error("un workspace à deux sources doit être refusé")
+		t.Error("a workspace with two sources must be refused")
 	}
 }
 
 func TestParamSourcesAreChecked(t *testing.T) {
 	cases := map[string]string{
-		"source inconnue":     `revision: { source: magique }`,
-		"config sans clé":     `revision: { source: config }`,
-		"literal sans valeur": `revision: { source: literal }`,
+		"unknown source":          `revision: { source: magique }`,
+		"config without a key":    `revision: { source: config }`,
+		"literal without a value": `revision: { source: literal }`,
 	}
 
 	for name, params := range cases {
@@ -122,7 +121,7 @@ pipelines:
       ` + params + `
 `))
 		if err == nil {
-			t.Errorf("%s: doit être refusé", name)
+			t.Errorf("%s: must be refused", name)
 		}
 	}
 }
@@ -147,7 +146,7 @@ pipelines:
 	required := pipeline.RequiredInputs()
 
 	if len(required) != 2 || required[0] != "commit" || required[1] != "revision" {
-		t.Errorf("entrées requises = %v, attendu [commit revision]", required)
+		t.Errorf("required inputs = %v, expected [commit revision]", required)
 	}
 }
 
@@ -177,12 +176,12 @@ func TestValidateAgainstAcceptsAConsistentCatalog(t *testing.T) {
 	}}
 
 	if err := catalog.ValidateAgainst(context.Background(), cluster); err != nil {
-		t.Errorf("catalogue cohérent refusé: %v", err)
+		t.Errorf("a consistent catalogue was refused: %v", err)
 	}
 }
 
-// Le Pipeline référencé n'existe pas : le run serait créé puis échouerait en
-// `CouldntGetPipeline`, motif qui ne désigne pas le catalogue.
+// The referenced Pipeline does not exist: the run would be created and then fail
+// with CouldntGetPipeline, a reason that does not name the catalogue.
 func TestValidateAgainstDetectsMissingPipeline(t *testing.T) {
 	catalog, _ := Parse([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
@@ -191,15 +190,15 @@ func TestValidateAgainstDetectsMissingPipeline(t *testing.T) {
 
 	err := catalog.ValidateAgainst(context.Background(), cluster)
 	if err == nil {
-		t.Fatal("un Pipeline absent doit être détecté")
+		t.Fatal("a missing Pipeline must be detected")
 	}
 	if !strings.Contains(err.Error(), "php-static-tests") {
-		t.Errorf("le message ne nomme pas le Pipeline manquant: %v", err)
+		t.Errorf("the message does not name the missing Pipeline: %v", err)
 	}
-	// Le message liste ce qui existe : sans cela, diagnostiquer une faute de
-	// frappe suppose d'aller interroger le cluster à la main.
+	// The message lists what does exist: without it, diagnosing a typo means querying
+	// the cluster by hand.
 	if !strings.Contains(err.Error(), "security-audit") {
-		t.Errorf("le message ne liste pas les Pipeline déployés: %v", err)
+		t.Errorf("the message does not list the deployed Pipelines: %v", err)
 	}
 }
 
@@ -211,12 +210,11 @@ func TestValidateAgainstDetectsUnknownParam(t *testing.T) {
 
 	err := catalog.ValidateAgainst(context.Background(), cluster)
 	if err == nil || !strings.Contains(err.Error(), "repo-url") {
-		t.Errorf("un paramètre inconnu du Pipeline doit être détecté: %v", err)
+		t.Errorf("a parameter unknown to the Pipeline must be detected: %v", err)
 	}
 }
 
-// Le cas qui produit `ParameterMissing`, motif qui a déjà piégé un outil de suivi
-// de ce projet parce qu'il ne figurait dans aucune liste connue.
+// The case that produces ParameterMissing.
 func TestValidateAgainstDetectsUncoveredRequiredParam(t *testing.T) {
 	catalog, _ := Parse([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
@@ -229,13 +227,13 @@ func TestValidateAgainstDetectsUncoveredRequiredParam(t *testing.T) {
 
 	err := catalog.ValidateAgainst(context.Background(), cluster)
 	if err == nil || !strings.Contains(err.Error(), "commit") {
-		t.Errorf("un paramètre requis non couvert doit être détecté: %v", err)
+		t.Errorf("an uncovered required parameter must be detected: %v", err)
 	}
 }
 
-// Un paramètre du Pipeline qui a une valeur par défaut n'a pas à être fourni :
-// l'exiger obligerait le catalogue à recopier des valeurs qui vivent déjà dans
-// `mse-tekton`, et à les maintenir en double.
+// A Pipeline parameter that has a default need not be supplied: requiring it would
+// force the catalogue to copy values that already live in the Pipeline, and to
+// maintain them twice.
 func TestValidateAgainstIgnoresDefaultedParams(t *testing.T) {
 	catalog, _ := Parse([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
@@ -248,7 +246,7 @@ func TestValidateAgainstIgnoresDefaultedParams(t *testing.T) {
 	}}
 
 	if err := catalog.ValidateAgainst(context.Background(), cluster); err != nil {
-		t.Errorf("des paramètres à valeur par défaut ont été exigés: %v", err)
+		t.Errorf("parameters with defaults were demanded: %v", err)
 	}
 }
 
@@ -257,14 +255,13 @@ func TestValidateAgainstReportsClusterFailure(t *testing.T) {
 	cluster := fakeCluster{err: errors.New("forbidden")}
 
 	if err := catalog.ValidateAgainst(context.Background(), cluster); err == nil {
-		t.Error("une erreur de lecture du cluster doit remonter")
+		t.Error("an error reading the cluster must surface")
 	}
 }
 
-// Le cas constaté sur le cluster : le catalogue passait la validation des
-// paramètres, démarrait, puis produisait des runs morts en
-// `InvalidWorkspaceBindings` à la seconde. La validation doit donc couvrir les
-// workspaces comme les paramètres.
+// The case observed on the cluster: the catalogue passed parameter validation,
+// started, then produced runs that died with InvalidWorkspaceBindings within a
+// second. Validation must therefore cover workspaces as well as parameters.
 func TestValidateAgainstDetectsUnboundWorkspace(t *testing.T) {
 	catalog, _ := Parse([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
@@ -280,19 +277,19 @@ func TestValidateAgainstDetectsUnboundWorkspace(t *testing.T) {
 
 	err := catalog.ValidateAgainst(context.Background(), cluster)
 	if err == nil {
-		t.Fatal("un workspace non lié doit être détecté")
+		t.Fatal("an unbound workspace must be detected")
 	}
 	for _, name := range []string{"shared-data", "git-credentials"} {
 		if !strings.Contains(err.Error(), name) {
-			t.Errorf("le message ne nomme pas le workspace %q: %v", name, err)
+			t.Errorf("the message does not name workspace %q: %v", name, err)
 		}
 	}
 }
 
-// Un workspace lié sous un nom que le Pipeline ne connaît pas est tout aussi
-// fatal, et le message doit lister les noms attendus : `security-audit` emploie
-// `shared` et `docker-config` là où les autres pipelines emploient `shared-data`
-// et `dockerconfig`, et rien ne le devine.
+// A workspace bound under a name the Pipeline does not know is just as fatal, and
+// the message must list the expected names: one pipeline uses `shared` and
+// `docker-config` where the others use `shared-data` and `dockerconfig`, and
+// nothing guesses that.
 func TestValidateAgainstDetectsMisnamedWorkspace(t *testing.T) {
 	catalog, err := Parse([]byte(`
 pipelines:
@@ -316,11 +313,11 @@ pipelines:
 
 	err = catalog.ValidateAgainst(context.Background(), cluster)
 	if err == nil || !strings.Contains(err.Error(), "shared") {
-		t.Errorf("un workspace mal nommé doit être détecté: %v", err)
+		t.Errorf("a misnamed workspace must be detected: %v", err)
 	}
 }
 
-// Un workspace optionnel n'a pas à être lié.
+// An optional workspace need not be bound.
 func TestValidateAgainstIgnoresOptionalWorkspaces(t *testing.T) {
 	catalog, _ := Parse([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
@@ -332,14 +329,13 @@ func TestValidateAgainstIgnoresOptionalWorkspaces(t *testing.T) {
 	}}
 
 	if err := catalog.ValidateAgainst(context.Background(), cluster); err != nil {
-		t.Errorf("un workspace optionnel a été exigé: %v", err)
+		t.Errorf("an optional workspace was demanded: %v", err)
 	}
 }
 
-// Une vérification sans artefact tourne, conclut, et son verdict n'atteint jamais
-// le dashboard : la release reste en attente d'un résultat que rien ne remonte.
-// Refusé au démarrage plutôt que constaté au bout d'une campagne.
-func TestUneVerificationSansArtefactEstRefusee(t *testing.T) {
+// A verification with no artifact runs, concludes, and its verdict never reaches
+// the dashboard: the release keeps waiting for a result nothing reports.
+func TestAVerificationWithoutAnArtifactIsRefused(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
   - kind: unit-tests
@@ -348,23 +344,24 @@ pipelines:
     verification: true
 `))
 	if err == nil {
-		t.Fatal("une vérification sans artefact doit être refusée")
+		t.Fatal("a verification with no artifact must be refused")
 	}
-	if !strings.Contains(err.Error(), "au moins un artefact") {
+	if !strings.Contains(err.Error(), "at least one artifact") {
 		t.Errorf("message = %v", err)
 	}
 }
 
-// Et le pendant : un pipeline non enchaîné n'a rien à publier. `build` produit une
-// image, pas un rapport, et lui réclamer un artefact le rendrait indéclarable.
-func TestUnPipelineNonEnchaineNaPasBesoinDArtefact(t *testing.T) {
+// And the converse: a pipeline that is not chained has nothing to publish. A build
+// produces an image, not a report, and demanding an artifact would make it
+// undeclarable.
+func TestAnUnchainedPipelineNeedsNoArtifact(t *testing.T) {
 	if _, err := Parse([]byte(`
 pipelines:
   - kind: build
     produces: [image]
     pipelineRef: build-image
 `)); err != nil {
-		t.Fatalf("un pipeline ordinaire sans artefact doit être accepté: %v", err)
+		t.Fatalf("an ordinary pipeline with no artifact must be accepted: %v", err)
 	}
 }
 
@@ -376,12 +373,12 @@ pipelines:
  * déjà la ligne où elles divergent.
  */
 
-// Le produit est exigé, et le message nomme les valeurs admises.
+// The product is required, and the message names the accepted values.
 //
-// Refusé au démarrage plutôt que déduit du nom : deviner que `build` produit une
-// image parce qu'il s'appelle `build` rétablirait la convention de nommage que
-// cette déclaration existe pour supprimer.
-func TestLeProduitEstExigeALaDeclaration(t *testing.T) {
+// Refused at start-up rather than inferred from the name: guessing that a build
+// produces an image because it is called `build` would restore the naming
+// convention this declaration exists to remove.
+func TestTheProductIsRequiredAtDeclaration(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
   - kind: deploy-recette
@@ -389,20 +386,19 @@ pipelines:
     label: Déploiement
 `))
 	if err == nil {
-		t.Fatal("un pipeline sans produit doit être refusé")
+		t.Fatal("a pipeline with no product must be refused")
 	}
 	for _, attendu := range []string{"produces", "image", "results", "none"} {
 		if !strings.Contains(err.Error(), attendu) {
-			t.Errorf("message %q — il doit mentionner %q", err, attendu)
+			t.Errorf("message %q — it must mention %q", err, attendu)
 		}
 	}
 }
 
-// Un pipeline qui ne produit rien le déclare, plutôt que de laisser la liste vide.
-//
-// « Ce pipeline ne produit rien » et « personne n'a répondu » sont deux choses
-// différentes, et seule la seconde doit être refusée.
-func TestRienEstUneReponseQuiSeDeclare(t *testing.T) {
+// A pipeline that produces nothing declares it, rather than leaving the list
+// empty. "This pipeline produces nothing" and "nobody answered" are different, and
+// only the second must be refused.
+func TestNothingIsAnAnswerThatMustBeDeclared(t *testing.T) {
 	parsed, err := Parse([]byte(`
 pipelines:
   - kind: deploy-recette
@@ -414,17 +410,17 @@ pipelines:
 		t.Fatalf("analyse: %v", err)
 	}
 	if !parsed.Yields("deploy-recette", ProductNone) {
-		t.Error("le produit déclaré n'est pas rendu")
+		t.Error("the declared product is not returned")
 	}
 	if parsed.Yields("deploy-recette", ProductResults) {
-		t.Error("un produit non déclaré est rendu")
+		t.Error("an undeclared product is returned")
 	}
 }
 
-// Un pipeline peut produire les deux : construire une image puis lancer ses
-// tests. C'est la raison d'être de la liste — le couper en deux pour entrer dans
-// le modèle serait le modèle qui dicte le pipeline.
-func TestUnPipelinePeutProduireLesDeux(t *testing.T) {
+// A pipeline may produce both: build an image, then run its tests. That is what
+// the list is for — splitting it in two to fit the model would be the model
+// dictating the pipeline.
+func TestAPipelineCanProduceBoth(t *testing.T) {
 	parsed, err := Parse([]byte(`
 pipelines:
   - kind: build-and-test
@@ -441,16 +437,16 @@ pipelines:
 	}
 	if !parsed.Yields("build-and-test", ProductImage) ||
 		!parsed.Yields("build-and-test", ProductResults) {
-		t.Error("les deux produits doivent être rendus")
+		t.Error("both products must be returned")
 	}
 }
 
-// La déduction couvre ce qui ne fait aucun doute, et rien de plus.
+// Deduction covers what is beyond doubt, and nothing more.
 //
-// `verification: true` implique déjà la publication de rapports — la validation
-// l'exige. Le reste demande une réponse humaine, et c'est ce qui a fait apparaître
-// `e2e-tests` : trois artefacts publiés sous un drapeau qui disait « non ».
-func TestLaDeductionNeCouvreQueLaVerification(t *testing.T) {
+// `verification: true` already implies publishing reports — validation requires
+// it. The rest needs a human answer, which is what surfaced the end-to-end case:
+// three artifacts published under a flag that said "no".
+func TestDeductionOnlyCoversVerifications(t *testing.T) {
 	parsed, err := Parse([]byte(`
 pipelines:
   - kind: unit-tests
@@ -466,23 +462,23 @@ pipelines:
 		t.Fatalf("analyse: %v", err)
 	}
 	if !parsed.Yields("unit-tests", ProductResults) {
-		t.Error("une vérification déduit son produit")
+		t.Error("a verification infers its product")
 	}
 
-	// Un pipeline sans drapeau ne se déduit pas : il est refusé.
+	// A pipeline with no flag cannot be deduced: it is refused.
 	if _, err := Parse([]byte(`
 pipelines:
   - kind: retag
     pipelineRef: retag-image
     label: Re-tag
 `)); err == nil {
-		t.Error("un pipeline hors vérification doit déclarer son produit")
+		t.Error("a pipeline that is not a verification must declare its product")
 	}
 }
 
-// Une déclaration explicite l'emporte sur la déduction : c'est ce qui permet de
-// corriger un catalogue sans retirer le drapeau, qui sert encore à l'enchaînement.
-func TestLaDeclarationExpliciteLEmporteSurLaDeduction(t *testing.T) {
+// An explicit declaration beats deduction: that is what allows fixing a catalogue
+// without removing the flag, which still drives chaining.
+func TestAnExplicitDeclarationBeatsDeduction(t *testing.T) {
 	parsed, err := Parse([]byte(`
 pipelines:
   - kind: build-and-verify
@@ -499,15 +495,15 @@ pipelines:
 		t.Fatalf("analyse: %v", err)
 	}
 	if !parsed.Yields("build-and-verify", ProductImage) {
-		t.Error("la déduction a écrasé la déclaration")
+		t.Error("deduction overwrote the declaration")
 	}
 }
 
-// Les deux incohérences que la déclaration rend détectables, et qui étaient
-// jusqu'ici invisibles : des résultats annoncés que rien ne publie, et des
-// artefacts publiés que rien n'annonce.
-func TestLesIncoherencesEntreProduitEtArtefactsSontRefusees(t *testing.T) {
-	// Annoncés sans artefact : le run tourne, conclut, et l'écran reste vide.
+// The two inconsistencies the declaration makes detectable, and which used to be
+// invisible: results announced that nothing publishes, and artifacts published
+// that nothing announces.
+func TestInconsistenciesBetweenProductAndArtifactsAreRefused(t *testing.T) {
+	// Announced with no artifact: the run runs, concludes, and the screen stays empty.
 	_, err := Parse([]byte(`
 pipelines:
   - kind: unit-tests
@@ -515,12 +511,12 @@ pipelines:
     label: Tests unitaires
     produces: [results]
 `))
-	if err == nil || !strings.Contains(err.Error(), "artefact") {
-		t.Errorf("résultats sans artefact: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "artifact") {
+		t.Errorf("results with no artifact: %v", err)
 	}
 
-	// Publiés sans être annoncés : c'est exactement l'état d'`e2e-tests` avant
-	// cette correction — trois artefacts, et rien qui dise qu'on les lit.
+	// Published without being announced: three artifacts, and nothing saying they are
+	// read.
 	_, err = Parse([]byte(`
 pipelines:
   - kind: e2e-tests
@@ -532,14 +528,13 @@ pipelines:
     uploads:
       reports: { param: reports-upload-url, artifact: reports.tar.gz }
 `))
-	if err == nil || !strings.Contains(err.Error(), "jamais lus") {
-		t.Errorf("artefacts sans produit annoncé: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "never read") {
+		t.Errorf("artifacts with no announced product: %v", err)
 	}
 }
 
-// Un produit inventé est refusé, et le message nomme les valeurs admises : le jeu
-// est fermé, chacune supposant un lecteur écrit en Go.
-func TestUnProduitInconnuEstRefuse(t *testing.T) {
+// An invented product is refused, and the message names the accepted values.
+func TestAnUnknownProductIsRefused(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
   - kind: bench
@@ -548,16 +543,16 @@ pipelines:
     produces: [metrics]
 `))
 	if err == nil || !strings.Contains(err.Error(), "metrics") {
-		t.Fatalf("produit inconnu: %v", err)
+		t.Fatalf("unknown product: %v", err)
 	}
 	if !strings.Contains(err.Error(), "results") {
-		t.Errorf("message %q — il doit nommer les produits admis", err)
+		t.Errorf("message %q — it must name the accepted products", err)
 	}
 }
 
-// « Rien » ne se cumule pas : la déclaration se contredirait, et rien ne dirait
-// laquelle des deux moitiés croire.
-func TestRienNeSeCumulePasAvecUnAutreProduit(t *testing.T) {
+// "Nothing" does not accumulate: the declaration would contradict itself, and
+// nothing would say which half to believe.
+func TestNothingDoesNotCombineWithAnotherProduct(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
   - kind: build
@@ -565,8 +560,8 @@ pipelines:
     label: Construction
     produces: [image, none]
 `))
-	if err == nil || !strings.Contains(err.Error(), "cumule") {
-		t.Errorf("produits contradictoires: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "does not combine") {
+		t.Errorf("contradictory products: %v", err)
 	}
 }
 
@@ -579,8 +574,8 @@ pipelines:
  * pipeline, et le catalogue la disait déjà par ses `suggest`.
  */
 
-// parseDeTest rend un catalogue ou fait échouer le test.
-func parseDeTest(t *testing.T, source string) *Catalog {
+// parseForTest returns a catalogue or fails the test.
+func parseForTest(t *testing.T, source string) *Catalog {
 	t.Helper()
 	parsed, err := Parse([]byte(source))
 	if err != nil {
@@ -589,12 +584,12 @@ func parseDeTest(t *testing.T, source string) *Catalog {
 	return parsed
 }
 
-// Les paramètres que l'exécution impose ne sont pas proposés à la saisie.
+// Parameters the run imposes are not offered for typing.
 //
-// Les proposer inviterait à fixer une révision qui serait écrasée — pire qu'une
-// absence : on croirait l'avoir fixée.
-func TestUneDeclarationNeSeVoitPasOffrirCeQueLExecutionImpose(t *testing.T) {
-	registry := parseDeTest(t, `
+// Offering them would invite fixing a revision that is then overwritten — worse
+// than an absence: one would believe it had been set.
+func TestADeclarationIsNotOfferedWhatTheRunImposes(t *testing.T) {
+	registry := parseForTest(t, `
 pipelines:
   - kind: build
     pipelineRef: build-image
@@ -616,23 +611,22 @@ pipelines:
 
 	for _, impose := range []string{"revision", "version"} {
 		if offerts[impose] {
-			t.Errorf("%q est offert à la saisie alors que l'exécution l'impose", impose)
+			t.Errorf("%q is offered for typing although the run imposes it", impose)
 		}
 	}
 	for _, declare := range []string{"image-name", "target", "dockerfile"} {
 		if !offerts[declare] {
-			t.Errorf("%q n'est pas offert — personne ne pourra le renseigner", declare)
+			t.Errorf("%q is not offered — nobody will be able to fill it in", declare)
 		}
 	}
 }
 
-// Une référence d'image est un **repli**, et non une imposition.
+// An image reference is a fallback, not an imposition.
 //
-// C'est ce qui permet à un geste de test de viser l'artefact qu'une étape de
-// construction a réellement produit — `{artifacts.portal.image}` — plutôt qu'une
-// référence recomposée qui peut désigner une image que personne n'a publiée.
-func TestUneReferenceDImageEstUnRepliQuUneDeclarationPeutPrendre(t *testing.T) {
-	registry := parseDeTest(t, `
+// That is what lets a test step aim at the artifact a build step actually produced
+// rather than at a recomposed reference that may name an image nobody published.
+func TestAnImageReferenceIsAFallbackADeclarationCanOverride(t *testing.T) {
+	registry := parseForTest(t, `
 pipelines:
   - kind: security-audit
     pipelineRef: audit
@@ -650,19 +644,19 @@ pipelines:
 	if input.Origin() != OriginFallback {
 		t.Errorf("origine = %q, attendue %q", input.Origin(), OriginFallback)
 	}
-	// Et le repli reste calculable : un geste qui ne déclare rien reçoit ce que
-	// le registre et le tag composent, comme avant la déclaration.
+	// And the fallback stays computable: a step that declares nothing receives what
+	// the registry and the tag compose.
 	if got := input.FromContext("abc123", "1.8.0", "vcarroy"); got == "" {
-		t.Error("le repli ne rend rien — un geste sans déclaration n'aurait pas d'image")
+		t.Error("the fallback returns nothing — a step with no declaration would have no image")
 	}
 }
 
-// Un paramètre sans libellé retombe sur son nom.
+// A parameter with no label falls back to its name.
 //
-// Un catalogue écrit avant cette tranche reste saisissable : il est plus sec,
-// pas muet. Un champ sans étiquette est un champ qu'on ne remplit pas.
-func TestUnParametreSansLibelleRetombeSurSonNom(t *testing.T) {
-	registry := parseDeTest(t, `
+// A catalogue written before labels existed stays fillable: drier, not mute. A
+// field without a label is a field nobody fills in.
+func TestAParameterWithoutALabelFallsBackToItsName(t *testing.T) {
+	registry := parseForTest(t, `
 pipelines:
   - kind: build
     pipelineRef: build-image
@@ -674,7 +668,7 @@ pipelines:
         source: input
         required: true
         suggest: image-name
-        label: Dépôt publié
+        label: Published repository
         help: Nom court, sans le registre.
 `)
 	pipeline, _ := registry.Find("build")
@@ -685,9 +679,9 @@ pipelines:
 	}
 
 	if par["target"].Label != "target" {
-		t.Errorf("libellé de repli = %q, attendu le nom", par["target"].Label)
+		t.Errorf("fallback label = %q, expected the name", par["target"].Label)
 	}
-	if par["image-name"].Label != "Dépôt publié" || par["image-name"].Help == "" {
-		t.Errorf("le libellé déclaré n'est pas rendu: %+v", par["image-name"])
+	if par["image-name"].Label != "Published repository" || par["image-name"].Help == "" {
+		t.Errorf("the declared label is not returned: %+v", par["image-name"])
 	}
 }

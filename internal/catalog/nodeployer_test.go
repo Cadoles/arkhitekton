@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// Un catalogue sans le moindre réglage de déployeur doit être valide.
+// A catalogue with no deployer settings at all must be valid.
 //
-// `promotionSuffix` était requis, et son absence faisait échouer la validation :
-// le catalogue imposait Flux à qui n'en avait pas. Passé par `Parse` : c'est le
-// chemin réel, décodage strict compris.
-func TestUnCatalogueSansReglageDeDeployeurEstValide(t *testing.T) {
+// `promotionSuffix` used to be required, and its absence failed validation: the
+// catalogue imposed one deployment tool on whoever had none. Run through Parse,
+// which is the real path, strict decoding included.
+func TestACatalogueWithoutDeployerSettingsIsValid(t *testing.T) {
 	const catalogue = `
 maxConcurrentRuns: 1
 projects:
@@ -33,18 +33,18 @@ pipelines:
 
 	parsed, err := Parse([]byte(catalogue))
 	if err != nil {
-		t.Fatalf("un projet sans déployeur doit pouvoir déclarer ses environnements: %v", err)
+		t.Fatalf("a project with no deployer must be able to declare its environments: %v", err)
 	}
 	for _, environment := range parsed.EnvironmentsOf("recette-project") {
 		if len(environment.Deployer) != 0 {
-			t.Errorf("environnement %q: réglages inventés %v", environment.ID, environment.Deployer)
+			t.Errorf("environment %q: invented settings %v", environment.ID, environment.Deployer)
 		}
 	}
 }
 
-// Les rangs et les identifiants sont uniques **dans un projet** : deux projets
-// peuvent chacun avoir un `qualif` de rang 2.
-func TestLesEnvironnementsSeValidentParProjet(t *testing.T) {
+// Ranks and identifiers are unique within a project: two projects may each have a
+// `qualif` of rank 2.
+func TestEnvironmentsAreValidatedPerProject(t *testing.T) {
 	const partages = `
 maxConcurrentRuns: 1
 projects:
@@ -58,7 +58,7 @@ pipelines:
   - {kind: build, pipelineRef: build-image, label: Construction, produces: [image]}
 `
 	if _, err := Parse([]byte(partages)); err != nil {
-		t.Errorf("deux projets avec le même environnement: %v", err)
+		t.Errorf("two projects with the same environment: %v", err)
 	}
 
 	const doublons = `
@@ -74,11 +74,11 @@ pipelines:
 `
 	_, err := Parse([]byte(doublons))
 	if err == nil {
-		t.Fatal("un identifiant et un rang dupliqués dans un projet doivent être refusés")
+		t.Fatal("a duplicated identifier and rank within a project must be refused")
 	}
-	for _, attendu := range []string{`"qualif" déclaré deux fois`, "partagent le rang 2"} {
+	for _, attendu := range []string{`"qualif" declared twice`, "share rank 2"} {
 		if !strings.Contains(err.Error(), attendu) {
-			t.Errorf("erreur %q — elle doit dire %q", err, attendu)
+			t.Errorf("error %q — it must say %q", err, attendu)
 		}
 	}
 }

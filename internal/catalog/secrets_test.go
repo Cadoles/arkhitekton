@@ -13,13 +13,13 @@ func pipelineWithSecrets() Pipeline {
 	}
 }
 
-func TestLesNomsDeSecretsViennentDeLaConfiguration(t *testing.T) {
+func TestSecretNamesComeFromConfiguration(t *testing.T) {
 	resolved, err := pipelineWithSecrets().ResolveSecrets(map[string]string{
 		"pipeline.gitSecret":      "git-credentials-test",
 		"pipeline.registrySecret": "regcred-vcarroy",
 	})
 	if err != nil {
-		t.Fatalf("résolution: %v", err)
+		t.Fatalf("resolution: %v", err)
 	}
 
 	if got := resolved.Workspaces[0].Secret.SecretName; got != "git-credentials-test" {
@@ -28,15 +28,15 @@ func TestLesNomsDeSecretsViennentDeLaConfiguration(t *testing.T) {
 	if got := resolved.Workspaces[1].Secret.SecretName; got != "regcred-vcarroy" {
 		t.Errorf("secret registre %q", got)
 	}
-	// Un workspace sans secret traverse sans être touché.
+	// A workspace with no secret passes through untouched.
 	if resolved.Workspaces[2].VolumeClaimTemplate == nil {
-		t.Error("le volume a été perdu à la résolution")
+		t.Error("the volume was lost during resolution")
 	}
 }
 
-// Un nom littéral reste littéral : les catalogues qui n'utilisent pas de clé de
-// configuration continuent de fonctionner tels quels.
-func TestUnNomLitteralEstConserve(t *testing.T) {
+// A literal name stays literal: catalogues that use no configuration key keep
+// working as they are.
+func TestALiteralNameIsPreserved(t *testing.T) {
 	pipeline := Pipeline{
 		Kind:       "promote",
 		Workspaces: []Workspace{{Name: "dockerconfig", Secret: &SecretSource{SecretName: "regcred"}}},
@@ -44,85 +44,84 @@ func TestUnNomLitteralEstConserve(t *testing.T) {
 
 	resolved, err := pipeline.ResolveSecrets(map[string]string{})
 	if err != nil {
-		t.Fatalf("résolution: %v", err)
+		t.Fatalf("resolution: %v", err)
 	}
 	if got := resolved.Workspaces[0].Secret.SecretName; got != "regcred" {
-		t.Errorf("nom littéral altéré: %q", got)
+		t.Errorf("literal name altered: %q", got)
 	}
 }
 
-// Une clé absente refuse le run plutôt que de monter un secret vide : Tekton
-// échouerait au démarrage du pod sur un message qui ne désignerait pas la cause.
-func TestUneCleAbsenteRefuseLeRun(t *testing.T) {
+// A missing key refuses the run rather than mounting an empty secret: Tekton would
+// fail when starting the pod, with a message that does not name the cause.
+func TestAMissingKeyRefusesTheRun(t *testing.T) {
 	for _, config := range []map[string]string{
 		{},
 		{"pipeline.gitSecret": ""},
 		{"pipeline.registrySecret": "regcred"},
 	} {
 		if _, err := pipelineWithSecrets().ResolveSecrets(config); err == nil {
-			t.Errorf("config %v: la résolution devrait échouer", config)
+			t.Errorf("config %v: resolution should fail", config)
 		}
 	}
 }
 
-// La résolution ne doit pas écrire dans le catalogue partagé : celui-ci est lu
-// une fois au démarrage et sert tous les runs. Sans copie, le second run verrait
-// le nom résolu du premier comme s'il était littéral — et une bascule de
-// configuration n'aurait plus d'effet jusqu'au redémarrage.
-func TestLaResolutionNeContaminePasLeCatalogue(t *testing.T) {
+// Resolution must not write into the shared catalogue, which is read once at
+// start-up and serves every run. Without a copy, the second run would see the
+// first run's resolved name as if it were literal — and a configuration switch
+// would have no effect until restart.
+func TestResolutionDoesNotContaminateTheCatalogue(t *testing.T) {
 	pipeline := pipelineWithSecrets()
 
 	if _, err := pipeline.ResolveSecrets(map[string]string{
 		"pipeline.gitSecret":      "git-credentials-test",
 		"pipeline.registrySecret": "regcred-vcarroy",
 	}); err != nil {
-		t.Fatalf("résolution: %v", err)
+		t.Fatalf("resolution: %v", err)
 	}
 
 	if pipeline.Workspaces[0].Secret.SecretName != "" {
-		t.Errorf("le catalogue a été modifié: %q", pipeline.Workspaces[0].Secret.SecretName)
+		t.Errorf("the catalogue was modified: %q", pipeline.Workspaces[0].Secret.SecretName)
 	}
 	if pipeline.Workspaces[0].Secret.ConfigKey != "pipeline.gitSecret" {
-		t.Errorf("la clé d'origine a été perdue: %q", pipeline.Workspaces[0].Secret.ConfigKey)
+		t.Errorf("the original key was lost: %q", pipeline.Workspaces[0].Secret.ConfigKey)
 	}
 }
 
-// Le défaut qui a fait échouer les runs : aucun secret de tirage, alors que les
-// cinq pipelines emploient des images d'un projet privé. Le podTemplate global
-// doit être hérité par toute entrée qui n'en déclare pas.
-func TestLeSecretDeTirageEstHeriteDuCatalogue(t *testing.T) {
+// The failure that killed runs: no image pull secret, while every pipeline uses
+// images from a private project. The global pod template must be inherited by any
+// entry that declares none.
+func TestThePullSecretIsInheritedFromTheCatalogue(t *testing.T) {
 	c := &Catalog{
 		PodTemplate: &PodTemplate{ImagePullSecretsConfigKey: "pipeline.imagePullSecret"},
 		Pipelines: []Pipeline{
 			{Kind: "build"},
-			// Une entrée qui déclare le sien l'emporte : un pipeline peut tirer
-			// depuis un registre différent des autres.
+			// An entry declaring its own wins: a pipeline may pull from a different registry.
 			{Kind: "promote", PodTemplate: &PodTemplate{ImagePullSecrets: []string{"autre-secret"}}},
 		},
 	}
 
 	build, _ := c.Find("build")
 	if build.PodTemplate == nil || build.PodTemplate.ImagePullSecretsConfigKey != "pipeline.imagePullSecret" {
-		t.Fatalf("podTemplate non hérité: %+v", build.PodTemplate)
+		t.Fatalf("podTemplate not inherited: %+v", build.PodTemplate)
 	}
 
 	resolved, err := build.ResolveSecrets(map[string]string{"pipeline.imagePullSecret": "regcred"})
 	if err != nil {
-		t.Fatalf("résolution: %v", err)
+		t.Fatalf("resolution: %v", err)
 	}
 	if got := resolved.PodTemplate.ImagePullSecrets; len(got) != 1 || got[0] != "regcred" {
-		t.Errorf("secret de tirage résolu: %v", got)
+		t.Errorf("resolved pull secret: %v", got)
 	}
 
 	promote, _ := c.Find("promote")
 	if got := promote.PodTemplate.ImagePullSecrets; len(got) != 1 || got[0] != "autre-secret" {
-		t.Errorf("l'entrée déclarante doit l'emporter: %v", got)
+		t.Errorf("the declaring entry must win: %v", got)
 	}
 }
 
-// La résolution du podTemplate ne contamine pas le catalogue partagé, pour la
-// même raison que celle des workspaces.
-func TestLaResolutionDuPodTemplateNeContaminePas(t *testing.T) {
+// Resolving the pod template does not contaminate the shared catalogue, for the
+// same reason as the workspaces.
+func TestResolvingThePodTemplateDoesNotContaminate(t *testing.T) {
 	c := &Catalog{
 		PodTemplate: &PodTemplate{ImagePullSecretsConfigKey: "pipeline.imagePullSecret"},
 		Pipelines:   []Pipeline{{Kind: "build"}},
@@ -130,20 +129,20 @@ func TestLaResolutionDuPodTemplateNeContaminePas(t *testing.T) {
 
 	build, _ := c.Find("build")
 	if _, err := build.ResolveSecrets(map[string]string{"pipeline.imagePullSecret": "regcred"}); err != nil {
-		t.Fatalf("résolution: %v", err)
+		t.Fatalf("resolution: %v", err)
 	}
 
 	if len(c.PodTemplate.ImagePullSecrets) != 0 {
-		t.Errorf("le catalogue a été modifié: %v", c.PodTemplate.ImagePullSecrets)
+		t.Errorf("the catalogue was modified: %v", c.PodTemplate.ImagePullSecrets)
 	}
 	if c.PodTemplate.ImagePullSecretsConfigKey == "" {
-		t.Error("la clé d'origine a été perdue")
+		t.Error("the original key was lost")
 	}
 }
 
-// Une clé absente refuse le run plutôt que de laisser partir un pod sans secret,
-// qui échouerait en TaskRunImagePullFailed sans désigner la cause.
-func TestUneCleDeTirageAbsenteRefuseLeRun(t *testing.T) {
+// A missing key refuses the run rather than letting a pod start without its
+// secret, which would fail with TaskRunImagePullFailed without naming the cause.
+func TestAMissingPullSecretKeyRefusesTheRun(t *testing.T) {
 	c := &Catalog{
 		PodTemplate: &PodTemplate{ImagePullSecretsConfigKey: "pipeline.imagePullSecret"},
 		Pipelines:   []Pipeline{{Kind: "build"}},
@@ -151,6 +150,6 @@ func TestUneCleDeTirageAbsenteRefuseLeRun(t *testing.T) {
 	build, _ := c.Find("build")
 
 	if _, err := build.ResolveSecrets(map[string]string{}); err == nil {
-		t.Error("la résolution devrait échouer sur une clé absente")
+		t.Error("resolution should fail on a missing key")
 	}
 }

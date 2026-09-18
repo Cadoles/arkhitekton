@@ -8,49 +8,47 @@ import (
 	"strings"
 )
 
-// PipelineSpec est ce que le catalogue a besoin de savoir d'un Pipeline du
-// cluster : son nom et ses paramètres.
+// PipelineSpec is what the catalogue needs to know about a Pipeline in the
+// cluster: its name and its parameters.
 //
-// Un type propre plutôt que celui de Tekton, pour que ce paquet ne dépende pas de
-// client-go — et surtout pour que la validation soit testable sans cluster.
+// A local type rather than Tekton's, so this package does not depend on client-go
+// — and above all so validation is testable without a cluster.
 type PipelineSpec struct {
 	Name string
-	// Params indique, par nom, si le paramètre a une valeur par défaut.
+	// Params says, by name, whether the parameter has a default.
 	Params map[string]bool
-	// Workspaces indique, par nom, si le workspace est optionnel.
+	// Workspaces says, by name, whether the workspace is optional.
 	Workspaces map[string]bool
 }
 
-// Cluster fournit les Pipeline réellement déployés.
+// Cluster supplies the Pipelines actually deployed.
 type Cluster interface {
 	Pipelines(ctx context.Context) (map[string]PipelineSpec, error)
 }
 
-// ValidateAgainst confronte le catalogue au cluster.
+// ValidateAgainst checks the catalogue against the cluster.
 //
-// Trois écarts sont recherchés, et chacun correspond à une panne observée sur ce
-// genre de chaîne :
+// Four mismatches are looked for, each matching an observed failure:
 //
-//  1. **Pipeline absent** — le catalogue référence un nom qui n'existe pas. Le run
-//     serait créé puis échouerait immédiatement en `CouldntGetPipeline`, sans que
-//     le message désigne le catalogue.
-//  2. **Paramètre inconnu** — le catalogue fournit un paramètre que le Pipeline
-//     n'accepte pas. Tekton refuse le run entier.
-//  3. **Paramètre requis non couvert** — le Pipeline attend un paramètre sans
-//     valeur par défaut que le catalogue ne fournit pas. Le run échoue en
-//     `ParameterMissing`, motif qui a déjà piégé un outil de suivi de ce projet.
-//  4. **Workspace non lié** — le Pipeline déclare un workspace non optionnel que
-//     le catalogue ne fournit pas. Le run échoue en `InvalidWorkspaceBindings`,
-//     constaté sur ce cluster : une première version du catalogue ne vérifiait
-//     que les paramètres, passait le démarrage, et produisait des runs morts à la
-//     seconde. C'est exactement ce que cette validation existe pour empêcher.
+//  1. Missing Pipeline — the catalogue references a name that does not exist. The
+//     run would be created and fail immediately with CouldntGetPipeline, without
+//     the message naming the catalogue.
+//  2. Unknown parameter — the catalogue supplies a parameter the Pipeline does not
+//     accept. Tekton refuses the whole run.
+//  3. Required parameter not covered — the Pipeline expects a parameter with no
+//     default that the catalogue does not supply. The run fails with
+//     ParameterMissing.
+//  4. Unbound workspace — the Pipeline declares a non-optional workspace the
+//     catalogue does not supply. The run fails with InvalidWorkspaceBindings,
+//     observed on this cluster: an early catalogue checked only parameters, passed
+//     start-up, and produced runs that died within a second.
 //
-// Les quatre sont détectables au démarrage. Les laisser passer revient à les
-// découvrir au premier lancement, c'est-à-dire au pire moment.
+// All four are detectable at start-up. Letting them pass means discovering them at
+// the first launch, which is the worst moment.
 func (c *Catalog) ValidateAgainst(ctx context.Context, cluster Cluster) error {
 	deployed, err := cluster.Pipelines(ctx)
 	if err != nil {
-		return fmt.Errorf("lecture des Pipeline du cluster: %w", err)
+		return fmt.Errorf("reading the cluster's Pipelines: %w", err)
 	}
 
 	var problems []error
@@ -58,7 +56,7 @@ func (c *Catalog) ValidateAgainst(ctx context.Context, cluster Cluster) error {
 		spec, present := deployed[entry.PipelineRef]
 		if !present {
 			problems = append(problems, fmt.Errorf(
-				"kind %q: le Pipeline %q est absent du cluster (déployés: %s)",
+				"kind %q: Pipeline %q is absent from the cluster (deployed: %s)",
 				entry.Kind, entry.PipelineRef, strings.Join(names(deployed), ", ")))
 			continue
 		}
@@ -75,24 +73,23 @@ func (p Pipeline) validateParams(spec PipelineSpec) []error {
 	for name := range p.Params {
 		if _, accepted := spec.Params[name]; !accepted {
 			problems = append(problems, fmt.Errorf(
-				"kind %q: le Pipeline %q n'accepte pas le paramètre %q (attendus: %s)",
+				"kind %q: Pipeline %q does not accept parameter %q (expected: %s)",
 				p.Kind, spec.Name, name, strings.Join(paramNames(spec), ", ")))
 		}
 	}
 
-	// Les URLs d'artefacts sont des paramètres comme les autres, mais elles
-	// n'apparaissent pas dans `params` : elles sont minées au lancement. Sans ce
-	// contrôle, une faute de frappe dans `uploads[].param` ne se manifesterait
-	// qu'au premier run, rejeté par Tekton pour paramètre inconnu.
+	// Artifact URLs are parameters like any other, but they do not appear in `params`:
+	// they are minted at launch. Without this check, a typo in `uploads[].param` would
+	// only surface at the first run, rejected by Tekton as an unknown parameter.
 	for name, upload := range p.Uploads {
 		if upload.Param == "" || upload.Artifact == "" {
 			problems = append(problems, fmt.Errorf(
-				"kind %q: l'artefact %q doit déclarer `param` et `artifact`", p.Kind, name))
+				"kind %q: artifact %q must declare `param` and `artifact`", p.Kind, name))
 			continue
 		}
 		if _, accepted := spec.Params[upload.Param]; !accepted {
 			problems = append(problems, fmt.Errorf(
-				"kind %q: le Pipeline %q n'accepte pas le paramètre %q, déclaré pour l'artefact %q (attendus: %s)",
+				"kind %q: Pipeline %q does not accept parameter %q, declared for artifact %q (expected: %s)",
 				p.Kind, spec.Name, upload.Param, name, strings.Join(paramNames(spec), ", ")))
 		}
 	}
@@ -102,12 +99,12 @@ func (p Pipeline) validateParams(spec PipelineSpec) []error {
 			continue
 		}
 		if _, provided := p.Params[name]; !provided {
-			// Un paramètre couvert par un artefact est fourni au lancement.
+			// A parameter covered by an upload is supplied at launch.
 			if p.coveredByUpload(name) {
 				continue
 			}
 			problems = append(problems, fmt.Errorf(
-				"kind %q: le Pipeline %q exige le paramètre %q, que le catalogue ne fournit pas",
+				"kind %q: Pipeline %q requires parameter %q, which the catalogue does not supply",
 				p.Kind, spec.Name, name))
 		}
 	}
@@ -115,7 +112,7 @@ func (p Pipeline) validateParams(spec PipelineSpec) []error {
 	return problems
 }
 
-// coveredByUpload dit si un paramètre reçoit une URL d'artefact.
+// coveredByUpload says whether a parameter receives an artifact URL.
 func (p Pipeline) coveredByUpload(name string) bool {
 	for _, upload := range p.Uploads {
 		if upload.Param == name {
@@ -133,7 +130,7 @@ func (p Pipeline) validateWorkspaces(spec PipelineSpec) []error {
 		bound[workspace.Name] = true
 		if _, declared := spec.Workspaces[workspace.Name]; !declared {
 			problems = append(problems, fmt.Errorf(
-				"kind %q: le Pipeline %q ne déclare pas le workspace %q (attendus: %s)",
+				"kind %q: Pipeline %q does not declare workspace %q (expected: %s)",
 				p.Kind, spec.Name, workspace.Name, strings.Join(workspaceNames(spec), ", ")))
 		}
 	}
@@ -143,7 +140,7 @@ func (p Pipeline) validateWorkspaces(spec PipelineSpec) []error {
 			continue
 		}
 		problems = append(problems, fmt.Errorf(
-			"kind %q: le Pipeline %q exige le workspace %q, que le catalogue ne lie pas",
+			"kind %q: Pipeline %q requires workspace %q, which the catalogue does not bind",
 			p.Kind, spec.Name, name))
 	}
 
