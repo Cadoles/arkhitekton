@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 type pluginSettings struct {

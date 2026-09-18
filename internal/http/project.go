@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*

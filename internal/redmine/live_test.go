@@ -2,7 +2,7 @@ package redmine
 
 import (
 	"context"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
 	"os"
 	"testing"
 	"time"

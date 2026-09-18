@@ -5,10 +5,10 @@ import (
 	"os"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*
@@ -29,7 +29,7 @@ import (
  *
  * # Comment le lancer
  *
- *	kubectl -n mse-dashboard port-forward svc/mse-dashboard-postgres 55432:5432 &
+ *	kubectl -n arkhitekton port-forward svc/arkhitekton-postgres 55432:5432 &
  *	SCORE_LIVE=1 \
  *	SCORE_DATABASE_URL='postgres://dashboard:…@localhost:55432/dashboard' \
  *	SCORE_RELEASE_TAG=3.2.0-rc15 \

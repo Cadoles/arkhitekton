@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/secrets"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*

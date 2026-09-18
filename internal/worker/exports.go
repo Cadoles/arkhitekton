@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/report"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/report"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // KindExport est le `kind` des jobs de génération de livrable.

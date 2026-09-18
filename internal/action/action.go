@@ -39,7 +39,7 @@ import (
 	"sort"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 )
 
 // Field déclare un paramètre attendu par une action.

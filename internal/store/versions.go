@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"github.com/jackc/pgx/v5"
 )
 

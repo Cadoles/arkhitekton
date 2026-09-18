@@ -311,7 +311,7 @@ func Load(role Role) (Config, error) {
 		},
 		Storage: StorageConfig{
 			Endpoint:   os.Getenv("MINIO_ENDPOINT"),
-			Bucket:     envOr("MINIO_BUCKET", "mse-dashboard"),
+			Bucket:     envOr("MINIO_BUCKET", "arkhitekton"),
 			AccessKey:  os.Getenv("MINIO_ACCESS_KEY"),
 			SecretKey:  os.Getenv("MINIO_SECRET_KEY"),
 			Region:     envOr("MINIO_REGION", "NUO-Region"),
@@ -332,8 +332,8 @@ func Load(role Role) (Config, error) {
 			Namespace:      envOr("TEKTON_NAMESPACE", "mse-tekton-pipelines"),
 			DashboardURL:   strings.TrimRight(os.Getenv("TEKTON_DASHBOARD_URL"), "/"),
 			KubeconfigPath: os.Getenv("KUBECONFIG"),
-			CatalogPath:    envOr("PIPELINE_CATALOG_PATH", "/etc/mse-dashboard/catalog.yaml"),
-			LeaseNamespace: envOr("POD_NAMESPACE", "mse-dashboard"),
+			CatalogPath:    envOr("PIPELINE_CATALOG_PATH", "/etc/arkhitekton/catalog.yaml"),
+			LeaseNamespace: envOr("POD_NAMESPACE", "arkhitekton"),
 		},
 		Flux: FluxConfig{
 			Namespace: envOr("FLUX_NAMESPACE", "flux-system"),

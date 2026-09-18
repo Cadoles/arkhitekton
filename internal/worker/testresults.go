@@ -11,8 +11,8 @@ import (
 	"path"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // maxArtifactBytes borne ce qu'un rapport peut peser une fois décompressé.

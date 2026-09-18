@@ -23,12 +23,12 @@
 #
 # Ce fichier porte un namespace en dur, différent de celui du reste du dépôt.
 # C'est la raison pour laquelle aucun transformateur `namespace:` n'est déclaré
-# dans les kustomization : il déplacerait cette Role vers `mse-dashboard`, où elle
+# dans les kustomization : il déplacerait cette Role vers `arkhitekton`, où elle
 # n'accorderait rien, sans le moindre message d'erreur.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: mse-dashboard-tekton
+  name: arkhitekton-tekton
   namespace: mse-tekton-pipelines
 rules:
   # Lecture des définitions : le catalogue de pipelines du dashboard est validé au
@@ -86,13 +86,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: mse-dashboard-tekton
+  name: arkhitekton-tekton
   namespace: mse-tekton-pipelines
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mse-dashboard-tekton
+  name: arkhitekton-tekton
 subjects:
   - kind: ServiceAccount
-    name: mse-dashboard
-    namespace: mse-dashboard
+    name: arkhitekton
+    namespace: arkhitekton

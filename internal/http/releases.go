@@ -15,15 +15,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
 // ReleaseStore est ce que les handlers de release attendent de la base.

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 )
 
 // stubExchanger remplace le fournisseur d'identité : c'est le seul point du flux

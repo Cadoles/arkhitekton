@@ -8,7 +8,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
 // Claims porte l'identité extraite du jeton d'identité.

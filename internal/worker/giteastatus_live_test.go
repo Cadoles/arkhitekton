@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/reaction"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/secrets"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*
@@ -140,7 +140,7 @@ func TestLiveUnStatutDeCommitEstVraimentPose(t *testing.T) {
 	// de se faire passer pour un verdict de CI que personne n'a demandé.
 	contexte := os.Getenv("GITEA_STATUS_CONTEXT")
 	if contexte == "" {
-		contexte = "mse-dashboard/vérifications"
+		contexte = "arkhitekton/vérifications"
 	}
 	tag := os.Getenv("GITEA_STATUS_TAG")
 	if tag == "" {
@@ -270,7 +270,7 @@ func TestLiveUnPluginEteintNecritPasSurLaForge(t *testing.T) {
 		t.Fatalf("plugin global: %v", err)
 	}
 
-	const contexte = "mse-dashboard/ne-doit-pas-apparaitre"
+	const contexte = "arkhitekton/ne-doit-pas-apparaitre"
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Statut sur plugin éteint",
 		EventType: string(event.ReleaseCreated), Enabled: true,
@@ -369,7 +369,7 @@ func TestLiveUnEtatHorsVocabulaireNatteintPasLaForge(t *testing.T) {
 		t.Fatalf("plugin global: %v", err)
 	}
 
-	const contexte = "mse-dashboard/vocabulaire-invalide"
+	const contexte = "arkhitekton/vocabulaire-invalide"
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Statut reflétant l'issue",
 		EventType: string(event.ReleaseCreated), Enabled: true,

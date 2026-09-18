@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/bench"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/bench"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // TestStore est ce que les handlers de résultats attendent de la base.

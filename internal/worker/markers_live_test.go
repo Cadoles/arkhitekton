@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
 )
 
 /*

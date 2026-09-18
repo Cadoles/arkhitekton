@@ -7,7 +7,7 @@ import (
 	"sort"
 )
 
-// migrationFiles embarque les migrations dans le binaire : `mse-dashboard migrate`
+// migrationFiles embarque les migrations dans le binaire : `arkhitekton migrate`
 // doit pouvoir s'exécuter depuis l'image, sans volume ni fichier annexe.
 //
 //go:embed migrations/*.sql

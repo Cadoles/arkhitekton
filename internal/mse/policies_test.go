@@ -3,8 +3,8 @@ package mse
 import (
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 )
 
 // La sensibilité vient de la section du projet, et un environnement qui ne la

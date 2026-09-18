@@ -12,7 +12,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // enregistre le pilote "pgx"
 	"github.com/pressly/goose/v3"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
 const migrationsDir = "migrations"

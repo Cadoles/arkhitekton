@@ -2,7 +2,7 @@ package http
 
 import (
 	"context"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
 	"net/http"
 
 	"golang.org/x/sync/errgroup"

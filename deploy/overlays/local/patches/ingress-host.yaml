@@ -7,8 +7,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: mse-dashboard
-  namespace: mse-dashboard
+  name: arkhitekton
+  namespace: arkhitekton
 spec:
   rules:
     - host: dashboard.mse.local
@@ -18,6 +18,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: mse-dashboard-api
+                name: arkhitekton-api
                 port:
                   name: http

@@ -14,11 +14,11 @@ import (
 //
 // C'est ce qui garantit qu'une instance sans lui reste cohérente : un paquet du
 // noyau qui l'importerait ne compilerait pas sans lui, et le module éteint ne
-// serait qu'un interrupteur d'affichage. Seul `cmd/mse-dashboard` l'assemble
+// serait qu'un interrupteur d'affichage. Seul `cmd/arkhitekton` l'assemble
 // (doc 16 §16.6). Les tests comptent aussi : un test du noyau qui l'importerait
 // ferait du plugin une dépendance de sa vérification.
 func TestLeNoyauNImportePasLePluginMSE(t *testing.T) {
-	const pluginPath = "forge.cadoles.com/vcarroy/mse-dashboard/internal/mse"
+	const pluginPath = "forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
 	root := filepath.Join("..", "..", "internal")
 	files := token.NewFileSet()
 	read := 0
@@ -45,7 +45,7 @@ func TestLeNoyauNImportePasLePluginMSE(t *testing.T) {
 		for _, spec := range parsed.Imports {
 			imported, _ := strconv.Unquote(spec.Path.Value)
 			if imported == pluginPath || strings.HasPrefix(imported, pluginPath+"/") {
-				t.Errorf("%s importe %s — seul cmd/mse-dashboard assemble le plugin", path, imported)
+				t.Errorf("%s importe %s — seul cmd/arkhitekton assemble le plugin", path, imported)
 			}
 		}
 		return nil

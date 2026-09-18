@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/portaldata"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/portaldata"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
 )
 
 /*

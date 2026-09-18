@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // AdminStore est ce que l'administration attend de la base.

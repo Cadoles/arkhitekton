@@ -201,7 +201,7 @@ func TestSupprimerUneClefAbsenteAboutit(t *testing.T) {
 // Le nom dérive du slug, déjà contraint par la migration 0026 à une forme qui
 // est un nom de ressource Kubernetes valide.
 func TestLeNomDuSecretDeriveDuSlug(t *testing.T) {
-	if got := SecretName("hydra-sql-mse-theme"); got != "mse-dashboard-project-hydra-sql-mse-theme-git" {
+	if got := SecretName("hydra-sql-mse-theme"); got != "arkhitekton-project-hydra-sql-mse-theme-git" {
 		t.Errorf("SecretName = %q", got)
 	}
 }

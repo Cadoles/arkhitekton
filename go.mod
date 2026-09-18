@@ -1,4 +1,4 @@
-module forge.cadoles.com/vcarroy/mse-dashboard
+module forge.cadoles.com/vcarroy/arkhitekton
 
 go 1.26.4
 

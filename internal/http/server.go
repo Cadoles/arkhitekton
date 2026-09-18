@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/web"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/web"
 )
 
 // ReadinessCheck renvoie une erreur quand la dépendance n'est pas exploitable.

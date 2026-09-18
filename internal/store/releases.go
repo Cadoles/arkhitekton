@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 )
 
 // Release est une release enregistrée.

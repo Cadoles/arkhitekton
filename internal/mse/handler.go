@@ -7,14 +7,14 @@ import (
 	"net/http"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // Store est ce que les routes du plugin attendent de la base.

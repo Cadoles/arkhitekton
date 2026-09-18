@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
 // Le dashboard doit pouvoir tourner sans registre : l'inventaire des images

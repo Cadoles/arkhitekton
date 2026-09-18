@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/bench"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/bench"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // LoadStore est ce que l'ingesteur attend de la base.

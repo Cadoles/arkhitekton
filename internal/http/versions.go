@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
 // VersionStore est ce que les routes de versions attendent de la base.

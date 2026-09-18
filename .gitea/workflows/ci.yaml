@@ -30,7 +30,7 @@ env:
   # l'émettre avant que le dashboard fasse quoi que ce soit serait trompeur.
   # Bascule sur `cnous-mse` à la première version destinée à être déployée.
   IMAGE_NAMESPACE: vcarroy
-  IMAGE_NAME: mse-dashboard
+  IMAGE_NAME: arkhitekton
 
 jobs:
   go:
@@ -103,7 +103,7 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://postgres:t3st@postgres:5432/mse?sslmode=disable
           TEST_MINIO_ENDPOINT: minio:9000
-          TEST_MINIO_BUCKET: mse-dashboard-test
+          TEST_MINIO_BUCKET: arkhitekton-test
           # Le bucket est créé par le harnais lui-même ; aucune étape préalable
           # n'est nécessaire.
         run: make test-ci

@@ -11,11 +11,11 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 )
 
 // tickInterval borne l'attente entre deux tours de boucle.

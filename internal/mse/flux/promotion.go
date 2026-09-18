@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
+	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
 /*

@@ -14,7 +14,7 @@ import (
 )
 
 // LeaseName est le nom du Lease qui arbitre entre workers.
-const LeaseName = "mse-dashboard-worker"
+const LeaseName = "arkhitekton-worker"
 
 // LeaderConfig décrit l'élection.
 type LeaderConfig struct {

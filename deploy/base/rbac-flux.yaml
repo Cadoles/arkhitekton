@@ -16,7 +16,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: mse-dashboard-flux
+  name: arkhitekton-flux
   namespace: flux-system
 rules:
   - apiGroups: ["image.toolkit.fluxcd.io"]
@@ -35,13 +35,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: mse-dashboard-flux
+  name: arkhitekton-flux
   namespace: flux-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mse-dashboard-flux
+  name: arkhitekton-flux
 subjects:
   - kind: ServiceAccount
-    name: mse-dashboard
-    namespace: mse-dashboard
+    name: arkhitekton
+    namespace: arkhitekton

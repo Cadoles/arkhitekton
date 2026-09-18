@@ -12,7 +12,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
 // Ces tests exigent un MinIO réel : ce que l'on veut vérifier — la signature
@@ -29,7 +29,7 @@ func testStorage(t *testing.T) config.StorageConfig {
 	}
 	return config.StorageConfig{
 		Endpoint:   endpoint,
-		Bucket:     envOr("TEST_MINIO_BUCKET", "mse-dashboard-test"),
+		Bucket:     envOr("TEST_MINIO_BUCKET", "arkhitekton-test"),
 		AccessKey:  envOr("TEST_MINIO_ACCESS_KEY", "minioadmin"),
 		SecretKey:  envOr("TEST_MINIO_SECRET_KEY", "minioadmin"),
 		Region:     envOr("TEST_MINIO_REGION", "us-east-1"),

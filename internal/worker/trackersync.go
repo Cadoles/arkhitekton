@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*

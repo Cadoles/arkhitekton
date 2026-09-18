@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*

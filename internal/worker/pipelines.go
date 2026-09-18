@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/pipelines"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 )
 
 /*

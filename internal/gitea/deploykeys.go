@@ -28,7 +28,7 @@ import (
 // deployKey est ce que Gitea rend pour une clé de dépôt.
 type deployKey struct {
 	// Key porte le type, la matière et parfois un commentaire, séparés par des
-	// espaces : `ssh-ed25519 AAAAC3Nz… mse-dashboard`.
+	// espaces : `ssh-ed25519 AAAAC3Nz… arkhitekton`.
 	Key   string `json:"key"`
 	Title string `json:"title"`
 }

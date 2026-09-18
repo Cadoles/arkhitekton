@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 )
 
 // fakeVerificationStore retient ce qui est mis en file après une construction.

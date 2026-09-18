@@ -17,8 +17,8 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/database"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 //go:embed migrations/*.sql

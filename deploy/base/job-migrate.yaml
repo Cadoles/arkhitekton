@@ -12,10 +12,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: mse-dashboard-migrate
-  namespace: mse-dashboard
+  name: arkhitekton-migrate
+  namespace: arkhitekton
   labels:
-    app.kubernetes.io/name: mse-dashboard
+    app.kubernetes.io/name: arkhitekton
     app.kubernetes.io/component: migrate
 spec:
   # Les migrations sont idempotentes : goose reprend là où il s'est arrêté. Une
@@ -28,11 +28,11 @@ spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: mse-dashboard
+        app.kubernetes.io/name: arkhitekton
         app.kubernetes.io/component: migrate
     spec:
       restartPolicy: Never
-      serviceAccountName: mse-dashboard
+      serviceAccountName: arkhitekton
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -43,7 +43,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: migrate
-          image: reg.cadoles.com/cnous-mse/mse-dashboard:latest
+          image: reg.cadoles.com/vcarroy/arkhitekton:latest
           args: ["migrate"]
           # Le rôle `migrate` ne valide ni OIDC ni MinIO : il lui suffit de
           # DATABASE_URL. Le ConfigMap et le Secret complets sont montés quand
@@ -51,9 +51,9 @@ spec:
           # variable renommée soit corrigée dans deux endroits sur trois.
           envFrom:
             - configMapRef:
-                name: mse-dashboard-config
+                name: arkhitekton-config
             - secretRef:
-                name: mse-dashboard-secrets
+                name: arkhitekton-secrets
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

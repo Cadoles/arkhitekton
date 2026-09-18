@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // fakeLogSource sert un journal par task, en une seule tranche.

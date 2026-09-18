@@ -9,12 +9,12 @@ import (
 
 	"log/slog"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/action"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 )
 
 const (

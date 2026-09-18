@@ -21,7 +21,7 @@ import (
 	"slices"
 	"strings"
 
-	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
+	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
 // State est l'état d'une release.

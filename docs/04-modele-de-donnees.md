@@ -589,7 +589,7 @@ datant de 14 minutes, dernière synchronisation en échec » plutôt qu'un chiff
 
 ## 4.4 Arborescence MinIO
 
-Bucket `mse-dashboard`, distinct du bucket `mse-pipeline` utilisé par les pipelines
+Bucket `arkhitekton`, distinct du bucket `mse-pipeline` utilisé par les pipelines
 autonomes (CronJobs, `sec-normalize`).
 
 ```

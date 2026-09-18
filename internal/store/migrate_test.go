@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
 // Ces tests exigent un PostgreSQL réel : appliquer un schéma ne se simule pas

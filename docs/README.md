@@ -1,4 +1,4 @@
-# MSE Dashboard — Documentation de conception
+# Arkhitekton — Documentation de conception
 
 Dashboard de pilotage des releases de l'application MSE. Il s'intercale entre Redmine
 (gestion de projet), Gitea (code et revues), Tekton (pipelines CI/CD) et le registre

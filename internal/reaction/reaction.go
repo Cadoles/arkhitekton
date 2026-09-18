@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 )
 
 // Reaction est la déclaration d'un enchaînement.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
 // Test contre un registre réel. Ce qu'il vérifie — le schéma d'authentification

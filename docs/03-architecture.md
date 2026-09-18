@@ -11,7 +11,7 @@
              ┌──────────────────────┴───────────────────────┐
              ▼                                              ▼
    ┌───────────────────┐                        ┌────────────────────────┐
-   │  mse-dashboard    │   NOTIFY / LISTEN      │   mse-dashboard        │
+   │  arkhitekton    │   NOTIFY / LISTEN      │   arkhitekton        │
    │  api  (N replicas)│◀──────────────────────▶│   worker (1, leader)   │
    │  - REST + SSE     │      via PostgreSQL    │   - scheduler de file  │
    │  - session OIDC   │                        │   - informer Tekton    │
@@ -40,9 +40,9 @@ Les séparer en deux dépôts ou deux modules Go ferait payer une duplication du
 domaine pour un bénéfice nul. Un binaire, deux sous-commandes :
 
 ```
-mse-dashboard api      # serveur HTTP
-mse-dashboard worker   # boucles de fond, avec élection de leader
-mse-dashboard migrate  # migrations de schéma, exécutées en Job d'init
+arkhitekton api      # serveur HTTP
+arkhitekton worker   # boucles de fond, avec élection de leader
+arkhitekton migrate  # migrations de schéma, exécutées en Job d'init
 ```
 
 Le `worker` tourne en `replicas: 1` mais acquiert malgré tout un `coordination.k8s.io/Lease`
@@ -52,7 +52,7 @@ brièvement, et c'est exactement le moment où un double lancement se produirait
 ## 3.3 Structure du monorepo
 
 ```
-mse-dashboard/
+arkhitekton/
 ├─ apps/
 │  └─ web/                       # SPA React + Vite + TypeScript
 │     ├─ src/
@@ -67,7 +67,7 @@ mse-dashboard/
 │     │  └─ routes/
 │     └─ vite.config.ts
 ├─ cmd/
-│  └─ mse-dashboard/main.go
+│  └─ arkhitekton/main.go
 ├─ internal/
 │  ├─ config/                    # chargement conf + validation au démarrage
 │  ├─ domain/                    # entités et règles métier, sans dépendance I/O
@@ -113,7 +113,7 @@ ordonnancement.
 |---|---|---|
 | Routage HTTP | `chi` | stdlib-compatible, middlewares simples, pas de framework |
 | PostgreSQL | `pgx/v5` + `sqlc` | requêtes SQL écrites à la main, types Go générés, pas d'ORM |
-| Migrations | `goose` | fichiers SQL numérotés, exécutés par `mse-dashboard migrate` |
+| Migrations | `goose` | fichiers SQL numérotés, exécutés par `arkhitekton migrate` |
 | Kubernetes | `client-go` + clientset `tektoncd/pipeline` | typé, informers natifs |
 | OIDC | `coreos/go-oidc` + `golang.org/x/oauth2` | vérification JWKS, code flow + PKCE |
 | MinIO | `minio-go/v7` | client officiel S3 |
@@ -143,7 +143,7 @@ synthèse/détaillée, thème) tient dans l'URL et `localStorage`, comme dans la
 
 ## 3.5 Déploiement
 
-Namespace dédié `mse-dashboard`, séparé de `mse-tekton-pipelines`.
+Namespace dédié `arkhitekton`, séparé de `mse-tekton-pipelines`.
 
 | Ressource | Détail |
 |---|---|
@@ -157,7 +157,7 @@ Namespace dédié `mse-dashboard`, séparé de `mse-tekton-pipelines`.
 
 PostgreSQL : instance CloudNativePG (`postgresql.cnpg.io` est déjà utilisé dans le
 cluster, la `Role` de `mse-tekton` en atteste), avec sauvegardes planifiées. MinIO :
-bucket dédié `mse-dashboard`, distinct de `mse-pipeline` pour que les politiques de
+bucket dédié `arkhitekton`, distinct de `mse-pipeline` pour que les politiques de
 rétention et les droits soient indépendants.
 
 ## 3.6 Séparation des responsabilités avec `mse-tekton`

@@ -3,9 +3,9 @@ package mse
 import (
 	"context"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 )
 
 // EnvironmentSuggestions rend les environnements que le formulaire de lancement

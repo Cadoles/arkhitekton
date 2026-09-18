@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
 )
 
 // LogReader est ce que les handlers attendent du lecteur de journaux.

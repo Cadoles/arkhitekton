@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/reaction"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/secrets"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/webhook"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/redmine"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/webhook"
 )
 
 /*

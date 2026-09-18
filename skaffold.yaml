@@ -1,7 +1,7 @@
 apiVersion: skaffold/v4beta14
 kind: Config
 metadata:
-  name: mse-dashboard
+  name: arkhitekton
 
 # Boucle de développement local sur kind.
 #
@@ -27,7 +27,7 @@ build:
   artifacts:
     # Le nom doit être celui que produit l'overlay, faute de quoi Skaffold ne
     # reconnaîtrait pas l'image à substituer dans les manifests rendus.
-    - image: reg.cadoles.com/vcarroy/mse-dashboard
+    - image: reg.cadoles.com/vcarroy/arkhitekton
       docker:
         dockerfile: Dockerfile
         # Les identifiants de la forge, montés le temps du `go mod download`.
@@ -70,7 +70,7 @@ deploy:
   kubectl:
     # Aucun `defaultNamespace` : il ferait passer `--namespace` à kubectl, qui
     # refuse alors tout objet déclarant un autre namespace. L'overlay en couvre
-    # cinq — mse-dashboard, flux-system, mse-dev, mse-tekton-pipelines, et un
+    # cinq — arkhitekton, flux-system, mse-dev, mse-tekton-pipelines, et un
     # objet cluster-scoped — parce que chaque manifeste porte le sien.
     #
     # C'est la même raison qui interdit un transformateur `namespace:` dans
@@ -87,8 +87,8 @@ deploy:
               - sh
               - -c
               - >-
-                kubectl delete job -n mse-dashboard
-                mse-dashboard-migrate mse-dashboard-minio-bucket
+                kubectl delete job -n arkhitekton
+                arkhitekton-migrate arkhitekton-minio-bucket
                 --ignore-not-found
             os: [linux, darwin]
 
@@ -97,10 +97,10 @@ portForward:
   # développeur doit pouvoir regarder l'écran qu'il modifie sans configurer la
   # résolution de noms de sa machine.
   - resourceType: service
-    # `mse-dashboard-api`, et non `mse-dashboard` : le préfixe de nom vient du
+    # `arkhitekton-api`, et non `arkhitekton` : le préfixe de nom vient du
     # `namePrefix` de la base, et un nom inventé ferait échouer la redirection en
     # silence — curl répond 000, ce qui ressemble à une application morte.
-    resourceName: mse-dashboard-api
-    namespace: mse-dashboard
+    resourceName: arkhitekton-api
+    namespace: arkhitekton
     port: 80
     localPort: 8080

@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 )
 
 /*

@@ -486,7 +486,7 @@ Quatre propriétés en découlent, et elles répondent aux risques :
 bibliothèque.
 
 **2. Propriété explicite.** Tout objet posé porte un label
-`app.kubernetes.io/managed-by: mse-dashboard` et une version. Le dashboard **ne touche
+`app.kubernetes.io/managed-by: arkhitekton` et une version. Le dashboard **ne touche
 jamais** ce qu'il n'a pas posé : `deploy-mse`, l'E2E maison, tout pipeline propre à un
 déploiement restent à leur propriétaire, et le catalogue continue de les référencer.
 

@@ -23,7 +23,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 )
 
 // DefaultKindConcurrency est le plafond d'un type qui n'en déclare pas.

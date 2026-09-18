@@ -18,11 +18,11 @@ const cle = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBDoQT4jgoSvFdwjmhS3GhAn9/48tIi
 func TestLeCommentaireNeDecidePasDeLIdentiteDUneCle(t *testing.T) {
 	for _, variante := range []string{
 		cle,
-		cle + " mse-dashboard",
+		cle + " arkhitekton",
 		cle + " un tout autre commentaire",
 		"  " + cle + " avec des espaces  ",
 	} {
-		if !SameKey(variante, cle+" mse-dashboard-project-mse-git") {
+		if !SameKey(variante, cle+" arkhitekton-project-mse-git") {
 			t.Errorf("variante %q jugée différente", variante)
 		}
 	}
@@ -33,7 +33,7 @@ func TestLeCommentaireNeDecidePasDeLIdentiteDUneCle(t *testing.T) {
 func TestDeuxClesDistinctesLeRestent(t *testing.T) {
 	autre := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAutreMatiereQuiNestPasLaMeme"
 
-	if SameKey(cle+" mse-dashboard", autre+" mse-dashboard") {
+	if SameKey(cle+" arkhitekton", autre+" arkhitekton") {
 		t.Error("deux matières différentes jugées identiques")
 	}
 	// Le type compte aussi : une RSA et une ed25519 ne sont pas la même clé,

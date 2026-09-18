@@ -143,7 +143,7 @@ décision d'autorisation est prise côté serveur, sans exception.
 
 ## 7.3 RBAC Kubernetes
 
-`ServiceAccount` dédié `mse-dashboard` dans le namespace `mse-dashboard`, sans aucun
+`ServiceAccount` dédié `arkhitekton` dans le namespace `arkhitekton`, sans aucun
 `ClusterRole` d'écriture.
 
 ### Namespace `mse-tekton-pipelines`
@@ -152,7 +152,7 @@ décision d'autorisation est prise côté serveur, sans exception.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: mse-dashboard-tekton
+  name: arkhitekton-tekton
   namespace: mse-tekton-pipelines
 rules:
   # Lecture des définitions : nécessaire pour valider le catalogue au démarrage
@@ -191,7 +191,7 @@ Une `Role` en lecture stricte par namespace applicatif :
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: mse-dashboard-observer
+  name: arkhitekton-observer
   namespace: <namespace de l'environnement>
 rules:
   - apiGroups: ["apps"]
@@ -215,7 +215,7 @@ le compte `tekton-kubectl` existant, et non par un élargissement de ces droits.
   resources: ["leases"]
   verbs: ["get", "create", "update"]
 ```
-dans le namespace `mse-dashboard` uniquement.
+dans le namespace `arkhitekton` uniquement.
 
 ## 7.4 Gestion des secrets
 
@@ -250,7 +250,7 @@ règles :
 | Portée minimale | une URL par objet, méthode `PUT` uniquement, clé exacte — jamais un préfixe |
 | Expiration | alignée sur le timeout du pipeline concerné, jamais au-delà (90 min pour `security-audit`, 45 min pour l'intégration) |
 | Non-journalisation | le paramètre `upload-urls` est masqué par le middleware de journalisation et absent de l'audit, au même titre qu'un secret |
-| Compte dédié | les URLs sont signées avec un compte de service en écriture seule sur le préfixe `raw/` du bucket `mse-dashboard`, distinct du compte de lecture utilisé par l'API |
+| Compte dédié | les URLs sont signées avec un compte de service en écriture seule sur le préfixe `raw/` du bucket `arkhitekton`, distinct du compte de lecture utilisé par l'API |
 
 **Écart constaté.** Le compte `svc-mse-pipeline` employé aujourd'hui par les pipelines lit
 et écrit **l'intégralité** du bucket — vérifié lors du test SigV4 du 13/08/2026. Signer

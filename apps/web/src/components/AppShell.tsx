@@ -165,7 +165,7 @@ export function AppShell() {
             <span className="grid size-8 place-items-center rounded-md bg-zinc-900 text-white">
               <Icon name="gauge" className="size-5" />
             </span>
-            <span className="text-lg font-semibold text-zinc-900">Dashboard de livraisons</span>
+            <span className="text-lg font-semibold text-zinc-900">Arkhitekton</span>
           </div>
 
           <div className="ml-auto flex items-center gap-3">

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/pipelines"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
 /*

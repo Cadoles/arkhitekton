@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/bench"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/bench"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // BenchStore est ce que les handlers de charge attendent de la base.

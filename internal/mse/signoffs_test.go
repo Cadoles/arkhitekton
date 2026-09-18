@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 type fakeSignoffStore struct {

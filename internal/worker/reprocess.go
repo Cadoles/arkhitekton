@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*

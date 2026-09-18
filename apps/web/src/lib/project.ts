@@ -22,7 +22,7 @@
  */
 
 /** Clé de mémorisation du choix, d'une visite à l'autre. */
-const STORAGE_KEY = 'mse-dashboard.project'
+const STORAGE_KEY = 'arkhitekton.project'
 
 let current = ''
 let available: ProjectChoice[] = []

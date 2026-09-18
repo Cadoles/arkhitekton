@@ -1,10 +1,10 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: mse-dashboard
-  namespace: mse-dashboard
+  name: arkhitekton
+  namespace: arkhitekton
   labels:
-    app.kubernetes.io/name: mse-dashboard
+    app.kubernetes.io/name: arkhitekton
   annotations:
     # Le suivi d'un run passe par SSE. Avec la mise en tampon active — le défaut
     # de nginx — les événements sont accumulés puis délivrés en bloc : l'interface
@@ -27,6 +27,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: mse-dashboard-api
+                name: arkhitekton-api
                 port:
                   name: http

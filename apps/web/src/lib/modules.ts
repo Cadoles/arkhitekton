@@ -7,7 +7,7 @@ import type { Release, ReleaseDetail } from '../features/releases/api'
  * Ce qu'un module apporte à l'interface.
  *
  * Le noyau ne nomme aucun module : il lit ces définitions, et un module éteint
- * n'apporte rien. Seul `src/modules.ts` les assemble, comme `cmd/mse-dashboard`
+ * n'apporte rien. Seul `src/modules.ts` les assemble, comme `cmd/arkhitekton`
  * côté serveur (doc 16 §16.6).
  */
 

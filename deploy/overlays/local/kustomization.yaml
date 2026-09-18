@@ -28,8 +28,8 @@ patches:
   - path: patches/ingress-host.yaml
 
 configMapGenerator:
-  - name: mse-dashboard-config
-    namespace: mse-dashboard
+  - name: arkhitekton-config
+    namespace: arkhitekton
     behavior: merge
     literals:
       - PUBLIC_URL=http://dashboard.mse.local
@@ -39,7 +39,7 @@ configMapGenerator:
       # tournent dans `mse-tekton-pipelines`. Le nom court n'y résout pas — la
       # publication échouait sur « Could not resolve host », après des tests
       # pourtant passés.
-      - MINIO_ENDPOINT=mse-dashboard-minio.mse-dashboard.svc.cluster.local:9000
+      - MINIO_ENDPOINT=arkhitekton-minio.arkhitekton.svc.cluster.local:9000
       - MINIO_USE_SSL=false
       # `NUO-Region` est la région de l'instance de production. En local, MinIO
       # accepte n'importe quelle région pourvu que le client signe avec la même ;
@@ -58,14 +58,14 @@ secretGenerator:
   #
   # L'ordre des `envFrom` dans les Deployments met le Secret après le ConfigMap :
   # ce fichier peut donc redéfinir n'importe quelle variable ci-dessus.
-  - name: mse-dashboard-secrets
-    namespace: mse-dashboard
+  - name: arkhitekton-secrets
+    namespace: arkhitekton
     envs:
       - secrets/dashboard.env
 
 images:
-  - name: reg.cadoles.com/cnous-mse/mse-dashboard
-    newName: reg.cadoles.com/vcarroy/mse-dashboard
+  - name: reg.cadoles.com/vcarroy/arkhitekton
+    newName: reg.cadoles.com/vcarroy/arkhitekton
     # Le tag reprend le commit dont l'image est issue. Republier sous le même tag
     # ne suffirait pas à faire reprendre l'image par le cluster : les pods ne
     # posent pas d'`imagePullPolicy`, donc `IfNotPresent` s'applique dès que le

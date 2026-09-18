@@ -5,7 +5,7 @@ kind: Kustomization
 #
 # La raison est dans rbac-tekton.yaml : cette Role vit dans
 # `mse-tekton-pipelines`. Un transformateur global la déplacerait vers
-# `mse-dashboard`, où elle n'accorderait plus rien — sans erreur, sans avertissement,
+# `arkhitekton`, où elle n'accorderait plus rien — sans erreur, sans avertissement,
 # et le symptôme serait un « forbidden » à la première création de PipelineRun.
 # Chaque ressource porte donc son namespace explicitement.
 
@@ -30,15 +30,15 @@ resources:
 labels:
   - includeSelectors: false
     pairs:
-      app.kubernetes.io/part-of: mse-dashboard
+      app.kubernetes.io/part-of: arkhitekton
       app.kubernetes.io/managed-by: kustomize
 
 configMapGenerator:
   # Catalogue des pipelines, monté en fichier. Le `worker` le valide au démarrage
   # contre les Pipeline déployés ; l'`api` s'en sert pour dire ce qui est
   # lançable et quels paramètres sont requis.
-  - name: mse-dashboard-catalog
-    namespace: mse-dashboard
+  - name: arkhitekton-catalog
+    namespace: arkhitekton
     files:
       - catalog.yaml=config/catalog.yaml
 
@@ -56,8 +56,8 @@ configMapGenerator:
   # cesse de reconnaître les références faites depuis les Deployments — les
   # `configMapRef` gardent le nom sans suffixe de hachage. Le build reste vert,
   # le déploiement échoue en CreateContainerConfigError.
-  - name: mse-dashboard-config
-    namespace: mse-dashboard
+  - name: arkhitekton-config
+    namespace: arkhitekton
     literals:
       - HTTP_ADDR=:8080
       - HTTP_READ_TIMEOUT=15s
@@ -65,7 +65,7 @@ configMapGenerator:
       - HTTP_SHUTDOWN_TIMEOUT=20s
       - DATABASE_MAX_CONNS=10
       - DATABASE_CONN_MAX_LIFETIME=1h
-      - MINIO_BUCKET=mse-dashboard
+      - MINIO_BUCKET=arkhitekton
       # Doit couvrir le pipeline le plus long — 90 min pour `security-audit` —
       # sans excéder ce qui est raisonnable pour une capacité d'écriture. Le
       # binaire refuse de démarrer en dessous de 90m.
@@ -85,5 +85,5 @@ images:
   # Substituée par chaque overlay. `latest` est délibérément faux : un overlay
   # qui oublierait de fixer le tag déploierait une image non déterministe, et il
   # vaut mieux que cela se voie.
-  - name: reg.cadoles.com/cnous-mse/mse-dashboard
+  - name: reg.cadoles.com/vcarroy/arkhitekton
     newTag: latest

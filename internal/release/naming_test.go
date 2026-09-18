@@ -3,7 +3,7 @@ package release
 import (
 	"testing"
 
-	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
+	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
 func TestNormalizeVersionName(t *testing.T) {

@@ -3,7 +3,7 @@ package http
 import (
 	"net/http"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 )
 
 // NewAPIRouter monte les routes applicatives.

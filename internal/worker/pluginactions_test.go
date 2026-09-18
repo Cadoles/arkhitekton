@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*
@@ -110,7 +110,7 @@ func TestUnStatutDeCommitEmprunteLaConnexionDuPlugin(t *testing.T) {
 		Kind: plan.GesteAction, Ref: "gitea.status",
 		Params: map[string]string{
 			"commit": "{git_commit}", "state": "success",
-			"context": "mse-dashboard/vérifications", "description": "{tag} vérifiée",
+			"context": "arkhitekton/vérifications", "description": "{tag} vérifiée",
 		},
 	})
 	if err != nil {
@@ -131,7 +131,7 @@ func TestUnStatutDeCommitEmprunteLaConnexionDuPlugin(t *testing.T) {
 	if chemin != "/api/v1/repos/equipe/mse/statuses/9f1c0deadbeef" {
 		t.Errorf("chemin %q", chemin)
 	}
-	if corps["state"] != "success" || corps["context"] != "mse-dashboard/vérifications" {
+	if corps["state"] != "success" || corps["context"] != "arkhitekton/vérifications" {
 		t.Errorf("corps %v", corps)
 	}
 	if corps["description"] != "1.8.0-rc1 vérifiée" {

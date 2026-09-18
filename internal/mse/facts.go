@@ -1,7 +1,7 @@
 // Package mse porte le plugin MSE : les environnements, leur promotion par Flux,
 // leur attestation par PortalData (doc 16).
 //
-// Le noyau ne l'importe pas. Seul `cmd/mse-dashboard` l'assemble, et une instance
+// Le noyau ne l'importe pas. Seul `cmd/arkhitekton` l'assemble, et une instance
 // sans lui reste cohérente.
 package mse
 
@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // ReleasePromoted est le fait d'une promotion aboutie.

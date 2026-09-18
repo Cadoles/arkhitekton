@@ -3,7 +3,7 @@ package http
 import (
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // Tekton ne crée un TaskRun qu'au démarrage d'une tâche : un pipeline de huit

@@ -8,7 +8,7 @@ Tout tourne dans un cluster **kind** unique.
 |---|---|---|
 | Tekton | namespace `mse-tekton-pipelines` | identique |
 | Application MSE | namespace **`mse-dev`** | `unstable`, `qualif`, `preprod` — et `prod`, cluster séparé |
-| Dashboard | namespace `mse-dashboard` — procédure en [§11.9](#119-déployer-le-dashboard-sur-kind) | identique |
+| Dashboard | namespace `arkhitekton` — procédure en [§11.9](#119-déployer-le-dashboard-sur-kind) | identique |
 | PostgreSQL, MinIO | dans le cluster | CloudNativePG, `nuo-s3.nuonet.fr` |
 | Registre | **`reg.cadoles.com/vcarroy`** | `reg.cadoles.com/cnous-mse` |
 | Flux | **simulé** — voir §11.3 | image-automation + kustomize controllers |
@@ -102,8 +102,8 @@ Les objets déclarés reproduisent [B7](02-blocages-et-decisions.md#b7) : une
 le suffixe Flux — une `GitRepository` sur `mse-kustom`, quatre `Kustomization` et une
 `ImageUpdateAutomation`. Tous acceptés par les schémas réels.
 
-La RBAC correspondante est dans les manifests : `mse-dashboard-flux` en lecture seule sur
-`flux-system`, `mse-dashboard-observer` sur le namespace applicatif, `PortalData` compris.
+La RBAC correspondante est dans les manifests : `arkhitekton-flux` en lecture seule sur
+`flux-system`, `arkhitekton-observer` sur le namespace applicatif, `PortalData` compris.
 
 ### Ce que le simulateur doit reproduire
 
@@ -279,7 +279,7 @@ make deploy
 Puis, une fois l'Ingress créé et son adresse attribuée par MetalLB :
 
 ```bash
-echo "$(kubectl get ingress -n mse-dashboard mse-dashboard \
+echo "$(kubectl get ingress -n arkhitekton arkhitekton \
         -o jsonpath='{.status.loadBalancer.ingress[0].ip}') dashboard.mse.local" | sudo tee -a /etc/hosts
 ```
 
@@ -290,8 +290,8 @@ présentes : elles sont énumérées une à une, pas génériques.
 aller-retour par le registre), applique l'overlay et attend la fin des migrations.
 
 L'overlay local apporte son propre PostgreSQL et son propre MinIO, dans le
-namespace `mse-dashboard`. L'instance MinIO de `mse-dev` n'est **pas** réutilisée :
-le bucket `mse-dashboard` doit rester distinct de `mse-pipeline` pour que rétention
+namespace `arkhitekton`. L'instance MinIO de `mse-dev` n'est **pas** réutilisée :
+le bucket `arkhitekton` doit rester distinct de `mse-pipeline` pour que rétention
 et droits soient indépendants, et partager l'instance rendrait un `mc rb`
 malencontreux capable d'emporter les deux.
 
@@ -299,7 +299,7 @@ malencontreux capable d'emporter les deux.
 
 | Point | Ce que le local prouve |
 |---|---|
-| RBAC | `kubectl auth can-i --as=system:serviceaccount:mse-dashboard:mse-dashboard` confirme les droits accordés **et** les refus voulus (`secrets`, `pods/exec`, écriture sur `pipelines`) |
+| RBAC | `kubectl auth can-i --as=system:serviceaccount:arkhitekton:arkhitekton` confirme les droits accordés **et** les refus voulus (`secrets`, `pods/exec`, écriture sur `pipelines`) |
 | Découverte OIDC | joignabilité de l'issuer depuis un pod, pas la validité du client |
 | Sonde `/readyz` | distingue les trois dépendances : `postgres`, `schema`, `minio` |
 | Amorçage des rôles | `granted: 1` au premier pod, `0` au second — l'opération est idempotente et n'écrase rien |
@@ -314,8 +314,8 @@ depuis les Deployments : ils gardent le nom **sans** suffixe de hachage. Le
 `CreateContainerConfigError`.
 
 **Aucun transformateur `namespace:` n'est déclaré**, ni dans la base ni dans les
-overlays. La `Role` `mse-dashboard-tekton` vit dans `mse-tekton-pipelines` ; un
-transformateur global la déplacerait vers `mse-dashboard`, où elle n'accorderait
+overlays. La `Role` `arkhitekton-tekton` vit dans `mse-tekton-pipelines` ; un
+transformateur global la déplacerait vers `arkhitekton`, où elle n'accorderait
 plus rien — sans erreur, et avec pour seul symptôme un `forbidden` à la première
 création de `PipelineRun`. Chaque ressource porte donc son namespace.
 
@@ -387,7 +387,7 @@ appelle la même cible `make manifests` que le poste de développement.
 
 ### Où l'image est publiée
 
-`reg.cadoles.com/vcarroy/mse-dashboard`, et non `cnous-mse`. Une image dans le
+`reg.cadoles.com/vcarroy/arkhitekton`, et non `cnous-mse`. Une image dans le
 projet partagé est un signal de disponibilité pour le reste de l'équipe ;
 l'émettre avant que le dashboard fasse quoi que ce soit serait trompeur. La
 bascule est une ligne — `IMAGE_NAMESPACE` — à la première version destinée à être

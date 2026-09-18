@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 )
 
 // chunkWriter accumule les lignes d'une étape et les écrit par tranches.

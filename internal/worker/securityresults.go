@@ -10,8 +10,8 @@ import (
 
 	"forge.cadoles.com/CNOUS/mse-tekton/images/tekton-mse-manager/pkg/security"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*

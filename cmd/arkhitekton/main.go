@@ -1,4 +1,4 @@
-// Commande mse-dashboard : un binaire unique, trois rôles.
+// Commande arkhitekton : un binaire unique, trois rôles.
 //
 // `api` encaisse le trafic utilisateur et se réplique. `worker` porte les boucles
 // de fond — ordonnanceur de file, collecte de logs, synchronisations — et reste
@@ -26,28 +26,28 @@ import (
 
 	"k8s.io/client-go/restmapper"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/config"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/deploykeys"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/gitea"
-	dashhttp "forge.cadoles.com/vcarroy/mse-dashboard/internal/http"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/portaldata"
-	msestorage "forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
-	pipelinelib "forge.cadoles.com/vcarroy/mse-dashboard/internal/pipelines"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plugin"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/redmine"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/registry"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/results"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
-	versionpkg "forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/webhook"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/worker"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/gitea"
+	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/portaldata"
+	msestorage "forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
+	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/redmine"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
+	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/webhook"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
 )
 
 // Renseignés à la compilation via -ldflags (voir Dockerfile et Makefile).
@@ -60,16 +60,16 @@ var (
 	revision = "inconnue"
 )
 
-const usage = `mse-dashboard: pilotage des releases MSE
+const usage = `arkhitekton: pilotage des releases MSE
 
 Usage:
-  mse-dashboard api       Serveur HTTP (réplicable)
-  mse-dashboard worker    Boucles de fond (instance unique, élection de leader)
-  mse-dashboard migrate   Applique les migrations de schéma
-  mse-dashboard reprocess Rejoue les résultats depuis les artefacts bruts
+  arkhitekton api       Serveur HTTP (réplicable)
+  arkhitekton worker    Boucles de fond (instance unique, élection de leader)
+  arkhitekton migrate   Applique les migrations de schéma
+  arkhitekton reprocess Rejoue les résultats depuis les artefacts bruts
 
 Diagnostic:
-  mse-dashboard check-tracker  Vérifie l'accès au suivi et s'arrête (lecture seule)
+  arkhitekton check-tracker  Vérifie l'accès au suivi et s'arrête (lecture seule)
 
 Options de reprocess:
   --release <tag>  Limite le rejeu à une release (défaut: tout l'historique)
@@ -1030,7 +1030,7 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// y lit déjà. Ils ne servent plus qu'à **amorcer** un projet, et
 		// `projectSeedDefaults` les rend pour cela (doc 16 §16.24).
 		// Le bucket des pipelines n'est pas celui du dashboard : `mse-pipeline`
-		// porte les artefacts que les Tasks publient, `mse-dashboard` ce que le
+		// porte les artefacts que les Tasks publient, `arkhitekton` ce que le
 		// dashboard écrit lui-même (doc 03 §3.5).
 		"minio.host":           envOr("PIPELINE_MINIO_HOST", "https://nuo-s3.nuonet.fr"),
 		"minio.pipelineBucket": envOr("PIPELINE_MINIO_BUCKET", "mse-pipeline"),

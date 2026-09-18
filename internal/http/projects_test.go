@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/provider"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*
@@ -383,7 +383,7 @@ func projetAvecCle(t *testing.T, fake *fakeProjectStore, active bool) {
 	t.Helper()
 	fake.projects[1] = store.Project{
 		ID: 1, Repository: "CNOUS/mse", Slug: "mse", Label: "mse",
-		DeployKeyPublic: "ssh-ed25519 AAAAC3Nz mse-dashboard",
+		DeployKeyPublic: "ssh-ed25519 AAAAC3Nz arkhitekton",
 		DeployKeyActive: active,
 	}
 	fake.next = 2
@@ -401,7 +401,7 @@ func TestLeTestCherIcheLaCleDuProjet(t *testing.T) {
 	if code := probe(t, handler, "1").Code; code != http.StatusOK {
 		t.Fatalf("code %d", code)
 	}
-	if vue != "ssh-ed25519 AAAAC3Nz mse-dashboard" {
+	if vue != "ssh-ed25519 AAAAC3Nz arkhitekton" {
 		t.Errorf("clé transmise = %q", vue)
 	}
 }

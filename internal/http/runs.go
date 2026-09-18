@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // RunDetails est ce que le handler attend pour servir un run.

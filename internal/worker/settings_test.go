@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*
@@ -61,7 +61,7 @@ func jobOf(projectID int64) store.Job {
 // configuration passe intact.
 func TestLesSecretsDuProjetRemplacentCeuxDuDeploiement(t *testing.T) {
 	scheduler := schedulerWith(&fakeProjectSecrets{
-		deployKey: "mse-dashboard-project-mse-git",
+		deployKey: "arkhitekton-project-mse-git",
 		registry:  "regcred-mse",
 	})
 
@@ -70,7 +70,7 @@ func TestLesSecretsDuProjetRemplacentCeuxDuDeploiement(t *testing.T) {
 		t.Fatalf("réglages: %v", err)
 	}
 
-	if settings["pipeline.gitSecret"] != "mse-dashboard-project-mse-git" {
+	if settings["pipeline.gitSecret"] != "arkhitekton-project-mse-git" {
 		t.Errorf("clé git = %q", settings["pipeline.gitSecret"])
 	}
 	if settings["pipeline.registrySecret"] != "regcred-mse" {
@@ -86,7 +86,7 @@ func TestLesSecretsDuProjetRemplacentCeuxDuDeploiement(t *testing.T) {
 // le secret de registre du déploiement au motif que le projet n'en nomme pas.
 func TestUnProjetSansRegistreDesignePousseLaOuPoussentLesAutres(t *testing.T) {
 	scheduler := schedulerWith(&fakeProjectSecrets{
-		deployKey: "mse-dashboard-project-mse-git",
+		deployKey: "arkhitekton-project-mse-git",
 	})
 
 	settings, err := scheduler.settingsFor(context.Background(), jobOf(7))
@@ -94,7 +94,7 @@ func TestUnProjetSansRegistreDesignePousseLaOuPoussentLesAutres(t *testing.T) {
 		t.Fatalf("réglages: %v", err)
 	}
 
-	if settings["pipeline.gitSecret"] != "mse-dashboard-project-mse-git" {
+	if settings["pipeline.gitSecret"] != "arkhitekton-project-mse-git" {
 		t.Errorf("clé git = %q", settings["pipeline.gitSecret"])
 	}
 	if settings["pipeline.registrySecret"] != "regcred" {

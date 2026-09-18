@@ -1,7 +1,7 @@
 package flux
 
 import (
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/version"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 	"strings"
 	"testing"
 )

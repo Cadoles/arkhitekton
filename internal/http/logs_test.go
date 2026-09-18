@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
 )
 
 /*

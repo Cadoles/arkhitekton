@@ -19,7 +19,7 @@ secretGenerator:
   # `disableNameSuffixHash` est indispensable : Tekton référence le secret par un
   # nom fixe dans le workspace, et un suffixe de hachage le rendrait introuvable
   # à chaque modification du contenu.
-  - name: mse-dashboard-pipeline-git
+  - name: arkhitekton-pipeline-git
     namespace: mse-tekton-pipelines
     type: Opaque
     options:
@@ -31,7 +31,7 @@ secretGenerator:
       - id_ed25519=pipeline-ssh-key
       - known_hosts=pipeline-known-hosts
 
-  - name: mse-dashboard-pipeline-registry
+  - name: arkhitekton-pipeline-registry
     namespace: mse-tekton-pipelines
     type: kubernetes.io/dockerconfigjson
     options:

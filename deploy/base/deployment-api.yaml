@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mse-dashboard-api
-  namespace: mse-dashboard
+  name: arkhitekton-api
+  namespace: arkhitekton
   labels:
-    app.kubernetes.io/name: mse-dashboard
+    app.kubernetes.io/name: arkhitekton
     app.kubernetes.io/component: api
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app.kubernetes.io/name: mse-dashboard
+      app.kubernetes.io/name: arkhitekton
       app.kubernetes.io/component: api
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: mse-dashboard
+        app.kubernetes.io/name: arkhitekton
         app.kubernetes.io/component: api
     spec:
-      serviceAccountName: mse-dashboard
+      serviceAccountName: arkhitekton
       # Le rôle `api` ne parle jamais à l'API Kubernetes : la création des
       # PipelineRun appartient au `worker`, l'api ne fait qu'inscrire une demande
       # en base. Monter un jeton lui donnerait une capacité qu'il n'exerce pas.
@@ -42,20 +42,20 @@ spec:
                 topologyKey: kubernetes.io/hostname
                 labelSelector:
                   matchLabels:
-                    app.kubernetes.io/name: mse-dashboard
+                    app.kubernetes.io/name: arkhitekton
                     app.kubernetes.io/component: api
       containers:
         - name: api
-          image: reg.cadoles.com/cnous-mse/mse-dashboard:latest
+          image: reg.cadoles.com/vcarroy/arkhitekton:latest
           args: ["api"]
           ports:
             - name: http
               containerPort: 8080
           envFrom:
             - configMapRef:
-                name: mse-dashboard-config
+                name: arkhitekton-config
             - secretRef:
-                name: mse-dashboard-secrets
+                name: arkhitekton-secrets
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -102,12 +102,12 @@ spec:
             - name: tmp
               mountPath: /tmp
             - name: catalog
-              mountPath: /etc/mse-dashboard
+              mountPath: /etc/arkhitekton
               readOnly: true
       volumes:
         - name: catalog
           configMap:
-            name: mse-dashboard-catalog
+            name: arkhitekton-catalog
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi

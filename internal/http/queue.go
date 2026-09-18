@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	imagenames "forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // QueueStore est ce que les handlers attendent de la base.

@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/images"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/logs"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/tekton"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 )
 
 // runSink adapte le magasin PostgreSQL à ce que l'observateur attend.

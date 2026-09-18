@@ -1,8 +1,8 @@
 package mse
 
 import (
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/auth"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 )
 
 // Policies rend les exigences de promotion déclarées au catalogue, par projet.

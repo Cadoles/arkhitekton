@@ -127,8 +127,8 @@ un aller-retour de recherche et avec une fenêtre de course.
 **Arbitrage.** **Le dashboard crée les `PipelineRun` directement via l'API Kubernetes**
 (clientset `tektoncd/pipeline`), et non via l'`EventListener`. Il maîtrise alors le nom
 (`<pipeline>-<releaseId>-<seq>`), pose ses propres labels
-(`mse.dashboard/release-id`, `mse.dashboard/job-id`, `mse.dashboard/requested-by`,
-`mse.dashboard/queue-class`) et récupère l'objet créé de façon synchrone.
+(`arkhitekton/release-id`, `arkhitekton/job-id`, `arkhitekton/requested-by`,
+`arkhitekton/queue-class`) et récupère l'objet créé de façon synchrone.
 
 L'`EventListener` reste en place, inchangé, pour les webhooks Gitea et les CronJobs.
 Les deux voies coexistent ; le dashboard reconnaît les runs qu'il n'a pas déclenchés à

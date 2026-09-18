@@ -33,7 +33,7 @@ import (
  */
 
 // ManagedBy marque les ressources que le dashboard possède.
-const ManagedBy = "mse-dashboard"
+const ManagedBy = "arkhitekton"
 
 // Outcome dit ce qu'une pose a produit, ressource par ressource.
 type Outcome struct {

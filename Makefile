@@ -1,4 +1,4 @@
-BINARY := bin/mse-dashboard
+BINARY := bin/arkhitekton
 GO     ?= go
 
 # Les cibles Go visent nos paquets explicitement, et non `./...`.
@@ -12,7 +12,7 @@ GO_DIRS := cmd internal
 
 # Registre personnel pendant les développements : les images du dashboard ne
 # vont pas dans `cnous-mse` tant que le projet n'est pas livrable.
-IMAGE_REPO ?= reg.cadoles.com/vcarroy/mse-dashboard
+IMAGE_REPO ?= reg.cadoles.com/vcarroy/arkhitekton
 # Le tag reprend le commit : republier sous le même tag ne suffirait pas à faire
 # reprendre l'image par le cluster, les pods n'imposant pas d'`imagePullPolicy`.
 IMAGE_TAG  ?= dev-$(shell git rev-parse --short HEAD 2>/dev/null || echo inconnue)
@@ -28,13 +28,13 @@ OVERLAY ?= deploy/overlays/local
 # déploiement par projet. Distinct de celui du dashboard.
 TEKTON_NAMESPACE ?= mse-tekton-pipelines
 
-PG_TEST_NAME := pg-mse-dashboard-test
+PG_TEST_NAME := pg-arkhitekton-test
 PG_TEST_PORT := 15432
 PG_TEST_DSN  := postgres://postgres:t3st@127.0.0.1:$(PG_TEST_PORT)/mse?sslmode=disable
 
-MINIO_TEST_NAME   := minio-mse-dashboard-test
+MINIO_TEST_NAME   := minio-arkhitekton-test
 MINIO_TEST_PORT   := 19000
-MINIO_TEST_BUCKET := mse-dashboard-test
+MINIO_TEST_BUCKET := arkhitekton-test
 
 .PHONY: help build test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
         web web-install web-dev web-check dev-prereqs image image-push kind-load manifests deploy undeploy logs
@@ -43,7 +43,7 @@ help: ## Affiche cette aide
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | expand -t24
 
 build: ## Compile le binaire
-	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o $(BINARY) ./cmd/mse-dashboard
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o $(BINARY) ./cmd/arkhitekton
 
 test: ## Exécute les tests (les tests d'intégration sont ignorés sans TEST_DATABASE_URL)
 	$(GO) test $(GO_PKGS)
@@ -218,7 +218,7 @@ manifests: ## Rend et analyse les manifests de l'overlay
 # le correctif.
 deploy-keys-repair: ## Ajoute id_ed25519 aux clés de déploiement antérieures au correctif
 	@for secret in $$(kubectl -n $(TEKTON_NAMESPACE) get secrets \
-	    -l app.kubernetes.io/managed-by=mse-dashboard -o name); do \
+	    -l app.kubernetes.io/managed-by=arkhitekton -o name); do \
 	  if kubectl -n $(TEKTON_NAMESPACE) get $$secret \
 	      -o jsonpath='{.data.id_ed25519}' | grep -q .; then \
 	    echo "$$secret: déjà réparé"; \
@@ -236,23 +236,23 @@ deploy: kind-load manifests ## Déploie sur kind (overlay local, sans Skaffold)
 	@# cible a échoué puis réussi sans autre changement que la relance — d'où
 	@# l'attente explicite de la disparition, qui ne se contente pas de la
 	@# demande de suppression.
-	kubectl delete job -n mse-dashboard mse-dashboard-migrate mse-dashboard-minio-bucket \
+	kubectl delete job -n arkhitekton arkhitekton-migrate arkhitekton-minio-bucket \
 		--ignore-not-found --wait=true
-	kubectl wait --for=delete -n mse-dashboard --timeout=60s \
-		job/mse-dashboard-migrate job/mse-dashboard-minio-bucket 2>/dev/null || true
+	kubectl wait --for=delete -n arkhitekton --timeout=60s \
+		job/arkhitekton-migrate job/arkhitekton-minio-bucket 2>/dev/null || true
 	kustomize build $(OVERLAY) | kubectl apply -f -
-	kubectl wait --for=condition=complete --timeout=180s -n mse-dashboard job/mse-dashboard-migrate
+	kubectl wait --for=condition=complete --timeout=180s -n arkhitekton job/arkhitekton-migrate
 	@# Le tag `dev` ne change pas d'un build à l'autre : sans redémarrage forcé,
 	@# les pods garderaient l'image déjà présente sur le nœud.
-	kubectl rollout restart -n mse-dashboard deployment/mse-dashboard-api deployment/mse-dashboard-worker
-	kubectl rollout status  -n mse-dashboard deployment/mse-dashboard-api --timeout=180s
-	kubectl rollout status  -n mse-dashboard deployment/mse-dashboard-worker --timeout=180s
+	kubectl rollout restart -n arkhitekton deployment/arkhitekton-api deployment/arkhitekton-worker
+	kubectl rollout status  -n arkhitekton deployment/arkhitekton-api --timeout=180s
+	kubectl rollout status  -n arkhitekton deployment/arkhitekton-worker --timeout=180s
 
 undeploy: ## Supprime le déploiement (le namespace emporte les PVC)
 	kustomize build $(OVERLAY) | kubectl delete --ignore-not-found -f -
 
 logs: ## Suit les journaux de l'api
-	kubectl logs -n mse-dashboard -l app.kubernetes.io/component=api --tail=100 -f
+	kubectl logs -n arkhitekton -l app.kubernetes.io/component=api --tail=100 -f
 
 # --- Boucle de développement -------------------------------------------------
 
@@ -288,7 +288,7 @@ pipeline-credentials: ## Prépare les identifiants que les pipelines utiliseront
 	mkdir -p $(SECRETS_DIR); \
 	if [ ! -f $(SECRETS_DIR)/pipeline-ssh-key ]; then \
 	  echo '==> génération d une paire de clés dédiée'; \
-	  ssh-keygen -t ed25519 -C mse-dashboard-pipelines -N '' \
+	  ssh-keygen -t ed25519 -C arkhitekton-pipelines -N '' \
 	    -f $(SECRETS_DIR)/pipeline-ssh-key >/dev/null; \
 	  mv $(SECRETS_DIR)/pipeline-ssh-key.pub $(SECRETS_DIR)/pipeline-ssh-key.pub.txt; \
 	else \
@@ -324,5 +324,5 @@ pipeline-credentials: ## Prépare les identifiants que les pipelines utiliseront
 	echo '     (Harbor -> projet -> Membres -> rôle Developer).'; \
 	echo; \
 	echo 'Puis activer ces secrets dans dashboard.env :'; \
-	echo '     PIPELINE_GIT_SECRET=mse-dashboard-pipeline-git'; \
-	echo '     PIPELINE_REGISTRY_SECRET=mse-dashboard-pipeline-registry'
+	echo '     PIPELINE_GIT_SECRET=arkhitekton-pipeline-git'; \
+	echo '     PIPELINE_REGISTRY_SECRET=arkhitekton-pipeline-registry'

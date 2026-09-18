@@ -30,7 +30,7 @@ import (
 	"sync"
 	"time"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 )
 
 // Défauts de flush, repris de la doc 06 §6.5.

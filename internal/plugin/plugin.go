@@ -328,7 +328,7 @@ func Registry() []Descriptor {
 							Help: "Le nom sous lequel le statut apparaît. Deux gestes " +
 								"partageant ce nom se remplacent : c'est ainsi qu'un " +
 								"`pending` devient un `success`.",
-							Placeholder: "mse-dashboard/vérifications",
+							Placeholder: "arkhitekton/vérifications",
 						},
 						{
 							Name: "description", Label: "Description", Template: true,

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 )
 
 func planDeTest() plan.Plan {

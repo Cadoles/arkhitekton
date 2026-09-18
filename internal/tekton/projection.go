@@ -14,7 +14,7 @@ import (
 // ce qui distingue un run observé — déclenché par un webhook Gitea ou un CronJob —
 // d'un run piloté.
 const (
-	LabelJobID = "mse.dashboard/job-id"
+	LabelJobID = "arkhitekton/job-id"
 	// LabelInstance porte l'identité de la base qui a lancé le run.
 	//
 	// Le seul `job-id` ne suffit pas : les identifiants repartent à 1 sur une
@@ -22,9 +22,9 @@ const (
 	// concluait le job homonyme de la nouvelle base. Constaté — `mse-static-
 	// tests-7`, échoué la veille, a fait échouer le job 7 d'une base créée depuis,
 	// qui n'avait pas encore été lancé.
-	LabelInstance = "mse.dashboard/instance"
-	LabelKind     = "mse.dashboard/kind"
-	LabelRelease  = "mse.dashboard/release"
+	LabelInstance = "arkhitekton/instance"
+	LabelKind     = "arkhitekton/kind"
+	LabelRelease  = "arkhitekton/release"
 	LabelPipeline = "tekton.dev/pipeline"
 )
 

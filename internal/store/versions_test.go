@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/release"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 )
 
 // redmineVersion dépose une version réelle, comme le ferait la synchronisation.

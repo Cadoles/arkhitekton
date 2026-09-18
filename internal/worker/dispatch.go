@@ -4,9 +4,9 @@ import (
 	"context"
 	"log/slog"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/event"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/reaction"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*

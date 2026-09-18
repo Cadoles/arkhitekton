@@ -11,10 +11,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: mse-dashboard-minio-bucket
-  namespace: mse-dashboard
+  name: arkhitekton-minio-bucket
+  namespace: arkhitekton
   labels:
-    app.kubernetes.io/name: mse-dashboard
+    app.kubernetes.io/name: arkhitekton
     app.kubernetes.io/component: minio-bucket
 spec:
   # Généreux à dessein : le Job démarre en même temps que MinIO et échoue tant
@@ -25,7 +25,7 @@ spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: mse-dashboard
+        app.kubernetes.io/name: arkhitekton
         app.kubernetes.io/component: minio-bucket
     spec:
       restartPolicy: OnFailure
@@ -43,25 +43,25 @@ spec:
             - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: mse-dashboard-secrets
+                  name: arkhitekton-secrets
                   key: MINIO_ACCESS_KEY
             - name: MINIO_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: mse-dashboard-secrets
+                  name: arkhitekton-secrets
                   key: MINIO_SECRET_KEY
             # Kubernetes résout $(VAR) à partir des variables déclarées avant.
             # Les identifiants apparaissent donc dans une URL : ils doivent être
             # sûrs pour un composant d'URL, d'où la consigne de les garder
             # alphanumériques dans dashboard.env.example.
             - name: MC_HOST_local
-              value: "http://$(MINIO_ACCESS_KEY):$(MINIO_SECRET_KEY)@mse-dashboard-minio:9000"
+              value: "http://$(MINIO_ACCESS_KEY):$(MINIO_SECRET_KEY)@arkhitekton-minio:9000"
           args:
             - "--config-dir"
             - "/tmp/mc"
             - "mb"
             - "--ignore-existing"
-            - "local/mse-dashboard"
+            - "local/arkhitekton"
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

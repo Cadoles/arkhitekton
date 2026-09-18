@@ -40,7 +40,7 @@ func TestLoadAPISucceedsWithCompleteEnvironment(t *testing.T) {
 	if cfg.Storage.Region != "NUO-Region" {
 		t.Errorf("région par défaut = %q, attendu NUO-Region: une région erronée invalide la signature SigV4", cfg.Storage.Region)
 	}
-	if cfg.Storage.Bucket != "mse-dashboard" {
+	if cfg.Storage.Bucket != "arkhitekton" {
 		t.Errorf("bucket par défaut = %q", cfg.Storage.Bucket)
 	}
 }

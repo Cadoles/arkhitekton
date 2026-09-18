@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 type fakeSecurityStore struct {

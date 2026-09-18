@@ -69,7 +69,7 @@ ARG REVISION=inconnue
 RUN CGO_ENABLED=0 GOOS=linux go build \
       -trimpath \
       -ldflags="-s -w -X main.version=${VERSION} -X main.revision=${REVISION}" \
-      -o /out/mse-dashboard ./cmd/mse-dashboard
+      -o /out/arkhitekton ./cmd/arkhitekton
 
 # distroless static : pas de shell, pas de gestionnaire de paquets, rien à
 # exploiter en cas d'exécution de commande arbitraire. Elle apporte les deux
@@ -77,7 +77,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # OIDC en HTTPS, MinIO en TLS) et un utilisateur non privilégié déclaré.
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=build /out/mse-dashboard /usr/local/bin/mse-dashboard
+COPY --from=build /out/arkhitekton /usr/local/bin/arkhitekton
 
 # 65532 = `nonroot` dans l'image distroless. La valeur est répétée dans le
 # securityContext des manifests : `runAsNonRoot` seul ne suffit pas, le kubelet
@@ -86,5 +86,5 @@ USER 65532:65532
 
 EXPOSE 8080
 
-ENTRYPOINT ["/usr/local/bin/mse-dashboard"]
+ENTRYPOINT ["/usr/local/bin/arkhitekton"]
 CMD ["api"]

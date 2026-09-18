@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 )
 
 /*

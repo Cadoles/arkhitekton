@@ -513,7 +513,7 @@ La correction faite, le geste a été repassé sur `forge.cadoles.com`, dépôt 
 retirant pas :
 
 ```
-contexte    mse-dashboard/verification-live
+contexte    arkhitekton/verification-live
 état        success
 description Release verification-live-2026-09-03 construite
 ```

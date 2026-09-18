@@ -11,17 +11,17 @@ Chaque `PipelineRun` créé porte :
 metadata:
   name: <pipeline>-<jobId>          # nom maîtrisé, pas de generateName
   labels:
-    mse.dashboard/job-id: "4271"
-    mse.dashboard/release-id: "88"
-    mse.dashboard/queue-class: "e2e"
-    mse.dashboard/kind: "e2e-test"
+    arkhitekton/job-id: "4271"
+    arkhitekton/release-id: "88"
+    arkhitekton/queue-class: "e2e"
+    arkhitekton/kind: "e2e-test"
   annotations:
-    mse.dashboard/requested-by: "prenom.nom@exemple.fr"
+    arkhitekton/requested-by: "prenom.nom@exemple.fr"
 ```
 
 Ces labels sont ce qui permet, après un redémarrage du `worker`, de retrouver l'état
 réel du monde sans faire confiance à la seule base de données. Un `PipelineRun` sans
-label `mse.dashboard/job-id` est un run déclenché ailleurs (webhook Gitea, CronJob) :
+label `arkhitekton/job-id` est un run déclenché ailleurs (webhook Gitea, CronJob) :
 le dashboard l'affiche en lecture seule et ne prétend pas le piloter.
 
 ## 6.2 Le catalogue de pipelines {#catalogue}
@@ -210,7 +210,7 @@ alimente le cache local et projette chaque changement en base :
 Chaque projection émet un événement sur le canal SSE correspondant.
 
 **Resynchronisation au démarrage.** Le `worker` liste tous les `PipelineRun` portant le
-label `mse.dashboard/job-id`, les compare à la base et réconcilie : un job `running` en
+label `arkhitekton/job-id`, les compare à la base et réconcilie : un job `running` en
 base dont le `PipelineRun` a disparu passe `failed` avec un motif explicite ; un
 `PipelineRun` terminé pendant l'indisponibilité voit son état rattrapé. Sans cette
 étape, un redémarrage laisse des jobs bloqués en `running` qui gèlent leur classe
@@ -340,7 +340,7 @@ L'informer signale la complétion. Le `worker` :
 4. compare au run précédent dans une transaction PostgreSQL — `status`, `first_seen`,
    `delta` ;
 5. écrit `test_results` et `test_cases`, rattache à la release ;
-6. copie dans le bucket `mse-dashboard` ce qui doit survivre à la purge des artefacts
+6. copie dans le bucket `arkhitekton` ce qui doit survivre à la purge des artefacts
    bruts ;
 7. recalcule le score de qualité et le statut agrégé.
 
@@ -351,7 +351,7 @@ Les étapes 2 à 4 s'appuient sur le module Go extrait de
 ### Retraitement
 
 Le brut étant conservé, tout l'historique est rejouable : une commande
-`mse-dashboard reprocess --from <date>` reparse et réécrit les projections. C'est ce
+`arkhitekton reprocess --from <date>` reparse et réécrit les projections. C'est ce
 qui permet de corriger un parseur, d'affiner un mapping de sévérité ou d'appliquer
 rétroactivement une nouvelle exception — impossible tant que la normalisation était
 figée à l'écriture.

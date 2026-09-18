@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/secrets"
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*

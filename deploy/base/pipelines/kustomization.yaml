@@ -36,7 +36,7 @@ namespace: mse-tekton-pipelines
 # Clé **propre au projet**, et non `app.kubernetes.io/managed-by`. Cet espace est
 # disputé : Skaffold y écrit `kustomize` par-dessus, Flux y écrirait le sien, et
 # la marque disparaissait sans le moindre message — constaté ici même, la première
-# version de ce fichier posait `managed-by: mse-dashboard` et le cluster rendait
+# version de ce fichier posait `managed-by: arkhitekton` et le cluster rendait
 # `managed-by: kustomize`. Une propriété qu'un outil de déploiement peut effacer
 # ne prouve rien.
 labels:

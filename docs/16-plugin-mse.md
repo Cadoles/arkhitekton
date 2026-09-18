@@ -33,7 +33,7 @@ fonctionne-t-il sans ? »**.
 ### Deux défauts constatés en l'examinant
 
 - **Les plugins `flux` et `portaldata` ne pilotent rien.** Ils sont déclarés au registre et
-  leur interrupteur s'affiche, mais `cmd/mse-dashboard/main.go` câble Flux sans condition, à
+  leur interrupteur s'affiche, mais `cmd/arkhitekton/main.go` câble Flux sans condition, à
   trois endroits, et lit son namespace dans la configuration plutôt que dans le réglage du
   plugin. Les éteindre ne change rien.
 - **La table `deployments` n'est lue ni écrite par aucun code.** Elle date de la migration
@@ -196,7 +196,7 @@ reconstruction ». Il ne s'agit pas de charger du code à l'exécution.
 ### La frontière se vérifie
 
 Une règle d'import, tenue par un test : aucun paquet du noyau n'importe `internal/mse`. Seul
-`cmd/mse-dashboard` l'assemble. Sans ce garde-fou, la frontière se dissoudrait au premier
+`cmd/arkhitekton` l'assemble. Sans ce garde-fou, la frontière se dissoudrait au premier
 raccourci.
 
 Les méthodes de magasin des environnements restent dans `internal/store`, qui porte un seul
@@ -493,7 +493,7 @@ d'un environnement : il ne dépend déjà que du module.
 - ses sections et pastilles pour les écrans d'une release.
 
 Le type vit dans `lib/modules.ts`. `src/modules.ts` est le seul fichier du noyau qui importe un
-module, comme `cmd/mse-dashboard` côté serveur. La coquille, les routes, l'accueil, l'écran d'une
+module, comme `cmd/arkhitekton` côté serveur. La coquille, les routes, l'accueil, l'écran d'une
 release et ses pastilles lisent la liste des modules allumés, et plus aucun ne nomme le MSE.
 
 **`features/mse` regroupe l'interface du plugin** :

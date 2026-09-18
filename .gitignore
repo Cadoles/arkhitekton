@@ -2,7 +2,7 @@
 /dist/
 # Binaire déposé à la racine par un `go build` sans -o : il porte le nom du
 # module et se confond avec le dépôt lui-même.
-/mse-dashboard
+/arkhitekton
 *.test
 
 # Vidages mémoire déposés dans l'arbre de travail par un outil externe.

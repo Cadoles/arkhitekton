@@ -53,7 +53,7 @@ import (
 // Elle ne sert pas à décider quoi que ce soit — sans `get`, on ne la relit
 // jamais — mais à ce qu'un humain devant `kubectl get secret` sache d'où vient
 // l'objet et qui le supprimera.
-const ManagedBy = "mse-dashboard"
+const ManagedBy = "arkhitekton"
 
 // PrivateKeyFile est le nom sous lequel la clé est déposée dans le Secret.
 //
@@ -108,7 +108,7 @@ var ErrNameTaken = errors.New("un secret porte déjà ce nom et n'a pas été cr
 // migration 0026 — donc un nom de ressource Kubernetes valide sans échappement.
 // Le préfixe rend la propriété lisible sans consulter les étiquettes.
 func SecretName(slug string) string {
-	return "mse-dashboard-project-" + slug + "-git"
+	return "arkhitekton-project-" + slug + "-git"
 }
 
 // Pair est une paire de clés fraîchement engendrée.
@@ -184,7 +184,7 @@ func (o *Owner) Create(ctx context.Context, slug, comment string, known bool) (s
 			Namespace: o.namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": ManagedBy,
-				"mse-dashboard/project":        slug,
+				"arkhitekton/project":          slug,
 			},
 		},
 		Type: corev1.SecretTypeSSHAuth,

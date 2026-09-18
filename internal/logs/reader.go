@@ -8,7 +8,7 @@ import (
 	"io"
 	"sort"
 
-	"forge.cadoles.com/vcarroy/mse-dashboard/internal/blob"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 )
 
 // DefaultTail est la quantité lue par défaut quand aucun décalage n'est demandé.
