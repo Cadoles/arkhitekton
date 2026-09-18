@@ -1,12 +1,13 @@
-# Pipelines et Tasks livrés — Apache 2.0
+# Shipped pipelines and tasks — Apache 2.0
 
-Ces définitions sont sous **Apache License 2.0** (fichier `LICENSE` de ce
-répertoire), et non sous l'AGPL qui couvre le reste d'Arkhitekton.
+These definitions are licensed under the **Apache License 2.0** (the `LICENSE` file in
+this directory), not under the AGPL that covers the rest of Arkhitekton.
 
-La raison est pratique : qui écrit ses propres pipelines part presque toujours
-de ceux-ci. Les laisser sous AGPL ferait hériter de l'AGPL le pipeline dérivé,
-alors même que Tekton ne les lit que comme des données — le contraire de ce que
-le contrat des pipelines cherche à permettre (doc 13, doc 17).
+The reason is practical: people writing their own pipelines almost always start from
+these. Leaving them under the AGPL would carry it into the derived pipeline, even though
+Tekton only ever reads them as data — the opposite of what the pipeline contract is meant
+to allow (see [docs/05](../../../docs/05-pipeline-catalogue.md) and
+[docs/12](../../../docs/12-licensing.md)).
 
-La même licence couvre `deploy/base/config/catalog.yaml`, qui sert de modèle de
-catalogue.
+The same licence covers `deploy/base/config/catalog.yaml`, which serves as a catalogue
+template.
