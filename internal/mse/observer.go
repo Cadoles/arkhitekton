@@ -44,18 +44,21 @@ type Attester interface {
 // appliqué, **PortalData** dit ce qui tourne. C'est leur écart que l'écran des
 // environnements existe pour montrer (B8).
 type Observer struct {
-	store    EnvironmentStore
-	deployer Deployer
+	store EnvironmentStore
+	// deployers porte le déployeur de chaque projet synchronisé : chacun lit le
+	// Flux de son namespace. Rempli par [Observer.SyncEnvironments], avant que
+	// l'observation ne commence.
+	deployers map[int64]Deployer
 	// attester est nil quand le cluster ne sert pas le CRD du portail : le relevé
 	// retombe alors sur ce que Flux déclare.
 	attester Attester
 	logger   *slog.Logger
 }
 
-func NewObserver(
-	environments EnvironmentStore, deployer Deployer, attester Attester, logger *slog.Logger,
-) *Observer {
-	return &Observer{store: environments, deployer: deployer, attester: attester, logger: logger}
+func NewObserver(environments EnvironmentStore, attester Attester, logger *slog.Logger) *Observer {
+	return &Observer{
+		store: environments, deployers: map[int64]Deployer{}, attester: attester, logger: logger,
+	}
 }
 
 // targetOf traduit un environnement déclaré vers ce que le déployeur attend.
@@ -72,6 +75,8 @@ type ProjectEnvironments struct {
 	ProjectID    int64
 	Slug         string
 	Environments []catalog.Environment
+	// Deployer lit le Flux du namespace du projet.
+	Deployer Deployer
 }
 
 // SyncEnvironments écrit en base les environnements que chaque projet déclare,
@@ -88,6 +93,7 @@ func (o *Observer) SyncEnvironments(ctx context.Context, projects []ProjectEnvir
 	var problems []error
 	environments := 0
 	for _, project := range projects {
+		o.deployers[project.ProjectID] = project.Deployer
 		targets := make([]flux.Target, 0, len(project.Environments))
 		for _, environment := range project.Environments {
 			record := storage.Environment{
@@ -107,7 +113,7 @@ func (o *Observer) SyncEnvironments(ctx context.Context, projects []ProjectEnvir
 		}
 		environments += len(project.Environments)
 
-		if err := o.deployer.Check(ctx, targets); err != nil {
+		if err := project.Deployer.Check(ctx, targets); err != nil {
 			problems = append(problems, fmt.Errorf("projet %s:\n%w", project.Slug, err))
 		}
 	}
@@ -149,7 +155,13 @@ func (o *Observer) observeAll(ctx context.Context) {
 	}
 
 	for _, environment := range environments {
-		observation := o.observe(ctx, environment)
+		deployer, synced := o.deployers[environment.ProjectID]
+		if !synced {
+			// Un projet qui a éteint le module garde ses lignes ; il n'est plus
+			// observé, et son dernier relevé reste celui d'avant.
+			continue
+		}
+		observation := o.observe(ctx, deployer, environment)
 		if err := o.store.SaveObservation(ctx, observation); err != nil {
 			o.logger.Error("enregistrement d'une observation", "environnement", environment.ID, "error", err)
 		}
@@ -161,7 +173,7 @@ func (o *Observer) observeAll(ctx context.Context) {
 // `portaldata` atteste qu'une version tourne **et** que ses migrations ont
 // abouti ; `git` ne dit que le tag retenu par Flux ; `unobservable` dit qu'on ne
 // peut rien affirmer (B8).
-func (o *Observer) observe(ctx context.Context, environment storage.Environment) storage.Observation {
+func (o *Observer) observe(ctx context.Context, deployer Deployer, environment storage.Environment) storage.Observation {
 	observation := storage.Observation{
 		ProjectID:     environment.ProjectID,
 		EnvironmentID: environment.ID,
@@ -170,7 +182,7 @@ func (o *Observer) observe(ctx context.Context, environment storage.Environment)
 
 	// Ce que Flux a appliqué : une **intention**. Un échec de lecture n'interrompt
 	// pas — l'attestation reste peut-être lisible.
-	declared, err := o.deployer.Observe(ctx, targetOf(environment))
+	declared, err := deployer.Observe(ctx, targetOf(environment))
 	if err != nil {
 		o.logger.Error("lecture de l'état du déployeur",
 			"environnement", environment.ID, "error", err)

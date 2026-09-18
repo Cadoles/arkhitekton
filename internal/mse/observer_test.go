@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/portaldata"
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/mse/storage"
@@ -65,9 +66,9 @@ func (f *fakeEnvironmentStore) SaveObservation(_ context.Context, o storage.Obse
 	return nil
 }
 
-func observerFor(environment storage.Environment, deployer Deployer, attester Attester) *Observer {
+func observerFor(environment storage.Environment, attester Attester) *Observer {
 	environments := &fakeEnvironmentStore{environments: []storage.Environment{environment}}
-	return NewObserver(environments, deployer, attester, quietLogger())
+	return NewObserver(environments, attester, quietLogger())
 }
 
 func observable() storage.Environment {
@@ -80,9 +81,9 @@ func TestSansAttestationLaPreuveResteCelleDuDeployeur(t *testing.T) {
 	deployer := &fakeDeployer{observation: flux.Observation{
 		Version: "1.8.0", State: "Ready", Resolution: flux.ResolutionDeclared,
 	}}
-	observer := observerFor(observable(), deployer, nil)
+	observer := observerFor(observable(), nil)
 
-	got := observer.observe(context.Background(), observable())
+	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.Resolution != string(flux.ResolutionDeclared) {
 		t.Errorf("résolution %q, attendu %q", got.Resolution, flux.ResolutionDeclared)
@@ -104,9 +105,9 @@ func TestUneAttestationPreteEleveLaPreuve(t *testing.T) {
 	attester := &fakeAttester{states: []portaldata.Attestation{
 		{Version: "1.8.0", State: "Ready", Ready: true},
 	}}
-	observer := observerFor(observable(), deployer, attester)
+	observer := observerFor(observable(), attester)
 
-	got := observer.observe(context.Background(), observable())
+	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.Resolution != string(flux.ResolutionAttested) {
 		t.Errorf("résolution %q, attendu %q", got.Resolution, flux.ResolutionAttested)
@@ -125,9 +126,9 @@ func TestUneAttestationNonPreteNeFaitPasLivre(t *testing.T) {
 	attester := &fakeAttester{states: []portaldata.Attestation{
 		{Version: "1.8.0", State: "MigrationFailed", Ready: false},
 	}}
-	observer := observerFor(observable(), deployer, attester)
+	observer := observerFor(observable(), attester)
 
-	got := observer.observe(context.Background(), observable())
+	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.Resolution == string(flux.ResolutionAttested) {
 		t.Error("des migrations en échec ne peuvent pas valoir attestation")
@@ -143,9 +144,9 @@ func TestUnEnvironnementNonObservableNestPasInterroge(t *testing.T) {
 	environment := storage.Environment{ID: "prod", Namespace: "mse-prod", Observable: false}
 	deployer := &fakeDeployer{observation: flux.Observation{Resolution: flux.ResolutionUnobservable}}
 	attester := &fakeAttester{}
-	observer := observerFor(environment, deployer, attester)
+	observer := observerFor(environment, attester)
 
-	got := observer.observe(context.Background(), environment)
+	got := observer.observe(context.Background(), deployer, environment)
 
 	if got.Resolution != string(flux.ResolutionUnobservable) {
 		t.Errorf("résolution %q, attendu %q", got.Resolution, flux.ResolutionUnobservable)
@@ -162,9 +163,9 @@ func TestUnDeployeurEnErreurNempechePasLAttestation(t *testing.T) {
 	attester := &fakeAttester{states: []portaldata.Attestation{
 		{Version: "1.8.0", State: "Ready", Ready: true},
 	}}
-	observer := observerFor(observable(), deployer, attester)
+	observer := observerFor(observable(), attester)
 
-	got := observer.observe(context.Background(), observable())
+	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.PortalVersion != "1.8.0" {
 		t.Errorf("version attestée %q — l'échec du déployeur l'a emportée", got.PortalVersion)
@@ -181,14 +182,49 @@ func TestUneAttestationIllisibleRetombeSurLeDeployeur(t *testing.T) {
 		State: "Ready", Resolution: flux.ResolutionDeclared,
 	}}
 	attester := &fakeAttester{err: errors.New("CRD absent du namespace")}
-	observer := observerFor(observable(), deployer, attester)
+	observer := observerFor(observable(), attester)
 
-	got := observer.observe(context.Background(), observable())
+	got := observer.observe(context.Background(), deployer, observable())
 
 	if got.Resolution != string(flux.ResolutionDeclared) {
 		t.Errorf("résolution %q, attendu %q", got.Resolution, flux.ResolutionDeclared)
 	}
 	if got.DeclaredState != "Ready" {
 		t.Errorf("état déclaré %q — l'échec de l'attestation l'a emporté", got.DeclaredState)
+	}
+}
+
+// Chaque projet est observé par le déployeur de son namespace, et un projet qui
+// n'a pas été synchronisé — module éteint — ne l'est plus du tout.
+func TestChaqueProjetEstObserveParSonDeployeur(t *testing.T) {
+	mse := &fakeDeployer{observation: flux.Observation{Resolution: flux.ResolutionDeclared}}
+	themes := &fakeDeployer{observation: flux.Observation{Resolution: flux.ResolutionDeclared}}
+	environments := &fakeEnvironmentStore{environments: []storage.Environment{
+		{ProjectID: 1, ID: "qualif", Namespace: "mse-dev", Observable: true},
+		{ProjectID: 2, ID: "qualif", Namespace: "themes-dev", Observable: true},
+		{ProjectID: 3, ID: "qualif", Namespace: "eteint", Observable: true},
+	}}
+	observer := NewObserver(environments, nil, quietLogger())
+	ctx := context.Background()
+
+	if err := observer.SyncEnvironments(ctx, []ProjectEnvironments{
+		{ProjectID: 1, Slug: "mse", Deployer: mse,
+			Environments: []catalog.Environment{{ID: "qualif", Namespace: "mse-dev"}}},
+		{ProjectID: 2, Slug: "themes", Deployer: themes,
+			Environments: []catalog.Environment{{ID: "qualif", Namespace: "themes-dev"}}},
+	}); err != nil {
+		t.Fatalf("synchronisation: %v", err)
+	}
+	observer.observeAll(ctx)
+
+	if len(mse.seen) != 1 || len(themes.seen) != 1 {
+		t.Errorf("relevés par déployeur: mse %d, themes %d — attendu un chacun", len(mse.seen), len(themes.seen))
+	}
+	observed := map[int64]bool{}
+	for _, observation := range environments.saved {
+		observed[observation.ProjectID] = true
+	}
+	if !observed[1] || !observed[2] || observed[3] {
+		t.Errorf("projets relevés = %v, attendu 1 et 2 seulement", observed)
 	}
 }

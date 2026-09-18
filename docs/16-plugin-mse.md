@@ -923,3 +923,31 @@ L'oubli reste sensible, et un projet sans section n'a aucun environnement promou
 **La suggestion `environment` propose les environnements du projet**, lus dans sa section.
 
 L'`api` journalise les environnements sensibles **par projet** au démarrage.
+
+---
+
+## 16.22 Par projet, tranche 4 — ce que l'écriture a tranché
+
+**Le namespace Flux se règle par projet.** Le plugin déclare un champ `namespace` à la portée
+projet, en plus de celui de l'instance. La résolution est celle de tous les plugins
+(`store.ResolvedPlugin`) : une valeur vide du projet n'efface pas celle de l'instance. À défaut
+des deux, la configuration `FLUX_NAMESPACE` sert de repli.
+
+**Un client Flux par namespace distinct.** Le worker résout le namespace de chaque projet qui a
+le module, et ouvre un client par namespace, partagé par les projets qui en ont un en commun :
+le client découvre les versions d'API servies, et le faire une fois par projet multiplierait
+les appels pour la même réponse. Un namespace injoignable empêche le démarrage, en nommant le
+projet.
+
+**L'observateur tient un déployeur par projet.**
+
+- `SyncEnvironments` reçoit, pour chaque projet, ses environnements **et** son déployeur ; il
+  confronte les `ImagePolicy` de ce namespace.
+- `observeAll` relève chaque environnement avec le déployeur de son projet.
+- Un projet qui a éteint le module garde ses lignes mais n'est plus observé : son dernier relevé
+  reste celui d'avant, plutôt qu'un relevé lu dans un Flux qui n'est plus le sien.
+
+`PortalData` reste un client d'instance : il était déjà lu par namespace d'environnement.
+
+**Journal de démarrage.** Le worker journalise, par projet, le namespace Flux retenu et le nombre
+d'environnements déclarés, puis la liste des projets du module.

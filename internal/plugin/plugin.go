@@ -404,6 +404,16 @@ func Registry() []Descriptor {
 					Placeholder: "flux-system",
 				},
 			},
+			// Un projet peut déployer par un autre Flux que celui de l'instance : ses
+			// ImagePolicy et ses Kustomization vivent alors dans un autre namespace
+			// (doc 16 §16.18). Vide, il hérite de l'instance.
+			Project: []Field{
+				{
+					Name: "namespace", Label: "Namespace Flux", Type: FieldText,
+					Help:        "Là où vivent les objets Flux de ce projet. Vide : celui de l'instance.",
+					Placeholder: "flux-system",
+				},
+			},
 			// La promotion est un fait du plugin et non du noyau : c'est lui qui
 			// définit ce qu'est une promotion, donc lui qui la constate.
 			Events: []EventSpec{

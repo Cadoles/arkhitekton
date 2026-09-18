@@ -520,33 +520,14 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		logger.Info("module MSE inactif",
 			"consequence", "ni Flux, ni PortalData, ni observation des environnements")
 	} else {
-		// Le namespace vient du réglage du plugin, et la configuration ne sert
-		// plus que de repli : l'administration l'affichait sans qu'il serve.
-		namespace := strings.TrimSpace(mseSettings.Config["namespace"])
-		if namespace == "" {
-			namespace = cfg.Flux.Namespace
-		}
-
-		// Le client Flux découvre les versions d'API servies au lieu de les coder :
-		// `kustomize.toolkit.fluxcd.io/v1` est stable depuis Flux 2.0, alors que
-		// `image.toolkit.fluxcd.io/v1` n'existe que depuis 2.7, et une même
-		// installation peut donc servir les deux dans des versions différentes.
-		fluxClient, err := flux.Open(cluster.RESTConfig, namespace)
-		if err != nil {
-			return err
-		}
-		logger.Info("client Flux", "namespace", namespace, "versions", fluxClient.Versions())
-
 		// Deux dépendances distinctes, et depuis le lot D deux clients distincts :
 		// l'une dit ce que le déploiement a appliqué, l'autre ce que l'application
 		// rapporte d'elle-même. C'est leur écart qui fait la valeur de l'écran des
 		// environnements, et les confondre le ferait disparaître (B8).
 		//
 		// L'attestation est **facultative** : un cluster sans le CRD du portail est
-		// une configuration valide — c'est le cas de tout projet qui n'est pas le
-		// MSE —, et le dashboard y retombe sur ce que le déploiement déclare. Tant
-		// qu'un seul client résolvait les deux, cette absence faisait échouer le
-		// démarrage sur une dépendance principale parfaitement installée.
+		// une configuration valide, et le dashboard y retombe sur ce que le
+		// déploiement déclare.
 		var attester mse.Attester
 		switch portalClient, err := portaldata.Open(cluster.RESTConfig); {
 		case errors.Is(err, portaldata.ErrAbsent):
@@ -561,21 +542,21 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// enregistrement le rendent illisible.
 			logger.Info("source d'attestation", "api_version", portalClient.Version())
 		}
+		environments = mse.NewObserver(msestorage.New(db.Pool()), attester, logger)
 
-		deployer := flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
-		environments = mse.NewObserver(msestorage.New(db.Pool()), deployer, attester, logger)
-
-		// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
-		// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux
-		// ignorerait. Mieux vaut ne pas démarrer.
-		//
 		// Les environnements sont écrits pour chaque projet qui a le module, lu au
-		// démarrage comme l'interrupteur de l'instance.
+		// démarrage comme l'interrupteur de l'instance. Chacun est observé par le
+		// Flux de son namespace : celui du projet, à défaut celui de l'instance, à
+		// défaut la configuration (doc 16 §16.18).
 		projects, err := db.ListProjects(ctx)
 		if err != nil {
 			return err
 		}
 		projectModules := dashhttp.NewModules(db, logger)
+		// Un client par namespace distinct, partagé par les projets qui le
+		// partagent : le client découvre les versions d'API servies, et le faire
+		// une fois par projet multiplierait les appels pour la même réponse.
+		deployers := map[string]*flux.Deployer{}
 		var declared []mse.ProjectEnvironments
 		enabled := map[string]bool{}
 		var slugs []string
@@ -585,14 +566,39 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			}
 			enabled[project.Slug] = true
 			slugs = append(slugs, project.Slug)
+
+			settings, err := db.ResolvedPlugin(ctx, project.ID, plugin.ModuleMSE)
+			if err != nil {
+				return err
+			}
+			namespace := strings.TrimSpace(settings.Config["namespace"])
+			if namespace == "" {
+				namespace = cfg.Flux.Namespace
+			}
+			deployer, opened := deployers[namespace]
+			if !opened {
+				// Le client Flux découvre les versions d'API servies au lieu de les
+				// coder : une même installation peut servir `kustomize` et `image`
+				// dans des versions différentes.
+				fluxClient, err := flux.Open(cluster.RESTConfig, namespace)
+				if err != nil {
+					return fmt.Errorf("client Flux du projet %s: %w", project.Slug, err)
+				}
+				logger.Info("client Flux", "namespace", namespace, "versions", fluxClient.Versions())
+				deployer = flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
+				deployers[namespace] = deployer
+			}
+
 			own := pipelines.EnvironmentsOf(project.Slug)
 			if len(own) == 0 {
 				logger.Warn("projet du module MSE sans environnement déclaré",
 					"projet", project.Slug, "consequence", "ni promotion ni observation pour lui")
 			}
 			declared = append(declared, mse.ProjectEnvironments{
-				ProjectID: project.ID, Slug: project.Slug, Environments: own,
+				ProjectID: project.ID, Slug: project.Slug, Environments: own, Deployer: deployer,
 			})
+			logger.Info("projet du module MSE", "projet", project.Slug, "namespace_flux", namespace,
+				"environnements", len(own))
 		}
 		for slug := range pipelines.Projects {
 			if !enabled[slug] {
@@ -604,6 +610,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		}
 		logger.Info("projets du module MSE", "projets", slugs)
 
+		// Le garde-fou de B7 : un suffixe de promotion qui ne correspond à aucune
+		// ImagePolicy produirait un tag valide, poussé sans erreur, que Flux
+		// ignorerait. Mieux vaut ne pas démarrer.
 		syncCtx, cancelSync := context.WithTimeout(ctx, 30*time.Second)
 		err = environments.SyncEnvironments(syncCtx, declared)
 		cancelSync()
