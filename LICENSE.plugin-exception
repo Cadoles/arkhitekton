@@ -1,0 +1,81 @@
+Arkhitekton — Additional permission under GNU AGPL version 3 section 7
+
+Copyright (C) 2026 Cadoles
+
+Arkhitekton is distributed under the GNU Affero General Public License,
+version 3 or (at your option) any later version — see the LICENSE file. The
+following additional permission is granted so that plugins written by third
+parties may be published under terms of their authors' choosing.
+
+
+DEFINITIONS
+
+"the Program" means Arkhitekton, as distributed under the GNU AGPL.
+
+"Plugin Interface" means:
+
+  (a) the exported identifiers of the Go package that the Program designates
+      as its plugin API — at the date of this file, the package
+      `forge.cadoles.com/vcarroy/arkhitekton/internal/plugin` — together with
+      the exported identifiers of the packages whose types a plugin is
+      required to implement in order to be registered;
+
+  (b) the HTTP API served by the Program;
+
+  (c) the declarative formats that the Program reads or writes: pipeline
+      catalogues, Tekton Pipeline and Task definitions, plugin settings and
+      automation declarations.
+
+"Plugin" means a work that interacts with the Program solely through the
+Plugin Interface, and that does not otherwise copy or incorporate source code
+of the Program.
+
+
+GRANT
+
+As an additional permission under section 7 of the GNU AGPL version 3, you are
+permitted to link or combine a Plugin with the Program, to convey the
+resulting combined work, and to make that combined work available to users
+interacting with it remotely through a computer network, while licensing the
+Plugin under terms of your choice, provided that:
+
+  1. you comply with the GNU AGPL in all respects for the Program itself and
+     for every modification you make to it, including the obligations of
+     section 13 with respect to that code; and
+
+  2. the terms you choose for the Plugin do not purport to restrict the rights
+     that the GNU AGPL grants to recipients of the Program.
+
+This permission covers the Plugin only. Modifications to the Program remain
+covered by the GNU AGPL, whether or not they were made in order to accommodate
+a Plugin.
+
+
+PIPELINES AND CATALOGUES
+
+Pipeline catalogues and Tekton definitions are data read by the Program, not
+part of it: writing one does not create a work based on the Program, and the
+GNU AGPL does not require it to be licensed under the same terms. The examples
+distributed with the Program are licensed under the Apache License 2.0 — see
+deploy/base/pipelines/LICENSE — so that they may be copied and adapted freely.
+
+
+NOTE
+
+As provided by section 7 of the GNU AGPL, a recipient may remove this
+additional permission from their own copy of the Program. Doing so does not
+affect any other copy.
+
+
+---
+
+Résumé en français, sans valeur juridique — le texte anglais ci-dessus fait foi.
+
+  - Arkhitekton est sous AGPL v3 ou ultérieure.
+  - Un plugin qui n'emploie que l'interface de plugin peut être publié sous la
+    licence que son auteur veut, y compris fermée, et l'ensemble peut être
+    distribué ou exposé en ligne dans ces conditions.
+  - Le noyau reste sous AGPL, ses modifications aussi : qui l'expose en réseau
+    en doit les sources, section 13 comprise.
+  - Les pipelines et les catalogues sont des données. Les exemples livrés sont
+    sous Apache 2.0, pour être copiés et adaptés sans contrainte.

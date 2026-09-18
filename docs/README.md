@@ -25,6 +25,7 @@ le processus de release sans quitter l'interface.
 | [14 — Déclencheurs et automatisations](14-declencheurs-et-automatisations.md) | Rendre déclarable ce qui s'enchaîne après un fait, et laisser les plugins déclarer leurs propres faits |
 | [15 — Construire et tester par déclaration](15-construire-et-tester-par-declaration.md) | Sortir du code la décision de quoi construire et quoi tester, pour la poser dans l'onglet automatisation |
 | [16 — Le plugin MSE](16-plugin-mse.md) | Rassembler environnements, Flux et `PortalData` dans un plugin, et garder une instance cohérente sans lui |
+| [17 — Licence et frontières](17-licence-et-frontieres.md) | Pourquoi l'AGPL, et comment plugins et pipelines restent publiables sous la licence de leur auteur |
 
 ## Résumé exécutif
 
