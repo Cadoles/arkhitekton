@@ -84,6 +84,10 @@ type Scheduler struct {
 	// instance identifie la base. Entre dans le nom des runs pour qu'une remise à
 	// zéro ne produise pas d'homonymes de PipelineRun restés dans le cluster.
 	instance string
+	// projectSettings rend les valeurs de configuration qu'un plugin ajoute pour
+	// un projet — la kustomisation du MSE, son overlay. Nil : la configuration de
+	// l'instance seule (doc 16 §16.18).
+	projectSettings func(ctx context.Context, projectID int64) (map[string]string, error)
 	// deployKeys rend le nom du secret portant la clé de déploiement d'un projet.
 	// Nil quand aucune clé par projet n'est en service : les runs montent alors
 	// la clé partagée, comme avant le lot G.
@@ -141,6 +145,14 @@ func NewSchedulerFromCatalog(
 		queue: queue, cluster: cluster, catalog: pipelines,
 		config: config, local: map[string]LocalTask{}, logger: logger,
 	}
+}
+
+// WithProjectSettings branche les réglages qu'un plugin ajoute par projet.
+func (s *Scheduler) WithProjectSettings(
+	settings func(ctx context.Context, projectID int64) (map[string]string, error),
+) *Scheduler {
+	s.projectSettings = settings
+	return s
 }
 
 // Handle enregistre une tâche exécutée dans le processus.
@@ -244,20 +256,21 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 		return false
 	}
 
-	params, err := s.resolveParams(pipeline, job.Params)
+	// Les paramètres et les noms de secrets sont résolus dans la même chaîne, et
+	// depuis les mêmes réglages : ce sont deux façons pour le catalogue de
+	// désigner une valeur de configuration, et les traiter séparément ferait
+	// partir un run avec les uns résolus par le projet et les autres non.
+	settings, err := s.settingsFor(ctx, job)
+	var params map[string]string
+	if err == nil {
+		params, err = s.resolveParams(pipeline, job.Params, settings)
+	}
 	if err == nil {
 		err = s.addUploadURLs(ctx, pipeline, job.RunName, params)
 	}
-	// Les noms de secrets sont résolus dans la même chaîne que les paramètres :
-	// ce sont deux façons pour le catalogue de désigner une valeur de
-	// configuration, et les traiter ensemble évite qu'un run parte avec les uns
-	// résolus et les autres non.
 	resolved := pipeline
 	if err == nil {
-		var settings map[string]string
-		if settings, err = s.settingsFor(ctx, job); err == nil {
-			resolved, err = pipeline.ResolveSecrets(settings)
-		}
+		resolved, err = pipeline.ResolveSecrets(settings)
 	}
 	if err != nil {
 		s.logger.Error("paramètres du job", "job", job.ID, "error", err)
@@ -403,7 +416,7 @@ func (s *Scheduler) applyCancellations(ctx context.Context) {
 // création côté Tekton, avec un message qui le nomme. C'est le comportement
 // voulu : mieux vaut un refus explicite qu'un paramètre silencieusement perdu.
 func (s *Scheduler) resolveParams(
-	pipeline catalog.Pipeline, provided map[string]string,
+	pipeline catalog.Pipeline, provided map[string]string, settings map[string]string,
 ) (map[string]string, error) {
 	params := make(map[string]string, len(pipeline.Params))
 
@@ -413,7 +426,7 @@ func (s *Scheduler) resolveParams(
 			params[name] = declared.Value
 
 		case catalog.SourceConfig:
-			value, present := s.config[declared.Key]
+			value, present := settings[declared.Key]
 			if !present {
 				return nil, fmt.Errorf("paramètre %q: clé de configuration %q absente", name, declared.Key)
 			}
@@ -519,14 +532,33 @@ func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
 // et un projet qui n'en désigne pas de particulier pousse légitimement là où
 // poussent les autres.
 func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) (map[string]string, error) {
-	if s.deployKeys == nil || job.ProjectID == nil {
+	if job.ProjectID == nil {
 		return s.config, nil
+	}
+
+	overrides := map[string]string{}
+
+	// Ce qu'un plugin ajoute pour ce projet, avant les secrets : les deux portent
+	// sur des clés distinctes, et l'ordre ne fait que dire laquelle est la plus
+	// spécifique en cas d'homonymie future.
+	if s.projectSettings != nil {
+		values, err := s.projectSettings(ctx, *job.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("réglages du projet %d: %w", *job.ProjectID, err)
+		}
+		maps.Copy(overrides, values)
+	}
+
+	if s.deployKeys == nil {
+		settings := make(map[string]string, len(s.config)+len(overrides))
+		maps.Copy(settings, s.config)
+		maps.Copy(settings, overrides)
+		return settings, nil
 	}
 
 	// Deux réglages, lus séparément : un projet peut avoir sa clé sans désigner
 	// de registre, et l'inverse. Les traiter ensemble ferait perdre l'un quand
 	// l'autre manque.
-	overrides := map[string]string{}
 
 	gitSecret, found, err := s.deployKeys.DeployKeySecret(ctx, *job.ProjectID)
 	switch {

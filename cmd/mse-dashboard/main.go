@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/signal"
 	"sort"
@@ -190,6 +191,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err := db.EnsurePlugins(ctx, pluginIDs()); err != nil {
 		logger.Error("amorçage des plugins", "error", err)
 	}
+	seedMSESettings(ctx, db, logger)
 
 	// En base et non en mémoire : deux répliques d'api sans affinité de session
 	// servent `/auth/login` et `/auth/callback` par des instances différentes, et
@@ -440,6 +442,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := db.EnsurePlugins(ctx, pluginIDs()); err != nil {
 		logger.Error("amorçage des plugins", "error", err)
 	}
+	seedMSESettings(ctx, db, logger)
 
 	// `versions.normalized_name` est une colonne dérivée : changer la règle de
 	// normalisation la rend obsolète, et le rapprochement comparerait alors une
@@ -598,7 +601,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				ProjectID: project.ID, Slug: project.Slug, Environments: own, Deployer: deployer,
 			})
 			logger.Info("projet du module MSE", "projet", project.Slug, "namespace_flux", namespace,
-				"environnements", len(own))
+				"environnements", len(own),
+				// Ce que ses pipelines cloneront : un dépôt qui ne correspond pas à
+				// ce qu'on croit piloter ne se voit sinon qu'à l'échec du clone.
+				"kustom_repo", settings.Config["kustomRepoUrl"],
+				"kustom_revision", settings.Config["kustomRevision"],
+				"kustom_overlay", settings.Config["overlayLocation"])
 		}
 		for slug := range pipelines.Projects {
 			if !enabled[slug] {
@@ -650,12 +658,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				"repo", resolved["forge.mse.repoUrl"],
 				"dockerfile", resolved["mse.dockerfile"],
 				"registry_project", resolved["registry.project"],
-				"kustom_repo", resolved["forge.mseKustom.repoUrl"],
-				"kustom_revision", resolved["forge.mseKustom.revision"],
-				// L'overlay est cherché dans la kustomization, pas dans
-				// l'application : viser la racine de l'une parce que l'autre y
-				// porte son Dockerfile a coûté un déploiement.
-				"kustom_overlay", resolved["mse.overlayLocation"],
+				// La kustomisation, sa révision et l'overlay sont journalisés par
+				// projet, avec le namespace Flux : ils viennent des réglages du
+				// plugin MSE.
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"],
 				// Le stockage des pipelines n'est pas celui du dashboard, et il
@@ -748,6 +753,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// stockage appartient au dashboard, et c'est ce qui sort le secret
 			// MinIO des Tasks de test (B14).
 
+			// Les réglages que le plugin MSE ajoute aux pipelines d'un projet.
 			scheduler := worker.NewSchedulerFromCatalog(
 				db, cluster, pipelines, resolved, logger).
 				WithUploads(storage).
@@ -756,7 +762,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// moment de composer le run. Un projet sans clé propre retombe
 				// sur la partagée : c'est l'état d'avant le lot G, et le bon
 				// pour un projet déclaré avant lui.
-				WithProjectKeys(db)
+				WithProjectKeys(db).
+				// Et les réglages que le plugin MSE ajoute pour ce projet : sa
+				// kustomisation, son overlay. Rien quand le module y est éteint.
+				WithProjectSettings(mse.PipelineSettings(db))
 
 			// Les livrables passent par la file comme le reste, mais sont
 			// produits ici : générer un bon de livraison lit la base et écrit un
@@ -871,6 +880,77 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 // La table est explicite plutôt que dérivée par réflexion : ce qu'un catalogue
 // peut injecter dans un PipelineRun doit être une liste qu'on peut lire, pas
 // l'ensemble de la configuration du dashboard.
+// seedMSESettings pose les réglages du plugin MSE que l'environnement fournit.
+//
+// Ne remplit que ce qui manque : la base fait foi dès la première valeur écrite,
+// et un réglage changé depuis l'administration ne doit pas être repris au
+// redémarrage suivant. Sans cet amorçage, une instance mise à jour verrait ses
+// pipelines refuser de partir — le noyau n'expose plus ces clés (doc 16 §16.18).
+//
+// Journalisé et non fatal : le dashboard démarre, et l'écran d'administration
+// permet de poser ces valeurs à la main.
+func seedMSESettings(ctx context.Context, db *store.DB, logger *slog.Logger) {
+	settings, err := db.PluginSettingsAll(ctx)
+	if err != nil {
+		logger.Error("amorçage des réglages du plugin MSE", "error", err)
+		return
+	}
+	entry, declared := settings[plugin.ModuleMSE]
+	if !declared {
+		// La ligne n'existe pas encore : l'écrire ici la poserait éteinte, alors
+		// que c'est `EnsurePlugins` qui décide de son état initial.
+		return
+	}
+
+	config := make(map[string]string, len(entry.Config))
+	maps.Copy(config, entry.Config)
+	var posed []string
+	for field, value := range mseSeedSettings() {
+		if strings.TrimSpace(config[field]) != "" {
+			continue
+		}
+		config[field] = value
+		posed = append(posed, field)
+	}
+	if len(posed) == 0 {
+		return
+	}
+	sort.Strings(posed)
+
+	entry.PluginID = plugin.ModuleMSE
+	entry.Config = config
+	if err := db.SetPluginSettings(ctx, entry, "amorçage"); err != nil {
+		logger.Error("amorçage des réglages du plugin MSE", "error", err)
+		return
+	}
+	logger.Info("réglages du plugin MSE amorcés", "champs", posed)
+}
+
+// mseSeedSettings rend les réglages du plugin MSE que l'environnement fournit.
+//
+// Un **amorçage**, et non une lecture : ces valeurs posent le premier réglage,
+// puis la base fait foi. Les relire à chaque démarrage reprendrait ce qu'un
+// administrateur a changé depuis.
+func mseSeedSettings() map[string]string {
+	return mse.PipelineDefaults(
+		envOrDefault("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
+		// La branche de l'infrastructure de déploiement à auditer. Sans elle,
+		// l'audit retombait sur le défaut du pipeline — `unstable`, la convention
+		// de `CNOUS/mse-kustom` — et échouait au clone sur tout dépôt qui ne la
+		// porte pas : « couldn't find remote ref unstable ».
+		envOrDefault("FORGE_MSE_KUSTOM_REVISION", "unstable"),
+		envOrDefault("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
+		envOrDefault("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
+	)
+}
+
+func envOrDefault(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
+}
+
 func schedulerConfig(cfg config.Config) map[string]string {
 	envOr := func(key, fallback string) string {
 		if value := os.Getenv(key); value != "" {
@@ -909,19 +989,14 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// de la release. Deux portées, potentiellement deux comptes.
 		"pipeline.imagePullSecret": envOr("PIPELINE_IMAGE_PULL_SECRET", "regcred"),
 		"forge.mse.repoUrl":        appRepo,
-		"forge.mseKustom.repoUrl":  envOr("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
-		// La branche de l'infrastructure de déploiement à auditer. Sans elle,
-		// l'audit retombait sur le défaut du pipeline — `unstable`, la convention
-		// de `CNOUS/mse-kustom` — et échouait au clone sur tout dépôt qui ne la
-		// porte pas : « couldn't find remote ref unstable ».
-		"forge.mseKustom.revision": envOr("FORGE_MSE_KUSTOM_REVISION", "unstable"),
-		"forge.e2e.repoUrl":        envOr("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
+		// La kustomisation, sa révision, les tests E2E et l'overlay ne sont plus
+		// ici : ils nomment le MSE, et viennent des réglages de son plugin, où un
+		// projet les surcharge (doc 16 §16.18).
 		// L'audit de sécurité lit ses règles Semgrep et ses politiques dans
 		// `mse-tekton` : c'est un dépôt qu'il clone, au même titre que l'application
 		// et l'infrastructure de déploiement.
 		"forge.tekton.repoUrl": envOr("FORGE_TEKTON_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tekton.git"),
 		"registry.project":     envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
-		"mse.overlayLocation":  envOr("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
 		"mse.dockerfile":       envOr("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
 		// Contexte de build, distinct du Dockerfile : `mse` place le sien dans
 		// une sous-arborescence tout en construisant depuis la racine.
@@ -1245,6 +1320,9 @@ func projectsHandler(cfg config.Config, db *store.DB, modules *dashhttp.Modules)
 // relais (doc 12 §12.9).
 func configuredProjects(cfg config.Config) []store.Project {
 	resolved := schedulerConfig(cfg)
+	// Les dépôts que le plugin MSE règle : l'amorçage des projets les nomme au
+	// même titre que les autres, et il a lieu avant que la base ne les porte.
+	seeds := mseSeedSettings()
 
 	promoted, held := true, false
 	targets := []store.Target{
@@ -1280,9 +1358,9 @@ func configuredProjects(cfg config.Config) []store.Project {
 			context:    resolved["mse.buildContext"],
 			targets:    targets,
 		},
-		{clone: resolved["forge.mseKustom.repoUrl"], label: "Kustomizations"},
+		{clone: seeds["kustomRepoUrl"], label: "Kustomizations"},
 		{clone: resolved["forge.tekton.repoUrl"], label: "Pipelines Tekton"},
-		{clone: resolved["forge.e2e.repoUrl"], label: "Campagne E2E"},
+		{clone: seeds["e2eRepoUrl"], label: "Campagne E2E"},
 	}
 
 	projects := make([]store.Project, 0, len(declarations))

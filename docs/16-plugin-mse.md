@@ -951,3 +951,49 @@ projet.
 
 **Journal de démarrage.** Le worker journalise, par projet, le namespace Flux retenu et le nombre
 d'environnements déclarés, puis la liste des projets du module.
+
+---
+
+## 16.23 Par projet, tranche 5 — ce que l'écriture a tranché
+
+**Les paramètres qui nomment le MSE quittent le noyau.** `schedulerConfig` n'expose plus
+`forge.mseKustom.repoUrl`, `forge.mseKustom.revision`, `forge.e2e.repoUrl` ni
+`mse.overlayLocation` : ce sont des réglages du plugin, déclarés à la portée instance **et**
+projet.
+
+| Réglage | Clé que le catalogue référence |
+|---|---|
+| `kustomRepoUrl` | `forge.mseKustom.repoUrl` |
+| `kustomRevision` | `forge.mseKustom.revision` |
+| `e2eRepoUrl` | `forge.e2e.repoUrl` |
+| `overlayLocation` | `mse.overlayLocation` |
+
+Deux vocabulaires, et c'est délibéré : le catalogue nomme ce dont un pipeline a besoin, le
+plugin ce qu'un administrateur règle. Les confondre ferait afficher `forge.mseKustom.repoUrl`
+sur l'écran d'administration.
+
+**La surcharge passe par où passaient déjà les secrets.** L'ordonnanceur composait déjà des
+réglages par job — clé de déploiement, secret de registre du projet. Le plugin s'y ajoute :
+`WithProjectSettings` fournit ses valeurs, et les paramètres comme les noms de secrets se
+résolvent depuis la **même** carte. Les traiter séparément ferait partir un run avec les uns
+résolus par le projet et les autres non.
+
+Un projet qui a éteint le module n'apporte rien : ses pipelines n'ont pas de kustomisation à
+cloner, et un paramètre requis non couvert fait échouer la mise en file avec un message qui le
+nomme — plutôt qu'un run qui déploierait ailleurs.
+
+**Les variables d'environnement deviennent un amorçage.** `FORGE_MSE_KUSTOM_REPO_URL`,
+`FORGE_MSE_KUSTOM_REVISION`, `FORGE_E2E_REPO_URL` et `MSE_OVERLAY_LOCATION` posent la première
+valeur des réglages globaux, au démarrage, et **seulement ce qui manque**. La base fait foi
+ensuite : un réglage changé depuis l'administration n'est pas repris au redémarrage suivant.
+
+C'est ce qui rend la tranche sans effet sur cette instance : ses valeurs — dépôt
+`vcarroy/mse-kustom-test-project`, révision `main` — sont amorcées telles quelles.
+
+**Ce qui reste au noyau**, parce que ce n'est pas propre au MSE : le dépôt applicatif, le
+registre, MinIO, les secrets de pipeline, le namespace Tekton. `mse.dockerfile`,
+`mse.buildContext` et `mse.pipelineTag` restent aussi : ils ne servent plus qu'à **amorcer les
+projets** au premier démarrage, et leur nom est un reste à corriger avec cet amorçage.
+
+**Journal.** Le worker journalise, par projet, la kustomisation et l'overlay retenus, à côté du
+namespace Flux.

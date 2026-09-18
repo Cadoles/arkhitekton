@@ -403,6 +403,27 @@ func Registry() []Descriptor {
 					Help:        "Là où vivent les objets Flux, distinct de celui des pipelines.",
 					Placeholder: "flux-system",
 				},
+				{
+					Name: "kustomRepoUrl", Label: "Dépôt de kustomisation", Type: FieldText,
+					Help:        "Le dépôt que les pipelines clonent pour déployer.",
+					Placeholder: "ssh://git@forge.example:2222/org/kustom.git",
+				},
+				{
+					Name: "kustomRevision", Label: "Révision de la kustomisation", Type: FieldText,
+					Help:        "La branche auditée et déployée.",
+					Placeholder: "main",
+				},
+				{
+					Name: "e2eRepoUrl", Label: "Dépôt des tests E2E", Type: FieldText,
+					Placeholder: "ssh://git@forge.example:2222/org/tests-e2e.git",
+				},
+				{
+					Name: "overlayLocation", Label: "Emplacement de l'overlay", Type: FieldText,
+					Help: "Cherché dans la kustomisation, et non dans l'application : " +
+						"viser la racine de l'une parce que l'autre y porte son Dockerfile " +
+						"a coûté un déploiement.",
+					Placeholder: "overlays/pipeline",
+				},
 			},
 			// Un projet peut déployer par un autre Flux que celui de l'instance : ses
 			// ImagePolicy et ses Kustomization vivent alors dans un autre namespace
@@ -412,6 +433,27 @@ func Registry() []Descriptor {
 					Name: "namespace", Label: "Namespace Flux", Type: FieldText,
 					Help:        "Là où vivent les objets Flux de ce projet. Vide : celui de l'instance.",
 					Placeholder: "flux-system",
+				},
+				{
+					Name: "kustomRepoUrl", Label: "Dépôt de kustomisation", Type: FieldText,
+					Help:        "Le dépôt que les pipelines clonent pour déployer.",
+					Placeholder: "ssh://git@forge.example:2222/org/kustom.git",
+				},
+				{
+					Name: "kustomRevision", Label: "Révision de la kustomisation", Type: FieldText,
+					Help:        "La branche auditée et déployée.",
+					Placeholder: "main",
+				},
+				{
+					Name: "e2eRepoUrl", Label: "Dépôt des tests E2E", Type: FieldText,
+					Placeholder: "ssh://git@forge.example:2222/org/tests-e2e.git",
+				},
+				{
+					Name: "overlayLocation", Label: "Emplacement de l'overlay", Type: FieldText,
+					Help: "Cherché dans la kustomisation, et non dans l'application : " +
+						"viser la racine de l'une parce que l'autre y porte son Dockerfile " +
+						"a coûté un déploiement.",
+					Placeholder: "overlays/pipeline",
 				},
 			},
 			// La promotion est un fait du plugin et non du noyau : c'est lui qui

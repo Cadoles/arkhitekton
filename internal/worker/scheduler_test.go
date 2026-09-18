@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/mse-dashboard/internal/catalog"
+	"forge.cadoles.com/vcarroy/mse-dashboard/internal/store"
 )
 
 type fakePresigner struct {
@@ -165,7 +166,7 @@ func TestUnParametreNonDeclarePasseTelQuel(t *testing.T) {
 	params, err := scheduler.resolveParams(pipeline, map[string]string{
 		"revision": "unstable",
 		"debug":    "true",
-	})
+	}, scheduler.config)
 	if err != nil {
 		t.Fatalf("résolution: %v", err)
 	}
@@ -195,7 +196,7 @@ func TestUneDemandeNeRemplacePasUnParametreDeConfiguration(t *testing.T) {
 	params, err := scheduler.resolveParams(pipeline, map[string]string{
 		"repo-url": "ssh://git@ailleurs/attaquant/mse",
 		"image":    "docker.io/attaquant/ci",
-	})
+	}, scheduler.config)
 	if err != nil {
 		t.Fatalf("résolution: %v", err)
 	}
@@ -204,5 +205,45 @@ func TestUneDemandeNeRemplacePasUnParametreDeConfiguration(t *testing.T) {
 	}
 	if params["image"] != "reg.example.fr/mse/ci" {
 		t.Errorf("image = %q: une demande a écrasé une valeur littérale", params["image"])
+	}
+}
+
+// Un réglage de projet — la kustomisation que le plugin MSE fournit — remplace
+// celui de l'instance pour ce job, et pour lui seul (doc 16 §16.18).
+func TestUnReglageDeProjetRemplaceCeluiDeLInstance(t *testing.T) {
+	scheduler := (&Scheduler{config: map[string]string{
+		"forge.mseKustom.repoUrl": "ssh://git@forge/CNOUS/mse-kustom",
+		"registry.project":        "reg.example.fr/cnous",
+	}}).WithProjectSettings(func(_ context.Context, projectID int64) (map[string]string, error) {
+		if projectID != 7 {
+			return nil, nil
+		}
+		return map[string]string{"forge.mseKustom.repoUrl": "ssh://git@forge/vcarroy/kustom"}, nil
+	})
+
+	projet := int64(7)
+	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projet})
+	if err != nil {
+		t.Fatalf("réglages: %v", err)
+	}
+	if settings["forge.mseKustom.repoUrl"] != "ssh://git@forge/vcarroy/kustom" {
+		t.Errorf("kustomisation = %q, attendu celle du projet", settings["forge.mseKustom.repoUrl"])
+	}
+	// Ce que le projet ne dit pas reste celui de l'instance.
+	if settings["registry.project"] != "reg.example.fr/cnous" {
+		t.Errorf("registre = %q", settings["registry.project"])
+	}
+	// Et la carte de l'instance n'a pas bougé : elle est partagée par tous les jobs.
+	if scheduler.config["forge.mseKustom.repoUrl"] != "ssh://git@forge/CNOUS/mse-kustom" {
+		t.Error("la configuration de l'instance a été écrite")
+	}
+
+	autre := int64(9)
+	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &autre})
+	if err != nil {
+		t.Fatalf("réglages: %v", err)
+	}
+	if settings["forge.mseKustom.repoUrl"] != "ssh://git@forge/CNOUS/mse-kustom" {
+		t.Errorf("un autre projet a hérité du réglage: %q", settings["forge.mseKustom.repoUrl"])
 	}
 }
