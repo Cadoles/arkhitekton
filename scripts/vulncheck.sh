@@ -1,35 +1,31 @@
 #!/usr/bin/env sh
 #
-# govulncheck, avec des exceptions explicites et bruyantes.
+# govulncheck, with explicit and noisy exceptions.
 #
-# govulncheck n'offre aucun mécanisme d'exclusion : il signale, et sort en 3.
-# Sans filtre, une vulnérabilité sans correctif amont rend le job rouge pour
-# toujours — et un job bloquant qui échoue en permanence cesse d'être lu. Le
-# jour où une huitième vulnérabilité apparaît, personne ne la voit.
+# govulncheck offers no exclusion mechanism: it reports, and exits with 3. With no filter, a
+# vulnerability with no upstream fix makes the job red forever — and a blocking job that fails
+# permanently stops being read. The day an eighth vulnerability appears, nobody sees it.
 #
-# Le filtre existe donc pour préserver le signal, jamais pour le taire. Trois
-# propriétés le rendent défendable :
+# The filter therefore exists to preserve the signal, never to silence it. Three properties
+# make it defensible:
 #
-#   - **Chaque exception est nommée et justifiée** dans le tableau ci-dessous.
-#     Une ligne sans justification n'a pas sa place ici.
-#   - **Les exceptions sont réaffichées à chaque exécution.** Elles ne
-#     disparaissent pas du journal ; elles cessent seulement de faire échouer.
-#   - **Une exception devenue inutile fait échouer le script.** Une exclusion
-#     qu'on garde après le correctif amont est un mensonge qui dure, et c'est
-#     la seule façon de s'en apercevoir.
+#   - **Every exception is named and justified** in the table below. A line with no
+#     justification has no place here.
+#   - **The exceptions are displayed again at every run.** They do not disappear from the log;
+#     they only stop causing a failure.
+#   - **An exception that has become useless makes the script fail.** An exclusion kept after
+#     the upstream fix is a lie that lasts, and this is the only way of noticing it.
 #
-# Le format analysé est la sortie texte : la ligne `Vulnerability #N: GO-...`
-# est stable depuis des années, et l'analyser en shell évite d'imposer un
-# analyseur JSON au runner.
+# The format parsed is the text output: the `Vulnerability #N: GO-...` line has been stable for
+# years, and parsing it in shell avoids imposing a JSON parser on the runner.
 #
-# L'outil est installé puis invoqué, et non lancé par `go run` : ce dernier
-# rend 1 quel que soit le code du programme, ce qui rend indiscernables « des
-# vulnérabilités ont été trouvées » (3) et « l'outil n'a pas pu conclure ».
+# The tool is installed then invoked, and not launched through `go run`: the latter returns 1
+# whatever the program's code, which makes "vulnerabilities were found" (3) and "the tool could
+# not conclude" indistinguishable.
 #
-# Sa version est épinglée. La base d'avis, elle, est récupérée à l'exécution :
-# épingler l'outil ne réduit donc pas la couverture, et évite qu'une montée
-# silencieuse de govulncheck change le verdict sans qu'aucun commit ne
-# l'explique.
+# Its version is pinned. The advisory database, for its part, is fetched at run time: pinning
+# the tool therefore does not reduce the coverage, and avoids a silent upgrade of govulncheck
+# changing the verdict with no commit explaining it.
 
 set -eu
 
@@ -39,33 +35,31 @@ GOVULNCHECK_VERSION=v1.7.0
 #
 # GO-2023-1901 — Pipelines do not validate child UIDs (CVE-2023-37264)
 #
-#   Écartée : le code vulnérable est absent du binaire.
+#   Set aside: the vulnerable code is absent from the binary.
 #
-#   L'avis ne déclare aucun symbole vulnérable. Privé de cette information,
-#   govulncheck marque le module entier comme atteignable dès qu'on l'importe —
-#   d'où des traces qui ne sont que des `init` et des `DeepCopy`, jamais un
-#   appel réel.
+#   The advisory declares no vulnerable symbol. Deprived of that information, govulncheck marks
+#   the whole module as reachable as soon as it is imported — hence traces that are only `init`
+#   and `DeepCopy` calls, never a real call.
 #
-#   L'avis nomme pourtant le code en cause :
-#   `pkg/reconciler/pipelinerun/pipelinerun.go` lignes 1358-1372, dans le
-#   réconciliateur de Tekton. Le dashboard est un **client** : il lit et crée
-#   des PipelineRun par l'API, il n'exécute aucune boucle de réconciliation.
+#   The advisory does name the code at fault, though:
+#   `pkg/reconciler/pipelinerun/pipelinerun.go` lines 1358-1372, in Tekton's reconciler. The
+#   dashboard is a **client**: it reads and creates PipelineRuns through the API, it runs no
+#   reconciliation loop.
 #
-#   Vérification, reproductible :
+#   The check, reproducible:
 #
 #       go list -deps ./cmd/... ./internal/... | grep reconciler
 #
-#   rend `pkg/reconciler/pipeline/dag` — un utilitaire de graphe tiré par les
-#   types d'API — et rien d'autre. `pkg/reconciler/pipelinerun` est absent.
+#   returns `pkg/reconciler/pipeline/dag` — a graph utility pulled in by the API types — and
+#   nothing else. `pkg/reconciler/pipelinerun` is absent.
 #
-#   Aucun correctif amont n'existe (`Fixed in: N/A`). À réexaminer si Tekton en
-#   publie un, ou si le dashboard se met un jour à réconcilier quoi que ce soit.
+#   No upstream fix exists (`Fixed in: N/A`). To be re-examined if Tekton publishes one, or if
+#   the dashboard ever starts reconciling anything.
 #
-#   Réexamen : 2027-02-14
-#
+#   Re-examine: 2027-02-14
 ACCEPTED="GO-2023-1901"
 
-# ─── Exécution ───────────────────────────────────────────────────────────────
+# ─── Run ─────────────────────────────────────────────────────────────────────
 
 BIN_DIR=$(go env GOPATH)/bin
 if [ ! -x "$BIN_DIR/govulncheck" ] || \
@@ -76,18 +70,18 @@ fi
 
 output=$("$BIN_DIR/govulncheck" "$@" 2>&1) && code=0 || code=$?
 
-# Une sortie autre que 0 (rien trouvé) ou 3 (vulnérabilités trouvées) signale un
-# échec de l'outil lui-même — réseau, base d'avis injoignable. Le distinguer
-# évite de prendre une panne pour un satisfecit.
+# An exit other than 0 (nothing found) or 3 (vulnerabilities found) reports a failure of the
+# tool itself — network, advisory database unreachable. Telling it apart avoids taking an
+# outage for a clean bill of health.
 if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then
     printf '%s\n' "$output"
     echo "govulncheck n'a pas pu conclure (code $code)" >&2
     exit "$code"
 fi
 
-# Les identifiants qui affectent réellement le code appelé. La section
-# « Symbol Results » les précède ; ce qui suit ne concerne que des modules
-# requis mais non appelés, et n'a jamais fait échouer ce job.
+# The identifiers that actually affect the code called. The "Symbol Results" section precedes
+# them; what follows concerns only modules that are required but not called, and has never
+# failed this job.
 found=$(printf '%s\n' "$output" \
     | sed -n '/=== Symbol Results ===/,/^Your code is affected\|^No vulnerabilities found/p' \
     | grep -oE 'GO-[0-9]{4}-[0-9]+' \
@@ -97,7 +91,7 @@ blocking=""
 for id in $found; do
     case " $ACCEPTED " in
         *" $id "*)
-            # Réaffichée, pas tue.
+            # Displayed again, not silenced.
             echo "vulnérabilité écartée explicitement : $id (voir scripts/vulncheck.sh)"
             ;;
         *)
@@ -106,8 +100,8 @@ for id in $found; do
     esac
 done
 
-# Une exception qui ne correspond plus à rien a été corrigée en amont, ou le
-# code a changé. La garder ferait croire à une analyse encore valable.
+# An exception that no longer matches anything was fixed upstream, or the code changed. Keeping
+# it would suggest an analysis that is still valid.
 for id in $ACCEPTED; do
     case " $found " in
         *" $id "*) ;;

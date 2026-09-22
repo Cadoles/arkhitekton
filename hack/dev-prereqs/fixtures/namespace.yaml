@@ -1,6 +1,6 @@
-# Même nom qu'en production : les objets Flux y vivent, et le dashboard les y
-# cherche. Un namespace différent en local ferait passer la recherche par une
-# variable de configuration qui n'existe que pour le développement.
+# The same name as in production: the Flux objects live there, and the dashboard looks for them
+# there. A different namespace locally would route the lookup through a configuration variable
+# that exists only for development.
 apiVersion: v1
 kind: Namespace
 metadata:

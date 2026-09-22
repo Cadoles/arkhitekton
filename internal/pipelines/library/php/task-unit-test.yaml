@@ -4,17 +4,16 @@ metadata:
   name: unit-test
 spec:
   description: >
-    Exécute la suite de tests unitaires PHPUnit.
+    Runs the PHPUnit unit test suite.
 
-    Produit un rapport JUnit XML en plus du log texte. Le texte reste destiné à la
-    lecture directe dans les logs Tekton ; le XML est ce qu'une interface parse pour
-    afficher le détail test par test. Aucun des deux ne remplace l'autre.
+    Produces a JUnit XML report besides the text log. The text stays meant for direct
+    reading in the Tekton logs; the XML is what an interface parses in order to display
+    the test-by-test detail. Neither replaces the other.
 
-    Émet également, sur stdout, un descripteur d'exécution et une ligne de résumé.
-    Le descripteur est produit ici et non déduit en aval parce que seul le processus
-    qui lance l'outil peut distinguer « l'outil a échoué » de « l'outil n'a rien
-    trouvé » — un rapport absent et un rapport vide se ressemblent, mais ne disent
-    pas la même chose.
+    Also emits, on stdout, a run descriptor and a summary line. The descriptor is
+    produced here and not deduced downstream because only the process that launches the
+    tool can tell "the tool failed" from "the tool found nothing" — a missing report and
+    an empty report look alike, but do not say the same thing.
 
   workspaces:
     - name: source
@@ -22,11 +21,11 @@ spec:
   params:
     - name: output-dir
       default: test-results/unit
-      description: Répertoire des artefacts, relatif au workspace source.
+      description: Artifacts directory, relative to the source workspace.
 
   results:
     - name: summary
-      description: Ligne de résumé PHPUnit, ex. "OK (123 tests, 456 assertions)".
+      description: PHPUnit summary line, e.g. "OK (123 tests, 456 assertions)".
 
   steps:
     - name: exec
@@ -49,9 +48,9 @@ spec:
         VERSION=$(php vendor/bin/phpunit --version 2>/dev/null \
           | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true)
 
-        # errexit est levé le temps de l'exécution : un échec de test est un résultat,
-        # pas une panne, et le descripteur doit être émis dans les deux cas. Le code
-        # de sortie est propagé en fin de script.
+        # errexit is lifted for the duration of the run: a failed test is a result, not an outage, and
+        # the descriptor must be emitted in both cases. The exit code is propagated at the end of the
+        # script.
         set +e
         php -d memory_limit=1024M vendor/bin/phpunit \
           --testsuite unit \
@@ -60,8 +59,8 @@ spec:
         RC=$?
         set -e
 
-        # Même motif que celui appliqué par tekton-mse-manager aux tests
-        # d'intégration : une seule règle de lecture pour les deux familles.
+        # The same reason as the one tekton-mse-manager applies to the integration tests: a single
+        # reading rule for both families.
         SUMMARY=$(grep -E '^[[:space:]]*(OK \(|OK, but|Tests: )' "${OUT}/phpunit.log" \
           | tail -n1 | sed 's/^[[:space:]]*//' || true)
 

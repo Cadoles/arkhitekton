@@ -4,11 +4,11 @@ metadata:
   name: cs-fixer
 spec:
   description: >
-    Vérification du style de code par php-cs-fixer, en mode `--dry-run`.
+    Code style check by php-cs-fixer, in `--dry-run` mode.
 
-    Produit un rapport JSON incluant les diffs, dont est dérivé l'affichage lisible.
-    php-cs-fixer sort en 8 lorsqu'il trouve des fichiers à corriger : c'est un
-    résultat, pas une panne, et le descripteur le distingue d'une erreur réelle.
+    Produces a JSON report including the diffs, from which the readable rendering is
+    derived. php-cs-fixer exits with 8 when it finds files to fix: that is a result,
+    not an outage, and the descriptor tells it from a real error.
 
   workspaces:
     - name: source
@@ -16,11 +16,11 @@ spec:
   params:
     - name: output-dir
       default: test-results/cs-fixer
-      description: Répertoire des artefacts, relatif au workspace source.
+      description: Artifacts directory, relative to the source workspace.
 
   results:
     - name: summary
-      description: Nombre de fichiers non conformes, ex. "3 fichiers à corriger".
+      description: Number of non-conforming files, e.g. "3 files to fix".
 
   steps:
     - name: exec
@@ -47,8 +47,8 @@ spec:
         RC=$?
         set -e
 
-        # Rendu lisible et décompte dérivés du JSON. Renvoie -1 si le rapport est
-        # absent ou illisible — distinct de zéro fichier à corriger.
+        # A readable rendering and a count derived from the JSON. Returns -1 if the report is missing
+        # or unreadable — distinct from zero files to fix.
         COUNT=$(php -r '
           [$script, $reportPath, $logPath] = $argv;
           $report = is_readable($reportPath)
@@ -72,20 +72,20 @@ spec:
               }
           }
           file_put_contents($logPath,
-              $lines ? implode("\n", $lines) . "\n" : "Aucun fichier à corriger.\n");
+              $lines ? implode("\n", $lines) . "\n" : "No file to fix.\n");
           echo count($files);
         ' "${OUT}/cs-fixer.json" "${OUT}/cs-fixer.log")
 
         cat "${OUT}/cs-fixer.log"
 
-        # 0 = conforme, 8 = fichiers à corriger. Tout autre code est une erreur de
-        # l'outil, que le rapport soit lisible ou non.
+        # 0 = conforming, 8 = files to fix. Any other code is a failure of the tool, whether the report
+        # is readable or not.
         if [ "${COUNT}" = "-1" ] || { [ "${RC}" -ne 0 ] && [ "${RC}" -ne 8 ]; }; then
           STATUS=error
-          SUMMARY="analyse en échec"
+          SUMMARY="analysis failed"
         else
           STATUS=ok
-          SUMMARY="${COUNT} fichiers à corriger"
+          SUMMARY="${COUNT} files to fix"
         fi
 
         printf '%s' "${SUMMARY}" > "$(results.summary.path)"

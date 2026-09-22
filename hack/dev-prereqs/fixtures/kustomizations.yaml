@@ -1,14 +1,14 @@
-# Source Git et rapprochements par environnement.
+# Git source and reconciliations per environment.
 #
-# Le dashboard n'observe pas le déploiement, il le **déduit** (B7). Deux des trois
-# sources croisées passent par ces objets :
+# The dashboard does not observe the deployment, it **deduces** it. Two of the three sources
+# crossed go through these objects:
 #
-#   - la `GitRepository` et les commits que l'image-automation-controller y écrit
-#     alimentent `environment_observations.git_*` ;
-#   - la `Kustomization` — `Reconciling`, puis `Ready` avec `lastAppliedRevision` —
-#     alimente `flux_state`.
+#   - the `GitRepository` and the commits the image-automation-controller writes there feed
+#     `environment_observations.git_*`;
+#   - the `Kustomization` — `Reconciling`, then `Ready` with `lastAppliedRevision` — feeds
+#     `flux_state`.
 #
-# La troisième est le CRD `PortalData`, écrit par l'application elle-même.
+# The third is the `PortalData` CRD, written by the application itself.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
@@ -62,10 +62,9 @@ spec:
   prune: true
   targetNamespace: mse-dev
 ---
-# La production tourne dans un cluster indépendant, hors de portée du dashboard
-# (B8). Cette entrée existe pour que l'interface puisse être exercée sur le cas
-# « non observable », distinct de « bloqué » — le seul moyen de vérifier qu'elle
-# les distingue sans disposer d'un second cluster.
+# Production runs in an independent cluster, out of the dashboard's reach. This entry exists so
+# that the interface can be exercised on the "not observable" case, distinct from "blocked" —
+# the only way of checking that it tells them apart without having a second cluster.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -80,9 +79,9 @@ spec:
   prune: true
   targetNamespace: mse-dev
 ---
-# Écrit dans `mse-kustom` le tag retenu par chaque `ImagePolicy`. C'est cette
-# réécriture qui rend la production partiellement observable sans accès à son
-# cluster : `mse-kustom` est sur Gitea, déjà intégré, et se lit de l'extérieur.
+# Writes into `mse-kustom` the tag each `ImagePolicy` kept. It is that rewriting which makes
+# production partially observable with no access to its cluster: `mse-kustom` is on Gitea,
+# already integrated, and can be read from outside.
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageUpdateAutomation
 metadata:

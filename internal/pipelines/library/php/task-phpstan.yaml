@@ -4,13 +4,13 @@ metadata:
   name: phpstan
 spec:
   description: >
-    Analyse statique PHPStan.
+    PHPStan static analysis.
 
-    PHPStan ne produit qu'un format de sortie à la fois. Plutôt que de l'exécuter
-    deux fois — l'analyse est le coût dominant, pas le rendu — la task produit le
-    JSON et en dérive l'affichage lisible. La sortie humaine y gagne : un
-    "fichier:ligne: message" par violation est plus exploitable dans un log qu'un
-    tableau ASCII tronqué.
+    PHPStan produces only one output format at a time. Rather than running it twice —
+    the analysis is the dominant cost, not the rendering — the task produces the JSON
+    and derives the readable rendering from it. The human output gains by it: one
+    "file:line: message" per violation is more usable in a log than a truncated ASCII
+    table.
 
   workspaces:
     - name: source
@@ -18,7 +18,7 @@ spec:
   params:
     - name: output-dir
       default: test-results/phpstan
-      description: Répertoire des artefacts, relatif au workspace source.
+      description: Artifacts directory, relative to the source workspace.
     - name: configuration
       default: phpstan-pipeline.neon
 
@@ -41,9 +41,8 @@ spec:
         VERSION=$(vendor/bin/phpstan --version 2>/dev/null \
           | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true)
 
-        # Une violation fait sortir PHPStan en erreur. C'est un résultat, pas une
-        # panne : le descripteur doit être émis dans les deux cas, et le code de
-        # sortie propagé en fin de script.
+        # A violation makes PHPStan exit with an error. It is a result, not an outage: the descriptor
+        # must be emitted in both cases, and the exit code propagated at the end of the script.
         set +e
         vendor/bin/phpstan analyse \
           --configuration "$(params.configuration)" \
@@ -53,8 +52,8 @@ spec:
         RC=$?
         set -e
 
-        # Rendu lisible et décompte dérivés du JSON, en une passe. Renvoie -1 si le
-        # rapport est absent ou illisible — distinct de zéro violation.
+        # A readable rendering and a count derived from the JSON, in a single pass. Returns -1 if the
+        # report is missing or unreadable — distinct from zero violations.
         COUNT=$(php -r '
           [$script, $reportPath, $logPath] = $argv;
           $report = is_readable($reportPath)

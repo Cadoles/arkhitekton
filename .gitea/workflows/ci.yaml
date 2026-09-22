@@ -1,20 +1,17 @@
 name: Intégration continue
 
-# Vérifications et publication vivent dans le même fichier pour une seule raison :
-# la publication doit pouvoir dépendre des vérifications. Deux workflows séparés
-# ne peuvent pas s'attendre l'un l'autre, et un tag poserait alors une image sur
-# le registre sans qu'aucun test ait tourné — précisément le défaut de chaîne de
-# livraison que ce dashboard existe pour rendre visible.
+# Checks and publication live in the same file for a single reason: the publication must be
+# able to depend on the checks. Two separate workflows cannot wait for each other, and a tag
+# would then put an image on the registry with no test having run — precisely the delivery
+# chain defect this dashboard exists to make visible.
 #
-# Le déclenchement suit la convention de `mse-tekton` : les branches
-# d'intégration et les demandes de fusion, pas toute branche poussée. Couvrir
-# `**` doublerait chaque exécution dès qu'une PR est ouverte, pour un signal que
-# la PR donne déjà.
+# The trigger follows `mse-tekton`'s convention: the integration branches and the pull
+# requests, not every branch pushed. Covering `**` would double every run as soon as a PR is
+# opened, for a signal the PR already gives.
 on:
   push:
-    # `dashboard` est la branche de travail du projet tant qu'aucune fusion n'a
-    # eu lieu. Sans elle, la CI ne s'exécuterait sur rien : les branches
-    # ci-dessous n'existent pas encore dans ce dépôt.
+    # `dashboard` is the project's working branch as long as no merge has happened. Without it, CI
+    # would run on nothing: the branches below do not exist in this repository yet.
     branches: [main, master, develop, dashboard]
     tags: ["v*"]
   pull_request:
@@ -25,10 +22,10 @@ env:
   KUBE_LINTER_VERSION: "0.8.3"
   KUBE_LINTER_SHA256: "1a6d8419b11971372971fdbc22682b684ebfb7cf1c39591662d1b6ca736c41df"
   REGISTRY: reg.cadoles.com
-  # Namespace personnel tant que le projet n'est pas livrable : une image publiée
-  # dans `cnous-mse` est un signal de disponibilité pour le reste de l'équipe, et
-  # l'émettre avant que le dashboard fasse quoi que ce soit serait trompeur.
-  # Bascule sur `cnous-mse` à la première version destinée à être déployée.
+  # A personal namespace as long as the project is not deliverable: an image published in
+  # `cnous-mse` is a signal of availability for the rest of the team, and emitting it before the
+  # dashboard does anything would be misleading. Switch to `cnous-mse` at the first version meant
+  # to be deployed.
   IMAGE_NAMESPACE: vcarroy
   IMAGE_NAME: arkhitekton
 
@@ -37,10 +34,9 @@ jobs:
     name: Formatage, analyse statique et tests
     runs-on: ubuntu-latest
 
-    # PostgreSQL et MinIO sont réels : ce que les tests vérifient — application
-    # d'un schéma, signature SigV4, lecture par plage — ne se simule pas
-    # utilement, et c'est précisément l'exécution contre le vrai serveur qui a
-    # valeur de preuve.
+    # PostgreSQL and MinIO are real: what the tests check — applying a schema, SigV4 signing,
+    # reading by range — is not usefully simulated, and it is precisely running against the real
+    # server that counts as proof.
     services:
       postgres:
         image: postgres:17-alpine
@@ -54,15 +50,13 @@ jobs:
           --health-retries 30
 
       minio:
-        # `edge-cicd` et non `latest` : c'est la variante dont la commande par
-        # défaut est `minio server /data`. L'image ordinaire attend ces arguments
-        # sur la ligne de commande, que la syntaxe `services` ne permet pas de
-        # fournir — elle démarrerait donc sur un usage et le service ne serait
-        # jamais joignable.
+        # `edge-cicd` and not `latest`: it is the variant whose default command is `minio server
+        # /data`. The ordinary image expects those arguments on the command line, which the `services`
+        # syntax cannot supply — it would therefore start on a usage message and the service would
+        # never be reachable.
         #
-        # Épinglée par empreinte : `edge-cicd` est un tag mouvant, et une CI dont
-        # les dépendances changent sans commit produit des échecs qu'aucune
-        # bissection ne retrouve.
+        # Pinned by digest: `edge-cicd` is a moving tag, and a CI whose dependencies change with no
+        # commit produces failures no bisection finds.
         image: minio/minio@sha256:29e8e51691d11e779468f275002779b221fd3902518d103e35c8a8bb2ef0f3ea
         env:
           MINIO_ROOT_USER: minioadmin
@@ -75,17 +69,16 @@ jobs:
       - name: Installation de Go
         uses: actions/setup-go@v5
         with:
-          # La version vient de go.mod : une seule source de vérité, et la CI
-          # suit automatiquement une montée de version du module.
+          # The version comes from go.mod: a single source of truth, and CI automatically follows a
+          # version bump of the module.
           go-version-file: go.mod
           cache: true
 
       - name: Formatage et analyse statique
         run: make lint
 
-      # MinIO n'expose pas de sonde exécutable dans son image : l'attente est donc
-      # côté job. `services` garantit que le conteneur tourne, pas que le serveur
-      # accepte des requêtes.
+      # MinIO exposes no executable probe in its image: the wait therefore happens in the job.
+      # `services` guarantees that the container runs, not that the server accepts requests.
       - name: Attente de MinIO
         run: |
           set -eu
@@ -104,8 +97,7 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:t3st@postgres:5432/mse?sslmode=disable
           TEST_MINIO_ENDPOINT: minio:9000
           TEST_MINIO_BUCKET: arkhitekton-test
-          # Le bucket est créé par le harnais lui-même ; aucune étape préalable
-          # n'est nécessaire.
+          # The bucket is created by the harness itself; no prior step is needed.
         run: make test-ci
 
   vuln:
@@ -121,9 +113,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Bloquant à dessein (doc 07 §7.5). govulncheck ne signale que les
-      # vulnérabilités effectivement atteignables depuis le code appelé, ce qui
-      # rend le bruit assez faible pour que l'échec reste un signal.
+      # Blocking on purpose. govulncheck reports only the vulnerabilities actually reachable from the
+      # code called, which keeps the noise low enough for a failure to stay a signal.
       - name: govulncheck
         run: make vuln
 
@@ -147,10 +138,9 @@ jobs:
       - name: Typage et analyse statique
         run: make web-check
 
-      # La construction est vérifiée ici, mais son résultat n'est pas conservé :
-      # l'image reconstruit l'interface dans son propre étage. Transporter un
-      # `dist/` d'un job à l'autre ouvrirait la porte à une image dont
-      # l'interface et l'API ne viennent pas du même commit.
+      # The build is checked here, but its result is not kept: the image rebuilds the interface in
+      # its own stage. Carrying a `dist/` from one job to the next would open the door to an image
+      # whose interface and API do not come from the same commit.
       - name: Construction
         run: make web
 
@@ -176,25 +166,24 @@ jobs:
           echo "${KUBE_LINTER_SHA256}  kube-linter.tgz" | sha256sum -c -
           tar xzf kube-linter.tgz kube-linter
 
-          # Installation dans le PATH du job plutôt que dans /usr/local/bin :
-          # `sudo` n'est pas garanti selon l'image du runner, et un job qui
-          # échoue sur l'absence de sudo n'apprend rien sur les manifests.
+          # Installed into the job's PATH rather than into /usr/local/bin: `sudo` is not guaranteed
+          # depending on the runner's image, and a job that fails on the absence of sudo teaches nothing
+          # about the manifests.
           mkdir -p "${HOME}/.local/bin"
           install -m 0755 kustomize kube-linter "${HOME}/.local/bin/"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
-      # L'overlay local lit un fichier d'environnement non versionné. Le modèle
-      # suffit ici : ce job rend et analyse des manifests, il n'en déploie aucun,
-      # et les valeurs n'entrent dans aucune des règles vérifiées.
+      # The local overlay reads an environment file that is not versioned. The template is enough
+      # here: this job renders and analyses manifests, it deploys none, and the values enter none of
+      # the rules checked.
       - name: Fichier d'environnement de rendu
         run: |
           cp deploy/overlays/local/secrets/dashboard.env.example \
              deploy/overlays/local/secrets/dashboard.env
 
-      # `make manifests` et non une action dédiée : l'analyse porte sur la sortie
-      # de kustomize, pas sur les fichiers du dépôt. Les analyser tels quels
-      # laisserait passer précisément ce qui se joue à la transformation — un
-      # patch qui ne s'applique pas, une référence de ConfigMap non résolue.
+      # `make manifests` and not a dedicated action: the analysis bears on kustomize's output, not on
+      # the repository's files. Analysing them as they are would let through precisely what happens
+      # at the transformation — a patch that does not apply, an unresolved ConfigMap reference.
       - name: Rendu et analyse
         run: make manifests
 
@@ -211,9 +200,9 @@ jobs:
         with:
           driver-opts: image=moby/buildkit:v0.23.2
 
-      # Construite sans être poussée : hors tag, l'intérêt est de constater qu'un
-      # Dockerfile cassé l'est, plutôt qu'au moment de livrer. Sur un tag, c'est
-      # le job `publish` qui construit — inutile de le faire deux fois.
+      # Built without being pushed: outside a tag, the point is to see that a broken Dockerfile is
+      # broken, rather than at delivery time. On a tag, it is the `publish` job that builds — no need
+      # to do it twice.
       - name: Construction sans publication
         uses: docker/build-push-action@v6
         with:
@@ -225,10 +214,9 @@ jobs:
 
   publish:
     name: Publication de l'image
-    # Sur tag uniquement, et seulement après les vérifications. Publier depuis une
-    # branche produirait des images dont rien ne dit à quoi elles correspondent :
-    # une version doit être un objet nommé, pas un état de branche à un instant
-    # donné.
+    # On a tag only, and only after the checks. Publishing from a branch would produce images
+    # nothing says what they correspond to: a version must be a named object, not a branch's state
+    # at a given instant.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [go, vuln, web, manifests]
     runs-on: ubuntu-latest
@@ -263,10 +251,9 @@ jobs:
             echo "tags<<EOF"
             echo "${IMAGE}:${VERSION}"
 
-            # Les tags glissants ne sont posés que pour une version finale. Une
-            # pré-release devenue `latest` ferait exactement ce que le dashboard
-            # existe pour empêcher : livrer un candidat là où une version stable
-            # était attendue.
+            # The moving tags are set for a final version only. A pre-release become `latest` would do
+            # exactly what the dashboard exists to prevent: delivering a candidate where a stable version
+            # was expected.
             if [[ "${VERSION}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
               echo "${IMAGE}:v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
               echo "${IMAGE}:v${BASH_REMATCH[1]}"
@@ -282,9 +269,8 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.tags.outputs.tags }}
-          # VERSION est compilée dans le binaire et journalisée à chaque
-          # démarrage : savoir quel binaire tourne ne doit pas dépendre du tag
-          # d'image, qui peut être republié.
+          # VERSION is compiled into the binary and logged at every start-up: knowing which binary is
+          # running must not depend on the image tag, which can be republished.
           build-args: |
             VERSION=${{ steps.tags.outputs.version }}
             REVISION=${{ github.sha }}

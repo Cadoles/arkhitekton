@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
 #
-# Installe sur kind les CRD dont le dashboard a besoin pour tourner sans branche
-# conditionnelle propre au développement — et rien d'autre : aucun contrôleur.
+# Installs on kind the CRDs the dashboard needs in order to run with no development-specific
+# conditional branch — and nothing else: no controller.
 #
-# Pourquoi de vraies CRD plutôt qu'un bouchon. Le dashboard valide au démarrage
-# que chaque `promotion_suffix` correspond au `filterTags` d'une `ImagePolicy`, et
-# que `accepts_prerelease` correspond à sa plage SemVer. C'est le garde-fou contre
-# la promotion silencieusement sans effet (B7). Court-circuiter cette vérification
-# en développement désactiverait le contrôle exactement là où il s'exerce le plus
-# souvent. Avec les CRD réelles, le code de validation, les informers et le
-# câblage des watches tournent tels quels.
+# Why real CRDs rather than a stub. The dashboard checks at start-up that each
+# `promotion_suffix` matches an `ImagePolicy`'s `filterTags`, and that `accepts_prerelease`
+# matches its SemVer range. It is the guard rail against a promotion that is silently without
+# effect. Short-circuiting that check in development would disable the control exactly where it
+# applies most often. With the real CRDs, the validation code, the informers and the wiring of
+# the watches run as they are.
 #
-# Ce que cela ne donne pas : le comportement de sélection. Un `filterTags` mal
-# écrit ou une plage mal formée passera l'admission sans que rien ne le retienne,
-# faute de contrôleur pour l'appliquer. Voir doc 11 §11.3.
+# What this does not give: the selection behaviour. A badly written `filterTags` or a malformed
+# range will pass admission with nothing holding it back, for want of a controller to apply it.
 
 set -euo pipefail
 
-# Versions figées et empreintes vérifiées : une CRD qui change sous les pieds
-# produit des échecs de validation qu'aucune bissection ne retrouve.
+# Frozen versions and checked digests: a CRD that changes under one's feet produces validation
+# failures no bisection finds.
 FLUX_CRDS=(
   "image-reflector-controller v1.2.4 c28662b43ee30cfe17b1b177577564f3b52ee112ef345b52dcdda8b77049bde7"
   "image-automation-controller v1.2.4 7d04980647085d68069549b40c4027cc5b0a5b6d463e397501d3f8b7b1c9b0c9"
@@ -43,10 +41,9 @@ for entry in "${FLUX_CRDS[@]}"; do
 done
 
 echo "== CRD PortalData =="
-# Volontairement pas de copie dans ce dépôt. Le CRD appartient à `mse`
-# (misc/k8s/kustomization/base/crds/portaldata-crd.yaml) et une copie ici
-# divergerait en silence — le dashboard lirait alors un schéma que l'application
-# n'écrit plus.
+# Deliberately no copy in this repository. The CRD belongs to `mse`
+# (misc/k8s/kustomization/base/crds/portaldata-crd.yaml) and a copy here would diverge silently
+# — the dashboard would then read a schema the application no longer writes.
 if kubectl get crd portaldata.mse.cnous.fr >/dev/null 2>&1; then
   echo "  déjà installée"
 else

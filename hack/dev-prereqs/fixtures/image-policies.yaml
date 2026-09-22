@@ -1,13 +1,10 @@
-# Sélection d'image par environnement — reproduction locale de ce que Flux porte
-# en production (B7).
+# Image selection per environment — a local reproduction of what Flux carries in production.
 #
-# Ces objets ne sont pas décoratifs : ce sont eux que le dashboard lit au
-# démarrage pour vérifier que sa table `environments` dit la même chose que Flux.
-# Une divergence entre les deux est exactement ce qui produit une promotion sans
-# effet, et bloque donc le démarrage.
+# These objects are not decorative: they are what the dashboard reads at start-up in order to
+# check that its `environments` table says the same thing as Flux. A divergence between the two
+# is exactly what produces a promotion with no effect, and therefore blocks the start-up.
 #
-# Aucun contrôleur ne tourne : `status.latestImage` reste vide jusqu'à ce que le
-# simulateur (`hack/fluxsim`, lot 5) l'alimente.
+# No controller runs: `status.latestImage` stays empty until the simulator fills it in.
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
 metadata:
@@ -18,11 +15,10 @@ spec:
   image: reg.cadoles.com/vcarroy/portal
   interval: 5m
 ---
-# unstable — accepte les pré-releases.
+# unstable — accepts pre-releases.
 #
-# Le suffixe `-0` de la plage n'est pas un détail : une plage SemVer sans
-# composante de pré-release n'en sélectionne aucune. `>=0.0.0` ignorerait
-# silencieusement toutes les RC promues vers cet environnement.
+# The range's `-0` suffix is no detail: a SemVer range with no pre-release component selects
+# none. `>=0.0.0` would silently ignore every RC promoted to this environment.
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:
@@ -31,9 +27,9 @@ metadata:
 spec:
   imageRepositoryRef:
     name: portal
-  # `1.8.0-rc1_unstable` n'est pas du SemVer valide : la partie version doit être
-  # extraite avant que l'ordre s'applique. L'underscore vient de la grammaire des
-  # tags OCI, qui exclut le `+` des métadonnées SemVer.
+  # `1.8.0-rc1_unstable` is not valid SemVer: the version part must be extracted before the
+  # ordering applies. The underscore comes from the grammar of OCI tags, which excludes the `+`
+  # of SemVer metadata.
   filterTags:
     pattern: '^(?P<semver>.+)_unstable$'
     extract: '$semver'
@@ -41,12 +37,11 @@ spec:
     semver:
       range: '>=0.0.0-0'
 ---
-# qualif — **le suffixe Flux est `testing`**, pas `qualif`.
+# qualif — **the Flux suffix is `testing`**, not `qualif`.
 #
-# Ce n'est pas un alias de lecture pour compatibilité : c'est la valeur qui sert à
-# construire le tag poussé. S'en tromper promeut vers le mauvais environnement, ou
-# vers aucun. Le dashboard affiche `qualif` et écrit `testing`, via le champ
-# dédié `promotion_suffix` (B13).
+# It is not a reading alias for compatibility: it is the value used to build the tag pushed.
+# Getting it wrong promotes to the wrong environment, or to none. The dashboard displays
+# `qualif` and writes `testing`, through the dedicated `promotion_suffix` field.
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:
@@ -62,8 +57,8 @@ spec:
     semver:
       range: '>=0.0.0-0'
 ---
-# preprod — accepte encore les pré-releases : la frontière RC / release finale se
-# situe entre `preprod` et `prod`, et non avant.
+# preprod — still accepts pre-releases: the RC / final release boundary sits between `preprod`
+# and `prod`, and not before.
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:
@@ -79,13 +74,12 @@ spec:
     semver:
       range: '>=0.0.0-0'
 ---
-# prod — **sans `-0`**, et c'est ce qui protège la production.
+# prod — **without `-0`**, and that is what protects production.
 #
-# L'absence de composante de pré-release rend une RC structurellement inéligible.
-# Mais le refus est silencieux : promouvoir une RC ici produirait un tag valide,
-# poussé sans erreur, que Flux ignorerait. Le dashboard ne s'en remet donc pas à
-# Flux pour refuser — il refuse en amont, sur `accepts_prerelease`, et vérifie au
-# démarrage que ce champ concorde avec la plage ci-dessous.
+# The absence of a pre-release component makes an RC structurally ineligible. But the refusal
+# is silent: promoting an RC here would produce a valid tag, pushed with no error, which Flux
+# would ignore. The dashboard therefore does not rely on Flux to refuse — it refuses upstream,
+# on `accepts_prerelease`, and checks at start-up that this field agrees with the range below.
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:

@@ -4,24 +4,22 @@ metadata:
   name: php-unit-tests
 spec:
   description: >
-    Tests unitaires de l'application.
+    Unit tests of the application.
 
-    Séparé de `php-static-tests` : les deux répondent à des questions
-    différentes — « le code fait-il ce qu'on attend » et « le code est-il
-    écrit proprement » — et les mêler donnait un seul verdict pour deux
-    signaux que le score pondère séparément. Un cs-fixer non conforme faisait
-    échouer le même run que des tests verts.
+    Separate from `php-static-tests`: the two answer different questions — "does
+    the code do what is expected" and "is the code written cleanly" — and merging
+    them gave a single verdict for two signals the score weighs separately. A
+    non-conforming cs-fixer failed the same run as green tests.
 
-    Le découpage a un coût assumé : les deux pipelines clonent et installent
-    les dépendances chacun de leur côté. C'est le prix d'exécutions
-    indépendantes, relançables l'une sans l'autre.
+    The split has an accepted cost: both pipelines clone and install the
+    dependencies each on their own. It is the price of independent runs, each
+    re-runnable without the other.
 
   params:
     - name: repo-url
     - name: revision
-    # URL PUT pré-signée des résultats, fournie par le dashboard. Vide, la
-    # publication est ignorée : un run déclenché par webhook n'a personne pour lui
-    # en délivrer une, et doit continuer de tourner.
+    # The results' presigned PUT URL, supplied by the dashboard. Empty, publication is skipped: a
+    # run triggered by a webhook has nobody to hand it one, and must go on running.
     - name: results-upload-url
       default: ""
 
@@ -71,9 +69,8 @@ spec:
           workspace: shared-data
 
   finally:
-    # En `finally` : un test en échec fait sortir sa task en erreur, et une
-    # publication placée après elle ne s'exécuterait pas. Le rapport serait perdu
-    # exactement dans le cas où il sert.
+    # In `finally`: a failed test makes its task exit with an error, and a publication placed after
+    # it would not run. The report would be lost exactly in the case where it is useful.
     - name: save-results
       displayName: Publish test results
       taskRef:
@@ -84,8 +81,8 @@ spec:
       params:
         - name: path
           value: test-results
-        # Les trois familles écrivent sous `test-results/` et le nombre de fichiers
-        # dépend de ce qui a tourné : une archive, sous une clé unique par run.
+        # The three families write under `test-results/` and the number of files depends on what ran:
+        # one archive, under a key unique to the run.
         - name: mode
           value: archive
         - name: upload-url
