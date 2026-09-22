@@ -164,7 +164,7 @@ func (m *Middleware) RequireIn(permission auth.Permission) func(http.Handler) ht
 			if !m.authorizer.CanIn(identity, projectID, permission) {
 				m.logger.Info("permission refused",
 					"subject", identity.Subject, "role", identity.RoleIn(projectID),
-					"projet", projectID, "permission", permission)
+					"project", projectID, "permission", permission)
 				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
 				return
 			}
@@ -202,7 +202,7 @@ func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Han
 			if !m.authorizer.CanDeploy(identity, projectID, r.PathValue("project"), environment) {
 				m.logger.Info("promotion refused",
 					"subject", identity.Subject, "role", identity.RoleIn(projectID),
-					"projet", projectID, "environment", environment)
+					"project", projectID, "environment", environment)
 				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
 				return
 			}

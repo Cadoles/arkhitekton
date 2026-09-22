@@ -247,7 +247,7 @@ func (s *TrackerSync) Observe(
 
 	s.logger.Info("tracker synchronisation",
 		"project", trackerProject,
-		"versions", len(versions), "demandes", len(issues),
+		"versions", len(versions), "requests", len(issues),
 		"incrementale", !since.IsZero(), "statuts_non_projetes", len(unmapped))
 
 	return facts, startedAt.Format(time.RFC3339), nil

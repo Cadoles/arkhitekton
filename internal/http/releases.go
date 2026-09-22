@@ -744,7 +744,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error("creating a release",
-			"tag", record.Tag, "projet", project.Slug, "error", err)
+			"tag", record.Tag, "project", project.Slug, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Cannot create", "")
 		return
 	}
@@ -1510,12 +1510,12 @@ func (h *ReleasesHandler) emit(r *http.Request, fact event.Event) {
 	recorded, err := h.store.RecordEvent(r.Context(), fact)
 	if err != nil {
 		slog.Default().Error("emitting a fact",
-			"type", fact.Type, "sujet", fact.Subject, "err", err)
+			"type", fact.Type, "subject", fact.Subject, "err", err)
 		return
 	}
 	if !recorded {
 		slog.Default().Debug("fact already known, not re-emitted",
-			"type", fact.Type, "sujet", fact.Subject)
+			"type", fact.Type, "subject", fact.Subject)
 	}
 }
 

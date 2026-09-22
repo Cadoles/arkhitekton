@@ -337,7 +337,7 @@ func TestASingleImageIsDeclaredWithNoTarget(t *testing.T) {
 		ForgeURL: "https://forge.example.fr", Dockerfile: "Dockerfile",
 		BuildContext: ".", ImageRegistry: "reg.example.fr/mse",
 		MultiStage: false,
-		Targets:    []Target{{Stage: "", Image: "outil"}},
+		Targets:    []Target{{Stage: "", Image: "tool"}},
 		CreatedBy:  "vcarroy",
 	})
 	if err != nil {
@@ -345,7 +345,7 @@ func TestASingleImageIsDeclaredWithNoTarget(t *testing.T) {
 	}
 
 	read, _ := db.GetProject(ctx, id)
-	if len(read.Targets) != 1 || read.Targets[0].Image != "outil" {
+	if len(read.Targets) != 1 || read.Targets[0].Image != "tool" {
 		t.Fatalf("stages = %+v", read.Targets)
 	}
 	if got := read.Reference(read.Targets[0]); got != "reg.example.fr/mse/outil" {

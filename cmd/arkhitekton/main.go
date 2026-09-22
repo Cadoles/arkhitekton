@@ -201,7 +201,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
+	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
 	// The sensitivity of the environments is declared in the catalogue and read by the MSE
 	// plugin. Logged: it is what decides who may promote where.
 	policies := mse.Policies(pipelines)
@@ -471,7 +471,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return fmt.Errorf("catalogue incompatible with the cluster:\n%w", err)
 	}
-	logger.Info("catalogue validated", "kinds", pipelines.Kinds(), "plafond", pipelines.MaxConcurrentRuns)
+	logger.Info("catalogue validated", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
 
 	// The projects that never declared their automation receive it, composed from their targets.
 	// Without it, all of them would stop building on the deployment of this version.

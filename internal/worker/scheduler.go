@@ -188,7 +188,7 @@ func (s *Scheduler) Handle(task LocalTask) {
 // locked` covers the rest — a double deployment launch in production cannot be undone.
 func (s *Scheduler) Run(ctx context.Context) error {
 	s.logger.Info("scheduler started",
-		"plafond", s.catalog.MaxConcurrentRuns, "kinds", s.catalog.Kinds())
+		"cap", s.catalog.MaxConcurrentRuns, "kinds", s.catalog.Kinds())
 
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()

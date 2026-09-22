@@ -307,7 +307,7 @@ func (h *PluginsHandler) SetProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.SetProjectPluginSettings(r.Context(), project.ID, entry, identity.Subject); err != nil {
 		h.logger.Error("recording a project plugin",
-			"plugin", descriptor.ID, "projet", project.Slug, "error", err)
+			"plugin", descriptor.ID, "project", project.Slug, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
 		return
 	}
@@ -337,7 +337,7 @@ func (h *PluginsHandler) ClearProject(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.ClearProjectPluginSettings(r.Context(), project.ID, descriptor.ID); err != nil {
 		h.logger.Error("removing a project plugin",
-			"plugin", descriptor.ID, "projet", project.Slug, "error", err)
+			"plugin", descriptor.ID, "project", project.Slug, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Retrait impossible", "")
 		return
 	}

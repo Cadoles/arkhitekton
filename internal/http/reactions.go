@@ -187,7 +187,7 @@ func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 		return
 	case err != nil:
 		h.logger.Error("recording a reaction",
-			"projet", project.Slug, "nom", entry.Name, "error", err)
+			"project", project.Slug, "name", entry.Name, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
 		return
 	}

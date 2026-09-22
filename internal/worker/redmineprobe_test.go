@@ -114,11 +114,11 @@ func TestTwoProjectsDoNotShareAVersionsKey(t *testing.T) {
 	client := &fakeRedmine{versions: []provider.Version{{ID: "805", Name: "v3.2.0"}}}
 	sync := newSync(t, client, &fakeRedmineStore{})
 
-	un, _, err := sync.Observe(context.Background(), 1, "project-one", client, "curseur")
+	un, _, err := sync.Observe(context.Background(), 1, "project-one", client, "cursor")
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	deux, _, err := sync.Observe(context.Background(), 2, "project-two", client, "curseur")
+	deux, _, err := sync.Observe(context.Background(), 2, "project-two", client, "cursor")
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -172,7 +172,7 @@ func TestAProjectWithNoTrackerIdentifierIsIgnored(t *testing.T) {
 		quietLogger()))
 
 	facts, cursor, err := sonde.Poll(context.Background(),
-		store.Project{ID: 1, Slug: "mse"}, map[string]string{"url": "https://r.fr"}, "curseur")
+		store.Project{ID: 1, Slug: "mse"}, map[string]string{"url": "https://r.fr"}, "cursor")
 
 	if err != nil {
 		t.Fatalf("%v — the absence of a tracker is not an outage", err)
@@ -181,7 +181,7 @@ func TestAProjectWithNoTrackerIdentifierIsIgnored(t *testing.T) {
 		t.Errorf("%d fait(s) rendus", len(facts))
 	}
 	// The cursor is returned unchanged: nothing was read, so nothing advanced.
-	if cursor != "curseur" {
+	if cursor != "cursor" {
 		t.Errorf("cursor = %q, expected unchanged", cursor)
 	}
 }

@@ -180,7 +180,7 @@ func TestDurationOrFallsBackOnInvalidValue(t *testing.T) {
 // connect to the rename.
 func TestUneVariableRenommeeEmpecheLeDemarrage(t *testing.T) {
 	env := validAPIEnv()
-	env["GITEA_TOKEN"] = "jeton"
+	env["GITEA_TOKEN"] = "token"
 	setEnv(t, env)
 
 	_, err := Load(RoleAPI)
@@ -229,7 +229,7 @@ func TestUneVariableRenommeeVideCompteAussi(t *testing.T) {
 func TestLeNouveauVocabulaireEstAccepte(t *testing.T) {
 	env := validAPIEnv()
 	env["FORGE_URL"] = "https://forge.example"
-	env["FORGE_TOKEN"] = "jeton"
+	env["FORGE_TOKEN"] = "token"
 	env["FORGE_REPO"] = "CNOUS/mse"
 	env["TRACKER_URL"] = "https://suivi.example"
 	env["TRACKER_API_KEY"] = "clef"

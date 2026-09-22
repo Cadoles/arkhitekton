@@ -396,7 +396,7 @@ func (h *VersionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditVersionDeclare, name,
-		map[string]any{"projet": project.Slug, "id": id})
+		map[string]any{"project": project.Slug, "id": id})
 
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "name": name})
 }

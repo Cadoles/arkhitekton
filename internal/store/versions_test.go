@@ -28,7 +28,7 @@ func issueOf(t *testing.T, db *DB, redmineID int64, versionRedmineID int64, trac
 	if err := db.UpsertRedmineIssue(context.Background(), TrackedIssue{
 		ProjectID: testProjectID, Tool: "redmine", ExternalID: fmt.Sprint(redmineID),
 		VersionExternalID: externalRef(versionRedmineID),
-		Tracker:           tracker, Subject: "sujet", StatusName: status, StatusBucket: bucket,
+		Tracker:           tracker, Subject: "subject", StatusName: status, StatusBucket: bucket,
 		DoneRatio: doneRatio, IsClosed: closed,
 	}); err != nil {
 		t.Fatalf("demande %d: %v", redmineID, err)

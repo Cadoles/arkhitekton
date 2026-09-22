@@ -126,7 +126,7 @@ func (b *NoteBuilder) Build(
 	}
 
 	b.logger.Info("release note composed",
-		"release", releaseID, "demandes", result.Linked,
+		"release", releaseID, "requests", result.Linked,
 		"pull_requests", result.Pulls, "partielle", result.Incomplete)
 	return result, nil
 }

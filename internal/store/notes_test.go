@@ -51,7 +51,7 @@ func TestAnIssueIsLinkedToAndRemovedFromANote(t *testing.T) {
 	entry := entries[0]
 	// The content comes from `issues` by join: that is what makes a subject corrected in the
 	// tracker appear without regenerating the note.
-	if !entry.Known || entry.Subject != "sujet" || entry.Tracker != "Évolution" {
+	if !entry.Known || entry.Subject != "subject" || entry.Tracker != "Évolution" {
 		t.Errorf("joined entry: %+v", entry)
 	}
 	if entry.Source != NoteSourceAuto || entry.PullRequest != "#42" {
@@ -236,7 +236,7 @@ func TestANoteDoesNotFetchAnotherProjectsIssue(t *testing.T) {
 		t.Fatalf("%d entry(ies) — the join brings back another project's issues: %+v",
 			len(entries), entries)
 	}
-	if entries[0].Subject != "sujet" || entries[0].Anomaly {
+	if entries[0].Subject != "subject" || entries[0].Anomaly {
 		t.Errorf("joined entry: %+v — that is the other deployment's issue", entries[0])
 	}
 
@@ -245,7 +245,7 @@ func TestANoteDoesNotFetchAnotherProjectsIssue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("candidates: %v", err)
 	}
-	if len(candidates) != 1 || candidates["1234"].Subject != "sujet" {
+	if len(candidates) != 1 || candidates["1234"].Subject != "subject" {
 		t.Errorf("candidates: %+v — the pool spills onto the other project", candidates)
 	}
 }

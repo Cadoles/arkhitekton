@@ -93,10 +93,10 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 
 	caught := 0
 	for _, project := range projects {
-		sujet := DefaultAutomation(r.catalog, project, r.enabled(ctx, project.ID))
+		plan := DefaultAutomation(r.catalog, project, r.enabled(ctx, project.ID))
 
 		if err := r.store.SaveReleaseAutomation(ctx, store.ReleaseAutomation{
-			ProjectID: project.ID, Plan: sujet,
+			ProjectID: project.ID, Plan: plan,
 		}, catchUpActor); err != nil {
 			// A project that could not be caught up does not stop the others: it will be seen again at
 			// the next start-up, since it still has no row.
@@ -106,8 +106,8 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 		}
 		caught++
 		r.logger.Info("automation caught up from the project's targets",
-			"project", project.Slug, "etapes", len(sujet.Stages),
-			"steps", stepsOf(sujet))
+			"project", project.Slug, "stages", len(plan.Stages),
+			"steps", stepsOf(plan))
 	}
 
 	r.logger.Info("catching up the automations",

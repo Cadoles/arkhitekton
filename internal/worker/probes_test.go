@@ -333,7 +333,7 @@ func (l *configReader) Poll(
 	_ context.Context, _ store.Project, config map[string]string, _ string,
 ) ([]event.Event, string, error) {
 	*l.target = config
-	return nil, "curseur", nil
+	return nil, "cursor", nil
 }
 
 // The interval floor is enforced: the load counts as *projects × probes × frequency*, and the

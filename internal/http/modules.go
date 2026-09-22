@@ -91,7 +91,7 @@ func (m *Modules) ActiveIn(ctx context.Context, projectID int64) []string {
 	}
 	own, err := m.store.ProjectPluginSettings(ctx, projectID)
 	if err != nil {
-		m.logger.Error("reading a project's modules", "projet", projectID, "error", err)
+		m.logger.Error("reading a project's modules", "project", projectID, "error", err)
 		return []string{}
 	}
 	active := []string{}

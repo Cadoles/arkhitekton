@@ -265,7 +265,7 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 	currentID, err := h.projectOf(ctx, slug)
 	if err != nil {
 		if h.logger != nil {
-			h.logger.Warn("suggestions with no project", "projet", slug, "error", err)
+			h.logger.Warn("suggestions with no project", "project", slug, "error", err)
 		}
 		return proposed
 	}

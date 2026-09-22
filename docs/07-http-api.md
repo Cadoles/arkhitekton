@@ -11,8 +11,8 @@ interface. `/healthz` and `/readyz` sit outside the prefix.
 { "title": "Unknown run kind", "status": 400, "detail": "unit-test" }
 ```
 
-Titles and details are human-readable strings, currently French — the interface displays
-them as they arrive.
+Titles and details are human-readable English strings — the interface displays them as
+they arrive.
 
 **Authentication.** OIDC authorization code flow. A session cookie (`mse_session`,
 HttpOnly, SameSite=Lax) carries the session; a second cookie (`mse_csrf`) carries a token

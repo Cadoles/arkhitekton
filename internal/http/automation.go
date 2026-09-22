@@ -59,7 +59,7 @@ func (h *AutomationsHandler) Automation(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, automationPayload{Plan: plan.Plan{}, Declared: false})
 		return
 	case err != nil:
-		h.logger.Error("reading the automation", "projet", project.Slug, "error", err)
+		h.logger.Error("reading the automation", "project", project.Slug, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Lecture impossible", "")
 		return
 	}
@@ -110,7 +110,7 @@ func (h *AutomationsHandler) SaveAutomation(w http.ResponseWriter, r *http.Reque
 	}, identity.Subject)
 	if err != nil {
 		h.logger.Error("recording the automation",
-			"projet", project.Slug, "error", err)
+			"project", project.Slug, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
 		return
 	}

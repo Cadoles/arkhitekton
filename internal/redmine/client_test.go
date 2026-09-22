@@ -114,7 +114,7 @@ func TestWithoutConfigurationNoClientIsBuilt(t *testing.T) {
 	for _, options := range []Options{
 		{},
 		{URL: "https://redmine.example.org"},
-		{APIKey: "cle"},
+		{APIKey: "key"},
 		{URL: "   ", APIKey: "   "},
 	} {
 		if _, err := New(options); !errors.Is(err, ErrNotConfigured) {
@@ -126,12 +126,12 @@ func TestWithoutConfigurationNoClientIsBuilt(t *testing.T) {
 // The key travels with every request: in clear text over the network, it is readable by any
 // intermediary, and this is access to production.
 func TestACleartextURLIsRefusedOutsideLocalhost(t *testing.T) {
-	if _, err := New(Options{URL: "http://redmine.example.org", APIKey: "cle"}); err == nil {
+	if _, err := New(Options{URL: "http://redmine.example.org", APIKey: "key"}); err == nil {
 		t.Error("a remote http URL should be refused")
 	}
 
 	// localhost stays allowed: the tests and a local tunnel expose nothing.
-	if _, err := New(Options{URL: "http://127.0.0.1:3000", APIKey: "cle"}); err != nil {
+	if _, err := New(Options{URL: "http://127.0.0.1:3000", APIKey: "key"}); err != nil {
 		t.Errorf("127.0.0.1 should be allowed: %v", err)
 	}
 }

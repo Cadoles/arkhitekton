@@ -63,7 +63,7 @@ takes minutes, so polling faster would learn nothing and multiply API calls.
 ## 10.5 Logs
 
 Structured JSON on stdout (`slog`), with `version` and `revision` on every line. Messages
-are currently French; keys are stable and are what monitoring should match on.
+and keys are English; the keys are stable and are what monitoring should match on.
 
 Four lines at worker start-up are worth watching, in order: the catalogue that was
 loaded, the pipeline target, the modules enabled per project, and the candidacy for the

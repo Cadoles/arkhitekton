@@ -135,7 +135,7 @@ func (h *ProjectPipelinesHandler) Set(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.SetProjectPipeline(
 		r.Context(), project.ID, pipeline.Kind, request.Enabled, identity.Subject); err != nil {
 		h.logger.Error("recording a project pipeline",
-			"projet", project.Slug, "kind", pipeline.Kind, "error", err)
+			"project", project.Slug, "kind", pipeline.Kind, "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
 		return
 	}
