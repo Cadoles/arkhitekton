@@ -219,7 +219,7 @@ func Chain(handler http.Handler, middlewares ...func(http.Handler) http.Handler)
 	return handler
 }
 
-// problem suit le format RFC 9457.
+// problem follows the RFC 9457 format.
 type problem struct {
 	Title  string `json:"title"`
 	Status int    `json:"status"`

@@ -7,8 +7,8 @@ import (
 )
 
 /*
- * Vérification contre la forge réelle, gardée par `GITEA_LIVE=1` comme celle de
- * Redmine : la suite ne doit pas solliciter la forge à chaque `make test`.
+ * Check against the real forge, guarded by `GITEA_LIVE=1` like Redmine's: the suite must not call
+ * on the forge at every `make test`.
  *
  *   GITEA_LIVE=1 go test ./internal/gitea/ -run Live -v
  */

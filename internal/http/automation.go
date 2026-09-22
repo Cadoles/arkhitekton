@@ -13,25 +13,22 @@ import (
 )
 
 /*
- * L'automatisation d'une release : ce qu'un projet construit, puis vérifie.
+ * A release's automation: what a project builds, then verifies.
  *
- * # Ce que cet écran remplace
+ * # What this screen replaces
  *
- * Trois endroits en dur, que doc 15 §15.1 nommait : une boucle sur la colonne
- * `targets` dans l'API, une boucle sur les familles du catalogue dans
- * l'observateur, et un drapeau `verification` qui disait l'enchaînement. Ici, un
- * plan — la même structure qu'une réaction, avec un rôle sur ses étapes.
+ * Three hard-coded places: a loop over the `targets` column in the API, a loop over the
+ * catalogue's kinds in the observer, and a `verification` flag that stated the chaining. Here, a
+ * plan — the same structure as a reaction, with a role on its stages.
  *
- * # Le rôle est vérifié, pas cru sur parole
+ * # The role is checked, not taken on trust
  *
- * Une étape `build` dont un step ne produit pas d'image est refusée. C'est le
- * contrôle qui empêche un changement silencieux de cycle de vie : ajouter une
- * action de notification à l'étape de construction ferait que la conclusion de
- * cette étape — donc le passage de la release en vérification — dépendrait d'un
- * webhook (doc 15 §15.3).
+ * A `build` stage one of whose steps does not produce an image is refused. It is the check that
+ * prevents a silent change of life cycle: adding a notification action to the build stage would
+ * make that stage's conclusion — hence the release moving into verification — depend on a
+ * webhook.
  *
- * Le catalogue déclare déjà `produces`. Le contrôle est une comparaison, pas une
- * heuristique.
+ * The catalogue already declares `produces`. The check is a comparison, not a heuristic.
  */
 
 // automationPayload is what the screen reads and writes.
@@ -137,7 +134,7 @@ func stepCount(p plan.Plan) int {
 }
 
 /*
- * Le contrôle des rôles.
+ * The role check.
  */
 
 // roleProduct says what a step must produce to hold a role.

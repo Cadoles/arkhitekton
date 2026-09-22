@@ -142,12 +142,11 @@ func key(parts ...string) string {
 }
 
 /*
- * Les constructeurs.
+ * The constructors.
  *
- * Un par fait, plutôt qu'une fabrique générique : c'est ici que vit la règle de
- * déduplication, et l'écrire une fois par fait est ce qui rend lisible **ce qui
- * identifie ce fait-là**. Une fabrique unique aurait renvoyé cette décision à
- * chaque appelant, c'est-à-dire à l'endroit où elle se trompe.
+ * One per fact, rather than a generic factory: it is here that the deduplication rule lives, and
+ * writing it once per fact is what makes **what identifies that fact** readable. A single factory
+ * would have sent that decision back to each caller, that is, to the place where it gets it wrong.
  */
 
 // VersionCreatedAt returns the fact of a version appearing in the tracker.

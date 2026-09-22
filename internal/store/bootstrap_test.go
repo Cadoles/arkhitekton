@@ -6,12 +6,12 @@ import (
 )
 
 /*
- * L'amorçage.
+ * The seeding.
  *
- * Ce qui doit être tenu : une étape appliquée n'est jamais rejouée, même si la
- * configuration a changé. C'est ce qui rend la base seule maîtresse — un dépôt
- * retiré de l'interface ne doit pas revenir au redéploiement suivant, et un rôle
- * retiré à quelqu'un ne doit pas se réattribuer.
+ * What must be held: a step already applied is never replayed, even if the configuration has
+ * changed. That is what makes the database sole master — a repository removed from the interface
+ * must not come back at the next deployment, and a role taken from someone must not be granted
+ * again.
  */
 
 func spec() BootstrapSpec {

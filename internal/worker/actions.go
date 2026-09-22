@@ -208,7 +208,7 @@ func (r *ActionRunner) authHeader(
 	return map[string]string{name: value}, nil
 }
 
-// truncate borne un extrait de réponse.
+// truncate bounds an excerpt of a response.
 func truncate(text string, limit int) string {
 	if len(text) <= limit {
 		return text

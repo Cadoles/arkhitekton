@@ -21,7 +21,7 @@ type ReadinessCheck struct {
 	Check func(context.Context) error
 }
 
-// Server assemble le routage et le cycle de vie du serveur HTTP.
+// Server assembles the routing and the HTTP server's life cycle.
 type Server struct {
 	cfg    config.HTTPConfig
 	logger *slog.Logger

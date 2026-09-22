@@ -74,7 +74,7 @@ type ProjectEnvironments struct {
 	ProjectID    int64
 	Slug         string
 	Environments []catalog.Environment
-	// Deployer lit le Flux du namespace du projet.
+	// Deployer reads the Flux of the project's namespace.
 	Deployer Deployer
 }
 

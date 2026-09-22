@@ -16,7 +16,7 @@ import (
 // LeaseName is the name of the Lease that arbitrates between workers.
 const LeaseName = "arkhitekton-worker"
 
-// LeaderConfig décrit l'élection.
+// LeaderConfig describes the election.
 type LeaderConfig struct {
 	// Namespace of the Lease: the dashboard's, never the pipelines'. The Role granted covers only
 	// the first (docs/09-security.md).

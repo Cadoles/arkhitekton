@@ -183,13 +183,11 @@ func buildJob(t *testing.T, db *DB, releaseID int64, image, state string) int64 
 }
 
 /*
- * Le décompte des constructions.
+ * The build count.
  *
- * Une release en lance plusieurs — le pipeline ne construit qu'une image par
- * exécution — et n'est construite que lorsque toutes ont abouti. Compter en base
- * plutôt que retenir un état en mémoire est ce qui rend la conclusion correcte
- * après un redémarrage du worker : les runs continuent pendant qu'il ne tourne
- * pas.
+ * A release launches several — the pipeline builds only one image per run — and is built only
+ * when all have completed. Counting in the database rather than keeping a state in memory is what
+ * makes the conclusion correct after a worker restart: the runs continue while it is not running.
  */
 func TestTheBuildCountWaitsForEveryImage(t *testing.T) {
 	db := migrated(t)

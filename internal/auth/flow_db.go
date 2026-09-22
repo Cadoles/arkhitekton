@@ -25,7 +25,7 @@ type DBFlowStore struct {
 	now  func() time.Time
 }
 
-// NewDBFlowStore construit le magasin persistant.
+// NewDBFlowStore builds the persistent store.
 func NewDBFlowStore(pool *pgxpool.Pool, ttl time.Duration) *DBFlowStore {
 	if ttl <= 0 {
 		ttl = 10 * time.Minute

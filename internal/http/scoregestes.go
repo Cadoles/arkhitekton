@@ -15,29 +15,28 @@ import (
 )
 
 /*
- * Le score, step par step.
+ * The score, step by step.
  *
- * # Ce qui change d'axe
+ * # What changes axis
  *
- * Le score pesait six **signaux** de poids fixes. Deux campagnes E2E distinctes
- * s'y confondaient donc en une, et aucune pondération ne pouvait les séparer. Le
- * composant est désormais le **step** de l'étape de vérification : deux
- * campagnes sont deux steps, chacun avec son poids (doc 15 §15.6).
+ * The score weighed six **signals** of fixed weights. Two distinct E2E campaigns therefore merged
+ * into one, and no weighting could separate them. The component is now the **step** of the
+ * verification stage: two campaigns are two steps, each with its weight.
  *
- * Le signal ne disparaît pas. Il dit toujours **comment** noter ce qui a été
- * mesuré — un testReport de tests ne se note pas comme un audit — et sert encore à
- * choisir une icône. Il a seulement cessé d'être l'identité.
+ * The signal does not disappear. It still says **how** to score what was measured — a test report
+ * is not scored like an audit — and still serves to pick an icon. It has only stopped being the
+ * identity.
  *
- * # D'où vient le rattachement
+ * # Where the attachment comes from
  *
- * Rien n'a été ajouté au schéma : un résultat porte son run, un run porte son
- * job, et un step est le seul à porter ce job. `ResultGestes` suit cette chaîne.
+ * Nothing was added to the schema: a result carries its run, a run carries its job, and a step is
+ * the only thing carrying that job. `ResultGestes` follows that chain.
  *
- * # Les poids sont ceux du plan qui a tourné
+ * # The weights are those of the plan that ran
  *
- * Ils sont lus dans `plan_runs.plan`, figé à l'ouverture de l'exécution. Rejouer
- * le score d'une release livrée il y a six mois emploie donc les poids de ce
- * jour-là. Un chiffre communiqué ne se réécrit pas.
+ * They are read from `plan_runs.plan`, frozen when the run was opened. Replaying the score of a
+ * release delivered six months ago therefore uses that day's weights. A figure that was
+ * communicated is not rewritten.
  */
 
 // planScoreStore is what the per-step score needs from the database, beyond the rest.
@@ -213,18 +212,16 @@ func valueOf(measure results.Measure) (bool, float64, string) {
 }
 
 /*
- * L'audit et la campagne, rattachés au step qui les a produits.
+ * The audit and the campaign, attached to the step that produced them.
  *
- * # Une limite assumée
+ * # An accepted limit
  *
- * Les deux se lisent « le plus récent de la release », et non « celui de ce
- * step ». Deux steps de sécurité dans un même plan ne seraient donc pas notés
- * séparément : le second se déclarerait non mesuré, en le disant, plutôt que
- * d'afficher la valeur du premier sous son nom.
+ * Both are read as "the most recent of the release", and not "that of this step". Two security
+ * steps in one plan would therefore not be scored separately: the second would declare itself not
+ * measured, saying so, rather than display the first's value under its name.
  *
- * Ce n'est pas la forme définitive. C'est la seule qui soit **vraie** sans
- * requête nouvelle, et le cas qu'elle laisse de côté n'existe dans aucun
- * catalogue déployé.
+ * It is not the final shape. It is the only one that is **true** without a new query, and the case
+ * it leaves aside exists in no deployed catalogue.
  */
 
 func stepAudit(

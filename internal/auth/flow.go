@@ -148,7 +148,7 @@ func randomToken(bytes int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// NewCSRFToken produit un jeton de double soumission.
+// NewCSRFToken produces a double-submission token.
 func NewCSRFToken() (string, error) {
 	return randomToken(32)
 }

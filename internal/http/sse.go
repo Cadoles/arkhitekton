@@ -8,29 +8,26 @@ import (
 )
 
 /*
-Flux d'événements côté serveur.
-
-Le suivi en direct n'est pas alimenté par un canal en mémoire, contrairement à ce
-que décrit la doc 06 §6.5. La raison est structurelle : le collecteur tourne dans
-le `worker`, le flux SSE est servi par l'`api`, et ce sont deux processus. Un canal
-en mémoire ne les relie pas.
-
-Trois voies étaient possibles :
-
-  - faire transiter chaque ligne par PostgreSQL NOTIFY — volume élevé pour un
-    canal dont la charge utile est bornée à 8 000 octets ;
-  - servir le flux depuis le worker — il n'a ni serveur HTTP ni service, et
-    l'exposer ferait de l'instance unique un point de passage du trafic
-    utilisateur ;
-  - **suivre le stockage**, retenu ici.
-
-L'api relit périodiquement ce que le collecteur a écrit et pousse la différence.
-La latence est donc bornée par l'intervalle de flush du collecteur, pas par le
-sondage. Le procédé a trois avantages qui compensent largement ce délai : il
-fonctionne avec plusieurs répliques d'`api`, il est repris à l'octet près par
-`Last-Event-ID`, et c'est exactement le même chemin de lecture que l'historique —
-il n'y a pas deux implémentations à garder d'accord.
-*/
+ * Server-sent event streams.
+ *
+ * Live following is not fed by an in-memory channel. The reason is structural: the collector runs
+ * in the `worker`, the SSE stream is served by the `api`, and they are two processes. An
+ * in-memory channel does not link them.
+ *
+ * Three ways were possible:
+ *
+ * - passing each line through PostgreSQL NOTIFY — a high volume for a channel whose payload is
+ * bounded at 8,000 bytes;
+ * - serving the stream from the worker — it has neither an HTTP server nor a Service, and
+ * exposing it would make the single instance a point on the path of user traffic;
+ * - **following the storage**, chosen here.
+ *
+ * The api periodically re-reads what the collector wrote and pushes the difference. The latency is
+ * therefore bounded by the collector's flush interval, not by the polling. The method has three
+ * advantages that amply make up for that delay: it works with several `api` replicas, it is
+ * resumed to the byte by `Last-Event-ID`, and it is exactly the same read path as the history —
+ * there are not two implementations to keep in agreement.
+ */
 
 // sseHeartbeat keeps the connection open through intermediaries.
 //
@@ -39,7 +36,7 @@ il n'y a pas deux implémentations à garder d'accord.
 // SSE comment triggers no event on the client side.
 const sseHeartbeat = 20 * time.Second
 
-// sseWriter encapsule le protocole.
+// sseWriter encapsulates the protocol.
 type sseWriter struct {
 	w       http.ResponseWriter
 	flusher http.Flusher

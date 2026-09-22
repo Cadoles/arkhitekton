@@ -7,11 +7,11 @@ import (
 )
 
 /*
- * Les dépôts pilotés.
+ * The driven repositories.
  *
- * Ce qui mérite d'être tenu ici : l'unicité du dépôt — deux entrées pour le même
- * décriraient la même chose sans que rien ne dise laquelle fait foi — et le
- * constat d'accès, dont l'absence ne doit pas se lire comme un échec.
+ * What deserves to be held here: the repository's uniqueness — two entries for the same one would
+ * describe the same thing with nothing saying which is authoritative — and the access
+ * observation, whose absence must not read as a failure.
  */
 
 func project(t *testing.T, db *DB, repository string) int64 {
@@ -141,11 +141,11 @@ func TestAMissingProjectIsToldApartFromAnError(t *testing.T) {
 }
 
 /*
- * L'amorçage depuis la configuration.
+ * Seeding from the configuration.
  *
- * Il existe parce que la table doit décrire ce que le dashboard fait réellement,
- * pas ce qu'un administrateur aura pensé à y ressaisir. Deux propriétés le
- * rendent sûr : il est rejouable, et il n'écrase rien.
+ * It exists because the table must describe what the dashboard actually does, not what an
+ * administrator will have thought to retype into it. Two properties make it safe: it is
+ * replayable, and it overwrites nothing.
  */
 func TestTheBootstrapIsReplayableAndOverwritesNothing(t *testing.T) {
 	db := migratedBare(t)
@@ -178,7 +178,7 @@ func TestTheBootstrapIsReplayableAndOverwritesNothing(t *testing.T) {
 		t.Errorf("%d project(s) declared, expected 2", declared)
 	}
 
-	// Un administrateur corrige un libellé.
+	// An administrator corrects a label.
 	projects, _ := db.ListProjects(ctx)
 	var mse Project
 	for _, project := range projects {
@@ -376,7 +376,7 @@ func TestAStageMayNameItsOwnDockerfile(t *testing.T) {
 		t.Fatalf("project with stages: %v", err)
 	}
 
-	// La forme thème : un Dockerfile par image, aucune étape.
+	// The themes shape: one Dockerfile per image, no stage.
 	theme := Project{
 		Slug: "theme", Repository: "CNOUS/hydra-dispatcher-mse-theme", Label: "Theme",
 		ForgeURL: "https://forge.example", BuildContext: ".", MultiStage: true,

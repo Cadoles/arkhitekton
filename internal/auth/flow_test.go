@@ -31,7 +31,7 @@ func TestBeginProducesDistinctUnpredictableValues(t *testing.T) {
 	}
 }
 
-// Un `state` rejouable permettrait de rejouer un code d'autorisation intercepté.
+// A replayable `state` would allow replaying an intercepted authorization code.
 func TestConsumeIsSingleUse(t *testing.T) {
 	store := NewFlowStore(time.Minute)
 

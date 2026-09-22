@@ -159,7 +159,7 @@ func (e *Exporter) buildNote(ctx context.Context, release store.Release, request
 		GeneratedAt:  time.Now(),
 		GeneratedBy:  requestedBy,
 		Unavailable:  report.KnownUnavailable,
-		// La mise en page attend la validation du client (doc 09).
+		// The layout awaits the client's validation.
 		Provisional: true,
 	}
 

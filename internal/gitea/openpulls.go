@@ -10,15 +10,15 @@ import (
 )
 
 /*
- * Les demandes de fusion **ouvertes**, pour la sonde.
+ * The **open** pull requests, for the probe.
  *
- * Distinctes de `ListMergedPullRequests`, qui sert la note de release et ne
- * regarde que ce qui a été fusionné. Ici on cherche l'inverse : ce qui vient de
- * s'ouvrir, pour qu'une réaction puisse s'y accrocher.
+ * Distinct from `ListMergedPullRequests`, which serves the release note and looks only at what
+ * was merged. Here the opposite is sought: what has just opened, so that a reaction can hook onto
+ * it.
  *
- * La date retenue est celle de **création**, jamais celle de mise à jour : une
- * demande ouverte il y a un mois et commentée ce matin n'est pas un fait nouveau,
- * et la traiter comme tel renotifierait à chaque commentaire.
+ * The date kept is that of **creation**, never that of update: a request opened a month ago and
+ * commented on this morning is not a new fact, and treating it as one would re-notify at every
+ * comment.
  */
 
 // OpenPullRequest is an open pull request, reduced to what a fact carries.

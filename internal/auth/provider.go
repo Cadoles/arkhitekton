@@ -84,7 +84,7 @@ func (p *Provider) Exchange(ctx context.Context, code, codeVerifier, expectedNon
 		return Claims{}, errors.New("response without an ID token")
 	}
 
-	// Vérifie signature, issuer, audience et expiration.
+	// Checks the signature, the issuer, the audience and the expiry.
 	idToken, err := p.verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		return Claims{}, fmt.Errorf("verifying the ID token: %w", err)

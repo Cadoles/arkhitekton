@@ -6,16 +6,15 @@ import (
 )
 
 /*
- * Rapprochement entre une demande Redmine et une pull request.
+ * Matching a Redmine request with a pull request.
  *
- * La convention est celle de l'équipe : le numéro de demande apparaît dans le
- * titre de la PR ou dans l'un de ses messages de commit, sous la forme `#1234`.
- * Rien ne la formalise côté forge — pas de champ, pas d'étiquette — et c'est
- * donc du texte qu'il faut la lire.
+ * The convention is the team's: the request number appears in the PR's title or in one of its
+ * commit messages, in the form `#1234`. Nothing formalises it on the forge's side — no field, no
+ * label — and it must therefore be read from text.
  *
- * Ce fichier ne fait que cela : extraire des numéros d'un texte. Décider ce
- * qu'on en fait — quelle demande retenir, dans quelle catégorie — appartient à
- * l'appelant, qui seul connaît l'état des demandes.
+ * This file does only that: extract numbers from a text. Deciding what to do with them — which
+ * request to keep, in which category — belongs to the caller, which alone knows the state of the
+ * requests.
  */
 
 // issueReference recognises `#1234`.

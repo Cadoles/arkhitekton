@@ -9,14 +9,13 @@ import (
 )
 
 /*
- * L'automatisation d'une release, et ses **trois** états.
+ * A release's automation, and its **three** states.
  *
- * Pas de ligne, ligne au plan vide, ligne au plan garni. Le premier autorise la
- * reprise à composer depuis `targets` ; le deuxième dit que quelqu'un a décidé
- * que ce projet ne construit plus.
+ * No row, a row with an empty plan, a row with a filled plan. The first lets the catch-up compose
+ * from `targets`; the second says someone decided this project no longer builds.
  *
- * Les confondre ferait réapparaître au redémarrage suivant une automatisation
- * qu'on vient d'effacer — et rien ne dirait pourquoi.
+ * Confusing them would make an automation one has just erased reappear at the next start-up —
+ * and nothing would say why.
  */
 
 func buildPlan() plan.Plan {
@@ -72,7 +71,7 @@ func TestTheCatchUpSeesOnlyProjectsWithNoRow(t *testing.T) {
 		t.Errorf("project returned incomplete: %+v", sans[0])
 	}
 
-	// Un plan vide suffit à le retirer de la reprise : quelqu'un a décidé.
+	// An empty plan is enough to take it out of the catch-up: someone decided.
 	if err := db.SaveReleaseAutomation(ctx,
 		ReleaseAutomation{ProjectID: testProjectID, Plan: plan.Plan{}}, "vcarroy"); err != nil {
 		t.Fatalf("%v", err)

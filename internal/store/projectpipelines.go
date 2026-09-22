@@ -10,11 +10,11 @@ import (
 )
 
 /*
- * Quels pipelines du registre s'appliquent à un projet.
+ * Which pipelines of the registry apply to a project.
  *
- * Le catalogue dit ce que l'instance sait lancer. Cette table dit ce que chaque
- * projet **veut** lancer — une question qui lui appartient, et que le catalogue ne
- * savait trancher que pour tout le monde à la fois.
+ * The catalogue says what the instance can launch. This table says what each project **wants** to
+ * launch — a question that belongs to it, and that the catalogue could settle only for everyone
+ * at once.
  */
 
 // ProjectPipeline is a project's decision about a catalogue kind.

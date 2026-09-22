@@ -12,11 +12,11 @@ import (
 )
 
 /*
- * Le journal en texte : ce qui sert la vue brute et le téléchargement.
+ * The log as text: what serves the raw view and the download.
  *
- * Le point qui mérite un test est la pagination. Le lecteur borne chaque appel,
- * et un journal d'intégration dépasse largement cette borne : servir la première
- * tranche et s'arrêter donnerait un fichier tronqué sans que rien ne le signale.
+ * The point that deserves a test is the pagination. The reader bounds each call, and an
+ * integration log goes well beyond that bound: serving the first chunk and stopping would give a
+ * truncated file with nothing reporting it.
  */
 
 // chunkedReader returns the log in chunks, like the real bounded reader.

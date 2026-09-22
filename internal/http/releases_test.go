@@ -1131,12 +1131,11 @@ func TestAFinalReleaseIsNotTaggedASecondTime(t *testing.T) {
 }
 
 /*
- * Les lectures que la composition des pastilles ajoute au magasin.
+ * The reads the badge composition adds to the store.
  *
- * Muettes : ces tests portent sur la création, la validation et la promotion
- * d'une release, pas sur son score. Rendre des valeurs vides fait que la
- * pastille ne s'affiche pas, ce qui est exactement le comportement attendu d'une
- * release sans résultats.
+ * Mute: these tests bear on creating, validating and promoting a release, not on its score.
+ * Returning empty values makes the badge not display, which is exactly the expected behaviour for
+ * a release with no results.
  */
 func (f *fakeReleaseStore) ReleaseBadgesByTag(context.Context) (map[string]store.ReleaseBadges, error) {
 	return map[string]store.ReleaseBadges{}, nil
@@ -1300,15 +1299,14 @@ func TestAnUnknownProjectDoesNotReturnAnothersRelease(t *testing.T) {
 }
 
 /*
- * Le magasin de plans du falseFlag store.
+ * The fake store's plan store.
  *
- * La création d'une release ouvre désormais **son plan**, et c'est lui qui met
- * les constructions en file (doc 15 §15.2). Le falseFlag store porte donc, en plus de
- * la file, de quoi ouvrir une exécution — sans quoi ces tests éprouveraient un
- * planificateur nul plutôt que le chemin réel.
+ * Creating a release now opens **its plan**, and it is the plan that queues the builds. The fake
+ * store therefore carries, besides the queue, what is needed to open a run — without which these
+ * tests would exercise a nil planner rather than the real path.
  *
- * En mémoire et volontairement pauvre : ce qui s'éprouve ici est ce qui **part
- * en file**, pas la mécanique du moteur, qui a ses propres tests.
+ * In memory and deliberately poor: what is exercised here is what **goes into the queue**, not
+ * the engine's mechanics, which have their own tests.
  */
 
 func (f *fakeReleaseStore) CreatePlanRun(

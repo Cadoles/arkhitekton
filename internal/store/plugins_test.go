@@ -7,12 +7,12 @@ import (
 )
 
 /*
- * Les réglages de plugins, et la superposition dont dépend chaque appel sortant.
+ * The plugins' settings, and the layering every outgoing call depends on.
  *
- * Éprouvés contre une vraie base plutôt qu'avec un faux : ce qui se joue ici est
- * une jointure et une règle de conflit, c'est-à-dire précisément ce qu'un faux ne
- * reproduit pas. Le défaut qui a motivé le harnais frontend vivait au même
- * endroit — entre un handler et PostgreSQL, hors de portée des deux.
+ * Exercised against a real database rather than with a fake: what is at stake here is a join and
+ * a conflict rule, that is, precisely what a fake does not reproduce. The defect that motivated
+ * the front-end harness lived in the same place — between a handler and PostgreSQL, out of reach
+ * of both.
  */
 
 func TestPluginsAreBornEnabledAndAreNotOverwritten(t *testing.T) {
@@ -183,7 +183,7 @@ func TestAnUndeclaredPipelineStaysEnabled(t *testing.T) {
 }
 
 /*
- * La projection des statuts, superposée elle aussi.
+ * The status mapping, layered too.
  */
 
 // The instance default holds for a project that declared nothing, and its departures win

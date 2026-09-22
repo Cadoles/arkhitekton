@@ -15,25 +15,22 @@ import (
 )
 
 /*
- * Les réglages des plugins, aux deux portées.
+ * The plugins' settings, at both scopes.
  *
- * Le registre vit dans le binaire : cet écran ne découvre rien, il montre ce que
- * cette version sait faire et ce que l'exploitation en a décidé. C'est la
- * conséquence directe du mécanisme retenu par doc 12 §12.5 — un registre à la
- * compilation, pas de chargement à l'exécution.
+ * The registry lives in the binary: this screen discovers nothing, it shows what this version can
+ * do and what operations decided about it. It is the direct consequence of the mechanism chosen —
+ * a registry at compile time, no loading at run time.
  *
- * # Ce que ce handler ne rend jamais
+ * # What this handler never returns
  *
- * La valeur d'un champ sensible. Elle est scellée en base et n'en ressort que
- * pour l'appel sortant qui l'emploie, dans le worker. L'écran n'en connaît que la
- * **présence** — un champ rempli affiche « enregistrée », vide affiche « absente »
- * — et c'est ce qui rend la saisie d'une clé d'API depuis un navigateur
- * acceptable : la relire ne suffit pas à la voler.
+ * A sensitive field's value. It is sealed in the database and comes out only for the outgoing
+ * call that uses it, in the worker. The screen knows only its **presence** — a filled field
+ * displays "recorded", an empty one displays "absent" — and that is what makes typing an API key
+ * from a browser acceptable: reading it back is not enough to steal it.
  *
- * Le corollaire est une règle d'écriture : un champ sensible **laissé vide est
- * conservé**, pas effacé. Sans elle, un formulaire qui n'affiche pas la clé la
- * renverrait vide, et le premier enregistrement du moindre autre champ
- * l'effacerait.
+ * The corollary is a writing rule: a sensitive field **left empty is kept**, not erased. Without
+ * it, a form that does not display the key would send it back empty, and the first save of any
+ * other field would erase it.
  */
 
 // PluginStore is what plugin settings need from the database.
@@ -349,7 +346,7 @@ func (h *PluginsHandler) ClearProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"plugin": descriptor.ID, "inherited": true})
 }
 
-// decode lit le plugin visé et le corps de la requête.
+// decode reads the plugin targeted and the request's body.
 func (h *PluginsHandler) decode(w http.ResponseWriter, r *http.Request) (plugin.Descriptor, pluginRequest, bool) {
 	descriptor, err := plugin.Get(strings.TrimSpace(r.PathValue("plugin")))
 	if err != nil {
@@ -428,7 +425,7 @@ func (h *PluginsHandler) merge(
 	return config, true
 }
 
-// project résout le projet du chemin.
+// project resolves the project named in the path.
 func (h *PluginsHandler) project(w http.ResponseWriter, r *http.Request) (store.Project, bool) {
 	slug := strings.TrimSpace(r.PathValue("project"))
 	project, err := h.store.ProjectBySlug(r.Context(), slug)

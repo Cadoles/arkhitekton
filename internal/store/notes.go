@@ -9,11 +9,11 @@ import (
 )
 
 /*
- * Note de release : quelles demandes Redmine une release apporte.
+ * Release note: which Redmine requests a release brings.
  *
- * La table ne porte qu'un rattachement. Le sujet, le tracker et le statut
- * viennent de `issues` à la lecture, si bien qu'un sujet corrigé dans
- * Redmine apparaît sans qu'on ait rien à régénérer.
+ * The table carries only an attachment. The subject, the tracker and the status come from
+ * `issues` at read time, so that a subject corrected in Redmine appears with nothing to
+ * regenerate.
  */
 
 // ErrNoteAlreadyLinked reports an issue already linked.

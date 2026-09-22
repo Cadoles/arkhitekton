@@ -82,7 +82,7 @@ type runSink struct {
 	logger *slog.Logger
 }
 
-// WithInstance déclare l'identité de la base.
+// WithInstance declares the database's identity.
 func (s *runSink) WithInstance(id string) *runSink {
 	s.instance = id
 	return s
@@ -549,7 +549,7 @@ func (s *runSink) ConcludeVanishedRun(ctx context.Context, id int64, reason stri
 // translation is paid for once here.
 type logAdapter struct{ collector *logs.Collector }
 
-// NewLogAdapter branche le collecteur sur l'observateur Tekton.
+// NewLogAdapter wires the collector to the Tekton observer.
 func NewLogAdapter(collector *logs.Collector) *logAdapter {
 	return &logAdapter{collector: collector}
 }

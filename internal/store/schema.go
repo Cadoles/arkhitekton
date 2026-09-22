@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// ErrSchemaOutdated signale un schéma en retard sur le binaire.
+// ErrSchemaOutdated reports a schema behind the binary.
 var ErrSchemaOutdated = errors.New("database schema behind the binary")
 
 // gooseVersionTable is the table goose keeps. The name is fixed by the library; querying it

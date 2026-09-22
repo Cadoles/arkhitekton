@@ -114,10 +114,10 @@ type Job struct {
 	ConcurrentAtStart int
 }
 
-// ErrJobNotFound signale un job absent.
+// ErrJobNotFound reports a missing job.
 var ErrJobNotFound = errors.New("job introuvable")
 
-// Enqueue met un job en file.
+// Enqueue puts a job in the queue.
 func (db *DB) Enqueue(ctx context.Context, request JobRequest) (int64, error) {
 	params, err := json.Marshal(request.Params)
 	if err != nil {
@@ -295,7 +295,7 @@ func (db *DB) Requeue(ctx context.Context, id int64, reason string) (bool, error
 	return attempt < MaxJobAttempts, nil
 }
 
-// FinishJob conclut un job.
+// FinishJob concludes a job.
 func (db *DB) FinishJob(ctx context.Context, id int64, state, reason string) error {
 	_, err := db.pool.Exec(ctx,
 		`update jobs

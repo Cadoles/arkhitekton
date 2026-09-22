@@ -136,7 +136,7 @@ func (r *Report) tally() {
 	}
 }
 
-// ErrUnsupported signale un format non reconnu.
+// ErrUnsupported reports an unrecognised format.
 type ErrUnsupported struct {
 	Tool   string
 	Detail string

@@ -10,10 +10,10 @@ import (
 )
 
 /*
- * Projection des versions et des demandes Redmine.
+ * Projecting the Redmine versions and requests.
  *
- * La synchronisation est une interrogation périodique incrémentale, voie définitive
- * et non repli : aucun plugin webhook n'est déployable sur l'instance (B6).
+ * The synchronisation is a periodic incremental query, the definitive path and not a fallback: no
+ * webhook plugin can be deployed on the instance.
  */
 
 // TrackedVersion is a version as synchronisation writes it. A version's origins, as

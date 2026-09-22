@@ -66,11 +66,11 @@ func TestSemVerOrderIsNotLexical(t *testing.T) {
 }
 
 /*
- * Le schéma opaque, et c'est lui qui prouve le contrat.
+ * The opaque scheme, and it is what proves the contract.
  *
- * Un contrat écrit sur la seule réalisation SemVer en aurait épousé la forme sans
- * qu'on s'en aperçoive : chaque question aurait rendu une valeur, et l'absence de
- * réponse aurait été indiscernable d'une réponse négative.
+ * A contract written on the SemVer implementation alone would have taken its shape without anyone
+ * noticing: every question would have returned a value, and the absence of an answer would have
+ * been indistinguishable from a negative one.
  */
 
 // Every non-empty tag is well formed: with no declared convention nothing allows
@@ -155,7 +155,7 @@ func TestASchemeDeclarationResolves(t *testing.T) {
 func TestTheNextPrereleaseIsDeducedFromExistingOnes(t *testing.T) {
 	scheme := SemVer{}
 
-	// Aucune : la première.
+	// None: the first.
 	got, err := scheme.NextPrerelease("1.8.0", nil)
 	if err != nil || got != "1.8.0-rc1" {
 		t.Errorf("first = %q (%v)", got, err)

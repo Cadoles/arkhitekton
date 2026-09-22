@@ -415,7 +415,7 @@ type RunDetail struct {
 	Declared []DeclaredTask
 }
 
-// ErrRunNotFound signale un run absent.
+// ErrRunNotFound reports a missing run.
 var ErrRunNotFound = errors.New("run introuvable")
 
 // GetRun returns a run and its tasks, in execution order.

@@ -22,7 +22,7 @@ const (
 // tag or a file name.
 var safeSegment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// ErrUnsafeSegment signale un segment de clé refusé.
+// ErrUnsafeSegment reports a refused key segment.
 type ErrUnsafeSegment struct {
 	Segment string
 	Reason  string

@@ -22,7 +22,7 @@ import (
 	"k8s.io/client-go/restmapper"
 )
 
-// Groupes lus par le dashboard.
+// Groups the dashboard reads.
 const (
 	imageGroup     = "image.toolkit.fluxcd.io"
 	kustomizeGroup = "kustomize.toolkit.fluxcd.io"

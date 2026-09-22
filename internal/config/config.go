@@ -383,9 +383,9 @@ var renamedVariables = map[string]string{
 // longer exists. Leaving it in place would let a deployment believe it configures
 // something nothing reads.
 var removedVariables = map[string]string{
-	"PIPELINE_GIT_PUBLIC_KEY": "la clé de déploiement partagée n'existe plus: " +
-		"chaque projet a la sienne, posée par le dashboard et activée depuis " +
-		"l'écran du projet",
+	"PIPELINE_GIT_PUBLIC_KEY": "the shared deploy key no longer exists: " +
+		"each project has its own, set by the dashboard and activated from " +
+		"the project's screen",
 }
 
 // checkRenamed refuses to start on a retired variable, whatever the role: a
@@ -404,8 +404,8 @@ func checkRenamed() []error {
 	problems := make([]error, 0, len(legacy))
 	for _, name := range legacy {
 		problems = append(problems, fmt.Errorf(
-			"%s n'existe plus, employer %s — la configuration ne nomme plus les "+
-				"produits mais les frontières", name, renamedVariables[name]))
+			"%s no longer exists, use %s — the configuration no longer names the "+
+				"products but the boundaries", name, renamedVariables[name]))
 	}
 
 	removed := make([]string, 0, len(removedVariables))
@@ -416,7 +416,7 @@ func checkRenamed() []error {
 	}
 	sort.Strings(removed)
 	for _, name := range removed {
-		problems = append(problems, fmt.Errorf("%s n'existe plus: %s",
+		problems = append(problems, fmt.Errorf("%s no longer exists: %s",
 			name, removedVariables[name]))
 	}
 	return problems
@@ -432,10 +432,10 @@ func (c Config) validate() error {
 	// neither the database nor the cluster.
 	if c.Role != RoleCheckTracker {
 		if strings.TrimSpace(c.Database.DSN) == "" {
-			problems = append(problems, errors.New("DATABASE_URL est requis"))
+			problems = append(problems, errors.New("DATABASE_URL is required"))
 		}
 		if c.Database.MaxConns < 1 {
-			problems = append(problems, fmt.Errorf("DATABASE_MAX_CONNS doit être >= 1, vaut %d", c.Database.MaxConns))
+			problems = append(problems, fmt.Errorf("DATABASE_MAX_CONNS must be >= 1, it is %d", c.Database.MaxConns))
 		}
 	}
 
@@ -454,19 +454,19 @@ func (c Config) validate() error {
 	case RoleCheckTracker:
 		// No database, no store, no cluster: this role only performs an HTTP read.
 		if !c.Tracker.Configured() {
-			problems = append(problems, errors.New("TRACKER_URL et TRACKER_API_KEY sont requis"))
+			problems = append(problems, errors.New("TRACKER_URL and TRACKER_API_KEY are required"))
 		}
 	case RoleWorker:
 		problems = append(problems, c.validateStorage()...)
 		if strings.TrimSpace(c.Tekton.Namespace) == "" {
-			problems = append(problems, errors.New("TEKTON_NAMESPACE est requis"))
+			problems = append(problems, errors.New("TEKTON_NAMESPACE is required"))
 		}
 		if strings.TrimSpace(c.Tekton.LeaseNamespace) == "" {
-			problems = append(problems, errors.New("POD_NAMESPACE est requis (namespace du bail de leader)"))
+			problems = append(problems, errors.New("POD_NAMESPACE is required (namespace of the leader lease)"))
 		}
 	default:
 		problems = append(problems, fmt.Errorf(
-			"rôle inconnu %q (attendu: api, worker, migrate, reprocess, check-tracker)", c.Role))
+			"unknown role %q (expected: api, worker, migrate, reprocess, check-tracker)", c.Role))
 	}
 
 	return errors.Join(problems...)
@@ -475,10 +475,10 @@ func (c Config) validate() error {
 func (c Config) validateHTTP() []error {
 	var problems []error
 	if strings.TrimSpace(c.HTTP.Addr) == "" {
-		problems = append(problems, errors.New("HTTP_ADDR est requis"))
+		problems = append(problems, errors.New("HTTP_ADDR is required"))
 	}
 	if u := strings.TrimSpace(c.HTTP.PublicURL); u == "" {
-		problems = append(problems, errors.New("PUBLIC_URL est requis (base des URLs de redirection)"))
+		problems = append(problems, errors.New("PUBLIC_URL is required (base of the redirect URLs)"))
 	} else if _, err := url.Parse(u); err != nil {
 		problems = append(problems, fmt.Errorf("PUBLIC_URL invalide: %w", err))
 	}
@@ -494,7 +494,7 @@ func (c Config) validateOIDC() []error {
 		"OIDC_REDIRECT_URL":  c.OIDC.RedirectURL,
 	} {
 		if strings.TrimSpace(value) == "" {
-			problems = append(problems, fmt.Errorf("%s est requis", name))
+			problems = append(problems, fmt.Errorf("%s is required", name))
 		}
 	}
 
@@ -503,11 +503,11 @@ func (c Config) validateOIDC() []error {
 	// "everyone is refused" — does not point at its cause.
 	if len(c.OIDC.BootstrapAdmins) == 0 {
 		problems = append(problems, errors.New(
-			"BOOTSTRAP_ADMINS est requis: sans lui aucun rôle ne peut être attribué"))
+			"BOOTSTRAP_ADMINS is required: without it no role can be granted"))
 	}
 
 	if c.OIDC.SessionTTL <= 0 {
-		problems = append(problems, errors.New("SESSION_TTL doit être > 0"))
+		problems = append(problems, errors.New("SESSION_TTL must be > 0"))
 	}
 	return problems
 }
@@ -522,7 +522,7 @@ func (c Config) validateStorage() []error {
 		"MINIO_REGION":     c.Storage.Region,
 	} {
 		if strings.TrimSpace(value) == "" {
-			problems = append(problems, fmt.Errorf("%s est requis", name))
+			problems = append(problems, fmt.Errorf("%s is required", name))
 		}
 	}
 	if c.Storage.PresignTTL < 90*time.Minute {
@@ -530,7 +530,7 @@ func (c Config) validateStorage() []error {
 		// run ends fails the upload at the last moment, after the expensive work is
 		// done.
 		problems = append(problems, fmt.Errorf(
-			"MINIO_PRESIGN_TTL vaut %s, insuffisant: le pipeline le plus long dure 90m",
+			"MINIO_PRESIGN_TTL is %s, not enough: the longest pipeline lasts 90m",
 			c.Storage.PresignTTL))
 	}
 	return problems
@@ -564,7 +564,7 @@ func redact(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return ""
 	}
-	return "<masqué>"
+	return "<masked>"
 }
 
 // redactDSN keeps the shape of the URL — host, database, options — and removes
@@ -576,7 +576,7 @@ func redactDSN(dsn string) string {
 	}
 	parsed, err := url.Parse(dsn)
 	if err != nil || parsed.User == nil {
-		return "<masqué>"
+		return "<masked>"
 	}
 	if _, hasPassword := parsed.User.Password(); !hasPassword {
 		return dsn

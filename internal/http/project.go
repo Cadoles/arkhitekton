@@ -10,21 +10,20 @@ import (
 )
 
 /*
- * D'où vient le projet dont un tag fait foi.
+ * Where the project a tag is authoritative in comes from.
  *
- * Depuis la migration 0025, une release et une version n'existent que **dans** un
- * projet : le tag `1.8.0` n'est unique qu'en son sein, et le lire sans dire lequel
- * rendrait la release d'un autre dès qu'un second existera.
+ * Since the migration, a release and a version exist only **within** a project: the tag `1.8.0`
+ * is unique only inside it, and reading it without saying which would return another's release as
+ * soon as a second exists.
  *
- * Les routes le portent donc : `/projects/{projet}/releases/{tag}`. Le segment est
- * le slug du projet et non son identifiant — ces URL finissent en favori et dans
- * des tickets, et un numéro n'y dirait rien de ce qu'il désigne.
+ * The routes therefore carry it: `/projects/{project}/releases/{tag}`. The segment is the
+ * project's slug and not its identifier — these URLs end up in bookmarks and in tickets, and a
+ * number would say nothing there about what it names.
  *
- * Le repli sur le projet constructible subsiste pour les lectures qui n'ont pas de
- * chemin à leur disposition — les suggestions du formulaire de lancement, par
- * exemple, qui portent sur la file et non sur un projet. Il est nommé pour être
- * trouvable : `grep buildableProject` rend la liste de ce qui reste à adresser
- * (doc 12 §12.9, lot B).
+ * The fallback to the buildable project survives for the reads that have no path at their
+ * disposal — the launch form's suggestions, for instance, which bear on the queue and not on a
+ * project. It is named so that it can be found: `grep buildableProject` returns the list of what
+ * remains to be addressed.
  */
 
 // projectResolver translates the name a URL carries into a project.

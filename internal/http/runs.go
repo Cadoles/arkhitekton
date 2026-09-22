@@ -250,7 +250,7 @@ func toTaskPayload(task store.TaskSummary, label string) taskPayload {
 	}
 }
 
-// actorName traduit un sujet OIDC en nom lisible.
+// actorName translates an OIDC subject into a readable name.
 func (h *RunsHandler) actorName(ctx context.Context, subject string) string {
 	if h.directory == nil {
 		return subject

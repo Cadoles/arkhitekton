@@ -13,12 +13,11 @@ import (
 )
 
 /*
- * La déclaration manuelle d'une version.
+ * Declaring a version by hand.
  *
- * Elle existe parce qu'un projet **sans suivi** n'avait aucun moyen de démarrer :
- * ses versions naissaient de la création d'une release, dont le formulaire vit
- * sur l'écran d'une version qui n'existait pas. Écran vide, aucun bouton, aucune
- * issue.
+ * It exists because a project **with no tracker** had no way to start: its versions were born of
+ * creating a release, whose form lives on the screen of a version that did not exist. An empty
+ * screen, no button, no way out.
  */
 
 type fakeVersionStore struct {

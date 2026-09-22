@@ -120,7 +120,7 @@ func TestAFailedScannerMakesTheAuditUnmeasurable(t *testing.T) {
 	if audits.results[0].Status != "na" {
 		t.Errorf("status = %q, expected na", audits.results[0].Status)
 	}
-	// Le résumé nomme le coupable.
+	// The summary names the culprit.
 	if audits.results[0].Summary == "" || audits.results[0].Total != 0 {
 		t.Errorf("result = %+v", audits.results[0])
 	}
@@ -169,7 +169,7 @@ func TestFindingsKeepTheManagerContract(t *testing.T) {
 	}
 }
 
-// L'observateur revoit un run terminé au redémarrage.
+// The observer sees a finished run again at restart.
 func TestSecurityIngestIsIdempotent(t *testing.T) {
 	objects := fakeObjects{"raw/security-audit-1/report/summary.json": cleanSummary}
 	audits, ingester := newSecurityIngester(objects)

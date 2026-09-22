@@ -469,7 +469,7 @@ func TestLinesArePublishedLiveWithoutTimestampPrefix(t *testing.T) {
 		}
 	}
 
-	// Le stockage, lui, conserve l'horodatage.
+	// Storage, for its part, keeps the timestamp.
 	object, _ := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
 	if sealed := readObject(t, storage, object); !strings.Contains(sealed, "2026-08-14T10:00:00Z") {
 		t.Errorf("the timestamp is missing from the stored log:\n%s", sealed)

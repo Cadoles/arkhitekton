@@ -6,24 +6,22 @@ import (
 )
 
 /*
-Score de qualité.
-
-Le score n'a pas de définition évidente : la maquette en affiche un sur 100 et en
-dérive le statut global, mais rien ne dit comment il est calculé ([B11]). La
-pondération ci-dessous a été acceptée par le client, et **elle est donc une donnée
-de configuration, pas une constante de code** — c'est ce qui permet de l'ajuster
-sans redéployer.
-
-Deux propriétés comptent autant que les chiffres.
-
-**Le détail est toujours exposé à côté du score.** Un score dont on ne peut pas
-voir la décomposition n'est pas ajustable en connaissance de cause : « 72 » ne dit
-pas s'il faut corriger des tests ou des vulnérabilités.
-
-**Un signal non mesuré sort du calcul et son poids est redistribué**, avec mention
-explicite. Un 100 sur trois signaux mesurés ne doit pas ressembler à un 100 sur
-six — c'est le même nombre pour deux réalités qui n'engagent pas la même décision.
-*/
+ * Quality score.
+ *
+ * The score has no obvious definition: the mock-up displays one out of 100 and derives the overall
+ * status from it, but nothing says how it is computed. The weighting below was accepted by the
+ * client, and **it is therefore a configuration value, not a code constant** — that is what allows
+ * adjusting it without redeploying.
+ *
+ * Two properties count as much as the figures.
+ *
+ * **The detail is always exposed beside the score.** A score whose breakdown cannot be seen is not
+ * adjustable knowingly: "72" does not say whether tests or vulnerabilities need fixing.
+ *
+ * **A signal that is not measured leaves the computation and its weight is redistributed**, with
+ * an explicit mention. A 100 over three measured signals must not look like a 100 over six — it is
+ * the same number for two realities that do not call for the same decision.
+ */
 
 // Signal names a component of the score.
 type Signal string
@@ -132,7 +130,7 @@ type Measure struct {
 	// confusing them would sink the score of a release whose pipeline simply did not
 	// run.
 	Measured bool
-	// Detail explique la valeur, en français. Affiché à côté du score.
+	// Detail explains the value, in French. Displayed beside the score.
 	Detail string
 }
 

@@ -16,17 +16,16 @@ import (
 )
 
 /*
- * Les dépôts pilotés par le dashboard.
+ * The repositories the dashboard drives.
  *
- * Ils vivaient dans la configuration : en déclarer un de plus demandait de
- * modifier un ConfigMap, donc de reconstruire et de redéployer. Rien ne disait,
- * depuis l'interface, quels dépôts le dashboard croyait piloter — et surtout,
- * rien ne permettait de vérifier qu'il y avait accès. L'écart ne se découvrait
- * qu'au clone, en cours de pipeline, sur un message qui ne le désignait pas.
+ * They lived in the configuration: declaring one more required modifying a ConfigMap, hence
+ * rebuilding and redeploying. Nothing said, from the interface, which repositories the dashboard
+ * believed it was driving — and above all, nothing allowed checking that it had access to them.
+ * The gap was discovered only at the clone, mid-pipeline, in a message that did not name it.
  *
- * La table décrit ; elle ne pilote pas encore. Les pipelines continuent de
- * recevoir leurs dépôts par configuration, et le raccordement demandera de
- * trancher ce que l'ordonnanceur accepte d'une demande.
+ * The table describes; it does not drive yet. The pipelines keep receiving their repositories by
+ * configuration, and wiring them up will require settling what the scheduler accepts from a
+ * request.
  */
 
 // ProjectStore is what the handler needs from the database.
@@ -81,7 +80,7 @@ func (h *ProjectsHandler) WithSchemeCheck(check func(context.Context, version.Sc
 	return h
 }
 
-// WithProbe branche le test d'accès.
+// WithProbe wires the access test.
 func (h *ProjectsHandler) WithProbe(prober ProjectProber) *ProjectsHandler {
 	h.prober = prober
 	return h
@@ -99,7 +98,7 @@ func (h *ProjectsHandler) WithForgeURL(forgeURL string) *ProjectsHandler {
 	return h
 }
 
-// WithImageRegistry déclare le registre proposé par défaut.
+// WithImageRegistry declares the registry offered by default.
 func (h *ProjectsHandler) WithImageRegistry(registry string) *ProjectsHandler {
 	h.imageRegistry = strings.Trim(strings.TrimSpace(registry), "/")
 	return h
@@ -366,7 +365,7 @@ func targetsOf(request projectRequest) []store.Target {
 	return targets
 }
 
-// Create déclare un dépôt.
+// Create declares a repository.
 func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
@@ -497,7 +496,7 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
-// Delete retire un dépôt de la liste.
+// Delete removes a repository from the list.
 func (h *ProjectsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {

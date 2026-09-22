@@ -15,23 +15,23 @@ func TestLeRegistreCouvreChaqueGenre(t *testing.T) {
 
 	for _, descriptor := range Registry() {
 		if ids[descriptor.ID] {
-			t.Errorf("identifiant %q déclaré deux fois", descriptor.ID)
+			t.Errorf("identifier %q declared twice", descriptor.ID)
 		}
 		ids[descriptor.ID] = true
 
 		if _, known := KindLabel[descriptor.Kind]; !known {
-			t.Errorf("plugin %q: genre %q sans libellé", descriptor.ID, descriptor.Kind)
+			t.Errorf("plugin %q: kind %q with no label", descriptor.ID, descriptor.Kind)
 		}
 		if descriptor.Label == "" || descriptor.Summary == "" {
-			t.Errorf("plugin %q: sans libellé ou sans résumé — l'écran ne saurait "+
-				"pas quoi en dire", descriptor.ID)
+			t.Errorf("plugin %q: with no label or no summary — the screen would not "+
+				"know what to say about it", descriptor.ID)
 		}
 		seen[descriptor.Kind] = true
 	}
 
 	for _, kind := range []Kind{KindTracker, KindForge, KindExporter, KindModule} {
 		if !seen[kind] {
-			t.Errorf("aucune réalisation pour le genre %q", kind)
+			t.Errorf("no implementation for kind %q", kind)
 		}
 	}
 }
@@ -45,10 +45,10 @@ func TestUnPluginInconnuNommeCeuxQuiExistent(t *testing.T) {
 
 	_, err := Get("jira")
 	if !errors.Is(err, ErrUnknown) {
-		t.Fatalf("erreur = %v, attendu ErrUnknown", err)
+		t.Fatalf("error = %v, expected ErrUnknown", err)
 	}
 	if !strings.Contains(err.Error(), "redmine") {
-		t.Errorf("message %q — il doit nommer les plugins embarqués", err)
+		t.Errorf("message %q — it must name the embedded plugins", err)
 	}
 }
 
@@ -64,10 +64,10 @@ func TestUnReglageNonDeclareEstRefuse(t *testing.T) {
 
 	err := redmine.Validate(ScopeProject, Values{"project": "mse", "projet": "mse"}, nil)
 	if err == nil {
-		t.Fatal("réglage inconnu accepté")
+		t.Fatal("unknown setting accepted")
 	}
 	if !strings.Contains(err.Error(), "projet") {
-		t.Errorf("message %q — il doit nommer le réglage fautif", err)
+		t.Errorf("message %q — it must name the offending setting", err)
 	}
 }
 
@@ -79,13 +79,13 @@ func TestLObligationPorteSurLaValeurResolue(t *testing.T) {
 
 	// `project` is required at project scope, and nothing provides it.
 	if err := redmine.Validate(ScopeProject, Values{}, nil); err == nil {
-		t.Error("identifiant de projet manquant accepté")
+		t.Error("missing project identifier accepted")
 	}
 
 	// Provided by the wider scope: accepted, although nothing was typed.
 	err := redmine.Validate(ScopeProject, Values{}, Values{"project": "mse"})
 	if err != nil {
-		t.Errorf("valeur héritée refusée: %v", err)
+		t.Errorf("inherited value refused: %v", err)
 	}
 }
 
@@ -97,13 +97,13 @@ func TestLesFormesSeVerifientALaSaisie(t *testing.T) {
 	for _, value := range []string{"redmine.example.fr", "/redmine", "n'importe quoi"} {
 		err := redmine.Validate(ScopeProject, Values{"project": "mse", "url": value}, nil)
 		if err == nil {
-			t.Errorf("URL %q acceptée", value)
+			t.Errorf("URL %q accepted", value)
 		}
 	}
 
 	if err := redmine.Validate(ScopeProject,
 		Values{"project": "mse", "url": "https://redmine.example.fr"}, nil); err != nil {
-		t.Errorf("URL valide refusée: %v", err)
+		t.Errorf("valid URL refused: %v", err)
 	}
 }
 
@@ -115,7 +115,7 @@ func TestUnPluginSansReglageSeValideSansRienExiger(t *testing.T) {
 		t.Fatalf("plugin introuvable: %v", err)
 	}
 	if !exporter.PerProject {
-		t.Error("le bon de livraison doit se décider par projet")
+		t.Error("the delivery note must be decided per project")
 	}
 	if err := exporter.Validate(ScopeProject, Values{}, nil); err != nil {
 		t.Errorf("validation: %v", err)
@@ -136,13 +136,13 @@ func TestUnChampVideNEffacePasCeluiDeLInstance(t *testing.T) {
 	)
 
 	if resolved["url"] != "https://redmine.example.fr" {
-		t.Errorf("URL résolue = %q — le vide n'efface pas", resolved["url"])
+		t.Errorf("resolved URL = %q — emptiness does not erase", resolved["url"])
 	}
 	if resolved["api_key"] != "globale" {
-		t.Errorf("clé résolue = %q", resolved["api_key"])
+		t.Errorf("resolved key = %q", resolved["api_key"])
 	}
 	if resolved["project"] != "mse" {
-		t.Errorf("projet résolu = %q", resolved["project"])
+		t.Errorf("resolved project = %q", resolved["project"])
 	}
 }
 
@@ -154,10 +154,10 @@ func TestLeProjetLEmporteSurLInstance(t *testing.T) {
 	)
 
 	if resolved["url"] != "https://redmine.autre-client.fr" {
-		t.Errorf("URL résolue = %q", resolved["url"])
+		t.Errorf("resolved URL = %q", resolved["url"])
 	}
 	if resolved["api_key"] != "propre" {
-		t.Errorf("clé résolue = %q", resolved["api_key"])
+		t.Errorf("resolved key = %q", resolved["api_key"])
 	}
 }
 
@@ -169,13 +169,13 @@ func TestLesChampsSensiblesSeNommentParPortee(t *testing.T) {
 	for _, scope := range []Scope{ScopeGlobal, ScopeProject} {
 		secrets := redmine.SecretFields(scope)
 		if len(secrets) != 1 || secrets[0] != "api_key" {
-			t.Errorf("portée %q: champs sensibles = %v", scope, secrets)
+			t.Errorf("scope %q: sensitive fields = %v", scope, secrets)
 		}
 		if !redmine.IsSecret(scope, "api_key") {
-			t.Errorf("portée %q: la clé d'API n'est pas marquée sensible", scope)
+			t.Errorf("scope %q: the API key is not marked sensitive", scope)
 		}
 		if redmine.IsSecret(scope, "url") {
-			t.Errorf("portée %q: l'URL est marquée sensible", scope)
+			t.Errorf("scope %q: the URL is marked sensitive", scope)
 		}
 	}
 }
@@ -185,7 +185,7 @@ func TestLesChampsSensiblesSeNommentParPortee(t *testing.T) {
 func TestLeDecoupageDUneListeIgnoreLesEspacesEtLeVide(t *testing.T) {
 	got := List(" En revue , Validé ,, ")
 	if len(got) != 2 || got[0] != "En revue" || got[1] != "Validé" {
-		t.Errorf("découpage = %q", got)
+		t.Errorf("split = %q", got)
 	}
 	if items := List(""); len(items) != 0 {
 		t.Errorf("liste vide = %q", items)

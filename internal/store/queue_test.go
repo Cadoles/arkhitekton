@@ -8,16 +8,15 @@ import (
 )
 
 /*
- * La file, une par type de job.
+ * The queue, one per job type.
  *
- * Le modèle précédent groupait les jobs en classes d'exclusion : `parallel`
- * n'excluait rien, `exclusive-<nom>` excluait sa propre classe,
- * `exclusive-cluster` excluait tout. Trois régimes pour une seule question —
- * combien de ces exécutions peuvent tourner ensemble — et une réponse qu'il
- * fallait reconstituer en cherchant quels types partageaient une classe.
+ * The previous model grouped the jobs into exclusion classes: `parallel` excluded nothing,
+ * `exclusive-<name>` excluded its own class, `exclusive-cluster` excluded everything. Three
+ * regimes for a single question — how many of these runs can run together — and an answer one had
+ * to reconstruct by looking for which types shared a class.
  *
- * Ces tests décrivent le modèle qui l'a remplacé : un plafond par type, un
- * plafond global au-dessus, rien d'autre.
+ * These tests describe the model that replaced it: one cap per type, one global cap above it,
+ * nothing else.
  */
 
 func naming(kind string, id int64) string { return fmt.Sprintf("%s-run-%d", kind, id) }

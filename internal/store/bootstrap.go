@@ -8,20 +8,18 @@ import (
 )
 
 /*
- * Amorçage des données.
+ * Seeding the data.
  *
- * Ce qui est posé une fois, à la migration du schéma, puis géré en base.
+ * What is applied once, at the schema migration, then managed in the database.
  *
- * Deux jeux de données naissaient d'une variable d'environnement relue à chaque
- * fois : les administrateurs, testés à chaque connexion, et les dépôts pilotés,
- * redéclarés à chaque démarrage. Relire indéfiniment une configuration
- * d'amorçage a deux défauts.
+ * Two sets of data were born of an environment variable re-read every time: the administrators,
+ * tested at each sign-in, and the driven repositories, redeclared at each start-up. Re-reading a
+ * seed configuration indefinitely has two defects.
  *
- * La base cesse d'être la source : retirer un dépôt de l'interface le voyait
- * revenir au redémarrage suivant, sans que rien à l'écran ne l'explique. Et la
- * configuration devient un pouvoir permanent — qui peut l'éditer peut se
- * redonner un rôle administrateur, indéfiniment, sans laisser d'autre trace
- * qu'une connexion.
+ * The database stops being the source: removing a repository from the interface saw it come back
+ * at the next start-up, with nothing on screen explaining it. And the configuration becomes a
+ * permanent power — whoever can edit it can give themselves an administrator role again,
+ * indefinitely, leaving no trace other than a sign-in.
  */
 
 // Bootstrap steps. Named here rather than as free strings at the call site: a typo would

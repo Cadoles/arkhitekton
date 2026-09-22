@@ -10,19 +10,17 @@ import (
 )
 
 /*
- * Les clés de déploiement déclarées sur un dépôt.
+ * The deploy keys declared on a repository.
  *
- * Lues pour répondre à une seule question : la clé que le dashboard a produite
- * pour ce projet y est-elle posée ? C'est le geste que le dashboard ne peut pas
- * faire lui-même — coller la moitié publique dans les réglages d'un dépôt
- * appartient à un humain — et le **constater** est ce qui évite de le lui faire
- * confirmer à la main.
+ * Read to answer a single question: is the key the dashboard produced for this project set there?
+ * It is the act the dashboard cannot perform itself — pasting the public half into a repository's
+ * settings belongs to a human — and **observing** it is what avoids having them confirm it by
+ * hand.
  *
- * La distinction est celle de B8, appliquée à un autre objet : une confirmation
- * humaine est une **intention**, la lecture de la forge est un **constat**. La
- * première pouvait rester vraie après qu'on a retiré la clé du dépôt, et les
- * pipelines échouaient alors sur une erreur SSH que rien ne rattachait à
- * l'écran qui affirmait le contraire.
+ * The distinction applied to another object: a human confirmation is an **intention**, reading
+ * the forge is an **observation**. The first could stay true after the key had been removed from
+ * the repository, and the pipelines then failed on an SSH error that nothing connected to the
+ * screen asserting the opposite.
  */
 
 // deployKey is what the forge returns for a repository key.

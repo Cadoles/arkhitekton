@@ -31,7 +31,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 )
 
-// Défauts de flush, repris de la doc 06 §6.5.
+// Flush defaults.
 const (
 	DefaultFlushInterval = 5 * time.Second
 	DefaultFlushSize     = 1 << 20 // 1 Mio
@@ -82,7 +82,7 @@ type Step struct {
 	Container string
 }
 
-// Target décrit la task à suivre.
+// Target describes the task to follow.
 type Target struct {
 	RunName  string
 	TaskName string
@@ -116,7 +116,7 @@ type collection struct {
 	done  chan struct{}
 }
 
-// New assemble le collecteur.
+// New assembles the collector.
 func New(pods Pods, storage *blob.Client, store Store, live Sink, logger *slog.Logger) *Collector {
 	if live == nil {
 		live = discardSink{}

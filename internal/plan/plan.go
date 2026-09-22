@@ -136,7 +136,7 @@ const (
 func Roles() []Role { return []Role{RoleBuild, RoleTest} }
 
 type Stage struct {
-	// Label nomme l'étape à l'écran. Facultatif.
+	// Label names the stage on screen. Optional.
 	Label string `json:"label,omitempty"`
 	// Role attaches the stage to a release's life cycle. Empty: the stage runs without
 	// changing anything in it.
@@ -325,10 +325,10 @@ func (g Geste) validate(stage, rank int) []error {
 }
 
 /*
- * L'avancement.
+ * The progress.
  *
- * Une fonction pure d'un plan et de l'état de ses gestes vers ce qu'il reste à
- * faire. Le moteur persiste les états et exécute ; il ne décide de rien.
+ * A pure function from a plan and the state of its steps to what remains to be done. The engine
+ * persists the states and runs them; it decides nothing.
  */
 
 // State is a step's fate.
@@ -477,7 +477,7 @@ func (p Progress) StageOutcome(stage int) (State, bool) {
 	if slices.Contains(p.States[stage], Succeeded) {
 		return Succeeded, true
 	}
-	// Ni échec ni réussite : tout a été sauté.
+	// Neither failure nor success: everything was skipped.
 	return Skipped, true
 }
 

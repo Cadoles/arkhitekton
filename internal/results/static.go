@@ -8,17 +8,16 @@ import (
 )
 
 /*
-Analyse statique — PHPStan et PHP-CS-Fixer.
-
-Ces outils ne produisent pas des « tests » mais des **violations**. Les projeter
-malgré tout en cas de test n'est pas un artifice : la question posée est la même —
-qu'est-ce qui est apparu, qu'est-ce qui a disparu — et un modèle unique permet de
-la poser une seule fois, dans une seule requête, pour toutes les familles.
-
-L'identité d'une violation est son **fichier + sa règle**, jamais son numéro de
-ligne. Une ligne bouge à chaque commit : l'y attacher signalerait une violation
-résolue et une nouvelle apparue à chaque fois qu'on insère une ligne au-dessus.
-*/
+ * Static analysis — PHPStan and PHP-CS-Fixer.
+ *
+ * These tools do not produce "tests" but **violations**. Projecting them into test cases anyway is
+ * no contrivance: the question asked is the same — what appeared, what disappeared — and a single
+ * model lets it be asked once, in a single query, for every family.
+ *
+ * A violation's identity is its **file + its rule**, never its line number. A line moves at every
+ * commit: attaching it there would report one violation resolved and a new one appearing every
+ * time a line is inserted above.
+ */
 
 type phpstanReport struct {
 	Totals struct {
@@ -42,7 +41,7 @@ type phpstanFile struct {
 	} `json:"messages"`
 }
 
-// ParsePHPStan lit la sortie JSON de PHPStan.
+// ParsePHPStan reads PHPStan's JSON output.
 func ParsePHPStan(raw []byte) (Report, error) {
 	report := Report{Family: FamilyStatic, Tool: "phpstan"}
 

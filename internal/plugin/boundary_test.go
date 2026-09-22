@@ -45,13 +45,13 @@ func TestLeNoyauNImportePasLePluginMSE(t *testing.T) {
 		for _, spec := range parsed.Imports {
 			imported, _ := strconv.Unquote(spec.Path.Value)
 			if imported == pluginPath || strings.HasPrefix(imported, pluginPath+"/") {
-				t.Errorf("%s importe %s — seul cmd/arkhitekton assemble le plugin", path, imported)
+				t.Errorf("%s imports %s — only cmd/arkhitekton assembles the plugin", path, imported)
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("lecture des sources: %v", err)
+		t.Fatalf("reading the sources: %v", err)
 	}
 	// A wrong starting path would read nothing, and the test would pass having
 	// checked nothing.

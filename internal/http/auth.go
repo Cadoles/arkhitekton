@@ -55,7 +55,7 @@ func (h *AuthHandler) WithModules(modules *Modules) *AuthHandler {
 	return h
 }
 
-// WithProjects branche la résolution du projet courant sur `/me`.
+// WithProjects wires the resolution of the current project on `/me`.
 func (h *AuthHandler) WithProjects(projects projectLister) *AuthHandler {
 	h.projects = projects
 	return h
@@ -104,7 +104,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		http.StatusFound)
 }
 
-// Callback traite le retour du fournisseur.
+// Callback handles the provider's return.
 func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 

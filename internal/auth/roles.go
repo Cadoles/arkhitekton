@@ -157,7 +157,7 @@ func PermissionsOf(role Role) []Permission {
 	return granted
 }
 
-// Can indique si l'identité dispose de la permission demandée.
+// Can says whether the identity holds the permission asked for.
 func (a *Authorizer) Can(identity Identity, permission Permission) bool {
 	return a.allows(identity.Role, permission)
 }

@@ -21,26 +21,24 @@ import (
 )
 
 /*
- * Les réactions déclarées, et le catalogue qui permet de les écrire.
+ * The declared reactions, and the catalogue that makes writing them possible.
  *
- * # Les références sont vérifiées ici
+ * # The references are checked here
  *
- * `internal/reaction` porte la forme ; cette couche porte les **références** —
- * qu'un type de fait soit produit, qu'un step désigne une famille du catalogue ou
- * une action du registre. C'est ici parce que c'est ici que les registres sont
- * sous la main.
+ * `internal/reaction` carries the shape; this layer carries the **references** — that a fact type
+ * is produced, that a step names a catalogue kind or a registry action. It is here because it is
+ * here that the registries are at hand.
  *
- * Vérifiées à l'enregistrement et non au déclenchement : une réaction fautive
- * découverte au moment où elle devait partir ne se manifeste que par une absence,
- * et l'absence se diagnostique mal — on cherche d'abord si le fait a été émis.
+ * Checked when recorded and not when triggered: a faulty reaction discovered at the moment it was
+ * to start shows only as an absence, and an absence is badly diagnosed — one first looks for
+ * whether the fact was emitted.
  *
- * # Le catalogue de l'éditeur
+ * # The editor's catalogue
  *
- * L'écran ne code aucune liste. Il demande ce que cette version sait faire : les
- * faits qu'on peut écouter, avec les champs de leur charge ; les actions, avec
- * leurs paramètres ; les familles du catalogue. Une liste écrite dans l'interface
- * divergerait du binaire au premier ajout, et l'écart se verrait par un step
- * qu'on peut choisir et que rien n'exécute.
+ * The screen hard-codes no list. It asks what this version can do: the facts one can listen to,
+ * with their payload's fields; the actions, with their parameters; the catalogue's kinds. A list
+ * written in the interface would diverge from the binary at the first addition, and the gap would
+ * show through a step one can choose and nothing runs.
  */
 
 // AutomationStore is what the automations need from the database.
@@ -230,7 +228,7 @@ func (h *AutomationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 /*
- * Le catalogue de l'éditeur.
+ * The editor's catalogue.
  */
 
 type eventChoice struct {
@@ -416,7 +414,7 @@ func actionFields(descriptor action.Descriptor) []fieldPayload {
 }
 
 /*
- * Les contrôles de référence.
+ * The reference checks.
  */
 
 // checkRefs refuses a reaction one of whose references names nothing.

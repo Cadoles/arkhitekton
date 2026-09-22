@@ -12,16 +12,14 @@ import (
 )
 
 /*
- * Le fil des faits d'un projet.
+ * A project's fact feed.
  *
- * En lecture seule, et c'est tout ce que cette tranche livre. Personne ne réagit
- * encore ; ce que l'écran apporte est un moyen de répondre à la question qui
- * viendra ensuite — « pourquoi rien ne s'est passé ? » —, et elle a deux réponses
- * qui se corrigent différemment : ou bien le fait n'a pas été émis, ou bien
- * aucune réaction ne l'appariait.
+ * Read-only, and that is all this slice delivers. Nobody reacts yet; what the screen brings is a
+ * way to answer the question that will come next — "why did nothing happen?" — and it has two
+ * answers that are fixed differently: either the fact was not emitted, or no reaction matched it.
  *
- * Sans le fil, les deux sont indiscernables. C'est la raison d'être de l'écran,
- * bien avant l'agrément de voir passer des lignes.
+ * Without the feed, the two are indistinguishable. That is the screen's reason for being, well
+ * before the pleasure of watching lines go by.
  */
 
 // EventStore is what the feed needs from the database.

@@ -317,7 +317,7 @@ func TestADeclarationIsClaimedOnlyOnce(t *testing.T) {
 		t.Fatalf("first claim: %q, %v", granted, err)
 	}
 
-	// Un administrateur rétrograde le compte.
+	// An administrator demotes the account.
 	if err := store.GrantRole(ctx, "121", "vcarroy", RoleViewer, "admin"); err != nil {
 		t.Fatalf("demotion: %v", err)
 	}

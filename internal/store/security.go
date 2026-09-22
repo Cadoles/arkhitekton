@@ -74,7 +74,7 @@ type SecurityFinding struct {
 	SuppressionExpires string
 }
 
-// ErrAuditNotFound signale un audit absent.
+// ErrAuditNotFound reports a missing audit.
 var ErrAuditNotFound = errors.New("security audit not found")
 
 // SaveSecurityAudit records an audit and its findings.

@@ -6,18 +6,16 @@ import (
 )
 
 /*
- * Annuaire : du sujet OIDC au nom qu'on lit.
+ * Directory: from the OIDC subject to the name one reads.
  *
- * Les traces d'action — création d'une release, mise en file d'un job, ajout
- * d'une demande à une note — enregistrent le **sujet**, c'est-à-dire `121`.
- * C'est le bon choix côté stockage : le sujet est stable, un nom d'utilisateur
- * change. Mais c'est illisible à l'écran, où le lecteur cherche « qui », pas
- * « quel identifiant ».
+ * The action records — creating a release, queueing a job, adding a request to a note — record
+ * the **subject**, that is, `121`. It is the right choice on the storage side: the subject is
+ * stable, a user name changes. But it is unreadable on screen, where the reader looks for "who",
+ * not "which identifier".
  *
- * La résolution se fait donc à la lecture, et non en enregistrant le nom à côté
- * du sujet. Deux raisons : les traces déjà écrites redeviennent lisibles sans
- * migration, et un utilisateur renommé l'est partout d'un coup plutôt que sur
- * ses seules actions futures.
+ * The resolution therefore happens at read time, and not by recording the name beside the
+ * subject. Two reasons: the records already written become readable again with no migration, and
+ * a renamed user is renamed everywhere at once rather than on their future actions only.
  */
 
 // Directory maps known subjects to their names.

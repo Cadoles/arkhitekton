@@ -72,7 +72,7 @@ func TestAProvisionalVersionIsAdoptedByTheRealOne(t *testing.T) {
 		t.Fatalf("rapport d'adoption: %+v", report)
 	}
 
-	// La provisoire a disparu, et la release a suivi.
+	// The provisional one has disappeared, and the release followed.
 	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
@@ -126,7 +126,7 @@ func TestAClosedNamesakeVersionDoesNotBlockAdoption(t *testing.T) {
 		t.Errorf("adopted by %q, expected the active version v3.1.2", report[0].AdoptedInto)
 	}
 
-	// La provisoire a disparu et la release suit la version ouverte.
+	// The provisional one has disappeared and the release follows the open version.
 	pendings, err := db.PendingVersions(ctx, testProjectID)
 	if err != nil {
 		t.Fatalf("provisoires: %v", err)
@@ -372,7 +372,7 @@ func TestEveryInstanceStatusIsMapped(t *testing.T) {
 		t.Fatalf("projection: %v", err)
 	}
 
-	// Relevés sur l'instance réelle par /issue_statuses.json.
+	// Read from the real instance through /issue_statuses.json.
 	reels := []string{
 		"Brouillon", "Nouveau", "Analyse", "Pris en charge", "En attente", "Rejeté",
 		"Ready", "En cours", "Développement", "En revue", "Livré DEV", "A livrer usine",
@@ -781,7 +781,7 @@ func TestAdvancingDoesNotOverwriteAStateMovedMeanwhile(t *testing.T) {
 		t.Errorf("state %q, expected failed to be kept", current.State)
 	}
 
-	// Depuis l'état réel, l'avancement passe.
+	// From the real state, the advance goes through.
 	advanced, err = db.AdvanceReleaseState(ctx, releaseID, "failed", "building")
 	if err != nil {
 		t.Fatalf("avancement: %v", err)
@@ -927,7 +927,7 @@ func TestARetryCountsOnlyItsOwnVerifications(t *testing.T) {
 		return id
 	}
 
-	// Première série : la construction passe, l'audit échoue.
+	// First series: the build passes, the audit fails.
 	enqueue("build")
 	first := []int64{enqueue("static-tests"), enqueue("security-audit")}
 	if err := db.FinishJob(ctx, first[0], JobSucceeded, ""); err != nil {
@@ -937,7 +937,7 @@ func TestARetryCountsOnlyItsOwnVerifications(t *testing.T) {
 		t.Fatalf("conclusion: %v", err)
 	}
 
-	// Seconde série, après relance : tout passe.
+	// Second series, after a re-run: everything passes.
 	enqueue("build")
 	second := []int64{enqueue("static-tests"), enqueue("security-audit")}
 	for _, id := range second {

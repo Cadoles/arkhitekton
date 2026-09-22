@@ -15,12 +15,11 @@ import (
 )
 
 /*
- * La déclaration des dépôts, vue de l'API.
+ * Declaring the repositories, seen from the API.
  *
- * Deux choses méritent d'être tenues : le refus d'un dépôt malformé — un test
- * d'accès sur `mse` échouerait et se lirait comme un défaut de droits alors que
- * c'est la saisie qui est fautive — et le fait qu'un test impossible ne se
- * consigne pas en échec.
+ * Two things deserve to be held: refusing a malformed repository — an access test on `mse` would
+ * fail and read as a permission problem although it is the entry that is at fault — and the fact
+ * that an impossible test is not recorded as a failure.
  */
 
 type fakeProjectStore struct {
@@ -368,13 +367,12 @@ func TestTheTrackedFlagIsReturnedWithTheProject(t *testing.T) {
 }
 
 /*
- * Le constat sur la clé de déploiement.
+ * The observation about the deploy key.
  *
- * Il remplace une confirmation humaine — « collez-la dans le dépôt, puis dites
- * que c'est fait ». Une intention, avec le défaut des intentions (B8) : elle
- * restait vraie après qu'on avait retiré la clé du dépôt, et les pipelines
- * échouaient alors sur une erreur SSH que rien ne rattachait à l'écran qui
- * affirmait le contraire.
+ * It replaces a human confirmation — "paste it into the repository, then say it is done". An
+ * intention, with the defect of intentions: it stayed true after the key had been removed from
+ * the repository, and the pipelines then failed on an SSH error that nothing connected to the
+ * screen asserting the opposite.
  */
 
 // projectWithKey declares a project whose key the worker has already set.

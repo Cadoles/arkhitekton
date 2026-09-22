@@ -105,7 +105,7 @@ func TestIngestReadsAStandaloneFile(t *testing.T) {
 	if len(results.saved) != 1 {
 		t.Fatalf("%d rapport(s)", len(results.saved))
 	}
-	// Le lien vers le brut permet de rejouer l'ingestion depuis l'objet d'origine.
+	// The link to the raw data makes it possible to replay the ingestion from the original object.
 	if results.saved[0].RawObject != "raw/unit-1/junit.xml" {
 		t.Errorf("objet source = %q", results.saved[0].RawObject)
 	}

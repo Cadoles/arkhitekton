@@ -11,19 +11,18 @@ import (
 )
 
 /*
- * Test d'accès à un dépôt qu'on vient de déclarer.
+ * Testing access to a repository one has just declared.
  *
- * Distinct du Client, et pas par commodité : un Client est lié à un dépôt à sa
- * construction, alors que le test porte sur un dépôt dont on ne sait pas encore
- * s'il est joignable. D'où un client par appel.
+ * Distinct from the Client, and not out of convenience: a Client is bound to a repository at its
+ * construction, whereas the test bears on a repository one does not yet know to be reachable.
+ * Hence one client per call.
  *
- * Vivait dans `internal/http`, où il était le seul appel à une API extérieure du
- * paquet : la couche HTTP traduisait un échec en constat lisible **et** parlait à
- * Gitea. Le second rôle appartient ici, avec les autres lectures de la forge
- * (doc 12 §12.9, chantier 4).
+ * It lived in `internal/http`, where it was the package's only call to an outside API: the HTTP
+ * layer translated a failure into a readable observation **and** spoke to Gitea. The second role
+ * belongs here, with the forge's other reads.
  */
 
-// Prober teste un dépôt par l'API Gitea.
+// Prober tests a repository through the Gitea API.
 type Prober struct {
 	URL     string
 	Token   string

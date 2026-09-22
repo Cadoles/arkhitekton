@@ -13,7 +13,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
-// Client accède au bucket du dashboard.
+// Client accesses the dashboard's bucket.
 type Client struct {
 	minio      *minio.Client
 	bucket     string
@@ -57,7 +57,7 @@ func Open(ctx context.Context, cfg config.StorageConfig) (*Client, error) {
 	}, nil
 }
 
-// Ping alimente la sonde /readyz.
+// Ping feeds the /readyz probe.
 func (c *Client) Ping(ctx context.Context) error {
 	_, err := c.minio.BucketExists(ctx, c.bucket)
 	return err
@@ -101,7 +101,7 @@ func (c *Client) Put(ctx context.Context, key string, reader io.Reader, size int
 	return nil
 }
 
-// Get ouvre un objet en lecture. L'appelant referme.
+// Get opens an object for reading. The caller closes it.
 func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	object, err := c.minio.GetObject(ctx, c.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
@@ -135,7 +135,7 @@ func (c *Client) GetRange(ctx context.Context, key string, offset, length int64)
 	return object, nil
 }
 
-// ObjectInfo décrit un objet listé.
+// ObjectInfo describes a listed object.
 type ObjectInfo struct {
 	Key          string
 	Size         int64
@@ -174,7 +174,7 @@ func (c *Client) List(ctx context.Context, prefix string) ([]ObjectInfo, error) 
 	return objects, nil
 }
 
-// Remove supprime un objet.
+// Remove deletes an object.
 func (c *Client) Remove(ctx context.Context, key string) error {
 	if err := c.minio.RemoveObject(ctx, c.bucket, key, minio.RemoveObjectOptions{}); err != nil {
 		return fmt.Errorf("deleting %q: %w", key, err)

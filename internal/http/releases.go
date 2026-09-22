@@ -172,7 +172,7 @@ type ReleasePromotion struct {
 	PushedAt    time.Time
 }
 
-// WithDeployments branche la pastille « déployée sur ».
+// WithDeployments wires the "deployed on" badge.
 func (h *ReleasesHandler) WithDeployments(deployments func(ctx context.Context, projectID int64) (map[string][]string, error)) *ReleasesHandler {
 	h.deployments = deployments
 	return h

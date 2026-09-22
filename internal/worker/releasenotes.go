@@ -139,7 +139,7 @@ func (b *NoteBuilder) Build(
 // the creation request would have left the user waiting in front of a form.
 const KindReleaseNotes = "release-notes"
 
-// Kind implémente LocalTask.
+// Kind implements LocalTask.
 func (b *NoteBuilder) Kind() string { return KindReleaseNotes }
 
 // Run composes the job's note.

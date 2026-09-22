@@ -200,13 +200,13 @@ func TestASnapshotDoesNotTriggerAfterItsBootstrap(t *testing.T) {
 	}
 }
 
-// La pass suivante, elle, émet.
+// The next pass does emit.
 func TestTheNextPassEmits(t *testing.T) {
 	base := newFakeProbeStore(testProject(1, "mse"))
 	probe := &fakeProbe{cursor: "2026-09-03T10:00:00Z"}
 	runner := probeRunnerFor(t, base, probe)
 
-	// Amorçage.
+	// Bootstrap.
 	runner.sweep(context.Background(), probe)
 
 	// A pull request opens.
@@ -270,7 +270,7 @@ func TestAnUnreachableForgeDoesNotStopTheOtherProjects(t *testing.T) {
 	probe.facts = []event.Event{probeFact("gitea.pr:sain:1")}
 	runner.sweep(context.Background(), probe)
 
-	// Le projectRow sain a bien émis.
+	// The healthy project did emit.
 	if len(base.facts) != 1 {
 		t.Errorf("%d facts emitted, expected 1 for the healthy project", len(base.facts))
 	}
@@ -323,7 +323,7 @@ func TestSealedFieldsAreOpenedBeforeReachingTheProbe(t *testing.T) {
 	}
 }
 
-// configReader retient la configuration reçue.
+// configReader keeps the configuration it received.
 type configReader struct{ target *map[string]string }
 
 func (l *configReader) PluginID() string   { return "gitea" }
@@ -352,7 +352,7 @@ func TestTheIntervalFloorIsEnforced(t *testing.T) {
 // more often. A single cadence would force both to agree, and the slowest would lay down the
 // law.
 func TestEachProbeDeclaresItsCadenceAboveTheFloor(t *testing.T) {
-	// La sonde du suivi demande cinq minutes : au-dessus du plancher, respectées.
+	// The tracker probe asks for five minutes: above the floor, so honoured.
 	if got := NewRedmineProbe(nil).Schedule(); got.Interval != syncInterval {
 		t.Errorf("tracker cadence = %s, expected %s", got.Interval, syncInterval)
 	}

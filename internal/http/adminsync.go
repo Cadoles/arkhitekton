@@ -12,27 +12,26 @@ import (
 )
 
 /*
- * Administration de la synchronisation du suivi, **par projet**.
+ * Administration of the tracker synchronisation, **per project**.
  *
- * Trois choses à surveiller, et aucune n'est une panne du dashboard :
+ * Three things to watch, and none of them is a failure of the dashboard:
  *
- *   - les statuts sans projection déclarée, qui font dériver le taux de complétion
- *     sans rien signaler ;
- *   - les versions dont plusieurs noms se réduisent au même numéro, qui empêchent
- *     de rattacher une release automatiquement ;
- *   - les versions provisoires jamais adoptées, symptôme d'une faute de frappe dans
- *     un tag ou d'une version absente du suivi.
+ *   - the statuses with no declared mapping, which make the completion rate drift with nothing
+ *     reporting it;
+ *   - the versions several of whose names reduce to the same number, which stop a release being
+ *     attached automatically;
+ *   - the provisional versions never adopted, a symptom of a typo in a tag or of a version
+ *     missing from the tracker.
  *
- * Les afficher est ce qui les rend corrigeables. Les taire les laisserait fausser
- * l'écran des versions en silence.
+ * Displaying them is what makes them fixable. Keeping quiet about them would let them skew the
+ * versions screen silently.
  *
- * # Pourquoi cet écran a quitté l'administration générale
+ * # Why this screen left the general administration
  *
- * Tout ce qu'il montre appartient à un projet : le curseur, la projection des
- * statuts, les versions ambiguës. Il était global parce qu'un seul projet était
- * suivi — et le vocabulaire projeté, « En revue », appartient au client, pas à
- * l'instance. Le laisser commun ferait qu'un statut déclaré pour un client
- * déplacerait un taux de complétion affiché à un autre.
+ * Everything it shows belongs to a project: the cursor, the status mapping, the ambiguous
+ * versions. It was global because a single project was tracked — and the vocabulary mapped, "En
+ * revue", belongs to the client, not to the instance. Leaving it shared would mean a status
+ * declared for one client moved a completion rate displayed to another.
  */
 
 // SyncAdminStore is what synchronisation administration needs from the database.
@@ -63,7 +62,7 @@ func NewSyncAdminHandler(admin SyncAdminStore) *SyncAdminHandler {
 	return &SyncAdminHandler{store: admin}
 }
 
-// project résout le projet du chemin.
+// project resolves the project named in the path.
 func (h *SyncAdminHandler) project(w http.ResponseWriter, r *http.Request) (store.Project, bool) {
 	project, err := h.store.ProjectBySlug(r.Context(), strings.TrimSpace(r.PathValue("project")))
 	if err != nil {

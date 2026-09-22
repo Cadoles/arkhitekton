@@ -9,13 +9,11 @@ import (
 )
 
 /*
- * Les faits, et la seule propriété qui compte à ce stade : une redélivrance
- * n'écrit rien.
+ * The facts, and the only property that counts at this stage: a redelivery writes nothing.
  *
- * L'observateur repasse sur les runs terminés — resynchronisation de l'informer,
- * redémarrage du worker. Sans cette borne, chaque passage produirait un doublon.
- * Aujourd'hui personne n'écoute et cela ne coûterait rien ; le jour où une
- * réaction enverra une notification, cela en enverrait une par redémarrage.
+ * The observer goes over the finished runs again — informer resynchronisation, worker restart.
+ * Without that bound, every pass would produce a duplicate. Today nobody listens and it would
+ * cost nothing; the day a reaction sends a notification, it would send one per restart.
  */
 
 func testFact(cle string) event.Event {

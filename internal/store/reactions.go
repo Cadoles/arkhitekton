@@ -13,12 +13,11 @@ import (
 )
 
 /*
- * Les réactions déclarées.
+ * The declared reactions.
  *
- * Ce magasin ne valide rien d'autre que ce que la base sait vérifier :
- * `internal/reaction` porte la forme, et la couche HTTP porte les références —
- * qu'un type de fait existe, qu'un geste désigne une famille du catalogue ou une
- * action du registre.
+ * This store validates nothing other than what the database can check: `internal/reaction` carries
+ * the shape, and the HTTP layer carries the references — that a fact type exists, that a step
+ * names a catalogue kind or a registry action.
  */
 
 // ErrReactionNotFound reports a missing reaction.

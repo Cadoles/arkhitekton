@@ -13,16 +13,15 @@ import (
 )
 
 /*
- * Les pipelines qu'un projet déclare vérifier.
+ * The pipelines a project declares it verifies.
  *
- * Le catalogue dit ce que **l'instance** sait lancer ; il ne dit pas ce que chaque
- * projet veut lancer. La distinction n'est pas théorique : un projet sans campagne
- * de charge voyait `load-tests` s'enchaîner après chaque construction, échouer
- * faute de scénario, et laisser sa release en `verifying` sur un verdict qui
- * n'arriverait jamais.
+ * The catalogue says what **the instance** can launch; it does not say what each project wants to
+ * launch. The distinction is not theoretical: a project with no load campaign saw `load-tests`
+ * follow every build, fail for want of a scenario, and leave its release in `verifying` on a
+ * verdict that would never arrive.
  *
- * L'écran montre donc le **registre** — ce que le binaire et son catalogue
- * savent — et, en regard, ce que le projet en retient.
+ * The screen therefore shows the **registry** — what the binary and its catalogue can do — and,
+ * against it, what the project keeps of it.
  */
 
 // ProjectPipelineStore is what this screen needs from the database.

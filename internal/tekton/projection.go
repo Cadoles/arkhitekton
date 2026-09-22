@@ -109,7 +109,7 @@ type Step struct {
 	ExitCode  *int32
 }
 
-// ProjectRun traduit un PipelineRun.
+// ProjectRun translates a PipelineRun.
 func ProjectRun(pr *tektonv1.PipelineRun) Run {
 	run := Run{
 		Name:      pr.Name,
@@ -164,7 +164,7 @@ func ProjectRun(pr *tektonv1.PipelineRun) Run {
 	return run
 }
 
-// ProjectTaskRun traduit un TaskRun.
+// ProjectTaskRun translates a TaskRun.
 func ProjectTaskRun(tr *tektonv1.TaskRun) TaskRunProjection {
 	projection := TaskRunProjection{
 		Name:        tr.Name,

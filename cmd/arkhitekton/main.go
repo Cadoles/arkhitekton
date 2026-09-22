@@ -1278,7 +1278,7 @@ func configuredProjects(cfg config.Config) []store.Project {
 
 	promoted, held := true, false
 	targets := []store.Target{
-		// Le runtime HTTP : front office, back office, web services.
+		// The HTTP runtime: front office, back office, web services.
 		{Stage: "web", Image: "portal", Promote: &promoted},
 		// The Messenger consumers, the cronjobs and the jobs. Named `portal-consumer` until the
 		// FrankenPHP migration, where it stopped serving the consumers only.

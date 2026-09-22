@@ -97,7 +97,7 @@ func TestAMalformedKeyIsRefusedAtConstruction(t *testing.T) {
 }
 
 /*
- * La rotation, et la raison d'être de l'empreinte.
+ * The rotation, and the fingerprint's reason for being.
  */
 
 // The old key keeps opening what it had sealed.
@@ -156,7 +156,7 @@ func TestAnAlteredEnvelopeIsRefused(t *testing.T) {
 		t.Fatalf("envelope cannot be decomposed: %q", sealed)
 	}
 
-	// Charge modifiée.
+	// Payload modified.
 	altered := version + ":" + keyID + ":" + payload[:len(payload)-2] + "AA"
 	if _, err := c.Open(altered); err == nil {
 		t.Error("modified payload accepted")

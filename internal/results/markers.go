@@ -6,24 +6,22 @@ import (
 )
 
 /*
-Marqueurs de flux — `##META##` et `##SUMMARY##`, éventuellement préfixés.
-
-Deux informations doivent remonter **avant la fin du run** : le descripteur
-d'exécution et la ligne de résumé. Elles sont trop petites pour justifier un
-artefact, et trop utiles pour attendre — un opérateur qui regarde une campagne de
-quarante minutes doit voir « PHPStan : 12 violations » dès que PHPStan a fini,
-sans attendre les E2E (P2, doc 10).
-
-Le canal ne transporte que du kilo-octet. Les payloads complets passent par les
-URLs pré-signées : les logs conteneur subissent la rotation du kubelet et ne sont
-pas un transport fiable pour plusieurs mégaoctets.
-
-**Le descripteur est produit par le pipeline, jamais déduit ici.** Lui seul peut
-distinguer « l'outil a échoué » de « l'outil n'a rien trouvé » — les deux
-produisent zéro violation, et les confondre ferait passer un scanner planté pour
-un code sain. C'est la meilleure propriété du `security-audit` existant, et elle
-est reprise telle quelle.
-*/
+ * Stream markers — `##META##` and `##SUMMARY##`, possibly prefixed.
+ *
+ * Two pieces of information must surface **before the end of the run**: the run descriptor and
+ * the summary line. They are too small to justify an artifact, and too useful to wait — an
+ * operator watching a forty-minute campaign must see "PHPStan: 12 violations" as soon as PHPStan
+ * has finished, without waiting for the E2E.
+ *
+ * The channel carries only kilobytes. The complete payloads go through the presigned URLs:
+ * container logs are subject to the kubelet's rotation and are not a reliable transport for
+ * several megabytes.
+ *
+ * **The descriptor is produced by the pipeline, never deduced here.** It alone can tell "the tool
+ * failed" from "the tool found nothing" — both produce zero violations, and confusing them would
+ * make a crashed scanner pass for healthy code. It is the best property of the existing
+ * `security-audit`, and it is taken as it is.
+ */
 
 // MarkerSet names the two markers a stream uses.
 //

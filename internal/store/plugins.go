@@ -11,17 +11,15 @@ import (
 )
 
 /*
- * Les réglages des plugins, aux deux portées.
+ * The plugins' settings, at both scopes.
  *
- * Le registre vit dans le binaire (`internal/plugin`) : ce magasin ne sait pas
- * quels plugins existent, et ne cherche pas à le savoir. Il porte ce que
- * l'exploitation en a décidé — activé ou non, réglé ainsi — pour des
- * identifiants que l'appelant lui donne.
+ * The registry lives in the binary (`internal/plugin`): this store does not know which plugins
+ * exist, and does not seek to. It carries what operations decided about them — enabled or not,
+ * set thus — for identifiers the caller gives it.
  *
- * La séparation est volontaire. Une table qui énumérerait les plugins connus
- * demanderait une migration à chaque ajout, alors qu'ajouter un plugin est déjà
- * une reconstruction du binaire : la base apprendrait une seconde fois ce que le
- * code sait déjà, avec une occasion de plus de diverger.
+ * The separation is deliberate. A table listing the known plugins would need a migration at every
+ * addition, whereas adding a plugin is already a rebuild of the binary: the database would learn
+ * a second time what the code already knows, with one more opportunity to diverge.
  */
 
 // PluginSettings carries a plugin's state at one scope.

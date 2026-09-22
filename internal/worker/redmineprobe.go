@@ -41,7 +41,7 @@ import (
 // client and a cursor.
 type redmineProbe struct{ sync *TrackerSync }
 
-// NewRedmineProbe construit la sonde du suivi.
+// NewRedmineProbe builds the tracker probe.
 func NewRedmineProbe(sync *TrackerSync) Probe { return redmineProbe{sync: sync} }
 
 func (p redmineProbe) PluginID() string { return trackerTool }

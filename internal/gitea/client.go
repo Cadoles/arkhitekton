@@ -15,14 +15,13 @@ import (
 )
 
 /*
- * Accès à la forge Gitea, en lecture et rien d'autre.
+ * Access to the Gitea forge, read-only and nothing else.
  *
- * Même contrat que `internal/redmine`, pour la même raison : l'interdiction
- * d'écrire n'est pas confiée à la discipline des appelants mais au transport, qui
- * refuse toute méthode autre que GET et HEAD avant contact réseau. Le jour où le
- * dashboard devra écrire sur la forge — poser un tag, publier une release Gitea —
- * ce sera un client distinct et une décision explicite, pas un assouplissement de
- * celui-ci.
+ * The same contract as `internal/redmine`, for the same reason: the prohibition on writing is not
+ * entrusted to the callers' discipline but to the transport, which refuses any method other than
+ * GET and HEAD before any network contact. The day the dashboard has to write to the forge — set
+ * a tag, publish a Gitea release — it will be a distinct client and an explicit decision, not a
+ * relaxation of this one.
  */
 
 // The contract's sentinels, wrapped so the log names the tool and `errors.Is` still
@@ -30,7 +29,7 @@ import (
 var (
 	// ErrWriteForbidden reports an attempted write to the forge.
 	ErrWriteForbidden = fmt.Errorf("gitea: %w", provider.ErrWriteForbidden)
-	// ErrNotConfigured signale l'absence d'URL, de jeton ou de dépôt.
+	// ErrNotConfigured reports a missing URL, token or repository.
 	ErrNotConfigured = fmt.Errorf("gitea: %w", provider.ErrNotConfigured)
 )
 
@@ -69,7 +68,7 @@ var (
 	_ provider.TagWriter        = (*Writer)(nil)
 )
 
-// Client interroge la forge en lecture.
+// Client queries the forge for reading.
 type Client struct {
 	baseURL *url.URL
 	// owner and repo are fixed at construction: this client reads the application's
@@ -81,7 +80,7 @@ type Client struct {
 
 // Options carries a client's configuration.
 type Options struct {
-	// URL de la forge, par exemple `https://forge.cadoles.com`.
+	// The forge's URL, for example `https://forge.cadoles.com`.
 	URL string
 	// Token is a forge API token. It must appear in no log, no error message and no URL.
 	Token string
@@ -90,7 +89,7 @@ type Options struct {
 	Timeout    time.Duration
 }
 
-// New construit un client en lecture seule.
+// New builds a read-only client.
 func New(options Options) (*Client, error) {
 	if strings.TrimSpace(options.URL) == "" || strings.TrimSpace(options.Token) == "" ||
 		strings.TrimSpace(options.Repository) == "" {

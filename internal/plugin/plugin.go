@@ -423,7 +423,7 @@ func Registry() []Descriptor {
 }
 
 // ErrUnknown reports an id no plugin carries.
-var ErrUnknown = errors.New("plugin inconnu")
+var ErrUnknown = errors.New("unknown plugin")
 
 // Get returns a plugin's descriptor. The error names the known plugins: reading
 // the source to find out which exist is not an answer to give someone looking at
@@ -440,7 +440,7 @@ func Get(id string) (Descriptor, error) {
 	for _, descriptor := range registry {
 		known = append(known, descriptor.ID)
 	}
-	return Descriptor{}, fmt.Errorf("%w %q (embarqués: %s)",
+	return Descriptor{}, fmt.Errorf("%w %q (embedded: %s)",
 		ErrUnknown, id, strings.Join(known, ", "))
 }
 
@@ -545,7 +545,7 @@ func (d Descriptor) Validate(scope Scope, values Values, resolved Values) error 
 	for _, name := range names {
 		if _, known := declared[name]; !known {
 			problems = append(problems, fmt.Errorf(
-				"le plugin %q ne déclare aucun réglage %q à la portée %q",
+				"the plugin %q declares no setting %q at scope %q",
 				d.ID, name, scope))
 		}
 	}
@@ -560,7 +560,7 @@ func (d Descriptor) Validate(scope Scope, values Values, resolved Values) error 
 			}
 			if effective == "" {
 				problems = append(problems, fmt.Errorf(
-					"%s est requis", field.Label))
+					"%s is required", field.Label))
 				continue
 			}
 		}
@@ -573,13 +573,13 @@ func (d Descriptor) Validate(scope Scope, values Values, resolved Values) error 
 			parsed, err := url.Parse(value)
 			if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 				problems = append(problems, fmt.Errorf(
-					"%s doit être une URL absolue (schéma et hôte), reçu %q",
+					"%s must be an absolute URL (scheme and host), received %q",
 					field.Label, value))
 			}
 		case FieldBool:
 			if value != "true" && value != "false" {
 				problems = append(problems, fmt.Errorf(
-					"%s vaut « true » ou « false », reçu %q", field.Label, value))
+					"%s is “true” or “false”, received %q", field.Label, value))
 			}
 		case FieldText, FieldList:
 			// Nothing to check: a list with no useful values is still valid input,
@@ -587,7 +587,7 @@ func (d Descriptor) Validate(scope Scope, values Values, resolved Values) error 
 			// convention that belongs to the deployment.
 		default:
 			problems = append(problems, fmt.Errorf(
-				"%s: type de champ %q inconnu", field.Label, field.Type))
+				"%s: unknown field type %q", field.Label, field.Type))
 		}
 	}
 

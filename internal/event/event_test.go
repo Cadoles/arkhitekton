@@ -10,13 +10,12 @@ import (
 var instant = time.Date(2026, 9, 2, 14, 30, 0, 0, time.UTC)
 
 /*
- * La règle de déduplication.
+ * The deduplication rule.
  *
- * C'est tout l'objet du paquet. L'observateur redélivre les runs terminés —
- * resynchronisation de l'informer, redémarrage du worker — et un fait sans clé
- * stable serait réémis à chaque fois. Aujourd'hui cela ne coûterait rien ; le
- * jour où une réaction enverra une notification, cela en enverrait une par
- * redémarrage.
+ * It is the package's whole subject. The observer redelivers the finished runs — informer
+ * resynchronisation, worker restart — and a fact with no stable key would be re-emitted every
+ * time. Today that would cost nothing; the day a reaction sends a notification, it would send one
+ * per restart.
  */
 
 // The same fact, observed twice, carries the same key.
@@ -65,7 +64,7 @@ func TestTwoKindsAreNeverConflated(t *testing.T) {
 }
 
 /*
- * Ce qu'un fait doit porter pour être exploitable.
+ * What a fact must carry in order to be usable.
  */
 
 // A fact with no key is refused, and the message says why.
@@ -124,19 +123,17 @@ func TestEveryConstructorProducesAValidFact(t *testing.T) {
 }
 
 /*
- * La réduction de doc 15 §15.3.
+ * The reduction of the core's facts.
  *
- * Un fait du noyau existe quand **quelque chose arrive qu'aucun plan n'a causé**.
- * Trois faits sont tombés sur cette règle : `release.built`, `release.verified`,
- * `pipeline.finished` — des étapes internes, qui ressortaient dans le fil pour y
- * rentrer aussitôt.
+ * A core fact exists when **something happens that no plan caused**. Three facts fell to that
+ * rule: `release.built`, `release.verified`, `pipeline.finished` — internal steps, which surfaced
+ * in the feed only to go straight back in.
  *
- * La règle n'est pas vérifiable par une machine ; le **compte** l'est. Ce test ne
- * dit pas qu'un cinquième fait serait faux, il dit qu'il ne doit pas arriver sans
- * qu'on l'ait décidé.
+ * The rule is not checkable by a machine; the **count** is. This test does not say that a fifth
+ * fact would be wrong, it says that it must not arrive without having been decided.
  *
- * `release.promoted` en est sorti à son tour : c'est le plugin MSE qui définit ce
- * qu'est une promotion, c'est donc lui qui la constate (doc 16 §16.7).
+ * `release.promoted` left in its turn: it is the MSE plugin that defines what a promotion is, so
+ * it is the plugin that observes it.
  */
 func TestTheCoreHasOnlyThreeFacts(t *testing.T) {
 	attendus := map[Type]bool{

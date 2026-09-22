@@ -115,7 +115,7 @@ func openSQL(cfg config.DatabaseConfig) (*sql.DB, error) {
 	return db, nil
 }
 
-// gooseLogger adapte l'interface attendue par goose à slog.
+// gooseLogger adapts the interface goose expects to slog.
 type gooseLogger struct{ logger *slog.Logger }
 
 func (l gooseLogger) Fatalf(format string, v ...any) {

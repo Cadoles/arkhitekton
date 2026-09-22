@@ -85,7 +85,7 @@ func TestFlakyCountsAsHalfAFailure(t *testing.T) {
 	report := Report{Total: 10, Passed: 8, Failed: 1, Flaky: 1}
 
 	measure := FromReport(SignalUnit, report, true)
-	// 1 échec + 0,5 instable sur 10 → 85.
+	// 1 failure + 0.5 flaky out of 10 → 85.
 	if measure.Value != 85 {
 		t.Errorf("value = %.1f, expected 85", measure.Value)
 	}
@@ -181,11 +181,11 @@ func TestStaticIsGradedByThreshold(t *testing.T) {
 }
 
 /*
- * Le poids porté par la mesure.
+ * The weight the measurement carries.
  *
- * Le changement d'axe de doc 15 §15.6 tient dans une propriété : deux composants
- * de **même signal** peuvent peser différemment. La table des poids par signal ne
- * savait pas l'exprimer, et c'est pour cela qu'elle a disparu de la signature.
+ * The change of axis rests on one property: two components of the **same signal** may weigh
+ * differently. The table of weights per signal could not express it, and that is why it
+ * disappeared from the signature.
  */
 
 // Two end-to-end campaigns each carry their own weight.

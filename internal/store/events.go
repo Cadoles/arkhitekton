@@ -12,11 +12,11 @@ import (
 )
 
 /*
- * Les faits constatés.
+ * The observed facts.
  *
- * Deux opérations, et la première porte tout le mécanisme : enregistrer sans
- * jamais écraser. Une redélivrance — resynchronisation de l'informer, redémarrage
- * du worker — repasse par le même chemin avec la même clé, et n'écrit rien.
+ * Two operations, and the first carries the whole mechanism: recording without ever overwriting.
+ * A redelivery — informer resynchronisation, worker restart — goes through the same path with the
+ * same key, and writes nothing.
  */
 
 // RecordEvent records a fact, or observes that it is already known.

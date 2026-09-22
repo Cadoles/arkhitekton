@@ -7,12 +7,12 @@ import (
 )
 
 /*
- * Ces tests existent pour une raison précise : les requêtes de note nommaient une
- * table qui n'existe pas — `redmine_issues` au lieu d'`issues`. Rien ne l'a vu,
- * parce que rien ne les exécutait contre une vraie base. Le défaut n'est apparu
- * qu'à l'écran, en 500, et le message d'erreur ne désignait pas la cause.
+ * These tests exist for a precise reason: the note queries named a table that does not exist —
+ * `redmine_issues` instead of `issues`. Nothing saw it, because nothing ran them against a real
+ * database. The defect appeared only on screen, as a 500, and the error message did not name the
+ * cause.
  *
- * Une requête SQL ne se relit pas : elle s'exécute.
+ * An SQL query is not re-read: it is run.
  */
 
 func noteRelease(t *testing.T, db *DB, versionID int64, tag string) int64 {
@@ -28,7 +28,7 @@ func noteRelease(t *testing.T, db *DB, versionID int64, tag string) int64 {
 	return id
 }
 
-// Le parcours complet : rattacher, lire, retirer.
+// The whole path: attach, read, remove.
 func TestAnIssueIsLinkedToAndRemovedFromANote(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()

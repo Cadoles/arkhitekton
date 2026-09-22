@@ -7,21 +7,19 @@ import (
 )
 
 /*
- * Rapprochement d'un tag de release et d'un nom de version du suivi.
+ * Matching a release tag with a version name from the tracker.
  *
- * B8 et B17 posaient l'invariant « nom de version = tag de release ». Il ne tient
- * pas tel quel : le suivi nomme ses versions `v3.2.0`, le tag s'écrit `3.2.0`.
- * D'où une normalisation, appliquée au rapprochement seulement. Les noms sont
- * conservés tels quels en base : l'identité d'une version est son identifiant dans
- * le suivi, et réécrire le nom perdrait ce que l'utilisateur y lit.
+ * The invariant "version name = release tag" does not hold as it is: the tracker names its
+ * versions `v3.2.0`, the tag is written `3.2.0`. Hence a normalisation, applied to the matching
+ * only. The names are kept as they are in the database: a version's identity is its identifier in
+ * the tracker, and rewriting the name would lose what the user reads in it.
  *
- * # Un seul préfixe, et plus de réglage
+ * # A single prefix, and no more setting
  *
- * Les préfixes étaient configurables, et le déploiement MSE déclarait `MSE ` en
- * plus de `v`. Ce préfixe ne rattachait que des versions closes sans release, et
- * créait avec leurs jumelles `v` des ambiguïtés que l'adoption devait ensuite
- * trancher (doc 16 §16.3). Il a été retiré, et avec lui le réglage : `v` vient du
- * versionnement sémantique et ne suppose rien d'un projet.
+ * The prefixes were configurable, and the MSE deployment declared `MSE ` besides `v`. That prefix
+ * attached only closed versions with no release, and created with their `v` twins ambiguities the
+ * adoption then had to settle. It was removed, and the setting with it: `v` comes from semantic
+ * versioning and assumes nothing about a project.
  */
 
 // semverPrefix is the prefix stripped before a version number.

@@ -13,12 +13,11 @@ import (
 )
 
 /*
- * L'exécution des plans.
+ * Running the plans.
  *
- * Ce magasin ne décide de rien : `internal/plan` dit quel geste part ensuite, et
- * cette couche se contente de retenir ce qui a été décidé. La séparation est la
- * même que pour `internal/release` et pour la même raison — l'avancement est de la
- * logique, et une logique mêlée à du SQL ne s'éprouve qu'avec une base.
+ * This store decides nothing: `internal/plan` says which step starts next, and this layer merely
+ * keeps what was decided. The separation is the same as for `internal/release` and for the same
+ * reason — advancing is logic, and logic mixed with SQL is exercised only with a database.
  */
 
 // PlanRun is a run of a plan.
@@ -358,19 +357,19 @@ func (db *DB) planStepsFor(ctx context.Context, runIDs []int64) (map[int64][]Pla
 }
 
 /*
- * Les artefacts qu'une exécution a produits.
+ * The artifacts a run produced.
  *
- * # D'où ils viennent
+ * # Where they come from
  *
- * Des **résultats Tekton** du run qui a mis le geste en œuvre. L'observation les
- * projette déjà sur `runs` ; cette table les rattache au geste qui les a rendus,
- * ce que la projection d'un run ne sait pas faire — elle ignore les plans.
+ * From the **Tekton results** of the run that carried the step out. The observation already
+ * projects them onto `runs`; this table attaches them to the step that returned them, which
+ * projecting a run cannot do — it knows nothing of plans.
  *
- * # Pourquoi les recopier plutôt que les joindre
+ * # Why copy them rather than join them
  *
- * Un PipelineRun est ramassé par Tekton, et sa projection peut être purgée avec
- * lui. Les artefacts d'une release livrée doivent survivre à ce ménage : ce sont
- * eux qui disent quelle image porte le numéro qu'on a communiqué.
+ * A PipelineRun is collected by Tekton, and its projection may be purged with it. The artifacts
+ * of a delivered release must survive that clean-up: they are what says which image carries the
+ * number that was communicated.
  */
 
 // PlanArtifact is what a step left behind.
@@ -474,12 +473,12 @@ func (db *DB) RunResults(ctx context.Context, jobID int64) (map[string]string, e
 }
 
 /*
- * Le geste qui a produit un résultat.
+ * The step that produced a result.
  *
- * Le score se pèse désormais par geste et non par signal (doc 15 §15.6). Il faut
- * donc savoir, pour chaque rapport d'une release, de quel geste il vient — et la
- * chaîne existe déjà, sans rien ajouter au schéma : un résultat porte son run, un
- * run porte son job, et un geste est le seul à porter ce job.
+ * The score is now weighed by step and not by signal. One must therefore know, for each of a
+ * release's reports, which step it comes from — and the chain already exists, with nothing added
+ * to the schema: a result carries its run, a run carries its job, and a step is the only thing
+ * carrying that job.
  */
 
 // GesteRef names a step by its place in the frozen plan.

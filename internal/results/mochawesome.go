@@ -6,17 +6,15 @@ import (
 )
 
 /*
-Mochawesome — la sortie JSON de Cypress.
-
-Le JSON plutôt que le HTML, et c'est une décision, pas une commodité : le HTML est
-lisible par un humain et par personne d'autre. Le pipeline produit les deux, et
-c'est le JSON qui est parsé (P3, doc 10).
-
-Le format imbrique les suites, et signale l'instabilité autrement que JUnit : un
-cas repassé après reprise porte `currentRetry > 0` **et** `pass: true`. Le lire
-comme un succès effacerait le seul signal d'instabilité de la campagne E2E, c'est-
-à-dire précisément ce qu'on cherche à surveiller.
-*/
+ * Mochawesome — Cypress's JSON output.
+ *
+ * The JSON rather than the HTML, and it is a decision, not a convenience: the HTML is readable by
+ * a human and by nobody else. The pipeline produces both, and it is the JSON that is parsed.
+ *
+ * The format nests the suites, and reports flakiness differently from JUnit: a case that passed
+ * after a retry carries `currentRetry > 0` **and** `pass: true`. Reading it as a success would
+ * erase the E2E campaign's only flakiness signal, that is, precisely what one is trying to watch.
+ */
 
 type mochawesomeReport struct {
 	Stats struct {
@@ -56,7 +54,7 @@ type mochawesomeTest struct {
 	} `json:"err"`
 }
 
-// ParseMochawesome lit un rapport mochawesome.
+// ParseMochawesome reads a mochawesome report.
 func ParseMochawesome(raw []byte) (Report, error) {
 	report := Report{Family: FamilyE2E, Tool: "cypress"}
 

@@ -6,12 +6,11 @@ import (
 )
 
 /*
- * Nom d'un acteur, pour l'affichage.
+ * An actor's name, for display.
  *
- * Les traces enregistrent le sujet OIDC — `121` — parce qu'il est stable. Le
- * lecteur, lui, cherche « qui ». La traduction se fait ici, à la lecture : les
- * traces déjà écrites redeviennent lisibles sans migration, et un utilisateur
- * renommé l'est partout d'un coup.
+ * The audit records the OIDC subject — `121` — because it is stable. The reader, though, looks
+ * for "who". The translation happens here, at read time: the records already written become
+ * readable again with no migration, and a renamed user is renamed everywhere at once.
  */
 
 // DirectoryReader is what the translation needs from the database.

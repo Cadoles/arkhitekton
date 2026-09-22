@@ -12,11 +12,10 @@ import (
 )
 
 /*
- * Le score, step par step.
+ * The score, step by step.
  *
- * Ce que ces tests tiennent est le **changement d'axe** : deux steps de même
- * nature comptent séparément, et chacun pèse ce qu'il déclare. Le modèle par
- * signal ne savait dire ni l'un ni l'autre.
+ * What these tests hold is the **change of axis**: two steps of the same kind count separately,
+ * and each weighs what it declares. The model by signal could say neither.
  */
 
 // testScore implements what the score needs, and nothing else.
@@ -89,14 +88,14 @@ func TestTwoStepsOfTheSameKindCountSeparately(t *testing.T) {
 			plan.Geste{Kind: plan.GestePipeline, Ref: "e2e-tests",
 				Label: "E2E back-office", Weight: weightOf(10)},
 		),
-		// Le premier testReport vient du step 1.0, le second du step 1.1.
+		// The first report comes from step 1.0, the second from step 1.1.
 		steps: map[int64]store.GesteRef{
 			1: {Stage: 1, Position: 0},
 			2: {Stage: 1, Position: 1},
 		},
 	}
 
-	// Le portail passe, le back-office échoue entièrement.
+	// The portal passes, the back office fails entirely.
 	reports := []store.TestResult{
 		testReport(1, "e2e", 10, 0),
 		testReport(2, "e2e", 10, 10),

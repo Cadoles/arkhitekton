@@ -150,7 +150,7 @@ pipelines:
 	}
 }
 
-// --- Validation contre le cluster --------------------------------------------
+// --- Validation against the cluster ------------------------------------------
 
 type fakeCluster struct {
 	pipelines map[string]PipelineSpec
@@ -366,11 +366,10 @@ pipelines:
 }
 
 /*
- * Ce qu'un pipeline produit.
+ * What a pipeline produces.
  *
- * La déclaration remplace un booléen qui disait deux choses — « enchaîné après une
- * construction » et « relançable seul » — et dont le catalogue en service portait
- * déjà la ligne où elles divergent.
+ * The declaration replaces a boolean that said two things — "chained after a build" and
+ * "re-runnable on its own" — and whose divergence the catalogue in service already carried.
  */
 
 // The product is required, and the message names the accepted values.
@@ -566,12 +565,11 @@ pipelines:
 }
 
 /*
- * Ce qu'une déclaration peut renseigner, et ce que l'exécution impose.
+ * What a declaration may fill in, and what the run imposes.
  *
- * La distinction existait, écrite en Go : le plan d'une release posait
- * `revision`, `version` et `tag-name` **après** les paramètres du geste, pour
- * qu'une déclaration ne puisse pas les changer (B17). Elle vaut pour tout
- * pipeline, et le catalogue la disait déjà par ses `suggest`.
+ * The distinction existed, written in Go: a release's plan set `revision`, `version` and
+ * `tag-name` **after** the step's parameters, so that a declaration could not change them. It
+ * holds for every pipeline, and the catalogue already said it through its `suggest`.
  */
 
 // parseForTest returns a catalogue or fails the test.

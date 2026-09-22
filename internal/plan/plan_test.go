@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// pipeline compose un geste de type pipeline, forme la plus courante.
+// pipeline composes a pipeline step, the most common form.
 func pipeline(ref string, when When) Geste {
 	return Geste{Kind: GestePipeline, Ref: ref, When: when}
 }
@@ -45,7 +45,7 @@ func advance(t *testing.T, progress Progress, sorts map[string]State) Progress {
 }
 
 /*
- * La forme du modèle : des étapes, des gestes parallèles.
+ * The model's shape: stages, parallel steps.
  */
 
 // The example that motivated the work, in full.
@@ -222,7 +222,7 @@ func TestAConcludingStepDoesNotRedeemAFailure(t *testing.T) {
 }
 
 /*
- * L'idempotence, qui est la propriété dont le moteur dépend.
+ * Idempotence, which is the property the engine depends on.
  */
 
 // Calling Next without running anything returns the same thing; calling it after
@@ -284,7 +284,7 @@ func TestMarkingDoesNotMutatePreviousProgress(t *testing.T) {
 }
 
 /*
- * Ce qu'un plan doit déclarer pour être exécutable.
+ * What a plan must declare in order to be runnable.
  */
 
 // An empty plan is recognised without being invalid: "this project chains nothing"
@@ -375,9 +375,9 @@ func TestAnAbsentConditionMeansSuccess(t *testing.T) {
 }
 
 /*
- * Le rôle d'une étape.
+ * A stage's role.
  *
- * C'est l'ancrage du cycle de vie d'une release dans le plan (doc 15 §15.3).
+ * It is where a release's life cycle is anchored in the plan.
  */
 
 // A stage with no role takes no part in the life cycle.

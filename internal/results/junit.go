@@ -8,23 +8,20 @@ import (
 )
 
 /*
-JUnit XML — le format commun de PHPUnit, Cypress et de la plupart des lanceurs.
-
-« Commun » est un abus de langage : il n'a pas de schéma normatif, et chaque outil
-en produit une variante. Trois écarts comptent ici, et chacun a une conséquence
-visible s'il est ignoré.
-
-  - **La racine varie.** PHPUnit émet `<testsuites>` englobant, Cypress émet
-    parfois `<testsuite>` seul. Ne gérer que le premier ferait lire zéro test sur
-    une campagne E2E réussie.
-
-  - **Les suites s'imbriquent.** Un `<testsuite>` peut en contenir d'autres. À plat,
-    les noms de classes disparaîtraient et deux tests homonymes de fichiers
-    différents fusionneraient — c'est-à-dire un faux « échec résolu ».
-
-  - **Le temps est en secondes flottantes**, pas en millisecondes, et il manque
-    parfois.
-*/
+ * JUnit XML — the format common to PHPUnit, Cypress and most test runners.
+ *
+ * "Common" is an abuse of language: it has no normative schema, and each tool produces a variant
+ * of it. Three differences count here, and each has a visible consequence if ignored.
+ *
+ * - **The root varies.** PHPUnit emits an enclosing `<testsuites>`, Cypress sometimes emits
+ * `<testsuite>` alone. Handling only the first would read zero tests on a successful E2E campaign.
+ *
+ * - **The suites nest.** A `<testsuite>` may contain others. Flattened, the class names would
+ * disappear and two tests of the same name from different files would merge — that is, a false
+ * "failure resolved".
+ *
+ * - **The time is in floating-point seconds**, not in milliseconds, and it is sometimes missing.
+ */
 
 type junitSuites struct {
 	XMLName xml.Name     `xml:"testsuites"`
@@ -60,7 +57,7 @@ type junitDetail struct {
 	Content string `xml:",chardata"`
 }
 
-// ParseJUnit lit un rapport JUnit XML.
+// ParseJUnit reads a JUnit XML report.
 func ParseJUnit(family Family, tool string, raw []byte) (Report, error) {
 	report := Report{Family: family, Tool: tool}
 

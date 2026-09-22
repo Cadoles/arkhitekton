@@ -12,11 +12,10 @@ import (
 )
 
 /*
- * Pull requests fusionnées, pour la note de release.
+ * Merged pull requests, for the release note.
  *
- * Seules les fusionnées comptent : une PR ouverte ou refusée n'a rien livré, et
- * la faire figurer dans une note annoncerait au client une correction qui n'est
- * pas dans l'image.
+ * Only the merged ones count: a request that is open or refused delivered nothing, and putting it
+ * in a note would announce to the client a fix that is not in the image.
  */
 
 // maxPulls bounds how many pull requests are examined.

@@ -12,32 +12,29 @@ import (
 )
 
 /*
- * Le score d'une vraie release, calculé sur la vraie base.
+ * The score of a real release, computed on the real database.
  *
- * # Pourquoi ce test existe
+ * # Why this test exists
  *
- * Le score par step tient sur six tests à fixtures, dont un vérifié par
- * mutation. Aucun d'eux n'exécute la **requête de rattachement** — celle qui suit
- * la chaîne résultat → run → job → step —, et c'est précisément la pièce que
- * seules de vraies données peuvent démentir.
+ * The score by step rests on six fixture tests, one of them checked by mutation. None of them
+ * runs the **attachment query** — the one following the chain result → run → job → step — and
+ * that is precisely the piece only real data can disprove.
  *
- * Ce chantier a déjà fourni quatre défauts que les tests ne voyaient pas : la
- * forme d'un secret de clé de déploiement, un `on conflict` sans prédicat, un
- * identifiant de release lu avant son insertion, et un ordre d'écriture qui
- * rendait des artefacts introuvables. Tous constatés sur le cluster, aucun en
+ * This work has already yielded four defects the tests did not see: the shape of a deploy-key
+ * secret, an `on conflict` with no predicate, a release identifier read before its insertion, and
+ * a write order that made artifacts impossible to find. All observed on the cluster, none in a
  * test.
  *
- * # Comment le lancer
+ * # How to run it
  *
- *	kubectl -n arkhitekton port-forward svc/arkhitekton-postgres 55432:5432 &
- *	SCORE_LIVE=1 \
- *	SCORE_DATABASE_URL='postgres://dashboard:…@localhost:55432/dashboard' \
- *	SCORE_RELEASE_TAG=3.2.0-rc15 \
- *	  go test -count=1 -run Live -v ./internal/http/
+ * kubectl -n arkhitekton port-forward svc/arkhitekton-postgres 55432:5432 &
+ * SCORE_LIVE=1 \
+ * SCORE_DATABASE_URL='postgres://dashboard:…@localhost:55432/dashboard' \
+ * SCORE_RELEASE_TAG=3.2.0-rc15 \
+ *   go test -count=1 -run Live -v ./internal/http/
  *
- * **La base n'est pas jetable et n'est pas effacée** : ce test ne fait que lire.
- * C'est la différence avec les autres tests live du dépôt, qui montent leur
- * propre schéma.
+ * **The database is not throwaway and is not erased**: this test only reads. That is the
+ * difference with the repository's other live tests, which stand up their own schema.
  */
 func TestLiveTheScoreOfARealRelease(t *testing.T) {
 	if os.Getenv("SCORE_LIVE") != "1" {
@@ -85,7 +82,7 @@ func TestLiveTheScoreOfARealRelease(t *testing.T) {
 	}
 
 	/*
-	 * Ce que ce test **tient**, plutôt que ce qu'il observe.
+	 * What this test **holds**, rather than what it observes.
 	 */
 
 	// The components come from the steps, not from the families. That is the change of axis: a

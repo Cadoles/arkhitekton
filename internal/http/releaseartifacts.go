@@ -8,25 +8,22 @@ import (
 )
 
 /*
- * Ce que l'automatisation d'une release a produit.
+ * What a release's automation produced.
  *
- * # Ce que cette section remplace
+ * # What this section replaces
  *
- * L'écran listait des « images » : **un seul dépôt**, celui que la configuration
- * nomme, décliné en ses tags — construction, release, promotions. Un projet qui
- * en publie trois n'en voyait qu'un, et un projet qui produit un binaire ne
- * voyait rien du tout.
+ * The screen listed "images": **a single repository**, the one the configuration names, declined
+ * into its tags — build, release, promotions. A project publishing three saw only one, and a
+ * project producing a binary saw nothing at all.
  *
- * Elle liste désormais ce que les steps ont réellement rendu, relevé à leur
- * conclusion depuis les résultats Tekton (doc 15 §15.7). Trois constructions,
- * trois lignes, nommées par le step qui les a produites.
+ * It now lists what the steps actually returned, collected at their conclusion from the Tekton
+ * results. Three builds, three rows, named by the step that produced them.
  *
- * # Le contrôle de digest est conservé, et élargi
+ * # The digest check is kept, and widened
  *
- * L'ancienne section prouvait qu'une promotion n'avait pas reconstruit : le tag
- * promu et le tag d'origine doivent porter le **même** digest (B17). Cette
- * garantie ne se perd pas — elle s'applique maintenant à chaque image produite,
- * au lieu du seul dépôt configuré.
+ * The old section proved that a promotion had not rebuilt: the promoted tag and the original tag
+ * must carry the **same** digest. That guarantee is not lost — it now applies to every image
+ * produced, instead of the configured repository alone.
  */
 
 // planArtifactPayload is a produced artifact, as the screen reads it.

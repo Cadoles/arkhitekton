@@ -95,7 +95,7 @@ type grantRequest struct {
 	Project string `json:"project,omitempty"`
 }
 
-// Grant attribue un rôle.
+// Grant grants a role.
 func (h *AdminHandler) Grant(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {

@@ -32,10 +32,10 @@ type UserRole struct {
 	Sessions int
 }
 
-// ErrRoleNotFound signale un rôle absent.
+// ErrRoleNotFound reports a missing role.
 var ErrRoleNotFound = errors.New("role not found")
 
-// ErrLastAdmin refuse le retrait du dernier administrateur.
+// ErrLastAdmin refuses the removal of the last administrator.
 var ErrLastAdmin = errors.New(
 	"last administrator: removing them would leave the dashboard with nobody able to grant a role")
 

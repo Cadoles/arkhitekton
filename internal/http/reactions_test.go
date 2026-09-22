@@ -12,16 +12,15 @@ import (
 )
 
 /*
- * Le catalogue des faits du noyau, et la seconde vérité qu'il constitue.
+ * The catalogue of the core's facts, and the second truth it constitutes.
  *
- * `coreEventChoices` est écrit à la main : les faits du noyau n'ont pas de
- * descripteur, et leur en donner un pour la seule commodité de cette liste
- * ajouterait un registre à tenir aligné. Le prix de ce choix est que la liste peut
- * dériver de ce que les constructeurs produisent — et la dérive est **muette** :
- * l'éditeur proposerait un champ qu'aucune charge ne porte, et l'appariement
- * n'apparierait jamais.
+ * `coreEventChoices` is written by hand: the core's facts have no descriptor, and giving them one
+ * for the sole convenience of this list would add a registry to keep aligned. The price of that
+ * choice is that the list may drift from what the constructors produce — and the drift is
+ * **mute**: the editor would offer a field no payload carries, and the matching would never
+ * match.
  *
- * Ces deux tests sont le contrepoids de ce choix.
+ * These two tests are the counterweight to that choice.
  */
 
 // instant fixes the date of the example facts.
@@ -93,11 +92,10 @@ func TestEveryAnnouncedFieldExistsInThePayload(t *testing.T) {
 }
 
 /*
- * Le rôle d'une étape, vérifié et pas cru sur parole.
+ * A stage's role, checked and not taken on trust.
  *
- * Sans ce contrôle, le cycle de vie d'une release changerait par accident :
- * ajouter une notification à l'étape de construction ferait que le passage en
- * vérification dépendrait d'un webhook (doc 15 §15.3).
+ * Without this check, a release's life cycle would change by accident: adding a notification to
+ * the build stage would make the move into verification depend on a webhook.
  */
 
 // roleCatalogue returns a catalogue carrying a build and a test.

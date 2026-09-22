@@ -18,12 +18,12 @@ import (
 )
 
 /*
- * Les dépôts que le dashboard pilote.
+ * The repositories the dashboard drives.
  *
- * Descriptif pour l'instant : la table dit ce que le dashboard croit piloter et
- * ce qu'il sait en construire, mais les pipelines reçoivent encore leurs dépôts
- * par configuration. Le raccordement demandera de trancher ce que l'ordonnanceur
- * accepte d'une demande, et cette décision mérite d'être prise seule.
+ * Descriptive for now: the table says what the dashboard believes it drives and what it can build
+ * of it, but the pipelines still receive their repositories by configuration. Wiring them up will
+ * require settling what the scheduler accepts from a request, and that decision deserves to be
+ * taken on its own.
  */
 
 // Target is a buildable stage and the image repository it feeds.
@@ -117,7 +117,7 @@ func (p Project) Promotable() []Target {
 	return promoted
 }
 
-// Project décrit un dépôt piloté.
+// Project describes a driven repository.
 type Project struct {
 	ID int64
 	// Slug names the project in a URL: `/projects/mse/releases/1.8.0`. A usage name and
@@ -195,7 +195,7 @@ type Project struct {
 	UpdatedAt          time.Time
 }
 
-// ErrProjectNotFound signale un projet absent.
+// ErrProjectNotFound reports a missing project.
 var ErrProjectNotFound = errors.New("projet introuvable")
 
 // ErrNoBuildableProject reports that no declared repository is buildable.
@@ -240,7 +240,7 @@ func (db *DB) BuildableProject(ctx context.Context) (Project, error) {
 	}
 }
 
-// ErrProjectAmbiguous signale plusieurs dépôts constructibles.
+// ErrProjectAmbiguous reports several buildable repositories.
 var ErrProjectAmbiguous = errors.New("ambiguous buildable repository")
 
 // uniqueViolation is PostgreSQL's code for a broken uniqueness constraint.
@@ -418,7 +418,7 @@ func scanProject(rows pgx.Rows) (Project, error) {
 	return project, nil
 }
 
-// CreateProject déclare un dépôt.
+// CreateProject declares a repository.
 func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error) {
 	targets, err := json.Marshal(normaliseTargets(project.Targets))
 	if err != nil {
@@ -545,7 +545,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 	return nil
 }
 
-// DeleteProject retire un dépôt de la liste.
+// DeleteProject removes a repository from the list.
 func (db *DB) DeleteProject(ctx context.Context, id int64) error {
 	tag, err := db.pool.Exec(ctx, `delete from projects where id = $1`, id)
 	if err != nil {

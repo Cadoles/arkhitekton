@@ -14,11 +14,11 @@ import (
 )
 
 /*
- * Les files vues de l'API.
+ * The queues seen from the API.
  *
- * Deux choses méritent d'être tenues ici : le regroupement — une file par type,
- * y compris vide, puisque c'est quand rien ne tourne qu'on vient vérifier ce
- * qu'une file autorise — et le refus d'un plafond qui immobiliserait la file.
+ * Two things deserve to be held here: the grouping — one queue per type, including empty ones,
+ * since it is when nothing is running that one comes to check what a queue allows — and the
+ * refusal of a cap that would freeze the queue.
  */
 
 type fakeQueueStore struct {
@@ -155,7 +155,7 @@ func TestEachTypeHasItsOwnQueueEvenEmpty(t *testing.T) {
 	if unit.Kind != "unit-tests" || unit.Running != 1 || unit.Waiting != 1 {
 		t.Errorf("file unit-tests = %+v", unit)
 	}
-	// Le plafond du catalogue, faute de réglage.
+	// The catalogue's cap, failing a setting.
 	if unit.MaxConcurrent != catalog.DefaultKindConcurrency || unit.Overridden {
 		t.Errorf("cap = %d, set %v", unit.MaxConcurrent, unit.Overridden)
 	}

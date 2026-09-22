@@ -3,11 +3,11 @@ package gitea
 import "testing"
 
 /*
- * La comparaison de deux clés publiques.
+ * Comparing two public keys.
  *
- * Elle décide, seule, si les constructions d'un projet partent ou non. Un faux
- * négatif enverrait recoller une clé déjà posée ; un faux positif ferait croire
- * qu'un dépôt s'ouvre alors que le clone échouera.
+ * It alone decides whether a project's builds start. A false negative would send someone to paste
+ * a key that is already set; a false positive would suggest a repository opens when the clone
+ * will fail.
  */
 
 const cle = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBDoQT4jgoSvFdwjmhS3GhAn9/48tIieJhlrx1mpZm93"

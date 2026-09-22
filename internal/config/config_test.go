@@ -34,13 +34,13 @@ func TestLoadAPISucceedsWithCompleteEnvironment(t *testing.T) {
 
 	cfg, err := Load(RoleAPI)
 	if err != nil {
-		t.Fatalf("configuration complète refusée: %v", err)
+		t.Fatalf("complete configuration refused: %v", err)
 	}
 	if cfg.Storage.Region != "NUO-Region" {
-		t.Errorf("région par défaut = %q, attendu NUO-Region: une région erronée invalide la signature SigV4", cfg.Storage.Region)
+		t.Errorf("default region = %q, expected NUO-Region: a wrong region invalidates the SigV4 signature", cfg.Storage.Region)
 	}
 	if cfg.Storage.Bucket != "arkhitekton" {
-		t.Errorf("bucket par défaut = %q", cfg.Storage.Bucket)
+		t.Errorf("default bucket = %q", cfg.Storage.Bucket)
 	}
 }
 
@@ -51,14 +51,14 @@ func TestLoadReportsEveryMissingVariableAtOnce(t *testing.T) {
 
 	_, err := Load(RoleAPI)
 	if err == nil {
-		t.Fatal("une configuration vide doit être refusée")
+		t.Fatal("an empty configuration must be refused")
 	}
 	for _, expected := range []string{
 		"DATABASE_URL", "PUBLIC_URL", "OIDC_ISSUER_URL",
 		"OIDC_CLIENT_ID", "BOOTSTRAP_ADMINS", "MINIO_ENDPOINT",
 	} {
 		if !strings.Contains(err.Error(), expected) {
-			t.Errorf("%s absent du rapport d'erreur", expected)
+			t.Errorf("%s missing from the error report", expected)
 		}
 	}
 }
@@ -73,7 +73,7 @@ func TestLoadRejectsAPIWithoutBootstrapAdmins(t *testing.T) {
 
 	_, err := Load(RoleAPI)
 	if err == nil || !strings.Contains(err.Error(), "BOOTSTRAP_ADMINS") {
-		t.Fatalf("attendu un refus sur BOOTSTRAP_ADMINS, obtenu: %v", err)
+		t.Fatalf("expected a refusal on BOOTSTRAP_ADMINS, got: %v", err)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestLoadRejectsPresignTTLShorterThanLongestPipeline(t *testing.T) {
 
 	_, err := Load(RoleAPI)
 	if err == nil || !strings.Contains(err.Error(), "MINIO_PRESIGN_TTL") {
-		t.Fatalf("attendu un refus sur MINIO_PRESIGN_TTL, obtenu: %v", err)
+		t.Fatalf("expected a refusal on MINIO_PRESIGN_TTL, got: %v", err)
 	}
 }
 
@@ -95,7 +95,7 @@ func TestLoadMigrateRequiresOnlyDatabase(t *testing.T) {
 	setEnv(t, map[string]string{"DATABASE_URL": "postgres://u:p@db:5432/mse"})
 
 	if _, err := Load(RoleMigrate); err != nil {
-		t.Fatalf("migrate ne devrait exiger que DATABASE_URL: %v", err)
+		t.Fatalf("migrate should require only DATABASE_URL: %v", err)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestLoadWorkerDoesNotRequireOIDC(t *testing.T) {
 	})
 
 	if _, err := Load(RoleWorker); err != nil {
-		t.Fatalf("worker ne devrait pas exiger OIDC: %v", err)
+		t.Fatalf("worker should not require OIDC: %v", err)
 	}
 }
 
@@ -116,7 +116,7 @@ func TestLoadRejectsUnknownRole(t *testing.T) {
 	setEnv(t, map[string]string{"DATABASE_URL": "postgres://u:p@db:5432/mse"})
 
 	if _, err := Load(Role("frontend")); err == nil {
-		t.Fatal("un rôle inconnu doit être refusé")
+		t.Fatal("an unknown role must be refused")
 	}
 }
 
@@ -132,15 +132,15 @@ func TestRedactedKeepsDSNStructureAndHidesPassword(t *testing.T) {
 	got := cfg.Redacted()
 
 	if strings.Contains(got.Database.DSN, "s3cr3t") {
-		t.Error("le mot de passe fuit dans le DSN masqué")
+		t.Error("the password leaks into the masked DSN")
 	}
 	for _, keep := range []string{"db.example.fr:5432", "/mse", "sslmode=require", "mse:"} {
 		if !strings.Contains(got.Database.DSN, keep) {
-			t.Errorf("le DSN masqué a perdu %q, il n'est plus diagnosticable: %s", keep, got.Database.DSN)
+			t.Errorf("the masked DSN lost %q, it can no longer be diagnosed: %s", keep, got.Database.DSN)
 		}
 	}
 	if got.Storage.SecretKey == "sk" || got.OIDC.ClientSecret == "cs" {
-		t.Error("un secret n'a pas été masqué")
+		t.Error("a secret was not masked")
 	}
 }
 
@@ -150,7 +150,7 @@ func TestRedactedDistinguishesEmptyFromHidden(t *testing.T) {
 	got := Config{}.Redacted()
 
 	if got.Storage.SecretKey != "" || got.OIDC.ClientSecret != "" || got.Database.DSN != "" {
-		t.Error("un secret absent ne doit pas ressembler à un secret masqué")
+		t.Error("a missing secret must not look like a masked one")
 	}
 }
 
@@ -160,15 +160,15 @@ func TestListOrIgnoresEmptyEntries(t *testing.T) {
 	got := listOr("BOOTSTRAP_ADMINS", nil)
 
 	if len(got) != 2 || got[0] != "alice" || got[1] != "bob" {
-		t.Errorf("découpage incorrect: %#v", got)
+		t.Errorf("wrong split: %#v", got)
 	}
 }
 
 func TestDurationOrFallsBackOnInvalidValue(t *testing.T) {
-	t.Setenv("SESSION_TTL", "pas-une-durée")
+	t.Setenv("SESSION_TTL", "not-a-duration")
 
 	if got := durationOr("SESSION_TTL", 12*time.Hour); got != 12*time.Hour {
-		t.Errorf("attendu le repli 12h, obtenu %s", got)
+		t.Errorf("expected the 12h fallback, got %s", got)
 	}
 }
 
@@ -185,13 +185,13 @@ func TestUneVariableRenommeeEmpecheLeDemarrage(t *testing.T) {
 
 	_, err := Load(RoleAPI)
 	if err == nil {
-		t.Fatal("une variable retirée doit empêcher le démarrage")
+		t.Fatal("a removed variable must prevent start-up")
 	}
 	// The message must name the replacement: saying only "unknown" would force
 	// reading the source to find out what to use instead.
 	if !strings.Contains(err.Error(), "GITEA_TOKEN") ||
 		!strings.Contains(err.Error(), "FORGE_TOKEN") {
-		t.Errorf("message %q — il doit nommer l'ancienne et la nouvelle", err)
+		t.Errorf("message %q — it must name the old one and the new one", err)
 	}
 }
 
@@ -204,7 +204,7 @@ func TestToutesLesVariablesRenommeesSontSignaleesEnsemble(t *testing.T) {
 
 	_, err := Load(RoleAPI)
 	if err == nil {
-		t.Fatal("deux variables retirées doivent empêcher le démarrage")
+		t.Fatal("two removed variables must prevent start-up")
 	}
 	for _, name := range []string{"GITEA_URL", "FORGE_URL", "REDMINE_API_KEY", "TRACKER_API_KEY"} {
 		if !strings.Contains(err.Error(), name) {
@@ -221,7 +221,7 @@ func TestUneVariableRenommeeVideCompteAussi(t *testing.T) {
 	setEnv(t, env)
 
 	if _, err := Load(RoleAPI); err == nil {
-		t.Error("une variable retirée, même vide, doit empêcher le démarrage")
+		t.Error("a removed variable, even empty, must prevent start-up")
 	}
 }
 
@@ -237,12 +237,12 @@ func TestLeNouveauVocabulaireEstAccepte(t *testing.T) {
 
 	cfg, err := Load(RoleAPI)
 	if err != nil {
-		t.Fatalf("configuration refusée: %v", err)
+		t.Fatalf("configuration refused: %v", err)
 	}
 	if !cfg.Forge.Configured() {
-		t.Error("la forge devrait être configurée")
+		t.Error("the forge should be configured")
 	}
 	if cfg.Tracker.URL != "https://suivi.example" {
-		t.Errorf("URL du suivi = %q", cfg.Tracker.URL)
+		t.Errorf("tracker URL = %q", cfg.Tracker.URL)
 	}
 }

@@ -12,21 +12,19 @@ import (
 )
 
 /*
- * L'automatisation d'une release.
+ * A release's automation.
  *
- * Une par projet : « que fait-on quand une release est déclarée ? » n'a qu'une
- * réponse, et deux en ouvriraient deux exécutions dont chacune ferait avancer
- * l'état de la release.
+ * One per project: "what do we do when a release is declared?" has a single answer, and two
+ * would open two runs each of which would advance the release's state.
  *
- * # L'absence est une valeur
+ * # Absence is a value
  *
- * Trois états, et non deux. Pas de ligne — personne n'a rien déclaré, et la
- * reprise du worker compose depuis `targets`. Une ligne au plan vide — quelqu'un
- * a vidé l'automatisation, et ce projet ne construit plus. Une ligne au plan
- * garni — le cas courant.
+ * Three states, not two. No row — nobody declared anything, and the worker's catch-up composes
+ * from `targets`. A row with an empty plan — someone emptied the automation, and this project no
+ * longer builds. A row with a filled plan — the common case.
  *
- * Confondre les deux premiers ferait réapparaître au redémarrage une
- * automatisation qu'on vient d'effacer.
+ * Confusing the first two would make an automation one has just erased reappear at the next
+ * start-up.
  */
 
 // ErrNoAutomation says no automation was ever recorded.

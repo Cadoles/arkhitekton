@@ -230,7 +230,7 @@ func TestAnOpenBraceDoesNotLoop(t *testing.T) {
 		}
 	}
 
-	// Le cas nominal reste juste au milieu du bruit.
+	// The nominal case stays right in the middle of the noise.
 	if got := Expand("{a}{", map[string]string{"a": "x"}); got != "x{" {
 		t.Errorf("template returned = %q", got)
 	}

@@ -28,7 +28,7 @@ type State string
 const (
 	// StateDraft: created in the dashboard, git tag not yet set.
 	StateDraft State = "draft"
-	// StateBuilding : tag posé, `build-image` en cours.
+	// StateBuilding: tag set, `build-image` running.
 	StateBuilding State = "building"
 	// StateVerifying: images available, the test campaign under way or partial.
 	//
@@ -101,7 +101,7 @@ func CanTransition(from, to State) bool {
 	return slices.Contains(transitions[from], to)
 }
 
-// ErrInvalidTransition signale un passage refusé.
+// ErrInvalidTransition reports a refused transition.
 type ErrInvalidTransition struct {
 	From State
 	To   State

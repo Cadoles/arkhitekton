@@ -10,7 +10,7 @@ const (
 	VerdictPass Verdict = "pass"
 	// VerdictWarn: degraded by less than 10%.
 	VerdictWarn Verdict = "warn"
-	// VerdictFail : dégradé au-delà.
+	// VerdictFail: degraded beyond it.
 	VerdictFail Verdict = "fail"
 	// VerdictNA: nothing to compare, or a measurement that cannot be compared.
 	VerdictNA Verdict = "na"

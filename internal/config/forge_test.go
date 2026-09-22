@@ -34,7 +34,7 @@ func TestCloneURLSuitLeDepotConfigure(t *testing.T) {
 	for _, c := range cases {
 		cfg := ForgeConfig{URL: c.url, Token: "x", Repository: c.repo}
 		if got := cfg.CloneURL(c.port); got != c.want {
-			t.Errorf("CloneURL(%q, %q, port=%q) = %q, attendu %q",
+			t.Errorf("CloneURL(%q, %q, port=%q) = %q, expected %q",
 				c.url, c.repo, c.port, got, c.want)
 		}
 	}
@@ -48,10 +48,10 @@ func TestSansForgeLaDerivationSabstient(t *testing.T) {
 		{},
 		{URL: "https://forge.cadoles.com"},
 		{Token: "x", Repository: "a/b"},
-		{URL: "://cassé", Token: "x", Repository: "a/b"},
+		{URL: "://broken", Token: "x", Repository: "a/b"},
 	} {
 		if got := cfg.CloneURL(""); got != "" {
-			t.Errorf("%+v: CloneURL rend %q, attendu vide", cfg, got)
+			t.Errorf("%+v: CloneURL returns %q, expected empty", cfg, got)
 		}
 	}
 }
@@ -81,7 +81,7 @@ func TestLeDepotSeRetrouveDepuisSonURLDeClonage(t *testing.T) {
 	for _, tc := range cases {
 		repository, forge := RepositoryFromCloneURL(tc.clone)
 		if repository != tc.repository || forge != tc.forge {
-			t.Errorf("%q → %q / %q, attendu %q / %q",
+			t.Errorf("%q → %q / %q, expected %q / %q",
 				tc.clone, repository, forge, tc.repository, tc.forge)
 		}
 	}
@@ -98,14 +98,14 @@ func TestCloneURLForSuitLeDepotDUnProjet(t *testing.T) {
 	// The SSH port cannot be derived from the HTTPS URL: without it, the constant.
 	if got := CloneURLFor("https://forge.example.fr", "vcarroy/mse.git", ""); got !=
 		"ssh://git@forge.example.fr:"+DefaultForgeSSHPort+"/vcarroy/mse.git" {
-		t.Errorf("URL sans port = %q", got)
+		t.Errorf("URL with no port = %q", got)
 	}
 
 	// A project declared before its forge was set yields nothing: the caller then
 	// falls back to the instance repository.
 	for _, cas := range [][2]string{{"", "vcarroy/mse"}, {"https://forge.example.fr", "  "}} {
 		if got := CloneURLFor(cas[0], cas[1], "2222"); got != "" {
-			t.Errorf("forge %q dépôt %q: %q, attendu aucune URL", cas[0], cas[1], got)
+			t.Errorf("forge %q repository %q: %q, expected no URL", cas[0], cas[1], got)
 		}
 	}
 }

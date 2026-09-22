@@ -16,12 +16,11 @@ import (
 )
 
 /*
- * Les réglages de plugins.
+ * The plugins' settings.
  *
- * Un écran qui reçoit des clés d'API depuis un navigateur : les tests portent
- * donc d'abord sur ce qui ne doit **jamais** sortir, puis sur les deux façons de
- * perdre une valeur — l'effacer en croyant ne rien changer, et la refuser en
- * croyant la valider.
+ * A screen that receives API keys from a browser: the tests therefore bear first on what must
+ * **never** come out, then on the two ways of losing a value — erasing it while believing one
+ * changes nothing, and refusing it while believing one validates it.
  */
 
 const cleDeTest = "sN0Xk1t2Qv8yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sQ="
@@ -225,7 +224,7 @@ func TestWithoutASealingKeyTheSensitiveFieldIsRefused(t *testing.T) {
 }
 
 /*
- * Les deux façons de perdre une valeur.
+ * The two ways of losing a value.
  */
 
 // A sensitive field left empty is kept, not cleared.
@@ -252,7 +251,7 @@ func TestASensitiveFieldLeftEmptyIsKept(t *testing.T) {
 	}
 }
 
-// L'effacement existe, et demande un step distinct.
+// Clearing exists, and requires a distinct step.
 func TestClearingASensitiveFieldIsExplicit(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, cleDeTest)
@@ -294,7 +293,7 @@ func TestAnUnknownPluginAnswers404(t *testing.T) {
 }
 
 /*
- * La portée projet.
+ * The project scope.
  */
 
 // Only the plugins that are decided per project, and that the instance has not switched

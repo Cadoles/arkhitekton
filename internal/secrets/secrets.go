@@ -239,7 +239,7 @@ func (c *Cipher) NeedsResealing(sealed string) bool {
 	return ok && keyID != c.sealerID
 }
 
-// splitEnvelope décompose `version:empreinte:charge`.
+// splitEnvelope splits `version:fingerprint:payload`.
 func splitEnvelope(sealed string) (version, keyID, payload string, ok bool) {
 	parts := strings.SplitN(sealed, ":", 3)
 	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {

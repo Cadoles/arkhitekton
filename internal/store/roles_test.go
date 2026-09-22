@@ -92,7 +92,7 @@ func TestTheLastAdminCannotBeRemoved(t *testing.T) {
 	if err := db.RevokeRole(ctx, "alice"); !errors.Is(err, ErrLastAdmin) {
 		t.Errorf("error = %v, expected ErrLastAdmin", err)
 	}
-	// Ni par retrait, ni par rétrogradation.
+	// Neither by removal, nor by demotion.
 	if err := db.SetRole(ctx, "alice", "alice", "viewer", "alice"); !errors.Is(err, ErrLastAdmin) {
 		t.Errorf("demotion = %v, expected ErrLastAdmin", err)
 	}

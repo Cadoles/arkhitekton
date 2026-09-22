@@ -14,27 +14,24 @@ import (
 )
 
 /*
- * Les exécutions de plan.
+ * The plan runs.
  *
- * **Un moteur qu'on ne peut pas déboguer est pire qu'un comportement figé**, parce
- * qu'on ne sait plus ce qui a eu lieu (doc 14 §14.10). Cette vue est la
- * contrepartie de l'éditeur : elle dit ce qu'une réaction a réellement fait.
+ * **An engine one cannot debug is worse than frozen behaviour**, because one no longer knows what
+ * took place. This view is the editor's counterpart: it says what a reaction actually did.
  *
- * # Deux niveaux de lecture, et pourquoi
+ * # Two levels of reading, and why
  *
- * Ce qui s'est passé — quelle étape, quel step, quelle issue — se lit **sans
- * privilège** : c'est la même question que « pourquoi mes tests n'ont pas
- * démarré », et la chaîne de vérification passe désormais par ici. La réserver à
- * l'administration ferait payer un privilège pour un diagnostic ordinaire.
+ * What happened — which stage, which step, which outcome — is read **with no privilege**: it is
+ * the same question as "why did my tests not start", and the verification chain now goes through
+ * here. Reserving it to administration would charge a privilege for an ordinary diagnosis.
  *
- * Le **détail** d'un step, lui, porte l'extrait de réponse d'un tiers : ce qu'un
- * webhook a répondu, avec ce que ce tiers a bien voulu y mettre. Il n'est rendu
- * qu'à l'administration. Ce n'est pas une précaution de principe — c'est que
- * personne n'a de prise sur ce qu'un destinataire renvoie, et qu'un message
- * d'erreur de son côté peut nommer son infrastructure.
+ * A step's **detail**, on the other hand, carries a third party's response excerpt: what a
+ * webhook answered, with whatever that third party chose to put there. It is returned to
+ * administration only. It is no precaution of principle — it is that nobody has any hold on what
+ * a recipient returns, and that an error message on its side may name its infrastructure.
  *
- * Les en-têtes **envoyés** n'y figurent jamais : ils portent l'authentification,
- * et rien ne les écrit (voir `internal/webhook`).
+ * The headers **sent** never appear in it: they carry the authentication, and nothing writes them
+ * (see `internal/webhook`).
  */
 
 // PlanRunStore is what the view needs from the database.

@@ -161,7 +161,7 @@ func TestRequireDeployReadsEnvironmentFromPath(t *testing.T) {
 		{auth.RoleOperator, "unstable", http.StatusOK},
 		{auth.RoleOperator, "prod", http.StatusForbidden},
 		{auth.RoleReleaser, "prod", http.StatusOK},
-		// Environnement non déclaré : échec fermé.
+		// An undeclared environment: fail closed.
 		{auth.RoleOperator, "unknown", http.StatusForbidden},
 	}
 

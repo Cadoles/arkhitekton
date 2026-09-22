@@ -34,7 +34,7 @@ type chunkWriter struct {
 	lastTimestamp *time.Time
 }
 
-// newChunkWriter prépare l'écriture et détermine le point de reprise.
+// newChunkWriter prepares the writing and determines the resume point.
 func newChunkWriter(
 	ctx context.Context, storage *blob.Client, target Target, step Step, index, limit int,
 ) (*chunkWriter, error) {

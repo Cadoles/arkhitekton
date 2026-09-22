@@ -48,7 +48,7 @@ func TestAFlowOpenedByOneReplicaIsConsumableByAnother(t *testing.T) {
 	}
 }
 
-// Un `state` rejouable permettrait de rejouer un code d'autorisation intercepté.
+// A replayable `state` would allow replaying an intercepted authorization code.
 func TestDBConsumeIsSingleUse(t *testing.T) {
 	_, store := flowStores(t)
 	ctx := context.Background()
@@ -101,7 +101,7 @@ func TestAnExpiredFlowIsRefusedAndRemoved(t *testing.T) {
 	pool, _ := flowStores(t)
 	ctx := context.Background()
 
-	// TTL négatif : l'état naît expiré.
+	// A negative TTL: the state is born expired.
 	store := NewDBFlowStore(pool, time.Nanosecond)
 	flow, err := store.Begin(ctx, "")
 	if err != nil {

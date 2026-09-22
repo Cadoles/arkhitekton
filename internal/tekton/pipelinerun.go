@@ -15,7 +15,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 )
 
-// Request décrit le run à créer.
+// Request describes the run to create.
 type Request struct {
 	// Name is decided by the scheduler before the call, and already recorded in the
 	// database. That is what makes an orphaned run impossible.

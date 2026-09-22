@@ -100,7 +100,7 @@ func (m *multiStore) RecordEvent(_ context.Context, fact event.Event) (bool, err
 	return true, nil
 }
 
-// trackerProbe assemble la sonde et sa boucle sur un store donné.
+// trackerProbe assembles the probe and its loop on a given store.
 func trackerProbe(
 	t *testing.T, db *multiStore, opener SecretOpener,
 	connect TrackerConnector,

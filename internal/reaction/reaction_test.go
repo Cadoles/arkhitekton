@@ -76,7 +76,7 @@ func TestAnEmptyMatchLeavesOnAnyFactOfThatType(t *testing.T) {
 }
 
 /*
- * La validation, faite à l'enregistrement.
+ * The validation, done when a reaction is recorded.
  */
 
 // A reaction with no name is refused: the name is how it is found in a list, and
@@ -125,7 +125,7 @@ func TestThePlanIsValidatedWithTheReaction(t *testing.T) {
 }
 
 /*
- * Ce que la couche au-dessus doit vérifier.
+ * What the layer above must check.
  */
 
 // References are listed by kind, so the layer that has the registries can check

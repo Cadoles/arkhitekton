@@ -31,7 +31,7 @@ type Artifact struct {
 	GeneratedAt time.Time
 }
 
-// ErrArtifactNotFound signale un artefact absent.
+// ErrArtifactNotFound reports a missing artifact.
 var ErrArtifactNotFound = errors.New("artefact introuvable")
 
 // RecordArtifact records a generated deliverable.

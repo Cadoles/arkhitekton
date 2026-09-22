@@ -404,7 +404,7 @@ func TestTheFilterCoversEveryPage(t *testing.T) {
 	releaseID := releaseFor(t, db, "1.8.0-rc1")
 	runID := testRun(t, db, "run-1")
 	cases := manyCases(1200)
-	// Un cas reconnaissable, volontairement placé hors de la première page.
+	// A recognisable case, deliberately placed beyond the first page.
 	cases[900].Name = "connexion-oidc"
 	saveCases(t, db, runID, releaseID, "e2e", cases)
 	reportID := reportOf(t, db, releaseID, "e2e")

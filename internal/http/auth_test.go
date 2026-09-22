@@ -196,7 +196,7 @@ func TestCallbackRejectsUnknownState(t *testing.T) {
 	}
 }
 
-// Un state rejoué permettrait de rejouer un code d'autorisation intercepté.
+// A replayed state would allow replaying an intercepted authorization code.
 func TestCallbackRejectsReplayedState(t *testing.T) {
 	ex := &stubExchanger{claims: auth.Claims{Subject: "sub-1"}}
 	handler, flows := newAuthHandler(ex, &stubSessions{created: auth.Session{ID: "s"}})

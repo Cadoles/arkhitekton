@@ -360,7 +360,7 @@ func TestAPartialBuildDoesNotAdvanceTheRelease(t *testing.T) {
 	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
 	progress := plan.Start(sujet)
 
-	// La première image a conclu, la seconde tourne encore.
+	// The first image concluded, the second is still running.
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 0}, plan.Succeeded)
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 1}, plan.Running)
 

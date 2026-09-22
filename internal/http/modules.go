@@ -11,18 +11,17 @@ import (
 )
 
 /*
- * Les modules actifs d'une instance.
+ * An instance's active modules.
  *
- * Un module apporte un domaine entier — le plugin MSE, ses environnements et sa
- * promotion. Éteint, ses routes répondent 404 et l'interface ne les propose pas :
- * une instance sans lui doit rester cohérente (doc 16 §16.8).
+ * A module brings a whole domain — the MSE plugin, its environments and its promotion. Switched
+ * off, its routes answer 404 and the interface does not offer them: an instance without it must
+ * stay coherent.
  *
- * # Lu à chaque requête
+ * # Read at each request
  *
- * L'interrupteur se bascule depuis l'écran d'administration. Le lire au
- * démarrage de l'`api` le ferait mentir jusqu'au prochain déploiement, et
- * l'onglet resterait affiché après qu'on l'a éteint. La lecture porte sur une
- * table de quelques lignes.
+ * The switch is flipped from the administration screen. Reading it when the `api` starts would
+ * make it lie until the next deployment, and the tab would stay displayed after it was switched
+ * off. The read bears on a table of a few rows.
  */
 
 // PluginReader returns the plugins' settings, for the instance and for a project.

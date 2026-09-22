@@ -43,7 +43,7 @@ type Releases interface {
 	BuildableProject(ctx context.Context) (store.Project, error)
 }
 
-// QueueHandler expose la file et le lancement.
+// QueueHandler exposes the queue and the launching.
 type QueueHandler struct {
 	queue   QueueStore
 	catalog *catalog.Catalog
@@ -89,7 +89,7 @@ type jobPayload struct {
 	RunName     string `json:"run_name,omitempty"`
 }
 
-// inputPayload décrit un champ du formulaire de lancement.
+// inputPayload describes a field of the launch form.
 type inputPayload struct {
 	Name     string `json:"name"`
 	Required bool   `json:"required"`
@@ -322,7 +322,7 @@ func (h *QueueHandler) projectOf(ctx context.Context, slug string) (int64, error
 	return project.ID, nil
 }
 
-// suggestedReleases borne la liste proposée.
+// suggestedReleases bounds the list offered.
 const suggestedReleases = 30
 
 func pipelineLabel(pipeline catalog.Pipeline) string {

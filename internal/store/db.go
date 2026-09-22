@@ -10,7 +10,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 )
 
-// DB enveloppe le pool de connexions PostgreSQL.
+// DB wraps the PostgreSQL connection pool.
 type DB struct {
 	pool *pgxpool.Pool
 }
@@ -48,7 +48,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*DB, error) {
 // Pool exposes the underlying pool to the layers that run queries.
 func (db *DB) Pool() *pgxpool.Pool { return db.pool }
 
-// Ping alimente la sonde /readyz.
+// Ping feeds the /readyz probe.
 func (db *DB) Ping(ctx context.Context) error {
 	if db == nil || db.pool == nil {
 		return fmt.Errorf("pool not initialised")

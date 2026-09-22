@@ -15,9 +15,9 @@ import (
 )
 
 /*
- * Les modules, et la porte de doc 16 §16.8 : une instance sans le plugin MSE
- * reste cohérente — ses routes répondent 404 et `/me` ne l'annonce pas. Les
- * cibles de promotion d'une release sont l'une de ces routes (doc 16 §16.14).
+ * The modules, and the door: an instance without the MSE plugin stays coherent — its routes
+ * answer 404 and `/me` does not announce it. A release's promotion targets are one of those
+ * routes.
  */
 
 type lecteurDePlugins struct {

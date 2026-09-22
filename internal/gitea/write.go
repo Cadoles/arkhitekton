@@ -14,24 +14,22 @@ import (
 )
 
 /*
- * Écriture sur la forge : ce qui s'ajoute, jamais ce qui s'enlève.
+ * Writing to the forge: what is added, never what is taken away.
  *
- * Client **distinct** de celui en lecture, comme annoncé quand celui-ci a été
- * écrit. La séparation n'est pas cosmétique : le transport de lecture refuse tout
- * ce qui n'est pas GET ou HEAD, et l'assouplir aurait fait qu'un appel de lecture
- * mal écrit puisse écrire. Ici la permission est explicite, et son périmètre tient
- * dans une liste de méthodes HTTP.
+ * A client **distinct** from the reading one, as announced when the latter was written. The
+ * separation is not cosmetic: the reading transport refuses anything that is not GET or HEAD, and
+ * relaxing it would have let a badly written read call write. Here the permission is explicit, and
+ * its scope fits in a list of HTTP methods.
  *
- * Trois gestes aujourd'hui : poser un tag, poser un statut de commit, ajouter un
- * commentaire. Les deux derniers viennent des actions que le plugin Gitea déclare.
- * Ils partagent une propriété qui vaut d'être nommée : **ils ajoutent**. Un statut
- * remplace le précédent de même contexte, un commentaire s'ajoute à un fil ; ni
- * l'un ni l'autre ne fait disparaître ce qui était là.
+ * Three acts today: setting a tag, setting a commit status, adding a comment. The last two come
+ * from the actions the Gitea plugin declares. They share a property worth naming: **they add**. A
+ * status replaces the previous one of the same context, a comment is added to a thread; neither
+ * makes what was there disappear.
  *
- * `DELETE` reste refusé, et `PATCH` avec lui : poser un tag est réparable — on en
- * pose un autre — tandis qu'en supprimer un détruit la référence d'un livrable,
- * geste qu'aucun automate ne devrait pouvoir faire (B3). La même prudence vaut
- * pour un commentaire d'autrui qu'une action mal réglée pourrait réécrire.
+ * `DELETE` stays refused, and `PATCH` with it: setting a tag is repairable — one sets another —
+ * whereas deleting one destroys a deliverable's reference, an act no automaton should be able to
+ * perform. The same caution holds for someone else's comment that a badly set action could
+ * rewrite.
  */
 
 // ErrTagExists reports a tag already set. It wraps the contract's sentinel: setting a

@@ -35,7 +35,7 @@ var acceptManifests = strings.Join([]string{
 	"application/vnd.docker.distribution.manifest.v2+json",
 }, ", ")
 
-// Client interroge un registre.
+// Client queries a registry.
 type Client struct {
 	base     *url.URL
 	username string
@@ -233,7 +233,7 @@ func (c *Client) retry(request *http.Request) (*http.Response, error) {
 	return response, nil
 }
 
-// token obtient un jeton porteur auprès du service désigné par le défi.
+// token obtains a bearer token from the service the challenge names.
 func (c *Client) token(ctx context.Context, challenge string) (string, error) {
 	parameters := parseChallenge(challenge)
 
@@ -290,7 +290,7 @@ func (c *Client) token(ctx context.Context, challenge string) (string, error) {
 	return "", errors.New("the authorization service returned no token")
 }
 
-// parseChallenge découpe un en-tête `WWW-Authenticate` de type Bearer.
+// parseChallenge splits a Bearer `WWW-Authenticate` header.
 func parseChallenge(challenge string) map[string]string {
 	parameters := make(map[string]string)
 

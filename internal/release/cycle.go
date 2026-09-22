@@ -9,29 +9,25 @@ import (
 )
 
 /*
- * Le cycle de release : quelles natures existent, et ce que chacune fait.
+ * The release cycle: which kinds exist, and what each does.
  *
- * `pre` / `final` / `patch` ont d'abord été classés « génériques » au motif que
- * le vocabulaire est courant. C'était une erreur de méthode : la fréquence d'un
- * mot ne dit rien de sa généralité, et il fallait regarder ce que ces natures
- * *font* (doc 12 §12.4).
+ * `pre` / `final` / `patch` were first classified as "generic" on the grounds that the vocabulary
+ * is common. It was a mistake of method: the frequency of a word says nothing about its
+ * generality, and what these kinds *do* had to be looked at.
  *
- * Elles ne nomment pas trois vocables mais trois points dans un espace de traits
- * indépendants — et le tableau montrait le défaut : **`pre` et `patch` ne
- * diffèrent que par la forme du tag et la permission.** Leur comportement est le
- * même, construire depuis du code. Trois noms pour deux comportements, et un
- * `check (kind in ('pre','final','patch'))` en base qui interdisait d'en
- * déclarer un quatrième.
+ * They do not name three words but three points in a space of independent traits — and the table
+ * showed the defect: **`pre` and `patch` differ only in the tag's shape and the permission.**
+ * Their behaviour is the same, building from code. Three names for two behaviours, and a `check
+ * (kind in ('pre','final','patch'))` in the database that forbade declaring a fourth.
  *
- * Un projet en `alpha` / `beta` / `rc` / `ga` n'entrait pas dans ces trois cases.
- * Un projet qui ne distingue rien devait en choisir une arbitrairement.
+ * A project on `alpha` / `beta` / `rc` / `ga` did not fit those three boxes. A project that
+ * distinguishes nothing had to choose one arbitrarily.
  *
- * # Ce que la séparation gagne
+ * # What the separation gains
  *
- * [B17] — une finale est un re-tag, jamais une reconstruction — cesse d'être une
- * propriété de la **valeur** `final` pour devenir une propriété du **mode**
- * `retag`. Elle vaut alors pour toute nature qui le déclare, quel que soit son
- * nom, et le code qui la tient ne cite plus aucune nature.
+ * The invariant — a final is a re-tag, never a rebuild — stops being a property of the **value**
+ * `final` and becomes a property of the **mode** `retag`. It then holds for any kind that declares
+ * it, whatever its name, and the code that holds it no longer cites any kind.
  */
 
 // Mode is what a kind does to produce its image.

@@ -118,24 +118,21 @@ func (c *Catalog) EnvironmentsOf(project string) []Environment {
 func (e Environment) IsSensitive() bool { return e.Sensitive == nil || *e.Sensitive }
 
 /*
- * Ce qu'un pipeline laisse derrière lui.
+ * What a pipeline leaves behind it.
  *
- * Le catalogue classait par un booléen, `verification`, dont le commentaire disait
- * deux choses : « une construction réussie enchaîne ce pipeline » **et** « il est
- * relançable seul ». Deux propriétés indépendantes, un seul drapeau — et le
- * catalogue en service portait déjà la ligne où elles divergent : `e2e-tests`
- * publie trois artefacts et déclare `verification: false`, parce que le drapeau
- * exprime l'enchaînement et qu'une campagne E2E vise un environnement partagé.
+ * The catalogue classified by a boolean, `verification`, whose comment said two things: "a
+ * successful build chains this pipeline" **and** "it can be re-run on its own". Two independent
+ * properties, a single flag — and the catalogue in service already carried the line where they
+ * diverge: `e2e-tests` publishes three artifacts and declares `verification: false`, because the
+ * flag expresses the chaining and an E2E campaign targets a shared environment.
  *
- * `Produces` nomme le second axe, celui que `verification` ne disait que par
- * corrélation. C'est ce qui rend le contrat de doc 13 **vérifiable** : un
- * pipeline qui annonce des résultats et n'en publie aucun devient une rupture
- * qu'on peut désigner, au lieu d'un écran vide dont rien ne dit la cause
- * (doc 12 §12.6, doc 13 §13.1).
+ * `Produces` names the second axis, the one `verification` stated only by correlation. It is what
+ * makes the contract **checkable**: a pipeline that announces results and publishes none becomes a
+ * breach one can point at, instead of an empty screen with nothing saying its cause.
  *
- * Le mot « famille » n'était pas disponible : il désigne déjà une famille de
- * résultats de tests — `unit`, `static`, `e2e` — et s'en resservir un niveau plus
- * haut aurait produit deux sens du même mot, à demeure.
+ * The word "family" was not available: it already names a family of test results — `unit`,
+ * `static`, `e2e` — and reusing it one level up would have produced two meanings of the same word,
+ * permanently.
  */
 
 // Product names something a pipeline produces.
