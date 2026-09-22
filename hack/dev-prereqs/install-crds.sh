@@ -45,12 +45,12 @@ echo "== CRD PortalData =="
 # (misc/k8s/kustomization/base/crds/portaldata-crd.yaml) and a copy here would diverge silently
 # — the dashboard would then read a schema the application no longer writes.
 if kubectl get crd portaldata.mse.cnous.fr >/dev/null 2>&1; then
-  echo "  déjà installée"
+  echo "  already installed"
 else
-  echo "  ABSENTE. Elle est fournie par le dépôt mse :" >&2
+  echo "  MISSING. It is supplied by the mse repository:" >&2
   echo "    kubectl apply -f ../mse/misc/k8s/kustomization/base/crds/portaldata-crd.yaml" >&2
   exit 1
 fi
 
-echo "== Objets Flux de développement =="
+echo "== Development Flux objects =="
 kubectl apply -k "$(dirname "$0")/fixtures"

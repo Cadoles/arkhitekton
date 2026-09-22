@@ -1,4 +1,4 @@
-name: Intégration continue
+name: Continuous integration
 
 # Checks and publication live in the same file for a single reason: the publication must be
 # able to depend on the checks. Two separate workflows cannot wait for each other, and a tag
@@ -63,7 +63,7 @@ jobs:
           MINIO_ROOT_PASSWORD: minioadmin
 
     steps:
-      - name: Récupération des sources
+      - name: Check out the sources
         uses: actions/checkout@v4
 
       - name: Installation de Go
@@ -84,12 +84,12 @@ jobs:
           set -eu
           for _ in $(seq 1 60); do
             if curl -sf http://minio:9000/minio/health/live > /dev/null; then
-              echo "MinIO prêt"
+              echo "MinIO ready"
               exit 0
             fi
             sleep 1
           done
-          echo "MinIO n'a pas répondu en 60 s" >&2
+          echo "MinIO did not answer within 60 s" >&2
           exit 1
 
       - name: Tests
@@ -101,10 +101,10 @@ jobs:
         run: make test-ci
 
   vuln:
-    name: Vulnérabilités des dépendances
+    name: Dependency vulnerabilities
     runs-on: ubuntu-latest
     steps:
-      - name: Récupération des sources
+      - name: Check out the sources
         uses: actions/checkout@v4
 
       - name: Installation de Go
@@ -122,7 +122,7 @@ jobs:
     name: Interface
     runs-on: ubuntu-latest
     steps:
-      - name: Récupération des sources
+      - name: Check out the sources
         uses: actions/checkout@v4
 
       - name: Installation de Node
@@ -132,7 +132,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
-      - name: Installation des dépendances
+      - name: Install the dependencies
         run: npm --prefix apps/web ci --no-audit --no-fund
 
       - name: Typage et analyse statique
@@ -148,7 +148,7 @@ jobs:
     name: Rendu et analyse des manifests
     runs-on: ubuntu-latest
     steps:
-      - name: Récupération des sources
+      - name: Check out the sources
         uses: actions/checkout@v4
 
       - name: Installation de kustomize et kube-linter
@@ -192,7 +192,7 @@ jobs:
     if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Récupération des sources
+      - name: Check out the sources
         uses: actions/checkout@v4
 
       - name: Configuration de Buildx
@@ -221,7 +221,7 @@ jobs:
     needs: [go, vuln, web, manifests]
     runs-on: ubuntu-latest
     steps:
-      - name: Récupération des sources
+      - name: Check out the sources
         uses: actions/checkout@v4
 
       - name: Authentification au registre
@@ -236,7 +236,7 @@ jobs:
         with:
           driver-opts: image=moby/buildkit:v0.23.2
 
-      - name: Dérivation des tags
+      - name: Derive the tags
         id: tags
         shell: bash
         run: |

@@ -92,7 +92,7 @@ for id in $found; do
     case " $ACCEPTED " in
         *" $id "*)
             # Displayed again, not silenced.
-            echo "vulnérabilité écartée explicitement : $id (voir scripts/vulncheck.sh)"
+            echo "vulnerability explicitly set aside: $id (see scripts/vulncheck.sh)"
             ;;
         *)
             blocking="$blocking $id"
@@ -106,8 +106,8 @@ for id in $ACCEPTED; do
     case " $found " in
         *" $id "*) ;;
         *)
-            echo "l'exception $id ne correspond à aucune vulnérabilité détectée :" >&2
-            echo "la retirer de scripts/vulncheck.sh — une exclusion périmée masque le jour où elle redeviendrait vraie" >&2
+            echo "the exception $id matches no detected vulnerability:" >&2
+            echo "remove it from scripts/vulncheck.sh — a stale exclusion hides the day it becomes true again" >&2
             exit 1
             ;;
     esac
@@ -116,8 +116,8 @@ done
 if [ -n "$blocking" ]; then
     printf '%s\n' "$output"
     echo "" >&2
-    echo "vulnérabilité(s) non écartée(s) :$blocking" >&2
+    echo "vulnerability(ies) not set aside:$blocking" >&2
     exit 3
 fi
 
-echo "aucune vulnérabilité bloquante"
+echo "no blocking vulnerability"

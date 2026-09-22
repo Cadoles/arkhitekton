@@ -97,6 +97,6 @@ spec:
       author:
         name: fluxcdbot
         email: fluxcdbot@cadoles.com
-      messageTemplate: "chore(image): mise à jour automatique"
+      messageTemplate: "chore(image): automatic update"
     push:
       branch: unstable
