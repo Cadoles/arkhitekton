@@ -1,12 +1,11 @@
-# MinIO de développement — jamais déployé ailleurs.
+# A development MinIO — never deployed elsewhere.
 #
-# Instance propre au dashboard, et non celle de `mse-dev` : le bucket
-# `arkhitekton` doit rester distinct de `mse-pipeline` pour que rétention et
-# droits soient indépendants (doc 03 §3.5). Partager l'instance de l'application
-# rendrait aussi un `mc rb` malencontreux capable d'emporter les deux.
+# An instance specific to the dashboard, and not `mse-dev`'s: the `arkhitekton` bucket must stay
+# distinct from `mse-pipeline` so that retention and permissions are independent. Sharing the
+# application's instance would also make an unfortunate `mc rb` able to take both away.
 #
-# Rappel de la doc 11 §11.5 : MinIO en local gère nativement SigV4, ce qui ne dit
-# rien de `nuo-s3.nuonet.fr`. Un succès ici n'est pas une validation de la cible.
+# A reminder: MinIO locally handles SigV4 natively, which says nothing about
+# `nuo-s3.nuonet.fr`. A success here is not a validation of the target.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -64,9 +63,8 @@ spec:
                 secretKeyRef:
                   name: arkhitekton-secrets
                   key: MINIO_SECRET_KEY
-            # MinIO écrit sa configuration client sous $HOME. Sans redirection
-            # vers un volume inscriptible, le FS racine en lecture seule la
-            # ferait échouer.
+            # MinIO writes its client configuration under $HOME. Without a redirect to a writable volume, the
+            # read-only root FS would fail it.
             - name: HOME
               value: /tmp
           ports:

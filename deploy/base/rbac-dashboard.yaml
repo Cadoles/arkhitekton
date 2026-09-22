@@ -1,9 +1,8 @@
-# Droits du dashboard dans son propre namespace.
+# The dashboard's rights in its own namespace.
 #
-# Un seul besoin : l'élection de leader du `worker`. Le Deployment tourne en
-# `replicas: 1`, ce qui ne suffit pas — pendant un rolling update deux pods
-# coexistent brièvement, et c'est exactement l'instant où un ordonnanceur dupliqué
-# lancerait deux fois le même pipeline. Le Lease ferme cette fenêtre.
+# A single need: the `worker`'s leader election. The Deployment runs with `replicas: 1`, which is
+# not enough — during a rolling update two pods briefly coexist, and that is exactly the instant
+# when a duplicated scheduler would launch the same pipeline twice. The Lease closes that window.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

@@ -30,10 +30,11 @@ spec:
       default: ""
     - name: version
       description: >
-        Valeur du build-arg VERSION. Le Dockerfile l'inscrit dans /app/version.txt,
-        que l'application lit pour renseigner le CRD PortalData — seule source disant
-        quelle version tourne réellement sur un environnement. Laissée vide, le
-        Dockerfile retombe sur son défaut `latest`, qui n'identifie aucune release.
+        Value of the VERSION build-arg. The Dockerfile writes it into
+        /app/version.txt, which the application reads to fill in the PortalData CRD
+        — the only source saying which version really runs on an environment. Left
+        empty, the Dockerfile falls back to its `latest` default, which identifies
+        no release.
       default: ""
     - name: extra-args
       description: Additional arguments passed to docker buildx build

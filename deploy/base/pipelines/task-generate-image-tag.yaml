@@ -4,21 +4,21 @@ metadata:
   name: generate-image-tag
 spec:
   description: >
-    Détermine le tag des images à construire.
+    Determines the tag of the images to build.
 
-    Deux modes, dans cet ordre de priorité :
+    Two modes, in this order of priority:
 
-    1. `version` fourni — le tag est celui-là, tel quel. C'est le mode du dashboard,
-       qui connaît déjà la version au moment où il pose le tag Git et n'a aucune
-       raison de la faire recalculer. Le faire dériver ici ouvrirait la porte à une
-       divergence entre le tag Git, le tag d'image et le `version.txt` embarqué, alors
-       que ces trois valeurs doivent être identiques pour que la chaîne
-       release → image → PortalData reste joignable.
+    1. `version` supplied — the tag is that one, as it is. It is the dashboard's
+       mode: it already knows the version when it sets the Git tag and has no
+       reason to have it recomputed. Deriving it here would open the door to a
+       divergence between the Git tag, the image tag and the embedded
+       `version.txt`, whereas those three values must be identical for the chain
+       release → image → PortalData to stay connected.
 
-    2. `version` vide — repli sur `mktools mkt-project-version`, comportement
-       historique. Il couvre les déclenchements hors dashboard (push Gitea, CronJobs)
-       et la période de transition vers SemVer, pendant laquelle les deux schémas de
-       tag coexistent.
+    2. `version` empty — fallback to `mktools mkt-project-version`, the historical
+       behaviour. It covers the triggers outside the dashboard (Gitea push,
+       CronJobs) and the transition period towards SemVer, during which the two
+       tag schemes coexist.
 
   workspaces:
     - name: source
@@ -26,8 +26,8 @@ spec:
     - name: version
       default: ""
       description: >
-        Tag imposé, sans métadonnée de promotion (`1.8.0`, `1.8.0-rc1`). Vide pour
-        laisser mktools le dériver de la branche et de la révision.
+        An imposed tag, with no promotion metadata (`1.8.0`, `1.8.0-rc1`). Empty to
+        let mktools derive it from the branch and the revision.
     - name: branch-name
       default: ""
     - name: revision
@@ -45,8 +45,8 @@ spec:
         set -eu
         set +x
 
-        # Inconditionnel : la révision doit être positionnée pour le build qui suit,
-        # que le tag soit imposé ou dérivé.
+        # Unconditional: the revision must be set for the build that follows, whether the tag is imposed
+        # or derived.
         git checkout $(params.revision)
 
         if [ -n "$(params.version)" ]; then

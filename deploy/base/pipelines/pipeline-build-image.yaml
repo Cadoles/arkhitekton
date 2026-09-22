@@ -4,19 +4,17 @@ metadata:
   name: build-image
 spec:
   description: >
-    Construit **une** image depuis une référence Git, et la publie.
+    Builds **one** image from a Git reference, and publishes it.
 
-    Une exécution, une image. Le pipeline portait auparavant les trois cibles du
-    Dockerfile de `mse` en dur — `portal`, puis `portal-consumer`, puis
-    `portal-dev` — ce qui avait trois défauts : ajouter une image demandait de
-    modifier le pipeline, l'échec de l'une faisait échouer le run entier sans
-    qu'on sache laquelle, et les trois se partageaient un workspace donc ne
-    pouvaient pas tourner en parallèle.
+    One run, one image. The pipeline used to carry the three targets of `mse`'s
+    Dockerfile literally — `portal`, then `portal-consumer`, then `portal-dev` —
+    which had three defects: adding an image required modifying the pipeline, the
+    failure of one failed the whole run with no way of knowing which, and the
+    three shared a workspace so could not run in parallel.
 
-    Le nom de l'image et la cible du Dockerfile sont désormais des paramètres.
-    L'appelant lance autant d'exécutions que d'images à produire : le dashboard en
-    lance trois pour une release, et chacune apparaît, échoue et se relance
-    séparément.
+    The image's name and the Dockerfile target are now parameters. The caller
+    launches as many runs as there are images to produce: the dashboard launches
+    three for a release, and each appears, fails and is re-run separately.
 
   params:
     - name: repo-url
@@ -27,19 +25,19 @@ spec:
     - name: tag-name
     - name: image-name
       description: >
-        Nom du dépôt publié, sans le projet : `portal`, `portal-cli`,
-        `portal-dev`. C'est ce que déploient les kustomizations, et le paramètre
-        existe pour que le pipeline n'ait pas à le savoir.
+        Name of the published repository, without the project: `portal`,
+        `portal-cli`, `portal-dev`. It is what the kustomizations deploy, and the
+        parameter exists so that the pipeline does not have to know it.
     - name: target
       description: >
-        Cible du Dockerfile à construire — `web`, `cli`, `dev`. Distincte du nom
-        de l'image : la correspondance appartient à l'appelant, et une cible
-        renommée ne doit pas obliger à renommer un dépôt du registre.
+        The Dockerfile target to build — `web`, `cli`, `dev`. Distinct from the
+        image's name: the mapping belongs to the caller, and a renamed target must
+        not force renaming a repository in the registry.
     - name: version
       default: ""
       description: >
-        Tag SemVer imposé, sans métadonnée de promotion. Vide pour laisser mktools
-        le dériver (déclenchements hors dashboard, transition SemVer).
+        An imposed SemVer tag, with no promotion metadata. Empty to let mktools
+        derive it (triggers outside the dashboard, SemVer transition).
 
   workspaces:
     - name: shared-data
@@ -48,10 +46,10 @@ spec:
 
   results:
     - name: image
-      description: Référence complète de l'image publiée, tag compris.
+      description: Full reference of the published image, tag included.
       value: $(tasks.build.results.IMAGE_URL)
     - name: tag
-      description: Tag calculé, pour que l'appelant sache sous quoi chercher.
+      description: The computed tag, so that the caller knows what to look for.
       value: $(tasks.generate-tag.results.tag)
 
   tasks:
@@ -90,10 +88,10 @@ spec:
         - name: branch-name
           value: $(params.tag-name)
 
-    # Le tag est recalculé à chaque exécution plutôt que passé d'une image à
-    # l'autre. Il est déterministe — `version` l'impose quand le dashboard le
-    # fournit —, donc les trois images d'une release portent bien le même, sans
-    # avoir à les enchaîner ni à partager un résultat entre pipelines.
+    # The tag is recomputed at every run rather than passed from one image to the next. It is
+    # deterministic — `version` imposes it when the dashboard supplies it — so the three images of a
+    # release do carry the same one, without having to chain them or share a result between
+    # pipelines.
     - name: build
       displayName: Build image
       runAfter: ["generate-tag"]

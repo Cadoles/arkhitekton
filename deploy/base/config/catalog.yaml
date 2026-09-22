@@ -1,39 +1,35 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Cadoles — this catalogue is a template, see docs/12-licensing.md.
 
-# Catalogue des pipelines lançables depuis le dashboard.
+# Catalogue of the pipelines that can be launched from the dashboard.
 #
-# Ce fichier vit hors du binaire, en ConfigMap, et il est validé au démarrage du
-# `worker` contre les Pipeline réellement déployés : Pipeline absent, paramètre
-# qu'il n'accepte pas, paramètre requis non couvert, workspace non lié — chacun
-# empêche le démarrage avec un message qui le nomme (doc 06 §6.2). Y ajouter un
-# pipeline ne demande aucune modification du code.
+# This file lives outside the binary, in a ConfigMap, and is validated at the `worker`'s
+# start-up against the Pipelines actually deployed: a missing Pipeline, a parameter it does not
+# accept, a required parameter left uncovered, a workspace not bound — each prevents start-up
+# with a message that names it. Adding a pipeline here requires no code change.
 #
-# Les valeurs sont relevées sur des PipelineRun réels du cluster, et non
-# inventées : le catalogue doit reproduire ce que faisaient les TriggerTemplate
-# de `mse-tekton`.
+# The values are read from real PipelineRuns of the cluster, and not invented: the catalogue
+# must reproduce what `mse-tekton`'s TriggerTemplates did.
 
-# Environnements de déploiement, dans leur ordre de promotion.
+# Deployment environments, in their promotion order.
 #
-# Le `promotionSuffix` est la métadonnée que Flux attend dans le tag, et il est
-# vérifié au démarrage contre les ImagePolicy réelles : une erreur ici ne produit
-# aucun échec visible — le tag est poussé, Flux l'ignore, et la promotion paraît
-# réussie (B7).
+# The `promotionSuffix` is the metadata Flux expects in the tag, and it is checked at start-up
+# against the real ImagePolicies: a mistake here produces no visible failure — the tag is
+# pushed, Flux ignores it, and the promotion looks successful.
 #
-# Noter `qualif` → `testing` : Flux connaît cet environnement sous son ancien nom.
-# C'est une correspondance de **sortie**, employée pour construire un tag.
+# Note `qualif` → `testing`: Flux knows this environment under its old name. It is an **output**
+# mapping, used to build a tag.
 #
-# Les réglages sous `deployer:` appartiennent à l'outil de déploiement et à lui
-# seul. Le dashboard les transporte sans les lire — c'est le déployeur qui les
-# nomme et les valide (doc 12 §12.9, lot D). Ils étaient auparavant trois champs
-# du catalogue, ce qui imposait le vocabulaire de Flux à tout projet, y compris à
-# ceux qui n'ont aucun outil de déploiement.
+# The settings under `deployer:` belong to the deployment tool and to it alone. The dashboard
+# carries them without reading them — it is the deployer that names and validates them. They
+# were previously three catalogue fields, which imposed Flux's vocabulary on every project,
+# including those with no deployment tool.
 #
-# Les valeurs sont des chaînes, y compris les booléens : c'est ce qu'une
-# configuration transporte, et le déployeur les interprète.
+# The values are strings, booleans included: that is what a configuration carries, and the
+# deployer interprets them.
 projects:
-  # Chaque projet déclare ses environnements (doc 16 §16.18). Un projet qui a
-  # le module MSE sans section ici n'a ni promotion ni observation.
+  # Each project declares its environments. A project that has the MSE module with no section
+  # here has neither promotion nor observation.
   mse-test-project:
     environments:
       - id: unstable
@@ -60,12 +56,12 @@ projects:
         label: Pré-production
         rank: 3
         namespace: mse-dev
-        # Reçoit ce qui part chez l'utilisateur final : promotion réservée au rôle
-        # releaser. Un environnement sans `sensitive` est traité comme sensible.
+        # Receives what goes to the end user: promotion reserved to the releaser role. An environment
+        # with no `sensitive` is treated as sensitive.
         sensitive: true
         deployer:
-          # Les RC vont jusqu'en pré-production ; la frontière RC / release finale
-          # se situe entre preprod et prod, et non avant.
+          # The RCs go as far as pre-production; the RC / final release boundary sits between preprod and
+          # prod, and not before.
           promotionSuffix: preprod
           acceptsPrerelease: "true"
           kustomization: portal-preprod
@@ -77,92 +73,86 @@ projects:
         sensitive: true
         deployer:
           promotionSuffix: prod
-          # Sans pré-releases : la plage SemVer de sa politique s'écrit sans `-0`,
-          # ce qui rend une RC structurellement inéligible.
+          # Without pre-releases: its policy's SemVer range is written without `-0`, which makes an RC
+          # structurally ineligible.
           acceptsPrerelease: "false"
           kustomization: portal-prod
-        # Cluster indépendant : ni PortalData, ni Deployment, ni statut Flux n'y sont
-        # lisibles. L'interface l'affiche « non observable », état distinct de
-        # « inconnu » (B8).
+        # An independent cluster: neither PortalData, nor Deployment, nor Flux status is readable there.
+        # The interface displays it as "not observable", a state distinct from "unknown".
         observable: false
 
-# Plafond global, toutes files confondues. Les pipelines demandent des PVC et des
-# pods de build, et rien n'empêche mécaniquement d'en lancer vingt.
+# A global cap, across every queue. The pipelines ask for PVCs and build pods, and nothing
+# mechanically stops twenty of them being launched.
 #
-# Il prime sur les plafonds par type et n'est pas leur somme : sept files à cinq
-# places en autoriseraient trente-cinq. Il est en revanche assez haut pour que les
-# files respirent — le fixer à quatre rendrait le plafond par type décoratif,
-# puisque aucun type n'atteindrait jamais le sien.
+# It takes precedence over the per-type caps and is not their sum: seven queues of five places
+# would allow thirty-five. It is on the other hand high enough for the queues to breathe —
+# setting it to four would make the per-type cap decorative, since no type would ever reach its
+# own.
 maxConcurrentRuns: 10
 
-# Secret de tirage appliqué à tous les pipelines.
+# The pull secret applied to every pipeline.
 #
-# Les cinq tirent au moins une image de `reg.cadoles.com` — `crane` pour pousser,
-# `mktools` pour dériver un tag, `tekton-mse-manager` pour déployer — et le projet
-# est privé. Sans ce réglage, les runs échouaient en `TaskRunImagePullFailed`,
-# avant même d'atteindre l'étape qu'on croyait fautive.
+# All five pull at least one image from `reg.cadoles.com` — `crane` to push, `mktools` to derive
+# a tag, `tekton-mse-manager` to deploy — and the project is private. Without this setting, the
+# runs failed with `TaskRunImagePullFailed`, before even reaching the step one believed at
+# fault.
 #
-# Global et non répété par entrée : le répéter l'aurait fait oublier sur la
-# prochaine. Une entrée qui déclare son propre `podTemplate` l'emporte.
+# Global and not repeated per entry: repeating it would have made it forgotten on the next one.
+# An entry that declares its own `podTemplate` wins.
 #
-# Distinct du dockerconfig monté en workspace : celui-ci sert au **pod** à tirer
-# son outillage depuis `cnous-mse`, celui-là sert à `crane` pour **pousser** les
-# images produites. Deux gestes, deux portées, potentiellement deux comptes.
+# Distinct from the dockerconfig mounted as a workspace: that one serves the **pod** to pull its
+# tooling from `cnous-mse`, this one serves `crane` to **push** the images produced. Two acts,
+# two scopes, potentially two accounts.
 podTemplate:
   imagePullSecretsConfigKey: pipeline.imagePullSecret
 
 pipelines:
-  # L'audit de sécurité n'exige aucun paramètre : le pipeline porte ses propres
-  # valeurs par défaut. C'est le kind le plus simple, et le seul lançable sans
-  # rien saisir.
+  # The security audit requires no parameter: the pipeline carries its own default values. It is
+  # the simplest kind, and the only one that can be launched without typing anything.
   - kind: security-audit
-    # Enchaîné après une construction réussie, et relançable seul depuis l'écran
-    # d'une release. Décidé ici et non en Go : c'est ce que **ce déploiement**
-    # vérifie, et un projet sans audit de sécurité le retire sans recompiler.
+    # Chained after a successful build, and re-runnable on its own from a release's screen. Decided
+    # here and not in Go: it is what **this deployment** checks, and a project with no security
+    # audit removes it without recompiling.
     verification: true
     pipelineRef: security-audit
     label: Audit de sécurité
-    # Aucune contention : un audit peut tourner pendant des tests E2E.
+    # No contention: an audit can run during E2E tests.
     timeout: 90m
-    # Sans ces paramètres, les défauts du pipeline s'appliquaient : il scannait
-    # `CNOUS/mse` à la révision `k8s-unstable`, quel que soit ce que le dashboard
-    # croyait auditer. Un audit qui porte sur autre chose que la release est pire
-    # qu'un audit absent — il rend un verdict qu'on rapporte à la mauvaise chose.
+    # Without these parameters, the pipeline's defaults applied: it scanned `CNOUS/mse` at revision
+    # `k8s-unstable`, whatever the dashboard believed it was auditing. An audit that bears on
+    # something other than the release is worse than a missing audit — it returns a verdict one
+    # attributes to the wrong thing.
     params:
       app-repo-url:        { source: config, key: project.repoUrl }
       app-revision: { source: input,  required: true, suggest: git-ref }
-      # L'audit scanne aussi l'infrastructure de déploiement et lit ses règles
-      # Semgrep dans `mse-tekton` : trois dépôts, trois accès à accorder à la clé
-      # de déploiement des pipelines.
+      # The audit also scans the deployment infrastructure and reads its Semgrep rules in
+      # `mse-tekton`: three repositories, three accesses to grant to the pipelines' deploy key.
       mse-kustom-repo-url: { source: config, key: forge.mseKustom.repoUrl }
-      # La branche, elle aussi, doit venir de la configuration. Le défaut du
-      # pipeline est `unstable`, la convention de `CNOUS/mse-kustom` ; un dépôt
-      # qui ne la porte pas faisait échouer le clone — donc l'audit entier —
-      # sur « couldn't find remote ref unstable ».
+      # The branch too must come from the configuration. The pipeline's default is `unstable`,
+      # `CNOUS/mse-kustom`'s convention; a repository that does not carry it failed the clone — hence
+      # the whole audit — on "couldn't find remote ref unstable".
       mse-kustom-revision: { source: config, key: forge.mseKustom.revision }
       tekton-repo-url:     { source: config, key: forge.tekton.repoUrl }
-      # L'audit ne construit plus : il analyse les images **déjà publiées** par
-      # la construction de la release. Scanner une reconstruction rendrait un
-      # verdict sur un artefact qu'on ne livre pas (B17).
-      # `image` dit la nature, `image` (le champ) dit laquelle : c'est ici, et non
-      # dans le code du dashboard, qu'un paramètre est rattaché à un dépôt publié.
-      # La correspondance vivait en Go, sous forme d'un `case "portal-image"`, et
-      # un pipeline nommant autrement ses paramètres ne pouvait pas la réemployer.
+      # The audit no longer builds: it analyses the images **already published** by the release's
+      # build. Scanning a rebuild would return a verdict on an artifact one does not deliver.
+      # `image` says the kind, `image` (the field) says which one: it is here, and not in the
+      # dashboard's code, that a parameter is attached to a published repository. The mapping lived in
+      # Go, as a `case "portal-image"`, and a pipeline naming its parameters otherwise could not reuse
+      # it.
       portal-image:
         { source: input, required: true, suggest: image, image: portal }
       consumer-image:
         { source: input, required: true, suggest: image, image: portal-cli }
       minio-host:          { source: config, key: minio.host }
       minio-bucket:        { source: config, key: minio.pipelineBucket }
-    # Le rapport normalisé, publié vers le dashboard par URL pré-signée.
+    # The normalised report, published to the dashboard through a presigned URL.
     #
-    # Sans cette déclaration, l'audit ne publiait que dans le bucket des
-    # pipelines, où le dashboard ne lit pas : ses constats n'atteignaient jamais
-    # l'écran de sécurité, et le signal `security` restait éternellement non
-    # mesuré alors que dix scanners avaient tourné.
+    # Without this declaration, the audit published only into the pipelines' bucket, where the
+    # dashboard does not read: its findings never reached the security screen, and the `security`
+    # signal stayed forever unmeasured although ten scanners had run.
     #
-    # Deux fichiers plutôt qu'une archive : l'ingesteur les reconnaît à leur nom
-    # sous `raw/<run>/`, sans rien déballer.
+    # Two files rather than an archive: the ingester recognises them by their name under
+    # `raw/<run>/`, unpacking nothing.
     uploads:
       summary:
         param: summary-upload-url
@@ -174,9 +164,9 @@ pipelines:
         artifact: findings.jsonl
         family: security
         format: file
-    # Les noms diffèrent de ceux des autres pipelines — `shared` et
-    # `docker-config`, non `shared-data` et `dockerconfig`. Rien ne le devinerait :
-    # c'est la validation contre le cluster qui les impose.
+    # The names differ from the other pipelines' — `shared` and `docker-config`, not `shared-data`
+    # and `dockerconfig`. Nothing would guess it: it is the validation against the cluster that
+    # imposes them.
     workspaces:
       - name: git-credentials
         secret: { configKey: pipeline.gitSecret }
@@ -188,49 +178,45 @@ pipelines:
           storageClassName: standard
           storage: 2Gi
 
-  # La promotion : un re-tag du même digest, jamais une reconstruction. C'est le
-  # seul kind que le dashboard lance pour déployer, et il ne déploie pas
-  # lui-même — Flux constate le nouveau tag et décide (B7).
-  # Construction des images d'une pré-release.
+  # The promotion: a re-tag of the same digest, never a rebuild. It is the only kind the dashboard
+  # launches in order to deploy, and it does not deploy itself — Flux sees the new tag and
+  # decides.
+  # Building a pre-release's images.
   #
-  # C'est le chaînon qui manquait entre « créer une release » et « une image
-  # existe » : sans cette entrée, une pré-release naissait `draft` et y restait
-  # indéfiniment, alors que le pipeline `build-image` existait dans le cluster.
+  # It is the link that was missing between "creating a release" and "an image exists": without
+  # this entry, a pre-release was born `draft` and stayed there indefinitely, although the
+  # `build-image` pipeline existed in the cluster.
   #
-  # `version` porte le tag SemVer et prime sur `tag-name` : la Task
-  # `generate-image-tag` s'en sert tel quel plutôt que de le dériver de la
-  # branche, et le même tag part en `--build-arg VERSION` pour être inscrit dans
-  # `/app/version.txt`. C'est ce qui rend l'image identifiable par ce qu'elle
-  # rapporte d'elle-même, et donc l'invariant de version vérifiable (B17, P10).
-  # Une exécution, une image. Le pipeline portait les trois cibles du Dockerfile
-  # en dur ; il en prend désormais une en paramètre, et le dashboard lance autant
-  # d'exécutions que d'images à produire. Chacune apparaît, échoue et se relance
-  # séparément — un `portal-dev` en échec ne fait plus perdre le portail déjà
-  # construit.
+  # `version` carries the SemVer tag and takes precedence over `tag-name`: the `generate-image-tag`
+  # Task uses it as it is rather than deriving it from the branch, and the same tag leaves as
+  # `--build-arg VERSION` to be written into `/app/version.txt`. That is what makes the image
+  # identifiable by what it reports about itself, and therefore the version invariant checkable.
+  # One run, one image. The pipeline carried the Dockerfile's three targets literally; it now
+  # takes one as a parameter, and the dashboard launches as many runs as there are images to
+  # produce. Each appears, fails and is re-run separately — a failed `portal-dev` no longer loses
+  # the portal that was already built.
   - kind: build
     pipelineRef: build-image
     label: Construction d'image
-    # Ce que ce pipeline laisse derrière lui. Le dashboard en lit les digests et
-    # les rattache à la release ; un re-tag pourra les reprendre bit à bit.
+    # What this pipeline leaves behind it. The dashboard reads its digests and attaches them to the
+    # release; a re-tag will be able to take them bit for bit.
     produces: [image]
-    # `parallel` : deux constructions de versions différentes ne se gênent pas,
-    # elles écrivent sous des tags distincts. La sérialisation du registre ne
-    # concerne que le re-tag, où deux manifestes visent le même dépôt.
+    # `parallel`: two builds of different versions do not get in each other's way, they write under
+    # distinct tags. The registry's serialisation concerns the re-tag only, where two manifests
+    # target the same repository.
     params:
       repo-url:    { source: config, key: project.repoUrl }
       reg-project: { source: config, key: registry.project }
-      # Le Dockerfile et son contexte viennent de la **déclaration du projet**, et
-      # non de la configuration du déploiement. Un dépôt peut porter un
-      # Dockerfile par image — `Dockerfile.dev` et `Dockerfile.prod` à sa racine —
-      # plutôt qu'un seul à étapes, et la configuration ne saurait en nommer
-      # qu'un. Le dashboard les renseigne par image (doc 12 §12.9, lot B).
+      # The Dockerfile and its context come from the **project's declaration**, and not from the
+      # deployment's configuration. A repository may carry one Dockerfile per image —
+      # `Dockerfile.dev` and `Dockerfile.prod` at its root — rather than a single one with stages,
+      # and the configuration could name only one. The dashboard fills them in per image.
       #
-      # Facultatifs : un pipeline lancé à la main hors dashboard retombe sur les
-      # valeurs par défaut de la Task, qui restent celles d'un dépôt ordinaire.
+      # Optional: a pipeline launched by hand outside the dashboard falls back to the Task's default
+      # values, which stay those of an ordinary repository.
       #
-      # Libellé, aide et exemple : ces quatre paramètres se **saisissent** depuis
-      # l'onglet automatisation, et un champ nommé `image-name` sans explication
-      # est un champ qu'on remplit de travers (doc 15 §15.5).
+      # Label, help and example: these four parameters are **typed in** from the automation tab, and a
+      # field named `image-name` with no explanation is a field one fills in wrongly.
       dockerfile:
         source: input
         label: Dockerfile
@@ -243,19 +229,17 @@ pipelines:
         label: Contexte de construction
         help: Répertoire envoyé au moteur de build. Presque toujours la racine.
         placeholder: "."
-      # La référence Git à construire — branche, tag ou commit, choisie à la
-      # création de la release.
+      # The Git reference to build — branch, tag or commit, chosen when the release is created.
       revision: { source: input, required: true, suggest: git-ref }
-      # Le tag SemVer. Requis : le laisser vide ferait retomber la Task sur la
-      # dérivation par branche, et l'image porterait un tag sans rapport avec la
-      # release qui l'a demandée.
+      # The SemVer tag. Required: leaving it empty would make the Task fall back to deriving by
+      # branch, and the image would carry a tag unrelated to the release that asked for it.
       version: { source: input, required: true, suggest: release-tag }
-      # Repli de nommage de la Task quand `version` est vide. Transmis pour que
-      # le pipeline reste utilisable tel quel hors dashboard.
+      # The Task's naming fallback when `version` is empty. Passed so that the pipeline stays usable
+      # as it is outside the dashboard.
       tag-name: { source: input, required: true, suggest: release-tag }
-      # Le dépôt publié et la cible du Dockerfile qui l'alimente. Deux paramètres
-      # et non un : la correspondance appartient à l'appelant, et une cible
-      # renommée ne doit pas obliger à renommer un dépôt du registre.
+      # The published repository and the Dockerfile target that feeds it. Two parameters and not one:
+      # the mapping belongs to the caller, and a renamed target must not force renaming a repository
+      # in the registry.
       image-name:
         source: input
         required: true
@@ -285,20 +269,19 @@ pipelines:
           storageClassName: standard
           storage: 2Gi
 
-  # Re-tag, et non « promotion » : le pipeline ne promeut rien, il pose un tag
-  # supplémentaire sur un digest existant. C'est Flux qui déploie, en constatant
-  # ce tag (B7). Et le dashboard s'en sert aussi hors promotion — donner à une
-  # release finale son propre tag depuis celui de sa pré-release source —, où le
-  # mot « promotion » induisait franchement en erreur.
+  # A re-tag, and not a "promotion": the pipeline promotes nothing, it sets an extra tag on an
+  # existing digest. It is Flux that deploys, by seeing that tag. And the dashboard uses it
+  # outside promotion too — giving a final release its own tag from that of its source
+  # pre-release — where the word "promotion" was frankly misleading.
   - kind: retag
     pipelineRef: retag-image
     label: Re-tag d'image
-    # Une image, comme `build` — et c'est ce que le drapeau `verification` ne
-    # savait pas dire : il n'avait que deux valeurs pour trois situations, et
-    # `retag` tombait dans la même case qu'un pipeline qui ne produit rien.
+    # An image, like `build` — and it is what the `verification` flag could not say: it had only two
+    # values for three situations, and `retag` fell into the same box as a pipeline that produces
+    # nothing.
     produces: [image]
-    # Le registre supporte mal deux re-tags simultanés sur le même dépôt : les
-    # sérialiser coûte quelques secondes et évite des manifestes concurrents.
+    # The registry copes badly with two simultaneous re-tags on the same repository: serialising
+    # them costs a few seconds and avoids concurrent manifests.
     maxConcurrent: 1
     params:
       reg-project: { source: config, key: registry.project }
@@ -306,18 +289,17 @@ pipelines:
       old-tag: { source: input, required: true, suggest: release-tag }
       new-tag: { source: input, required: true, suggest: release-tag }
     workspaces:
-      # Ni dépôt cloné, ni fichier échangé : le re-tag ne manipule que des
-      # manifestes. Le workspace `git-credentials` qu'il montait n'a jamais servi.
+      # Neither a cloned repository nor an exchanged file: the re-tag handles manifests only. The
+      # `git-credentials` workspace it mounted was never used.
       - name: dockerconfig
         secret: { configKey: pipeline.registrySecret }
 
-  # Analyse statique — PHP-CS-Fixer et PHPStan.
+  # Static analysis — PHP-CS-Fixer and PHPStan.
   #
-  # Distincte des tests unitaires depuis qu'ils ont leur pipeline : « le code
-  # fait-il ce qu'on attend » et « le code est-il écrit proprement » sont deux
-  # questions, que le score pondère séparément. Les mêler donnait un seul verdict
-  # pour deux signaux, et un cs-fixer non conforme faisait échouer le même run
-  # que des tests verts — donc une relance qui rejouait les deux.
+  # Distinct from the unit tests since they got their own pipeline: "does the code do what is
+  # expected" and "is the code written cleanly" are two questions, which the score weighs
+  # separately. Merging them gave a single verdict for two signals, and a non-conforming cs-fixer
+  # failed the same run as green tests — hence a re-run that replayed both.
   - kind: static-tests
     verification: true
     pipelineRef: php-static-tests
@@ -325,16 +307,14 @@ pipelines:
     params:
       repo-url:     { source: config, key: project.repoUrl }
       revision: { source: input, required: true, suggest: git-ref }
-    # Artefacts attendus. Le dashboard calcule la clé de chacun et mint l'URL
-    # d'écriture **avant** de créer le run : le pipeline n'a donc ni bucket, ni
-    # préfixe, ni identifiants MinIO, et le lecteur n'a rien à chercher par
-    # préfixe ensuite (B14).
+    # Expected artifacts. The dashboard computes each one's key and mints the write URL **before**
+    # creating the run: the pipeline therefore has no bucket, no prefix and no MinIO credentials,
+    # and the reader has nothing to look for by prefix afterwards.
     uploads:
       results:
         param: results-upload-url
-        # PHPStan et cs-fixer écrivent chacun sous `test-results/<outil>/` : une
-        # archive, sous une clé unique par run. C'est le répertoire qui nomme la
-        # famille au lecteur.
+        # PHPStan and cs-fixer each write under `test-results/<tool>/`: one archive, under a key unique
+        # to the run. It is the directory that names the family to the reader.
         artifact: static-tests.tar.gz
         family: static
         format: archive
@@ -372,27 +352,24 @@ pipelines:
   - kind: e2e-tests
     pipelineRef: e2e-test
     label: Tests E2E
-    # La ligne qui a motivé cette déclaration. Trois artefacts publiés, et
-    # `verification: false` — non parce qu'elle ne produirait pas de résultats,
-    # mais parce que le drapeau parlait d'**enchaînement** : une campagne E2E
-    # vise un environnement partagé et ne part pas d'office après un build.
+    # The line that motivated this declaration. Three artifacts published, and `verification: false`
+    # — not because it would produce no results, but because the flag spoke of **chaining**: an E2E
+    # campaign targets a shared environment and does not start by default after a build.
     #
-    # Les deux axes sont désormais nommés séparément. Ses rapports sont lus, et
-    # elle reste lancée à la demande.
+    # Both axes are now named separately. Its reports are read, and it stays launched on demand.
     produces: [results]
-    # Une campagne E2E s'exécute contre un environnement partagé : deux
-    # exécutions simultanées se fausseraient mutuellement.
-    # Une seule à la fois : elle déploie ou mesure une cible unique, et deux
-    # exécutions simultanées se marcheraient dessus.
+    # An E2E campaign runs against a shared environment: two simultaneous runs would skew each
+    # other.
+    # One at a time: it deploys or measures a single target, and two simultaneous runs would tread
+    # on each other.
     maxConcurrent: 1
     timeout: 60m
     params:
       repo-url:     { source: config, key: forge.e2e.repoUrl }
       revision: { source: input, required: true, suggest: git-ref }
       environment: { source: input, required: true, suggest: environment }
-    # Trois artefacts distincts, trois URLs. Les noms de fichiers produits par
-    # Cypress dépendent des specs exécutées : personne ne peut les pré-signer un
-    # par un, et chaque répertoire part donc en une archive.
+    # Three distinct artifacts, three URLs. The file names Cypress produces depend on the specs run:
+    # nobody can presign them one by one, and each directory therefore leaves as an archive.
     uploads:
       reports:
         param: reports-upload-url
@@ -422,10 +399,10 @@ pipelines:
     verification: true
     pipelineRef: php-integration-test
     label: Tests d'intégration
-    # Le pipeline déploie dans un namespace applicatif : deux exécutions
-    # simultanées partageraient la même cible.
-    # Une seule à la fois : elle déploie ou mesure une cible unique, et deux
-    # exécutions simultanées se marcheraient dessus.
+    # The pipeline deploys into an application namespace: two simultaneous runs would share the same
+    # target.
+    # One at a time: it deploys or measures a single target, and two simultaneous runs would tread
+    # on each other.
     maxConcurrent: 1
     serviceAccountName: tekton-kubectl
     timeout: 45m
@@ -436,22 +413,18 @@ pipelines:
       reg-project:         { source: config, key: registry.project }
       minio-host:          { source: config, key: minio.host }
       minio-bucket:        { source: config, key: minio.pipelineBucket }
-      # Le tag des images à déployer. Ce pipeline ne construit plus : il éprouve
-      # celles que la construction de la release a publiées. Reconstruire ici
-      # produisait un artefact différent de celui qu'on livrera, et le verdict
-      # portait donc à côté (B17) — même correction que sur l'audit.
+      # The tag of the images to deploy. This pipeline no longer builds: it exercises those the
+      # release's build published. Rebuilding here produced an artifact different from the one that
+      # will be delivered, and the verdict therefore fell wide — the same fix as on the audit.
       image-tag: { source: input, required: true, suggest: release-tag }
       mse-revision: { source: input, required: true, suggest: git-ref }
-      # La branche de l'infrastructure de déploiement vient de la configuration,
-      # comme pour l'audit. C'est ce qui rend ce pipeline enchaînable : tant
-      # qu'elle était un paramètre d'entrée, le dashboard ne savait pas la
-      # renseigner et ne lançait donc jamais les tests d'intégration
-      # automatiquement.
+      # The deployment infrastructure's branch comes from the configuration, as for the audit. That is
+      # what makes this pipeline chainable: while it was an input parameter, the dashboard did not
+      # know how to fill it in and therefore never launched the integration tests automatically.
       mse-kustom-revision: { source: config, key: forge.mseKustom.revision }
-    # Le rapport JUnit, publié comme celui des tests statiques. La Task écrit
-    # sous `test-results/integration/`, et c'est ce chemin qui nomme la famille
-    # au lecteur — le fichier, lui, s'appelle `junit.xml` comme celui des tests
-    # unitaires.
+    # The JUnit report, published like the static tests'. The Task writes under
+    # `test-results/integration/`, and it is that path which names the family to the reader — the
+    # file itself is called `junit.xml`, like the unit tests'.
     uploads:
       results:
         param: results-upload-url

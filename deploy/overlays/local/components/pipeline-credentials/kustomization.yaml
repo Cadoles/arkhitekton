@@ -1,33 +1,31 @@
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 
-# Identifiants que les pipelines montent, dans le namespace où Tekton les monte —
-# `mse-tekton-pipelines`, et non celui du dashboard, qui ne les lit jamais.
+# Credentials the pipelines mount, in the namespace where Tekton mounts them —
+# `mse-tekton-pipelines`, and not the dashboard's, which never reads them.
 #
-# Ils existent parce que ceux de `mse-tekton` visent l'application réelle : la clé
-# `git-credentials` est une clé de déploiement de `CNOUS/mse`, et le compte
-# `regcred` (`cflux`) n'a `push` que sur `cnous-mse`. Éprouver la chaîne sur un
-# dépôt de test exige donc d'autres identifiants.
+# They exist because `mse-tekton`'s target the real application: the `git-credentials` key is a
+# deploy key of `CNOUS/mse`, and the `regcred` account (`cflux`) has `push` on `cnous-mse` only.
+# Exercising the chain on a test repository therefore requires other credentials.
 #
-# Le dashboard les **désigne** par `PIPELINE_GIT_SECRET` et
-# `PIPELINE_REGISTRY_SECRET` ; il ne les manipule jamais (doc 07 §7.3, B14).
+# The dashboard **names** them through `PIPELINE_GIT_SECRET` and `PIPELINE_REGISTRY_SECRET`; it
+# never handles them.
 #
-# En production, ces deux secrets viennent d'`ExternalSecret` adossé à Vault
-# (doc 07 §7.4). Ce composant est un raccourci de développement.
+# In production, these two secrets come from an `ExternalSecret` backed by Vault. This component
+# is a development shortcut.
 
 secretGenerator:
-  # `disableNameSuffixHash` est indispensable : Tekton référence le secret par un
-  # nom fixe dans le workspace, et un suffixe de hachage le rendrait introuvable
-  # à chaque modification du contenu.
+  # `disableNameSuffixHash` is essential: Tekton references the secret by a fixed name in the
+  # workspace, and a hash suffix would make it impossible to find at every change of content.
   - name: arkhitekton-pipeline-git
     namespace: mse-tekton-pipelines
     type: Opaque
     options:
       disableNameSuffixHash: true
     files:
-      # Les noms de clés sont ceux qu'attend la Task `git-clone` de mse-tekton.
-      # Les fichiers vivent dans ce répertoire et non dans `secrets/` : kustomize
-      # refuse de lire au-dessus de la racine d'un composant, par sécurité.
+      # The key names are those the `git-clone` Task of mse-tekton expects. The files live in this
+      # directory and not in `secrets/`: kustomize refuses to read above a component's root, as a
+      # safety measure.
       - id_ed25519=pipeline-ssh-key
       - known_hosts=pipeline-known-hosts
 

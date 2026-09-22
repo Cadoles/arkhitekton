@@ -3,24 +3,22 @@ kind: Kustomization
 
 resources:
   - ../../base
-  # PostgreSQL et MinIO en cluster : développement uniquement. En production, ce
-  # sont CloudNativePG et `nuo-s3.nuonet.fr`, qui ne sont pas décrits ici.
+  # PostgreSQL and MinIO in the cluster: development only. In production they are CloudNativePG and
+  # `nuo-s3.nuonet.fr`, which are not described here.
   - resources/postgres.yaml
   - resources/minio.yaml
   - resources/minio-bucket.yaml
   # Observation de l'environnement applicatif local.
   - resources/rbac-observer.yaml
 
-# Identifiants des pipelines, pour éprouver la chaîne sur un dépôt de test.
+# The pipelines' credentials, to exercise the chain on a test repository.
 #
-# Optionnel, et c'est le point : les défauts `git-credentials` et `regcred` de
-# `mse-tekton` conviennent à qui travaille sur l'application réelle, et l'overlay
-# doit se rendre sans qu'aucun fichier de secret n'existe. Rendre ces générateurs
-# inconditionnels ferait échouer `skaffold run` chez tout le monde.
+# Optional, and that is the point: `mse-tekton`'s `git-credentials` and `regcred` defaults suit
+# whoever works on the real application, and the overlay must render with no secret file
+# existing at all. Making these generators unconditional would fail `skaffold run` for everyone.
 #
-#   make pipeline-credentials     # fabrique les trois fichiers
-#   puis décommenter la ligne ci-dessous
-#
+#   make pipeline-credentials     # builds the three files
+#   then uncomment the line below
 components:
   - components/pipeline-credentials
 
@@ -34,30 +32,27 @@ configMapGenerator:
     literals:
       - PUBLIC_URL=http://dashboard.mse.local
       - OIDC_REDIRECT_URL=http://dashboard.mse.local/api/v1/auth/callback
-      # Nom pleinement qualifié, et non le nom court : les URLs pré-signées
-      # d'écriture sont minées avec cet hôte puis remises aux pipelines, qui
-      # tournent dans `mse-tekton-pipelines`. Le nom court n'y résout pas — la
-      # publication échouait sur « Could not resolve host », après des tests
-      # pourtant passés.
+      # The fully qualified name, and not the short one: the presigned write URLs are minted with this
+      # host then handed to the pipelines, which run in `mse-tekton-pipelines`. The short name does not
+      # resolve there — publication failed on "Could not resolve host", after tests that nonetheless
+      # passed.
       - MINIO_ENDPOINT=arkhitekton-minio.arkhitekton.svc.cluster.local:9000
       - MINIO_USE_SSL=false
-      # `NUO-Region` est la région de l'instance de production. En local, MinIO
-      # accepte n'importe quelle région pourvu que le client signe avec la même ;
-      # garder `us-east-1` ici rend visible que la valeur de production n'est pas
-      # exercée, plutôt que de laisser croire le contraire.
+      # `NUO-Region` is the production instance's region. Locally, MinIO accepts any region provided
+      # the client signs with the same one; keeping `us-east-1` here makes it visible that the
+      # production value is not exercised, rather than letting one believe the opposite.
       - MINIO_REGION=us-east-1
 
 secretGenerator:
-  # Fichier non versionné (voir .gitignore), modèle dans dashboard.env.example.
+  # A file that is not versioned (see .gitignore), with a template in dashboard.env.example.
   #
-  # Il porte aussi deux valeurs qui ne sont pas des secrets — OIDC_CLIENT_ID et
-  # BOOTSTRAP_ADMINS — parce qu'elles sont propres à chaque développeur. Les
-  # mettre dans le ConfigMap versionné obligerait chacun à modifier un fichier
-  # suivi par git pour y inscrire son propre identifiant, ce qui finit toujours
-  # par être commité par accident.
+  # It also carries two values that are not secrets — OIDC_CLIENT_ID and BOOTSTRAP_ADMINS — because
+  # they are specific to each developer. Putting them in the versioned ConfigMap would force
+  # everyone to modify a file tracked by git in order to write their own identifier into it, which
+  # always ends up being committed by accident.
   #
-  # L'ordre des `envFrom` dans les Deployments met le Secret après le ConfigMap :
-  # ce fichier peut donc redéfinir n'importe quelle variable ci-dessus.
+  # The order of the `envFrom` entries in the Deployments puts the Secret after the ConfigMap: this
+  # file can therefore redefine any variable above.
   - name: arkhitekton-secrets
     namespace: arkhitekton
     envs:
@@ -66,9 +61,8 @@ secretGenerator:
 images:
   - name: reg.cadoles.com/vcarroy/arkhitekton
     newName: reg.cadoles.com/vcarroy/arkhitekton
-    # Le tag reprend le commit dont l'image est issue. Republier sous le même tag
-    # ne suffirait pas à faire reprendre l'image par le cluster : les pods ne
-    # posent pas d'`imagePullPolicy`, donc `IfNotPresent` s'applique dès que le
-    # tag n'est pas `latest`. Pour itérer sans commiter, épingler `digest` à la
-    # place de `newTag`.
+    # The tag carries the commit the image comes from. Republishing under the same tag would not be
+    # enough to make the cluster take the image again: the pods set no `imagePullPolicy`, so
+    # `IfNotPresent` applies as soon as the tag is not `latest`. To iterate without committing, pin
+    # `digest` instead of `newTag`.
     newTag: dev

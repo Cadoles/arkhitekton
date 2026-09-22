@@ -1,9 +1,9 @@
-# L'hôte de la base est `dashboard.invalid`, inutilisable par construction.
-# Celui-ci suit la convention déjà en place sur kind (`*.mse.local`), résolue vers
-# l'adresse que MetalLB attribue au contrôleur ingress.
+# The base's host is `dashboard.invalid`, unusable by construction. This one follows the
+# convention already in place on kind (`*.mse.local`), resolved to the address MetalLB assigns to
+# the ingress controller.
 #
-# `rules` n'a pas de clé de fusion : la liste est remplacée en bloc, pas
-# fusionnée. La règle doit donc être redonnée entière.
+# `rules` has no merge key: the list is replaced as a block, not merged. The rule must therefore
+# be given again in full.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

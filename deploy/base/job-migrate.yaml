@@ -1,14 +1,13 @@
-# Migration du schéma, hors du cycle de vie des pods applicatifs.
+# Schema migration, outside the application pods' life cycle.
 #
-# Pourquoi un Job et non un initContainer : un initContainer s'exécuterait une
-# fois par réplique, donc deux fois en parallèle sur l'`api`, et goose ne pose pas
-# de verrou de session par défaut. Deux `goose up` concurrents sur une base vierge
-# se marchent dessus.
+# Why a Job and not an initContainer: an initContainer would run once per replica, hence twice
+# in parallel on the `api`, and goose does not take a session lock by default. Two concurrent
+# `goose up` runs on a fresh database tread on each other.
 #
-# La contrepartie est connue : `spec.template` d'un Job est immuable. Réappliquer
-# ce manifeste après un changement d'image échoue avec « field is immutable ».
-# `make deploy` supprime donc le Job avant d'appliquer — c'est le prix d'un
-# artefact unique pour les trois rôles, et il se paie une fois par déploiement.
+# The price is known: a Job's `spec.template` is immutable. Reapplying this manifest after an
+# image change fails with "field is immutable". `make deploy` therefore deletes the Job before
+# applying — it is the price of a single artifact for the three roles, and it is paid once per
+# deployment.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -18,12 +17,12 @@ metadata:
     app.kubernetes.io/name: arkhitekton
     app.kubernetes.io/component: migrate
 spec:
-  # Les migrations sont idempotentes : goose reprend là où il s'est arrêté. Une
-  # base pas encore joignable au premier essai est le cas courant sur un cluster
-  # qui démarre, et il ne justifie pas d'échouer le déploiement.
+  # The migrations are idempotent: goose picks up where it stopped. A database not reachable yet
+  # at the first attempt is the common case on a cluster that is starting, and it does not justify
+  # failing the deployment.
   backoffLimit: 3
-  # Le Job disparaît une heure après sa réussite. Sans cela, les Jobs terminés
-  # s'accumulent et masquent celui qui vient d'échouer.
+  # The Job disappears an hour after it succeeds. Without that, finished Jobs accumulate and hide
+  # the one that has just failed.
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
@@ -45,10 +44,9 @@ spec:
         - name: migrate
           image: reg.cadoles.com/vcarroy/arkhitekton:latest
           args: ["migrate"]
-          # Le rôle `migrate` ne valide ni OIDC ni MinIO : il lui suffit de
-          # DATABASE_URL. Le ConfigMap et le Secret complets sont montés quand
-          # même — un jeu de variables identique pour les trois rôles évite qu'une
-          # variable renommée soit corrigée dans deux endroits sur trois.
+          # The `migrate` role validates neither OIDC nor MinIO: DATABASE_URL is enough for it. The
+          # complete ConfigMap and Secret are mounted anyway — an identical set of variables for the three
+          # roles avoids a renamed variable being fixed in two places out of three.
           envFrom:
             - configMapRef:
                 name: arkhitekton-config

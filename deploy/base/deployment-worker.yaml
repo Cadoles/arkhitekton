@@ -8,10 +8,10 @@ metadata:
     app.kubernetes.io/component: worker
 spec:
   replicas: 1
-  # Recreate, et non RollingUpdate : l'ancien pod est arrêté avant que le nouveau
-  # démarre. Le Lease couvre déjà le chevauchement, mais l'éviter coûte moins
-  # qu'une élection à chaque déploiement, et le worker n'encaisse aucun trafic —
-  # il n'y a donc rien à maintenir disponible pendant la bascule.
+  # Recreate, and not RollingUpdate: the old pod is stopped before the new one starts. The Lease
+  # already covers the overlap, but avoiding it costs less than an election at every deployment,
+  # and the worker takes no traffic — there is therefore nothing to keep available during the
+  # switch-over.
   strategy:
     type: Recreate
   selector:
@@ -25,8 +25,8 @@ spec:
         app.kubernetes.io/component: worker
     spec:
       serviceAccountName: arkhitekton
-      # Le worker, lui, parle à l'API Kubernetes : création de PipelineRun,
-      # informer, collecte de logs, élection de leader.
+      # The worker, for its part, speaks to the Kubernetes API: creating PipelineRuns, informer, log
+      # collection, leader election.
       automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
@@ -45,16 +45,15 @@ spec:
             - secretRef:
                 name: arkhitekton-secrets
           env:
-            # Le nom du pod identifie le détenteur du Lease. Sans lui, le journal
-            # dit qu'un leader existe sans dire lequel, ce qui est précisément
-            # l'information utile quand deux pods se disputent la place.
+            # The pod's name identifies the Lease's holder. Without it, the log says a leader exists without
+            # saying which, which is precisely the useful piece of information when two pods are contending
+            # for the place.
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            # Namespace du Lease. Il doit être celui du dashboard et non celui
-            # des pipelines : le compte de service n'a le droit d'écrire un Lease
-            # que dans le premier.
+            # Namespace of the Lease. It must be the dashboard's and not the pipelines': the service account
+            # is allowed to write a Lease only in the first.
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -64,9 +63,8 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-          # Aucune sonde HTTP : le worker n'ouvre pas de port. Il vit ou il sort,
-          # et le Deployment le relance. Une sonde d'exécution serait un serveur
-          # HTTP ajouté pour l'unique bénéfice de la sonde.
+          # No HTTP probe: the worker opens no port. It lives or it exits, and the Deployment restarts it.
+          # A liveness probe would be an HTTP server added for the sole benefit of the probe.
           resources:
             requests:
               cpu: 100m
@@ -86,7 +84,6 @@ spec:
             name: arkhitekton-catalog
         - name: tmp
           emptyDir:
-            # Plus large que pour l'api : le worker rapatrie les logs de pipeline
-            # avant de les pousser sur MinIO, et un run d'intégration en produit
-            # des dizaines de mégaoctets.
+            # Wider than for the api: the worker fetches the pipeline logs before pushing them to MinIO, and
+            # an integration run produces tens of megabytes of them.
             sizeLimit: 1Gi

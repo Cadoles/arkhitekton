@@ -4,35 +4,34 @@ metadata:
   name: retag-image
 spec:
   description: >
-    Pose un tag supplémentaire sur **une** image déjà publiée.
+    Sets an extra tag on **one** image that is already published.
 
-    Nommé `promote-image` jusqu'ici, ce qui décrivait l'intention plutôt que
-    l'acte. Il ne promeut rien : il re-tague. C'est Flux qui déploie, en constatant
-    le nouveau tag (B7). Et le dashboard s'en sert pour autre chose qu'une
-    promotion — donner à une release finale son propre tag, à partir de celui de
-    sa pré-release source —, où le mot « promotion » induisait franchement en
-    erreur.
+    Named `promote-image` until now, which described the intention rather than the
+    act. It promotes nothing: it re-tags. It is Flux that deploys, by seeing the
+    new tag. And the dashboard uses it for something other than a promotion —
+    giving a final release its own tag, from that of its source pre-release —
+    where the word "promotion" was frankly misleading.
 
-    Une exécution, une image, comme pour la construction. Le pipeline portait les
-    deux dépôts en dur : ajouter une image demandait de le modifier, et l'échec de
-    l'un faisait échouer le run sans qu'on sache lequel.
+    One run, one image, as for the build. The pipeline carried the two
+    repositories literally: adding an image required modifying it, and the failure
+    of one failed the run with no way of knowing which.
 
-    Le re-tag ne reconstruit jamais : c'est le même digest qui reçoit un second
-    tag, et c'est ce qui rend vérifiable que ce qui est promu est ce qui a été
-    validé (B17).
+    The re-tag never rebuilds: it is the same digest that receives a second tag,
+    and that is what makes it checkable that what is promoted is what was
+    validated.
 
   params:
     - name: reg-project
     - name: image-name
       description: >
-        Nom du dépôt, sans le projet : `portal`, `portal-cli`. L'image de
-        développement n'est pas re-taguée — aucun environnement du flux de
-        promotion ne la déploie — mais rien ici ne l'interdit : c'est l'appelant
-        qui décide de ce qu'il promeut.
+        Name of the repository, without the project: `portal`, `portal-cli`. The
+        development image is not re-tagged — no environment of the promotion flow
+        deploys it — but nothing here forbids it: it is the caller that decides
+        what it promotes.
     - name: old-tag
-      description: Tag existant, celui que porte l'image à re-taguer.
+      description: The existing tag, the one the image to re-tag carries.
     - name: new-tag
-      description: Tag à poser. Le digest est inchangé.
+      description: The tag to set. The digest is unchanged.
 
   workspaces:
     - name: dockerconfig

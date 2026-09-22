@@ -1,53 +1,48 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Le noyau de pipelines : ce que le dashboard **possède**.
+# The pipeline core: what the dashboard **owns**.
 #
-# Construire une image et poser un tag supplémentaire ne sont pas de
-# l'infrastructure que l'exploitation choisit : ce sont les mécanismes du
-# dashboard. Il en connaît les paramètres, en attend les résultats, et sa machine
-# à états conclut sur leur issue. Les laisser à chaque déploiement garantirait des
-# implémentations divergentes de ce qu'il croit piloter (doc 12 §12.6).
+# Building an image and setting an extra tag are not infrastructure that operations chooses:
+# they are the dashboard's mechanisms. It knows their parameters, expects their results, and its
+# state machine concludes on their outcome. Leaving them to each deployment would guarantee
+# divergent implementations of what it believes it drives.
 #
-# Ils vivaient dans `mse-tekton`, dont le nom disait le couplage : un second
-# projet aurait dû le forker. Ils sont désormais livrés avec le binaire qui les
-# emploie, et leur version suit la sienne — comme le Job de migration, qui est une
-# ressource de ce même déploiement et exécute pourtant du code du dashboard.
+# They lived in `mse-tekton`, whose name stated the coupling: a second project would have had to
+# fork it. They are now shipped with the binary that uses them, and their version follows its own
+# — like the migration Job, which is a resource of this same deployment and yet runs the
+# dashboard's code.
 #
-# Ce qui n'est **pas** ici, et n'a pas à y être : les pipelines propres à un
-# déploiement — déploiement d'environnement, campagne E2E maison, audit de
-# sécurité. Ils restent à leur propriétaire, et le catalogue les référence sans
-# que le dashboard les possède.
+# What is **not** here, and has no business being: the pipelines specific to a deployment —
+# environment deployment, in-house E2E campaign, security audit. They stay with their owner, and
+# the catalogue references them without the dashboard owning them.
 #
-# Le contrat que ces pipelines honorent est écrit en doc 13. Il est normatif :
-# ceux-ci en sont des réalisations, pas la définition.
+# The contract these pipelines honour is written in the results documentation. It is normative:
+# these are implementations of it, not the definition.
 
-# Le namespace est celui des pipelines, pas celui du dashboard : c'est là que
-# Tekton lit les définitions. Il est posé ici plutôt qu'en tête du dépôt parce que
-# la base n'a délibérément **aucun** transformateur global — voir le commentaire
-# de `../kustomization.yaml`. Cette kustomization imbriquée ne transforme que ses
-# propres ressources, ce qui est exactement la portée voulue.
+# The namespace is the pipelines', not the dashboard's: that is where Tekton reads the
+# definitions. It is set here rather than at the top of the repository because the base
+# deliberately has **no** global transformer — see the comment in `../kustomization.yaml`. This
+# nested kustomization transforms only its own resources, which is exactly the scope wanted.
 namespace: mse-tekton-pipelines
 
-# La marque de propriété. Elle n'est pas décorative : elle est ce qui autorisera
-# le dashboard à ne réconcilier que ce qu'il a posé, et à ne jamais adopter ce
-# qu'il trouve (doc 12 §12.7).
+# The ownership mark. It is not decorative: it is what will let the dashboard reconcile only
+# what it installed, and never adopt what it finds.
 #
-# Clé **propre au projet**, et non `app.kubernetes.io/managed-by`. Cet espace est
-# disputé : Skaffold y écrit `kustomize` par-dessus, Flux y écrirait le sien, et
-# la marque disparaissait sans le moindre message — constaté ici même, la première
-# version de ce fichier posait `managed-by: arkhitekton` et le cluster rendait
-# `managed-by: kustomize`. Une propriété qu'un outil de déploiement peut effacer
-# ne prouve rien.
+# A key **specific to the project**, and not `app.kubernetes.io/managed-by`. That space is
+# contested: Skaffold writes `kustomize` over it, Flux would write its own, and the mark
+# disappeared with not a single message — observed right here, the first version of this file set
+# `managed-by: arkhitekton` and the cluster returned `managed-by: kustomize`. An ownership a
+# deployment tool can erase proves nothing.
 labels:
   - includeSelectors: false
     pairs:
       dashboard.cadoles.com/owner: core
 
 resources:
-  # `git-clone` vient du catalogue Tekton, épinglé en 0.6. Vendorisé plutôt que
-  # tiré par URL : une kustomization qui télécharge à chaque rendu échoue hors
-  # ligne, et la version employée n'apparaît alors dans aucun diff.
+  # `git-clone` comes from the Tekton catalogue, pinned at 0.6. Vendored rather than pulled by
+  # URL: a kustomization that downloads at every render fails offline, and the version used then
+  # appears in no diff.
   - task-git-clone.yaml
 
   - task-generate-image-tag.yaml

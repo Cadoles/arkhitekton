@@ -1,18 +1,17 @@
-# Namespace dédié, distinct de `mse-tekton-pipelines`.
+# A dedicated namespace, distinct from `mse-tekton-pipelines`.
 #
-# La séparation n'est pas cosmétique : elle rend le compte de service du dashboard
-# étranger au namespace des pipelines, donc soumis à une Role explicite qui décrit
-# exactement ce qu'il a le droit d'y faire (voir rbac-tekton.yaml). Colocaliser les
-# deux donnerait par défaut au dashboard le voisinage des secrets Tekton.
+# The separation is not cosmetic: it makes the dashboard's service account foreign to the
+# pipelines' namespace, hence subject to an explicit Role describing exactly what it is allowed
+# to do there (see rbac-tekton.yaml). Colocating the two would by default give the dashboard the
+# neighbourhood of Tekton's secrets.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: arkhitekton
   labels:
     app.kubernetes.io/name: arkhitekton
-    # Le dashboard n'a besoin d'aucun privilège : le profil le plus strict des
-    # Pod Security Standards est applicable tel quel, et le poser ici fait
-    # échouer à l'admission tout manifeste qui s'en écarterait plus tard.
+    # The dashboard needs no privilege: the strictest profile of the Pod Security Standards applies
+    # as it is, and setting it here makes any later manifest that departs from it fail at admission.
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted

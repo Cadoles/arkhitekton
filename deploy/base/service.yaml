@@ -14,7 +14,6 @@ spec:
     - name: http
       port: 80
       targetPort: http
-  # Une session OIDC vit en base, pas en mémoire du pod : n'importe quelle
-  # réplique sait servir n'importe quel utilisateur, et aucune affinité de session
-  # n'est nécessaire. C'est le bénéfice direct du choix BFF de la doc 07.
+  # An OIDC session lives in the database, not in the pod's memory: any replica can serve any user,
+  # and no session affinity is needed. It is the direct benefit of the BFF choice.
   sessionAffinity: None

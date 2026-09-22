@@ -1,13 +1,13 @@
-# Création du bucket — développement uniquement.
+# Creating the bucket — development only.
 #
-# `blob.Open` refuse de démarrer si le bucket est absent : sans cette
-# vérification, un identifiant erroné passerait le démarrage et la panne
-# apparaîtrait à la première publication d'artefact, soit à la fin d'un pipeline.
-# La contrepartie est qu'il faut créer le bucket avant les pods applicatifs.
+# `blob.Open` refuses to start if the bucket is absent: without that check, a wrong credential
+# would pass start-up and the failure would appear at the first artifact publication, that is, at
+# the end of a pipeline. The price is that the bucket must be created before the application
+# pods.
 #
-# Aucun shell n'est invoqué : l'entrypoint de l'image est `mc` lui-même, et
-# l'alias passe par MC_HOST_<nom>, ce qui évite un `mc alias set` préalable —
-# donc un `sh -c` dans une image qui n'en garantit pas la présence.
+# No shell is invoked: the image's entrypoint is `mc` itself, and the alias goes through
+# MC_HOST_<name>, which avoids a prior `mc alias set` — hence a `sh -c` in an image that does not
+# guarantee one is present.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -17,9 +17,8 @@ metadata:
     app.kubernetes.io/name: arkhitekton
     app.kubernetes.io/component: minio-bucket
 spec:
-  # Généreux à dessein : le Job démarre en même temps que MinIO et échoue tant
-  # que le serveur n'accepte pas de connexion. Les réessais tiennent lieu
-  # d'attente, sans boucle de sondage à écrire.
+  # Generous on purpose: the Job starts at the same time as MinIO and fails as long as the server
+  # accepts no connection. The retries stand in for a wait, with no polling loop to write.
   backoffLimit: 30
   ttlSecondsAfterFinished: 3600
   template:
@@ -50,10 +49,9 @@ spec:
                 secretKeyRef:
                   name: arkhitekton-secrets
                   key: MINIO_SECRET_KEY
-            # Kubernetes résout $(VAR) à partir des variables déclarées avant.
-            # Les identifiants apparaissent donc dans une URL : ils doivent être
-            # sûrs pour un composant d'URL, d'où la consigne de les garder
-            # alphanumériques dans dashboard.env.example.
+            # Kubernetes resolves $(VAR) from the variables declared before. The credentials therefore appear
+            # in a URL: they must be safe for a URL component, hence the instruction to keep them
+            # alphanumeric in dashboard.env.example.
             - name: MC_HOST_local
               value: "http://$(MINIO_ACCESS_KEY):$(MINIO_SECRET_KEY)@arkhitekton-minio:9000"
           args:

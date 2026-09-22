@@ -1,13 +1,12 @@
-# PostgreSQL de développement — jamais déployé ailleurs.
+# A development PostgreSQL — never deployed elsewhere.
 #
-# En production, la base est une instance CloudNativePG avec sauvegardes
-# planifiées (doc 03 §3.5). Reproduire CNPG en local n'apporterait rien : ce que
-# le dashboard exerce est du SQL, identique dans les deux cas, et l'opérateur
-# ajouterait un secret généré dont le mot de passe devrait être extrait avant de
-# pouvoir construire un DSN.
+# In production, the database is a CloudNativePG instance with scheduled backups. Reproducing
+# CNPG locally would bring nothing: what the dashboard exercises is SQL, identical in both cases,
+# and the operator would add a generated secret whose password would have to be extracted before
+# a DSN could be built.
 #
-# Ici le mot de passe vient du même fichier d'environnement que DATABASE_URL, ce
-# qui rend les deux cohérents par construction.
+# Here the password comes from the same environment file as DATABASE_URL, which makes the two
+# consistent by construction.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -15,8 +14,8 @@ metadata:
   namespace: arkhitekton
 spec:
   accessModes: ["ReadWriteOnce"]
-  # kind fournit `standard` (local-path), et non `local-path` comme la production.
-  # Sans incidence : le dashboard ne lit aucun volume.
+  # kind supplies `standard` (local-path), and not `local-path` as production does. Of no
+  # consequence: the dashboard reads no volume.
   storageClassName: standard
   resources:
     requests:
@@ -31,15 +30,14 @@ metadata:
     app.kubernetes.io/name: arkhitekton
     app.kubernetes.io/component: postgres
   annotations:
-    # Exclusion assumée et locale : l'image PostgreSQL écrit hors de ses volumes
-    # (socket de domaine, fichiers de verrou). La rendre compatible demanderait
-    # un montage par chemin concerné, pour une base qui n'existe qu'en
-    # développement. Les pods du dashboard, eux, restent en lecture seule.
-    ignore-check.kube-linter.io/no-read-only-root-fs: "base de développement, non déployée ailleurs"
+    # An accepted and local exception: the PostgreSQL image writes outside its volumes (domain
+    # socket, lock files). Making it compatible would require one mount per path concerned, for a
+    # database that exists only in development. The dashboard's pods, for their part, stay read-only.
+    ignore-check.kube-linter.io/no-read-only-root-fs: "development database, never deployed elsewhere"
 spec:
   replicas: 1
-  # Recreate : deux postgres sur le même PVC ReadWriteOnce ne démarreraient pas,
-  # et un RollingUpdate essaierait exactement cela à chaque mise à jour.
+  # Recreate: two postgres pods on the same ReadWriteOnce PVC would not start, and a RollingUpdate
+  # would attempt exactly that at every update.
   strategy:
     type: Recreate
   selector:
@@ -54,9 +52,8 @@ spec:
     spec:
       automountServiceAccountToken: false
       securityContext:
-        # 70 = `postgres` dans l'image Alpine. Le namespace applique le profil
-        # `restricted` : sans UID explicite, l'entrypoint démarrerait en root et
-        # l'admission refuserait le pod.
+        # 70 = `postgres` in the Alpine image. The namespace applies the `restricted` profile: with no
+        # explicit UID, the entrypoint would start as root and admission would refuse the pod.
         runAsNonRoot: true
         runAsUser: 70
         runAsGroup: 70
@@ -76,8 +73,8 @@ spec:
                 secretKeyRef:
                   name: arkhitekton-secrets
                   key: POSTGRES_PASSWORD
-            # Sous-répertoire imposé : la racine d'un PVC contient `lost+found`,
-            # et initdb refuse un répertoire non vide.
+            # An imposed subdirectory: a PVC's root contains `lost+found`, and initdb refuses a directory
+            # that is not empty.
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           ports:
@@ -87,16 +84,14 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-            # Contrairement au dashboard, l'image PostgreSQL écrit hors de ses
-            # volumes — socket de domaine dans /var/run/postgresql, fichiers de
-            # verrou. Un FS racine en lecture seule demanderait un montage par
-            # chemin concerné, pour une base de développement.
+            # Unlike the dashboard, the PostgreSQL image writes outside its volumes — a domain socket in
+            # /var/run/postgresql, lock files. A read-only root FS would require one mount per path
+            # concerned, for a development database.
             readOnlyRootFilesystem: false
           readinessProbe:
             exec:
-              # pg_isready se déclare prêt sur le serveur temporaire d'initdb,
-              # avant que le serveur définitif n'accepte les connexions TCP.
-              # Une vraie requête sur la base cible est le seul signal fiable.
+              # pg_isready declares itself ready on initdb's temporary server, before the final server accepts
+              # TCP connections. A real query on the target database is the only reliable signal.
               command: ["psql", "-U", "dashboard", "-d", "dashboard", "-c", "select 1"]
             initialDelaySeconds: 5
             periodSeconds: 5

@@ -1,19 +1,17 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Aucun transformateur `namespace:` n'est déclaré, ici ni dans les overlays.
+# No `namespace:` transformer is declared, here or in the overlays.
 #
-# La raison est dans rbac-tekton.yaml : cette Role vit dans
-# `mse-tekton-pipelines`. Un transformateur global la déplacerait vers
-# `arkhitekton`, où elle n'accorderait plus rien — sans erreur, sans avertissement,
-# et le symptôme serait un « forbidden » à la première création de PipelineRun.
-# Chaque ressource porte donc son namespace explicitement.
+# The reason is in rbac-tekton.yaml: that Role lives in `mse-tekton-pipelines`. A global
+# transformer would move it to `arkhitekton`, where it would grant nothing — with no error, no
+# warning, and the symptom would be a "forbidden" at the first PipelineRun creation. Each
+# resource therefore carries its namespace explicitly.
 
 resources:
-  # Le noyau de pipelines que le dashboard possède : construction et re-tag. Sa
-  # kustomization imbriquée porte son propre namespace — celui des pipelines — ce
-  # qui est la seule exception à la règle ci-dessus, et elle est bornée à ses
-  # ressources (doc 12 §12.6).
+  # The pipeline core the dashboard owns: build and re-tag. Its nested kustomization carries its
+  # own namespace — the pipelines' — which is the only exception to the rule above, and it is
+  # bounded to its own resources.
   - pipelines
 
   - namespace.yaml
@@ -34,28 +32,26 @@ labels:
       app.kubernetes.io/managed-by: kustomize
 
 configMapGenerator:
-  # Catalogue des pipelines, monté en fichier. Le `worker` le valide au démarrage
-  # contre les Pipeline déployés ; l'`api` s'en sert pour dire ce qui est
-  # lançable et quels paramètres sont requis.
+  # The pipeline catalogue, mounted as a file. The `worker` validates it at start-up against the
+  # deployed Pipelines; the `api` uses it to say what can be launched and which parameters are
+  # required.
   - name: arkhitekton-catalog
     namespace: arkhitekton
     files:
       - catalog.yaml=config/catalog.yaml
 
-  # Seules les valeurs identiques partout figurent ici. Tout ce qui dépend de
-  # l'environnement — URL publique, fournisseur OIDC, endpoint MinIO, liste des
-  # administrateurs d'amorçage — est ajouté par l'overlay en `behavior: merge`.
+  # Only the values that are identical everywhere appear here. Everything that depends on the
+  # environment — public URL, OIDC provider, MinIO endpoint, list of bootstrap administrators — is
+  # added by the overlay with `behavior: merge`.
   #
-  # Le suffixe de hachage est conservé (pas de `disableNameSuffixHash`) : changer
-  # une valeur produit un nouveau nom de ConfigMap, donc un nouveau podTemplate,
-  # donc un redémarrage. Sans lui, une modification de configuration serait
-  # appliquée à l'objet sans que le moindre pod la relise.
+  # The hash suffix is kept (no `disableNameSuffixHash`): changing a value produces a new
+  # ConfigMap name, hence a new podTemplate, hence a restart. Without it, a configuration change
+  # would be applied to the object with no pod ever reading it again.
   #
-  # `namespace` est obligatoire ici, et son absence est un piège silencieux : un
-  # objet généré sans namespace atterrit dans `default`, et surtout kustomize
-  # cesse de reconnaître les références faites depuis les Deployments — les
-  # `configMapRef` gardent le nom sans suffixe de hachage. Le build reste vert,
-  # le déploiement échoue en CreateContainerConfigError.
+  # `namespace` is mandatory here, and its absence is a silent trap: an object generated with no
+  # namespace lands in `default`, and above all kustomize stops recognising the references made
+  # from the Deployments — the `configMapRef` entries keep the name with no hash suffix. The build
+  # stays green, the deployment fails with CreateContainerConfigError.
   - name: arkhitekton-config
     namespace: arkhitekton
     literals:
@@ -66,24 +62,21 @@ configMapGenerator:
       - DATABASE_MAX_CONNS=10
       - DATABASE_CONN_MAX_LIFETIME=1h
       - MINIO_BUCKET=arkhitekton
-      # Doit couvrir le pipeline le plus long — 90 min pour `security-audit` —
-      # sans excéder ce qui est raisonnable pour une capacité d'écriture. Le
-      # binaire refuse de démarrer en dessous de 90m.
+      # Must cover the longest pipeline — 90 min for `security-audit` — without exceeding what is
+      # reasonable for a write capability. The binary refuses to start below 90m.
       - MINIO_PRESIGN_TTL=2h
       - OIDC_SCOPES=openid,profile,email
       - SESSION_TTL=12h
       - TEKTON_NAMESPACE=mse-tekton-pipelines
-      # La marque des lignes de protocole que les Tasks écrivent sur leur sortie
-      # standard. `MSE` donne `##MSE-META##`, ce que `mse-tekton` émet déjà.
+      # The mark of the protocol lines the Tasks write on their standard output. `MSE` gives
+      # `##MSE-META##`, which is what `mse-tekton` already emits.
       #
-      # Le laisser vide rendrait la forme neutre `##META##` : les descripteurs
-      # existants ne seraient plus lus, et un outil planté redeviendrait
-      # indiscernable d'un outil propre (doc 13 §13.3).
+      # Leaving it empty would make the form neutral, `##META##`: the existing descriptors would no
+      # longer be read, and a crashed tool would become indistinguishable from a clean one again.
       - MARKER_TOKEN=MSE
 
 images:
-  # Substituée par chaque overlay. `latest` est délibérément faux : un overlay
-  # qui oublierait de fixer le tag déploierait une image non déterministe, et il
-  # vaut mieux que cela se voie.
+  # Substituted by each overlay. `latest` is deliberately wrong: an overlay that forgot to set the
+  # tag would deploy a non-deterministic image, and it is better that this shows.
   - name: reg.cadoles.com/vcarroy/arkhitekton
     newTag: latest

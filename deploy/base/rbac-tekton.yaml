@@ -1,84 +1,77 @@
-# Droits du dashboard dans le namespace des pipelines.
+# The dashboard's rights in the pipelines' namespace.
 #
-# La liste suit doc 07 §7.3. Ce qui en est absent l'est volontairement :
+# The list follows the security documentation. What is absent from it is absent deliberately:
 #
-#   - la **lecture** des secrets : le dashboard n'a aucune raison de lire ceux de
-#     Tekton, et ce namespace en contient (registre, clé SSH partagée, MinIO). Il
-#     en crée en revanche depuis le lot G — une clé de déploiement par projet —,
-#     et en RBAC Kubernetes les verbes sont indépendants : `create`, `patch` et
-#     `delete` s'accordent sans `get` ni `list`. Un rôle qui possède ce qu'il
-#     crée sans rien pouvoir lire du namespace est donc exprimable, et il honore
-#     le motif d'origine à la lettre (doc 12 §12.7).
-#   - `pods/exec` : la collecte de logs passe par `pods/log`, jamais par une
-#     exécution dans un conteneur.
-#   - l'écriture sur les `pipelines` et `tasks` du **noyau** : construire et
-#     re-taguer arrivent avec le binaire, par sa kustomization, comme le Job de
-#     migration. Le dashboard ne les modifie pas à l'exécution.
+#   - **reading** the secrets: the dashboard has no reason to read Tekton's, and this namespace
+#     contains some (registry, shared SSH key, MinIO). It does create some, on the other hand —
+#     one deploy key per project — and in Kubernetes RBAC the verbs are independent: `create`,
+#     `patch` and `delete` are granted without `get` or `list`. A role that owns what it creates
+#     without being able to read anything of the namespace is therefore expressible, and it
+#     honours the original intent to the letter.
+#   - `pods/exec`: log collection goes through `pods/log`, never through running a command in a
+#     container.
+#   - writing the **core**'s `pipelines` and `tasks`: build and re-tag arrive with the binary,
+#     through its kustomization, like the migration Job. The dashboard does not modify them at
+#     run time.
 #
-#     Il écrit en revanche les implémentations de **référence** — les Task d'une
-#     pile, posées quand un projet la déclare (doc 12 §12.6, lot G). Il ne pose
-#     que ce qu'il nomme, marque ce qu'il possède, et n'adopte jamais une
-#     définition qu'un tiers maintient : sur un cluster où `mse-tekton` a déjà
-#     posé les siennes, il constate et se retire.
+#     It does write the **reference** implementations — a stack's Tasks, installed when a project
+#     declares it. It installs only what it names, marks what it owns, and never adopts a
+#     definition a third party maintains: on a cluster where `mse-tekton` has already installed
+#     its own, it observes and withdraws.
 #
-# Ce fichier porte un namespace en dur, différent de celui du reste du dépôt.
-# C'est la raison pour laquelle aucun transformateur `namespace:` n'est déclaré
-# dans les kustomization : il déplacerait cette Role vers `arkhitekton`, où elle
-# n'accorderait rien, sans le moindre message d'erreur.
+# This file carries a hard-coded namespace, different from the rest of the repository's. It is
+# the reason why no `namespace:` transformer is declared in the kustomizations: it would move
+# this Role to `arkhitekton`, where it would grant nothing, with not a single error message.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: arkhitekton-tekton
   namespace: mse-tekton-pipelines
 rules:
-  # Lecture des définitions : le catalogue de pipelines du dashboard est validé au
-  # démarrage contre ce qui existe réellement dans le cluster.
+  # Reading the definitions: the dashboard's pipeline catalogue is validated at start-up against
+  # what really exists in the cluster.
   - apiGroups: ["tekton.dev"]
     resources: ["pipelines", "tasks"]
-    # `create` et `update` pour la bibliothèque de référence ; pas `delete` :
-    # retirer un pipeline que des runs référencent encore les rendrait
-    # inexplicables, et retirer une pile est un geste assez rare pour rester
-    # manuel.
+    # `create` and `update` for the reference library; not `delete`: removing a pipeline that runs
+    # still reference would make them inexplicable, and removing a stack is a rare enough act to stay
+    # manual.
     verbs: ["get", "list", "watch", "create", "update"]
-  # Pilotage des exécutions. `patch` sert uniquement à poser
-  # `spec.status: Cancelled` ; `delete` au nettoyage des runs créés par le
-  # dashboard.
+  # Driving the runs. `patch` serves only to set `spec.status: Cancelled`; `delete` to clean up the
+  # runs the dashboard created.
   - apiGroups: ["tekton.dev"]
     resources: ["pipelineruns"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
   - apiGroups: ["tekton.dev"]
     resources: ["taskruns"]
     verbs: ["get", "list", "watch"]
-  # Collecte des logs.
+  # Log collection.
   - apiGroups: [""]
     resources: ["pods", "pods/log"]
     verbs: ["get", "list", "watch"]
-  # Écriture des secrets que le dashboard **possède** : une clé de déploiement
-  # par projet, dont il ne conserve que la moitié publique.
+  # Writing the secrets the dashboard **owns**: one deploy key per project, of which it keeps only
+  # the public half.
   #
-  # Sans `get` ni `list`, et c'est structurant plutôt que décoratif : n'ayant
-  # aucun moyen de demander au cluster si un secret lui appartient, le dashboard
-  # lit sa propriété dans sa base — `projects.deploy_key_public` — et refuse
-  # d'adopter un secret préexistant. La restriction produit la garantie.
+  # Without `get` or `list`, and that is structuring rather than decorative: having no way of
+  # asking the cluster whether a secret belongs to it, the dashboard reads its ownership in its
+  # database — `projects.deploy_key_public` — and refuses to adopt a pre-existing secret. The
+  # restriction produces the guarantee.
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create", "patch", "update", "delete"]
-  # La liste des secrets montables du compte de service des pipelines.
+  # The list of mountable secrets of the pipelines' service account.
   #
-  # `kubernetes.io/enforce-mountable-secrets: "true"` est ce qui empêche
-  # réellement une Task de se servir dans le namespace. En devenant propriétaire
-  # de secrets, le dashboard devient responsable de ce qui peut les monter : il
-  # n'ajoute que les noms qu'il dérive lui-même d'un projet, et ne retire jamais
-  # une entrée qu'il n'a pas posée.
+  # `kubernetes.io/enforce-mountable-secrets: "true"` is what actually stops a Task helping itself
+  # in the namespace. By becoming the owner of secrets, the dashboard becomes responsible for what
+  # can mount them: it adds only the names it derives itself from a project, and never removes an
+  # entry it did not set.
   #
-  # `get` est ici accordé : un compte de service n'est pas un secret, et sans
-  # lui la liste ne pourrait être modifiée qu'en l'écrasant — ce qui élaguerait
-  # les identifiants du déploiement.
+  # `get` is granted here: a service account is not a secret, and without it the list could be
+  # modified only by overwriting it — which would prune the deployment's credentials.
   - apiGroups: [""]
     resources: ["serviceaccounts"]
     verbs: ["get", "update", "patch"]
-  # Diagnostic d'un run qui ne démarre pas : PVC non lié, image non tirée, quota
-  # atteint. Sans les events, l'interface ne peut afficher que « en attente ».
+  # Diagnosing a run that does not start: PVC not bound, image not pulled, quota reached. Without
+  # the events, the interface can display only "waiting".
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["get", "list", "watch"]

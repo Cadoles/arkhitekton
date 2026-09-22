@@ -6,20 +6,18 @@ metadata:
   labels:
     app.kubernetes.io/name: arkhitekton
   annotations:
-    # Le suivi d'un run passe par SSE. Avec la mise en tampon active — le défaut
-    # de nginx — les événements sont accumulés puis délivrés en bloc : l'interface
-    # affiche un run figé pendant plusieurs secondes, puis saute à l'état final.
+    # Following a run goes through SSE. With buffering on — nginx's default — the events are
+    # accumulated then delivered in a block: the interface shows a frozen run for several seconds,
+    # then jumps to the final state.
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    # Un flux SSE reste ouvert aussi longtemps que le run. Le défaut de 60 s le
-    # couperait au milieu de chaque pipeline, et le navigateur reconnecterait en
-    # boucle.
+    # An SSE stream stays open as long as the run. The 60 s default would cut it in the middle of
+    # every pipeline, and the browser would reconnect in a loop.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
 spec:
   ingressClassName: nginx
   rules:
-    # Hôte volontairement inutilisable : chaque overlay doit poser le sien. Un
-    # nom plausible ici serait pire — il produirait un Ingress accepté par le
-    # contrôleur et joignable par personne.
+    # A deliberately unusable host: each overlay must set its own. A plausible name here would be
+    # worse — it would produce an Ingress the controller accepts and nobody can reach.
     - host: dashboard.invalid
       http:
         paths:

@@ -1,30 +1,29 @@
-# Observation d'un environnement applicatif — ici `mse-dev`, qui tient lieu de
-# tous les environnements en local (doc 11 §11.7).
+# Observing an application environment — here `mse-dev`, which stands in for every environment
+# locally.
 #
-# Une Role par namespace applicatif, en lecture stricte. Elle vit dans l'overlay
-# et non dans la base parce que la liste des namespaces observés est propre à
-# chaque installation : en production il y en a un par environnement, et la
-# production elle-même est dans un cluster indépendant, donc absente.
+# One Role per application namespace, strictly read-only. It lives in the overlay and not in the
+# base because the list of observed namespaces is specific to each installation: in production
+# there is one per environment, and production itself is in an independent cluster, hence absent.
 #
-# Aucun droit d'écriture. Si un redémarrage contrôlé après re-tag s'avérait
-# nécessaire (B7), il passerait par un pipeline Tekton dédié utilisant le compte
-# `tekton-kubectl` existant, et non par un élargissement de ces droits.
+# No write permission. Were a controlled restart after a re-tag to prove necessary, it would go
+# through a dedicated Tekton pipeline using the existing `tekton-kubectl` account, and not
+# through a widening of these rights.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: arkhitekton-observer
   namespace: mse-dev
 rules:
-  # Lire les images et les digests réellement en cours d'exécution (B8).
+  # Reading the images and the digests actually running.
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "replicasets"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
-  # PortalData est la seule source issue de l'application en exécution, et la
-  # seule à dire si les migrations ont abouti. Une image déployée dont les
-  # migrations ont échoué n'est pas une version livrée, et rien d'autre ne le dit.
+  # PortalData is the only source coming from the application while running, and the only one to
+  # say whether the migrations completed. A deployed image whose migrations failed is not a
+  # delivered version, and nothing else says so.
   - apiGroups: ["mse.cnous.fr"]
     resources: ["portaldata"]
     verbs: ["get", "list", "watch"]

@@ -19,9 +19,9 @@ spec:
         app.kubernetes.io/component: api
     spec:
       serviceAccountName: arkhitekton
-      # Le rôle `api` ne parle jamais à l'API Kubernetes : la création des
-      # PipelineRun appartient au `worker`, l'api ne fait qu'inscrire une demande
-      # en base. Monter un jeton lui donnerait une capacité qu'il n'exerce pas.
+      # The `api` role never speaks to the Kubernetes API: creating the PipelineRuns belongs to the
+      # `worker`, the api only records a request in the database. Mounting a token would give it a
+      # capability it does not exercise.
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -32,10 +32,9 @@ spec:
           type: RuntimeDefault
       affinity:
         podAntiAffinity:
-          # `preferred` et non `required` : deux répliques sur des nœuds distincts
-          # est ce qu'on veut en production, mais l'exiger rendrait la seconde
-          # réplique éternellement Pending sur un cluster kind mononœud — c'est
-          # l'environnement où le manifeste est éprouvé le plus souvent.
+          # `preferred` and not `required`: two replicas on distinct nodes is what one wants in
+          # production, but requiring it would leave the second replica forever Pending on a single-node
+          # kind cluster — the environment where the manifest is exercised most often.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               podAffinityTerm:
@@ -61,27 +60,26 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-          # /healthz est sans dépendance : une sonde de vivacité qui échoue parce
-          # que PostgreSQL est tombé ferait redémarrer un processus sain et
-          # transformerait une panne de base en boucle de crash.
+          # /healthz has no dependency: a liveness probe that fails because PostgreSQL went down would
+          # restart a healthy process and turn a database outage into a crash loop.
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
             periodSeconds: 10
             failureThreshold: 3
-          # /readyz vérifie les dépendances, dont la version du schéma : un pod
-          # démarré avant la fin du Job de migration reste hors du Service au lieu
-          # de répondre 500 sur chaque table absente.
+          # /readyz checks the dependencies, the schema version among them: a pod started before the
+          # migration Job finished stays out of the Service instead of answering 500 on every missing
+          # table.
           readinessProbe:
             httpGet:
               path: /readyz
               port: http
             periodSeconds: 10
             failureThreshold: 3
-          # La découverte OIDC et la vérification du bucket ont lieu au démarrage :
-          # le premier /healthz peut donc tarder. Sans startupProbe, la sonde de
-          # vivacité tuerait le processus au milieu de cette initialisation.
+          # OIDC discovery and the bucket check happen at start-up: the first /healthz may therefore be
+          # late. Without a startupProbe, the liveness probe would kill the process in the middle of that
+          # initialisation.
           startupProbe:
             httpGet:
               path: /healthz
@@ -96,9 +94,8 @@ spec:
               cpu: "1"
               memory: 512Mi
           volumeMounts:
-            # Le système de fichiers racine est en lecture seule : la génération
-            # de rapports PDF et les tampons de la bibliothèque HTTP ont besoin
-            # d'un /tmp inscriptible, et de rien d'autre.
+            # The root file system is read-only: generating PDF reports and the HTTP library's buffers need
+            # a writable /tmp, and nothing else.
             - name: tmp
               mountPath: /tmp
             - name: catalog
