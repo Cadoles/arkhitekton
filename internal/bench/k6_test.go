@@ -99,7 +99,7 @@ func TestThresholdVerdictsAreKept(t *testing.T) {
 // A scenario with no HTTP request is legitimate. Omitting the measurement is accurate; a zero
 // would be wrong.
 func TestAbsentMetricsAreOmittedNotZeroed(t *testing.T) {
-	summary, err := ParseSummary("sonde", []byte(`{"metrics":{"http_reqs":{"values":{"count":10,"rate":1}}}}`), nil)
+	summary, err := ParseSummary("probe", []byte(`{"metrics":{"http_reqs":{"values":{"count":10,"rate":1}}}}`), nil)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}

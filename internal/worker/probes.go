@@ -208,7 +208,7 @@ func (r *ProbeRunner) sweep(ctx context.Context, probe Probe) {
 		// One project's failure **does not stop** the next ones: two projects may target two servers,
 		// and one's outage says nothing about the other.
 		if err := r.pollOne(ctx, probe, project); err != nil {
-			r.logger.Error("sonde",
+			r.logger.Error("probe",
 				"source", probe.Source(), "project", project.Slug, "error", err)
 			if recordErr := r.store.RecordSyncFailure(
 				ctx, probe.Source(), project.ID, err.Error()); recordErr != nil {
@@ -288,7 +288,7 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 	case priming:
 		r.logger.Info("probe bootstrapped, no reaction triggered",
 			"source", probe.Source(), "project", project.Slug,
-			"faits_retenus", len(facts),
+			"facts_kept", len(facts),
 			"reason", "enabling something does not wake the past")
 	case emitted > 0:
 		r.logger.Info("facts observed by a probe",
