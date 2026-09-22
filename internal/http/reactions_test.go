@@ -1,6 +1,10 @@
 package http
 
 import (
+	"context"
+	"encoding/json"
+	stdhttp "net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +13,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*
@@ -174,6 +179,51 @@ func TestEachRoleAdmitsWhatMatchesIt(t *testing.T) {
 	} {
 		if err := handler.checkRoles(planWithStage(role, pipelineGeste(ref))); err != nil {
 			t.Errorf("role %q with %q refused: %v", role, ref, err)
+		}
+	}
+}
+
+/*
+ * The catalogue's wire format.
+ *
+ * The keys this response carries are read by the interface, and nothing else names them: a
+ * rename here compiles, passes every other test, and empties a screen. It happened — the
+ * `gestes` key became `steps` during a translation pass, and the editor crashed on an
+ * undefined list.
+ */
+
+// catalogueStore is the minimum the catalogue route reads.
+type catalogueStore struct{ AutomationStore }
+
+func (catalogueStore) PluginSettingsAll(context.Context) (map[string]store.PluginSettings, error) {
+	return map[string]store.PluginSettings{}, nil
+}
+
+// The catalogue carries the keys the editor reads, under those names.
+func TestTheCatalogueCarriesTheKeysTheEditorReads(t *testing.T) {
+	handler := NewAutomationsHandler(catalogueStore{}, roleCatalogue(), quietLogger())
+
+	recorder := httptest.NewRecorder()
+	handler.Catalogue(recorder, httptest.NewRequest(stdhttp.MethodGet, "/admin/automations/catalogue", nil))
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("code = %d, expected 200: %s", recorder.Code, recorder.Body)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unreadable response: %v", err)
+	}
+	// The four names the interface asks for. `gestes` stays French, like the rest of the wire
+	// format it consumes.
+	for _, key := range []string{"events", "gestes", "when", "roles"} {
+		if _, found := body[key]; !found {
+			t.Errorf("key %q missing — the screen that reads it would crash on an undefined list", key)
+		}
+	}
+	// And each is a list: the editor iterates over them with no guard.
+	for key, raw := range body {
+		if !strings.HasPrefix(string(raw), "[") {
+			t.Errorf("key %q = %s, expected an array", key, raw)
 		}
 	}
 }

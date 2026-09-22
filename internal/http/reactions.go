@@ -320,7 +320,9 @@ func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"events": events,
-		"steps":  steps,
+		// `gestes`, and not `steps`: the interface reads this key, and it stays French like the
+		// rest of the wire format it consumes.
+		"gestes": steps,
 		"when":   []string{string(plan.WhenSuccess), string(plan.WhenFailure), string(plan.WhenAlways)},
 		// The stage roles, and what each requires of its steps. The editor presents two blocks —
 		// "Build", "Verification" — and must be able to say which accepts what without hard-coding
