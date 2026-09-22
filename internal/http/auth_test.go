@@ -272,7 +272,7 @@ func TestLogoutRevokesAndClearsCookies(t *testing.T) {
 // Clearing the cookie while revocation failed would make the user believe they are signed
 // out, while their session stays usable by whoever holds it.
 func TestLogoutKeepsCookieWhenRevocationFails(t *testing.T) {
-	sessions := &stubSessions{revokeErr: errors.New("base indisponible")}
+	sessions := &stubSessions{revokeErr: errors.New("database unavailable")}
 	handler, _ := newAuthHandler(&stubExchanger{}, sessions)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)

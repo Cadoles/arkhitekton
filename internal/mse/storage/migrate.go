@@ -115,7 +115,7 @@ func WaitForSchema(
 		pending, err := PendingMigrations(ctx, cfg)
 		if err == nil && len(pending) == 0 {
 			if attempt > 1 {
-				logger.Info("MSE plugin schema up to date", "tentatives", attempt)
+				logger.Info("MSE plugin schema up to date", "attempts", attempt)
 			}
 			return nil
 		}
@@ -126,7 +126,7 @@ func WaitForSchema(
 			return fmt.Errorf("%w: MSE plugin, %d migration(s) pending after %s",
 				store.ErrSchemaOutdated, len(pending), timeout)
 		}
-		logger.Info("MSE plugin schema pending", "tentative", attempt, "en_attente", len(pending))
+		logger.Info("MSE plugin schema pending", "attempt", attempt, "pending", len(pending))
 
 		select {
 		case <-ctx.Done():

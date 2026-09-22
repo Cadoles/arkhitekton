@@ -129,7 +129,7 @@ func configuredPlugins(cfg config.Config, cipher *secrets.Cipher, logger *slog.L
 	// applying in the meantime.
 	if len(cfg.Tracker.ReviewStatuses) > 0 && cfg.Tracker.Configured() {
 		logger.Info("review statuses to redeclare per project",
-			"statuts", cfg.Tracker.ReviewStatuses,
+			"statuses", cfg.Tracker.ReviewStatuses,
 			"reason", "the vocabulary belongs to the client, not to the instance")
 	}
 

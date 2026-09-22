@@ -190,7 +190,7 @@ func WaitForSchema(
 			}
 		case len(pending) == 0:
 			if attempt > 1 {
-				logger.Info("schema up to date", "tentatives", attempt)
+				logger.Info("schema up to date", "attempts", attempt)
 			}
 			return nil
 		case time.Now().After(deadline):
@@ -201,7 +201,7 @@ func WaitForSchema(
 				timeout, len(pending), strings.Join(pending, ", "))
 		default:
 			logger.Info("schema behind, waiting for the migration Job",
-				"tentative", attempt, "en_attente", len(pending), "timeout", waitDelay)
+				"attempt", attempt, "pending", len(pending), "timeout", waitDelay)
 		}
 
 		select {
@@ -236,7 +236,7 @@ func WaitForDatabase(ctx context.Context, cfg config.DatabaseConfig, timeout tim
 		if err == nil {
 			db.Close()
 			if attempt > 1 {
-				logger.Info("base disponible", "tentatives", attempt)
+				logger.Info("database available", "attempts", attempt)
 			}
 			return nil
 		}
@@ -249,8 +249,8 @@ func WaitForDatabase(ctx context.Context, cfg config.DatabaseConfig, timeout tim
 				attempt, timeout, redactError(err, cfg.DSN))
 		}
 
-		logger.Info("base indisponible, nouvelle tentative",
-			"tentative", attempt, "timeout", waitDelay)
+		logger.Info("database unavailable, retrying",
+			"attempt", attempt, "timeout", waitDelay)
 
 		select {
 		case <-ctx.Done():

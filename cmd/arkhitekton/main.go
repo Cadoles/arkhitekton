@@ -521,7 +521,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			attester = portalClient
 			// `api_version` and not `version`: the logger already carries a `version` attribute — the
 			// binary's — and two keys of the same name in one record make it unreadable.
-			logger.Info("source d'attestation", "api_version", portalClient.Version())
+			logger.Info("attestation source", "api_version", portalClient.Version())
 		}
 		environments = mse.NewObserver(msestorage.New(db.Pool()), attester, logger)
 
@@ -563,7 +563,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				if err != nil {
 					return fmt.Errorf("Flux client of project %s: %w", project.Slug, err)
 				}
-				logger.Info("client Flux", "namespace", namespace, "versions", fluxClient.Versions())
+				logger.Info("Flux client", "namespace", namespace, "versions", fluxClient.Versions())
 				deployer = flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
 				deployers[namespace] = deployer
 			}
@@ -751,7 +751,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				scheduler.Handle(worker.NewNoteBuilder(
 					forgeClient, db, cfg.Tracker.ReviewStatuses, logger))
 				logger.Info("release note",
-					"statuts_en_revue", cfg.Tracker.ReviewStatuses)
+					"review_statuses", cfg.Tracker.ReviewStatuses)
 			} else {
 				logger.Warn("forge not configured: the release notes will not be composed")
 			}

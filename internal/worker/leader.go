@@ -74,7 +74,7 @@ func RunAsLeader(
 		ReleaseOnCancel: true,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(leadingCtx context.Context) {
-				logger.Info("bail acquis", "identity", cfg.Identity, "lease", LeaseName)
+				logger.Info("lease acquired", "identity", cfg.Identity, "lease", LeaseName)
 				if err := work(leadingCtx); err != nil {
 					workErr = err
 					logger.Error("background loops interrupted", "error", err)
@@ -84,7 +84,7 @@ func RunAsLeader(
 				// Neither panic nor restart: the process stays a candidate. A lease lost during a network
 				// switch is a normal incident, and exiting with an error would turn a second of unavailability
 				// into a crash loop.
-				logger.Warn("bail perdu", "identity", cfg.Identity)
+				logger.Warn("lease lost", "identity", cfg.Identity)
 			},
 			OnNewLeader: func(identity string) {
 				if identity == cfg.Identity {
