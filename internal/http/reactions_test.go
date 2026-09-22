@@ -192,11 +192,24 @@ func TestEachRoleAdmitsWhatMatchesIt(t *testing.T) {
  * undefined list.
  */
 
-// catalogueStore is the minimum the catalogue route reads.
+// catalogueStore is the minimum the catalogue and automation routes read.
 type catalogueStore struct{ AutomationStore }
 
 func (catalogueStore) PluginSettingsAll(context.Context) (map[string]store.PluginSettings, error) {
 	return map[string]store.PluginSettings{}, nil
+}
+
+func (catalogueStore) ProjectBySlug(context.Context, string) (store.Project, error) {
+	return store.Project{ID: 7, Slug: "mse"}, nil
+}
+
+func (catalogueStore) ReleaseAutomation(context.Context, int64) (store.ReleaseAutomation, error) {
+	return store.ReleaseAutomation{
+		ProjectID: 7, UpdatedBy: "alice",
+		Plan: plan.Plan{Stages: []plan.Stage{{Role: plan.RoleBuild, Gestes: []plan.Geste{
+			{Kind: plan.GestePipeline, Ref: "build", Label: "portal"},
+		}}}},
+	}, nil
 }
 
 // The catalogue carries the keys the editor reads, under those names.
@@ -225,5 +238,44 @@ func TestTheCatalogueCarriesTheKeysTheEditorReads(t *testing.T) {
 		if !strings.HasPrefix(string(raw), "[") {
 			t.Errorf("key %q = %s, expected an array", key, raw)
 		}
+	}
+}
+
+// The automation carries the keys the same screen reads, and a plan the editor can walk.
+//
+// `plan.stages[].gestes` is the shape the editor iterates over with no guard: a stage with no
+// step list would crash it exactly as the catalogue did.
+func TestTheAutomationCarriesThePlanTheEditorWalks(t *testing.T) {
+	handler := NewAutomationsHandler(catalogueStore{}, roleCatalogue(), quietLogger())
+
+	request := httptest.NewRequest(stdhttp.MethodGet, "/projects/mse/automation", nil)
+	request.SetPathValue("project", "mse")
+	recorder := httptest.NewRecorder()
+	handler.Automation(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("code = %d, expected 200: %s", recorder.Code, recorder.Body)
+	}
+	var body struct {
+		Plan struct {
+			Stages []struct {
+				Role   string            `json:"role"`
+				Gestes []json.RawMessage `json:"gestes"`
+			} `json:"stages"`
+		} `json:"plan"`
+		Declared  bool   `json:"declared"`
+		UpdatedBy string `json:"updated_by"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unreadable response: %v", err)
+	}
+	if !body.Declared || body.UpdatedBy != "alice" {
+		t.Errorf("declared = %v, updated_by = %q", body.Declared, body.UpdatedBy)
+	}
+	if len(body.Plan.Stages) != 1 {
+		t.Fatalf("%d stage(s), expected 1: %s", len(body.Plan.Stages), recorder.Body)
+	}
+	if body.Plan.Stages[0].Role == "" || len(body.Plan.Stages[0].Gestes) != 1 {
+		t.Errorf("stage = %+v — the editor reads `role` and `gestes`", body.Plan.Stages[0])
 	}
 }
