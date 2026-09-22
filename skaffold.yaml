@@ -3,47 +3,46 @@ kind: Config
 metadata:
   name: arkhitekton
 
-# Boucle de développement local sur kind.
+# Local development loop on kind.
 #
-# Skaffold remplace `make deploy`, et pas seulement par commodité : il corrige un
-# défaut de fond de cette cible. Le tag `dev` y était mutable, donc invisible pour
-# un nœud en `IfNotPresent`, et il fallait un `kubectl rollout restart` explicite
-# pour que les pods reprennent l'image. Un oubli de ce redémarrage donnait un
-# cluster qui tourne sur du code vieux de dix-sept commits en affichant des
-# manifests à jour — panne difficile à voir, puisque tout paraît déployé.
+# Skaffold replaces `make deploy`, and not only out of convenience: it fixes a fundamental
+# defect of that target. The `dev` tag was mutable there, hence invisible to a node on
+# `IfNotPresent`, and an explicit `kubectl rollout restart` was needed for the pods to take the
+# image. Forgetting that restart gave a cluster running code seventeen commits old while
+# displaying up-to-date manifests — a failure hard to see, since everything looks deployed.
 #
-# Skaffold tague par empreinte du contenu : chaque construction produit un tag
-# différent, et `IfNotPresent` ne peut donc plus servir une image périmée. Le
-# problème disparaît par construction au lieu d'être contourné.
+# Skaffold tags by content digest: each build produces a different tag, and `IfNotPresent` can
+# therefore no longer serve a stale image. The problem disappears by construction instead of
+# being worked around.
 
 build:
-  # Le démon local, sans registre. Skaffold reconnaît un contexte kind et injecte
-  # l'image dans les nœuds : l'aller-retour par reg.cadoles.com dominerait
-  # largement le temps d'une itération.
+  # The local daemon, with no registry. Skaffold recognises a kind context and injects the image
+  # into the nodes: the round trip through reg.cadoles.com would largely dominate the time of an
+  # iteration.
   local:
     push: false
     useBuildkit: true
 
   artifacts:
-    # Le nom doit être celui que produit l'overlay, faute de quoi Skaffold ne
-    # reconnaîtrait pas l'image à substituer dans les manifests rendus.
+    # The name must be the one the overlay produces, otherwise Skaffold would not recognise the
+    # image to substitute in the rendered manifests.
     - image: reg.cadoles.com/vcarroy/arkhitekton
       docker:
         dockerfile: Dockerfile
-        # Les identifiants de la forge, montés le temps du `go mod download`.
-        # Le dashboard dépend d'un module privé, récupéré par clone git : sans
-        # eux, la construction échoue sur une erreur d'authentification.
+        # The forge's credentials, mounted for the duration of `go mod download`. The dashboard depends
+        # on a private module, fetched by a git clone: without them, the build fails on an
+        # authentication error.
         #
-        # Un secret BuildKit ne laisse aucune trace dans les couches de l'image,
-        # contrairement à un `COPY` qui les y graverait définitivement.
+        # A BuildKit secret leaves no trace in the image's layers, unlike a `COPY`, which would engrave
+        # them there for good.
         secrets:
           - id: git-credentials
             src: ~/.git-credentials
         buildArgs:
           VERSION: dev-skaffold
-          # Skaffold ne substitue pas les commandes shell dans buildArgs : la
-          # révision exacte reste l'affaire de `make image`, qui sert à produire
-          # les images publiées. Ici, seule l'itération compte.
+          # Skaffold does not substitute shell commands in buildArgs: the exact revision stays `make
+          # image`'s business, which serves to produce the published images. Here, only the iteration
+          # counts.
           REVISION: developpement-local
 
 manifests:
@@ -52,36 +51,32 @@ manifests:
       - deploy/overlays/local
 
 deploy:
-  # Garde-fou de cluster : cette configuration construit du code non publié et
-  # l'injecte dans les nœuds. La restreindre à kind est ce qui empêche un
-  # `skaffold run` lancé avec le mauvais contexte d'atteindre un vrai
-  # environnement — un namespace forcé n'aurait rien protégé de cela.
+  # A cluster guard rail: this configuration builds unpublished code and injects it into the
+  # nodes. Restricting it to kind is what stops a `skaffold run` launched with the wrong context
+  # reaching a real environment — a forced namespace would have protected nothing against that.
   kubeContext: kind-mse
 
-  # L'attente de disponibilité est explicite : sans elle, Skaffold rendrait la
-  # main avant que le schéma ne soit appliqué, et les premiers appels échoueraient
-  # sur des tables absentes.
+  # The wait for readiness is explicit: without it, Skaffold would return before the schema was
+  # applied, and the first calls would fail on missing tables.
   #
-  # Le délai couvre la migration et le démarrage des sondes, qui vérifient
-  # PostgreSQL, le schéma et MinIO avant de déclarer un pod prêt.
+  # The delay covers the migration and the start-up of the probes, which check PostgreSQL, the
+  # schema and MinIO before declaring a pod ready.
   statusCheck: true
   statusCheckDeadlineSeconds: 300
 
   kubectl:
-    # Aucun `defaultNamespace` : il ferait passer `--namespace` à kubectl, qui
-    # refuse alors tout objet déclarant un autre namespace. L'overlay en couvre
-    # cinq — arkhitekton, flux-system, mse-dev, mse-tekton-pipelines, et un
-    # objet cluster-scoped — parce que chaque manifeste porte le sien.
+    # No `defaultNamespace`: it would pass `--namespace` to kubectl, which then refuses any object
+    # declaring another namespace. The overlay covers five — arkhitekton, flux-system, mse-dev,
+    # mse-tekton-pipelines, and one cluster-scoped object — because each manifest carries its own.
     #
-    # C'est la même raison qui interdit un transformateur `namespace:` dans
-    # `deploy/base` : là il déplacerait silencieusement le Role inter-namespace,
-    # ici il fait échouer le déploiement. Le second cas est le plus chanceux.
+    # It is the same reason that forbids a `namespace:` transformer in `deploy/base`: there it would
+    # silently move the cross-namespace Role, here it fails the deployment. The second case is the
+    # luckier one.
     hooks:
       before:
-        # Le `spec.template` d'un Job est immuable : réappliquer un Job dont
-        # l'image a changé est refusé par l'API. Les supprimer d'abord est ce qui
-        # rend le déploiement rejouable — sans quoi la deuxième itération échoue
-        # là où la première a réussi.
+        # A Job's `spec.template` is immutable: reapplying a Job whose image has changed is refused by
+        # the API. Deleting them first is what makes the deployment replayable — without which the
+        # second iteration fails where the first succeeded.
         - host:
             command:
               - sh
@@ -93,13 +88,13 @@ deploy:
             os: [linux, darwin]
 
 portForward:
-  # L'interface est accessible sans ingress ni entrée dans /etc/hosts : un
-  # développeur doit pouvoir regarder l'écran qu'il modifie sans configurer la
-  # résolution de noms de sa machine.
+  # The interface is reachable with no ingress and no entry in /etc/hosts: a developer must be
+  # able to look at the screen they are changing without configuring their machine's name
+  # resolution.
   - resourceType: service
-    # `arkhitekton-api`, et non `arkhitekton` : le préfixe de nom vient du
-    # `namePrefix` de la base, et un nom inventé ferait échouer la redirection en
-    # silence — curl répond 000, ce qui ressemble à une application morte.
+    # `arkhitekton-api`, and not `arkhitekton`: the name prefix comes from the base's `namePrefix`,
+    # and an invented name would make the port-forward fail silently — curl answers 000, which looks
+    # like a dead application.
     resourceName: arkhitekton-api
     namespace: arkhitekton
     port: 80

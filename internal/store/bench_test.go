@@ -61,7 +61,7 @@ func TestSaveLoadResultKeepsTheMeasuredConditions(t *testing.T) {
 
 	measures, err := db.ListResultMeasures(ctx, resultID)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(measures) != 2 {
 		t.Fatalf("%d mesure(s)", len(measures))
@@ -145,7 +145,7 @@ func TestBaselinesArePinnedNotComputed(t *testing.T) {
 
 	baselines, err := db.Baselines(ctx, "panier")
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	// The reference is the one that was designated, and a more recent campaign does not move
 	// it by itself. That is what makes drift visible.

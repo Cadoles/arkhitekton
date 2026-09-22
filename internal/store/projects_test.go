@@ -333,7 +333,7 @@ func TestASingleImageIsDeclaredWithNoTarget(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := db.CreateProject(ctx, Project{
-		Repository: "vcarroy/outil", Label: "Outil",
+		Repository: "vcarroy/tool", Label: "Tool",
 		ForgeURL: "https://forge.example.fr", Dockerfile: "Dockerfile",
 		BuildContext: ".", ImageRegistry: "reg.example.fr/mse",
 		MultiStage: false,
@@ -348,7 +348,7 @@ func TestASingleImageIsDeclaredWithNoTarget(t *testing.T) {
 	if len(read.Targets) != 1 || read.Targets[0].Image != "tool" {
 		t.Fatalf("stages = %+v", read.Targets)
 	}
-	if got := read.Reference(read.Targets[0]); got != "reg.example.fr/mse/outil" {
+	if got := read.Reference(read.Targets[0]); got != "reg.example.fr/mse/tool" {
 		t.Errorf("reference = %q", got)
 	}
 }

@@ -51,7 +51,7 @@ func TestReadingIsAllowed(t *testing.T) {
 
 	account, err := clientFor(t, server.URL).CheckAccess(context.Background())
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if account.Login != "lecteur" || account.ID != 7 {
 		t.Errorf("compte %+v", account)
@@ -70,7 +70,7 @@ func TestTheKeyTravelsInTheHeaderAndNeverInTheURL(t *testing.T) {
 	defer server.Close()
 
 	if _, err := clientFor(t, server.URL).CheckAccess(context.Background()); err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 
 	if seenHeader != "test-key" {

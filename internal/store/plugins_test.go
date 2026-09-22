@@ -25,7 +25,7 @@ func TestPluginsAreBornEnabledAndAreNotOverwritten(t *testing.T) {
 
 	settings, err := db.PluginSettingsAll(ctx)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	// Enabled at birth: every embedded plugin describes something the dashboard already does,
 	// and being born disabled would stop, at the first deployment, mechanisms that worked the
@@ -158,7 +158,7 @@ func TestAnUndeclaredPipelineStaysEnabled(t *testing.T) {
 
 	enabled, err := db.PipelineEnabled(ctx, testProjectID, "load-tests")
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if !enabled {
 		t.Error("an undeclared kind should stay enabled")

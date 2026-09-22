@@ -125,7 +125,7 @@ func TestPutGetRemove(t *testing.T) {
 
 	got, err := io.ReadAll(reader)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if !bytes.Equal(got, content) {
 		t.Errorf("content = %q, expected %q", got, content)
@@ -167,7 +167,7 @@ func TestGetRangeReadsOnlyRequestedBytes(t *testing.T) {
 
 	got, err := io.ReadAll(reader)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if string(got) != "abcde" {
 		t.Errorf("range read = %q, expected %q", got, "abcde")

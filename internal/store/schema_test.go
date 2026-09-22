@@ -33,7 +33,7 @@ func TestCheckSchemaFailsBeforeMigration(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	defer db.Close()
 
@@ -53,7 +53,7 @@ func TestCheckSchemaPassesAfterMigration(t *testing.T) {
 
 	db, err := Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	defer db.Close()
 
@@ -76,7 +76,7 @@ func TestCheckSchemaDetectsPartialMigration(t *testing.T) {
 
 	db, err := Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	defer db.Close()
 

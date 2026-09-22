@@ -43,7 +43,7 @@ func TestReprocessDeletesBeforeRebuilding(t *testing.T) {
 
 	report, err := reprocessor.Run(context.Background(), ReprocessOptions{})
 	if err != nil {
-		t.Fatalf("rejeu: %v", err)
+		t.Fatalf("replay: %v", err)
 	}
 
 	if len(targets.deleted) != 1 || targets.deleted[0] != 1 {
@@ -102,7 +102,7 @@ func TestAFailingRunDoesNotStopTheOthers(t *testing.T) {
 
 	report, err := reprocessor.Run(context.Background(), ReprocessOptions{})
 	if err != nil {
-		t.Fatalf("rejeu: %v", err)
+		t.Fatalf("replay: %v", err)
 	}
 
 	if report.Replayed != 1 {
@@ -136,7 +136,7 @@ func TestReprocessWithNothingToReplay(t *testing.T) {
 
 	report, err := reprocessor.Run(context.Background(), ReprocessOptions{})
 	if err != nil {
-		t.Fatalf("rejeu: %v", err)
+		t.Fatalf("replay: %v", err)
 	}
 	if report.Examined != 0 || report.Replayed != 0 {
 		t.Errorf("rapport = %+v", report)

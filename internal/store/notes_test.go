@@ -43,7 +43,7 @@ func TestAnIssueIsLinkedToAndRemovedFromANote(t *testing.T) {
 
 	entries, err := db.ListNoteEntries(ctx, releaseID)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(entries) != 1 {
 		t.Fatalf("%d entry(ies)", len(entries))
@@ -102,7 +102,7 @@ func TestAnUnknownIssueStaysListed(t *testing.T) {
 
 	entries, err := db.ListNoteEntries(ctx, releaseID)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(entries) != 1 {
 		t.Fatalf("%d entry(ies)", len(entries))
@@ -230,7 +230,7 @@ func TestANoteDoesNotFetchAnotherProjectsIssue(t *testing.T) {
 	// back both issues.
 	entries, err := db.ListNoteEntries(ctx, releaseID)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(entries) != 1 {
 		t.Fatalf("%d entry(ies) — the join brings back another project's issues: %+v",

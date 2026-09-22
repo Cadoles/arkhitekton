@@ -95,7 +95,7 @@ func (r *Reprocessor) Run(ctx context.Context, options ReprocessOptions) (Reproc
 		if err != nil {
 			// One run's failure does not carry off the others: a purged artifact must not deprive the whole
 			// history of its rebuild.
-			r.logger.Error("rejeu", "run", target.RunName, "error", err)
+			r.logger.Error("replay", "run", target.RunName, "error", err)
 			report.Failed = append(report.Failed, target.RunName)
 			continue
 		}

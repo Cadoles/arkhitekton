@@ -1,31 +1,31 @@
 BINARY := bin/arkhitekton
 GO     ?= go
 
-# Les cibles Go visent nos paquets explicitement, et non `./...`.
+# The Go targets name our packages explicitly, and not `./...`.
 #
-# `apps/web/node_modules` contient au moins un fichier Go — une dépendance npm
-# qui embarque un portage Go de son algorithme. `./...` le compile, `go vet`
-# l'analyse et `gofmt -l` le signalerait : l'intégration continue échouerait sur
-# le code d'un tiers, pour une raison impossible à deviner depuis le message.
+# `apps/web/node_modules` contains at least one Go file — an npm dependency that ships a Go
+# port of its algorithm. `./...` compiles it, `go vet` analyses it and `gofmt -l` would report
+# it: continuous integration would fail on a third party's code, for a reason impossible to
+# guess from the message.
 GO_PKGS := ./cmd/... ./internal/...
 GO_DIRS := cmd internal
 
-# Registre personnel pendant les développements : les images du dashboard ne
-# vont pas dans `cnous-mse` tant que le projet n'est pas livrable.
+# A personal registry during development: the dashboard's images do not go into `cnous-mse`
+# until the project is deliverable.
 IMAGE_REPO ?= reg.cadoles.com/vcarroy/arkhitekton
-# Le tag reprend le commit : republier sous le même tag ne suffirait pas à faire
-# reprendre l'image par le cluster, les pods n'imposant pas d'`imagePullPolicy`.
+# The tag carries the commit: republishing under the same tag would not be enough to make the
+# cluster take the image again, the pods setting no `imagePullPolicy`.
 IMAGE_TAG  ?= dev-$(shell git rev-parse --short HEAD 2>/dev/null || echo inconnue)
 IMAGE      := $(IMAGE_REPO):$(IMAGE_TAG)
 
-# Tag consommé par l'overlay local. Distinct de IMAGE_TAG : en local l'image est
-# injectée directement dans les nœuds kind, sans passer par un registre.
+# The tag the local overlay consumes. Distinct from IMAGE_TAG: locally the image is injected
+# straight into the kind nodes, without going through a registry.
 LOCAL_IMAGE := $(IMAGE_REPO):dev
 KIND_CLUSTER ?= mse
 OVERLAY ?= deploy/overlays/local
 
-# Namespace où vivent les Secrets montés par les pipelines — dont les clés de
-# déploiement par projet. Distinct de celui du dashboard.
+# The namespace where the Secrets the pipelines mount live — among them the per-project deploy
+# keys. Distinct from the dashboard's.
 TEKTON_NAMESPACE ?= mse-tekton-pipelines
 
 PG_TEST_NAME := pg-arkhitekton-test
@@ -39,55 +39,55 @@ MINIO_TEST_BUCKET := arkhitekton-test
 .PHONY: help build test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
         web web-install web-dev web-check dev-prereqs image image-push kind-load manifests deploy undeploy logs
 
-help: ## Affiche cette aide
+help: ## Show this help
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | expand -t24
 
-build: ## Compile le binaire
+build: ## Build the binary
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o $(BINARY) ./cmd/arkhitekton
 
-test: ## Exécute les tests (les tests d'intégration sont ignorés sans TEST_DATABASE_URL)
+test: ## Run the tests (the integration tests are skipped without TEST_DATABASE_URL)
 	$(GO) test $(GO_PKGS)
 
-# Les identifiants viennent de **votre** environnement et ne sont pas lus ici :
-# ce sont ceux d'une instance de production, et une cible qui irait les chercher
-# toute seule en ferait une commande à lancer par distraction.
+# The credentials come from **your** environment and are not read here: they are those of a
+# production instance, and a target that fetched them on its own would make this a command one
+# runs absent-mindedly.
 #
-# En développement ils vivent dans `deploy/overlays/local/secrets/dashboard.env`
-# — hors dépôt — sous leurs noms de configuration :
+# In development they live in `deploy/overlays/local/secrets/dashboard.env` — outside the
+# repository — under their configuration names:
 #
 #   set -a; . deploy/overlays/local/secrets/dashboard.env; set +a
 #   REDMINE_LIVE=1 REDMINE_URL=$$TRACKER_URL REDMINE_PROJECT=$$TRACKER_PROJECT \
 #     REDMINE_API_KEY=$$TRACKER_API_KEY make test-live
 #
-# -count=1 désactive le cache : un test « cached » n'a interrogé personne.
-test-live: ## Vérifications contre les instances réelles (REDMINE_LIVE=1, GITEA_LIVE=1)
+# -count=1 disables the cache: a "cached" test queried nobody.
+test-live: ## Checks against the real instances (REDMINE_LIVE=1, GITEA_LIVE=1)
 	@if [ "$$REDMINE_LIVE" != "1" ] && [ "$$GITEA_LIVE" != "1" ]; then \
-		echo "aucune vérification réelle demandée."; \
+		echo "no real check requested."; \
 		echo "  REDMINE_LIVE=1 REDMINE_URL=… REDMINE_API_KEY=… REDMINE_PROJECT=… make test-live"; \
 		exit 1; \
 	fi
 	@if [ -n "$$TEST_DATABASE_URL" ]; then \
-		echo "ATTENTION: la boucle complète fait 'drop schema public cascade' sur"; \
-		echo "TEST_DATABASE_URL. Cette base doit être jetable."; \
+		echo "WARNING: the whole loop runs 'drop schema public cascade' on"; \
+		echo "TEST_DATABASE_URL. That database must be throwaway."; \
 	fi
 	$(GO) test -count=1 -run Live -v $(GO_PKGS)
 
-# -p 1 sérialise les paquets : les tests de `store` réinitialisent le schéma, et
-# rien ne garantirait l'ordre avec ceux qui en dépendent.
-# -count=1 désactive le cache : un test d'intégration « cached » n'a rien vérifié.
-test-integration: ## Tests avec un PostgreSQL et un MinIO jetables
+# -p 1 serialises the packages: `store`'s tests reset the schema, and nothing would guarantee
+# the order with those that depend on it.
+# -count=1 disables the cache: a "cached" integration test checked nothing.
+test-integration: ## Tests with a throwaway PostgreSQL and MinIO
 	@docker rm -f $(PG_TEST_NAME) $(MINIO_TEST_NAME) >/dev/null 2>&1 || true
 	@docker run -d --name $(PG_TEST_NAME) -e POSTGRES_PASSWORD=t3st -e POSTGRES_DB=mse \
 		-p $(PG_TEST_PORT):5432 postgres:17-alpine >/dev/null
 	@docker run -d --name $(MINIO_TEST_NAME) -p $(MINIO_TEST_PORT):9000 \
 		-e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
 		quay.io/minio/minio:latest server /data >/dev/null
-	@# Le bucket est créé par le harnais de test lui-même : le faire ici
-	@# obligerait chaque environnement d'exécution à le refaire à sa façon.
+	@# The bucket is created by the test harness itself: doing it here would force
+	@# every runtime environment to redo it in its own way.
 	@until curl -sf http://127.0.0.1:$(MINIO_TEST_PORT)/minio/health/live >/dev/null 2>&1; do sleep 0.5; done
-	@# pg_isready répond « prêt » sur le serveur temporaire d'initdb, avant que le
-	@# serveur définitif n'accepte les connexions TCP. Attendre une vraie requête
-	@# sur la base cible est le seul signal fiable.
+	@# pg_isready answers "ready" on initdb's temporary server, before the final
+	@# server accepts TCP connections. Waiting for a real query on the target
+	@# database is the only reliable signal.
 	@until docker exec $(PG_TEST_NAME) psql -U postgres -d mse -c 'select 1' >/dev/null 2>&1; do sleep 0.5; done
 	@TEST_DATABASE_URL=$(PG_TEST_DSN) \
 		TEST_MINIO_ENDPOINT=127.0.0.1:$(MINIO_TEST_PORT) \
@@ -95,44 +95,42 @@ test-integration: ## Tests avec un PostgreSQL et un MinIO jetables
 		$(GO) test -p 1 -count=1 $(GO_PKGS) ; status=$$? ; \
 		docker rm -f $(PG_TEST_NAME) $(MINIO_TEST_NAME) >/dev/null 2>&1 ; exit $$status
 
-# Variante pour un environnement qui fournit déjà PostgreSQL et MinIO — services
-# de l'intégration continue, ou conteneurs démarrés à la main. Les drapeaux sont
-# ainsi définis à un seul endroit : la CI et le poste exécutent la même chose.
-test-ci: ## Tests d'intégration contre des services déjà démarrés
+# A variant for an environment that already supplies PostgreSQL and MinIO — continuous
+# integration services, or containers started by hand. The flags are thus defined in a single
+# place: CI and the workstation run the same thing.
+test-ci: ## Integration tests against services already started
 	$(GO) test -p 1 -count=1 $(GO_PKGS)
 
 fmt: ## Reformate le code
 	$(GO) fmt $(GO_PKGS)
 
-# `go fmt` réécrit les fichiers, donc réussit toujours : l'employer en intégration
-# continue laisserait passer du code mal formaté après l'avoir corrigé dans un
-# arbre de travail jeté à la fin du job. La vérification doit constater, pas
-# corriger.
-fmt-check: ## Échoue si un fichier n'est pas formaté
+# `go fmt` rewrites the files, so it always succeeds: using it in continuous integration would
+# let badly formatted code through after fixing it in a working tree thrown away at the end of
+# the job. The check must observe, not correct.
+fmt-check: ## Fails if a file is not formatted
 	@unformatted=$$(gofmt -l $(GO_DIRS)) ; \
 	if [ -n "$$unformatted" ] ; then \
-		echo "fichiers non formatés (lancer 'make fmt') :" ; \
+		echo "unformatted files (run 'make fmt'):" ; \
 		echo "$$unformatted" ; \
 		exit 1 ; \
 	fi
 
-vet: ## Analyse statique du toolchain
+vet: ## The toolchain's static analysis
 	$(GO) vet $(GO_PKGS)
 
-lint: fmt-check vet ## Vérification du formatage + analyse statique
+lint: fmt-check vet ## Formatting check + static analysis
 
-vuln: ## Recherche de vulnérabilités dans les dépendances
-	# Passe par un script plutôt que d'appeler govulncheck directement : celui-ci
-	# n'offre aucun mécanisme d'exclusion, et une vulnérabilité sans correctif
-	# amont rendrait le job rouge pour toujours. Les exceptions sont déclarées et
-	# justifiées dans le script, réaffichées à chaque exécution, et une exception
-	# devenue inutile y fait échouer la vérification.
+vuln: ## Looks for vulnerabilities in the dependencies
+	# Goes through a script rather than calling govulncheck directly: govulncheck offers no
+	# exclusion mechanism, and a vulnerability with no upstream fix would make the job red forever.
+	# The exceptions are declared and justified in the script, displayed again at every run, and an
+	# exception that has become useless makes the check fail.
 	./scripts/vulncheck.sh $(GO_PKGS)
 
-# Cible unique reproduisant ce que la CI vérifie : un développeur doit pouvoir
-# constater localement l'échec qu'il obtiendrait en intégration. La promesse ne
-# tient que si aucune des cibles appelées ne modifie l'arbre de travail.
-check: lint test web-check ## Ce que la CI vérifie
+# A single target reproducing what CI checks: a developer must be able to observe locally the
+# failure they would get in integration. The promise holds only if none of the targets called
+# modifies the working tree.
+check: lint test web-check ## What CI checks
 
 clean: ## Supprime les artefacts de build
 	rm -rf bin/
@@ -141,15 +139,15 @@ clean: ## Supprime les artefacts de build
 
 WEB := apps/web
 
-web-install: ## Installe les dépendances de l'interface
+web-install: ## Installs the interface's dependencies
 	npm --prefix $(WEB) ci --no-audit --no-fund
 
-# Vite écrit directement dans internal/web/dist, d'où `//go:embed` le lit : il
-# n'y a pas d'étape de copie, donc pas de moyen de l'oublier.
+# Vite writes straight into internal/web/dist, where `//go:embed` reads it: there is no copy
+# step, hence no way of forgetting it.
 web: ## Construit l'interface dans internal/web/dist
 	npm --prefix $(WEB) run build
 
-web-dev: ## Sert l'interface en développement, API relayée vers :8080
+web-dev: ## Serves the interface in development, API proxied to :8080
 	npm --prefix $(WEB) run dev
 
 web-check: ## Typage, analyse statique et tests de l'interface
@@ -157,25 +155,25 @@ web-check: ## Typage, analyse statique et tests de l'interface
 	npm --prefix $(WEB) run lint
 	npm --prefix $(WEB) run test
 
-# --- Environnement de développement -------------------------------------------
+# --- Development environment --------------------------------------------------
 
-# CRD Flux et objets de développement, sans aucun contrôleur. Le CRD PortalData
-# appartient au dépôt `mse` et n'est pas copié ici : la cible échoue en indiquant
-# comment l'installer plutôt que d'en embarquer une copie qui divergerait.
-dev-prereqs: ## Installe les CRD Flux et les objets Flux de développement
+# Flux CRDs and development objects, with no controller at all. The PortalData CRD belongs to
+# the `mse` repository and is not copied here: the target fails saying how to install it rather
+# than shipping a copy that would diverge.
+dev-prereqs: ## Installs the Flux CRDs and the development Flux objects
 	./hack/dev-prereqs/install-crds.sh
 
-# --- Image et déploiement -----------------------------------------------------
+# --- Image and deployment -----------------------------------------------------
 
-# Le secret Git est monté comme le fait Skaffold, et pour la même raison : le
-# module `tekton-mse-manager` vit dans un dépôt privé, et `go mod download` ne
-# peut pas s'authentifier sans lui. Son absence ici rendait cette cible — donc
-# `make deploy`, le seul chemin de déploiement sans Skaffold — inutilisable :
-# elle échouait sur « could not read Username for forge.cadoles.com ».
+# The Git secret is mounted as Skaffold does it, and for the same reason: the
+# `tekton-mse-manager` module lives in a private repository, and `go mod download` cannot
+# authenticate without it. Its absence here made this target — hence `make deploy`, the only
+# deployment path without Skaffold — unusable: it failed on "could not read Username for
+# forge.cadoles.com".
 #
-# Un secret BuildKit ne laisse aucune trace dans les couches de l'image,
-# contrairement à un `COPY` qui les y graverait définitivement.
-image: ## Construit l'image, taguée par le commit et `dev`
+# A BuildKit secret leaves no trace in the image's layers, unlike a `COPY`, which would engrave
+# them there for good.
+image: ## Builds the image, tagged by commit and `dev`
 	DOCKER_BUILDKIT=1 docker build \
 		--secret id=git-credentials,src=$(HOME)/.git-credentials \
 		--build-arg VERSION=$(IMAGE_TAG) \
@@ -185,8 +183,8 @@ image: ## Construit l'image, taguée par le commit et `dev`
 image-push: image ## Pousse l'image sur le registre
 	docker push $(IMAGE)
 
-# Injection directe dans les nœuds kind : évite l'aller-retour par le registre,
-# qui domine largement le temps d'une itération locale.
+# Injected straight into the kind nodes: avoids the round trip through the registry, which
+# largely dominates the time of a local iteration.
 kind-load: image ## Charge l'image dans le cluster kind
 	kind load docker-image $(LOCAL_IMAGE) --name $(KIND_CLUSTER)
 
@@ -194,117 +192,114 @@ manifests: ## Rend et analyse les manifests de l'overlay
 	@kustomize build $(OVERLAY) > /dev/null
 	@kustomize build $(OVERLAY) | kube-linter lint -
 
-# Les Job sont supprimés avant d'appliquer : `spec.template` d'un Job est
-# immuable, et un simple `apply` échouerait sur « field is immutable » dès que
-# le tag d'image ou une variable de configuration change.
-# Conservée pour un déploiement ponctuel sans Skaffold. Préférer `make dev` :
-# le tag `dev` étant mutable, cette cible doit forcer un redémarrage, et l'oubli
-# de ce redémarrage donne un cluster qui tourne sur du code ancien en affichant
-# des manifests à jour.
-# Réparation ponctuelle des clés de déploiement écrites avant le correctif.
+# The Jobs are deleted before applying: a Job's `spec.template` is immutable, and a plain
+# `apply` would fail on "field is immutable" as soon as the image tag or a configuration
+# variable changes.
+# Kept for a one-off deployment without Skaffold. Prefer `make dev`: the `dev` tag being
+# mutable, this target must force a restart, and forgetting that restart gives a cluster
+# running old code while displaying up-to-date manifests.
+# A one-off repair of the deploy keys written before the fix.
 #
-# Elles ne portaient que `ssh-privatekey`, nom imposé par le type
-# `kubernetes.io/ssh-auth` et que SSH ne lit pas : le workspace `ssh-directory`
-# est recopié dans `~/.ssh`, où seul `id_ed25519` est chargé. Toutes les
-# constructions échouaient en « Permission denied (publickey) ».
+# They carried only `ssh-privatekey`, the name the `kubernetes.io/ssh-auth` type imposes and
+# which SSH does not read: the `ssh-directory` workspace is copied into `~/.ssh`, where only
+# `id_ed25519` is loaded. Every build failed with "Permission denied (publickey)".
 #
-# Pourquoi côté opérateur et non dans le dashboard : celui-ci n'a pas `get` sur
-# les Secrets (doc 07 §7.3), il ne peut donc pas relire une clé pour la recopier
-# sous un second nom. Sa seule reprise possible serait une **rotation**, qui
-# obligerait à recoller autant de clés publiques que de projets. `kubectl`, lui,
-# lit — et la clé ne change pas.
+# Why on the operator's side and not in the dashboard: the dashboard has no `get` on Secrets
+# (docs/09-security.md), so it cannot read a key back in order to copy it under a second name.
+# Its only possible recovery would be a **rotation**, which would mean pasting as many public
+# keys as there are projects. `kubectl`, for its part, reads — and the key does not change.
 #
-# Sans effet sur un secret déjà réparé, et sans effet sur les projets créés après
-# le correctif.
-deploy-keys-repair: ## Ajoute id_ed25519 aux clés de déploiement antérieures au correctif
+# Without effect on a secret already repaired, and without effect on the projects created after
+# the fix.
+deploy-keys-repair: ## Adds id_ed25519 to the deploy keys written before the fix
 	@for secret in $$(kubectl -n $(TEKTON_NAMESPACE) get secrets \
 	    -l app.kubernetes.io/managed-by=arkhitekton -o name); do \
 	  if kubectl -n $(TEKTON_NAMESPACE) get $$secret \
 	      -o jsonpath='{.data.id_ed25519}' | grep -q .; then \
-	    echo "$$secret: déjà réparé"; \
+	    echo "$$secret: already repaired"; \
 	    continue; \
 	  fi; \
 	  key=$$(kubectl -n $(TEKTON_NAMESPACE) get $$secret -o jsonpath='{.data.ssh-privatekey}'); \
-	  if [ -z "$$key" ]; then echo "$$secret: aucune clé privée, ignoré"; continue; fi; \
+	  if [ -z "$$key" ]; then echo "$$secret: no private key, skipped"; continue; fi; \
 	  kubectl -n $(TEKTON_NAMESPACE) patch $$secret --type merge \
-	    -p "{\"data\":{\"id_ed25519\":\"$$key\"}}" >/dev/null && echo "$$secret: réparé"; \
+	    -p "{\"data\":{\"id_ed25519\":\"$$key\"}}" >/dev/null && echo "$$secret: repaired"; \
 	done
 
-deploy: kind-load manifests ## Déploie sur kind (overlay local, sans Skaffold)
-	@# Un Job est immuable : l'`apply` qui suit échoue sur « field is immutable »
-	@# tant que le précédent n'a pas disparu. `--wait` seul n'a pas suffi — la
-	@# cible a échoué puis réussi sans autre changement que la relance — d'où
-	@# l'attente explicite de la disparition, qui ne se contente pas de la
-	@# demande de suppression.
+deploy: kind-load manifests ## Deploys on kind (local overlay, without Skaffold)
+	@# A Job is immutable: the `apply` that follows fails on "field is immutable"
+	@# as long as the previous one has not disappeared. `--wait` alone was not
+	@# enough — the target failed then succeeded with no change other than the
+	@# re-run — hence the explicit wait for the disappearance, which is not
+	@# satisfied by the deletion request alone.
 	kubectl delete job -n arkhitekton arkhitekton-migrate arkhitekton-minio-bucket \
 		--ignore-not-found --wait=true
 	kubectl wait --for=delete -n arkhitekton --timeout=60s \
 		job/arkhitekton-migrate job/arkhitekton-minio-bucket 2>/dev/null || true
 	kustomize build $(OVERLAY) | kubectl apply -f -
 	kubectl wait --for=condition=complete --timeout=180s -n arkhitekton job/arkhitekton-migrate
-	@# Le tag `dev` ne change pas d'un build à l'autre : sans redémarrage forcé,
-	@# les pods garderaient l'image déjà présente sur le nœud.
+	@# The `dev` tag does not change from one build to the next: with no forced
+	@# restart, the pods would keep the image already present on the node.
 	kubectl rollout restart -n arkhitekton deployment/arkhitekton-api deployment/arkhitekton-worker
 	kubectl rollout status  -n arkhitekton deployment/arkhitekton-api --timeout=180s
 	kubectl rollout status  -n arkhitekton deployment/arkhitekton-worker --timeout=180s
 
-undeploy: ## Supprime le déploiement (le namespace emporte les PVC)
+undeploy: ## Deletes the deployment (the namespace takes the PVCs with it)
 	kustomize build $(OVERLAY) | kubectl delete --ignore-not-found -f -
 
 logs: ## Suit les journaux de l'api
 	kubectl logs -n arkhitekton -l app.kubernetes.io/component=api --tail=100 -f
 
-# --- Boucle de développement -------------------------------------------------
+# --- Development loop ---------------------------------------------------------
 
-# `--cleanup=false` sur les deux cibles, et ce n'est pas un détail de confort.
+# `--cleanup=false` on both targets, and it is no detail of comfort.
 #
-# Skaffold nettoie par défaut quand il est interrompu **ou qu'il échoue** : il
-# supprime ce qu'il a déployé, namespace compris, et le namespace emporte les
-# PVC. Un échec de chargement d'image dans kind — qui arrive, `ctr` refusant
-# parfois une image déjà présente — détruisait donc PostgreSQL et MinIO.
+# Skaffold cleans up by default when it is interrupted **or when it fails**: it deletes what it
+# deployed, namespace included, and the namespace takes the PVCs with it. A failure to load an
+# image into kind — which happens, `ctr` sometimes refusing an image that is already present —
+# therefore destroyed PostgreSQL and MinIO.
 #
-# Ce qui disparaît alors n'est pas rattrapable : les runs et les versions se
-# reconstruisent depuis Tekton et Redmine, mais les **releases**, les **jobs** et
-# le **journal d'audit** n'existent que dans cette base. C'est arrivé.
+# What then disappears cannot be recovered: the runs and the versions are rebuilt from Tekton
+# and Redmine, but the **releases**, the **jobs** and the **audit log** exist only in this
+# database. It has happened.
 #
-# Pour repartir de zéro délibérément : `make undeploy`.
-dev: ## Boucle Skaffold : reconstruit et redéploie à chaque modification
+# To start from scratch deliberately: `make undeploy`.
+dev: ## Skaffold loop: rebuilds and redeploys at every change
 	skaffold dev --cleanup=false
 
-run-once: ## Construit et déploie une fois via Skaffold
+run-once: ## Builds and deploys once through Skaffold
 	skaffold run --cleanup=false
 
 SECRETS_DIR := deploy/overlays/local/components/pipeline-credentials
 
 .PHONY: pipeline-credentials
-pipeline-credentials: ## Prépare les identifiants que les pipelines utiliseront (local)
-	@# Fabrique les trois fichiers que l'overlay local monte en secrets, dans le
-	@# namespace des PipelineRun. Aucun n'est versionné.
+pipeline-credentials: ## Prepares the credentials the pipelines will use (local)
+	@# Builds the three files the local overlay mounts as secrets, in the
+	@# PipelineRuns' namespace. None of them is versioned.
 	@#
-	@# Ils sont distincts de ceux de `mse-tekton`, qui visent l'application
-	@# réelle : la clé y est une clé de déploiement de `CNOUS/mse`, et le compte
-	@# de registre n'a `push` que sur `cnous-mse`.
+	@# They are distinct from `mse-tekton`'s, which target the real application:
+	@# there the key is a deploy key of `CNOUS/mse`, and the registry account has
+	@# `push` on `cnous-mse` only.
 	@set -eu; \
 	mkdir -p $(SECRETS_DIR); \
 	if [ ! -f $(SECRETS_DIR)/pipeline-ssh-key ]; then \
-	  echo '==> génération d une paire de clés dédiée'; \
+	  echo '==> generating a dedicated key pair'; \
 	  ssh-keygen -t ed25519 -C arkhitekton-pipelines -N '' \
 	    -f $(SECRETS_DIR)/pipeline-ssh-key >/dev/null; \
 	  mv $(SECRETS_DIR)/pipeline-ssh-key.pub $(SECRETS_DIR)/pipeline-ssh-key.pub.txt; \
 	else \
-	  echo '==> clé déjà présente, conservée'; \
+	  echo '==> key already present, kept'; \
 	fi; \
 	if [ ! -f $(SECRETS_DIR)/pipeline-known-hosts ]; then \
-	  echo '==> relevé de la clé d hôte de la forge'; \
+	  echo '==> reading the forge host key'; \
 	  ssh-keyscan -p $${FORGE_SSH_PORT:-2222} $${FORGE_HOST:-forge.cadoles.com} \
 	    > $(SECRETS_DIR)/pipeline-known-hosts 2>/dev/null; \
 	fi; \
 	if [ ! -f $(SECRETS_DIR)/pipeline-dockerconfig.json ]; then \
-	  echo '==> identifiants de registre'; \
-	  printf 'Serveur [https://reg.cadoles.com] : '; read -r server; \
+	  echo '==> registry credentials'; \
+	  printf 'Server [https://reg.cadoles.com]: '; read -r server; \
 	  server=$${server:-https://reg.cadoles.com}; \
-	  printf 'Utilisateur : '; read -r user; \
-	  printf 'Mot de passe : '; stty -echo; read -r pass; stty echo; echo; \
+	  printf 'Username: '; read -r user; \
+	  printf 'Password: '; stty -echo; read -r pass; stty echo; echo; \
 	  kubectl create secret docker-registry tmp-regcred \
 	    --docker-server="$$server" --docker-username="$$user" --docker-password="$$pass" \
 	    --dry-run=client -o jsonpath='{.data.\.dockerconfigjson}' \
@@ -313,16 +308,16 @@ pipeline-credentials: ## Prépare les identifiants que les pipelines utiliseront
 	fi; \
 	chmod 600 $(SECRETS_DIR)/pipeline-ssh-key $(SECRETS_DIR)/pipeline-dockerconfig.json; \
 	echo; \
-	echo 'Il reste deux gestes, sur vos comptes :'; \
+	echo 'Two steps remain, on your own accounts:'; \
 	echo; \
-	echo '  1. Déclarer cette clé publique en LECTURE SEULE sur le dépôt visé'; \
-	echo '     (Gitea -> dépôt -> Paramètres -> Clés de déploiement) :'; \
+	echo '  1. Declare this public key READ-ONLY on the target repository'; \
+	echo '     (Gitea -> repository -> Settings -> Deploy keys):'; \
 	echo; \
 	sed 's/^/     /' $(SECRETS_DIR)/pipeline-ssh-key.pub.txt; \
 	echo; \
-	echo '  2. Donner au compte de registre le droit d écrire sur le projet visé'; \
-	echo '     (Harbor -> projet -> Membres -> rôle Developer).'; \
+	echo '  2. Give the registry account write access on the target project'; \
+	echo '     (Harbor -> project -> Members -> Developer role).'; \
 	echo; \
-	echo 'Puis activer ces secrets dans dashboard.env :'; \
+	echo 'Then enable these secrets in dashboard.env:'; \
 	echo '     PIPELINE_GIT_SECRET=arkhitekton-pipeline-git'; \
 	echo '     PIPELINE_REGISTRY_SECRET=arkhitekton-pipeline-registry'

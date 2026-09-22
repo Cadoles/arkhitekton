@@ -30,7 +30,7 @@ const bareSuiteXML = `<testsuite name="e2e" tests="1" time="3.0">
 func TestParseJUnitReadsNestedSuites(t *testing.T) {
 	report, err := ParseJUnit(FamilyUnit, "phpunit", []byte(phpunitXML))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 
 	if report.Total != 4 || report.Passed != 2 || report.Failed != 1 || report.Skipped != 1 {
@@ -61,7 +61,7 @@ func TestHomonymousCasesStayDistinct(t *testing.T) {
 func TestParseJUnitAcceptsABareSuite(t *testing.T) {
 	report, err := ParseJUnit(FamilyE2E, "cypress", []byte(bareSuiteXML))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if report.Total != 1 || report.Status != ReportPass {
 		t.Errorf("rapport = %+v", report)
@@ -107,7 +107,7 @@ func TestRerunCasesAreFlaky(t *testing.T) {
 
 	report, err := ParseJUnit(FamilyE2E, "cypress", []byte(xml))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if report.Flaky != 1 || report.Failed != 0 {
 		t.Errorf("comptes = %+v", report)
@@ -141,7 +141,7 @@ func TestParseJUnitRejectsGarbage(t *testing.T) {
 func TestAnEmptyReportIsNotAPass(t *testing.T) {
 	report, err := ParseJUnit(FamilyUnit, "phpunit", []byte(`<testsuites></testsuites>`))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if report.Status != ReportNA {
 		t.Errorf("status = %q, expected na", report.Status)

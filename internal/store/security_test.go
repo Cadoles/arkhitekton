@@ -52,7 +52,7 @@ func TestLatestSecurityAudit(t *testing.T) {
 
 	audit, err := db.LatestSecurityAudit(context.Background(), releaseID)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if audit.TestResultID != resultID || audit.High != 1 || audit.DeltaResolved != 4 {
 		t.Errorf("audit = %+v", audit)
@@ -72,7 +72,7 @@ func TestAnAuditWithAFailedScannerIsNotMeasured(t *testing.T) {
 
 	audit, err := db.LatestSecurityAudit(context.Background(), releaseID)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if audit.Measured() {
 		t.Error("a failed scanner must remove the signal from the score")
@@ -89,7 +89,7 @@ func TestFindingsAreOrderedBySeverity(t *testing.T) {
 
 	findings, err := db.ListSecurityFindings(context.Background(), resultID, true)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(findings) != 3 {
 		t.Fatalf("%d finding(s)", len(findings))

@@ -37,7 +37,7 @@ func TestParseSummaryReadsBothShapes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			summary, err := ParseSummary("panier", []byte(raw), nil)
 			if err != nil {
-				t.Fatalf("lecture: %v", err)
+				t.Fatalf("read: %v", err)
 			}
 			if summary.VUs != 200 {
 				t.Errorf("VUs = %d, expected 200", summary.VUs)
@@ -62,7 +62,7 @@ func TestParseSummaryReadsBothShapes(t *testing.T) {
 func TestFailureRateIsRenderedAsAPercentage(t *testing.T) {
 	summary, err := ParseSummary("panier", []byte(modernSummary), nil)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	for _, measure := range summary.Measures {
 		if measure.Metric == "http_req_failed:rate" {
@@ -81,7 +81,7 @@ func TestFailureRateIsRenderedAsAPercentage(t *testing.T) {
 func TestThresholdVerdictsAreKept(t *testing.T) {
 	summary, err := ParseSummary("panier", []byte(modernSummary), nil)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(summary.ThresholdsFailed) != 1 || summary.ThresholdsFailed[0] != "http_req_failed: rate<0.01" {
 		t.Errorf("failed thresholds = %v", summary.ThresholdsFailed)
@@ -101,7 +101,7 @@ func TestThresholdVerdictsAreKept(t *testing.T) {
 func TestAbsentMetricsAreOmittedNotZeroed(t *testing.T) {
 	summary, err := ParseSummary("sonde", []byte(`{"metrics":{"http_reqs":{"values":{"count":10,"rate":1}}}}`), nil)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	for _, measure := range summary.Measures {
 		if measure.Metric == "http_req_duration:p(95)" {

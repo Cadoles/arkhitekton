@@ -48,7 +48,7 @@ func TestTheBootstrapAppliesOnlyOnce(t *testing.T) {
 	// The database takes over: an administrator removes a repository and a declaration.
 	projects, _ := db.ListProjects(ctx)
 	if err := db.DeleteProject(ctx, projects[0].ID); err != nil {
-		t.Fatalf("suppression: %v", err)
+		t.Fatalf("deletion: %v", err)
 	}
 
 	// Redeploying replays the bootstrap. Nothing must come back.

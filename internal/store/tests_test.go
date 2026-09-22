@@ -464,7 +464,7 @@ func TestARunWithNoResultAtAllIsRecognised(t *testing.T) {
 	muet := testRun(t, db, "run-muet")
 	has, err := db.RunHasResults(ctx, muet)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if has {
 		t.Error("a run with no result declares itself provided")
@@ -481,7 +481,7 @@ func TestARunWithNoResultAtAllIsRecognised(t *testing.T) {
 
 	has, err = db.RunHasResults(ctx, parlant)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if !has {
 		t.Error("a provided run declares itself silent")

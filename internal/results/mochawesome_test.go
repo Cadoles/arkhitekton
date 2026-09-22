@@ -30,7 +30,7 @@ const mochaJSON = `{
 func TestParseMochawesome(t *testing.T) {
 	report, err := ParseMochawesome([]byte(mochaJSON))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if report.Total != 4 || report.Passed != 1 || report.Failed != 1 || report.Skipped != 1 {
 		t.Errorf("comptes = %+v", report)
@@ -80,7 +80,7 @@ func TestACaseThatNeverRanIsKept(t *testing.T) {
 
 	report, err := ParseMochawesome([]byte(orphan))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if report.Total != 1 || report.Skipped != 1 {
 		t.Errorf("comptes = %+v", report)

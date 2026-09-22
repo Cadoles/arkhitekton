@@ -34,7 +34,7 @@ func resetSchema(t *testing.T, cfg config.DatabaseConfig) {
 	ctx := context.Background()
 	db, err := Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	defer db.Close()
 
@@ -95,7 +95,7 @@ func TestMigrateCreatesKeyConstraints(t *testing.T) {
 
 	db, err := Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	defer db.Close()
 
@@ -142,7 +142,7 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 
 	db, err := Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	defer db.Close()
 

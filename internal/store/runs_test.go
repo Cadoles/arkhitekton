@@ -22,7 +22,7 @@ func migratedBare(t *testing.T) *DB {
 
 	db, err := Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	t.Cleanup(db.Close)
 	return db
@@ -215,7 +215,7 @@ func TestUnfinishedRunsExcludesTerminalOnes(t *testing.T) {
 
 	unfinished, err := db.UnfinishedRuns(ctx, "mse-tekton-pipelines")
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(unfinished) != 2 {
 		t.Fatalf("%d unfinished run(s), expected 2: %+v", len(unfinished), unfinished)

@@ -34,7 +34,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	t.Cleanup(pool.Close)
 
@@ -397,7 +397,7 @@ func TestBothScopesCoexist(t *testing.T) {
 
 	_, global, projects, err := store.LookupRoles(ctx, session.ID)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if global != RoleViewer {
 		t.Errorf("global role = %q, expected viewer", global)

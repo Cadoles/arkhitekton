@@ -54,7 +54,7 @@ func TestARedeliveryWritesNothing(t *testing.T) {
 
 	events, err := db.ListEvents(ctx, testProjectID, 0)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(events) != 1 {
 		t.Fatalf("%d facts recorded, expected 1", len(events))
@@ -83,7 +83,7 @@ func TestTwoDistinctFactsCoexist(t *testing.T) {
 
 	events, err := db.ListEvents(ctx, testProjectID, 0)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(events) != 2 {
 		t.Errorf("%d facts, expected 2 — two releases are two facts", len(events))
@@ -126,7 +126,7 @@ func TestTheFeedReturnsTheMostRecentFirst(t *testing.T) {
 
 	events, err := db.ListEvents(ctx, testProjectID, 0)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(events) != 3 {
 		t.Fatalf("%d faits", len(events))
@@ -151,7 +151,7 @@ func TestThePayloadCrossesAndTheFeedStaysWithinTheProject(t *testing.T) {
 
 	events, err := db.ListEvents(ctx, testProjectID, 0)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(events) != 1 {
 		t.Fatalf("%d faits", len(events))

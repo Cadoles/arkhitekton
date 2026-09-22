@@ -71,7 +71,7 @@ func throwawayDatabase(t *testing.T) *store.DB {
 	ctx := context.Background()
 	brut, err := store.Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	if _, err := brut.Pool().Exec(ctx,
 		"drop schema public cascade; create schema public;"); err != nil {
@@ -86,7 +86,7 @@ func throwawayDatabase(t *testing.T) *store.DB {
 
 	db, err := store.Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connexion: %v", err)
+		t.Fatalf("connection: %v", err)
 	}
 	t.Cleanup(db.Close)
 	return db

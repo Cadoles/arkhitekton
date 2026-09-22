@@ -21,7 +21,7 @@ const phpstanJSON = `{
 func TestParsePHPStanProjectsViolationsAsCases(t *testing.T) {
 	report, err := ParsePHPStan([]byte(phpstanJSON))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	// Deux violations de fichier plus l'erreur d'analyse.
 	if report.Total != 3 || report.Failed != 3 {
@@ -72,7 +72,7 @@ func TestAnalysisErrorsAreDistinguished(t *testing.T) {
 func TestPHPStanAcceptsAnEmptyFilesArray(t *testing.T) {
 	report, err := ParsePHPStan([]byte(`{"totals":{"errors":0,"file_errors":0},"files":[],"errors":[]}`))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	// Zero cases, but the tool ran: `pass`, not `na`.
 	if report.Status != ReportPass {
@@ -99,7 +99,7 @@ const csFixerJSON = `{
 func TestCSFixerReportsOneCasePerRule(t *testing.T) {
 	report, err := ParseCSFixer([]byte(csFixerJSON))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if report.Total != 3 {
 		t.Errorf("total = %d, expected 3", report.Total)
@@ -121,7 +121,7 @@ func TestCSFixerReportsOneCasePerRule(t *testing.T) {
 func TestCSFixerCleanRunIsAPass(t *testing.T) {
 	report, err := ParseCSFixer([]byte(`{"files":[]}`))
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if report.Status != ReportPass {
 		t.Errorf("statut = %q", report.Status)

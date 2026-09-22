@@ -68,7 +68,7 @@ func TestCreateAndGetRelease(t *testing.T) {
 
 	release, err := db.GetRelease(ctx, testProjectID, "1.8.0-rc1")
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if release.ID != id || release.Kind != "pre" || release.ImageVersion != "1.8.0-rc1" {
 		t.Errorf("release = %+v", release)
@@ -112,7 +112,7 @@ func TestFinalReleaseKeepsTheSourceImageVersion(t *testing.T) {
 
 	final, err := db.GetRelease(ctx, testProjectID, "1.8.0")
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if final.ImageVersion != "1.8.0-rc3" {
 		t.Errorf("image version = %q, expected the candidate's", final.ImageVersion)
@@ -141,7 +141,7 @@ func TestManualActionsCarryTheirAuthorAndDate(t *testing.T) {
 
 	release, err := db.GetRelease(ctx, testProjectID, "1.8.0")
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if release.ManualActions == "" {
 		t.Error("texte perdu")

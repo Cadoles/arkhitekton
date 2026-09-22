@@ -21,7 +21,7 @@ type orderedStore struct {
 }
 
 func (m *orderedStore) RunResults(_ context.Context, jobID int64) (map[string]string, error) {
-	m.order = append(m.order, "lecture")
+	m.order = append(m.order, "read")
 	return m.resultats[jobID], nil
 }
 

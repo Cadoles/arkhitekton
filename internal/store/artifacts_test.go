@@ -64,7 +64,7 @@ func TestGetArtifactCarriesItsRelease(t *testing.T) {
 
 	artifact, err := db.GetArtifact(ctx, id)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	// Without the release, the download could not check that the artifact asked for is the
 	// one in the path.
@@ -95,7 +95,7 @@ func TestGetReleaseByIDCarriesTheManualActions(t *testing.T) {
 
 	release, err := db.GetReleaseByID(ctx, releaseID)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if release.Tag != "1.8.0" || release.ManualActions != "- DNS switchover" {
 		t.Errorf("release = %+v", release)

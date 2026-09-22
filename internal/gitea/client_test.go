@@ -55,7 +55,7 @@ func TestTheTokenStaysInTheHeaderAndOutOfErrors(t *testing.T) {
 	defer server.Close()
 
 	if _, err := clientFor(t, server.URL).DefaultBranch(context.Background()); err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if header != "token test-token" {
 		t.Errorf("header %q", header)

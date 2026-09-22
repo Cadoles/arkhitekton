@@ -320,7 +320,7 @@ func TestASettingReplacesAndIsRemoved(t *testing.T) {
 
 	limits, err := db.QueueLimits(ctx)
 	if err != nil {
-		t.Fatalf("lecture: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if len(limits) != 1 || limits["unit-tests"] != 3 {
 		t.Errorf("settings = %v, expected unit-tests at 3", limits)
