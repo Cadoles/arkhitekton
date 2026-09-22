@@ -23,9 +23,8 @@ var (
 	}
 )
 
-// testMapper résout les deux types de la bibliothèque, sans interroger de
-// cluster : la découverte est éprouvée ailleurs, et la simuler ici n'apprendrait
-// rien sur la règle de propriété.
+// testMapper resolves the library's two kinds, without querying a cluster: discovery is exercised
+// elsewhere, and simulating it here would teach nothing about the ownership rule.
 type testMapper struct{ meta.RESTMapper }
 
 func (testMapper) RESTMapping(gk schema.GroupKind, _ ...string) (*meta.RESTMapping, error) {
@@ -55,15 +54,14 @@ func existing(kind, name string, labels map[string]string) *unstructured.Unstruc
 	object.SetName(name)
 	object.SetNamespace(namespace)
 	object.SetLabels(labels)
-	// Une marque reconnaissable : c'est elle qui dira si la définition a été
-	// écrasée.
-	_ = unstructured.SetNestedField(object.Object, "celle de mse-tekton", "spec", "description")
+	// A recognisable mark: it is what will say whether the definition was overwritten.
+	_ = unstructured.SetNestedField(object.Object, "mse-tekton's", "spec", "description")
 	return object
 }
 
-// La pose sur un cluster neuf : c'est le cas que ce mécanisme existe pour
-// servir — une instance qui n'a aucun dépôt de pipelines préexistant.
-func TestSurUnClusterNeufLaBibliothequeEstPosee(t *testing.T) {
+// Installing on a fresh cluster: it is the case this mechanism exists to serve — an instance with
+// no pre-existing pipeline repository.
+func TestOnAFreshClusterTheLibraryIsInstalled(t *testing.T) {
 	client, installer := installerFor(t)
 
 	outcome, err := installer.Install(context.Background(), "php")
@@ -71,10 +69,10 @@ func TestSurUnClusterNeufLaBibliothequeEstPosee(t *testing.T) {
 		t.Fatalf("pose: %v", err)
 	}
 	if len(outcome.Installed) == 0 {
-		t.Fatal("rien n'a été posé")
+		t.Fatal("nothing was installed")
 	}
 	if len(outcome.Skipped) != 0 {
-		t.Errorf("ressources écartées sur un cluster vide: %v", outcome.Skipped)
+		t.Errorf("resources set aside on an empty cluster: %v", outcome.Skipped)
 	}
 
 	posed, err := client.Resource(pipelineGVR).Namespace(namespace).
@@ -83,17 +81,16 @@ func TestSurUnClusterNeufLaBibliothequeEstPosee(t *testing.T) {
 		t.Fatalf("relecture: %v", err)
 	}
 	if posed.GetLabels()["app.kubernetes.io/managed-by"] != ManagedBy {
-		t.Errorf("étiquettes %v — la propriété doit être lisible", posed.GetLabels())
+		t.Errorf("labels %v — ownership must be readable", posed.GetLabels())
 	}
 }
 
-// Le refus d'adopter, et c'est la règle centrale.
+// The refusal to adopt, and it is the central rule.
 //
-// Sur un cluster où `mse-tekton` a déjà posé ses pipelines, le dashboard se
-// retire : écraser une définition que quelqu'un d'autre maintient la ferait
-// diverger de son dépôt à chaque démarrage, et les deux se réécriraient
-// indéfiniment.
-func TestUneDefinitionDunTiersNestJamaisEcrasee(t *testing.T) {
+// On a cluster where `mse-tekton` has already installed its pipelines, the dashboard withdraws:
+// overwriting a definition someone else maintains would make it diverge from its repository at
+// every start-up, and the two would rewrite each other indefinitely.
+func TestAThirdPartysDefinitionIsNeverOverwritten(t *testing.T) {
 	client, installer := installerFor(t,
 		existing("Pipeline", "php-unit-tests", map[string]string{"app": "mse-tekton"}))
 
@@ -109,22 +106,21 @@ func TestUneDefinitionDunTiersNestJamaisEcrasee(t *testing.T) {
 		}
 	}
 	if !skipped {
-		t.Errorf("écartées %v — la définition d'un tiers doit l'être", outcome.Skipped)
+		t.Errorf("set aside %v — a third party's definition must be", outcome.Skipped)
 	}
 
-	// Et surtout : la définition n'a pas bougé.
+	// And above all: the definition has not moved.
 	after, _ := client.Resource(pipelineGVR).Namespace(namespace).
 		Get(context.Background(), "php-unit-tests", metav1.GetOptions{})
 	description, _, _ := unstructured.NestedString(after.Object, "spec", "description")
-	if description != "celle de mse-tekton" {
-		t.Error("la définition d'un tiers a été écrasée")
+	if description != "mse-tekton's" {
+		t.Error("a third party's definition was overwritten")
 	}
 }
 
-// La nôtre, en revanche, est remplacée : c'est ce qui fait qu'une mise à jour du
-// dashboard met à jour ses pipelines, comme le Job de migration met à jour son
-// schéma.
-func TestUneDefinitionQuiNousAppartientEstMiseAJour(t *testing.T) {
+// Ours, on the other hand, is replaced: that is what makes a dashboard update update its
+// pipelines, as the migration Job updates its schema.
+func TestADefinitionOfOursIsUpdated(t *testing.T) {
 	client, installer := installerFor(t,
 		existing("Pipeline", "php-unit-tests",
 			map[string]string{"app.kubernetes.io/managed-by": ManagedBy}))
@@ -141,20 +137,20 @@ func TestUneDefinitionQuiNousAppartientEstMiseAJour(t *testing.T) {
 		}
 	}
 	if !updated {
-		t.Errorf("mises à jour %v — la nôtre devait l'être", outcome.Updated)
+		t.Errorf("updates %v — ours had to be", outcome.Updated)
 	}
 
 	after, _ := client.Resource(pipelineGVR).Namespace(namespace).
 		Get(context.Background(), "php-unit-tests", metav1.GetOptions{})
 	description, _, _ := unstructured.NestedString(after.Object, "spec", "description")
-	if description == "celle de mse-tekton" {
-		t.Error("notre propre définition n'a pas été remplacée")
+	if description == "mse-tekton's" {
+		t.Error("our own definition was not replaced")
 	}
 }
 
-// Rappelée deux fois, la pose ne produit rien de neuf : elle tourne au démarrage
-// et à chaque tour de boucle.
-func TestLaPoseEstIdempotente(t *testing.T) {
+// Called twice, the installation produces nothing new: it runs at start-up and at every pass of
+// the loop.
+func TestTheInstallationIsIdempotent(t *testing.T) {
 	_, installer := installerFor(t)
 	ctx := context.Background()
 
@@ -165,25 +161,25 @@ func TestLaPoseEstIdempotente(t *testing.T) {
 	}
 
 	if len(second.Installed) != 0 {
-		t.Errorf("posées au second tour: %v", second.Installed)
+		t.Errorf("installed on the second pass: %v", second.Installed)
 	}
 	if len(second.Updated) != len(first.Installed) {
-		t.Errorf("%d mises à jour pour %d ressources posées",
+		t.Errorf("%d updates for %d resources installed",
 			len(second.Updated), len(first.Installed))
 	}
 }
 
-// Une pile sans bibliothèque est refusée à la pose comme à la déclaration.
-func TestUnePileInconnueNePoseRien(t *testing.T) {
+// A stack with no library is refused at installation as at declaration.
+func TestAnUnknownStackInstallsNothing(t *testing.T) {
 	client, installer := installerFor(t)
 
 	if _, err := installer.Install(context.Background(), "node"); err == nil {
-		t.Fatal("une pile inconnue doit être refusée")
+		t.Fatal("an unknown stack must be refused")
 	}
 
 	list, _ := client.Resource(pipelineGVR).Namespace(namespace).
 		List(context.Background(), metav1.ListOptions{})
 	if len(list.Items) != 0 {
-		t.Errorf("%d ressource(s) posée(s) pour une pile inconnue", len(list.Items))
+		t.Errorf("%d resource(s) installed for an unknown stack", len(list.Items))
 	}
 }

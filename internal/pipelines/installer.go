@@ -15,40 +15,36 @@ import (
 )
 
 /*
- * La pose des ressources de référence.
+ * Installing the reference resources.
  *
- * La même règle de propriété que les secrets du lot G, pour la même raison : le
- * dashboard ne pose que ce qu'il **nomme**, marque ce qu'il possède, et
- * n'**adopte jamais** ce qui existe déjà.
+ * The same ownership rule as the deploy-key secrets, for the same reason: the dashboard installs
+ * only what it **names**, marks what it owns, and **never adopts** what already exists.
  *
- * Ici, la règle a une conséquence heureuse plutôt qu'une contrainte. Sur un
- * cluster où `mse-tekton` a déjà posé `php-unit-tests`, le dashboard constate que
- * le nom est pris et se retire : il n'écrase pas une définition que quelqu'un
- * d'autre maintient, et n'entre pas en conflit avec la kustomization qui la
- * réapplique.
+ * Here the rule has a happy consequence rather than a constraint. On a cluster where `mse-tekton`
+ * has already installed `php-unit-tests`, the dashboard sees that the name is taken and
+ * withdraws: it does not overwrite a definition someone else maintains, and does not conflict
+ * with the kustomization that reapplies it.
  *
- * Ce mécanisme sert donc l'**autonomie** : une instance neuve, qui n'a aucun
- * dépôt de pipelines préexistant, reçoit de quoi construire et tester. Une
- * instance qui en a un garde le sien.
+ * This mechanism therefore serves **autonomy**: a fresh instance, with no pre-existing pipeline
+ * repository, receives what it needs to build and test. An instance that has one keeps its own.
  */
 
-// ManagedBy marque les ressources que le dashboard possède.
+// ManagedBy marks the resources the dashboard owns.
 const ManagedBy = "arkhitekton"
 
-// Outcome dit ce qu'une pose a produit, ressource par ressource.
+// Outcome says what an installation produced, resource by resource.
 type Outcome struct {
-	// Installed nomme ce qui a été créé.
+	// Installed names what was created.
 	Installed []string
-	// Skipped nomme ce qui existait déjà et n'appartient pas au dashboard. Pas
-	// une erreur : c'est le refus d'adopter, et l'exploitation doit pouvoir le
-	// lire sans le prendre pour une panne.
+	// Skipped names what already existed and does not belong to the dashboard. Not an error: it is
+	// the refusal to adopt, and operations must be able to read it without taking it for an outage.
 	Skipped []string
-	// Updated nomme ce qui a été remplacé — des ressources que le dashboard
-	// avait posées, dont la définition a changé avec sa version.
+	// Updated names what was replaced — resources the dashboard had installed, whose definition
+	// changed with its version.
 	Updated []string
 }
 
-// Installer pose les ressources d'une bibliothèque dans le cluster.
+// Installer puts a library's resources into the cluster.
 type Installer struct {
 	dynamic   dynamic.Interface
 	mapper    meta.RESTMapper
@@ -59,10 +55,10 @@ func NewInstaller(client dynamic.Interface, mapper meta.RESTMapper, namespace st
 	return &Installer{dynamic: client, mapper: mapper, namespace: namespace}
 }
 
-// Install pose la bibliothèque d'une pile.
+// Install puts a stack's library in place.
 //
-// Idempotent : rappelé au démarrage et à chaque tour de la boucle, il ne
-// réécrit que ce qui lui appartient et laisse le reste intact.
+// Idempotent: called again at start-up and at every pass of the loop, it rewrites only what
+// belongs to it and leaves the rest untouched.
 func (i *Installer) Install(ctx context.Context, stack string) (Outcome, error) {
 	resources, err := For(stack)
 	if err != nil {
@@ -74,9 +70,8 @@ func (i *Installer) Install(ctx context.Context, stack string) (Outcome, error) 
 	for _, resource := range resources {
 		switch state, err := i.apply(ctx, resource); {
 		case err != nil:
-			// Une ressource en échec n'empêche pas les autres : une bibliothèque
-			// à moitié posée vaut mieux qu'aucune, et le manque se lit dans le
-			// journal plutôt que dans un pipeline introuvable.
+			// A failed resource does not stop the others: a half-installed library is better than none, and
+			// what is missing is read in the log rather than in a pipeline that cannot be found.
 			problems = append(problems, err)
 		case state == "installed":
 			outcome.Installed = append(outcome.Installed, resource.Name)
@@ -89,7 +84,7 @@ func (i *Installer) Install(ctx context.Context, stack string) (Outcome, error) 
 	return outcome, errors.Join(problems...)
 }
 
-// apply pose une ressource et dit ce qu'elle est devenue.
+// apply puts a resource in place and says what became of it.
 func (i *Installer) apply(ctx context.Context, resource Resource) (string, error) {
 	object := &unstructured.Unstructured{}
 	if err := yaml.Unmarshal(resource.Manifest, object); err != nil {
@@ -114,42 +109,41 @@ func (i *Installer) apply(ctx context.Context, resource Resource) (string, error
 		return "installed", nil
 	}
 	if !apierrors.IsAlreadyExists(err) {
-		return "", fmt.Errorf("pose de %s %q: %w", resource.Kind, resource.Name, err)
+		return "", fmt.Errorf("installing %s %q: %w", resource.Kind, resource.Name, err)
 	}
 
-	// Le nom est pris. Contrairement aux secrets, on peut ici **lire** pour
-	// savoir à qui appartient l'objet : un Pipeline n'est pas un secret, et la
-	// RBAC accorde déjà sa lecture pour valider le catalogue au démarrage.
+	// The name is taken. Unlike secrets, here the object can be **read** to know whom it belongs to:
+	// a Pipeline is not a secret, and the RBAC already grants reading it in order to validate the
+	// catalogue at start-up.
 	existing, err := client.Get(ctx, object.GetName(), metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("lecture de %s %q: %w", resource.Kind, resource.Name, err)
+		return "", fmt.Errorf("reading %s %q: %w", resource.Kind, resource.Name, err)
 	}
 	if existing.GetLabels()["app.kubernetes.io/managed-by"] != ManagedBy {
-		// Le refus d'adopter. `mse-tekton` maintient peut-être cette définition,
-		// et l'écraser la ferait diverger de son dépôt à chaque démarrage.
+		// The refusal to adopt. `mse-tekton` may maintain this definition, and overwriting it would make
+		// it diverge from its repository at every start-up.
 		return "skipped", nil
 	}
 
-	// La nôtre : elle suit la version du binaire, et la remplacer est ce qui
-	// fait qu'une mise à jour du dashboard met à jour ses pipelines.
+	// Ours: it follows the binary's version, and replacing it is what makes a dashboard update update
+	// its pipelines.
 	object.SetResourceVersion(existing.GetResourceVersion())
 	if _, err := client.Update(ctx, object, metav1.UpdateOptions{}); err != nil {
-		return "", fmt.Errorf("mise à jour de %s %q: %w", resource.Kind, resource.Name, err)
+		return "", fmt.Errorf("updating %s %q: %w", resource.Kind, resource.Name, err)
 	}
 	return "updated", nil
 }
 
-// resourceFor résout le type d'un objet vers son endpoint.
+// resourceFor resolves an object's kind to its endpoint.
 //
-// Par découverte et non par une table codée : Tekton a servi `v1beta1` puis
-// `v1`, et coder l'une ferait échouer la pose sur la moitié des installations
-// avec un message qui ne désigne pas la cause — la même raison que pour le
-// client Flux.
+// By discovery and not by a hard-coded table: Tekton served `v1beta1` then `v1`, and hard-coding
+// one would fail the installation on half the installations with a message that does not name the
+// cause — the same reason as for the Flux client.
 func (i *Installer) resourceFor(object *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
 	gvk := object.GroupVersionKind()
 	mapping, err := i.mapper.RESTMapping(schema.GroupKind{Group: gvk.Group, Kind: gvk.Kind})
 	if err != nil {
-		return nil, fmt.Errorf("le CRD %s.%s est absent du cluster: %w", gvk.Kind, gvk.Group, err)
+		return nil, fmt.Errorf("the CRD %s.%s is missing from the cluster: %w", gvk.Kind, gvk.Group, err)
 	}
 	return i.dynamic.Resource(mapping.Resource).Namespace(i.namespace), nil
 }

@@ -1,42 +1,36 @@
-// Package provider nomme les frontières avec les outils extérieurs.
+// Package provider names the boundaries with the outside tools.
 //
-// Le dashboard lit trois sources qu'il ne pilote pas : un **suivi** de versions
-// et de demandes, une **forge** de dépôts et de références, et une **attestation**
-// de ce qui tourne réellement. Chacune a aujourd'hui une seule réalisation —
-// Redmine, Gitea, le CRD `PortalData` — et ce paquet ne cherche pas à en ajouter.
+// The dashboard reads three sources it does not drive: a **tracker** of versions and requests, a
+// **forge** of repositories and references, and an **attestation** of what is really running.
+// Each has a single implementation today — Redmine, Gitea, the `PortalData` CRD — and this
+// package does not seek to add any.
 //
-// Ce qu'il apporte est plus modeste et plus utile : un endroit qui dit ce qu'être
-// une de ces sources **veut dire**. Jusqu'ici la réponse était éparpillée dans
-// une demi-douzaine d'interfaces étroites déclarées par leurs appelants — bon
-// idiome Go, mais personne ne pouvait dire, sans les lire toutes, ce qu'un second
-// suivi devrait fournir. Le coût de cette dispersion ne se paie pas au moment du
-// découplage : il se paie à chaque ajout, quand une méthode propre à Redmine
-// entre dans un handler sans que rien ne le signale (doc 12 §12.9, chantier 4).
+// What it brings is more modest and more useful: one place that says what being one of these
+// sources **means**. Until now the answer was scattered across half a dozen narrow interfaces
+// declared by their callers — good Go idiom, but nobody could say, without reading them all,
+// what a second tracker would have to supply. The cost of that scattering is not paid when
+// decoupling: it is paid at every addition, when a method specific to Redmine enters a handler
+// with nothing reporting it.
 //
-// # Ce que ce paquet n'est pas
+// # What this package is not
 //
-// Pas un mécanisme de plugin. Aucun registre, aucun `init()`, aucune sélection à
-// l'exécution. La configuration désigne toujours Redmine et Gitea en clair, et le
-// binaire ne sait construire qu'eux. Le jour où un second fournisseur existera,
-// c'est ici qu'on saura quoi lui demander — pas avant.
+// Not a plugin mechanism. No registry, no `init()`, no selection at run time. The configuration
+// still names Redmine and Gitea literally, and the binary can build only those. The day a second
+// provider exists, this is where we will know what to ask of it — not before.
 //
-// Pas non plus une couche d'indirection à traverser. Les appelants continuent de
-// déclarer l'interface étroite dont ils ont besoin, et de recevoir le client
-// concret. Ce paquet porte le **vocabulaire** qu'ils échangent et le contrat
-// complet que chaque client honore ; les assertions de conformité, placées auprès
-// de chaque réalisation, font que le contrat casse à la compilation plutôt que de
-// diverger en silence.
+// Nor a layer of indirection to cross. The callers keep declaring the narrow interface they need,
+// and receiving the concrete client. This package carries the **vocabulary** they exchange and
+// the complete contract each client honours; the conformance assertions, placed next to each
+// implementation, make the contract break at compile time rather than diverge silently.
 //
-// # Ce qui manque, et pourquoi
+// # What is missing, and why
 //
-// `Deployer` — promouvoir, observer, prouver — n'y est pas. Il exige de répondre
-// à « que veut dire promouvoir », et cette réponse est précisément ce que
-// l'analyse a montré ne pas pouvoir se trancher dans l'abstrait (doc 12 §12.4).
-// L'écrire maintenant produirait une interface calquée sur Flux, qu'on croirait
-// générique.
+// `Deployer` — promote, observe, prove — is not here. It requires answering "what does promoting
+// mean", and that answer is precisely what the analysis showed cannot be settled in the abstract.
+// Writing it now would produce an interface modelled on Flux, which one would believe generic.
 //
-// `Exporter` non plus : le bon de livraison est un livrable contractuel dont la
-// forme appartient au projet, et il n'a pas de source extérieure à abstraire.
+// Nor is `Exporter`: the delivery note is a contractual deliverable whose shape belongs to the
+// project, and it has no outside source to abstract.
 package provider
 
 import (
@@ -47,120 +41,108 @@ import (
 )
 
 /*
- * Les issues que toute réalisation partage.
+ * The errors every implementation shares.
  *
- * Chaque paquet portait les siennes — `gitea.ErrTagExists`,
- * `redmine.ErrNotConfigured`, `gitea.ErrWriteForbidden` — et un appelant qui
- * voulait les interpréter devait donc importer la réalisation. Le gestionnaire
- * HTTP comparait littéralement contre `gitea.ErrTagExists` : une frontière
- * traversée pour une seule comparaison, et un second forgeron aurait rendu une
- * erreur que ce code n'aurait pas reconnue — la pose de tag aurait échoué en
- * « erreur interne » là où elle avait simplement déjà été faite
- * (doc 12 §12.9, lot E).
+ * Each package carried its own — `gitea.ErrTagExists`, `redmine.ErrNotConfigured`,
+ * `gitea.ErrWriteForbidden` — so a caller wanting to interpret them had to import the
+ * implementation. The HTTP handler compared literally against `gitea.ErrTagExists`: a boundary
+ * crossed for a single comparison, and a second forge would have returned an error this code
+ * would not have recognised — setting a tag would have failed as an "internal error" where it had
+ * simply already been done.
  *
- * Les réalisations les **enveloppent** plutôt que de les rendre nues : le
- * message conserve le nom de l'outil, qui est ce qu'on veut lire dans un
- * journal, tandis que `errors.Is` reconnaît l'issue, qui est ce dont le code a
- * besoin.
+ * The implementations **wrap** them rather than return them bare: the message keeps the tool's
+ * name, which is what one wants to read in a log, while `errors.Is` recognises the error, which
+ * is what the code needs.
  */
 var (
-	// ErrNotConfigured signale qu'une source n'a pas de quoi être jointe.
+	// ErrNotConfigured reports that a source has nothing to be reached with.
 	//
-	// Pas une panne : une forge ou un suivi non configurés sont une installation
-	// valide, où le dashboard retombe sur la saisie libre et le dit à l'écran.
-	// L'appelant doit pouvoir faire cette différence.
-	ErrNotConfigured = errors.New("accès non configuré")
+	// Not an outage: an unconfigured forge or tracker is a valid installation, where the dashboard
+	// falls back to free-text entry and says so on screen. The caller must be able to tell the
+	// difference.
+	ErrNotConfigured = errors.New("access not configured")
 
-	// ErrWriteForbidden signale une écriture tentée par un accès en lecture.
+	// ErrWriteForbidden reports a write attempted by a read access.
 	//
-	// Le dashboard sépare lire et écrire en deux clients porteurs de deux
-	// permissions (B3). Cette erreur est le garde-fou du premier : elle se
-	// déclenche dans le transport, avant tout appel réseau, et signale une faute
-	// de câblage plutôt qu'un refus du serveur distant.
-	ErrWriteForbidden = errors.New("écriture interdite, cet accès est en lecture seule")
+	// The dashboard separates reading and writing into two clients carrying two permissions. This
+	// error is the first one's guard rail: it fires in the transport, before any network call, and
+	// reports a wiring fault rather than a refusal by the remote server.
+	ErrWriteForbidden = errors.New("writing forbidden, this access is read-only")
 
-	// ErrTagExists signale un tag déjà posé.
+	// ErrTagExists reports a tag already set.
 	//
-	// Distinct d'une erreur d'écriture : reposer un tag après un échec partiel
-	// est un cas **normal**, et l'appelant doit pouvoir continuer plutôt que de
-	// s'arrêter.
-	ErrTagExists = errors.New("le tag existe déjà")
+	// Distinct from a write error: setting a tag again after a partial failure is a **normal** case,
+	// and the caller must be able to continue rather than stop.
+	ErrTagExists = errors.New("the tag already exists")
 )
 
-// Account est l'identité derrière une clé d'accès.
+// Account is the identity behind an access key.
 //
-// Rendue par les deux sources authentifiées, pour la même raison : savoir qu'une
-// clé fonctionne sans attendre qu'un formulaire s'en serve, et voir si elle
-// appartient à un compte d'administration. Un jeton trop puissant reste trop
-// puissant même inutilisé, et mieux vaut le savoir au démarrage.
+// Returned by both authenticated sources, for the same reason: knowing that a key works without
+// waiting for a form to use it, and seeing whether it belongs to an administration account. An
+// over-powerful token stays over-powerful even unused, and better to know it at start-up.
 type Account struct {
-	// ID est l'identifiant numérique quand la source en expose un. Zéro sinon —
-	// Gitea n'en rend pas sur `/user`, et inventer une valeur ferait croire à une
-	// identité qu'on n'a pas lue.
+	// ID is the numeric identifier when the source exposes one. Zero otherwise — Gitea returns none
+	// on `/user`, and inventing a value would suggest an identity that was not read.
 	ID    int64
 	Login string
 	Admin bool
 }
 
-// Tracker est la source des versions et des demandes.
+// Tracker is the source of the versions and the requests.
 //
-// Lecture seule, et c'est structurant : le dashboard n'écrit jamais dans le
-// suivi. Il rapproche ce qu'il y lit de ce qu'il observe, et laisse la correction
-// à l'outil qui fait autorité. Une réalisation qui écrirait sortirait du contrat.
+// Read-only, and that is structuring: the dashboard never writes into the tracker. It matches
+// what it reads there with what it observes, and leaves the correction to the tool that is
+// authoritative. An implementation that wrote would step outside the contract.
 type Tracker interface {
-	// ListVersions rend les versions déclarées d'un projet.
+	// ListVersions returns a project's declared versions.
 	ListVersions(ctx context.Context, project string) ([]Version, error)
-	// ListIssues rend les demandes correspondant à la requête, toutes pages
-	// réunies. La pagination appartient à la réalisation : l'appelant demande un
-	// périmètre, pas une page.
+	// ListIssues returns the requests matching the query, all pages together. Pagination belongs to
+	// the implementation: the caller asks for a scope, not a page.
 	ListIssues(ctx context.Context, query IssueQuery) ([]Issue, error)
-	// CheckAccess valide la clé et rend le compte auquel elle appartient. Doit
-	// être sans effet de bord : elle est appelée au démarrage, et un contrôle qui
-	// modifierait quelque chose rendrait le démarrage observable de l'extérieur.
+	// CheckAccess validates the key and returns the account it belongs to. Must be free of side
+	// effects: it is called at start-up, and a check that modified something would make the start-up
+	// observable from outside.
 	CheckAccess(ctx context.Context) (Account, error)
 }
 
-// Version est une version déclarée dans le suivi.
+// Version is a version declared in the tracker.
 //
-// `Name` est conservé tel quel. Un suivi porte souvent plusieurs conventions
-// simultanées — `MSE3-1.5`, `MSE 3.1.0`, `v3.2.0` chez le MSE — et normaliser à
-// l'écriture perdrait l'information sans rien résoudre. L'identité est `ID`, jamais le nom.
+// `Name` is kept as it is. A tracker often carries several conventions at once — `MSE3-1.5`,
+// `MSE 3.1.0`, `v3.2.0` at MSE's — and normalising at write time would lose the information
+// without solving anything. The identity is `ID`, never the name.
 type Version struct {
-	// ID est l'identifiant dans le suivi, en **texte**, pour la même raison que
-	// celui d'une demande : rien ne garantit qu'un outil numérote.
+	// ID is the identifier in the tracker, as **text**, for the same reason as a request's: nothing
+	// guarantees a tool numbers.
 	ID          string
 	Name        string
 	Description string
-	// Status vaut `open`, `locked` ou `closed`. Vocabulaire de Redmine, repris
-	// tel quel : le dashboard n'en fait qu'un affichage et un tri, et le traduire
-	// dans un vocabulaire à lui créerait une table de correspondance à tenir pour
-	// n'apporter aucune information.
+	// Status is `open`, `locked` or `closed`. Redmine's vocabulary, taken as it is: the dashboard
+	// only displays and sorts by it, and translating it into a vocabulary of its own would create a
+	// mapping table to maintain for no added information.
 	Status    string
 	DueDate   *time.Time
 	UpdatedOn *time.Time
 }
 
-// Issue est une demande, réduite à ce que le dashboard affiche.
+// Issue is a request, reduced to what the dashboard displays.
 //
-// La description n'est pas reprise : elle porte le détail métier, parfois
-// nominatif, et le dashboard renvoie vers le suivi pour la consulter. Ne pas
-// recopier ce dont on n'a pas besoin est la façon la plus simple de ne pas avoir
-// à le protéger.
+// The description is not taken: it carries the business detail, sometimes naming people, and the
+// dashboard links back to the tracker to consult it. Not copying what one does not need is the
+// simplest way of not having to protect it.
 type Issue struct {
-	// ID est l'identifiant dans le suivi, en **texte** : Redmine numérote, Jira
-	// écrit `MSE-1234`. Un entier fermait la porte au second sans qu'aucune
-	// erreur ne le dise.
+	// ID is the identifier in the tracker, as **text**: Redmine numbers, Jira writes `MSE-1234`. An
+	// integer closed the door on the second with no error saying so.
 	ID string
-	// VersionID désigne la version visée, par son identifiant dans le suivi.
+	// VersionID names the version targeted, by its identifier in the tracker.
 	VersionID *string
 	Tracker   string
 	Subject   string
 	Status    string
-	// StatusClosed est le drapeau de la source, repris sans jugement. La
-	// projection en `todo`/`doing`/`done`/`rejected` est une décision du
-	// dashboard, portée par une table éditable, et les deux peuvent diverger :
-	// l'instance marque `Ré-ouvert` comme clos, ce qui ressemble à une erreur de
-	// configuration.
+	// StatusClosed is the source's flag, taken without judgement. Mapping it to
+	// `todo`/`doing`/`done`/`rejected` is a decision of the dashboard, carried by an editable table,
+	// and the two may diverge: the instance marks `Ré-ouvert` as closed, which looks like a
+	// configuration mistake.
 	StatusClosed bool
 	Priority     string
 	Assignee     string
@@ -168,117 +150,112 @@ type Issue struct {
 	UpdatedOn    *time.Time
 }
 
-// IssueQuery borne une lecture de demandes.
+// IssueQuery bounds a read of requests.
 type IssueQuery struct {
-	// Project est l'identifiant ou le raccourci du projet.
+	// Project is the project's identifier or shorthand.
 	Project string
-	// Since restreint aux demandes modifiées depuis cet instant. Zéro pour tout
-	// lire, ce qui n'arrive qu'à la première synchronisation.
+	// Since restricts to the requests modified since that instant. Zero to read everything, which
+	// happens only at the first synchronisation.
 	Since time.Time
 }
 
-// Forge est la source des dépôts, des références et des demandes de fusion.
+// Forge is the source of the repositories, the references and the pull requests.
 //
-// Liée à **un** dépôt, celui de la configuration : les méthodes n'en prennent pas
-// le nom en paramètre. Tester un dépôt qu'on vient de déclarer relève de
-// [RepositoryProber], qui n'a pas cette contrainte.
+// Bound to **one** repository, the configuration's: the methods do not take its name as a
+// parameter. Testing a repository one has just declared is [RepositoryProber]'s business, which
+// does not have that constraint.
 //
-// En **lecture** uniquement. Écrire — poser un tag — est une permission
-// distincte, portée par [TagWriter] et par un autre client : la séparation existe
-// pour qu'un déploiement puisse configurer la lecture sans jamais accorder
-// l'écriture, et la fondre ici la ferait disparaître.
+// **Read-only**. Writing — setting a tag — is a distinct permission, carried by [TagWriter] and
+// by another client: the separation exists so that a deployment can configure reading without
+// ever granting writing, and merging it here would make it disappear.
 type Forge interface {
-	// DefaultBranch rend la branche par défaut du dépôt.
+	// DefaultBranch returns the repository's default branch.
 	DefaultBranch(ctx context.Context) (string, error)
-	// ListBranches et ListTags rendent les références et disent si la borne de
-	// lecture a été atteinte. Le second retour n'est pas décoratif : une liste
-	// tronquée en silence ferait croire qu'une référence n'existe pas.
+	// ListBranches and ListTags return the references and say whether the reading bound was reached.
+	// The second return is not decorative: a list silently truncated would suggest a reference does
+	// not exist.
 	ListBranches(ctx context.Context) ([]Ref, bool, error)
 	ListTags(ctx context.Context) ([]Ref, bool, error)
-	// ResolveCommit résout une référence en SHA de commit.
+	// ResolveCommit resolves a reference into a commit SHA.
 	ResolveCommit(ctx context.Context, ref string) (string, error)
-	// ListMergedPullRequests rend les demandes fusionnées depuis un instant, de
-	// la plus récente à la plus ancienne.
+	// ListMergedPullRequests returns the requests merged since an instant, from the most recent to
+	// the oldest.
 	ListMergedPullRequests(ctx context.Context, since time.Time) ([]PullRequest, error)
-	// LoadCommitMessages complète une demande par les messages de ses commits.
-	// Séparé de la liste parce que c'est un aller-retour par demande : les lire
-	// d'office coûterait des centaines de requêtes pour un rapprochement qui n'en
-	// demande que quelques-unes.
+	// LoadCommitMessages completes a request with its commits' messages. Separate from the listing
+	// because it is one round trip per request: reading them by default would cost hundreds of
+	// requests for a matching that needs only a few.
 	LoadCommitMessages(ctx context.Context, pull *PullRequest) error
-	// CheckAccess valide le jeton et rend le compte auquel il appartient.
+	// CheckAccess validates the token and returns the account it belongs to.
 	CheckAccess(ctx context.Context) (Account, error)
 }
 
-// Probe est ce qu'un test d'accès a constaté.
+// Probe is what an access test observed.
 //
-// Deux constats distincts, et c'est le sujet du type : le dashboard **lit-il** ce
-// dépôt, et sa clé de déploiement y **est-elle posée** ? Le premier se fait par
-// jeton et en HTTPS, le second regarde ce que la forge déclare. Les confondre
-// ferait lire un test vert comme une garantie de clone, ce qu'il n'a jamais été.
+// Two distinct observations, and they are the type's subject: does the dashboard **read** this
+// repository, and **is** its deploy key set there? The first is done by token and over HTTPS, the
+// second looks at what the forge declares. Confusing them would make a green test read as a
+// guarantee of cloning, which it has never been.
 type Probe struct {
-	// DefaultBranch est la branche par défaut du dépôt.
+	// DefaultBranch is the repository's default branch.
 	DefaultBranch string
-	// KeyPresent dit si la moitié publique figure dans les clés de déploiement du
-	// dépôt.
+	// KeyPresent says whether the public half appears in the repository's deploy keys.
 	//
-	// **Trois états, pas deux.** Nil veut dire « la question n'a pas pu être
-	// posée » — jeton sans droit d'administration sur le dépôt, forge qui n'expose
-	// pas ses clés, ou clé pas encore produite — et ce n'est pas la même chose que
-	// « la clé est absente ». Répondre faux dans ce cas ferait couper les
-	// constructions d'un projet dont la clé est peut-être en place.
+	// **Three states, not two.** Nil means "the question could not be asked" — a token with no
+	// administration right on the repository, a forge that does not expose its keys, or a key not
+	// produced yet — and it is not the same thing as "the key is absent". Answering false in that
+	// case would cut the builds of a project whose key may well be in place.
 	KeyPresent *bool
-	// KeyNote dit ce que la question a répondu, surtout quand elle n'a pas
-	// conclu : sans elle, un `nil` renverrait chercher au hasard.
+	// KeyNote says what the question answered, above all when it did not conclude: without it, a
+	// `nil` would send one hunting at random.
 	KeyNote string
 }
 
-// RepositoryProber teste l'accès à un dépôt **arbitraire**.
+// RepositoryProber tests access to an **arbitrary** repository.
 //
-// Hors de [Forge], et pas par commodité : une Forge est liée à un dépôt à sa
-// construction, alors que le test porte justement sur un dépôt qu'on vient de
-// déclarer et dont on ne sait pas encore s'il est joignable. Les fondre
-// obligerait à construire un client pour découvrir qu'on ne peut pas.
+// Outside [Forge], and not out of convenience: a Forge is bound to a repository at its
+// construction, whereas the test bears precisely on a repository one has just declared and does
+// not yet know to be reachable. Merging them would force building a client in order to discover
+// that one cannot.
 type RepositoryProber interface {
-	// Probe rend le constat, ou l'erreur qui empêche d'accéder au dépôt. Un dépôt
-	// sans branche par défaut existe mais n'a jamais reçu de commit : c'est un
-	// échec, parce que le clone d'un pipeline y échouerait plus tard.
+	// Probe returns the observation, or the error that prevents access to the repository. A
+	// repository with no default branch exists but never received a commit: that is a failure,
+	// because a pipeline's clone would fail there later.
 	//
-	// `publicKey` est la moitié publique attendue dans les clés de déploiement.
-	// Vide, la question n'est pas posée : le projet n'a pas encore de clé, et
-	// chercher une clé vide rendrait toujours « absente ».
+	// `publicKey` is the public half expected in the deploy keys. Empty, the question is not asked:
+	// the project has no key yet, and looking for an empty key would always return "absent".
 	Probe(ctx context.Context, repository, publicKey string) (Probe, error)
 }
 
-// TagWriter pose un tag Git (B3).
+// TagWriter sets a Git tag.
 //
-// Séparée de [Forge] : lire la forge et y écrire sont deux permissions, portées
-// par deux clients. L'implémentation est nulle quand le jeton ne peut pas écrire,
-// et le dashboard sait alors le dire au lieu d'échouer au moment du tag.
+// Separate from [Forge]: reading the forge and writing to it are two permissions, carried by two
+// clients. The implementation is nil when the token cannot write, and the dashboard can then say
+// so instead of failing at tagging time.
 type TagWriter interface {
 	CreateTag(ctx context.Context, tag, commit, message string) error
 }
 
-// Ref est une branche ou un tag.
+// Ref is a branch or a tag.
 type Ref struct {
 	Name string
-	// SHA du commit visé. Informatif : le champ `git_ref` d'une release porte le
-	// nom, la résolution en commit appartient au pipeline au moment du build.
+	// SHA of the commit targeted. Informative: a release's `git_ref` field carries the name,
+	// resolving it to a commit belongs to the pipeline at build time.
 	SHA string
 }
 
-// PullRequest est une demande de fusion aboutie, réduite à ce qui sert au
-// rapprochement avec les demandes du suivi.
+// PullRequest is a completed pull request, reduced to what serves the matching with the tracker's
+// requests.
 type PullRequest struct {
 	Number   int64
 	Title    string
 	Body     string
 	MergedAt *time.Time
-	// Commits porte les messages des commits. Renseigné par LoadCommitMessages :
-	// la liste des demandes ne les contient pas.
+	// Commits carries the commits' messages. Filled by LoadCommitMessages: the list of requests does
+	// not contain them.
 	Commits []string
 }
 
-// Reference rend `#42`, tel qu'on l'écrit dans une note.
+// Reference returns `#42`, as one writes it in a note.
 func (p PullRequest) Reference() string {
 	return "#" + strconv.FormatInt(p.Number, 10)
 }

@@ -9,41 +9,38 @@ import (
 )
 
 /*
-Rendu PDF du bon de livraison.
-
-**La mise en page ci-dessous est provisoire.** La doc 09 l'établit : le format
-exact du bon de livraison doit être validé avec le client avant développement,
-parce que c'est un document contractuel et que sa présentation n'est pas une
-décision technique. Ce fichier existe donc pour que la chaîne complète — demande,
-génération, stockage, téléchargement — soit éprouvée de bout en bout, et pour
-donner au client quelque chose à corriger plutôt qu'une page blanche à imaginer.
-
-Deux conséquences assumées :
-
-  - chaque page porte la mention « PROVISOIRE ». Un document sans elle pourrait
-    être transmis tel quel, et c'est le seul risque réel de livrer une mise en
-    page non validée ;
-  - aucune donnée ne vit ici. Tout vient de [Note], et remplacer ce rendu ne
-    demandera pas de retoucher ce qui le nourrit.
-
-Police de base plutôt qu'une police embarquée : Helvetica est dans tout lecteur,
-son rendu ne dépend de rien, et le poids du document reste de quelques kilo-octets.
-Le prix est un jeu de caractères limité à cp1252 — suffisant pour le français, et
-la translittération est explicite plutôt que silencieuse.
-*/
+ * PDF rendering of the delivery note.
+ *
+ * **The layout below is provisional.** The exact format of the delivery note must be validated
+ * with the client before development, because it is a contractual document and its presentation
+ * is not a technical decision. This file therefore exists so that the whole chain — request,
+ * generation, storage, download — is exercised end to end, and to give the client something to
+ * correct rather than a blank page to imagine.
+ *
+ * Two accepted consequences:
+ *
+ * - every page carries the mention "PROVISOIRE". A document without it could be passed on as it
+ * is, and that is the only real risk of delivering a layout that is not validated;
+ * - no data lives here. Everything comes from [Note], and replacing this rendering will not
+ * require touching what feeds it.
+ *
+ * A base font rather than an embedded one: Helvetica is in every reader, its rendering depends on
+ * nothing, and the document's weight stays a few kilobytes. The price is a character set limited
+ * to cp1252 — enough for French, and the transliteration is explicit rather than silent.
+ */
 
 const (
 	marginX    = 15.0
 	lineHeight = 5.0
 )
 
-// RenderPDF rend le bon de livraison en PDF.
+// RenderPDF renders the delivery note as a PDF.
 func RenderPDF(note Note) ([]byte, error) {
 	return renderPDF(note, true)
 }
 
-// renderPDF porte le rendu. `compress` n'existe que pour les tests, qui doivent
-// pouvoir chercher du texte dans le document produit.
+// renderPDF carries the rendering. `compress` exists only for the tests, which must be able to
+// look for text in the document produced.
 func renderPDF(note Note, compress bool) ([]byte, error) {
 	if err := note.Validate(); err != nil {
 		return nil, err
@@ -54,8 +51,8 @@ func renderPDF(note Note, compress bool) ([]byte, error) {
 	doc.SetMargins(marginX, 15, marginX)
 	doc.SetAutoPageBreak(true, 20)
 
-	// Les accents français sortiraient en octets bruts sans cette conversion :
-	// les polices de base sont en cp1252, pas en UTF-8.
+	// French accents would come out as raw bytes without this conversion: the base fonts are cp1252,
+	// not UTF-8.
 	tr := doc.UnicodeTranslatorFromDescriptor("")
 	write := func(text string) string { return tr(text) }
 
@@ -72,8 +69,8 @@ func renderPDF(note Note, compress bool) ([]byte, error) {
 	})
 
 	if note.SourceTag != "" {
-		// Le point le plus contre-intuitif du dispositif, et celui qu'un lecteur
-		// du document doit comprendre sans avoir à le demander.
+		// The most counter-intuitive point of the arrangement, and the one a reader of the document must
+		// understand without having to ask.
 		paragraph(doc, write, fmt.Sprintf(
 			"Cette release est un re-tag de %s : l'image livrée est, octet pour octet, celle qui a été "+
 				"validée. Elle porte donc encore la version %s, qui est ce que rapportera l'application "+
@@ -90,8 +87,8 @@ func renderPDF(note Note, compress bool) ([]byte, error) {
 		for _, image := range note.Images {
 			digest := image.Digest
 			if digest == "" {
-				// Nommé et non omis : le digest est la preuve que l'image livrée
-				// est celle qui a été validée. Son absence est une information.
+				// Named and not omitted: the digest is the proof that the image delivered is the one that was
+				// validated. Its absence is information.
 				digest = "empreinte non vérifiée"
 			}
 			bullet(doc, write, fmt.Sprintf("%s:%s", image.Repository, image.Tag), digest)
@@ -131,7 +128,7 @@ func renderPDF(note Note, compress bool) ([]byte, error) {
 
 	var buffer bytes.Buffer
 	if err := doc.Output(&buffer); err != nil {
-		return nil, fmt.Errorf("rendu du bon de livraison %q: %w", note.Release, err)
+		return nil, fmt.Errorf("rendering the delivery note %q: %w", note.Release, err)
 	}
 	return buffer.Bytes(), nil
 }
@@ -142,8 +139,8 @@ func header(doc *fpdf.Fpdf, write func(string) string, note Note) {
 	doc.Cell(0, 7, write("Bon de livraison — "+note.Release))
 
 	if note.Provisional {
-		// À droite du titre, sur chaque page : c'est la seule protection contre
-		// une transmission au client d'une mise en page non validée.
+		// To the right of the title, on every page: it is the only protection against a layout that is not
+		// validated being sent to the client.
 		doc.SetFont("Helvetica", "B", 9)
 		doc.SetTextColor(180, 30, 30)
 		doc.SetXY(-marginX-40, 13)
@@ -159,15 +156,14 @@ func footer(doc *fpdf.Fpdf, write func(string) string, note Note) {
 	doc.SetFont("Helvetica", "", 8)
 	doc.SetTextColor(110, 110, 110)
 
-	// Une seule conversion : traduire un fragment puis retraduire l'ensemble
-	// abîme les accents et les tirets cadratins déjà convertis.
+	// A single conversion: translating a fragment then translating the whole again damages the accents
+	// and the em dashes already converted.
 	left := note.Release
 	if note.Provisional {
 		left += " — mise en page provisoire, en attente de validation"
 	}
 	doc.CellFormat(0, 5, write(left), "", 0, "L", false, 0, "")
-	// La pagination compte dans un document contractuel : elle prouve qu'aucune
-	// page n'a été retirée.
+	// Pagination counts in a contractual document: it proves that no page was removed.
 	doc.CellFormat(0, 5, write(fmt.Sprintf("Page %d / {nb}", doc.PageNo())), "", 0, "R", false, 0, "")
 	doc.AliasNbPages("{nb}")
 	doc.SetTextColor(0, 0, 0)
@@ -197,8 +193,8 @@ func fields(doc *fpdf.Fpdf, write func(string) string, rows [][2]string) {
 
 func paragraph(doc *fpdf.Fpdf, write func(string) string, text string) {
 	doc.SetFont("Helvetica", "", 10)
-	// MultiCell coupe aux limites de la largeur : un digest ou une URL longue
-	// déborderait sinon hors de la page, silencieusement.
+	// MultiCell cuts at the width's bounds: a digest or a long URL would otherwise overflow off the
+	// page, silently.
 	doc.MultiCell(0, lineHeight, write(text), "", "L", false)
 	doc.Ln(1)
 }
@@ -222,8 +218,7 @@ func signatureBlock(doc *fpdf.Fpdf, write func(string) string) {
 	doc.Ln(lineHeight + 12)
 	doc.SetTextColor(0, 0, 0)
 
-	// Deux traits, pas un formulaire : la forme exacte du bloc de signature fait
-	// partie de ce qui doit être validé.
+	// Two lines, not a form: the exact shape of the signature block is part of what must be validated.
 	y := doc.GetY()
 	doc.Line(marginX, y, marginX+70, y)
 	doc.Line(marginX+100, y, marginX+170, y)

@@ -1,20 +1,16 @@
-// Package report produit les livrables attachés à une release.
+// Package report produces the deliverables attached to a release.
 //
-// Le bon de livraison est un **document contractuel** : il atteste de ce qui a
-// été livré, à quelle date, sur la foi de quelles vérifications. Deux
-// conséquences pour ce paquet.
+// The delivery note is a **contractual document**: it attests to what was delivered, on what date,
+// on the strength of which checks. Two consequences for this package.
 //
-// D'abord, il n'invente rien. Chaque ligne du document renvoie à un fait
-// enregistré — un digest lu dans le registre, un texte
-// écrit par un humain identifié. Ce qui n'est pas connu est écrit « non
-// disponible » et non omis : une absence silencieuse dans un document contractuel
-// se lit comme une affirmation.
+// First, it invents nothing. Every line of the document refers back to a recorded fact — a digest
+// read from the registry, a text written by an identified human. What is not known is written "not
+// available" and not omitted: a silent absence in a contractual document reads as an assertion.
 //
-// Ensuite, la **mise en page** du bon de livraison n'est pas une décision
-// technique. La doc 09 l'écrit : le format exact doit être validé avec le client
-// avant développement. Ce paquet sépare donc strictement les deux : [Note] porte
-// les faits et est stable ; le rendu PDF est provisoire et se remplace sans
-// toucher à ce qui le nourrit.
+// Second, the delivery note's **layout** is not a technical decision. The exact format must be
+// validated with the client before development. This package therefore separates the two strictly:
+// [Note] carries the facts and is stable; the PDF rendering is provisional and is replaced without
+// touching what feeds it.
 package report
 
 import (
@@ -23,23 +19,20 @@ import (
 	"time"
 )
 
-// Note est le contenu factuel d'un bon de livraison.
+// Note is the factual content of a delivery note.
 //
-// Structure sérialisable telle quelle : le rendu JSON est un export à part
-// entière, pas un intermédiaire. C'est même le seul format dont le contenu ne
-// dépend d'aucune décision de présentation, donc le seul livrable sur lequel on
-// puisse s'appuyer avant validation du format papier.
+// A structure serialisable as it is: the JSON rendering is an export in its own right, not an
+// intermediate. It is even the only format whose content depends on no presentation decision,
+// hence the only deliverable one can rely on before the paper format is validated.
 type Note struct {
-	// Release est le tag livré, l'identité du document.
+	// Release is the tag delivered, the document's identity.
 	Release string `json:"release"`
-	// Version est le nom de la version Redmine correspondante. Égal à la base du
-	// tag par construction, rappelé parce que c'est sous ce nom que le périmètre
-	// fonctionnel est discuté.
+	// Version is the name of the matching Redmine version. Equal to the tag's base by construction,
+	// repeated because it is under that name that the functional scope is discussed.
 	Version string `json:"version"`
 	Kind    string `json:"kind"`
-	// ImageVersion est la version portée par l'image. Distincte du tag pour toute
-	// release finale produite par re-tag, et c'est **elle** qui sera constatée sur
-	// les environnements.
+	// ImageVersion is the version the image carries. Distinct from the tag for any final release
+	// produced by re-tag, and it is **that** which will be observed on the environments.
 	ImageVersion string `json:"image_version"`
 	SourceTag    string `json:"source_release,omitempty"`
 	GitRef       string `json:"git_ref,omitempty"`
@@ -48,67 +41,63 @@ type Note struct {
 
 	ManualActions *ManualActions `json:"manual_actions,omitempty"`
 
-	// Unavailable énumère ce que le document ne peut pas attester, et pourquoi.
-	// Écrit plutôt qu'omis : dans un document contractuel, une section absente se
-	// lit comme une affirmation.
+	// Unavailable lists what the document cannot attest to, and why. Written rather than omitted: in a
+	// contractual document, a missing section reads as an assertion.
 	Unavailable []string `json:"unavailable,omitempty"`
 
 	GeneratedAt time.Time `json:"generated_at"`
 	GeneratedBy string    `json:"generated_by"`
-	// Provisional dit que la mise en page attend la validation du client. Porté
-	// par les données et non par le seul rendu : le JSON doit le dire aussi, sans
-	// quoi un intégrateur pourrait le traiter comme définitif.
+	// Provisional says that the layout awaits the client's validation. Carried by the data and not by
+	// the rendering alone: the JSON must say it too, otherwise an integrator could treat it as final.
 	Provisional bool `json:"provisional"`
 }
 
-// Image est un tag et son empreinte.
+// Image is a tag and its digest.
 type Image struct {
 	Repository string `json:"repository"`
 	Tag        string `json:"tag"`
-	// Digest vide signifie que le tag n'a pas pu être vérifié dans le registre.
-	// Le document doit le dire : un digest est ce qui prouve que l'image livrée
-	// est celle qui a été validée.
+	// An empty Digest means the tag could not be checked in the registry. The document must say so: a
+	// digest is what proves that the image delivered is the one that was validated.
 	Digest string `json:"digest,omitempty"`
 }
 
-// ManualActions est le récit des gestes manuels de la livraison.
+// ManualActions is the account of the delivery's manual acts.
 type ManualActions struct {
 	Markdown  string     `json:"markdown"`
 	UpdatedBy string     `json:"updated_by,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
-// KnownUnavailable nomme ce qui manquera au document tant que les lots
-// correspondants ne sont pas livrés.
+// KnownUnavailable names what will be missing from the document until the matching work is
+// delivered.
 //
-// Une constante plutôt qu'un texte glissé au rendu : la liste doit être la même
-// dans le JSON et dans le PDF, et disparaître d'un seul geste le jour où la
-// donnée existe.
+// A constant rather than a text slipped into the rendering: the list must be the same in the JSON
+// and in the PDF, and disappear in a single act the day the data exists.
 var KnownUnavailable = []string{
 	"Résultats de tests : la collecte des résultats n'est pas encore en place.",
 	"Verdict de sécurité : la normalisation des findings n'est pas encore en place.",
 	"Anomalies connues : la synchronisation Redmine n'est pas encore en place.",
 }
 
-// Validate refuse un bon de livraison qui n'atteste de rien.
+// Validate refuses a delivery note that attests to nothing.
 //
-// Le contrôle est volontairement minimal — le document doit pouvoir être produit
-// tôt, précisément pour être relu — mais il refuse l'absence d'identité : un bon
-// de livraison sans release ni version ne désigne aucune livraison.
+// The check is deliberately minimal — the document must be producible early, precisely so that it
+// can be reviewed — but it refuses the absence of identity: a delivery note with neither release
+// nor version names no delivery.
 func (n Note) Validate() error {
 	if n.Release == "" {
-		return fmt.Errorf("bon de livraison sans release")
+		return fmt.Errorf("delivery note with no release")
 	}
 	if n.ImageVersion == "" {
-		return fmt.Errorf("bon de livraison de %q sans version d'image: rien n'identifie ce qui est livré", n.Release)
+		return fmt.Errorf("delivery note of %q with no image version: nothing identifies what is delivered", n.Release)
 	}
 	return nil
 }
 
-// UnverifiedImages rend les tags dont l'empreinte n'a pas pu être lue.
+// UnverifiedImages returns the tags whose digest could not be read.
 //
-// Employé par les deux rendus : le document doit nommer ce qu'il n'a pas pu
-// vérifier, à l'endroit où le lecteur cherche la preuve.
+// Used by both renderings: the document must name what it could not check, in the place where the
+// reader looks for the proof.
 func (n Note) UnverifiedImages() []string {
 	var unverified []string
 	for _, image := range n.Images {
@@ -119,10 +108,10 @@ func (n Note) UnverifiedImages() []string {
 	return unverified
 }
 
-// RenderJSON rend le bon de livraison en JSON.
+// RenderJSON renders the delivery note as JSON.
 //
-// Indenté : ce fichier est lu par des humains autant que par des programmes, et
-// il peut être joint à un échange contractuel.
+// Indented: this file is read by humans as much as by programs, and it may be attached to a
+// contractual exchange.
 func RenderJSON(note Note) ([]byte, error) {
 	if err := note.Validate(); err != nil {
 		return nil, err

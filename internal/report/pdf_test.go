@@ -29,27 +29,27 @@ func sample(t *testing.T) Note {
 func TestRenderPDFProducesAPDF(t *testing.T) {
 	pdf, err := RenderPDF(sample(t))
 	if err != nil {
-		t.Fatalf("rendu: %v", err)
+		t.Fatalf("rendering: %v", err)
 	}
 	if !bytes.HasPrefix(pdf, []byte("%PDF-")) {
-		t.Errorf("en-tête = %q, attendu un PDF", pdf[:min(8, len(pdf))])
+		t.Errorf("header = %q, expected a PDF", pdf[:min(8, len(pdf))])
 	}
 	if len(pdf) < 1000 {
 		t.Errorf("taille = %d octets, document vraisemblablement vide", len(pdf))
 	}
 }
 
-// Sans cette mention, une mise en page non validée peut être transmise telle
-// quelle au client. C'est le seul risque réel de la livrer avant validation.
+// Without that mention, a layout that is not validated can be sent to the client as it is. It is
+// the only real risk of delivering it before validation.
 func TestProvisionalNotesAreMarkedOnEveryPage(t *testing.T) {
 	pdf, err := RenderPDF(sample(t))
 	if err != nil {
-		t.Fatalf("rendu: %v", err)
+		t.Fatalf("rendering: %v", err)
 	}
-	// Le flux de contenu est compressé : la mention est cherchée dans le PDF non
-	// compressé, produit pour ce contrôle.
+	// The content stream is compressed: the mention is looked for in the uncompressed PDF, produced
+	// for this check.
 	if !bytes.Contains(uncompressed(t, sample(t)), []byte("PROVISOIRE")) {
-		t.Error("mention PROVISOIRE absente")
+		t.Error("the PROVISOIRE mention is missing")
 	}
 	_ = pdf
 }
@@ -59,78 +59,78 @@ func TestFinalNotesCarryNoProvisionalMark(t *testing.T) {
 	note.Provisional = false
 
 	if bytes.Contains(uncompressed(t, note), []byte("PROVISOIRE")) {
-		t.Error("mention PROVISOIRE présente sur un document validé")
+		t.Error("the PROVISOIRE mention appears on a validated document")
 	}
 }
 
-// Un bon de livraison sans identité ne désigne aucune livraison. Le produire
-// serait pire que ne rien produire : il aurait l'air d'un document.
+// A delivery note with no identity names no delivery. Producing it would be worse than producing
+// nothing: it would look like a document.
 func TestRenderRefusesANoteWithoutIdentity(t *testing.T) {
 	if _, err := RenderPDF(Note{ImageVersion: "1.8.0"}); err == nil {
-		t.Error("un bon de livraison sans release doit être refusé")
+		t.Error("a delivery note with no release must be refused")
 	}
 	if _, err := RenderPDF(Note{Release: "1.8.0"}); err == nil {
-		t.Error("un bon de livraison sans version d'image doit être refusé")
+		t.Error("a delivery note with no image version must be refused")
 	}
 	if _, err := RenderJSON(Note{}); err == nil {
-		t.Error("le JSON obéit aux mêmes règles que le PDF")
+		t.Error("the JSON obeys the same rules as the PDF")
 	}
 }
 
-// Le français passe par cp1252 : une conversion manquante sortirait les accents
-// en octets bruts, et le document serait illisible là où il est le plus lu.
+// French goes through cp1252: a missing conversion would output the accents as raw bytes, and the
+// document would be unreadable where it is read most.
 func TestAccentsSurviveTheEncoding(t *testing.T) {
 	note := sample(t)
 	note.ManualActions.Markdown = "- bascule en préproduction"
 
 	content := uncompressed(t, note)
-	// « é » vaut 0xE9 en cp1252 ; en UTF-8 il vaudrait 0xC3 0xA9.
+	// "é" is 0xE9 in cp1252; in UTF-8 it would be 0xC3 0xA9.
 	if !bytes.Contains(content, []byte{'p', 'r', 0xE9, 'p', 'r', 'o'}) {
-		t.Error("les accents ne sont pas convertis en cp1252")
+		t.Error("the accents are not converted to cp1252")
 	}
 }
 
-// L'absence d'empreinte est une information, pas un vide : le digest est ce qui
-// prouve que l'image livrée est celle qui a été validée.
+// The absence of a digest is information, not a blank: the digest is what proves that the image
+// delivered is the one that was validated.
 func TestUnverifiedImagesAreNamed(t *testing.T) {
 	note := sample(t)
 	unverified := note.UnverifiedImages()
 	if len(unverified) != 1 || unverified[0] != "1.8.0_prod" {
-		t.Errorf("images non vérifiées = %v", unverified)
+		t.Errorf("unverified images = %v", unverified)
 	}
 
 	if !bytes.Contains(uncompressed(t, note), []byte("non v")) {
-		t.Error("le document doit nommer ce qu'il n'a pas pu vérifier")
+		t.Error("the document must name what it could not check")
 	}
 }
 
 func TestRenderJSONCarriesTheProvisionalFlag(t *testing.T) {
 	payload, err := RenderJSON(sample(t))
 	if err != nil {
-		t.Fatalf("rendu: %v", err)
+		t.Fatalf("rendering: %v", err)
 	}
 	if !strings.Contains(string(payload), `"provisional": true`) {
-		t.Error("un intégrateur doit pouvoir lire que le format n'est pas définitif")
+		t.Error("an integrator must be able to read that the format is not final")
 	}
 }
 
-// uncompressed rend le PDF sans compression de flux, pour que les tests puissent
-// y chercher du texte.
+// uncompressed renders the PDF with no stream compression, so that the tests can look for text in
+// it.
 func uncompressed(t *testing.T, note Note) []byte {
 	t.Helper()
 	pdf, err := renderPDF(note, false)
 	if err != nil {
-		t.Fatalf("rendu: %v", err)
+		t.Fatalf("rendering: %v", err)
 	}
 	return pdf
 }
 
-// Traduire un fragment puis retraduire l'ensemble abîme ce qui l'était déjà : le
-// tiret cadratin ressortait en point.
+// Translating a fragment then translating the whole again damages what was already translated: the
+// em dash came out as a dot.
 func TestFooterIsTranslatedOnce(t *testing.T) {
 	content := uncompressed(t, sample(t))
-	// « — » vaut 0x97 en cp1252.
+	// "—" is 0x97 in cp1252.
 	if !bytes.Contains(content, []byte{0x97, ' ', 'm', 'i', 's', 'e'}) {
-		t.Error("le pied de page a subi une double conversion")
+		t.Error("the footer went through a double conversion")
 	}
 }
