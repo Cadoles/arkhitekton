@@ -43,9 +43,16 @@ export function PluginCard({
     <li className="flex flex-col gap-3 rounded-md border border-zinc-200 px-3 py-3">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="font-medium text-zinc-900">{plugin.label}</span>
-        <span className="rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-500">
-          {plugin.kind_label}
-        </span>
+        {[...new Set(plugin.capabilities.map((capability) => capability.kind_label))].map(
+          (label) => (
+            <span
+              key={label}
+              className="rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-500"
+            >
+              {label}
+            </span>
+          ),
+        )}
 
         <label className="ml-auto flex items-center gap-1.5 text-sm text-zinc-700">
           <input

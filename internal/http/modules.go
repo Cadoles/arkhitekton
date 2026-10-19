@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -55,7 +56,7 @@ func (m *Modules) Active(ctx context.Context) []string {
 	}
 	active := []string{}
 	for _, descriptor := range plugin.Registry() {
-		if descriptor.Kind == plugin.KindModule && settings[descriptor.ID].Enabled {
+		if descriptor.HasCapability(capability.KindModule) && settings[descriptor.ID].Enabled {
 			active = append(active, descriptor.ID)
 		}
 	}
@@ -96,7 +97,7 @@ func (m *Modules) ActiveIn(ctx context.Context, projectID int64) []string {
 	}
 	active := []string{}
 	for _, descriptor := range plugin.Registry() {
-		if descriptor.Kind != plugin.KindModule || !settings[descriptor.ID].Enabled {
+		if !descriptor.HasCapability(capability.KindModule) || !settings[descriptor.ID].Enabled {
 			continue
 		}
 		if entry, declared := own[descriptor.ID]; declared && descriptor.PerProject && !entry.Enabled {

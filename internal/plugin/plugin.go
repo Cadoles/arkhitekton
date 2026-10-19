@@ -17,36 +17,13 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-)
 
-// Kind is the extension point a plugin implements. The set is closed: adding one
-// takes code, not configuration. Tekton is deliberately absent — it is an
-// assumption of the product, like PostgreSQL.
-type Kind string
-
-const (
-	// KindTracker follows versions, issues and their progress.
-	KindTracker Kind = "tracker"
-	// KindForge carries repositories, branches and tags.
-	KindForge Kind = "forge"
-	// KindExporter produces contractual deliverables.
-	KindExporter Kind = "exporter"
-	// KindModule brings a whole domain: its screens, its routes, its loops. A
-	// plugin that deploys, attests and adds a screen fits no narrower kind.
-	KindModule Kind = "module"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
 )
 
 // ModuleMSE identifies the MSE plugin: environments, Flux promotion, PortalData
 // attestation.
 const ModuleMSE = "mse"
-
-// KindLabel names each extension point for the interface.
-var KindLabel = map[Kind]string{
-	KindTracker:  "Suivi",
-	KindForge:    "Forge",
-	KindExporter: "Livrables",
-	KindModule:   "Module",
-}
 
 // FieldType says how a field is typed in and checked.
 type FieldType string
@@ -133,9 +110,11 @@ type ActionSpec struct {
 
 // Descriptor declares a plugin and its settings.
 type Descriptor struct {
-	ID    string `json:"id"`
-	Kind  Kind   `json:"kind"`
-	Label string `json:"label"`
+	ID string `json:"id"`
+	// Capabilities say what the plugin brings. The kind qualifies a capability, not the plugin: one
+	// plugin may bring a pipeline and a tracker.
+	Capabilities []capability.Header `json:"capabilities"`
+	Label        string              `json:"label"`
 	// Summary says what the plugin does, in one sentence, on the administration
 	// screen.
 	Summary string `json:"summary"`
@@ -158,6 +137,16 @@ type Descriptor struct {
 	PerProject bool `json:"per_project"`
 }
 
+// HasCapability says whether the plugin brings a capability of this kind.
+func (d Descriptor) HasCapability(kind capability.Kind) bool {
+	for _, header := range d.Capabilities {
+		if header.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 // Registry lists the plugins this binary carries.
 //
 // A function rather than a variable: returning a shared slice would let a caller
@@ -165,8 +154,10 @@ type Descriptor struct {
 func Registry() []Descriptor {
 	descriptors := []Descriptor{
 		{
-			ID: "redmine", Kind: KindTracker, Label: "Redmine",
-			Summary: "Versions, demandes et avancement lus dans une instance Redmine.",
+			ID:           "redmine",
+			Capabilities: []capability.Header{{Kind: capability.KindTracker, Name: "tracker", Label: "Suivi"}},
+			Label:        "Redmine",
+			Summary:      "Versions, demandes et avancement lus dans une instance Redmine.",
 			// One plugin-specific fact only. The probe observes two, but the new
 			// version is a core fact — `version.created`, unprefixed — because every
 			// tracker writes versions to the same table, so a reaction on it need not
@@ -232,7 +223,9 @@ func Registry() []Descriptor {
 			PerProject: true,
 		},
 		{
-			ID: "gitea", Kind: KindForge, Label: "Gitea",
+			ID:           "gitea",
+			Capabilities: []capability.Header{{Kind: capability.KindForge, Name: "forge", Label: "Forge"}},
+			Label:        "Gitea",
 			Summary: "Branches, tags et références proposés au formulaire de release, " +
 				"détection des demandes de fusion ouvertes, et retour vers la forge.",
 			Actions: []ActionSpec{
@@ -327,8 +320,10 @@ func Registry() []Descriptor {
 			PerProject: true,
 		},
 		{
-			ID: ModuleMSE, Kind: KindModule, Label: "MSE",
-			Summary: "Environnements, promotion par Flux et attestation par PortalData.",
+			ID:           ModuleMSE,
+			Capabilities: []capability.Header{{Kind: capability.KindModule, Name: "module", Label: "Module"}},
+			Label:        "MSE",
+			Summary:      "Environnements, promotion par Flux et attestation par PortalData.",
 			Global: []Field{
 				{
 					Name: "namespace", Label: "Namespace Flux", Type: FieldText,
@@ -408,8 +403,10 @@ func Registry() []Descriptor {
 			PerProject: true,
 		},
 		{
-			ID: "bon-de-livraison", Kind: KindExporter, Label: "Bon de livraison",
-			Summary: "Livrable contractuel récapitulant le périmètre et les vérifications.",
+			ID:           "bon-de-livraison",
+			Capabilities: []capability.Header{{Kind: capability.KindExporter, Name: "exporter", Label: "Livrables"}},
+			Label:        "Bon de livraison",
+			Summary:      "Livrable contractuel récapitulant le périmètre et les vérifications.",
 			// Per project: it used to be offered on every release, including those of
 			// projects that produce no such deliverable.
 			PerProject: true,

@@ -273,3 +273,19 @@ func (s RunState) Step(task, step string) (StepState, bool) {
 
 // ErrVersionDrift refuses to read a run with another interpretation than the one that read it.
 var ErrVersionDrift = errors.New("plugin version differs from the one that interpreted the run")
+
+// KindLabel names each kind for the interface.
+var KindLabel = map[Kind]string{
+	KindPipeline: "Pipeline",
+	KindTracker:  "Suivi",
+	KindForge:    "Forge",
+	KindExporter: "Livrables",
+	KindModule:   "Module",
+}
+
+// Header names a capability without describing it: what a plugin's descriptor lists.
+type Header struct {
+	Kind  Kind
+	Name  string
+	Label string
+}

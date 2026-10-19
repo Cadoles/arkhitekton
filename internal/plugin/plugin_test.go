@@ -4,13 +4,15 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
 )
 
-// The registry covers every kind, and nothing else. The test is about kinds, not
-// about how many plugins exist: adding a plugin is routine, inventing a kind takes
-// code and must be visible.
-func TestLeRegistreCouvreChaqueGenre(t *testing.T) {
-	seen := map[Kind]bool{}
+// The registry covers every kind but pipelines, and nothing else. The test is about kinds, not
+// about how many plugins exist: adding a plugin is routine, inventing a kind takes code and must
+// be visible. Pipelines are described by capabilities the binary assembles, not by this registry.
+func TestTheRegistryCoversEveryKind(t *testing.T) {
+	seen := map[capability.Kind]bool{}
 	ids := map[string]bool{}
 
 	for _, descriptor := range Registry() {
@@ -19,17 +21,24 @@ func TestLeRegistreCouvreChaqueGenre(t *testing.T) {
 		}
 		ids[descriptor.ID] = true
 
-		if _, known := KindLabel[descriptor.Kind]; !known {
-			t.Errorf("plugin %q: kind %q with no label", descriptor.ID, descriptor.Kind)
+		if len(descriptor.Capabilities) == 0 {
+			t.Errorf("plugin %q brings no capability", descriptor.ID)
+		}
+		for _, header := range descriptor.Capabilities {
+			if _, known := capability.KindLabel[header.Kind]; !known {
+				t.Errorf("plugin %q: kind %q with no label", descriptor.ID, header.Kind)
+			}
+			seen[header.Kind] = true
 		}
 		if descriptor.Label == "" || descriptor.Summary == "" {
-			t.Errorf("plugin %q: with no label or no summary — the screen would not "+
+			t.Errorf("plugin %q: with no label or no summary: the screen would not "+
 				"know what to say about it", descriptor.ID)
 		}
-		seen[descriptor.Kind] = true
 	}
 
-	for _, kind := range []Kind{KindTracker, KindForge, KindExporter, KindModule} {
+	for _, kind := range []capability.Kind{
+		capability.KindTracker, capability.KindForge, capability.KindExporter, capability.KindModule,
+	} {
 		if !seen[kind] {
 			t.Errorf("no implementation for kind %q", kind)
 		}

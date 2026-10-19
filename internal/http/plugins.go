@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -77,18 +78,35 @@ type fieldPayload struct {
 	Placeholder string   `json:"placeholder,omitempty"`
 }
 
+// capabilityPayload is one capability a plugin brings.
+type capabilityPayload struct {
+	Kind      string `json:"kind"`
+	KindLabel string `json:"kind_label"`
+	Name      string `json:"name"`
+	Label     string `json:"label"`
+}
+
+func capabilitiesOf(descriptor plugin.Descriptor) []capabilityPayload {
+	payload := make([]capabilityPayload, 0, len(descriptor.Capabilities))
+	for _, header := range descriptor.Capabilities {
+		payload = append(payload, capabilityPayload{
+			Kind: string(header.Kind), KindLabel: capability.KindLabel[header.Kind],
+			Name: header.Name, Label: header.Label,
+		})
+	}
+	return payload
+}
+
 // pluginPayload is a plugin and its state at one scope.
 type pluginPayload struct {
 	ID    string `json:"id"`
-	Kind  string `json:"kind"`
 	Label string `json:"label"`
-	// KindLabel names the extension point. Returned by the server rather than translated in
-	// the browser: the table of kinds lives in the registry, and copying it would let the two
-	// diverge at the first addition.
-	KindLabel  string         `json:"kind_label"`
-	Summary    string         `json:"summary"`
-	PerProject bool           `json:"per_project"`
-	Fields     []fieldPayload `json:"fields"`
+	// Capabilities say what the plugin brings, labels included: the table of kinds lives in the
+	// registry, and copying it into the browser would let the two diverge at the first addition.
+	Capabilities []capabilityPayload `json:"capabilities"`
+	Summary      string              `json:"summary"`
+	PerProject   bool                `json:"per_project"`
+	Fields       []fieldPayload      `json:"fields"`
 	// Enabled is the effective state at this scope.
 	Enabled bool `json:"enabled"`
 	// Config carries only the non-sensitive fields. The others are read from `secrets_set`.
@@ -151,8 +169,8 @@ func (h *PluginsHandler) toPayload(
 	}
 
 	return pluginPayload{
-		ID: descriptor.ID, Kind: string(descriptor.Kind), Label: descriptor.Label,
-		KindLabel: plugin.KindLabel[descriptor.Kind], Summary: descriptor.Summary,
+		ID: descriptor.ID, Label: descriptor.Label,
+		Capabilities: capabilitiesOf(descriptor), Summary: descriptor.Summary,
 		PerProject: descriptor.PerProject, Fields: rendered,
 		Enabled: enabled, Config: config, SecretsSet: secretsSet,
 		Configured: h.cipher.Configured(), UpdatedBy: entry.UpdatedBy,

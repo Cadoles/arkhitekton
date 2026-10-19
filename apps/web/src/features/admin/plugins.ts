@@ -23,13 +23,19 @@ export type PluginField = {
   placeholder?: string
 }
 
+/** Ce qu'un plugin apporte. Le libellé du genre est rendu par le serveur : la table
+ *  des genres vit dans le registre, et la recopier ici la ferait diverger. */
+export type PluginCapability = {
+  kind: string
+  kind_label: string
+  name: string
+  label: string
+}
+
 export type Plugin = {
   id: string
-  kind: string
   label: string
-  /** Le point d'extension en français, rendu par le serveur : la table des genres
-   *  vit dans le registre, et la recopier ici la ferait diverger. */
-  kind_label: string
+  capabilities: PluginCapability[]
   summary: string
   per_project: boolean
   fields: PluginField[]

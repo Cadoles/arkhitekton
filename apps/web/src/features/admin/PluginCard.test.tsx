@@ -15,9 +15,8 @@ import type { Plugin } from './plugins'
 
 const redmine: Plugin = {
   id: 'redmine',
-  kind: 'tracker',
   label: 'Redmine',
-  kind_label: 'Suivi',
+  capabilities: [{ kind: 'tracker', kind_label: 'Suivi', name: 'tracker', label: 'Suivi' }],
   summary: 'Versions et demandes.',
   per_project: true,
   fields: [
