@@ -114,6 +114,7 @@ func (i *SecurityIngester) Ingest(ctx context.Context, run LoadRun) error {
 	resultID, err := i.store.SaveTestResult(ctx, store.TestResult{
 		RunID: run.ID, ReleaseID: run.ReleaseID,
 		Family: string(results.FamilySecurity), Tool: securityTool, Status: status,
+		Shape: "findings", Producer: legacyProducer(securityTool),
 		Total: audit.Total, Failed: audit.Critical + audit.High,
 		Summary:   summarizeAudit(audit),
 		RawObject: summaryKey,

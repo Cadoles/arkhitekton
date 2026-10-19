@@ -47,6 +47,7 @@ func TestSaveLoadResultKeepsTheMeasuredConditions(t *testing.T) {
 
 	resultID, err := db.SaveLoadResult(ctx,
 		LoadResult{
+			Group: "load", Tool: "k6", Producer: "k6@1.0.0",
 			RunID: runID, ReleaseID: &releaseID, Scenario: "panier",
 			Exclusive: true, ConcurrentJobs: 0, DurationMS: 60000, Summary: "60 s",
 		},
@@ -87,7 +88,7 @@ func TestLoadStatusFollowsTheDeclaredThresholds(t *testing.T) {
 	releaseID, runID := loadFixture(t, db)
 
 	resultID, err := db.SaveLoadResult(ctx,
-		LoadResult{RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
+		LoadResult{Group: "load", Tool: "k6", Producer: "k6@1.0.0", RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
 		[]BenchMeasure{
 			{Metric: "a:p(95)", Label: "A", Unit: "ms", Value: 1, LowerBetter: true, ThresholdOK: yes()},
 			{Metric: "b:rate", Label: "B", Unit: "%", Value: 2, LowerBetter: true, ThresholdOK: no()},
@@ -112,7 +113,7 @@ func TestLoadStatusWithoutDeclaredThresholds(t *testing.T) {
 	releaseID, runID := loadFixture(t, db)
 
 	resultID, _ := db.SaveLoadResult(ctx,
-		LoadResult{RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
+		LoadResult{Group: "load", Tool: "k6", Producer: "k6@1.0.0", RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
 		[]BenchMeasure{{Metric: "a:p(95)", Label: "A", Unit: "ms", Value: 1, LowerBetter: true}})
 
 	var status string
@@ -128,11 +129,11 @@ func TestBaselinesArePinnedNotComputed(t *testing.T) {
 	releaseID, runID := loadFixture(t, db)
 
 	first, _ := db.SaveLoadResult(ctx,
-		LoadResult{RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
+		LoadResult{Group: "load", Tool: "k6", Producer: "k6@1.0.0", RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
 		[]BenchMeasure{{Metric: "http_req_duration:p(95)", Label: "Latence p95", Unit: "ms",
 			Value: 300, LowerBetter: true}})
 	second, _ := db.SaveLoadResult(ctx,
-		LoadResult{RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
+		LoadResult{Group: "load", Tool: "k6", Producer: "k6@1.0.0", RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
 		[]BenchMeasure{{Metric: "http_req_duration:p(95)", Label: "Latence p95", Unit: "ms",
 			Value: 450, LowerBetter: true}})
 
@@ -173,7 +174,7 @@ func TestScenarioHistoryIsMostRecentFirst(t *testing.T) {
 
 	for _, value := range []float64{300, 320, 290} {
 		if _, err := db.SaveLoadResult(ctx,
-			LoadResult{RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
+			LoadResult{Group: "load", Tool: "k6", Producer: "k6@1.0.0", RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
 			[]BenchMeasure{{Metric: "http_req_duration:p(95)", Label: "Latence p95", Unit: "ms",
 				Value: value, LowerBetter: true}}); err != nil {
 			t.Fatalf("enregistrement: %v", err)

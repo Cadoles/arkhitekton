@@ -13,7 +13,7 @@ func auditFixture(t *testing.T, db *DB, failed []string) (int64, int64) {
 	releaseID := releaseFor(t, db, "1.8.0-rc1")
 	runID := testRun(t, db, "security-audit-1")
 
-	resultID, err := db.SaveTestResult(ctx, TestResult{
+	resultID, err := db.SaveTestResult(ctx, TestResult{Producer: "test@1", Shape: "findings",
 		RunID: runID, ReleaseID: &releaseID, Family: "security",
 		Tool: "security-audit", Status: "warn", Total: 3,
 	}, nil)

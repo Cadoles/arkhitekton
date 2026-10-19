@@ -139,6 +139,8 @@ func (i *MarkerIngester) record(
 		RunID:     run.ID,
 		ReleaseID: run.ReleaseID,
 		Family:    run.Family,
+		Shape:     legacyShape(run.Family),
+		Producer:  legacyProducer(tool),
 		Tool:      tool,
 		Status:    results.ReportNA,
 		Summary:   markerSummary(meta),

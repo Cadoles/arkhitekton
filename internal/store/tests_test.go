@@ -27,7 +27,7 @@ func saveCases(t *testing.T, db *DB, runID int64, releaseID int64, family string
 			failed++
 		}
 	}
-	if _, err := db.SaveTestResult(context.Background(), TestResult{
+	if _, err := db.SaveTestResult(context.Background(), TestResult{Producer: "test@1", Shape: "cases",
 		RunID: runID, ReleaseID: &releaseID, Family: family, Tool: "phpunit",
 		Status: "pass", Total: len(cases), Failed: failed,
 	}, cases); err != nil {
@@ -199,13 +199,13 @@ func TestReprocessTargetsRequireARawObject(t *testing.T) {
 	withRaw := testRun(t, db, "with-raw")
 	withoutRaw := testRun(t, db, "without-raw")
 
-	if _, err := db.SaveTestResult(ctx, TestResult{
+	if _, err := db.SaveTestResult(ctx, TestResult{Producer: "test@1", Shape: "cases",
 		RunID: withRaw, ReleaseID: &releaseID, Family: "unit", Tool: "phpunit",
 		Status: "pass", RawObject: "raw/with-raw/junit.xml",
 	}, nil); err != nil {
 		t.Fatalf("with raw: %v", err)
 	}
-	if _, err := db.SaveTestResult(ctx, TestResult{
+	if _, err := db.SaveTestResult(ctx, TestResult{Producer: "test@1", Shape: "cases",
 		RunID: withoutRaw, ReleaseID: &releaseID, Family: "unit", Tool: "phpunit",
 		Status: "pass",
 	}, nil); err != nil {
@@ -237,7 +237,7 @@ func TestReprocessTargetsCanBeScopedToARelease(t *testing.T) {
 		release int64
 		run     string
 	}{{first, "run-1"}, {second, "run-2"}} {
-		if _, err := db.SaveTestResult(ctx, TestResult{
+		if _, err := db.SaveTestResult(ctx, TestResult{Producer: "test@1", Shape: "cases",
 			RunID: testRun(t, db, pair.run), ReleaseID: &pair.release,
 			Family: "unit", Tool: "phpunit", Status: "pass",
 			RawObject: "raw/" + pair.run + "/junit.xml",

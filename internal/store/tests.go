@@ -9,10 +9,17 @@ import (
 
 // TestResult is one tool's result on a run.
 type TestResult struct {
-	ID         int64
-	RunID      int64
-	ReleaseID  *int64
-	Family     string
+	ID        int64
+	RunID     int64
+	ReleaseID *int64
+	Family    string
+	// Producer is the plugin version that read the run, `plugin@version`. Shape is how the result is
+	// stored and compared: `cases`, `findings` or `measures`. Group is where it is shown. Capability
+	// is what the run instantiated, empty for a run the dashboard did not launch.
+	Producer   string
+	Shape      string
+	Group      string
+	Capability string
 	Tool       string
 	Status     string
 	Total      int
@@ -53,16 +60,22 @@ func (db *DB) SaveTestResult(ctx context.Context, result TestResult, cases []Tes
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
+	if result.Group == "" {
+		result.Group = result.Family
+	}
 	var id int64
 	err = transaction.QueryRow(ctx,
 		`insert into test_results (
 		     run_id, release_id, family, tool, status, total, passed, failed, skipped,
-		     flaky, duration_ms, summary, raw_object
-		 ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, nullif($12, ''), nullif($13, ''))
+		     flaky, duration_ms, summary, raw_object, producer, shape, fact_group, capability
+		 ) values ($1, $2, nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, nullif($12, ''), nullif($13, ''),
+		           $14, $15, $16, coalesce(nullif($17, ''),
+		               (select j.capability from runs r join jobs j on j.id = r.job_id where r.id = $1)))
 		 returning id`,
 		result.RunID, result.ReleaseID, result.Family, result.Tool, result.Status,
 		result.Total, result.Passed, result.Failed, result.Skipped, result.Flaky,
-		result.DurationMS, result.Summary, result.RawObject).Scan(&id)
+		result.DurationMS, result.Summary, result.RawObject,
+		result.Producer, result.Shape, result.Group, result.Capability).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("results %q of run %d: %w", result.Tool, result.RunID, err)
 	}

@@ -163,6 +163,7 @@ func (i *LoadIngester) ingestOne(
 
 	_, err = i.store.SaveLoadResult(ctx, store.LoadResult{
 		RunID: run.ID, ReleaseID: run.ReleaseID, Scenario: scenario,
+		Group: "load", Tool: "k6", Producer: legacyProducer("k6"),
 		// The conditions **observed**, collected when the job was reserved. Not those asked for: the
 		// barrier drains before launching, but it is the observation that decides whether the
 		// measurement enters the comparison.

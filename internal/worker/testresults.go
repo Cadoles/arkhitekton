@@ -203,6 +203,7 @@ func (i *TestIngester) ingestObject(ctx context.Context, run LoadRun, key string
 		if _, err := i.store.SaveTestResult(ctx, store.TestResult{
 			RunID: run.ID, ReleaseID: run.ReleaseID,
 			Family: string(kind.family), Tool: kind.tool, Status: report.Status,
+			Shape: legacyShape(string(kind.family)), Producer: legacyProducer(kind.tool),
 			Total: report.Total, Passed: report.Passed, Failed: report.Failed,
 			Skipped: report.Skipped, Flaky: report.Flaky,
 			DurationMS: report.DurationMS, Summary: summary, RawObject: key,
@@ -284,4 +285,32 @@ func extract(key string, source io.Reader) ([]artifactFile, error) {
 // readLimited reads a stream while bounding what it may occupy in memory.
 func readLimited(source io.Reader) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(source, maxArtifactBytes))
+}
+
+// legacyProducer attributes a result read by the ingestion that predates the plugins' interpreters
+// to the plugin that now brings its tool. The version says the reading predates it.
+func legacyProducer(tool string) string {
+	plugin := "legacy"
+	switch tool {
+	case "phpunit", "phpstan", "cs-fixer":
+		plugin = "php"
+	case "phpunit-integration", "cypress":
+		plugin = "mse"
+	case securityTool:
+		plugin = "security"
+	case "k6":
+		plugin = "k6"
+	}
+	return plugin + "@0.0.0-legacy"
+}
+
+// legacyShape is how a result of a family is stored and compared.
+func legacyShape(family string) string {
+	switch results.Family(family) {
+	case results.FamilySecurity:
+		return "findings"
+	case results.FamilyLoad:
+		return "measures"
+	}
+	return "cases"
 }
