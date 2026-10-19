@@ -21,7 +21,8 @@ package results
 
 import (
 	"fmt"
-	"strings"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
 )
 
 // Family groups results by nature.
@@ -151,12 +152,4 @@ func (e ErrUnsupported) Error() string {
 // PHP tools' failure messages often run to ten lines, the first carrying the
 // substance and the rest being the trace. Showing all ten in a table makes the table
 // unreadable.
-func firstLine(text string) string {
-	for line := range strings.SplitSeq(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
+func firstLine(text string) string { return parse.FirstLine(text) }

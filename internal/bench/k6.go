@@ -17,10 +17,11 @@
 package bench
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
 )
 
 // Metric names a k6 metric and how to read it.
@@ -83,27 +84,6 @@ type Summary struct {
 	ThresholdsFailed []string
 }
 
-// k6Metric covers both forms of summary k6 produces.
-//
-// `--summary-export` writes the statistics flat into the metric's object; `handleSummary` files
-// them under `values` and adds `type` and `thresholds`. Both exist in the wild — a Task written
-// two years ago uses the first — and refusing either would fail the collection over a detail of
-// invocation.
-type k6Metric struct {
-	Type       string                `json:"type"`
-	Contains   string                `json:"contains"`
-	Values     map[string]float64    `json:"values"`
-	Thresholds map[string]k6Threshol `json:"thresholds"`
-}
-
-type k6Threshol struct {
-	OK bool `json:"ok"`
-}
-
-type k6Summary struct {
-	Metrics map[string]json.RawMessage `json:"metrics"`
-}
-
 // ErrNoMetrics reports a summary with no usable metric.
 type ErrNoMetrics struct{ Scenario string }
 
@@ -121,8 +101,8 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 		metrics = DefaultMetrics
 	}
 
-	var summary k6Summary
-	if err := json.Unmarshal(raw, &summary); err != nil {
+	summary, err := parse.ParseK6(raw)
+	if err != nil {
 		return Summary{}, fmt.Errorf("k6 summary of scenario %q unreadable: %w", scenario, err)
 	}
 
@@ -130,17 +110,15 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 	failed := map[string]bool{}
 
 	for _, metric := range metrics {
-		raw, present := summary.Metrics[metric.Name]
+		decoded, present := summary.Metrics[metric.Name]
 		if !present {
 			continue
 		}
-
-		values, thresholds, err := decodeMetric(raw)
-		if err != nil {
-			return Summary{}, fmt.Errorf("metric %q of scenario %q: %w", metric.Name, scenario, err)
+		if decoded.Err != nil {
+			return Summary{}, fmt.Errorf("metric %q of scenario %q: %w", metric.Name, scenario, decoded.Err)
 		}
 
-		value, measured := values[metric.Stat]
+		value, measured := decoded.Values[metric.Stat]
 		if !measured {
 			continue
 		}
@@ -157,8 +135,7 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 			measure.Value = value * 100
 		}
 
-		for name, threshold := range thresholds {
-			ok := threshold.OK
+		for name, ok := range decoded.Thresholds {
 			measure.ThresholdOK = &ok
 			if !ok {
 				failed[metric.Name+": "+name] = true
@@ -168,14 +145,12 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 		result.Measures = append(result.Measures, measure)
 	}
 
-	if raw, present := summary.Metrics["vus_max"]; present {
-		if values, _, err := decodeMetric(raw); err == nil {
-			// `value` on a gauge, `max` on a series: both forms exist depending on the k6 version.
-			if peak, found := values["value"]; found {
-				result.VUs = int(peak)
-			} else if peak, found := values["max"]; found {
-				result.VUs = int(peak)
-			}
+	if vus, present := summary.Metrics["vus_max"]; present && vus.Err == nil {
+		// `value` on a gauge, `max` on a series: both forms exist depending on the k6 version.
+		if peak, found := vus.Values["value"]; found {
+			result.VUs = int(peak)
+		} else if peak, found := vus.Values["max"]; found {
+			result.VUs = int(peak)
 		}
 	}
 
@@ -190,21 +165,6 @@ func ParseSummary(scenario string, raw []byte, metrics []Metric) (Summary, error
 		return result, ErrNoMetrics{Scenario: scenario}
 	}
 	return result, nil
-}
-
-// decodeMetric reads a metric in either of k6's forms.
-func decodeMetric(raw []byte) (map[string]float64, map[string]k6Threshol, error) {
-	var structured k6Metric
-	if err := json.Unmarshal(raw, &structured); err == nil && structured.Values != nil {
-		return structured.Values, structured.Thresholds, nil
-	}
-
-	// Flat form: the metric's object **is** the table of statistics.
-	var flat map[string]float64
-	if err := json.Unmarshal(raw, &flat); err != nil {
-		return nil, nil, fmt.Errorf("unrecognised metric form: %w", err)
-	}
-	return flat, nil, nil
 }
 
 // ScenarioFromKey derives a scenario name from an object key.

@@ -1,10 +1,10 @@
 package results
 
 import (
-	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
 )
 
 /*
@@ -19,40 +19,17 @@ import (
  * time a line is inserted above.
  */
 
-type phpstanReport struct {
-	Totals struct {
-		Errors     int `json:"errors"`
-		FileErrors int `json:"file_errors"`
-	} `json:"totals"`
-	// Files is keyed by path. `json:"files"` may be `[]` when there is no error — PHP
-	// serialises an empty array where an object is expected — which json.RawMessage
-	// absorbs.
-	Files  json.RawMessage `json:"files"`
-	Errors []string        `json:"errors"`
-}
-
-type phpstanFile struct {
-	Errors   int `json:"errors"`
-	Messages []struct {
-		Message    string `json:"message"`
-		Line       int    `json:"line"`
-		Identifier string `json:"identifier"`
-		Ignorable  bool   `json:"ignorable"`
-	} `json:"messages"`
-}
-
-// ParsePHPStan reads PHPStan's JSON output.
+// ParsePHPStan reads PHPStan's JSON output into its report.
 func ParsePHPStan(raw []byte) (Report, error) {
 	report := Report{Family: FamilyStatic, Tool: "phpstan"}
 
-	var source phpstanReport
-	if err := json.Unmarshal(raw, &source); err != nil {
+	source, err := parse.ParsePHPStan(raw)
+	if err != nil {
 		return report, ErrUnsupported{Tool: "phpstan", Detail: err.Error()}
 	}
 
-	// Errors outside a file — unreadable configuration, a missing extension — are
-	// failures of the tool, not of the code. Counting them as violations would send
-	// someone looking for a problem in the code that is not there.
+	// Errors outside a file are failures of the tool, not of the code. Counting them as violations
+	// would send someone looking for a problem in the code that is not there.
 	for _, message := range source.Errors {
 		report.Cases = append(report.Cases, Case{
 			Suite: "phpstan", Name: "erreur d'analyse",
@@ -60,32 +37,24 @@ func ParsePHPStan(raw []byte) (Report, error) {
 		})
 	}
 
-	files := map[string]phpstanFile{}
-	if len(source.Files) > 0 {
-		// Deliberately ignored: `files: []` is an empty array, not an object, and means "no
-		// violation".
-		_ = json.Unmarshal(source.Files, &files)
-	}
-
-	for _, path := range sortedKeys(files) {
-		for _, message := range files[path].Messages {
+	for _, file := range source.Files {
+		for _, message := range file.Messages {
 			rule := message.Identifier
 			if rule == "" {
-				// Older versions emit no identifier: the message stands in for the rule. Less
-				// stable, but better than an identity based on the line number.
+				// Older versions emit no identifier: the message stands in for the rule. Less stable,
+				// but better than an identity based on the line number.
 				rule = firstLine(message.Message)
 			}
 			report.Cases = append(report.Cases, Case{
-				Suite: path, Name: rule, Status: StatusFailed,
+				Suite: file.Path, Name: rule, Status: StatusFailed,
 				Message: fmt.Sprintf("ligne %d: %s", message.Line, firstLine(message.Message)),
 			})
 		}
 	}
 
 	report.tally()
-	// A clean static analysis has no cases. The derived verdict would be `na`, meaning
-	// "did not run" — whereas it did run and found nothing, which is the best possible
-	// result.
+	// A clean static analysis has no cases. The derived verdict would be `na`, meaning "did not
+	// run", whereas it did run and found nothing, which is the best possible result.
 	if report.Total == 0 {
 		report.Status = ReportPass
 	}
@@ -93,34 +62,26 @@ func ParsePHPStan(raw []byte) (Report, error) {
 	return report, nil
 }
 
-type csFixerReport struct {
-	Files []struct {
-		Name        string   `json:"name"`
-		AppliedFixe []string `json:"appliedFixers"`
-		Diff        string   `json:"diff"`
-	} `json:"files"`
-}
-
-// ParseCSFixer reads PHP-CS-Fixer's JSON output.
+// ParseCSFixer reads PHP-CS-Fixer's JSON output into its report.
 //
-// The tool runs in --dry-run in the pipeline: every file listed is one that would
-// have been modified, hence a style deviation.
+// The tool runs in --dry-run in the pipeline: every file listed is one that would have been
+// modified, hence a style deviation.
 func ParseCSFixer(raw []byte) (Report, error) {
 	report := Report{Family: FamilyStatic, Tool: "cs-fixer"}
 
-	var source csFixerReport
-	if err := json.Unmarshal(raw, &source); err != nil {
+	source, err := parse.ParseCSFixer(raw)
+	if err != nil {
 		return report, ErrUnsupported{Tool: "cs-fixer", Detail: err.Error()}
 	}
 
 	for _, file := range source.Files {
-		fixers := file.AppliedFixe
+		fixers := file.AppliedFixers
 		if len(fixers) == 0 {
 			fixers = []string{"style"}
 		}
 		for _, fixer := range fixers {
-			// One entry per rule rather than per file: that is the granularity at which one
-			// fixes, and at which "it is done" means something.
+			// One entry per rule rather than per file: that is the granularity at which one fixes,
+			// and at which "it is done" means something.
 			report.Cases = append(report.Cases, Case{
 				Suite: file.Name, Name: fixer, Status: StatusFailed,
 				Message: "style deviation: " + fixer,
@@ -146,18 +107,4 @@ func summarizeViolations(report Report, noun string) string {
 		files[testCase.Suite] = true
 	}
 	return fmt.Sprintf("%d %s in %d file(s)", report.Total, noun, len(files))
-}
-
-// sortedKeys returns the keys, sorted.
-//
-// A Go map's iteration order is random: without sorting, two reads of the same
-// report would produce two orders of cases, and any comparison of outputs would
-// become unreadable.
-func sortedKeys[V any](source map[string]V) []string {
-	keys := make([]string, 0, len(source))
-	for key := range source {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
