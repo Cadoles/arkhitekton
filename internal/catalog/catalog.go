@@ -40,7 +40,11 @@ const ExclusiveKindConcurrency = 1
 
 // Catalog is a loaded catalogue.
 type Catalog struct {
-	Pipelines []Pipeline `json:"pipelines"`
+	// Capabilities bind the plugins' pipelines to this instance. Resolved into Pipelines at parse.
+	Capabilities []Binding `json:"capabilities,omitempty"`
+	// Pipelines are the pipelines the dashboard can launch: the bound capabilities, and those still
+	// declared whole in the legacy format.
+	Pipelines []Pipeline `json:"pipelines,omitempty"`
 	// Projects carries what the catalogue declares per project, keyed by slug.
 	//
 	// In the same file as the pipelines: both describe what the dashboard can
@@ -162,6 +166,11 @@ var products = []Product{ProductImage, ProductResults, ProductNone}
 
 // Pipeline describes a runnable pipeline.
 type Pipeline struct {
+	// Capability is the capability this pipeline instantiates. Empty for a pipeline declared whole.
+	Capability string `json:"-"`
+	// Unavailable says why the pipeline cannot run: a need or a parameter the catalogue does not
+	// bind. Its runs are refused with this reason.
+	Unavailable string `json:"-"`
 	// Kind is the identifier the dashboard uses. Distinct from PipelineRef: it
 	// survives a rename on the Tekton side, which the catalogue absorbs.
 	Kind string `json:"kind"`
@@ -397,12 +406,12 @@ type PodTemplate struct {
 const DefaultMaxConcurrentRuns = 10
 
 // Load reads a catalogue from a file.
-func Load(path string) (*Catalog, error) {
+func Load(path string, options ...Option) (*Catalog, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading catalogue %q: %w", path, err)
 	}
-	return Parse(content)
+	return Parse(content, options...)
 }
 
 // Parse parses a catalogue and validates it structurally.
@@ -411,7 +420,12 @@ func Load(path string) (*Catalog, error) {
 // first needs nothing, the second needs a connection. Keeping them apart allows
 // testing the first without Kubernetes, and gives two error messages that cannot
 // be confused.
-func Parse(content []byte) (*Catalog, error) {
+func Parse(content []byte, options ...Option) (*Catalog, error) {
+	var parsing parseOptions
+	for _, option := range options {
+		option(&parsing)
+	}
+
 	var catalog Catalog
 	if err := yaml.UnmarshalStrict(content, &catalog); err != nil {
 		// UnmarshalStrict refuses unknown fields. A misspelled key in a ConfigMap would
@@ -422,6 +436,9 @@ func Parse(content []byte) (*Catalog, error) {
 
 	if catalog.MaxConcurrentRuns == 0 {
 		catalog.MaxConcurrentRuns = DefaultMaxConcurrentRuns
+	}
+	if err := catalog.resolve(parsing.registry); err != nil {
+		return nil, fmt.Errorf("catalogue: %w", err)
 	}
 
 	// Deduction comes before validation: it fills in what can be inferred safely, and

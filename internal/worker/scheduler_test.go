@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -293,5 +294,53 @@ func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 3})
 	if err != nil || settings[projectRepoKey] != "ssh://git@forge/CNOUS/mse.git" {
 		t.Errorf("job with no project: %q (%v)", settings[projectRepoKey], err)
+	}
+}
+
+// unavailableQueue hands out one job and records how it ends.
+type unavailableQueue struct {
+	Queue
+	job      store.Job
+	claimed  bool
+	finished []string
+	requeued int
+}
+
+func (q *unavailableQueue) ClaimNext(context.Context, store.Limits, func(string, int64) string) (store.Job, error) {
+	if q.claimed {
+		return store.Job{}, store.ErrJobNotFound
+	}
+	q.claimed = true
+	return q.job, nil
+}
+
+func (q *unavailableQueue) FinishJob(_ context.Context, _ int64, state, reason string) error {
+	q.finished = append(q.finished, state+": "+reason)
+	return nil
+}
+
+func (q *unavailableQueue) Requeue(context.Context, int64, string) (bool, error) {
+	q.requeued++
+	return true, nil
+}
+
+// A pipeline whose need the catalogue does not bind will not run until an operator binds it:
+// retrying would only keep it at the head of the queue. It ends at once, saying what is missing.
+func TestAnUnavailablePipelineIsRefusedWithItsReason(t *testing.T) {
+	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{
+		Kind: "integration-tests", PipelineRef: "php-integration-test",
+		Unavailable: "need cluster-deploy is bound to no service account",
+	}}}
+	queue := &unavailableQueue{job: store.Job{ID: 4, Kind: "integration-tests", RunName: "ark-x-4"}}
+	scheduler := NewSchedulerFromCatalog(queue, nil, pipelines, nil, slog.New(slog.DiscardHandler))
+
+	scheduler.dispatchOne(context.Background(), store.Limits{})
+
+	if queue.requeued != 0 {
+		t.Errorf("requeued %d time(s): the job cannot succeed until the catalogue changes", queue.requeued)
+	}
+	if len(queue.finished) != 1 || !strings.Contains(queue.finished[0], "cluster-deploy") ||
+		!strings.HasPrefix(queue.finished[0], store.JobFailed) {
+		t.Errorf("finished = %v", queue.finished)
 	}
 }

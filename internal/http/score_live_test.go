@@ -7,6 +7,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -53,7 +54,11 @@ func TestLiveTheScoreOfARealRelease(t *testing.T) {
 	}
 	defer db.Close()
 
-	registry, err := catalog.Load("../../deploy/base/config/catalog.yaml")
+	plugins, err := builtin.Registry()
+	if err != nil {
+		t.Fatalf("plugins: %v", err)
+	}
+	registry, err := catalog.Load("../../deploy/base/config/catalog.yaml", catalog.WithCapabilities(plugins))
 	if err != nil {
 		t.Fatalf("catalogue: %v", err)
 	}

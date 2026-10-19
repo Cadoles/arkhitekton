@@ -17,8 +17,9 @@ const module = "forge.cadoles.com/vcarroy/arkhitekton/"
 // The contract (capability, facts, parse) is what a plugin compiles against: if it imported the
 // store or the worker, so would every plugin, and moving it out of internal/ later would drag the
 // dashboard along. Plugins import the contract and nothing else, so that an internal plugin is
-// written exactly like an external one. And no core package imports a plugin: only cmd/arkhitekton
-// assembles them.
+// written exactly like an external one. And no core package imports a plugin: only the assembler,
+// internal/plugins/builtin, lists them, for cmd/arkhitekton and for the live tests that observe a
+// real deployment.
 func TestTheContractAndThePluginsStandAlone(t *testing.T) {
 	root := filepath.Join("..", "..", "internal")
 	contract := []string{"internal/capability", "internal/facts", "internal/parse"}
@@ -49,6 +50,8 @@ func TestTheContractAndThePluginsStandAlone(t *testing.T) {
 		relative := filepath.ToSlash(strings.TrimPrefix(path, filepath.Join("..", "..")+string(filepath.Separator)))
 		inContract := isContract(module + filepath.ToSlash(filepath.Dir(relative)))
 		inPlugin := strings.HasPrefix(relative, "internal/plugins/")
+		assembler := strings.HasPrefix(relative, "internal/plugins/builtin/")
+		live := strings.HasSuffix(relative, "_live_test.go")
 
 		for _, spec := range parsed.Imports {
 			imported, _ := strconv.Unquote(spec.Path.Value)
@@ -56,10 +59,14 @@ func TestTheContractAndThePluginsStandAlone(t *testing.T) {
 				continue
 			}
 			switch {
+			case assembler:
+				if !isContract(imported) && !isPlugin(imported) {
+					t.Errorf("%s imports %s: the assembler imports only plugins", path, imported)
+				}
 			case (inContract || inPlugin) && !isContract(imported):
 				t.Errorf("%s imports %s: the contract and the plugins import only the contract", path, imported)
-			case !inPlugin && isPlugin(imported):
-				t.Errorf("%s imports %s: only cmd/arkhitekton assembles the plugins", path, imported)
+			case !inPlugin && isPlugin(imported) && !(live && imported == module+"internal/plugins/builtin"):
+				t.Errorf("%s imports %s: only the assembler lists the plugins", path, imported)
 			}
 		}
 		return nil

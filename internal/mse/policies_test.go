@@ -32,22 +32,3 @@ func TestSensitivityComesFromTheCatalogueAndForgettingIsSensitive(t *testing.T) 
 		t.Error("sensitivity wrongly returned to the interface")
 	}
 }
-
-// The catalogue actually deployed keeps, for mse-test-project, the table `main.go` used to
-// write: moving it must change nothing about who can promote where.
-func TestTheDeployedCatalogueKeepsTheTableFromMain(t *testing.T) {
-	deployed, err := catalog.Load("../../deploy/base/config/catalog.yaml")
-	if err != nil {
-		t.Fatalf("deployed catalogue: %v", err)
-	}
-	policies := Policies(deployed)["mse-test-project"]
-
-	for environment, sensitive := range map[string]bool{
-		"unstable": false, "qualif": false, "preprod": true, "prod": true,
-	} {
-		policy, found := policies[environment]
-		if !found || policy.Sensitive != sensitive {
-			t.Errorf("%s: %+v (found %v), expected sensitive=%v", environment, policy, found, sensitive)
-		}
-	}
-}

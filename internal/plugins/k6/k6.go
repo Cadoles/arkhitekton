@@ -25,6 +25,7 @@ func Plugin() capability.Plugin {
 		Label: "Tests de charge",
 		Spec: capability.PipelineSpec{
 			ObservedPipelines: []string{"load-test"},
+			Group:             "load",
 			Produces:          []capability.Product{capability.ProductResults},
 			// `load/` per the contract, `k6/` from the tool's name: both are in use.
 			Artifacts: []capability.Artifact{summaries("load"), summaries("k6")},

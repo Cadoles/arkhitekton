@@ -61,6 +61,7 @@ func staticTests(manifests []capability.Manifest) capability.Pipeline {
 		Label: "Analyse statique",
 		Spec: capability.PipelineSpec{
 			PipelineRef:   "php-static-tests",
+			Group:         "static",
 			Manifests:     manifests,
 			ExternalTasks: external,
 			Params:        source(),
@@ -86,6 +87,7 @@ func unitTests(manifests []capability.Manifest) capability.Pipeline {
 		Label: "Tests unitaires",
 		Spec: capability.PipelineSpec{
 			PipelineRef:   "php-unit-tests",
+			Group:         "unit",
 			Manifests:     manifests,
 			ExternalTasks: external,
 			Params:        source(),

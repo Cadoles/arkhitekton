@@ -119,6 +119,9 @@ type PipelineSpec struct {
 	// ObservedPipelines are Tekton Pipelines whose runs this capability reads although the dashboard
 	// did not launch them.
 	ObservedPipelines []string
+	// Group is where the pipeline's results are shown before any is read: a step announced in a
+	// plan has a place on screen from the start. The interpreter decides the group of what it reads.
+	Group string
 }
 
 // Manifest is a Tekton definition shipped with the plugin.

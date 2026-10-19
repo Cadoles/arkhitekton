@@ -33,6 +33,7 @@ func audit() capability.Pipeline {
 		Label: "Audit de sécurité",
 		Spec: capability.PipelineSpec{
 			PipelineRef:  "security-audit",
+			Group:        "security",
 			Verification: true,
 			Produces:     []capability.Product{capability.ProductResults},
 			Params: map[string]capability.Param{

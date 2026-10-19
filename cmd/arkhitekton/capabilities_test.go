@@ -1,11 +1,13 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 )
 
 // legacyKinds maps the catalogue's kinds to the capabilities that now describe them.
@@ -20,7 +22,7 @@ var legacyKinds = map[string]string{
 }
 
 func TestTheBuiltinPluginsFormARegistry(t *testing.T) {
-	registry, err := capabilityRegistry()
+	registry, err := builtin.Registry()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +33,7 @@ func TestTheBuiltinPluginsFormARegistry(t *testing.T) {
 
 // A capability that ships manifests ships the Pipeline it names.
 func TestAShippedPipelineIsAmongItsManifests(t *testing.T) {
-	registry, _ := capabilityRegistry()
+	registry, _ := builtin.Registry()
 	for _, ref := range registry.Refs() {
 		pipeline, _, _ := registry.Pipeline(ref)
 		if len(pipeline.Spec.Manifests) == 0 {
@@ -52,11 +54,11 @@ func TestAShippedPipelineIsAmongItsManifests(t *testing.T) {
 // Every pipeline of today's catalogue is described by a capability, field for field. Until the
 // catalogue binds capabilities, the two descriptions coexist, and this is what keeps them equal.
 func TestEachCatalogueKindMatchesItsCapability(t *testing.T) {
-	declared, err := catalog.Load("../../deploy/base/config/catalog.yaml")
+	declared, err := catalog.Load("testdata/catalog-pipelines.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, _ := capabilityRegistry()
+	registry, _ := builtin.Registry()
 
 	for _, entry := range declared.Pipelines {
 		name, known := legacyKinds[entry.Kind]
@@ -172,4 +174,41 @@ func compareCapability(t *testing.T, entry catalog.Pipeline, spec capability.Pip
 	if (entry.ServiceAccountName != "") != deploys {
 		t.Errorf("%s: service account %q, capability deploys %v", where, entry.ServiceAccountName, deploys)
 	}
+}
+
+// The shipped catalogue, now made of bindings, resolves to exactly the pipelines it used to
+// declare whole. Every field the scheduler reads to build a PipelineRun is compared.
+func TestTheBoundCatalogueResolvesToTheDeclaredPipelines(t *testing.T) {
+	legacy, err := catalog.Load("testdata/catalog-pipelines.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := shippedCatalogue(t)
+
+	if len(bound.Pipelines) != len(legacy.Pipelines) {
+		t.Fatalf("%d pipelines, %d before", len(bound.Pipelines), len(legacy.Pipelines))
+	}
+	for index, before := range legacy.Pipelines {
+		after := bound.Pipelines[index]
+		if after.Unavailable != "" {
+			t.Errorf("%s: unavailable (%s)", after.Kind, after.Unavailable)
+		}
+		after.Capability, after.Unavailable = "", ""
+		if !reflect.DeepEqual(before, after) {
+			t.Errorf("%s resolves differently:\n  before %+v\n  after  %+v", before.Kind, before, after)
+		}
+	}
+}
+
+func shippedCatalogue(t *testing.T) *catalog.Catalog {
+	t.Helper()
+	registry, err := builtin.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shipped, err := catalog.Load("../../deploy/base/config/catalog.yaml", catalog.WithCapabilities(registry))
+	if err != nil {
+		t.Fatalf("shipped catalogue: %v", err)
+	}
+	return shipped
 }

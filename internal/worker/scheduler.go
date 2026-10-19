@@ -272,6 +272,16 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 		s.retry(ctx, job.ID, fmt.Sprintf("kind %q missing from the catalogue", job.Kind))
 		return false
 	}
+	if pipeline.Unavailable != "" {
+		// The catalogue does not bind what the pipeline needs. Retrying would change nothing until an
+		// operator binds it: the job ends now, with the reason, instead of failing in the cluster.
+		reason := fmt.Sprintf("kind %q unavailable: %s", job.Kind, pipeline.Unavailable)
+		s.logger.Error("pipeline unavailable", "job", job.ID, "kind", job.Kind, "reason", pipeline.Unavailable)
+		if err := s.queue.FinishJob(ctx, job.ID, store.JobFailed, reason); err != nil {
+			s.logger.Error("concluding an unavailable job", "job", job.ID, "error", err)
+		}
+		return true
+	}
 
 	// The parameters and the secret names are resolved in the same chain, and from the same
 	// settings: they are two ways for the catalogue to name a configuration value, and handling
@@ -499,7 +509,7 @@ func RunName(instance, kind string, id int64) string {
 func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
 	again, err := s.queue.Requeue(ctx, jobID, reason)
 	if err != nil {
-		s.logger.Error("remise en file", "job", jobID, "error", err)
+		s.logger.Error("requeueing", "job", jobID, "error", err)
 		return
 	}
 	if again {

@@ -1,9 +1,11 @@
 # 5. Pipeline catalogue
 
-The catalogue is the only file Arkhitekton reads besides its environment. It declares
-**which pipelines exist, what each one needs, and what it produces**. The core knows no
-pipeline by name: a deployment that runs Go tests and one that runs PHP tests differ by
-their catalogue, not by their build.
+Pipelines come from **plugins**. A plugin brings *capabilities*: a capability is a Tekton
+Pipeline and its Tasks, the parameters it takes, what it publishes, the privileges it needs and
+how its runs are read. The catalogue says **how this instance runs them**: which configuration
+key fills a parameter, which secret satisfies a need, which service account deploys, how long a
+run may last and how large its volumes are. It never describes a pipeline, and a plugin never
+chooses a privilege.
 
 Location: `PIPELINE_CATALOG_PATH`, mounted from a ConfigMap
 (`deploy/base/config/catalog.yaml` in the reference deployment).
@@ -16,64 +18,61 @@ misbehaving in production.
 
 ```yaml
 maxConcurrentRuns: 10        # instance-wide ceiling on running pipelines
-pipelines: []                # see 5.2
+capabilities: []             # see 5.2
 projects: {}                 # see 5.5
 score: {}                    # optional weights, per kind, for the release score
 podTemplate: {}              # optional defaults applied to every pipeline pod
 ```
 
-## 5.2 A pipeline
+The legacy `pipelines:` section, which declared a pipeline whole, is still read alongside
+`capabilities:` and will be removed.
+
+## 5.2 Binding a capability
 
 ```yaml
-- kind: unit-tests           # the class this pipeline implements
-  pipelineRef: php-unit-tests# the Tekton Pipeline to run
-  label: Unit tests          # what the interface shows
-  verification: true         # this kind verifies a release
-  produces: [results]        # image | results | none
-  maxConcurrent: 2           # ceiling for this kind (optional)
-  timeout: 90m               # (optional)
-  serviceAccountName: tekton-kubectl   # (optional)
+- ref: mse/integration-tests # plugin/capability
+  verification: true         # (optional) overrides the capability's default
+  maxConcurrent: 1           # (optional) overrides the capability's default ceiling
+  timeout: 45m               # (optional)
   params: {}                 # see 5.3
-  uploads: {}                # see 5.4
-  workspaces: []             # see 5.4
+  needs: {}                  # see 5.4
+  volumes: {}                # see 5.4
   podTemplate: {}            # (optional) overrides the top-level one
 ```
 
-`kind` is free-form. `build`, `unit-tests`, `static-tests`, `integration-tests`,
-`e2e-tests`, `security-audit` and `retag` are what the reference catalogue declares; a
-deployment may declare others and the interface follows.
+The order of the entries is the order in which a build chains its verifications.
 
-`produces` tells the core what to do when the run concludes: `image` means read the
-digests it published, `results` means read the reports it uploaded, `none` means nothing
-to collect.
+The built-in plugins bring `core/build`, `core/retag`, `php/static-tests`, `php/unit-tests`,
+`mse/integration-tests`, `mse/e2e-tests`, `security/security-audit` and `k6/load` (observed,
+not launched). Their Tekton definitions are installed by the dashboard when the capability
+ships them, or provided by the operator otherwise.
+
+A binding naming a capability no plugin brings, or a parameter, a need or a volume the
+capability does not declare, stops start-up.
 
 ## 5.3 Parameters
 
-Every Tekton parameter a pipeline needs is declared, with where its value comes from:
-
-```yaml
-params:
-  repo-url:  { source: config,  key: project.repoUrl }
-  revision:  { source: input,   required: true, suggest: git-ref }
-  overlay:   { source: literal, value: overlays/pipeline }
-```
+A capability declares every Tekton parameter it takes, and where its value comes from:
 
 | Source | Meaning |
 |---|---|
-| `config` | Resolved from instance configuration, project settings and plugin settings, by `key` |
+| `binding` | Resolved from a configuration key: the capability's default key, or the one the catalogue binds |
 | `input` | Provided when the run is launched, by a human or by an automation |
-| `literal` | A fixed `value` |
+| `literal` | A fixed value |
 
-An `input` may carry form metadata — `label`, `help`, `placeholder` — and a `suggest`
-that names the *nature* of the value so the launch form can offer a list instead of an
-empty field: `git-ref`, `image`, … With `suggest: image`, `image` names the short
-repository the parameter expects.
+The catalogue only rebinds `binding` parameters to another key:
 
-`suggest` is also what lets an automation fill a parameter with nobody typing: it says
-that `app-revision` wants a git ref without the core having to know that name. It never
-constrains execution — a suggestion is an aid, not a validation.
+```yaml
+params:
+  mse-repo: { key: forge.mse.repoUrl }
+```
 
-**Config keys** available to `source: config`:
+An `input` carries form metadata (`label`, `help`, `placeholder`) and a `suggest` that names
+the *nature* of the value so the launch form can offer a list: `git-ref`, `image`, … With
+`suggest: image`, `image` names the short repository the parameter expects. `suggest` is also
+what lets an automation fill a parameter with nobody typing. It never constrains execution.
+
+**Config keys** available to `binding` parameters:
 
 | Key | Value |
 |---|---|
@@ -85,38 +84,39 @@ constrains execution — a suggestion is an aid, not a validation.
 | `minio.host`, `minio.pipelineBucket` | Object store as pipelines reach it |
 | `forge.status` | Forge base URL used to report commit status |
 
-A plugin adds its own keys, resolved per project — the MSE plugin contributes
+A plugin adds its own keys, resolved per project: the MSE plugin contributes
 `forge.mseKustom.repoUrl`, `forge.mseKustom.revision`, `forge.e2e.repoUrl` and
 `mse.overlayLocation`. A required parameter that nothing resolves makes the enqueue fail,
 naming the key, rather than starting a run that would act somewhere else.
 
-## 5.4 Uploads and workspaces
+## 5.4 Needs, volumes and uploads
 
-A pipeline never receives object-store credentials. For each upload declared, the
-dashboard mints a **presigned URL** for one exact object and passes it as a parameter:
+A capability declares the privileges it needs, from a closed set:
 
-```yaml
-uploads:
-  results:
-    param: results-upload-url   # parameter that receives the presigned URL
-    artifact: unit-tests.tar.gz # object name under the release's prefix
-    family: unit                # result family the report belongs to
-    format: archive             # archive | json | …
-```
-
-Workspaces are declared the same way, and may be backed by a secret named through a
-config key, by a volume claim template, or by an `emptyDir`:
+| Need | Satisfied by |
+|---|---|
+| `source-read` | a secret holding git credentials |
+| `registry-pull` | a secret holding registry credentials |
+| `registry-push` | a secret holding registry credentials |
+| `cluster-deploy` | a service account |
 
 ```yaml
-workspaces:
-  - name: git-credentials
-    secret: { configKey: pipeline.gitSecret }
-  - name: shared-data
-    volumeClaimTemplate:
-      accessModes: [ReadWriteOnce]
-      storageClassName: standard
-      storage: 1Gi
+needs:
+  cluster-deploy: { serviceAccountName: tekton-kubectl }
+  source-read:    { secret: { configKey: pipeline.gitSecret } }
+volumes:
+  mse: { storageClassName: standard, storage: 2Gi }
 ```
+
+A secret is named directly (`secretName`) or through a config key (`configKey`). Only
+`cluster-deploy` accepts a service account: it is the one need that is a cluster identity.
+A need left unbound does not stop start-up: the capability stays known, a plan may name it,
+and its runs are refused with the reason. Volumes are per-run claims; the capability gives
+their default size, the catalogue their storage class and, if needed, another size.
+
+A pipeline never receives object-store credentials. For each artifact the capability
+declares, the dashboard mints a **presigned URL** for one exact object under the run's prefix
+and passes it in the parameter the capability names.
 
 ## 5.5 Per-project declarations
 

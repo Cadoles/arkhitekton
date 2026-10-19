@@ -43,6 +43,7 @@ func integrationTests(manifests []capability.Manifest) capability.Pipeline {
 		Label: "Tests d'intégration",
 		Spec: capability.PipelineSpec{
 			PipelineRef:   "php-integration-test",
+			Group:         "integration",
 			Manifests:     manifests,
 			ExternalTasks: []string{"git-clone", "deploy-mse", "publish-artifact"},
 			Exclusive:     true,
@@ -94,6 +95,7 @@ func e2eTests() capability.Pipeline {
 		Label: "Tests E2E",
 		Spec: capability.PipelineSpec{
 			PipelineRef: "e2e-test",
+			Group:       "e2e",
 			Exclusive:   true,
 			Produces:    []capability.Product{capability.ProductResults},
 			Params: map[string]capability.Param{

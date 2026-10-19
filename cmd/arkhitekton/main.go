@@ -197,7 +197,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// The catalogue is loaded by the `api` too: it is what says what is launchable and which
 	// parameters are required. It is not validated against the cluster here — the api has no
 	// access to it, and the `worker` does it at start-up.
-	pipelines, err := catalog.Load(cfg.Tekton.CatalogPath)
+	pipelines, err := loadCatalogue(cfg)
 	if err != nil {
 		return err
 	}
@@ -457,7 +457,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
-	pipelines, err := catalog.Load(cfg.Tekton.CatalogPath)
+	pipelines, err := loadCatalogue(cfg)
 	if err != nil {
 		return err
 	}
