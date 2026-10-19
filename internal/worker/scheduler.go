@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/url"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -506,6 +507,8 @@ func (s *Scheduler) resolveParams(
 // An empty identity is tolerated so that tests need not supply it; in production it is read at
 // start-up and is never empty.
 func RunName(instance, kind string, id int64) string {
+	// A capability's kind is `plugin/name`, and a Kubernetes name has no `/`.
+	kind = strings.ReplaceAll(kind, "/", "-")
 	if instance == "" {
 		return fmt.Sprintf("mse-%s-%d", kind, id)
 	}

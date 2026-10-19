@@ -34,7 +34,7 @@ func TestEverythingChainedReturnsAReadableResult(t *testing.T) {
 
 	// The point the validation cannot settle on its own: what builds or re-tags must not be chained.
 	// A build that chained itself would loop endlessly, publishing an image at each round.
-	for _, kind := range []string{"build", "retag"} {
+	for _, kind := range []string{catalog.KindBuild, catalog.KindRetag} {
 		if pipelines.IsVerification(kind) {
 			t.Errorf("%s is declared a verification: a build would chain itself", kind)
 		}
@@ -72,7 +72,7 @@ func TestEachArtifactDeclaresItsParameterAndItsName(t *testing.T) {
 func TestTheShippedCatalogueChainsTheFourExpectedKinds(t *testing.T) {
 	pipelines := shippedCatalogue(t)
 
-	want := []string{"security-audit", "static-tests", "unit-tests", "integration-tests"}
+	want := []string{"security/security-audit", "php/static-tests", "php/unit-tests", "mse/integration-tests"}
 	got := pipelines.VerificationKinds()
 
 	if len(got) != len(want) {

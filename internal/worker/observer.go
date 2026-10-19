@@ -145,7 +145,7 @@ func (s *runSink) imageRef(name, tag string) string {
 //
 // Must match the `kind` of the catalogue entry: it is on that value that a run's conclusion
 // decides to advance a release.
-const buildJobKind = "build"
+const buildJobKind = catalog.KindBuild
 
 // NewRunSink returns the adapter the Tekton observer consumes.
 func NewRunSink(db *store.DB) *runSink {

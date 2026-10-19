@@ -464,13 +464,6 @@ function ReleaseAction({ release }: { release: ReleaseDetail }) {
 
 
 /**
- * Les natures de job qui vérifient une release, par opposition à celle qui la
- * construit. Sert à dire **ce qui** a échoué : l'état `failed` d'une release ne
- * le dit pas, il couvre les deux.
- */
-const VERIFICATION_KINDS = ['static-tests', 'security-audit', 'integration-tests', 'e2e-tests']
-
-/**
  * Nomme l'étape à laquelle la release a échoué.
  *
  * Une release `failed` peut l'être parce que sa construction a échoué, ou parce
@@ -483,11 +476,11 @@ const VERIFICATION_KINDS = ['static-tests', 'security-audit', 'integration-tests
  * relance réussie, et c'est la dernière qui décrit l'image en place.
  */
 function failedStage(jobs: ReleaseJob[]): 'build' | 'verification' | 'inconnue' {
-  const builds = jobs.filter((job) => job.kind === 'build')
+  const builds = jobs.filter((job) => job.role === 'build')
   const lastBuild = builds.length > 0 ? builds[builds.length - 1] : undefined
 
   if (lastBuild && lastBuild.state !== 'succeeded') return 'build'
-  if (jobs.some((job) => VERIFICATION_KINDS.includes(job.kind) && job.state === 'failed'))
+  if (jobs.some((job) => job.role === 'verification' && job.state === 'failed'))
     return 'verification'
   return lastBuild ? 'inconnue' : 'build'
 }

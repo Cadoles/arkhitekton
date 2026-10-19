@@ -91,6 +91,10 @@ export type ManualActions = {
 export type ReleaseJob = {
   id: number
   kind: string
+  /** Le libellé du pipeline, rendu par le serveur depuis le catalogue. */
+  label?: string
+  /** Ce que le job fait pour la release : `build`, `verification`, ou rien. */
+  role?: 'build' | 'verification'
   state: string
   environment?: string
   run_name?: string

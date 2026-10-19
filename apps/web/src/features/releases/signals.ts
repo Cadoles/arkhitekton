@@ -12,18 +12,10 @@ import type { ReleaseJob } from './api'
  * nature : elles ne relancent pas le même pipeline, et une table indexée par
  * signal ne pouvait pas le dire.
  *
- * Ne subsistent que les libellés de pipeline — employés par le bouton de
- * relance — et la question « une construction est-elle en cours ? », qui ne porte
- * sur aucun signal.
+ * Ne subsiste que la question « une construction est-elle en cours ? », qui ne
+ * porte sur aucun signal. Les libellés et les rôles des pipelines sont rendus par
+ * le serveur depuis le catalogue.
  */
-
-export const KIND_LABEL: Record<string, string> = {
-  'static-tests': 'Analyse statique',
-  'unit-tests': 'Tests unitaires',
-  'security-audit': 'Audit de sécurité',
-  'integration-tests': "Tests d'intégration",
-  'e2e-tests': 'Tests E2E',
-}
 
 /** Le job en file ou en cours qui remesure ce composant, s'il y en a un.
  *
@@ -48,6 +40,6 @@ export function runningJobFor(ref: string | undefined, jobs: ReleaseJob[]): Rele
  */
 export function buildIsRunning(jobs: ReleaseJob[]): boolean {
   return jobs.some(
-    (job) => job.kind === 'build' && (job.state === 'queued' || job.state === 'running'),
+    (job) => job.role === 'build' && (job.state === 'queued' || job.state === 'running'),
   )
 }

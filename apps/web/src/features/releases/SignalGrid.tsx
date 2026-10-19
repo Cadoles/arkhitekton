@@ -7,7 +7,7 @@ import { useVerify, type ReleaseJob } from './api'
 import { BenchDetail } from './BenchDetail'
 import { FamilyDetail } from './FamilyDetail'
 import { SecurityDetail } from './SecurityDetail'
-import { KIND_LABEL, runningJobFor } from './signals'
+import { runningJobFor } from './signals'
 import { type SignalScore } from './tests'
 
 /*
@@ -167,8 +167,8 @@ function SignalTile({
             type="button"
             onClick={() => verify.mutate(kind)}
             disabled={running || verify.isPending}
-            title={`Relancer ${KIND_LABEL[kind] ?? kind}`}
-            aria-label={`Relancer ${KIND_LABEL[kind] ?? kind}`}
+            title={`Relancer ${signal.label || signal.signal}`}
+            aria-label={`Relancer ${signal.label || signal.signal}`}
             className="ml-auto rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {verify.isPending ? 'Relance…' : 'Rejouer'}

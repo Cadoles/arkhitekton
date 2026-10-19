@@ -68,7 +68,7 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
 
 | Term | Meaning |
 |---|---|
-| **kind** | A class of pipeline declared in the catalogue (`build`, `unit-tests`, `e2e-tests`, …). Free-form: the catalogue defines them, the core does not. |
+| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`core/build`, `php/unit-tests`, `mse/e2e-tests`, …). Plugins bring capabilities; the core names only `core/build` and `core/retag`. |
 | **catalogue** | The YAML file that declares which pipelines exist, what they need and what they produce. See [05](05-pipeline-catalogue.md). |
 | **geste** | One pipeline run inside a plan stage. |
 | **marker** | A line a pipeline writes on stdout so that Arkhitekton can read its results. See [05 §5.6](05-pipeline-catalogue.md#56-the-result-protocol). |

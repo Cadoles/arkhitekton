@@ -280,9 +280,9 @@ func (f *fakeForge) CreateTag(_ context.Context, tag, commit, _ string) error {
 func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler {
 	t.Helper()
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
-		{Kind: "retag", PipelineRef: "retag-image"},
+		{Kind: "core/retag", PipelineRef: "retag-image"},
 		{
-			Kind: "build", PipelineRef: "build-image",
+			Kind: "core/build", PipelineRef: "build-image",
 			Produces: []catalog.Product{catalog.ProductImage},
 			// The kind's real parameters. A release's plan no longer sets the revision and the tag
 			// in the clear: it reads what the catalogue declares it wants. A silent test catalogue
@@ -398,7 +398,7 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 		t.Errorf("state = %q: the image already exists, the release is promotable", created.State)
 	}
 
-	retags := fake.jobsOfKind("retag")
+	retags := fake.jobsOfKind("core/retag")
 	if len(retags) != len(fixtureProject().Promotable()) {
 		t.Fatalf("%d re-tag job(s), expected %d", len(retags), len(fixtureProject().Promotable()))
 	}
@@ -486,7 +486,7 @@ func TestGetResolvesDigestsForEveryTag(t *testing.T) {
 		ID: 3, Plan: plan.Plan{Stages: []plan.Stage{{
 			Role: plan.RoleBuild,
 			Gestes: []plan.Geste{{
-				Kind: plan.GestePipeline, Ref: "build", Label: "portal",
+				Kind: plan.GestePipeline, Ref: "core/build", Label: "portal",
 			}},
 		}}},
 	}}
@@ -765,7 +765,7 @@ func TestAPreReleaseQueuesItsBuild(t *testing.T) {
 
 	// One run per image: the pipeline builds only one, and it is the dashboard that decides
 	// how many it launches.
-	builds := fake.jobsOfKind("build")
+	builds := fake.jobsOfKind("core/build")
 	if len(builds) != len(fixtureProject().Buildable()) {
 		t.Fatalf("%d build(s) queued, expected %d", len(builds), len(fixtureProject().Buildable()))
 	}
@@ -833,7 +833,7 @@ func TestAFinalReleaseDoesNotQueueABuild(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 	for _, job := range fake.jobs {
-		if job.Kind == "build" {
+		if job.Kind == "core/build" {
 			t.Error("a final release must not queue a build")
 		}
 	}
@@ -865,7 +865,7 @@ func TestAPreReleaseWithNoReferenceIsCreatedWithAReservation(t *testing.T) {
 		t.Error("the reservation must be returned: the release exists but nothing is building")
 	}
 	for _, job := range fake.jobs {
-		if job.Kind == "build" {
+		if job.Kind == "core/build" {
 			t.Error("no build must start without a Git reference")
 		}
 	}
@@ -943,7 +943,7 @@ func TestRerunningAFailedBuildReusesTheSameReference(t *testing.T) {
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(fake.jobs) != len(fixtureProject().Buildable()) || fake.jobs[0].Kind != "build" {
+	if len(fake.jobs) != len(fixtureProject().Buildable()) || fake.jobs[0].Kind != "core/build" {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if fake.jobs[0].Params["revision"] != "main" {
@@ -1033,7 +1033,7 @@ func TestAPreReleaseIsAnchoredOnACommitAndTagged(t *testing.T) {
 	// The build starts from the commit, not from the tag or the branch: a shallow clone does
 	// not create a tag's local reference, and the checkout the Task then performs would
 	// fail.
-	builds := fake.jobsOfKind("build")
+	builds := fake.jobsOfKind("core/build")
 	if len(builds) != len(fixtureProject().Buildable()) {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
@@ -1137,7 +1137,7 @@ func TestAFinalReleaseIsNotTaggedASecondTime(t *testing.T) {
  * Returning empty values makes the badge not display, which is exactly the expected behaviour for
  * a release with no results.
  */
-func (f *fakeReleaseStore) ReleaseBadgesByTag(context.Context) (map[string]store.ReleaseBadges, error) {
+func (f *fakeReleaseStore) ReleaseBadgesByTag(context.Context, string) (map[string]store.ReleaseBadges, error) {
 	return map[string]store.ReleaseBadges{}, nil
 }
 
@@ -1237,7 +1237,7 @@ func TestRerunningOneKindAcceptsOnlyVerifications(t *testing.T) {
 		t.Errorf("revision re-run = %q, expected the commit built", got)
 	}
 
-	if recorder := verify("build"); recorder.Code != http.StatusBadRequest {
+	if recorder := verify("core/build"); recorder.Code != http.StatusBadRequest {
 		t.Errorf("re-running `build` must be refused, code = %d", recorder.Code)
 	}
 	if recorder := verify("unknown-kind"); recorder.Code != http.StatusBadRequest {

@@ -53,9 +53,14 @@ capabilities:
 		t.Fatal(err)
 	}
 
-	pipeline, found := parsed.Find("integration-tests")
+	pipeline, found := parsed.Find("mse/integration-tests")
 	if !found {
 		t.Fatalf("kinds = %v", parsed.Kinds())
+	}
+	// A kind from before qualified references still finds it, for what an older replica enqueues
+	// during an upgrade.
+	if legacy, found := parsed.Find("integration-tests"); !found || legacy.Kind != "mse/integration-tests" {
+		t.Errorf("legacy kind found %v: %+v", found, legacy)
 	}
 	if pipeline.Capability != "mse/integration-tests" || pipeline.Unavailable != "" {
 		t.Errorf("pipeline = %+v", pipeline)
@@ -89,7 +94,7 @@ capabilities:
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipeline, _ := parsed.Find("integration-tests")
+	pipeline, _ := parsed.Find("mse/integration-tests")
 	if !strings.Contains(pipeline.Unavailable, "cluster-deploy") {
 		t.Errorf("unavailable = %q", pipeline.Unavailable)
 	}

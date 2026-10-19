@@ -515,15 +515,15 @@ type ReleaseBadges struct {
 // One read for every release rather than one per release: the list shows fifty, and
 // fifty round trips for two booleans and an environment name would be paid every time
 // the screen opens.
-func (db *DB) ReleaseBadgesByTag(ctx context.Context) (map[string]ReleaseBadges, error) {
+func (db *DB) ReleaseBadgesByTag(ctx context.Context, buildKind string) (map[string]ReleaseBadges, error) {
 	badges := map[string]ReleaseBadges{}
 
 	// The state of each release's last build.
 	builds, err := db.pool.Query(ctx,
 		`select distinct on (r.tag) r.tag, j.state
 		   from releases r
-		   join jobs j on j.release_id = r.id and j.kind = 'build'
-		  order by r.tag, j.id desc`)
+		   join jobs j on j.release_id = r.id and j.kind = $1
+		  order by r.tag, j.id desc`, buildKind)
 	if err != nil {
 		return nil, fmt.Errorf("builds of the releases: %w", err)
 	}

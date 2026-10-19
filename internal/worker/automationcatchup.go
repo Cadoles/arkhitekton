@@ -33,7 +33,7 @@ import (
 //
 // Used by the catch-up alone: a release's plan no longer knows any particular kind now that
 // it is declared. It is what remains of the composition in Go, and nothing else remains.
-const buildKind = "build"
+const buildKind = catalog.KindBuild
 
 // ProjectPipelines says what a project declares it verifies.
 //

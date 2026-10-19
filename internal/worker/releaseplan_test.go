@@ -28,7 +28,7 @@ func testCatalogue(t *testing.T) *catalog.Catalog {
 
 	const source = `
 pipelines:
-  - kind: build
+  - kind: core/build
     pipelineRef: build-image
     label: Build
     produces: [image]

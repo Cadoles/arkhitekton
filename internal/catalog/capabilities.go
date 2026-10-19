@@ -72,17 +72,30 @@ func WithCapabilities(registry *capability.Registry) Option {
 	return func(options *parseOptions) { options.registry = registry }
 }
 
-// legacyKinds are the kinds the catalogue named pipelines by before capabilities. Kept as the
-// pipelines' identity until references are qualified everywhere.
-var legacyKinds = map[string]string{
-	"core/build":              "build",
-	"core/retag":              "retag",
-	"php/static-tests":        "static-tests",
-	"php/unit-tests":          "unit-tests",
-	"mse/integration-tests":   "integration-tests",
-	"mse/e2e-tests":           "e2e-tests",
-	"security/security-audit": "security-audit",
-	"k6/load":                 "load-tests",
+// The core's own capabilities: the dashboard builds and re-tags, whatever else a deployment runs.
+const (
+	KindBuild = "core/build"
+	KindRetag = "core/retag"
+)
+
+// legacyRefs are the kinds the catalogue named pipelines by before capabilities. Stored references
+// were rewritten when the schema moved; this only reads what an older replica may still write
+// during an upgrade.
+var legacyRefs = map[string]string{
+	"build":             KindBuild,
+	"retag":             KindRetag,
+	"static-tests":      "php/static-tests",
+	"unit-tests":        "php/unit-tests",
+	"integration-tests": "mse/integration-tests",
+	"e2e-tests":         "mse/e2e-tests",
+	"security-audit":    "security/security-audit",
+	"load-tests":        "k6/load",
+}
+
+// LegacyRef returns the capability a pre-capability kind now names.
+func LegacyRef(kind string) (string, bool) {
+	ref, found := legacyRefs[kind]
+	return ref, found
 }
 
 // resolve turns the bindings into pipelines.
@@ -115,17 +128,13 @@ func resolveBinding(registry *capability.Registry, binding Binding) (Pipeline, e
 	if !found {
 		return Pipeline{}, errors.New("no plugin brings it")
 	}
-	kind, known := legacyKinds[ref.String()]
-	if !known {
-		return Pipeline{}, errors.New("not yet launchable: pipelines are still named by their legacy kind")
-	}
 	spec := declared.Spec
 	if spec.PipelineRef == "" {
 		return Pipeline{}, errors.New("an observed capability is not launched, and has nothing to bind")
 	}
 
 	pipeline := Pipeline{
-		Kind:          kind,
+		Kind:          ref.String(),
 		Capability:    ref.String(),
 		PipelineRef:   spec.PipelineRef,
 		ExternalTasks: spec.ExternalTasks,

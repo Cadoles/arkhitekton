@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 )
 
@@ -40,7 +41,7 @@ const (
 // dashboard uses the same pipeline outside promotion — giving a final release its own tag from
 // that of its pre-release — but that is another question: one routes to an environment, the
 // other establishes an identity. The two constants coincide without merging.
-const DefaultPromotionKind = "retag"
+const DefaultPromotionKind = catalog.KindRetag
 
 // Deployer plans and observes the promotions on top of Flux.
 type Deployer struct {

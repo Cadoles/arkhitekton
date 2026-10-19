@@ -190,6 +190,8 @@ func TestTheBoundCatalogueResolvesToTheDeclaredPipelines(t *testing.T) {
 	}
 	for index, before := range legacy.Pipelines {
 		after := bound.Pipelines[index]
+		// The one intended difference: a pipeline is now named by its capability.
+		before.Kind = legacyKinds[before.Kind]
 		if after.Unavailable != "" {
 			t.Errorf("%s: unavailable (%s)", after.Kind, after.Unavailable)
 		}

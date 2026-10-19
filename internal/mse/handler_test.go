@@ -119,7 +119,7 @@ func (f *fakeStore) Audit(_ context.Context, _, action, target string, _ map[str
 }
 
 func newHandler(fake *fakeStore) *Handler {
-	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{Kind: "retag", PipelineRef: "retag-image"}}}
+	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{Kind: "core/retag", PipelineRef: "retag-image"}}}
 	authorizer := auth.NewAuthorizer(auth.ProjectPolicies{projectSlug: {
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	}})

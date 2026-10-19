@@ -326,11 +326,11 @@ func familyMeasures(
 // The pipeline family to re-run, and the report family to open. Empty for performance,
 // whose campaigns come from an outside runner the dashboard does not trigger.
 var signalKinds = map[results.Signal]string{
-	results.SignalUnit:        "unit-tests",
-	results.SignalIntegration: "integration-tests",
-	results.SignalE2E:         "e2e-tests",
-	results.SignalCode:        "static-tests",
-	results.SignalSecurity:    "security-audit",
+	results.SignalUnit:        "php/unit-tests",
+	results.SignalIntegration: "mse/integration-tests",
+	results.SignalE2E:         "mse/e2e-tests",
+	results.SignalCode:        "php/static-tests",
+	results.SignalSecurity:    "security/security-audit",
 }
 
 var signalFamilies = map[results.Signal]results.Family{

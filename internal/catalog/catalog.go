@@ -477,7 +477,9 @@ func (c *Catalog) deduceProducts() {
 	}
 }
 
-var kindPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+// kindPattern accepts a pipeline declared whole (`unit-tests`) and a bound capability
+// (`php/unit-tests`).
+var kindPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]*[a-z0-9])?/)?[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 func (c *Catalog) validate() error {
 	var problems []error
@@ -538,7 +540,7 @@ func (p Pipeline) validate() []error {
 
 	if !kindPattern.MatchString(p.Kind) {
 		problems = append(problems, fmt.Errorf(
-			"kind %q invalide: minuscules, chiffres et tirets uniquement", p.Kind))
+			"kind %q is invalid: lower case, digits and dashes, as `name` or `plugin/name`", p.Kind))
 	}
 	if strings.TrimSpace(p.PipelineRef) == "" {
 		problems = append(problems, fmt.Errorf("kind %q: pipelineRef is required", p.Kind))
@@ -739,6 +741,17 @@ func (c *Catalog) Concurrency() map[string]int {
 
 // Find returns a kind's entry.
 func (c *Catalog) Find(kind string) (Pipeline, bool) {
+	if pipeline, found := c.find(kind); found {
+		return pipeline, true
+	}
+	// A kind from before qualified references: an old api replica enqueuing during an upgrade.
+	if ref, legacy := LegacyRef(kind); legacy {
+		return c.find(ref)
+	}
+	return Pipeline{}, false
+}
+
+func (c *Catalog) find(kind string) (Pipeline, bool) {
 	for _, pipeline := range c.Pipelines {
 		if pipeline.Kind == kind {
 			// The global pod template applies to whoever declares none. Inherited here rather

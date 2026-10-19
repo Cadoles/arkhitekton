@@ -53,7 +53,7 @@ type ReleaseStore interface {
 	SetReleaseState(ctx context.Context, id int64, state string) error
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
-	ReleaseBadgesByTag(ctx context.Context) (map[string]store.ReleaseBadges, error)
+	ReleaseBadgesByTag(ctx context.Context, buildKind string) (map[string]store.ReleaseBadges, error)
 	ListNoteEntries(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
 	ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
 	LinkNoteIssue(ctx context.Context, releaseID int64, reference, source, pullRequest, actor string) error
@@ -345,14 +345,35 @@ type scoreDigest struct {
 }
 
 type releaseJobPayload struct {
-	ID          int64      `json:"id"`
-	Kind        string     `json:"kind"`
+	ID   int64  `json:"id"`
+	Kind string `json:"kind"`
+	// Label and Role come from the catalogue, so the interface names no pipeline itself. Role is
+	// `build`, `verification`, or empty.
+	Label       string     `json:"label,omitempty"`
+	Role        string     `json:"role,omitempty"`
 	State       string     `json:"state"`
 	Environment string     `json:"environment,omitempty"`
 	RunName     string     `json:"run_name,omitempty"`
 	RequestedBy string     `json:"requested_by"`
 	RequestedAt time.Time  `json:"requested_at"`
 	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+}
+
+// jobRole names a job's pipeline and says what it does for the release.
+func (h *ReleasesHandler) jobRole(kind string) (label, role string) {
+	if h.catalog == nil {
+		return "", ""
+	}
+	if pipeline, found := h.catalog.Find(kind); found {
+		label, kind = pipeline.Label, pipeline.Kind
+	}
+	switch {
+	case kind == catalog.KindBuild:
+		role = "build"
+	case h.catalog.IsVerification(kind):
+		role = "verification"
+	}
+	return label, role
 }
 
 type manualActionVw struct {
@@ -399,7 +420,7 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	badges, err := h.store.ReleaseBadgesByTag(r.Context())
+	badges, err := h.store.ReleaseBadgesByTag(r.Context(), catalog.KindBuild)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the releases", "")
 		return
@@ -518,8 +539,10 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, job := range jobs {
+		label, role := h.jobRole(job.Kind)
 		payload.Jobs = append(payload.Jobs, releaseJobPayload{
-			ID: job.ID, Kind: job.Kind, State: job.State, Environment: job.EnvironmentID,
+			ID: job.ID, Kind: job.Kind, Label: label, Role: role,
+			State: job.State, Environment: job.EnvironmentID,
 			RunName: job.RunName, RequestedBy: who.name(job.RequestedBy),
 			RequestedAt: job.RequestedAt, FinishedAt: job.FinishedAt,
 		})
@@ -528,7 +551,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	// The same badges as in the list, and by the same path: two derivations of "did the
 	// build fail" would have ended up contradicting each other from one screen to the
 	// next.
-	if badges, err := h.store.ReleaseBadgesByTag(r.Context()); err == nil {
+	if badges, err := h.store.ReleaseBadgesByTag(r.Context(), catalog.KindBuild); err == nil {
 		payload.BuildFailed = badges[item.Tag].BuildFailed
 	}
 	payload.DeployedOn = h.deployedOn(r.Context(), currentID)[item.Tag]
@@ -1424,7 +1447,7 @@ func (h *ReleasesHandler) enqueueRetag(
 // It used to be called `promote`, which described the intent rather than the act: the
 // pipeline promotes nothing, it re-tags, and the dashboard also uses it outside
 // promotion — to give a final release its own tag from its source candidate's.
-const retagJobKind = "retag"
+const retagJobKind = catalog.KindRetag
 
 type manualActionsRequest struct {
 	Markdown string `json:"markdown"`

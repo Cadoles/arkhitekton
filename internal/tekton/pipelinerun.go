@@ -3,6 +3,7 @@ package tekton
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/pod"
@@ -41,8 +42,9 @@ func (c *Client) Create(ctx context.Context, request Request) (*tektonv1.Pipelin
 			// from one triggered by a webhook or a cron job, and how reconciliation finds the
 			// dashboard's runs again after a restart.
 			Labels: map[string]string{
-				LabelJobID:    fmt.Sprint(request.JobID),
-				LabelKind:     request.Pipeline.Kind,
+				LabelJobID: fmt.Sprint(request.JobID),
+				// A label value has no `/`: `php/unit-tests` reads `php.unit-tests`.
+				LabelKind:     strings.ReplaceAll(request.Pipeline.Kind, "/", "."),
 				LabelInstance: request.Instance,
 			},
 		},
