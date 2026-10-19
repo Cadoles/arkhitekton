@@ -46,13 +46,16 @@ type Outcome struct {
 
 // Installer puts a library's resources into the cluster.
 type Installer struct {
+	library   *Library
 	dynamic   dynamic.Interface
 	mapper    meta.RESTMapper
 	namespace string
 }
 
-func NewInstaller(client dynamic.Interface, mapper meta.RESTMapper, namespace string) *Installer {
-	return &Installer{dynamic: client, mapper: mapper, namespace: namespace}
+func NewInstaller(
+	library *Library, client dynamic.Interface, mapper meta.RESTMapper, namespace string,
+) *Installer {
+	return &Installer{library: library, dynamic: client, mapper: mapper, namespace: namespace}
 }
 
 // Install puts a stack's library in place.
@@ -60,7 +63,7 @@ func NewInstaller(client dynamic.Interface, mapper meta.RESTMapper, namespace st
 // Idempotent: called again at start-up and at every pass of the loop, it rewrites only what
 // belongs to it and leaves the rest untouched.
 func (i *Installer) Install(ctx context.Context, stack string) (Outcome, error) {
-	resources, err := For(stack)
+	resources, err := i.library.For(stack)
 	if err != nil {
 		return Outcome{}, err
 	}

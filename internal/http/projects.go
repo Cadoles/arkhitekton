@@ -68,6 +68,15 @@ type ProjectsHandler struct {
 	// configuration's: that is where existing projects publish, and retyping it on every
 	// declaration would invite a typo.
 	imageRegistry string
+	// library knows the stacks the plugins bring a reference library for. Nil: every declared
+	// stack is refused.
+	library *pipelines.Library
+}
+
+// WithLibrary wires the stacks a project may declare.
+func (h *ProjectsHandler) WithLibrary(library *pipelines.Library) *ProjectsHandler {
+	h.library = library
+	return h
 }
 
 func NewProjectsHandler(projects ProjectStore) *ProjectsHandler {
@@ -341,7 +350,7 @@ func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projec
 	// why — and the message says what to do: a project whose stack is not covered writes its
 	// own.
 	request.Stack = strings.TrimSpace(request.Stack)
-	if _, err := pipelines.For(request.Stack); err != nil {
+	if _, err := h.library.For(request.Stack); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Unknown stack", err.Error())
 		return request, false
 	}

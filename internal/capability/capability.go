@@ -154,14 +154,20 @@ type Param struct {
 	Placeholder string
 }
 
-// Workspace is a Pipeline workspace. At most one source.
+// Workspace is a Pipeline workspace. Exactly one source.
 type Workspace struct {
 	Name string
 	// Need is set for a secret-backed workspace: the operator binds the secret to the need.
 	Need NeedName
-	// Volume asks for a claim the operator sizes.
-	Volume   bool
+	// Volume asks for a claim per run. The operator chooses its storage class and may resize it.
+	Volume   *Volume
 	EmptyDir bool
+}
+
+// Volume is a claim created for each run.
+type Volume struct {
+	// Storage is the default size, `1Gi`.
+	Storage string
 }
 
 // ArtifactFormat says how an artifact is packed.

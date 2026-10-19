@@ -44,7 +44,7 @@ func installerFor(t *testing.T, objects ...runtime.Object) (*dynamicfake.FakeDyn
 			pipelineGVR: "PipelineList",
 			taskGVR:     "TaskList",
 		}, objects...)
-	return client, NewInstaller(client, testMapper{}, namespace)
+	return client, NewInstaller(testLibrary(), client, testMapper{}, namespace)
 }
 
 func existing(kind, name string, labels map[string]string) *unstructured.Unstructured {

@@ -1239,6 +1239,7 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 // its revocation an outage for all of them at once, and says nothing about who cloned what.
 func projectsHandler(cfg config.Config, db *store.DB, modules *dashhttp.Modules) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
+		WithLibrary(referenceLibrary()).
 		WithForgeURL(cfg.Forge.URL).
 		WithImageRegistry(cfg.Registry.Project).
 		// The same deployer as the one that promotes, and with no client: the question asked — "can
@@ -1396,6 +1397,6 @@ func libraryInstaller(
 		return nil, fmt.Errorf("discovering the cluster's APIs: %w", err)
 	}
 
-	return pipelinelib.NewInstaller(dynamicClient,
+	return pipelinelib.NewInstaller(referenceLibrary(), dynamicClient,
 		restmapper.NewDiscoveryRESTMapper(resources), cfg.Tekton.Namespace), nil
 }

@@ -3,6 +3,7 @@ package capability
 import (
 	"errors"
 	"testing"
+	"testing/fstest"
 )
 
 func TestARefReadsBackAsWritten(t *testing.T) {
@@ -55,5 +56,19 @@ func TestARunIsNotReadByAnotherVersion(t *testing.T) {
 	}
 	if _, err := registry.Interpreter(Ref{Plugin: "php", Name: "unit"}, "1"); !errors.Is(err, ErrVersionDrift) {
 		t.Errorf("err = %v, expected a version drift", err)
+	}
+}
+
+func TestAManifestIsIdentifiedByItsMetadata(t *testing.T) {
+	fsys := fstest.MapFS{
+		"manifests/task.yaml": {Data: []byte("apiVersion: tekton.dev/v1\nkind: Task\nmetadata:\n  name: phpstan\nspec:\n  params:\n    - name: other\n")},
+		"manifests/notes.md":  {Data: []byte("ignored")},
+	}
+	manifests, err := LoadManifests(fsys, "manifests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifests) != 1 || manifests[0].Kind != "Task" || manifests[0].Name != "phpstan" {
+		t.Errorf("manifests = %+v", manifests)
 	}
 }
