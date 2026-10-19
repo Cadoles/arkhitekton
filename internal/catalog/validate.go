@@ -21,9 +21,11 @@ type PipelineSpec struct {
 	Workspaces map[string]bool
 }
 
-// Cluster supplies the Pipelines actually deployed.
+// Cluster supplies the Pipelines and Tasks actually deployed.
 type Cluster interface {
 	Pipelines(ctx context.Context) (map[string]PipelineSpec, error)
+	// Tasks returns the names of the deployed Tasks.
+	Tasks(ctx context.Context) (map[string]bool, error)
 }
 
 // ValidateAgainst checks the catalogue against the cluster.
@@ -46,25 +48,60 @@ type Cluster interface {
 // All four are detectable at start-up. Letting them pass means discovering them at
 // the first launch, which is the worst moment.
 func (c *Catalog) ValidateAgainst(ctx context.Context, cluster Cluster) error {
-	deployed, err := cluster.Pipelines(ctx)
+	unavailable, err := c.Availability(ctx, cluster)
 	if err != nil {
-		return fmt.Errorf("reading the cluster's Pipelines: %w", err)
+		return err
 	}
-
 	var problems []error
 	for _, entry := range c.Pipelines {
-		spec, present := deployed[entry.PipelineRef]
-		if !present {
-			problems = append(problems, fmt.Errorf(
-				"kind %q: Pipeline %q is absent from the cluster (deployed: %s)",
-				entry.Kind, entry.PipelineRef, strings.Join(names(deployed), ", ")))
-			continue
+		if reason, found := unavailable[entry.Kind]; found {
+			problems = append(problems, fmt.Errorf("kind %q: %s", entry.Kind, reason))
 		}
-		problems = append(problems, entry.validateParams(spec)...)
-		problems = append(problems, entry.validateWorkspaces(spec)...)
+	}
+	return errors.Join(problems...)
+}
+
+// Availability checks each pipeline against the cluster and returns, by kind, why the ones that
+// cannot run cannot. A pipeline at odds with the cluster no longer stops the others: it is refused
+// on its own, with its reason, while the rest of the catalogue keeps running.
+//
+// A Task the pipeline uses without shipping it must be deployed too: without it the run starts and
+// fails at the step that needs it.
+func (c *Catalog) Availability(ctx context.Context, cluster Cluster) (map[string]string, error) {
+	deployed, err := cluster.Pipelines(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the cluster's Pipelines: %w", err)
+	}
+	tasks, err := cluster.Tasks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the cluster's Tasks: %w", err)
 	}
 
-	return errors.Join(problems...)
+	unavailable := map[string]string{}
+	for _, entry := range c.Pipelines {
+		var problems []error
+		spec, present := deployed[entry.PipelineRef]
+		if !present {
+			problems = append(problems, fmt.Errorf("Pipeline %q is absent from the cluster (deployed: %s)",
+				entry.PipelineRef, strings.Join(names(deployed), ", ")))
+		} else {
+			problems = append(problems, entry.validateParams(spec)...)
+			problems = append(problems, entry.validateWorkspaces(spec)...)
+		}
+		for _, task := range entry.ExternalTasks {
+			if !tasks[task] {
+				problems = append(problems, fmt.Errorf("Task %q is absent from the cluster", task))
+			}
+		}
+		if len(problems) > 0 {
+			reasons := make([]string, 0, len(problems))
+			for _, problem := range problems {
+				reasons = append(reasons, problem.Error())
+			}
+			unavailable[entry.Kind] = strings.Join(reasons, "; ")
+		}
+	}
+	return unavailable, nil
 }
 
 func (p Pipeline) validateParams(spec PipelineSpec) []error {

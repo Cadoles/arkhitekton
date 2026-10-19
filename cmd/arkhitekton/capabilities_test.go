@@ -193,7 +193,7 @@ func TestTheBoundCatalogueResolvesToTheDeclaredPipelines(t *testing.T) {
 		if after.Unavailable != "" {
 			t.Errorf("%s: unavailable (%s)", after.Kind, after.Unavailable)
 		}
-		after.Capability, after.Unavailable = "", ""
+		after.Capability, after.Unavailable, after.ExternalTasks = "", "", nil
 		if !reflect.DeepEqual(before, after) {
 			t.Errorf("%s resolves differently:\n  before %+v\n  after  %+v", before.Kind, before, after)
 		}

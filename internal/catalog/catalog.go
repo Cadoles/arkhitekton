@@ -171,6 +171,8 @@ type Pipeline struct {
 	// Unavailable says why the pipeline cannot run: a need or a parameter the catalogue does not
 	// bind. Its runs are refused with this reason.
 	Unavailable string `json:"-"`
+	// ExternalTasks are Tasks the pipeline uses without the dashboard installing them.
+	ExternalTasks []string `json:"-"`
 	// Kind is the identifier the dashboard uses. Distinct from PipelineRef: it
 	// survives a rename on the Tekton side, which the catalogue absorbs.
 	Kind string `json:"kind"`

@@ -752,27 +752,3 @@ func (db *DB) RegistrySecret(ctx context.Context, projectID int64) (string, bool
 	}
 	return name, true, nil
 }
-
-// Stacks returns the stacks the projects declare.
-//
-// Deduplicated, and the empty one discarded: this is the list of libraries the
-// dashboard actually has to install, and iterating over projects would install
-// several of them twice.
-func (db *DB) Stacks(ctx context.Context) ([]string, error) {
-	rows, err := db.pool.Query(ctx,
-		`select distinct stack from projects where stack <> '' order by stack`)
-	if err != nil {
-		return nil, fmt.Errorf("declared stacks: %w", err)
-	}
-	defer rows.Close()
-
-	var stacks []string
-	for rows.Next() {
-		var stack string
-		if err := rows.Scan(&stack); err != nil {
-			return nil, fmt.Errorf("declared stacks: %w", err)
-		}
-		stacks = append(stacks, stack)
-	}
-	return stacks, rows.Err()
-}

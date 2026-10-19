@@ -3,95 +3,150 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"maps"
+	"sync"
 	"time"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 )
 
 /*
- * Putting the reference libraries in place.
+ * Putting the capabilities' pipelines in place, then checking what the cluster can run.
  *
- * Same shape as the deploy-key loop, and for the same reasons: the API declares, the worker
- * carries out under the lease, and a restart catches up what an outage interrupted.
+ * Same shape as the deploy-key loop, and for the same reasons: the worker carries out under the
+ * lease, and a restart catches up what an outage interrupted.
  *
- * It serves **autonomy**: a fresh instance, with no pre-existing pipeline repository, receives
- * what it needs to build and test the stacks its projects declare. On an instance that already
- * has its own, the non-adoption rule makes the dashboard observe and withdraw.
+ * **Install, then check.** The order is the point: checking first refused to start on a fresh
+ * cluster, whose Pipelines the dashboard would have installed one step later.
+ *
+ * **A pipeline at odds with the cluster stops only itself.** Its runs are refused with the reason,
+ * while the rest of the catalogue keeps running.
+ *
+ * On an instance that already has its own definitions, the non-adoption rule makes the dashboard
+ * observe and withdraw.
  */
 
-// libraryInterval spaces two passes.
+// capabilityInterval spaces two passes.
 //
-// Long: the state changes only when a project declares a stack — a rare gesture — or when the
-// binary changes version, which goes through a restart.
-const libraryInterval = 10 * time.Minute
+// Long: the state changes when the binary changes version, which goes through a restart, or when
+// someone deploys a Pipeline by hand, which the next pass picks up.
+const capabilityInterval = 10 * time.Minute
 
-// StackStore returns the stacks to supply.
-type StackStore interface {
-	Stacks(ctx context.Context) ([]string, error)
+// ResourceInstaller puts Tekton definitions in place.
+type ResourceInstaller interface {
+	InstallResources(ctx context.Context, resources []pipelines.Resource) (pipelines.Outcome, error)
 }
 
-// LibraryInstaller puts a stack's library in place.
-type LibraryInstaller interface {
-	Install(ctx context.Context, stack string) (pipelines.Outcome, error)
+// AvailabilitySink receives, by kind, why the pipelines that cannot run cannot.
+type AvailabilitySink interface {
+	SetAvailability(unavailable map[string]string)
 }
 
-// LibraryReconciler puts in place the libraries the projects require.
-type LibraryReconciler struct {
-	store     StackStore
-	installer LibraryInstaller
+// CapabilityReconciler installs the bound capabilities' definitions and checks the catalogue
+// against the cluster.
+type CapabilityReconciler struct {
+	installer ResourceInstaller
+	resources []pipelines.Resource
+	catalog   *catalog.Catalog
+	cluster   catalog.Cluster
+	sink      AvailabilitySink
 	logger    *slog.Logger
+	last      map[string]string
 }
 
-func NewLibraryReconciler(
-	projects StackStore, installer LibraryInstaller, logger *slog.Logger,
-) *LibraryReconciler {
-	return &LibraryReconciler{store: projects, installer: installer, logger: logger}
+// NewCapabilityReconciler wires the loop. The installer may be nil: definitions are then only
+// checked, as on an instance whose pipelines someone else deploys.
+func NewCapabilityReconciler(
+	installer ResourceInstaller, resources []pipelines.Resource,
+	pipelines *catalog.Catalog, cluster catalog.Cluster, sink AvailabilitySink, logger *slog.Logger,
+) *CapabilityReconciler {
+	return &CapabilityReconciler{
+		installer: installer, resources: resources, catalog: pipelines,
+		cluster: cluster, sink: sink, logger: logger,
+	}
 }
 
-// Run runs the loop until cancellation.
-func (r *LibraryReconciler) Run(ctx context.Context) error {
-	ticker := time.NewTicker(libraryInterval)
+// Run settles again at every interval, until cancellation. The first pass is the caller's, through
+// Settle, before the scheduler starts.
+func (r *CapabilityReconciler) Run(ctx context.Context) error {
+	ticker := time.NewTicker(capabilityInterval)
 	defer ticker.Stop()
 
 	for {
-		r.once(ctx)
-
 		select {
 		case <-ctx.Done():
-			r.logger.Info("pipeline library setting stopped")
+			r.logger.Info("pipeline setting stopped")
 			return nil
 		case <-ticker.C:
+			r.Settle(ctx)
 		}
 	}
 }
 
-func (r *LibraryReconciler) once(ctx context.Context) {
-	stacks, err := r.store.Stacks(ctx)
+// Settle installs, then checks and publishes what can run.
+func (r *CapabilityReconciler) Settle(ctx context.Context) {
+	r.install(ctx)
+
+	unavailable, err := r.catalog.Availability(ctx, r.cluster)
 	if err != nil {
-		r.logger.Error("declared stacks", "error", err)
+		// The previous answer stays published: a cluster briefly unreachable does not make every
+		// pipeline unavailable.
+		r.logger.Error("checking the catalogue against the cluster", "error", err)
 		return
 	}
+	r.sink.SetAvailability(unavailable)
 
-	for _, stack := range stacks {
-		outcome, err := r.installer.Install(ctx, stack)
-		if err != nil {
-			// A failed stack does not stop the others: a project whose library is missing will see it at
-			// its first launch, whereas a stopped loop would deprive all the following ones.
-			r.logger.Error("setting the library", "stack", stack, "error", err)
-		}
-
-		// Logged only when something moves: the loop comes round every ten minutes, and an identical
-		// report at every pass would drown what matters.
-		if len(outcome.Installed) > 0 || len(outcome.Updated) > 0 {
-			r.logger.Info("pipeline library set",
-				"stack", stack, "installed", outcome.Installed, "updated", outcome.Updated)
-		}
-		if len(outcome.Skipped) > 0 {
-			// Not an error: the refusal to adopt. Saying so avoids someone looking for why a definition
-			// from the dashboard does not appear.
-			r.logger.Info("definitions left to their owner",
-				"stack", stack, "resources", outcome.Skipped,
-				"reason", "they already exist and were not created by the dashboard")
+	for kind, reason := range unavailable {
+		if r.last[kind] != reason {
+			r.logger.Warn("pipeline unavailable", "kind", kind, "reason", reason,
+				"consequence", "its runs are refused until the cluster provides what it needs")
 		}
 	}
+	for kind := range r.last {
+		if _, still := unavailable[kind]; !still {
+			r.logger.Info("pipeline available again", "kind", kind)
+		}
+	}
+	r.last = unavailable
+}
+
+func (r *CapabilityReconciler) install(ctx context.Context) {
+	if r.installer == nil || len(r.resources) == 0 {
+		return
+	}
+	outcome, err := r.installer.InstallResources(ctx, r.resources)
+	if err != nil {
+		// A failed definition does not stop the others: the pipeline that needs it will be reported
+		// unavailable by the check that follows.
+		r.logger.Error("setting the pipelines", "error", err)
+	}
+	if len(outcome.Installed) > 0 || len(outcome.Updated) > 0 {
+		r.logger.Info("pipelines set", "installed", outcome.Installed, "updated", outcome.Updated)
+	}
+	if len(outcome.Skipped) > 0 {
+		// Not an error: the refusal to adopt. Saying so avoids someone looking for why a definition
+		// from the dashboard does not appear.
+		r.logger.Info("definitions left to their owner", "resources", outcome.Skipped,
+			"reason", "they already exist and were not created by the dashboard")
+	}
+}
+
+// availability is the scheduler's copy of what the cluster cannot run, written by the reconciler
+// and read at every dispatch.
+type availability struct {
+	mu          sync.RWMutex
+	unavailable map[string]string
+}
+
+func (a *availability) set(unavailable map[string]string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.unavailable = maps.Clone(unavailable)
+}
+
+func (a *availability) reason(kind string) string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.unavailable[kind]
 }

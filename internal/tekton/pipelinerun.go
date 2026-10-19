@@ -183,3 +183,16 @@ func (c *Client) Pipelines(ctx context.Context) (map[string]catalog.PipelineSpec
 	}
 	return deployed, nil
 }
+
+// Tasks returns the names of the deployed Tasks, for catalogue validation.
+func (c *Client) Tasks(ctx context.Context) (map[string]bool, error) {
+	list, err := c.Tekton.TektonV1().Tasks(c.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("listing the Tasks of %q: %w", c.Namespace, err)
+	}
+	deployed := make(map[string]bool, len(list.Items))
+	for _, task := range list.Items {
+		deployed[task.Name] = true
+	}
+	return deployed, nil
+}

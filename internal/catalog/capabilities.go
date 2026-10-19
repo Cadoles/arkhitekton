@@ -128,6 +128,7 @@ func resolveBinding(registry *capability.Registry, binding Binding) (Pipeline, e
 		Kind:          kind,
 		Capability:    ref.String(),
 		PipelineRef:   spec.PipelineRef,
+		ExternalTasks: spec.ExternalTasks,
 		Label:         declared.Label,
 		Verification:  spec.Verification,
 		MaxConcurrent: binding.MaxConcurrent,

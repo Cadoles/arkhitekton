@@ -70,11 +70,13 @@ const uploadTTL = 6 * time.Hour
 
 // Scheduler turns the queued jobs into PipelineRuns.
 type Scheduler struct {
-	queue   Queue
-	cluster *tekton.Client
-	catalog *catalog.Catalog
-	config  map[string]string
-	local   map[string]LocalTask
+	// availability says what the cluster cannot run, kept up to date by the capability reconciler.
+	availability availability
+	queue        Queue
+	cluster      *tekton.Client
+	catalog      *catalog.Catalog
+	config       map[string]string
+	local        map[string]LocalTask
 	// uploads mints the presigned URLs. Nil when storage is not available: the runs then start
 	// with no publication, and say so.
 	uploads Presigner
@@ -272,11 +274,16 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 		s.retry(ctx, job.ID, fmt.Sprintf("kind %q missing from the catalogue", job.Kind))
 		return false
 	}
-	if pipeline.Unavailable != "" {
-		// The catalogue does not bind what the pipeline needs. Retrying would change nothing until an
-		// operator binds it: the job ends now, with the reason, instead of failing in the cluster.
-		reason := fmt.Sprintf("kind %q unavailable: %s", job.Kind, pipeline.Unavailable)
-		s.logger.Error("pipeline unavailable", "job", job.ID, "kind", job.Kind, "reason", pipeline.Unavailable)
+	unavailable := pipeline.Unavailable
+	if unavailable == "" {
+		unavailable = s.availability.reason(job.Kind)
+	}
+	if unavailable != "" {
+		// The catalogue does not bind what the pipeline needs, or the cluster lacks its definition.
+		// Retrying would change nothing until an operator acts: the job ends now, with the reason,
+		// instead of failing in the cluster.
+		reason := fmt.Sprintf("kind %q unavailable: %s", job.Kind, unavailable)
+		s.logger.Error("pipeline unavailable", "job", job.ID, "kind", job.Kind, "reason", unavailable)
 		if err := s.queue.FinishJob(ctx, job.ID, store.JobFailed, reason); err != nil {
 			s.logger.Error("concluding an unavailable job", "job", job.ID, "error", err)
 		}
@@ -332,6 +339,11 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 	s.logger.Info("run launched",
 		"job", job.ID, "kind", job.Kind, "run", job.RunName, "file", limits.Of(job.Kind))
 	return true
+}
+
+// SetAvailability records what the cluster cannot run.
+func (s *Scheduler) SetAvailability(unavailable map[string]string) {
+	s.availability.set(unavailable)
 }
 
 // addUploadURLs adds one presigned URL per declared artifact.

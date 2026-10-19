@@ -154,11 +154,16 @@ pipelines:
 
 type fakeCluster struct {
 	pipelines map[string]PipelineSpec
+	tasks     map[string]bool
 	err       error
 }
 
 func (c fakeCluster) Pipelines(context.Context) (map[string]PipelineSpec, error) {
 	return c.pipelines, c.err
+}
+
+func (c fakeCluster) Tasks(context.Context) (map[string]bool, error) {
+	return c.tasks, c.err
 }
 
 func TestValidateAgainstAcceptsAConsistentCatalog(t *testing.T) {

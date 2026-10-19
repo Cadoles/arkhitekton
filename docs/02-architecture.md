@@ -56,7 +56,7 @@ leadership term, and the loops restart on the next one.
 | **observer** | on tick | Reconciles PipelineRuns with the queue: concludes jobs, collects logs and results |
 | **purger** | on tick | Deletes expired sessions, auth flows and stale runs |
 | **key reconciler** | on tick | Keeps each project's deploy-key secret in sync with what the project declares |
-| **library reconciler** | on tick | Installs the pipeline definitions a project's stack requires, leaving foreign ones alone |
+| **capability reconciler** | at election, then on tick | Installs the bound capabilities' pipeline definitions, leaving foreign ones alone, then checks what the cluster can run; a pipeline it cannot run is refused with the reason |
 | **probes** | `PROBE_INTERVAL` | Polls the tracker and the forge for facts (merged pull requests, reviewed versions) and dispatches reactions |
 | **environments** | 30 s, MSE plugin only | Observes what each environment actually runs |
 

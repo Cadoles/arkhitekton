@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -126,5 +127,39 @@ func TestABindingNamesOnlyWhatTheCapabilityDeclares(t *testing.T) {
 func TestBindingsNeedThePlugins(t *testing.T) {
 	if _, err := Parse([]byte("capabilities:\n  - ref: mse/integration-tests\n")); err == nil {
 		t.Error("bindings resolved without plugins")
+	}
+}
+
+// A pipeline at odds with the cluster is refused on its own: the others keep running.
+func TestAvailabilityIsPerPipeline(t *testing.T) {
+	parsed, err := Parse([]byte(`
+pipelines:
+  - kind: unit-tests
+    pipelineRef: php-unit-tests
+    produces: [none]
+  - kind: static-tests
+    pipelineRef: php-static-tests
+    produces: [none]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.Pipelines[1].ExternalTasks = []string{"composer-install"}
+
+	unavailable, err := parsed.Availability(context.Background(), fakeCluster{
+		pipelines: map[string]PipelineSpec{
+			"php-unit-tests":   {Name: "php-unit-tests"},
+			"php-static-tests": {Name: "php-static-tests"},
+		},
+		tasks: map[string]bool{"git-clone": true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := unavailable["unit-tests"]; found {
+		t.Errorf("unit-tests refused: %v", unavailable)
+	}
+	if !strings.Contains(unavailable["static-tests"], "composer-install") {
+		t.Errorf("static-tests = %q, expected the missing Task named", unavailable["static-tests"])
 	}
 }

@@ -67,7 +67,11 @@ func (i *Installer) Install(ctx context.Context, stack string) (Outcome, error) 
 	if err != nil {
 		return Outcome{}, err
 	}
+	return i.InstallResources(ctx, resources)
+}
 
+// InstallResources puts the given definitions in place, under the same rules as a stack's.
+func (i *Installer) InstallResources(ctx context.Context, resources []Resource) (Outcome, error) {
 	var outcome Outcome
 	var problems []error
 	for _, resource := range resources {

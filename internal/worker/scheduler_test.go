@@ -344,3 +344,17 @@ func TestAnUnavailablePipelineIsRefusedWithItsReason(t *testing.T) {
 		t.Errorf("finished = %v", queue.finished)
 	}
 }
+
+// What the cluster cannot run is refused like what the catalogue does not bind.
+func TestAPipelineTheClusterCannotRunIsRefused(t *testing.T) {
+	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{Kind: "e2e-tests", PipelineRef: "e2e-test"}}}
+	queue := &unavailableQueue{job: store.Job{ID: 5, Kind: "e2e-tests", RunName: "ark-x-5"}}
+	scheduler := NewSchedulerFromCatalog(queue, nil, pipelines, nil, slog.New(slog.DiscardHandler))
+	scheduler.SetAvailability(map[string]string{"e2e-tests": `Pipeline "e2e-test" is absent from the cluster`})
+
+	scheduler.dispatchOne(context.Background(), store.Limits{})
+
+	if len(queue.finished) != 1 || !strings.Contains(queue.finished[0], "absent from the cluster") {
+		t.Errorf("finished = %v", queue.finished)
+	}
+}

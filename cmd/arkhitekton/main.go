@@ -462,16 +462,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
-	// The validation against the cluster happens here and nowhere else: it is the `worker` that
-	// creates the PipelineRuns, and a catalogue at odds with the deployed Pipelines would produce
-	// invalid runs at the first use rather than an error at start-up.
-	validateCtx, cancelValidate := context.WithTimeout(ctx, 30*time.Second)
-	err = pipelines.ValidateAgainst(validateCtx, cluster)
-	cancelValidate()
-	if err != nil {
-		return fmt.Errorf("catalogue incompatible with the cluster:\n%w", err)
-	}
-	logger.Info("catalogue validated", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
+	// Checked against the cluster under the lease, once the capabilities' definitions are installed:
+	// checking here refused to start on a fresh cluster, before the dashboard could install them.
+	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
 
 	// The projects that never declared their automation receive it, composed from their targets.
 	// Without it, all of them would stop building on the deployment of this version.
@@ -775,6 +768,13 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// were never able to conclude — and a goroutine profile that accuses a leak where there is
 			// only a channel that is too short.
 			errs := make(chan error, 8)
+			// The bound capabilities' definitions, installed and checked before the first launch. Under the
+			// lease like the rest: two workers putting the same definition in place would rewrite each
+			// other's.
+			reconciler := capabilityReconciler(cluster, cfg, pipelines, scheduler, logger)
+			reconciler.Settle(leadingCtx)
+			go func() { errs <- reconciler.Run(leadingCtx) }()
+
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
 			if environments != nil {
@@ -789,18 +789,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			go func() {
 				errs <- worker.NewKeyReconciler(db, keys, logger).Run(leadingCtx)
 			}()
-
-			// The reference libraries, put in place for the stacks the projects declare. Under the lease
-			// like the rest: two workers putting the same definition in place would rewrite each other's.
-			if installer, err := libraryInstaller(cluster, cfg); err != nil {
-				logger.Warn("pipeline libraries unavailable",
-					"reason", err,
-					"consequence", "the projects will use the pipelines already present")
-			} else {
-				go func() {
-					errs <- worker.NewLibraryReconciler(db, installer, logger).Run(leadingCtx)
-				}()
-			}
 
 			// The tracker synchronisation. It no longer carries its loop: it has become a **probe**, and
 			// it is the common loop that resolves its settings, unseals its key, keeps its cursor and
