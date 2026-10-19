@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // TestResult is one tool's result on a run.
@@ -20,17 +22,21 @@ type TestResult struct {
 	Shape      string
 	Group      string
 	Capability string
-	Tool       string
-	Status     string
-	Total      int
-	Passed     int
-	Failed     int
-	Skipped    int
-	Flaky      int
-	DurationMS int64
-	Summary    string
-	RawObject  string
-	CreatedAt  time.Time
+	// Exclusive and ConcurrentJobs are the queue's state when the run started. They decide whether a
+	// measure is comparable with a baseline.
+	Exclusive      bool
+	ConcurrentJobs int
+	Tool           string
+	Status         string
+	Total          int
+	Passed         int
+	Failed         int
+	Skipped        int
+	Flaky          int
+	DurationMS     int64
+	Summary        string
+	RawObject      string
+	CreatedAt      time.Time
 	// RunName is the name of the PipelineRun that produced this report. Empty if the run
 	// was purged from the projection — the report outlives its run.
 	RunName string
@@ -60,22 +66,44 @@ func (db *DB) SaveTestResult(ctx context.Context, result TestResult, cases []Tes
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
+	id, err := insertTestResult(ctx, transaction, result, cases)
+	if err != nil {
+		return 0, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("test results: %w", err)
+	}
+	return id, nil
+}
+
+// insertTestResult writes a report and its cases within a transaction.
+func insertTestResult(ctx context.Context, transaction pgx.Tx, result TestResult, cases []TestCase) (int64, error) {
 	if result.Group == "" {
 		result.Group = result.Family
 	}
+	// The queue's state says something only of a measure; on a test report it would read as a
+	// condition someone checked.
+	var exclusive *bool
+	var concurrent *int
+	if result.Shape == "measures" {
+		exclusive, concurrent = &result.Exclusive, &result.ConcurrentJobs
+	}
 	var id int64
-	err = transaction.QueryRow(ctx,
+	err := transaction.QueryRow(ctx,
 		`insert into test_results (
 		     run_id, release_id, family, tool, status, total, passed, failed, skipped,
-		     flaky, duration_ms, summary, raw_object, producer, shape, fact_group, capability
+		     flaky, duration_ms, summary, raw_object, producer, shape, fact_group, capability,
+		     exclusive, concurrent_jobs
 		 ) values ($1, $2, nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, nullif($12, ''), nullif($13, ''),
 		           $14, $15, $16, coalesce(nullif($17, ''),
-		               (select j.capability from runs r join jobs j on j.id = r.job_id where r.id = $1)))
+		               (select j.capability from runs r join jobs j on j.id = r.job_id where r.id = $1)),
+		           $18, $19)
 		 returning id`,
 		result.RunID, result.ReleaseID, result.Family, result.Tool, result.Status,
 		result.Total, result.Passed, result.Failed, result.Skipped, result.Flaky,
 		result.DurationMS, result.Summary, result.RawObject,
-		result.Producer, result.Shape, result.Group, result.Capability).Scan(&id)
+		result.Producer, result.Shape, result.Group, result.Capability,
+		exclusive, concurrent).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("results %q of run %d: %w", result.Tool, result.RunID, err)
 	}
@@ -88,12 +116,8 @@ func (db *DB) SaveTestResult(ctx context.Context, result TestResult, cases []Tes
 			id, testCase.Suite, testCase.Name, testCase.Status, testCase.DurationMS,
 			testCase.FailureMessage, testCase.FailureTrace)
 		if err != nil {
-			return 0, fmt.Errorf("cas %q/%q: %w", testCase.Suite, testCase.Name, err)
+			return 0, fmt.Errorf("case %q/%q: %w", testCase.Suite, testCase.Name, err)
 		}
-	}
-
-	if err := transaction.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("test results: %w", err)
 	}
 	return id, nil
 }

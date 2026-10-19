@@ -140,36 +140,30 @@ projects:
 Ids and ranks must be unique **within a project**: two projects may each have a `staging`
 of rank 1. A project absent from this section simply declares no environment.
 
-## 5.6 The result protocol
+## 5.6 How a run is read
 
-Two channels, for two sizes of information.
+A run is read once it is over, every task included, by the **interpreter** of the capability
+that launched it. The dashboard fetches the artifacts the capability declares, parses each file
+with the parser the capability names (JUnit XML, mochawesome JSON, PHPStan or PHP-CS-Fixer JSON,
+a k6 summary, the security report, or `raw` for a format the plugin parses itself), and hands the
+records to the interpreter together with the run's state as Tekton reported it: each task's
+status and reason, each step's exit code.
 
-**Markers, on stdout, during the run.** A pipeline writes single lines that the log
-collector recognises. `MARKER_TOKEN` prefixes them: token `MSE` gives `##MSE-META##`,
-empty gives `##META##`.
+The interpreter returns **facts** in a shape the dashboard defines: test cases, findings or
+measures. Each stored result carries the plugin version that read it, so a replay reads it the
+same way, and so it stays readable when the plugin changes or goes.
 
-    ##META## {"tool":"phpstan","version":"1.10.5","exit_code":1}
-    ##SUMMARY## {"status":"failed","error":"12 violations"}
-
-They exist so a forty-minute campaign reports "PHPStan: 12 violations" as soon as PHPStan
-finishes, instead of at the end. They carry kilobytes, never more: container logs are
-rotated by the kubelet and are not a reliable transport.
-
-**The descriptor is produced by the pipeline, never inferred.** Only the pipeline can
-tell "the tool failed" from "the tool found nothing" — both yield zero violations, and
-confusing them makes a crashed scanner look like clean code.
-
-**Artifacts, through presigned URLs, at the end.** Full reports — JUnit XML, mochawesome
-JSON, SARIF-like findings, benchmark measures — are uploaded to the URLs declared in
-`uploads`. The dashboard reads them back and turns them into test cases, findings and
-measures.
+**The run's state tells a crashed tool from a clean one.** Both leave nothing to count. A task
+whose steps terminated ran; if it left no readable report, it did not conclude, and the result
+says so instead of counting zero. A task that never started was not measured. Tekton keeps that
+state even for a container killed before it could write a line, which no message on stdout
+could report.
 
 ## 5.7 What a pipeline owes
 
-1. Accept the parameters the catalogue declares for its kind.
-2. Emit `##META##` when a tool starts and `##SUMMARY##` when it concludes.
-3. Upload its reports to the presigned URLs it received, in the declared format.
-4. Exit non-zero when what it verifies failed.
+1. Accept the parameters its capability declares.
+2. Upload its reports to the presigned URLs it received, in the declared format.
+3. Let each tool's exit code through, rather than swallowing it to keep the run green.
 
 Nothing else. A pipeline that honours this contract is usable by hand, outside
 Arkhitekton, which is deliberate: runs created outside the dashboard are observed rather

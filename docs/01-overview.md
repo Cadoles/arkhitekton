@@ -71,7 +71,6 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
 | **kind** | A pipeline the catalogue can launch, named by the capability it binds (`core/build`, `php/unit-tests`, `mse/e2e-tests`, …). Plugins bring capabilities; the core names only `core/build` and `core/retag`. |
 | **catalogue** | The YAML file that declares which pipelines exist, what they need and what they produce. See [05](05-pipeline-catalogue.md). |
 | **geste** | One pipeline run inside a plan stage. |
-| **marker** | A line a pipeline writes on stdout so that Arkhitekton can read its results. See [05 §5.6](05-pipeline-catalogue.md#56-the-result-protocol). |
 | **fact** | An event normalised to a type a reaction can match. |
 | **module** | A plugin of kind `module`: it adds screens and routes, and can be switched off per project. |
 

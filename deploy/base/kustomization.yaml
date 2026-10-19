@@ -68,12 +68,6 @@ configMapGenerator:
       - OIDC_SCOPES=openid,profile,email
       - SESSION_TTL=12h
       - TEKTON_NAMESPACE=mse-tekton-pipelines
-      # The mark of the protocol lines the Tasks write on their standard output. `MSE` gives
-      # `##MSE-META##`, which is what `mse-tekton` already emits.
-      #
-      # Leaving it empty would make the form neutral, `##META##`: the existing descriptors would no
-      # longer be read, and a crashed tool would become indistinguishable from a clean one again.
-      - MARKER_TOKEN=MSE
 
 images:
   # Substituted by each overlay. `latest` is deliberately wrong: an overlay that forgot to set the

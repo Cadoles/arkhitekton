@@ -90,6 +90,19 @@ func (db *DB) SaveSecurityAudit(
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
+	if err := insertSecurityAudit(ctx, transaction, audit, findings); err != nil {
+		return err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("security audit: %w", err)
+	}
+	return nil
+}
+
+// insertSecurityAudit writes an audit and its findings within a transaction.
+func insertSecurityAudit(
+	ctx context.Context, transaction pgx.Tx, audit SecurityAudit, findings []SecurityFinding,
+) error {
 	// `text[] not null`: a nil would become NULL. Normalised here and not in the caller — a
 	// column constraint is defended in the package that owns the column, otherwise the second
 	// caller rediscovers it in production.
@@ -142,10 +155,6 @@ func (db *DB) SaveSecurityAudit(
 		if err != nil {
 			return fmt.Errorf("finding %q: %w", finding.Fingerprint, err)
 		}
-	}
-
-	if err := transaction.Commit(ctx); err != nil {
-		return fmt.Errorf("security audit: %w", err)
 	}
 	return nil
 }

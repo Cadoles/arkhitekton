@@ -12,7 +12,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
@@ -29,17 +28,9 @@ import (
 // between two packages that have no business knowing each other.
 type runSink struct {
 	db *store.DB
-	// load ingests a finished run's load campaigns. Nil when storage is not available: the rest of
-	// the observation continues without it.
-	load *LoadIngester
-	// tests ingests the test reports. Same rule.
-	tests *TestIngester
-	// security ingests the normalised audits. Same rule.
-	security *SecurityIngester
-	// markers reads the run descriptors left in the logs. Nil when the log reader is not wired:
-	// the rest continues, and a crashed tool then becomes indistinguishable from a clean one
-	// again.
-	markers *MarkerIngester
+	// facts reads finished runs through their capability's interpreter. Nil when storage is not
+	// available: the rest of the observation continues without it.
+	facts *FactIngester
 	// registryProject prefixes the published images, to name them in the audit. Empty, the kinds
 	// that require them are not launchable and the log says so — better than a run that would fail
 	// on a truncated reference.
@@ -155,38 +146,12 @@ func NewRunSink(db *store.DB) *runSink {
 	}
 }
 
-// WithLoadIngester wires the ingestion of the load campaigns.
+// WithFactIngester wires the reading of finished runs.
 //
-// Triggered by the end of the run and not by a notification from the runner: the runner lives
-// outside the cluster, publishes to MinIO with a presigned URL and has no return path to the
-// dashboard. The only reliable signal is the one the dashboard already has.
-func (s *runSink) WithLoadIngester(ingester *LoadIngester) *runSink {
-	s.load = ingester
-	return s
-}
-
-// WithTestIngester wires the ingestion of the test reports.
-//
-// Triggered by the end of the run, like the load ones: the artifacts are published as the run
-// proceeds but are complete only at the end, and reading them earlier would give partial
-// reports nothing would tell apart from truncated ones.
-func (s *runSink) WithTestIngester(ingester *TestIngester) *runSink {
-	s.tests = ingester
-	return s
-}
-
-// WithMarkerIngester wires the reading of the run descriptors.
-//
-// Optional like the other ingestions: without it, observation continues, but a tool that
-// crashed becomes indistinguishable from a tool that found nothing.
-func (s *runSink) WithMarkerIngester(ingester *MarkerIngester) *runSink {
-	s.markers = ingester
-	return s
-}
-
-// WithSecurityIngester wires the ingestion of the security audits.
-func (s *runSink) WithSecurityIngester(ingester *SecurityIngester) *runSink {
-	s.security = ingester
+// Triggered by the end of the run and of each of its tasks: the artifacts are published as the run
+// proceeds but are complete only at the end, and the reading waits until nothing is still running.
+func (s *runSink) WithFactIngester(ingester *FactIngester) *runSink {
+	s.facts = ingester
 	return s
 }
 
@@ -212,28 +177,12 @@ func (s *runSink) SaveRun(ctx context.Context, run tekton.Run) error {
 		return err
 	}
 
-	// The release is resolved once, here, and not in each of the three ingestions: they all carry
-	// it, and three reads for one run would say the same thing three times.
-	release := s.releaseOf(ctx, run)
-
-	if err := s.ingestLoad(ctx, id, run, release); err != nil {
-		return err
-	}
-	// The markers **before** the artifacts, and the order carries a decision: both ingestions are
-	// idempotent per tool, so the first wins. The descriptor must win — it is the only one that
-	// knows the tool failed, where a partial artifact would read as a complete result.
-	if err := s.ingestMarkers(ctx, id, run, release); err != nil {
-		return err
-	}
-	if err := s.ingestTests(ctx, id, run, release); err != nil {
-		return err
-	}
-	if err := s.ingestSecurity(ctx, id, run, release); err != nil {
-		return err
+	if run.Status.Terminal() {
+		s.ingestFacts(ctx, id, run.Name)
 	}
 
-	// The contract check comes **after** the three ingestions: it observes their combined result,
-	// and doing it before would amount to concluding silence on reports not yet read.
+	// The contract check comes **after** the reading: it observes its result, and doing it before
+	// would amount to concluding silence on reports not yet read.
 	s.checkResultsContract(ctx, id, run)
 
 	// The job's conclusion comes **after** the run is recorded, and the order carries a decision.
@@ -299,29 +248,6 @@ func (s *runSink) checkResultsContract(ctx context.Context, runID int64, run tek
 			"or a `produces` declaration to fix")
 }
 
-// releaseOf returns the release this run verifies, if it verifies one.
-//
-// Without it, the reports were recorded **orphaned**: a release's screen looks for its results
-// by `release_id`, and found none although the table carried nine. The score therefore stayed
-// "not evaluated" on a release whose tests had run and passed.
-//
-// Nil is a normal case, not an anomaly: a run triggered by a webhook or by a CronJob verifies
-// no release, and its reports stay consultable from the run itself.
-func (s *runSink) releaseOf(ctx context.Context, run tekton.Run) *int64 {
-	if run.JobID == 0 {
-		return nil
-	}
-
-	linked, err := s.releases.JobRelease(ctx, run.JobID)
-	if err != nil {
-		if !errors.Is(err, store.ErrJobWithoutRelease) {
-			s.logger.Error("release of a run", "run", run.Name, "job", run.JobID, "error", err)
-		}
-		return nil
-	}
-	return &linked.ReleaseID
-}
-
 // declaredTasks translates a pipeline's declaration into the store's model.
 func declaredTasks(tasks []tekton.DeclaredTask) []store.DeclaredTask {
 	if len(tasks) == 0 {
@@ -336,106 +262,16 @@ func declaredTasks(tasks []tekton.DeclaredTask) []store.DeclaredTask {
 	return translated
 }
 
-// ingestSecurity records a finished run's normalised audit.
-//
-// The failure is not returned to the observer, for the same reason as the other two
-// ingestions: it would retry the projection of the whole run although the run is correctly
-// recorded.
-func (s *runSink) ingestSecurity(ctx context.Context, runID int64, run tekton.Run, release *int64) error {
-	if s.security == nil || !run.Status.Terminal() {
-		return nil
+// ingestFacts reads a finished run. Its failure is not returned to the observer: it would retry
+// the projection of the whole run although the run is correctly recorded, and the next event or
+// resync reads it again.
+func (s *runSink) ingestFacts(ctx context.Context, runID int64, runName string) {
+	if s.facts == nil {
+		return
 	}
-
-	if err := s.security.Ingest(ctx, LoadRun{ID: runID, Name: run.Name, JobID: run.JobID, ReleaseID: release}); err != nil {
-		s.security.logger.Error("ingesting the security audit", "run", run.Name, "error", err)
+	if err := s.facts.Ingest(ctx, runID); err != nil {
+		s.logger.Error("reading a finished run", "run", runName, "error", err)
 	}
-	return nil
-}
-
-// ingestMarkers records what the descriptors say about the tools that did not conclude.
-//
-// The failure is not returned to the observer, as for the other ingestions: it would retry the
-// projection of the whole run although the run is correctly recorded, and the next visit will
-// replay what is missing.
-//
-// The family comes from the catalogue and not from the run: a tool that published nothing has
-// no artifact to deduce it from, and that is precisely the case one is trying to make visible.
-func (s *runSink) ingestMarkers(ctx context.Context, runID int64, run tekton.Run, release *int64) error {
-	if s.markers == nil || !run.Status.Terminal() || run.JobID == 0 {
-		return nil
-	}
-
-	job, err := s.db.GetJob(ctx, run.JobID)
-	if err != nil || job.Kind == "" {
-		return nil
-	}
-
-	tasks := make([]string, 0, len(run.DeclaredTasks))
-	for _, task := range run.DeclaredTasks {
-		tasks = append(tasks, task.Name)
-	}
-
-	marked, ok := markerRunFor(s.catalog, job.Kind, MarkerRun{
-		ID: runID, Name: run.Name, Tasks: tasks, ReleaseID: release,
-	})
-	if !ok {
-		return nil
-	}
-
-	if err := s.markers.Ingest(ctx, marked); err != nil {
-		s.logger.Error("reading the markers", "run", run.Name, "error", err)
-	}
-	return nil
-}
-
-// ingestTests records a finished run's reports.
-//
-// The failure is not returned to the observer, for the same reason as for the load ones: it
-// would retry the projection of the whole run although the run is correctly recorded. Since
-// ingestion is idempotent, the next visit will replay what is missing.
-func (s *runSink) ingestTests(ctx context.Context, runID int64, run tekton.Run, release *int64) error {
-	if s.tests == nil || !run.Status.Terminal() {
-		return nil
-	}
-
-	if err := s.tests.Ingest(ctx, LoadRun{ID: runID, Name: run.Name, JobID: run.JobID, ReleaseID: release}); err != nil {
-		s.tests.logger.Error("ingesting the test reports", "run", run.Name, "error", err)
-	}
-	return nil
-}
-
-// ingestLoad records the load campaigns of a finished load run.
-//
-// An ingestion failure is not returned to the observer: it would retry the projection of the
-// whole run, although the run is correctly recorded. An unreadable summary is a problem with
-// the result, not with the observation, and the run's next visit will replay it anyway —
-// ingestion is idempotent.
-func (s *runSink) ingestLoad(ctx context.Context, runID int64, run tekton.Run, release *int64) error {
-	if s.load == nil || !run.Status.Terminal() || !isLoadRun(run) {
-		return nil
-	}
-
-	var duration int64
-	if run.StartedAt != nil && run.CompletedAt != nil {
-		duration = run.CompletedAt.Sub(*run.StartedAt).Milliseconds()
-	}
-
-	err := s.load.Ingest(ctx, LoadRun{
-		ID: runID, Name: run.Name, JobID: run.JobID, DurationMS: duration,
-		ReleaseID: release,
-	})
-	if err != nil {
-		s.load.logger.Error("ingesting the load campaigns", "run", run.Name, "error", err)
-	}
-	return nil
-}
-
-// isLoadRun recognises a load run by its pipeline.
-//
-// By the pipeline's name and not by the job's: a run triggered outside the dashboard has no
-// job, and its results are worth as much as the others.
-func isLoadRun(run tekton.Run) bool {
-	return strings.Contains(run.Pipeline, "load-test")
 }
 
 // finishJob concludes a finished run's job.
@@ -513,6 +349,20 @@ func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobStat
 }
 
 func (s *runSink) SaveTaskRun(ctx context.Context, taskRun tekton.TaskRunProjection) error {
+	if err := s.saveTaskRun(ctx, taskRun); err != nil {
+		return err
+	}
+	// The last task to end may arrive after its PipelineRun: the reading is attempted again here,
+	// and does nothing until everything is over.
+	if taskRun.Status.Terminal() && s.facts != nil {
+		if id, err := s.db.RunIDByName(ctx, taskRun.RunName); err == nil {
+			s.ingestFacts(ctx, id, taskRun.RunName)
+		}
+	}
+	return nil
+}
+
+func (s *runSink) saveTaskRun(ctx context.Context, taskRun tekton.TaskRunProjection) error {
 	return s.db.UpsertTaskRun(ctx, store.TaskRunRecord{
 		RunName:     taskRun.RunName,
 		Name:        taskRun.Name,

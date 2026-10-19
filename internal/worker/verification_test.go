@@ -386,57 +386,6 @@ func TestAnObservedRunPassesThroughUnchanged(t *testing.T) {
 	}
 }
 
-// The defect that emptied a release's screen: the reports were indeed ingested — nine rows in
-// the database — but with a null `release_id`. The screen looks for them by release and found
-// none, leaving the score "not evaluated" on a release whose tests had run and passed.
-//
-// The cause was one field not filled in at the call: `LoadRun` does carry `ReleaseID`, and the
-// three ingestions left it at zero.
-func TestAReportIsAttachedToTheReleaseItsRunVerifies(t *testing.T) {
-	fake := &fakeVerificationStore{
-		jobRelease: map[int64]store.JobReleaseContext{
-			42: {ReleaseID: 7, Tag: "3.2.0-rc1", Kind: "static-tests"},
-		},
-	}
-	sink := sinkFor(fake, verificationCatalog())
-	sink.releases = fake
-
-	release := sink.releaseOf(context.Background(), tekton.Run{Name: "mse-static-tests-42", JobID: 42})
-
-	if release == nil {
-		t.Fatal("no release returned: the reports would be recorded orphaned")
-	}
-	if *release != 7 {
-		t.Errorf("release %d, expected 7", *release)
-	}
-}
-
-// A run the dashboard did not launch — Gitea webhook, nightly CronJob — verifies no release. It
-// is a normal case: its reports stay consultable from the run, and inventing a release for them
-// would make them appear in someone else's score.
-func TestAnObservedRunAttachesItsReportsToNoRelease(t *testing.T) {
-	fake := &fakeVerificationStore{}
-	sink := sinkFor(fake, verificationCatalog())
-	sink.releases = fake
-
-	if release := sink.releaseOf(context.Background(),
-		tekton.Run{Name: "php-static-tests-run-abc", JobID: 0}); release != nil {
-		t.Errorf("release %d returned for an observed run", *release)
-	}
-}
-
-// Nor does a job with no release — a manual launch from the queue.
-func TestAManualLaunchAttachesNothing(t *testing.T) {
-	fake := &fakeVerificationStore{jobRelease: map[int64]store.JobReleaseContext{}}
-	sink := sinkFor(fake, verificationCatalog())
-	sink.releases = fake
-
-	if release := sink.releaseOf(context.Background(),
-		tekton.Run{Name: "mse-static-tests-9", JobID: 9}); release != nil {
-		t.Errorf("release %d returned for a job with no release", *release)
-	}
-}
-
 /*
  * A release builds several images, and the pipeline handles only one per run: the conclusion is
  * therefore called once per image.

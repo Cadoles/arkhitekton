@@ -40,9 +40,9 @@ import (
 	msestorage "forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/redmine"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
@@ -642,16 +642,15 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			logger.Info("database identity", "instance", instance)
 
 			objects := worker.NewObjectStore(storage)
+			capabilities, err := builtin.Registry()
+			if err != nil {
+				return fmt.Errorf("built-in plugins: %w", err)
+			}
 			sink := worker.NewRunSink(db).
-				WithLoadIngester(worker.NewLoadIngester(db, objects, logger)).
-				WithTestIngester(worker.NewTestIngester(db, objects, logger)).
-				WithSecurityIngester(worker.NewSecurityIngester(db, objects, logger)).
-				// The reading of the run descriptors. It goes through the log reader and not through artifact
-				// storage: a tool that did not conclude published nothing, and that is precisely the case it
-				// makes visible.
-				WithMarkerIngester(worker.NewMarkerIngester(
-					db, logs.NewReader(storage),
-					results.NewMarkerSet(cfg.Results.MarkerToken), logger)).
+				// Finished runs are read by the interpreter of the capability that launched them. A tool
+				// that did not conclude is told apart from a clean one by the run's state, which Tekton
+				// keeps even when the tool wrote nothing.
+				WithFactIngester(worker.NewFactIngester(db, objects, capabilities, logger)).
 				// The catalogue makes it possible to chain the verifications of a successful build: without
 				// it, observation continues but a built release stays waiting for a test nothing launches.
 				WithCatalog(pipelines, resolved["registry.project"]).

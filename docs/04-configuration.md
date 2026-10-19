@@ -74,7 +74,6 @@ Each role validates only what it uses. In the tables below, **Required** means r
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MARKER_TOKEN` | — | Prefix of the protocol lines a pipeline writes: `MSE` gives `##MSE-META##`, empty gives `##META##`. See [05 §5.6](05-pipeline-catalogue.md#56-the-result-protocol) |
 
 ## 4.7 Issue tracker (Redmine)
 

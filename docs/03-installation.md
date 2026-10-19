@@ -59,9 +59,9 @@ unreadable if it is lost.
 
 **3. Adjust non-secret configuration** in the overlay's `configMapGenerator`:
 `PUBLIC_URL`, `OIDC_REDIRECT_URL` (it must be `<PUBLIC_URL>/api/v1/auth/callback`),
-`MINIO_ENDPOINT`, and — in `deploy/base/kustomization.yaml` — `TEKTON_NAMESPACE` and
-`MARKER_TOKEN`, whose defaults come from the reference deployment. Every variable is
-listed in [04 — Configuration](04-configuration.md).
+`MINIO_ENDPOINT`, and, in `deploy/base/kustomization.yaml`, `TEKTON_NAMESPACE`, whose default
+comes from the reference deployment. Every variable is listed in
+[04 — Configuration](04-configuration.md).
 
 **4. Declare your pipelines** in `deploy/base/config/catalog.yaml`, which becomes the
 catalogue ConfigMap. The format is described in

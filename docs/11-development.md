@@ -11,8 +11,10 @@
       store/              PostgreSQL access and the core's migrations
       worker/             the background loops
       plugin/             plugin descriptors and the registry
+      capability/, facts/, parse/   the contract plugins compile against
+      plugins/            the built-in plugins, and builtin/ which assembles them
       mse/                the MSE plugin, with its own storage and migrations
-      results/            report parsers and the marker protocol
+      results/            reports and the quality score
       tekton/, gitea/, redmine/, registry/, blob/   external systems
       web/                the embedded interface build output
     apps/web/             the React sources

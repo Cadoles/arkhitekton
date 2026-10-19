@@ -31,7 +31,6 @@ type Config struct {
 	Registry RegistryConfig
 	Tracker  TrackerConfig
 	Forge    ForgeConfig
-	Results  ResultsConfig
 	Secrets  SecretsConfig
 	Webhooks WebhookConfig
 	Probes   ProbeConfig
@@ -90,17 +89,6 @@ type SecretsConfig struct {
 
 // Configured says whether sealing is possible.
 func (c SecretsConfig) Configured() bool { return strings.TrimSpace(c.Key) != "" }
-
-// ResultsConfig carries how results left by pipelines are read.
-type ResultsConfig struct {
-	// MarkerToken prefixes the protocol lines a Task writes on stdout: `MSE` gives
-	// `##MSE-META##`, empty gives `##META##`. See docs/05-pipeline-catalogue.md.
-	//
-	// Configurable because a deployment's name inside a protocol is a different
-	// kind of coupling than inside an interface: a generic pipeline emitting
-	// `##MSE-META##` stays MSE-branded in its own source.
-	MarkerToken string
-}
 
 // ForgeConfig carries read access to the forge.
 //
@@ -319,9 +307,6 @@ func Load(role Role) (Config, error) {
 			Password: os.Getenv("REGISTRY_PASSWORD"),
 			Project:  envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
 			Image:    envOr("REGISTRY_IMAGE", "portal"),
-		},
-		Results: ResultsConfig{
-			MarkerToken: os.Getenv("MARKER_TOKEN"),
 		},
 		Tracker: TrackerConfig{
 			// The statuses that make an issue eligible for a release note.

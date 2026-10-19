@@ -17,9 +17,10 @@ type LoadResult struct {
 	Scenario  string
 	// Group, Tool and Producer describe the result like any other: where it is shown, what measured
 	// it, which plugin version read it.
-	Group    string
-	Tool     string
-	Producer string
+	Group      string
+	Tool       string
+	Producer   string
+	Capability string
 	// Exclusive and ConcurrentJobs are the conditions observed at start-up, not those
 	// asked for. They are what decides whether the campaign enters the comparison with the
 	// baseline.
@@ -64,17 +65,32 @@ func (db *DB) SaveLoadResult(ctx context.Context, result LoadResult, measures []
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
+	id, err := insertLoadResult(ctx, transaction, result, measures, loadStatus(measures))
+	if err != nil {
+		return 0, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("load campaign: %w", err)
+	}
+	return id, nil
+}
+
+// insertLoadResult writes a campaign and its measures within a transaction.
+func insertLoadResult(
+	ctx context.Context, transaction pgx.Tx, result LoadResult, measures []BenchMeasure, status string,
+) (int64, error) {
 	var id int64
-	err = transaction.QueryRow(ctx,
+	err := transaction.QueryRow(ctx,
 		`insert into test_results (
 		     run_id, release_id, family, tool, status, duration_ms, summary, raw_object,
 		     exclusive, concurrent_jobs, producer, shape, fact_group, capability
 		 ) values ($1, $2, $9, $10, $3, $4, $5, nullif($6, ''), $7, $8, $11, 'measures', $9,
-		           (select j.capability from runs r join jobs j on j.id = r.job_id where r.id = $1))
+		           coalesce(nullif($12, ''),
+		               (select j.capability from runs r join jobs j on j.id = r.job_id where r.id = $1)))
 		 returning id`,
-		result.RunID, result.ReleaseID, loadStatus(measures), result.DurationMS,
+		result.RunID, result.ReleaseID, status, result.DurationMS,
 		result.Summary, result.RawObject, result.Exclusive, result.ConcurrentJobs,
-		result.Group, result.Tool, result.Producer).Scan(&id)
+		result.Group, result.Tool, result.Producer, result.Capability).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("load campaign of scenario %q: %w", result.Scenario, err)
 	}
@@ -90,10 +106,6 @@ func (db *DB) SaveLoadResult(ctx context.Context, result LoadResult, measures []
 		if err != nil {
 			return 0, fmt.Errorf("measure %q of scenario %q: %w", measure.Metric, result.Scenario, err)
 		}
-	}
-
-	if err := transaction.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("load campaign: %w", err)
 	}
 	return id, nil
 }
