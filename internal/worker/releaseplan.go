@@ -383,7 +383,7 @@ func (p *ReleasePlanner) OpenReleasePlan(
 	// What that removes: the loop over `targets`, the filter on enabled kinds, the `verification`
 	// flag. A project producing a binary or an archive comes in through the same door, without
 	// this file knowing its shape.
-	sujet, err := p.declaredPlan(ctx, project)
+	declared, err := p.declaredPlan(ctx, project)
 	if err != nil {
 		// A failed read opens **nothing**. Composing a fallback would build something other than what
 		// the project declares, under a release's tag — and nobody would know it is not the right one.
@@ -391,7 +391,7 @@ func (p *ReleasePlanner) OpenReleasePlan(
 			"release", record.Tag, "project", project.Slug, "error", err)
 		return 0
 	}
-	if sujet.Empty() {
+	if declared.Empty() {
 		p.logger.Info("no plan for this release",
 			"release", record.Tag, "project", project.Slug,
 			"reason", "the project declares no automation")
@@ -405,7 +405,7 @@ func (p *ReleasePlanner) OpenReleasePlan(
 		EventKey:  event.ReleaseCreatedKey(record.ID),
 		ProjectID: &projectID,
 		ReleaseID: &releaseID,
-		Plan:      sujet,
+		Plan:      declared,
 		Context:   releaseContext(record, revision, p.registry),
 	})
 }

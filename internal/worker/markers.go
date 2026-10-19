@@ -149,7 +149,7 @@ func (i *MarkerIngester) record(
 	}
 	i.logger.Warn("tool with no conclusion",
 		"run", run.Name, "tool", tool, "status", meta.Status,
-		"code_sortie", meta.ExitCode, "detail", meta.Error)
+		"exit_code", meta.ExitCode, "detail", meta.Error)
 	return nil
 }
 

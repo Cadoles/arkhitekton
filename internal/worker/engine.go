@@ -360,7 +360,7 @@ func (e *Engine) notifyStages(ctx context.Context, run store.PlanRun, progress p
 //
 // The context gains keys; `action.Expand` does the rest. No operator, no condition, no call.
 func (e *Engine) withArtifacts(
-	ctx context.Context, run store.PlanRun, sujet plan.Plan,
+	ctx context.Context, run store.PlanRun, frozen plan.Plan,
 ) map[string]string {
 	if e.artifacts == nil {
 		return run.Context
@@ -377,27 +377,27 @@ func (e *Engine) withArtifacts(
 		return run.Context
 	}
 
-	enrichi := make(map[string]string, len(run.Context)+len(produced))
-	maps.Copy(enrichi, run.Context)
+	enriched := make(map[string]string, len(run.Context)+len(produced))
+	maps.Copy(enriched, run.Context)
 	for _, artifact := range produced {
-		libelle := stepLabelAt(sujet, artifact.Stage, artifact.Position)
-		if libelle == "" {
+		label := stepLabelAt(frozen, artifact.Stage, artifact.Position)
+		if label == "" {
 			continue
 		}
-		enrichi["artifacts."+libelle+"."+artifact.Name] = artifact.Reference
+		enriched["artifacts."+label+"."+artifact.Name] = artifact.Reference
 	}
-	return enrichi
+	return enriched
 }
 
 // stepLabelAt reads a step's label in the frozen plan.
 //
 // The **frozen** plan, and not the current catalogue: a step renamed since must not make what
 // it produced under its old name impossible to find.
-func stepLabelAt(sujet plan.Plan, stage, position int) string {
-	if stage < 0 || stage >= len(sujet.Stages) {
+func stepLabelAt(frozen plan.Plan, stage, position int) string {
+	if stage < 0 || stage >= len(frozen.Stages) {
 		return ""
 	}
-	gestes := sujet.Stages[stage].Gestes
+	gestes := frozen.Stages[stage].Gestes
 	if position < 0 || position >= len(gestes) {
 		return ""
 	}

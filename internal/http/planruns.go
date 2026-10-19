@@ -172,11 +172,11 @@ func toPlanRunPayload(run store.PlanRunSummary, full bool) planRunPayload {
 }
 
 // stepLabelAt reads a step's label from the frozen plan.
-func stepLabelAt(sujet plan.Plan, stage, position int) string {
-	if stage < 0 || stage >= len(sujet.Stages) {
+func stepLabelAt(frozen plan.Plan, stage, position int) string {
+	if stage < 0 || stage >= len(frozen.Stages) {
 		return ""
 	}
-	steps := sujet.Stages[stage].Gestes
+	steps := frozen.Stages[stage].Gestes
 	if position < 0 || position >= len(steps) {
 		return ""
 	}

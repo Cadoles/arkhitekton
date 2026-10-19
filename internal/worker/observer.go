@@ -293,9 +293,9 @@ func (s *runSink) checkResultsContract(ctx context.Context, runID int64, run tek
 	s.logger.Warn("pipeline contract not honoured",
 		"run", run.Name, "kind", job.Kind,
 		"expected", "test results, announced by `produces: [results]`",
-		"constate", "no result recorded for this run",
+		"observed", "no result recorded for this run",
 		"consequence", "this release's screen will stay empty on this family",
-		"piste", "artifacts not published, paths outside the results contract, "+
+		"hint", "artifacts not published, paths outside the results contract, "+
 			"or a `produces` declaration to fix")
 }
 
