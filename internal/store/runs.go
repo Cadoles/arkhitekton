@@ -56,6 +56,16 @@ type TaskRunRecord struct {
 	StartedAt   *time.Time
 	CompletedAt *time.Time
 	PodName     string
+	// Reason is Tekton's: `Failed`, `TaskRunTimeout`, `TaskRunCancelled`...
+	Reason string
+	Steps  []StepRecord
+}
+
+// StepRecord is a step's outcome. ExitCode is nil until the container terminates.
+type StepRecord struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	ExitCode *int32 `json:"exit_code,omitempty"`
 }
 
 // terminalStatuses must stay aligned with tekton.Status.Terminal(). The duplication
@@ -157,9 +167,9 @@ func (db *DB) UpsertRun(ctx context.Context, record RunRecord) (int64, error) {
 func (db *DB) UpsertTaskRun(ctx context.Context, record TaskRunRecord) error {
 	const query = `
 		insert into task_runs (
-			run_id, name, display_name, status, started_at, completed_at, pod_name
+			run_id, name, display_name, status, started_at, completed_at, pod_name, reason, steps
 		)
-		select id, $2, $3, $4, $5, $6, $7 from runs where pipelinerun_name = $1
+		select id, $2, $3, $4, $5, $6, $7, $8, $9 from runs where pipelinerun_name = $1
 		on conflict (run_id, name) do update set
 			status = case
 				when task_runs.status in ` + terminalStatuses + ` then task_runs.status
@@ -171,11 +181,33 @@ func (db *DB) UpsertTaskRun(ctx context.Context, record TaskRunRecord) error {
 			-- The pod's name must never be cleared: it is the only handle for
 			-- reading the logs, and the pod disappears before the TaskRun.
 			pod_name     = coalesce(task_runs.pod_name, excluded.pod_name),
+			-- The outcome freezes with the status, for the same reason: a late event must not
+			-- rewrite how a finished task ended. An outcome still empty may be filled in.
+			reason = case
+				when task_runs.status in ` + terminalStatuses + ` and task_runs.reason is not null
+					then task_runs.reason
+				else coalesce(excluded.reason, task_runs.reason)
+			end,
+			steps = case
+				when task_runs.status in ` + terminalStatuses + `
+					and jsonb_array_length(task_runs.steps) > 0 then task_runs.steps
+				else excluded.steps
+			end,
 			updated_at   = now()`
 
-	_, err := db.pool.Exec(ctx, query,
+	steps := record.Steps
+	if steps == nil {
+		steps = []StepRecord{}
+	}
+	encoded, err := json.Marshal(steps)
+	if err != nil {
+		return fmt.Errorf("recording task %q: %w", record.Name, err)
+	}
+
+	_, err = db.pool.Exec(ctx, query,
 		record.RunName, record.Name, nullString(record.DisplayName), record.Status,
 		record.StartedAt, record.CompletedAt, nullString(record.PodName),
+		nullString(record.Reason), encoded,
 	)
 	if err != nil {
 		return fmt.Errorf("recording task %q: %w", record.Name, err)

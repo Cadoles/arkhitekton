@@ -521,7 +521,19 @@ func (s *runSink) SaveTaskRun(ctx context.Context, taskRun tekton.TaskRunProject
 		StartedAt:   taskRun.StartedAt,
 		CompletedAt: taskRun.CompletedAt,
 		PodName:     taskRun.PodName,
+		Reason:      taskRun.Reason,
+		Steps:       stepRecords(taskRun.Steps),
 	})
+}
+
+func stepRecords(steps []tekton.Step) []store.StepRecord {
+	records := make([]store.StepRecord, 0, len(steps))
+	for _, step := range steps {
+		records = append(records, store.StepRecord{
+			Name: step.Name, Status: string(step.Status), ExitCode: step.ExitCode,
+		})
+	}
+	return records
 }
 
 // UnfinishedRunNames returns the runs the database believes are in progress, indexed by

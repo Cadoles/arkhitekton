@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -526,4 +527,77 @@ func migrated(t *testing.T) *DB {
 		t.Fatalf("test project: %v", err)
 	}
 	return db
+}
+
+// The exit codes tell a tool that failed the code from a tool that did not run. A late event,
+// emitted before the containers' states were known, must not erase them once the task is over.
+func TestAFinishedTaskKeepsItsStepOutcome(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if _, err := db.UpsertRun(ctx, runningRecord("run-steps")); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	code := int32(137)
+	finished := TaskRunRecord{
+		RunName: "run-steps", Name: "run-steps-phpstan", Status: "failed", Reason: "Failed",
+		Steps: []StepRecord{{Name: "analyse", Status: "failed", ExitCode: &code}},
+	}
+	if err := db.UpsertTaskRun(ctx, finished); err != nil {
+		t.Fatalf("finished task: %v", err)
+	}
+	late := TaskRunRecord{RunName: "run-steps", Name: "run-steps-phpstan", Status: "running"}
+	if err := db.UpsertTaskRun(ctx, late); err != nil {
+		t.Fatalf("late event: %v", err)
+	}
+
+	var reason *string
+	var raw []byte
+	if err := db.Pool().QueryRow(ctx,
+		`select reason, steps from task_runs where name = 'run-steps-phpstan'`).Scan(&reason, &raw); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	var steps []StepRecord
+	if err := json.Unmarshal(raw, &steps); err != nil {
+		t.Fatalf("steps: %v", err)
+	}
+	if reason == nil || *reason != "Failed" {
+		t.Errorf("reason = %v, expected Failed", reason)
+	}
+	if len(steps) != 1 || steps[0].ExitCode == nil || *steps[0].ExitCode != 137 {
+		t.Errorf("steps = %+v, expected the exit code 137 kept", steps)
+	}
+}
+
+// A task first seen as finished without its steps, then with them, must take them: only a filled
+// outcome is frozen.
+func TestAnEmptyOutcomeIsFilledInLater(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if _, err := db.UpsertRun(ctx, runningRecord("run-late-steps")); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	bare := TaskRunRecord{RunName: "run-late-steps", Name: "run-late-steps-unit", Status: "succeeded"}
+	if err := db.UpsertTaskRun(ctx, bare); err != nil {
+		t.Fatalf("bare: %v", err)
+	}
+	code := int32(0)
+	full := bare
+	full.Reason = "Succeeded"
+	full.Steps = []StepRecord{{Name: "test", Status: "succeeded", ExitCode: &code}}
+	if err := db.UpsertTaskRun(ctx, full); err != nil {
+		t.Fatalf("full: %v", err)
+	}
+
+	var count int
+	if err := db.Pool().QueryRow(ctx,
+		`select jsonb_array_length(steps) from task_runs where name = 'run-late-steps-unit'`).Scan(&count); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("%d step(s), expected 1", count)
+	}
 }
