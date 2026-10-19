@@ -8,8 +8,7 @@ import (
 	"path"
 	"strings"
 
-	"forge.cadoles.com/CNOUS/mse-tekton/images/tekton-mse-manager/pkg/security"
-
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse/security"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -17,8 +16,8 @@ import (
 /*
  * Ingesting the security audits.
  *
- * The dashboard **renormalises nothing**. `pkg/security`'s contract is imported as it is: same
- * types, same fingerprints, same severity scale. Reimplementing the merging of severities or
+ * The dashboard **renormalises nothing**. The producer's report is read as it is: same
+ * fingerprints, same severity scale. Reimplementing the merging of severities or
  * the deduplication here would give two truths about the same findings — the pipeline's, which
  * decides whether the build fails, and the interface's, which displays it. They would diverge
  * at the first scanner added, and it is the interface one would believe.
@@ -222,7 +221,7 @@ func toFinding(finding security.Finding) store.SecurityFinding {
 	}
 
 	if stored.Severity == "" {
-		// Should not happen: `pkg/security` brings every tool back to its scale. The case is handled so
+		// Should not happen: the producer brings every tool back to its scale. The case is handled so
 		// that the audit is not lost whole — the table's constraint would refuse an empty string — and
 		// `INFO` is kept for want of better: inventing `HIGH` would be just as wrong, the other way
 		// round.

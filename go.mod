@@ -3,7 +3,6 @@ module forge.cadoles.com/vcarroy/arkhitekton
 go 1.26.4
 
 require (
-	forge.cadoles.com/CNOUS/mse-tekton/images/tekton-mse-manager v1.2.0
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/go-pdf/fpdf v0.9.0
 	github.com/jackc/pgx/v5 v5.10.0
