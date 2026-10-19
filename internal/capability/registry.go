@@ -49,6 +49,9 @@ func NewRegistry(plugins ...Plugin) (*Registry, error) {
 				continue
 			}
 			registry.pipelines[ref] = pipeline
+			if pipeline.Interpreter == nil && produces(pipeline.Spec, ProductResults) {
+				problems = append(problems, fmt.Errorf("capability %s publishes results and reads none", ref))
+			}
 
 			names := append([]string{pipeline.Spec.PipelineRef}, pipeline.Spec.ObservedPipelines...)
 			for _, name := range names {
@@ -110,4 +113,13 @@ func (r *Registry) Interpreter(ref Ref, version string) (Interpreter, error) {
 		return nil, fmt.Errorf("capability %s: no interpreter", ref)
 	}
 	return pipeline.Interpreter, nil
+}
+
+func produces(spec PipelineSpec, product Product) bool {
+	for _, declared := range spec.Produces {
+		if declared == product {
+			return true
+		}
+	}
+	return false
 }

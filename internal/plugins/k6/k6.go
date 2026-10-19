@@ -21,8 +21,9 @@ func Plugin() capability.Plugin {
 		}
 	}
 	return capability.Plugin{ID: ID, Version: "1.0.0", Pipelines: []capability.Pipeline{{
-		Name:  "load",
-		Label: "Tests de charge",
+		Name:        "load",
+		Label:       "Tests de charge",
+		Interpreter: campaignReader{},
 		Spec: capability.PipelineSpec{
 			ObservedPipelines: []string{"load-test"},
 			Group:             "load",

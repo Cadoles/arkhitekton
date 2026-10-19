@@ -25,12 +25,13 @@ func audit() capability.Pipeline {
 	file := func(name, param, object string, parser parse.ID) capability.Artifact {
 		return capability.Artifact{
 			Name: name, Param: param, Object: object, Format: capability.FormatFile,
-			Members: []capability.Member{{Match: object, Parser: parser, Tool: "security-audit"}},
+			Members: []capability.Member{{Match: object, Parser: parser, Tool: tool}},
 		}
 	}
 	return capability.Pipeline{
-		Name:  "security-audit",
-		Label: "Audit de sécurité",
+		Name:        "security-audit",
+		Label:       "Audit de sécurité",
+		Interpreter: auditReader{},
 		Spec: capability.PipelineSpec{
 			PipelineRef:  "security-audit",
 			Group:        "security",

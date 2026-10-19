@@ -251,3 +251,48 @@ func (s Set) Validate() error {
 	}
 	return errors.Join(problems...)
 }
+
+// Counts tallies a set's cases.
+type Counts struct {
+	Total, Passed, Failed, Skipped, Flaky int
+}
+
+// Counts recounts the cases. Recounted rather than taken from the tool's announced totals, which
+// lie when the process dies mid-run.
+func (s Set) Counts() Counts {
+	var counts Counts
+	for _, c := range s.Cases {
+		counts.Total++
+		switch c.Status {
+		case CasePassed:
+			counts.Passed++
+		case CaseFailed:
+			counts.Failed++
+		case CaseSkipped:
+			counts.Skipped++
+		case CaseFlaky:
+			counts.Flaky++
+		}
+	}
+	return counts
+}
+
+// Verdict is the set's status: the interpreter's when it gave one, otherwise derived from the
+// cases. No case at all reads `na`: an empty report says nothing was measured.
+func (s Set) Verdict() Status {
+	if s.Status != "" {
+		return s.Status
+	}
+	counts := s.Counts()
+	switch {
+	case counts.Total == 0:
+		return StatusNA
+	case counts.Failed > 0:
+		return StatusFail
+	case counts.Flaky > 0:
+		// A flaky test does not block shipping, but staying silent about it would remove the only
+		// signal there is on it.
+		return StatusWarn
+	}
+	return StatusPass
+}

@@ -1,0 +1,3 @@
+{"files":[
+  {"name":"src/A.php","appliedFixers":["braces","no_unused_imports"],"diff":"--- a\n+++ b\n"},
+  {"name":"src/B.php","appliedFixers":[],"diff":""}]}

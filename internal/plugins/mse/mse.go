@@ -39,8 +39,9 @@ func integrationTests(manifests []capability.Manifest) capability.Pipeline {
 		return capability.Param{Source: capability.ParamBinding, DefaultKey: key}
 	}
 	return capability.Pipeline{
-		Name:  "integration-tests",
-		Label: "Tests d'intégration",
+		Name:        "integration-tests",
+		Label:       "Tests d'intégration",
+		Interpreter: integrationReader{},
 		Spec: capability.PipelineSpec{
 			PipelineRef:   "php-integration-test",
 			Group:         "integration",
@@ -91,8 +92,9 @@ func e2eTests() capability.Pipeline {
 		}
 	}
 	return capability.Pipeline{
-		Name:  "e2e-tests",
-		Label: "Tests E2E",
+		Name:        "e2e-tests",
+		Label:       "Tests E2E",
+		Interpreter: e2eReader{},
 		Spec: capability.PipelineSpec{
 			PipelineRef: "e2e-test",
 			Group:       "e2e",

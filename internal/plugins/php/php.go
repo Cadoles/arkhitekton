@@ -57,8 +57,9 @@ var needs = []capability.Need{{Name: capability.NeedSourceRead, Reason: "clone t
 
 func staticTests(manifests []capability.Manifest) capability.Pipeline {
 	return capability.Pipeline{
-		Name:  "static-tests",
-		Label: "Analyse statique",
+		Name:        "static-tests",
+		Label:       "Analyse statique",
+		Interpreter: staticReader{},
 		Spec: capability.PipelineSpec{
 			PipelineRef:   "php-static-tests",
 			Group:         "static",
@@ -83,8 +84,9 @@ func staticTests(manifests []capability.Manifest) capability.Pipeline {
 
 func unitTests(manifests []capability.Manifest) capability.Pipeline {
 	return capability.Pipeline{
-		Name:  "unit-tests",
-		Label: "Tests unitaires",
+		Name:        "unit-tests",
+		Label:       "Tests unitaires",
+		Interpreter: unitReader{},
 		Spec: capability.PipelineSpec{
 			PipelineRef:   "php-unit-tests",
 			Group:         "unit",
