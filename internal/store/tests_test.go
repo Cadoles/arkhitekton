@@ -52,7 +52,7 @@ func releaseFor(t *testing.T, db *DB, tag string) int64 {
 
 // The view that answers the question actually asked before shipping: what changed? A
 // stable counter can hide a resolved failure and a new one.
-func TestDiffFamilySeesTheFourKindsOfChange(t *testing.T) {
+func TestDiffGroupSeesTheFourKindsOfChange(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -72,7 +72,7 @@ func TestDiffFamilySeesTheFourKindsOfChange(t *testing.T) {
 		{Suite: "A", Name: "ajoute", Status: "passed"},
 	})
 
-	diffs, err := db.DiffFamily(ctx, current, previous, "unit")
+	diffs, err := db.DiffGroup(ctx, current, previous, "unit")
 	if err != nil {
 		t.Fatalf("comparaison: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestFlakyCountsAsAFailureInTheDiff(t *testing.T) {
 	saveCases(t, db, testRun(t, db, "c"), current, "e2e",
 		[]TestCase{{Suite: "A", Name: "panier", Status: "flaky"}})
 
-	diffs, err := db.DiffFamily(ctx, current, previous, "e2e")
+	diffs, err := db.DiffGroup(ctx, current, previous, "e2e")
 	if err != nil {
 		t.Fatalf("comparaison: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestTheMostRecentReportWins(t *testing.T) {
 	saveCases(t, db, testRun(t, db, "c2"), current, "unit",
 		[]TestCase{{Suite: "A", Name: "t", Status: "passed"}})
 
-	diffs, err := db.DiffFamily(ctx, current, previous, "unit")
+	diffs, err := db.DiffGroup(ctx, current, previous, "unit")
 	if err != nil {
 		t.Fatalf("comparaison: %v", err)
 	}

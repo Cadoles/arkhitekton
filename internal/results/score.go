@@ -119,6 +119,8 @@ type Measure struct {
 	// pipeline.
 	Ref    string
 	Family Family
+	// Shape is how the results to open read: test cases, findings or measures.
+	Shape string
 	// Weight is this component's declared weight.
 	//
 	// Carried by the measure rather than looked up in a table: that is what lets two
@@ -164,6 +166,7 @@ type SignalScore struct {
 	// report family to open.
 	Ref    string
 	Family Family
+	Shape  string
 	Value  float64
 	// Weight is the effective weight, after redistribution. Distinct from the declared
 	// weight: it is what explains the real contribution.
@@ -223,7 +226,7 @@ func Score(measures []Measure) Breakdown {
 
 		breakdown.Signals = append(breakdown.Signals, SignalScore{
 			Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
-			Ref: measure.Ref, Family: measure.Family,
+			Ref: measure.Ref, Family: measure.Family, Shape: measure.Shape,
 			Value: measure.Value, Weight: effective, Declared: measure.Weight,
 			Measured: true, Detail: measure.Detail,
 		})
@@ -241,7 +244,7 @@ func Score(measures []Measure) Breakdown {
 func retired(measure Measure) SignalScore {
 	return SignalScore{
 		Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
-		Ref: measure.Ref, Family: measure.Family,
+		Ref: measure.Ref, Family: measure.Family, Shape: measure.Shape,
 		Declared: measure.Weight, Detail: measure.Detail,
 	}
 }

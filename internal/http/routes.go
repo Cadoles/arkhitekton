@@ -141,7 +141,7 @@ func NewAPIRouter(
 	// before deciding anything.
 	mux.Handle("GET /projects/{project}/releases/{tag}/tests", Chain(http.HandlerFunc(tests.Tests),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
-	mux.Handle("GET /projects/{project}/releases/{tag}/tests/{family}", Chain(http.HandlerFunc(tests.Family),
+	mux.Handle("GET /projects/{project}/releases/{tag}/tests/{group}", Chain(http.HandlerFunc(tests.Group),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/releases/{tag}/security", Chain(http.HandlerFunc(tests.Security),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))

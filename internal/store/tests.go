@@ -162,14 +162,14 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 		// The run's name is joined rather than resolved afterwards: it serves to send the
 		// reader back to the run that produced the report, and a second query per report for
 		// a single field is not justified.
-		`select t.id, t.run_id, t.release_id, t.family, t.tool, t.status,
+		`select t.id, t.run_id, t.release_id, t.fact_group, t.shape, t.producer, t.tool, t.status,
 		        coalesce(t.total, 0), coalesce(t.passed, 0), coalesce(t.failed, 0),
 		        coalesce(t.skipped, 0), coalesce(t.flaky, 0), coalesce(t.duration_ms, 0),
 		        coalesce(t.summary, ''), coalesce(t.raw_object, ''), t.created_at,
 		        coalesce(r.pipelinerun_name, '')
 		 from test_results t
 		 left join runs r on r.id = t.run_id
-		 where t.release_id = $1 and t.family <> 'load'
+		 where t.release_id = $1 and t.shape <> 'measures'
 		 order by t.created_at desc`, releaseID)
 	if err != nil {
 		return nil, fmt.Errorf("results of release %d: %w", releaseID, err)
@@ -179,12 +179,13 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 	var results []TestResult
 	for rows.Next() {
 		var result TestResult
-		if err := rows.Scan(&result.ID, &result.RunID, &result.ReleaseID, &result.Family,
-			&result.Tool, &result.Status, &result.Total, &result.Passed, &result.Failed,
-			&result.Skipped, &result.Flaky, &result.DurationMS, &result.Summary,
-			&result.RawObject, &result.CreatedAt, &result.RunName); err != nil {
+		if err := rows.Scan(&result.ID, &result.RunID, &result.ReleaseID, &result.Group,
+			&result.Shape, &result.Producer, &result.Tool, &result.Status, &result.Total,
+			&result.Passed, &result.Failed, &result.Skipped, &result.Flaky, &result.DurationMS,
+			&result.Summary, &result.RawObject, &result.CreatedAt, &result.RunName); err != nil {
 			return nil, fmt.Errorf("results of release %d: %w", releaseID, err)
 		}
+		result.Family = result.Group
 		results = append(results, result)
 	}
 	return results, rows.Err()
@@ -291,7 +292,7 @@ const (
 	ChangeUnchanged  = "unchanged"
 )
 
-// DiffFamily compares a test family between two releases.
+// DiffGroup compares a group's cases between two releases.
 //
 // Compared in the database and not in Go: the two sets of cases may number thousands
 // of entries, and fetching them to pair them in memory would move the whole history
@@ -300,23 +301,26 @@ const (
 // The `full outer join` is what makes the four kinds of change visible at once: an
 // inner join would lose the added and removed tests, which are precisely the ones the
 // eye does not catch.
-func (db *DB) DiffFamily(ctx context.Context, releaseID, previousID int64, family string) ([]CaseDiff, error) {
+//
+// A case is paired within its tool. A group may gather several, static analysis does: a PHPStan
+// violation and a PHP-CS-Fixer one on the same file and rule name are two cases, not one.
+func (db *DB) DiffGroup(ctx context.Context, releaseID, previousID int64, group string) ([]CaseDiff, error) {
 	const query = `
 		with current_cases as (
-		    select distinct on (c.suite, c.name) c.suite, c.name, c.status
+		    select distinct on (r.tool, c.suite, c.name) r.tool, c.suite, c.name, c.status
 		    from test_cases c
 		    join test_results r on r.id = c.test_result_id
-		    where r.release_id = $1 and r.family = $3
+		    where r.release_id = $1 and r.fact_group = $3
 		    -- The most recent report prevails: a release may be tested several
 		    -- times, and the last run is what describes it.
-		    order by c.suite, c.name, r.created_at desc
+		    order by r.tool, c.suite, c.name, r.created_at desc
 		),
 		previous_cases as (
-		    select distinct on (c.suite, c.name) c.suite, c.name, c.status
+		    select distinct on (r.tool, c.suite, c.name) r.tool, c.suite, c.name, c.status
 		    from test_cases c
 		    join test_results r on r.id = c.test_result_id
-		    where r.release_id = $2 and r.family = $3
-		    order by c.suite, c.name, r.created_at desc
+		    where r.release_id = $2 and r.fact_group = $3
+		    order by r.tool, c.suite, c.name, r.created_at desc
 		)
 		select coalesce(c.suite, p.suite), coalesce(c.name, p.name),
 		       coalesce(c.status, ''), coalesce(p.status, ''),
@@ -330,12 +334,13 @@ func (db *DB) DiffFamily(ctx context.Context, releaseID, previousID int64, famil
 		           else 'unchanged'
 		       end as change
 		from current_cases c
-		full outer join previous_cases p on p.suite = c.suite and p.name = c.name
+		full outer join previous_cases p
+		  on p.tool = c.tool and p.suite = c.suite and p.name = c.name
 		order by 5, 1, 2`
 
-	rows, err := db.pool.Query(ctx, query, releaseID, previousID, family)
+	rows, err := db.pool.Query(ctx, query, releaseID, previousID, group)
 	if err != nil {
-		return nil, fmt.Errorf("comparing family %q: %w", family, err)
+		return nil, fmt.Errorf("comparing group %q: %w", group, err)
 	}
 	defer rows.Close()
 
@@ -343,7 +348,7 @@ func (db *DB) DiffFamily(ctx context.Context, releaseID, previousID int64, famil
 	for rows.Next() {
 		var diff CaseDiff
 		if err := rows.Scan(&diff.Suite, &diff.Name, &diff.Status, &diff.Was, &diff.Change); err != nil {
-			return nil, fmt.Errorf("comparing family %q: %w", family, err)
+			return nil, fmt.Errorf("comparing group %q: %w", group, err)
 		}
 		diffs = append(diffs, diff)
 	}
@@ -359,7 +364,7 @@ func (db *DB) PreviousRelease(ctx context.Context, releaseID int64) (int64, erro
 	var previous int64
 	err := db.pool.QueryRow(ctx,
 		`select p.id from releases r
-		 join releases p on p.created_at < r.created_at
+		 join releases p on p.created_at < r.created_at and p.project_id = r.project_id
 		 where r.id = $1
 		 order by p.created_at desc
 		 limit 1`, releaseID).Scan(&previous)

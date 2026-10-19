@@ -97,7 +97,7 @@ function AutomaticChecks({ tag }: { tag: string }) {
       <StatusBadge style={status.signoff(scale)} />
       <span className="text-zinc-500">
         {results.length} famille(s)
-        {failed.length > 0 && ` — ${failed.map((r) => SIGNAL_LABEL[r.family] ?? r.family).join(', ')} en échec`}
+        {failed.length > 0 && ` — ${failed.map((r) => SIGNAL_LABEL[r.group] ?? r.group).join(', ')} en échec`}
       </span>
     </div>
   )

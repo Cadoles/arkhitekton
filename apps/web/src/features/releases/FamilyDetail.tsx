@@ -5,7 +5,7 @@ import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
 import { PipelineTimeline } from './PipelineTimeline'
 import { RunLink } from './RunLink'
-import { CHANGE_LABEL, useFamily, type CaseDiff, type Change, type TestCase } from './tests'
+import { CHANGE_LABEL, useGroup, type CaseDiff, type Change, type TestCase } from './tests'
 
 /*
  * Détail d'une famille de tests, sans son cadre.
@@ -59,12 +59,12 @@ function caseKey(suite: string, name: string): string {
 
 export function FamilyDetail({
   tag,
-  family,
+  group,
   /** Run en cours mesurant cette famille, s'il y en a un. */
   runName,
 }: {
   tag: string | undefined
-  family: string | undefined
+  group: string | undefined
   runName?: string
 }) {
   const [input, setInput] = useState('')
@@ -84,7 +84,7 @@ export function FamilyDetail({
     return () => clearTimeout(timer)
   }, [input])
 
-  const { data, isPending, error, refetch } = useFamily(tag, family, offset, needle)
+  const { data, isPending, error, refetch } = useGroup(tag, group, offset, needle)
 
   const changes = new Map<string, Change>()
   for (const entry of data?.diff ?? []) changes.set(caseKey(entry.suite, entry.name), entry.change)

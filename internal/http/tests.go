@@ -22,7 +22,7 @@ type TestStore interface {
 	BuildableProject(ctx context.Context) (store.Project, error)
 	ListReleaseTestResults(ctx context.Context, releaseID int64) ([]store.TestResult, error)
 	ListTestCases(ctx context.Context, resultID int64, page store.CasePage) ([]store.TestCase, int, error)
-	DiffFamily(ctx context.Context, releaseID, previousID int64, family string) ([]store.CaseDiff, error)
+	DiffGroup(ctx context.Context, releaseID, previousID int64, group string) ([]store.CaseDiff, error)
 	PreviousRelease(ctx context.Context, releaseID int64) (int64, error)
 	LatestSecurityAudit(ctx context.Context, releaseID int64) (store.SecurityAudit, error)
 	ListSecurityFindings(ctx context.Context, resultID int64, includeSuppressed bool) ([]store.SecurityFinding, error)
@@ -50,8 +50,12 @@ func NewTestsHandler(tests TestStore, registry *catalog.Catalog) *TestsHandler {
 }
 
 type testResultPayload struct {
-	ID         int64     `json:"id"`
-	Family     string    `json:"family"`
+	ID int64 `json:"id"`
+	// Group is where the result is shown, Shape how it is compared, Producer which plugin version
+	// read it.
+	Group      string    `json:"group"`
+	Shape      string    `json:"shape"`
+	Producer   string    `json:"producer"`
 	Tool       string    `json:"tool"`
 	Status     string    `json:"status"`
 	Total      int       `json:"total"`
@@ -77,9 +81,11 @@ type signalPayload struct {
 	// Ref is the pipeline family to re-run in order to measure this component again. Empty
 	// when nothing re-measures it from the dashboard.
 	Ref string `json:"ref,omitempty"`
-	// Family is the report family to open in detail.
-	Family string  `json:"family,omitempty"`
-	Value  float64 `json:"value"`
+	// Group is the results to open in detail, and Shape how they read: test cases, findings or
+	// measures.
+	Group string  `json:"group,omitempty"`
+	Shape string  `json:"shape,omitempty"`
+	Value float64 `json:"value"`
 	// Weight is the effective weight, after redistributing the unmeasured signals. It is what
 	// explains the real contribution to the score.
 	Weight float64 `json:"weight"`
@@ -119,7 +125,8 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 	payload := make([]testResultPayload, 0, len(reports))
 	for _, report := range reports {
 		payload = append(payload, testResultPayload{
-			ID: report.ID, Family: report.Family, Tool: report.Tool, Status: report.Status,
+			ID: report.ID, Group: report.Group, Shape: report.Shape, Producer: report.Producer,
+			Tool: report.Tool, Status: report.Status,
 			Total: report.Total, Passed: report.Passed, Failed: report.Failed,
 			Skipped: report.Skipped, Flaky: report.Flaky, DurationMS: report.DurationMS,
 			Summary: report.Summary, MeasuredAt: report.CreatedAt,
@@ -136,7 +143,7 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 	for _, signal := range breakdown.Signals {
 		signals = append(signals, signalPayload{
 			Key: signal.Key, Label: signal.Label,
-			Signal: string(signal.Signal), Ref: signal.Ref, Family: string(signal.Family),
+			Signal: string(signal.Signal), Ref: signal.Ref, Group: string(signal.Family), Shape: signal.Shape,
 			Value: signal.Value, Weight: signal.Weight,
 			Declared: signal.Declared, Measured: signal.Measured, Detail: signal.Detail,
 			// A signal's verdict comes from the server like the score's: deriving it client-side
@@ -278,7 +285,7 @@ func familyMeasures(
 		staticViolations = byFamily[string(results.FamilyStatic)].Failed
 	}
 
-	brutes := []results.Measure{
+	raw := []results.Measure{
 		results.FromReport(results.SignalUnit,
 			byFamily[string(results.FamilyUnit)], seen[string(results.FamilyUnit)]),
 		results.FromReport(results.SignalIntegration,
@@ -292,18 +299,18 @@ func familyMeasures(
 	if err != nil {
 		return nil, err
 	}
-	brutes = append(brutes, security)
+	raw = append(raw, security)
 
 	performance, err := benchMeasure(ctx, source, releaseID)
 	if err != nil {
 		return nil, err
 	}
-	brutes = append(brutes, performance)
+	raw = append(raw, performance)
 
 	// The identity and the weight, which the measuring functions do not set: they say what was
 	// measured, not what it is worth in the score.
-	measures := make([]results.Measure, 0, len(brutes))
-	for _, measure := range brutes {
+	measures := make([]results.Measure, 0, len(raw))
+	for _, measure := range raw {
 		measure.Key = results.SignalKey(measure.Signal)
 		measure.Label = signalLabels[measure.Signal]
 		measure.Weight = results.WeightOf(nil, measure.Signal)
@@ -311,6 +318,7 @@ func familyMeasures(
 		// else, because this is the only path with no step to say them.
 		measure.Ref = signalKinds[measure.Signal]
 		measure.Family = signalFamilies[measure.Signal]
+		measure.Shape = defaultShape(measure.Family)
 		measures = append(measures, measure)
 	}
 	return measures, nil
@@ -447,12 +455,12 @@ type casePayload struct {
 	Trace      string `json:"trace,omitempty"`
 }
 
-// Family returns a family's cases and its comparison with the previous release.
+// Group returns a group's cases and its comparison with the previous release.
 //
 // The comparison is the view that answers the question actually asked before shipping —
 // "what changed?" — and not "how many tests pass". A stable counter can hide a resolved
 // failure and a new one.
-func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
+func (h *TestsHandler) Group(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
 		return
@@ -468,7 +476,7 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	family := r.PathValue("family")
+	group := r.PathValue("group")
 	page := store.CasePage{
 		Limit:  casePageSize,
 		Offset: int(intQuery(r, "offset", 0)),
@@ -488,7 +496,7 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 	var runName, tool string
 	var measuredAt time.Time
 	for _, report := range reports {
-		if report.Family != family {
+		if report.Group != group {
 			continue
 		}
 		stored, count, err := h.store.ListTestCases(r.Context(), report.ID, page)
@@ -505,7 +513,7 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		runName, tool, measuredAt = report.RunName, report.Tool, report.CreatedAt
-		// The family's most recent report is enough: it is what describes the release's state.
+		// The group's most recent report is enough: it is what describes the release's state.
 		break
 	}
 
@@ -513,7 +521,7 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 	// part one comes to read. Truncating it would hide a new failure because it falls on a
 	// second page.
 	response := map[string]any{
-		"family": family,
+		"group":  group,
 		"cases":  cases,
 		"total":  total,
 		"limit":  casePageSize,
@@ -529,9 +537,9 @@ func (h *TestsHandler) Family(w http.ResponseWriter, r *http.Request) {
 
 	previous, err := h.store.PreviousRelease(r.Context(), release.ID)
 	if err == nil {
-		diffs, err := h.store.DiffFamily(r.Context(), release.ID, previous, family)
+		diffs, err := h.store.DiffGroup(r.Context(), release.ID, previous, group)
 		if err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Comparaison impossible", "")
+			writeProblem(w, http.StatusInternalServerError, "Cannot compare with the previous release", "")
 			return
 		}
 

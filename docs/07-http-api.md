@@ -85,7 +85,7 @@ All scoped to a project; the permission is checked **in that project**.
 | Route | Permission |
 |---|---|
 | `GET /projects/{project}/releases/{tag}/tests` | `read` |
-| `GET /projects/{project}/releases/{tag}/tests/{family}` | `read` |
+| `GET /projects/{project}/releases/{tag}/tests/{group}` | `read` |
 | `GET /projects/{project}/releases/{tag}/security` | `read` |
 | `GET /projects/{project}/releases/{tag}/bench` | `read` |
 | `POST /projects/{project}/releases/{tag}/bench/{measure}/baseline` | `release:create:final` |

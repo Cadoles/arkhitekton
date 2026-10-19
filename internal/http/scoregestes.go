@@ -82,7 +82,7 @@ func stepMeasures(
 
 	reportsByGeste := map[store.GesteRef][]store.TestResult{}
 	for _, report := range reports {
-		if ref, attribue := byResult[report.ID]; attribue {
+		if ref, attributed := byResult[report.ID]; attributed {
 			reportsByGeste[ref] = append(reportsByGeste[ref], report)
 		}
 	}
@@ -91,7 +91,7 @@ func stepMeasures(
 	if err != nil {
 		return nil, err
 	}
-	campagne, campagneGeste, err := stepCampaign(ctx, source, releaseID, byResult)
+	campaign, campaignStep, err := stepCampaign(ctx, source, releaseID, byResult)
 	if err != nil {
 		return nil, err
 	}
@@ -99,43 +99,43 @@ func stepMeasures(
 	measures := make([]results.Measure, 0, len(run.Plan.Stages[stage].Gestes))
 	for position, step := range run.Plan.Stages[stage].Gestes {
 		ref := store.GesteRef{Stage: stage, Position: position}
-		siens := reportsByGeste[ref]
+		own := reportsByGeste[ref]
 
-		famille := stepKind(step, siens, registry)
-		signal, connu := results.SignalOf(famille)
+		group, shape := stepKind(step, own, registry)
+		signal, known := results.SignalOf(group)
 
 		measure := results.Measure{
 			Key: stepKey(ref), Label: step.Name(), Signal: signal,
-			// What produced the measure: the pipeline the replay button relaunches, and the report
-			// family the detail opens.
-			Ref: step.Ref, Family: famille,
+			// What produced the measure: the pipeline the replay button relaunches, and the results
+			// the detail opens.
+			Ref: step.Ref, Family: group, Shape: shape,
 			Weight: results.WeightOf(step.Weight, signal),
 		}
 
 		switch {
-		case !connu:
-			// A step whose output cannot be read. Its weight stays displayed — otherwise one would
-			// think it does not count — but it grades nothing, and the detail says why.
+		case !known:
+			// A step whose output cannot be read. Its weight stays displayed (otherwise one would think
+			// it does not count) but it grades nothing, and the detail says why.
 			measure.Detail = "no known result kind for this pipeline"
-		case famille == results.FamilySecurity:
+		case shape == shapeFindings:
 			measure.Measured, measure.Value, measure.Detail =
 				valueOf(auditMeasure(audit, auditGeste == ref))
-		case famille == results.FamilyLoad:
-			mesure, err := campaignMeasure(ctx, source, campagne, campagneGeste == ref)
+		case shape == shapeMeasures:
+			campaignScore, err := campaignMeasure(ctx, source, campaign, campaignStep == ref)
 			if err != nil {
 				return nil, err
 			}
-			measure.Measured, measure.Value, measure.Detail = valueOf(mesure)
-		case famille == results.FamilyStatic:
-			combine, ran := cumulative(siens)
+			measure.Measured, measure.Value, measure.Detail = valueOf(campaignScore)
+		case group == results.FamilyStatic:
+			combined, ran := cumulative(own)
 			// Static analysis violations are counted as cases, not as passing tests: the scoring rule
 			// is not the same.
 			measure.Measured, measure.Value, measure.Detail =
-				valueOf(results.FromStatic(combine.Failed, ran))
+				valueOf(results.FromStatic(combined.Failed, ran))
 		default:
-			combine, ran := cumulative(siens)
+			combined, ran := cumulative(own)
 			measure.Measured, measure.Value, measure.Detail =
-				valueOf(results.FromReport(signal, combine, ran))
+				valueOf(results.FromReport(signal, combined, ran))
 		}
 
 		measures = append(measures, measure)
@@ -151,28 +151,55 @@ func stepKey(ref store.GesteRef) string {
 	return "geste:" + strconv.Itoa(ref.Stage) + "." + strconv.Itoa(ref.Position)
 }
 
-// familyOfStep returns the result family this step feeds.
+// Shapes the score reads differently: an audit, a load campaign. Everything else is cases.
+const (
+	shapeFindings = "findings"
+	shapeMeasures = "measures"
+)
+
+// stepKind returns the group this step feeds and the shape of its results.
 //
 // What it produced first, the catalogue second. The order matters: a step that ran says
 // itself what it returned, and the catalogue may have changed since. The catalogue serves
-// the step that produced nothing — the only way to know what default weight to give it, and
+// the step that produced nothing: the only way to know what default weight to give it, and
 // therefore to display it rather than hide it.
 func stepKind(
-	step plan.Geste, siens []store.TestResult, registry *catalog.Catalog,
-) results.Family {
-	for _, report := range siens {
-		if report.Family != "" {
-			return results.Family(report.Family)
+	step plan.Geste, own []store.TestResult, registry *catalog.Catalog,
+) (results.Family, string) {
+	for _, report := range own {
+		group := report.Group
+		if group == "" {
+			group = report.Family
 		}
+		if group == "" {
+			continue
+		}
+		shape := report.Shape
+		if shape == "" {
+			shape = defaultShape(results.Family(group))
+		}
+		return results.Family(group), shape
 	}
 	if registry == nil {
-		return ""
+		return "", ""
 	}
 	pipeline, found := registry.Find(step.Ref)
 	if !found {
-		return ""
+		return "", ""
 	}
-	return results.Family(pipeline.Family())
+	group := results.Family(pipeline.Family())
+	return group, defaultShape(group)
+}
+
+// defaultShape is the shape a group's results take before any is read.
+func defaultShape(group results.Family) string {
+	switch group {
+	case results.FamilySecurity:
+		return shapeFindings
+	case results.FamilyLoad:
+		return shapeMeasures
+	}
+	return "cases"
 }
 
 // accumulate sums a step's reports, one per tool.
@@ -180,30 +207,30 @@ func stepKind(
 // Keeping a single report would lose the pipelines with several tools. Static analysis has
 // two, and only the more recent entered the score: a release with forty errors from one and
 // a clean result from the other showed 100 as soon as the clean one concluded last.
-func cumulative(siens []store.TestResult) (results.Report, bool) {
-	combine := results.Report{}
-	vus := map[string]bool{}
+func cumulative(own []store.TestResult) (results.Report, bool) {
+	combined := results.Report{}
+	seen := map[string]bool{}
 	ran := false
 
-	for _, report := range siens {
+	for _, report := range own {
 		// The list is newest first: the first one met for a tool is the most recent, the rest are
 		// its history.
-		if vus[report.Tool] {
+		if seen[report.Tool] {
 			continue
 		}
-		vus[report.Tool] = true
+		seen[report.Tool] = true
 		ran = true
 
-		combine.Total += report.Total
-		combine.Passed += report.Passed
-		combine.Failed += report.Failed
-		combine.Skipped += report.Skipped
-		combine.Flaky += report.Flaky
+		combined.Total += report.Total
+		combined.Passed += report.Passed
+		combined.Failed += report.Failed
+		combined.Skipped += report.Skipped
+		combined.Flaky += report.Flaky
 		// The harshest status wins: two tools of one step return a common verdict, and the milder
 		// would mask the other.
-		combine.Status = worstStatus(combine.Status, report.Status)
+		combined.Status = worstStatus(combined.Status, report.Status)
 	}
-	return combine, ran
+	return combined, ran
 }
 
 // valueOf extracts what a measure says, to carry it onto a component.
@@ -235,8 +262,8 @@ func stepAudit(
 		}
 		return store.SecurityAudit{}, store.GesteRef{}, err
 	}
-	ref, attribue := byResult[audit.TestResultID]
-	if !attribue {
+	ref, attributed := byResult[audit.TestResultID]
+	if !attributed {
 		return audit, store.GesteRef{Stage: -1}, nil
 	}
 	return audit, ref, nil
@@ -246,18 +273,18 @@ func stepCampaign(
 	ctx context.Context, source scoreStore, releaseID int64,
 	byResult map[int64]store.GesteRef,
 ) (*store.LoadResult, store.GesteRef, error) {
-	campagnes, err := source.ListReleaseLoadResults(ctx, releaseID)
+	campaigns, err := source.ListReleaseLoadResults(ctx, releaseID)
 	if err != nil {
 		return nil, store.GesteRef{}, err
 	}
-	if len(campagnes) == 0 {
+	if len(campaigns) == 0 {
 		return nil, store.GesteRef{Stage: -1}, nil
 	}
-	ref, attribue := byResult[campagnes[0].ID]
-	if !attribue {
-		return &campagnes[0], store.GesteRef{Stage: -1}, nil
+	ref, attributed := byResult[campaigns[0].ID]
+	if !attributed {
+		return &campaigns[0], store.GesteRef{Stage: -1}, nil
 	}
-	return &campagnes[0], ref, nil
+	return &campaigns[0], ref, nil
 }
 
 // auditMeasure grades security from a step's audit.
@@ -282,14 +309,14 @@ func auditMeasure(audit store.SecurityAudit, sien bool) results.Measure {
 
 // campaignMeasure grades performance from a step's campaign.
 func campaignMeasure(
-	ctx context.Context, source scoreStore, campagne *store.LoadResult, sien bool,
+	ctx context.Context, source scoreStore, campaign *store.LoadResult, sien bool,
 ) (results.Measure, error) {
-	if !sien || campagne == nil {
+	if !sien || campaign == nil {
 		return results.FromBench("", false), nil
 	}
 
 	conditions := bench.Conditions{
-		Exclusive: campagne.Exclusive, ConcurrentJobs: campagne.ConcurrentJobs,
+		Exclusive: campaign.Exclusive, ConcurrentJobs: campaign.ConcurrentJobs,
 	}
 	if !conditions.Comparable() {
 		// A campaign that cannot be compared is not an absent campaign, but it cannot grade
@@ -297,16 +324,16 @@ func campaignMeasure(
 		return results.FromBench("", false), nil
 	}
 
-	measures, err := source.ListResultMeasures(ctx, campagne.ID)
+	measures, err := source.ListResultMeasures(ctx, campaign.ID)
 	if err != nil {
 		return results.Measure{}, err
 	}
-	baselines, err := source.Baselines(ctx, campagne.Scenario)
+	baselines, err := source.Baselines(ctx, campaign.Scenario)
 	if err != nil {
 		return results.Measure{}, err
 	}
 
-	summary := bench.Summary{Scenario: campagne.Scenario}
+	summary := bench.Summary{Scenario: campaign.Scenario}
 	for _, measure := range measures {
 		summary.Measures = append(summary.Measures, bench.Measure{
 			Metric: measure.Metric, Value: measure.Value,

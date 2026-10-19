@@ -39,8 +39,8 @@ describe('les cases du score', () => {
         tag="1.8.0"
         jobs={[]}
         signals={[
-          composant({ key: 'geste:1.0', label: 'Tests unitaires', ref: 'unit-tests', family: 'unit' }),
-          composant({ key: 'geste:1.1', label: 'Analyse statique', signal: 'code', family: 'static' }),
+          composant({ key: 'geste:1.0', label: 'Tests unitaires', ref: 'unit-tests', group: 'unit', shape: 'cases' }),
+          composant({ key: 'geste:1.1', label: 'Analyse statique', signal: 'code', group: 'static', shape: 'cases' }),
         ]}
       />,
     )
@@ -60,11 +60,11 @@ describe('les cases du score', () => {
         signals={[
           composant({
             key: 'geste:1.0', label: 'E2E portail',
-            signal: 'e2e', family: 'e2e', ref: 'e2e-tests', value: 100,
+            signal: 'e2e', group: 'e2e', shape: 'cases', ref: 'e2e-tests', value: 100,
           }),
           composant({
             key: 'geste:1.1', label: 'E2E back-office',
-            signal: 'e2e', family: 'e2e', ref: 'e2e-tests', value: 40, health: 'critical',
+            signal: 'e2e', group: 'e2e', shape: 'cases', ref: 'e2e-tests', value: 40, health: 'critical',
           }),
         ]}
       />,
@@ -83,7 +83,7 @@ describe('les cases du score', () => {
       <SignalGrid
         tag="1.8.0"
         jobs={[]}
-        signals={[composant({ key: 'geste:1.0', label: 'Déploiement de recette', family: undefined })]}
+        signals={[composant({ key: 'geste:1.0', label: 'Déploiement de recette', group: undefined })]}
       />,
     )
 
@@ -101,7 +101,7 @@ describe('les cases du score', () => {
         signals={[
           composant({
             key: 'geste:1.0', label: 'Audit de sécurité', signal: 'security',
-            family: 'security', measured: false, value: 0, weight: 0,
+            group: 'security', shape: 'findings', measured: false, value: 0, weight: 0,
             health: 'na', detail: 'non exécuté',
           }),
         ]}

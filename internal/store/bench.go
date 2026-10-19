@@ -194,7 +194,7 @@ func (db *DB) ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]Lo
 		 left join lateral (
 		     select scenario from bench_measures where test_result_id = r.id limit 1
 		 ) m on true
-		 where r.release_id = $1 and r.family = 'load'
+		 where r.release_id = $1 and r.shape = 'measures'
 		 order by r.created_at desc`, releaseID)
 	if err != nil {
 		return nil, fmt.Errorf("campaigns of release %d: %w", releaseID, err)
@@ -337,7 +337,7 @@ func (db *DB) LoadResultExists(ctx context.Context, runID int64, scenario string
 		`select exists(
 		     select 1 from test_results r
 		     join bench_measures m on m.test_result_id = r.id
-		     where r.run_id = $1 and r.family = 'load' and m.scenario = $2
+		     where r.run_id = $1 and r.shape = 'measures' and m.scenario = $2
 		 )`, runID, scenario).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("campaign %q of run %d: %w", scenario, runID, err)

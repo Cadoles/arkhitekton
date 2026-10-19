@@ -8,7 +8,7 @@ import { BenchDetail } from './BenchDetail'
 import { FamilyDetail } from './FamilyDetail'
 import { SecurityDetail } from './SecurityDetail'
 import { runningJobFor } from './signals'
-import { type SignalScore } from './tests'
+import { type Shape, type SignalScore } from './tests'
 
 /*
  * Les composants du score, en tuiles.
@@ -37,21 +37,18 @@ import { type SignalScore } from './tests'
  */
 
 /**
- * Le détail qu'une famille de rapports sait ouvrir.
+ * Le détail que des résultats savent ouvrir.
  *
- * Sur la **famille** et non sur le signal : c'est elle qui range les rapports, et
- * c'est le serveur qui la rend maintenant sur chaque composant.
+ * Sur la **forme** et non sur le groupe : le groupe est libre, choisi par chaque
+ * plugin, alors que la forme est fermée et dit comment les résultats se lisent.
  */
-function detailFor(family: string | undefined): 'reports' | 'security' | 'bench' | 'none' {
-  switch (family) {
-    case 'unit':
-    case 'integration':
-    case 'e2e':
-    case 'static':
+function detailFor(shape: Shape | undefined): 'reports' | 'security' | 'bench' | 'none' {
+  switch (shape) {
+    case 'cases':
       return 'reports'
-    case 'security':
+    case 'findings':
       return 'security'
-    case 'load':
+    case 'measures':
       return 'bench'
     default:
       return 'none'
@@ -111,8 +108,8 @@ function SignalTile({
   // tests montre ses cas, la sécurité ses constats, la performance ses
   // campagnes. Aucun ne mène plus à une page — perdre le score et les autres
   // composants pour lire une liste coûtait plus que ça ne rapportait.
-  const family = signal.family
-  const detail = detailFor(family)
+  const group = signal.group
+  const detail = detailFor(group ? signal.shape : undefined)
 
   const canReplay =
     session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
@@ -214,8 +211,8 @@ function SignalTile({
           onClose={() => setOpen(false)}
           size="lg"
         >
-          {detail === 'reports' && family && (
-            <FamilyDetail tag={tag} family={family} runName={runningJob?.run_name} />
+          {detail === 'reports' && group && (
+            <FamilyDetail tag={tag} group={group} runName={runningJob?.run_name} />
           )}
           {detail === 'security' && <SecurityDetail tag={tag} runName={runningJob?.run_name} />}
           {/* La charge n'a pas de pipeline que le dashboard lance : ses campagnes

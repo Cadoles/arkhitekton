@@ -3,9 +3,17 @@ import { request } from '../../lib/api'
 import type { Health, PipelineStatus } from '../../lib/status'
 import { projectPath } from '../../lib/project'
 
+/** Comment un résultat se compare et s'affiche : des cas de test, des constats
+ *  ou des mesures. Rendue par le serveur avec chaque résultat. */
+export type Shape = 'cases' | 'findings' | 'measures'
+
 export type TestResult = {
   id: number
-  family: string
+  /** Où le résultat s'affiche. Choisi par le plugin qui a lu l'exécution. */
+  group: string
+  shape: Shape
+  /** La version du plugin qui a lu l'exécution, `plugin@version`. */
+  producer: string
   tool: string
   status: PipelineStatus
   total: number
@@ -31,9 +39,10 @@ export type SignalScore = {
   /** La famille de pipeline à relancer pour remesurer ce composant. Vide quand
    *  rien ne le remesure depuis le dashboard. */
   ref?: string
-  /** La famille de rapports à ouvrir en détail. Vide quand le composant n'en
-   *  publie pas. */
-  family?: string
+  /** Les résultats à ouvrir en détail, et leur forme. Vides quand le composant
+   *  n'en publie pas. */
+  group?: string
+  shape?: Shape
   value: number
   /** Poids **effectif**, après redistribution des signaux non mesurés. C'est lui
    *  qui explique la contribution réelle au score. */
@@ -91,8 +100,8 @@ export type CaseDiff = {
   change: Change
 }
 
-export type FamilyPage = {
-  family: string
+export type GroupPage = {
+  group: string
   cases: TestCase[]
   diff?: CaseDiff[]
   /** Exécution qui a produit le rapport affiché. Absente si sa projection a été
@@ -117,24 +126,24 @@ export type FamilyPage = {
  * suivante. Sans elle, chaque changement de page vide la table puis la remplit,
  * ce qui fait sauter la mise en page à chaque clic.
  */
-export function useFamily(
+export function useGroup(
   tag: string | undefined,
-  family: string | undefined,
+  group: string | undefined,
   offset = 0,
   query = '',
 ) {
   return useQuery({
-    queryKey: ['releases', tag, 'tests', family, { offset, query }],
+    queryKey: ['releases', tag, 'tests', group, { offset, query }],
     queryFn: () => {
       const params = new URLSearchParams()
       if (offset > 0) params.set('offset', String(offset))
       if (query) params.set('q', query)
       const suffix = params.size > 0 ? `?${params}` : ''
-      return request<FamilyPage>(
-        projectPath(`/releases/${encodeURIComponent(tag as string)}/tests/${encodeURIComponent(family as string)}${suffix}`),
+      return request<GroupPage>(
+        projectPath(`/releases/${encodeURIComponent(tag as string)}/tests/${encodeURIComponent(group as string)}${suffix}`),
       )
     },
-    enabled: Boolean(tag && family),
+    enabled: Boolean(tag && group),
     placeholderData: (previous) => previous,
   })
 }

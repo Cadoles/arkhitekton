@@ -78,7 +78,7 @@ not change again.
 
 | Table | Purpose |
 |---|---|
-| `test_results` | One row per report: `family`, `tool`, `status`, counts, `duration_ms`, `summary`, `raw_object`, `parsed` |
+| `test_results` | One row per tool and run: `fact_group`, `shape` (`cases`, `findings`, `measures`), `producer` (`plugin@version`), `capability`, `tool`, `status`, counts, `duration_ms`, `summary`, `raw_object` |
 | `test_cases` | Individual cases of a result: `suite`, `name`, `status`, `duration_ms`, failure message and trace |
 | `security_audits` | One row per audit: severity counts, deltas against the previous run, `failed_scanners`, `scanner_status`, `policy` |
 | `security_findings` | One row per finding: `fingerprint`, `tool`, `rule_id`, `severity`, `cvss`, package and fix columns, `status`, `suppressed` |
