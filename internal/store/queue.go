@@ -112,6 +112,10 @@ type Job struct {
 	// ClaimNext alone: that is the only instant the information exists, and it is what
 	// decides whether a load measurement is comparable with its baseline.
 	ConcurrentAtStart int
+	// Capability and PluginVersion are recorded at launch: the run is read by the interpreter of the
+	// plugin version that started it. Empty for a job from before, or for a local task.
+	Capability    string
+	PluginVersion string
 }
 
 // ErrJobNotFound reports a missing job.
@@ -334,15 +338,16 @@ type RunningJob struct {
 func (db *DB) GetJob(ctx context.Context, id int64) (Job, error) {
 	var job Job
 	var params []byte
-	var reason, failure, runName *string
+	var reason, failure, runName, capability, version *string
 
 	err := db.pool.QueryRow(ctx,
 		`select id, kind, priority, state, params, requested_by,
-		        requested_at, started_at, finished_at, attempt, queue_reason, error, run_name
+		        requested_at, started_at, finished_at, attempt, queue_reason, error, run_name,
+		        capability, plugin_version
 		 from jobs where id = $1`, id).
 		Scan(&job.ID, &job.Kind, &job.Priority, &job.State, &params,
 			&job.RequestedBy, &job.RequestedAt, &job.StartedAt, &job.FinishedAt,
-			&job.Attempt, &reason, &failure, &runName)
+			&job.Attempt, &reason, &failure, &runName, &capability, &version)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return job, ErrJobNotFound
@@ -356,7 +361,21 @@ func (db *DB) GetJob(ctx context.Context, id int64) (Job, error) {
 	job.QueueReason = value(reason)
 	job.Error = value(failure)
 	job.RunName = value(runName)
+	job.Capability = value(capability)
+	job.PluginVersion = value(version)
 	return job, nil
+}
+
+// RecordCapability notes the capability a job instantiates and the plugin version that brought
+// it, at launch.
+func (db *DB) RecordCapability(ctx context.Context, id int64, capability, version string) error {
+	_, err := db.pool.Exec(ctx,
+		`update jobs set capability = $2, plugin_version = $3 where id = $1`,
+		id, nullString(capability), nullString(version))
+	if err != nil {
+		return fmt.Errorf("recording the capability of job %d: %w", id, err)
+	}
+	return nil
 }
 
 // ListQueue returns the active jobs: running first, then waiting in the real order of

@@ -78,3 +78,12 @@ func boundResources(pipelines *catalog.Catalog) ([]pipelinelib.Resource, error) 
 	}
 	return resources, nil
 }
+
+// pluginVersions gives, by plugin, the version of the built-in plugins.
+func pluginVersions() map[string]string {
+	versions := map[string]string{}
+	for _, plugin := range builtin.Plugins() {
+		versions[plugin.ID] = plugin.Version
+	}
+	return versions
+}

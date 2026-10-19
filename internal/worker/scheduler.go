@@ -32,6 +32,7 @@ type Queue interface {
 	ClaimNext(ctx context.Context, limits store.Limits, runName func(kind string, id int64) string) (store.Job, error)
 	Requeue(ctx context.Context, id int64, reason string) (bool, error)
 	FinishJob(ctx context.Context, id int64, state, reason string) error
+	RecordCapability(ctx context.Context, id int64, capability, version string) error
 	ExplainQueue(ctx context.Context, limits store.Limits) error
 	PendingCancellations(ctx context.Context) ([]store.RunningJob, error)
 	// QueueLimits returns the caps set by hand. Re-read at every round: a setting must take effect
@@ -71,6 +72,8 @@ const uploadTTL = 6 * time.Hour
 
 // Scheduler turns the queued jobs into PipelineRuns.
 type Scheduler struct {
+	// versions gives, by plugin, the version a run is launched with.
+	versions map[string]string
 	// availability says what the cluster cannot run, kept up to date by the capability reconciler.
 	availability availability
 	queue        Queue
@@ -291,6 +294,15 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 		return true
 	}
 
+	if pipeline.Capability != "" {
+		plugin, _, _ := strings.Cut(pipeline.Capability, "/")
+		if err := s.queue.RecordCapability(ctx, job.ID, pipeline.Capability, s.versions[plugin]); err != nil {
+			s.logger.Error("recording the capability", "job", job.ID, "error", err)
+			s.retry(ctx, job.ID, err.Error())
+			return false
+		}
+	}
+
 	// The parameters and the secret names are resolved in the same chain, and from the same
 	// settings: they are two ways for the catalogue to name a configuration value, and handling
 	// them separately would start a run with some resolved by the project and the others not.
@@ -340,6 +352,12 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 	s.logger.Info("run launched",
 		"job", job.ID, "kind", job.Kind, "run", job.RunName, "file", limits.Of(job.Kind))
 	return true
+}
+
+// WithPluginVersions sets, by plugin, the version recorded on the jobs it launches.
+func (s *Scheduler) WithPluginVersions(versions map[string]string) *Scheduler {
+	s.versions = versions
+	return s
 }
 
 // SetAvailability records what the cluster cannot run.

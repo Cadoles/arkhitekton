@@ -507,3 +507,22 @@ func TestARetryOnANonRunningJobIsNotAnError(t *testing.T) {
 		t.Error("no retry should be announced on a job that is not running")
 	}
 }
+
+// The capability and the plugin version recorded at launch read back with the job: they decide
+// which interpreter reads its run.
+func TestAJobKeepsItsCapabilityAndPluginVersion(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	id := enqueue(t, db, "php/unit-tests", 100)
+	if err := db.RecordCapability(ctx, id, "php/unit-tests", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	job, err := db.GetJob(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Capability != "php/unit-tests" || job.PluginVersion != "1.0.0" {
+		t.Errorf("job = %q @ %q", job.Capability, job.PluginVersion)
+	}
+}

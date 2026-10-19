@@ -358,3 +358,27 @@ func TestAPipelineTheClusterCannotRunIsRefused(t *testing.T) {
 		t.Errorf("finished = %v", queue.finished)
 	}
 }
+
+func (q *unavailableQueue) RecordCapability(_ context.Context, _ int64, capability, version string) error {
+	q.finished = append(q.finished, "recorded: "+capability+"@"+version)
+	return nil
+}
+
+// A job records, before its run exists, which plugin version will read it: an upgrade during the
+// run must not change how it is read.
+func TestALaunchRecordsThePluginVersion(t *testing.T) {
+	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{
+		Kind: "php/unit-tests", Capability: "php/unit-tests", PipelineRef: "php-unit-tests",
+		// Missing at launch, so the dispatch stops before reaching the cluster.
+		Params: map[string]catalog.Param{"revision": {Source: catalog.SourceInput, Required: true}},
+	}}}
+	queue := &unavailableQueue{job: store.Job{ID: 6, Kind: "php/unit-tests", RunName: "mse-x-6"}}
+	scheduler := NewSchedulerFromCatalog(queue, nil, pipelines, nil, slog.New(slog.DiscardHandler)).
+		WithPluginVersions(map[string]string{"php": "1.0.0"})
+
+	scheduler.dispatchOne(context.Background(), store.Limits{})
+
+	if len(queue.finished) == 0 || queue.finished[0] != "recorded: php/unit-tests@1.0.0" {
+		t.Errorf("recorded = %v", queue.finished)
+	}
+}

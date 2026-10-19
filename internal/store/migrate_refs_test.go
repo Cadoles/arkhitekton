@@ -17,8 +17,18 @@ func TestStoredPipelineKindsAreQualified(t *testing.T) {
 	if err := Migrate(ctx, cfg, discardLogger()); err != nil {
 		t.Fatalf("migration: %v", err)
 	}
-	if err := Rollback(ctx, cfg, discardLogger()); err != nil {
-		t.Fatalf("rollback of the last migration: %v", err)
+	// Back to just before 0055, however many migrations follow it.
+	names, err := MigrationNames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if name < "0055" {
+			continue
+		}
+		if err := Rollback(ctx, cfg, discardLogger()); err != nil {
+			t.Fatalf("rollback: %v", err)
+		}
 	}
 
 	db, err := Open(ctx, cfg)

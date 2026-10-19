@@ -715,6 +715,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				db, cluster, pipelines, resolved, logger).
 				WithUploads(storage).
 				WithInstance(instance).
+				WithPluginVersions(pluginVersions()).
 				// The project's deploy key replaces the shared key when the run is composed. A project with
 				// no key of its own falls back to the shared one.
 				WithProjectKeys(db).
