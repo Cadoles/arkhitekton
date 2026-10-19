@@ -255,8 +255,9 @@ func TestReprocessTargetsCanBeScopedToARelease(t *testing.T) {
 	}
 }
 
-// The cases go with their report: they make no sense detached from what produced them.
-func TestDeleteTestResultsCascadesToCases(t *testing.T) {
+// The cases go with their report: they make no sense detached from what produced them. And the
+// run is to be read again, so its mark goes too.
+func TestResettingARunErasesItsCasesAndItsMark(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -267,9 +268,12 @@ func TestDeleteTestResultsCascadesToCases(t *testing.T) {
 		{Suite: "A", Name: "b", Status: "failed"},
 	})
 
-	deleted, err := db.DeleteTestResults(ctx, runID)
+	if _, err := db.pool.Exec(ctx, `update runs set interpreted_at = now() where id = $1`, runID); err != nil {
+		t.Fatal(err)
+	}
+	deleted, _, err := db.ResetInterpretation(ctx, runID)
 	if err != nil {
-		t.Fatalf("effacement: %v", err)
+		t.Fatalf("reset: %v", err)
 	}
 	if deleted != 1 {
 		t.Errorf("%d report(s) erased", deleted)
@@ -281,6 +285,10 @@ func TestDeleteTestResultsCascadesToCases(t *testing.T) {
 	}
 	if remaining != 0 {
 		t.Errorf("%d cases remain after erasing the report", remaining)
+	}
+	snapshot, err := db.RunSnapshot(ctx, runID)
+	if err != nil || snapshot.Interpreted {
+		t.Errorf("run still marked as read: %+v, %v", snapshot, err)
 	}
 }
 

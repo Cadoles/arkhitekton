@@ -260,3 +260,51 @@ func TestUnrecordedConditionsDefaultToNonExclusive(t *testing.T) {
 		t.Errorf("conditions = %v / %d", exclusive, concurrent)
 	}
 }
+
+// A replay erases a campaign's measures, and their baselines with them: it pins them again on the
+// measures it produces.
+func TestABaselineSurvivesTheReplayOfItsRun(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	releaseID, runID := loadFixture(t, db)
+
+	save := func() int64 {
+		t.Helper()
+		resultID, err := db.SaveLoadResult(ctx,
+			LoadResult{Group: "load", Tool: "k6", Producer: "k6@1.0.0", RunID: runID, ReleaseID: &releaseID,
+				Scenario: "panier", Exclusive: true},
+			[]BenchMeasure{{Metric: "http_req_duration:p(95)", Label: "p95", Unit: "ms", Value: 300, LowerBetter: true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var measureID int64
+		if err := db.pool.QueryRow(ctx, `select id from bench_measures where test_result_id = $1`, resultID).
+			Scan(&measureID); err != nil {
+			t.Fatal(err)
+		}
+		return measureID
+	}
+
+	if err := db.PinBaseline(ctx, save(), "alice"); err != nil {
+		t.Fatal(err)
+	}
+	_, baselines, err := db.ResetInterpretation(ctx, runID)
+	if err != nil || len(baselines) != 1 {
+		t.Fatalf("baselines %v, err %v", baselines, err)
+	}
+	replayed := save()
+	restored, err := db.RestoreBaselines(ctx, runID, baselines)
+	if err != nil || restored != 1 {
+		t.Fatalf("restored %d, err %v", restored, err)
+	}
+
+	var measureID int64
+	var pinnedBy string
+	if err := db.pool.QueryRow(ctx,
+		`select measure_id, pinned_by from bench_baselines where scenario = 'panier'`).Scan(&measureID, &pinnedBy); err != nil {
+		t.Fatal(err)
+	}
+	if measureID != replayed || pinnedBy != "alice" {
+		t.Errorf("baseline on measure %d by %q, expected %d by alice", measureID, pinnedBy, replayed)
+	}
+}

@@ -1109,6 +1109,7 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 	flags := flag.NewFlagSet("reprocess", flag.ContinueOnError)
 	releaseTag := flags.String("release", "", "limit the replay to one release")
 	dryRun := flags.Bool("dry-run", false, "list without erasing or rebuilding")
+	acceptDrift := flags.Bool("accept-drift", false, "replay runs another plugin version read")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -1141,19 +1142,19 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 		releaseID = release.ID
 	}
 
-	objects := worker.NewObjectStore(storage)
-	reprocessor := worker.NewReprocessor(db,
-		worker.NewTestIngester(db, objects, logger),
-		worker.NewSecurityIngester(db, objects, logger),
-		worker.NewLoadIngester(db, objects, logger),
-		logger)
+	capabilities, err := builtin.Registry()
+	if err != nil {
+		return fmt.Errorf("built-in plugins: %w", err)
+	}
+	reader := worker.NewFactIngester(db, worker.NewObjectStore(storage), capabilities, logger)
+	reprocessor := worker.NewReprocessor(db, reader, pluginVersions(), logger)
 
 	logger.Info("replay started",
 		"release", *releaseTag, "simulation", *dryRun, "scope",
 		scope(*releaseTag))
 
 	report, err := reprocessor.Run(ctx, worker.ReprocessOptions{
-		ReleaseID: releaseID, DryRun: *dryRun,
+		ReleaseID: releaseID, DryRun: *dryRun, AcceptDrift: *acceptDrift,
 	})
 	if err != nil {
 		return err
@@ -1161,7 +1162,7 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 
 	logger.Info("replay finished",
 		"runs examined", report.Examined, "runs replayed", report.Replayed,
-		"reports erased", report.Deleted, "failures", report.Failed)
+		"reports erased", report.Deleted, "failures", report.Failed, "refused", report.Refused)
 
 	if len(report.Failed) > 0 {
 		// A non-zero exit: a partial replay must not pass for a success in a pipeline or an
@@ -1174,7 +1175,7 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 
 func scope(releaseTag string) string {
 	if releaseTag == "" {
-		return "tout l'historique"
+		return "the whole history"
 	}
 	return "one release"
 }

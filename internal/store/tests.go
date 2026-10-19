@@ -378,6 +378,8 @@ type ReprocessTarget struct {
 	// knowing what disappears before rebuilding it is the only way to observe that a
 	// fixed parser now produces less, and not more.
 	Tools []string
+	// Producers are the plugin versions that read it.
+	Producers []string
 }
 
 // ListReprocessTargets returns the runs whose raw artifacts are known.
@@ -387,7 +389,7 @@ type ReprocessTarget struct {
 // replay that erases without rebuilding.
 func (db *DB) ListReprocessTargets(ctx context.Context, releaseID int64) ([]ReprocessTarget, error) {
 	query := `select r.run_id, coalesce(runs.pipelinerun_name, ''), r.release_id,
-	                 array_agg(distinct r.tool)
+	                 array_agg(distinct r.tool), array_agg(distinct r.producer)
 	          from test_results r
 	          join runs on runs.id = r.run_id
 	          where r.raw_object is not null`
@@ -401,33 +403,95 @@ func (db *DB) ListReprocessTargets(ctx context.Context, releaseID int64) ([]Repr
 
 	rows, err := db.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("runs rejouables: %w", err)
+		return nil, fmt.Errorf("replayable runs: %w", err)
 	}
 	defer rows.Close()
 
 	var targets []ReprocessTarget
 	for rows.Next() {
 		var target ReprocessTarget
-		if err := rows.Scan(&target.RunID, &target.RunName, &target.ReleaseID, &target.Tools); err != nil {
-			return nil, fmt.Errorf("runs rejouables: %w", err)
+		if err := rows.Scan(&target.RunID, &target.RunName, &target.ReleaseID, &target.Tools,
+			&target.Producers); err != nil {
+			return nil, fmt.Errorf("replayable runs: %w", err)
 		}
 		targets = append(targets, target)
 	}
 	return targets, rows.Err()
 }
 
-// DeleteTestResults erases a run's results.
-//
-// Erase then rebuild, rather than add: a replay that stacked would duplicate every
-// case and skew every cross-release comparison, which is precisely what the replay
-// exists to fix.
-//
-// The cases, findings and measures go with them, by cascade. That is intended: they
-// make no sense detached from the report that produced them.
-func (db *DB) DeleteTestResults(ctx context.Context, runID int64) (int64, error) {
-	tally, err := db.pool.Exec(ctx, `delete from test_results where run_id = $1`, runID)
+// PinnedBaseline is a load baseline a replay erases with its measure, and pins again.
+type PinnedBaseline struct {
+	Scenario string
+	Metric   string
+	PinnedBy string
+	PinnedAt time.Time
+}
+
+// ResetInterpretation erases a run's results and clears its read mark, in one transaction, and
+// returns the baselines pinned on its measures: erasing a measure erases its baseline, and a replay
+// must not cost someone's reference.
+func (db *DB) ResetInterpretation(ctx context.Context, runID int64) (int64, []PinnedBaseline, error) {
+	transaction, err := db.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("erasing the results of run %d: %w", runID, err)
+		return 0, nil, fmt.Errorf("resetting run %d: %w", runID, err)
 	}
-	return tally.RowsAffected(), nil
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	rows, err := transaction.Query(ctx,
+		`select b.scenario, b.metric, b.pinned_by, b.pinned_at
+		   from bench_baselines b
+		   join bench_measures m on m.id = b.measure_id
+		   join test_results r on r.id = m.test_result_id
+		  where r.run_id = $1`, runID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("baselines of run %d: %w", runID, err)
+	}
+	var baselines []PinnedBaseline
+	for rows.Next() {
+		var baseline PinnedBaseline
+		if err := rows.Scan(&baseline.Scenario, &baseline.Metric, &baseline.PinnedBy, &baseline.PinnedAt); err != nil {
+			rows.Close()
+			return 0, nil, fmt.Errorf("baselines of run %d: %w", runID, err)
+		}
+		baselines = append(baselines, baseline)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, nil, fmt.Errorf("baselines of run %d: %w", runID, err)
+	}
+
+	tally, err := transaction.Exec(ctx, `delete from test_results where run_id = $1`, runID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("erasing the results of run %d: %w", runID, err)
+	}
+	if _, err := transaction.Exec(ctx,
+		`update runs set interpreted_at = null, interpreted_by = null where id = $1`, runID); err != nil {
+		return 0, nil, fmt.Errorf("resetting run %d: %w", runID, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return 0, nil, fmt.Errorf("resetting run %d: %w", runID, err)
+	}
+	return tally.RowsAffected(), baselines, nil
+}
+
+// RestoreBaselines pins again, on a replayed run's new measures, the baselines its replay erased.
+// A baseline whose measure the replay did not produce again stays unpinned: there is nothing left
+// to point at.
+func (db *DB) RestoreBaselines(ctx context.Context, runID int64, baselines []PinnedBaseline) (int, error) {
+	restored := 0
+	for _, baseline := range baselines {
+		tally, err := db.pool.Exec(ctx,
+			`insert into bench_baselines (scenario, metric, measure_id, pinned_by, pinned_at)
+			 select m.scenario, m.metric, m.id, $4, $5
+			   from bench_measures m join test_results r on r.id = m.test_result_id
+			  where r.run_id = $1 and m.scenario = $2 and m.metric = $3
+			  order by m.id desc limit 1
+			 on conflict (scenario, metric) do nothing`,
+			runID, baseline.Scenario, baseline.Metric, baseline.PinnedBy, baseline.PinnedAt)
+		if err != nil {
+			return restored, fmt.Errorf("restoring baseline %s/%s: %w", baseline.Scenario, baseline.Metric, err)
+		}
+		restored += int(tally.RowsAffected())
+	}
+	return restored, nil
 }

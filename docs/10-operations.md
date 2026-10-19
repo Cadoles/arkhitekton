@@ -71,12 +71,17 @@ lease. Together they separate a misconfiguration from a failure faster than anyt
 
 ## 10.6 Occasional roles
 
-**Replaying results.** When a parser is fixed, the raw artifacts are still in the object
-store:
+**Replaying results.** When a parser or an interpreter is fixed, the raw artifacts are still
+in the object store:
 
-    arkhitekton reprocess
+    arkhitekton reprocess --dry-run
+    arkhitekton reprocess [--release <tag>]
 
-It rebuilds results from what pipelines uploaded, without re-running anything.
+It reads each run again through the interpreter of the capability that launched it, without
+re-running anything, and pins load baselines again on the measures it rebuilds. A run another
+plugin version read is refused, since reading it with the installed version changes its history;
+`--accept-drift` replays it anyway. Results from before the plugins read their runs carry a
+`-legacy` version and are always replayed.
 
 **Checking tracker access.**
 
