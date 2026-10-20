@@ -13,6 +13,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -454,5 +455,36 @@ func TestTheLogNeverCarriesTheConfiguration(t *testing.T) {
 
 	if len(fake.audit) != 1 || fake.audit[0] != "plugin.settings:redmine" {
 		t.Errorf("journal = %v", fake.audit)
+	}
+}
+
+// The core cannot be switched off: the dashboard builds nothing without it.
+func TestAMandatoryPluginCannotBeSwitchedOff(t *testing.T) {
+	fake := newFakePluginStore()
+	handler := pluginsHandlerWith(t, fake, "")
+
+	recorder := putPlugin(t, handler.Set, "/admin/plugins/core", "core", `{"enabled":false}`)
+	if recorder.Code != http.StatusConflict {
+		t.Errorf("code %d, expected 409", recorder.Code)
+	}
+}
+
+// A second tracker cannot be switched on beside the first: a project's versions are read from one.
+func TestASecondTrackerIsRefused(t *testing.T) {
+	registry := mustRegistry(
+		capability.Plugin{ID: "redmine", Label: "Redmine", Tracker: noTracker{}},
+		capability.Plugin{ID: "jira", Label: "Jira", Tracker: noTracker{}},
+	)
+	fake := newFakePluginStore()
+	fake.global["jira"] = store.PluginSettings{PluginID: "jira", Enabled: false, Config: map[string]string{}}
+	handler := NewPluginsHandler(registry, fake, nil, quietLogger())
+
+	recorder := putPlugin(t, handler.Set, "/admin/plugins/jira", "jira", `{"enabled":true}`)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "redmine") {
+		t.Errorf("code %d, body %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = putPlugin(t, handler.Set, "/admin/plugins/jira", "jira", `{"enabled":false}`)
+	if recorder.Code != http.StatusOK {
+		t.Errorf("switching it off: code %d", recorder.Code)
 	}
 }

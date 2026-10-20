@@ -125,15 +125,15 @@ All scoped to a project; the permission is checked **in that project**.
 | `GET /projects/{project}/pipelines` | `admin` |
 | `PUT /projects/{project}/pipelines/{kind}` | `admin` |
 | `GET /projects/{project}/sync` | `admin` |
-| `POST /projects/{project}/sync/redmine/resync` | `admin` |
-| `PUT /projects/{project}/sync/redmine/mapping/{status}` | `admin` |
+| `POST /projects/{project}/sync/tracker/resync` | `admin` |
+| `PUT /projects/{project}/sync/tracker/mapping/{status}` | `admin` |
 | `GET /admin/roles` · `POST /admin/roles` · `DELETE /admin/roles/{subject}` | `admin` |
 | `GET /admin/audit` | `admin` |
 | `GET /admin/plugins` · `PUT /admin/plugins/{plugin}` | `admin` |
 | `GET /projects/{project}/plugins` | `admin` |
 | `PUT /projects/{project}/plugins/{plugin}` | `admin` |
 | `DELETE /projects/{project}/plugins/{plugin}` | `admin` — clears the override, restoring inheritance |
-| `GET /forge/refs` | `read` |
+| `GET /projects/{project}/forge/refs` | `read` |
 
 ## 7.10 Routes contributed by the MSE plugin
 

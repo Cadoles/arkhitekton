@@ -103,17 +103,16 @@ type ReleasesHandler struct {
 	// logger serves to say what fails without failing the screen. Nil-safe:
 	// `slog.Default()` by default, so tests need not supply one.
 	logger *slog.Logger
-	// trackerURL serves to build the links to a note's issues. Empty, the links are
-	// omitted rather than rendered dead.
-	trackerURL string
+	// trackers serves the links to a note's issues. Nil, or a project with no tracker, and the
+	// links are omitted rather than rendered dead.
+	trackers Trackers
 	// registryProject prefixes the published images. It serves to name, to the audit,
 	// the ones it must analyse on a re-run — it analyses an image already published,
 	// never a rebuild.
 	registryProject string
-	// forge resolves a reference into a commit. Nil when the forge is not configured.
-	forge CommitResolver
-	// tagger sets the git tag. Nil when the token is read-only.
-	tagger Tagger
+	// forges resolves a project's forge, to anchor a release on a commit and tag it. Nil when
+	// no forge is wired.
+	forges Forges
 	// artifactReader reads what a release's automation produced, and the frozen plan
 	// that gives the steps their names. Nil: the section stays empty rather than
 	// preventing the page.
@@ -129,21 +128,10 @@ type ReleasesHandler struct {
 	scoreCatalog *catalog.Catalog
 }
 
-// WithTrackerURL wires the links to the issues.
-//
-// The `/issues/` path is still the tracker's own: a second tracker would compose it
-// differently, and it is the last thing this boundary cannot yet ask its
-// implementation for.
-func (h *ReleasesHandler) WithTrackerURL(url string) *ReleasesHandler {
-	h.trackerURL = url
+// WithTrackers wires the links to the issues, which the project's tracker plugin composes.
+func (h *ReleasesHandler) WithTrackers(trackers Trackers) *ReleasesHandler {
+	h.trackers = trackers
 	return h
-}
-
-func (h *ReleasesHandler) issueURL(reference string) string {
-	if h.trackerURL == "" {
-		return ""
-	}
-	return h.trackerURL + "/issues/" + reference
 }
 
 // ArtifactReader returns what a release produced, and the plan that produced it.
@@ -224,9 +212,8 @@ func (h *ReleasesHandler) WithScoreCatalog(registry *catalog.Catalog) *ReleasesH
 // setting the tag on that commit. Setting a tag on a branch would place it on
 // whatever the branch names at that instant, and two releases created a minute apart
 // could aim at different commits.
-func (h *ReleasesHandler) WithForge(forge CommitResolver, tagger Tagger) *ReleasesHandler {
-	h.forge = forge
-	h.tagger = tagger
+func (h *ReleasesHandler) WithForges(forges Forges) *ReleasesHandler {
+	h.forges = forges
 	return h
 }
 
@@ -726,14 +713,14 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// The mode and not the name: only a kind that builds starts from a git reference, and
 	// it is the one that deserves a tag and an anchoring commit.
 	if spec.Mode == release.ModeBuild {
-		commit, resolveWarnings := h.anchorCommit(r.Context(), request.GitRef)
+		commit, resolveWarnings := h.anchorCommit(r.Context(), project.ID, request.GitRef)
 		record.GitCommit = commit
 		warnings = append(warnings, resolveWarnings...)
 
 		if commit != "" {
 			// The tag is set for humans and for traceability; the build starts from the commit.
 			// Its failure is therefore a caveat and does not prevent building.
-			_, tagWarnings := h.tagRelease(r.Context(), parsed.Raw, commit)
+			_, tagWarnings := h.tagRelease(r.Context(), project.ID, parsed.Raw, commit)
 			warnings = append(warnings, tagWarnings...)
 		}
 	}
@@ -1187,6 +1174,7 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	who := h.actorsFor(r.Context())
+	tracker := trackerOf(r.Context(), h.trackers, currentID)
 
 	payload := make([]notePayload, 0, len(entries))
 	linked := make(map[string]bool, len(entries))
@@ -1197,7 +1185,7 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 			Status: entry.StatusName, Anomaly: entry.Anomaly, Known: entry.Known,
 			Source: entry.Source, PullRequest: entry.PullRequest,
 			AddedBy: who.name(entry.AddedBy),
-			URL:     h.issueURL(entry.ExternalID),
+			URL:     tracker.issueURL(entry.ExternalID),
 		})
 	}
 
@@ -1226,7 +1214,7 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 		available = append(available, notePayload{
 			ExternalID: issue.ExternalID, Subject: issue.Subject, Tracker: issue.Tracker,
 			Status: issue.StatusName, Anomaly: issue.Anomaly, Known: true,
-			URL: h.issueURL(issue.ExternalID),
+			URL: tracker.issueURL(issue.ExternalID),
 		})
 	}
 
@@ -1338,18 +1326,29 @@ func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
 // A release naming a branch is not reproducible: the branch moves, and rebuilding
 // would produce a different image. Resolving at creation freezes the starting point,
 // even when the tag cannot be set.
-func (h *ReleasesHandler) anchorCommit(ctx context.Context, ref string) (string, []string) {
+func (h *ReleasesHandler) anchorCommit(ctx context.Context, projectID int64, ref string) (string, []string) {
 	if strings.TrimSpace(ref) == "" {
 		return "", []string{"no Git reference supplied: the release is attached to no commit"}
 	}
-	if h.forge == nil {
+	var forge CommitResolver
+	if h.forges != nil {
+		resolved, err := h.forges.Forge(ctx, projectID)
+		switch {
+		case err == nil:
+			forge = resolved
+		case !notConfigured(err):
+			return "", []string{"forge unreachable: the release keeps the reference " + ref +
+				" without resolving it to a commit: " + err.Error()}
+		}
+	}
+	if forge == nil {
 		return "", []string{
 			"forge not configured: the release keeps the reference " + ref +
 				" without resolving it to a commit, and is therefore not reproducible",
 		}
 	}
 
-	commit, err := h.forge.ResolveCommit(ctx, ref)
+	commit, err := forge.ResolveCommit(ctx, ref)
 	if err != nil {
 		return "", []string{"reference " + ref + " could not be resolved to a commit: " + err.Error()}
 	}
@@ -1361,15 +1360,21 @@ func (h *ReleasesHandler) anchorCommit(ctx context.Context, ref string) (string,
 // This is the segment the dashboard takes over and which used to be manual. A failure
 // is a caveat and not a refusal: the tag can be set again, whereas a refused release
 // forces starting over.
-func (h *ReleasesHandler) tagRelease(ctx context.Context, tag, commit string) (bool, []string) {
-	if h.tagger == nil {
+func (h *ReleasesHandler) tagRelease(ctx context.Context, projectID int64, tag, commit string) (bool, []string) {
+	var tagger Tagger
+	if h.forges != nil {
+		if writer, err := h.forges.TagWriter(ctx, projectID); err == nil {
+			tagger = writer
+		}
+	}
+	if tagger == nil {
 		return false, []string{
 			"no token able to write to the forge: tag " + tag +
 				" was not set, the release stays identified by its commit",
 		}
 	}
 
-	err := h.tagger.CreateTag(ctx, tag, commit, "Release "+tag)
+	err := tagger.CreateTag(ctx, tag, commit, "Release "+tag)
 	switch {
 	case err == nil:
 		return true, nil

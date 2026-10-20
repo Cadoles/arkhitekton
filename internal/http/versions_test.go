@@ -70,7 +70,7 @@ func (f *fakeVersionStore) Audit(_ context.Context, _, action, _ string, _ map[s
 func declareVersion(t *testing.T, store *fakeVersionStore, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
-	handler := NewVersionsHandler(store, "")
+	handler := NewVersionsHandler(store, nil)
 
 	request := httptest.NewRequest(http.MethodPost, "/projects/app/versions",
 		strings.NewReader(body))
@@ -199,7 +199,7 @@ func TestTheListSaysWhetherTheProjectIsTracked(t *testing.T) {
 		projects := untracked()
 		projects.project.TrackerProject = expected.tracker
 
-		handler := NewVersionsHandler(projects, "")
+		handler := NewVersionsHandler(projects, nil)
 
 		request := httptest.NewRequest(http.MethodGet, "/projects/app/versions", nil)
 		request.SetPathValue("project", "app")

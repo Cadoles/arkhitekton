@@ -104,7 +104,7 @@ func TestTheStateCarriesTheWholeMappingAndNotOnlyTheUnknowns(t *testing.T) {
 		// No unknown status: the real situation after the bootstrap.
 		unmapped: nil,
 	}
-	handler := NewSyncAdminHandler(fake)
+	handler := NewSyncAdminHandler(fake, fixedTracker{id: "redmine"})
 
 	recorder := httptest.NewRecorder()
 	handler.State(recorder, syncRequest(http.MethodGet, "/projects/mse/sync", ""))
@@ -150,7 +150,7 @@ func TestTheStateCarriesTheWholeMappingAndNotOnlyTheUnknowns(t *testing.T) {
 // what the project declares. A project with no tracker is not failing to synchronise — it
 // expects no synchronisation.
 func TestAProjectWithNoTrackerSaysNotConfigured(t *testing.T) {
-	handler := NewSyncAdminHandler(&fakeSyncStore{})
+	handler := NewSyncAdminHandler(&fakeSyncStore{}, fixedTracker{id: "redmine"})
 
 	recorder := httptest.NewRecorder()
 	handler.State(recorder, syncRequest(http.MethodGet, "/projects/mse/sync", ""))
@@ -171,9 +171,9 @@ func TestAProjectWithNoTrackerSaysNotConfigured(t *testing.T) {
 // tracker, and the screen would mix two rules without saying so.
 func TestDeclaringAStatusReappliesAndReturnsTheNumberMoved(t *testing.T) {
 	fake := &fakeSyncStore{tracked: true, moved: 17}
-	handler := NewSyncAdminHandler(fake)
+	handler := NewSyncAdminHandler(fake, fixedTracker{id: "redmine"})
 
-	request := syncRequest(http.MethodPut, "/projects/mse/sync/redmine/mapping/Livr%C3%A9", `{"bucket":"done"}`)
+	request := syncRequest(http.MethodPut, "/projects/mse/sync/tracker/mapping/Livr%C3%A9", `{"bucket":"done"}`)
 	request.SetPathValue("status", "Livré")
 	recorder := httptest.NewRecorder()
 	handler.SetMapping(recorder, request)
@@ -196,7 +196,7 @@ func TestDeclaringAStatusReappliesAndReturnsTheNumberMoved(t *testing.T) {
 	}
 
 	// Changing a mapping moves a rate displayed to the client: it is recorded.
-	if len(fake.audit) != 1 || !strings.HasPrefix(fake.audit[0], "sync.redmine.mapping:") {
+	if len(fake.audit) != 1 || !strings.HasPrefix(fake.audit[0], "sync.tracker.mapping:") {
 		t.Errorf("journal: %v", fake.audit)
 	}
 }
@@ -206,9 +206,9 @@ func TestDeclaringAStatusReappliesAndReturnsTheNumberMoved(t *testing.T) {
 func TestAnInventedBucketIsRefused(t *testing.T) {
 	for _, bucket := range []string{"", "termine", "DONE", "en-cours"} {
 		fake := &fakeSyncStore{}
-		handler := NewSyncAdminHandler(fake)
+		handler := NewSyncAdminHandler(fake, fixedTracker{id: "redmine"})
 
-		request := syncRequest(http.MethodPut, "/projects/mse/sync/redmine/mapping/X", `{"bucket":"`+bucket+`"}`)
+		request := syncRequest(http.MethodPut, "/projects/mse/sync/tracker/mapping/X", `{"bucket":"`+bucket+`"}`)
 		request.SetPathValue("status", "X")
 		recorder := httptest.NewRecorder()
 		handler.SetMapping(recorder, request)
@@ -227,10 +227,10 @@ func TestAnInventedBucketIsRefused(t *testing.T) {
 // would keep relaunching.
 func TestResyncClearsTheCursorAndAnnouncesTheWait(t *testing.T) {
 	fake := &fakeSyncStore{}
-	handler := NewSyncAdminHandler(fake)
+	handler := NewSyncAdminHandler(fake, fixedTracker{id: "redmine"})
 
 	recorder := httptest.NewRecorder()
-	handler.Resync(recorder, syncRequest(http.MethodPost, "/projects/mse/sync/redmine/resync", ""))
+	handler.Resync(recorder, syncRequest(http.MethodPost, "/projects/mse/sync/tracker/resync", ""))
 
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("code %d", recorder.Code)
@@ -250,5 +250,17 @@ func TestResyncClearsTheCursorAndAnnouncesTheWait(t *testing.T) {
 	}
 	if len(fake.audit) != 1 {
 		t.Errorf("journal: %v", fake.audit)
+	}
+}
+
+// A project with no tracker has no cursor to reset, and is told so rather than reset nothing.
+func TestResyncWithoutATrackerIsRefused(t *testing.T) {
+	handler := NewSyncAdminHandler(&fakeSyncStore{}, nil)
+
+	recorder := httptest.NewRecorder()
+	handler.Resync(recorder, syncRequest(http.MethodPost, "/projects/mse/sync/tracker/resync", ""))
+
+	if recorder.Code != http.StatusConflict {
+		t.Errorf("code %d, expected 409", recorder.Code)
 	}
 }

@@ -50,7 +50,8 @@ type SyncAdminStore interface {
 
 // SyncAdminHandler exposes the state of the synchronisations and their corrections.
 type SyncAdminHandler struct {
-	store SyncAdminStore
+	store    SyncAdminStore
+	trackers Trackers
 }
 
 // NewSyncAdminHandler builds the handler.
@@ -58,8 +59,8 @@ type SyncAdminHandler struct {
 // It no longer receives a "configured" flag: the tracker's configuration is now a plugin
 // setting, specific to the project, and it is the project's declaration that says whether
 // the tracker concerns it. A global flag would answer for everyone.
-func NewSyncAdminHandler(admin SyncAdminStore) *SyncAdminHandler {
-	return &SyncAdminHandler{store: admin}
+func NewSyncAdminHandler(admin SyncAdminStore, trackers Trackers) *SyncAdminHandler {
+	return &SyncAdminHandler{store: admin, trackers: trackers}
 }
 
 // project resolves the project named in the path.
@@ -83,10 +84,14 @@ func (h *SyncAdminHandler) State(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state, err := h.store.GetSyncState(r.Context(), "redmine", project.ID)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the state", "")
-		return
+	var state store.SyncState
+	if source := trackerOf(r.Context(), h.trackers, project.ID).source(); source != "" {
+		var err error
+		state, err = h.store.GetSyncState(r.Context(), source, project.ID)
+		if err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the state", "")
+			return
+		}
 	}
 
 	unmapped, err := h.store.UnmappedStatuses(r.Context(), project.ID)
@@ -161,12 +166,18 @@ func (h *SyncAdminHandler) Resync(w http.ResponseWriter, r *http.Request) {
 
 	// Bounded to the project: re-reading everything calls a third-party service, and nothing
 	// justifies making one deployment bear the doubt one has about another.
-	if err := h.store.ResetSyncCursor(r.Context(), "redmine", project.ID); err != nil {
+	source := trackerOf(r.Context(), h.trackers, project.ID).source()
+	if source == "" {
+		writeProblem(w, http.StatusConflict, "No tracker",
+			"no plugin enabled for this project brings a tracker")
+		return
+	}
+	if err := h.store.ResetSyncCursor(r.Context(), source, project.ID); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot reset", "")
 		return
 	}
 
-	h.audit(r, "sync.redmine.reset", project.Slug, nil)
+	h.audit(r, "sync.tracker.reset", project.Slug, map[string]any{"tracker": source})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		// The message states the wait: without it, a user seeing nothing change would keep
@@ -225,7 +236,7 @@ func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
 
 	// The log carries how many moved: changing a status's mapping moves a completion rate
 	// displayed to the client, which deserves a record.
-	h.audit(r, "sync.redmine.mapping", project.Slug+"/"+statusName, map[string]any{
+	h.audit(r, "sync.tracker.mapping", project.Slug+"/"+statusName, map[string]any{
 		"bucket": request.Bucket, "issues_moved": moved,
 	})
 

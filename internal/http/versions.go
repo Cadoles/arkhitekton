@@ -35,13 +35,13 @@ type VersionStore interface {
 // VersionsHandler serves the tracker's versions and their progress.
 type VersionsHandler struct {
 	store VersionStore
-	// trackerURL serves to build the outgoing links. Empty, the links are omitted rather than
-	// rendered broken.
-	trackerURL string
+	// trackers serves the outgoing links and the synchronisation's state. Nil, or a project with
+	// no tracker, and the links are omitted rather than rendered broken.
+	trackers Trackers
 }
 
-func NewVersionsHandler(versions VersionStore, trackerURL string) *VersionsHandler {
-	return &VersionsHandler{store: versions, trackerURL: trackerURL}
+func NewVersionsHandler(versions VersionStore, trackers Trackers) *VersionsHandler {
+	return &VersionsHandler{store: versions, trackers: trackers}
 }
 
 // completionVw carries the two completion measures.
@@ -93,7 +93,7 @@ type versionVw struct {
 	URL           string `json:"url,omitempty"`
 }
 
-func (h *VersionsHandler) view(summary store.VersionSummary) versionVw {
+func (h *VersionsHandler) view(summary store.VersionSummary, tracker projectTracker) versionVw {
 	view := versionVw{
 		ID: summary.ID, Name: summary.Name, Status: summary.Status,
 		DueDate: summary.DueDate, SyncedAt: summary.SyncedAt, Pending: summary.Pending,
@@ -104,9 +104,7 @@ func (h *VersionsHandler) view(summary store.VersionSummary) versionVw {
 	// the client then has no link to build.
 	if !summary.Pending && summary.ExternalID != "" {
 		view.ExternalID = summary.ExternalID
-		if h.trackerURL != "" {
-			view.URL = h.trackerURL + "/versions/" + summary.ExternalID
-		}
+		view.URL = tracker.versionURL(summary.ExternalID)
 	}
 	return view
 }
@@ -124,9 +122,10 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tracker := trackerOf(r.Context(), h.trackers, currentID)
 	payload := make([]versionVw, 0, len(summaries))
 	for _, summary := range summaries {
-		payload = append(payload, h.view(summary))
+		payload = append(payload, h.view(summary, tracker))
 	}
 
 	// The age of the data comes with the list: the tracker may not answer, and a screen
@@ -135,10 +134,13 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	// The state of the project being consulted, and not the instance's: two tracked projects
 	// may target two servers, and showing one's data age on the other's screen would say "up
 	// to date" of a tracker that is down.
-	state, err := h.store.GetSyncState(r.Context(), "redmine", currentID)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the synchronisation state", "")
-		return
+	var state store.SyncState
+	if source := tracker.source(); source != "" {
+		state, err = h.store.GetSyncState(r.Context(), source, currentID)
+		if err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the synchronisation state", "")
+			return
+		}
 	}
 
 	tracked := false
@@ -203,6 +205,7 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	for _, bucket := range store.Buckets {
 		buckets[bucket] = []issueVw{}
 	}
+	tracker := trackerOf(r.Context(), h.trackers, summary.ProjectID)
 	anomalies := make([]issueVw, 0)
 	for _, issue := range issues {
 		view := issueVw{
@@ -211,9 +214,7 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 			Assignee: issue.Assignee, DoneRatio: issue.DoneRatio,
 			IsClosed: issue.IsClosed, Anomaly: issue.Anomaly,
 		}
-		if h.trackerURL != "" {
-			view.URL = h.trackerURL + "/issues/" + issue.ExternalID
-		}
+		view.URL = tracker.issueURL(issue.ExternalID)
 
 		if bucket, known := buckets[issue.Bucket]; known {
 			buckets[issue.Bucket] = append(bucket, view)
@@ -251,7 +252,7 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version":   h.view(summary),
+		"version":   h.view(summary, tracker),
 		"buckets":   buckets,
 		"anomalies": anomalies,
 		"releases":  releasePayload,

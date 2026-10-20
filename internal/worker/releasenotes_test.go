@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,9 +36,11 @@ type fakeNoteStore struct {
 	candidates map[string]store.NoteEntry
 	linked     []string
 	sources    map[string]string
+	statuses   []string
 }
 
-func (f *fakeNoteStore) NoteCandidates(context.Context, int64, []string) (map[string]store.NoteEntry, error) {
+func (f *fakeNoteStore) NoteCandidates(_ context.Context, _ int64, statuses []string) (map[string]store.NoteEntry, error) {
+	f.statuses = statuses
 	return f.candidates, nil
 }
 
@@ -195,5 +198,57 @@ func TestTheNoteKindIsTheSameOnBothSides(t *testing.T) {
 	if KindReleaseNotes != dashhttp.ReleaseNotesJobKind {
 		t.Errorf("worker: %q, api: %q — a queued job would never be processed",
 			KindReleaseNotes, dashhttp.ReleaseNotesJobKind)
+	}
+}
+
+// noteSources is a project's forge and review statuses.
+type noteSources struct {
+	forge    *fakeForge
+	statuses []string
+	asked    []int64
+}
+
+func (s *noteSources) Forge(_ context.Context, projectID int64) (provider.Forge, error) {
+	s.asked = append(s.asked, projectID)
+	return forgeOf{s.forge}, nil
+}
+
+func (s *noteSources) ReviewStatuses(context.Context, int64) ([]string, error) {
+	return s.statuses, nil
+}
+
+// forgeOf is a whole forge reading merged pull requests from a fake.
+type forgeOf struct{ *fakeForge }
+
+func (forgeOf) DefaultBranch(context.Context) (string, error)              { return "", nil }
+func (forgeOf) ListBranches(context.Context) ([]provider.Ref, bool, error) { return nil, false, nil }
+func (forgeOf) ListTags(context.Context) ([]provider.Ref, bool, error)     { return nil, false, nil }
+func (forgeOf) ResolveCommit(context.Context, string) (string, error)      { return "", nil }
+func (forgeOf) CheckAccess(context.Context) (provider.Account, error)      { return provider.Account{}, nil }
+
+// A job's note reads its project's forge, with the statuses the project declares, or the
+// deployment's when it declares none.
+func TestANoteReadsItsProjectsForge(t *testing.T) {
+	release, project := int64(9), int64(4)
+	forge := &fakeForge{pulls: []provider.PullRequest{{Number: 12, Title: "fix #1234"}}}
+
+	for _, declared := range [][]string{{"Prêt"}, nil} {
+		notes := &fakeNoteStore{candidates: candidates("1234")}
+		sources := &noteSources{forge: forge, statuses: declared}
+		builder := NewNoteBuilder(nil, notes, []string{"En revue"}, quietLogger()).WithSources(sources)
+
+		if err := builder.Run(context.Background(), store.Job{ReleaseID: &release, ProjectID: &project}); err != nil {
+			t.Fatal(err)
+		}
+		if len(sources.asked) != 1 || sources.asked[0] != project || len(notes.linked) != 1 {
+			t.Errorf("asked %v, linked %v", sources.asked, notes.linked)
+		}
+		expected := declared
+		if len(expected) == 0 {
+			expected = []string{"En revue"}
+		}
+		if strings.Join(notes.statuses, ",") != strings.Join(expected, ",") {
+			t.Errorf("statuses %v, expected %v", notes.statuses, expected)
+		}
 	}
 }

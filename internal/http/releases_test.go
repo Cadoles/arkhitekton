@@ -1009,7 +1009,7 @@ func TestADeliveredReleaseIsNotRebuilt(t *testing.T) {
 func TestAPreReleaseIsAnchoredOnACommitAndTagged(t *testing.T) {
 	fake := newFakeStore()
 	forge := &fakeForge{commit: "abc123def456"}
-	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
 
 	recorder := httptest.NewRecorder()
 	handler.Create(recorder, asRole(
@@ -1053,7 +1053,7 @@ func TestWithoutWriteAccessTheReleaseStaysAnchoredOnItsCommit(t *testing.T) {
 	fake := newFakeStore()
 	forge := &fakeForge{commit: "abc123def456"}
 	// Forge wired read-only: no tagger.
-	handler := newReleasesHandler(t, fake).WithForge(forge, nil)
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge})
 
 	recorder := httptest.NewRecorder()
 	handler.Create(recorder, asRole(
@@ -1086,7 +1086,7 @@ func TestWithoutWriteAccessTheReleaseStaysAnchoredOnItsCommit(t *testing.T) {
 func TestAnUnreachableForgeDoesNotPreventCreation(t *testing.T) {
 	fake := newFakeStore()
 	forge := &fakeForge{resolveErr: errors.New("forge injoignable")}
-	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
 
 	recorder := httptest.NewRecorder()
 	handler.Create(recorder, asRole(
@@ -1113,7 +1113,7 @@ func TestAFinalReleaseIsNotTaggedASecondTime(t *testing.T) {
 		ID: 1, Tag: "3.2.0-rc1", Kind: "pre", State: "released", ImageVersion: "3.2.0-rc1",
 	}
 	forge := &fakeForge{commit: "abc123"}
-	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
 
 	recorder := httptest.NewRecorder()
 	handler.Create(recorder, asRole(
@@ -1401,7 +1401,7 @@ func (f *fakeReleaseStore) FinishPlanRun(
 func TestThePlanTargetsTheIdentifierReturnedByTheInsert(t *testing.T) {
 	fake := newFakeStore()
 	forge := &fakeForge{commit: "abc123def456"}
-	handler := newReleasesHandler(t, fake).WithForge(forge, forge)
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
 
 	recorder := httptest.NewRecorder()
 	handler.Create(recorder, asRole(

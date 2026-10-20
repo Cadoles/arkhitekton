@@ -140,7 +140,7 @@ export function useForceResync(project: string) {
   return useMutation({
     mutationFn: () =>
       request<{ message: string }>(
-        `/projects/${encodeURIComponent(project)}/sync/redmine/resync`,
+        `/projects/${encodeURIComponent(project)}/sync/tracker/resync`,
         { method: 'POST' },
       ),
     onSuccess: () => {
@@ -162,7 +162,7 @@ export function useSetStatusBucket(project: string) {
   return useMutation({
     mutationFn: ({ status, bucket }: { status: string; bucket: Bucket }) =>
       request<{ issues_moved: number }>(
-        `/projects/${encodeURIComponent(project)}/sync/redmine/mapping/${encodeURIComponent(status)}`,
+        `/projects/${encodeURIComponent(project)}/sync/tracker/mapping/${encodeURIComponent(status)}`,
         { method: 'PUT', body: JSON.stringify({ bucket }) },
       ),
     onSuccess: () => {
@@ -191,7 +191,7 @@ export type ForgeRefs = {
 export function useForgeRefs(enabled: boolean) {
   return useQuery({
     queryKey: ['forge', 'refs'],
-    queryFn: () => request<ForgeRefs>('/forge/refs'),
+    queryFn: () => request<ForgeRefs>(projectPath('/forge/refs')),
     enabled,
     // Une minute : les branches bougent au rythme des développeurs, pas de la
     // frappe dans un formulaire. Rappeler la forge à chaque focus serait du bruit.

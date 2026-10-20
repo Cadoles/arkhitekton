@@ -19,8 +19,8 @@ func (tracker) Connect(target capability.Target) (provider.Tracker, error) {
 	url := strings.TrimSpace(target.Settings["url"])
 	key := strings.TrimSpace(target.Settings["api_key"])
 	if url == "" || key == "" {
-		return nil, fmt.Errorf("tracker not configured: set the URL and the API key of plugin %q, "+
-			"on the instance or on the project", ID)
+		return nil, fmt.Errorf("%w: set the URL and the API key of plugin %q, "+
+			"on the instance or on the project", ErrNotConfigured, ID)
 	}
 	return New(Options{URL: url, APIKey: key, Timeout: target.Timeout})
 }

@@ -31,6 +31,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/connect"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
@@ -41,7 +42,6 @@ import (
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/gitea"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
@@ -193,6 +193,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err := db.EnsurePlugins(ctx, pluginIDs(pluginRegistry)); err != nil {
 		logger.Error("seeding the plugins", "error", err)
 	}
+	// The tracker and forge clients, built from the plugins enabled for each project.
+	connections := connect.New(pluginRegistry, db, cipher, connect.Timeouts{
+		Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout,
+	})
 	seedMSESettings(ctx, db, logger)
 
 	// In the database and not in memory: two api replicas with no session affinity serve
@@ -283,7 +287,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// tables, which return nothing when it is switched off.
 		WithDeployments(mse.Deployments(mseBackend.Store, modules)).
 		WithPromotions(mse.Promotions(mseBackend.Store, modules)).
-		WithTrackerURL(cfg.Tracker.URL).
+		WithTrackers(connections).
+		// The release is anchored on a commit and tagged through the project's forge plugin. With
+		// none, the git_ref is kept as typed and the release says so.
+		WithForges(connections).
 		// Opening a release's plan, when it is created.
 		//
 		// An engine on the `api` side, and it is not a second scheduler: opening a plan writes a run
@@ -300,58 +307,24 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	mseHandler := mse.NewHandler(mseBackend, pipelines, authorizer,
 		flux.NewDeployer(nil, flux.DefaultPromotionKind, ""), logger)
 
-	// The forge is optional: with no token, the release creation form falls back to free-text
-	// entry of the git_ref and says so. The client is read-only by transport, like Redmine's.
-	var forgeReader dashhttp.ForgeReader
-	if cfg.Forge.Configured() {
-		forgeClient, err := gitea.New(gitea.Options{
-			URL: cfg.Forge.URL, Token: cfg.Forge.Token,
-			Repository: cfg.Forge.Repository, Timeout: cfg.Forge.Timeout,
-		})
-		if err != nil {
-			return fmt.Errorf("client Gitea: %w", err)
-		}
-		forgeReader = forgeClient
-
-		// The writing client sets a release's Git tag. Distinct from the reading client, whose
-		// transport refuses anything that is not GET: relaxing it would have let a badly written read
-		// call write.
-		//
-		// Its construction does not check the token's scope — only a real write would say. A
-		// read-only token therefore produces a reservation at the first release, not a failure at
-		// start-up.
-		writer, err := gitea.NewWriter(gitea.Options{
-			URL: cfg.Forge.URL, Token: cfg.Forge.Token,
-			Repository: cfg.Forge.Repository, Timeout: cfg.Forge.Timeout,
-		})
-		if err != nil {
-			return fmt.Errorf("Gitea writing client: %w", err)
-		}
-		releasesHandler = releasesHandler.WithForge(forgeClient, writer)
-
-		logger.Info("forge configured", "url", cfg.Forge.URL, "repo", cfg.Forge.Repository)
-	} else {
-		logger.Warn("forge not configured",
-			"reason", "FORGE_URL, FORGE_TOKEN or FORGE_REPO missing",
-			"consequence", "the git_ref of releases will be typed by hand")
-	}
-
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
 			releasesHandler, dashhttp.NewBenchHandler(db),
 			// The score's weighting comes from the catalogue: it was accepted by the client and stays
 			// adjustable without a redeployment.
 			dashhttp.NewTestsHandler(db, pipelines),
-			// Redmine's URL serves to build the outgoing links. Absent, the links are omitted rather than
-			// rendered broken.
-			dashhttp.NewVersionsHandler(db, cfg.Tracker.URL),
-			dashhttp.NewSyncAdminHandler(db),
-			dashhttp.NewForgeHandler(forgeReader),
+			// The project's tracker plugin composes the outgoing links. With none, the links are
+			// omitted rather than rendered broken.
+			dashhttp.NewVersionsHandler(db, connections),
+			dashhttp.NewSyncAdminHandler(db, connections),
+			// With no forge plugin enabled for the project, the release form falls back to free-text
+			// entry of the git_ref and says so.
+			dashhttp.NewForgeHandler(db, connections),
 			dashhttp.NewAdminHandler(db),
 			// The access test uses the forge's token, with one client per repository: the configuration's
 			// is bound to its own, and the test bears precisely on another. With no token, the screen
 			// says so rather than returning a failure one would take for a permission problem.
-			projectsHandler(cfg, db, modules),
+			projectsHandler(cfg, db, modules, connections),
 			// The cipher may be nil: with no key, the settings are read and enabled, only writing a
 			// sensitive field is refused — with a message that names the variable, in the place where one
 			// types it.
@@ -738,24 +711,13 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// pod and a workspace to produce two pages.
 			scheduler.Handle(worker.NewExporter(db, storage, exportRegistry(cfg, logger), cfg.Registry.Image, logger))
 
-			// The release note, for the same reason: it reads Redmine, the forge and the database. With
-			// no forge configured, the task is not registered and the note jobs fail saying so — rather
-			// than composing empty notes without explaining why.
-			if cfg.Forge.Configured() {
-				forgeClient, err := gitea.New(gitea.Options{
-					URL: cfg.Forge.URL, Token: cfg.Forge.Token,
-					Repository: cfg.Forge.Repository, Timeout: cfg.Forge.Timeout,
-				})
-				if err != nil {
-					return fmt.Errorf("worker's Gitea client: %w", err)
-				}
-				scheduler.Handle(worker.NewNoteBuilder(
-					forgeClient, db, cfg.Tracker.ReviewStatuses, logger))
-				logger.Info("release note",
-					"review_statuses", cfg.Tracker.ReviewStatuses)
-			} else {
-				logger.Warn("forge not configured: the release notes will not be composed")
-			}
+			// The release note, for the same reason: it reads the tracker, the forge and the database.
+			// Both are the project's plugins, resolved per job: a project with no forge plugin gets a
+			// failed job saying so, rather than an empty note.
+			scheduler.Handle(worker.NewNoteBuilder(nil, db, cfg.Tracker.ReviewStatuses, logger).
+				WithSources(connect.New(pluginRegistry, db, cipher, connect.Timeouts{
+					Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout,
+				})))
 
 			// Observation and scheduling run in parallel: the second depends on the first to learn that a
 			// run is finished, and serialising them would block the queue behind the cache's
@@ -1241,7 +1203,9 @@ func runCheckTracker(ctx context.Context, cfg config.Config, logger *slog.Logger
 // deliberately, because it is the exposed surface (docs/09-security.md). The **shared** key
 // that coexisted with it has been removed — a single key added to several repositories makes
 // its revocation an outage for all of them at once, and says nothing about who cloned what.
-func projectsHandler(cfg config.Config, db *store.DB, modules *dashhttp.Modules) *dashhttp.ProjectsHandler {
+func projectsHandler(
+	cfg config.Config, db *store.DB, modules *dashhttp.Modules, connections *connect.Connections,
+) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
 		WithLibrary(referenceLibrary()).
 		WithForgeURL(cfg.Forge.URL).
@@ -1256,12 +1220,9 @@ func projectsHandler(cfg config.Config, db *store.DB, modules *dashhttp.Modules)
 			return flux.NewDeployer(nil, flux.DefaultPromotionKind, "").CheckScheme(scheme)
 		})
 
-	if cfg.Forge.URL == "" || cfg.Forge.Token == "" {
-		return handler
-	}
-	return handler.WithProbe(gitea.Prober{
-		URL: cfg.Forge.URL, Token: cfg.Forge.Token, Timeout: cfg.Forge.Timeout,
-	})
+	// The access test uses the instance's forge settings: the repository being declared belongs to
+	// a project that may not exist yet.
+	return handler.WithProbe(connections)
 }
 
 // configuredProjects returns the repositories the configuration names.

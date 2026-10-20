@@ -288,8 +288,8 @@ func NewAPIRouter(
 	mux.Handle("GET /admin/automations/catalogue", Chain(http.HandlerFunc(reactions.Catalogue),
 		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
 
-	mux.Handle("GET /forge/refs", Chain(http.HandlerFunc(forge.Refs),
-		middleware.Authenticate, middleware.Require(auth.PermRead)))
+	mux.Handle("GET /projects/{project}/forge/refs", Chain(http.HandlerFunc(forge.Refs),
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	// The state of the synchronisations requires `admin`: it carries error messages from the
 	// deployment's tracker instance, and those say something about its infrastructure.
@@ -303,9 +303,9 @@ func NewAPIRouter(
 	// vocabulary belongs to the deployment, not to the instance.
 	mux.Handle("GET /projects/{project}/sync", Chain(http.HandlerFunc(syncAdmin.State),
 		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
-	mux.Handle("POST /projects/{project}/sync/redmine/resync", Chain(http.HandlerFunc(syncAdmin.Resync),
+	mux.Handle("POST /projects/{project}/sync/tracker/resync", Chain(http.HandlerFunc(syncAdmin.Resync),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
-	mux.Handle("PUT /projects/{project}/sync/redmine/mapping/{status}", Chain(http.HandlerFunc(syncAdmin.SetMapping),
+	mux.Handle("PUT /projects/{project}/sync/tracker/mapping/{status}", Chain(http.HandlerFunc(syncAdmin.SetMapping),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 
 	// The plugins' routes: promotion and environments for the MSE module. Each carries its

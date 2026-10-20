@@ -43,7 +43,7 @@ describe('SyncPanel', () => {
     const calls = mockFetch([
       { path: '/projects/mse/sync', body: etat },
       {
-        path: '/projects/mse/sync/redmine/mapping/',
+        path: '/projects/mse/sync/tracker/mapping/',
         method: 'PUT',
         body: { issues_moved: 3 },
       },
@@ -54,7 +54,7 @@ describe('SyncPanel', () => {
     await userEvent.click(screen.getAllByRole('button', { name: 'Déclarer' })[0]!)
 
     const ecriture = calls.find((call) => call.method === 'PUT')
-    expect(ecriture?.url).toContain('/projects/mse/sync/redmine/mapping/')
+    expect(ecriture?.url).toContain('/projects/mse/sync/tracker/mapping/')
   })
 
   // Un projet sans suivi n'est pas en panne de synchronisation : il n'en attend

@@ -214,6 +214,13 @@ func (h *PluginsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the plugins", "")
 		return
 	}
+	if request.Enabled {
+		if rival := h.rival(descriptor, existing); rival != "" {
+			writeProblem(w, http.StatusConflict, "Another plugin plays this part",
+				fmt.Sprintf("plugin %q already brings this instance's tracker or forge: switch it off first", rival))
+			return
+		}
+	}
 
 	config, ok := h.merge(w, descriptor, plugin.ScopeGlobal, request,
 		existing[descriptor.ID].Config, nil)
@@ -237,6 +244,22 @@ func (h *PluginsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	h.audit(r, "plugin.settings", descriptor.ID, map[string]any{"enabled": request.Enabled})
 
 	writeJSON(w, http.StatusOK, h.toPayload(descriptor, plugin.ScopeGlobal, entry, entry.Enabled))
+}
+
+// rival names an enabled plugin bringing the same tracker or forge part as this one.
+//
+// One of each per instance: a project's releases are tagged through one forge, and its versions
+// read from one tracker. Two enabled would leave the choice to the registry's order.
+func (h *PluginsHandler) rival(descriptor capability.Plugin, settings map[string]store.PluginSettings) string {
+	for _, other := range h.registry.Plugins() {
+		if other.ID == descriptor.ID || !settings[other.ID].Enabled {
+			continue
+		}
+		if (descriptor.Tracker != nil && other.Tracker != nil) || (descriptor.Forge != nil && other.Forge != nil) {
+			return other.ID
+		}
+	}
+	return ""
 }
 
 // ProjectList returns the plugins a project can set, and their effective state.

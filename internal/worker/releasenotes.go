@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -50,12 +51,28 @@ type NoteBuilder struct {
 	// vocabulary belongs to the client, who may rename "In review" without this code having to
 	// change.
 	statuses []string
+	sources  NoteSources
 }
 
 func NewNoteBuilder(
 	forge PullReader, notes NoteStore, statuses []string, logger *slog.Logger,
 ) *NoteBuilder {
 	return &NoteBuilder{forge: forge, store: notes, statuses: statuses, logger: logger}
+}
+
+// NoteSources gives a project's forge and review statuses, from the plugins enabled for it.
+type NoteSources interface {
+	Forge(ctx context.Context, projectID int64) (provider.Forge, error)
+	// ReviewStatuses are the tracker statuses that make an issue eligible, as the project
+	// declares them. Empty when it declares none.
+	ReviewStatuses(ctx context.Context, projectID int64) ([]string, error)
+}
+
+// WithSources resolves the forge and the statuses per job, from the job's project. The builder's
+// own statuses stay the default for a project that declares none.
+func (b *NoteBuilder) WithSources(sources NoteSources) *NoteBuilder {
+	b.sources = sources
+	return b
 }
 
 // NoteResult says what the detection found.
@@ -164,6 +181,25 @@ func (b *NoteBuilder) Run(ctx context.Context, job store.Job) error {
 		}
 	}
 
-	_, err := b.Build(ctx, *job.ReleaseID, since, job.RequestedBy)
+	builder := b
+	if b.sources != nil {
+		if job.ProjectID == nil {
+			return errors.New("release note: the job names no project, whose forge to read")
+		}
+		forge, err := b.sources.Forge(ctx, *job.ProjectID)
+		if err != nil {
+			return fmt.Errorf("release note: %w", err)
+		}
+		statuses, err := b.sources.ReviewStatuses(ctx, *job.ProjectID)
+		if err != nil {
+			return fmt.Errorf("release note: %w", err)
+		}
+		if len(statuses) == 0 {
+			statuses = b.statuses
+		}
+		builder = &NoteBuilder{forge: forge, store: b.store, statuses: statuses, logger: b.logger}
+	}
+
+	_, err := builder.Build(ctx, *job.ReleaseID, since, job.RequestedBy)
 	return err
 }

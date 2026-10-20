@@ -19,10 +19,10 @@ func options(target capability.Target) (Options, error) {
 	url := strings.TrimSpace(target.Settings["url"])
 	token := strings.TrimSpace(target.Settings["token"])
 	if url == "" || token == "" {
-		return Options{}, fmt.Errorf("forge not configured: set the URL and the token of plugin %q", ID)
+		return Options{}, fmt.Errorf("%w: set the URL and the token of plugin %q", ErrNotConfigured, ID)
 	}
 	if strings.TrimSpace(target.Repository) == "" {
-		return Options{}, fmt.Errorf("project %q declares no repository", target.Project)
+		return Options{}, fmt.Errorf("%w: project %q declares no repository", ErrNotConfigured, target.Project)
 	}
 	return Options{URL: url, Token: token, Repository: target.Repository, Timeout: target.Timeout}, nil
 }
@@ -50,7 +50,7 @@ func (forge) Prober(target capability.Target) (provider.RepositoryProber, error)
 	url := strings.TrimSpace(target.Settings["url"])
 	token := strings.TrimSpace(target.Settings["token"])
 	if url == "" || token == "" {
-		return nil, fmt.Errorf("forge not configured: set the URL and the token of plugin %q", ID)
+		return nil, fmt.Errorf("%w: set the URL and the token of plugin %q", ErrNotConfigured, ID)
 	}
 	return Prober{URL: url, Token: token, Timeout: target.Timeout}, nil
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -316,48 +315,9 @@ func (r *ProbeRunner) openSecrets(
 	return openPluginSecrets(r.secrets, descriptor, sealed)
 }
 
-// openPluginSecrets unseals a plugin's configuration, for whoever needs it.
-//
-// Shared between the probes and the plugin actions since both reach the same boundary with the
-// same connection. Writing two versions of it would make two places to decide what is done
-// with a field that could not be opened — and the second would end up letting it through
-// empty.
+// openPluginSecrets unseals a plugin's configuration, for whoever needs it. See [plugin.Unseal].
 func openPluginSecrets(
 	opener SecretOpener, descriptor capability.Plugin, sealed map[string]string,
 ) (map[string]string, error) {
-	config := make(map[string]string, len(sealed))
-	for name, value := range sealed {
-		if !secretField(descriptor, name) {
-			config[name] = value
-			continue
-		}
-		if opener == nil || !opener.Configured() {
-			if strings.TrimSpace(value) == "" {
-				continue
-			}
-			return nil, fmt.Errorf(
-				"the field %q is sealed and sealing is not configured", name)
-		}
-		opened, err := opener.Open(value)
-		if err != nil {
-			// The message does not quote the value, and for good reason: that is the one we could not
-			// open.
-			return nil, fmt.Errorf("champ %q illisible: %w", name, err)
-		}
-		config[name] = opened
-	}
-	return config, nil
-}
-
-// secretField says whether a plugin field carries a sealed value.
-//
-// Read from the plugin's declaration rather than written here: two lists would diverge at the
-// first field added, and the gap would show up as a sealed value passed as it is to a forge —
-// which would refuse it with an authentication message that would not say the value was never
-// opened.
-func secretField(descriptor capability.Plugin, field string) bool {
-	// Both scopes: a sensitive field declared globally is sensitive too when a project overrides
-	// it, and the reverse is true.
-	return plugin.IsSecret(descriptor, plugin.ScopeGlobal, field) ||
-		plugin.IsSecret(descriptor, plugin.ScopeProject, field)
+	return plugin.Unseal(descriptor, opener, sealed)
 }

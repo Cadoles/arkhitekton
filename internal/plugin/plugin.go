@@ -183,3 +183,43 @@ func List(value string) []string {
 	}
 	return items
 }
+
+// Opener unseals sensitive values.
+type Opener interface {
+	Open(sealed string) (string, error)
+	Configured() bool
+}
+
+// Unseal opens the sensitive fields of a plugin's configuration.
+//
+// One place for whoever reaches a plugin's boundary: the probes, the actions, the forge and
+// tracker connections. Two versions of it would make two places to decide what is done with a
+// field that could not be opened, and the second would end up letting it through empty.
+//
+// Which fields are sensitive is read from the plugin's declaration, at both scopes: a field
+// declared sensitive globally is sensitive too when a project overrides it, and the reverse. A
+// sealed value passed as it is to a forge would be refused with an authentication message that
+// would not say the value was never opened.
+func Unseal(d capability.Plugin, opener Opener, sealed map[string]string) (map[string]string, error) {
+	config := make(map[string]string, len(sealed))
+	for name, value := range sealed {
+		if !IsSecret(d, ScopeGlobal, name) && !IsSecret(d, ScopeProject, name) {
+			config[name] = value
+			continue
+		}
+		if opener == nil || !opener.Configured() {
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			return nil, fmt.Errorf("the field %q is sealed and sealing is not configured", name)
+		}
+		opened, err := opener.Open(value)
+		if err != nil {
+			// The message does not quote the value, and for good reason: that is the one that could
+			// not be opened.
+			return nil, fmt.Errorf("field %q unreadable: %w", name, err)
+		}
+		config[name] = opened
+	}
+	return config, nil
+}

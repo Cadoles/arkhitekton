@@ -2,10 +2,11 @@ package http
 
 import (
 	"context"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 	"net/http"
 
 	"golang.org/x/sync/errgroup"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
 // ForgeReader is what the references route needs from the forge.
@@ -15,19 +16,20 @@ type ForgeReader interface {
 	ListTags(ctx context.Context) ([]provider.Ref, bool, error)
 }
 
-// ForgeHandler serves the application repository's branches and tags.
+// ForgeHandler serves a project repository's branches and tags.
 //
 // It exists for the release creation form: `git_ref` must point at a real branch or tag,
 // and a free-text field postpones the typo to build time — the worst moment to discover it.
 type ForgeHandler struct {
-	// forge is nil when access is not configured. The route then answers `configured: false`
-	// and the form falls back to free-text input: a missing token must not prevent creating a
-	// release.
-	forge ForgeReader
+	projects projectResolver
+	// forges resolves the project's forge. When none is configured, the route answers
+	// `configured: false` and the form falls back to free-text input: a missing token must not
+	// prevent creating a release.
+	forges Forges
 }
 
-func NewForgeHandler(forge ForgeReader) *ForgeHandler {
-	return &ForgeHandler{forge: forge}
+func NewForgeHandler(projects projectResolver, forges Forges) *ForgeHandler {
+	return &ForgeHandler{projects: projects, forges: forges}
 }
 
 type refVw struct {
@@ -41,7 +43,22 @@ type refVw struct {
 // happens only when the form opens. The client caches its own answer for the duration of
 // typing.
 func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
-	if h.forge == nil {
+	projectID, ok := requestProject(w, r, h.projects)
+	if !ok {
+		return
+	}
+	var forge ForgeReader
+	if h.forges != nil {
+		resolved, err := h.forges.Forge(r.Context(), projectID)
+		switch {
+		case err == nil:
+			forge = resolved
+		case !notConfigured(err):
+			writeProblem(w, http.StatusBadGateway, "Forge unreachable", err.Error())
+			return
+		}
+	}
+	if forge == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"configured": false,
 			"branches":   []refVw{},
@@ -60,15 +77,15 @@ func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
 	)
 	group, groupCtx := errgroup.WithContext(r.Context())
 	group.Go(func() (err error) {
-		defaultBranch, err = h.forge.DefaultBranch(groupCtx)
+		defaultBranch, err = forge.DefaultBranch(groupCtx)
 		return err
 	})
 	group.Go(func() (err error) {
-		branches, branchesTruncated, err = h.forge.ListBranches(groupCtx)
+		branches, branchesTruncated, err = forge.ListBranches(groupCtx)
 		return err
 	})
 	group.Go(func() (err error) {
-		tags, tagsTruncated, err = h.forge.ListTags(groupCtx)
+		tags, tagsTruncated, err = forge.ListTags(groupCtx)
 		return err
 	})
 	if err := group.Wait(); err != nil {
