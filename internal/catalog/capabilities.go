@@ -78,26 +78,6 @@ const (
 	KindRetag = "core/retag"
 )
 
-// legacyRefs are the kinds the catalogue named pipelines by before capabilities. Stored references
-// were rewritten when the schema moved; this only reads what an older replica may still write
-// during an upgrade.
-var legacyRefs = map[string]string{
-	"build":             KindBuild,
-	"retag":             KindRetag,
-	"static-tests":      "php/static-tests",
-	"unit-tests":        "php/unit-tests",
-	"integration-tests": "mse/integration-tests",
-	"e2e-tests":         "mse/e2e-tests",
-	"security-audit":    "security/security-audit",
-	"load-tests":        "k6/load",
-}
-
-// LegacyRef returns the capability a pre-capability kind now names.
-func LegacyRef(kind string) (string, bool) {
-	ref, found := legacyRefs[kind]
-	return ref, found
-}
-
 // resolve turns the bindings into pipelines.
 func (c *Catalog) resolve(registry *capability.Registry) error {
 	if len(c.Capabilities) == 0 {
@@ -168,7 +148,7 @@ func resolveBinding(registry *capability.Registry, binding Binding) (Pipeline, e
 		}
 		pipeline.Uploads[artifact.Name] = Upload{
 			Param: artifact.Param, Artifact: artifact.Object,
-			Family: spec.Group, Format: string(artifact.Format),
+			Group: spec.Group, Format: string(artifact.Format),
 		}
 	}
 	return pipeline, errors.Join(problems...)

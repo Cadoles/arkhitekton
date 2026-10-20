@@ -66,11 +66,6 @@ capabilities:
 	if !found {
 		t.Fatalf("kinds = %v", parsed.Kinds())
 	}
-	// A kind from before qualified references still finds it, for what an older replica enqueues
-	// during an upgrade.
-	if legacy, found := parsed.Find("integration-tests"); !found || legacy.Kind != "mse/integration-tests" {
-		t.Errorf("legacy kind found %v: %+v", found, legacy)
-	}
 	if pipeline.Capability != "mse/integration-tests" || pipeline.Unavailable != "" {
 		t.Errorf("pipeline = %+v", pipeline)
 	}
@@ -80,7 +75,7 @@ capabilities:
 	if pipeline.Params["mse-repo"].Key != "forge.mse.repoUrl" || pipeline.Params["image-tag"].Source != SourceInput {
 		t.Errorf("params = %+v", pipeline.Params)
 	}
-	if pipeline.Uploads["results"].Family != "integration" {
+	if pipeline.Uploads["results"].Group != "integration" {
 		t.Errorf("uploads = %+v", pipeline.Uploads)
 	}
 	for _, workspace := range pipeline.Workspaces {
@@ -146,7 +141,7 @@ func TestBindingsNeedThePlugins(t *testing.T) {
 
 // A pipeline at odds with the cluster is refused on its own: the others keep running.
 func TestAvailabilityIsPerPipeline(t *testing.T) {
-	parsed, err := Parse([]byte(`
+	parsed, err := parseDeclared([]byte(`
 pipelines:
   - kind: unit-tests
     pipelineRef: php-unit-tests

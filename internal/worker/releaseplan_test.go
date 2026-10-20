@@ -26,69 +26,57 @@ import (
 func testCatalogue(t *testing.T) *catalog.Catalog {
 	t.Helper()
 
-	const source = `
-pipelines:
-  - kind: core/build
-    pipelineRef: build-image
-    label: Build
-    produces: [image]
-    # The kind's real parameters: the plan no longer sets the revision or the tag
-    # literally, it reads what the catalogue declares it wants. A mute test catalogue
-    # would make that read look correct although it would return nothing.
-    params:
-      revision:   { source: input, required: true, suggest: git-ref }
-      version:    { source: input, required: true, suggest: release-tag }
-      tag-name:   { source: input, required: true, suggest: release-tag }
-      image-name: { source: input, required: true, suggest: image-name, label: Published repository }
-      target:     { source: input, required: true, suggest: build-target }
-      dockerfile: { source: input }
-      context:    { source: input }
-  - kind: security-audit
-    pipelineRef: audit
-    label: Security audit
-    verification: true
-    produces: [results]
-    params:
-      # An image **reference**: the analysis bears on what the build published, and
-      # the step can target the artifact rather than recompose it.
-      portal-image: { source: input, required: true, suggest: image, image: portal }
-    uploads:
-      results:
-        param: results-upload-url
-        artifact: audit.json
-        family: security
-  - kind: unit-tests
-    pipelineRef: unit-tests
-    label: Unit tests
-    verification: true
-    produces: [results]
-    params:
-      revision: { source: input, required: true, suggest: git-ref }
-    uploads:
-      results:
-        param: results-upload-url
-        artifact: unit-tests.xml
-        family: unit
-        format: junit
-  - kind: e2e-tests
-    pipelineRef: e2e-tests
-    label: Tests E2E
-    verification: true
-    produces: [results]
-    params:
-      revision: { source: input, required: true, suggest: git-ref }
-    uploads:
-      results:
-        param: results-upload-url
-        artifact: e2e-tests.xml
-        family: e2e
-        format: junit
-`
-	registry, err := catalog.Parse([]byte(source))
-	if err != nil {
-		t.Fatalf("catalogue: %v", err)
+	input := func(required bool, suggest string) catalog.Param {
+		return catalog.Param{Source: catalog.SourceInput, Required: required, Suggest: suggest}
 	}
-	return registry
+	results := func(artifact, group, format string) map[string]catalog.Upload {
+		return map[string]catalog.Upload{"results": {
+			Param: "results-upload-url", Artifact: artifact, Group: group, Format: format,
+		}}
+	}
+	imageName := input(true, catalog.SuggestImageName)
+	imageName.Label = "Published repository"
+	portalImage := input(true, catalog.SuggestImage)
+	portalImage.Image = "portal"
+
+	return &catalog.Catalog{MaxConcurrentRuns: catalog.DefaultMaxConcurrentRuns, Pipelines: []catalog.Pipeline{
+		{
+			Kind: "core/build", PipelineRef: "build-image", Label: "Build",
+			Produces: []catalog.Product{catalog.ProductImage},
+			// The kind's real parameters: the plan no longer sets the revision or the tag literally,
+			// it reads what the catalogue declares it wants. A mute test catalogue would make that read
+			// look correct although it would return nothing.
+			Params: map[string]catalog.Param{
+				"revision":   input(true, catalog.SuggestGitRef),
+				"version":    input(true, catalog.SuggestReleaseTag),
+				"tag-name":   input(true, catalog.SuggestReleaseTag),
+				"image-name": imageName,
+				"target":     input(true, catalog.SuggestBuildTarget),
+				"dockerfile": input(false, ""),
+				"context":    input(false, ""),
+			},
+		},
+		{
+			Kind: "security-audit", PipelineRef: "audit", Label: "Security audit", Verification: true,
+			Produces: []catalog.Product{catalog.ProductResults},
+			// An image reference: the analysis bears on what the build published, and the step can
+			// target the artifact rather than recompose it.
+			Params:  map[string]catalog.Param{"portal-image": portalImage},
+			Uploads: results("audit.json", "security", ""),
+		},
+		{
+			Kind: "unit-tests", PipelineRef: "unit-tests", Label: "Unit tests", Verification: true,
+			Produces: []catalog.Product{catalog.ProductResults},
+			Params:   map[string]catalog.Param{"revision": input(true, catalog.SuggestGitRef)},
+			Uploads:  results("unit-tests.xml", "unit", "junit"),
+		},
+		{
+			Kind: "e2e-tests", PipelineRef: "e2e-tests", Label: "Tests E2E", Verification: true,
+			Produces: []catalog.Product{catalog.ProductResults},
+			Params:   map[string]catalog.Param{"revision": input(true, catalog.SuggestGitRef)},
+			Uploads:  results("e2e-tests.xml", "e2e", "junit"),
+		},
+	}}
 }
 
 // testPipeline returns one kind of the test catalogue.

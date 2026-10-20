@@ -24,8 +24,8 @@ score: {}                    # optional weights, per kind, for the release score
 podTemplate: {}              # optional defaults applied to every pipeline pod
 ```
 
-The legacy `pipelines:` section, which declared a pipeline whole, is still read alongside
-`capabilities:` and will be removed.
+There is no other way to declare a pipeline: a pipeline enters the dashboard only through a
+plugin.
 
 ## 5.2 Binding a capability
 

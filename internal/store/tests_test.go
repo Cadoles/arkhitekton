@@ -19,7 +19,7 @@ func testRun(t *testing.T, db *DB, name string) int64 {
 	return runID
 }
 
-func saveCases(t *testing.T, db *DB, runID int64, releaseID int64, family string, cases []TestCase) {
+func saveCases(t *testing.T, db *DB, runID int64, releaseID int64, group string, cases []TestCase) {
 	t.Helper()
 	failed := 0
 	for _, testCase := range cases {
@@ -28,7 +28,7 @@ func saveCases(t *testing.T, db *DB, runID int64, releaseID int64, family string
 		}
 	}
 	if _, err := db.SaveTestResult(context.Background(), TestResult{Producer: "test@1", Shape: "cases",
-		RunID: runID, ReleaseID: &releaseID, Family: family, Tool: "phpunit",
+		RunID: runID, ReleaseID: &releaseID, Group: group, Tool: "phpunit",
 		Status: "pass", Total: len(cases), Failed: failed,
 	}, cases); err != nil {
 		t.Fatalf("recording: %v", err)
@@ -200,13 +200,13 @@ func TestReprocessTargetsRequireARawObject(t *testing.T) {
 	withoutRaw := testRun(t, db, "without-raw")
 
 	if _, err := db.SaveTestResult(ctx, TestResult{Producer: "test@1", Shape: "cases",
-		RunID: withRaw, ReleaseID: &releaseID, Family: "unit", Tool: "phpunit",
+		RunID: withRaw, ReleaseID: &releaseID, Group: "unit", Tool: "phpunit",
 		Status: "pass", RawObject: "raw/with-raw/junit.xml",
 	}, nil); err != nil {
 		t.Fatalf("with raw: %v", err)
 	}
 	if _, err := db.SaveTestResult(ctx, TestResult{Producer: "test@1", Shape: "cases",
-		RunID: withoutRaw, ReleaseID: &releaseID, Family: "unit", Tool: "phpunit",
+		RunID: withoutRaw, ReleaseID: &releaseID, Group: "unit", Tool: "phpunit",
 		Status: "pass",
 	}, nil); err != nil {
 		t.Fatalf("without raw: %v", err)
@@ -239,7 +239,7 @@ func TestReprocessTargetsCanBeScopedToARelease(t *testing.T) {
 	}{{first, "run-1"}, {second, "run-2"}} {
 		if _, err := db.SaveTestResult(ctx, TestResult{Producer: "test@1", Shape: "cases",
 			RunID: testRun(t, db, pair.run), ReleaseID: &pair.release,
-			Family: "unit", Tool: "phpunit", Status: "pass",
+			Group: "unit", Tool: "phpunit", Status: "pass",
 			RawObject: "raw/" + pair.run + "/junit.xml",
 		}, nil); err != nil {
 			t.Fatalf("%s: %v", pair.run, err)
@@ -293,18 +293,18 @@ func TestResettingARunErasesItsCasesAndItsMark(t *testing.T) {
 }
 
 // reportOf returns a family's report identifier, the only input to ListTestCases.
-func reportOf(t *testing.T, db *DB, releaseID int64, family string) int64 {
+func reportOf(t *testing.T, db *DB, releaseID int64, group string) int64 {
 	t.Helper()
 	reports, err := db.ListReleaseTestResults(context.Background(), releaseID)
 	if err != nil {
 		t.Fatalf("reports: %v", err)
 	}
 	for _, report := range reports {
-		if report.Family == family {
+		if report.Group == group {
 			return report.ID
 		}
 	}
-	t.Fatalf("no report for family %s", family)
+	t.Fatalf("no report for group %s", group)
 	return 0
 }
 

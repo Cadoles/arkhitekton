@@ -1,0 +1,65 @@
+[
+  {
+    "Shape": "measures",
+    "Group": "load",
+    "Tool": "k6",
+    "Status": "fail",
+    "Summary": "5 measure(s), 50 VUs at peak, thresholds not met: http_req_duration: p(95)\u003c300",
+    "RawObject": "raw/run/load/checkout-summary.json",
+    "DurationMS": 0,
+    "Cases": null,
+    "Findings": null,
+    "Measures": {
+      "Scenario": "checkout",
+      "Items": [
+        {
+          "Metric": "http_req_duration:p(95)",
+          "Label": "Latence p95",
+          "Unit": "ms",
+          "Value": 310.2,
+          "LowerBetter": true,
+          "Volume": false,
+          "ThresholdOK": false
+        },
+        {
+          "Metric": "http_req_duration:med",
+          "Label": "Latence médiane",
+          "Unit": "ms",
+          "Value": 120.5,
+          "LowerBetter": true,
+          "Volume": false,
+          "ThresholdOK": false
+        },
+        {
+          "Metric": "http_reqs:rate",
+          "Label": "Débit",
+          "Unit": "req/s",
+          "Value": 40.1,
+          "LowerBetter": false,
+          "Volume": false,
+          "ThresholdOK": null
+        },
+        {
+          "Metric": "http_reqs:count",
+          "Label": "Requêtes",
+          "Unit": "req",
+          "Value": 1200,
+          "LowerBetter": false,
+          "Volume": true,
+          "ThresholdOK": null
+        },
+        {
+          "Metric": "http_req_failed:rate",
+          "Label": "Taux d'échec",
+          "Unit": "%",
+          "Value": 0.2,
+          "LowerBetter": true,
+          "Volume": false,
+          "ThresholdOK": true
+        }
+      ],
+      "VUs": 50,
+      "ThresholdsFailed": true
+    }
+  }
+]

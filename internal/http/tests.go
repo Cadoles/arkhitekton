@@ -143,7 +143,7 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 	for _, signal := range breakdown.Signals {
 		signals = append(signals, signalPayload{
 			Key: signal.Key, Label: signal.Label,
-			Signal: string(signal.Signal), Ref: signal.Ref, Group: string(signal.Family), Shape: signal.Shape,
+			Signal: string(signal.Signal), Ref: signal.Ref, Group: string(signal.Group), Shape: signal.Shape,
 			Value: signal.Value, Weight: signal.Weight,
 			Declared: signal.Declared, Measured: signal.Measured, Detail: signal.Detail,
 			// A signal's verdict comes from the server like the score's: deriving it client-side
@@ -256,42 +256,42 @@ func familyMeasures(
 	// has two, and only the more recent of them entered the score: a release with forty errors
 	// from one and a clean result from the other showed 100 as soon as the clean one concluded
 	// last.
-	byFamily := map[string]results.Report{}
+	byGroup := map[string]results.Report{}
 	seen := map[string]bool{}
 	seenTool := map[string]bool{}
 
 	for _, report := range reports {
-		key := report.Family + "/" + report.Tool
+		key := report.Group + "/" + report.Tool
 		if seenTool[key] {
 			continue
 		}
 		seenTool[key] = true
-		seen[report.Family] = true
+		seen[report.Group] = true
 
-		combined := byFamily[report.Family]
+		combined := byGroup[report.Group]
 		combined.Total += report.Total
 		combined.Passed += report.Passed
 		combined.Failed += report.Failed
 		combined.Skipped += report.Skipped
 		combined.Flaky += report.Flaky
 		combined.Status = worstStatus(combined.Status, report.Status)
-		byFamily[report.Family] = combined
+		byGroup[report.Group] = combined
 	}
 
 	// Static analysis violations are counted as cases, not as passing tests: the scoring rule
 	// is not the same.
-	staticViolations, staticRan := 0, seen[string(results.FamilyStatic)]
+	staticViolations, staticRan := 0, seen[string(results.GroupStatic)]
 	if staticRan {
-		staticViolations = byFamily[string(results.FamilyStatic)].Failed
+		staticViolations = byGroup[string(results.GroupStatic)].Failed
 	}
 
 	raw := []results.Measure{
 		results.FromReport(results.SignalUnit,
-			byFamily[string(results.FamilyUnit)], seen[string(results.FamilyUnit)]),
+			byGroup[string(results.GroupUnit)], seen[string(results.GroupUnit)]),
 		results.FromReport(results.SignalIntegration,
-			byFamily[string(results.FamilyIntegration)], seen[string(results.FamilyIntegration)]),
+			byGroup[string(results.GroupIntegration)], seen[string(results.GroupIntegration)]),
 		results.FromReport(results.SignalE2E,
-			byFamily[string(results.FamilyE2E)], seen[string(results.FamilyE2E)]),
+			byGroup[string(results.GroupE2E)], seen[string(results.GroupE2E)]),
 		results.FromStatic(staticViolations, staticRan),
 	}
 
@@ -314,22 +314,22 @@ func familyMeasures(
 		measure.Key = results.SignalKey(measure.Signal)
 		measure.Label = signalLabels[measure.Signal]
 		measure.Weight = results.WeightOf(nil, measure.Signal)
-		// The pipeline and the family of the fallback, derived from the signal: here and nowhere
+		// The pipeline and the group of the fallback, derived from the signal: here and nowhere
 		// else, because this is the only path with no step to say them.
 		measure.Ref = signalKinds[measure.Signal]
-		measure.Family = signalFamilies[measure.Signal]
-		measure.Shape = defaultShape(measure.Family)
+		measure.Group = signalGroups[measure.Signal]
+		measure.Shape = defaultShape(measure.Group)
 		measures = append(measures, measure)
 	}
 	return measures, nil
 }
 
-// signalLabels names the fallback components by family, in French.
+// signalLabels names the fallback components by group, in French.
 //
 // Written here because they have no declaration: they are natures, not steps. A step
 // carries the label somebody gave it.
 //
-// signalKinds and signalFamilies complete the per-family fallback.
+// signalKinds and signalGroups complete the per-family fallback.
 //
 // The pipeline family to re-run, and the report family to open. Empty for performance,
 // whose campaigns come from an outside runner the dashboard does not trigger.
@@ -341,13 +341,13 @@ var signalKinds = map[results.Signal]string{
 	results.SignalSecurity:    "security/security-audit",
 }
 
-var signalFamilies = map[results.Signal]results.Family{
-	results.SignalUnit:        results.FamilyUnit,
-	results.SignalIntegration: results.FamilyIntegration,
-	results.SignalE2E:         results.FamilyE2E,
-	results.SignalCode:        results.FamilyStatic,
-	results.SignalSecurity:    results.FamilySecurity,
-	results.SignalPerformance: results.FamilyLoad,
+var signalGroups = map[results.Signal]results.Group{
+	results.SignalUnit:        results.GroupUnit,
+	results.SignalIntegration: results.GroupIntegration,
+	results.SignalE2E:         results.GroupE2E,
+	results.SignalCode:        results.GroupStatic,
+	results.SignalSecurity:    results.GroupSecurity,
+	results.SignalPerformance: results.GroupLoad,
 }
 
 var signalLabels = map[results.Signal]string{

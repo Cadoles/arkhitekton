@@ -65,8 +65,7 @@ func (db *DB) SaveFacts(ctx context.Context, run InterpretedRun) error {
 func saveSet(ctx context.Context, transaction pgx.Tx, run InterpretedRun, set facts.Set) error {
 	result := TestResult{
 		RunID: run.RunID, ReleaseID: run.ReleaseID,
-		// The legacy column keeps the group, read by the screens until they read the group.
-		Family: set.Group, Group: set.Group, Tool: set.Tool, Shape: string(set.Shape),
+		Group: set.Group, Tool: set.Tool, Shape: string(set.Shape),
 		Status: string(set.Verdict()), DurationMS: set.DurationMS,
 		Summary: set.Summary, RawObject: set.RawObject,
 		Producer: run.Producer.String(), Capability: run.Capability,

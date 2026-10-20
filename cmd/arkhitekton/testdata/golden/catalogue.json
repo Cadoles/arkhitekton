@@ -1,0 +1,499 @@
+[
+  {
+    "kind": "security/security-audit",
+    "pipelineRef": "security-audit",
+    "label": "Audit de sécurité",
+    "verification": true,
+    "produces": [
+      "results"
+    ],
+    "timeout": "90m",
+    "params": {
+      "app-repo-url": {
+        "source": "config",
+        "key": "project.repoUrl"
+      },
+      "app-revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      },
+      "consumer-image": {
+        "source": "input",
+        "required": true,
+        "suggest": "image",
+        "image": "portal-cli"
+      },
+      "minio-bucket": {
+        "source": "config",
+        "key": "minio.pipelineBucket"
+      },
+      "minio-host": {
+        "source": "config",
+        "key": "minio.host"
+      },
+      "mse-kustom-repo-url": {
+        "source": "config",
+        "key": "forge.mseKustom.repoUrl"
+      },
+      "mse-kustom-revision": {
+        "source": "config",
+        "key": "forge.mseKustom.revision"
+      },
+      "portal-image": {
+        "source": "input",
+        "required": true,
+        "suggest": "image",
+        "image": "portal"
+      },
+      "tekton-repo-url": {
+        "source": "config",
+        "key": "forge.tekton.repoUrl"
+      }
+    },
+    "uploads": {
+      "findings": {
+        "param": "findings-upload-url",
+        "artifact": "findings.jsonl",
+        "group": "security",
+        "format": "file"
+      },
+      "summary": {
+        "param": "summary-upload-url",
+        "artifact": "summary.json",
+        "group": "security",
+        "format": "file"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "pipeline.gitSecret"
+        }
+      },
+      {
+        "name": "docker-config",
+        "secret": {
+          "configKey": "pipeline.registrySecret"
+        }
+      },
+      {
+        "name": "shared",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "2Gi"
+        }
+      }
+    ],
+    "Capability": "security/security-audit",
+    "Unavailable": "",
+    "ExternalTasks": null
+  },
+  {
+    "kind": "core/build",
+    "pipelineRef": "build-image",
+    "label": "Construction d'image",
+    "produces": [
+      "image"
+    ],
+    "params": {
+      "context": {
+        "source": "input",
+        "label": "Contexte de construction",
+        "help": "Répertoire envoyé au moteur de build. Presque toujours la racine.",
+        "placeholder": "."
+      },
+      "dockerfile": {
+        "source": "input",
+        "label": "Dockerfile",
+        "help": "Chemin du fichier qui construit cette image, depuis la racine du dépôt. Vide : celui du projet.",
+        "placeholder": "./Dockerfile"
+      },
+      "image-name": {
+        "source": "input",
+        "required": true,
+        "suggest": "image-name",
+        "label": "Dépôt publié",
+        "help": "Nom court du dépôt d'image, sans le registre ni le tag. C'est aussi le nom sous lequel les étapes suivantes désigneront ce qu'il produit.",
+        "placeholder": "portal"
+      },
+      "reg-project": {
+        "source": "config",
+        "key": "registry.project"
+      },
+      "repo-url": {
+        "source": "config",
+        "key": "project.repoUrl"
+      },
+      "revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      },
+      "tag-name": {
+        "source": "input",
+        "required": true,
+        "suggest": "release-tag"
+      },
+      "target": {
+        "source": "input",
+        "required": true,
+        "suggest": "build-target",
+        "label": "Cible du Dockerfile",
+        "help": "Étape `AS \u003cnom\u003e` qui produit cette image. Sur un Dockerfile sans étapes, la dernière.",
+        "placeholder": "web"
+      },
+      "version": {
+        "source": "input",
+        "required": true,
+        "suggest": "release-tag"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "pipeline.gitSecret"
+        }
+      },
+      {
+        "name": "dockerconfig",
+        "secret": {
+          "configKey": "pipeline.registrySecret"
+        }
+      },
+      {
+        "name": "shared-data",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "2Gi"
+        }
+      }
+    ],
+    "Capability": "core/build",
+    "Unavailable": "",
+    "ExternalTasks": null
+  },
+  {
+    "kind": "core/retag",
+    "pipelineRef": "retag-image",
+    "label": "Re-tag d'image",
+    "produces": [
+      "image"
+    ],
+    "maxConcurrent": 1,
+    "params": {
+      "image-name": {
+        "source": "input",
+        "required": true,
+        "suggest": "image-name"
+      },
+      "new-tag": {
+        "source": "input",
+        "required": true,
+        "suggest": "release-tag"
+      },
+      "old-tag": {
+        "source": "input",
+        "required": true,
+        "suggest": "release-tag"
+      },
+      "reg-project": {
+        "source": "config",
+        "key": "registry.project"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "dockerconfig",
+        "secret": {
+          "configKey": "pipeline.registrySecret"
+        }
+      }
+    ],
+    "Capability": "core/retag",
+    "Unavailable": "",
+    "ExternalTasks": null
+  },
+  {
+    "kind": "php/static-tests",
+    "pipelineRef": "php-static-tests",
+    "label": "Analyse statique",
+    "verification": true,
+    "produces": [
+      "results"
+    ],
+    "params": {
+      "repo-url": {
+        "source": "config",
+        "key": "project.repoUrl"
+      },
+      "revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      }
+    },
+    "uploads": {
+      "results": {
+        "param": "results-upload-url",
+        "artifact": "static-tests.tar.gz",
+        "group": "static",
+        "format": "archive"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "pipeline.gitSecret"
+        }
+      },
+      {
+        "name": "shared-data",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "1Gi"
+        }
+      }
+    ],
+    "Capability": "php/static-tests",
+    "Unavailable": "",
+    "ExternalTasks": [
+      "git-clone",
+      "composer-install",
+      "publish-artifact"
+    ]
+  },
+  {
+    "kind": "php/unit-tests",
+    "pipelineRef": "php-unit-tests",
+    "label": "Tests unitaires",
+    "verification": true,
+    "produces": [
+      "results"
+    ],
+    "params": {
+      "repo-url": {
+        "source": "config",
+        "key": "project.repoUrl"
+      },
+      "revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      }
+    },
+    "uploads": {
+      "results": {
+        "param": "results-upload-url",
+        "artifact": "unit-tests.tar.gz",
+        "group": "unit",
+        "format": "archive"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "pipeline.gitSecret"
+        }
+      },
+      {
+        "name": "shared-data",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "1Gi"
+        }
+      }
+    ],
+    "Capability": "php/unit-tests",
+    "Unavailable": "",
+    "ExternalTasks": [
+      "git-clone",
+      "composer-install",
+      "publish-artifact"
+    ]
+  },
+  {
+    "kind": "mse/e2e-tests",
+    "pipelineRef": "e2e-test",
+    "label": "Tests E2E",
+    "produces": [
+      "results"
+    ],
+    "maxConcurrent": 1,
+    "timeout": "60m",
+    "params": {
+      "environment": {
+        "source": "input",
+        "required": true,
+        "suggest": "environment"
+      },
+      "repo-url": {
+        "source": "config",
+        "key": "forge.e2e.repoUrl"
+      },
+      "revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      }
+    },
+    "uploads": {
+      "reports": {
+        "param": "reports-upload-url",
+        "artifact": "e2e-reports.tar.gz",
+        "group": "e2e",
+        "format": "archive"
+      },
+      "screenshots": {
+        "param": "screenshots-upload-url",
+        "artifact": "e2e-screenshots.tar.gz",
+        "group": "e2e",
+        "format": "archive"
+      },
+      "videos": {
+        "param": "videos-upload-url",
+        "artifact": "e2e-videos.tar.gz",
+        "group": "e2e",
+        "format": "archive"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "pipeline.gitSecret"
+        }
+      },
+      {
+        "name": "shared-data",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "1Gi"
+        }
+      }
+    ],
+    "Capability": "mse/e2e-tests",
+    "Unavailable": "",
+    "ExternalTasks": null
+  },
+  {
+    "kind": "mse/integration-tests",
+    "pipelineRef": "php-integration-test",
+    "label": "Tests d'intégration",
+    "verification": true,
+    "produces": [
+      "results"
+    ],
+    "maxConcurrent": 1,
+    "timeout": "45m",
+    "serviceAccountName": "tekton-kubectl",
+    "params": {
+      "image-tag": {
+        "source": "input",
+        "required": true,
+        "suggest": "release-tag"
+      },
+      "minio-bucket": {
+        "source": "config",
+        "key": "minio.pipelineBucket"
+      },
+      "minio-host": {
+        "source": "config",
+        "key": "minio.host"
+      },
+      "mse-kustom-repo": {
+        "source": "config",
+        "key": "forge.mseKustom.repoUrl"
+      },
+      "mse-kustom-revision": {
+        "source": "config",
+        "key": "forge.mseKustom.revision"
+      },
+      "mse-repo": {
+        "source": "config",
+        "key": "project.repoUrl"
+      },
+      "mse-revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      },
+      "overlay-location": {
+        "source": "config",
+        "key": "mse.overlayLocation"
+      },
+      "reg-project": {
+        "source": "config",
+        "key": "registry.project"
+      }
+    },
+    "uploads": {
+      "results": {
+        "param": "results-upload-url",
+        "artifact": "integration-tests.tar.gz",
+        "group": "integration",
+        "format": "archive"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "pipeline.gitSecret"
+        }
+      },
+      {
+        "name": "dockerconfig",
+        "secret": {
+          "configKey": "pipeline.registrySecret"
+        }
+      },
+      {
+        "name": "mse",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "1Gi"
+        }
+      },
+      {
+        "name": "kustomization",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "1Gi"
+        }
+      }
+    ],
+    "Capability": "mse/integration-tests",
+    "Unavailable": "",
+    "ExternalTasks": [
+      "git-clone",
+      "deploy-mse",
+      "publish-artifact"
+    ]
+  }
+]

@@ -14,7 +14,6 @@ type TestResult struct {
 	ID        int64
 	RunID     int64
 	ReleaseID *int64
-	Family    string
 	// Producer is the plugin version that read the run, `plugin@version`. Shape is how the result is
 	// stored and compared: `cases`, `findings` or `measures`. Group is where it is shown. Capability
 	// is what the run instantiated, empty for a run the dashboard did not launch.
@@ -78,9 +77,6 @@ func (db *DB) SaveTestResult(ctx context.Context, result TestResult, cases []Tes
 
 // insertTestResult writes a report and its cases within a transaction.
 func insertTestResult(ctx context.Context, transaction pgx.Tx, result TestResult, cases []TestCase) (int64, error) {
-	if result.Group == "" {
-		result.Group = result.Family
-	}
 	// The queue's state says something only of a measure; on a test report it would read as a
 	// condition someone checked.
 	var exclusive *bool
@@ -91,15 +87,15 @@ func insertTestResult(ctx context.Context, transaction pgx.Tx, result TestResult
 	var id int64
 	err := transaction.QueryRow(ctx,
 		`insert into test_results (
-		     run_id, release_id, family, tool, status, total, passed, failed, skipped,
+		     run_id, release_id, tool, status, total, passed, failed, skipped,
 		     flaky, duration_ms, summary, raw_object, producer, shape, fact_group, capability,
 		     exclusive, concurrent_jobs
-		 ) values ($1, $2, nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, nullif($12, ''), nullif($13, ''),
-		           $14, $15, $16, coalesce(nullif($17, ''),
+		 ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, nullif($11, ''), nullif($12, ''),
+		           $13, $14, $15, coalesce(nullif($16, ''),
 		               (select j.capability from runs r join jobs j on j.id = r.job_id where r.id = $1)),
-		           $18, $19)
+		           $17, $18)
 		 returning id`,
-		result.RunID, result.ReleaseID, result.Family, result.Tool, result.Status,
+		result.RunID, result.ReleaseID, result.Tool, result.Status,
 		result.Total, result.Passed, result.Failed, result.Skipped, result.Flaky,
 		result.DurationMS, result.Summary, result.RawObject,
 		result.Producer, result.Shape, result.Group, result.Capability,
@@ -185,7 +181,6 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 			&result.Summary, &result.RawObject, &result.CreatedAt, &result.RunName); err != nil {
 			return nil, fmt.Errorf("results of release %d: %w", releaseID, err)
 		}
-		result.Family = result.Group
 		results = append(results, result)
 	}
 	return results, rows.Err()

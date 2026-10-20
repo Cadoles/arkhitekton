@@ -45,12 +45,9 @@ spec:
         OUT="$(params.output-dir)"
         mkdir -p "${OUT}"
 
-        VERSION=$(php vendor/bin/phpunit --version 2>/dev/null \
-          | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n1 || true)
-
         # errexit is lifted for the duration of the run: a failed test is a result, not an outage, and
-        # the descriptor must be emitted in both cases. The exit code is propagated at the end of the
-        # script.
+        # the summary must be written in both cases. The exit code is propagated at the end of the
+        # script: it is what tells the dashboard whether PHPUnit concluded.
         set +e
         php -d memory_limit=1024M vendor/bin/phpunit \
           --testsuite unit \
@@ -64,15 +61,6 @@ spec:
         SUMMARY=$(grep -E '^[[:space:]]*(OK \(|OK, but|Tests: )' "${OUT}/phpunit.log" \
           | tail -n1 | sed 's/^[[:space:]]*//' || true)
 
-        STATUS=ok
-        if [ ! -s "${OUT}/junit.xml" ]; then
-          STATUS=error
-        fi
-
         printf '%s' "${SUMMARY}" > "$(results.summary.path)"
-
-        printf '##MSE-META## {"tool":"phpunit","scanner":"unit","version":"%s","format":"junit-xml","output":"junit.xml","exit_code":%d,"status":"%s"}\n' \
-          "${VERSION}" "${RC}" "${STATUS}"
-        printf '##MSE-SUMMARY## %s\n' "${SUMMARY}"
 
         exit ${RC}

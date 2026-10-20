@@ -31,7 +31,7 @@ pipelines:
     produces: [image]
 `
 
-	parsed, err := Parse([]byte(catalogue))
+	parsed, err := parseDeclared([]byte(catalogue))
 	if err != nil {
 		t.Fatalf("a project with no deployer must be able to declare its environments: %v", err)
 	}
@@ -57,7 +57,7 @@ projects:
 pipelines:
   - {kind: build, pipelineRef: build-image, label: Construction, produces: [image]}
 `
-	if _, err := Parse([]byte(sharedItems)); err != nil {
+	if _, err := parseDeclared([]byte(sharedItems)); err != nil {
 		t.Errorf("two projects with the same environment: %v", err)
 	}
 
@@ -72,7 +72,7 @@ projects:
 pipelines:
   - {kind: build, pipelineRef: build-image, label: Construction, produces: [image]}
 `
-	_, err := Parse([]byte(duplicates))
+	_, err := parseDeclared([]byte(duplicates))
 	if err == nil {
 		t.Fatal("a duplicated identifier and rank within a project must be refused")
 	}

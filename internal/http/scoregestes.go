@@ -108,7 +108,7 @@ func stepMeasures(
 			Key: stepKey(ref), Label: step.Name(), Signal: signal,
 			// What produced the measure: the pipeline the replay button relaunches, and the results
 			// the detail opens.
-			Ref: step.Ref, Family: group, Shape: shape,
+			Ref: step.Ref, Group: group, Shape: shape,
 			Weight: results.WeightOf(step.Weight, signal),
 		}
 
@@ -126,7 +126,7 @@ func stepMeasures(
 				return nil, err
 			}
 			measure.Measured, measure.Value, measure.Detail = valueOf(campaignScore)
-		case group == results.FamilyStatic:
+		case group == results.GroupStatic:
 			combined, ran := cumulative(own)
 			// Static analysis violations are counted as cases, not as passing tests: the scoring rule
 			// is not the same.
@@ -165,20 +165,17 @@ const (
 // therefore to display it rather than hide it.
 func stepKind(
 	step plan.Geste, own []store.TestResult, registry *catalog.Catalog,
-) (results.Family, string) {
+) (results.Group, string) {
 	for _, report := range own {
 		group := report.Group
-		if group == "" {
-			group = report.Family
-		}
 		if group == "" {
 			continue
 		}
 		shape := report.Shape
 		if shape == "" {
-			shape = defaultShape(results.Family(group))
+			shape = defaultShape(results.Group(group))
 		}
-		return results.Family(group), shape
+		return results.Group(group), shape
 	}
 	if registry == nil {
 		return "", ""
@@ -187,16 +184,16 @@ func stepKind(
 	if !found {
 		return "", ""
 	}
-	group := results.Family(pipeline.Family())
+	group := results.Group(pipeline.Group())
 	return group, defaultShape(group)
 }
 
 // defaultShape is the shape a group's results take before any is read.
-func defaultShape(group results.Family) string {
+func defaultShape(group results.Group) string {
 	switch group {
-	case results.FamilySecurity:
+	case results.GroupSecurity:
 		return shapeFindings
-	case results.FamilyLoad:
+	case results.GroupLoad:
 		return shapeMeasures
 	}
 	return "cases"

@@ -30,7 +30,7 @@ func uploadPipeline() catalog.Pipeline {
 	return catalog.Pipeline{
 		Kind: "static-tests", PipelineRef: "php-static-tests",
 		Uploads: map[string]catalog.Upload{
-			"results": {Param: "results-upload-url", Artifact: "static-tests.tar.gz", Family: "static"},
+			"results": {Param: "results-upload-url", Artifact: "static-tests.tar.gz", Group: "static"},
 		},
 	}
 }

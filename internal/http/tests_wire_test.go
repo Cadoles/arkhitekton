@@ -24,7 +24,7 @@ func (wireTestStore) GetRelease(context.Context, int64, string) (store.Release, 
 
 func (wireTestStore) ListReleaseTestResults(context.Context, int64) ([]store.TestResult, error) {
 	return []store.TestResult{{
-		ID: 11, Group: "unit", Family: "unit", Shape: "cases", Producer: "php@1.0.0", Tool: "phpunit",
+		ID: 11, Group: "unit", Shape: "cases", Producer: "php@1.0.0", Tool: "phpunit",
 		Status: "fail", Total: 2, Passed: 1, Failed: 1, RunName: "mse-unit-3", CreatedAt: time.Now(),
 	}}, nil
 }

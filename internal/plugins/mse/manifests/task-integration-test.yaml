@@ -45,9 +45,9 @@ spec:
   steps:
     - name: integration-test
       image: reg.cadoles.com/cnous-mse/tekton-mse-manager:v1.1.1
-      # The failure no longer stops the Task: the next step must run **above all** when this one
-      # failed, since it is what says whether the tool concluded. The exit code is kept by Tekton and
-      # the `report` step picks it up again — so the Task still fails when the tests fail.
+      # The failure does not stop the Task at once: the exit code is kept by Tekton, where the
+      # dashboard reads it, and the `report` step returns it, so the Task still fails when the tests
+      # fail.
       onError: continue
       command:
         - /usr/local/bin/tekton-mse-manager
@@ -114,29 +114,7 @@ spec:
         #!/usr/bin/env sh
         set -u
 
-        JUNIT="$(workspaces.source.path)/test-results/integration/junit.xml"
         RC=$(cat "$(steps.step-integration-test.exitCode.path)" 2>/dev/null || echo 1)
-
-        # The report is authoritative, and not the exit code: PHPUnit exits with a failure as soon as a
-        # test fails, which is a **success** of the tool. What tells a tool that did not conclude is the
-        # absence of a report. The same rule as `unit-test`, so that the two families read alike.
-        if [ -s "${JUNIT}" ]; then
-          STATUS=ok
-        else
-          STATUS=error
-        fi
-
-        SUMMARY=$(cat "$(results.summary.path)" 2>/dev/null || true)
-        if [ -z "${SUMMARY}" ]; then
-          SUMMARY="no JUnit report produced"
-        fi
-
-        # `phpunit-integration` and not `phpunit`: it is the name under which the artifact ingestion
-        # files this report. Two names would make the same tool appear twice on a release's screen,
-        # conforming under one and never measured under the other.
-        printf '##MSE-META## {"tool":"phpunit-integration","scanner":"integration","format":"junit-xml","output":"junit.xml","exit_code":%d,"status":"%s"}\n' \
-          "${RC}" "${STATUS}"
-        printf '##MSE-SUMMARY## %s\n' "${SUMMARY}"
 
         # The previous step's exit code is returned as it is: without that, `onError: continue` would
         # turn every test failure into a success.

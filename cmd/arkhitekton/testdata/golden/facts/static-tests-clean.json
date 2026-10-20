@@ -1,0 +1,14 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "static",
+    "Tool": "phpstan",
+    "Status": "pass",
+    "Summary": "no violation",
+    "RawObject": "raw/run/phpstan",
+    "DurationMS": 0,
+    "Cases": null,
+    "Findings": null,
+    "Measures": null
+  }
+]

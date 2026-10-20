@@ -19,7 +19,7 @@ pipelines:
 `
 
 func TestParseAppliesTheDefaultConcurrencyCap(t *testing.T) {
-	catalog, err := Parse([]byte(minimal))
+	catalog, err := parseDeclared([]byte(minimal))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestParseAppliesTheDefaultConcurrencyCap(t *testing.T) {
 // produce a run missing the workspace or the service account it expects, and the
 // failure would be blamed on the pipeline.
 func TestUnknownFieldIsRejected(t *testing.T) {
-	_, err := Parse([]byte(`
+	_, err := parseDeclared([]byte(`
 pipelines:
   - kind: static-tests
     produces: [none]
@@ -62,7 +62,7 @@ func TestAKindCeilingFallsBackToTheDefault(t *testing.T) {
 }
 
 func TestDuplicateKindIsRejected(t *testing.T) {
-	_, err := Parse([]byte(`
+	_, err := parseDeclared([]byte(`
 pipelines:
   - kind: build
     produces: [image]
@@ -77,7 +77,7 @@ pipelines:
 }
 
 func TestWorkspaceNeedsExactlyOneSource(t *testing.T) {
-	_, err := Parse([]byte(`
+	_, err := parseDeclared([]byte(`
 pipelines:
   - kind: build
     produces: [image]
@@ -89,7 +89,7 @@ pipelines:
 		t.Fatal("a workspace with no source must be refused")
 	}
 
-	_, err = Parse([]byte(`
+	_, err = parseDeclared([]byte(`
 pipelines:
   - kind: build
     produces: [image]
@@ -112,7 +112,7 @@ func TestParamSourcesAreChecked(t *testing.T) {
 	}
 
 	for name, params := range cases {
-		_, err := Parse([]byte(`
+		_, err := parseDeclared([]byte(`
 pipelines:
   - kind: build
     produces: [image]
@@ -127,7 +127,7 @@ pipelines:
 }
 
 func TestRequiredInputsAreListed(t *testing.T) {
-	catalog, err := Parse([]byte(`
+	catalog, err := parseDeclared([]byte(`
 pipelines:
   - kind: build
     produces: [image]
@@ -167,7 +167,7 @@ func (c fakeCluster) Tasks(context.Context) (map[string]bool, error) {
 }
 
 func TestValidateAgainstAcceptsAConsistentCatalog(t *testing.T) {
-	catalog, err := Parse([]byte(minimal))
+	catalog, err := parseDeclared([]byte(minimal))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestValidateAgainstAcceptsAConsistentCatalog(t *testing.T) {
 // The referenced Pipeline does not exist: the run would be created and then fail
 // with CouldntGetPipeline, a reason that does not name the catalogue.
 func TestValidateAgainstDetectsMissingPipeline(t *testing.T) {
-	catalog, _ := Parse([]byte(minimal))
+	catalog, _ := parseDeclared([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
 		"security-audit": {Name: "security-audit"},
 	}}
@@ -208,7 +208,7 @@ func TestValidateAgainstDetectsMissingPipeline(t *testing.T) {
 }
 
 func TestValidateAgainstDetectsUnknownParam(t *testing.T) {
-	catalog, _ := Parse([]byte(minimal))
+	catalog, _ := parseDeclared([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
 		"php-static-tests": {Name: "php-static-tests", Params: map[string]bool{"revision": false}},
 	}}
@@ -221,7 +221,7 @@ func TestValidateAgainstDetectsUnknownParam(t *testing.T) {
 
 // The case that produces ParameterMissing.
 func TestValidateAgainstDetectsUncoveredRequiredParam(t *testing.T) {
-	catalog, _ := Parse([]byte(minimal))
+	catalog, _ := parseDeclared([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
 		"php-static-tests": {Name: "php-static-tests", Params: map[string]bool{
 			"revision": false,
@@ -240,7 +240,7 @@ func TestValidateAgainstDetectsUncoveredRequiredParam(t *testing.T) {
 // force the catalogue to copy values that already live in the Pipeline, and to
 // maintain them twice.
 func TestValidateAgainstIgnoresDefaultedParams(t *testing.T) {
-	catalog, _ := Parse([]byte(minimal))
+	catalog, _ := parseDeclared([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
 		"php-static-tests": {Name: "php-static-tests", Params: map[string]bool{
 			"revision":    false,
@@ -256,7 +256,7 @@ func TestValidateAgainstIgnoresDefaultedParams(t *testing.T) {
 }
 
 func TestValidateAgainstReportsClusterFailure(t *testing.T) {
-	catalog, _ := Parse([]byte(minimal))
+	catalog, _ := parseDeclared([]byte(minimal))
 	cluster := fakeCluster{err: errors.New("forbidden")}
 
 	if err := catalog.ValidateAgainst(context.Background(), cluster); err == nil {
@@ -268,7 +268,7 @@ func TestValidateAgainstReportsClusterFailure(t *testing.T) {
 // started, then produced runs that died with InvalidWorkspaceBindings within a
 // second. Validation must therefore cover workspaces as well as parameters.
 func TestValidateAgainstDetectsUnboundWorkspace(t *testing.T) {
-	catalog, _ := Parse([]byte(minimal))
+	catalog, _ := parseDeclared([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
 		"php-static-tests": {
 			Name:   "php-static-tests",
@@ -296,7 +296,7 @@ func TestValidateAgainstDetectsUnboundWorkspace(t *testing.T) {
 // `docker-config` where the others use `shared-data` and `dockerconfig`, and
 // nothing guesses that.
 func TestValidateAgainstDetectsMisnamedWorkspace(t *testing.T) {
-	catalog, err := Parse([]byte(`
+	catalog, err := parseDeclared([]byte(`
 pipelines:
   - kind: audit
     produces: [none]
@@ -324,7 +324,7 @@ pipelines:
 
 // An optional workspace need not be bound.
 func TestValidateAgainstIgnoresOptionalWorkspaces(t *testing.T) {
-	catalog, _ := Parse([]byte(minimal))
+	catalog, _ := parseDeclared([]byte(minimal))
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
 		"php-static-tests": {
 			Name:       "php-static-tests",
@@ -341,7 +341,7 @@ func TestValidateAgainstIgnoresOptionalWorkspaces(t *testing.T) {
 // A verification with no artifact runs, concludes, and its verdict never reaches
 // the dashboard: the release keeps waiting for a result nothing reports.
 func TestAVerificationWithoutAnArtifactIsRefused(t *testing.T) {
-	_, err := Parse([]byte(`
+	_, err := parseDeclared([]byte(`
 pipelines:
   - kind: unit-tests
     produces: [none]
@@ -360,7 +360,7 @@ pipelines:
 // produces an image, not a report, and demanding an artifact would make it
 // undeclarable.
 func TestAnUnchainedPipelineNeedsNoArtifact(t *testing.T) {
-	if _, err := Parse([]byte(`
+	if _, err := parseDeclared([]byte(`
 pipelines:
   - kind: build
     produces: [image]
@@ -383,7 +383,7 @@ pipelines:
 // produces an image because it is called `build` would restore the naming
 // convention this declaration exists to remove.
 func TestTheProductIsRequiredAtDeclaration(t *testing.T) {
-	_, err := Parse([]byte(`
+	_, err := parseDeclared([]byte(`
 pipelines:
   - kind: deploy-acceptance
     pipelineRef: deploy
@@ -403,7 +403,7 @@ pipelines:
 // empty. "This pipeline produces nothing" and "nobody answered" are different, and
 // only the second must be refused.
 func TestNothingIsAnAnswerThatMustBeDeclared(t *testing.T) {
-	parsed, err := Parse([]byte(`
+	parsed, err := parseDeclared([]byte(`
 pipelines:
   - kind: deploy-acceptance
     pipelineRef: deploy
@@ -425,7 +425,7 @@ pipelines:
 // the list is for — splitting it in two to fit the model would be the model
 // dictating the pipeline.
 func TestAPipelineCanProduceBoth(t *testing.T) {
-	parsed, err := Parse([]byte(`
+	parsed, err := parseDeclared([]byte(`
 pipelines:
   - kind: build-and-test
     pipelineRef: build-and-test
@@ -445,70 +445,12 @@ pipelines:
 	}
 }
 
-// Deduction covers what is beyond doubt, and nothing more.
-//
-// `verification: true` already implies publishing reports — validation requires
-// it. The rest needs a human answer, which is what surfaced the end-to-end case:
-// three artifacts published under a flag that said "no".
-func TestDeductionOnlyCoversVerifications(t *testing.T) {
-	parsed, err := Parse([]byte(`
-pipelines:
-  - kind: unit-tests
-    pipelineRef: unit
-    label: Tests unitaires
-    verification: true
-    params:
-      reports-upload-url: { source: input }
-    uploads:
-      reports: { param: reports-upload-url, artifact: reports.tar.gz }
-`))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if !parsed.Yields("unit-tests", ProductResults) {
-		t.Error("a verification infers its product")
-	}
-
-	// A pipeline with no flag cannot be deduced: it is refused.
-	if _, err := Parse([]byte(`
-pipelines:
-  - kind: retag
-    pipelineRef: retag-image
-    label: Re-tag
-`)); err == nil {
-		t.Error("a pipeline that is not a verification must declare its product")
-	}
-}
-
-// An explicit declaration beats deduction: that is what allows fixing a catalogue
-// without removing the flag, which still drives chaining.
-func TestAnExplicitDeclarationBeatsDeduction(t *testing.T) {
-	parsed, err := Parse([]byte(`
-pipelines:
-  - kind: build-and-verify
-    pipelineRef: build-and-verify
-    label: Verified build
-    verification: true
-    produces: [image, results]
-    params:
-      reports-upload-url: { source: input }
-    uploads:
-      reports: { param: reports-upload-url, artifact: reports.tar.gz }
-`))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if !parsed.Yields("build-and-verify", ProductImage) {
-		t.Error("deduction overwrote the declaration")
-	}
-}
-
 // The two inconsistencies the declaration makes detectable, and which used to be
 // invisible: results announced that nothing publishes, and artifacts published
 // that nothing announces.
 func TestInconsistenciesBetweenProductAndArtifactsAreRefused(t *testing.T) {
 	// Announced with no artifact: the run runs, concludes, and the screen stays empty.
-	_, err := Parse([]byte(`
+	_, err := parseDeclared([]byte(`
 pipelines:
   - kind: unit-tests
     pipelineRef: unit
@@ -521,7 +463,7 @@ pipelines:
 
 	// Published without being announced: three artifacts, and nothing saying they are
 	// read.
-	_, err = Parse([]byte(`
+	_, err = parseDeclared([]byte(`
 pipelines:
   - kind: e2e-tests
     pipelineRef: e2e
@@ -539,7 +481,7 @@ pipelines:
 
 // An invented product is refused, and the message names the accepted values.
 func TestAnUnknownProductIsRefused(t *testing.T) {
-	_, err := Parse([]byte(`
+	_, err := parseDeclared([]byte(`
 pipelines:
   - kind: bench
     pipelineRef: bench
@@ -557,7 +499,7 @@ pipelines:
 // "Nothing" does not accumulate: the declaration would contradict itself, and
 // nothing would say which half to believe.
 func TestNothingDoesNotCombineWithAnotherProduct(t *testing.T) {
-	_, err := Parse([]byte(`
+	_, err := parseDeclared([]byte(`
 pipelines:
   - kind: build
     pipelineRef: build-image
@@ -580,7 +522,7 @@ pipelines:
 // parseForTest returns a catalogue or fails the test.
 func parseForTest(t *testing.T, source string) *Catalog {
 	t.Helper()
-	parsed, err := Parse([]byte(source))
+	parsed, err := parseDeclared([]byte(source))
 	if err != nil {
 		t.Fatalf("catalogue: %v", err)
 	}
@@ -639,7 +581,7 @@ pipelines:
       portal-image: { source: input, required: true, suggest: image, image: portal }
       report-url:   { source: input }
     uploads:
-      report-url: { param: report-url, artifact: report.json, family: security }
+      report-url: { param: report-url, artifact: report.json, group: security }
 `)
 	pipeline, _ := registry.Find("security-audit")
 

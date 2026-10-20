@@ -23,6 +23,14 @@ func (staticReader) Interpret(_ context.Context, run capability.RunState, record
 		sets = append(sets, set)
 	}
 	if set, found := tool(run, records, "cs-fixer", "run-cs-fixer", csFixerSet); found {
+		// PHP-CS-Fixer exits 0 when everything conforms and 8 when files need fixing. Any other code
+		// is a failure of the tool, whatever its report says.
+		if code, ran := exitCode(run, "run-cs-fixer"); ran && code != 0 && code != 8 {
+			set = facts.Set{
+				Shape: facts.ShapeCases, Group: "static", Tool: "cs-fixer", RawObject: set.RawObject,
+				Status: facts.StatusNA, Summary: fmt.Sprintf("the tool did not conclude (code %d)", code),
+			}
+		}
 		sets = append(sets, set)
 	}
 	return sets, nil
@@ -56,6 +64,27 @@ func tool(
 		}, true
 	}
 	return facts.Set{}, false
+}
+
+// exitCode is the first non-zero exit code of a task's steps, or zero when they all succeeded.
+func exitCode(run capability.RunState, task string) (int32, bool) {
+	for _, state := range run.Tasks {
+		if state.Name != task {
+			continue
+		}
+		var found bool
+		for _, step := range state.Steps {
+			if step.ExitCode == nil {
+				continue
+			}
+			found = true
+			if *step.ExitCode != 0 {
+				return *step.ExitCode, true
+			}
+		}
+		return 0, found
+	}
+	return 0, false
 }
 
 func groupOf(tool string) string {

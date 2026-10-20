@@ -42,9 +42,9 @@ const ExclusiveKindConcurrency = 1
 type Catalog struct {
 	// Capabilities bind the plugins' pipelines to this instance. Resolved into Pipelines at parse.
 	Capabilities []Binding `json:"capabilities,omitempty"`
-	// Pipelines are the pipelines the dashboard can launch: the bound capabilities, and those still
-	// declared whole in the legacy format.
-	Pipelines []Pipeline `json:"pipelines,omitempty"`
+	// Pipelines are the pipelines the dashboard can launch, resolved from the bindings. Never read
+	// from the file: a pipeline enters only through a plugin.
+	Pipelines []Pipeline `json:"-"`
 	// Projects carries what the catalogue declares per project, keyed by slug.
 	//
 	// In the same file as the pipelines: both describe what the dashboard can
@@ -134,9 +134,8 @@ func (e Environment) IsSensitive() bool { return e.Sensitive == nil || *e.Sensit
  * makes the contract **checkable**: a pipeline that announces results and publishes none becomes a
  * breach one can point at, instead of an empty screen with nothing saying its cause.
  *
- * The word "family" was not available: it already names a family of test results — `unit`,
- * `static`, `e2e` — and reusing it one level up would have produced two meanings of the same word,
- * permanently.
+ * Not called a kind of result: what a pipeline leaves is an image, results or nothing, whatever
+ * group its results are shown under.
  */
 
 // Product names something a pipeline produces.
@@ -354,8 +353,9 @@ type Upload struct {
 	// the real content — `.tar.gz` for a packed directory — because the Task uploads
 	// what the mode declares, not what it happens to find.
 	Artifact string `json:"artifact"`
-	Family   string `json:"family"`
-	Format   string `json:"format"`
+	// Group is where the pipeline's results are shown before any is read.
+	Group  string `json:"group"`
+	Format string `json:"format"`
 }
 
 // Workspace describes a workspace of the PipelineRun.
@@ -433,7 +433,7 @@ func Parse(content []byte, options ...Option) (*Catalog, error) {
 		// UnmarshalStrict refuses unknown fields. A misspelled key in a ConfigMap would
 		// otherwise be ignored silently, and the pipeline would run without the workspace
 		// or the service account it expects.
-		return nil, fmt.Errorf("catalogue illisible: %w", err)
+		return nil, fmt.Errorf("unreadable catalogue: %w", err)
 	}
 
 	if catalog.MaxConcurrentRuns == 0 {
@@ -443,41 +443,13 @@ func Parse(content []byte, options ...Option) (*Catalog, error) {
 		return nil, fmt.Errorf("catalogue: %w", err)
 	}
 
-	// Deduction comes before validation: it fills in what can be inferred safely, and
-	// leaves validation to refuse the rest.
-	catalog.deduceProducts()
-
 	if err := catalog.validate(); err != nil {
 		return nil, err
 	}
 	return &catalog, nil
 }
 
-// deduceProducts completes the pipelines whose product is unambiguous.
-//
-// One rule only, deliberately: `verification: true` implies publishing reports —
-// validation already requires it, since a chained pipeline without artifacts has
-// a verdict that never reaches the dashboard.
-//
-// The rest needs a human answer, because the catalogue carries no signal that
-// says it. A build and a re-tag both publish images; neither declares an
-// artifact, and nothing structurally distinguishes them from a pipeline that
-// deploys. Guessing from their names would restore the naming convention this
-// declaration exists to remove.
-//
-// And the deciding case: an end-to-end pipeline publishes three artifacts with
-// `verification: false`. A deduction filing it under "nothing" would perpetuate
-// exactly the confusion being fixed.
-func (c *Catalog) deduceProducts() {
-	for index, pipeline := range c.Pipelines {
-		if len(pipeline.Produces) > 0 || !pipeline.Verification {
-			continue
-		}
-		c.Pipelines[index].Produces = []Product{ProductResults}
-	}
-}
-
-// kindPattern accepts a pipeline declared whole (`unit-tests`) and a bound capability
+// kindPattern accepts a bare name (`unit-tests`) as well as a capability's reference
 // (`php/unit-tests`).
 var kindPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]*[a-z0-9])?/)?[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
@@ -741,17 +713,6 @@ func (c *Catalog) Concurrency() map[string]int {
 
 // Find returns a kind's entry.
 func (c *Catalog) Find(kind string) (Pipeline, bool) {
-	if pipeline, found := c.find(kind); found {
-		return pipeline, true
-	}
-	// A kind from before qualified references: an old api replica enqueuing during an upgrade.
-	if ref, legacy := LegacyRef(kind); legacy {
-		return c.find(ref)
-	}
-	return Pipeline{}, false
-}
-
-func (c *Catalog) find(kind string) (Pipeline, bool) {
 	for _, pipeline := range c.Pipelines {
 		if pipeline.Kind == kind {
 			// The global pod template applies to whoever declares none. Inherited here rather
@@ -883,26 +844,20 @@ func (p Pipeline) Inputs() []Input {
 	return inputs
 }
 
-// Family returns the signal family this pipeline measures.
+// Group returns the group this pipeline's results are shown under before any is read.
 //
-// Empty when it declares none, or several, in which case nothing says which one
-// to attach a tool to: better not to classify than to classify at random, since a
-// wrong family moves a verdict onto a signal that was never measured.
-//
-// Read from the uploads, which already declare it to file artifacts. The marker
-// channel uses it to attribute a family to a tool that published nothing — it
-// then has no artifact to infer it from, which is precisely the case worth making
-// visible.
-func (p Pipeline) Family() string {
+// Empty when its uploads name none, or several: better not to classify than to classify at
+// random, since a wrong group moves a verdict onto a signal that was never measured.
+func (p Pipeline) Group() string {
 	var found string
 	for _, upload := range p.Uploads {
-		if upload.Family == "" || upload.Family == found {
+		if upload.Group == "" || upload.Group == found {
 			continue
 		}
 		if found != "" {
 			return ""
 		}
-		found = upload.Family
+		found = upload.Group
 	}
 	return found
 }
@@ -927,7 +882,7 @@ func (c *Catalog) VerificationKinds() []string {
 	return kinds
 }
 
-// IsVerification says whether a family is a chained verification.
+// IsVerification says whether a pipeline is a chained verification.
 func (c *Catalog) IsVerification(kind string) bool {
 	pipeline, found := c.Find(kind)
 	return found && pipeline.Verification

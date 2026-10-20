@@ -69,7 +69,7 @@ func verificationPlan(steps ...plan.Geste) store.PlanRun {
 
 func testReport(id int64, family string, total, failed int) store.TestResult {
 	return store.TestResult{
-		ID: id, Family: family, Tool: family, Status: "passed",
+		ID: id, Group: family, Tool: family, Status: "passed",
 		Total: total, Passed: total - failed, Failed: failed,
 	}
 }
@@ -160,7 +160,7 @@ func TestAStepWithNoResultStaysDisplayedWithItsWeight(t *testing.T) {
 		Kind: "unit-tests", PipelineRef: "unit",
 		Produces: []catalog.Product{catalog.ProductResults},
 		Uploads: map[string]catalog.Upload{
-			"results": {Param: "results-upload-url", Artifact: "unit.xml", Family: "unit"},
+			"results": {Param: "results-upload-url", Artifact: "unit.xml", Group: "unit"},
 		},
 	}}}
 

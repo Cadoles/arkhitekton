@@ -14,7 +14,7 @@
       capability/, facts/, parse/   the contract plugins compile against
       plugins/            the built-in plugins, and builtin/ which assembles them
       mse/                the MSE plugin, with its own storage and migrations
-      results/            reports and the quality score
+      results/            the quality score
       tekton/, gitea/, redmine/, registry/, blob/   external systems
       web/                the embedded interface build output
     apps/web/             the React sources

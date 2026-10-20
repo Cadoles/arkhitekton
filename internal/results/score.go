@@ -61,24 +61,23 @@ func DefaultWeights() Weights {
 	}
 }
 
-// SignalOf returns the signal a result family feeds.
+// SignalOf returns the signal a group of results feeds.
 //
-// The family says where the figure comes from, the signal says how to grade it. The
-// correspondence used to live implicitly in a list of calls — and became wrong as
-// soon as a step chose its family instead of inheriting it.
-func SignalOf(family Family) (Signal, bool) {
-	switch family {
-	case FamilyUnit:
+// The group says where the figure comes from, the signal says how to grade it. A group the score
+// does not know grades nothing.
+func SignalOf(group Group) (Signal, bool) {
+	switch group {
+	case GroupUnit:
 		return SignalUnit, true
-	case FamilyIntegration:
+	case GroupIntegration:
 		return SignalIntegration, true
-	case FamilyE2E:
+	case GroupE2E:
 		return SignalE2E, true
-	case FamilyStatic:
+	case GroupStatic:
 		return SignalCode, true
-	case FamilySecurity:
+	case GroupSecurity:
 		return SignalSecurity, true
-	case FamilyLoad:
+	case GroupLoad:
 		return SignalPerformance, true
 	default:
 		return "", false
@@ -103,22 +102,22 @@ type Measure struct {
 	//
 	// The signal used to be the identity: six components, one per nature, so two
 	// distinct end-to-end campaigns were conflated into one. The key is now the step
-	// that measured — or, for a release predating plans, the family for want of better.
+	// that measured, or, for a release predating plans, the group for want of better.
 	Key string
 	// Label names the component on screen, in the words of whoever declared it.
 	Label string
 	// Signal says how to measure, no longer how to weigh. It remains what links a report
 	// to its grading rule.
 	Signal Signal
-	// Ref and Family say what produced the measure, in the catalogue's vocabulary: the
+	// Ref and Group say what produced the measure, in the catalogue's vocabulary: the
 	// pipeline family to re-run, the report family to open in detail.
 	//
 	// Carried by the measure rather than inferred from the signal by a table in the
 	// interface. That table existed in three copies, and became wrong as soon as a
 	// project declared two campaigns of the same nature: they do not re-run the same
 	// pipeline.
-	Ref    string
-	Family Family
+	Ref   string
+	Group Group
 	// Shape is how the results to open read: test cases, findings or measures.
 	Shape string
 	// Weight is this component's declared weight.
@@ -162,12 +161,12 @@ type SignalScore struct {
 	Key    string
 	Label  string
 	Signal Signal
-	// Ref and Family say what produced the measure: the pipeline to re-run, and the
+	// Ref and Group say what produced the measure: the pipeline to re-run, and the
 	// report family to open.
-	Ref    string
-	Family Family
-	Shape  string
-	Value  float64
+	Ref   string
+	Group Group
+	Shape string
+	Value float64
 	// Weight is the effective weight, after redistribution. Distinct from the declared
 	// weight: it is what explains the real contribution.
 	Weight float64
@@ -226,7 +225,7 @@ func Score(measures []Measure) Breakdown {
 
 		breakdown.Signals = append(breakdown.Signals, SignalScore{
 			Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
-			Ref: measure.Ref, Family: measure.Family, Shape: measure.Shape,
+			Ref: measure.Ref, Group: measure.Group, Shape: measure.Shape,
 			Value: measure.Value, Weight: effective, Declared: measure.Weight,
 			Measured: true, Detail: measure.Detail,
 		})
@@ -244,7 +243,7 @@ func Score(measures []Measure) Breakdown {
 func retired(measure Measure) SignalScore {
 	return SignalScore{
 		Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
-		Ref: measure.Ref, Family: measure.Family, Shape: measure.Shape,
+		Ref: measure.Ref, Group: measure.Group, Shape: measure.Shape,
 		Declared: measure.Weight, Detail: measure.Detail,
 	}
 }
