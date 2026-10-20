@@ -137,10 +137,11 @@ func NotConcluded(run capability.RunState, task string) (summary string, ran boo
 	return "", false
 }
 
-// Readable returns the record of a tool when it was parsed without error.
+// Readable returns the report of a tool when it was parsed without error. A file kept as an
+// attachment is no report, whatever tool it comes from.
 func Readable(records []parse.Record, tool string) (parse.Record, bool) {
 	for _, record := range records {
-		if record.Tool == tool && record.Err == nil && record.Payload != nil {
+		if record.Tool == tool && record.Parser != parse.Attach && record.Err == nil && record.Payload != nil {
 			return record, true
 		}
 	}

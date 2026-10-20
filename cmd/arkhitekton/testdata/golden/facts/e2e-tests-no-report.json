@@ -1,0 +1,27 @@
+[
+  {
+    "Shape": "attachments",
+    "Group": "e2e",
+    "Tool": "cypress",
+    "Status": "na",
+    "Summary": "no readable report",
+    "RawObject": "",
+    "DurationMS": 0,
+    "Cases": null,
+    "Findings": null,
+    "Measures": null,
+    "Attachments": [
+      {
+        "Name": "login.cy.js.mp4",
+        "MediaType": "video/mp4",
+        "Object": "attachments/run/videos/login.cy.js.mp4",
+        "Size": 2048,
+        "Case": null,
+        "Attributes": {
+          "spec": "login.cy.js"
+        }
+      }
+    ],
+    "Attributes": null
+  }
+]

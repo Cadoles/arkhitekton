@@ -115,8 +115,13 @@ func e2eTests() capability.Pipeline {
 				archive("reports", "reports-upload-url", "e2e-reports.tar.gz",
 					capability.Member{Match: "e2e/*.json", Parser: parse.MochawesomeJSON, Tool: "cypress"},
 					capability.Member{Match: "*/*mocha*.json", Parser: parse.MochawesomeJSON, Tool: "cypress"}),
-				archive("videos", "videos-upload-url", "e2e-videos.tar.gz"),
-				archive("screenshots", "screenshots-upload-url", "e2e-screenshots.tar.gz"),
+				// Kept, not read: each spec's video and each failure's screenshot, shown beside the cases.
+				archive("videos", "videos-upload-url", "e2e-videos.tar.gz",
+					capability.Member{Match: "*/*.mp4", Parser: parse.Attach, Tool: "cypress"},
+					capability.Member{Match: "*.mp4", Parser: parse.Attach, Tool: "cypress"}),
+				archive("screenshots", "screenshots-upload-url", "e2e-screenshots.tar.gz",
+					capability.Member{Match: "*/*.png", Parser: parse.Attach, Tool: "cypress"},
+					capability.Member{Match: "*.png", Parser: parse.Attach, Tool: "cypress"}),
 			},
 		},
 	}
