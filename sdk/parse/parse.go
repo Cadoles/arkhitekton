@@ -20,6 +20,19 @@ type ID string
 // Raw hands the artifact over as it is. Its payload is a [Bytes].
 const Raw ID = "raw"
 
+// Attach keeps the file as an attachment instead of reading it: a video, a screenshot, a report to
+// open. Its payload is an [Attached]. The host stores an archive's member as an object of its own,
+// without loading it, and hands over where it is.
+const Attach ID = "attach"
+
+// Attached is a file the host kept for the interpreter to attach to a set.
+type Attached struct {
+	// Object is the stored file's key, the only one an attachment may name.
+	Object    string
+	MediaType string
+	Size      int64
+}
+
 // Record is one parsed member of an artifact.
 type Record struct {
 	// Artifact is the name the capability gave the artifact; Member is the file inside an archive,

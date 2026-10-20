@@ -227,6 +227,9 @@ type Member struct {
 	Match  string
 	Parser parse.ID
 	Tool   string
+	// MediaType is the type of a member kept by [parse.Attach]. Empty, the host infers it from the
+	// name, then from the content.
+	MediaType string
 }
 
 // NeedName is a privilege a pipeline requires. The set is closed: the operator must be able to

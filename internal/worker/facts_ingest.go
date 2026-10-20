@@ -2,15 +2,19 @@ package worker
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
+	"net/http"
 	"path"
 	"strings"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -95,10 +99,15 @@ func (i *FactIngester) Ingest(ctx context.Context, runID int64) error {
 			// An interpreter may return what it could read alongside what it could not.
 			i.logger.Error("interpreting a run", "run", snapshot.Name, "capability", ref.String(), "error", err)
 		}
+		kept := attachedObjects(records)
 		for _, set := range sets {
-			if err := set.Validate(); err != nil {
+			refused := set.Validate()
+			if refused == nil {
+				refused = attachedOnly(set, kept)
+			}
+			if refused != nil {
 				i.logger.Error("facts refused", "run", snapshot.Name, "capability", ref.String(),
-					"tool", set.Tool, "error", err)
+					"tool", set.Tool, "error", refused)
 				continue
 			}
 			run.Sets = append(run.Sets, set)
@@ -171,8 +180,13 @@ func (i *FactIngester) records(ctx context.Context, runName string, spec capabil
 	var listedOnce bool
 
 	var records []parse.Record
+	quota := &attachmentQuota{}
 	for _, artifact := range spec.Artifacts {
-		var keys []string
+		if len(artifact.Members) == 0 {
+			// Nothing in it is read nor kept: downloading and decompressing it would be for nothing.
+			continue
+		}
+		var keys []ObjectRef
 		if strings.ContainsAny(artifact.Object, "*?[") {
 			if !listedOnce {
 				var err error
@@ -184,21 +198,34 @@ func (i *FactIngester) records(ctx context.Context, runName string, spec capabil
 			}
 			for _, object := range listed {
 				if matched, _ := path.Match(artifact.Object, strings.TrimPrefix(object.Key, prefix)); matched {
-					keys = append(keys, object.Key)
+					keys = append(keys, object)
 				}
 			}
 		} else {
-			keys = []string{prefix + artifact.Object}
+			keys = []ObjectRef{{Key: prefix + artifact.Object}}
 		}
 
 		for _, key := range keys {
-			records = append(records, i.read(ctx, runName, key, artifact)...)
+			records = append(records, i.read(ctx, runName, key, artifact, quota)...)
 		}
 	}
 	return records
 }
 
-func (i *FactIngester) read(ctx context.Context, runName, key string, artifact capability.Artifact) []parse.Record {
+func (i *FactIngester) read(
+	ctx context.Context, runName string, object ObjectRef, artifact capability.Artifact, quota *attachmentQuota,
+) []parse.Record {
+	key := object.Key
+	if artifact.Format != capability.FormatArchive {
+		// A plain file kept as an attachment is already stored: it is attached where it is, unread.
+		if member, wanted := memberFor(artifact, path.Base(key)); wanted && member.Parser == parse.Attach {
+			return []parse.Record{{
+				Artifact: artifact.Name, Object: key, Parser: parse.Attach, Tool: member.Tool,
+				Payload: parse.Attached{Object: key, MediaType: mediaTypeOf(member, key, nil), Size: object.Size},
+			}}
+		}
+	}
+
 	content, err := i.objects.Get(ctx, key)
 	if err != nil {
 		// Most often an artifact never published: the run stopped before, which the run's state says.
@@ -220,9 +247,13 @@ func (i *FactIngester) read(ctx context.Context, runName, key string, artifact c
 	}
 
 	var records []parse.Record
-	err = unpack(content, func(name string, reader io.Reader, budget int64) (int64, error) {
+	err = unpack(content, func(name string, size int64, reader io.Reader, budget int64) (int64, error) {
 		member, wanted := memberFor(artifact, lastTwo(name))
 		if !wanted {
+			return 0, nil
+		}
+		if member.Parser == parse.Attach {
+			records = append(records, i.keep(ctx, runName, key, artifact, member, name, size, reader, quota))
 			return 0, nil
 		}
 		raw, err := io.ReadAll(io.LimitReader(reader, budget))
@@ -237,7 +268,7 @@ func (i *FactIngester) read(ctx context.Context, runName, key string, artifact c
 
 // unpack walks a gzipped tar, handing each regular file to visit. Only the files visit reads count
 // against the budget: an end-to-end archive weighs mostly videos nobody parses.
-func unpack(source io.Reader, visit func(name string, reader io.Reader, budget int64) (int64, error)) error {
+func unpack(source io.Reader, visit func(name string, size int64, reader io.Reader, budget int64) (int64, error)) error {
 	gz, err := gzip.NewReader(source)
 	if err != nil {
 		return fmt.Errorf("unreadable archive: %w", err)
@@ -257,7 +288,7 @@ func unpack(source io.Reader, visit func(name string, reader io.Reader, budget i
 		if header.Typeflag != tar.TypeReg {
 			continue
 		}
-		read, err := visit(header.Name, reader, budget)
+		read, err := visit(header.Name, header.Size, reader, budget)
 		if err != nil {
 			return err
 		}
@@ -297,4 +328,88 @@ func parseRecord(artifact, member, object string, rule capability.Member, raw []
 	}
 	record.Payload, record.Err = parser(raw)
 	return record
+}
+
+// The bounds of what a run may keep as attachments. Videos of an end-to-end campaign weigh tens of
+// megabytes each; a runaway loop recording thousands must end in a message, not in a full bucket.
+const (
+	maxAttachmentBytes = 256 << 20
+	maxAttachedBytes   = 2 << 30
+	maxAttachments     = 500
+)
+
+// attachmentQuota counts what one run has kept so far.
+type attachmentQuota struct {
+	count int
+	bytes int64
+}
+
+// keep stores an archive member as an object of its own, streamed without being loaded, and hands
+// over where it is.
+func (i *FactIngester) keep(
+	ctx context.Context, runName, archive string, artifact capability.Artifact, member capability.Member,
+	name string, size int64, reader io.Reader, quota *attachmentQuota,
+) parse.Record {
+	record := parse.Record{Artifact: artifact.Name, Member: name, Object: archive, Parser: parse.Attach, Tool: member.Tool}
+	switch {
+	case size > maxAttachmentBytes:
+		record.Err = fmt.Errorf("%d bytes, beyond %d for one attachment", size, maxAttachmentBytes)
+		return record
+	case quota.count >= maxAttachments || quota.bytes+size > maxAttachedBytes:
+		record.Err = fmt.Errorf("beyond what one run may keep (%d files, %d bytes)", maxAttachments, maxAttachedBytes)
+		return record
+	}
+
+	key, err := blob.Keys{}.Attachment(runName, name)
+	if err != nil {
+		record.Err = err
+		return record
+	}
+	buffered := bufio.NewReaderSize(reader, 512)
+	head, _ := buffered.Peek(512)
+	mediaType := mediaTypeOf(member, name, head)
+	if err := i.objects.Put(ctx, key, buffered, size, mediaType); err != nil {
+		record.Err = err
+		return record
+	}
+	quota.count++
+	quota.bytes += size
+	record.Payload = parse.Attached{Object: key, MediaType: mediaType, Size: size}
+	return record
+}
+
+// mediaTypeOf is the member rule's type, else the name's, else what the first bytes look like.
+func mediaTypeOf(member capability.Member, name string, head []byte) string {
+	if member.MediaType != "" {
+		return member.MediaType
+	}
+	if byName := mime.TypeByExtension(path.Ext(name)); byName != "" {
+		return byName
+	}
+	if len(head) > 0 {
+		return http.DetectContentType(head)
+	}
+	return "application/octet-stream"
+}
+
+// attachedObjects are the objects the host kept for this run: the only ones an attachment may name.
+func attachedObjects(records []parse.Record) map[string]bool {
+	kept := map[string]bool{}
+	for _, record := range records {
+		if attached, ok := record.Payload.(parse.Attached); ok && record.Err == nil {
+			kept[attached.Object] = true
+		}
+	}
+	return kept
+}
+
+// attachedOnly refuses a set attaching an object the host did not keep for this run. Without it, an
+// interpreter could have the dashboard serve any object of the bucket under a release.
+func attachedOnly(set facts.Set, kept map[string]bool) error {
+	for _, attachment := range set.Attachments {
+		if !kept[attachment.Object] {
+			return fmt.Errorf("attachment %q names an object this run did not keep", attachment.Name)
+		}
+	}
+	return nil
 }

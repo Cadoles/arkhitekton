@@ -18,6 +18,8 @@ const maxArtifactBytes = 64 << 20
 type Objects interface {
 	List(ctx context.Context, prefix string) ([]ObjectRef, error)
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
+	// Put stores an attachment extracted from an archive.
+	Put(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error
 }
 
 // ObjectRef is the bare minimum needed to find a summary again.
@@ -34,6 +36,7 @@ type objectStore struct {
 	client interface {
 		List(ctx context.Context, prefix string) ([]blob.ObjectInfo, error)
 		Get(ctx context.Context, key string) (io.ReadCloser, error)
+		Put(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error
 	}
 }
 
@@ -54,4 +57,8 @@ func (o objectStore) List(ctx context.Context, prefix string) ([]ObjectRef, erro
 
 func (o objectStore) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return o.client.Get(ctx, key)
+}
+
+func (o objectStore) Put(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error {
+	return o.client.Put(ctx, key, reader, size, contentType)
 }

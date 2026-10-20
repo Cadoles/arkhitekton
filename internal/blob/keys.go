@@ -3,6 +3,8 @@
 package blob
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path"
 	"regexp"
@@ -13,9 +15,10 @@ import (
 // that is what lets the dashboard know the exact key of every artifact without
 // searching by prefix.
 const (
-	prefixRaw       = "raw"
-	prefixLogs      = "logs"
-	prefixArtifacts = "artifacts"
+	prefixRaw         = "raw"
+	prefixLogs        = "logs"
+	prefixArtifacts   = "artifacts"
+	prefixAttachments = "attachments"
 )
 
 // safeSegment accepts only what legitimately makes up a PipelineRun name, a release
@@ -79,6 +82,37 @@ func (Keys) RawArtifact(runName, artifact string) (string, error) {
 // it says whether the scanner ran, which no report carries.
 func (Keys) RawMeta(runName, tool string) (string, error) {
 	return join(prefixRaw, runName, "meta", tool+".json")
+}
+
+// Attachment names a file extracted from a run's archive to be kept on its own.
+//
+// The member's path inside the archive is free, and does not make a safe key: it is hashed into
+// a segment of its own, which also keeps two members of the same name apart, and its base name is
+// kept, sanitised, for whoever reads the bucket. The same member of the same run always gets the
+// same key, so replaying a run overwrites instead of piling up copies.
+func (Keys) Attachment(runName, member string) (string, error) {
+	sum := sha256.Sum256([]byte(member))
+	return join(prefixAttachments, runName, hex.EncodeToString(sum[:8]), sanitise(path.Base(member)))
+}
+
+// sanitise turns a file name into a safe segment: what is not allowed becomes a dash.
+func sanitise(name string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		if r < 128 && (r == '.' || r == '_' || r == '-' || ('0' <= r && r <= '9') ||
+			('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z')) {
+			return r
+		}
+		return '-'
+	}, name)
+	cleaned = strings.TrimLeft(cleaned, ".-_")
+	if cleaned == "" {
+		return "file"
+	}
+	if len(cleaned) > 120 {
+		cleaned = cleaned[len(cleaned)-120:]
+		cleaned = strings.TrimLeft(cleaned, ".-_")
+	}
+	return cleaned
 }
 
 // TaskLog names a step's sealed log.

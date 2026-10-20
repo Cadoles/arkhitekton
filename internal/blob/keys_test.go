@@ -202,3 +202,24 @@ func TestStepRankOrdersChunksBeforeContainerName(t *testing.T) {
 		t.Error("the test proves nothing: alphabetical order is already right for this pair")
 	}
 }
+
+// A member's free path becomes a safe key, the same at every replay, and two members of the same
+// name stay apart.
+func TestAnAttachmentKeyIsSafeAndStable(t *testing.T) {
+	var keys Keys
+	first, err := keys.Attachment("ark-x-12", "screenshots/login.cy.js/Login -- fails (failed).png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _ := keys.Attachment("ark-x-12", "screenshots/login.cy.js/Login -- fails (failed).png")
+	other, _ := keys.Attachment("ark-x-12", "screenshots/other.cy.js/Login -- fails (failed).png")
+	if first != again || first == other {
+		t.Errorf("keys %q, %q, %q", first, again, other)
+	}
+	if !strings.HasPrefix(first, "attachments/ark-x-12/") || !strings.HasSuffix(first, "/Login----fails--failed-.png") {
+		t.Errorf("key %q", first)
+	}
+	if _, err := keys.Attachment("../x", "a.png"); err == nil {
+		t.Error("an unsafe run name accepted")
+	}
+}

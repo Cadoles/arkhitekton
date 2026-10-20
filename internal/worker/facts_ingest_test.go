@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"path"
 	"strings"
 	"testing"
 
@@ -56,6 +57,16 @@ func (o memoryObjects) List(_ context.Context, prefix string) ([]ObjectRef, erro
 		}
 	}
 	return refs, nil
+}
+
+func (o memoryObjects) Put(_ context.Context, key string, reader io.Reader, _ int64, contentType string) error {
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+	o[key] = content
+	o[key+"#type"] = []byte(contentType)
+	return nil
 }
 
 func (o memoryObjects) Get(_ context.Context, key string) (io.ReadCloser, error) {
@@ -202,5 +213,101 @@ func TestInvalidFactsAreNotStored(t *testing.T) {
 	}
 	if len(db.saved) != 1 || len(db.saved[0].Sets) != 0 {
 		t.Errorf("a set with no tool was stored: %+v", db.saved)
+	}
+}
+
+// videoReader attaches what the host kept, and, to check the host's guard, an object it did not.
+type videoReader struct{ foreign bool }
+
+func (r videoReader) Interpret(_ context.Context, _ capability.RunState, records []parse.Record) ([]facts.Set, error) {
+	set := facts.Set{Shape: facts.ShapeAttachments, Group: "e2e", Tool: "cypress", Status: facts.StatusNA}
+	for _, record := range records {
+		if attached, ok := record.Payload.(parse.Attached); ok {
+			set.Attachments = append(set.Attachments, facts.Attachment{
+				Name: path.Base(record.Member), MediaType: attached.MediaType, Object: attached.Object, Size: attached.Size,
+			})
+		}
+	}
+	if r.foreign {
+		set.Attachments = append(set.Attachments, facts.Attachment{
+			Name: "x", MediaType: "text/plain", Object: "artifacts/releases/1.0.0/delivery-note.pdf",
+		})
+	}
+	return []facts.Set{set}, nil
+}
+
+func videoRegistry(t *testing.T, reader capability.Interpreter, members ...capability.Member) *capabilities.Registry {
+	t.Helper()
+	registry, err := capabilities.New(capability.Plugin{ID: "mse", Version: "1.0.0", APIVersion: sdk.APIVersion,
+		Pipelines: []capability.Pipeline{{
+			Name: "e2e-tests", Interpreter: reader,
+			Spec: capability.PipelineSpec{
+				PipelineRef: "e2e-test", Produces: []capability.Product{capability.ProductResults},
+				Artifacts: []capability.Artifact{
+					{Name: "videos", Object: "e2e-videos.tar.gz", Format: capability.FormatArchive, Members: members},
+					// Declared with nothing to read nor keep: never downloaded.
+					{Name: "screenshots", Object: "e2e-screenshots.tar.gz", Format: capability.FormatArchive},
+				},
+			},
+		}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry
+}
+
+// A video in an archive is kept as an object of its own, typed by its name, and attached; the
+// archive nothing reads is not even opened.
+func TestAnArchivedVideoIsKeptAsAnAttachment(t *testing.T) {
+	job := int64(3)
+	db := &factStore{
+		snapshots: map[int64]store.RunSnapshot{1: finished(1, "ark-x-mse-e2e-tests-3", "e2e-test", &job, nil)},
+		jobs:      map[int64]store.Job{3: {ID: 3, Kind: "mse/e2e-tests", Capability: "mse/e2e-tests"}},
+	}
+	objects := memoryObjects{
+		"raw/ark-x-mse-e2e-tests-3/e2e-videos.tar.gz": tarball(t, map[string]string{
+			"videos/login.cy.js.mp4": "not really a video", "videos/notes.txt": "ignored",
+		}),
+		"raw/ark-x-mse-e2e-tests-3/e2e-screenshots.tar.gz": []byte("not even an archive"),
+	}
+
+	ingester := NewFactIngester(db, objects, videoRegistry(t, videoReader{},
+		capability.Member{Match: "*/*.mp4", Parser: parse.Attach, Tool: "cypress"}), slog.New(slog.DiscardHandler))
+	if err := ingester.Ingest(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(db.saved) != 1 || len(db.saved[0].Sets) != 1 || len(db.saved[0].Sets[0].Attachments) != 1 {
+		t.Fatalf("saved = %+v", db.saved)
+	}
+	video := db.saved[0].Sets[0].Attachments[0]
+	if video.Name != "login.cy.js.mp4" || video.MediaType != "video/mp4" || video.Size != 18 ||
+		!strings.HasPrefix(video.Object, "attachments/ark-x-mse-e2e-tests-3/") {
+		t.Errorf("video = %+v", video)
+	}
+	if string(objects[video.Object]) != "not really a video" || string(objects[video.Object+"#type"]) != "video/mp4" {
+		t.Errorf("stored %q as %q", objects[video.Object], objects[video.Object+"#type"])
+	}
+}
+
+// An interpreter cannot attach an object the run did not keep: the dashboard would serve it under
+// a release.
+func TestAnAttachmentOfAnotherObjectIsRefused(t *testing.T) {
+	job := int64(3)
+	db := &factStore{
+		snapshots: map[int64]store.RunSnapshot{1: finished(1, "ark-x-mse-e2e-tests-3", "e2e-test", &job, nil)},
+		jobs:      map[int64]store.Job{3: {ID: 3, Kind: "mse/e2e-tests", Capability: "mse/e2e-tests"}},
+	}
+	objects := memoryObjects{"raw/ark-x-mse-e2e-tests-3/e2e-videos.tar.gz": tarball(t, map[string]string{
+		"videos/login.cy.js.mp4": "video",
+	})}
+
+	ingester := NewFactIngester(db, objects, videoRegistry(t, videoReader{foreign: true},
+		capability.Member{Match: "*/*.mp4", Parser: parse.Attach, Tool: "cypress"}), slog.New(slog.DiscardHandler))
+	if err := ingester.Ingest(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(db.saved) != 1 || len(db.saved[0].Sets) != 0 {
+		t.Errorf("a set attaching a foreign object was stored: %+v", db.saved)
 	}
 }
