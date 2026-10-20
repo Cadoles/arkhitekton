@@ -42,7 +42,9 @@
       }
     ],
     "Findings": null,
-    "Measures": null
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
   },
   {
     "Shape": "cases",
@@ -79,6 +81,8 @@
       }
     ],
     "Findings": null,
-    "Measures": null
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
   }
 ]

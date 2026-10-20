@@ -63,6 +63,43 @@ func (db *DB) SaveFacts(ctx context.Context, run InterpretedRun) error {
 }
 
 func saveSet(ctx context.Context, transaction pgx.Tx, run InterpretedRun, set facts.Set) error {
+	id, err := saveResult(ctx, transaction, run, set)
+	if err != nil {
+		return err
+	}
+	return saveAttachments(ctx, transaction, id, set)
+}
+
+// saveAttachments writes what any set may carry beside its shape: free attributes and files.
+func saveAttachments(ctx context.Context, transaction pgx.Tx, resultID int64, set facts.Set) error {
+	if len(set.Attributes) > 0 {
+		if _, err := transaction.Exec(ctx,
+			`update test_results set attributes = $2 where id = $1`, resultID, set.Attributes); err != nil {
+			return fmt.Errorf("attributes of %q: %w", set.Tool, err)
+		}
+	}
+	for _, attachment := range set.Attachments {
+		var suite, name *string
+		if attachment.Case != nil {
+			suite, name = &attachment.Case.Suite, &attachment.Case.Name
+		}
+		attributes := attachment.Attributes
+		if attributes == nil {
+			attributes = map[string]string{}
+		}
+		if _, err := transaction.Exec(ctx,
+			`insert into result_attachments (
+			     test_result_id, name, media_type, object, size_bytes, case_suite, case_name, attributes
+			 ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			resultID, attachment.Name, attachment.MediaType, attachment.Object, attachment.Size,
+			suite, name, attributes); err != nil {
+			return fmt.Errorf("attachment %q of %q: %w", attachment.Name, set.Tool, err)
+		}
+	}
+	return nil
+}
+
+func saveResult(ctx context.Context, transaction pgx.Tx, run InterpretedRun, set facts.Set) (int64, error) {
 	result := TestResult{
 		RunID: run.RunID, ReleaseID: run.ReleaseID,
 		Group: set.Group, Tool: set.Tool, Shape: string(set.Shape),
@@ -80,14 +117,13 @@ func saveSet(ctx context.Context, transaction pgx.Tx, run InterpretedRun, set fa
 		}
 		id, err := insertTestResult(ctx, transaction, result, nil)
 		if err != nil || set.Findings == nil {
-			return err
+			return id, err
 		}
-		return insertSecurityAudit(ctx, transaction, auditOf(id, set.Findings), findingsOf(set.Findings))
+		return id, insertSecurityAudit(ctx, transaction, auditOf(id, set.Findings), findingsOf(set.Findings))
 
 	case facts.ShapeMeasures:
 		if set.Measures == nil {
-			_, err := insertTestResult(ctx, transaction, result, nil)
-			return err
+			return insertTestResult(ctx, transaction, result, nil)
 		}
 		measures := make([]BenchMeasure, 0, len(set.Measures.Items))
 		for _, measure := range set.Measures.Items {
@@ -96,13 +132,15 @@ func saveSet(ctx context.Context, transaction pgx.Tx, run InterpretedRun, set fa
 				LowerBetter: measure.LowerBetter, Volume: measure.Volume, ThresholdOK: measure.ThresholdOK,
 			})
 		}
-		_, err := insertLoadResult(ctx, transaction, LoadResult{
+		return insertLoadResult(ctx, transaction, LoadResult{
 			RunID: run.RunID, ReleaseID: run.ReleaseID, Scenario: set.Measures.Scenario,
 			Group: set.Group, Tool: set.Tool, Producer: result.Producer, Capability: run.Capability,
 			Exclusive: run.Exclusive, ConcurrentJobs: run.ConcurrentJobs,
 			DurationMS: set.DurationMS, Summary: set.Summary, RawObject: set.RawObject,
 		}, measures, result.Status)
-		return err
+
+	case facts.ShapeAttachments:
+		return insertTestResult(ctx, transaction, result, nil)
 
 	default:
 		counts := set.Counts()
@@ -115,8 +153,7 @@ func saveSet(ctx context.Context, transaction pgx.Tx, run InterpretedRun, set fa
 				FailureMessage: c.Message, FailureTrace: c.Trace,
 			})
 		}
-		_, err := insertTestResult(ctx, transaction, result, cases)
-		return err
+		return insertTestResult(ctx, transaction, result, cases)
 	}
 }
 

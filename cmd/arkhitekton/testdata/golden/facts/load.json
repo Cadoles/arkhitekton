@@ -60,6 +60,8 @@
       ],
       "VUs": 50,
       "ThresholdsFailed": true
-    }
+    },
+    "Attachments": null,
+    "Attributes": null
   }
 ]

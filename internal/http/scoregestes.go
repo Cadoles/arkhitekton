@@ -113,6 +113,11 @@ func stepMeasures(
 		}
 
 		switch {
+		case shape == shapeAttachments:
+			// Files are shown, never graded: the step weighs nothing rather than leaving a hole the
+			// others would fill.
+			measure.Weight = 0
+			measure.Detail = "files to consult, not graded"
 		case !known:
 			// A step whose output cannot be read. Its weight stays displayed (otherwise one would think
 			// it does not count) but it grades nothing, and the detail says why.
@@ -151,10 +156,12 @@ func stepKey(ref store.GesteRef) string {
 	return "geste:" + strconv.Itoa(ref.Stage) + "." + strconv.Itoa(ref.Position)
 }
 
-// Shapes the score reads differently: an audit, a load campaign. Everything else is cases.
+// Shapes the score reads differently: an audit, a load campaign, files it does not grade.
+// Everything else is cases.
 const (
-	shapeFindings = "findings"
-	shapeMeasures = "measures"
+	shapeFindings    = "findings"
+	shapeMeasures    = "measures"
+	shapeAttachments = "attachments"
 )
 
 // stepKind returns the group this step feeds and the shape of its results.
@@ -166,9 +173,17 @@ const (
 func stepKind(
 	step plan.Geste, own []store.TestResult, registry *catalog.Catalog,
 ) (results.Group, string) {
-	for _, report := range own {
+	// A step's files come with what it measured: what it measured decides.
+	var attached *store.TestResult
+	for index, report := range own {
 		group := report.Group
 		if group == "" {
+			continue
+		}
+		if report.Shape == shapeAttachments {
+			if attached == nil {
+				attached = &own[index]
+			}
 			continue
 		}
 		shape := report.Shape
@@ -176,6 +191,9 @@ func stepKind(
 			shape = defaultShape(results.Group(group))
 		}
 		return results.Group(group), shape
+	}
+	if attached != nil {
+		return results.Group(attached.Group), shapeAttachments
 	}
 	if registry == nil {
 		return "", ""

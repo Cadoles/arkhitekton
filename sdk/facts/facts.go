@@ -15,6 +15,7 @@ package facts
 import (
 	"errors"
 	"fmt"
+	"mime"
 	"regexp"
 	"strings"
 )
@@ -29,6 +30,9 @@ const (
 	ShapeFindings Shape = "findings"
 	// ShapeMeasures are numeric measures. Identity is scenario + metric; compared with a baseline.
 	ShapeMeasures Shape = "measures"
+	// ShapeAttachments are files shown as they are: an HTML report, a screenshot, a video. Never
+	// compared, never scored. Also the shape of whatever fits no other.
+	ShapeAttachments Shape = "attachments"
 )
 
 // Status is a set's overall verdict.
@@ -107,6 +111,33 @@ type Set struct {
 	Cases    []Case
 	Findings *Findings
 	Measures *Measures
+
+	// Attachments are files kept with the set, whatever its shape: the videos of an end-to-end
+	// campaign beside its cases. A set of shape attachments carries nothing else.
+	Attachments []Attachment
+	// Attributes are free facts about the set, shown as they are: a browser, a seed, a commit.
+	Attributes map[string]string
+}
+
+// Attachment is a file kept with a set.
+type Attachment struct {
+	// Name is how the file is shown.
+	Name string
+	// MediaType decides how the file is shown: `image/png` inline, `video/mp4` in a player, the
+	// rest offered for download.
+	MediaType string
+	// Object is the file's storage key, as the parsed record gave it. The host refuses any other.
+	Object string
+	Size   int64
+	// Case is the case the file illustrates, when there is one: a screenshot of a failed test.
+	Case       *CaseRef
+	Attributes map[string]string
+}
+
+// CaseRef names a case by its identity.
+type CaseRef struct {
+	Suite string
+	Name  string
 }
 
 // Case is a test case, or a violation projected onto one.
@@ -188,6 +219,14 @@ type Measure struct {
 var (
 	errNoGroup = errors.New("no group")
 	errNoTool  = errors.New("no tool")
+
+	attributeKey = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,63}$`)
+)
+
+// The bounds of free attributes: shown as they are, they must stay readable.
+const (
+	maxAttributes      = 32
+	maxAttributeLength = 1024
 )
 
 // Validate refuses a set the database could not store or the screens could not read.
@@ -242,6 +281,10 @@ func (s Set) Validate() error {
 		if s.Measures != nil && strings.TrimSpace(s.Measures.Scenario) == "" {
 			problems = append(problems, errors.New("measures without a scenario"))
 		}
+	case ShapeAttachments:
+		if len(s.Cases) > 0 || s.Findings != nil || s.Measures != nil {
+			problems = append(problems, errors.New("a set of attachments carries cases, findings or measures"))
+		}
 	default:
 		problems = append(problems, fmt.Errorf("unknown shape %q", s.Shape))
 	}
@@ -249,7 +292,48 @@ func (s Set) Validate() error {
 	if s.Status == "" && s.Shape != ShapeCases {
 		problems = append(problems, errors.New("only cases derive their status"))
 	}
+
+	problems = append(problems, attributeProblems("set", s.Attributes)...)
+	for i, attachment := range s.Attachments {
+		problems = append(problems, attachment.problems(i)...)
+	}
 	return errors.Join(problems...)
+}
+
+func (a Attachment) problems(index int) []error {
+	var problems []error
+	if strings.TrimSpace(a.Name) == "" {
+		problems = append(problems, fmt.Errorf("attachment %d: no name", index))
+	}
+	if _, _, err := mime.ParseMediaType(a.MediaType); err != nil || !strings.Contains(a.MediaType, "/") {
+		problems = append(problems, fmt.Errorf("attachment %d: media type %q", index, a.MediaType))
+	}
+	if strings.TrimSpace(a.Object) == "" {
+		problems = append(problems, fmt.Errorf("attachment %d: no object", index))
+	}
+	if a.Size < 0 {
+		problems = append(problems, fmt.Errorf("attachment %d: negative size", index))
+	}
+	if a.Case != nil && (strings.TrimSpace(a.Case.Suite) == "" || strings.TrimSpace(a.Case.Name) == "") {
+		problems = append(problems, fmt.Errorf("attachment %d: a case is named by its suite and its name", index))
+	}
+	return append(problems, attributeProblems(fmt.Sprintf("attachment %d", index), a.Attributes)...)
+}
+
+func attributeProblems(owner string, attributes map[string]string) []error {
+	var problems []error
+	if len(attributes) > maxAttributes {
+		problems = append(problems, fmt.Errorf("%s: %d attributes, at most %d", owner, len(attributes), maxAttributes))
+	}
+	for key, value := range attributes {
+		if !attributeKey.MatchString(key) {
+			problems = append(problems, fmt.Errorf("%s: attribute %q badly named", owner, key))
+		}
+		if len(value) > maxAttributeLength {
+			problems = append(problems, fmt.Errorf("%s: attribute %q longer than %d", owner, key, maxAttributeLength))
+		}
+	}
+	return problems
 }
 
 // Counts tallies a set's cases.

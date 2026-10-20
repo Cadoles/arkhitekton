@@ -81,3 +81,58 @@ func TestARunsFactsAreStoredOnce(t *testing.T) {
 		t.Error("run not marked as read")
 	}
 }
+
+// Files and free attributes are kept with any result, and read back with the release they belong
+// to.
+func TestAttachmentsAreKeptWithTheirResult(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	runID, err := db.UpsertRun(ctx, runningRecord("run-attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := InterpretedRun{
+		RunID: runID, Producer: facts.Producer{Plugin: "mse", Version: "1.0.0"}, Capability: "mse/e2e-tests",
+		Sets: []facts.Set{
+			{Shape: facts.ShapeCases, Group: "e2e", Tool: "cypress",
+				Attributes: map[string]string{"browser": "chrome"},
+				Cases:      []facts.Case{{Suite: "login", Name: "fails", Status: facts.CaseFailed}},
+				Attachments: []facts.Attachment{
+					{Name: "login.mp4", MediaType: "video/mp4", Object: "attachments/run-attachments/a/login.mp4", Size: 42},
+					{Name: "fails.png", MediaType: "image/png", Object: "attachments/run-attachments/b/fails.png",
+						Case: &facts.CaseRef{Suite: "login", Name: "fails"}},
+				}},
+			{Shape: facts.ShapeAttachments, Group: "report", Tool: "html", Status: facts.StatusNA,
+				Attachments: []facts.Attachment{{Name: "report.html", MediaType: "text/html", Object: "raw/run-attachments/report.html"}}},
+		},
+	}
+	if err := db.SaveFacts(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+
+	var resultID int64
+	var attributes map[string]string
+	if err := db.Pool().QueryRow(ctx,
+		`select id, attributes from test_results where run_id = $1 and tool = 'cypress'`, runID).
+		Scan(&resultID, &attributes); err != nil {
+		t.Fatal(err)
+	}
+	if attributes["browser"] != "chrome" {
+		t.Errorf("attributes = %v", attributes)
+	}
+	attachments, err := db.ResultAttachments(ctx, resultID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attachments) != 2 || attachments[0].SizeBytes != 42 || attachments[1].CaseName != "fails" {
+		t.Fatalf("attachments = %+v", attachments)
+	}
+	one, err := db.GetAttachment(ctx, attachments[1].ID)
+	if err != nil || one.Object != "attachments/run-attachments/b/fails.png" || one.MediaType != "image/png" {
+		t.Errorf("attachment = %+v, %v", one, err)
+	}
+	if _, err := db.GetAttachment(ctx, 999999); !errors.Is(err, ErrAttachmentNotFound) {
+		t.Errorf("missing attachment: %v", err)
+	}
+}
