@@ -27,8 +27,9 @@ var testRegistry = mustRegistry(
 	},
 	capability.Plugin{
 		ID: "gitea", Label: "Gitea", PerProject: true,
-		Capabilities: []capability.Header{{Kind: capability.KindForge, Name: "forge", Label: "Forge"}},
-		Events:       []capability.EventSpec{{Suffix: "pull_request.opened", Label: "Demande de fusion ouverte"}},
+		Forge:    noForge{},
+		Executor: noExecutor{},
+		Events:   []capability.EventSpec{{Suffix: "pull_request.opened", Label: "Demande de fusion ouverte"}},
 		Actions: []capability.ActionSpec{{
 			Suffix: "status", Label: "Statut de commit", Summary: "Pose un statut.",
 			Fields: []capability.ActionField{{Name: "commit", Label: "Commit", Required: true, Template: true}},
@@ -62,3 +63,8 @@ func mustRegistry(plugins ...capability.Plugin) *capabilities.Registry {
 	}
 	return registry
 }
+
+// noForge and noExecutor stand for a forge plugin's implementation, which these tests never call.
+type noForge struct{ capability.ForgeCapability }
+
+type noExecutor struct{ capability.ActionExecutor }

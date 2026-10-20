@@ -13,11 +13,13 @@ const ID = "gitea"
 // Plugin describes the plugin.
 func Plugin() capability.Plugin {
 	return capability.Plugin{
-		ID:           ID,
-		Version:      "1.0.0",
-		APIVersion:   sdk.APIVersion,
-		Capabilities: []capability.Header{{Kind: capability.KindForge, Name: "forge", Label: "Forge"}},
-		Label:        "Gitea",
+		ID:         ID,
+		Version:    "1.0.0",
+		APIVersion: sdk.APIVersion,
+		Forge:      forge{},
+		Probes:     []capability.Probe{pullProbe{}},
+		Executor:   executor{},
+		Label:      "Gitea",
 		Summary: "Branches, tags et références proposés au formulaire de release, " +
 			"détection des demandes de fusion ouvertes, et retour vers la forge.",
 		Actions: []capability.ActionSpec{

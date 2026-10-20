@@ -103,12 +103,18 @@ func (p Plugin) Observes() bool { return len(p.Events) > 0 }
 // Acts says whether the plugin declares at least one action.
 func (p Plugin) Acts() bool { return len(p.Actions) > 0 }
 
-// Headers lists every capability the plugin brings: its pipelines, then what it declares beside
-// them.
+// Headers lists every capability the plugin brings: its pipelines, its tracker and forge, then
+// what the dashboard implements on its behalf.
 func (p Plugin) Headers() []Header {
-	headers := make([]Header, 0, len(p.Pipelines)+len(p.Capabilities))
+	headers := make([]Header, 0, len(p.Pipelines)+len(p.Capabilities)+2)
 	for _, pipeline := range p.Pipelines {
 		headers = append(headers, Header{Kind: KindPipeline, Name: pipeline.Name, Label: pipeline.Label})
+	}
+	if p.Tracker != nil {
+		headers = append(headers, Header{Kind: KindTracker, Name: "tracker", Label: p.Label})
+	}
+	if p.Forge != nil {
+		headers = append(headers, Header{Kind: KindForge, Name: "forge", Label: p.Label})
 	}
 	return append(headers, p.Capabilities...)
 }

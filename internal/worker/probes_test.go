@@ -361,9 +361,4 @@ func TestEachProbeDeclaresItsCadenceAboveTheFloor(t *testing.T) {
 	if !NewRedmineProbe(nil).Schedule().Eager {
 		t.Error("the tracker probe must ask for an immediate pass")
 	}
-	// The forge probe only observes: no pass straight away, otherwise a restart loop would hammer
-	// a third-party machine.
-	if NewGiteaPullProbe(0).Schedule().Eager {
-		t.Error("a probe that only observes does not start straight away")
-	}
 }

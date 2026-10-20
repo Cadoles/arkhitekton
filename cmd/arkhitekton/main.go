@@ -32,7 +32,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/gitea"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
@@ -42,6 +41,7 @@ import (
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/gitea"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/redmine"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -813,8 +813,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// A probe is queried only for the projects whose plugin is active, each at its own cadence,
 			// and its first pass triggers nothing — enabling something does not wake the past.
 			probes := worker.NewProbeRunner(pluginRegistry, db, cipher, cfg.Probes.Interval, logger,
-				worker.NewGiteaPullProbe(cfg.Forge.Timeout),
-				worker.NewRedmineProbe(tracker)).
+				append(worker.PluginProbes(pluginRegistry, cfg.Forge.Timeout),
+					worker.NewRedmineProbe(tracker))...).
 				WithDispatcher(dispatcher)
 			go func() { errs <- probes.Run(leadingCtx) }()
 

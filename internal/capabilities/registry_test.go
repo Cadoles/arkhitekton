@@ -53,3 +53,15 @@ func TestAPluginOfAnotherMajorVersionIsRefused(t *testing.T) {
 		t.Errorf("a later minor version refused: %v", err)
 	}
 }
+
+// A plugin declaring actions with nothing to carry them out is refused at start-up, rather than
+// failing on the first reaction that uses one.
+func TestAPluginDeclaringActionsItCannotRunIsRefused(t *testing.T) {
+	_, err := New(capability.Plugin{
+		ID: "forge", Version: "1", APIVersion: sdk.APIVersion,
+		Actions: []capability.ActionSpec{{Suffix: "status"}},
+	})
+	if err == nil {
+		t.Error("actions without an executor accepted")
+	}
+}

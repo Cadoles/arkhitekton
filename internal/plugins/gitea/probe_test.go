@@ -1,4 +1,4 @@
-package worker
+package gitea
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -48,8 +48,12 @@ const twoRequests = `[
    "created_at":"2026-08-01T09:00:00Z"}
 ]`
 
-func forgeConfig(url string) map[string]string {
-	return map[string]string{"url": url, "token": "token"}
+func forgeConfig(url string) capability.Settings {
+	return capability.Settings{"url": url, "token": "token"}
+}
+
+func target(settings capability.Settings) capability.Target {
+	return capability.Target{Project: "mse", Repository: "CNOUS/mse", Settings: settings, Timeout: time.Second}
 }
 
 // An opened request becomes a fact, dated from its opening and identified by its repository
@@ -58,10 +62,7 @@ func TestAnOpenedRequestBecomesAFactDatedFromItsOpening(t *testing.T) {
 	server := testForge(t, twoRequests)
 	defer server.Close()
 
-	facts, cursor, err := NewGiteaPullProbe(time.Second).Poll(
-		context.Background(),
-		store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"},
-		forgeConfig(server.URL), "")
+	facts, cursor, err := pullProbe{}.Poll(context.Background(), target(forgeConfig(server.URL)), "")
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
@@ -71,8 +72,8 @@ func TestAnOpenedRequestBecomesAFactDatedFromItsOpening(t *testing.T) {
 	}
 
 	first := facts[0]
-	if first.Type != "gitea.pull_request.opened" {
-		t.Errorf("type = %q — it must be prefixed by the plugin", first.Type)
+	if first.Suffix != "pull_request.opened" {
+		t.Errorf("suffix = %q", first.Suffix)
 	}
 	if first.Subject != "#412" {
 		t.Errorf("subject = %q", first.Subject)
@@ -83,8 +84,8 @@ func TestAnOpenedRequestBecomesAFactDatedFromItsOpening(t *testing.T) {
 	}
 	// The key carries the repository **and** the number: a number alone would repeat from one
 	// repository to the next, and two projects would steal each other's facts.
-	if first.DedupKey != "gitea.pull_request.opened:CNOUS/mse:412" {
-		t.Errorf("key = %q", first.DedupKey)
+	if first.Key != "CNOUS/mse:412" {
+		t.Errorf("key = %q", first.Key)
 	}
 	for _, field := range []string{"number", "title", "author", "source_branch", "target_branch", "url"} {
 		if first.Payload[field] == "" {
@@ -107,10 +108,7 @@ func TestTheCursorSetsAsideWhatIsEarlier(t *testing.T) {
 	server := testForge(t, twoRequests)
 	defer server.Close()
 
-	facts, _, err := NewGiteaPullProbe(time.Second).Poll(
-		context.Background(),
-		store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"},
-		forgeConfig(server.URL), "2026-09-01T00:00:00Z")
+	facts, _, err := pullProbe{}.Poll(context.Background(), target(forgeConfig(server.URL)), "2026-09-01T00:00:00Z")
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
@@ -128,10 +126,7 @@ func TestTheCursorNeverMovesBackwards(t *testing.T) {
 	server := testForge(t, `[]`)
 	defer server.Close()
 
-	_, cursor, err := NewGiteaPullProbe(time.Second).Poll(
-		context.Background(),
-		store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"},
-		forgeConfig(server.URL), "2026-09-01T00:00:00Z")
+	_, cursor, err := pullProbe{}.Poll(context.Background(), target(forgeConfig(server.URL)), "2026-09-01T00:00:00Z")
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
@@ -148,10 +143,7 @@ func TestARepositoryWithNoRequestLeavesTheBootstrap(t *testing.T) {
 	server := testForge(t, `[]`)
 	defer server.Close()
 
-	_, cursor, err := NewGiteaPullProbe(time.Second).Poll(
-		context.Background(),
-		store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"},
-		forgeConfig(server.URL), "")
+	_, cursor, err := pullProbe{}.Poll(context.Background(), target(forgeConfig(server.URL)), "")
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
@@ -165,15 +157,12 @@ func TestARepositoryWithNoRequestLeavesTheBootstrap(t *testing.T) {
 // "Invalid URL" would send someone hunting for a typo where it is a setting that was never
 // filled in.
 func TestAnUnconfiguredForgeIsNamedAsSuch(t *testing.T) {
-	probe := NewGiteaPullProbe(time.Second)
-	project := store.Project{ID: 1, Slug: "mse", Repository: "CNOUS/mse"}
-
-	for _, config := range []map[string]string{
+	for _, config := range []capability.Settings{
 		{},
 		{"url": "https://forge.example.fr"},
 		{"token": "token"},
 	} {
-		_, _, err := probe.Poll(context.Background(), project, config, "")
+		_, _, err := pullProbe{}.Poll(context.Background(), target(config), "")
 		if err == nil || !strings.Contains(err.Error(), "not configured") {
 			t.Errorf("config %v: %v", config, err)
 		}
@@ -183,25 +172,27 @@ func TestAnUnconfiguredForgeIsNamedAsSuch(t *testing.T) {
 // A project with no declared repository is refused by name: the probe has nothing to query,
 // and saying so avoids a URL error that would not name the cause.
 func TestAProjectWithNoRepositoryIsRefusedByName(t *testing.T) {
-	_, _, err := NewGiteaPullProbe(time.Second).Poll(
-		context.Background(), store.Project{ID: 1, Slug: "mse"},
-		forgeConfig("https://forge.example.fr"), "")
+	noRepository := target(forgeConfig("https://forge.example.fr"))
+	noRepository.Repository = ""
+	_, _, err := pullProbe{}.Poll(context.Background(), noRepository, "")
 
 	if err == nil || !strings.Contains(err.Error(), "repository") {
 		t.Errorf("%v", err)
 	}
 }
 
-// The probe declares itself: its plugin, and its own cursor.
-func TestTheProbeDeclaresItself(t *testing.T) {
-	probe := NewGiteaPullProbe(time.Second)
-
-	if probe.PluginID() != "gitea" {
-		t.Errorf("plugin = %q", probe.PluginID())
+// The probe names its own cursor: Gitea could carry others, and a shared cursor would have one
+// advance the other's.
+func TestTheProbeNamesItsCursor(t *testing.T) {
+	if name := (pullProbe{}).Name(); name != "pull_requests" {
+		t.Errorf("name = %q", name)
 	}
-	// Specific to the probe and not to the plugin: Gitea could carry others, and a shared cursor
-	// would have one advance the other's.
-	if probe.Source() != "gitea.pull_requests" {
-		t.Errorf("source = %q", probe.Source())
+}
+
+// The probe only observes: no pass straight away, otherwise a restart loop would hammer a
+// third-party machine.
+func TestTheProbeDoesNotStartStraightAway(t *testing.T) {
+	if (pullProbe{}).Schedule().Eager {
+		t.Error("a probe that only observes does not start straight away")
 	}
 }

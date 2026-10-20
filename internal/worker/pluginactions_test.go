@@ -2,10 +2,6 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -13,51 +9,41 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
  * The actions a plugin supplies.
  *
- * What these tests hold is not the shape of the calls — the forge takes care of that — but the
- * three properties that tell a plugin action from an outgoing call: the target comes from the
- * configuration and not from the step, the token is the plugin's, and a switched-off plugin
- * refuses instead of starting.
+ * What these tests hold is not the shape of the calls, which the plugin owns, but the properties
+ * that tell a plugin action from an outgoing call: the target comes from the configuration and
+ * not from the step, the token is the plugin's, and a switched-off plugin refuses instead of
+ * starting.
  */
 
-// writingForge records what the runner sends to the forge.
-type writingForge struct {
-	server *httptest.Server
-
+// recordingExecutor records what the runner hands to a plugin.
+type recordingExecutor struct {
 	mu     sync.Mutex
-	method string
-	path   string
-	auth   string
-	body   map[string]string
-	status int
+	calls  int
+	target capability.Target
+	suffix string
+	params map[string]string
 }
 
-func newWritingForge(t *testing.T) *writingForge {
-	t.Helper()
-	forge := &writingForge{status: http.StatusCreated}
-	forge.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		forge.mu.Lock()
-		forge.method, forge.path = r.Method, r.URL.Path
-		forge.auth = r.Header.Get("Authorization")
-		forge.body = map[string]string{}
-		_ = json.Unmarshal(raw, &forge.body)
-		code := forge.status
-		forge.mu.Unlock()
-		w.WriteHeader(code)
-	}))
-	t.Cleanup(forge.server.Close)
-	return forge
+func (e *recordingExecutor) Execute(
+	_ context.Context, target capability.Target, suffix string, params map[string]string,
+) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.calls++
+	e.target, e.suffix, e.params = target, suffix, params
+	return nil
 }
 
-func (f *writingForge) seenParams() (string, string, map[string]string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.method, f.path, f.body
+func (e *recordingExecutor) seen() (int, capability.Target, string, map[string]string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.calls, e.target, e.suffix, e.params
 }
 
 // fakePluginStore returns a plugin connection and a project.
@@ -84,9 +70,10 @@ func (f *fakePluginStore) GetProject(_ context.Context, id int64) (store.Project
 	return store.Project{ID: id, Slug: "mse", Repository: f.repo}, nil
 }
 
-func pluginRunner(t *testing.T, db *fakePluginStore) *PluginActionRunner {
+func pluginRunner(t *testing.T, db *fakePluginStore) (*PluginActionRunner, *recordingExecutor) {
 	t.Helper()
-	return NewPluginActionRunner(providerRegistry, db, testOpener{}, 2*time.Second, quietLogger())
+	recorder := &recordingExecutor{}
+	return NewPluginActionRunner(forgeRegistry(recorder), db, testOpener{}, 2*time.Second, quietLogger()), recorder
 }
 
 func execution() store.PlanRun {
@@ -100,13 +87,13 @@ func execution() store.PlanRun {
 	}
 }
 
-// The nominal path of a status: the target comes from the plugin's configuration, the commit
-// from the triggering fact, and the token leaves unsealed in the header.
-func TestACommitStatusBorrowsThePluginsConnection(t *testing.T) {
-	forge := newWritingForge(t)
-	db := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
+// The nominal path: the target comes from the plugin's configuration, the parameters from the
+// triggering fact, and the token reaches the plugin unsealed.
+func TestAPluginActionBorrowsThePluginsConnection(t *testing.T) {
+	db := &fakePluginStore{url: "https://forge.example.fr", enabled: true, repo: "equipe/mse"}
+	runner, recorder := pluginRunner(t, db)
 
-	job, err := pluginRunner(t, db).Run(context.Background(), execution(), plan.Geste{
+	job, err := runner.Run(context.Background(), execution(), plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.status",
 		Params: map[string]string{
 			"commit": "{git_commit}", "state": "success",
@@ -118,57 +105,24 @@ func TestACommitStatusBorrowsThePluginsConnection(t *testing.T) {
 	}
 	// An action is concluded the moment it is done: nothing to wait for, so no job.
 	if job != nil {
-		t.Errorf("job identifier %v — an action does not go through the queue", *job)
+		t.Errorf("job identifier %v: an action does not go through the queue", *job)
 	}
 
-	methode, route, payload := forge.seenParams()
-	if methode != http.MethodPost {
-		t.Errorf("method %q", methode)
+	calls, target, suffix, params := recorder.seen()
+	if calls != 1 || suffix != "status" {
+		t.Fatalf("%d call(s), suffix %q", calls, suffix)
 	}
-	// The resolved commit, and not the literal template: without the interpolation, the status
-	// would be set on a reference that does not exist.
-	if route != "/api/v1/repos/equipe/mse/statuses/9f1c0deadbeef" {
-		t.Errorf("path %q", route)
+	if target.Repository != "equipe/mse" || target.Project != "mse" {
+		t.Errorf("target %+v", target)
 	}
-	if payload["state"] != "success" || payload["context"] != "arkhitekton/verifications" {
-		t.Errorf("body %v", payload)
-	}
-	if payload["description"] != "1.8.0-rc1 verified" {
-		t.Errorf("description %q — the template must be bound to the fact's payload",
-			payload["description"])
-	}
-
-	forge.mu.Lock()
-	auth := forge.auth
-	forge.mu.Unlock()
 	// Unsealed for the duration of the call. The step named no token: it borrows the plugin's, and
 	// therefore cannot serve to extract another.
-	if auth != "token forge-token" {
-		t.Errorf("authentication header %q", auth)
+	if target.Settings["token"] != "forge-token" || target.Settings["url"] != "https://forge.example.fr" {
+		t.Errorf("settings %v", target.Settings)
 	}
-}
-
-// A comment goes on the request's thread, with the number the fact carries.
-func TestACommentGoesOnTheRequestTheFactNames(t *testing.T) {
-	forge := newWritingForge(t)
-	db := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
-
-	_, err := pluginRunner(t, db).Run(context.Background(), execution(), plan.Geste{
-		Kind: plan.GesteAction, Ref: "gitea.comment",
-		Params: map[string]string{"number": "{number}", "body": "Verified in {tag}."},
-	})
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-
-	_, route, payload := forge.seenParams()
-	// A pull request's thread lives under the issues route: in Gitea, a request **is** an
-	// augmented issue.
-	if route != "/api/v1/repos/equipe/mse/issues/128/comments" {
-		t.Errorf("path %q", route)
-	}
-	if payload["body"] != "Verified in 1.8.0-rc1." {
-		t.Errorf("body %q", payload["body"])
+	// The resolved commit, and not the literal template.
+	if params["commit"] != "9f1c0deadbeef" || params["description"] != "1.8.0-rc1 verified" {
+		t.Errorf("params %v: the templates must be bound to the fact's payload", params)
 	}
 }
 
@@ -177,44 +131,19 @@ func TestACommentGoesOnTheRequestTheFactNames(t *testing.T) {
 // The configuration still exists in the database: starting with it would send a status in the
 // name of an integration one believes disabled.
 func TestASwitchedOffPluginRefusesInsteadOfStarting(t *testing.T) {
-	forge := newWritingForge(t)
-	db := &fakePluginStore{url: forge.server.URL, enabled: false, repo: "equipe/mse"}
+	db := &fakePluginStore{url: "https://forge.example.fr", enabled: false, repo: "equipe/mse"}
+	runner, recorder := pluginRunner(t, db)
 
-	_, err := pluginRunner(t, db).Run(context.Background(), execution(), plan.Geste{
+	_, err := runner.Run(context.Background(), execution(), plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.status",
 		Params: map[string]string{"commit": "{git_commit}", "state": "success", "context": "c"},
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "switched off") {
-		t.Fatalf("%v — the refusal must say the plugin is switched off", err)
+		t.Fatalf("%v: the refusal must say the plugin is switched off", err)
 	}
-	if methode, _, _ := forge.seenParams(); methode != "" {
-		t.Errorf("the forge was called (%s) although the plugin is switched off", methode)
-	}
-}
-
-// A template left literal says so by quoting its value.
-//
-// It is the common case, and it is worth naming this way: a reaction wired to `release.built`
-// has no `{number}`, and "invalid number" without quoting the value would send someone hunting
-// for a typo where it is the fact that does not carry the variable.
-func TestAnUninterpolatedNumberQuotesWhatItBecame(t *testing.T) {
-	forge := newWritingForge(t)
-	db := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
-
-	run := execution()
-	delete(run.Context, "number")
-
-	_, err := pluginRunner(t, db).Run(context.Background(), run, plan.Geste{
-		Kind: plan.GesteAction, Ref: "gitea.comment",
-		Params: map[string]string{"number": "{number}", "body": "bonjour"},
-	})
-
-	if err == nil || !strings.Contains(err.Error(), "{number}") {
-		t.Fatalf("%v — the message must quote what the template became", err)
-	}
-	if methode, _, _ := forge.seenParams(); methode != "" {
-		t.Errorf("the forge was called (%s) on an unreadable number", methode)
+	if calls, _, _, _ := recorder.seen(); calls != 0 {
+		t.Errorf("the plugin was called although it is switched off")
 	}
 }
 
@@ -224,8 +153,9 @@ func TestAnUninterpolatedNumberQuotesWhatItBecame(t *testing.T) {
 // someone else's.
 func TestAPluginActionWithNoProjectRefuses(t *testing.T) {
 	db := &fakePluginStore{url: "https://forge.example.fr", enabled: true, repo: "equipe/mse"}
+	runner, _ := pluginRunner(t, db)
 
-	_, err := pluginRunner(t, db).Run(context.Background(), store.PlanRun{}, plan.Geste{
+	_, err := runner.Run(context.Background(), store.PlanRun{}, plan.Geste{
 		Kind: plan.GesteAction, Ref: "gitea.status",
 		Params: map[string]string{"commit": "abc", "state": "success", "context": "c"},
 	})
@@ -235,26 +165,5 @@ func TestAPluginActionWithNoProjectRefuses(t *testing.T) {
 	}
 	if len(db.consulted) != 0 {
 		t.Errorf("the plugin was consulted with no project: %v", db.consulted)
-	}
-}
-
-// A refusal from the forge becomes the step's reason, with what is needed to act.
-func TestAForgeRefusalNamesTheExpectedScope(t *testing.T) {
-	forge := newWritingForge(t)
-	forge.status = http.StatusForbidden
-	db := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}
-
-	_, err := pluginRunner(t, db).Run(context.Background(), execution(), plan.Geste{
-		Kind: plan.GesteAction, Ref: "gitea.status",
-		Params: map[string]string{"commit": "{git_commit}", "state": "success", "context": "c"},
-	})
-
-	if err == nil {
-		t.Fatal("a 403 must fail the step")
-	}
-	// The token's scope is the most frequent cause, and naming it avoids hunting for a repository
-	// permission that is already there.
-	if !strings.Contains(err.Error(), "write:repository") {
-		t.Errorf("message %q — it must name the missing scope", err)
 	}
 }

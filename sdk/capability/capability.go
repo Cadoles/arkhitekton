@@ -98,10 +98,15 @@ type Plugin struct {
 	Events []EventSpec
 	// Actions lists the steps this plugin can carry out.
 	Actions []ActionSpec
-	// Capabilities lists what the plugin brings beside its pipelines: a tracker, a forge, a
-	// module, an exporter.
+	// Capabilities lists what the dashboard implements on the plugin's behalf: a module, an
+	// exporter.
 	Capabilities []Header
 	Pipelines    []Pipeline
+	Tracker      TrackerCapability
+	Forge        ForgeCapability
+	Probes       []Probe
+	// Executor carries out the declared Actions. Required when there are any.
+	Executor ActionExecutor
 }
 
 // Pipeline is a pipeline capability.

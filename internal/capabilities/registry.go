@@ -50,6 +50,7 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 			continue
 		}
 		registry.plugins[plugin.ID] = plugin
+		problems = append(problems, declarationProblems(plugin)...)
 
 		for _, pipeline := range plugin.Pipelines {
 			ref := capability.Ref{Plugin: plugin.ID, Name: pipeline.Name}
@@ -185,4 +186,44 @@ func compatible(version string) bool {
 	major, _, _ := strings.Cut(version, ".")
 	ours, _, _ := strings.Cut(sdk.APIVersion, ".")
 	return major != "" && major == ours
+}
+
+// declarationProblems refuses a plugin whose declaration promises what nothing carries out.
+func declarationProblems(plugin capability.Plugin) []error {
+	var problems []error
+	if len(plugin.Actions) > 0 && plugin.Executor == nil {
+		problems = append(problems, fmt.Errorf("plugin %q declares actions and runs none", plugin.ID))
+	}
+	for _, header := range plugin.Capabilities {
+		if header.Kind == capability.KindForge || header.Kind == capability.KindPipeline {
+			problems = append(problems, fmt.Errorf(
+				"plugin %q: a %s is brought by its implementation, not declared", plugin.ID, header.Kind))
+		}
+	}
+	names := map[string]bool{}
+	for _, probe := range plugin.Probes {
+		if !capability.ValidName(strings.ReplaceAll(probe.Name(), "_", "-")) || names[probe.Name()] {
+			problems = append(problems, fmt.Errorf("plugin %q: probe %q badly named or declared twice",
+				plugin.ID, probe.Name()))
+		}
+		names[probe.Name()] = true
+	}
+	return problems
+}
+
+// PluginProbe is a probe and the plugin that brings it.
+type PluginProbe struct {
+	Plugin capability.Plugin
+	Probe  capability.Probe
+}
+
+// Probes lists every plugin's probes.
+func (r *Registry) Probes() []PluginProbe {
+	var probes []PluginProbe
+	for _, plugin := range r.Plugins() {
+		for _, probe := range plugin.Probes {
+			probes = append(probes, PluginProbe{Plugin: plugin, Probe: probe})
+		}
+	}
+	return probes
 }

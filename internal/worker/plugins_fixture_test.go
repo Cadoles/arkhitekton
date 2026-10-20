@@ -7,14 +7,15 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
-// providerRegistry declares the forge and the tracker as their plugins do: the fields that are sealed,
-// and the forge's actions with their closed sets. The core does not import the plugins, so it
-// describes them again here.
-var providerRegistry = func() *capabilities.Registry {
+// forgeRegistry declares the forge and the tracker as their plugins do: the fields that are sealed,
+// and the forge's actions with their closed sets, carried out by the executor given. The core does
+// not import the plugins, so it describes them again here.
+func forgeRegistry(executor capability.ActionExecutor) *capabilities.Registry {
 	registry, err := capabilities.New(
 		capability.Plugin{
 			ID: "gitea", Version: "1.0.0", APIVersion: sdk.APIVersion, PerProject: true,
-			Events: []capability.EventSpec{{Suffix: "pull_request.opened"}},
+			Executor: executor,
+			Events:   []capability.EventSpec{{Suffix: "pull_request.opened"}},
 			Actions: []capability.ActionSpec{
 				{Suffix: "status", Fields: []capability.ActionField{
 					{Name: "commit", Required: true, Template: true},
@@ -52,7 +53,10 @@ var providerRegistry = func() *capabilities.Registry {
 		panic(err)
 	}
 	return registry
-}()
+}
+
+// providerRegistry is [forgeRegistry] with an executor nothing calls.
+var providerRegistry = forgeRegistry(&recordingExecutor{})
 
 // testActions joins the core's actions with the test plugins'.
 var testActions = action.NewCatalog(providerRegistry.Plugins())

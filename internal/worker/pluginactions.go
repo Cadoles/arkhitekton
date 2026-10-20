@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/gitea"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
@@ -116,23 +114,21 @@ func (r *PluginActionRunner) Run(
 		return nil, err
 	}
 
-	switch descriptor.ID {
-	case "gitea":
-		return nil, r.runGitea(ctx, run, geste.Ref, params, project, config)
-	default:
-		// A plugin that declares an action nobody carries out. Refusing it by name is better than
-		// reporting it "sent": the registry and the runtime have diverged, and saying so is the only
-		// way to notice.
-		return nil, fmt.Errorf(
-			"plugin %q declares %q, and nothing runs it", descriptor.ID, geste.Ref)
+	if descriptor.Executor == nil {
+		// A plugin that declares an action nobody carries out. The registry refuses it at start-up;
+		// refusing it here too, by name, is better than reporting it "sent".
+		return nil, fmt.Errorf("plugin %q declares %q, and nothing runs it", descriptor.ID, geste.Ref)
 	}
+	target := capability.Target{
+		Project: project.Slug, Repository: project.Repository,
+		Settings: capability.Settings(config), Timeout: r.timeout,
+	}
+	if err := descriptor.Executor.Execute(ctx, target, spec.Suffix, params); err != nil {
+		return nil, err
+	}
+	r.logger.Info("plugin action carried out", "run", run.ID, "project", project.Slug, "action", geste.Ref)
+	return nil, nil
 }
-
-// Full references of the Gitea plugin's actions.
-const (
-	giteaStatusRef  = "gitea.status"
-	giteaCommentRef = "gitea.comment"
-)
 
 // bindParams replaces the templates with the triggering fact's payload.
 func bindParams(
@@ -189,65 +185,4 @@ func checkClosedSets(spec capability.ActionSpec, declares, params map[string]str
 			field.Label, value, strings.Join(field.OneOf, ", "))
 	}
 	return nil
-}
-
-// runGitea carries out the forge's actions.
-func (r *PluginActionRunner) runGitea(
-	ctx context.Context, run store.PlanRun, ref string,
-	params map[string]string, project store.Project, config map[string]string,
-) error {
-	url := strings.TrimSpace(config["url"])
-	token := strings.TrimSpace(config["token"])
-	if url == "" || token == "" {
-		// Named rather than left to the client: "invalid URL" would send someone hunting for a typo
-		// where it is a setting that was never filled in.
-		return fmt.Errorf("forge not configured: set the URL and the token of plugin \"gitea\"")
-	}
-	if strings.TrimSpace(project.Repository) == "" {
-		return fmt.Errorf("project %q declares no repository", project.Slug)
-	}
-
-	writer, err := gitea.NewWriter(gitea.Options{
-		URL: url, Token: token, Repository: project.Repository, Timeout: r.timeout,
-	})
-	if err != nil {
-		return err
-	}
-
-	switch ref {
-	case giteaStatusRef:
-		commit := params["commit"]
-		if commit == "" {
-			return fmt.Errorf("the commit targeted is empty after interpolation: " +
-				"the triggering fact does not carry the named variable")
-		}
-		if err := writer.SetCommitStatus(ctx, commit, params["state"],
-			params["context"], params["description"], params["target_url"]); err != nil {
-			return err
-		}
-		r.logger.Info("commit status set",
-			"run", run.ID, "project", project.Slug,
-			"context", params["context"], "state", params["state"])
-		return nil
-
-	case giteaCommentRef:
-		raw := strings.TrimSpace(params["number"])
-		number, err := strconv.Atoi(raw)
-		if err != nil {
-			// The common case, and it is worth saying this way: a reaction wired to `release.built` has no
-			// `{number}`, the template stays literal, and "invalid" without quoting the value would send
-			// someone hunting elsewhere.
-			return fmt.Errorf("the pull request number is %q after "+
-				"interpolation: does this fact really carry the named variable?", raw)
-		}
-		if err := writer.CommentOnPullRequest(ctx, number, params["body"]); err != nil {
-			return err
-		}
-		r.logger.Info("comment posted",
-			"run", run.ID, "project", project.Slug, "request", number)
-		return nil
-
-	default:
-		return fmt.Errorf("action %q unknown to plugin \"gitea\"", ref)
-	}
 }
