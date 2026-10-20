@@ -17,7 +17,7 @@ import (
 /*
  * Access to the Gitea forge, read-only and nothing else.
  *
- * The same contract as `internal/redmine`, for the same reason: the prohibition on writing is not
+ * The same contract as the Redmine plugin, for the same reason: the prohibition on writing is not
  * entrusted to the callers' discipline but to the transport, which refuses any method other than
  * GET and HEAD before any network contact. The day the dashboard has to write to the forge — set
  * a tag, publish a Gitea release — it will be a distinct client and an explicit decision, not a

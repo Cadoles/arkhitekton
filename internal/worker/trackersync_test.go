@@ -112,9 +112,11 @@ func newSync(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) *TrackerSy
 	if db.mapping == nil {
 		db.mapping = map[string]string{"En cours": "doing", "Fermé": "done", "Rejeté": "rejected"}
 	}
-	connect := func(TrackerConnection) (TrackerReader, error) { return client, nil }
-	return NewTrackerSync(db, connect, quietLogger())
+	return NewTrackerSync(db, redmineTracker, quietLogger())
 }
+
+// redmineTracker is the synchronisation of the Redmine plugin.
+var redmineTracker = TrackerSource{Tool: "redmine", ClosedType: "redmine.issue.closed"}
 
 // pass runs one projection pass, as the probe would.
 //

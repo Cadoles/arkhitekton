@@ -17,10 +17,10 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/redmine"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/webhook"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -164,12 +164,11 @@ func newHarness(t *testing.T) harness {
 		t.Fatalf("project settings: %v", err)
 	}
 
-	probe := NewRedmineProbe(NewTrackerSync(db,
-		func(connection TrackerConnection) (TrackerReader, error) {
-			return redmine.New(redmine.Options{
-				URL: connection.URL, APIKey: connection.APIKey, Timeout: 30 * time.Second,
-			})
-		}, quietLogger()))
+	probe := NewTrackerProbe(NewTrackerSync(db, redmineTracker, quietLogger()),
+		func(target capability.Target) (TrackerReader, error) {
+			target.Timeout = 30 * time.Second
+			return liveTracker(target)
+		})
 
 	return harness{
 		db: db, cipher: cipher, projectID: projectID,
@@ -224,7 +223,7 @@ func TestLiveTheWholeLoopOnARealDatabase(t *testing.T) {
 		t.Errorf("%d runs opened at bootstrap, expected none", len(executions))
 	}
 	// The cursor is set, in the database this time.
-	state, err := db.GetSyncState(ctx, redmineSource, projectID)
+	state, err := db.GetSyncState(ctx, redmineTracker.Tool, projectID)
 	if err != nil {
 		t.Fatalf("cursor: %v", err)
 	}

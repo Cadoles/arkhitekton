@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
@@ -59,9 +62,9 @@ func TestTheTrackerObservesVersionsAndClosedRequests(t *testing.T) {
 	if parType[string(event.VersionCreated)] != 1 {
 		t.Errorf("%d version facts, expected 1", parType[string(event.VersionCreated)])
 	}
-	if parType[redmineIssueClosed] != 1 {
+	if parType[redmineTracker.ClosedType] != 1 {
 		t.Errorf("%d closure facts, expected 1 — the open request produces none",
-			parType[redmineIssueClosed])
+			parType[redmineTracker.ClosedType])
 	}
 }
 
@@ -150,7 +153,7 @@ func TestAVersionsPayloadNamesTheToolAndItsIdentifier(t *testing.T) {
 	if len(facts) != 1 {
 		t.Fatalf("%d facts", len(facts))
 	}
-	if facts[0].Payload["tool"] != trackerTool || facts[0].Payload["external_id"] != "805" {
+	if facts[0].Payload["tool"] != redmineTracker.Tool || facts[0].Payload["external_id"] != "805" {
 		t.Errorf("payload = %v", facts[0].Payload)
 	}
 }
@@ -164,12 +167,11 @@ func TestAVersionsPayloadNamesTheToolAndItsIdentifier(t *testing.T) {
 // plugin is enabled at the instance level, and most projects have no counterpart in the
 // tracker. The normal case therefore shouted every five minutes, for each of them.
 func TestAProjectWithNoTrackerIdentifierIsIgnored(t *testing.T) {
-	probe := NewRedmineProbe(NewTrackerSync(&fakeRedmineStore{},
-		func(TrackerConnection) (TrackerReader, error) {
+	probe := NewTrackerProbe(NewTrackerSync(&fakeRedmineStore{}, redmineTracker, quietLogger()),
+		func(capability.Target) (TrackerReader, error) {
 			t.Error("no connection must be opened")
 			return &fakeRedmine{}, nil
-		},
-		quietLogger()))
+		})
 
 	facts, cursor, err := probe.Poll(context.Background(),
 		store.Project{ID: 1, Slug: "mse"}, map[string]string{"url": "https://r.fr"}, "cursor")
@@ -185,3 +187,25 @@ func TestAProjectWithNoTrackerIdentifierIsIgnored(t *testing.T) {
 		t.Errorf("cursor = %q, expected unchanged", cursor)
 	}
 }
+
+// A probe exists for each plugin that brings a tracker, named after it, with the closed-issue fact
+// its declaration gives.
+func TestEachTrackerPluginGetsAProbe(t *testing.T) {
+	registry, err := capabilities.New(capability.Plugin{
+		ID: "redmine", Version: "1.0.0", APIVersion: sdk.APIVersion, Tracker: noTracker{},
+		Events: []capability.EventSpec{{Suffix: "issue.closed"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	probes := TrackerProbes(registry, &fakeRedmineStore{}, time.Second, quietLogger())
+	if len(probes) != 1 || probes[0].Source() != "redmine" || probes[0].PluginID() != "redmine" {
+		t.Fatalf("probes = %+v", probes)
+	}
+	if closed := probes[0].(trackerProbe).sync.source.ClosedType; closed != "redmine.issue.closed" {
+		t.Errorf("closed-issue type = %q", closed)
+	}
+}
+
+// noTracker stands for a tracker plugin's implementation, which this test never calls.
+type noTracker struct{ capability.TrackerCapability }

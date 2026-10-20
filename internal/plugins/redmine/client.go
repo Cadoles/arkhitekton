@@ -90,7 +90,7 @@ type Client struct {
 
 // Options carries a client's configuration.
 type Options struct {
-	// URL de l'instance, par exemple `https://redmine.example.org`.
+	// URL is the instance's, for example `https://redmine.example.org`.
 	URL string
 	// APIKey is a Redmine account's API key. It must appear neither in a log, nor in an error
 	// message, nor in a URL.

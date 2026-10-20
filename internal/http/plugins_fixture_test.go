@@ -12,8 +12,8 @@ import (
 var testRegistry = mustRegistry(
 	capability.Plugin{
 		ID: "redmine", Label: "Redmine", PerProject: true,
-		Capabilities: []capability.Header{{Kind: capability.KindTracker, Name: "tracker", Label: "Suivi"}},
-		Events:       []capability.EventSpec{{Suffix: "issue.closed", Label: "Demande close"}},
+		Tracker: noTracker{},
+		Events:  []capability.EventSpec{{Suffix: "issue.closed", Label: "Demande close"}},
 		Global: []capability.Field{
 			{Name: "url", Label: "URL", Type: capability.FieldURL},
 			{Name: "api_key", Label: "Clé", Type: capability.FieldText, Secret: true},
@@ -64,7 +64,10 @@ func mustRegistry(plugins ...capability.Plugin) *capabilities.Registry {
 	return registry
 }
 
-// noForge and noExecutor stand for a forge plugin's implementation, which these tests never call.
+// noTracker, noForge and noExecutor stand for plugins' implementations, which these tests never
+// call.
+type noTracker struct{ capability.TrackerCapability }
+
 type noForge struct{ capability.ForgeCapability }
 
 type noExecutor struct{ capability.ActionExecutor }

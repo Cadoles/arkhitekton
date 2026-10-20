@@ -195,7 +195,8 @@ func declarationProblems(plugin capability.Plugin) []error {
 		problems = append(problems, fmt.Errorf("plugin %q declares actions and runs none", plugin.ID))
 	}
 	for _, header := range plugin.Capabilities {
-		if header.Kind == capability.KindForge || header.Kind == capability.KindPipeline {
+		if header.Kind == capability.KindTracker || header.Kind == capability.KindForge ||
+			header.Kind == capability.KindPipeline {
 			problems = append(problems, fmt.Errorf(
 				"plugin %q: a %s is brought by its implementation, not declared", plugin.ID, header.Kind))
 		}

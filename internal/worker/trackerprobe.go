@@ -2,10 +2,15 @@ package worker
 
 import (
 	"context"
+	"log/slog"
+	"maps"
 	"strings"
+	"time"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -34,27 +39,58 @@ import (
  * nothing of it remains here.
  */
 
-// redmineProbe adapts the tracker synchronisation to the probe contract.
+// trackerProbe adapts the tracker synchronisation to the probe contract.
 //
 // A thin wrapper, deliberately: the projection has not moved. This file only translates what
 // the loop brings — a configuration resolved and unsealed — into what the projection needs, a
 // client and a cursor.
-type redmineProbe struct{ sync *TrackerSync }
+type trackerProbe struct {
+	sync    *TrackerSync
+	connect TrackerConnector
+}
 
-// NewRedmineProbe builds the tracker probe.
-func NewRedmineProbe(sync *TrackerSync) Probe { return redmineProbe{sync: sync} }
+// NewTrackerProbe builds the probe of one tracker plugin.
+func NewTrackerProbe(sync *TrackerSync, connect TrackerConnector) Probe {
+	return trackerProbe{sync: sync, connect: connect}
+}
 
-func (p redmineProbe) PluginID() string { return trackerTool }
+// TrackerProbes builds a probe for each plugin that brings a tracker.
+func TrackerProbes(
+	registry *capabilities.Registry, db TrackerStore, timeout time.Duration, logger *slog.Logger,
+) []Probe {
+	var probes []Probe
+	for _, plugin := range registry.Plugins() {
+		if plugin.Tracker == nil {
+			continue
+		}
+		source := TrackerSource{Tool: plugin.ID}
+		for _, spec := range plugin.Events {
+			if spec.Suffix == "issue.closed" {
+				source.ClosedType = plugin.EventType(spec)
+			}
+		}
+		tracker := plugin.Tracker
+		probes = append(probes, NewTrackerProbe(NewTrackerSync(db, source, logger),
+			func(target capability.Target) (TrackerReader, error) {
+				target.Timeout = timeout
+				return tracker.Connect(target)
+			}))
+	}
+	return probes
+}
 
-// Source names the cursor in `sync_state`, and keeps its historical name.
-func (p redmineProbe) Source() string { return redmineSource }
+func (p trackerProbe) PluginID() string { return p.sync.source.Tool }
+
+// Source names the cursor in `sync_state`: the plugin's identifier, which for Redmine keeps the
+// name the cursors have carried from the start.
+func (p trackerProbe) Source() string { return p.sync.source.Tool }
 
 // Schedule: five minutes, and an immediate pass.
 //
 // The immediate pass is no convenience. This probe **fills a screen** — the versions one —
 // which would be empty for five minutes after each start-up. It is the only case where waiting
 // costs more than the call it avoids, and it is what [Schedule.Eager] exists for.
-func (p redmineProbe) Schedule() Schedule {
+func (p trackerProbe) Schedule() Schedule {
 	return Schedule{Interval: syncInterval, Eager: true}
 }
 
@@ -63,7 +99,7 @@ func (p redmineProbe) Schedule() Schedule {
 // The configuration arrives **unsealed**: the loop opened it, and that is now the only place
 // where this happens. The key exists in clear text only for the time it takes to build the
 // client, in a process that exposes no port.
-func (p redmineProbe) Poll(
+func (p trackerProbe) Poll(
 	ctx context.Context, project store.Project, config map[string]string, cursor string,
 ) ([]event.Event, string, error) {
 	// The project's identifier in the tracker comes from the setting, and falls back to the
@@ -81,17 +117,14 @@ func (p redmineProbe) Poll(
 		// — the plugin is enabled at the **instance** level, and four projects out of five simply have
 		// no counterpart in the tracker. The normal case therefore shouted every five minutes, for
 		// each of them.
-		//
-		// A project with no tracker identifier has nothing to read. That is exactly what
-		// `TrackedProjects` expressed before the migration, and losing it was a regression of
-		// judgement, not of code.
 		return nil, cursor, nil
 	}
 
-	client, err := p.sync.connect(TrackerConnection{
-		URL:     strings.TrimSpace(config["url"]),
-		APIKey:  config["api_key"],
-		Project: trackerProject,
+	settings := capability.Settings{}
+	maps.Copy(settings, config)
+	settings["project"] = trackerProject
+	client, err := p.connect(capability.Target{
+		Project: project.Slug, Repository: project.Repository, Settings: settings,
 	})
 	if err != nil {
 		return nil, "", err

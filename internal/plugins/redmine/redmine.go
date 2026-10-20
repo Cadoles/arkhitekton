@@ -12,12 +12,12 @@ const ID = "redmine"
 // Plugin describes the plugin.
 func Plugin() capability.Plugin {
 	return capability.Plugin{
-		ID:           ID,
-		Version:      "1.0.0",
-		APIVersion:   sdk.APIVersion,
-		Capabilities: []capability.Header{{Kind: capability.KindTracker, Name: "tracker", Label: "Suivi"}},
-		Label:        "Redmine",
-		Summary:      "Versions, demandes et avancement lus dans une instance Redmine.",
+		ID:         ID,
+		Version:    "1.0.0",
+		APIVersion: sdk.APIVersion,
+		Tracker:    tracker{},
+		Label:      "Redmine",
+		Summary:    "Versions, demandes et avancement lus dans une instance Redmine.",
 		// One plugin-specific fact only. The probe observes two, but the new
 		// version is a core fact — `version.created`, unprefixed — because every
 		// tracker writes versions to the same table, so a reaction on it need not

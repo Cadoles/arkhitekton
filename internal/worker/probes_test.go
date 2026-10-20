@@ -353,12 +353,12 @@ func TestTheIntervalFloorIsEnforced(t *testing.T) {
 // law.
 func TestEachProbeDeclaresItsCadenceAboveTheFloor(t *testing.T) {
 	// The tracker probe asks for five minutes: above the floor, so honoured.
-	if got := NewRedmineProbe(nil).Schedule(); got.Interval != syncInterval {
+	if got := NewTrackerProbe(nil, nil).Schedule(); got.Interval != syncInterval {
 		t.Errorf("tracker cadence = %s, expected %s", got.Interval, syncInterval)
 	}
 	// And it asks for an immediate pass: it fills a screen, which would be empty for five minutes
 	// after each start-up.
-	if !NewRedmineProbe(nil).Schedule().Eager {
+	if !NewTrackerProbe(nil, nil).Schedule().Eager {
 		t.Error("the tracker probe must ask for an immediate pass")
 	}
 }

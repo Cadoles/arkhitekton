@@ -9,6 +9,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
@@ -101,13 +102,12 @@ func (m *multiStore) RecordEvent(_ context.Context, fact event.Event) (bool, err
 }
 
 // trackerProbe assembles the probe and its loop on a given store.
-func trackerProbe(
+func trackerHarness(
 	t *testing.T, db *multiStore, opener SecretOpener,
 	connect TrackerConnector,
 ) (*ProbeRunner, Probe) {
 	t.Helper()
-	probe := NewRedmineProbe(
-		NewTrackerSync(db, connect, quietLogger()))
+	probe := NewTrackerProbe(NewTrackerSync(db, redmineTracker, quietLogger()), connect)
 	return NewProbeRunner(providerRegistry, db, opener, time.Minute, quietLogger(), probe), probe
 }
 
@@ -119,8 +119,8 @@ func TestEachProjectAdvancesItsOwnCursor(t *testing.T) {
 	db := newMultiStore()
 	client := &fakeRedmine{versions: []provider.Version{{ID: "1", Name: "v1.0.0", Status: "open"}}}
 
-	connect := func(TrackerConnection) (TrackerReader, error) { return client, nil }
-	runner, probe := trackerProbe(t, db, testOpener{}, connect)
+	connect := func(capability.Target) (TrackerReader, error) { return client, nil }
+	runner, probe := trackerHarness(t, db, testOpener{}, connect)
 	runner.sweep(context.Background(), probe)
 
 	if len(db.cursors) != 2 {
@@ -138,31 +138,31 @@ func TestEachProjectAdvancesItsOwnCursor(t *testing.T) {
 func TestEachProjectQueriesItsOwnServer(t *testing.T) {
 	db := newMultiStore()
 
-	var seenItems []TrackerConnection
-	connect := func(connection TrackerConnection) (TrackerReader, error) {
+	var seenItems []capability.Target
+	connect := func(connection capability.Target) (TrackerReader, error) {
 		seenItems = append(seenItems, connection)
 		return &fakeRedmine{}, nil
 	}
-	runner, probe := trackerProbe(t, db, testOpener{}, connect)
+	runner, probe := trackerHarness(t, db, testOpener{}, connect)
 	runner.sweep(context.Background(), probe)
 
 	if len(seenItems) != 2 {
 		t.Fatalf("%d connections, expected 2", len(seenItems))
 	}
-	if seenItems[0].URL == seenItems[1].URL {
-		t.Errorf("both projects target the same server: %q", seenItems[0].URL)
+	if seenItems[0].Settings["url"] == seenItems[1].Settings["url"] {
+		t.Errorf("both projects target the same server: %q", seenItems[0].Settings["url"])
 	}
 	// The key is **unsealed** before reaching the client. It is no longer the tracker that opens it
 	// but the loop, for every probe — and the guarantee is the same: the opposite would send an
 	// envelope in place of an API key, and the tracker would answer 401 with no message naming the
 	// sealing.
 	for _, connection := range seenItems {
-		if strings.HasPrefix(connection.APIKey, "sealed:") {
-			t.Errorf("key still sealed: %q", connection.APIKey)
+		if strings.HasPrefix(connection.Settings["api_key"], "sealed:") {
+			t.Errorf("key still sealed: %q", connection.Settings["api_key"])
 		}
 	}
-	if seenItems[0].Project != "project-one" || seenItems[1].Project != "project-two" {
-		t.Errorf("projects targeted = %q / %q", seenItems[0].Project, seenItems[1].Project)
+	if seenItems[0].Settings["project"] != "project-one" || seenItems[1].Settings["project"] != "project-two" {
+		t.Errorf("projects targeted = %q / %q", seenItems[0].Settings["project"], seenItems[1].Settings["project"])
 	}
 }
 
@@ -175,13 +175,13 @@ func TestOneProjectsFailureDoesNotStopTheNextOnes(t *testing.T) {
 	db := newMultiStore()
 	outage := errors.New("redmine injoignable")
 
-	connect := func(connection TrackerConnection) (TrackerReader, error) {
-		if connection.Project == "project-one" {
+	connect := func(connection capability.Target) (TrackerReader, error) {
+		if connection.Settings["project"] == "project-one" {
 			return nil, outage
 		}
 		return &fakeRedmine{}, nil
 	}
-	runner, probe := trackerProbe(t, db, testOpener{}, connect)
+	runner, probe := trackerHarness(t, db, testOpener{}, connect)
 	runner.sweep(context.Background(), probe)
 
 	recorded, present := db.failures[1]
@@ -210,9 +210,9 @@ func TestOneProjectsFailureDoesNotStopTheNextOnes(t *testing.T) {
 // outage would send someone hunting on the server's side.
 func TestAnUnreadableKeySaysSoWithoutQuotingTheValue(t *testing.T) {
 	db := newMultiStore()
-	connect := func(TrackerConnection) (TrackerReader, error) { return &fakeRedmine{}, nil }
+	connect := func(capability.Target) (TrackerReader, error) { return &fakeRedmine{}, nil }
 
-	runner, probe := trackerProbe(t, db,
+	runner, probe := trackerHarness(t, db,
 		testOpener{err: errors.New("decryption refused")}, connect)
 	runner.sweep(context.Background(), probe)
 
@@ -238,15 +238,15 @@ func TestTheTrackerIdentifierFallsBackToTheColumn(t *testing.T) {
 	// The setting says nothing about the project: only the column knows it.
 	db.configs[1] = map[string]string{"url": "https://redmine.one.fr", "api_key": "sealed:key"}
 
-	var seenItems []TrackerConnection
-	connect := func(connection TrackerConnection) (TrackerReader, error) {
+	var seenItems []capability.Target
+	connect := func(connection capability.Target) (TrackerReader, error) {
 		seenItems = append(seenItems, connection)
 		return &fakeRedmine{}, nil
 	}
-	runner, probe := trackerProbe(t, db, testOpener{}, connect)
+	runner, probe := trackerHarness(t, db, testOpener{}, connect)
 	runner.sweep(context.Background(), probe)
 
-	if len(seenItems) == 0 || seenItems[0].Project != "project-one" {
+	if len(seenItems) == 0 || seenItems[0].Settings["project"] != "project-one" {
 		t.Errorf("project targeted = %+v", seenItems)
 	}
 }
@@ -260,8 +260,8 @@ func TestAProjectWithNoTrackerIdentifierRecordsNoFailure(t *testing.T) {
 	db := newMultiStore()
 	db.configs[1] = map[string]string{"url": "https://redmine.one.fr", "api_key": "sealed:key"}
 
-	connect := func(TrackerConnection) (TrackerReader, error) { return &fakeRedmine{}, nil }
-	runner, probe := trackerProbe(t, db, testOpener{}, connect)
+	connect := func(capability.Target) (TrackerReader, error) { return &fakeRedmine{}, nil }
+	runner, probe := trackerHarness(t, db, testOpener{}, connect)
 
 	untrackedProjects := &multiStoreWithoutColumn{multiStore: db}
 	runner.store = untrackedProjects

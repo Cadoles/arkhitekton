@@ -10,10 +10,8 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/redmine"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
 )
 
 /*
@@ -28,13 +26,20 @@ import (
  * not come back through it.
  */
 
-// The identifiers are named here rather than written literally at the points of use: a typo
-// would produce a setting no plugin reads back, and the screen would say "recorded" on a dead
-// value.
-const (
-	trackerPluginID = "redmine"
-	forgePluginID   = "gitea"
-)
+// providers names the plugins the deployment's tracker and forge variables seed: the first that
+// brings a tracker, the first that brings a forge. Found by what they bring rather than by name,
+// so that the binary carrying another tracker seeds it without a change here.
+func providers(registry *capabilities.Registry) (tracker, forge string) {
+	for _, plugin := range registry.Plugins() {
+		if plugin.Tracker != nil && tracker == "" {
+			tracker = plugin.ID
+		}
+		if plugin.Forge != nil && forge == "" {
+			forge = plugin.ID
+		}
+	}
+	return tracker, forge
+}
 
 // pluginIDs lists the embedded plugins, for seeding the missing rows.
 func pluginIDs(registry *capabilities.Registry) []string {
@@ -81,7 +86,10 @@ func openCipher(cfg config.Config, logger *slog.Logger) (*secrets.Cipher, error)
 // Only the plugins whose configuration says something are set. The others — the attestation,
 // the delivery note — have no setting: their rows are born enabled by `EnsurePlugins`, which
 // preserves exactly the previous behaviour, where they applied without anyone having to ask.
-func configuredPlugins(cfg config.Config, cipher *secrets.Cipher, logger *slog.Logger) ([]store.PluginSettings, error) {
+func configuredPlugins(
+	cfg config.Config, cipher *secrets.Cipher, registry *capabilities.Registry, logger *slog.Logger,
+) ([]store.PluginSettings, error) {
+	trackerPluginID, forgePluginID := providers(registry)
 	var settings []store.PluginSettings
 
 	tracker := map[string]string{}
@@ -95,7 +103,7 @@ func configuredPlugins(cfg config.Config, cipher *secrets.Cipher, logger *slog.L
 		}
 		tracker["api_key"] = sealed
 	}
-	if len(tracker) > 0 {
+	if len(tracker) > 0 && trackerPluginID != "" {
 		settings = append(settings, store.PluginSettings{
 			PluginID: trackerPluginID, Enabled: true, Config: tracker,
 		})
@@ -112,7 +120,7 @@ func configuredPlugins(cfg config.Config, cipher *secrets.Cipher, logger *slog.L
 		}
 		forge["token"] = sealed
 	}
-	if len(forge) > 0 {
+	if len(forge) > 0 && forgePluginID != "" {
 		settings = append(settings, store.PluginSettings{
 			PluginID: forgePluginID, Enabled: true, Config: forge,
 		})
@@ -136,27 +144,6 @@ func configuredPlugins(cfg config.Config, cipher *secrets.Cipher, logger *slog.L
 	}
 
 	return settings, nil
-}
-
-// trackerConnector builds a tracker client for a resolved connection.
-//
-// The call timeout stays a value of the deployment: it bounds the effect of a slow tracker on
-// the worker, which is a property of the dashboard and not of the client. The rest — server,
-// key, project — comes from the settings.
-func trackerConnector(cfg config.Config) worker.TrackerConnector {
-	return func(connection worker.TrackerConnection) (worker.TrackerReader, error) {
-		if strings.TrimSpace(connection.URL) == "" || strings.TrimSpace(connection.APIKey) == "" {
-			// Named rather than left to the client: "invalid URL" would send someone hunting for a typo
-			// where it is a setting that was never filled in.
-			return nil, fmt.Errorf(
-				"tracker not configured: set the URL and the API key of plugin %q, "+
-					"on the instance or on the project", trackerPluginID)
-		}
-		return redmine.New(redmine.Options{
-			URL: connection.URL, APIKey: connection.APIKey,
-			Timeout: cfg.Tracker.Timeout,
-		})
-	}
 }
 
 // seal seals a value, or refuses the seeding for want of a key.

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/redmine"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -76,10 +76,9 @@ func liveProbe(t *testing.T) (*TrackerSync, TrackerReader, string, *inMemoryStor
 		t.Fatal("REDMINE_PROJECT is required for the real check")
 	}
 
-	client, err := redmine.New(redmine.Options{
-		URL:     os.Getenv("REDMINE_URL"),
-		APIKey:  os.Getenv("REDMINE_API_KEY"),
-		Timeout: 30 * time.Second,
+	client, err := liveTracker(capability.Target{
+		Settings: capability.Settings{"url": os.Getenv("REDMINE_URL"), "api_key": os.Getenv("REDMINE_API_KEY")},
+		Timeout:  30 * time.Second,
 	})
 	if err != nil {
 		// The message does not quote the key, and has no business doing so: what is missing is read in
@@ -88,8 +87,7 @@ func liveProbe(t *testing.T) (*TrackerSync, TrackerReader, string, *inMemoryStor
 	}
 
 	db := &inMemoryStore{}
-	connect := func(TrackerConnection) (TrackerReader, error) { return client, nil }
-	return NewTrackerSync(db, connect, quietLogger()), client, project, db
+	return NewTrackerSync(db, redmineTracker, quietLogger()), client, project, db
 }
 
 // Do the real data produce facts the database would accept?
@@ -135,7 +133,7 @@ func TestLiveTheTrackerFactsAreValid(t *testing.T) {
 	t.Logf("projectRow %q: %d versions, %d issues read", project,
 		len(db.versions), len(db.issues))
 	t.Logf("facts of a bootstrap: %d in all — %d versions, %d closures",
-		len(facts), parType[string(event.VersionCreated)], parType[redmineIssueClosed])
+		len(facts), parType[string(event.VersionCreated)], parType[redmineTracker.ClosedType])
 }
 
 // A second pass does not observe again what the first saw.

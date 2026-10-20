@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
@@ -31,13 +31,6 @@ import (
  * first, written six months later without knowing it.
  */
 
-// redmineSource names the source in `sync_state`.
-//
-// **Unchanged, deliberately.** The projects' cursors have been written under this name from the
-// start. Renaming it would have made each restart from zero, therefore re-read the whole
-// history of an instance that is not ours — for a cosmetic improvement.
-const redmineSource = "redmine"
-
 // syncInterval bounds how often the tracker is queried.
 //
 // Five minutes: versions and requests move at the pace of human typing, and querying more often
@@ -45,19 +38,25 @@ const redmineSource = "redmine"
 // versions screen visibly behind Redmine, where the user has just typed.
 const syncInterval = 5 * time.Minute
 
-// The facts the tracker observes as it goes.
+// TrackerSource names the tracker plugin a synchronisation reads.
 //
-// Two, and no more. They have in common that they are **events** — something happened once. A
-// request changing status is not one: it changes ten times, and one fact per change would turn
-// the fact feed into a typing log.
+// The facts it observes are two, and no more. They have in common that they are **events** —
+// something happened once. A request changing status is not one: it changes ten times, and one
+// fact per change would turn the fact feed into a typing log.
 //
-// # Only one of the two carries the plugin's prefix
-//
-// The version has become a **core** fact — `version.created` — because every tracker deposits
-// its versions in the same table and a reaction declared on it must not be rewritten when the
-// client changes tool. The request has no core equivalent: it stays a Redmine fact, and its
-// name says so.
-const redmineIssueClosed = "redmine.issue.closed"
+// Only one of the two carries the plugin's prefix. The version is a **core** fact —
+// `version.created` — because every tracker deposits its versions in the same table and a
+// reaction declared on it must not be rewritten when the client changes tool. The request has no
+// core equivalent: it stays the plugin's fact, under the type its declaration gives it.
+type TrackerSource struct {
+	// Tool is the plugin's identifier: the `tool` column of versions and issues, and the
+	// synchronisation's cursor in `sync_state`. Redmine's is `redmine`, the name the cursors have
+	// carried from the start.
+	Tool string
+	// ClosedType is the type of the closed-issue fact. Empty when the plugin declares none: the
+	// issue is still projected, and nothing is observed.
+	ClosedType string
+}
 
 // cursorOverlap is the margin taken off the cursor at each read.
 //
@@ -73,25 +72,12 @@ type TrackerReader interface {
 	ListIssues(ctx context.Context, query provider.IssueQuery) ([]provider.Issue, error)
 }
 
-// TrackerConnection is what must be known in order to query a tracker.
+// TrackerConnector builds a client for one project's connection: the tracker plugin's settings,
+// resolved and unsealed, with `project` naming the project **in the tracker**.
 //
-// Resolved per project: the tracker is a plugin, and its settings layer — what the instance
-// declares, what the project corrects. That is what lets two clients each have their own server
-// without the first having anything to retype.
-type TrackerConnection struct {
-	URL string
-	// APIKey is **in clear text**: the unsealing happened just before, and this value does not
-	// leave the worker. It must appear neither in a log, nor in an error message, nor in a URL.
-	APIKey string
-	// Project is the project's identifier **in the tracker**, as it appears in its URL.
-	Project string
-}
-
-// TrackerConnector builds a client for a given connection.
-//
-// A function rather than an already built client: the connection is no longer the same for
-// every project, and a single client built at start-up could serve only one.
-type TrackerConnector func(TrackerConnection) (TrackerReader, error)
+// A function rather than an already built client: the connection is not the same for every
+// project, and a single client built at start-up could serve only one.
+type TrackerConnector func(capability.Target) (TrackerReader, error)
 
 // TrackerStore is what the projection needs from the database.
 //
@@ -118,22 +104,17 @@ type SecretOpener interface {
 
 // TrackerSync projects the versions and the requests into the database.
 type TrackerSync struct {
-	store   TrackerStore
-	connect TrackerConnector
-	logger  *slog.Logger
-	now     func() time.Time
+	store  TrackerStore
+	source TrackerSource
+	logger *slog.Logger
+	now    func() time.Time
 }
 
-func NewTrackerSync(
-	db TrackerStore, connect TrackerConnector, logger *slog.Logger,
-) *TrackerSync {
+func NewTrackerSync(db TrackerStore, source TrackerSource, logger *slog.Logger) *TrackerSync {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &TrackerSync{
-		store: db, connect: connect,
-		logger: logger, now: time.Now,
-	}
+	return &TrackerSync{store: db, source: source, logger: logger, now: time.Now}
 }
 
 // Observe runs a complete pass for one project, and returns what it observes.
@@ -169,7 +150,7 @@ func (s *TrackerSync) Observe(
 			ProjectID: projectID,
 			// The tool and the identifier it uses, rather than an integer whose name already said which
 			// product it came from.
-			Tool:        trackerTool,
+			Tool:        s.source.Tool,
 			ExternalID:  version.ID,
 			Name:        version.Name,
 			Normalized:  release.NormalizeVersionName(version.Name),
@@ -181,7 +162,7 @@ func (s *TrackerSync) Observe(
 		if err != nil {
 			return nil, "", err
 		}
-		facts = append(facts, versionCreatedFact(versionID, version, startedAt))
+		facts = append(facts, versionCreatedFact(versionID, version, s.source.Tool, startedAt))
 	}
 
 	// The adoption comes after **all** the versions are deposited: that is what makes it
@@ -217,7 +198,7 @@ func (s *TrackerSync) Observe(
 
 		if err := s.store.UpsertRedmineIssue(ctx, store.TrackedIssue{
 			ProjectID:  projectID,
-			Tool:       trackerTool,
+			Tool:       s.source.Tool,
 			ExternalID: issue.ID,
 			// The version targeted, named by its identifier **in the tool**: the dashboard does not yet
 			// know its local key at the moment it projects the request.
@@ -234,19 +215,19 @@ func (s *TrackerSync) Observe(
 		}); err != nil {
 			return nil, "", err
 		}
-		if issue.StatusClosed {
-			facts = append(facts, issueClosedFact(trackerProject, issue, startedAt))
+		if issue.StatusClosed && s.source.ClosedType != "" {
+			facts = append(facts, issueClosedFact(s.source.ClosedType, trackerProject, issue, startedAt))
 		}
 	}
 
 	for status, count := range unmapped {
-		s.logger.Warn("Redmine status with no declared mapping",
+		s.logger.Warn("tracker status with no declared mapping", "tool", s.source.Tool,
 			"project", trackerProject, "status", status,
 			"issues", count, "bucket_par_defaut", "todo")
 	}
 
 	s.logger.Info("tracker synchronisation",
-		"project", trackerProject,
+		"tool", s.source.Tool, "project", trackerProject,
 		"versions", len(versions), "requests", len(issues),
 		"incremental", !since.IsZero(), "unmapped_statuses", len(unmapped))
 
@@ -272,7 +253,7 @@ func (s *TrackerSync) Observe(
 // observe the same version twice, and an instance changing tool would not observe its whole
 // history again.
 func versionCreatedFact(
-	versionID int64, version provider.Version, fallback time.Time,
+	versionID int64, version provider.Version, tool string, fallback time.Time,
 ) event.Event {
 	return event.VersionCreatedAt(
 		// The update date in the tracker, for want of better: Redmine does not return a version's
@@ -280,7 +261,7 @@ func versionCreatedFact(
 		// counts.
 		orNow(version.UpdatedOn, fallback),
 		versionID, version.Name, version.Status,
-		trackerTool, version.ID, version.DueDate)
+		tool, version.ID, version.DueDate)
 }
 
 // issueClosedFact observes that a request is closed.
@@ -290,7 +271,7 @@ func versionCreatedFact(
 // been", and a team reopening one to fix a label has no business sending another delivery
 // notification.
 func issueClosedFact(
-	trackerProject string, issue provider.Issue, fallback time.Time,
+	closedType, trackerProject string, issue provider.Issue, fallback time.Time,
 ) event.Event {
 	payload := map[string]string{
 		"issue_id": issue.ID,
@@ -303,11 +284,11 @@ func issueClosedFact(
 	}
 
 	return event.Event{
-		Type:       redmineIssueClosed,
+		Type:       event.Type(closedType),
 		Subject:    "#" + issue.ID,
 		Payload:    payload,
 		OccurredAt: orNow(issue.UpdatedOn, fallback),
-		DedupKey:   redmineIssueClosed + ":" + trackerProject + ":" + issue.ID,
+		DedupKey:   closedType + ":" + trackerProject + ":" + issue.ID,
 	}
 }
 
@@ -330,7 +311,7 @@ func orNow(moment *time.Time, fallback time.Time) time.Time {
 func (s *TrackerSync) reportAdoptions(adoptions []store.Adoption) {
 	for _, adoption := range adoptions {
 		if adoption.Ambiguous {
-			s.logger.Warn("provisional version claimed by several Redmine versions",
+			s.logger.Warn("provisional version claimed by several tracker versions",
 				"provisional", adoption.PendingName,
 				"candidates", adoption.Candidates,
 				"consequence", "attachment left pending, to be settled by hand")
@@ -358,23 +339,6 @@ func cursorSince(cursor string) time.Time {
 	return parsed.Add(-cursorOverlap)
 }
 
-// ForceResync clears a project's cursor so that the next pass re-reads everything.
-//
-// Exposed to administration: after a correction to the status mapping or a doubt about the
-// completeness of the data, re-reading everything is the only way to start again from a known
-// state.
-//
-// Bounded to one project: re-reading everything calls on a third-party service, and nothing
-// justifies making one client carry the doubt one has about another.
-func ForceResync(ctx context.Context, projectID int64, resetter interface {
-	ResetSyncCursor(ctx context.Context, source string, projectID int64) error
-}) error {
-	if err := resetter.ResetSyncCursor(ctx, redmineSource, projectID); err != nil {
-		return fmt.Errorf("resetting the Redmine cursor: %w", err)
-	}
-	return nil
-}
-
 // The same guard as on the HTTP side: what the worker asks of its sources must stay a subset of
 // what the boundary announces, otherwise a future decoupling will silently lose the callers
 // that overreached.
@@ -382,13 +346,6 @@ var (
 	_ TrackerReader = provider.Tracker(nil)
 	_ PullReader    = provider.Forge(nil)
 )
-
-// trackerTool names the tool this synchroniser queries.
-//
-// A constant here and not a parameter: this package **is** the Redmine implementation. The day
-// a second exists, another type will carry its name, and the choice will be made at
-// construction rather than by a setting of this one.
-const trackerTool = "redmine"
 
 // externalRef translates a numeric identifier into a textual reference.
 //

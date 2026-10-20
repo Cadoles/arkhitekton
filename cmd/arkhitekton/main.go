@@ -42,13 +42,13 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/gitea"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/redmine"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/webhook"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // Filled in at compile time through -ldflags (see Dockerfile and Makefile).
@@ -114,7 +114,7 @@ func run() error {
 	case config.RoleReprocess:
 		return runReprocess(ctx, cfg, logger, os.Args[2:])
 	case config.RoleCheckTracker:
-		return runCheckRedmine(ctx, cfg, logger)
+		return runCheckTracker(ctx, cfg, logger)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return fmt.Errorf("unknown role %q", role)
@@ -798,14 +798,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				errs <- worker.NewKeyReconciler(db, keys, logger).Run(leadingCtx)
 			}()
 
-			// The tracker synchronisation. It no longer carries its loop: it has become a **probe**, and
-			// it is the common loop that resolves its settings, unseals its key, keeps its cursor and
-			// isolates its failures.
-			//
-			// The projection has not moved — versions, adoptions, requests and their buckets. What is
-			// added are the facts it observes on the way, and which a reaction can now be wired to.
-			tracker := worker.NewTrackerSync(db, trackerConnector(cfg), logger)
-
 			// The probes, which produce a plugin's facts. Under the lease like the rest: two workers
 			// querying the same instance would double the load on a third-party service for an identical
 			// result.
@@ -813,8 +805,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// A probe is queried only for the projects whose plugin is active, each at its own cadence,
 			// and its first pass triggers nothing — enabling something does not wake the past.
 			probes := worker.NewProbeRunner(pluginRegistry, db, cipher, cfg.Probes.Interval, logger,
+				// The tracker synchronisation is a probe too, one per tracker plugin: the common loop resolves
+				// its settings, unseals its key, keeps its cursor and isolates its failures.
 				append(worker.PluginProbes(pluginRegistry, cfg.Forge.Timeout),
-					worker.NewRedmineProbe(tracker))...).
+					worker.TrackerProbes(pluginRegistry, db, cfg.Tracker.Timeout, logger)...)...).
 				WithDispatcher(dispatcher)
 			go func() { errs <- probes.Run(leadingCtx) }()
 
@@ -1030,10 +1024,15 @@ func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
-	plugins, err := configuredPlugins(cfg, cipher, logger)
+	registry, err := builtin.Registry()
+	if err != nil {
+		return fmt.Errorf("built-in plugins: %w", err)
+	}
+	plugins, err := configuredPlugins(cfg, cipher, registry, logger)
 	if err != nil {
 		return err
 	}
+	trackerPluginID, _ := providers(registry)
 
 	report, err := db.Bootstrap(ctx, store.BootstrapSpec{
 		Grants:          configuredGrants(cfg),
@@ -1188,30 +1187,38 @@ func scope(releaseTag string) string {
 	return "one release"
 }
 
-// runCheckRedmine checks access to Redmine, then stops.
+// runCheckTracker checks access to the tracker the deployment's variables name, then stops.
 //
 // A diagnostic role, to be sure a deposited key works before a screen depends on it. It does
-// one read only — `/users/current.json` — and the `redmine` package's transport structurally
-// forbids any method other than GET and HEAD, which makes this check risk-free on the
-// production instance.
+// one read only, and the Redmine plugin's transport structurally forbids any method other than
+// GET and HEAD, which makes this check risk-free on the production instance.
 //
 // The key is never logged. What is: the URL, the account it belongs to, and its `admin` flag.
-func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	client, err := redmine.New(redmine.Options{
-		URL:     cfg.Tracker.URL,
-		APIKey:  cfg.Tracker.APIKey,
-		Timeout: cfg.Tracker.Timeout,
+func runCheckTracker(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+	registry, err := builtin.Registry()
+	if err != nil {
+		return fmt.Errorf("built-in plugins: %w", err)
+	}
+	trackerID, _ := providers(registry)
+	tracker, err := registry.Plugin(trackerID)
+	if err != nil || tracker.Tracker == nil {
+		return fmt.Errorf("no tracker plugin in this binary")
+	}
+	client, err := tracker.Tracker.Connect(capability.Target{
+		Settings: capability.Settings{"url": cfg.Tracker.URL, "api_key": cfg.Tracker.APIKey},
+		Timeout:  cfg.Tracker.Timeout,
 	})
 	if err != nil {
-		return fmt.Errorf("client Redmine: %w", err)
+		return fmt.Errorf("tracker client: %w", err)
 	}
 
 	account, err := client.CheckAccess(ctx)
 	if err != nil {
-		return fmt.Errorf("checking Redmine access: %w", err)
+		return fmt.Errorf("checking tracker access: %w", err)
 	}
 
-	logger.Info("Redmine access checked",
+	logger.Info("tracker access checked",
+		"plugin", tracker.ID,
 		"url", cfg.Tracker.URL,
 		"project", cfg.Tracker.Project,
 		"login", account.Login,
@@ -1222,7 +1229,7 @@ func runCheckRedmine(ctx context.Context, cfg config.Config, logger *slog.Logger
 		"admin", account.Admin)
 
 	if account.Admin {
-		logger.Warn("this key belongs to a Redmine administrator account; " +
+		logger.Warn("this key belongs to an administrator account; " +
 			"a read-only account on the project would be enough")
 	}
 	return nil
