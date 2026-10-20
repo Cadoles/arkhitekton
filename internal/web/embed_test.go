@@ -65,6 +65,8 @@ func TestPolicyForbidsFramingAndExternalConnections(t *testing.T) {
 		"base-uri 'none'",
 		"connect-src 'self'",
 		"font-src 'self'",
+		"media-src 'self'",
+		"frame-src 'self'",
 	} {
 		if !strings.Contains(policy.value, directive) {
 			t.Errorf("missing directive: %s", directive)

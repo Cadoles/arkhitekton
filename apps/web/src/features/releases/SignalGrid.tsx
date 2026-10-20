@@ -45,6 +45,7 @@ import { type Shape, type SignalScore } from './tests'
 function detailFor(shape: Shape | undefined): 'reports' | 'security' | 'bench' | 'none' {
   switch (shape) {
     case 'cases':
+    case 'attachments':
       return 'reports'
     case 'findings':
       return 'security'

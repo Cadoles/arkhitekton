@@ -7,7 +7,7 @@ import { CollapsibleSection } from '../../components/CollapsibleSection'
 import { ReleaseBadges } from './ReleaseBadges'
 import { ReleaseNotes } from './ReleaseNotes'
 import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
-import { formatDateTime } from '../../lib/format'
+import { formatBytes, formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
 import { hasAtLeast, useSession } from '../auth/session'
 import { useActiveModules } from '../../modules'
@@ -386,12 +386,6 @@ function Exports({ release }: { release: ReleaseDetail }) {
         ))}
     </Card>
   )
-}
-
-function formatBytes(size: number): string {
-  if (size < 1024) return `${size} o`
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} Kio`
-  return `${(size / (1024 * 1024)).toFixed(1)} Mio`
 }
 
 

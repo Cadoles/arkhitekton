@@ -5,7 +5,15 @@ import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
 import { PipelineTimeline } from './PipelineTimeline'
 import { RunLink } from './RunLink'
-import { CHANGE_LABEL, useGroup, type CaseDiff, type Change, type TestCase } from './tests'
+import { AttachmentList, AttributeList } from './AttachmentList'
+import {
+  CHANGE_LABEL,
+  useGroup,
+  type Attachment,
+  type CaseDiff,
+  type Change,
+  type TestCase,
+} from './tests'
 
 /*
  * Détail d'une famille de tests, sans son cadre.
@@ -89,6 +97,20 @@ export function FamilyDetail({
   const changes = new Map<string, Change>()
   for (const entry of data?.diff ?? []) changes.set(caseKey(entry.suite, entry.name), entry.change)
 
+  // Les captures rejoignent le cas qu'elles montrent ; le reste se lit à part.
+  const byCase = new Map<string, Attachment[]>()
+  const loose: Attachment[] = []
+  for (const attachment of data?.attachments ?? []) {
+    if (!attachment.case) {
+      loose.push(attachment)
+      continue
+    }
+    const key = caseKey(attachment.case.suite, attachment.case.name)
+    byCase.set(key, [...(byCase.get(key) ?? []), attachment])
+  }
+  // Un résultat fait seulement de fichiers n'a pas de cas à lister.
+  const onlyFiles = data !== undefined && data.total === 0 && needle === '' && loose.length > 0
+
   return (
     <div className="flex flex-col gap-3">
       {/* La frise avant tout le reste : quand un pipeline tourne, ce qui suit
@@ -118,6 +140,19 @@ export function FamilyDetail({
             </div>
           )}
 
+          <AttributeList attributes={data.attributes} />
+
+          {tag && loose.length > 0 && (
+            <section className="flex flex-col gap-2">
+              <h3 className="text-sm font-semibold text-zinc-900">Fichiers ({loose.length})</h3>
+              <AttachmentList tag={tag} attachments={loose} />
+            </section>
+          )}
+        </>
+      )}
+
+      {data && !onlyFiles && (
+        <>
           <DiffSummary diff={data.diff} />
 
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -131,7 +166,13 @@ export function FamilyDetail({
             />
           </div>
 
-          <CaseList cases={data.cases} filtered={needle !== ''} changes={changes} />
+          <CaseList
+            tag={tag}
+            cases={data.cases}
+            filtered={needle !== ''}
+            changes={changes}
+            attachments={byCase}
+          />
 
           <Pagination
             total={data.total}
@@ -278,13 +319,17 @@ function Pagination({
 // qui permet à « aucun cas ne correspond » de porter sur la famille entière et non
 // sur la page affichée.
 function CaseList({
+  tag,
   cases,
   filtered,
   changes,
+  attachments,
 }: {
+  tag: string | undefined
   cases: TestCase[]
   filtered: boolean
   changes: Map<string, Change>
+  attachments: Map<string, Attachment[]>
 }) {
   if (cases.length === 0) {
     return (
@@ -299,17 +344,29 @@ function CaseList({
       {cases.map((entry) => (
         <CaseRow
           key={caseKey(entry.suite, entry.name)}
+          tag={tag}
           entry={entry}
           change={changes.get(caseKey(entry.suite, entry.name))}
+          attachments={attachments.get(caseKey(entry.suite, entry.name)) ?? []}
         />
       ))}
     </ul>
   )
 }
 
-function CaseRow({ entry, change }: { entry: TestCase; change?: Change }) {
+function CaseRow({
+  tag,
+  entry,
+  change,
+  attachments,
+}: {
+  tag: string | undefined
+  entry: TestCase
+  change?: Change
+  attachments: Attachment[]
+}) {
   const [open, setOpen] = useState(false)
-  const hasDetail = Boolean(entry.trace)
+  const hasDetail = Boolean(entry.trace) || attachments.length > 0
   const badge = change ? CHANGE_BADGE[change] : undefined
 
   return (
@@ -342,7 +399,7 @@ function CaseRow({ entry, change }: { entry: TestCase; change?: Change }) {
             aria-expanded={open}
             className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
           >
-            {open ? 'Replier' : 'Trace'}
+            {open ? 'Replier' : entry.trace ? 'Trace' : 'Capture'}
           </button>
         )}
       </div>
@@ -353,6 +410,11 @@ function CaseRow({ entry, change }: { entry: TestCase; change?: Change }) {
         <pre className="mt-2 overflow-x-auto rounded-md border border-zinc-200 bg-zinc-50 p-2 font-mono text-xs text-zinc-700">
           {entry.trace}
         </pre>
+      )}
+      {open && tag && attachments.length > 0 && (
+        <div className="mt-2">
+          <AttachmentList tag={tag} attachments={attachments} />
+        </div>
       )}
     </li>
   )

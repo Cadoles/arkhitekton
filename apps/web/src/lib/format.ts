@@ -8,6 +8,13 @@
 const DATE_TIME = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'medium' })
 const DATE = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' })
 
+/** Une taille en octets, à l'unité qui la rend lisible. */
+export function formatBytes(size: number): string {
+  if (size < 1024) return `${size} o`
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} Kio`
+  return `${(size / (1024 * 1024)).toFixed(1)} Mio`
+}
+
 /** Rend l'entrée telle quelle si elle n'est pas une date : mieux vaut une valeur
  * brute lisible qu'un « Invalid Date ». */
 export function formatDateTime(value: string): string {

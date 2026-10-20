@@ -141,6 +141,10 @@ func contentSecurityPolicy(index []byte) csp {
 			// the layout.
 			"style-src 'self' 'unsafe-inline'",
 			"img-src 'self' data:",
+			// A run's videos and HTML reports, read from the API: same origin, and the reports are
+			// sandboxed by the API's own policy on top of the frame's.
+			"media-src 'self'",
+			"frame-src 'self'",
 			"font-src 'self'",
 			// Fonts are self-hosted and the API is same-origin: no external destination is
 			// legitimate.

@@ -3,9 +3,10 @@ import { request } from '../../lib/api'
 import type { Health, PipelineStatus } from '../../lib/status'
 import { projectPath } from '../../lib/project'
 
-/** Comment un résultat se compare et s'affiche : des cas de test, des constats
- *  ou des mesures. Rendue par le serveur avec chaque résultat. */
-export type Shape = 'cases' | 'findings' | 'measures'
+/** Comment un résultat se compare et s'affiche : des cas de test, des constats,
+ *  des mesures ou des fichiers à consulter. Rendue par le serveur avec chaque
+ *  résultat. */
+export type Shape = 'cases' | 'findings' | 'measures' | 'attachments'
 
 export type TestResult = {
   id: number
@@ -100,9 +101,31 @@ export type CaseDiff = {
   change: Change
 }
 
+/** Un fichier gardé avec un résultat : capture, vidéo, rapport. */
+export type Attachment = {
+  id: number
+  name: string
+  media_type: string
+  size_bytes: number
+  /** Le cas que le fichier illustre, quand son nom le dit. */
+  case?: { suite: string; name: string }
+  attributes?: Record<string, string>
+}
+
+/** URL d'un fichier. Le contenu transite par l'api, sous le rôle du lecteur,
+ *  jamais par une URL pré-signée. */
+export function attachmentURL(tag: string, id: number, download = false): string {
+  const path = projectPath(`/releases/${encodeURIComponent(tag)}/attachments/${id}`)
+  return `/api/v1${path}${download ? '?download=1' : ''}`
+}
+
 export type GroupPage = {
   group: string
   cases: TestCase[]
+  /** Les fichiers du rapport affiché. */
+  attachments?: Attachment[]
+  /** Des faits libres sur le rapport : navigateur, graine… */
+  attributes?: Record<string, string>
   diff?: CaseDiff[]
   /** Exécution qui a produit le rapport affiché. Absente si sa projection a été
    *  purgée — le rapport lui survit. */
