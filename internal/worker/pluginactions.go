@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/gitea"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -50,14 +51,16 @@ type PluginActionStore interface {
 
 // PluginActionRunner carries out the actions the plugins declare.
 type PluginActionRunner struct {
-	store   PluginActionStore
-	secrets SecretOpener
-	timeout time.Duration
-	logger  *slog.Logger
+	registry *capabilities.Registry
+	store    PluginActionStore
+	secrets  SecretOpener
+	timeout  time.Duration
+	logger   *slog.Logger
 }
 
 func NewPluginActionRunner(
-	settings PluginActionStore, secrets SecretOpener, timeout time.Duration, logger *slog.Logger,
+	registry *capabilities.Registry, settings PluginActionStore, secrets SecretOpener,
+	timeout time.Duration, logger *slog.Logger,
 ) *PluginActionRunner {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -65,7 +68,7 @@ func NewPluginActionRunner(
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &PluginActionRunner{store: settings, secrets: secrets, timeout: timeout, logger: logger}
+	return &PluginActionRunner{registry: registry, store: settings, secrets: secrets, timeout: timeout, logger: logger}
 }
 
 // Run carries out a plugin action step.
@@ -75,7 +78,7 @@ func NewPluginActionRunner(
 func (r *PluginActionRunner) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
-	descriptor, spec, found := plugin.FindAction(geste.Ref)
+	descriptor, spec, found := r.registry.FindAction(geste.Ref)
 	if !found {
 		return nil, fmt.Errorf("no plugin declares the action %q", geste.Ref)
 	}
@@ -96,7 +99,7 @@ func (r *PluginActionRunner) Run(
 			descriptor.ID, geste.Ref)
 	}
 
-	config, err := openPluginSecrets(r.secrets, descriptor.ID, settings.Config)
+	config, err := openPluginSecrets(r.secrets, descriptor, settings.Config)
 	if err != nil {
 		return nil, fmt.Errorf("connection of plugin %q: %w", descriptor.ID, err)
 	}
@@ -133,7 +136,7 @@ const (
 
 // bindParams replaces the templates with the triggering fact's payload.
 func bindParams(
-	spec plugin.ActionSpec, declares, runContext map[string]string,
+	spec capability.ActionSpec, declares, runContext map[string]string,
 ) map[string]string {
 	params := make(map[string]string, len(spec.Fields))
 	for _, field := range spec.Fields {
@@ -164,7 +167,7 @@ func bindParams(
 // together: it would have to be kept up, and would hold only for this forge. A reaction that
 // wants to mirror the outcome is written with a literal state and a match on `outcome` — which
 // the model already knows how to do.
-func checkClosedSets(spec plugin.ActionSpec, declares, params map[string]string) error {
+func checkClosedSets(spec capability.ActionSpec, declares, params map[string]string) error {
 	for _, field := range spec.Fields {
 		if len(field.OneOf) == 0 {
 			continue

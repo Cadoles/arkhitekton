@@ -12,12 +12,13 @@ import (
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -57,18 +58,23 @@ type AutomationStore interface {
 
 // AutomationsHandler exposes the reactions and the editor's catalogue.
 type AutomationsHandler struct {
-	store   AutomationStore
-	catalog *catalog.Catalog
-	logger  *slog.Logger
+	store    AutomationStore
+	catalog  *catalog.Catalog
+	registry *capabilities.Registry
+	actions  action.Catalog
+	logger   *slog.Logger
 }
 
 func NewAutomationsHandler(
-	reactions AutomationStore, pipelines *catalog.Catalog, logger *slog.Logger,
+	reactions AutomationStore, pipelines *catalog.Catalog, registry *capabilities.Registry, logger *slog.Logger,
 ) *AutomationsHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &AutomationsHandler{store: reactions, catalog: pipelines, logger: logger}
+	return &AutomationsHandler{
+		store: reactions, catalog: pipelines, registry: registry,
+		actions: action.NewCatalog(registry.Plugins()), logger: logger,
+	}
 }
 
 type reactionPayload struct {
@@ -270,7 +276,7 @@ func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	events := coreEventChoices()
-	for _, descriptor := range plugin.Registry() {
+	for _, descriptor := range h.registry.Plugins() {
 		// A fact whose plugin is switched off does not appear in the editor: a choice that would
 		// never trigger is worse than an absence.
 		if !settings[descriptor.ID].Enabled {
@@ -285,7 +291,7 @@ func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	steps := make([]gesteChoice, 0, 8)
-	for _, descriptor := range action.All() {
+	for _, descriptor := range h.actions.All() {
 		// An action whose plugin is switched off does not appear, exactly like a fact it no
 		// longer observes: a step one can choose and that will refuse to leave is worse than an
 		// absence.
@@ -395,7 +401,7 @@ func coreEventChoices() []eventChoice {
 	}
 }
 
-func fieldNames(fields []plugin.Field) []string {
+func fieldNames(fields []capability.Field) []string {
 	names := make([]string, 0, len(fields))
 	for _, field := range fields {
 		names = append(names, field.Name)
@@ -475,7 +481,7 @@ func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan)
 		return err
 	}
 	for _, ref := range actions {
-		descriptor, err := action.Get(ref)
+		descriptor, err := h.actions.Get(ref)
 		if err != nil {
 			problems = append(problems, err)
 			continue
@@ -497,7 +503,7 @@ func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan)
 			if step.Kind != plan.GesteAction {
 				continue
 			}
-			descriptor, err := action.Get(step.Ref)
+			descriptor, err := h.actions.Get(step.Ref)
 			if err != nil {
 				continue
 			}
@@ -529,7 +535,7 @@ func (h *AutomationsHandler) liveEventTypes(ctx context.Context, projectID int64
 	for _, choice := range coreEventChoices() {
 		types = append(types, choice.Type)
 	}
-	for _, descriptor := range plugin.Registry() {
+	for _, descriptor := range h.registry.Plugins() {
 		if !settings[descriptor.ID].Enabled {
 			continue
 		}

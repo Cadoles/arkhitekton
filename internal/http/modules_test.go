@@ -36,7 +36,7 @@ func (l pluginReader) ProjectPluginSettings(_ context.Context, projectID int64) 
 }
 
 func modulesWith(mse bool) *Modules {
-	return NewModules(pluginReader{settings: map[string]store.PluginSettings{
+	return NewModules(testRegistry, pluginReader{settings: map[string]store.PluginSettings{
 		plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: mse},
 		"redmine":        {PluginID: "redmine", Enabled: true},
 	}}, quietLogger())
@@ -55,7 +55,7 @@ func TestOnlySwitchedOnModulesAreAnnounced(t *testing.T) {
 // An unreadable read hides the modules rather than showing screens whose every request would
 // fail.
 func TestAFailedReadHidesTheModules(t *testing.T) {
-	modules := NewModules(pluginReader{err: errors.New("database unreachable")}, quietLogger())
+	modules := NewModules(testRegistry, pluginReader{err: errors.New("database unreachable")}, quietLogger())
 	if modules.Enabled(context.Background(), plugin.ModuleMSE) {
 		t.Error("a module whose state is unreadable is announced switched on")
 	}
@@ -116,7 +116,7 @@ func TestMeAnnouncesTheModules(t *testing.T) {
 // and cannot switch it back on when the instance has switched it off.
 func TestAModuleResolvesWithinTheProject(t *testing.T) {
 	reader := func(global bool) *Modules {
-		return NewModules(pluginReader{
+		return NewModules(testRegistry, pluginReader{
 			settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: global}},
 			projects: map[int64]map[string]store.PluginSettings{
 				2: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: false}},
@@ -155,7 +155,7 @@ func (r slugResolver) ProjectBySlug(_ context.Context, slug string) (store.Proje
 // A route naming a project answers 404 when the module is off for it, even when it is on for
 // the instance.
 func TestAProjectRouteFollowsTheProjectsModule(t *testing.T) {
-	modules := NewModules(pluginReader{
+	modules := NewModules(testRegistry, pluginReader{
 		settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: true}},
 		projects: map[int64]map[string]store.PluginSettings{
 			2: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: false}},

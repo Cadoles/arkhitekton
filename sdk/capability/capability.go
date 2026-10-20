@@ -73,7 +73,7 @@ func (r Ref) Slug() string { return r.Plugin + "-" + r.Name }
 // dash: `php-unit.tests` and `php.unit-tests` must not both read `php-unit-tests`.
 func (r Ref) LabelValue() string { return r.Plugin + "." + r.Name }
 
-// Plugin is what a plugin brings.
+// Plugin is what a plugin declares and brings.
 type Plugin struct {
 	ID string
 	// Version changes whenever interpretation changes. It is recorded on every stored result, and a
@@ -81,7 +81,27 @@ type Plugin struct {
 	Version string
 	// APIVersion is the version of the sdk the plugin was built against (sdk.APIVersion).
 	APIVersion string
-	Pipelines  []Pipeline
+	Label      string
+	// Summary says what the plugin does, in one sentence, on the administration screen.
+	Summary string
+	// Global lists the instance settings, which serve as defaults.
+	Global []Field
+	// Project lists the settings a project may set or override. Empty does not preclude
+	// PerProject: a plugin can be chosen per project with nothing to configure.
+	Project []Field
+	// PerProject says a project decides whether this plugin is enabled. False for what necessarily
+	// holds for the whole instance, where a switch would do nothing.
+	PerProject bool
+	// Mandatory marks a plugin the dashboard cannot work without: it cannot be switched off.
+	Mandatory bool
+	// Events lists the facts this plugin observes.
+	Events []EventSpec
+	// Actions lists the steps this plugin can carry out.
+	Actions []ActionSpec
+	// Capabilities lists what the plugin brings beside its pipelines: a tracker, a forge, a
+	// module, an exporter.
+	Capabilities []Header
+	Pipelines    []Pipeline
 }
 
 // Pipeline is a pipeline capability.

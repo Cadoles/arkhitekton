@@ -100,7 +100,7 @@ func pluginsHandlerWith(t *testing.T, fake *fakePluginStore, key string) *Plugin
 		}
 		cipher = built
 	}
-	return NewPluginsHandler(fake, cipher, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return NewPluginsHandler(testRegistry, fake, cipher, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func putPlugin(t *testing.T, handler http.HandlerFunc, path, plugin, body string) *httptest.ResponseRecorder {

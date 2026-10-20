@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -380,5 +382,31 @@ func TestALaunchRecordsThePluginVersion(t *testing.T) {
 
 	if len(queue.finished) == 0 || queue.finished[0] != "recorded: php/unit-tests@1.0.0" {
 		t.Errorf("recorded = %v", queue.finished)
+	}
+}
+
+// A plugin an administrator switched off stops its pipelines: the job ends with the reason, before
+// anything is recorded or created.
+func TestAJobOfASwitchedOffPluginIsRefused(t *testing.T) {
+	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{
+		Kind: "php/unit-tests", Capability: "php/unit-tests", PipelineRef: "php-unit-tests",
+	}}}
+	project := int64(3)
+	queue := &unavailableQueue{job: store.Job{ID: 7, Kind: "php/unit-tests", RunName: "ark-x-7", ProjectID: &project}}
+	var asked string
+	scheduler := NewSchedulerFromCatalog(queue, nil, pipelines, nil, slog.New(slog.DiscardHandler)).
+		WithPluginGate(func(_ context.Context, projectID *int64, plugin string) error {
+			asked = fmt.Sprintf("%d/%s", *projectID, plugin)
+			return errors.New(`plugin "php" is switched off for this project`)
+		})
+
+	scheduler.dispatchOne(context.Background(), store.Limits{})
+
+	if asked != "3/php" {
+		t.Errorf("gate asked about %q", asked)
+	}
+	if len(queue.finished) != 1 || !strings.HasPrefix(queue.finished[0], store.JobFailed) ||
+		!strings.Contains(queue.finished[0], "switched off") {
+		t.Errorf("finished = %v", queue.finished)
 	}
 }

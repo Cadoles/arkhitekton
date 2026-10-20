@@ -199,7 +199,7 @@ func TestLiveTheWholeLoopOnARealDatabase(t *testing.T) {
 	engine := NewEngine(db, counter, quietLogger())
 	dispatcher := NewDispatcher(db, engine, quietLogger())
 
-	runner := NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), probe).
+	runner := NewProbeRunner(liveRegistry(), db, h.cipher, time.Minute, quietLogger(), probe).
 		WithDispatcher(dispatcher)
 
 	/*
@@ -421,12 +421,12 @@ func TestLiveAnOutgoingCallReallyStarts(t *testing.T) {
 
 	// The real action runner, with the real transport. The two permissions are those a local
 	// deployment declares, and `main` logs them as a warning when they are set.
-	actions := NewActionRunner(webhook.New(webhook.Options{
+	actions := NewActionRunner(liveActions(), webhook.New(webhook.Options{
 		AllowPrivate: true, AllowInsecure: true, Timeout: 10 * time.Second,
 	}), testResolver{db: db, cipher: h.cipher}, quietLogger())
 
 	engine := NewEngine(db, stepRouter{actions: actions}, quietLogger())
-	runner := NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), probe).
+	runner := NewProbeRunner(liveRegistry(), db, h.cipher, time.Minute, quietLogger(), probe).
 		WithDispatcher(NewDispatcher(db, engine, quietLogger()))
 
 	runner.sweep(ctx, probe) // bootstrap: nothing is sent
@@ -522,9 +522,9 @@ func TestLiveTheTransportGuardRailsRefuse(t *testing.T) {
 	// The bootstrap once only: both phases share the database and the cursor, and reading Redmine
 	// twice would prove nothing more.
 	bootstrap := func(options webhook.Options) *ProbeRunner {
-		actions := NewActionRunner(webhook.New(options),
+		actions := NewActionRunner(liveActions(), webhook.New(options),
 			testResolver{db: db, cipher: h.cipher}, quietLogger())
-		return NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), probe).
+		return NewProbeRunner(liveRegistry(), db, h.cipher, time.Minute, quietLogger(), probe).
 			WithDispatcher(NewDispatcher(db,
 				NewEngine(db, stepRouter{actions: actions}, quietLogger()), quietLogger()))
 	}

@@ -108,7 +108,7 @@ func trackerProbe(
 	t.Helper()
 	probe := NewRedmineProbe(
 		NewTrackerSync(db, connect, quietLogger()))
-	return NewProbeRunner(db, opener, time.Minute, quietLogger(), probe), probe
+	return NewProbeRunner(providerRegistry, db, opener, time.Minute, quietLogger(), probe), probe
 }
 
 // Each project advances its own cursor.

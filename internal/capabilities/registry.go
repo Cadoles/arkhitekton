@@ -86,6 +86,48 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 	return registry, nil
 }
 
+// ErrUnknown reports an id no plugin carries.
+var ErrUnknown = errors.New("unknown plugin")
+
+// Plugins lists the plugins, sorted by identifier.
+func (r *Registry) Plugins() []capability.Plugin {
+	plugins := make([]capability.Plugin, 0, len(r.plugins))
+	for _, plugin := range r.plugins {
+		plugins = append(plugins, plugin)
+	}
+	sort.Slice(plugins, func(i, j int) bool { return plugins[i].ID < plugins[j].ID })
+	return plugins
+}
+
+// Plugin returns a plugin by identifier. The error names the known plugins: reading the source to
+// find out which exist is not an answer to give someone looking at an API message.
+func (r *Registry) Plugin(id string) (capability.Plugin, error) {
+	if plugin, found := r.plugins[id]; found {
+		return plugin, nil
+	}
+	known := make([]string, 0, len(r.plugins))
+	for _, plugin := range r.Plugins() {
+		known = append(known, plugin.ID)
+	}
+	return capability.Plugin{}, fmt.Errorf("%w %q (embedded: %s)", ErrUnknown, id, strings.Join(known, ", "))
+}
+
+// FindAction finds the plugin that declares an action reference.
+//
+// It does not consult whether the plugin is enabled: a plan frozen into a run must stay readable
+// after the plugin is switched off, and it is the caller's business whether what it does with the
+// answer needs an enabled plugin.
+func (r *Registry) FindAction(ref string) (capability.Plugin, capability.ActionSpec, bool) {
+	for _, plugin := range r.Plugins() {
+		for _, spec := range plugin.Actions {
+			if plugin.ActionRef(spec) == ref {
+				return plugin, spec, true
+			}
+		}
+	}
+	return capability.Plugin{}, capability.ActionSpec{}, false
+}
+
 // Pipeline returns a pipeline capability and the plugin that brings it.
 func (r *Registry) Pipeline(ref capability.Ref) (capability.Pipeline, capability.Plugin, bool) {
 	pipeline, found := r.pipelines[ref]

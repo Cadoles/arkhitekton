@@ -86,7 +86,7 @@ func (f *fakePluginStore) GetProject(_ context.Context, id int64) (store.Project
 
 func pluginRunner(t *testing.T, db *fakePluginStore) *PluginActionRunner {
 	t.Helper()
-	return NewPluginActionRunner(db, testOpener{}, 2*time.Second, quietLogger())
+	return NewPluginActionRunner(providerRegistry, db, testOpener{}, 2*time.Second, quietLogger())
 }
 
 func execution() store.PlanRun {

@@ -76,11 +76,13 @@ type Scheduler struct {
 	versions map[string]string
 	// availability says what the cluster cannot run, kept up to date by the capability reconciler.
 	availability availability
-	queue        Queue
-	cluster      *tekton.Client
-	catalog      *catalog.Catalog
-	config       map[string]string
-	local        map[string]LocalTask
+	// pluginGate refuses a job whose plugin is switched off.
+	pluginGate func(ctx context.Context, projectID *int64, plugin string) error
+	queue      Queue
+	cluster    *tekton.Client
+	catalog    *catalog.Catalog
+	config     map[string]string
+	local      map[string]LocalTask
 	// uploads mints the presigned URLs. Nil when storage is not available: the runs then start
 	// with no publication, and say so.
 	uploads Presigner
@@ -180,6 +182,13 @@ func (s *Scheduler) WithProjectSettings(
 	settings func(ctx context.Context, projectID int64) (map[string]string, error),
 ) *Scheduler {
 	s.projectSettings = settings
+	return s
+}
+
+// WithPluginGate wires the check that a capability's plugin is switched on, for the job's project
+// or, without one, for the instance. Without it, every plugin counts as switched on.
+func (s *Scheduler) WithPluginGate(gate func(ctx context.Context, projectID *int64, plugin string) error) *Scheduler {
+	s.pluginGate = gate
 	return s
 }
 
@@ -296,6 +305,18 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 
 	if pipeline.Capability != "" {
 		plugin, _, _ := strings.Cut(pipeline.Capability, "/")
+		if s.pluginGate != nil {
+			if err := s.pluginGate(ctx, job.ProjectID, plugin); err != nil {
+				// Switched off by an administrator: retrying changes nothing until someone switches it
+				// back on, and the reason says who can.
+				reason := fmt.Sprintf("kind %q unavailable: %v", job.Kind, err)
+				s.logger.Warn("plugin switched off", "job", job.ID, "kind", job.Kind, "plugin", plugin)
+				if err := s.queue.FinishJob(ctx, job.ID, store.JobFailed, reason); err != nil {
+					s.logger.Error("concluding a job of a disabled plugin", "job", job.ID, "error", err)
+				}
+				return true
+			}
+		}
 		if err := s.queue.RecordCapability(ctx, job.ID, pipeline.Capability, s.versions[plugin]); err != nil {
 			s.logger.Error("recording the capability", "job", job.ID, "error", err)
 			s.retry(ctx, job.ID, err.Error())

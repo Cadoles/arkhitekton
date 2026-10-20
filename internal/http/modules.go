@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"slices"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -33,15 +33,16 @@ type PluginReader interface {
 
 // Modules says which modules are active.
 type Modules struct {
-	store  PluginReader
-	logger *slog.Logger
+	registry *capabilities.Registry
+	store    PluginReader
+	logger   *slog.Logger
 }
 
-func NewModules(reader PluginReader, logger *slog.Logger) *Modules {
+func NewModules(registry *capabilities.Registry, reader PluginReader, logger *slog.Logger) *Modules {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Modules{store: reader, logger: logger}
+	return &Modules{registry: registry, store: reader, logger: logger}
 }
 
 // Active returns the identifiers of the switched-on modules.
@@ -55,7 +56,7 @@ func (m *Modules) Active(ctx context.Context) []string {
 		return []string{}
 	}
 	active := []string{}
-	for _, descriptor := range plugin.Registry() {
+	for _, descriptor := range m.registry.Plugins() {
 		if descriptor.HasCapability(capability.KindModule) && settings[descriptor.ID].Enabled {
 			active = append(active, descriptor.ID)
 		}
@@ -96,7 +97,7 @@ func (m *Modules) ActiveIn(ctx context.Context, projectID int64) []string {
 		return []string{}
 	}
 	active := []string{}
-	for _, descriptor := range plugin.Registry() {
+	for _, descriptor := range m.registry.Plugins() {
 		if !descriptor.HasCapability(capability.KindModule) || !settings[descriptor.ID].Enabled {
 			continue
 		}

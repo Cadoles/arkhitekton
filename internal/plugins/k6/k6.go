@@ -21,16 +21,22 @@ func Plugin() capability.Plugin {
 			Members: []capability.Member{{Match: "*.json", Parser: parse.K6SummaryJSON, Tool: "k6"}},
 		}
 	}
-	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
-		Name:        "load",
-		Label:       "Tests de charge",
-		Interpreter: campaignReader{},
-		Spec: capability.PipelineSpec{
-			ObservedPipelines: []string{"load-test"},
-			Group:             "load",
-			Produces:          []capability.Product{capability.ProductResults},
-			// `load/` per the contract, `k6/` from the tool's name: both are in use.
-			Artifacts: []capability.Artifact{summaries("load"), summaries("k6")},
-		},
-	}}}
+	return capability.Plugin{
+		ID:         ID,
+		Version:    "1.0.0",
+		APIVersion: sdk.APIVersion,
+		Label:      "k6",
+		Summary:    "Campagnes de charge k6 et comparaison à une référence.",
+		Pipelines: []capability.Pipeline{{
+			Name:        "load",
+			Label:       "Tests de charge",
+			Interpreter: campaignReader{},
+			Spec: capability.PipelineSpec{
+				ObservedPipelines: []string{"load-test"},
+				Group:             "load",
+				Produces:          []capability.Product{capability.ProductResults},
+				// `load/` per the contract, `k6/` from the tool's name: both are in use.
+				Artifacts: []capability.Artifact{summaries("load"), summaries("k6")},
+			},
+		}}}
 }

@@ -170,9 +170,9 @@ func TestLiveACommitStatusIsReallySet(t *testing.T) {
 
 	// The action runner, with the plugin actions wired — `main`'s assembly, without the webhook
 	// client this step does not need.
-	actions := NewActionRunner(nil,
+	actions := NewActionRunner(liveActions(), nil,
 		testResolver{db: db, cipher: cipher}, quietLogger()).
-		WithPlugins(NewPluginActionRunner(db, cipher, 15*time.Second, quietLogger()))
+		WithPlugins(NewPluginActionRunner(liveRegistry(), db, cipher, 15*time.Second, quietLogger()))
 
 	engine := NewEngine(db, stepRouter{actions: actions}, quietLogger())
 	dispatcher := NewDispatcher(db, engine, quietLogger())
@@ -283,8 +283,8 @@ func TestLiveASwitchedOffPluginDoesNotWriteToTheForge(t *testing.T) {
 		t.Fatalf("reaction: %v", err)
 	}
 
-	actions := NewActionRunner(nil, testResolver{db: db, cipher: cipher}, quietLogger()).
-		WithPlugins(NewPluginActionRunner(db, cipher, 15*time.Second, quietLogger()))
+	actions := NewActionRunner(liveActions(), nil, testResolver{db: db, cipher: cipher}, quietLogger()).
+		WithPlugins(NewPluginActionRunner(liveRegistry(), db, cipher, 15*time.Second, quietLogger()))
 	dispatcher := NewDispatcher(db,
 		NewEngine(db, stepRouter{actions: actions}, quietLogger()), quietLogger())
 
@@ -379,8 +379,8 @@ func TestLiveAStateOutsideTheVocabularyDoesNotReachTheForge(t *testing.T) {
 		t.Fatalf("reaction: %v", err)
 	}
 
-	actions := NewActionRunner(nil, testResolver{db: db, cipher: cipher}, quietLogger()).
-		WithPlugins(NewPluginActionRunner(db, cipher, 15*time.Second, quietLogger()))
+	actions := NewActionRunner(liveActions(), nil, testResolver{db: db, cipher: cipher}, quietLogger()).
+		WithPlugins(NewPluginActionRunner(liveRegistry(), db, cipher, 15*time.Second, quietLogger()))
 	dispatcher := NewDispatcher(db,
 		NewEngine(db, stepRouter{actions: actions}, quietLogger()), quietLogger())
 

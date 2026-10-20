@@ -1,17 +1,16 @@
-// Package mse brings the pipelines that test a deployed MSE: the integration tests, which deploy
-// the release into a namespace of their own, and the end-to-end campaign.
+// Package mse declares the MSE module (environments, Flux promotion, PortalData attestation, run by
+// the dashboard) and brings the pipelines that test a deployed MSE: the integration tests, which
+// deploy the release into a namespace of their own, and the end-to-end campaign.
 package mse
 
 import (
 	"embed"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
-// ID is the plugin's identifier. The same as the MSE module's: the two halves of one plugin, until
-// the module's screens and loops move onto capabilities too.
+// ID is the plugin's identifier.
 const ID = "mse"
 
 //go:embed manifests
@@ -27,12 +26,11 @@ func Manifests() []capability.Manifest {
 	return loaded
 }
 
-// Plugin describes the MSE plugin's pipelines.
+// Plugin describes the MSE plugin: the module and its pipelines.
 func Plugin() capability.Plugin {
-	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{
-		integrationTests(Manifests()),
-		e2eTests(),
-	}}
+	plugin := descriptor()
+	plugin.Pipelines = []capability.Pipeline{integrationTests(Manifests()), e2eTests()}
+	return plugin
 }
 
 func integrationTests(manifests []capability.Manifest) capability.Pipeline {

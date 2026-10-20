@@ -7,8 +7,7 @@
 // in here would make this registry a dependency of everything that only wants to read the list of
 // actions — the editor, notably.
 //
-// It is the same split as for `internal/plugin`: the declaration on one side, the execution on
-// the other.
+// It is the same split as for plugins: the declaration on one side, the execution on the other.
 //
 // # One internal action, and the others come from plugins
 //
@@ -19,7 +18,7 @@
 // A chat notification is not a second action: Mattermost, Slack and the rest are webhooks, and
 // giving them a dedicated action would be the same code three times under three names.
 //
-// [All] brings both registries together. That is the list the editor and the validation see; the
+// [Catalog] brings both registries together. That is the list the editor and the validation see; the
 // distinction between a core action and a plugin action is none of their business.
 //
 // What is still not there and is worth naming: writing into the tracker. `internal/redmine`'s
@@ -36,12 +35,12 @@ import (
 	"sort"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // Field declares a parameter an action expects.
 //
-// The same shape as `internal/plugin`'s fields, and for the same reason: it is what lets the
+// The same shape as a plugin's action fields, and for the same reason: it is what lets the
 // editor compose a form, and the validation refuse a faulty entry at recording time rather than
 // at run time.
 type Field struct {
@@ -120,11 +119,11 @@ func Registry() []Descriptor {
 	return descriptors
 }
 
-// All brings together the core's actions and those the plugins declare.
+// Catalog brings together the core's actions and those the plugins declare.
 //
 // # The registry opened in the other direction
 //
-// The plugins already declared the facts they observe; they now declare the acts they can
+// The plugins already declared the facts they observe; they also declare the acts they can
 // perform. Without that half, any **cause** is wired to a frozen set of **consequences**, and
 // acting on a boundary the core does not know requires modifying the core again.
 //
@@ -134,9 +133,19 @@ func Registry() []Descriptor {
 // **frozen** into a run must stay possible after it is switched off, otherwise a history view
 // would lose its labels. It is for the editor to set aside what would not trigger — it already
 // does so for the facts, and for the same reason.
-func All() []Descriptor {
+type Catalog struct {
+	plugins []capability.Plugin
+}
+
+// NewCatalog gathers the core's actions and the plugins'.
+func NewCatalog(plugins []capability.Plugin) Catalog {
+	return Catalog{plugins: plugins}
+}
+
+// All lists every action, sorted.
+func (c Catalog) All() []Descriptor {
 	descriptors := Registry()
-	for _, provider := range plugin.Registry() {
+	for _, provider := range c.plugins {
 		for _, spec := range provider.Actions {
 			descriptors = append(descriptors, fromPlugin(provider, spec))
 		}
@@ -151,7 +160,7 @@ func All() []Descriptor {
 // The translation is narrow, and the field it does not have to carry says why: [Field.SecretRef]
 // stays false. A plugin action speaks to its own boundary, whose connection is already sealed; it
 // names no token, and therefore cannot serve to extract one towards a target typed into a form.
-func fromPlugin(provider plugin.Descriptor, spec plugin.ActionSpec) Descriptor {
+func fromPlugin(provider capability.Plugin, spec capability.ActionSpec) Descriptor {
 	fields := make([]Field, 0, len(spec.Fields))
 	for _, field := range spec.Fields {
 		fields = append(fields, Field{
@@ -174,8 +183,8 @@ var ErrUnknown = errors.New("unknown action")
 //
 // The error names those that exist: hunting for which one in the source code is not an answer to
 // give to whoever reads an API message.
-func Get(id string) (Descriptor, error) {
-	registry := All()
+func (c Catalog) Get(id string) (Descriptor, error) {
+	registry := c.All()
 	for _, descriptor := range registry {
 		if descriptor.ID == id {
 			return descriptor, nil

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/redmine"
@@ -35,10 +37,10 @@ const (
 )
 
 // pluginIDs lists the embedded plugins, for seeding the missing rows.
-func pluginIDs() []string {
-	registry := plugin.Registry()
-	ids := make([]string, 0, len(registry))
-	for _, descriptor := range registry {
+func pluginIDs(registry *capabilities.Registry) []string {
+	plugins := registry.Plugins()
+	ids := make([]string, 0, len(plugins))
+	for _, descriptor := range plugins {
 		ids = append(ids, descriptor.ID)
 	}
 	return ids
@@ -181,8 +183,9 @@ func seal(cipher *secrets.Cipher, value, what string) (string, error) {
 // The designation is written `plugin.field` — `redmine.api_key`. It is the only path by which
 // a secret reaches an outgoing call: it passes through no template, no body, no log.
 type secretResolver struct {
-	store  *store.DB
-	cipher *secrets.Cipher
+	registry *capabilities.Registry
+	store    *store.DB
+	cipher   *secrets.Cipher
 }
 
 // ResolveSecret returns the clear-text value of a named field.
@@ -197,7 +200,7 @@ func (r secretResolver) ResolveSecret(
 		return "", fmt.Errorf("designation %q expected in the form `plugin.field`", reference)
 	}
 
-	descriptor, err := plugin.Get(pluginID)
+	descriptor, err := r.registry.Plugin(pluginID)
 	if err != nil {
 		return "", err
 	}
@@ -209,7 +212,7 @@ func (r secretResolver) ResolveSecret(
 	if projectID == nil {
 		scope = plugin.ScopeGlobal
 	}
-	if !descriptor.IsSecret(scope, field) && !descriptor.IsSecret(plugin.ScopeGlobal, field) {
+	if !plugin.IsSecret(descriptor, scope, field) && !plugin.IsSecret(descriptor, plugin.ScopeGlobal, field) {
 		return "", fmt.Errorf("the field %q of plugin %q is not declared sensitive",
 			field, pluginID)
 	}
@@ -223,4 +226,26 @@ func (r secretResolver) ResolveSecret(
 		return "", err
 	}
 	return r.cipher.Open(settings.Config[field])
+}
+
+// pluginGate says whether a capability's plugin is switched on for a job: for its project when it
+// names one, for the instance otherwise. Only a plugin switched off refuses the job; a read that
+// fails lets it through, the scheduler being no place to decide a database outage.
+func pluginGate(db *store.DB) func(ctx context.Context, projectID *int64, pluginID string) error {
+	return func(ctx context.Context, projectID *int64, pluginID string) error {
+		if projectID != nil {
+			if _, err := db.ResolvedPlugin(ctx, *projectID, pluginID); errors.Is(err, store.ErrPluginDisabled) {
+				return fmt.Errorf("plugin %q is switched off for this project", pluginID)
+			}
+			return nil
+		}
+		settings, err := db.PluginSettingsAll(ctx)
+		if err != nil {
+			return nil
+		}
+		if entry, found := settings[pluginID]; found && !entry.Enabled {
+			return fmt.Errorf("plugin %q is switched off", pluginID)
+		}
+		return nil
+	}
 }

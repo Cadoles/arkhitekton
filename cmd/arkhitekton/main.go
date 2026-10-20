@@ -26,6 +26,7 @@ import (
 
 	"k8s.io/client-go/restmapper"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
@@ -185,7 +186,11 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// The missing rows of the embedded plugins, at every start-up. The bootstrap sets them only
 	// once: a plugin appearing in a later version would never have a row, and the screen would
 	// display it with no state.
-	if err := db.EnsurePlugins(ctx, pluginIDs()); err != nil {
+	pluginRegistry, err := builtin.Registry()
+	if err != nil {
+		return fmt.Errorf("built-in plugins: %w", err)
+	}
+	if err := db.EnsurePlugins(ctx, pluginIDs(pluginRegistry)); err != nil {
 		logger.Error("seeding the plugins", "error", err)
 	}
 	seedMSESettings(ctx, db, logger)
@@ -223,7 +228,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	authorizer := auth.NewAuthorizer(policies)
 	// The modules are read at each request: the switch is flipped from the administration screen,
 	// and reading it at start-up would make it lie until the next deployment.
-	modules := dashhttp.NewModules(db, logger)
+	modules := dashhttp.NewModules(pluginRegistry, db, logger)
 	authHandler := dashhttp.NewAuthHandler(
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL),
 		cfg.OIDC.SessionTTL).
@@ -350,7 +355,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// The cipher may be nil: with no key, the settings are read and enabled, only writing a
 			// sensitive field is refused — with a message that names the variable, in the place where one
 			// types it.
-			dashhttp.NewPluginsHandler(db, cipher, logger),
+			dashhttp.NewPluginsHandler(pluginRegistry, db, cipher, logger),
 			// The same catalogue as the queue: the screen shows what the instance can launch, and a
 			// second load could show something else.
 			dashhttp.NewProjectPipelinesHandler(db, pipelines, logger),
@@ -359,7 +364,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			dashhttp.NewEventsHandler(db),
 			// The same catalogue as the queue: the editor offers what the instance can launch, and a
 			// second load could offer something else.
-			dashhttp.NewAutomationsHandler(db, pipelines, logger),
+			dashhttp.NewAutomationsHandler(db, pipelines, pluginRegistry, logger),
 			// What a reaction actually did. An engine one cannot debug is worse than frozen behaviour.
 			dashhttp.NewPlanRunsHandler(db),
 			middleware, mseHandler.Routes, mse.NewSignoffsHandler(mseBackend, logger).Routes),
@@ -427,7 +432,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
-	if err := db.EnsurePlugins(ctx, pluginIDs()); err != nil {
+	pluginRegistry, err := builtin.Registry()
+	if err != nil {
+		return fmt.Errorf("built-in plugins: %w", err)
+	}
+	if err := db.EnsurePlugins(ctx, pluginIDs(pluginRegistry)); err != nil {
 		logger.Error("seeding the plugins", "error", err)
 	}
 	seedMSESettings(ctx, db, logger)
@@ -525,7 +534,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		if err != nil {
 			return err
 		}
-		projectModules := dashhttp.NewModules(db, logger)
+		projectModules := dashhttp.NewModules(pluginRegistry, db, logger)
 		// One client per distinct namespace, shared by the projects that share it: the client
 		// discovers the API versions served, and doing it once per project would multiply the calls
 		// for the same answer.
@@ -642,15 +651,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			logger.Info("database identity", "instance", instance)
 
 			objects := worker.NewObjectStore(storage)
-			capabilities, err := builtin.Registry()
-			if err != nil {
-				return fmt.Errorf("built-in plugins: %w", err)
-			}
 			sink := worker.NewRunSink(db).
 				// Finished runs are read by the interpreter of the capability that launched them. A tool
 				// that did not conclude is told apart from a clean one by the run's state, which Tekton
 				// keeps even when the tool wrote nothing.
-				WithFactIngester(worker.NewFactIngester(db, objects, capabilities, logger)).
+				WithFactIngester(worker.NewFactIngester(db, objects, pluginRegistry, logger)).
 				// The catalogue makes it possible to chain the verifications of a successful build: without
 				// it, observation continues but a built release stays waiting for a test nothing launches.
 				WithCatalog(pipelines, resolved["registry.project"]).
@@ -673,18 +678,19 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// deployment and are false by default: a URL typed into the interface is issued from the
 			// cluster.
 			actions := worker.NewActionRunner(
+				action.NewCatalog(pluginRegistry.Plugins()),
 				webhook.New(webhook.Options{
 					AllowPrivate:  cfg.Webhooks.AllowPrivate,
 					AllowInsecure: cfg.Webhooks.AllowInsecure,
 					Timeout:       cfg.Webhooks.Timeout,
 				}),
-				secretResolver{store: db, cipher: cipher}, logger).
+				secretResolver{registry: pluginRegistry, store: db, cipher: cipher}, logger).
 				// The steps a plugin supplies. They do not use the transport above: their target is not typed
 				// into a form but read from the plugin's configuration, and the address check exists
 				// precisely because elsewhere it is. The token is the plugin's, opened for the duration of
 				// the call.
 				WithPlugins(worker.NewPluginActionRunner(
-					db, cipher, cfg.Forge.Timeout, logger))
+					pluginRegistry, db, cipher, cfg.Forge.Timeout, logger))
 			if cfg.Webhooks.AllowPrivate || cfg.Webhooks.AllowInsecure {
 				logger.Warn("outgoing calls widened",
 					"private_targets", cfg.Webhooks.AllowPrivate,
@@ -723,7 +729,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithProjectRepositories(db, os.Getenv("FORGE_SSH_PORT")).
 				// And the settings the MSE plugin adds for this project: its kustomization, its overlay.
 				// Nothing when the module is switched off for it.
-				WithProjectSettings(mse.PipelineSettings(db))
+				WithProjectSettings(mse.PipelineSettings(db)).
+				// A plugin switched off by an administrator stops its pipelines.
+				WithPluginGate(pluginGate(db))
 
 			// The deliverables go through the queue like the rest, but are produced here: generating a
 			// delivery note reads the database and writes an object. Making it cross Tekton would cost a
@@ -804,7 +812,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			//
 			// A probe is queried only for the projects whose plugin is active, each at its own cadence,
 			// and its first pass triggers nothing — enabling something does not wake the past.
-			probes := worker.NewProbeRunner(db, cipher, cfg.Probes.Interval, logger,
+			probes := worker.NewProbeRunner(pluginRegistry, db, cipher, cfg.Probes.Interval, logger,
 				worker.NewGiteaPullProbe(cfg.Forge.Timeout),
 				worker.NewRedmineProbe(tracker)).
 				WithDispatcher(dispatcher)

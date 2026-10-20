@@ -7,16 +7,22 @@ package builtin
 import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/core"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/deliverynote"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/gitea"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/k6"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/mse"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/php"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/redmine"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/security"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // Plugins are the plugins compiled into the binary.
 func Plugins() []capability.Plugin {
-	return []capability.Plugin{core.Plugin(), php.Plugin(), mse.Plugin(), security.Plugin(), k6.Plugin()}
+	return []capability.Plugin{
+		core.Plugin(), php.Plugin(), mse.Plugin(), security.Plugin(), k6.Plugin(),
+		redmine.Plugin(), gitea.Plugin(), deliverynote.Plugin(),
+	}
 }
 
 // Registry gathers what the built-in plugins bring.

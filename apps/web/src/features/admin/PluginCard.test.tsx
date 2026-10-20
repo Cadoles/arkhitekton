@@ -19,6 +19,7 @@ const redmine: Plugin = {
   capabilities: [{ kind: 'tracker', kind_label: 'Suivi', name: 'tracker', label: 'Suivi' }],
   summary: 'Versions et demandes.',
   per_project: true,
+  mandatory: false,
   fields: [
     { name: 'url', label: "URL de l'instance", type: 'url' },
     { name: 'api_key', label: "Clé d'API", type: 'text', secret: true },
@@ -105,5 +106,21 @@ describe('PluginCard', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: /réglage de l'instance/ }))
     expect(onClear).toHaveBeenCalledTimes(1)
+  })
+
+  // Un plugin sans lequel le dashboard ne fonctionne pas n'offre pas d'interrupteur :
+  // le serveur refuserait de l'éteindre.
+  it("n'offre pas d'interrupteur pour un plugin obligatoire", () => {
+    render(
+      <PluginCard
+        plugin={{ ...redmine, id: 'core', label: 'Socle', mandatory: true, fields: [] }}
+        scope="global"
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(screen.getByText('Toujours actif')).toBeInTheDocument()
   })
 })

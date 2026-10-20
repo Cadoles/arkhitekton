@@ -5,7 +5,24 @@ import (
 	"maps"
 	"strings"
 	"testing"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
+
+// catalog joins the core's actions with a forge plugin's, declared as the Gitea plugin declares
+// them.
+var catalog = NewCatalog([]capability.Plugin{{
+	ID: "gitea",
+	Actions: []capability.ActionSpec{{
+		Suffix: "status", Label: "Commit status", Summary: "Sets a commit status.",
+		Fields: []capability.ActionField{
+			{Name: "commit", Label: "Commit", Required: true, Template: true},
+			{Name: "state", Label: "State", Required: true, OneOf: []string{"pending", "success", "failure", "error"}},
+			{Name: "context", Label: "Context", Required: true},
+			{Name: "description", Label: "Description", Template: true},
+		},
+	}},
+}})
 
 // The registry can be read, and each action describes itself well enough for an editor to compose
 // its form.
@@ -39,7 +56,7 @@ func TestEachActionDescribesItselfWellEnoughToBeEdited(t *testing.T) {
 // consequences.
 func TestAPluginsActionsJoinTheRegistry(t *testing.T) {
 	found := false
-	for _, descriptor := range All() {
+	for _, descriptor := range catalog.All() {
 		if descriptor.Plugin == "" {
 			continue
 		}
@@ -65,7 +82,7 @@ func TestAPluginsActionsJoinTheRegistry(t *testing.T) {
 	}
 
 	// Resolved by the joined registry, without the caller having to know where it comes from.
-	descriptor, err := Get("gitea.status")
+	descriptor, err := catalog.Get("gitea.status")
 	if err != nil {
 		t.Fatalf("gitea.status: %v", err)
 	}
@@ -76,7 +93,7 @@ func TestAPluginsActionsJoinTheRegistry(t *testing.T) {
 
 // An unknown action names those that exist.
 func TestAnUnknownActionNamesThoseThatExist(t *testing.T) {
-	_, err := Get("slack.post")
+	_, err := catalog.Get("slack.post")
 	if !errors.Is(err, ErrUnknown) {
 		t.Fatalf("%v, expected ErrUnknown", err)
 	}
@@ -91,7 +108,7 @@ func TestAnUnknownActionNamesThoseThatExist(t *testing.T) {
 
 // A missing required parameter is refused, and named.
 func TestAMissingRequiredParameterIsRefused(t *testing.T) {
-	webhook, _ := Get(Webhook)
+	webhook, _ := catalog.Get(Webhook)
 
 	err := webhook.Validate(map[string]string{"body": `{"tag":"{tag}"}`})
 	if !errors.Is(err, ErrInvalid) {
@@ -105,7 +122,7 @@ func TestAMissingRequiredParameterIsRefused(t *testing.T) {
 // A parameter the action does not declare is refused rather than ignored: ignored, it gives a
 // screen that says "recorded" on a value nothing will read back.
 func TestAnUnknownParameterIsRefused(t *testing.T) {
-	webhook, _ := Get(Webhook)
+	webhook, _ := catalog.Get(Webhook)
 
 	err := webhook.Validate(map[string]string{
 		"url": "https://hooks.example.fr/x", "methode": "PUT",
@@ -118,7 +135,7 @@ func TestAnUnknownParameterIsRefused(t *testing.T) {
 // The URL's shape is checked here; its **target** is checked when connecting, by the transport.
 // The two do not replace each other: this one catches a typo, the second catches a forgery.
 func TestTheURLShapeIsCheckedAtEntry(t *testing.T) {
-	webhook, _ := Get(Webhook)
+	webhook, _ := catalog.Get(Webhook)
 
 	for _, target := range []string{"hooks.example.fr", "/hook", "file:///etc/passwd"} {
 		if err := webhook.Validate(map[string]string{"url": target}); !errors.Is(err, ErrInvalid) {
@@ -139,7 +156,7 @@ func TestTheURLShapeIsCheckedAtEntry(t *testing.T) {
 // The list comes from the plugin's descriptor and not from a condition on the identifier: that is
 // what will let a second forge have its own states without modifying this package.
 func TestAValueOutsideTheClosedSetIsRefused(t *testing.T) {
-	status, err := Get("gitea.status")
+	status, err := catalog.Get("gitea.status")
 	if err != nil {
 		t.Fatalf("gitea.status: %v", err)
 	}
@@ -170,7 +187,7 @@ func TestAValueOutsideTheClosedSetIsRefused(t *testing.T) {
 // Without that exception, a state could only be written literally, and a reaction that wants to
 // mirror the triggering fact's outcome would become two reactions.
 func TestATemplateCrossesAClosedSet(t *testing.T) {
-	status, _ := Get("gitea.status")
+	status, _ := catalog.Get("gitea.status")
 
 	if err := status.Validate(map[string]string{
 		"commit": "{git_commit}", "state": "{outcome}", "context": "dashboard",
@@ -182,7 +199,7 @@ func TestATemplateCrossesAClosedSet(t *testing.T) {
 // A template with an unclosed brace would produce a literal value the recipient could not
 // understand.
 func TestAMismatchedTemplateIsRefused(t *testing.T) {
-	webhook, _ := Get(Webhook)
+	webhook, _ := catalog.Get(Webhook)
 
 	err := webhook.Validate(map[string]string{
 		"url": "https://hooks.example.fr/x", "body": `{"tag":"{tag"}`,

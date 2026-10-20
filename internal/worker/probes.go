@@ -9,9 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -109,9 +111,11 @@ const minProbeInterval = time.Minute
 
 // ProbeRunner runs every project's probes.
 type ProbeRunner struct {
-	store   ProbeStore
-	secrets SecretOpener
-	probes  []Probe
+	// registry gives each probe's plugin declaration, which says which fields are sealed.
+	registry *capabilities.Registry
+	store    ProbeStore
+	secrets  SecretOpener
+	probes   []Probe
 	// dispatcher triggers the declared reactions of a new fact. Nil: facts are observed and nobody
 	// reacts to them.
 	dispatcher *Dispatcher
@@ -127,7 +131,7 @@ func (r *ProbeRunner) WithDispatcher(dispatcher *Dispatcher) *ProbeRunner {
 }
 
 func NewProbeRunner(
-	probes ProbeStore, opener SecretOpener, interval time.Duration,
+	registry *capabilities.Registry, probes ProbeStore, opener SecretOpener, interval time.Duration,
 	logger *slog.Logger, registered ...Probe,
 ) *ProbeRunner {
 	if interval < minProbeInterval {
@@ -137,7 +141,7 @@ func NewProbeRunner(
 		logger = slog.Default()
 	}
 	return &ProbeRunner{
-		store: probes, secrets: opener, probes: registered,
+		registry: registry, store: probes, secrets: opener, probes: registered,
 		interval: interval, logger: logger, now: time.Now,
 	}
 }
@@ -305,7 +309,11 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 func (r *ProbeRunner) openSecrets(
 	pluginID string, sealed map[string]string,
 ) (map[string]string, error) {
-	return openPluginSecrets(r.secrets, pluginID, sealed)
+	descriptor, err := r.registry.Plugin(pluginID)
+	if err != nil {
+		return nil, err
+	}
+	return openPluginSecrets(r.secrets, descriptor, sealed)
 }
 
 // openPluginSecrets unseals a plugin's configuration, for whoever needs it.
@@ -315,11 +323,11 @@ func (r *ProbeRunner) openSecrets(
 // with a field that could not be opened — and the second would end up letting it through
 // empty.
 func openPluginSecrets(
-	opener SecretOpener, pluginID string, sealed map[string]string,
+	opener SecretOpener, descriptor capability.Plugin, sealed map[string]string,
 ) (map[string]string, error) {
 	config := make(map[string]string, len(sealed))
 	for name, value := range sealed {
-		if !secretField(pluginID, name) {
+		if !secretField(descriptor, name) {
 			config[name] = value
 			continue
 		}
@@ -343,16 +351,13 @@ func openPluginSecrets(
 
 // secretField says whether a plugin field carries a sealed value.
 //
-// Read from the registry rather than written here: two lists would diverge at the first field
-// added, and the gap would show up as a sealed value passed as it is to a forge — which would
-// refuse it with an authentication message that would not say the value was never opened.
-func secretField(pluginID, field string) bool {
-	descriptor, err := plugin.Get(pluginID)
-	if err != nil {
-		return false
-	}
+// Read from the plugin's declaration rather than written here: two lists would diverge at the
+// first field added, and the gap would show up as a sealed value passed as it is to a forge —
+// which would refuse it with an authentication message that would not say the value was never
+// opened.
+func secretField(descriptor capability.Plugin, field string) bool {
 	// Both scopes: a sensitive field declared globally is sensitive too when a project overrides
 	// it, and the reverse is true.
-	return descriptor.IsSecret(plugin.ScopeGlobal, field) ||
-		descriptor.IsSecret(plugin.ScopeProject, field)
+	return plugin.IsSecret(descriptor, plugin.ScopeGlobal, field) ||
+		plugin.IsSecret(descriptor, plugin.ScopeProject, field)
 }

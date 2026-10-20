@@ -16,7 +16,14 @@ const ID = "security"
 
 // Plugin describes the security plugin.
 func Plugin() capability.Plugin {
-	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{audit()}}
+	return capability.Plugin{
+		ID:         ID,
+		Version:    "1.0.0",
+		APIVersion: sdk.APIVersion,
+		Label:      "Sécurité",
+		Summary:    "Audit de sécurité des dépendances et des images.",
+		Pipelines:  []capability.Pipeline{audit()},
+	}
 }
 
 func audit() capability.Pipeline {

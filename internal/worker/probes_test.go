@@ -135,7 +135,7 @@ func testProject(id int64, slug string) store.Project {
 
 func probeRunnerFor(t *testing.T, db *fakeProbeStore, probe Probe) *ProbeRunner {
 	t.Helper()
-	return NewProbeRunner(db, testOpener{}, time.Minute, quietLogger(), probe)
+	return NewProbeRunner(providerRegistry, db, testOpener{}, time.Minute, quietLogger(), probe)
 }
 
 /*
@@ -312,7 +312,7 @@ func TestSealedFieldsAreOpenedBeforeReachingTheProbe(t *testing.T) {
 
 	var seenParams map[string]string
 	probe := &configReader{target: &seenParams}
-	NewProbeRunner(base, testOpener{}, time.Minute, quietLogger(), probe).
+	NewProbeRunner(providerRegistry, base, testOpener{}, time.Minute, quietLogger(), probe).
 		sweep(context.Background(), probe)
 
 	if seenParams["token"] != "token" {
@@ -339,7 +339,7 @@ func (l *configReader) Poll(
 // The interval floor is enforced: the load counts as *projects × probes × frequency*, and the
 // multiplicand is a machine that is not ours.
 func TestTheIntervalFloorIsEnforced(t *testing.T) {
-	runner := NewProbeRunner(newFakeProbeStore(), nil, time.Second, quietLogger())
+	runner := NewProbeRunner(providerRegistry, newFakeProbeStore(), nil, time.Second, quietLogger())
 
 	if runner.interval < minProbeInterval {
 		t.Errorf("interval = %s, floor %s", runner.interval, minProbeInterval)

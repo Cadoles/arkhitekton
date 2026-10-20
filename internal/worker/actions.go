@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"sort"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
@@ -48,6 +47,7 @@ type SecretResolver interface {
 // the check that precedes it — resolving the descriptor and revalidating the parameters —
 // holds for both.
 type ActionRunner struct {
+	actions  action.Catalog
 	webhooks *webhook.Client
 	secrets  SecretResolver
 	plugins  GesteRunner
@@ -55,12 +55,12 @@ type ActionRunner struct {
 }
 
 func NewActionRunner(
-	webhooks *webhook.Client, secrets SecretResolver, logger *slog.Logger,
+	actions action.Catalog, webhooks *webhook.Client, secrets SecretResolver, logger *slog.Logger,
 ) *ActionRunner {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &ActionRunner{webhooks: webhooks, secrets: secrets, logger: logger}
+	return &ActionRunner{actions: actions, webhooks: webhooks, secrets: secrets, logger: logger}
 }
 
 // WithPlugins wires the implementation of the actions plugins declare.
@@ -79,7 +79,7 @@ func (r *ActionRunner) WithPlugins(plugins GesteRunner) *ActionRunner {
 func (r *ActionRunner) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
-	descriptor, err := action.Get(geste.Ref)
+	descriptor, err := r.actions.Get(geste.Ref)
 	if err != nil {
 		return nil, err
 	}
@@ -247,15 +247,4 @@ func (r stepRouter) Run(
 	default:
 		return nil, fmt.Errorf("unknown step kind %q", geste.Kind)
 	}
-}
-
-// ActionIDs lists the available actions, for validating a plan.
-func ActionIDs() []string {
-	registry := action.All()
-	ids := make([]string, 0, len(registry))
-	for _, descriptor := range registry {
-		ids = append(ids, descriptor.ID)
-	}
-	sort.Strings(ids)
-	return ids
 }

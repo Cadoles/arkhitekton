@@ -54,15 +54,19 @@ export function PluginCard({
           ),
         )}
 
-        <label className="ml-auto flex items-center gap-1.5 text-sm text-zinc-700">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) => setEnabled(event.target.checked)}
-            className="size-4 rounded border-zinc-300"
-          />
-          {scope === 'global' ? 'Disponible sur cette instance' : 'Appliqué à ce projet'}
-        </label>
+        {plugin.mandatory ? (
+          <span className="ml-auto text-sm text-zinc-500">Toujours actif</span>
+        ) : (
+          <label className="ml-auto flex items-center gap-1.5 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+              className="size-4 rounded border-zinc-300"
+            />
+            {scope === 'global' ? 'Disponible sur cette instance' : 'Appliqué à ce projet'}
+          </label>
+        )}
       </div>
 
       <p className="text-sm text-zinc-500">{plugin.summary}</p>

@@ -214,7 +214,7 @@ func (catalogueStore) ReleaseAutomation(context.Context, int64) (store.ReleaseAu
 
 // The catalogue carries the keys the editor reads, under those names.
 func TestTheCatalogueCarriesTheKeysTheEditorReads(t *testing.T) {
-	handler := NewAutomationsHandler(catalogueStore{}, roleCatalogue(), quietLogger())
+	handler := NewAutomationsHandler(catalogueStore{}, roleCatalogue(), testRegistry, quietLogger())
 
 	recorder := httptest.NewRecorder()
 	handler.Catalogue(recorder, httptest.NewRequest(stdhttp.MethodGet, "/admin/automations/catalogue", nil))
@@ -246,7 +246,7 @@ func TestTheCatalogueCarriesTheKeysTheEditorReads(t *testing.T) {
 // `plan.stages[].gestes` is the shape the editor iterates over with no guard: a stage with no
 // step list would crash it exactly as the catalogue did.
 func TestTheAutomationCarriesThePlanTheEditorWalks(t *testing.T) {
-	handler := NewAutomationsHandler(catalogueStore{}, roleCatalogue(), quietLogger())
+	handler := NewAutomationsHandler(catalogueStore{}, roleCatalogue(), testRegistry, quietLogger())
 
 	request := httptest.NewRequest(stdhttp.MethodGet, "/projects/mse/automation", nil)
 	request.SetPathValue("project", "mse")

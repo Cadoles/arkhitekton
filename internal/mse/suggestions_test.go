@@ -4,10 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 type pluginSettings struct {
@@ -52,7 +55,7 @@ func TestTheOfferedEnvironmentsFollowTheProjectsModule(t *testing.T) {
 	ctx := context.Background()
 
 	switchedOn := EnvironmentSuggestions(environments,
-		dashhttp.NewModules(pluginSettings{global: true, switchedOffList: map[int64]bool{2: true}}, quietLogger()), resolver)
+		dashhttp.NewModules(moduleRegistry, pluginSettings{global: true, switchedOffList: map[int64]bool{2: true}}, quietLogger()), resolver)
 	if proposed := switchedOn(ctx, "mse"); len(proposed) != 1 || proposed[0].Value != "qualif" {
 		t.Errorf("project with the module: %+v", proposed)
 	}
@@ -63,8 +66,20 @@ func TestTheOfferedEnvironmentsFollowTheProjectsModule(t *testing.T) {
 	}
 
 	switchedOff := EnvironmentSuggestions(environments,
-		dashhttp.NewModules(pluginSettings{global: false}, quietLogger()), resolver)
+		dashhttp.NewModules(moduleRegistry, pluginSettings{global: false}, quietLogger()), resolver)
 	if proposed := switchedOff(ctx, "mse"); proposed != nil {
 		t.Errorf("instance switched off: %+v, expected no list", proposed)
 	}
 }
+
+// moduleRegistry declares the MSE module, as its plugin does.
+var moduleRegistry = func() *capabilities.Registry {
+	registry, err := capabilities.New(capability.Plugin{
+		ID: plugin.ModuleMSE, Version: "1.0.0", APIVersion: sdk.APIVersion, PerProject: true,
+		Capabilities: []capability.Header{{Kind: capability.KindModule, Name: "module"}},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return registry
+}()

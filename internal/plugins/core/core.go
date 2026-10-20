@@ -14,7 +14,15 @@ const ID = "core"
 
 // Plugin describes the core plugin.
 func Plugin() capability.Plugin {
-	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{build(), retag()}}
+	return capability.Plugin{
+		ID:         ID,
+		Version:    "1.0.0",
+		APIVersion: sdk.APIVersion,
+		Label:      "Socle",
+		Summary:    "Construction et re-tag des images de chaque projet.",
+		Mandatory:  true,
+		Pipelines:  []capability.Pipeline{build(), retag()},
+	}
 }
 
 func build() capability.Pipeline {

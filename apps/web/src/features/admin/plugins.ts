@@ -38,6 +38,8 @@ export type Plugin = {
   capabilities: PluginCapability[]
   summary: string
   per_project: boolean
+  /** Le dashboard ne fonctionne pas sans : aucun interrupteur. */
+  mandatory: boolean
   fields: PluginField[]
   enabled: boolean
   /** Ne porte que les champs **non sensibles**. */

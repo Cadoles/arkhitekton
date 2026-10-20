@@ -31,10 +31,17 @@ func Manifests() []capability.Manifest {
 // Plugin describes the PHP plugin.
 func Plugin() capability.Plugin {
 	all := Manifests()
-	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{
-		staticTests(pick(all, "php-static-tests", "phpstan", "cs-fixer")),
-		unitTests(pick(all, "php-unit-tests", "unit-test")),
-	}}
+	return capability.Plugin{
+		ID:         ID,
+		Version:    "1.0.0",
+		APIVersion: sdk.APIVersion,
+		Label:      "PHP",
+		Summary:    "Analyse statique (PHPStan, PHP-CS-Fixer) et tests unitaires PHPUnit.",
+		Pipelines: []capability.Pipeline{
+			staticTests(pick(all, "php-static-tests", "phpstan", "cs-fixer")),
+			unitTests(pick(all, "php-unit-tests", "unit-test")),
+		},
+	}
 }
 
 // The Tasks the pipelines use without shipping them.

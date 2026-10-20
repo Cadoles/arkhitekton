@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
 	"strings"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -46,7 +49,8 @@ type PluginStore interface {
 
 // PluginsHandler exposes the registry and its settings.
 type PluginsHandler struct {
-	store PluginStore
+	registry *capabilities.Registry
+	store    PluginStore
 	// cipher seals the sensitive fields. Nil when no key is configured: reading stays
 	// possible, writing a sensitive field is refused with a message naming the missing
 	// variable. Refusing the whole screen would punish a deployment that has no secret to
@@ -55,11 +59,13 @@ type PluginsHandler struct {
 	logger *slog.Logger
 }
 
-func NewPluginsHandler(plugins PluginStore, cipher *secrets.Cipher, logger *slog.Logger) *PluginsHandler {
+func NewPluginsHandler(
+	registry *capabilities.Registry, plugins PluginStore, cipher *secrets.Cipher, logger *slog.Logger,
+) *PluginsHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &PluginsHandler{store: plugins, cipher: cipher, logger: logger}
+	return &PluginsHandler{registry: registry, store: plugins, cipher: cipher, logger: logger}
 }
 
 // fieldPayload describes a field to the screen that types it in.
@@ -85,9 +91,10 @@ type capabilityPayload struct {
 	Label     string `json:"label"`
 }
 
-func capabilitiesOf(descriptor plugin.Descriptor) []capabilityPayload {
-	payload := make([]capabilityPayload, 0, len(descriptor.Capabilities))
-	for _, header := range descriptor.Capabilities {
+func capabilitiesOf(descriptor capability.Plugin) []capabilityPayload {
+	headers := descriptor.Headers()
+	payload := make([]capabilityPayload, 0, len(headers))
+	for _, header := range headers {
 		payload = append(payload, capabilityPayload{
 			Kind: string(header.Kind), KindLabel: plugin.KindLabel[header.Kind],
 			Name: header.Name, Label: header.Label,
@@ -105,7 +112,9 @@ type pluginPayload struct {
 	Capabilities []capabilityPayload `json:"capabilities"`
 	Summary      string              `json:"summary"`
 	PerProject   bool                `json:"per_project"`
-	Fields       []fieldPayload      `json:"fields"`
+	// Mandatory says the plugin cannot be switched off: the screen shows no switch.
+	Mandatory bool           `json:"mandatory"`
+	Fields    []fieldPayload `json:"fields"`
 	// Enabled is the effective state at this scope.
 	Enabled bool `json:"enabled"`
 	// Config carries only the non-sensitive fields. The others are read from `secrets_set`.
@@ -131,8 +140,8 @@ func (h *PluginsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload := make([]pluginPayload, 0, len(plugin.Registry()))
-	for _, descriptor := range plugin.Registry() {
+	payload := make([]pluginPayload, 0, len(h.registry.Plugins()))
+	for _, descriptor := range h.registry.Plugins() {
 		entry := settings[descriptor.ID]
 		payload = append(payload, h.toPayload(descriptor, plugin.ScopeGlobal, entry, entry.Enabled))
 	}
@@ -142,10 +151,10 @@ func (h *PluginsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // toPayload composes a plugin's view, never putting a sensitive value in it.
 func (h *PluginsHandler) toPayload(
-	descriptor plugin.Descriptor, scope plugin.Scope,
+	descriptor capability.Plugin, scope plugin.Scope,
 	entry store.PluginSettings, enabled bool,
 ) pluginPayload {
-	fields := descriptor.Fields(scope)
+	fields := plugin.Fields(descriptor, scope)
 	rendered := make([]fieldPayload, 0, len(fields))
 	for _, field := range fields {
 		rendered = append(rendered, fieldPayload{
@@ -158,7 +167,7 @@ func (h *PluginsHandler) toPayload(
 	config := map[string]string{}
 	secretsSet := []string{}
 	for name, value := range entry.Config {
-		if descriptor.IsSecret(scope, name) {
+		if plugin.IsSecret(descriptor, scope, name) {
 			if value != "" {
 				secretsSet = append(secretsSet, name)
 			}
@@ -170,7 +179,7 @@ func (h *PluginsHandler) toPayload(
 	return pluginPayload{
 		ID: descriptor.ID, Label: descriptor.Label,
 		Capabilities: capabilitiesOf(descriptor), Summary: descriptor.Summary,
-		PerProject: descriptor.PerProject, Fields: rendered,
+		PerProject: descriptor.PerProject, Mandatory: descriptor.Mandatory, Fields: rendered,
 		Enabled: enabled, Config: config, SecretsSet: secretsSet,
 		Configured: h.cipher.Configured(), UpdatedBy: entry.UpdatedBy,
 	}
@@ -192,6 +201,11 @@ type pluginRequest struct {
 func (h *PluginsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	descriptor, request, ok := h.decode(w, r)
 	if !ok {
+		return
+	}
+	if descriptor.Mandatory && !request.Enabled {
+		writeProblem(w, http.StatusConflict, "Mandatory plugin",
+			fmt.Sprintf("the dashboard cannot work without plugin %q", descriptor.ID))
 		return
 	}
 
@@ -243,8 +257,8 @@ func (h *PluginsHandler) ProjectList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload := make([]pluginPayload, 0, len(plugin.Registry()))
-	for _, descriptor := range plugin.Registry() {
+	payload := make([]pluginPayload, 0, len(h.registry.Plugins()))
+	for _, descriptor := range h.registry.Plugins() {
 		if !descriptor.PerProject {
 			// What necessarily holds for the whole instance does not appear: a switch that would do
 			// nothing is worse than an absence.
@@ -346,7 +360,7 @@ func (h *PluginsHandler) ClearProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pluginID := strings.TrimSpace(r.PathValue("plugin"))
-	descriptor, err := plugin.Get(pluginID)
+	descriptor, err := h.registry.Plugin(pluginID)
 	if err != nil {
 		writeProblem(w, http.StatusNotFound, "Unknown plugin", err.Error())
 		return
@@ -364,17 +378,17 @@ func (h *PluginsHandler) ClearProject(w http.ResponseWriter, r *http.Request) {
 }
 
 // decode reads the plugin targeted and the request's body.
-func (h *PluginsHandler) decode(w http.ResponseWriter, r *http.Request) (plugin.Descriptor, pluginRequest, bool) {
-	descriptor, err := plugin.Get(strings.TrimSpace(r.PathValue("plugin")))
+func (h *PluginsHandler) decode(w http.ResponseWriter, r *http.Request) (capability.Plugin, pluginRequest, bool) {
+	descriptor, err := h.registry.Plugin(strings.TrimSpace(r.PathValue("plugin")))
 	if err != nil {
 		writeProblem(w, http.StatusNotFound, "Unknown plugin", err.Error())
-		return plugin.Descriptor{}, pluginRequest{}, false
+		return capability.Plugin{}, pluginRequest{}, false
 	}
 
 	var request pluginRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&request); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
-		return plugin.Descriptor{}, pluginRequest{}, false
+		return capability.Plugin{}, pluginRequest{}, false
 	}
 	return descriptor, request, true
 }
@@ -389,13 +403,13 @@ func (h *PluginsHandler) decode(w http.ResponseWriter, r *http.Request) (plugin.
 //     rather than a field left empty;
 //   - a sensitive field supplied is sealed, never written as is.
 func (h *PluginsHandler) merge(
-	w http.ResponseWriter, descriptor plugin.Descriptor, scope plugin.Scope,
+	w http.ResponseWriter, descriptor capability.Plugin, scope plugin.Scope,
 	request pluginRequest, existing, inherited map[string]string,
 ) (map[string]string, bool) {
 	typed := plugin.Values{}
 	maps.Copy(typed, request.Config)
 
-	if err := descriptor.Validate(scope, typed, plugin.Values(inherited)); err != nil {
+	if err := plugin.Validate(descriptor, scope, typed, plugin.Values(inherited)); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Invalid settings", err.Error())
 		return nil, false
 	}
@@ -405,7 +419,7 @@ func (h *PluginsHandler) merge(
 	// opened: reopening them to reseal would move plaintext through a process that does not
 	// need it.
 	for name, value := range existing {
-		if descriptor.IsSecret(scope, name) {
+		if plugin.IsSecret(descriptor, scope, name) {
 			config[name] = value
 		}
 	}
@@ -414,7 +428,7 @@ func (h *PluginsHandler) merge(
 	}
 
 	for name, value := range typed {
-		if !descriptor.IsSecret(scope, name) {
+		if !plugin.IsSecret(descriptor, scope, name) {
 			config[name] = value
 			continue
 		}

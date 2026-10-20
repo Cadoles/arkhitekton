@@ -37,7 +37,7 @@ func (f fakeSecrets) ResolveSecret(_ context.Context, _ *int64, reference string
 
 func runnerFor(t *testing.T, secrets SecretResolver) *ActionRunner {
 	t.Helper()
-	return NewActionRunner(webhook.New(webhook.Options{
+	return NewActionRunner(testActions, webhook.New(webhook.Options{
 		AllowPrivate: true, AllowInsecure: true,
 	}), secrets, quietLogger())
 }
@@ -191,7 +191,7 @@ func TestAnUnsetTokenIsRefused(t *testing.T) {
 // A forbidden target is refused by the transport, and the error stays recognisable through
 // the runner: "refused" is fixed in the reaction, "unreachable" at the recipient.
 func TestAForbiddenTargetStaysRecognisable(t *testing.T) {
-	runner := NewActionRunner(
+	runner := NewActionRunner(testActions,
 		webhook.New(webhook.Options{}), fakeSecrets{}, quietLogger())
 
 	_, err := runner.Run(context.Background(), store.PlanRun{}, plan.Geste{
