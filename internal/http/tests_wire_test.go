@@ -33,6 +33,11 @@ func (wireTestStore) ListTestCases(context.Context, int64, store.CasePage) ([]st
 	return []store.TestCase{{Suite: "A", Name: "b", Status: "failed"}}, 1, nil
 }
 
+func (wireTestStore) ResultAttachments(context.Context, int64) ([]store.ResultAttachment, error) {
+	return []store.ResultAttachment{{ID: 5, Name: "b.png", MediaType: "image/png", SizeBytes: 3,
+		CaseSuite: "A", CaseName: "b"}}, nil
+}
+
 func (wireTestStore) PreviousRelease(context.Context, int64) (int64, error) {
 	return 0, store.ErrReleaseNotFound
 }
@@ -101,5 +106,15 @@ func TestTheGroupResponseCarriesTheKeysTheDetailReads(t *testing.T) {
 	}
 	if cases, _ := body["cases"].([]any); len(cases) != 1 {
 		t.Errorf("cases = %v", body["cases"])
+	}
+	attachments, _ := body["attachments"].([]any)
+	if len(attachments) != 1 {
+		t.Fatalf("attachments = %v", body["attachments"])
+	}
+	attachment := attachments[0].(map[string]any)
+	for _, key := range []string{"id", "name", "media_type", "size_bytes", "case"} {
+		if _, found := attachment[key]; !found {
+			t.Errorf("attachment without %q: %v", key, attachment)
+		}
 	}
 }

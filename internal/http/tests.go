@@ -29,6 +29,8 @@ type TestStore interface {
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
 	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
 	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
+	ResultAttachments(ctx context.Context, resultID int64) ([]store.ResultAttachment, error)
+	GetAttachment(ctx context.Context, id int64) (store.ResultAttachment, error)
 }
 
 // TestsHandler exposes test results and the quality score.
@@ -38,6 +40,8 @@ type TestsHandler struct {
 	// pipeline that did not run would have neither signal nor default weight, and its cell
 	// would disappear instead of saying it is waiting.
 	catalog *catalog.Catalog
+	// attachments opens the files results keep. Nil: they are listed, not served.
+	attachments AttachmentObjects
 }
 
 // NewTestsHandler assembles the handler.
@@ -495,10 +499,21 @@ func (h *TestsHandler) Group(w http.ResponseWriter, r *http.Request) {
 	// open the run — its logs say why a test failed where the report only says it failed.
 	var runName, tool string
 	var measuredAt time.Time
+	attachments := make([]attachmentPayload, 0)
+	var attributes map[string]string
 	for _, report := range reports {
 		if report.Group != group {
 			continue
 		}
+		kept, err := h.store.ResultAttachments(r.Context(), report.ID)
+		if err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the attachments", "")
+			return
+		}
+		for _, attachment := range kept {
+			attachments = append(attachments, attachmentPayloadOf(attachment))
+		}
+		attributes = report.Attributes
 		stored, count, err := h.store.ListTestCases(r.Context(), report.ID, page)
 		if err != nil {
 			writeProblem(w, http.StatusInternalServerError, "Cannot read the cases", "")
@@ -521,11 +536,15 @@ func (h *TestsHandler) Group(w http.ResponseWriter, r *http.Request) {
 	// part one comes to read. Truncating it would hide a new failure because it falls on a
 	// second page.
 	response := map[string]any{
-		"group":  group,
-		"cases":  cases,
-		"total":  total,
-		"limit":  casePageSize,
-		"offset": page.Offset,
+		"group":       group,
+		"cases":       cases,
+		"total":       total,
+		"limit":       casePageSize,
+		"offset":      page.Offset,
+		"attachments": attachments,
+	}
+	if len(attributes) > 0 {
+		response["attributes"] = attributes
 	}
 	if runName != "" {
 		response["run_name"] = runName
@@ -667,4 +686,34 @@ func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
 		"generated_at":    audit.GeneratedAt,
 		"findings":        payload,
 	})
+}
+
+// attachmentPayload describes a file a result keeps. Its content is read at
+// `.../releases/{tag}/attachments/{id}`.
+type attachmentPayload struct {
+	ID         int64             `json:"id"`
+	Name       string            `json:"name"`
+	MediaType  string            `json:"media_type"`
+	SizeBytes  int64             `json:"size_bytes"`
+	Case       *caseRefPayload   `json:"case,omitempty"`
+	Attributes map[string]string `json:"attributes,omitempty"`
+}
+
+type caseRefPayload struct {
+	Suite string `json:"suite"`
+	Name  string `json:"name"`
+}
+
+func attachmentPayloadOf(attachment store.ResultAttachment) attachmentPayload {
+	payload := attachmentPayload{
+		ID: attachment.ID, Name: attachment.Name, MediaType: attachment.MediaType,
+		SizeBytes: attachment.SizeBytes,
+	}
+	if attachment.CaseSuite != "" {
+		payload.Case = &caseRefPayload{Suite: attachment.CaseSuite, Name: attachment.CaseName}
+	}
+	if len(attachment.Attributes) > 0 {
+		payload.Attributes = attachment.Attributes
+	}
+	return payload
 }

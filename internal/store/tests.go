@@ -15,7 +15,7 @@ type TestResult struct {
 	RunID     int64
 	ReleaseID *int64
 	// Producer is the plugin version that read the run, `plugin@version`. Shape is how the result is
-	// stored and compared: `cases`, `findings` or `measures`. Group is where it is shown. Capability
+	// stored and compared: `cases`, `findings`, `measures` or `attachments`. Group is where it is shown. Capability
 	// is what the run instantiated, empty for a run the dashboard did not launch.
 	Producer   string
 	Shape      string
@@ -36,6 +36,8 @@ type TestResult struct {
 	Summary        string
 	RawObject      string
 	CreatedAt      time.Time
+	// Attributes are free facts about the result, shown as they are.
+	Attributes map[string]string
 	// RunName is the name of the PipelineRun that produced this report. Empty if the run
 	// was purged from the projection — the report outlives its run.
 	RunName string
@@ -162,7 +164,7 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 		        coalesce(t.total, 0), coalesce(t.passed, 0), coalesce(t.failed, 0),
 		        coalesce(t.skipped, 0), coalesce(t.flaky, 0), coalesce(t.duration_ms, 0),
 		        coalesce(t.summary, ''), coalesce(t.raw_object, ''), t.created_at,
-		        coalesce(r.pipelinerun_name, '')
+		        coalesce(r.pipelinerun_name, ''), t.attributes
 		 from test_results t
 		 left join runs r on r.id = t.run_id
 		 where t.release_id = $1 and t.shape <> 'measures'
@@ -178,7 +180,8 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 		if err := rows.Scan(&result.ID, &result.RunID, &result.ReleaseID, &result.Group,
 			&result.Shape, &result.Producer, &result.Tool, &result.Status, &result.Total,
 			&result.Passed, &result.Failed, &result.Skipped, &result.Flaky, &result.DurationMS,
-			&result.Summary, &result.RawObject, &result.CreatedAt, &result.RunName); err != nil {
+			&result.Summary, &result.RawObject, &result.CreatedAt, &result.RunName,
+			&result.Attributes); err != nil {
 			return nil, fmt.Errorf("results of release %d: %w", releaseID, err)
 		}
 		results = append(results, result)

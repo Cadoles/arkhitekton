@@ -145,6 +145,9 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 	mux.Handle("GET /projects/{project}/releases/{tag}/security", Chain(http.HandlerFunc(tests.Security),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
+	// The files results keep, read under the same right as the results that list them.
+	mux.Handle("GET /projects/{project}/releases/{tag}/attachments/{id}", Chain(http.HandlerFunc(tests.Attachment),
+		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	// Load campaigns are readable by all. Pinning a baseline, however, moves the reference of
 	// every later verdict: that is a delivery decision, not a display preference.

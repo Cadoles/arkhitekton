@@ -117,6 +117,26 @@ func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return object, nil
 }
 
+// Opened is an object open for reading at any offset: what serving a range needs, a video being
+// sought into.
+type Opened interface {
+	io.ReadSeekCloser
+}
+
+// Open opens an object for reading at any offset, with its metadata. The caller closes it.
+func (c *Client) Open(ctx context.Context, key string) (Opened, ObjectInfo, error) {
+	object, err := c.minio.GetObject(ctx, c.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, ObjectInfo{}, fmt.Errorf("reading %q: %w", key, err)
+	}
+	info, err := object.Stat()
+	if err != nil {
+		_ = object.Close()
+		return nil, ObjectInfo{}, fmt.Errorf("reading %q: %w", key, err)
+	}
+	return object, ObjectInfo{Key: info.Key, Size: info.Size, LastModified: info.LastModified}, nil
+}
+
 // GetRange reads a byte range.
 //
 // Indispensable for logs: an integration pipeline produces tens of megabytes, and

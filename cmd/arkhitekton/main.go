@@ -312,7 +312,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			releasesHandler, dashhttp.NewBenchHandler(db),
 			// The score's weighting comes from the catalogue: it was accepted by the client and stays
 			// adjustable without a redeployment.
-			dashhttp.NewTestsHandler(db, pipelines),
+			dashhttp.NewTestsHandler(db, pipelines).WithAttachments(storage),
 			// The project's tracker plugin composes the outgoing links. With none, the links are
 			// omitted rather than rendered broken.
 			dashhttp.NewVersionsHandler(db, connections),
