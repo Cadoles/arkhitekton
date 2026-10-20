@@ -21,7 +21,7 @@
 // [Catalog] brings both registries together. That is the list the editor and the validation see; the
 // distinction between a core action and a plugin action is none of their business.
 //
-// What is still not there and is worth naming: writing into the tracker. `internal/redmine`'s
+// What is still not there and is worth naming: writing into the tracker. The Redmine plugin's
 // transport structurally refuses any method other than GET and HEAD, and that is a documented
 // choice — taken because the key targeted is that of the client's production. Opening it is a
 // separate piece of work.

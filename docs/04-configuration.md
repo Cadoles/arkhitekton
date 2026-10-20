@@ -80,6 +80,10 @@ Each role validates only what it uses. In the tables below, **Required** means r
 Read-only, enforced in the transport: any method other than GET or HEAD is refused
 before the request leaves the process.
 
+These variables **seed** the tracker plugin's settings at first start-up (§4.12); the
+dashboard then reads the plugin's settings, edited under Administration → Plugins. Only the
+timeout stays a deployment value.
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `TRACKER_URL` | — | Base URL |
@@ -92,6 +96,9 @@ before the request leaves the process.
 to test a key without waiting for a screen to use it.
 
 ## 4.8 Forge (Gitea)
+
+Like the tracker's, these variables seed the forge plugin's settings; the timeout stays a
+deployment value. A project's repository is its own, declared with the project.
 
 | Variable | Default | Meaning |
 |---|---|---|

@@ -13,7 +13,7 @@
 //
 // # The defence follows the house precedent
 //
-// `internal/redmine` and `internal/gitea` refuse writing **in their transport**, before the
+// The Redmine and Gitea plugins refuse writing **in their transport**, before the
 // network, rather than through the callers' discipline — because a structural guarantee is not
 // forgotten. The same act here: the check is in the dialler's `Control`, called by the network
 // stack just before connecting, with the **actually resolved** address.

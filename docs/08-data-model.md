@@ -78,7 +78,8 @@ not change again.
 
 | Table | Purpose |
 |---|---|
-| `test_results` | One row per tool and run: `fact_group`, `shape` (`cases`, `findings`, `measures`), `producer` (`plugin@version`), `capability`, `tool`, `status`, counts, `duration_ms`, `summary`, `raw_object` |
+| `test_results` | One row per tool and run: `fact_group`, `shape` (`cases`, `findings`, `measures`, `attachments`), `producer` (`plugin@version`), `capability`, `tool`, `status`, counts, `duration_ms`, `summary`, `raw_object`, free `attributes` |
+| `result_attachments` | Files kept with a result: `name`, `media_type`, `object`, `size_bytes`, the case it illustrates (`case_suite`, `case_name`), `attributes` |
 | `test_cases` | Individual cases of a result: `suite`, `name`, `status`, `duration_ms`, failure message and trace |
 | `security_audits` | One row per audit: severity counts, deltas against the previous run, `failed_scanners`, `scanner_status`, `policy` |
 | `security_findings` | One row per finding: `fingerprint`, `tool`, `rule_id`, `severity`, `cvss`, package and fix columns, `status`, `suppressed` |
@@ -130,10 +131,15 @@ migrations done). Only the last one justifies saying "deployed".
 
 ## 8.10 Object store layout
 
-    raw/<pipelinerun>/<artifact>           uploaded reports, verbatim
-    raw/<pipelinerun>/meta/<tool>.json     the descriptor a tool emitted
-    logs/<pipelinerun>/<task>/<step>.log   collected task logs
-    artifacts/…                            exports produced by the dashboard
+    raw/<pipelinerun>/<artifact>                uploaded reports, verbatim
+    raw/<pipelinerun>/meta/<tool>.json          the descriptor a tool emitted
+    logs/<pipelinerun>/<task>/<step>.log        collected task logs
+    attachments/<pipelinerun>/<hash>/<name>     archive members kept as attachments
+    artifacts/…                                 exports produced by the dashboard
+
+An attachment's key hashes the member's path inside its archive, which is free and not a safe
+segment; the same member of the same run always gets the same key, so a replay overwrites
+rather than piling up copies.
 
 Every key segment is validated before use. Tags are user input, and S3 has no notion of
 directory to object to `../`: the check is the only barrier, so a tag like

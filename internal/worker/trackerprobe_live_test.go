@@ -20,7 +20,7 @@ import (
  *
  *   REDMINE_LIVE=1 go test ./internal/worker/ -run Live -v
  *
- * # What it exercises, and what `internal/redmine` does not
+ * # What it exercises, and what the Redmine plugin does not
  *
  * That one checks that the format **decodes**. This one checks that the real data, once
  * decoded, produce **valid** facts — and that is another risk. A version with no update date, a
@@ -34,7 +34,7 @@ import (
  *
  * # It writes nothing
  *
- * The projection goes into an in-memory db, and `internal/redmine`'s transport structurally
+ * The projection goes into an in-memory db, and the Redmine plugin's transport structurally
  * refuses any method other than GET and HEAD. A run has no effect, on either side.
  */
 

@@ -110,7 +110,21 @@ refused unless explicitly allowed, and link-local is never reopened: a URL typed
 interface becomes a request issued from inside the cluster, which is a
 server-side-request-forgery primitive if left open.
 
-## 9.8 Audit
+## 9.8 Files from pipelines
+
+The files a run keeps (screenshots, videos, HTML reports) are third-party content served under
+the dashboard's origin, where the session cookie lives and the CSRF token can be read by
+script. Every one is served with `Content-Security-Policy: sandbox` (no scripts, an opaque
+origin, nothing loaded but its own images and media), `nosniff`, and inline only for types a
+browser renders without running anything of the file's: images other than SVG, MP4 and WebM
+videos, text and HTML. Everything else, SVG included, is a download of opaque bytes. The
+interface frames an HTML report with an empty `sandbox` attribute as well.
+
+A file is read through the API under the reader's role on the release, never through a
+presigned URL, and a file of another release answers like a missing one. An interpreter can
+only attach a file the dashboard itself kept for that run.
+
+## 9.9 Audit
 
 Every administrative act — role granted or revoked, plugin enabled, limit changed,
 project created — is recorded in `audit_log` with its actor, target and payload, and is

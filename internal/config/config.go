@@ -92,7 +92,7 @@ func (c SecretsConfig) Configured() bool { return strings.TrimSpace(c.Key) != ""
 
 // ForgeConfig carries read access to the forge.
 //
-// Read-only, enforced by the transport in internal/gitea as it is for the tracker.
+// Read-only, enforced by the transport in the Gitea plugin as it is for the tracker.
 // It feeds the release form: offering the repository's branches and tags rather
 // than a free-text field where a typo only surfaces when the build fails.
 //
@@ -120,7 +120,7 @@ func (c ForgeConfig) Configured() bool {
 // closing an issue, posting a note stay human gestures made in the tracker.
 //
 // The prohibition is not left to callers' discipline: the transport in
-// internal/redmine refuses any method other than GET and HEAD before reaching the
+// the Redmine plugin refuses any method other than GET and HEAD before reaching the
 // network. A production key circulates here, so the guarantee had to be
 // structural.
 type TrackerConfig struct {
