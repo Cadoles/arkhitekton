@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"slices"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*

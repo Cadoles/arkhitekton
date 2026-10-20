@@ -5,19 +5,18 @@
 // is the first of the three. It says nothing about service accounts or secret names: a capability
 // declares a [Need], and only the operator decides what satisfies it.
 //
-// This package imports only the other two contract packages, facts and parse.
+// This package imports only the other contract packages, facts and parse.
 package capability
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // Kind is what a capability is. It qualifies a capability, not a plugin: one plugin may bring a
@@ -33,6 +32,9 @@ const (
 )
 
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
+// ValidName says whether a plugin ID or a capability name is lower case, digits and inner dashes.
+func ValidName(name string) bool { return namePattern.MatchString(name) }
 
 // Ref names a capability within its plugin: `php/unit-tests`. Qualified, so that two plugins cannot
 // collide.
@@ -76,8 +78,10 @@ type Plugin struct {
 	ID string
 	// Version changes whenever interpretation changes. It is recorded on every stored result, and a
 	// replay refuses to read a run with another version than the one that read it first.
-	Version   string
-	Pipelines []Pipeline
+	Version string
+	// APIVersion is the version of the sdk the plugin was built against (sdk.APIVersion).
+	APIVersion string
+	Pipelines  []Pipeline
 }
 
 // Pipeline is a pipeline capability.
@@ -272,18 +276,6 @@ func (s RunState) Step(task, step string) (StepState, bool) {
 		}
 	}
 	return StepState{}, false
-}
-
-// ErrVersionDrift refuses to read a run with another interpretation than the one that read it.
-var ErrVersionDrift = errors.New("plugin version differs from the one that interpreted the run")
-
-// KindLabel names each kind for the interface.
-var KindLabel = map[Kind]string{
-	KindPipeline: "Pipeline",
-	KindTracker:  "Suivi",
-	KindForge:    "Forge",
-	KindExporter: "Livrables",
-	KindModule:   "Module",
 }
 
 // Header names a capability without describing it: what a plugin's descriptor lists.

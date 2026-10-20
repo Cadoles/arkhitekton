@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -90,7 +89,7 @@ func capabilitiesOf(descriptor plugin.Descriptor) []capabilityPayload {
 	payload := make([]capabilityPayload, 0, len(descriptor.Capabilities))
 	for _, header := range descriptor.Capabilities {
 		payload = append(payload, capabilityPayload{
-			Kind: string(header.Kind), KindLabel: capability.KindLabel[header.Kind],
+			Kind: string(header.Kind), KindLabel: plugin.KindLabel[header.Kind],
 			Name: header.Name, Label: header.Label,
 		})
 	}

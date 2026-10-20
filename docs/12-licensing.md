@@ -51,19 +51,15 @@ Three deliberate limits:
 
 ## 12.4 What is still missing for third-party plugins
 
-A third-party plugin is **not yet technically possible**: the plugin API lives under
-`internal/`, which Go forbids importing from another module. In order:
+The plugin API is the `sdk` module (`forge.cadoles.com/vcarroy/arkhitekton/sdk`), kept in this
+repository but outside `internal/`, with its own `go.mod` and a version, `sdk.APIVersion`, that
+every plugin declares and the dashboard checks. It imports only the standard library, and the
+plugins shipped with the dashboard import nothing else of it (`internal/capabilities`
+`boundary_test.go`). `LICENSE.plugin-exception` names that module.
 
-1. Move the designated API out of `internal/`, keeping the test that stops the core from
-   importing a plugin by name.
-2. State what is stable in it — descriptors, event types, actions — since a published
-   interface is a contract.
-3. Choose between compile-time loading, where the plugin author ships a rebuilt binary
-   (which is precisely what the exception makes possible), and out-of-process loading,
-   where the licensing question fades and the API surface grows.
-
-When the API moves, `LICENSE.plugin-exception` must follow: it names the designated
-package "at the date of this file".
+What remains is loading: today a plugin is compiled into the binary, which is precisely what the
+exception makes possible. Declarative interpreters, a WASM runtime and signed distribution are the
+next phases (doc 06).
 
 ## 12.5 Pipelines and catalogues
 

@@ -43,7 +43,10 @@ ENV GOPRIVATE=forge.cadoles.com/*
 # Les dépendances d'abord : elles changent rarement, le code souvent. Sans cette
 # séparation, chaque modification d'un fichier .go relancerait un téléchargement
 # complet du module cache.
+# The plugin contract is a module of its own that go.mod replaces with ./sdk: its go.mod must be
+# there before the download.
 COPY go.mod go.sum ./
+COPY sdk/go.mod ./sdk/
 
 # Le secret n'est monté que le temps de cette instruction et ne laisse aucune
 # trace dans les couches de l'image — un `COPY` des identifiants les y graverait

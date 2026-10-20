@@ -11,11 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability/interpret"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 type factStore struct {
@@ -100,9 +102,9 @@ func (r unitReader) Interpret(_ context.Context, _ capability.RunState, records 
 	return sets, nil
 }
 
-func testRegistry(t *testing.T, tool string) *capability.Registry {
+func testRegistry(t *testing.T, tool string) *capabilities.Registry {
 	t.Helper()
-	registry, err := capability.NewRegistry(capability.Plugin{ID: "php", Version: "2.0.0", Pipelines: []capability.Pipeline{{
+	registry, err := capabilities.New(capability.Plugin{ID: "php", Version: "2.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
 		Name: "unit-tests", Interpreter: unitReader{tool: tool},
 		Spec: capability.PipelineSpec{
 			PipelineRef: "php-unit-tests", ObservedPipelines: []string{"nightly-unit"},

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // The registry covers every kind but pipelines, and nothing else. The test is about kinds, not
@@ -25,7 +25,7 @@ func TestTheRegistryCoversEveryKind(t *testing.T) {
 			t.Errorf("plugin %q brings no capability", descriptor.ID)
 		}
 		for _, header := range descriptor.Capabilities {
-			if _, known := capability.KindLabel[header.Kind]; !known {
+			if _, known := KindLabel[header.Kind]; !known {
 				t.Errorf("plugin %q: kind %q with no label", descriptor.ID, header.Kind)
 			}
 			seen[header.Kind] = true

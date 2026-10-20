@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"log/slog"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // referenceLibrary is what a project declaring a stack gets installed.

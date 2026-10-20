@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 /*
@@ -27,7 +28,7 @@ func report(t *testing.T, name string) []byte {
 
 func record(t *testing.T, tool string, parser parse.ID, raw []byte) parse.Record {
 	t.Helper()
-	parsing, _ := parse.Lookup(parser)
+	parsing, _ := parsers.Lookup(parser)
 	payload, err := parsing(raw)
 	return parse.Record{Tool: tool, Parser: parser, Object: "raw/run/" + tool, Payload: payload, Err: err}
 }

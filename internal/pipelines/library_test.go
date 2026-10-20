@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // testLibrary is a stack of one Pipeline and one Task, like the ones plugins ship.

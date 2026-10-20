@@ -5,9 +5,10 @@
 package security
 
 import (
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
-	report "forge.cadoles.com/vcarroy/arkhitekton/internal/parse/security"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	report "forge.cadoles.com/vcarroy/arkhitekton/sdk/parse/security"
 )
 
 // ID is the plugin's identifier.
@@ -15,7 +16,7 @@ const ID = "security"
 
 // Plugin describes the security plugin.
 func Plugin() capability.Plugin {
-	return capability.Plugin{ID: ID, Version: "1.0.0", Pipelines: []capability.Pipeline{audit()}}
+	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{audit()}}
 }
 
 func audit() capability.Pipeline {

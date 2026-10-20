@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
 )
 
 // One run's facts, in their three shapes, land in one transaction and mark the run as read; a

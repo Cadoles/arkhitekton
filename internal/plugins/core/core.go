@@ -4,14 +4,17 @@
 // so the capabilities ship no manifests.
 package core
 
-import "forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
+import (
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+)
 
 // ID is the plugin's identifier.
 const ID = "core"
 
 // Plugin describes the core plugin.
 func Plugin() capability.Plugin {
-	return capability.Plugin{ID: ID, Version: "1.0.0", Pipelines: []capability.Pipeline{build(), retag()}}
+	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{build(), retag()}}
 }
 
 func build() capability.Pipeline {

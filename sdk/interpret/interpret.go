@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // JUnitCases reads a JUnit report with the usual identity: the class name, else the suite path.

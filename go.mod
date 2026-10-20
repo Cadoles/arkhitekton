@@ -3,6 +3,7 @@ module forge.cadoles.com/vcarroy/arkhitekton
 go 1.26.4
 
 require (
+	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.0.0-00010101000000-000000000000
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/go-pdf/fpdf v0.9.0
 	github.com/jackc/pgx/v5 v5.10.0
@@ -108,3 +109,6 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.3 // indirect
 )
+
+// The plugin contract is a module of its own, kept in this repository.
+replace forge.cadoles.com/vcarroy/arkhitekton/sdk => ./sdk

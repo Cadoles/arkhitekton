@@ -6,7 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 /*
@@ -64,11 +65,11 @@ type VolumeBinding struct {
 type Option func(*parseOptions)
 
 type parseOptions struct {
-	registry *capability.Registry
+	registry *capabilities.Registry
 }
 
 // WithCapabilities resolves the catalogue's bindings against the plugins' capabilities.
-func WithCapabilities(registry *capability.Registry) Option {
+func WithCapabilities(registry *capabilities.Registry) Option {
 	return func(options *parseOptions) { options.registry = registry }
 }
 
@@ -79,7 +80,7 @@ const (
 )
 
 // resolve turns the bindings into pipelines.
-func (c *Catalog) resolve(registry *capability.Registry) error {
+func (c *Catalog) resolve(registry *capabilities.Registry) error {
 	if len(c.Capabilities) == 0 {
 		return nil
 	}
@@ -99,7 +100,7 @@ func (c *Catalog) resolve(registry *capability.Registry) error {
 	return errors.Join(problems...)
 }
 
-func resolveBinding(registry *capability.Registry, binding Binding) (Pipeline, error) {
+func resolveBinding(registry *capabilities.Registry, binding Binding) (Pipeline, error) {
 	ref, err := capability.ParseRef(binding.Ref)
 	if err != nil {
 		return Pipeline{}, err

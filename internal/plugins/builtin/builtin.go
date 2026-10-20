@@ -5,12 +5,13 @@
 package builtin
 
 import (
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/core"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/k6"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/mse"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/php"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/security"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // Plugins are the plugins compiled into the binary.
@@ -19,8 +20,8 @@ func Plugins() []capability.Plugin {
 }
 
 // Registry gathers what the built-in plugins bring.
-func Registry() (*capability.Registry, error) {
-	return capability.NewRegistry(Plugins()...)
+func Registry() (*capabilities.Registry, error) {
+	return capabilities.New(Plugins()...)
 }
 
 // Stacks are the reference libraries a project may declare: `php` installs the PHP pipelines and

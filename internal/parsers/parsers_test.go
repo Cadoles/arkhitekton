@@ -1,7 +1,9 @@
-package parse
+package parsers
 
 import (
 	"testing"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // The record keeps the class name and the suite path both: which one names the case is the
@@ -29,7 +31,7 @@ func TestAJUnitCaseKeepsEveryCandidateIdentity(t *testing.T) {
 		t.Errorf("suites = %q, %q", first.Suite(), second.Suite())
 	}
 	// An error is not a failure: the tool may care, so the record keeps it apart.
-	if second.Outcome != JUnitErrored || second.Detail == nil || second.Detail.Text() != "boom" {
+	if second.Outcome != parse.JUnitErrored || second.Detail == nil || second.Detail.Text() != "boom" {
 		t.Errorf("second = %+v", second)
 	}
 }
@@ -102,17 +104,17 @@ func TestAnOddK6MetricStaysApart(t *testing.T) {
 }
 
 func TestEveryParserIsRegistered(t *testing.T) {
-	ids := []ID{Raw, JUnitXML, MochawesomeJSON, PHPStanJSON, CSFixerJSON, K6SummaryJSON,
-		SecuritySummaryJSON, SecurityFindingsJSONL}
+	ids := []parse.ID{parse.Raw, parse.JUnitXML, parse.MochawesomeJSON, parse.PHPStanJSON, parse.CSFixerJSON, parse.K6SummaryJSON,
+		parse.SecuritySummaryJSON, parse.SecurityFindingsJSONL}
 	for _, id := range ids {
 		if _, found := Lookup(id); !found {
 			t.Errorf("parser %q not registered", id)
 		}
 	}
 
-	parser, _ := Lookup(Raw)
+	parser, _ := Lookup(parse.Raw)
 	payload, err := parser([]byte("anything"))
-	if bytes, ok := payload.(Bytes); err != nil || !ok || string(bytes) != "anything" {
+	if bytes, ok := payload.(parse.Bytes); err != nil || !ok || string(bytes) != "anything" {
 		t.Errorf("raw = %v (%T), err = %v", payload, payload, err)
 	}
 }

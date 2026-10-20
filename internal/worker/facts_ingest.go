@@ -11,10 +11,12 @@ import (
 	"path"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 /*
@@ -42,12 +44,12 @@ type FactStore interface {
 type FactIngester struct {
 	store    FactStore
 	objects  Objects
-	registry *capability.Registry
+	registry *capabilities.Registry
 	logger   *slog.Logger
 }
 
 func NewFactIngester(
-	facts FactStore, objects Objects, registry *capability.Registry, logger *slog.Logger,
+	facts FactStore, objects Objects, registry *capabilities.Registry, logger *slog.Logger,
 ) *FactIngester {
 	return &FactIngester{store: facts, objects: objects, registry: registry, logger: logger}
 }
@@ -288,7 +290,7 @@ func parseRecord(artifact, member, object string, rule capability.Member, raw []
 		record.Err = err
 		return record
 	}
-	parser, known := parse.Lookup(rule.Parser)
+	parser, known := parsers.Lookup(rule.Parser)
 	if !known {
 		record.Err = fmt.Errorf("no parser %q", rule.Parser)
 		return record

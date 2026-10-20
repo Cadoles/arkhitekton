@@ -5,9 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // noFacts reads nothing: these tests are about binding, not reading.
@@ -17,9 +19,9 @@ func (noFacts) Interpret(context.Context, capability.RunState, []parse.Record) (
 	return nil, nil
 }
 
-func deployRegistry(t *testing.T) *capability.Registry {
+func deployRegistry(t *testing.T) *capabilities.Registry {
 	t.Helper()
-	registry, err := capability.NewRegistry(capability.Plugin{ID: "mse", Version: "1", Pipelines: []capability.Pipeline{{
+	registry, err := capabilities.New(capability.Plugin{ID: "mse", Version: "1", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
 		Name: "integration-tests", Label: "Tests d'intégration", Interpreter: noFacts{},
 		Spec: capability.PipelineSpec{
 			PipelineRef: "php-integration-test", Exclusive: true, Verification: true, Group: "integration",

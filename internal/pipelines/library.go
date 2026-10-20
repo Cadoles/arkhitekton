@@ -34,7 +34,7 @@ import (
 	"sort"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // Resource is a Tekton object to install, as it is written in the library.

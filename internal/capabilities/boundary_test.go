@@ -1,4 +1,4 @@
-package capability
+package capabilities
 
 import (
 	"go/parser"
@@ -12,25 +12,15 @@ import (
 
 const module = "forge.cadoles.com/vcarroy/arkhitekton/"
 
-// The contract packages and the plugins depend on nothing else of the dashboard.
+// Plugins depend on the contract and nothing else of the dashboard.
 //
-// The contract (capability, facts, parse) is what a plugin compiles against: if it imported the
-// store or the worker, so would every plugin, and moving it out of internal/ later would drag the
-// dashboard along. Plugins import the contract and nothing else, so that an internal plugin is
-// written exactly like an external one. And no core package imports a plugin: only the assembler,
-// internal/plugins/builtin, lists them, for cmd/arkhitekton and for the live tests that observe a
-// real deployment.
-func TestTheContractAndThePluginsStandAlone(t *testing.T) {
+// The contract, the sdk module, is what a plugin compiles against. Plugins import it and nothing
+// else, so that an internal plugin is written exactly like an external one. And no core package
+// imports a plugin: only the assembler, internal/plugins/builtin, lists them, for cmd/arkhitekton and
+// for the live tests that observe a real deployment.
+func TestThePluginsImportOnlyTheContract(t *testing.T) {
 	root := filepath.Join("..", "..", "internal")
-	contract := []string{"internal/capability", "internal/facts", "internal/parse"}
-	isContract := func(imported string) bool {
-		for _, prefix := range contract {
-			if imported == module+prefix || strings.HasPrefix(imported, module+prefix+"/") {
-				return true
-			}
-		}
-		return false
-	}
+	isContract := func(imported string) bool { return strings.HasPrefix(imported, module+"sdk") }
 	isPlugin := func(imported string) bool {
 		return strings.HasPrefix(imported, module+"internal/plugins/")
 	}
@@ -48,9 +38,8 @@ func TestTheContractAndThePluginsStandAlone(t *testing.T) {
 		read++
 
 		relative := filepath.ToSlash(strings.TrimPrefix(path, filepath.Join("..", "..")+string(filepath.Separator)))
-		inContract := isContract(module + filepath.ToSlash(filepath.Dir(relative)))
-		inPlugin := strings.HasPrefix(relative, "internal/plugins/")
 		assembler := strings.HasPrefix(relative, "internal/plugins/builtin/")
+		inPlugin := strings.HasPrefix(relative, "internal/plugins/") && !assembler
 		live := strings.HasSuffix(relative, "_live_test.go")
 
 		for _, spec := range parsed.Imports {
@@ -60,11 +49,11 @@ func TestTheContractAndThePluginsStandAlone(t *testing.T) {
 			}
 			switch {
 			case assembler:
-				if !isContract(imported) && !isPlugin(imported) {
-					t.Errorf("%s imports %s: the assembler imports only plugins", path, imported)
+				if !isContract(imported) && !isPlugin(imported) && imported != module+"internal/capabilities" {
+					t.Errorf("%s imports %s: the assembler imports only plugins and their registry", path, imported)
 				}
-			case (inContract || inPlugin) && !isContract(imported):
-				t.Errorf("%s imports %s: the contract and the plugins import only the contract", path, imported)
+			case inPlugin && !isContract(imported):
+				t.Errorf("%s imports %s: plugins import only the contract", path, imported)
 			case !inPlugin && isPlugin(imported) && !(live && imported == module+"internal/plugins/builtin"):
 				t.Errorf("%s imports %s: only the assembler lists the plugins", path, imported)
 			}

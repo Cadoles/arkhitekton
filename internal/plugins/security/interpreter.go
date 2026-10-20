@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
-	report "forge.cadoles.com/vcarroy/arkhitekton/internal/parse/security"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	report "forge.cadoles.com/vcarroy/arkhitekton/sdk/parse/security"
 )
 
 // tool is the name the audit is recorded under: one for every scanner, since what is recorded is

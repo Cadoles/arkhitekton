@@ -7,8 +7,9 @@ package php
 import (
 	"embed"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // ID is the plugin's identifier.
@@ -30,7 +31,7 @@ func Manifests() []capability.Manifest {
 // Plugin describes the PHP plugin.
 func Plugin() capability.Plugin {
 	all := Manifests()
-	return capability.Plugin{ID: ID, Version: "1.0.0", Pipelines: []capability.Pipeline{
+	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{
 		staticTests(pick(all, "php-static-tests", "phpstan", "cs-fixer")),
 		unitTests(pick(all, "php-unit-tests", "unit-test")),
 	}}

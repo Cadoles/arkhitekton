@@ -18,12 +18,21 @@ import (
 	"sort"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // ModuleMSE identifies the MSE plugin: environments, Flux promotion, PortalData
 // attestation.
 const ModuleMSE = "mse"
+
+// KindLabel names each kind of capability for the interface.
+var KindLabel = map[capability.Kind]string{
+	capability.KindPipeline: "Pipeline",
+	capability.KindTracker:  "Suivi",
+	capability.KindForge:    "Forge",
+	capability.KindExporter: "Livrables",
+	capability.KindModule:   "Module",
+}
 
 // FieldType says how a field is typed in and checked.
 type FieldType string

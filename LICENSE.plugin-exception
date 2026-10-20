@@ -14,11 +14,9 @@ DEFINITIONS
 
 "Plugin Interface" means:
 
-  (a) the exported identifiers of the Go package that the Program designates
-      as its plugin API — at the date of this file, the package
-      `forge.cadoles.com/vcarroy/arkhitekton/internal/plugin` — together with
-      the exported identifiers of the packages whose types a plugin is
-      required to implement in order to be registered;
+  (a) the exported identifiers of the Go module that the Program designates
+      as its plugin API — at the date of this file, the module
+      `forge.cadoles.com/vcarroy/arkhitekton/sdk` and every package under it;
 
   (b) the HTTP API served by the Program;
 

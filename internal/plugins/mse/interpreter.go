@@ -3,10 +3,10 @@ package mse
 import (
 	"context"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability/interpret"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // integrationReader reads the integration tests' JUnit report.

@@ -5,8 +5,9 @@ package mse
 import (
 	"embed"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // ID is the plugin's identifier. The same as the MSE module's: the two halves of one plugin, until
@@ -28,7 +29,7 @@ func Manifests() []capability.Manifest {
 
 // Plugin describes the MSE plugin's pipelines.
 func Plugin() capability.Plugin {
-	return capability.Plugin{ID: ID, Version: "1.0.0", Pipelines: []capability.Pipeline{
+	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{
 		integrationTests(Manifests()),
 		e2eTests(),
 	}}

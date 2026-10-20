@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability/interpret"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // staticReader reads PHPStan and PHP-CS-Fixer.

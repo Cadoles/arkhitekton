@@ -1,36 +1,11 @@
-package parse
+package parsers
 
 import (
 	"encoding/json"
 	"sort"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
-
-// PHPStanJSON parses PHPStan's JSON output into a [PHPStan].
-const PHPStanJSON ID = "phpstan-json"
-
-// PHPStan is PHPStan's report.
-type PHPStan struct {
-	// Errors are outside any file: unreadable configuration, a missing extension. Failures of the
-	// tool, not of the code.
-	Errors []string
-	// Files are sorted by path, so that two reads of one report give one order.
-	Files []PHPStanFile
-}
-
-// PHPStanFile is one analysed file and its messages.
-type PHPStanFile struct {
-	Path     string
-	Messages []PHPStanMessage
-}
-
-// PHPStanMessage is one violation.
-type PHPStanMessage struct {
-	Message string
-	Line    int
-	// Identifier is the rule; older versions emit none.
-	Identifier string
-	Ignorable  bool
-}
 
 type phpstanReport struct {
 	// Files is keyed by path. It may be `[]` when there is no error: PHP serialises an empty array
@@ -49,10 +24,10 @@ type phpstanFile struct {
 }
 
 // ParsePHPStan reads PHPStan's JSON output. The error is the decoder's, unwrapped.
-func ParsePHPStan(raw []byte) (PHPStan, error) {
+func ParsePHPStan(raw []byte) (parse.PHPStan, error) {
 	var source phpstanReport
 	if err := json.Unmarshal(raw, &source); err != nil {
-		return PHPStan{}, err
+		return parse.PHPStan{}, err
 	}
 
 	files := map[string]phpstanFile{}
@@ -62,7 +37,7 @@ func ParsePHPStan(raw []byte) (PHPStan, error) {
 		_ = json.Unmarshal(source.Files, &files)
 	}
 
-	report := PHPStan{Errors: source.Errors}
+	report := parse.PHPStan{Errors: source.Errors}
 	paths := make([]string, 0, len(files))
 	for path := range files {
 		paths = append(paths, path)
@@ -70,9 +45,9 @@ func ParsePHPStan(raw []byte) (PHPStan, error) {
 	sort.Strings(paths)
 
 	for _, path := range paths {
-		file := PHPStanFile{Path: path}
+		file := parse.PHPStanFile{Path: path}
 		for _, message := range files[path].Messages {
-			file.Messages = append(file.Messages, PHPStanMessage{
+			file.Messages = append(file.Messages, parse.PHPStanMessage{
 				Message: message.Message, Line: message.Line,
 				Identifier: message.Identifier, Ignorable: message.Ignorable,
 			})
@@ -80,22 +55,6 @@ func ParsePHPStan(raw []byte) (PHPStan, error) {
 		report.Files = append(report.Files, file)
 	}
 	return report, nil
-}
-
-// CSFixerJSON parses PHP-CS-Fixer's JSON output into a [CSFixer].
-const CSFixerJSON ID = "cs-fixer-json"
-
-// CSFixer is PHP-CS-Fixer's report. In a dry run, every file listed is one that would have been
-// modified.
-type CSFixer struct {
-	Files []CSFixerFile
-}
-
-// CSFixerFile is a file and the fixers that would change it.
-type CSFixerFile struct {
-	Name          string
-	AppliedFixers []string
-	Diff          string
 }
 
 type csFixerReport struct {
@@ -107,15 +66,15 @@ type csFixerReport struct {
 }
 
 // ParseCSFixer reads PHP-CS-Fixer's JSON output. The error is the decoder's, unwrapped.
-func ParseCSFixer(raw []byte) (CSFixer, error) {
+func ParseCSFixer(raw []byte) (parse.CSFixer, error) {
 	var source csFixerReport
 	if err := json.Unmarshal(raw, &source); err != nil {
-		return CSFixer{}, err
+		return parse.CSFixer{}, err
 	}
 
-	var report CSFixer
+	var report parse.CSFixer
 	for _, file := range source.Files {
-		report.Files = append(report.Files, CSFixerFile{
+		report.Files = append(report.Files, parse.CSFixerFile{
 			Name: file.Name, AppliedFixers: file.AppliedFixers, Diff: file.Diff,
 		})
 	}

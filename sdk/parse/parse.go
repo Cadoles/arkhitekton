@@ -1,14 +1,18 @@
-// Package parse turns the artifacts a pipeline publishes into records a run interpreter reads.
+// Package parse declares the records a run interpreter reads: what the dashboard's parsers make
+// of the artifacts a pipeline publishes.
 //
 // Parsing belongs to the dashboard by default: a known format (JUnit, a k6 summary...) is decoded
-// once, here, for every plugin that uses it, and a fix to a parser reaches all of them. An
+// once, by the host, for every plugin that uses it, and a fix to a parser reaches all of them. An
 // interpreter then never handles bytes, only records.
 //
 // A format the dashboard does not know goes through [Raw]: the interpreter receives the bytes and
 // parses them itself. The host still bounds their size.
 //
-// This package imports nothing of the dashboard: it is part of the contract plugins compile against.
+// This package is part of the contract plugins compile against, and imports only the standard
+// library.
 package parse
+
+import "strings"
 
 // ID names a parser.
 type ID string
@@ -35,3 +39,22 @@ type Record struct {
 
 // Bytes is the payload of [Raw].
 type Bytes []byte
+
+// The security report's two files, whose payloads are a security.Summary and a []security.Finding.
+const (
+	SecuritySummaryJSON   ID = "security-summary-json"
+	SecurityFindingsJSONL ID = "security-findings-jsonl"
+)
+
+// FirstLine returns the first non-empty line of a text, trimmed.
+//
+// Tools' failure messages often run to ten lines, the first carrying the substance and the rest
+// being the trace. Showing all ten in a table makes the table unreadable.
+func FirstLine(text string) string {
+	for line := range strings.SplitSeq(text, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}

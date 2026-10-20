@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
 )
 
 // ErrAlreadyInterpreted reports a run whose facts are already recorded.

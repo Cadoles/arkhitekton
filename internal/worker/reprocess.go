@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/facts"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
 )
 
 /*

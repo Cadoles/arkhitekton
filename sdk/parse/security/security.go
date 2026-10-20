@@ -7,11 +7,6 @@
 // two truths about the same findings, the one that fails the build and the one that is displayed.
 package security
 
-import (
-	"encoding/json"
-	"strings"
-)
-
 // The names under which the producer publishes the report's files.
 const (
 	SummaryFileName  = "summary.json"
@@ -108,24 +103,4 @@ type Package struct {
 type Suppression struct {
 	Reason  string `json:"reason"`
 	Expires string `json:"expires"`
-}
-
-// UnmarshalFindings reads a findings file.
-//
-// An unreadable line is skipped rather than failing the whole file: one corrupt finding must not
-// cost the audit.
-func UnmarshalFindings(raw []byte) []Finding {
-	findings := make([]Finding, 0)
-	for line := range strings.SplitSeq(string(raw), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		var finding Finding
-		if err := json.Unmarshal([]byte(trimmed), &finding); err != nil {
-			continue
-		}
-		findings = append(findings, finding)
-	}
-	return findings
 }

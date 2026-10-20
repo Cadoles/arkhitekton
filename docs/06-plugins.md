@@ -40,7 +40,7 @@ module file may import feature code.
 
 ## 6.2 Pipeline capabilities
 
-A pipeline capability is declared in Go by its plugin (`internal/capability`): the Tekton
+A pipeline capability is declared in Go by its plugin (`sdk/capability`): the Tekton
 Pipeline and Tasks it ships, or the ones it expects the operator to provide; its parameters;
 the artifacts it publishes and the parser each file is read with; the privileges it needs;
 and its **interpreter**. Capabilities are named `plugin/name` (`php/unit-tests`), so two

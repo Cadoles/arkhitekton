@@ -5,8 +5,9 @@
 package k6
 
 import (
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parse"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // ID is the plugin's identifier.
@@ -20,7 +21,7 @@ func Plugin() capability.Plugin {
 			Members: []capability.Member{{Match: "*.json", Parser: parse.K6SummaryJSON, Tool: "k6"}},
 		}
 	}
-	return capability.Plugin{ID: ID, Version: "1.0.0", Pipelines: []capability.Pipeline{{
+	return capability.Plugin{ID: ID, Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
 		Name:        "load",
 		Label:       "Tests de charge",
 		Interpreter: campaignReader{},
