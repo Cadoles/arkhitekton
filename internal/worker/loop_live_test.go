@@ -69,16 +69,16 @@ func throwawayDatabase(t *testing.T) *store.DB {
 	cfg := config.DatabaseConfig{DSN: dsn, MaxConns: 4, ConnMaxLifetime: time.Minute}
 
 	ctx := context.Background()
-	brut, err := store.Open(ctx, cfg)
+	rawBody, err := store.Open(ctx, cfg)
 	if err != nil {
 		t.Fatalf("connection: %v", err)
 	}
-	if _, err := brut.Pool().Exec(ctx,
+	if _, err := rawBody.Pool().Exec(ctx,
 		"drop schema public cascade; create schema public;"); err != nil {
-		brut.Close()
+		rawBody.Close()
 		t.Fatalf("resetting the schema: %v", err)
 	}
-	brut.Close()
+	rawBody.Close()
 
 	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
 		t.Fatalf("migration: %v", err)
@@ -94,13 +94,13 @@ func throwawayDatabase(t *testing.T) *store.DB {
 
 // countingRunner keeps the steps handed to it, emitting nothing.
 type countingRunner struct {
-	partis []plan.Geste
+	sent []plan.Geste
 }
 
 func (g *countingRunner) Run(
 	_ context.Context, _ store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
-	g.partis = append(g.partis, geste)
+	g.sent = append(g.sent, geste)
 	return nil, nil
 }
 
@@ -110,7 +110,7 @@ type harness struct {
 	cipher         *secrets.Cipher
 	projectID      int64
 	trackerProject string
-	sonde          Probe
+	probe          Probe
 }
 
 // newHarness assembles database, project, plugin and probe as `main` would.
@@ -131,9 +131,9 @@ func newHarness(t *testing.T) harness {
 	// loop that will open it.
 	cipher, err := secrets.New(testEncryptionKey)
 	if err != nil {
-		t.Fatalf("chiffreur: %v", err)
+		t.Fatalf("cipher: %v", err)
 	}
-	scellee, err := cipher.Seal(os.Getenv("REDMINE_API_KEY"))
+	sealed, err := cipher.Seal(os.Getenv("REDMINE_API_KEY"))
 	if err != nil {
 		t.Fatalf("sealing the key: %v", err)
 	}
@@ -152,7 +152,7 @@ func newHarness(t *testing.T) harness {
 	if err := db.SetPluginSettings(ctx, store.PluginSettings{
 		PluginID: "redmine", Enabled: true,
 		Config: map[string]string{
-			"url": os.Getenv("REDMINE_URL"), "api_key": scellee,
+			"url": os.Getenv("REDMINE_URL"), "api_key": sealed,
 		},
 	}, "test"); err != nil {
 		t.Fatalf("global settings: %v", err)
@@ -164,7 +164,7 @@ func newHarness(t *testing.T) harness {
 		t.Fatalf("project settings: %v", err)
 	}
 
-	sonde := NewRedmineProbe(NewTrackerSync(db,
+	probe := NewRedmineProbe(NewTrackerSync(db,
 		func(connection TrackerConnection) (TrackerReader, error) {
 			return redmine.New(redmine.Options{
 				URL: connection.URL, APIKey: connection.APIKey, Timeout: 30 * time.Second,
@@ -173,7 +173,7 @@ func newHarness(t *testing.T) harness {
 
 	return harness{
 		db: db, cipher: cipher, projectID: projectID,
-		trackerProject: trackerProject, sonde: sonde,
+		trackerProject: trackerProject, probe: probe,
 	}
 }
 
@@ -181,7 +181,7 @@ func newHarness(t *testing.T) harness {
 func TestLiveTheWholeLoopOnARealDatabase(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	db, projectID, sonde := h.db, h.projectID, h.sonde
+	db, projectID, probe := h.db, h.projectID, h.probe
 
 	// A reaction on the declared versions. It is what would have fired twenty times if the
 	// bootstrap had discarded its facts.
@@ -195,26 +195,26 @@ func TestLiveTheWholeLoopOnARealDatabase(t *testing.T) {
 		t.Fatalf("reaction: %v", err)
 	}
 
-	compteur := &countingRunner{}
-	engine := NewEngine(db, compteur, quietLogger())
+	counter := &countingRunner{}
+	engine := NewEngine(db, counter, quietLogger())
 	dispatcher := NewDispatcher(db, engine, quietLogger())
 
-	runner := NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), sonde).
+	runner := NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), probe).
 		WithDispatcher(dispatcher)
 
 	/*
 	 * 1. The bootstrap: it writes its facts, and triggers nothing.
 	 */
-	runner.sweep(ctx, sonde)
+	runner.sweep(ctx, probe)
 
-	apresAmorcage := countFacts(t, db)
-	if apresAmorcage == 0 {
+	afterBootstrap := countFacts(t, db)
+	if afterBootstrap == 0 {
 		t.Fatal("no fact written at bootstrap: the probe read nothing, " +
 			"or the schema refused them")
 	}
-	if len(compteur.partis) != 0 {
+	if len(counter.sent) != 0 {
 		t.Errorf("%d steps started at bootstrap, expected none — "+
-			"enabling something does not wake the past", len(compteur.partis))
+			"enabling something does not wake the past", len(counter.sent))
 	}
 	executions, err := db.ListPlanRuns(ctx, projectID, 0)
 	if err != nil {
@@ -224,14 +224,14 @@ func TestLiveTheWholeLoopOnARealDatabase(t *testing.T) {
 		t.Errorf("%d runs opened at bootstrap, expected none", len(executions))
 	}
 	// The cursor is set, in the database this time.
-	etat, err := db.GetSyncState(ctx, redmineSource, projectID)
+	state, err := db.GetSyncState(ctx, redmineSource, projectID)
 	if err != nil {
-		t.Fatalf("curseur: %v", err)
+		t.Fatalf("cursor: %v", err)
 	}
-	if etat.Cursor == "" {
+	if state.Cursor == "" {
 		t.Error("no cursor persisted: the next pass would re-read everything")
 	}
-	t.Logf("bootstrap: %d facts written, cursor set, no run", apresAmorcage)
+	t.Logf("bootstrap: %d facts written, cursor set, no run", afterBootstrap)
 
 	/*
 	 * 2. The next pass: it sees the snapshot again, and does not re-trigger.
@@ -239,14 +239,14 @@ func TestLiveTheWholeLoopOnARealDatabase(t *testing.T) {
 	 * It is the defect fixed during the migration, exercised here end to end — real database, real
 	 * uniqueness constraints, real routing.
 	 */
-	runner.sweep(ctx, sonde)
+	runner.sweep(ctx, probe)
 
-	if apres := countFacts(t, db); apres != apresAmorcage {
+	if after := countFacts(t, db); after != afterBootstrap {
 		t.Errorf("%d facts after the second pass, %d after the bootstrap: "+
-			"the snapshot was observed again", apres, apresAmorcage)
+			"the snapshot was observed again", after, afterBootstrap)
 	}
-	if len(compteur.partis) != 0 {
-		t.Errorf("%d steps started at the second pass, expected none", len(compteur.partis))
+	if len(counter.sent) != 0 {
+		t.Errorf("%d steps started at the second pass, expected none", len(counter.sent))
 	}
 
 	/*
@@ -257,9 +257,9 @@ func TestLiveTheWholeLoopOnARealDatabase(t *testing.T) {
 	 * is exactly the state one would be in if this version had just been declared.
 	 */
 	forget(t, db, string(event.VersionCreated))
-	runner.sweep(ctx, sonde)
+	runner.sweep(ctx, probe)
 
-	if len(compteur.partis) == 0 {
+	if len(counter.sent) == 0 {
 		t.Fatal("a new fact triggered no step: the routing is unplugged, " +
 			"and the two observations above prove nothing")
 	}
@@ -271,7 +271,7 @@ func TestLiveTheWholeLoopOnARealDatabase(t *testing.T) {
 		t.Errorf("%d runs, expected 1", len(executions))
 	}
 	t.Logf("new fact: %d step(s) started, %d run(s) opened",
-		len(compteur.partis), len(executions))
+		len(counter.sent), len(executions))
 }
 
 // countFacts returns the number of facts written.
@@ -324,24 +324,24 @@ const testEncryptionKey = "sN0Xk1t2Qv8yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sQ="
 type receiver struct {
 	server  *httptest.Server
 	mu      sync.Mutex
-	appels  int
+	calls   int
 	methode string
 	typeMIM string
 	auth    string
-	corps   string
+	payload string
 }
 
 func newReceiver(t *testing.T) *receiver {
 	t.Helper()
 	r := &receiver{}
 	r.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		corps, _ := io.ReadAll(req.Body)
+		payload, _ := io.ReadAll(req.Body)
 		r.mu.Lock()
-		r.appels++
+		r.calls++
 		r.methode = req.Method
 		r.typeMIM = req.Header.Get("Content-Type")
 		r.auth = req.Header.Get("Authorization")
-		r.corps = string(corps)
+		r.payload = string(payload)
 		r.mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -349,10 +349,10 @@ func newReceiver(t *testing.T) *receiver {
 	return r
 }
 
-func (r *receiver) vu() (int, string, string, string, string) {
+func (r *receiver) seenParams() (int, string, string, string, string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.appels, r.methode, r.typeMIM, r.auth, r.corps
+	return r.calls, r.methode, r.typeMIM, r.auth, r.payload
 }
 
 // testResolver opens a named sensitive field, as `main` does.
@@ -382,7 +382,7 @@ const madeUpToken = "token-made-up-for-this-test-only"
 func TestLiveAnOutgoingCallReallyStarts(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	db, projectID, sonde := h.db, h.projectID, h.sonde
+	db, projectID, probe := h.db, h.projectID, h.probe
 
 	// A plugin carrying a sensitive field, with a made-up value. It is the token the step will
 	// **name** — never a real key: sending one out to a test server would be exactly what the rule
@@ -426,21 +426,21 @@ func TestLiveAnOutgoingCallReallyStarts(t *testing.T) {
 	}), testResolver{db: db, cipher: h.cipher}, quietLogger())
 
 	engine := NewEngine(db, stepRouter{actions: actions}, quietLogger())
-	runner := NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), sonde).
+	runner := NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), probe).
 		WithDispatcher(NewDispatcher(db, engine, quietLogger()))
 
-	runner.sweep(ctx, sonde) // amorçage : rien ne part
-	if appels, _, _, _, _ := received.vu(); appels != 0 {
-		t.Fatalf("%d calls at bootstrap, expected none", appels)
+	runner.sweep(ctx, probe) // bootstrap: nothing is sent
+	if calls, _, _, _, _ := received.seenParams(); calls != 0 {
+		t.Fatalf("%d calls at bootstrap, expected none", calls)
 	}
 
 	// A fact becomes new again, and the reaction starts for real.
 	forget(t, db, string(event.VersionCreated))
-	runner.sweep(ctx, sonde)
+	runner.sweep(ctx, probe)
 
-	appels, methode, typeMIM, auth, corps := received.vu()
-	if appels != 1 {
-		t.Fatalf("%d calls received, expected 1", appels)
+	calls, methode, typeMIM, auth, payload := received.seenParams()
+	if calls != 1 {
+		t.Fatalf("%d calls received, expected 1", calls)
 	}
 	if methode != http.MethodPost {
 		t.Errorf("method %q", methode)
@@ -455,14 +455,14 @@ func TestLiveAnOutgoingCallReallyStarts(t *testing.T) {
 	}
 	// And it is **nowhere** in the body. It is the rule made observable: a sensitive field is named,
 	// never interpolated.
-	if strings.Contains(corps, madeUpToken) {
+	if strings.Contains(payload, madeUpToken) {
 		t.Error("the token leaked into the call's body")
 	}
 
 	// The template was bound: `{name}` is no longer literal.
 	var charge map[string]string
-	if err := json.Unmarshal([]byte(corps), &charge); err != nil {
-		t.Fatalf("corps illisible (%q): %v", corps, err)
+	if err := json.Unmarshal([]byte(payload), &charge); err != nil {
+		t.Fatalf("unreadable body (%q): %v", payload, err)
 	}
 	if charge["version"] == "" || strings.Contains(charge["version"], "{") {
 		t.Errorf("version returned %q — the template was not bound", charge["version"])
@@ -502,7 +502,7 @@ func TestLiveAnOutgoingCallReallyStarts(t *testing.T) {
 func TestLiveTheTransportGuardRailsRefuse(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	db, projectID, sonde := h.db, h.projectID, h.sonde
+	db, projectID, probe := h.db, h.projectID, h.probe
 
 	received := newReceiver(t)
 
@@ -521,28 +521,28 @@ func TestLiveTheTransportGuardRailsRefuse(t *testing.T) {
 
 	// The bootstrap once only: both phases share the database and the cursor, and reading Redmine
 	// twice would prove nothing more.
-	amorcer := func(options webhook.Options) *ProbeRunner {
+	bootstrap := func(options webhook.Options) *ProbeRunner {
 		actions := NewActionRunner(webhook.New(options),
 			testResolver{db: db, cipher: h.cipher}, quietLogger())
-		return NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), sonde).
+		return NewProbeRunner(db, h.cipher, time.Minute, quietLogger(), probe).
 			WithDispatcher(NewDispatcher(db,
 				NewEngine(db, stepRouter{actions: actions}, quietLogger()), quietLogger()))
 	}
 
 	phases := []struct {
-		nom      string
+		name     string
 		options  webhook.Options
 		expected string
 	}{
 		{
-			nom:      "the production default refuses clear text",
+			name:     "the production default refuses clear text",
 			options:  webhook.Options{Timeout: 10 * time.Second},
 			expected: "clair",
 		},
 		{
 			// Clear text allowed, the private target not: it is the address check that must speak this
 			// time, and it alone.
-			nom:      "clear text allowed, the private target still refused",
+			name:     "clear text allowed, the private target still refused",
 			options:  webhook.Options{AllowInsecure: true, Timeout: 10 * time.Second},
 			expected: "",
 		},
@@ -550,15 +550,15 @@ func TestLiveTheTransportGuardRailsRefuse(t *testing.T) {
 
 	// The first pass bootstraps without triggering; each phase then returns a new fact so that
 	// exactly one run starts.
-	amorcer(phases[0].options).sweep(ctx, sonde)
+	bootstrap(phases[0].options).sweep(ctx, probe)
 
 	for index, phase := range phases {
-		t.Run(phase.nom, func(t *testing.T) {
+		t.Run(phase.name, func(t *testing.T) {
 			forget(t, db, string(event.VersionCreated))
-			amorcer(phase.options).sweep(ctx, sonde)
+			bootstrap(phase.options).sweep(ctx, probe)
 
-			if appels, _, _, _, _ := received.vu(); appels != 0 {
-				t.Fatalf("%d calls received: the guard rail let it through", appels)
+			if calls, _, _, _, _ := received.seenParams(); calls != 0 {
+				t.Fatalf("%d calls received: the guard rail let it through", calls)
 			}
 
 			executions, err := db.ListPlanRuns(ctx, projectID, 0)
@@ -569,28 +569,28 @@ func TestLiveTheTransportGuardRailsRefuse(t *testing.T) {
 				t.Fatalf("%d runs, expected %d", len(executions), index+1)
 			}
 			// The most recent first: it is this phase's.
-			derniere := executions[0]
-			if derniere.State != "failed" {
-				t.Errorf("run %q, expected failed", derniere.State)
+			last := executions[0]
+			if last.State != "failed" {
+				t.Errorf("run %q, expected failed", last.State)
 			}
-			if len(derniere.Steps) != 1 {
-				t.Fatalf("gestes = %+v", derniere.Steps)
+			if len(last.Steps) != 1 {
+				t.Fatalf("gestes = %+v", last.Steps)
 			}
 			// The reason must be readable: "failed" with no reason would force a re-run to understand that
 			// it is a deliberate refusal and not an outage at the recipient.
-			motif := derniere.Steps[0].Detail
-			t.Logf("refusal recorded: %s", motif)
-			if motif == "" {
+			reason := last.Steps[0].Detail
+			t.Logf("refusal recorded: %s", reason)
+			if reason == "" {
 				t.Fatal("no reason recorded for the refusal")
 			}
-			if phase.expected != "" && !strings.Contains(motif, phase.expected) {
-				t.Errorf("reason %q — expected it to name %q", motif, phase.expected)
+			if phase.expected != "" && !strings.Contains(reason, phase.expected) {
+				t.Errorf("reason %q — expected it to name %q", reason, phase.expected)
 			}
 			// The refusal of a private target must not disguise itself as a refusal of clear text: they are
 			// two distinct protections, and confusing them would make the second look exercised when the
 			// first masked it.
-			if phase.expected == "" && strings.Contains(motif, "clair") {
-				t.Errorf("reason %q — it is the refusal of clear text, not that of the target", motif)
+			if phase.expected == "" && strings.Contains(reason, "clair") {
+				t.Errorf("reason %q — it is the refusal of clear text, not that of the target", reason)
 			}
 		})
 	}

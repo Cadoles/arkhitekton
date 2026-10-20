@@ -133,7 +133,7 @@ func newHandler(t *testing.T) http.Handler {
 
 	handler, err := Handler(discardLogger())
 	if err != nil {
-		t.Fatalf("construction: %v", err)
+		t.Fatalf("building: %v", err)
 	}
 	if !isBuilt(t) {
 		t.Skip("interface non construite: lancer `make web`")

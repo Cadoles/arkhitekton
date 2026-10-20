@@ -184,7 +184,7 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	summary, err := h.store.GetVersionSummary(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrVersionNotFoundByID) {
-			writeProblem(w, http.StatusNotFound, "Version introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Version not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the version", "")
@@ -354,7 +354,7 @@ func (h *VersionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(project.TrackerProject) != "" {
-		writeProblem(w, http.StatusConflict, "Projet suivi",
+		writeProblem(w, http.StatusConflict, "Tracked project",
 			"this project's versions come from its tracker, which is "+
 				"authoritative: declaring one here would stay awaiting an adoption "+
 				"that would never come")

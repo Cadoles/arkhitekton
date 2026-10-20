@@ -75,7 +75,7 @@ func TestAnObservedTaskOutsideTheDeclarationStaysDisplayed(t *testing.T) {
 	})
 
 	if len(tasks) != 2 {
-		t.Fatalf("%d tâches: %+v", len(tasks), tasks)
+		t.Fatalf("%d tasks: %+v", len(tasks), tasks)
 	}
 	if tasks[0].DisplayName != "tache-disparue" || tasks[0].Status != "failed" {
 		t.Errorf("the observed task should move to the front: %+v", tasks[0])
@@ -92,7 +92,7 @@ func TestWithoutADeclarationOnlyStartedTasksAreReturned(t *testing.T) {
 	})
 
 	if len(tasks) != 1 || tasks[0].DisplayName != "git-clone" {
-		t.Errorf("tâches: %+v", tasks)
+		t.Errorf("tasks: %+v", tasks)
 	}
 }
 

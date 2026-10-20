@@ -8,16 +8,16 @@ import "testing"
 // built, so nothing runs. Modelling a fictional `building` would make the interface
 // wait for a pipeline that will never come.
 func TestBothPathsCanBeWalked(t *testing.T) {
-	chemins := map[string][]State{
+	routes := map[string][]State{
 		"construite": {StateDraft, StateBuilding, StateVerifying, StateReady, StateReleased},
 		"derived":    {StateDraft, StateReady, StateReleased},
 	}
 
-	for nom, chemin := range chemins {
-		for i := 0; i < len(chemin)-1; i++ {
-			from, to := chemin[i], chemin[i+1]
+	for name, route := range routes {
+		for i := 0; i < len(route)-1; i++ {
+			from, to := route[i], route[i+1]
 			if !CanTransition(from, to) {
-				t.Errorf("path %s: %s → %s refused", nom, from, to)
+				t.Errorf("path %s: %s → %s refused", name, from, to)
 			}
 		}
 	}
@@ -60,7 +60,7 @@ func TestAnAbandonedReleaseIsTerminal(t *testing.T) {
 
 // Every non-terminal state must be abandonable: it is the way out of a release
 // nobody will ship, and its absence would leave live rows nothing can close.
-func TestToutEtatVivantPeutEtreAbandonne(t *testing.T) {
+func TestEveryLiveStateCanBeAbandoned(t *testing.T) {
 	for _, state := range []State{
 		StateDraft, StateBuilding, StateVerifying, StateReady, StateReleased, StateFailed,
 	} {
@@ -117,15 +117,15 @@ func TestNoStateTransitionsToItself(t *testing.T) {
 // An unknown state opens nothing: a value read from the database matching no
 // declared state must not behave as a wildcard.
 func TestAnUnknownStateOpensNothing(t *testing.T) {
-	inconnu := State("invented")
+	unknown := State("invented")
 	for _, to := range []State{StateBuilding, StateReady, StateReleased, StateCancelled} {
-		if CanTransition(inconnu, to) {
+		if CanTransition(unknown, to) {
 			t.Errorf("invented → %s should be refused", to)
 		}
 	}
 	// And it is seen as terminal, which is the safe behaviour: nothing will advance it
 	// until someone fixes the data.
-	if !inconnu.Terminal() {
+	if !unknown.Terminal() {
 		t.Error("an unknown state should be seen as terminal")
 	}
 }

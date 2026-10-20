@@ -56,8 +56,8 @@ func TestHeartbeatIsAComment(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	stream, _ := newSSEWriter(recorder)
 
-	if err := stream.comment("battement"); err != nil {
-		t.Fatalf("battement: %v", err)
+	if err := stream.comment("heartbeat"); err != nil {
+		t.Fatalf("heartbeat: %v", err)
 	}
 
 	body := recorder.Body.String()

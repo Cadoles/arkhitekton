@@ -23,12 +23,12 @@ func TestParsePHPStanProjectsViolationsAsCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	// Deux violations de fichier plus l'erreur d'analyse.
+	// Two file violations plus the analysis error.
 	if report.Total != 3 || report.Failed != 3 {
-		t.Errorf("comptes = %+v", report)
+		t.Errorf("counts = %+v", report)
 	}
 	if report.Status != ReportFail {
-		t.Errorf("statut = %q", report.Status)
+		t.Errorf("status = %q", report.Status)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestViolationIdentityIgnoresTheLineNumber(t *testing.T) {
 			return
 		}
 	}
-	t.Error("violation introuvable")
+	t.Error("violation not found")
 }
 
 // An error outside a file is a failure of the tool, not of the code: counting it as
@@ -124,7 +124,7 @@ func TestCSFixerCleanRunIsAPass(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if report.Status != ReportPass {
-		t.Errorf("statut = %q", report.Status)
+		t.Errorf("status = %q", report.Status)
 	}
 }
 
@@ -142,7 +142,7 @@ func TestPHPStanOutputIsStable(t *testing.T) {
 		next, _ := ParsePHPStan([]byte(multi))
 		for index := range first.Cases {
 			if first.Cases[index].Key() != next.Cases[index].Key() {
-				t.Fatalf("ordre instable: %q vs %q",
+				t.Fatalf("unstable order: %q vs %q",
 					first.Cases[index].Key(), next.Cases[index].Key())
 			}
 		}

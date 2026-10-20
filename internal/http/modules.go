@@ -135,7 +135,7 @@ func (m *Middleware) RequireModule(id string) func(http.Handler) http.Handler {
 				enabled = m.modules.EnabledIn(r.Context(), projectID, id)
 			}
 			if !enabled {
-				writeProblem(w, http.StatusNotFound, "Module inactif",
+				writeProblem(w, http.StatusNotFound, "Module disabled",
 					"module "+id+" is switched off")
 				return
 			}

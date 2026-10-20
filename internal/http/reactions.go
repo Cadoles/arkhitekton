@@ -154,7 +154,7 @@ func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.PathValue("reaction")); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			writeProblem(w, http.StatusBadRequest, "Identifiant invalide", "")
+			writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
 			return
 		}
 		id = parsed
@@ -188,7 +188,7 @@ func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		h.logger.Error("recording a reaction",
 			"project", project.Slug, "name", entry.Name, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
 		return
 	}
 
@@ -210,7 +210,7 @@ func (h *AutomationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	id, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("reaction")), 10, 64)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Identifiant invalide", "")
+		writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
 		return
 	}
 
@@ -219,7 +219,7 @@ func (h *AutomationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusNotFound, "Reaction not found", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Suppression impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot delete", "")
 		return
 	}
 

@@ -86,13 +86,13 @@ func summarize(audit *facts.Findings) string {
 	}
 	parts := []string{fmt.Sprintf("%d finding(s)", audit.Total)}
 	if critical := audit.BySeverity[facts.SeverityCritical]; critical > 0 {
-		parts = append(parts, fmt.Sprintf("%d critique(s)", critical))
+		parts = append(parts, fmt.Sprintf("%d critical", critical))
 	}
 	if high := audit.BySeverity[facts.SeverityHigh]; high > 0 {
-		parts = append(parts, fmt.Sprintf("%d haut(s)", high))
+		parts = append(parts, fmt.Sprintf("%d high", high))
 	}
 	if audit.DeltaNew > 0 {
-		parts = append(parts, fmt.Sprintf("%d nouveau(x)", audit.DeltaNew))
+		parts = append(parts, fmt.Sprintf("%d new", audit.DeltaNew))
 	}
 	if audit.Suppressed > 0 {
 		parts = append(parts, fmt.Sprintf("%d suppressed by exception", audit.Suppressed))

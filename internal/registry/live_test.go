@@ -29,7 +29,7 @@ func TestLiveRegistry(t *testing.T) {
 		Project:  envOr("TEST_REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
 	})
 	if err != nil {
-		t.Fatalf("ouverture: %v", err)
+		t.Fatalf("opening: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -58,7 +58,7 @@ func TestLiveRegistry(t *testing.T) {
 	// digest say where an image was promoted.
 	byDigest, err := client.TagsByDigest(ctx, repository, 20)
 	if err != nil {
-		t.Fatalf("indexation: %v", err)
+		t.Fatalf("indexing: %v", err)
 	}
 
 	var shared int

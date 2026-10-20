@@ -85,10 +85,10 @@ func TestAFullQueueSetsAsideOnlyItsOwnKind(t *testing.T) {
 
 	first, err := claim(t, db, limits)
 	if err != nil {
-		t.Fatalf("premier: %v", err)
+		t.Fatalf("first: %v", err)
 	}
 	if first.Kind != "e2e" {
-		t.Fatalf("premier job = %q", first.Kind)
+		t.Fatalf("first job = %q", first.Kind)
 	}
 
 	second, err := claim(t, db, limits)
@@ -142,7 +142,7 @@ func TestAnUnknownKindTakesTheDefault(t *testing.T) {
 	enqueue(t, db, "delivery-note", 100)
 
 	if _, err := claim(t, db, limits); err != nil {
-		t.Fatalf("premier: %v", err)
+		t.Fatalf("first: %v", err)
 	}
 	// Default of 1: the second one waits, which proves the default really applies rather
 	// than there being no limit.
@@ -182,12 +182,12 @@ func TestAQueueOfOnePlaceIsObservedAsExclusive(t *testing.T) {
 
 	limits := caps(10, map[string]int{"load-test": 1, "build": 5})
 
-	seul := enqueue(t, db, "load-test", 100)
+	alone := enqueue(t, db, "load-test", 100)
 	if _, err := claim(t, db, limits); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
-	exclusive, concurrent, err := db.StartConditions(ctx, seul)
+	exclusive, concurrent, err := db.StartConditions(ctx, alone)
 	if err != nil {
 		t.Fatalf("conditions: %v", err)
 	}
@@ -200,11 +200,11 @@ func TestAQueueOfOnePlaceIsObservedAsExclusive(t *testing.T) {
 		t.Errorf("%d concurrent run(s), expected 0", concurrent)
 	}
 
-	partage := enqueue(t, db, "build", 100)
+	shared := enqueue(t, db, "build", 100)
 	if _, err := claim(t, db, limits); err != nil {
 		t.Fatalf("second claim: %v", err)
 	}
-	exclusive, concurrent, err = db.StartConditions(ctx, partage)
+	exclusive, concurrent, err = db.StartConditions(ctx, shared)
 	if err != nil {
 		t.Fatalf("conditions: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestRequeueClearsTheRunNameAndCountsTheAttempt(t *testing.T) {
 
 	again, err := db.Requeue(ctx, id, "creation refused by the cluster")
 	if err != nil {
-		t.Fatalf("remise en file: %v", err)
+		t.Fatalf("requeue: %v", err)
 	}
 	if !again {
 		t.Error("a first retry must be allowed")
@@ -238,7 +238,7 @@ func TestRequeueClearsTheRunNameAndCountsTheAttempt(t *testing.T) {
 
 	job, err := db.GetJob(ctx, id)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if job.State != JobQueued {
 		t.Errorf("state = %q, expected queued", job.State)
@@ -265,12 +265,12 @@ func TestExplainQueueNamesTheFullQueue(t *testing.T) {
 	}
 
 	if err := db.ExplainQueue(ctx, limits); err != nil {
-		t.Fatalf("explication: %v", err)
+		t.Fatalf("explanation: %v", err)
 	}
 
 	job, err := db.GetJob(ctx, blocked)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if job.QueueReason != ReasonKindBusy {
 		t.Errorf("reason = %q, expected %q", job.QueueReason, ReasonKindBusy)
@@ -293,12 +293,12 @@ func TestExplainQueuePrefersTheGlobalCeiling(t *testing.T) {
 	blocked := enqueue(t, db, "build", 100)
 
 	if err := db.ExplainQueue(ctx, limits); err != nil {
-		t.Fatalf("explication: %v", err)
+		t.Fatalf("explanation: %v", err)
 	}
 
 	job, err := db.GetJob(ctx, blocked)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if job.QueueReason != ReasonCapacity {
 		t.Errorf("reason = %q, expected %q", job.QueueReason, ReasonCapacity)
@@ -333,7 +333,7 @@ func TestASettingReplacesAndIsRemoved(t *testing.T) {
 	}
 
 	if err := db.ClearQueueLimit(ctx, "unit-tests"); err != nil {
-		t.Fatalf("retrait: %v", err)
+		t.Fatalf("removal: %v", err)
 	}
 	limits, _ = db.QueueLimits(ctx)
 	if len(limits) != 0 {
@@ -374,9 +374,9 @@ func TestCancelQueuedJobOnlyTouchesQueuedOnes(t *testing.T) {
 
 	id := enqueue(t, db, "build", 100)
 
-	cancelled, err := db.CancelQueuedJob(ctx, id, "demande utilisateur")
+	cancelled, err := db.CancelQueuedJob(ctx, id, "user request")
 	if err != nil {
-		t.Fatalf("annulation: %v", err)
+		t.Fatalf("rollback: %v", err)
 	}
 	if !cancelled {
 		t.Fatal("a queued job must be cancellable")
@@ -389,9 +389,9 @@ func TestCancelQueuedJobOnlyTouchesQueuedOnes(t *testing.T) {
 
 	// A running job is not cancelled in the database: it has to go through the cluster, and
 	// the caller must be able to tell the difference.
-	cancelled, err = db.CancelQueuedJob(ctx, running, "demande utilisateur")
+	cancelled, err = db.CancelQueuedJob(ctx, running, "user request")
 	if err != nil {
-		t.Fatalf("annulation: %v", err)
+		t.Fatalf("rollback: %v", err)
 	}
 	if cancelled {
 		t.Error("a running job must not be cancelled this way")
@@ -412,7 +412,7 @@ func TestListQueueShowsRunningFirstThenServiceOrder(t *testing.T) {
 
 	jobs, err := db.ListQueue(context.Background())
 	if err != nil {
-		t.Fatalf("liste: %v", err)
+		t.Fatalf("list: %v", err)
 	}
 	if len(jobs) != 3 {
 		t.Fatalf("%d job(s), expected 3", len(jobs))
@@ -439,13 +439,13 @@ func TestFinishJobIsIdempotentOnTerminalJobs(t *testing.T) {
 		t.Fatalf("conclusion: %v", err)
 	}
 	// A second informer event must not rewrite the outcome.
-	if err := db.FinishJob(ctx, id, JobFailed, "trop tard"); err != nil {
-		t.Fatalf("seconde conclusion: %v", err)
+	if err := db.FinishJob(ctx, id, JobFailed, "too late"); err != nil {
+		t.Fatalf("second conclusion: %v", err)
 	}
 
 	job, err := db.GetJob(ctx, id)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if job.State != JobSucceeded {
 		t.Errorf("state = %q, expected succeeded: a terminal outcome was rewritten", job.State)
@@ -470,7 +470,7 @@ func TestARetryStopsAtTheCeiling(t *testing.T) {
 		}
 		again, err := db.Requeue(ctx, id, "a cause that will not go away")
 		if err != nil {
-			t.Fatalf("reprise %d: %v", reprises, err)
+			t.Fatalf("resumption %d: %v", reprises, err)
 		}
 		reprises++
 		if !again {
@@ -484,7 +484,7 @@ func TestARetryStopsAtTheCeiling(t *testing.T) {
 
 	job, err := db.GetJob(ctx, id)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if job.Attempt != MaxJobAttempts {
 		t.Errorf("%d attempts in total, expected the ceiling %d", job.Attempt, MaxJobAttempts)
@@ -501,7 +501,7 @@ func TestARetryOnANonRunningJobIsNotAnError(t *testing.T) {
 
 	again, err := db.Requeue(ctx, id, "never started")
 	if err != nil {
-		t.Fatalf("remise en file: %v", err)
+		t.Fatalf("requeue: %v", err)
 	}
 	if again {
 		t.Error("no retry should be announced on a job that is not running")

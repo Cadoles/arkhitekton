@@ -10,7 +10,7 @@ import (
 )
 
 // ErrSignoffNotFound reports a missing sign-off.
-var ErrSignoffNotFound = errors.New("validation introuvable")
+var ErrSignoffNotFound = errors.New("sign-off not found")
 
 // Signoff is a participant's opinion on a release in an environment.
 //
@@ -128,7 +128,7 @@ func (s *Store) SignoffEnvironmentExists(ctx context.Context, projectID int64, e
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
-		return false, fmt.Errorf("environnement %s: %w", environmentID, err)
+		return false, fmt.Errorf("environment %s: %w", environmentID, err)
 	}
 	return exists, nil
 }

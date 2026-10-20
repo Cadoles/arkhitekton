@@ -33,7 +33,7 @@ func TestEnsureVersionCreatesThenReuses(t *testing.T) {
 	if err := db.Pool().QueryRow(ctx,
 		`select origin, external_id, status from versions where id = $1`, first).
 		Scan(&origin, &externalID, &status); err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if origin != VersionOriginPending {
 		t.Errorf("origin = %q, expected %q for a provisional version", origin, VersionOriginPending)
@@ -44,7 +44,7 @@ func TestEnsureVersionCreatesThenReuses(t *testing.T) {
 		t.Errorf("external_id = %q, expected null", *externalID)
 	}
 	if status != "en-attente-de-synchronisation" {
-		t.Errorf("statut = %q", status)
+		t.Errorf("status = %q", status)
 	}
 }
 
@@ -107,7 +107,7 @@ func TestFinalReleaseKeepsTheSourceImageVersion(t *testing.T) {
 		GitRef: "abc", ImageVersion: "1.8.0-rc3", SourceReleaseID: &sourceID,
 		CreatedBy: "vcarroy",
 	}); err != nil {
-		t.Fatalf("finale: %v", err)
+		t.Fatalf("final: %v", err)
 	}
 
 	final, err := db.GetRelease(ctx, testProjectID, "1.8.0")
@@ -144,18 +144,18 @@ func TestManualActionsCarryTheirAuthorAndDate(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if release.ManualActions == "" {
-		t.Error("texte perdu")
+		t.Error("lost text")
 	}
 	// This text ends up in a contractual document: its provenance is part of it.
 	if release.ManualActionsUpdatedBy != "vcarroy" || release.ManualActionsUpdatedAt == nil {
-		t.Errorf("auteur = %q, date = %v", release.ManualActionsUpdatedBy, release.ManualActionsUpdatedAt)
+		t.Errorf("author = %q, date = %v", release.ManualActionsUpdatedBy, release.ManualActionsUpdatedAt)
 	}
 }
 
 func TestSetManualActionsOnAnUnknownRelease(t *testing.T) {
 	db := migrated(t)
 
-	if err := db.SetManualActions(context.Background(), "9.9.9", "texte", "vcarroy"); !errors.Is(err, ErrReleaseNotFound) {
+	if err := db.SetManualActions(context.Background(), "9.9.9", "text", "vcarroy"); !errors.Is(err, ErrReleaseNotFound) {
 		t.Errorf("error = %v, expected ErrReleaseNotFound", err)
 	}
 }

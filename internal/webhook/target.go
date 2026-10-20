@@ -93,7 +93,7 @@ func checkAddress(address string, allowPrivate bool) error {
 func forbidden(address netip.Addr) string {
 	switch {
 	case !address.IsValid():
-		return "adresse invalide"
+		return "invalid address"
 	case address.IsUnspecified():
 		return "unspecified address"
 	case address.IsLoopback():

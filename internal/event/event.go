@@ -104,7 +104,7 @@ type Event struct {
 }
 
 // ErrInvalid reports a fact we refuse to record.
-var ErrInvalid = errors.New("fait invalide")
+var ErrInvalid = errors.New("invalid fact")
 
 // Validate refuses a fact that could not be used.
 //

@@ -158,7 +158,7 @@ func (b *NoteBuilder) Run(ctx context.Context, job store.Job) error {
 		if err != nil {
 			// An unreadable bound does not prevent composing: without it the reading goes back further,
 			// which is more expensive but not wrong.
-			b.logger.Warn("reading bound unreadable", "valeur", raw, "error", err)
+			b.logger.Warn("reading bound unreadable", "value", raw, "error", err)
 		} else {
 			since = parsed
 		}

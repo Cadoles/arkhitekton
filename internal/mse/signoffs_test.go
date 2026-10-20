@@ -199,8 +199,8 @@ func TestEveryDecisionIsRecorded(t *testing.T) {
 		t.Errorf("journal: %v", fake.audit)
 	}
 
-	retrait := signoffRequestFor(t, http.MethodDelete, "/releases/1.8.0-rc1/signoffs/qualif?role=Client", "")
-	handler.Clear(httptest.NewRecorder(), retrait)
+	removal := signoffRequestFor(t, http.MethodDelete, "/releases/1.8.0-rc1/signoffs/qualif?role=Client", "")
+	handler.Clear(httptest.NewRecorder(), removal)
 
 	if len(fake.audit) != 2 || fake.audit[1] != store.AuditSignoffClear+":1.8.0-rc1" {
 		t.Errorf("log after removal: %v", fake.audit)
@@ -259,7 +259,7 @@ func TestEveryEnvironmentIsReturnedEvenWithNoOpinion(t *testing.T) {
 		t.Fatalf("%d environment(s), expected 2", len(response.Environments))
 	}
 	if response.Environments[1].Environment != "prod" {
-		t.Errorf("second environnement %q", response.Environments[1].Environment)
+		t.Errorf("second environment %q", response.Environments[1].Environment)
 	}
 	// An empty array and not `null`: the interface iterates over it with no guard.
 	if response.Environments[1].Signoffs == nil {

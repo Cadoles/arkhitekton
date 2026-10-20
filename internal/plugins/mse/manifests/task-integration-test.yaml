@@ -128,7 +128,7 @@ spec:
 
         SUMMARY=$(cat "$(results.summary.path)" 2>/dev/null || true)
         if [ -z "${SUMMARY}" ]; then
-          SUMMARY="aucun rapport JUnit produit"
+          SUMMARY="no JUnit report produced"
         fi
 
         # `phpunit-integration` and not `phpunit`: it is the name under which the artifact ingestion

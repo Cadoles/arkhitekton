@@ -280,7 +280,7 @@ func pipelineName(pr *tektonv1.PipelineRun) string {
 	}
 	// A pipeline defined inline has no name. Leaving it empty would be worse than an
 	// explicit fallback: the interface would show a blank cell.
-	return "(en ligne)"
+	return "(inline)"
 }
 
 func runResults(pr *tektonv1.PipelineRun) map[string]string {

@@ -108,7 +108,7 @@ func workspaceBinding(workspace catalog.Workspace) (tektonv1.WorkspaceBinding, e
 	case workspace.VolumeClaimTemplate != nil:
 		quantity, err := resource.ParseQuantity(workspace.VolumeClaimTemplate.Storage)
 		if err != nil {
-			return binding, fmt.Errorf("taille %q illisible: %w", workspace.VolumeClaimTemplate.Storage, err)
+			return binding, fmt.Errorf("unreadable size %q: %w", workspace.VolumeClaimTemplate.Storage, err)
 		}
 
 		modes := make([]corev1.PersistentVolumeAccessMode, 0, len(workspace.VolumeClaimTemplate.AccessModes))

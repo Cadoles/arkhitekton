@@ -196,7 +196,7 @@ type Project struct {
 }
 
 // ErrProjectNotFound reports a missing project.
-var ErrProjectNotFound = errors.New("projet introuvable")
+var ErrProjectNotFound = errors.New("project not found")
 
 // ErrNoBuildableProject reports that no declared repository is buildable.
 //

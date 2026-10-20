@@ -71,7 +71,7 @@ func TestFinalFromSourceKeepsTheSourceImageVersion(t *testing.T) {
 		t.Errorf("image version = %q, expected the candidate's", imageVersion)
 	}
 	if len(warnings) != 0 {
-		t.Errorf("avertissements inattendus: %v", warnings)
+		t.Errorf("unexpected warnings: %v", warnings)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestFinalFromSourceWarnsOnRedTests(t *testing.T) {
 		t.Fatalf("the re-tag must not be refused: %v", err)
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "1.8.0-rc3") {
-		t.Errorf("avertissement = %v", warnings)
+		t.Errorf("warning = %v", warnings)
 	}
 }
 

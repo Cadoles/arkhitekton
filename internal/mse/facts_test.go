@@ -20,7 +20,7 @@ func testPromotion(jobID int64) store.JobReleaseContext {
 func TestTheFactCarriesTheTypeThePluginDeclares(t *testing.T) {
 	descriptor, err := plugin.Get(plugin.ModuleMSE)
 	if err != nil {
-		t.Fatalf("plugin MSE introuvable: %v", err)
+		t.Fatalf("MSE plugin not found: %v", err)
 	}
 	declared := make([]string, 0, len(descriptor.Events))
 	for _, spec := range descriptor.Events {
@@ -30,15 +30,15 @@ func TestTheFactCarriesTheTypeThePluginDeclares(t *testing.T) {
 		t.Errorf("type %q missing from the declared facts %v", ReleasePromoted, declared)
 	}
 
-	fait := Facts{}.Promoted(time.Now(), testPromotion(1400))
-	if err := fait.Validate(); err != nil {
-		t.Errorf("fait invalide: %v", err)
+	recorded := Facts{}.Promoted(time.Now(), testPromotion(1400))
+	if err := recorded.Validate(); err != nil {
+		t.Errorf("invalid fact: %v", err)
 	}
 	// Every declared field exists in the payload: a field offered for matching and absent would
 	// never match.
 	for _, spec := range descriptor.Events {
 		for _, field := range spec.Payload {
-			if _, present := fait.Payload[field.Name]; !present {
+			if _, present := recorded.Payload[field.Name]; !present {
 				t.Errorf("field %q declared and missing from the payload", field.Name)
 			}
 		}
@@ -47,9 +47,9 @@ func TestTheFactCarriesTheTypeThePluginDeclares(t *testing.T) {
 
 // A retried promotion is a distinct fact: the key carries the job.
 func TestARetriedPromotionIsADistinctFact(t *testing.T) {
-	premiere := Facts{}.Promoted(time.Now(), testPromotion(1400))
+	first := Facts{}.Promoted(time.Now(), testPromotion(1400))
 	reprise := Facts{}.Promoted(time.Now(), testPromotion(1402))
-	if premiere.DedupKey == reprise.DedupKey {
-		t.Errorf("shared key %q — the retry would be mute", premiere.DedupKey)
+	if first.DedupKey == reprise.DedupKey {
+		t.Errorf("shared key %q — the retry would be mute", first.DedupKey)
 	}
 }

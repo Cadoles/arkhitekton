@@ -36,7 +36,7 @@ func Migrate(ctx context.Context, cfg config.DatabaseConfig, logger *slog.Logger
 	defer db.Close()
 
 	if err := goose.SetDialect("postgres"); err != nil {
-		return fmt.Errorf("dialecte goose: %w", err)
+		return fmt.Errorf("goose dialect: %w", err)
 	}
 	goose.SetBaseFS(migrationFiles)
 	// goose's log goes to slog rather than raw stdout, so the Job's output stays as
@@ -60,7 +60,7 @@ func MigrationState(ctx context.Context, cfg config.DatabaseConfig) ([]Migration
 	defer db.Close()
 
 	if err := goose.SetDialect("postgres"); err != nil {
-		return nil, fmt.Errorf("dialecte goose: %w", err)
+		return nil, fmt.Errorf("goose dialect: %w", err)
 	}
 	goose.SetBaseFS(migrationFiles)
 
@@ -94,7 +94,7 @@ func Rollback(ctx context.Context, cfg config.DatabaseConfig, logger *slog.Logge
 	defer db.Close()
 
 	if err := goose.SetDialect("postgres"); err != nil {
-		return fmt.Errorf("dialecte goose: %w", err)
+		return fmt.Errorf("goose dialect: %w", err)
 	}
 	goose.SetBaseFS(migrationFiles)
 	goose.SetLogger(gooseLogger{logger})
@@ -110,7 +110,7 @@ func openSQL(cfg config.DatabaseConfig) (*sql.DB, error) {
 	// PostgreSQL implementation in the binary, the one the application pool already uses.
 	db, err := sql.Open("pgx", cfg.DSN)
 	if err != nil {
-		return nil, fmt.Errorf("DSN PostgreSQL invalide: %w", redactError(err, cfg.DSN))
+		return nil, fmt.Errorf("invalid PostgreSQL DSN: %w", redactError(err, cfg.DSN))
 	}
 	return db, nil
 }

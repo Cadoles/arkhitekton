@@ -47,7 +47,7 @@ func ParsePHPStan(raw []byte) (Report, error) {
 			}
 			report.Cases = append(report.Cases, Case{
 				Suite: file.Path, Name: rule, Status: StatusFailed,
-				Message: fmt.Sprintf("ligne %d: %s", message.Line, firstLine(message.Message)),
+				Message: fmt.Sprintf("line %d: %s", message.Line, firstLine(message.Message)),
 			})
 		}
 	}

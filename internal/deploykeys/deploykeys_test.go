@@ -16,7 +16,7 @@ import (
 // together, and nothing else will check them: a badly encoded key would be discovered only at a
 // pipeline's first clone, in a message that names the repository and not the key.
 func TestTheGeneratedPairIsReadableByAnSSHClient(t *testing.T) {
-	pair, err := Generate("projet-test")
+	pair, err := Generate("test-project")
 	if err != nil {
 		t.Fatalf("generation: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestTheGeneratedPairIsReadableByAnSSHClient(t *testing.T) {
 	if !strings.HasPrefix(pair.Public, "ssh-ed25519 ") {
 		t.Errorf("public key %q — expected an ed25519 one", pair.Public)
 	}
-	if !strings.HasSuffix(pair.Public, " projet-test") {
+	if !strings.HasSuffix(pair.Public, " test-project") {
 		t.Errorf("public key %q — the comment must name the project", pair.Public)
 	}
 }
@@ -74,7 +74,7 @@ func TestTheSecretCarriesTheMaterialUnderTheNameSSHReads(t *testing.T) {
 	kube := fake.NewSimpleClientset()
 	owner := NewOwner(kube, "mse-tekton-pipelines")
 
-	public, err := owner.Create(context.Background(), "mon-projet", "mon-projet", false)
+	public, err := owner.Create(context.Background(), "my-project", "my-project", false)
 	if err != nil {
 		t.Fatalf("creation: %v", err)
 	}
@@ -83,9 +83,9 @@ func TestTheSecretCarriesTheMaterialUnderTheNameSSHReads(t *testing.T) {
 	}
 
 	secret, err := kube.CoreV1().Secrets("mse-tekton-pipelines").
-		Get(context.Background(), SecretName("mon-projet"), metav1.GetOptions{})
+		Get(context.Background(), SecretName("my-project"), metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 
 	if secret.Type != corev1.SecretTypeSSHAuth {
@@ -93,7 +93,7 @@ func TestTheSecretCarriesTheMaterialUnderTheNameSSHReads(t *testing.T) {
 	}
 	// The name the type imposes, so that the object stays typed.
 	if len(secret.Data[corev1.SSHAuthPrivateKey]) == 0 {
-		t.Errorf("champ %q vide", corev1.SSHAuthPrivateKey)
+		t.Errorf("field %q empty", corev1.SSHAuthPrivateKey)
 	}
 	// And the one SSH reads. It is this one that was missing.
 	if len(secret.Data[PrivateKeyFile]) == 0 {
@@ -122,21 +122,21 @@ func TestTheSecretCarriesTheMaterialUnderTheNameSSHReads(t *testing.T) {
 func TestAPreExistingSecretIsNeverAdopted(t *testing.T) {
 	kube := fake.NewSimpleClientset(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      SecretName("mon-projet"),
+			Name:      SecretName("my-project"),
 			Namespace: "mse-tekton-pipelines",
 		},
 		Data: map[string][]byte{corev1.SSHAuthPrivateKey: []byte("someone else's key")},
 	})
 	owner := NewOwner(kube, "mse-tekton-pipelines")
 
-	_, err := owner.Create(context.Background(), "mon-projet", "mon-projet", false)
+	_, err := owner.Create(context.Background(), "my-project", "my-project", false)
 	if !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("error %v, expected ErrNameTaken", err)
 	}
 
 	// And above all: the material has not moved.
 	secret, _ := kube.CoreV1().Secrets("mse-tekton-pipelines").
-		Get(context.Background(), SecretName("mon-projet"), metav1.GetOptions{})
+		Get(context.Background(), SecretName("my-project"), metav1.GetOptions{})
 	if string(secret.Data[corev1.SSHAuthPrivateKey]) != "someone else's key" {
 		t.Error("a third party's secret was overwritten")
 	}
@@ -150,12 +150,12 @@ func TestARotationReplacesTheKeyWhenTheDatabaseAttestsIt(t *testing.T) {
 	owner := NewOwner(kube, "mse-tekton-pipelines")
 	ctx := context.Background()
 
-	first, err := owner.Create(ctx, "mon-projet", "mon-projet", false)
+	first, err := owner.Create(ctx, "my-project", "my-project", false)
 	if err != nil {
 		t.Fatalf("creation: %v", err)
 	}
 
-	second, err := owner.Create(ctx, "mon-projet", "mon-projet", true)
+	second, err := owner.Create(ctx, "my-project", "my-project", true)
 	if err != nil {
 		t.Fatalf("rotation: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestARotationReplacesTheKeyWhenTheDatabaseAttestsIt(t *testing.T) {
 	}
 
 	secret, _ := kube.CoreV1().Secrets("mse-tekton-pipelines").
-		Get(ctx, SecretName("mon-projet"), metav1.GetOptions{})
+		Get(ctx, SecretName("my-project"), metav1.GetOptions{})
 	if len(secret.Data[PrivateKeyFile]) == 0 {
 		t.Fatalf("field %q missing after the rotation: the new key would be useless",
 			PrivateKeyFile)
@@ -187,7 +187,7 @@ func TestARotationReplacesTheKeyWhenTheDatabaseAttestsIt(t *testing.T) {
 func TestDeletingAnAbsentKeyCompletes(t *testing.T) {
 	owner := NewOwner(fake.NewSimpleClientset(), "mse-tekton-pipelines")
 
-	if err := owner.Delete(context.Background(), "jamais-cree"); err != nil {
+	if err := owner.Delete(context.Background(), "never-created"); err != nil {
 		t.Errorf("deleting an absent key: %v", err)
 	}
 }
@@ -243,12 +243,12 @@ func mountable(t *testing.T, kube *fake.Clientset) []string {
 func TestAllowingAProjectDoesNotTouchTheDeploymentCredentials(t *testing.T) {
 	kube, mounter := mounterFor(t, serviceAccount("regcred", "git-credentials", "minio-credentials"))
 
-	if err := mounter.Allow(context.Background(), "mon-projet"); err != nil {
-		t.Fatalf("autorisation: %v", err)
+	if err := mounter.Allow(context.Background(), "my-project"); err != nil {
+		t.Fatalf("authorisation: %v", err)
 	}
 
 	got := mountable(t, kube)
-	want := []string{"regcred", "git-credentials", "minio-credentials", SecretName("mon-projet")}
+	want := []string{"regcred", "git-credentials", "minio-credentials", SecretName("my-project")}
 	if len(got) != len(want) {
 		t.Fatalf("mountable list %v, expected %v", got, want)
 	}
@@ -266,8 +266,8 @@ func TestAllowingTwiceDoesNotDuplicate(t *testing.T) {
 	kube, mounter := mounterFor(t, serviceAccount("regcred"))
 	ctx := context.Background()
 
-	_ = mounter.Allow(ctx, "mon-projet")
-	_ = mounter.Allow(ctx, "mon-projet")
+	_ = mounter.Allow(ctx, "my-project")
+	_ = mounter.Allow(ctx, "my-project")
 
 	if got := mountable(t, kube); len(got) != 2 {
 		t.Errorf("mountable list %v — the entry is duplicated", got)
@@ -285,7 +285,7 @@ func TestADeploymentSecretCannotBeNamedByMistake(t *testing.T) {
 
 	// A faulty caller passes the name of a shared credential as if it were a slug.
 	if err := mounter.Allow(context.Background(), "regcred"); err != nil {
-		t.Fatalf("autorisation: %v", err)
+		t.Fatalf("authorisation: %v", err)
 	}
 
 	got := mountable(t, kube)
@@ -297,7 +297,7 @@ func TestADeploymentSecretCannotBeNamedByMistake(t *testing.T) {
 
 	// And removing that "project" does not remove the shared credential.
 	if err := mounter.Deny(context.Background(), "regcred"); err != nil {
-		t.Fatalf("retrait: %v", err)
+		t.Fatalf("removal: %v", err)
 	}
 	after := mountable(t, kube)
 	if len(after) != 2 || after[0] != "regcred" {
@@ -310,11 +310,11 @@ func TestADeploymentSecretCannotBeNamedByMistake(t *testing.T) {
 func TestRemovingAnAbsentKeyWritesNothing(t *testing.T) {
 	kube, mounter := mounterFor(t, serviceAccount("regcred"))
 
-	if err := mounter.Deny(context.Background(), "jamais-autorise"); err != nil {
-		t.Fatalf("retrait: %v", err)
+	if err := mounter.Deny(context.Background(), "never-allowed"); err != nil {
+		t.Fatalf("removal: %v", err)
 	}
 	if got := mountable(t, kube); len(got) != 1 {
-		t.Errorf("liste montable %v", got)
+		t.Errorf("mountable list %v", got)
 	}
 }
 
@@ -332,8 +332,8 @@ func TestTheKeyIsMountableByEveryAccountOfTheCatalogue(t *testing.T) {
 	)
 	mounter := NewMounter(kube, "mse-tekton-pipelines", "tekton-kubectl", "default")
 
-	if err := mounter.Allow(context.Background(), "mon-projet"); err != nil {
-		t.Fatalf("autorisation: %v", err)
+	if err := mounter.Allow(context.Background(), "my-project"); err != nil {
+		t.Fatalf("authorisation: %v", err)
 	}
 
 	for _, name := range []string{"tekton-kubectl", "default"} {
@@ -341,7 +341,7 @@ func TestTheKeyIsMountableByEveryAccountOfTheCatalogue(t *testing.T) {
 			Get(context.Background(), name, metav1.GetOptions{})
 		found := false
 		for _, reference := range account.Secrets {
-			if reference.Name == SecretName("mon-projet") {
+			if reference.Name == SecretName("my-project") {
 				found = true
 			}
 		}
@@ -355,9 +355,9 @@ func TestTheKeyIsMountableByEveryAccountOfTheCatalogue(t *testing.T) {
 // has not created yet, and losing the authorization on those that exist would make things worse.
 func TestAMissingAccountDoesNotStopTheOthers(t *testing.T) {
 	kube := fake.NewSimpleClientset(serviceAccount("regcred"))
-	mounter := NewMounter(kube, "mse-tekton-pipelines", "tekton-kubectl", "jamais-cree")
+	mounter := NewMounter(kube, "mse-tekton-pipelines", "tekton-kubectl", "never-created")
 
-	err := mounter.Allow(context.Background(), "mon-projet")
+	err := mounter.Allow(context.Background(), "my-project")
 	if err == nil {
 		t.Error("a missing account must be reported")
 	}

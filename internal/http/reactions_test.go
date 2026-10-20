@@ -36,22 +36,22 @@ var instant = time.Date(2026, 9, 2, 14, 30, 0, 0, time.UTC)
 // The reduction removed three of them. Leaving them here would have left them choosable in
 // the editor, for reactions nothing triggers any more.
 func TestTheCatalogueOffersTheCoresThreeFacts(t *testing.T) {
-	attendus := map[string]bool{
+	expectedItems := map[string]bool{
 		string(event.VersionCreated): true, string(event.ReleaseCreated): true,
 		string(event.ReleaseReleased): true,
 	}
 
 	for _, choice := range coreEventChoices() {
-		if !attendus[choice.Type] {
+		if !expectedItems[choice.Type] {
 			t.Errorf("fact %q offered — it is not one of the core's three", choice.Type)
 		}
-		delete(attendus, choice.Type)
+		delete(expectedItems, choice.Type)
 		if choice.Label == "" {
 			t.Errorf("fact %q with no label — the editor's list would be mute", choice.Type)
 		}
 	}
-	for manquant := range attendus {
-		t.Errorf("fact %q is not offered to the editor", manquant)
+	for missing := range expectedItems {
+		t.Errorf("fact %q is not offered to the editor", missing)
 	}
 }
 
@@ -61,12 +61,12 @@ func TestTheCatalogueOffersTheCoresThreeFacts(t *testing.T) {
 // saved without complaint, and the match would never match. Nothing would say so — a
 // reaction that does not leave looks like a reaction nobody triggered.
 func TestEveryAnnouncedFieldExistsInThePayload(t *testing.T) {
-	echeance := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	dueDate := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	// The constructors filled in completely: an optional field left bare would make its
 	// absence look like a typo.
 	charges := map[string]map[string]string{
 		string(event.VersionCreated): event.VersionCreatedAt(
-			instant, 805, "v3.2.0", "open", "redmine", "412", &echeance).Payload,
+			instant, 805, "v3.2.0", "open", "redmine", "412", &dueDate).Payload,
 		string(event.ReleaseCreated): event.ReleaseCreatedAt(
 			instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0").Payload,
 		string(event.ReleaseReleased): event.ReleaseReleasedAt(
@@ -74,23 +74,23 @@ func TestEveryAnnouncedFieldExistsInThePayload(t *testing.T) {
 	}
 
 	for _, choice := range coreEventChoices() {
-		charge, connu := charges[choice.Type]
-		if !connu {
+		charge, known := charges[choice.Type]
+		if !known {
 			t.Errorf("fact %q with no sample — the check does not cover it", choice.Type)
 			continue
 		}
-		for _, champ := range choice.Fields {
-			if _, present := charge[champ]; !present {
+		for _, field := range choice.Fields {
+			if _, present := charge[field]; !present {
 				t.Errorf("fact %q: field %q is offered and the payload does not carry it",
-					choice.Type, champ)
+					choice.Type, field)
 			}
 		}
 		// And the reverse: a field carried but not announced is matchable without being offered.
 		// Less serious — nothing breaks — but it is a capability offered without saying so.
-		for champ := range charge {
-			if !slices.Contains(choice.Fields, champ) {
+		for field := range charge {
+			if !slices.Contains(choice.Fields, field) {
 				t.Errorf("fact %q: the payload carries %q and the editor does not offer it",
-					choice.Type, champ)
+					choice.Type, field)
 			}
 		}
 	}
@@ -131,9 +131,9 @@ func TestABuildStageRequiresAStepThatProducesAnImage(t *testing.T) {
 	}
 	// The message must say what was missing and what the pipeline produces: without the second,
 	// one looks for the mistake in the role rather than in the step.
-	for _, attendu := range []string{"build", "unit-tests", "image", "results"} {
-		if !strings.Contains(err.Error(), attendu) {
-			t.Errorf("reason %q — it must carry %q", err, attendu)
+	for _, expected := range []string{"build", "unit-tests", "image", "results"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("reason %q — it must carry %q", err, expected)
 		}
 	}
 }

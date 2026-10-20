@@ -58,17 +58,17 @@ func TestTheCatchUpSeesOnlyProjectsWithNoRow(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	sans, err := db.ProjectsWithoutAutomation(ctx)
+	without, err := db.ProjectsWithoutAutomation(ctx)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	if len(sans) != 1 || sans[0].ID != testProjectID {
-		t.Fatalf("projects without an automation = %+v, expected the single project", sans)
+	if len(without) != 1 || without[0].ID != testProjectID {
+		t.Fatalf("projects without an automation = %+v, expected the single project", without)
 	}
 	// The project is returned in full: the catch-up needs its targets and its build context to
 	// compose anything at all.
-	if sans[0].BuildContext == "" || sans[0].Slug == "" {
-		t.Errorf("project returned incomplete: %+v", sans[0])
+	if without[0].BuildContext == "" || without[0].Slug == "" {
+		t.Errorf("project returned incomplete: %+v", without[0])
 	}
 
 	// An empty plan is enough to take it out of the catch-up: someone decided.
@@ -77,12 +77,12 @@ func TestTheCatchUpSeesOnlyProjectsWithNoRow(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 
-	sans, err = db.ProjectsWithoutAutomation(ctx)
+	without, err = db.ProjectsWithoutAutomation(ctx)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	if len(sans) != 0 {
-		t.Errorf("%d project(s) still caught up — an emptied plan would reappear", len(sans))
+	if len(without) != 0 {
+		t.Errorf("%d project(s) still caught up — an emptied plan would reappear", len(without))
 	}
 }
 
@@ -115,11 +115,11 @@ func TestThePlanCrossesAndTheSecondSaveReplaces(t *testing.T) {
 	}
 
 	if err := db.SaveReleaseAutomation(ctx,
-		ReleaseAutomation{ProjectID: testProjectID, Plan: plan.Plan{}}, "autre"); err != nil {
+		ReleaseAutomation{ProjectID: testProjectID, Plan: plan.Plan{}}, "other"); err != nil {
 		t.Fatalf("%v", err)
 	}
 	entry, _ = db.ReleaseAutomation(ctx, testProjectID)
-	if len(entry.Plan.Stages) != 0 || entry.UpdatedBy != "autre" {
+	if len(entry.Plan.Stages) != 0 || entry.UpdatedBy != "other" {
 		t.Errorf("after replacement: %+v", entry)
 	}
 }

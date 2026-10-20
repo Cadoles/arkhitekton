@@ -413,7 +413,7 @@ func (s *Scheduler) addUploadURLs(
 // indefinitely.
 func (s *Scheduler) runLocal(ctx context.Context, task LocalTask, job store.Job) {
 	if err := task.Run(ctx, job); err != nil {
-		s.logger.Error("tâche locale", "job", job.ID, "kind", job.Kind, "error", err)
+		s.logger.Error("local task", "job", job.ID, "kind", job.Kind, "error", err)
 		// Final failure rather than re-queueing: these tasks fail on causes that do not fix themselves
 		// — a release with no image, an unknown format. Retrying would produce the same error in a
 		// loop.

@@ -60,7 +60,7 @@ func (h *AutomationsHandler) Automation(w http.ResponseWriter, r *http.Request) 
 		return
 	case err != nil:
 		h.logger.Error("reading the automation", "project", project.Slug, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Lecture impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot read", "")
 		return
 	}
 
@@ -91,15 +91,15 @@ func (h *AutomationsHandler) SaveAutomation(w http.ResponseWriter, r *http.Reque
 	// it is only checked when it carries something.
 	if len(request.Plan.Stages) > 0 {
 		if err := request.Plan.Validate(); err != nil {
-			writeProblem(w, http.StatusBadRequest, "Automatisation invalide", err.Error())
+			writeProblem(w, http.StatusBadRequest, "Invalid automation", err.Error())
 			return
 		}
 		if err := h.checkPlanRefs(r.Context(), request.Plan); err != nil {
-			writeProblem(w, http.StatusBadRequest, "Automatisation invalide", err.Error())
+			writeProblem(w, http.StatusBadRequest, "Invalid automation", err.Error())
 			return
 		}
 		if err := h.checkRoles(request.Plan); err != nil {
-			writeProblem(w, http.StatusBadRequest, "Automatisation invalide", err.Error())
+			writeProblem(w, http.StatusBadRequest, "Invalid automation", err.Error())
 			return
 		}
 	}
@@ -111,7 +111,7 @@ func (h *AutomationsHandler) SaveAutomation(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		h.logger.Error("recording the automation",
 			"project", project.Slug, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
 		return
 	}
 
@@ -159,8 +159,8 @@ func (h *AutomationsHandler) checkRoles(entry plan.Plan) error {
 	var problems []error
 
 	for index, stage := range entry.Stages {
-		attendu, porte := roleProduct[stage.Role]
-		if !porte {
+		expected, carries := roleProduct[stage.Role]
+		if !carries {
 			// A stage with no role touches nothing: it may carry what it likes. It is what allows
 			// warning a team without putting the release's state at stake.
 			continue
@@ -186,11 +186,11 @@ func (h *AutomationsHandler) checkRoles(entry plan.Plan) error {
 				// one mistake.
 				continue
 			}
-			if !pipeline.Yields(attendu) {
+			if !pipeline.Yields(expected) {
 				problems = append(problems, fmt.Errorf(
 					"stage %d carries the role %q and the pipeline %q does not produce %q "+
 						"(il produit: %s)",
-					index+1, stage.Role, step.Ref, attendu,
+					index+1, stage.Role, step.Ref, expected,
 					productsOf(pipeline)))
 			}
 		}

@@ -108,7 +108,7 @@ func TestLiveTheTrackerFactsAreValid(t *testing.T) {
 	}
 
 	parType := map[string]int{}
-	cles := map[string]event.Event{}
+	keys := map[string]event.Event{}
 	for _, fact := range facts {
 		if err := fact.Validate(); err != nil {
 			// The fact is described without its content: a request's subject may carry a client's name, and
@@ -116,11 +116,11 @@ func TestLiveTheTrackerFactsAreValid(t *testing.T) {
 			t.Errorf("fact %q invalid (key %q): %v", fact.Type, fact.DedupKey, err)
 			continue
 		}
-		if precedent, vu := cles[fact.DedupKey]; vu {
+		if precedent, seenParams := keys[fact.DedupKey]; seenParams {
 			t.Errorf("key %q shared by two facts (%q and %q): one of the two "+
 				"would never be recorded", fact.DedupKey, precedent.Type, fact.Type)
 		}
-		cles[fact.DedupKey] = fact
+		keys[fact.DedupKey] = fact
 		parType[string(fact.Type)]++
 
 		// A missing date would give a fact from year zero, buried under everything else in a feed
@@ -132,7 +132,7 @@ func TestLiveTheTrackerFactsAreValid(t *testing.T) {
 
 	// What a bootstrap pass would cost in production: that many rows written into the fact feed,
 	// with no reaction starting.
-	t.Logf("projectRow %q: %d versions, %d demandes lues", project,
+	t.Logf("projectRow %q: %d versions, %d issues read", project,
 		len(db.versions), len(db.issues))
 	t.Logf("facts of a bootstrap: %d in all — %d versions, %d closures",
 		len(facts), parType[string(event.VersionCreated)], parType[redmineIssueClosed])
@@ -146,53 +146,53 @@ func TestLiveTheTrackerFactsAreValid(t *testing.T) {
 func TestLiveASecondPassDoesNotObserveTheVersionsAgain(t *testing.T) {
 	sync, client, project, _ := liveProbe(t)
 
-	premiere, cursor, err := sync.Observe(context.Background(), 1, project, client, "")
+	first, cursor, err := sync.Observe(context.Background(), 1, project, client, "")
 	if err != nil {
 		t.Fatalf("first pass: %v", err)
 	}
 
-	seconde, _, err := sync.Observe(context.Background(), 1, project, client, cursor)
+	second, _, err := sync.Observe(context.Background(), 1, project, client, cursor)
 	if err != nil {
-		t.Fatalf("seconde pass: %v", err)
+		t.Fatalf("second pass: %v", err)
 	}
 
-	vues := map[string]bool{}
-	for _, fact := range premiere {
-		vues[fact.DedupKey] = true
+	seenItems := map[string]bool{}
+	for _, fact := range first {
+		seenItems[fact.DedupKey] = true
 	}
 
 	// Without this guard, the test would pass for a bad reason: a second pass returning **nothing**
 	// would have no new key, and would prove nothing at all. What must be seen is that it observes
 	// the same versions again — the snapshot is re-read whole — and that their keys coincide.
-	if len(seconde) == 0 {
+	if len(second) == 0 {
 		t.Fatal("the second pass returned nothing: it can prove nothing " +
 			"about the stability of the keys")
 	}
 	t.Logf("passes: %d facts then %d, of which %d keys already seen",
-		len(premiere), len(seconde), sharedKeys(vues, seconde))
+		len(first), len(second), sharedKeys(seenItems, second))
 
-	nouvelles := 0
-	for _, fact := range seconde {
-		if !vues[fact.DedupKey] {
-			nouvelles++
+	newOnes := 0
+	for _, fact := range second {
+		if !seenItems[fact.DedupKey] {
+			newOnes++
 			t.Logf("new key at the second pass: %q", fact.DedupKey)
 		}
 	}
 
 	// Zero, unless someone declares a version between the two calls — which would be a coincidence,
 	// not a defect. The message says so rather than accusing the code.
-	if nouvelles > 0 {
+	if newOnes > 0 {
 		t.Errorf("%d new keys between two immediate passes: the versions "+
 			"would be observed again at every round (or someone typed one in the meantime)",
-			nouvelles)
+			newOnes)
 	}
 }
 
 // shared counts the facts whose key was already known.
-func sharedKeys(vues map[string]bool, facts []event.Event) int {
+func sharedKeys(seenItems map[string]bool, facts []event.Event) int {
 	total := 0
 	for _, fact := range facts {
-		if vues[fact.DedupKey] {
+		if seenItems[fact.DedupKey] {
 			total++
 		}
 	}

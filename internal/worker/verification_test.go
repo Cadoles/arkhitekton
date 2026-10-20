@@ -250,7 +250,7 @@ func TestWithNoReferenceNoVerificationStarts(t *testing.T) {
 // A queueing failure is logged, not propagated: the build succeeded, and losing that fact
 // because a test could not be queued would be worse.
 func TestAQueueingFailureDoesNotFailTheConclusion(t *testing.T) {
-	fake := &fakeVerificationStore{enqueueEr: errors.New("file indisponible")}
+	fake := &fakeVerificationStore{enqueueEr: errors.New("queue unavailable")}
 
 	if launched := openPlan(t, fake, verificationCatalog(), "3.2.0-rc1", "abc123"); launched != 0 {
 		t.Errorf("%d verifications launched despite the failure", launched)
@@ -317,21 +317,21 @@ func TestABuildLaunchesItsVerificationsOnlyOnce(t *testing.T) {
 		testAutomation{plan: DefaultAutomation(pipelines, projectRow, nil)},
 		"reg.cadoles.com/vcarroy", quietLogger())
 
-	ouvrir := func() int {
+	open := func() int {
 		return planner.OpenReleasePlan(context.Background(), projectRow,
 			store.Release{ID: 7, Tag: "3.2.0-rc1"}, "abc123")
 	}
 
-	if premier := ouvrir(); premier != 4 {
-		t.Fatalf("%d verifications launched, expected 4", premier)
+	if first := open(); first != 4 {
+		t.Fatalf("%d verifications launched, expected 4", first)
 	}
 
 	// Redeliveries. The uniqueness no longer comes from a transition check written by hand but from
 	// the run itself: `CreatePlanRun` returns the one that exists, and its steps are no longer
 	// waiting.
 	for i := range 3 {
-		if reparti := ouvrir(); reparti != 0 {
-			t.Errorf("redelivery %d: %d step(s) started again", i, reparti)
+		if redispatched := open(); redispatched != 0 {
+			t.Errorf("redelivery %d: %d step(s) started again", i, redispatched)
 		}
 	}
 
@@ -371,7 +371,7 @@ func TestARunOfTheCurrentDatabaseStaysAttached(t *testing.T) {
 		Status: tekton.StatusSucceeded,
 	}
 	if got := sink.disown(run); got.JobID != 7 || got.Observed {
-		t.Errorf("rattachement perdu: %+v", got)
+		t.Errorf("attachment lost: %+v", got)
 	}
 }
 

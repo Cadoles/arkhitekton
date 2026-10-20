@@ -510,7 +510,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -620,7 +620,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	parsed, err := scheme.Parse(request.Tag)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Tag invalide", err.Error())
+		writeProblem(w, http.StatusBadRequest, "Invalid tag", err.Error())
 		return
 	}
 
@@ -638,7 +638,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Shipping commits what reaches the user: the route requires `release:create`, the
 	// kind may require more.
 	if spec.Permission != "" && !h.authorizer.Can(identity, auth.Permission(spec.Permission)) {
-		writeProblem(w, http.StatusForbidden, "Permission insuffisante",
+		writeProblem(w, http.StatusForbidden, "Insufficient permission",
 			fmt.Sprintf("creating a %q release requires the %q permission", spec.ID, spec.Permission))
 		return
 	}
@@ -697,7 +697,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 			TestsGreen:   request.TestsGreen,
 		})
 		if err != nil {
-			writeProblem(w, http.StatusBadRequest, "Re-tag impossible", err.Error())
+			writeProblem(w, http.StatusBadRequest, "Cannot re-tag", err.Error())
 			return
 		}
 
@@ -750,7 +750,7 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	versionID, err := h.store.EnsureVersion(r.Context(), currentID, line)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Version indisponible", "")
+		writeProblem(w, http.StatusInternalServerError, "Version unavailable", "")
 		return
 	}
 	record.VersionID = versionID
@@ -893,7 +893,7 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 	record, err := h.store.GetRelease(r.Context(), currentID, tag)
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
+			writeProblem(w, http.StatusNotFound, "Release not found", tag)
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -905,7 +905,7 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 	// say which of the two applies.
 	from := release.State(record.State)
 	if !release.CanTransition(from, release.StateReleased) {
-		writeProblem(w, http.StatusConflict, "Validation impossible",
+		writeProblem(w, http.StatusConflict, "Cannot validate",
 			fmt.Sprintf("release %q is in state %q: only a %q release is validated",
 				tag, record.State, release.StateReady))
 		return
@@ -913,13 +913,13 @@ func (h *ReleasesHandler) Release(w http.ResponseWriter, r *http.Request) {
 
 	validated, err := h.store.MarkReleased(r.Context(), record.ID, record.State)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Validation impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot validate", "")
 		return
 	}
 	if !validated {
 		// The release moved between the read and the write. A 409 rather than a silent
 		// success: the caller made their decision on a state that is no longer the database's.
-		writeProblem(w, http.StatusConflict, "Validation impossible",
+		writeProblem(w, http.StatusConflict, "Cannot validate",
 			"the release's state changed in the meantime, reload the page")
 		return
 	}
@@ -963,7 +963,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	record, err := h.store.GetRelease(r.Context(), currentID, tag)
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
+			writeProblem(w, http.StatusNotFound, "Release not found", tag)
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -979,7 +979,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	}
 	if spec, err := project.ReleaseKinds.Find(record.Kind); err == nil &&
 		spec.Mode == release.ModeRetag {
-		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
+		writeProblem(w, http.StatusConflict, "Cannot rebuild",
 			fmt.Sprintf("a %q release takes its source's image: rebuilding it "+
 				"would produce an image nobody has tested", spec.ID))
 		return
@@ -987,7 +987,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 
 	from := release.State(record.State)
 	if !release.CanTransition(from, release.StateBuilding) {
-		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
+		writeProblem(w, http.StatusConflict, "Cannot rebuild",
 			fmt.Sprintf("release %q is in state %q, from which no rebuild is allowed",
 				tag, record.State))
 		return
@@ -998,7 +998,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	// settling that advances it now.
 	project, projectErr := h.store.GetProject(r.Context(), currentID)
 	if projectErr != nil {
-		writeProblem(w, http.StatusInternalServerError, "Reconstruction impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot rebuild", "")
 		return
 	}
 	started := 0
@@ -1006,7 +1006,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 		started = h.plans.OpenReleasePlan(r.Context(), project, record, record.GitRef)
 	}
 	if started == 0 {
-		writeProblem(w, http.StatusUnprocessableEntity, "Reconstruction impossible",
+		writeProblem(w, http.StatusUnprocessableEntity, "Cannot rebuild",
 			"no build could be queued")
 		return
 	}
@@ -1016,11 +1016,11 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 	// must not produce two runs.
 	advanced, err := h.store.AdvanceReleaseState(r.Context(), record.ID, record.State, string(release.StateBuilding))
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Reconstruction impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot rebuild", "")
 		return
 	}
 	if !advanced {
-		writeProblem(w, http.StatusConflict, "Reconstruction impossible",
+		writeProblem(w, http.StatusConflict, "Cannot rebuild",
 			"the release's state changed in the meantime, reload the page")
 		return
 	}
@@ -1083,7 +1083,7 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	record, err := h.store.GetRelease(r.Context(), currentID, tag)
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", tag)
+			writeProblem(w, http.StatusNotFound, "Release not found", tag)
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -1098,21 +1098,21 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		revision = record.GitRef
 	}
 	if revision == "" {
-		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
+		writeProblem(w, http.StatusUnprocessableEntity, "Cannot rerun",
 			"this release names no Git reference: there is nothing to verify")
 		return
 	}
 
 	pipeline, found := h.catalog.Find(kind)
 	if !found {
-		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
+		writeProblem(w, http.StatusUnprocessableEntity, "Cannot rerun",
 			fmt.Sprintf("the catalogue declares no %q pipeline", kind))
 		return
 	}
 
 	params, missing := pipeline.VerificationInputs(revision, record.Tag, h.registryProject)
 	if missing != "" {
-		writeProblem(w, http.StatusUnprocessableEntity, "Relance impossible",
+		writeProblem(w, http.StatusUnprocessableEntity, "Cannot rerun",
 			fmt.Sprintf("parameter %q cannot be set for this release", missing))
 		return
 	}
@@ -1124,7 +1124,7 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		ReleaseID:   &record.ID,
 	})
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Relance impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot rerun", "")
 		return
 	}
 
@@ -1173,7 +1173,7 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 	record, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -1248,7 +1248,7 @@ var issueReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}
 func issueReference(w http.ResponseWriter, r *http.Request) (string, bool) {
 	reference := r.PathValue("issue")
 	if !issueReferencePattern.MatchString(reference) {
-		writeProblem(w, http.StatusBadRequest, "Demande invalide",
+		writeProblem(w, http.StatusBadRequest, "Invalid request",
 			"the request identifier is empty or carries forbidden characters")
 		return "", false
 	}
@@ -1275,7 +1275,7 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 	record, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -1294,7 +1294,7 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("request %s already appears in the note of %s", reference, record.Tag))
 		return
 	case err != nil:
-		writeProblem(w, http.StatusInternalServerError, "Rattachement impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot attach", "")
 		return
 	}
 
@@ -1312,7 +1312,7 @@ func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
 	record, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -1325,7 +1325,7 @@ func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.UnlinkNoteIssue(r.Context(), record.ID, reference); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Retrait impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot remove", "")
 		return
 	}
 
@@ -1476,10 +1476,10 @@ func (h *ReleasesHandler) UpdateActions(w http.ResponseWriter, r *http.Request) 
 	tag := r.PathValue("tag")
 	if err := h.store.SetManualActions(r.Context(), tag, request.Markdown, identity.Subject); err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
 		return
 	}
 
@@ -1561,7 +1561,7 @@ func (h *ReleasesHandler) Exports(w http.ResponseWriter, r *http.Request) {
 	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -1626,7 +1626,7 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -1645,7 +1645,7 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 		ReleaseID:   &item.ID,
 	})
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Mise en file impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot enqueue", "")
 		return
 	}
 
@@ -1661,14 +1661,14 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("artifact"), 10, 64)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Identifiant invalide", "")
+		writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
 		return
 	}
 
 	artifact, err := h.store.GetArtifact(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrArtifactNotFound) {
-			writeProblem(w, http.StatusNotFound, "Livrable introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Deliverable not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the deliverable", "")
@@ -1682,18 +1682,18 @@ func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
 
 	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
-		writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+		writeProblem(w, http.StatusNotFound, "Release not found", "")
 		return
 	}
 	// The deliverable must belong to the release in the path: without that check, a guessed
 	// identifier would give another release's delivery note.
 	if artifact.ReleaseID != item.ID {
-		writeProblem(w, http.StatusNotFound, "Livrable introuvable", "")
+		writeProblem(w, http.StatusNotFound, "Deliverable not found", "")
 		return
 	}
 
 	if h.artifacts == nil {
-		writeProblem(w, http.StatusServiceUnavailable, "Stockage indisponible", "")
+		writeProblem(w, http.StatusServiceUnavailable, "Storage unavailable", "")
 		return
 	}
 

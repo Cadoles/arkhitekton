@@ -120,9 +120,9 @@ func TestAnUnknownParameterIsRefused(t *testing.T) {
 func TestTheURLShapeIsCheckedAtEntry(t *testing.T) {
 	webhook, _ := Get(Webhook)
 
-	for _, cible := range []string{"hooks.example.fr", "/hook", "file:///etc/passwd"} {
-		if err := webhook.Validate(map[string]string{"url": cible}); !errors.Is(err, ErrInvalid) {
-			t.Errorf("URL %q accepted: %v", cible, err)
+	for _, target := range []string{"hooks.example.fr", "/hook", "file:///etc/passwd"} {
+		if err := webhook.Validate(map[string]string{"url": target}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("URL %q accepted: %v", target, err)
 		}
 	}
 
@@ -145,10 +145,10 @@ func TestAValueOutsideTheClosedSetIsRefused(t *testing.T) {
 	}
 
 	base := map[string]string{"commit": "abc1234", "context": "dashboard"}
-	invalide := maps.Clone(base)
-	invalide["state"] = "vert"
+	invalid := maps.Clone(base)
+	invalid["state"] = "vert"
 
-	err = status.Validate(invalide)
+	err = status.Validate(invalid)
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("%v", err)
 	}
@@ -181,7 +181,7 @@ func TestATemplateCrossesAClosedSet(t *testing.T) {
 
 // A template with an unclosed brace would produce a literal value the recipient could not
 // understand.
-func TestUnGabaritMalAppariéEstRefuse(t *testing.T) {
+func TestAMismatchedTemplateIsRefused(t *testing.T) {
 	webhook, _ := Get(Webhook)
 
 	err := webhook.Validate(map[string]string{
@@ -214,19 +214,19 @@ func TestKnownVariablesAreReplaced(t *testing.T) {
 // release with no name — and nobody could say whether it is the template or the data that is
 // missing.
 func TestAnUnknownVariableStaysLiteral(t *testing.T) {
-	got := Expand("release {tag} en {environnement}", map[string]string{"tag": "1.8.0"})
+	got := Expand("release {tag} to {environment}", map[string]string{"tag": "1.8.0"})
 
-	if got != "release 1.8.0 en {environnement}" {
+	if got != "release 1.8.0 to {environment}" {
 		t.Errorf("template returned = %q", got)
 	}
 }
 
 // A brace opened with no closing one does not make the interpolation loop, and comes out as it is.
 func TestAnOpenBraceDoesNotLoop(t *testing.T) {
-	for _, gabarit := range []string{"a {b", "{", "}", "{}", "{a}{", ""} {
-		got := Expand(gabarit, map[string]string{"a": "x"})
-		if got == "" && gabarit != "" {
-			t.Errorf("template %q returned empty", gabarit)
+	for _, template := range []string{"a {b", "{", "}", "{}", "{a}{", ""} {
+		got := Expand(template, map[string]string{"a": "x"})
+		if got == "" && template != "" {
+			t.Errorf("template %q returned empty", template)
 		}
 	}
 
@@ -238,7 +238,7 @@ func TestAnOpenBraceDoesNotLoop(t *testing.T) {
 
 // A template with no variable passes through unchanged, with no needless allocation.
 func TestATemplateWithNoVariablePassesThroughUnchanged(t *testing.T) {
-	if got := Expand("texte simple", map[string]string{"a": "x"}); got != "texte simple" {
+	if got := Expand("plain text", map[string]string{"a": "x"}); got != "plain text" {
 		t.Errorf("template returned = %q", got)
 	}
 }
@@ -260,7 +260,7 @@ func TestAJSONBodyIsNotSwallowedByItsBraces(t *testing.T) {
 
 // What looks like a structure and not like a name passes through as it is.
 func TestWhatIsNotANamePassesThroughUnchanged(t *testing.T) {
-	cas := map[string]string{
+	testCases := map[string]string{
 		`{}`:                `{}`,
 		`{ }`:               `{ }`,
 		`{"a":1}`:           `{"a":1}`,
@@ -268,9 +268,9 @@ func TestWhatIsNotANamePassesThroughUnchanged(t *testing.T) {
 		`{tag with spaces}`: `{tag with spaces}`,
 	}
 
-	for gabarit, want := range cas {
-		if got := Expand(gabarit, map[string]string{"tag": "x"}); got != want {
-			t.Errorf("template %q returned %q, expected %q", gabarit, got, want)
+	for template, want := range testCases {
+		if got := Expand(template, map[string]string{"tag": "x"}); got != want {
+			t.Errorf("template %q returned %q, expected %q", template, got, want)
 		}
 	}
 }

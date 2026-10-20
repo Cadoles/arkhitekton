@@ -24,7 +24,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*DB, error) {
 	poolConfig, err := pgxpool.ParseConfig(cfg.DSN)
 	if err != nil {
 		// The DSN carries the password: never include it in the error.
-		return nil, fmt.Errorf("DSN PostgreSQL invalide: %w", redactError(err, cfg.DSN))
+		return nil, fmt.Errorf("invalid PostgreSQL DSN: %w", redactError(err, cfg.DSN))
 	}
 
 	poolConfig.MaxConns = int32(cfg.MaxConns)

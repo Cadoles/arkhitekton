@@ -170,7 +170,7 @@ func TestAbsentWeightsFallBackToTheAcceptedOnes(t *testing.T) {
 
 func TestStaticIsGradedByThreshold(t *testing.T) {
 	if value := FromStatic(0, true).Value; value != 100 {
-		t.Errorf("propre = %.0f", value)
+		t.Errorf("clean = %.0f", value)
 	}
 	if value := FromStatic(300, true).Value; value != 0 {
 		t.Errorf("300 violations = %.0f, expected 0", value)
@@ -262,15 +262,15 @@ func TestAnUnmeasuredComponentKeepsItsDeclaredWeight(t *testing.T) {
 		{Key: "geste:1.1", Signal: SignalE2E, Weight: 40, Detail: "not run"},
 	})
 
-	for _, composant := range breakdown.Signals {
-		if composant.Key != "geste:1.1" {
+	for _, component := range breakdown.Signals {
+		if component.Key != "geste:1.1" {
 			continue
 		}
-		if composant.Declared != 40 {
-			t.Errorf("declared weight = %v, expected 40", composant.Declared)
+		if component.Declared != 40 {
+			t.Errorf("declared weight = %v, expected 40", component.Declared)
 		}
-		if composant.Weight != 0 {
-			t.Errorf("effective weight = %v, expected zero — it did not count", composant.Weight)
+		if component.Weight != 0 {
+			t.Errorf("effective weight = %v, expected zero — it did not count", component.Weight)
 		}
 	}
 }

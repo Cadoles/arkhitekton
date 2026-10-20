@@ -532,7 +532,7 @@ func (db *DB) AmbiguousVersions(ctx context.Context, projectID int64) ([]Ambiguo
 		 having count(*) > 1
 		 order by normalized_name`, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("versions ambiguës: %w", err)
+		return nil, fmt.Errorf("ambiguous versions: %w", err)
 	}
 	defer rows.Close()
 
@@ -540,7 +540,7 @@ func (db *DB) AmbiguousVersions(ctx context.Context, projectID int64) ([]Ambiguo
 	for rows.Next() {
 		var entry AmbiguousVersion
 		if err := rows.Scan(&entry.Normalized, &entry.Names); err != nil {
-			return nil, fmt.Errorf("versions ambiguës: %w", err)
+			return nil, fmt.Errorf("ambiguous versions: %w", err)
 		}
 		ambiguous = append(ambiguous, entry)
 	}
@@ -558,7 +558,7 @@ func (db *DB) PendingVersions(ctx context.Context, projectID int64) ([]string, e
 		`select name from versions
 		 where origin = 'pending' and project_id = $1 order by name`, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("versions provisoires: %w", err)
+		return nil, fmt.Errorf("provisional versions: %w", err)
 	}
 	defer rows.Close()
 
@@ -566,7 +566,7 @@ func (db *DB) PendingVersions(ctx context.Context, projectID int64) ([]string, e
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			return nil, fmt.Errorf("versions provisoires: %w", err)
+			return nil, fmt.Errorf("provisional versions: %w", err)
 		}
 		names = append(names, name)
 	}

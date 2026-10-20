@@ -244,7 +244,7 @@ func (c *Client) token(ctx context.Context, challenge string) (string, error) {
 
 	target, err := url.Parse(realm)
 	if err != nil {
-		return "", fmt.Errorf("realm invalide %q: %w", realm, err)
+		return "", fmt.Errorf("invalid realm %q: %w", realm, err)
 	}
 
 	query := target.Query()
@@ -276,7 +276,7 @@ func (c *Client) token(ctx context.Context, challenge string) (string, error) {
 		AccessToken string `json:"access_token"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil {
-		return "", fmt.Errorf("jeton illisible: %w", err)
+		return "", fmt.Errorf("unreadable token: %w", err)
 	}
 
 	// Both names circulate: `token` in the Docker specification, `access_token` in
@@ -322,7 +322,7 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: statut %d", path, response.StatusCode)
+		return fmt.Errorf("%s: status %d", path, response.StatusCode)
 	}
 
 	// A read bound: a compromised or failing registry must not be able to inflate the

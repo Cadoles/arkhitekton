@@ -96,7 +96,7 @@ func phpstanSet(record parse.Record) facts.Set {
 			}
 			cases = append(cases, facts.Case{
 				Suite: file.Path, Name: rule, Status: facts.CaseFailed,
-				Message: fmt.Sprintf("ligne %d: %s", message.Line, parse.FirstLine(message.Message)),
+				Message: fmt.Sprintf("line %d: %s", message.Line, parse.FirstLine(message.Message)),
 			})
 		}
 	}

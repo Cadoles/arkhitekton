@@ -41,7 +41,7 @@ func (e ErrUnsafeSegment) Error() string {
 func checkSegment(segment string) error {
 	switch {
 	case segment == "":
-		return ErrUnsafeSegment{segment, "vide"}
+		return ErrUnsafeSegment{segment, "empty"}
 	case strings.Contains(segment, "/"):
 		return ErrUnsafeSegment{segment, "contains a slash"}
 	case segment == "." || segment == "..":

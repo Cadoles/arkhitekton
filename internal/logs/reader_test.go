@@ -43,7 +43,7 @@ func TestUnsealedLogIsReadAsOneContinuousStream(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if string(segment.Content) != "AAAABBBBCCCC" {
-		t.Errorf("contenu = %q", segment.Content)
+		t.Errorf("content = %q", segment.Content)
 	}
 	if segment.Sealed {
 		t.Error("a chunked log must not be announced as sealed")
@@ -72,7 +72,7 @@ func TestTailReadsOnlyTheEnd(t *testing.T) {
 	}
 
 	if string(segment.Content) != "END-OF-THE-LOG" {
-		t.Errorf("contenu = %q", segment.Content)
+		t.Errorf("content = %q", segment.Content)
 	}
 	if segment.Offset != 1000 {
 		t.Errorf("offset = %d, expected 1000", segment.Offset)
@@ -88,7 +88,7 @@ func TestFromOffsetReturnsOnlyWhatWasAppended(t *testing.T) {
 	target := uniqueTarget(t, Step{Name: "tests", Container: "step-run-tests"})
 	cleanup(t, storage, target)
 
-	putChunk(t, target, 0, 1, "step-run-tests", "premier\n")
+	putChunk(t, target, 0, 1, "step-run-tests", "first\n")
 	reader := NewReader(storage)
 
 	first, err := reader.From(ctx, target.RunName, target.TaskName, 0, 0)
@@ -102,14 +102,14 @@ func TestFromOffsetReturnsOnlyWhatWasAppended(t *testing.T) {
 		t.Fatalf("empty read: %v", err)
 	}
 	if len(empty.Content) != 0 {
-		t.Errorf("contenu inattendu: %q", empty.Content)
+		t.Errorf("unexpected content: %q", empty.Content)
 	}
 
 	putChunk(t, target, 0, 2, "step-run-tests", "second\n")
 
 	next, err := reader.From(ctx, target.RunName, target.TaskName, first.NextOffset, 0)
 	if err != nil {
-		t.Fatalf("seconde lecture: %v", err)
+		t.Fatalf("second read: %v", err)
 	}
 	if string(next.Content) != "second\n" {
 		t.Errorf("content = %q, expected only what was added", next.Content)
@@ -182,7 +182,7 @@ func TestReadIsBounded(t *testing.T) {
 		t.Errorf("%d octets lus", len(segment.Content))
 	}
 	if fmt.Sprint(segment.Size) != "2000" {
-		t.Errorf("taille = %d", segment.Size)
+		t.Errorf("size = %d", segment.Size)
 	}
 }
 

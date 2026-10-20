@@ -205,13 +205,13 @@ func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !store.ValidBucket(request.Bucket) {
-		writeProblem(w, http.StatusBadRequest, "Seau invalide",
+		writeProblem(w, http.StatusBadRequest, "Invalid bucket",
 			"The bucket is one of “todo”, “doing”, “client-test”, “done” or “rejected”.")
 		return
 	}
 
 	if err := h.store.SetStatusBucket(r.Context(), project.ID, statusName, request.Bucket); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
 		return
 	}
 

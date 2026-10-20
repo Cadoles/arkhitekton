@@ -74,7 +74,7 @@ func TestLiveTheRequestsPaginateWithNoDuplicate(t *testing.T) {
 
 	issues, err := client.ListIssues(context.Background(), provider.IssueQuery{Project: project})
 	if err != nil {
-		t.Fatalf("demandes: %v", err)
+		t.Fatalf("issues: %v", err)
 	}
 	if len(issues) == 0 {
 		t.Fatal("no request returned")
@@ -93,7 +93,7 @@ func TestLiveTheRequestsPaginateWithNoDuplicate(t *testing.T) {
 	}
 	for id, count := range seen {
 		if count != 1 {
-			t.Errorf("demande %s rendue %d fois", id, count)
+			t.Errorf("issue %s returned %d times", id, count)
 		}
 	}
 	t.Logf("%d requests, %d distinct, %d attached to a version",
@@ -106,13 +106,13 @@ func TestLiveTheIncrementalFilterReducesTheVolume(t *testing.T) {
 	client, project := liveClient(t)
 	ctx := context.Background()
 
-	tout, err := client.ListIssues(ctx, provider.IssueQuery{Project: project})
+	all, err := client.ListIssues(ctx, provider.IssueQuery{Project: project})
 	if err != nil {
-		t.Fatalf("tout: %v", err)
+		t.Fatalf("all: %v", err)
 	}
 
 	// A bound in the near future: nothing can have been modified after it.
-	futur, err := client.ListIssues(ctx, provider.IssueQuery{
+	future, err := client.ListIssues(ctx, provider.IssueQuery{
 		Project: project,
 		Since:   time.Now().Add(24 * time.Hour),
 	})
@@ -120,9 +120,9 @@ func TestLiveTheIncrementalFilterReducesTheVolume(t *testing.T) {
 		t.Fatalf("filtered: %v", err)
 	}
 
-	if len(futur) >= len(tout) {
+	if len(future) >= len(all) {
 		t.Errorf("the `updated_on` filter seems ignored: %d requests against %d with no filter",
-			len(futur), len(tout))
+			len(future), len(all))
 	}
-	t.Logf("with no filter %d, since tomorrow %d", len(tout), len(futur))
+	t.Logf("with no filter %d, since tomorrow %d", len(all), len(future))
 }

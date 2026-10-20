@@ -109,7 +109,7 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -469,7 +469,7 @@ func (h *TestsHandler) Group(w http.ResponseWriter, r *http.Request) {
 	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -600,7 +600,7 @@ func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
 	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")

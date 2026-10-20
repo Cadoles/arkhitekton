@@ -65,14 +65,14 @@ func localForge(t *testing.T) (url, token, repo, commit string) {
 }
 
 // commitStatuses re-reads the statuses set on a commit.
-type statutRendu struct {
+type returnedStatus struct {
 	State       string `json:"status"`
 	Context     string `json:"context"`
 	Description string `json:"description"`
 	TargetURL   string `json:"target_url"`
 }
 
-func commitStatuses(t *testing.T, url, token, repo, commit string) []statutRendu {
+func commitStatuses(t *testing.T, url, token, repo, commit string) []returnedStatus {
 	t.Helper()
 
 	target := strings.TrimSuffix(url, "/") + "/api/v1/repos/" + repo + "/statuses/" + commit
@@ -91,11 +91,11 @@ func commitStatuses(t *testing.T, url, token, repo, commit string) []statutRendu
 		t.Fatalf("re-reading the statuses: the forge answered %d", response.StatusCode)
 	}
 
-	var statuts []statutRendu
-	if err := json.NewDecoder(response.Body).Decode(&statuts); err != nil {
+	var statuses []returnedStatus
+	if err := json.NewDecoder(response.Body).Decode(&statuses); err != nil {
 		t.Fatalf("decoding the statuses: %v", err)
 	}
-	return statuts
+	return statuses
 }
 
 func TestLiveACommitStatusIsReallySet(t *testing.T) {
@@ -105,7 +105,7 @@ func TestLiveACommitStatusIsReallySet(t *testing.T) {
 
 	cipher, err := secrets.New(testEncryptionKey)
 	if err != nil {
-		t.Fatalf("chiffreur: %v", err)
+		t.Fatalf("cipher: %v", err)
 	}
 	scelle, err := cipher.Seal(token)
 	if err != nil {
@@ -137,9 +137,9 @@ func TestLiveACommitStatusIsReallySet(t *testing.T) {
 	// The context and the tag can be overridden. On a throwaway forge they may look like a real
 	// check; on a real repository, a status cannot be withdrawn, and it must announce itself for
 	// what it is — a verification — rather than pass for a CI verdict nobody asked for.
-	contexte := os.Getenv("GITEA_STATUS_CONTEXT")
-	if contexte == "" {
-		contexte = "arkhitekton/verifications"
+	runContext := os.Getenv("GITEA_STATUS_CONTEXT")
+	if runContext == "" {
+		runContext = "arkhitekton/verifications"
 	}
 	tag := os.Getenv("GITEA_STATUS_TAG")
 	if tag == "" {
@@ -158,7 +158,7 @@ func TestLiveACommitStatusIsReallySet(t *testing.T) {
 					// distinct vocabularies. A reaction that wants to mirror the outcome matches on `outcome`. See
 					// the next test, which holds the other half.
 					"state":       "success",
-					"context":     contexte,
+					"context":     runContext,
 					"description": "Release {tag} construite",
 					"target_url":  "https://dashboard.example.fr/releases/{tag}",
 				},
@@ -180,16 +180,16 @@ func TestLiveACommitStatusIsReallySet(t *testing.T) {
 	// The triggering fact goes through the real write path: where facts come from has already been
 	// exercised by the probe, and doing it again here would tie this test to Redmine's
 	// availability.
-	fait := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 42,
+	recorded := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 42,
 		tag, "pre", commit, "1.8.0")
-	neuf, err := db.RecordEvent(ctx, fait)
+	fresh, err := db.RecordEvent(ctx, recorded)
 	if err != nil {
 		t.Fatalf("writing the fact: %v", err)
 	}
-	if !neuf {
+	if !fresh {
 		t.Fatal("the fact was already known: nothing would trigger")
 	}
-	dispatcher.Dispatch(ctx, fait)
+	dispatcher.Dispatch(ctx, recorded)
 
 	/*
 	 * 1. The run concludes.
@@ -211,30 +211,30 @@ func TestLiveACommitStatusIsReallySet(t *testing.T) {
 	 *
 	 * It is the only assertion that counts: an accepted call is not a status set.
 	 */
-	statuts := commitStatuses(t, url, token, repo, commit)
-	var pose *statutRendu
-	for index := range statuts {
-		if statuts[index].Context == contexte {
-			pose = &statuts[index]
+	statuses := commitStatuses(t, url, token, repo, commit)
+	var applied *returnedStatus
+	for index := range statuses {
+		if statuses[index].Context == runContext {
+			applied = &statuses[index]
 			break
 		}
 	}
-	if pose == nil {
+	if applied == nil {
 		t.Fatalf("no status with context %q on %s (%d statuses read)",
-			contexte, commit[:8], len(statuts))
+			runContext, commit[:8], len(statuses))
 	}
 
-	if pose.State != "success" {
-		t.Errorf("state %q, expected success", pose.State)
+	if applied.State != "success" {
+		t.Errorf("state %q, expected success", applied.State)
 	}
-	if !strings.Contains(pose.Description, tag) {
-		t.Errorf("description %q — it must carry the interpolated tag", pose.Description)
+	if !strings.Contains(applied.Description, tag) {
+		t.Errorf("description %q — it must carry the interpolated tag", applied.Description)
 	}
-	if !strings.Contains(pose.TargetURL, tag) {
-		t.Errorf("link %q — it must carry the interpolated tag", pose.TargetURL)
+	if !strings.Contains(applied.TargetURL, tag) {
+		t.Errorf("link %q — it must carry the interpolated tag", applied.TargetURL)
 	}
 	t.Logf("status re-read on %s: %s / %s — %q",
-		commit[:8], pose.Context, pose.State, pose.Description)
+		commit[:8], applied.Context, applied.State, applied.Description)
 }
 
 // A switched-off plugin does not speak to the forge, even with a valid connection.
@@ -249,7 +249,7 @@ func TestLiveASwitchedOffPluginDoesNotWriteToTheForge(t *testing.T) {
 	cipher, _ := secrets.New(testEncryptionKey)
 	scelle, err := cipher.Seal(token)
 	if err != nil {
-		t.Fatalf("scellement: %v", err)
+		t.Fatalf("sealing: %v", err)
 	}
 
 	projectID, err := db.CreateProject(ctx, store.Project{
@@ -267,7 +267,7 @@ func TestLiveASwitchedOffPluginDoesNotWriteToTheForge(t *testing.T) {
 		t.Fatalf("plugin global: %v", err)
 	}
 
-	const contexte = "arkhitekton/must-not-appear"
+	const runContext = "arkhitekton/must-not-appear"
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Status on a switched-off plugin",
 		EventType: string(event.ReleaseCreated), Enabled: true,
@@ -275,7 +275,7 @@ func TestLiveASwitchedOffPluginDoesNotWriteToTheForge(t *testing.T) {
 			Gestes: []plan.Geste{{
 				Kind: plan.GesteAction, Ref: "gitea.status",
 				Params: map[string]string{
-					"commit": "{git_ref}", "state": "success", "context": contexte,
+					"commit": "{git_ref}", "state": "success", "context": runContext,
 				},
 			}},
 		}}},
@@ -288,17 +288,17 @@ func TestLiveASwitchedOffPluginDoesNotWriteToTheForge(t *testing.T) {
 	dispatcher := NewDispatcher(db,
 		NewEngine(db, stepRouter{actions: actions}, quietLogger()), quietLogger())
 
-	fait := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 43,
+	recorded := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 43,
 		"1.8.0-rc2", "pre", commit, "1.8.0")
-	if _, err := db.RecordEvent(ctx, fait); err != nil {
+	if _, err := db.RecordEvent(ctx, recorded); err != nil {
 		t.Fatalf("writing the fact: %v", err)
 	}
-	dispatcher.Dispatch(ctx, fait)
+	dispatcher.Dispatch(ctx, recorded)
 
 	// Nothing arrived at the forge.
-	for _, statut := range commitStatuses(t, url, token, repo, commit) {
-		if statut.Context == contexte {
-			t.Fatalf("a status was set although the plugin is switched off: %+v", statut)
+	for _, observed := range commitStatuses(t, url, token, repo, commit) {
+		if observed.Context == runContext {
+			t.Fatalf("a status was set although the plugin is switched off: %+v", observed)
 		}
 	}
 
@@ -310,13 +310,13 @@ func TestLiveASwitchedOffPluginDoesNotWriteToTheForge(t *testing.T) {
 	if len(executions) != 1 || executions[0].State != "failed" {
 		t.Fatalf("runs = %+v, expected one failed", executions)
 	}
-	motif := firstStepDetail(executions[0])
-	t.Logf("refusal recorded: %s", motif)
+	reason := firstStepDetail(executions[0])
+	t.Logf("refusal recorded: %s", reason)
 	// The refusal comes from the store, which returns `ErrPluginDisabled` before the runner even
 	// has to observe it. What counts is that it names the plugin and its state, not the exact
 	// wording.
-	if !strings.Contains(motif, "gitea") || !strings.Contains(motif, "disabled") {
-		t.Errorf("reason %q — it must name the plugin and its being switched off", motif)
+	if !strings.Contains(reason, "gitea") || !strings.Contains(reason, "disabled") {
+		t.Errorf("reason %q — it must name the plugin and its being switched off", reason)
 	}
 }
 
@@ -346,7 +346,7 @@ func TestLiveAStateOutsideTheVocabularyDoesNotReachTheForge(t *testing.T) {
 	cipher, _ := secrets.New(testEncryptionKey)
 	scelle, err := cipher.Seal(token)
 	if err != nil {
-		t.Fatalf("scellement: %v", err)
+		t.Fatalf("sealing: %v", err)
 	}
 
 	projectID, err := db.CreateProject(ctx, store.Project{
@@ -363,7 +363,7 @@ func TestLiveAStateOutsideTheVocabularyDoesNotReachTheForge(t *testing.T) {
 		t.Fatalf("plugin global: %v", err)
 	}
 
-	const contexte = "arkhitekton/vocabulaire-invalide"
+	const runContext = "arkhitekton/invalid-vocabulary"
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Status mirroring the outcome",
 		EventType: string(event.ReleaseCreated), Enabled: true,
@@ -371,7 +371,7 @@ func TestLiveAStateOutsideTheVocabularyDoesNotReachTheForge(t *testing.T) {
 			Gestes: []plan.Geste{{
 				Kind: plan.GesteAction, Ref: "gitea.status",
 				Params: map[string]string{
-					"commit": "{git_ref}", "state": "{kind}", "context": contexte,
+					"commit": "{git_ref}", "state": "{kind}", "context": runContext,
 				},
 			}},
 		}}},
@@ -384,18 +384,18 @@ func TestLiveAStateOutsideTheVocabularyDoesNotReachTheForge(t *testing.T) {
 	dispatcher := NewDispatcher(db,
 		NewEngine(db, stepRouter{actions: actions}, quietLogger()), quietLogger())
 
-	fait := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 44,
+	recorded := event.ReleaseCreatedAt(time.Now().UTC(), projectID, 44,
 		"1.8.0-rc3", "pre", commit, "1.8.0")
-	if _, err := db.RecordEvent(ctx, fait); err != nil {
+	if _, err := db.RecordEvent(ctx, recorded); err != nil {
 		t.Fatalf("writing the fact: %v", err)
 	}
-	dispatcher.Dispatch(ctx, fait)
+	dispatcher.Dispatch(ctx, recorded)
 
 	// Nothing reached the forge. That is the assertion that counts: before the fix, a status with
 	// state `succeeded` was indeed deposited there.
-	for _, statut := range commitStatuses(t, url, token, repo, commit) {
-		if statut.Context == contexte {
-			t.Fatalf("a status outside the vocabulary was set: %+v", statut)
+	for _, observed := range commitStatuses(t, url, token, repo, commit) {
+		if observed.Context == runContext {
+			t.Fatalf("a status outside the vocabulary was set: %+v", observed)
 		}
 	}
 
@@ -406,13 +406,13 @@ func TestLiveAStateOutsideTheVocabularyDoesNotReachTheForge(t *testing.T) {
 	if len(executions) != 1 || executions[0].State != "failed" {
 		t.Fatalf("runs = %+v, expected one failed", executions)
 	}
-	motif := firstStepDetail(executions[0])
-	t.Logf("refusal recorded: %s", motif)
+	reason := firstStepDetail(executions[0])
+	t.Logf("refusal recorded: %s", reason)
 	// The message must carry the three elements of the diagnosis: what was obtained, where it comes
 	// from, and what is allowed.
 	for _, expected := range []string{"pre", "{kind}", "success"} {
-		if !strings.Contains(motif, expected) {
-			t.Errorf("reason %q — it must carry %q", motif, expected)
+		if !strings.Contains(reason, expected) {
+			t.Errorf("reason %q — it must carry %q", reason, expected)
 		}
 	}
 }

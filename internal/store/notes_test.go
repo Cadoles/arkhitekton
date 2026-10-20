@@ -38,7 +38,7 @@ func TestAnIssueIsLinkedToAndRemovedFromANote(t *testing.T) {
 	issueOf(t, db, 1234, 920, "Évolution", "En revue", BucketDoing, 100, false)
 
 	if err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceAuto, "#42", "vcarroy"); err != nil {
-		t.Fatalf("rattachement: %v", err)
+		t.Fatalf("attachment: %v", err)
 	}
 
 	entries, err := db.ListNoteEntries(ctx, releaseID)
@@ -62,7 +62,7 @@ func TestAnIssueIsLinkedToAndRemovedFromANote(t *testing.T) {
 	}
 
 	if err := db.UnlinkNoteIssue(ctx, releaseID, "1234"); err != nil {
-		t.Fatalf("retrait: %v", err)
+		t.Fatalf("removal: %v", err)
 	}
 	if remaining, _ := db.ListNoteEntries(ctx, releaseID); len(remaining) != 0 {
 		t.Errorf("%d entry(ies) after removal", len(remaining))
@@ -79,7 +79,7 @@ func TestAnIssueIsNotLinkedTwice(t *testing.T) {
 	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
 
 	if err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceAuto, "#42", "vcarroy"); err != nil {
-		t.Fatalf("premier rattachement: %v", err)
+		t.Fatalf("first attachment: %v", err)
 	}
 	err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceManual, "", "vcarroy")
 	if !errors.Is(err, ErrNoteAlreadyLinked) {
@@ -97,7 +97,7 @@ func TestAnUnknownIssueStaysListed(t *testing.T) {
 	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
 
 	if err := db.LinkNoteIssue(ctx, releaseID, "9999", NoteSourceManual, "", "vcarroy"); err != nil {
-		t.Fatalf("rattachement: %v", err)
+		t.Fatalf("attachment: %v", err)
 	}
 
 	entries, err := db.ListNoteEntries(ctx, releaseID)
@@ -114,7 +114,7 @@ func TestAnUnknownIssueStaysListed(t *testing.T) {
 
 // Anomalies are recognised by the tracker's prefix: the tracker carries several anomaly
 // variants, all of them fixes.
-func TestUneAnomalieEstReconnueAuPrefixeDuTracker(t *testing.T) {
+func TestABugIsRecognisedByTheTrackerPrefix(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -123,7 +123,7 @@ func TestUneAnomalieEstReconnueAuPrefixeDuTracker(t *testing.T) {
 	issueOf(t, db, 1, 920, "Anomalie bloquante", "En revue", BucketDoing, 100, false)
 
 	if err := db.LinkNoteIssue(ctx, releaseID, "1", NoteSourceAuto, "#1", "vcarroy"); err != nil {
-		t.Fatalf("rattachement: %v", err)
+		t.Fatalf("attachment: %v", err)
 	}
 	entries, _ := db.ListNoteEntries(ctx, releaseID)
 	if len(entries) != 1 || !entries[0].Anomaly {
@@ -151,7 +151,7 @@ func TestThePoolReturnsTheVersionsIssues(t *testing.T) {
 
 	entries, err := db.ListReleaseVersionIssues(ctx, releaseID)
 	if err != nil {
-		t.Fatalf("vivier: %v", err)
+		t.Fatalf("pool: %v", err)
 	}
 
 	got := map[string]bool{}
@@ -206,7 +206,7 @@ func TestANoteDoesNotFetchAnotherProjectsIssue(t *testing.T) {
 		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.',
 		         'autre-suivi', 'test')
 		 returning id`).Scan(&second); err != nil {
-		t.Fatalf("second projet: %v", err)
+		t.Fatalf("second project: %v", err)
 	}
 
 	versionID := redmineVersion(t, db, 920, "v3.2.0", "open")
@@ -223,7 +223,7 @@ func TestANoteDoesNotFetchAnotherProjectsIssue(t *testing.T) {
 	}
 
 	if err := db.LinkNoteIssue(ctx, releaseID, "1234", NoteSourceManual, "", "vcarroy"); err != nil {
-		t.Fatalf("rattachement: %v", err)
+		t.Fatalf("attachment: %v", err)
 	}
 
 	// One row only, and it is the release's project's. Two rows would mean the join brought

@@ -67,12 +67,12 @@ func (f *fakeRedmineStore) UpsertRedmineVersion(_ context.Context, version store
 	if f.locals == nil {
 		f.locals = map[string]int64{}
 	}
-	identite := fmt.Sprintf("%d/%s/%s", version.ProjectID, version.Tool, version.ExternalID)
-	if id, connue := f.locals[identite]; connue {
+	identity := fmt.Sprintf("%d/%s/%s", version.ProjectID, version.Tool, version.ExternalID)
+	if id, known := f.locals[identity]; known {
 		return id, nil
 	}
 	id := int64(len(f.locals) + 1)
-	f.locals[identite] = id
+	f.locals[identity] = id
 	return id, nil
 }
 
@@ -217,8 +217,8 @@ func TestTheCursorIsTakenBeforeTheRead(t *testing.T) {
 	db := &fakeRedmineStore{}
 	sync := newSync(t, client, db)
 
-	debut := time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)
-	sync.now = func() time.Time { return debut }
+	start := time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)
+	sync.now = func() time.Time { return start }
 
 	// The cursor is **returned** rather than written: since the migration, it is the probe loop
 	// that persists it. What the projection must hold is the instant it chooses — and it stays the
@@ -228,8 +228,8 @@ func TestTheCursorIsTakenBeforeTheRead(t *testing.T) {
 		t.Fatalf("synchronisation: %v", err)
 	}
 
-	if cursor != debut.Format(time.RFC3339) {
-		t.Errorf("cursor %q, expected %q", cursor, debut.Format(time.RFC3339))
+	if cursor != start.Format(time.RFC3339) {
+		t.Errorf("cursor %q, expected %q", cursor, start.Format(time.RFC3339))
 	}
 }
 
@@ -263,7 +263,7 @@ func TestAnUnreadableCursorMakesEverythingBeReadAgain(t *testing.T) {
 		db := &fakeRedmineStore{state: store.SyncState{Cursor: cursor}}
 
 		if _, _, err := pass(t, client, db); err != nil {
-			t.Fatalf("curseur %q: %v", cursor, err)
+			t.Fatalf("cursor %q: %v", cursor, err)
 		}
 		if len(client.queries) != 1 {
 			t.Fatalf("cursor %q: %d requests", cursor, len(client.queries))
@@ -337,7 +337,7 @@ func TestTheClosedFlagIsPassedIndependentlyOfTheBucket(t *testing.T) {
 	}
 
 	if len(db.issues) != 1 {
-		t.Fatalf("%d demandes", len(db.issues))
+		t.Fatalf("%d issues", len(db.issues))
 	}
 	if !db.issues[0].IsClosed {
 		t.Error("Redmine's flag must be kept")

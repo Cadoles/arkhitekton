@@ -330,7 +330,7 @@ func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-heartbeat.C:
-			if err := stream.comment("battement"); err != nil {
+			if err := stream.comment("heartbeat"); err != nil {
 				return
 			}
 		case <-ticker.C:

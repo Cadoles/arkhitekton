@@ -114,7 +114,7 @@ func (h *ProjectPipelinesHandler) Set(w http.ResponseWriter, r *http.Request) {
 
 	kind := strings.TrimSpace(r.PathValue("kind"))
 	if h.catalog == nil {
-		writeProblem(w, http.StatusConflict, "Catalogue indisponible", "")
+		writeProblem(w, http.StatusConflict, "Catalogue unavailable", "")
 		return
 	}
 	pipeline, found := h.catalog.Find(kind)
@@ -136,7 +136,7 @@ func (h *ProjectPipelinesHandler) Set(w http.ResponseWriter, r *http.Request) {
 		r.Context(), project.ID, pipeline.Kind, request.Enabled, identity.Subject); err != nil {
 		h.logger.Error("recording a project pipeline",
 			"project", project.Slug, "kind", pipeline.Kind, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
 		return
 	}
 

@@ -28,7 +28,7 @@ func TestProjectDropsTheHost(t *testing.T) {
 		Project: "reg.cadoles.com/cnous-mse",
 	})
 	if err != nil {
-		t.Fatalf("ouverture: %v", err)
+		t.Fatalf("opening: %v", err)
 	}
 	if client.Project() != "cnous-mse" {
 		t.Errorf("project = %q, expected cnous-mse", client.Project())
@@ -56,10 +56,10 @@ func testClient(t *testing.T, handler http.Handler) *Client {
 	t.Cleanup(server.Close)
 
 	client, err := Open(config.RegistryConfig{
-		URL: server.URL, Username: "u", Password: "p", Project: "reg.example.fr/projet",
+		URL: server.URL, Username: "u", Password: "p", Project: "reg.example.fr/project",
 	})
 	if err != nil {
-		t.Fatalf("ouverture: %v", err)
+		t.Fatalf("opening: %v", err)
 	}
 	return client
 }
@@ -74,13 +74,13 @@ func TestBearerChallengeIsFollowed(t *testing.T) {
 		if r.URL.Path == "/service/token" {
 			tokenIssued = true
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"token":"jeton-porteur"}`))
+			_, _ = w.Write([]byte(`{"token":"bearer-token"}`))
 			return
 		}
 
-		if r.Header.Get("Authorization") != "Bearer jeton-porteur" {
+		if r.Header.Get("Authorization") != "Bearer bearer-token" {
 			w.Header().Set("WWW-Authenticate",
-				`Bearer realm="`+"http://"+r.Host+`/service/token",service="registre"`)
+				`Bearer realm="`+"http://"+r.Host+`/service/token",service="registry"`)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -114,7 +114,7 @@ func TestTagsByDigestGroupsPromotions(t *testing.T) {
 
 	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead {
-			tag := r.URL.Path[len("/v2/projet/portal/manifests/"):]
+			tag := r.URL.Path[len("/v2/project/portal/manifests/"):]
 			digest, known := digests[tag]
 			if !known {
 				w.WriteHeader(http.StatusNotFound)
@@ -131,7 +131,7 @@ func TestTagsByDigestGroupsPromotions(t *testing.T) {
 
 	byDigest, err := client.TagsByDigest(context.Background(), "portal", 0)
 	if err != nil {
-		t.Fatalf("indexation: %v", err)
+		t.Fatalf("indexing: %v", err)
 	}
 
 	if len(byDigest["sha256:aaa"]) != 3 {
@@ -147,7 +147,7 @@ func TestTagsByDigestGroupsPromotions(t *testing.T) {
 func TestUnreadableTagIsSkipped(t *testing.T) {
 	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead {
-			if r.URL.Path == "/v2/projet/portal/manifests/disparu" {
+			if r.URL.Path == "/v2/project/portal/manifests/gone" {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
@@ -155,12 +155,12 @@ func TestUnreadableTagIsSkipped(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		_, _ = w.Write([]byte(`{"tags":["disparu","present"]}`))
+		_, _ = w.Write([]byte(`{"tags":["gone","present"]}`))
 	}))
 
 	byDigest, err := client.TagsByDigest(context.Background(), "portal", 0)
 	if err != nil {
-		t.Fatalf("indexation: %v", err)
+		t.Fatalf("indexing: %v", err)
 	}
 	if len(byDigest["sha256:ccc"]) != 1 || byDigest["sha256:ccc"][0] != "present" {
 		t.Errorf("index = %v", byDigest)
@@ -172,7 +172,7 @@ func TestUnreadableTagIsSkipped(t *testing.T) {
 func TestTagsByDigestKeepsTheMostRecent(t *testing.T) {
 	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead {
-			w.Header().Set("Docker-Content-Digest", "sha256:"+r.URL.Path[len("/v2/projet/portal/manifests/"):])
+			w.Header().Set("Docker-Content-Digest", "sha256:"+r.URL.Path[len("/v2/project/portal/manifests/"):])
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -181,7 +181,7 @@ func TestTagsByDigestKeepsTheMostRecent(t *testing.T) {
 
 	byDigest, err := client.TagsByDigest(context.Background(), "portal", 2)
 	if err != nil {
-		t.Fatalf("indexation: %v", err)
+		t.Fatalf("indexing: %v", err)
 	}
 	if len(byDigest) != 2 {
 		t.Fatalf("%d digest(s), expected 2: %v", len(byDigest), byDigest)

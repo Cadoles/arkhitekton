@@ -77,9 +77,9 @@ const maxDeployKeys = 200
 // strings would answer "absent" about a key that is in place. Exactly the kind of
 // false negative that would send someone to paste a key already installed.
 func SameKey(a, b string) bool {
-	typeA, matiereA, okA := splitKey(a)
-	typeB, matiereB, okB := splitKey(b)
-	return okA && okB && typeA == typeB && matiereA == matiereB
+	typeA, materialA, okA := splitKey(a)
+	typeB, materialB, okB := splitKey(b)
+	return okA && okB && typeA == typeB && materialA == materialB
 }
 
 // splitKey isolates the type and the material of a public key.

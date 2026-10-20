@@ -53,7 +53,7 @@ func testClient(t *testing.T) *Client {
 
 	client, err := Open(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("ouverture: %v", err)
+		t.Fatalf("opening: %v", err)
 	}
 	return client
 }
@@ -106,7 +106,7 @@ func TestPutGetRemove(t *testing.T) {
 	client := testClient(t)
 	ctx := context.Background()
 
-	key, err := client.Keys.RawArtifact("run-test-putget", "sonde.txt")
+	key, err := client.Keys.RawArtifact("run-test-putget", "probe.txt")
 	if err != nil {
 		t.Fatalf("key: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestPresignedPutAcceptsUploadWithoutCredentials(t *testing.T) {
 
 	reader, err := client.Get(ctx, key)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	defer reader.Close()
 
@@ -259,7 +259,7 @@ func TestPresignedPutExpires(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	request, err := newPutRequest(ctx, presigned.String(), "trop tard")
+	request, err := newPutRequest(ctx, presigned.String(), "too late")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}

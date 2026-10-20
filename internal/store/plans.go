@@ -71,7 +71,7 @@ var ErrPlanRunNotFound = errors.New("plan run not found")
 func (db *DB) CreatePlanRun(ctx context.Context, run PlanRun) (PlanRun, bool, error) {
 	encoded, err := json.Marshal(run.Plan)
 	if err != nil {
-		return PlanRun{}, false, fmt.Errorf("plan illisible: %w", err)
+		return PlanRun{}, false, fmt.Errorf("unreadable plan: %w", err)
 	}
 
 	tx, err := db.pool.Begin(ctx)

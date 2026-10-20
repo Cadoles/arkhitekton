@@ -125,7 +125,7 @@ func aeadFor(key string) (cipher.AEAD, string, error) {
 	material, err := base64.StdEncoding.DecodeString(strings.TrimSpace(key))
 	if err != nil {
 		// The message does not quote the value: a badly pasted key is still a key.
-		return nil, "", fmt.Errorf("attendue en base64 (openssl rand -base64 32): %w", err)
+		return nil, "", fmt.Errorf("expected in base64 (openssl rand -base64 32): %w", err)
 	}
 	if len(material) != keyLength {
 		return nil, "", fmt.Errorf("length of %d bytes, expected %d", len(material), keyLength)
@@ -210,7 +210,7 @@ func (c *Cipher) Open(sealed string) (string, error) {
 
 	raw, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
-		return "", fmt.Errorf("enveloppe illisible: %w", err)
+		return "", fmt.Errorf("unreadable envelope: %w", err)
 	}
 	if len(raw) < aead.NonceSize() {
 		return "", errors.New("truncated envelope")

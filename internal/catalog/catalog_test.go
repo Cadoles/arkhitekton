@@ -21,7 +21,7 @@ pipelines:
 func TestParseAppliesTheDefaultConcurrencyCap(t *testing.T) {
 	catalog, err := Parse([]byte(minimal))
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
 	if catalog.MaxConcurrentRuns != DefaultMaxConcurrentRuns {
 		t.Errorf("ceiling = %d, expected %d", catalog.MaxConcurrentRuns, DefaultMaxConcurrentRuns)
@@ -139,7 +139,7 @@ pipelines:
       repo-url: { source: config, key: forge.url }
 `))
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
 
 	pipeline, _ := catalog.Find("build")
@@ -169,7 +169,7 @@ func (c fakeCluster) Tasks(context.Context) (map[string]bool, error) {
 func TestValidateAgainstAcceptsAConsistentCatalog(t *testing.T) {
 	catalog, err := Parse([]byte(minimal))
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
 
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
@@ -226,7 +226,7 @@ func TestValidateAgainstDetectsUncoveredRequiredParam(t *testing.T) {
 		"php-static-tests": {Name: "php-static-tests", Params: map[string]bool{
 			"revision": false,
 			"repo-url": false,
-			"commit":   false, // requis par le Pipeline, absent du catalogue
+			"commit":   false, // required by the Pipeline, absent from the catalogue
 		}},
 	}}
 
@@ -306,7 +306,7 @@ pipelines:
         emptyDir: true
 `))
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
 
 	cluster := fakeCluster{pipelines: map[string]PipelineSpec{
@@ -385,16 +385,16 @@ pipelines:
 func TestTheProductIsRequiredAtDeclaration(t *testing.T) {
 	_, err := Parse([]byte(`
 pipelines:
-  - kind: deploy-recette
+  - kind: deploy-acceptance
     pipelineRef: deploy
-    label: Déploiement
+    label: Deployment
 `))
 	if err == nil {
 		t.Fatal("a pipeline with no product must be refused")
 	}
-	for _, attendu := range []string{"produces", "image", "results", "none"} {
-		if !strings.Contains(err.Error(), attendu) {
-			t.Errorf("message %q — it must mention %q", err, attendu)
+	for _, expected := range []string{"produces", "image", "results", "none"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("message %q — it must mention %q", err, expected)
 		}
 	}
 }
@@ -405,18 +405,18 @@ pipelines:
 func TestNothingIsAnAnswerThatMustBeDeclared(t *testing.T) {
 	parsed, err := Parse([]byte(`
 pipelines:
-  - kind: deploy-recette
+  - kind: deploy-acceptance
     pipelineRef: deploy
-    label: Déploiement
+    label: Deployment
     produces: [none]
 `))
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
-	if !parsed.Yields("deploy-recette", ProductNone) {
+	if !parsed.Yields("deploy-acceptance", ProductNone) {
 		t.Error("the declared product is not returned")
 	}
-	if parsed.Yields("deploy-recette", ProductResults) {
+	if parsed.Yields("deploy-acceptance", ProductResults) {
 		t.Error("an undeclared product is returned")
 	}
 }
@@ -429,7 +429,7 @@ func TestAPipelineCanProduceBoth(t *testing.T) {
 pipelines:
   - kind: build-and-test
     pipelineRef: build-and-test
-    label: Construction et tests
+    label: Build and tests
     produces: [image, results]
     params:
       reports-upload-url: { source: input }
@@ -437,7 +437,7 @@ pipelines:
       reports: { param: reports-upload-url, artifact: reports.tar.gz }
 `))
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
 	if !parsed.Yields("build-and-test", ProductImage) ||
 		!parsed.Yields("build-and-test", ProductResults) {
@@ -463,7 +463,7 @@ pipelines:
       reports: { param: reports-upload-url, artifact: reports.tar.gz }
 `))
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
 	if !parsed.Yields("unit-tests", ProductResults) {
 		t.Error("a verification infers its product")
@@ -487,7 +487,7 @@ func TestAnExplicitDeclarationBeatsDeduction(t *testing.T) {
 pipelines:
   - kind: build-and-verify
     pipelineRef: build-and-verify
-    label: Construction vérifiée
+    label: Verified build
     verification: true
     produces: [image, results]
     params:
@@ -496,7 +496,7 @@ pipelines:
       reports: { param: reports-upload-url, artifact: reports.tar.gz }
 `))
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
 	if !parsed.Yields("build-and-verify", ProductImage) {
 		t.Error("deduction overwrote the declaration")
@@ -561,7 +561,7 @@ func TestNothingDoesNotCombineWithAnotherProduct(t *testing.T) {
 pipelines:
   - kind: build
     pipelineRef: build-image
-    label: Construction
+    label: Build
     produces: [image, none]
 `))
 	if err == nil || !strings.Contains(err.Error(), "does not combine") {
@@ -596,7 +596,7 @@ func TestADeclarationIsNotOfferedWhatTheRunImposes(t *testing.T) {
 pipelines:
   - kind: build
     pipelineRef: build-image
-    label: Construction
+    label: Build
     produces: [image]
     params:
       revision:   { source: input, required: true, suggest: git-ref }
@@ -607,18 +607,18 @@ pipelines:
 `)
 	pipeline, _ := registry.Find("build")
 
-	offerts := map[string]bool{}
+	offered := map[string]bool{}
 	for _, input := range pipeline.Declared() {
-		offerts[input.Name] = true
+		offered[input.Name] = true
 	}
 
 	for _, impose := range []string{"revision", "version"} {
-		if offerts[impose] {
+		if offered[impose] {
 			t.Errorf("%q is offered for typing although the run imposes it", impose)
 		}
 	}
 	for _, declare := range []string{"image-name", "target", "dockerfile"} {
-		if !offerts[declare] {
+		if !offered[declare] {
 			t.Errorf("%q is not offered — nobody will be able to fill it in", declare)
 		}
 	}
@@ -645,7 +645,7 @@ pipelines:
 
 	input := pipeline.Inputs()[0]
 	if input.Origin() != OriginFallback {
-		t.Errorf("origine = %q, attendue %q", input.Origin(), OriginFallback)
+		t.Errorf("origin = %q, expected %q", input.Origin(), OriginFallback)
 	}
 	// And the fallback stays computable: a step that declares nothing receives what
 	// the registry and the tag compose.
@@ -663,7 +663,7 @@ func TestAParameterWithoutALabelFallsBackToItsName(t *testing.T) {
 pipelines:
   - kind: build
     pipelineRef: build-image
-    label: Construction
+    label: Build
     produces: [image]
     params:
       target:     { source: input, required: true, suggest: build-target }

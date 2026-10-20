@@ -25,7 +25,7 @@ import (
  */
 
 // writingForge records what the runner sends to the forge.
-type forgeEcrivante struct {
+type writingForge struct {
 	server *httptest.Server
 
 	mu     sync.Mutex
@@ -36,9 +36,9 @@ type forgeEcrivante struct {
 	status int
 }
 
-func newWritingForge(t *testing.T) *forgeEcrivante {
+func newWritingForge(t *testing.T) *writingForge {
 	t.Helper()
-	forge := &forgeEcrivante{status: http.StatusCreated}
+	forge := &writingForge{status: http.StatusCreated}
 	forge.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		forge.mu.Lock()
@@ -54,7 +54,7 @@ func newWritingForge(t *testing.T) *forgeEcrivante {
 	return forge
 }
 
-func (f *forgeEcrivante) vu() (string, string, map[string]string) {
+func (f *writingForge) seenParams() (string, string, map[string]string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.method, f.path, f.body
@@ -121,21 +121,21 @@ func TestACommitStatusBorrowsThePluginsConnection(t *testing.T) {
 		t.Errorf("job identifier %v — an action does not go through the queue", *job)
 	}
 
-	methode, chemin, corps := forge.vu()
+	methode, route, payload := forge.seenParams()
 	if methode != http.MethodPost {
 		t.Errorf("method %q", methode)
 	}
 	// The resolved commit, and not the literal template: without the interpolation, the status
 	// would be set on a reference that does not exist.
-	if chemin != "/api/v1/repos/equipe/mse/statuses/9f1c0deadbeef" {
-		t.Errorf("chemin %q", chemin)
+	if route != "/api/v1/repos/equipe/mse/statuses/9f1c0deadbeef" {
+		t.Errorf("path %q", route)
 	}
-	if corps["state"] != "success" || corps["context"] != "arkhitekton/verifications" {
-		t.Errorf("corps %v", corps)
+	if payload["state"] != "success" || payload["context"] != "arkhitekton/verifications" {
+		t.Errorf("body %v", payload)
 	}
-	if corps["description"] != "1.8.0-rc1 verified" {
+	if payload["description"] != "1.8.0-rc1 verified" {
 		t.Errorf("description %q — the template must be bound to the fact's payload",
-			corps["description"])
+			payload["description"])
 	}
 
 	forge.mu.Lock()
@@ -161,14 +161,14 @@ func TestACommentGoesOnTheRequestTheFactNames(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 
-	_, chemin, corps := forge.vu()
+	_, route, payload := forge.seenParams()
 	// A pull request's thread lives under the issues route: in Gitea, a request **is** an
 	// augmented issue.
-	if chemin != "/api/v1/repos/equipe/mse/issues/128/comments" {
-		t.Errorf("chemin %q", chemin)
+	if route != "/api/v1/repos/equipe/mse/issues/128/comments" {
+		t.Errorf("path %q", route)
 	}
-	if corps["body"] != "Verified in 1.8.0-rc1." {
-		t.Errorf("corps %q", corps["body"])
+	if payload["body"] != "Verified in 1.8.0-rc1." {
+		t.Errorf("body %q", payload["body"])
 	}
 }
 
@@ -188,7 +188,7 @@ func TestASwitchedOffPluginRefusesInsteadOfStarting(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "switched off") {
 		t.Fatalf("%v — the refusal must say the plugin is switched off", err)
 	}
-	if methode, _, _ := forge.vu(); methode != "" {
+	if methode, _, _ := forge.seenParams(); methode != "" {
 		t.Errorf("the forge was called (%s) although the plugin is switched off", methode)
 	}
 }
@@ -213,7 +213,7 @@ func TestAnUninterpolatedNumberQuotesWhatItBecame(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "{number}") {
 		t.Fatalf("%v — the message must quote what the template became", err)
 	}
-	if methode, _, _ := forge.vu(); methode != "" {
+	if methode, _, _ := forge.seenParams(); methode != "" {
 		t.Errorf("the forge was called (%s) on an unreadable number", methode)
 	}
 }
@@ -239,7 +239,7 @@ func TestAPluginActionWithNoProjectRefuses(t *testing.T) {
 }
 
 // A refusal from the forge becomes the step's reason, with what is needed to act.
-func TestUnRefusDeLaForgeNommeLaPortéeAttendue(t *testing.T) {
+func TestAForgeRefusalNamesTheExpectedScope(t *testing.T) {
 	forge := newWritingForge(t)
 	forge.status = http.StatusForbidden
 	db := &fakePluginStore{url: forge.server.URL, enabled: true, repo: "equipe/mse"}

@@ -57,7 +57,7 @@ func TestSaveLoadResultKeepsTheMeasuredConditions(t *testing.T) {
 			{Metric: "http_reqs:count", Label: "Requests", Unit: "req", Value: 24000, Volume: true},
 		})
 	if err != nil {
-		t.Fatalf("enregistrement: %v", err)
+		t.Fatalf("recording: %v", err)
 	}
 
 	measures, err := db.ListResultMeasures(ctx, resultID)
@@ -65,14 +65,14 @@ func TestSaveLoadResultKeepsTheMeasuredConditions(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if len(measures) != 2 {
-		t.Fatalf("%d mesure(s)", len(measures))
+		t.Fatalf("%d measure(s)", len(measures))
 	}
 	// The conditions accompany every measure: without them, a measure is only a number.
 	if !measures[0].Exclusive || measures[0].ConcurrentAt != 0 {
 		t.Errorf("conditions = %+v", measures[0])
 	}
 	if measures[0].ThresholdOK == nil || !*measures[0].ThresholdOK {
-		t.Errorf("seuil = %v", measures[0].ThresholdOK)
+		t.Errorf("threshold = %v", measures[0].ThresholdOK)
 	}
 	if !measures[1].Volume {
 		t.Error("the volume flag was lost")
@@ -94,12 +94,12 @@ func TestLoadStatusFollowsTheDeclaredThresholds(t *testing.T) {
 			{Metric: "b:rate", Label: "B", Unit: "%", Value: 2, LowerBetter: true, ThresholdOK: no()},
 		})
 	if err != nil {
-		t.Fatalf("enregistrement: %v", err)
+		t.Fatalf("recording: %v", err)
 	}
 
 	var status string
 	if err := db.pool.QueryRow(ctx, `select status from test_results where id = $1`, resultID).Scan(&status); err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if status != "fail" {
 		t.Errorf("status = %q, expected fail", status)
@@ -177,16 +177,16 @@ func TestScenarioHistoryIsMostRecentFirst(t *testing.T) {
 			LoadResult{Group: "load", Tool: "k6", Producer: "k6@1.0.0", RunID: runID, ReleaseID: &releaseID, Scenario: "panier", Exclusive: true},
 			[]BenchMeasure{{Metric: "http_req_duration:p(95)", Label: "Latence p95", Unit: "ms",
 				Value: value, LowerBetter: true}}); err != nil {
-			t.Fatalf("enregistrement: %v", err)
+			t.Fatalf("recording: %v", err)
 		}
 	}
 
 	history, err := db.ListScenarioMeasures(ctx, "panier", "http_req_duration:p(95)", 6)
 	if err != nil {
-		t.Fatalf("historique: %v", err)
+		t.Fatalf("history: %v", err)
 	}
 	if len(history) != 3 || history[0].Value != 290 {
-		t.Errorf("historique = %+v", history)
+		t.Errorf("history = %+v", history)
 	}
 }
 
@@ -199,7 +199,7 @@ func TestClaimRecordsTheStartConditions(t *testing.T) {
 	if _, err := db.Enqueue(ctx, JobRequest{
 		Kind: "load-test", RequestedBy: "vcarroy",
 	}); err != nil {
-		t.Fatalf("mise en file: %v", err)
+		t.Fatalf("enqueue: %v", err)
 	}
 
 	// A queue of one place: that is what makes the measurement exclusive, the previous model's
@@ -228,7 +228,7 @@ func TestAnOrdinaryJobIsNeverMarkedExclusive(t *testing.T) {
 	if _, err := db.Enqueue(ctx, JobRequest{
 		Kind: "static-tests", RequestedBy: "vcarroy",
 	}); err != nil {
-		t.Fatalf("mise en file: %v", err)
+		t.Fatalf("enqueue: %v", err)
 	}
 
 	job, _ := db.ClaimNext(ctx, caps(4, nil), func(kind string, id int64) string { return "run-2" })
@@ -249,7 +249,7 @@ func TestUnrecordedConditionsDefaultToNonExclusive(t *testing.T) {
 
 	id, err := db.Enqueue(ctx, JobRequest{Kind: "x", RequestedBy: "v"})
 	if err != nil {
-		t.Fatalf("mise en file: %v", err)
+		t.Fatalf("enqueue: %v", err)
 	}
 
 	exclusive, concurrent, err := db.StartConditions(ctx, id)

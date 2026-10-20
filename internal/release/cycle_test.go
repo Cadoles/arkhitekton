@@ -22,7 +22,7 @@ func TestTheDefaultCycleReproducesTheThreeKinds(t *testing.T) {
 	// build.
 	final, err := cycle.Find("final")
 	if err != nil {
-		t.Fatalf("nature final: %v", err)
+		t.Fatalf("final kind: %v", err)
 	}
 	if final.Mode != ModeRetag || final.Source != "pre" {
 		t.Errorf("final: %+v — the rule holds through the mode, not the name", final)
@@ -96,8 +96,8 @@ func TestATagRuleAssumesASchemeThatCanAnswer(t *testing.T) {
 	}
 
 	// With no rule, the same scheme is fine: an opaque project stays usable.
-	libre := Cycle{{ID: "release", Mode: ModeBuild}}
-	if err := libre.Validate(version.Opaque{}); err != nil {
+	free := Cycle{{ID: "release", Mode: ModeBuild}}
+	if err := free.Validate(version.Opaque{}); err != nil {
 		t.Errorf("a cycle with no tag rule must suit an opaque scheme: %v", err)
 	}
 }
@@ -157,8 +157,8 @@ func TestShapeCheckingStaysSilentWhenTheSchemeCannotTell(t *testing.T) {
 		t.Errorf("the scheme cannot answer: %v", err)
 	}
 
-	finale, _ := version.SemVer{}.Parse("1.8.0")
-	if err := CheckTag(spec, finale); err == nil {
+	finalRelease, _ := version.SemVer{}.Parse("1.8.0")
+	if err := CheckTag(spec, finalRelease); err == nil {
 		t.Error("a kind requiring a pre-release must refuse a final version")
 	}
 

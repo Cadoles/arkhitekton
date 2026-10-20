@@ -164,11 +164,11 @@ func TestAJobWithNoProjectUsesTheDeploymentsSecrets(t *testing.T) {
 // database is mute for a second, not the forge. The retry covers the case, and the attempt cap
 // concludes if it persists.
 func TestAReadFailureDoesNotDisguiseItselfAsAMissingKey(t *testing.T) {
-	muette := errors.New("base muette")
-	scheduler := schedulerWith(&fakeProjectSecrets{err: muette})
+	silentStore := errors.New("silent database")
+	scheduler := schedulerWith(&fakeProjectSecrets{err: silentStore})
 
 	_, err := scheduler.settingsFor(context.Background(), jobOf(7))
-	if !errors.Is(err, muette) {
+	if !errors.Is(err, silentStore) {
 		t.Fatalf("error = %v, expected the database's", err)
 	}
 	if strings.Contains(err.Error(), "coller") {

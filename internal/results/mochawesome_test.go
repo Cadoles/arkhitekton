@@ -33,7 +33,7 @@ func TestParseMochawesome(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if report.Total != 4 || report.Passed != 1 || report.Failed != 1 || report.Skipped != 1 {
-		t.Errorf("comptes = %+v", report)
+		t.Errorf("counts = %+v", report)
 	}
 	if report.DurationMS != 12500 {
 		t.Errorf("duration = %d", report.DurationMS)
@@ -53,7 +53,7 @@ func TestARetriedPassIsFlaky(t *testing.T) {
 			return
 		}
 	}
-	t.Error("cas introuvable")
+	t.Error("case not found")
 }
 
 // Renaming a `describe` must not make all its tests "new" at the next comparison:
@@ -83,7 +83,7 @@ func TestACaseThatNeverRanIsKept(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if report.Total != 1 || report.Skipped != 1 {
-		t.Errorf("comptes = %+v", report)
+		t.Errorf("counts = %+v", report)
 	}
 	if report.Cases[0].Message == "" {
 		t.Error("the reason must be stated")

@@ -51,14 +51,14 @@ func TestAnOutgoingCallBindsItsTemplateAndSetsItsToken(t *testing.T) {
 		body string
 		auth string
 	}
-	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		corps := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(corps)
-		received.body = string(corps)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		payload := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(payload)
+		received.body = string(payload)
 		received.auth = r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer serveur.Close()
+	defer server.Close()
 
 	runner := runnerFor(t, fakeSecrets{values: map[string]string{
 		"redmine.api_key": "production-token",
@@ -70,14 +70,14 @@ func TestAnOutgoingCallBindsItsTemplateAndSetsItsToken(t *testing.T) {
 	}, plan.Geste{
 		Kind: plan.GesteAction, Ref: action.Webhook,
 		Params: map[string]string{
-			"url":         serveur.URL,
+			"url":         server.URL,
 			"body":        `{"text":"release {tag} : {outcome}"}`,
 			"auth_header": "Authorization",
 			"auth_secret": "redmine.api_key",
 		},
 	})
 	if err != nil {
-		t.Fatalf("appel: %v", err)
+		t.Fatalf("call: %v", err)
 	}
 	// An action is concluded the moment it is done: nothing will arrive later to conclude it, so
 	// there is no job to wait for.
@@ -102,22 +102,22 @@ func TestAnOutgoingCallBindsItsTemplateAndSetsItsToken(t *testing.T) {
 // known, with no template to write.
 func TestAnEmptyBodySendsTheFactsPayload(t *testing.T) {
 	var received string
-	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		corps := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(corps)
-		received = string(corps)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		payload := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(payload)
+		received = string(payload)
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer serveur.Close()
+	defer server.Close()
 
 	_, err := runnerFor(t, nil).Run(context.Background(), store.PlanRun{
 		Context: map[string]string{"tag": "1.8.0"},
 	}, plan.Geste{
 		Kind: plan.GesteAction, Ref: action.Webhook,
-		Params: map[string]string{"url": serveur.URL},
+		Params: map[string]string{"url": server.URL},
 	})
 	if err != nil {
-		t.Fatalf("appel: %v", err)
+		t.Fatalf("call: %v", err)
 	}
 	if !strings.Contains(received, `"tag":"1.8.0"`) {
 		t.Errorf("payload received = %q", received)
@@ -128,24 +128,24 @@ func TestAnEmptyBodySendsTheFactsPayload(t *testing.T) {
 // answer about *its* syntax, and the message would send someone hunting on their side for a
 // defect that is on ours.
 func TestATemplateYieldingInvalidJSONIsRefusedBeforeLeaving(t *testing.T) {
-	var atteint bool
-	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atteint = true
+	var reached bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer serveur.Close()
+	defer server.Close()
 
 	_, err := runnerFor(t, nil).Run(context.Background(), store.PlanRun{
 		Context: map[string]string{"tag": "1.8.0"},
 	}, plan.Geste{
 		Kind: plan.GesteAction, Ref: action.Webhook,
-		Params: map[string]string{"url": serveur.URL, "body": `{"tag": {tag}}`},
+		Params: map[string]string{"url": server.URL, "body": `{"tag": {tag}}`},
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "JSON") {
 		t.Fatalf("%v, expected a refusal naming the JSON", err)
 	}
-	if atteint {
+	if reached {
 		t.Error("the request left despite an invalid body")
 	}
 }
@@ -207,15 +207,15 @@ func TestAForbiddenTargetStaysRecognisable(t *testing.T) {
 // A refusal from the recipient fails the step, with its code and an excerpt: "failed" alone
 // teaches nothing and forces a re-run to see.
 func TestARefusalFromTheRecipientFailsTheStepAndSaysSo(t *testing.T) {
-	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte("token expired"))
 	}))
-	defer serveur.Close()
+	defer server.Close()
 
 	_, err := runnerFor(t, nil).Run(context.Background(), store.PlanRun{}, plan.Geste{
 		Kind: plan.GesteAction, Ref: action.Webhook,
-		Params: map[string]string{"url": serveur.URL},
+		Params: map[string]string{"url": server.URL},
 	})
 
 	if err == nil {
@@ -250,10 +250,10 @@ func TestAnUnwiredPluginActionIsRefusedByName(t *testing.T) {
 // plugin runner would fail it on "no plugin declares", a message that sends one hunting in
 // the wrong place.
 func TestADotInAReferenceDoesNotMakeAPlugin(t *testing.T) {
-	var confie bool
+	var entrusted bool
 	runner := runnerFor(t, nil).WithPlugins(stepRunnerFunc(
 		func(context.Context, store.PlanRun, plan.Geste) (*int64, error) {
-			confie = true
+			entrusted = true
 			return nil, nil
 		}))
 
@@ -261,7 +261,7 @@ func TestADotInAReferenceDoesNotMakeAPlugin(t *testing.T) {
 		Kind: plan.GesteAction, Ref: "forge.status",
 	})
 
-	if confie {
+	if entrusted {
 		t.Error("an unknown action was handed to the plugin runner")
 	}
 	if err == nil || !errors.Is(err, action.ErrUnknown) {

@@ -123,7 +123,7 @@ func TestATrackedProjectRefusesTheManualDeclaration(t *testing.T) {
 	}
 	// The message must say why, otherwise it will be taken for a fault.
 	if !strings.Contains(recorder.Body.String(), "authoritative") {
-		t.Errorf("corps %s", recorder.Body)
+		t.Errorf("body %s", recorder.Body)
 	}
 }
 
@@ -191,7 +191,7 @@ func TestTheListSaysWhetherTheProjectIsTracked(t *testing.T) {
 		tracker string
 		want    bool
 	}{
-		"projet suivi":            {tracker: "mse-dev", want: true},
+		"tracked project":         {tracker: "mse-dev", want: true},
 		"project with no tracker": {tracker: "", want: false},
 	}
 
@@ -216,7 +216,7 @@ func TestTheListSaysWhetherTheProjectIsTracked(t *testing.T) {
 			} `json:"sync"`
 		}
 		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-			t.Fatalf("%s: corps illisible: %v", name, err)
+			t.Fatalf("%s: unreadable body: %v", name, err)
 		}
 		if payload.Sync.Tracked != expected.want {
 			t.Errorf("%s: tracked = %v, expected %v — the button would show wrongly",

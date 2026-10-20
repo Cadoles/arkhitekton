@@ -49,7 +49,7 @@ func TestRevokeClosesTheSessions(t *testing.T) {
 	}
 
 	if err := db.RevokeRole(ctx, "bob"); err != nil {
-		t.Fatalf("retrait: %v", err)
+		t.Fatalf("removal: %v", err)
 	}
 	if sessionCount(t, db, "bob") != 0 {
 		t.Error("the sessions must be closed with the role")
@@ -100,7 +100,7 @@ func TestTheLastAdminCannotBeRemoved(t *testing.T) {
 	// The role is still there: the refusal left nothing half done.
 	admins, err := db.CountAdmins(ctx)
 	if err != nil || admins != 1 {
-		t.Errorf("administrateurs = %d, err = %v", admins, err)
+		t.Errorf("administrators = %d, err = %v", admins, err)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestPenultimateAdminCanBeRemoved(t *testing.T) {
 	grantRole(t, db, "carol", "carol", "admin")
 
 	if err := db.RevokeRole(ctx, "carol"); err != nil {
-		t.Fatalf("retrait: %v", err)
+		t.Fatalf("removal: %v", err)
 	}
 	admins, _ := db.CountAdmins(ctx)
 	if admins != 1 {
@@ -141,7 +141,7 @@ func TestRolesAreListedByPrivilege(t *testing.T) {
 
 	roles, err := db.ListUserRoles(ctx)
 	if err != nil {
-		t.Fatalf("liste: %v", err)
+		t.Fatalf("list: %v", err)
 	}
 	order := make([]string, 0, len(roles))
 	for _, role := range roles {

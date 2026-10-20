@@ -98,7 +98,7 @@ func TestTheOpaqueSchemeAcceptsAnyNonEmptyTag(t *testing.T) {
 func TestTheOpaqueSchemeNeverAssertsATagIsFinal(t *testing.T) {
 	version, err := Opaque{}.Parse("build-4711")
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
 
 	prerelease, known := version.Prereleased()
@@ -165,12 +165,12 @@ func TestTheNextPrereleaseIsDeducedFromExistingOnes(t *testing.T) {
 	// proposing `-rc3` because there are three would fail if `rc5` exists.
 	existing := []string{"1.8.0-rc1", "1.8.0-rc5", "1.8.0-rc2"}
 	if got, err := scheme.NextPrerelease("1.8.0", existing); err != nil || got != "1.8.0-rc6" {
-		t.Errorf("suivante = %q (%v)", got, err)
+		t.Errorf("next = %q (%v)", got, err)
 	}
 
 	// Other lines do not count: `1.9.0-rc4` says nothing about `1.8.0`.
 	if got, _ := scheme.NextPrerelease("1.8.0", []string{"1.9.0-rc4"}); got != "1.8.0-rc1" {
-		t.Errorf("ligne voisine prise en compte: %q", got)
+		t.Errorf("neighbouring line taken into account: %q", got)
 	}
 
 	// A pre-release of another shape is ignored rather than refused: a history may

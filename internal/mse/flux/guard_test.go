@@ -59,7 +59,7 @@ func TestGuardDetectsOrphanSuffix(t *testing.T) {
 // worked.
 func TestGuardDetectsPrereleaseDisagreement(t *testing.T) {
 	environments := realEnvironments()
-	environments[3].AcceptsPrerelease = true // prod, dont la plage est >=0.0.0
+	environments[3].AcceptsPrerelease = true // prod, whose range is >=0.0.0
 
 	err := CheckPromotionTargets(environments, realPolicies())
 	if err == nil {
@@ -79,7 +79,7 @@ func TestGuardSkipsUnobservableEnvironments(t *testing.T) {
 	environments[3].Observable = false
 	environments[3].PromotionSuffix = "suffixe-invisible"
 
-	policies := realPolicies()[:3] // pas de politique de production ici
+	policies := realPolicies()[:3] // no production policy here
 
 	if err := CheckPromotionTargets(environments, policies); err != nil {
 		t.Errorf("an unobservable environment was checked: %v", err)
@@ -178,7 +178,7 @@ func TestASchemeThatCanMarkIsAccepted(t *testing.T) {
 func TestTheMarkerIsSetWithAnUnderscore(t *testing.T) {
 	got, err := Mark("1.8.0-rc1", "testing")
 	if err != nil {
-		t.Fatalf("marquage: %v", err)
+		t.Fatalf("marking: %v", err)
 	}
 	if got != "1.8.0-rc1_testing" {
 		t.Errorf("marked tag = %q", got)

@@ -189,7 +189,7 @@ func TestTheSecurityAuditReadsAsBefore(t *testing.T) {
 	}
 	set := sets[0]
 	if set.Verdict() != facts.StatusFail ||
-		set.Summary != "5 finding(s), 1 critique(s), 2 haut(s), 2 nouveau(x), 1 suppressed by exception" {
+		set.Summary != "5 finding(s), 1 critical, 2 high, 2 new, 1 suppressed by exception" {
 		t.Errorf("verdict %q, summary %q", set.Verdict(), set.Summary)
 	}
 	audit := set.Findings
@@ -234,7 +234,7 @@ func TestALoadCampaignReadsAsBefore(t *testing.T) {
 		}
 	}
 	if sets[0].Verdict() != facts.StatusFail ||
-		sets[0].Summary != "5 mesure(s), 50 VUs at peak, seuils non tenus : http_req_duration: p(95)<300" {
+		sets[0].Summary != "5 measure(s), 50 VUs at peak, thresholds not met: http_req_duration: p(95)<300" {
 		t.Errorf("verdict %q, summary %q", sets[0].Verdict(), sets[0].Summary)
 	}
 }

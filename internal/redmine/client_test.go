@@ -54,7 +54,7 @@ func TestReadingIsAllowed(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if account.Login != "lecteur" || account.ID != 7 {
-		t.Errorf("compte %+v", account)
+		t.Errorf("account %+v", account)
 	}
 }
 
@@ -157,7 +157,7 @@ func clientFor(t *testing.T, serverURL string) *Client {
 	t.Helper()
 	client, err := New(Options{URL: serverURL, APIKey: "test-key"})
 	if err != nil {
-		t.Fatalf("construction: %v", err)
+		t.Fatalf("building: %v", err)
 	}
 	return client
 }

@@ -20,23 +20,23 @@ import (
  * routes.
  */
 
-type lecteurDePlugins struct {
+type pluginReader struct {
 	settings map[string]store.PluginSettings
 	// projects carries the explicit decisions, per project.
-	projets map[int64]map[string]store.PluginSettings
-	err     error
+	projects map[int64]map[string]store.PluginSettings
+	err      error
 }
 
-func (l lecteurDePlugins) PluginSettingsAll(context.Context) (map[string]store.PluginSettings, error) {
+func (l pluginReader) PluginSettingsAll(context.Context) (map[string]store.PluginSettings, error) {
 	return l.settings, l.err
 }
 
-func (l lecteurDePlugins) ProjectPluginSettings(_ context.Context, projectID int64) (map[string]store.PluginSettings, error) {
-	return l.projets[projectID], l.err
+func (l pluginReader) ProjectPluginSettings(_ context.Context, projectID int64) (map[string]store.PluginSettings, error) {
+	return l.projects[projectID], l.err
 }
 
 func modulesWith(mse bool) *Modules {
-	return NewModules(lecteurDePlugins{settings: map[string]store.PluginSettings{
+	return NewModules(pluginReader{settings: map[string]store.PluginSettings{
 		plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: mse},
 		"redmine":        {PluginID: "redmine", Enabled: true},
 	}}, quietLogger())
@@ -55,7 +55,7 @@ func TestOnlySwitchedOnModulesAreAnnounced(t *testing.T) {
 // An unreadable read hides the modules rather than showing screens whose every request would
 // fail.
 func TestAFailedReadHidesTheModules(t *testing.T) {
-	modules := NewModules(lecteurDePlugins{err: errors.New("base injoignable")}, quietLogger())
+	modules := NewModules(pluginReader{err: errors.New("database unreachable")}, quietLogger())
 	if modules.Enabled(context.Background(), plugin.ModuleMSE) {
 		t.Error("a module whose state is unreadable is announced switched on")
 	}
@@ -64,9 +64,9 @@ func TestAFailedReadHidesTheModules(t *testing.T) {
 // A route of a switched-off module answers 404, and the handler is not reached.
 func TestARouteOfASwitchedOffModuleAnswers404(t *testing.T) {
 	middleware := NewMiddleware(nil, nil, quietLogger()).WithModules(modulesWith(false))
-	atteint := false
+	reached := false
 	handler := middleware.RequireModule(plugin.ModuleMSE)(http.HandlerFunc(
-		func(http.ResponseWriter, *http.Request) { atteint = true }))
+		func(http.ResponseWriter, *http.Request) { reached = true }))
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/environments", nil))
@@ -74,19 +74,19 @@ func TestARouteOfASwitchedOffModuleAnswers404(t *testing.T) {
 	if recorder.Code != http.StatusNotFound {
 		t.Errorf("code %d, expected 404", recorder.Code)
 	}
-	if atteint {
+	if reached {
 		t.Error("the handler of a switched-off module was reached")
 	}
 }
 
 func TestARouteOfASwitchedOnModulePasses(t *testing.T) {
 	middleware := NewMiddleware(nil, nil, quietLogger()).WithModules(modulesWith(true))
-	atteint := false
+	reached := false
 	handler := middleware.RequireModule(plugin.ModuleMSE)(http.HandlerFunc(
-		func(http.ResponseWriter, *http.Request) { atteint = true }))
+		func(http.ResponseWriter, *http.Request) { reached = true }))
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/environments", nil))
-	if !atteint {
+	if !reached {
 		t.Error("the handler of a switched-on module was not reached")
 	}
 }
@@ -115,10 +115,10 @@ func TestMeAnnouncesTheModules(t *testing.T) {
 // A project inherits the module switched on for the instance, may switch it off for itself,
 // and cannot switch it back on when the instance has switched it off.
 func TestAModuleResolvesWithinTheProject(t *testing.T) {
-	lecteur := func(global bool) *Modules {
-		return NewModules(lecteurDePlugins{
+	reader := func(global bool) *Modules {
+		return NewModules(pluginReader{
 			settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: global}},
-			projets: map[int64]map[string]store.PluginSettings{
+			projects: map[int64]map[string]store.PluginSettings{
 				2: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: false}},
 				3: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: true}},
 			},
@@ -126,25 +126,25 @@ func TestAModuleResolvesWithinTheProject(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	for _, cas := range []struct {
-		global  bool
-		projet  int64
-		attendu bool
-		libelle string
+	for _, testCases := range []struct {
+		global   bool
+		project  int64
+		expected bool
+		label    string
 	}{
 		{true, 1, true, "with no decision, the project inherits"},
 		{true, 2, false, "switched off for the project"},
 		{false, 3, false, "the switched-off instance wins over the project"},
 	} {
-		if got := lecteur(cas.global).EnabledIn(ctx, cas.projet, plugin.ModuleMSE); got != cas.attendu {
-			t.Errorf("%s: %v, expected %v", cas.libelle, got, cas.attendu)
+		if got := reader(testCases.global).EnabledIn(ctx, testCases.project, plugin.ModuleMSE); got != testCases.expected {
+			t.Errorf("%s: %v, expected %v", testCases.label, got, testCases.expected)
 		}
 	}
 }
 
-type resolveurDeProjets map[string]int64
+type slugResolver map[string]int64
 
-func (r resolveurDeProjets) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+func (r slugResolver) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
 	id, found := r[slug]
 	if !found {
 		return store.Project{}, store.ErrProjectNotFound
@@ -155,24 +155,24 @@ func (r resolveurDeProjets) ProjectBySlug(_ context.Context, slug string) (store
 // A route naming a project answers 404 when the module is off for it, even when it is on for
 // the instance.
 func TestAProjectRouteFollowsTheProjectsModule(t *testing.T) {
-	modules := NewModules(lecteurDePlugins{
+	modules := NewModules(pluginReader{
 		settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: true}},
-		projets: map[int64]map[string]store.PluginSettings{
+		projects: map[int64]map[string]store.PluginSettings{
 			2: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: false}},
 		},
 	}, quietLogger())
 	middleware := NewMiddleware(nil, nil, quietLogger()).
-		WithProjects(resolveurDeProjets{"mse": 1, "tekton": 2}).WithModules(modules)
+		WithProjects(slugResolver{"mse": 1, "tekton": 2}).WithModules(modules)
 
-	for slug, attendu := range map[string]int{"mse": http.StatusOK, "tekton": http.StatusNotFound} {
+	for slug, expected := range map[string]int{"mse": http.StatusOK, "tekton": http.StatusNotFound} {
 		handler := middleware.RequireModule(plugin.ModuleMSE)(http.HandlerFunc(
 			func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 		request := httptest.NewRequest(http.MethodGet, "/projects/"+slug+"/releases/1.0.0/targets", nil)
 		request.SetPathValue("project", slug)
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, request)
-		if recorder.Code != attendu {
-			t.Errorf("project %s: code %d, expected %d", slug, recorder.Code, attendu)
+		if recorder.Code != expected {
+			t.Errorf("project %s: code %d, expected %d", slug, recorder.Code, expected)
 		}
 	}
 }

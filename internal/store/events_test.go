@@ -16,13 +16,13 @@ import (
  * cost nothing; the day a reaction sends a notification, it would send one per restart.
  */
 
-func testFact(cle string) event.Event {
+func testFact(key string) event.Event {
 	return event.Event{
 		Type: event.ReleaseCreated, ProjectID: ptr(testProjectID),
 		Subject:    "1.8.0-rc1",
 		Payload:    map[string]string{"tag": "1.8.0-rc1", "kind": "pre"},
 		OccurredAt: time.Date(2026, 9, 2, 14, 0, 0, 0, time.UTC),
-		DedupKey:   cle,
+		DedupKey:   key,
 	}
 }
 
@@ -42,9 +42,9 @@ func TestARedeliveryWritesNothing(t *testing.T) {
 	}
 
 	// The redelivery. The fact is the same; only the reading time changed.
-	repete := testFact("release.created:42")
-	repete.OccurredAt = repete.OccurredAt.Add(time.Hour)
-	recorded, err = db.RecordEvent(ctx, repete)
+	repeated := testFact("release.created:42")
+	repeated.OccurredAt = repeated.OccurredAt.Add(time.Hour)
+	recorded, err = db.RecordEvent(ctx, repeated)
 	if err != nil {
 		t.Fatalf("redelivery: %v", err)
 	}
@@ -75,9 +75,9 @@ func TestTwoDistinctFactsCoexist(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	for _, cle := range []string{"release.created:42", "release.created:43"} {
-		if _, err := db.RecordEvent(ctx, testFact(cle)); err != nil {
-			t.Fatalf("emission %q: %v", cle, err)
+	for _, key := range []string{"release.created:42", "release.created:43"} {
+		if _, err := db.RecordEvent(ctx, testFact(key)); err != nil {
+			t.Fatalf("emission %q: %v", key, err)
 		}
 	}
 
@@ -98,8 +98,8 @@ func TestAnInvalidFactDoesNotReachTheDatabase(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	sansCle := testFact("")
-	if _, err := db.RecordEvent(ctx, sansCle); err == nil {
+	noKey := testFact("")
+	if _, err := db.RecordEvent(ctx, noKey); err == nil {
 		t.Fatal("a fact with no key was accepted")
 	}
 
@@ -116,10 +116,10 @@ func TestTheFeedReturnsTheMostRecentFirst(t *testing.T) {
 	ctx := context.Background()
 
 	base := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
-	for index, decalage := range []time.Duration{0, 2 * time.Hour, time.Hour} {
-		fait := testFact("fait-" + string(rune('a'+index)))
-		fait.OccurredAt = base.Add(decalage)
-		if _, err := db.RecordEvent(ctx, fait); err != nil {
+	for index, offset := range []time.Duration{0, 2 * time.Hour, time.Hour} {
+		event := testFact("fact-" + string(rune('a'+index)))
+		event.OccurredAt = base.Add(offset)
+		if _, err := db.RecordEvent(ctx, event); err != nil {
 			t.Fatalf("emission: %v", err)
 		}
 	}
@@ -129,7 +129,7 @@ func TestTheFeedReturnsTheMostRecentFirst(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if len(events) != 3 {
-		t.Fatalf("%d faits", len(events))
+		t.Fatalf("%d facts", len(events))
 	}
 	for index := 1; index < len(events); index++ {
 		if events[index].OccurredAt.After(events[index-1].OccurredAt) {
@@ -154,10 +154,10 @@ func TestThePayloadCrossesAndTheFeedStaysWithinTheProject(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if len(events) != 1 {
-		t.Fatalf("%d faits", len(events))
+		t.Fatalf("%d facts", len(events))
 	}
 	if events[0].Payload["tag"] != "1.8.0-rc1" || events[0].Payload["kind"] != "pre" {
-		t.Errorf("charge = %v", events[0].Payload)
+		t.Errorf("payload = %v", events[0].Payload)
 	}
 	if events[0].Source != "" {
 		t.Errorf("source = %q, expected empty for the core", events[0].Source)
@@ -165,18 +165,18 @@ func TestThePayloadCrossesAndTheFeedStaysWithinTheProject(t *testing.T) {
 
 	// Another project sees nothing: the feed answers "nothing happened here", which is the
 	// question asked.
-	autre, err := db.CreateProject(ctx, Project{
-		Repository: "vcarroy/autre", Slug: "autre", Label: "Autre",
+	other, err := db.CreateProject(ctx, Project{
+		Repository: "vcarroy/other", Slug: "other", Label: "Autre",
 		BuildContext: ".",
 	})
 	if err != nil {
-		t.Fatalf("projet: %v", err)
+		t.Fatalf("project: %v", err)
 	}
-	voisins, err := db.ListEvents(ctx, autre, 0)
+	neighbours, err := db.ListEvents(ctx, other, 0)
 	if err != nil {
 		t.Fatalf("reading the neighbour: %v", err)
 	}
-	if len(voisins) != 0 {
-		t.Errorf("%d facts spilled onto another project", len(voisins))
+	if len(neighbours) != 0 {
+		t.Errorf("%d facts spilled onto another project", len(neighbours))
 	}
 }

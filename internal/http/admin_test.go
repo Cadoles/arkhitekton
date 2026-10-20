@@ -189,7 +189,7 @@ func TestGrantIsAudited(t *testing.T) {
 		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body.String())
 	}
 	if len(fake.granted) != 1 || fake.granted[0] != "bob=releaser" {
-		t.Errorf("attributions = %v", fake.granted)
+		t.Errorf("grants = %v", fake.granted)
 	}
 	// Granting a role decides who can ship: the record is not optional.
 	if len(fake.audit) != 1 || fake.audit[0] != "role.grant:bob" {
@@ -218,8 +218,8 @@ func TestLastAdminIsAConflictNotAForbidden(t *testing.T) {
 		t.Errorf("code = %d, expected 409", recorder.Code)
 	}
 	// The reason is returned: "impossible" with no explanation leaves people searching.
-	if !strings.Contains(recorder.Body.String(), "administrateur") {
-		t.Errorf("corps = %s", recorder.Body.String())
+	if !strings.Contains(recorder.Body.String(), "administrator") {
+		t.Errorf("body = %s", recorder.Body.String())
 	}
 }
 
@@ -240,7 +240,7 @@ func TestRevokeAnUnknownSubjectIsNotFound(t *testing.T) {
 func TestAuditCanBeScopedToATarget(t *testing.T) {
 	fake := &fakeAdminStore{entries: []store.AuditEntry{
 		{ID: 1, Actor: "alice", Action: "release.promote", Target: "1.8.0"},
-		{ID: 2, Actor: "bob", Action: "job.enqueue", Target: "autre"},
+		{ID: 2, Actor: "bob", Action: "job.enqueue", Target: "other"},
 	}}
 	handler := NewAdminHandler(fake)
 

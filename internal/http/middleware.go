@@ -69,7 +69,7 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 			return
 		case err != nil:
 			m.logger.Error("resolving the session", "error", err)
-			writeProblem(w, http.StatusInternalServerError, "Session indisponible", "")
+			writeProblem(w, http.StatusInternalServerError, "Session unavailable", "")
 			return
 		}
 
@@ -124,7 +124,7 @@ func (m *Middleware) Require(permission auth.Permission) func(http.Handler) http
 			if !m.authorizer.Can(identity, permission) {
 				m.logger.Info("permission refused",
 					"subject", identity.Subject, "role", identity.Role, "permission", permission)
-				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
+				writeProblem(w, http.StatusForbidden, "Insufficient permission", "")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -152,7 +152,7 @@ func (m *Middleware) RequireIn(permission auth.Permission) func(http.Handler) ht
 			if m.projects == nil {
 				m.logger.Error("per-project check with no resolution wired",
 					"permission", permission, "path", r.URL.Path)
-				writeProblem(w, http.StatusInternalServerError, "Autorisation indisponible", "")
+				writeProblem(w, http.StatusInternalServerError, "Authorisation unavailable", "")
 				return
 			}
 
@@ -165,7 +165,7 @@ func (m *Middleware) RequireIn(permission auth.Permission) func(http.Handler) ht
 				m.logger.Info("permission refused",
 					"subject", identity.Subject, "role", identity.RoleIn(projectID),
 					"project", projectID, "permission", permission)
-				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
+				writeProblem(w, http.StatusForbidden, "Insufficient permission", "")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -189,7 +189,7 @@ func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Han
 			if m.projects == nil {
 				m.logger.Error("promotion check with no project resolution wired",
 					"path", r.URL.Path)
-				writeProblem(w, http.StatusInternalServerError, "Autorisation indisponible", "")
+				writeProblem(w, http.StatusInternalServerError, "Authorisation unavailable", "")
 				return
 			}
 
@@ -203,7 +203,7 @@ func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Han
 				m.logger.Info("promotion refused",
 					"subject", identity.Subject, "role", identity.RoleIn(projectID),
 					"project", projectID, "environment", environment)
-				writeProblem(w, http.StatusForbidden, "Permission insuffisante", "")
+				writeProblem(w, http.StatusForbidden, "Insufficient permission", "")
 				return
 			}
 			next.ServeHTTP(w, r)

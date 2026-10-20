@@ -47,9 +47,9 @@ func TestTheRegistryCoversEveryKind(t *testing.T) {
 
 // An unknown plugin names the ones that exist: reading the source is not an answer
 // to give someone looking at an API message.
-func TestUnPluginInconnuNommeCeuxQuiExistent(t *testing.T) {
+func TestAnUnknownPluginNamesThoseThatExist(t *testing.T) {
 	if _, err := Get("redmine"); err != nil {
-		t.Fatalf("redmine introuvable: %v", err)
+		t.Fatalf("redmine not found: %v", err)
 	}
 
 	_, err := Get("jira")
@@ -68,14 +68,14 @@ func TestUnPluginInconnuNommeCeuxQuiExistent(t *testing.T) {
 // A field the descriptor does not declare is refused, not ignored. An ignored
 // field means a screen saying "saved" over a value nothing reads back, and the typo
 // surfaces weeks later as a synchronisation that never did anything.
-func TestUnReglageNonDeclareEstRefuse(t *testing.T) {
+func TestAnUndeclaredSettingIsRefused(t *testing.T) {
 	redmine, _ := Get("redmine")
 
-	err := redmine.Validate(ScopeProject, Values{"project": "mse", "projet": "mse"}, nil)
+	err := redmine.Validate(ScopeProject, Values{"project": "mse", "project_id": "mse"}, nil)
 	if err == nil {
 		t.Fatal("unknown setting accepted")
 	}
-	if !strings.Contains(err.Error(), "projet") {
+	if !strings.Contains(err.Error(), "project_id") {
 		t.Errorf("message %q — it must name the offending setting", err)
 	}
 }
@@ -83,7 +83,7 @@ func TestUnReglageNonDeclareEstRefuse(t *testing.T) {
 // A required field is checked against the resolved value, not the typed one. That
 // is what separates "this project has nothing particular to say" from "the value is
 // missing everywhere".
-func TestLObligationPorteSurLaValeurResolue(t *testing.T) {
+func TestTheRequirementBearsOnTheResolvedValue(t *testing.T) {
 	redmine, _ := Get("redmine")
 
 	// `project` is required at project scope, and nothing provides it.
@@ -100,7 +100,7 @@ func TestLObligationPorteSurLaValeurResolue(t *testing.T) {
 
 // Shapes are checked on input. A URL without a scheme is the real case: it saves,
 // then every call fails with a message that does not point at it.
-func TestLesFormesSeVerifientALaSaisie(t *testing.T) {
+func TestFormatsAreCheckedOnInput(t *testing.T) {
 	redmine, _ := Get("redmine")
 
 	for _, value := range []string{"redmine.example.fr", "/redmine", "n'importe quoi"} {
@@ -118,16 +118,16 @@ func TestLesFormesSeVerifientALaSaisie(t *testing.T) {
 
 // A plugin with no settings validates without demanding anything: it either
 // applies or it does not.
-func TestUnPluginSansReglageSeValideSansRienExiger(t *testing.T) {
+func TestAPluginWithoutSettingsValidatesRequiringNothing(t *testing.T) {
 	exporter, err := Get("bon-de-livraison")
 	if err != nil {
-		t.Fatalf("plugin introuvable: %v", err)
+		t.Fatalf("plugin not found: %v", err)
 	}
 	if !exporter.PerProject {
 		t.Error("the delivery note must be decided per project")
 	}
 	if err := exporter.Validate(ScopeProject, Values{}, nil); err != nil {
-		t.Errorf("validation: %v", err)
+		t.Errorf("sign-off: %v", err)
 	}
 }
 
@@ -138,7 +138,7 @@ func TestUnPluginSansReglageSeValideSansRienExiger(t *testing.T) {
 // An empty project field does not erase the instance value. The trap it avoids: a
 // form that does not display the API key — because it is secret — would send it back
 // empty, and saving would wipe the instance key for every project.
-func TestUnChampVideNEffacePasCeluiDeLInstance(t *testing.T) {
+func TestAnEmptyFieldDoesNotEraseTheInstances(t *testing.T) {
 	resolved := Resolve(
 		Values{"url": "https://redmine.example.fr", "api_key": "globale"},
 		Values{"url": "", "project": "mse"},
@@ -156,23 +156,23 @@ func TestUnChampVideNEffacePasCeluiDeLInstance(t *testing.T) {
 }
 
 // What the project declares wins: this is the second tenant, with its own server.
-func TestLeProjetLEmporteSurLInstance(t *testing.T) {
+func TestTheProjectPrevailsOverTheInstance(t *testing.T) {
 	resolved := Resolve(
 		Values{"url": "https://redmine.example.fr", "api_key": "globale"},
-		Values{"url": "https://redmine.autre-client.fr", "api_key": "propre"},
+		Values{"url": "https://redmine.autre-client.fr", "api_key": "own"},
 	)
 
 	if resolved["url"] != "https://redmine.autre-client.fr" {
 		t.Errorf("resolved URL = %q", resolved["url"])
 	}
-	if resolved["api_key"] != "propre" {
+	if resolved["api_key"] != "own" {
 		t.Errorf("resolved key = %q", resolved["api_key"])
 	}
 }
 
 // Secret fields are named per scope: that is what tells the store what to seal, and
 // the API what to withhold.
-func TestLesChampsSensiblesSeNommentParPortee(t *testing.T) {
+func TestSensitiveFieldsAreNamedPerScope(t *testing.T) {
 	redmine, _ := Get("redmine")
 
 	for _, scope := range []Scope{ScopeGlobal, ScopeProject} {
@@ -191,12 +191,12 @@ func TestLesChampsSensiblesSeNommentParPortee(t *testing.T) {
 
 // List splitting lives in one place: two divergent splits would read the same
 // configured status two ways.
-func TestLeDecoupageDUneListeIgnoreLesEspacesEtLeVide(t *testing.T) {
+func TestSplittingAListIgnoresSpacesAndEmptyItems(t *testing.T) {
 	got := List(" En revue , Validé ,, ")
 	if len(got) != 2 || got[0] != "En revue" || got[1] != "Validé" {
 		t.Errorf("split = %q", got)
 	}
 	if items := List(""); len(items) != 0 {
-		t.Errorf("liste vide = %q", items)
+		t.Errorf("empty list = %q", items)
 	}
 }

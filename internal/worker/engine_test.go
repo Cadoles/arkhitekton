@@ -9,20 +9,20 @@ import (
 )
 
 /*
- * L'order entre l'enregistrement d'un run et la conclusion de son geste.
+ * The order between recording a run and concluding its step.
  */
 
 // orderedStore keeps the order of the writes.
 type orderedStore struct {
 	*fakePlanStore
-	order     []string
-	resultats map[int64]map[string]string
-	produits  []store.PlanArtifact
+	order    []string
+	results  map[int64]map[string]string
+	produits []store.PlanArtifact
 }
 
 func (m *orderedStore) RunResults(_ context.Context, jobID int64) (map[string]string, error) {
 	m.order = append(m.order, "read")
-	return m.resultats[jobID], nil
+	return m.results[jobID], nil
 }
 
 func (m *orderedStore) RecordPlanArtifacts(
@@ -51,12 +51,12 @@ func (m *orderedStore) PlanArtifacts(context.Context, int64) ([]store.PlanArtifa
 func TestAConcludedStepsResultsBecomeItsArtifacts(t *testing.T) {
 	base := &orderedStore{
 		fakePlanStore: newFakePlanStore(),
-		resultats: map[int64]map[string]string{
+		results: map[int64]map[string]string{
 			77: {"image": "reg.example.fr/portal:1.0.0", "tag": "1.0.0"},
 		},
 	}
 
-	sujet := plan.Plan{Stages: []plan.Stage{{
+	subject := plan.Plan{Stages: []plan.Stage{{
 		Role:   plan.RoleBuild,
 		Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "build", Label: "portal"}},
 	}}}
@@ -69,7 +69,7 @@ func TestAConcludedStepsResultsBecomeItsArtifacts(t *testing.T) {
 		WithArtifacts(base, func(string) string { return "image" })
 
 	engine.Trigger(context.Background(), store.PlanRun{
-		Trigger: "trial", EventKey: "trial:1", Plan: sujet,
+		Trigger: "trial", EventKey: "trial:1", Plan: subject,
 	})
 	engine.Advance(context.Background(), 77, plan.Succeeded)
 
@@ -77,15 +77,15 @@ func TestAConcludedStepsResultsBecomeItsArtifacts(t *testing.T) {
 		t.Fatalf("%d artifact(s) kept, expected image and tag: %+v",
 			len(base.produits), base.produits)
 	}
-	parNom := map[string]store.PlanArtifact{}
+	byName := map[string]store.PlanArtifact{}
 	for _, a := range base.produits {
-		parNom[a.Name] = a
+		byName[a.Name] = a
 	}
-	if parNom["image"].Reference != "reg.example.fr/portal:1.0.0" {
-		t.Errorf("image = %q", parNom["image"].Reference)
+	if byName["image"].Reference != "reg.example.fr/portal:1.0.0" {
+		t.Errorf("image = %q", byName["image"].Reference)
 	}
 	// The kind comes from the catalogue's `produces`, not from the result's name.
-	if parNom["image"].Kind != "image" {
-		t.Errorf("nature = %q", parNom["image"].Kind)
+	if byName["image"].Kind != "image" {
+		t.Errorf("nature = %q", byName["image"].Kind)
 	}
 }

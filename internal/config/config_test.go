@@ -178,7 +178,7 @@ func TestDurationOrFallsBackOnInvalidValue(t *testing.T) {
 // perfectly valid state where the form falls back to free-text input, and the
 // tracker would simply stop synchronising. Two silent degradations nobody would
 // connect to the rename.
-func TestUneVariableRenommeeEmpecheLeDemarrage(t *testing.T) {
+func TestARenamedVariablePreventsStartup(t *testing.T) {
 	env := validAPIEnv()
 	env["GITEA_TOKEN"] = "token"
 	setEnv(t, env)
@@ -196,7 +196,7 @@ func TestUneVariableRenommeeEmpecheLeDemarrage(t *testing.T) {
 }
 
 // All reported at once: discovering mistakes one by one costs one restart each.
-func TestToutesLesVariablesRenommeesSontSignaleesEnsemble(t *testing.T) {
+func TestAllRenamedVariablesAreReportedTogether(t *testing.T) {
 	env := validAPIEnv()
 	env["GITEA_URL"] = "https://forge.example"
 	env["REDMINE_API_KEY"] = "clef"
@@ -215,7 +215,7 @@ func TestToutesLesVariablesRenommeesSontSignaleesEnsemble(t *testing.T) {
 
 // An empty leftover variable still counts: its presence in an environment file
 // says someone still believes they configure something with it.
-func TestUneVariableRenommeeVideCompteAussi(t *testing.T) {
+func TestAnEmptyRenamedVariableCountsToo(t *testing.T) {
 	env := validAPIEnv()
 	env["REDMINE_PROJECT"] = ""
 	setEnv(t, env)
@@ -226,7 +226,7 @@ func TestUneVariableRenommeeVideCompteAussi(t *testing.T) {
 }
 
 // The current names are accepted without reservation.
-func TestLeNouveauVocabulaireEstAccepte(t *testing.T) {
+func TestTheNewVocabularyIsAccepted(t *testing.T) {
 	env := validAPIEnv()
 	env["FORGE_URL"] = "https://forge.example"
 	env["FORGE_TOKEN"] = "token"

@@ -10,19 +10,19 @@ import "testing"
  * will fail.
  */
 
-const cle = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBDoQT4jgoSvFdwjmhS3GhAn9/48tIieJhlrx1mpZm93"
+const key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBDoQT4jgoSvFdwjmhS3GhAn9/48tIieJhlrx1mpZm93"
 
 // The comment does not count: it is free text, and the forge often rewrites it when
 // pasted. Comparing whole strings would answer "absent" about a key that is in place.
 func TestTheCommentDoesNotDecideAKeysIdentity(t *testing.T) {
-	for _, variante := range []string{
-		cle,
-		cle + " arkhitekton",
-		cle + " an entirely different comment",
-		"  " + cle + " with spaces  ",
+	for _, variant := range []string{
+		key,
+		key + " arkhitekton",
+		key + " an entirely different comment",
+		"  " + key + " with spaces  ",
 	} {
-		if !SameKey(variante, cle+" arkhitekton-project-mse-git") {
-			t.Errorf("variant %q judged different", variante)
+		if !SameKey(variant, key+" arkhitekton-project-mse-git") {
+			t.Errorf("variant %q judged different", variant)
 		}
 	}
 }
@@ -30,9 +30,9 @@ func TestTheCommentDoesNotDecideAKeysIdentity(t *testing.T) {
 // Two distinct keys stay distinct, even under the same comment: that is the case of a
 // rotation where the old one was not replaced in the repository.
 func TestTwoDistinctKeysStayDistinct(t *testing.T) {
-	autre := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAutreMatiereQuiNestPasLaMeme"
+	other := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAutreMatiereQuiNestPasLaMeme"
 
-	if SameKey(cle+" arkhitekton", autre+" arkhitekton") {
+	if SameKey(key+" arkhitekton", other+" arkhitekton") {
 		t.Error("two different key materials judged identical")
 	}
 	// The type counts too: an RSA and an ed25519 are not the same key, even if their
@@ -52,12 +52,12 @@ func TestTwoDistinctKeysStayDistinct(t *testing.T) {
 // The comparison does not try to validate a key's syntax beyond that: it is not its
 // job, and two well-formed but fanciful strings are allowed to resemble each other.
 func TestAnEntryWithNoMaterialMatchesNothing(t *testing.T) {
-	for _, sansMatiere := range []string{"", "   ", "ssh-ed25519"} {
-		if SameKey(sansMatiere, cle) {
-			t.Errorf("entry %q judged identical to a valid key", sansMatiere)
+	for _, withoutMaterial := range []string{"", "   ", "ssh-ed25519"} {
+		if SameKey(withoutMaterial, key) {
+			t.Errorf("entry %q judged identical to a valid key", withoutMaterial)
 		}
-		if SameKey(sansMatiere, sansMatiere) {
-			t.Errorf("entry %q judged identical to itself", sansMatiere)
+		if SameKey(withoutMaterial, withoutMaterial) {
+			t.Errorf("entry %q judged identical to itself", withoutMaterial)
 		}
 	}
 }

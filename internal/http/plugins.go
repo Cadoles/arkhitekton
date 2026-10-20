@@ -214,7 +214,7 @@ func (h *PluginsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.SetPluginSettings(r.Context(), entry, identity.Subject); err != nil {
 		h.logger.Error("recording a plugin", "plugin", descriptor.ID, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
 		return
 	}
 
@@ -326,7 +326,7 @@ func (h *PluginsHandler) SetProject(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.SetProjectPluginSettings(r.Context(), project.ID, entry, identity.Subject); err != nil {
 		h.logger.Error("recording a project plugin",
 			"plugin", descriptor.ID, "project", project.Slug, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
 		return
 	}
 
@@ -356,7 +356,7 @@ func (h *PluginsHandler) ClearProject(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.ClearProjectPluginSettings(r.Context(), project.ID, descriptor.ID); err != nil {
 		h.logger.Error("removing a project plugin",
 			"plugin", descriptor.ID, "project", project.Slug, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Retrait impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot remove", "")
 		return
 	}
 
@@ -393,10 +393,10 @@ func (h *PluginsHandler) merge(
 	w http.ResponseWriter, descriptor plugin.Descriptor, scope plugin.Scope,
 	request pluginRequest, existing, inherited map[string]string,
 ) (map[string]string, bool) {
-	saisie := plugin.Values{}
-	maps.Copy(saisie, request.Config)
+	typed := plugin.Values{}
+	maps.Copy(typed, request.Config)
 
-	if err := descriptor.Validate(scope, saisie, plugin.Values(inherited)); err != nil {
+	if err := descriptor.Validate(scope, typed, plugin.Values(inherited)); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Invalid settings", err.Error())
 		return nil, false
 	}
@@ -414,7 +414,7 @@ func (h *PluginsHandler) merge(
 		delete(config, name)
 	}
 
-	for name, value := range saisie {
+	for name, value := range typed {
 		if !descriptor.IsSecret(scope, name) {
 			config[name] = value
 			continue
@@ -433,8 +433,8 @@ func (h *PluginsHandler) merge(
 		sealed, err := h.cipher.Seal(value)
 		if err != nil {
 			h.logger.Error("sealing a setting",
-				"plugin", descriptor.ID, "champ", name, "error", err)
-			writeProblem(w, http.StatusInternalServerError, "Scellement impossible", "")
+				"plugin", descriptor.ID, "field", name, "error", err)
+			writeProblem(w, http.StatusInternalServerError, "Cannot seal", "")
 			return nil, false
 		}
 		config[name] = sealed

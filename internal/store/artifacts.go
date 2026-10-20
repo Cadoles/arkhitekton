@@ -32,7 +32,7 @@ type Artifact struct {
 }
 
 // ErrArtifactNotFound reports a missing artifact.
-var ErrArtifactNotFound = errors.New("artefact introuvable")
+var ErrArtifactNotFound = errors.New("artifact not found")
 
 // RecordArtifact records a generated deliverable.
 //

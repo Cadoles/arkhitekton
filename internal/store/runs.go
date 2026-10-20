@@ -448,7 +448,7 @@ type RunDetail struct {
 }
 
 // ErrRunNotFound reports a missing run.
-var ErrRunNotFound = errors.New("run introuvable")
+var ErrRunNotFound = errors.New("run not found")
 
 // GetRun returns a run and its tasks, in execution order.
 func (db *DB) GetRun(ctx context.Context, name string) (RunDetail, error) {

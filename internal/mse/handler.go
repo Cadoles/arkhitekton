@@ -101,7 +101,7 @@ func (h *Handler) release(w http.ResponseWriter, r *http.Request) (store.Release
 	item, err := h.store.GetRelease(r.Context(), projectID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			dashhttp.WriteProblem(w, http.StatusNotFound, "Release introuvable", "")
+			dashhttp.WriteProblem(w, http.StatusNotFound, "Release not found", "")
 			return store.Release{}, 0, false
 		}
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -174,7 +174,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if item.State != string(release.StateReady) {
-		dashhttp.WriteProblem(w, http.StatusConflict, "Release non promouvable",
+		dashhttp.WriteProblem(w, http.StatusConflict, "Release not promotable",
 			"this release's image is not built")
 		return
 	}
@@ -199,7 +199,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 
 	project, err := h.store.GetProject(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Images promues inconnues", err.Error())
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Unknown promoted images", err.Error())
 		return
 	}
 	images := project.Promotable()
@@ -214,19 +214,19 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// 409 and not 400: the request is well formed, it is the release/environment combination that
 			// makes no sense.
-			dashhttp.WriteProblem(w, http.StatusConflict, "Promotion impossible", err.Error())
+			dashhttp.WriteProblem(w, http.StatusConflict, "Cannot promote", err.Error())
 			return
 		}
 		plans = append(plans, plan)
 	}
 	if len(plans) == 0 {
-		dashhttp.WriteProblem(w, http.StatusUnprocessableEntity, "Promotion impossible",
+		dashhttp.WriteProblem(w, http.StatusUnprocessableEntity, "Cannot promote",
 			"no image of this release is promoted")
 		return
 	}
 
 	if _, found := h.catalog.Find(plans[0].Kind); !found {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Catalogue incomplet", plans[0].Kind)
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Incomplete catalogue", plans[0].Kind)
 		return
 	}
 
@@ -239,7 +239,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 			ReleaseID: &item.ID, Environment: &environment.ID,
 		})
 		if err != nil {
-			dashhttp.WriteProblem(w, http.StatusInternalServerError, "Mise en file impossible", "")
+			dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot enqueue", "")
 			return
 		}
 		jobIDs = append(jobIDs, jobID)
@@ -484,7 +484,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		// A normal case: the dashboard knows only the releases it created.
 		payload["deployed"] = nil
 	default:
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Rapprochement impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot reconcile", "")
 		return
 	}
 

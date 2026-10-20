@@ -31,7 +31,7 @@ func saveCases(t *testing.T, db *DB, runID int64, releaseID int64, family string
 		RunID: runID, ReleaseID: &releaseID, Family: family, Tool: "phpunit",
 		Status: "pass", Total: len(cases), Failed: failed,
 	}, cases); err != nil {
-		t.Fatalf("enregistrement: %v", err)
+		t.Fatalf("recording: %v", err)
 	}
 }
 
@@ -74,7 +74,7 @@ func TestDiffGroupSeesTheFourKindsOfChange(t *testing.T) {
 
 	diffs, err := db.DiffGroup(ctx, current, previous, "unit")
 	if err != nil {
-		t.Fatalf("comparaison: %v", err)
+		t.Fatalf("comparison: %v", err)
 	}
 
 	changes := map[string]string{}
@@ -112,10 +112,10 @@ func TestFlakyCountsAsAFailureInTheDiff(t *testing.T) {
 
 	diffs, err := db.DiffGroup(ctx, current, previous, "e2e")
 	if err != nil {
-		t.Fatalf("comparaison: %v", err)
+		t.Fatalf("comparison: %v", err)
 	}
 	if len(diffs) != 1 || diffs[0].Change != ChangeNewFailure {
-		t.Errorf("comparaison = %+v", diffs)
+		t.Errorf("comparison = %+v", diffs)
 	}
 }
 
@@ -136,10 +136,10 @@ func TestTheMostRecentReportWins(t *testing.T) {
 
 	diffs, err := db.DiffGroup(ctx, current, previous, "unit")
 	if err != nil {
-		t.Fatalf("comparaison: %v", err)
+		t.Fatalf("comparison: %v", err)
 	}
 	if len(diffs) != 1 || diffs[0].Change != ChangeFixed {
-		t.Errorf("comparaison = %+v", diffs)
+		t.Errorf("comparison = %+v", diffs)
 	}
 }
 
@@ -214,15 +214,15 @@ func TestReprocessTargetsRequireARawObject(t *testing.T) {
 
 	targets, err := db.ListReprocessTargets(ctx, 0)
 	if err != nil {
-		t.Fatalf("cibles: %v", err)
+		t.Fatalf("targets: %v", err)
 	}
 	if len(targets) != 1 || targets[0].RunName != "with-raw" {
-		t.Errorf("cibles = %+v", targets)
+		t.Errorf("targets = %+v", targets)
 	}
 	// The tools already projected are returned: knowing what disappears before rebuilding
 	// it is the only way to observe that a fixed parser now produces less.
 	if len(targets[0].Tools) != 1 || targets[0].Tools[0] != "phpunit" {
-		t.Errorf("outils = %v", targets[0].Tools)
+		t.Errorf("tools = %v", targets[0].Tools)
 	}
 }
 
@@ -248,10 +248,10 @@ func TestReprocessTargetsCanBeScopedToARelease(t *testing.T) {
 
 	targets, err := db.ListReprocessTargets(ctx, second)
 	if err != nil {
-		t.Fatalf("cibles: %v", err)
+		t.Fatalf("targets: %v", err)
 	}
 	if len(targets) != 1 || targets[0].RunName != "run-2" {
-		t.Errorf("cibles = %+v", targets)
+		t.Errorf("targets = %+v", targets)
 	}
 }
 
@@ -281,7 +281,7 @@ func TestResettingARunErasesItsCasesAndItsMark(t *testing.T) {
 
 	var remaining int
 	if err := db.pool.QueryRow(ctx, `select count(*) from test_cases`).Scan(&remaining); err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if remaining != 0 {
 		t.Errorf("%d cases remain after erasing the report", remaining)
@@ -297,7 +297,7 @@ func reportOf(t *testing.T, db *DB, releaseID int64, family string) int64 {
 	t.Helper()
 	reports, err := db.ListReleaseTestResults(context.Background(), releaseID)
 	if err != nil {
-		t.Fatalf("rapports: %v", err)
+		t.Fatalf("reports: %v", err)
 	}
 	for _, report := range reports {
 		if report.Family == family {
@@ -314,7 +314,7 @@ func manyCases(n int) []TestCase {
 	for i := 0; i < n; i++ {
 		cases = append(cases, TestCase{
 			Suite:  "Suite",
-			Name:   fmt.Sprintf("cas-%04d", i),
+			Name:   fmt.Sprintf("case-%04d", i),
 			Status: "passed",
 		})
 	}
@@ -342,8 +342,8 @@ func TestListTestCasesReturnsAPageAndTheTotal(t *testing.T) {
 	if len(page) != 500 {
 		t.Fatalf("%d cases in the page, expected 500", len(page))
 	}
-	if page[0].Name != "cas-0000" {
-		t.Errorf("premier cas %q", page[0].Name)
+	if page[0].Name != "case-0000" {
+		t.Errorf("first case %q", page[0].Name)
 	}
 }
 
@@ -374,7 +374,7 @@ func TestPagesCoverEverythingWithoutOverlapping(t *testing.T) {
 	}
 	for name, count := range seen {
 		if count != 1 {
-			t.Errorf("cas %s vu %d fois", name, count)
+			t.Errorf("case %s seen %d times", name, count)
 		}
 	}
 }
@@ -413,18 +413,18 @@ func TestTheFilterCoversEveryPage(t *testing.T) {
 	runID := testRun(t, db, "run-1")
 	cases := manyCases(1200)
 	// A recognisable case, deliberately placed beyond the first page.
-	cases[900].Name = "connexion-oidc"
+	cases[900].Name = "oidc-login"
 	saveCases(t, db, runID, releaseID, "e2e", cases)
 	reportID := reportOf(t, db, releaseID, "e2e")
 
 	page, total, err := db.ListTestCases(ctx, reportID, CasePage{Limit: 500, Query: "oidc"})
 	if err != nil {
-		t.Fatalf("filtre: %v", err)
+		t.Fatalf("filter: %v", err)
 	}
 	if total != 1 {
 		t.Fatalf("filtered total %d, expected 1", total)
 	}
-	if len(page) != 1 || page[0].Name != "connexion-oidc" {
+	if len(page) != 1 || page[0].Name != "oidc-login" {
 		t.Errorf("filtered page %+v", page)
 	}
 }
@@ -439,7 +439,7 @@ func TestTheFilterSeesTheSuiteAndTheName(t *testing.T) {
 	runID := testRun(t, db, "run-1")
 	saveCases(t, db, runID, releaseID, "e2e", []TestCase{
 		{Suite: "Panier", Name: "adds an item", Status: "passed"},
-		{Suite: "Connexion", Name: "refuses an empty password", Status: "failed"},
+		{Suite: "Login", Name: "refuses an empty password", Status: "failed"},
 	})
 	reportID := reportOf(t, db, releaseID, "e2e")
 
@@ -469,8 +469,8 @@ func TestARunWithNoResultAtAllIsRecognised(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	muet := testRun(t, db, "run-muet")
-	has, err := db.RunHasResults(ctx, muet)
+	silent := testRun(t, db, "run-muet")
+	has, err := db.RunHasResults(ctx, silent)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -481,13 +481,13 @@ func TestARunWithNoResultAtAllIsRecognised(t *testing.T) {
 	// One result is enough: the question is not "how many" but "did anything come back". A
 	// pipeline publishing one family out of three is another problem, which the score
 	// already carries.
-	parlant := testRun(t, db, "run-parlant")
+	telling := testRun(t, db, "run-parlant")
 	release := releaseFor(t, db, "1.8.0-rc9")
-	saveCases(t, db, parlant, release, "unit", []TestCase{
+	saveCases(t, db, telling, release, "unit", []TestCase{
 		{Name: "one case", Status: "passed"},
 	})
 
-	has, err = db.RunHasResults(ctx, parlant)
+	has, err = db.RunHasResults(ctx, telling)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -496,7 +496,7 @@ func TestARunWithNoResultAtAllIsRecognised(t *testing.T) {
 	}
 
 	// And the answer is indeed per run: the neighbouring one stays silent.
-	if has, _ := db.RunHasResults(ctx, muet); has {
+	if has, _ := db.RunHasResults(ctx, silent); has {
 		t.Error("one run's result spills onto another")
 	}
 }

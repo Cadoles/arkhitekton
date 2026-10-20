@@ -39,7 +39,7 @@ func TestTheBootstrapAppliesOnlyOnce(t *testing.T) {
 		t.Fatalf("bootstrap: %v", err)
 	}
 	if report.GrantsApplied != 2 || report.ProjectsApplied != 1 {
-		t.Fatalf("rapport = %+v", report)
+		t.Fatalf("report = %+v", report)
 	}
 	if len(report.Skipped) != 0 {
 		t.Errorf("steps skipped on the first pass: %v", report.Skipped)
@@ -84,9 +84,9 @@ func TestADeclarationAddedAfterwardsIsNotPickedUp(t *testing.T) {
 		t.Fatalf("bootstrap: %v", err)
 	}
 
-	étendu := spec()
-	étendu.Grants = append(étendu.Grants, Grant{Identifier: "bob", Role: "operator"})
-	if _, err := db.Bootstrap(ctx, étendu); err != nil {
+	extended := spec()
+	extended.Grants = append(extended.Grants, Grant{Identifier: "bob", Role: "operator"})
+	if _, err := db.Bootstrap(ctx, extended); err != nil {
 		t.Fatalf("second bootstrap: %v", err)
 	}
 

@@ -268,7 +268,7 @@ func FromReport(signal Signal, report Report, ran bool) Measure {
 
 	detail := fmt.Sprintf("%d/%d passed", report.Passed, report.Total)
 	if report.Flaky > 0 {
-		detail += fmt.Sprintf(", %d instable(s)", report.Flaky)
+		detail += fmt.Sprintf(", %d flaky", report.Flaky)
 	}
 
 	return Measure{Signal: signal, Value: value, Measured: true, Detail: detail}
@@ -287,7 +287,7 @@ func FromSecurity(critical, high int, ran bool) Measure {
 	switch {
 	case critical > 0:
 		return Measure{Signal: SignalSecurity, Value: 0, Measured: true,
-			Detail: fmt.Sprintf("%d finding(s) critique(s)", critical)}
+			Detail: fmt.Sprintf("%d critical finding(s)", critical)}
 	case high > 0:
 		return Measure{Signal: SignalSecurity, Value: 50, Measured: true,
 			Detail: fmt.Sprintf("%d high-severity finding(s)", high)}
@@ -309,11 +309,11 @@ func FromBench(verdict string, comparable bool) Measure {
 
 	switch verdict {
 	case "pass":
-		return Measure{Signal: SignalPerformance, Value: 100, Measured: true, Detail: "conforme"}
+		return Measure{Signal: SignalPerformance, Value: 100, Measured: true, Detail: "within thresholds"}
 	case "warn":
-		return Measure{Signal: SignalPerformance, Value: 60, Measured: true, Detail: "limite"}
+		return Measure{Signal: SignalPerformance, Value: 60, Measured: true, Detail: "borderline"}
 	case "fail":
-		return Measure{Signal: SignalPerformance, Value: 0, Measured: true, Detail: "hors seuil"}
+		return Measure{Signal: SignalPerformance, Value: 0, Measured: true, Detail: "beyond thresholds"}
 	default:
 		return Measure{Signal: SignalPerformance, Detail: "not measured"}
 	}

@@ -227,7 +227,7 @@ func TestSealConcatenatesStepsInDeclaredOrder(t *testing.T) {
 
 	collector.Start(ctx, target)
 	if err := collector.Finish(ctx, target); err != nil {
-		t.Fatalf("scellement: %v", err)
+		t.Fatalf("sealing: %v", err)
 	}
 
 	object, err := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
@@ -266,7 +266,7 @@ func TestSealPurgesChunksButKeepsTheSealedObject(t *testing.T) {
 	// Enough content to produce several chunks at a 120-byte threshold.
 	var content strings.Builder
 	for i := range 20 {
-		content.WriteString(stamp(time.Duration(i)*time.Second, fmt.Sprintf("ligne %d", i)))
+		content.WriteString(stamp(time.Duration(i)*time.Second, fmt.Sprintf("line %d", i)))
 	}
 
 	pods := newFakePods(map[string]string{"step-phpunit": content.String()})
@@ -286,7 +286,7 @@ func TestSealPurgesChunksButKeepsTheSealedObject(t *testing.T) {
 	}, "several chunks written")
 
 	if err := collector.Finish(ctx, target); err != nil {
-		t.Fatalf("scellement: %v", err)
+		t.Fatalf("sealing: %v", err)
 	}
 
 	remaining, err := storage.List(ctx, partsPrefix)
@@ -299,7 +299,7 @@ func TestSealPurgesChunksButKeepsTheSealedObject(t *testing.T) {
 
 	object, _ := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
 	sealed := readObject(t, storage, object)
-	if !strings.Contains(sealed, "ligne 0") || !strings.Contains(sealed, "ligne 19") {
+	if !strings.Contains(sealed, "line 0") || !strings.Contains(sealed, "line 19") {
 		t.Errorf("incomplete sealed log (%d bytes)", len(sealed))
 	}
 }
@@ -316,11 +316,11 @@ func TestResumeSkipsAlreadyStoredLinesWithoutLosingAny(t *testing.T) {
 	target := uniqueTarget(t, Step{Name: "phpunit", Container: "step-phpunit"})
 	cleanup(t, storage, target)
 
-	full := stamp(0, "ligne A") + stamp(time.Second, "ligne B") + stamp(2*time.Second, "ligne C")
+	full := stamp(0, "line A") + stamp(time.Second, "line B") + stamp(2*time.Second, "line C")
 	pods := newFakePods(map[string]string{"step-phpunit": full})
 
 	// A first capture, interrupted: only the first two lines exist.
-	partial := stamp(0, "ligne A") + stamp(time.Second, "ligne B")
+	partial := stamp(0, "line A") + stamp(time.Second, "line B")
 	chunkKey, err := storage.Keys.TaskLogChunk(target.RunName, target.TaskName, "step-phpunit", 0, 1)
 	if err != nil {
 		t.Fatalf("key: %v", err)
@@ -332,7 +332,7 @@ func TestResumeSkipsAlreadyStoredLinesWithoutLosingAny(t *testing.T) {
 	collector := newCollector(storage, pods, newFakeStore(), nil)
 	collector.Start(ctx, target)
 	if err := collector.Finish(ctx, target); err != nil {
-		t.Fatalf("scellement: %v", err)
+		t.Fatalf("sealing: %v", err)
 	}
 
 	// The kubelet was indeed queried with a bound: without it, the whole log would be
@@ -345,7 +345,7 @@ func TestResumeSkipsAlreadyStoredLinesWithoutLosingAny(t *testing.T) {
 	object, _ := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
 	sealed := readObject(t, storage, object)
 
-	for _, text := range []string{"ligne A", "ligne B", "ligne C"} {
+	for _, text := range []string{"line A", "line B", "line C"} {
 		if strings.Count(sealed, text) == 0 {
 			t.Errorf("%q lost during sealing:\n%s", text, sealed)
 		}
@@ -451,7 +451,7 @@ func TestLinesArePublishedLiveWithoutTimestampPrefix(t *testing.T) {
 
 	collector.Start(ctx, target)
 	if err := collector.Finish(ctx, target); err != nil {
-		t.Fatalf("scellement: %v", err)
+		t.Fatalf("sealing: %v", err)
 	}
 
 	if sink.count() != 2 {
@@ -482,7 +482,7 @@ func TestUnstampedLineIsKept(t *testing.T) {
 	line := parseLine("a line with no timestamp\n")
 
 	if line.Text != "a line with no timestamp" {
-		t.Errorf("texte = %q", line.Text)
+		t.Errorf("text = %q", line.Text)
 	}
 	if !line.Timestamp.IsZero() {
 		t.Errorf("invented timestamp: %v", line.Timestamp)
@@ -493,10 +493,10 @@ func TestParseLineSeparatesTimestampFromText(t *testing.T) {
 	line := parseLine("2026-08-14T10:00:00.123456789Z PHPUnit 11.4.1\n")
 
 	if line.Text != "PHPUnit 11.4.1" {
-		t.Errorf("texte = %q", line.Text)
+		t.Errorf("text = %q", line.Text)
 	}
 	if line.Timestamp.IsZero() || line.Timestamp.Year() != 2026 {
-		t.Errorf("horodatage = %v", line.Timestamp)
+		t.Errorf("timestamp = %v", line.Timestamp)
 	}
 }
 
@@ -526,5 +526,5 @@ func waitFor(t *testing.T, condition func() bool, what string) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("condition jamais atteinte: %s", what)
+	t.Fatalf("condition never reached: %s", what)
 }

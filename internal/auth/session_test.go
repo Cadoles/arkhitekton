@@ -44,7 +44,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	// claim, and its failure would point at resolution rather than at isolation.
 	if _, err := pool.Exec(context.Background(),
 		"truncate sessions, user_roles, bootstrap_grants"); err != nil {
-		t.Fatalf("nettoyage: %v", err)
+		t.Fatalf("clean-up: %v", err)
 	}
 	return pool
 }
@@ -150,7 +150,7 @@ func TestRevokeSubjectClosesEverySession(t *testing.T) {
 
 	for _, session := range []Session{first, second} {
 		if _, _, err := store.Lookup(ctx, session.ID); !errors.Is(err, ErrSessionNotFound) {
-			t.Errorf("session %s toujours valide", session.ID)
+			t.Errorf("session %s still valid", session.ID)
 		}
 	}
 }
@@ -380,7 +380,7 @@ func TestBothScopesCoexist(t *testing.T) {
 		 values ('theme', 'CNOUS/theme', 'Theme', 'https://forge.example', '.', 'test')
 		 on conflict (repository) do update set label = excluded.label
 		 returning id`).Scan(&projectID); err != nil {
-		t.Fatalf("projet: %v", err)
+		t.Fatalf("project: %v", err)
 	}
 
 	if err := store.GrantRole(ctx, "121", "vcarroy", RoleViewer, "test"); err != nil {
@@ -413,10 +413,10 @@ func TestBothScopesCoexist(t *testing.T) {
 	}
 	_, global, projects, err = store.LookupRoles(ctx, session.ID)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if global != RoleOperator || projects[projectID] != RoleReleaser {
-		t.Errorf("global = %q, projet = %q", global, projects[projectID])
+		t.Errorf("global = %q, project = %q", global, projects[projectID])
 	}
 }
 
@@ -436,7 +436,7 @@ func TestAdminIsNotGrantedPerProject(t *testing.T) {
 		 values ('theme', 'CNOUS/theme', 'Theme', 'https://forge.example', '.', 'test')
 		 on conflict (repository) do update set label = excluded.label
 		 returning id`).Scan(&projectID); err != nil {
-		t.Fatalf("projet: %v", err)
+		t.Fatalf("project: %v", err)
 	}
 
 	if err := store.GrantRoleIn(ctx, "121", "vcarroy", RoleAdmin, &projectID, "test"); err == nil {

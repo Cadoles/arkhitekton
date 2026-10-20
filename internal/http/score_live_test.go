@@ -80,10 +80,10 @@ func TestLiveTheScoreOfARealRelease(t *testing.T) {
 	}
 
 	t.Logf("release %s: score %d (measured: %v)", tag, breakdown.Score, breakdown.Measured)
-	for _, composant := range breakdown.Signals {
+	for _, component := range breakdown.Signals {
 		t.Logf("  %-14s %-22s declared weight %5.1f  effective %5.1f  value %5.1f  %s",
-			composant.Key, composant.Label,
-			composant.Declared, composant.Weight, composant.Value, composant.Detail)
+			component.Key, component.Label,
+			component.Declared, component.Weight, component.Value, component.Detail)
 	}
 
 	/*
@@ -92,40 +92,40 @@ func TestLiveTheScoreOfARealRelease(t *testing.T) {
 
 	// The components come from the steps, not from the families. That is the change of axis: a
 	// release that has a plan must no longer return a `signal:` component.
-	for _, composant := range breakdown.Signals {
-		if composant.Key == results.SignalKey(composant.Signal) {
+	for _, component := range breakdown.Signals {
+		if component.Key == results.SignalKey(component.Signal) {
 			t.Errorf("component %q identified by its signal — the fallback by kind "+
-				"was applied to a release that nonetheless has a plan", composant.Key)
+				"was applied to a release that nonetheless has a plan", component.Key)
 		}
 		// A component with no label does not display: the cell would be mute.
-		if composant.Label == "" {
-			t.Errorf("component %q with no label", composant.Key)
+		if component.Label == "" {
+			t.Errorf("component %q with no label", component.Key)
 		}
 	}
 
 	// The effective weights of the measured components sum to 100. That is the renormalisation:
 	// a 100 over two steps must not look like a 100 over six, and this split is what says so.
-	var effectif float64
-	for _, composant := range breakdown.Signals {
-		if composant.Measured {
-			effectif += composant.Weight
+	var effective float64
+	for _, component := range breakdown.Signals {
+		if component.Measured {
+			effective += component.Weight
 		}
 	}
-	if breakdown.Measured && (effectif < 99.5 || effectif > 100.5) {
-		t.Errorf("sum of the effective weights = %.2f, expected 100", effectif)
+	if breakdown.Measured && (effective < 99.5 || effective > 100.5) {
+		t.Errorf("sum of the effective weights = %.2f, expected 100", effective)
 	}
 
 	// And every component removed from the computation is named: the reader must know what the
 	// score they read covers.
-	retires := 0
-	for _, composant := range breakdown.Signals {
-		if !composant.Measured {
-			retires++
+	retired := 0
+	for _, component := range breakdown.Signals {
+		if !component.Measured {
+			retired++
 		}
 	}
-	if retires != len(breakdown.Redistributed) {
+	if retired != len(breakdown.Redistributed) {
 		t.Errorf("%d component(s) not measured and %d announced redistributed",
-			retires, len(breakdown.Redistributed))
+			retired, len(breakdown.Redistributed))
 	}
 }
 

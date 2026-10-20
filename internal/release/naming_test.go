@@ -19,12 +19,12 @@ func TestNormalizeVersionName(t *testing.T) {
 		{"validation", "validation", "v not followed by a digit"},
 		{"vNext", "vNext", "v not followed by a digit"},
 		{"v", "v", "prefix alone"},
-		{"", "", "vide"},
+		{"", "", "empty"},
 
 		// No other prefix is stripped. Such names exist in the tracker, on closed versions:
 		// they stay intact, and therefore attach to no tag.
 		{"MSE 3.1.2", "MSE 3.1.2", "deployment prefix, dropped from the rule"},
-		{"MSE3-1.5", "MSE3-1.5", "convention historique"},
+		{"MSE3-1.5", "MSE3-1.5", "historical convention"},
 	}
 
 	for _, c := range cases {
@@ -46,7 +46,7 @@ func TestNormalisationIsNotInjective(t *testing.T) {
 func TestAReleaseAttachesToAPrefixedVersion(t *testing.T) {
 	version, err := versionpkg.SemVer{}.Parse("3.2.0-rc1")
 	if err != nil {
-		t.Fatalf("analyse: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
 
 	if err := CheckTrackedVersion(version, "v3.2.0"); err != nil {

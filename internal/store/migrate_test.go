@@ -136,7 +136,7 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 	}
 	for i := range names {
 		if err := Rollback(ctx, cfg, discardLogger()); err != nil {
-			t.Fatalf("annulation %d/%d: %v", i+1, len(names), err)
+			t.Fatalf("rollback %d/%d: %v", i+1, len(names), err)
 		}
 	}
 
@@ -257,7 +257,7 @@ func TestWaitForDatabaseHonoursCancellation(t *testing.T) {
 //
 // That is the exit condition of [WaitForSchema]: without it, the api and the worker would
 // wait indefinitely for a schema that is in fact complete.
-func TestUneBaseMigreeNaPlusDeMigrationEnAttente(t *testing.T) {
+func TestAMigratedDatabaseHasNoPendingMigration(t *testing.T) {
 	cfg := testDB(t)
 	resetSchema(t, cfg)
 
@@ -268,7 +268,7 @@ func TestUneBaseMigreeNaPlusDeMigrationEnAttente(t *testing.T) {
 
 	pending, err := PendingMigrations(ctx, cfg)
 	if err != nil {
-		t.Fatalf("migrations en attente: %v", err)
+		t.Fatalf("pending migrations: %v", err)
 	}
 	if len(pending) != 0 {
 		t.Errorf("%d migration(s) pending after migrating: %v", len(pending), pending)
@@ -285,14 +285,14 @@ func TestUneBaseMigreeNaPlusDeMigrationEnAttente(t *testing.T) {
 // The real case: the migration Job and the application pod start together, and nothing
 // guarantees the order. Without this wait the worker reconciled against an incomplete
 // schema.
-func TestUneBaseNonMigreeEstSignaleeEnRetard(t *testing.T) {
+func TestAnUnmigratedDatabaseIsReportedAsBehind(t *testing.T) {
 	cfg := testDB(t)
 	resetSchema(t, cfg)
 
 	ctx := context.Background()
 	pending, err := PendingMigrations(ctx, cfg)
 	if err != nil {
-		t.Fatalf("migrations en attente: %v", err)
+		t.Fatalf("pending migrations: %v", err)
 	}
 	if len(pending) == 0 {
 		t.Fatal("an empty database must have pending migrations")

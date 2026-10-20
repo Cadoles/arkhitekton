@@ -125,26 +125,26 @@ func stepParams(
 		params[name] = action.Expand(value, context)
 	}
 
-	if manquant := unresolvedArtifact(params); manquant != "" {
+	if missing := unresolvedArtifact(params); missing != "" {
 		// Refused rather than started with a literal template. A pipeline receiving
 		// `{artifacts.portal.image}` as an image would clone, fail at the `docker pull`, and the reason
 		// would speak of a repository that cannot be found — a long way from the cause.
 		//
 		// A test that silently does not run reads as a test that passed.
 		return nil, fmt.Errorf("the artifact %s was not produced by an earlier "+
-			"stage", manquant)
+			"stage", missing)
 	}
 
 	for _, input := range pipeline.Inputs() {
-		fourni := input.FromContext(
+		provided := input.FromContext(
 			context[contextRevision], context[contextTag], context[contextRegistry])
 
 		switch input.Origin() {
 		case catalog.OriginContext:
-			params[input.Name] = fourni
+			params[input.Name] = provided
 		case catalog.OriginFallback:
 			if strings.TrimSpace(params[input.Name]) == "" {
-				params[input.Name] = fourni
+				params[input.Name] = provided
 			}
 		case catalog.OriginDeclared:
 			// Nothing to supply: only the declaration fills it in.
@@ -168,17 +168,17 @@ func stepParams(
 // plan, not in the template.
 func unresolvedArtifact(params map[string]string) string {
 	for _, value := range params {
-		reste := value
+		remaining := value
 		for {
-			debut := strings.Index(reste, "{artifacts.")
-			if debut < 0 {
+			start := strings.Index(remaining, "{artifacts.")
+			if start < 0 {
 				break
 			}
-			fin := strings.IndexByte(reste[debut:], '}')
+			fin := strings.IndexByte(remaining[start:], '}')
 			if fin < 0 {
 				break
 			}
-			return reste[debut+1 : debut+fin]
+			return remaining[start+1 : start+fin]
 		}
 	}
 	return ""

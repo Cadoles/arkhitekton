@@ -212,7 +212,7 @@ func TestPromoteRefusesAReleaseWithoutImage(t *testing.T) {
 // The log is a trace, not a transaction: its failure does not cancel a queued promotion.
 func TestAFailingAuditDoesNotBlockThePromotion(t *testing.T) {
 	fake := newFakeStore()
-	fake.auditErr = errors.New("journal indisponible")
+	fake.auditErr = errors.New("history unavailable")
 	fake.releases["1.8.0"] = store.Release{
 		ID: 12, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
 	}
@@ -280,6 +280,6 @@ func TestHistoryFollowsWhatWasRequested(t *testing.T) {
 		t.Fatalf("decoding: %v", err)
 	}
 	if len(payload.History) != 2 || payload.History[0].Release != "1.8.0-rc2" {
-		t.Errorf("historique = %+v", payload.History)
+		t.Errorf("history = %+v", payload.History)
 	}
 }

@@ -48,11 +48,11 @@ func TestUpsertRunIsIdempotent(t *testing.T) {
 
 	first, err := db.UpsertRun(ctx, runningRecord("run-idempotent"))
 	if err != nil {
-		t.Fatalf("premier enregistrement: %v", err)
+		t.Fatalf("first recording: %v", err)
 	}
 	second, err := db.UpsertRun(ctx, runningRecord("run-idempotent"))
 	if err != nil {
-		t.Fatalf("second enregistrement: %v", err)
+		t.Fatalf("second recording: %v", err)
 	}
 	if first != second {
 		t.Errorf("different identifiers: %d then %d", first, second)
@@ -67,7 +67,7 @@ func TestTerminalStatusIsNeverOverwritten(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := db.UpsertRun(ctx, runningRecord("run-terminal")); err != nil {
-		t.Fatalf("enregistrement initial: %v", err)
+		t.Fatalf("initial recording: %v", err)
 	}
 
 	completed := time.Now()
@@ -142,8 +142,8 @@ func TestTaskRunWithoutItsRunIsIgnoredWithoutError(t *testing.T) {
 	ctx := context.Background()
 
 	err := db.UpsertTaskRun(ctx, TaskRunRecord{
-		RunName: "run-jamais-vu",
-		Name:    "run-jamais-vu-task",
+		RunName: "run-never-seen",
+		Name:    "run-never-seen-task",
 		Status:  "running",
 	})
 	if err != nil {
@@ -199,10 +199,10 @@ func TestUnfinishedRunsExcludesTerminalOnes(t *testing.T) {
 
 	completed := time.Now()
 	for name, status := range map[string]string{
-		"run-en-cours":   "running",
-		"run-en-attente": "pending",
-		"run-reussi":     "succeeded",
-		"run-annule":     "cancelled",
+		"run-en-cours": "running",
+		"run-waiting":  "pending",
+		"run-reussi":   "succeeded",
+		"run-annule":   "cancelled",
 	} {
 		record := runningRecord(name)
 		record.Status = status
@@ -312,7 +312,7 @@ func TestListRunsPlacesUnstartedRunsFirst(t *testing.T) {
 
 	runs, err := db.ListRuns(ctx, 10)
 	if err != nil {
-		t.Fatalf("liste: %v", err)
+		t.Fatalf("list: %v", err)
 	}
 	if len(runs) != 2 {
 		t.Fatalf("%d run(s), expected 2", len(runs))
@@ -419,7 +419,7 @@ func TestGetRunReturnsItsTasksInExecutionOrder(t *testing.T) {
 		// save the test.
 		{RunName: "run-detail", Name: "run-detail-zebre", DisplayName: "zebre", Status: "running", StartedAt: &late},
 		{RunName: "run-detail", Name: "run-detail-alpha", DisplayName: "alpha", Status: "succeeded", StartedAt: &early},
-		{RunName: "run-detail", Name: "run-detail-attente", DisplayName: "attente", Status: "pending"},
+		{RunName: "run-detail", Name: "run-detail-waiting", DisplayName: "waiting", Status: "pending"},
 	}
 	for _, task := range tasks {
 		if err := db.UpsertTaskRun(ctx, task); err != nil {
@@ -439,7 +439,7 @@ func TestGetRunReturnsItsTasksInExecutionOrder(t *testing.T) {
 	}
 
 	order := []string{detail.Tasks[0].DisplayName, detail.Tasks[1].DisplayName, detail.Tasks[2].DisplayName}
-	expected := []string{"alpha", "zebre", "attente"}
+	expected := []string{"alpha", "zebre", "waiting"}
 	for i := range expected {
 		if order[i] != expected[i] {
 			t.Errorf("order = %v, expected %v (the unstarted task must end the list)", order, expected)
@@ -491,7 +491,7 @@ func TestRunsUpdatedSinceReturnsOnlyChanges(t *testing.T) {
 		t.Fatalf("read after the change: %v", err)
 	}
 	if len(changed) != 1 || changed[0].Name != "run-apres" {
-		t.Errorf("changements = %+v", changed)
+		t.Errorf("changes = %+v", changed)
 	}
 }
 
@@ -542,7 +542,7 @@ func TestAFinishedTaskKeepsItsStepOutcome(t *testing.T) {
 	code := int32(137)
 	finished := TaskRunRecord{
 		RunName: "run-steps", Name: "run-steps-phpstan", Status: "failed", Reason: "Failed",
-		Steps: []StepRecord{{Name: "analyse", Status: "failed", ExitCode: &code}},
+		Steps: []StepRecord{{Name: "analysis", Status: "failed", ExitCode: &code}},
 	}
 	if err := db.UpsertTaskRun(ctx, finished); err != nil {
 		t.Fatalf("finished task: %v", err)

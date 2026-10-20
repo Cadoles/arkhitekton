@@ -24,7 +24,7 @@ spec:
 
   results:
     - name: summary
-      description: Nombre de violations, ex. "12 violations".
+      description: Number of violations, e.g. "12 violations".
 
   steps:
     - name: exec
@@ -60,7 +60,7 @@ spec:
               ? json_decode(file_get_contents($reportPath), true)
               : null;
           if (!is_array($report)) {
-              file_put_contents($logPath, "phpstan: rapport JSON absent ou invalide\n");
+              file_put_contents($logPath, "phpstan: JSON report missing or invalid\n");
               echo "-1";
               exit(0);
           }
@@ -75,7 +75,7 @@ spec:
               $lines[] = "general: " . $error;
           }
           file_put_contents($logPath,
-              $lines ? implode("\n", $lines) . "\n" : "Aucune violation.\n");
+              $lines ? implode("\n", $lines) . "\n" : "No violation.\n");
           $totals = $report["totals"] ?? [];
           echo (int) (($totals["file_errors"] ?? 0) + ($totals["errors"] ?? 0));
         ' "${OUT}/phpstan.json" "${OUT}/phpstan.log")
@@ -84,7 +84,7 @@ spec:
 
         if [ "${COUNT}" = "-1" ]; then
           STATUS=error
-          SUMMARY="rapport illisible"
+          SUMMARY="unreadable report"
         else
           STATUS=ok
           SUMMARY="${COUNT} violations"

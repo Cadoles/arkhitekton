@@ -63,7 +63,7 @@ func TestNonExclusiveMeasuresAreNotJudged(t *testing.T) {
 
 	comparisons := Compare(summaryOf(latency(900)), baselines, conditions)
 	if len(comparisons) != 1 {
-		t.Fatalf("%d comparaison(s)", len(comparisons))
+		t.Fatalf("%d comparison(s)", len(comparisons))
 	}
 	comparison := comparisons[0]
 

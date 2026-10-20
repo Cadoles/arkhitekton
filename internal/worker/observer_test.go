@@ -10,7 +10,7 @@ import (
 func TestAStepWithoutExitCodeStaysWithout(t *testing.T) {
 	code := int32(1)
 	records := stepRecords([]tekton.Step{
-		{Name: "analyse", Status: tekton.StatusFailed, ExitCode: &code},
+		{Name: "analysis", Status: tekton.StatusFailed, ExitCode: &code},
 		{Name: "upload", Status: tekton.StatusRunning},
 	})
 

@@ -109,7 +109,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 			// The error's detail goes to the log, not to the response: /readyz is often exposed more
 			// widely than the rest, and a connection message can carry a host, a port, even a credential.
 			s.logger.Error("dependency not ready", "dependency", check.Name, "error", err)
-			results[check.Name] = "erreur"
+			results[check.Name] = "error"
 			status = http.StatusServiceUnavailable
 			continue
 		}

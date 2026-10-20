@@ -23,7 +23,7 @@ import (
  * changes nothing, and refusing it while believing one validates it.
  */
 
-const cleDeTest = "sN0Xk1t2Qv8yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sQ="
+const testKey = "sN0Xk1t2Qv8yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sQ="
 
 type fakePluginStore struct {
 	global    map[string]store.PluginSettings
@@ -96,7 +96,7 @@ func pluginsHandlerWith(t *testing.T, fake *fakePluginStore, key string) *Plugin
 	if key != "" {
 		built, err := secrets.New(key)
 		if err != nil {
-			t.Fatalf("chiffreur: %v", err)
+			t.Fatalf("cipher: %v", err)
 		}
 		cipher = built
 	}
@@ -134,7 +134,7 @@ func decodePlugin(t *testing.T, recorder *httptest.ResponseRecorder) map[string]
 }
 
 /*
- * Ce qui ne sort jamais.
+ * What never comes out.
  */
 
 // A recorded API key is never displayed again — neither in the write's response nor in
@@ -144,7 +144,7 @@ func decodePlugin(t *testing.T, recorder *httptest.ResponseRecorder) map[string]
 // enough to steal it. The screen knows only that it is there.
 func TestAnApiKeyIsNeverDisplayedAgain(t *testing.T) {
 	fake := newFakePluginStore()
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	recorder := putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{"url":"https://redmine.example.fr","api_key":"production-key"}}`)
@@ -173,7 +173,7 @@ func TestAnApiKeyIsNeverDisplayedAgain(t *testing.T) {
 // What is written to the database is sealed, and reopens with the key.
 func TestTheValueWrittenToTheDatabaseIsSealed(t *testing.T) {
 	fake := newFakePluginStore()
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{"api_key":"production-key"}}`)
@@ -183,13 +183,13 @@ func TestTheValueWrittenToTheDatabaseIsSealed(t *testing.T) {
 		t.Fatalf("stored value = %q", stored)
 	}
 
-	cipher, _ := secrets.New(cleDeTest)
+	cipher, _ := secrets.New(testKey)
 	opened, err := cipher.Open(stored)
 	if err != nil {
-		t.Fatalf("ouverture: %v", err)
+		t.Fatalf("opening: %v", err)
 	}
 	if opened != "production-key" {
-		t.Errorf("valeur ouverte = %q", opened)
+		t.Errorf("opened value = %q", opened)
 	}
 }
 
@@ -234,7 +234,7 @@ func TestWithoutASealingKeyTheSensitiveFieldIsRefused(t *testing.T) {
 // would be enough to cut synchronisation.
 func TestASensitiveFieldLeftEmptyIsKept(t *testing.T) {
 	fake := newFakePluginStore()
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{"api_key":"production-key"}}`)
@@ -254,7 +254,7 @@ func TestASensitiveFieldLeftEmptyIsKept(t *testing.T) {
 // Clearing exists, and requires a distinct step.
 func TestClearingASensitiveFieldIsExplicit(t *testing.T) {
 	fake := newFakePluginStore()
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{"api_key":"production-key"}}`)
@@ -270,7 +270,7 @@ func TestClearingASensitiveFieldIsExplicit(t *testing.T) {
 // A setting the plugin does not declare is refused, and not saved silently: a typo would
 // otherwise surface weeks later.
 func TestAnUnknownSettingIsRefused(t *testing.T) {
-	handler := pluginsHandlerWith(t, newFakePluginStore(), cleDeTest)
+	handler := pluginsHandlerWith(t, newFakePluginStore(), testKey)
 
 	recorder := putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{"cle_api":"x"}}`)
@@ -281,7 +281,7 @@ func TestAnUnknownSettingIsRefused(t *testing.T) {
 
 // An unknown plugin answers 404 naming the ones that exist.
 func TestAnUnknownPluginAnswers404(t *testing.T) {
-	handler := pluginsHandlerWith(t, newFakePluginStore(), cleDeTest)
+	handler := pluginsHandlerWith(t, newFakePluginStore(), testKey)
 
 	recorder := putPlugin(t, handler.Set, "/admin/plugins/jira", "jira", `{"enabled":true}`)
 	if recorder.Code != http.StatusNotFound {
@@ -305,7 +305,7 @@ func TestTheProjectSeesOnlyWhatItCanDecide(t *testing.T) {
 	fake := newFakePluginStore()
 	// The instance switches off the delivery note: the project must no longer see it.
 	fake.global["bon-de-livraison"] = store.PluginSettings{PluginID: "bon-de-livraison", Enabled: false}
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	request := httptest.NewRequest(http.MethodGet, "/projects/mse/plugins", nil)
 	request.SetPathValue("project", "mse")
@@ -349,7 +349,7 @@ func TestTheProjectSeesOnlyWhatItCanDecide(t *testing.T) {
 func TestAProjectCannotSwitchBackOnWhatTheInstanceSwitchedOff(t *testing.T) {
 	fake := newFakePluginStore()
 	fake.global["bon-de-livraison"] = store.PluginSettings{PluginID: "bon-de-livraison", Enabled: false}
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	recorder := putPlugin(t, handler.SetProject,
 		"/projects/mse/plugins/bon-de-livraison", "bon-de-livraison", `{"enabled":true}`)
@@ -366,7 +366,7 @@ func TestAProjectCannotSwitchBackOnWhatTheInstanceSwitchedOff(t *testing.T) {
 func TestTheMSEModuleIsSetPerProject(t *testing.T) {
 	fake := newFakePluginStore()
 	fake.global["mse"] = store.PluginSettings{PluginID: "mse", Enabled: true}
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	recorder := putPlugin(t, handler.SetProject,
 		"/projects/mse/plugins/mse", "mse", `{"enabled":false}`)
@@ -383,7 +383,7 @@ func TestAProjectInheritsTheInstancesValues(t *testing.T) {
 		PluginID: "redmine", Enabled: true,
 		Config: map[string]string{"url": "https://redmine.example.fr"},
 	}
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	recorder := putPlugin(t, handler.SetProject,
 		"/projects/mse/plugins/redmine", "redmine",
@@ -405,7 +405,7 @@ func TestAProjectInheritsTheInstancesValues(t *testing.T) {
 // With no project identifier anywhere, the setting is refused: that is the difference
 // between "nothing particular to say" and "the value is missing everywhere".
 func TestARequiredFieldMissingEverywhereIsRefused(t *testing.T) {
-	handler := pluginsHandlerWith(t, newFakePluginStore(), cleDeTest)
+	handler := pluginsHandlerWith(t, newFakePluginStore(), testKey)
 
 	recorder := putPlugin(t, handler.SetProject,
 		"/projects/mse/plugins/redmine", "redmine", `{"enabled":true,"config":{}}`)
@@ -420,7 +420,7 @@ func TestARequiredFieldMissingEverywhereIsRefused(t *testing.T) {
 // follow it again.
 func TestRemovalReturnsTheProjectToInheritance(t *testing.T) {
 	fake := newFakePluginStore()
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	putPlugin(t, handler.SetProject, "/projects/mse/plugins/bon-de-livraison",
 		"bon-de-livraison", `{"enabled":false}`)
@@ -447,7 +447,7 @@ func TestRemovalReturnsTheProjectToInheritance(t *testing.T) {
 // fewer precautions than a database, which is precisely its purpose.
 func TestTheLogNeverCarriesTheConfiguration(t *testing.T) {
 	fake := newFakePluginStore()
-	handler := pluginsHandlerWith(t, fake, cleDeTest)
+	handler := pluginsHandlerWith(t, fake, testKey)
 
 	putPlugin(t, handler.Set, "/admin/plugins/redmine", "redmine",
 		`{"enabled":true,"config":{"api_key":"production-key"}}`)

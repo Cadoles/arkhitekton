@@ -414,7 +414,7 @@ func (h *QueueHandler) SetLimit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if request.MaxConcurrent < 1 || request.MaxConcurrent > maxQueueLimit {
-		writeProblem(w, http.StatusBadRequest, "Plafond invalide",
+		writeProblem(w, http.StatusBadRequest, "Invalid ceiling",
 			fmt.Sprintf("expected between 1 and %d", maxQueueLimit))
 		return
 	}
@@ -533,7 +533,7 @@ func (h *QueueHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		RequestedBy: identity.Subject,
 	})
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Mise en file impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot enqueue", "")
 		return
 	}
 
@@ -553,13 +553,13 @@ func (h *QueueHandler) Launch(w http.ResponseWriter, r *http.Request) {
 func (h *QueueHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Identifiant invalide", "")
+		writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
 		return
 	}
 
 	cancelled, err := h.queue.CancelQueuedJob(r.Context(), id, "cancellation requested")
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Annulation impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot cancel", "")
 		return
 	}
 	if cancelled {
@@ -570,10 +570,10 @@ func (h *QueueHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	job, err := h.queue.GetJob(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
-			writeProblem(w, http.StatusNotFound, "Job introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Job not found", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Annulation impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot cancel", "")
 		return
 	}
 
@@ -584,7 +584,7 @@ func (h *QueueHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := h.queue.RequestCancel(r.Context(), id, "cancellation requested"); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Annulation impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot cancel", "")
 		return
 	}
 

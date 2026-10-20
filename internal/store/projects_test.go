@@ -41,10 +41,10 @@ func TestAProjectIsDeclaredAndReadBack(t *testing.T) {
 
 	read, err := db.GetProject(ctx, id)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if read.Repository != "CNOUS/mse" || read.Label != "Portail" {
-		t.Errorf("projet = %+v", read)
+		t.Errorf("project = %+v", read)
 	}
 	if len(read.Targets) != 2 || read.Targets[1].Image != "portal-cli" {
 		t.Errorf("stages = %+v", read.Targets)
@@ -58,7 +58,7 @@ func TestAProjectIsDeclaredAndReadBack(t *testing.T) {
 
 // Two entries for one repository would describe the same thing, with nothing saying
 // which prevails.
-func TestUnDepotNeSeDeclarePasDeuxFois(t *testing.T) {
+func TestARepositoryIsNotDeclaredTwice(t *testing.T) {
 	db := migratedBare(t)
 
 	project(t, db, "CNOUS/mse")
@@ -73,7 +73,7 @@ func TestUnDepotNeSeDeclarePasDeuxFois(t *testing.T) {
 
 // A half-filled form row does not become a stage: it would have nothing to build, and
 // nothing on screen would tell it from a valid stage.
-func TestUneCorrectionEcarteLesEtapesVides(t *testing.T) {
+func TestACorrectionDropsEmptyStages(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
@@ -90,7 +90,7 @@ func TestUneCorrectionEcarteLesEtapesVides(t *testing.T) {
 
 	read, _ := db.GetProject(ctx, id)
 	if read.Label != "Portail MSE" || read.MultiStage {
-		t.Errorf("projet = %+v", read)
+		t.Errorf("project = %+v", read)
 	}
 	if len(read.Targets) != 1 || read.Targets[0].Stage != "web" {
 		t.Errorf("stages = %+v", read.Targets)
@@ -104,12 +104,12 @@ func TestTheAccessVerdictIsKept(t *testing.T) {
 	id := project(t, db, "CNOUS/mse")
 
 	if err := db.RecordProjectCheck(ctx, id, false, "404 on /repos/CNOUS/mse"); err != nil {
-		t.Fatalf("constat: %v", err)
+		t.Fatalf("check: %v", err)
 	}
 
 	read, _ := db.GetProject(ctx, id)
 	if read.CheckedAt == nil || read.CheckOK == nil || *read.CheckOK {
-		t.Fatalf("constat = %+v", read)
+		t.Fatalf("check = %+v", read)
 	}
 	if read.CheckNote == "" {
 		t.Error("the failure reason must be kept: without it, \"access refused\" does not help")
@@ -117,7 +117,7 @@ func TestTheAccessVerdictIsKept(t *testing.T) {
 
 	// A second check replaces the first: it is a verdict, not a log.
 	if err := db.RecordProjectCheck(ctx, id, true, "default branch: main"); err != nil {
-		t.Fatalf("second constat: %v", err)
+		t.Fatalf("second check: %v", err)
 	}
 	read, _ = db.GetProject(ctx, id)
 	if read.CheckOK == nil || !*read.CheckOK {
@@ -219,7 +219,7 @@ func TestCorrectingTheRepositoryClearsTheVerdict(t *testing.T) {
 
 	id := project(t, db, "vcarroy/mse-test-project")
 	if err := db.RecordProjectCheck(ctx, id, true, "default branch: main"); err != nil {
-		t.Fatalf("constat: %v", err)
+		t.Fatalf("check: %v", err)
 	}
 
 	corrected := Project{
@@ -244,13 +244,13 @@ func TestCorrectingTheRepositoryClearsTheVerdict(t *testing.T) {
 
 // Changing anything other than the repository keeps the verdict: redoing it at every
 // label correction would make it useless.
-func TestUneCorrectionSansChangementDeDepotGardeLeConstat(t *testing.T) {
+func TestACorrectionKeepingTheRepositoryKeepsTheCheck(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
 	if err := db.RecordProjectCheck(ctx, id, true, "default branch: main"); err != nil {
-		t.Fatalf("constat: %v", err)
+		t.Fatalf("check: %v", err)
 	}
 
 	if err := db.UpdateProject(ctx, Project{
@@ -287,7 +287,7 @@ func TestCorrectingTowardsADeclaredRepositoryIsRefused(t *testing.T) {
 // An empty repository is never an intention: it is a caller that forgot the field.
 // Accepting it would clear it silently, and the project would become a row naming
 // nothing.
-func TestUneCorrectionSansDepotEstRefusee(t *testing.T) {
+func TestACorrectionWithoutRepositoryIsRefused(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
@@ -392,7 +392,7 @@ func TestAStageMayNameItsOwnDockerfile(t *testing.T) {
 
 	stored, err := db.GetProject(ctx, id)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if len(stored.Buildable()) != 2 {
 		t.Fatalf("%d buildable stage(s), expected 2: %+v", len(stored.Buildable()), stored.Targets)
@@ -415,7 +415,7 @@ func TestAStageWithNoImageIsDiscarded(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := db.CreateProject(ctx, Project{
-		Slug: "vide", Repository: "x/vide", Label: "Vide",
+		Slug: "empty", Repository: "x/empty", Label: "Vide",
 		ForgeURL: "https://forge.example", Dockerfile: "Dockerfile", BuildContext: ".",
 		Targets: []Target{{Stage: "web"}, {Stage: "cli", Image: "utile"}},
 	})
@@ -425,7 +425,7 @@ func TestAStageWithNoImageIsDiscarded(t *testing.T) {
 
 	stored, err := db.GetProject(ctx, id)
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if len(stored.Targets) != 1 || stored.Targets[0].Image != "utile" {
 		t.Errorf("stages kept = %+v", stored.Targets)

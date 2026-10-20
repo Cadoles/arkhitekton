@@ -89,7 +89,7 @@ func (h *SignoffsHandler) release(w http.ResponseWriter, r *http.Request) (store
 	release, err := h.store.GetRelease(r.Context(), projectID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			dashhttp.WriteProblem(w, http.StatusNotFound, "Release introuvable", "")
+			dashhttp.WriteProblem(w, http.StatusNotFound, "Release not found", "")
 			return store.Release{}, 0, false
 		}
 		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -181,7 +181,7 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !signoffStatuses[request.Status] {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Avis invalide",
+		dashhttp.WriteProblem(w, http.StatusBadRequest, "Invalid sign-off",
 			"The opinion is “pass”, “warn” or “fail”. Waiting is obtained by removing the sign-off.")
 		return
 	}
@@ -205,13 +205,13 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !exists {
-		dashhttp.WriteProblem(w, http.StatusNotFound, "Environnement introuvable", environmentID)
+		dashhttp.WriteProblem(w, http.StatusNotFound, "Environment not found", environmentID)
 		return
 	}
 
 	if err := h.store.SetSignoff(r.Context(), release.ID, environmentID, role,
 		request.Status, detail, identity.Subject); err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Enregistrement impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot save", "")
 		return
 	}
 
@@ -244,10 +244,10 @@ func (h *SignoffsHandler) Clear(w http.ResponseWriter, r *http.Request) {
 	environmentID := r.PathValue("env")
 	if err := h.store.DeleteSignoff(r.Context(), release.ID, environmentID, role); err != nil {
 		if errors.Is(err, storage.ErrSignoffNotFound) {
-			dashhttp.WriteProblem(w, http.StatusNotFound, "Validation introuvable", "")
+			dashhttp.WriteProblem(w, http.StatusNotFound, "Sign-off not found", "")
 			return
 		}
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Retrait impossible", "")
+		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot remove", "")
 		return
 	}
 

@@ -66,7 +66,7 @@ func TestOnAFreshClusterTheLibraryIsInstalled(t *testing.T) {
 
 	outcome, err := installer.Install(context.Background(), "php")
 	if err != nil {
-		t.Fatalf("pose: %v", err)
+		t.Fatalf("install: %v", err)
 	}
 	if len(outcome.Installed) == 0 {
 		t.Fatal("nothing was installed")
@@ -78,7 +78,7 @@ func TestOnAFreshClusterTheLibraryIsInstalled(t *testing.T) {
 	posed, err := client.Resource(pipelineGVR).Namespace(namespace).
 		Get(context.Background(), "php-unit-tests", metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("relecture: %v", err)
+		t.Fatalf("read back: %v", err)
 	}
 	if posed.GetLabels()["app.kubernetes.io/managed-by"] != ManagedBy {
 		t.Errorf("labels %v — ownership must be readable", posed.GetLabels())
@@ -96,7 +96,7 @@ func TestAThirdPartysDefinitionIsNeverOverwritten(t *testing.T) {
 
 	outcome, err := installer.Install(context.Background(), "php")
 	if err != nil {
-		t.Fatalf("pose: %v", err)
+		t.Fatalf("install: %v", err)
 	}
 
 	var skipped bool
@@ -127,7 +127,7 @@ func TestADefinitionOfOursIsUpdated(t *testing.T) {
 
 	outcome, err := installer.Install(context.Background(), "php")
 	if err != nil {
-		t.Fatalf("pose: %v", err)
+		t.Fatalf("install: %v", err)
 	}
 
 	var updated bool
@@ -157,7 +157,7 @@ func TestTheInstallationIsIdempotent(t *testing.T) {
 	first, _ := installer.Install(ctx, "php")
 	second, err := installer.Install(ctx, "php")
 	if err != nil {
-		t.Fatalf("seconde pose: %v", err)
+		t.Fatalf("second install: %v", err)
 	}
 
 	if len(second.Installed) != 0 {

@@ -14,7 +14,7 @@ func TestExpectedSchemaVersionFollowsTheLastMigration(t *testing.T) {
 
 	version, err := ExpectedSchemaVersion()
 	if err != nil {
-		t.Fatalf("version attendue: %v", err)
+		t.Fatalf("expected version: %v", err)
 	}
 	if version != int64(len(names)) {
 		// Migrations are numbered without gaps from 0001: if that ever stops being true, this test

@@ -242,14 +242,14 @@ func testStage(
 // a plan that refuses to start, although it started the day before. A catch-up must break
 // nothing on its way.
 func targetedArtifacts(pipeline catalog.Pipeline, project store.Project) map[string]string {
-	construites := map[string]bool{}
+	built := map[string]bool{}
 	for _, target := range project.Buildable() {
-		construites[target.Image] = true
+		built[target.Image] = true
 	}
 
 	var params map[string]string
 	for _, input := range pipeline.Inputs() {
-		if input.Origin() != catalog.OriginFallback || !construites[input.Image] {
+		if input.Origin() != catalog.OriginFallback || !built[input.Image] {
 			continue
 		}
 		if params == nil {

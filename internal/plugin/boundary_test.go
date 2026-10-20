@@ -17,7 +17,7 @@ import (
 // would be a display toggle and nothing more. Only cmd/arkhitekton assembles it.
 // Tests count too: a core test importing it would make the plugin a dependency of
 // the core's own verification.
-func TestLeNoyauNImportePasLePluginMSE(t *testing.T) {
+func TestTheCoreDoesNotImportTheMSEPlugin(t *testing.T) {
 	const pluginPath = "forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
 	root := filepath.Join("..", "..", "internal")
 	files := token.NewFileSet()
@@ -56,6 +56,6 @@ func TestLeNoyauNImportePasLePluginMSE(t *testing.T) {
 	// A wrong starting path would read nothing, and the test would pass having
 	// checked nothing.
 	if read < 100 {
-		t.Fatalf("seulement %d fichiers lus sous %s", read, root)
+		t.Fatalf("only %d files read under %s", read, root)
 	}
 }

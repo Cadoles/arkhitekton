@@ -13,7 +13,7 @@ func TestIssueNumbersAreReadFromTheText(t *testing.T) {
 		"fix: pagination\n\nRefs #1234 et #5678": {"1234", "5678"},
 		"no number here":                         nil,
 		// The same number cited twice names one issue.
-		"#42 puis encore #42": {"42"},
+		"#42 then #42 again": {"42"},
 	}
 
 	for text, expected := range cases {

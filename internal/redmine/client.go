@@ -82,7 +82,7 @@ func (t *readOnlyTransport) RoundTrip(request *http.Request) (*http.Response, er
 // time rather than at the first call.
 var _ provider.Tracker = (*Client)(nil)
 
-// Client interroge Redmine en lecture.
+// Client reads Redmine.
 type Client struct {
 	baseURL *url.URL
 	http    *http.Client
@@ -112,7 +112,7 @@ func New(options Options) (*Client, error) {
 
 	base, err := url.Parse(strings.TrimRight(options.URL, "/"))
 	if err != nil {
-		return nil, fmt.Errorf("redmine: URL invalide: %w", err)
+		return nil, fmt.Errorf("redmine: invalid URL: %w", err)
 	}
 	if base.Scheme != "https" && base.Hostname() != "localhost" && base.Hostname() != "127.0.0.1" {
 		// The key travels with every request. In clear text over the network, it is readable by any
@@ -163,7 +163,7 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte
 		return nil, fmt.Errorf("redmine: access refused on %s (%d) — invalid key or without rights on the project",
 			target.Path, response.StatusCode)
 	case response.StatusCode == http.StatusNotFound:
-		return nil, fmt.Errorf("redmine: %s introuvable", target.Path)
+		return nil, fmt.Errorf("redmine: %s not found", target.Path)
 	case response.StatusCode >= 300:
 		return nil, fmt.Errorf("redmine: %s answered %d", target.Path, response.StatusCode)
 	}

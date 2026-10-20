@@ -141,7 +141,7 @@ func (r *ActionRunner) postWebhook(
 			response.Status, truncate(response.Body, 200))
 	}
 
-	r.logger.Info("appel sortant abouti",
+	r.logger.Info("outgoing call succeeded",
 		"run", run.ID, "step", geste.Ref, "code", response.Status)
 	return nil
 }
@@ -156,7 +156,7 @@ func webhookBody(template string, run store.PlanRun) ([]byte, error) {
 		maps.Copy(payload, run.Context)
 		encoded, err := json.Marshal(payload)
 		if err != nil {
-			return nil, fmt.Errorf("charge illisible: %w", err)
+			return nil, fmt.Errorf("unreadable payload: %w", err)
 		}
 		return encoded, nil
 	}

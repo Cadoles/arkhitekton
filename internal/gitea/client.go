@@ -103,7 +103,7 @@ func New(options Options) (*Client, error) {
 
 	base, err := url.Parse(strings.TrimRight(options.URL, "/"))
 	if err != nil {
-		return nil, fmt.Errorf("gitea: URL invalide: %w", err)
+		return nil, fmt.Errorf("gitea: invalid URL: %w", err)
 	}
 	if base.Scheme != "https" && base.Hostname() != "localhost" && base.Hostname() != "127.0.0.1" {
 		// The token travels on every request, and it opens the whole forge in its holder's

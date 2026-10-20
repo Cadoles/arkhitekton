@@ -202,7 +202,7 @@ func Registry() []Descriptor {
 					Required: true,
 					Help: "Tel qu'il apparaît dans l'URL Redmine, et non son " +
 						"libellé.",
-					Placeholder: "mon-projet",
+					Placeholder: "my-project",
 				},
 				{
 					Name: "review_statuses", Label: "Statuts de revue", Type: FieldList,

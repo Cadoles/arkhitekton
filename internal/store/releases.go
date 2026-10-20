@@ -46,14 +46,14 @@ type Release struct {
 }
 
 // ErrReleaseNotFound reports a missing release.
-var ErrReleaseNotFound = errors.New("release introuvable")
+var ErrReleaseNotFound = errors.New("release not found")
 
 // ErrVersionNotFound reports a missing tracker version.
 //
 // Distinct from a write error: the versions table may be empty, and the caller must
 // be able to say why the creation is refused rather than display a constraint
 // violation.
-var ErrVersionNotFound = errors.New("version introuvable")
+var ErrVersionNotFound = errors.New("version not found")
 
 // FindVersionByName finds a tracker version by its name.
 //

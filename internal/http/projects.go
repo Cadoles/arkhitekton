@@ -439,10 +439,10 @@ func (h *ProjectsHandler) RotateDeployKey(w http.ResponseWriter, r *http.Request
 
 	if err := h.store.RequestKeyRotation(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Project not found", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Demande impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot request", "")
 		return
 	}
 
@@ -488,7 +488,7 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Project not found", "")
 			return
 		}
 		if errors.Is(err, store.ErrProjectExists) {
@@ -522,16 +522,16 @@ func (h *ProjectsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	// disappeared, and after the deletion there is nothing left to name.
 	project, err := h.store.GetProject(r.Context(), id)
 	if err != nil && !errors.Is(err, store.ErrProjectNotFound) {
-		writeProblem(w, http.StatusInternalServerError, "Suppression impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot delete", "")
 		return
 	}
 
 	if err := h.store.DeleteProject(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Project not found", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Suppression impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot delete", "")
 		return
 	}
 
@@ -562,17 +562,17 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	project, err := h.store.GetProject(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Projet introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Project not found", "")
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Test impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot test", "")
 		return
 	}
 
 	if h.prober == nil {
 		// Neither green nor red: the check did not happen. Recording it as a failure would send
 		// someone hunting for an access problem where there is only a missing token.
-		writeProblem(w, http.StatusServiceUnavailable, "Test indisponible",
+		writeProblem(w, http.StatusServiceUnavailable, "Test unavailable",
 			"the forge is not configured: GITEA_URL and GITEA_TOKEN are required")
 		return
 	}
@@ -586,7 +586,7 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.RecordProjectCheck(r.Context(), id, probeErr == nil, note); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Constat impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot record the check", "")
 		return
 	}
 
@@ -624,7 +624,7 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 func projectID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Identifiant invalide", "")
+		writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
 		return 0, false
 	}
 	return id, true

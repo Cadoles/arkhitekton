@@ -85,7 +85,7 @@ func (h *BenchHandler) Bench(w http.ResponseWriter, r *http.Request) {
 	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
 	if err != nil {
 		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
@@ -202,13 +202,13 @@ func (h *BenchHandler) PinBaseline(w http.ResponseWriter, r *http.Request) {
 
 	id, err := strconv.ParseInt(r.PathValue("measure"), 10, 64)
 	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Identifiant invalide", "")
+		writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
 		return
 	}
 
 	if err := h.store.PinBaseline(r.Context(), id, identity.Subject); err != nil {
 		if errors.Is(err, store.ErrBaselineNotFound) {
-			writeProblem(w, http.StatusNotFound, "Mesure introuvable", "")
+			writeProblem(w, http.StatusNotFound, "Measure not found", "")
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot pin", "")

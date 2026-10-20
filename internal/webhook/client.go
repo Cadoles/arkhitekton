@@ -118,7 +118,7 @@ type Response struct {
 func (r Response) OK() bool { return r.Status >= 200 && r.Status < 300 }
 
 // ErrInsecureTarget reports a cleartext target with no authorization.
-var ErrInsecureTarget = errors.New("cible en clair")
+var ErrInsecureTarget = errors.New("cleartext target")
 
 // Post issues a request and returns what it brought back.
 //

@@ -51,7 +51,7 @@ type BenchMeasure struct {
 }
 
 // ErrBaselineNotFound reports a missing baseline.
-var ErrBaselineNotFound = errors.New("baseline introuvable")
+var ErrBaselineNotFound = errors.New("baseline not found")
 
 // SaveLoadResult records a campaign and its measures.
 //

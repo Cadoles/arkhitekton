@@ -119,7 +119,7 @@ type Job struct {
 }
 
 // ErrJobNotFound reports a missing job.
-var ErrJobNotFound = errors.New("job introuvable")
+var ErrJobNotFound = errors.New("job not found")
 
 // Enqueue puts a job in the queue.
 func (db *DB) Enqueue(ctx context.Context, request JobRequest) (int64, error) {

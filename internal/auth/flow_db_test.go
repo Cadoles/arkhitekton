@@ -14,7 +14,7 @@ func flowStores(t *testing.T) (*pgxpool.Pool, *DBFlowStore) {
 	t.Helper()
 	pool := testPool(t)
 	if _, err := pool.Exec(context.Background(), "truncate auth_flows"); err != nil {
-		t.Fatalf("nettoyage: %v", err)
+		t.Fatalf("clean-up: %v", err)
 	}
 	return pool, NewDBFlowStore(pool, 10*time.Minute)
 }
@@ -31,7 +31,7 @@ func TestAFlowOpenedByOneReplicaIsConsumableByAnother(t *testing.T) {
 
 	flow, err := first.Begin(ctx, "/releases/1.8.0")
 	if err != nil {
-		t.Fatalf("ouverture: %v", err)
+		t.Fatalf("opening: %v", err)
 	}
 
 	consumed, err := second.Consume(ctx, flow.State)
@@ -105,7 +105,7 @@ func TestAnExpiredFlowIsRefusedAndRemoved(t *testing.T) {
 	store := NewDBFlowStore(pool, time.Nanosecond)
 	flow, err := store.Begin(ctx, "")
 	if err != nil {
-		t.Fatalf("ouverture: %v", err)
+		t.Fatalf("opening: %v", err)
 	}
 	time.Sleep(2 * time.Millisecond)
 
@@ -125,7 +125,7 @@ func TestAnExpiredFlowIsRefusedAndRemoved(t *testing.T) {
 func TestAnUnknownStateIsRefused(t *testing.T) {
 	_, store := flowStores(t)
 
-	if _, err := store.Consume(context.Background(), "jamais-emis"); !errors.Is(err, ErrUnknownState) {
+	if _, err := store.Consume(context.Background(), "never-issued"); !errors.Is(err, ErrUnknownState) {
 		t.Errorf("error = %v, expected ErrUnknownState", err)
 	}
 }
@@ -139,7 +139,7 @@ func TestPurgeRemovesAbandonedFlows(t *testing.T) {
 	expired := NewDBFlowStore(pool, time.Nanosecond)
 	for range 3 {
 		if _, err := expired.Begin(ctx, ""); err != nil {
-			t.Fatalf("ouverture: %v", err)
+			t.Fatalf("opening: %v", err)
 		}
 	}
 	live := NewDBFlowStore(pool, time.Hour)

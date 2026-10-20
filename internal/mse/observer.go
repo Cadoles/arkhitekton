@@ -111,7 +111,7 @@ func (o *Observer) SyncEnvironments(ctx context.Context, projects []ProjectEnvir
 		environments += len(project.Environments)
 
 		if err := project.Deployer.Check(ctx, targets); err != nil {
-			problems = append(problems, fmt.Errorf("projet %s:\n%w", project.Slug, err))
+			problems = append(problems, fmt.Errorf("project %s:\n%w", project.Slug, err))
 		}
 	}
 

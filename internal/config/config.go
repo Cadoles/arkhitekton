@@ -465,7 +465,7 @@ func (c Config) validateHTTP() []error {
 	if u := strings.TrimSpace(c.HTTP.PublicURL); u == "" {
 		problems = append(problems, errors.New("PUBLIC_URL is required (base of the redirect URLs)"))
 	} else if _, err := url.Parse(u); err != nil {
-		problems = append(problems, fmt.Errorf("PUBLIC_URL invalide: %w", err))
+		problems = append(problems, fmt.Errorf("PUBLIC_URL invalid: %w", err))
 	}
 	return problems
 }

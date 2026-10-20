@@ -87,7 +87,7 @@ func stepMeasures(
 		}
 	}
 
-	audit, auditGeste, err := stepAudit(ctx, source, releaseID, byResult)
+	audit, auditStep, err := stepAudit(ctx, source, releaseID, byResult)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func stepMeasures(
 			measure.Detail = "no known result kind for this pipeline"
 		case shape == shapeFindings:
 			measure.Measured, measure.Value, measure.Detail =
-				valueOf(auditMeasure(audit, auditGeste == ref))
+				valueOf(auditMeasure(audit, auditStep == ref))
 		case shape == shapeMeasures:
 			campaignScore, err := campaignMeasure(ctx, source, campaign, campaignStep == ref)
 			if err != nil {
@@ -292,8 +292,8 @@ func stepCampaign(
 // The audit decides for itself whether it is measurable: a failed scanner produces zero
 // findings, exactly like a clean audit, and only its descriptor tells them apart. Counting
 // it as clean would be the most expensive possible error on this signal.
-func auditMeasure(audit store.SecurityAudit, sien bool) results.Measure {
-	if !sien {
+func auditMeasure(audit store.SecurityAudit, own bool) results.Measure {
+	if !own {
 		return results.FromSecurity(0, 0, false)
 	}
 	if !audit.Measured() {
@@ -309,9 +309,9 @@ func auditMeasure(audit store.SecurityAudit, sien bool) results.Measure {
 
 // campaignMeasure grades performance from a step's campaign.
 func campaignMeasure(
-	ctx context.Context, source scoreStore, campaign *store.LoadResult, sien bool,
+	ctx context.Context, source scoreStore, campaign *store.LoadResult, own bool,
 ) (results.Measure, error) {
-	if !sien || campaign == nil {
+	if !own || campaign == nil {
 		return results.FromBench("", false), nil
 	}
 

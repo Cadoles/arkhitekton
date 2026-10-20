@@ -23,10 +23,10 @@ func TestSecretNamesComeFromConfiguration(t *testing.T) {
 	}
 
 	if got := resolved.Workspaces[0].Secret.SecretName; got != "git-credentials-test" {
-		t.Errorf("secret git %q", got)
+		t.Errorf("git secret %q", got)
 	}
 	if got := resolved.Workspaces[1].Secret.SecretName; got != "regcred-vcarroy" {
-		t.Errorf("secret registre %q", got)
+		t.Errorf("registry secret %q", got)
 	}
 	// A workspace with no secret passes through untouched.
 	if resolved.Workspaces[2].VolumeClaimTemplate == nil {

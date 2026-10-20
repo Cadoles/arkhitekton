@@ -140,7 +140,7 @@ func (e *Exporter) Run(ctx context.Context, job store.Job) error {
 		e.logger.Error("journal d'audit", "job", job.ID, "error", err)
 	}
 
-	e.logger.Info("livrable produit",
+	e.logger.Info("deliverable produced",
 		"job", job.ID, "release", release.Tag, "kind", kind, "format", format, "octets", len(content))
 	return nil
 }

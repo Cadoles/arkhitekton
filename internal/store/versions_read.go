@@ -10,7 +10,7 @@ import (
 )
 
 // ErrVersionNotFoundByID reports a missing version.
-var ErrVersionNotFoundByID = errors.New("version introuvable")
+var ErrVersionNotFoundByID = errors.New("version not found")
 
 // VersionSummary is a version and its progress.
 //

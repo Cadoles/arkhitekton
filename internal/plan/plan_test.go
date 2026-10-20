@@ -20,8 +20,8 @@ func pipeline(ref string, when When) Geste {
 func advance(t *testing.T, progress Progress, sorts map[string]State) Progress {
 	t.Helper()
 
-	for tour := 0; ; tour++ {
-		if tour > 100 {
+	for round := 0; ; round++ {
+		if round > 100 {
 			t.Fatal("the advancing loop does not terminate")
 		}
 		steps := progress.Next()
@@ -38,7 +38,7 @@ func advance(t *testing.T, progress Progress, sorts map[string]State) Progress {
 			}
 			var err error
 			if progress, err = progress.Mark(step.Position, state); err != nil {
-				t.Fatalf("marquage: %v", err)
+				t.Fatalf("marking: %v", err)
 			}
 		}
 	}
@@ -73,18 +73,18 @@ func TestTheRequestedExampleRunsInFourStages(t *testing.T) {
 	progress := Start(subject)
 
 	// First stage: one step offered, and nothing else.
-	premiers := progress.Next()
-	if len(premiers) != 1 || premiers[0].Geste.Ref != "forge.status" {
-		t.Fatalf("first stage: %+v", premiers)
+	firstOnes := progress.Next()
+	if len(firstOnes) != 1 || firstOnes[0].Geste.Ref != "forge.status" {
+		t.Fatalf("first stage: %+v", firstOnes)
 	}
 
 	// The next stage does not open until the first is settled.
-	progress, _ = progress.Mark(premiers[0].Position, Running)
+	progress, _ = progress.Mark(firstOnes[0].Position, Running)
 	if steps := progress.Next(); len(steps) != 0 {
 		t.Errorf("a stage in flight let the next one through: %+v", steps)
 	}
 
-	progress, _ = progress.Mark(premiers[0].Position, Succeeded)
+	progress, _ = progress.Mark(firstOnes[0].Position, Succeeded)
 
 	// Second stage: the three builds together.
 	builds := progress.Next()
@@ -125,7 +125,7 @@ func TestTheVerificationChainIsASingleStagePlan(t *testing.T) {
 	}
 	for _, step := range steps {
 		if step.Geste.Kind != GestePipeline || !step.Run {
-			t.Errorf("geste %+v", step)
+			t.Errorf("step %+v", step)
 		}
 	}
 }
@@ -142,30 +142,30 @@ func TestAFailureSteersTheNextStage(t *testing.T) {
 		{Gestes: []Geste{
 			pipeline("tests", WhenSuccess),
 			{Kind: GesteAction, Ref: "prevenir", When: WhenFailure},
-			{Kind: GesteAction, Ref: "statut", When: WhenAlways},
+			{Kind: GesteAction, Ref: "status", When: WhenAlways},
 		}},
 	}}
 
 	progress := Start(subject)
-	premiers := progress.Next()
-	progress, _ = progress.Mark(premiers[0].Position, Failed)
+	firstOnes := progress.Next()
+	progress, _ = progress.Mark(firstOnes[0].Position, Failed)
 
 	suite := progress.Next()
 	if len(suite) != 3 {
 		t.Fatalf("%d steps offered", len(suite))
 	}
 
-	choix := map[string]bool{}
+	choice := map[string]bool{}
 	for _, step := range suite {
-		choix[step.Geste.Ref] = step.Run
+		choice[step.Geste.Ref] = step.Run
 	}
-	if choix["tests"] {
+	if choice["tests"] {
 		t.Error("the tests left after a failed build")
 	}
-	if !choix["prevenir"] {
+	if !choice["prevenir"] {
 		t.Error("the failure reaction did not leave")
 	}
-	if !choix["statut"] {
+	if !choice["status"] {
 		t.Error("the unconditional step did not leave")
 	}
 }
@@ -182,21 +182,21 @@ func TestASkippedStageHasNotFailed(t *testing.T) {
 	}}
 
 	progress := Start(subject)
-	premiers := progress.Next()
+	firstOnes := progress.Next()
 	// The build succeeds: stage 2 is therefore skipped entirely.
-	progress, _ = progress.Mark(premiers[0].Position, Succeeded)
+	progress, _ = progress.Mark(firstOnes[0].Position, Succeeded)
 
-	deuxieme := progress.Next()
-	if len(deuxieme) != 1 || deuxieme[0].Run {
-		t.Fatalf("second stage: %+v", deuxieme)
+	secondItem := progress.Next()
+	if len(secondItem) != 1 || secondItem[0].Run {
+		t.Fatalf("second stage: %+v", secondItem)
 	}
-	progress, _ = progress.Mark(deuxieme[0].Position, Skipped)
+	progress, _ = progress.Mark(secondItem[0].Position, Skipped)
 
-	troisieme := progress.Next()
-	if len(troisieme) != 1 {
-		t.Fatalf("third stage: %+v", troisieme)
+	third := progress.Next()
+	if len(third) != 1 {
+		t.Fatalf("third stage: %+v", third)
 	}
-	if troisieme[0].Run {
+	if third[0].Run {
 		t.Error("a failure step left behind a skipped stage, which missed nothing")
 	}
 }
@@ -208,7 +208,7 @@ func TestASkippedStageHasNotFailed(t *testing.T) {
 func TestAConcludingStepDoesNotRedeemAFailure(t *testing.T) {
 	subject := Plan{Stages: []Stage{
 		{Gestes: []Geste{pipeline("build", "")}},
-		{Gestes: []Geste{{Kind: GesteAction, Ref: "statut", When: WhenAlways}}},
+		{Gestes: []Geste{{Kind: GesteAction, Ref: "status", When: WhenAlways}}},
 	}}
 
 	progress := advance(t, Start(subject), map[string]State{"build": Failed})
@@ -217,7 +217,7 @@ func TestAConcludingStepDoesNotRedeemAFailure(t *testing.T) {
 		t.Fatal("plan not settled")
 	}
 	if progress.Outcome() != Failed {
-		t.Errorf("issue = %q, attendue %q", progress.Outcome(), Failed)
+		t.Errorf("outcome = %q, expected %q", progress.Outcome(), Failed)
 	}
 }
 
@@ -233,15 +233,15 @@ func TestNextIsCallableAgainWithoutEffect(t *testing.T) {
 	}}}}
 
 	progress := Start(subject)
-	premier, second := progress.Next(), progress.Next()
-	if len(premier) != 2 || len(second) != 2 {
+	first, second := progress.Next(), progress.Next()
+	if len(first) != 2 || len(second) != 2 {
 		t.Fatalf("successive calls: %d then %d steps, expected 2 each time",
-			len(premier), len(second))
+			len(first), len(second))
 	}
-	for index := range premier {
-		if premier[index].Position != second[index].Position {
+	for index := range first {
+		if first[index].Position != second[index].Position {
 			t.Errorf("step %d: positions %+v then %+v — two calls must return "+
-				"the same thing", index, premier[index].Position, second[index].Position)
+				"the same thing", index, first[index].Position, second[index].Position)
 		}
 	}
 
@@ -269,16 +269,16 @@ func TestMarkingOutsideThePlanIsRefused(t *testing.T) {
 // Marking returns a copy: a caller holding the previous progress must not see it
 // change underneath.
 func TestMarkingDoesNotMutatePreviousProgress(t *testing.T) {
-	avant := Start(Plan{Stages: []Stage{{Gestes: []Geste{pipeline("build", "")}}}})
+	before := Start(Plan{Stages: []Stage{{Gestes: []Geste{pipeline("build", "")}}}})
 
-	apres, err := avant.Mark(Position{}, Succeeded)
+	after, err := before.Mark(Position{}, Succeeded)
 	if err != nil {
-		t.Fatalf("marquage: %v", err)
+		t.Fatalf("marking: %v", err)
 	}
-	if avant.States[0][0] != Pending {
+	if before.States[0][0] != Pending {
 		t.Error("the previous progress was mutated")
 	}
-	if apres.States[0][0] != Succeeded {
+	if after.States[0][0] != Succeeded {
 		t.Error("the mark did not take")
 	}
 }
@@ -310,7 +310,7 @@ func TestAStageWithoutAStepIsRefused(t *testing.T) {
 	}}.Validate()
 
 	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("validation: %v", err)
+		t.Fatalf("sign-off: %v", err)
 	}
 	if !strings.Contains(err.Error(), "stage 2") {
 		t.Errorf("message %q — it must name the offending stage", err)
@@ -326,7 +326,7 @@ func TestAFailureStepInTheFirstStageIsRefused(t *testing.T) {
 	}}.Validate()
 
 	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("validation: %v", err)
+		t.Fatalf("sign-off: %v", err)
 	}
 	if !strings.Contains(err.Error(), "never leave") {
 		t.Errorf("message %q — it must say the step would never leave", err)
@@ -335,7 +335,7 @@ func TestAFailureStepInTheFirstStageIsRefused(t *testing.T) {
 
 // Inconsistent declarations are refused, each one named.
 func TestInconsistentDeclarationsAreRefused(t *testing.T) {
-	cas := map[string]Plan{
+	testCases := map[string]Plan{
 		"no stage": {},
 		"unknown kind": {Stages: []Stage{{Gestes: []Geste{
 			{Kind: "webhook", Ref: "x"},
@@ -348,9 +348,9 @@ func TestInconsistentDeclarationsAreRefused(t *testing.T) {
 		}}}},
 	}
 
-	for nom, subject := range cas {
+	for name, subject := range testCases {
 		if err := subject.Validate(); !errors.Is(err, ErrInvalid) {
-			t.Errorf("%s: accepted (%v)", nom, err)
+			t.Errorf("%s: accepted (%v)", name, err)
 		}
 	}
 }
@@ -359,10 +359,10 @@ func TestInconsistentDeclarationsAreRefused(t *testing.T) {
 // something to show.
 func TestAStepWithoutALabelIsNamedByItsReference(t *testing.T) {
 	if got := (Geste{Ref: "unit-tests"}).Name(); got != "unit-tests" {
-		t.Errorf("nom = %q", got)
+		t.Errorf("name = %q", got)
 	}
 	if got := (Geste{Ref: "unit-tests", Label: "Tests unitaires"}).Name(); got != "Tests unitaires" {
-		t.Errorf("nom = %q", got)
+		t.Errorf("name = %q", got)
 	}
 }
 
@@ -440,9 +440,9 @@ func TestAnUnknownRoleIsRefused(t *testing.T) {
 	}
 	// The message names the known roles: looking them up in the source is not an
 	// answer to give someone reading an API message.
-	for _, attendu := range []string{"deploiement", "build", "test"} {
-		if !strings.Contains(err.Error(), attendu) {
-			t.Errorf("message %q — it must carry %q", err, attendu)
+	for _, expected := range []string{"deploiement", "build", "test"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("message %q — it must carry %q", err, expected)
 		}
 	}
 }

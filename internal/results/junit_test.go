@@ -34,10 +34,10 @@ func TestParseJUnitReadsNestedSuites(t *testing.T) {
 	}
 
 	if report.Total != 4 || report.Passed != 2 || report.Failed != 1 || report.Skipped != 1 {
-		t.Errorf("comptes = %+v", report)
+		t.Errorf("counts = %+v", report)
 	}
 	if report.Status != ReportFail {
-		t.Errorf("statut = %q", report.Status)
+		t.Errorf("status = %q", report.Status)
 	}
 }
 
@@ -64,7 +64,7 @@ func TestParseJUnitAcceptsABareSuite(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if report.Total != 1 || report.Status != ReportPass {
-		t.Errorf("rapport = %+v", report)
+		t.Errorf("report = %+v", report)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestRerunCasesAreFlaky(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if report.Flaky != 1 || report.Failed != 0 {
-		t.Errorf("comptes = %+v", report)
+		t.Errorf("counts = %+v", report)
 	}
 	// Flaky degrades without blocking.
 	if report.Status != ReportWarn {

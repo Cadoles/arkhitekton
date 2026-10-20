@@ -115,42 +115,42 @@ func twoImageProject() store.Project {
 
 // The door: both halves of the chain enter a single plan.
 func TestBuildAndVerifyFitIntoASinglePlan(t *testing.T) {
-	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
+	subject := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
 
-	if err := sujet.Validate(); err != nil {
+	if err := subject.Validate(); err != nil {
 		t.Fatalf("the composed plan must be valid: %v", err)
 	}
-	if len(sujet.Stages) != 2 {
-		t.Fatalf("%d stage(s), expected build then verify", len(sujet.Stages))
+	if len(subject.Stages) != 2 {
+		t.Fatalf("%d stage(s), expected build then verify", len(subject.Stages))
 	}
 
 	// The roles are where the life cycle is anchored: without them, nothing would advance the
 	// release once `release.verified` is removed.
-	if sujet.Stages[0].Role != plan.RoleBuild {
-		t.Errorf("role of the first stage = %q", sujet.Stages[0].Role)
+	if subject.Stages[0].Role != plan.RoleBuild {
+		t.Errorf("role of the first stage = %q", subject.Stages[0].Role)
 	}
-	if sujet.Stages[1].Role != plan.RoleTest {
-		t.Errorf("role of the second stage = %q", sujet.Stages[1].Role)
+	if subject.Stages[1].Role != plan.RoleTest {
+		t.Errorf("role of the second stage = %q", subject.Stages[1].Role)
 	}
-	if sujet.LastWithRole(plan.RoleBuild) != 0 || sujet.LastWithRole(plan.RoleTest) != 1 {
-		t.Errorf("ancrages = %d et %d",
-			sujet.LastWithRole(plan.RoleBuild), sujet.LastWithRole(plan.RoleTest))
+	if subject.LastWithRole(plan.RoleBuild) != 0 || subject.LastWithRole(plan.RoleTest) != 1 {
+		t.Errorf("anchorings = %d and %d",
+			subject.LastWithRole(plan.RoleBuild), subject.LastWithRole(plan.RoleTest))
 	}
 
 	// One step per image: MSE's three images stop being a loop in the API and become steps that are
 	// readable and re-runnable.
-	if len(sujet.Stages[0].Gestes) != 2 {
+	if len(subject.Stages[0].Gestes) != 2 {
 		t.Fatalf("%d build step(s), expected one per target",
-			len(sujet.Stages[0].Gestes))
+			len(subject.Stages[0].Gestes))
 	}
-	libelles := []string{sujet.Stages[0].Gestes[0].Label, sujet.Stages[0].Gestes[1].Label}
-	if libelles[0] != "portal" || libelles[1] != "portal-cli" {
-		t.Errorf("labels = %v — they tell apart two steps of the same reference", libelles)
+	labels := []string{subject.Stages[0].Gestes[0].Label, subject.Stages[0].Gestes[1].Label}
+	if labels[0] != "portal" || labels[1] != "portal-cli" {
+		t.Errorf("labels = %v — they tell apart two steps of the same reference", labels)
 	}
 
 	// The verification starts **if the build succeeded**. It is that condition which replaces the
 	// `release.built` fact: the same thing, without a round trip through the fact feed.
-	for _, geste := range sujet.Stages[1].Gestes {
+	for _, geste := range subject.Stages[1].Gestes {
 		if geste.Condition() != plan.WhenSuccess {
 			t.Errorf("step %q conditioned on %q, expected %q",
 				geste.Ref, geste.Condition(), plan.WhenSuccess)
@@ -163,8 +163,8 @@ func TestBuildAndVerifyFitIntoASinglePlan(t *testing.T) {
 // It is the separation that makes a plan reusable from one release to the next: a plan that
 // froze the revision would serve only once.
 func TestTheStepFixesTheImageAndTheContextBindsTheRevision(t *testing.T) {
-	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
-	geste := sujet.Stages[0].Gestes[0]
+	subject := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
+	geste := subject.Stages[0].Gestes[0]
 
 	// Nothing that depends on the release is in the step.
 	for _, interdit := range []string{"revision", "version", "tag-name"} {
@@ -176,9 +176,9 @@ func TestTheStepFixesTheImageAndTheContextBindsTheRevision(t *testing.T) {
 		t.Errorf("parameters of the step = %v", geste.Params)
 	}
 
-	contexte := releaseContext(
+	runContext := releaseContext(
 		store.Release{ID: 42, Tag: "3.2.0-rc8"}, "c1f8f8cd", "reg.example.fr/mse")
-	params, err := stepParams(testPipeline(t, buildKind), geste, contexte)
+	params, err := stepParams(testPipeline(t, buildKind), geste, runContext)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -207,9 +207,9 @@ func TestAStepCannotRedefineTheRevision(t *testing.T) {
 			"revision": "another-commit",
 		},
 	}
-	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "the-right-commit", "reg")
+	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "the-right-commit", "reg")
 
-	params, err := stepParams(testPipeline(t, buildKind), geste, contexte)
+	params, err := stepParams(testPipeline(t, buildKind), geste, runContext)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -223,21 +223,21 @@ func TestAStepCannotRedefineTheRevision(t *testing.T) {
 // A project with no E2E campaign saw the pipeline follow on, fail for want of a scenario, and
 // leave its release waiting for a verdict that would never come.
 func TestAKindNotEnabledIsNotChained(t *testing.T) {
-	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(),
+	subject := DefaultAutomation(testCatalogue(t), twoImageProject(),
 		func(kind string) bool { return kind != "e2e-tests" })
 
-	if len(sujet.Stages) != 2 {
-		t.Fatalf("%d stage(s)", len(sujet.Stages))
+	if len(subject.Stages) != 2 {
+		t.Fatalf("%d stage(s)", len(subject.Stages))
 	}
-	for _, geste := range sujet.Stages[1].Gestes {
+	for _, geste := range subject.Stages[1].Gestes {
 		if geste.Ref == "e2e-tests" {
 			t.Error("a kind the project has not enabled was chained")
 		}
 	}
 	// The catalogue's other two kinds remain, and that is what proves the filter bears on a kind
 	// and not on the whole stage.
-	if len(sujet.Stages[1].Gestes) != 2 {
-		t.Errorf("%d verification(s), expected the two enabled", len(sujet.Stages[1].Gestes))
+	if len(subject.Stages[1].Gestes) != 2 {
+		t.Errorf("%d verification(s), expected the two enabled", len(subject.Stages[1].Gestes))
 	}
 }
 
@@ -246,30 +246,30 @@ func TestAKindNotEnabledIsNotChained(t *testing.T) {
 // It is a legitimate configuration, distinct from an invalid plan: the caller concludes at once
 // rather than waiting for a verdict nobody will give.
 func TestAProjectWithNothingReturnsAnEmptyPlan(t *testing.T) {
-	sujet := DefaultAutomation(testCatalogue(t),
-		store.Project{ID: 2, Slug: "vide"},
+	subject := DefaultAutomation(testCatalogue(t),
+		store.Project{ID: 2, Slug: "empty"},
 		func(string) bool { return false })
 
-	if !sujet.Empty() {
-		t.Errorf("plan = %+v, expected empty", sujet)
+	if !subject.Empty() {
+		t.Errorf("plan = %+v, expected empty", subject)
 	}
 }
 
 // testAdvances keeps the transitions requested.
 type testAdvances struct {
-	demandes []string
-	etat     string
+	issues []string
+	state  string
 }
 
 func (a *testAdvances) AdvanceReleaseState(
 	_ context.Context, _ int64, from, to string,
 ) (bool, error) {
-	a.demandes = append(a.demandes, from+"->"+to)
-	if a.etat != from {
+	a.issues = append(a.issues, from+"->"+to)
+	if a.state != from {
 		// Conditioned on the starting state, as in the database: a repetition writes nothing.
 		return false, nil
 	}
-	a.etat = to
+	a.state = to
 	return true, nil
 }
 
@@ -280,18 +280,18 @@ func releaseRun() store.PlanRun {
 
 // The settling of a stage advances the release, and replaces the build count.
 func TestTheSettlingOfAStageAdvancesTheRelease(t *testing.T) {
-	suivi := &testAdvances{etat: string(release.StateBuilding)}
-	cycle := NewReleaseLifecycle(suivi, quietLogger())
+	tracked := &testAdvances{state: string(release.StateBuilding)}
+	cycle := NewReleaseLifecycle(tracked, quietLogger())
 	ctx := context.Background()
 
 	cycle.StageSettled(ctx, releaseRun(), plan.RoleBuild, plan.Succeeded)
-	if suivi.etat != string(release.StateVerifying) {
-		t.Fatalf("state = %q, expected verifying", suivi.etat)
+	if tracked.state != string(release.StateVerifying) {
+		t.Fatalf("state = %q, expected verifying", tracked.state)
 	}
 
 	cycle.StageSettled(ctx, releaseRun(), plan.RoleTest, plan.Succeeded)
-	if suivi.etat != string(release.StateReady) {
-		t.Errorf("state = %q, expected ready", suivi.etat)
+	if tracked.state != string(release.StateReady) {
+		t.Errorf("state = %q, expected ready", tracked.state)
 	}
 }
 
@@ -301,20 +301,20 @@ func TestTheSettlingOfAStageAdvancesTheRelease(t *testing.T) {
 // advance. The idempotence comes from the conditional write, and that is what is exercised
 // here.
 func TestAStageAnnouncedAgainDoesNotAdvanceTwice(t *testing.T) {
-	suivi := &testAdvances{etat: string(release.StateBuilding)}
-	cycle := NewReleaseLifecycle(suivi, quietLogger())
+	tracked := &testAdvances{state: string(release.StateBuilding)}
+	cycle := NewReleaseLifecycle(tracked, quietLogger())
 	ctx := context.Background()
 
 	for range 10 {
 		cycle.StageSettled(ctx, releaseRun(), plan.RoleBuild, plan.Succeeded)
 	}
 
-	if suivi.etat != string(release.StateVerifying) {
-		t.Errorf("state = %q", suivi.etat)
+	if tracked.state != string(release.StateVerifying) {
+		t.Errorf("state = %q", tracked.state)
 	}
 	// Ten requests, a single advance: it is the database that decides, not the engine.
-	if len(suivi.demandes) != 10 {
-		t.Errorf("%d requests, expected 10", len(suivi.demandes))
+	if len(tracked.issues) != 10 {
+		t.Errorf("%d requests, expected 10", len(tracked.issues))
 	}
 }
 
@@ -324,26 +324,26 @@ func TestAStageAnnouncedAgainDoesNotAdvanceTwice(t *testing.T) {
 // from the stage before. Making it land elsewhere would overwrite a state that is already
 // right.
 func TestASkippedStageDoesNotTouchTheRelease(t *testing.T) {
-	suivi := &testAdvances{etat: string(release.StateFailed)}
-	cycle := NewReleaseLifecycle(suivi, quietLogger())
+	tracked := &testAdvances{state: string(release.StateFailed)}
+	cycle := NewReleaseLifecycle(tracked, quietLogger())
 
 	cycle.StageSettled(context.Background(), releaseRun(),
 		plan.RoleTest, plan.Skipped)
 
-	if len(suivi.demandes) != 0 {
-		t.Errorf("transitions requested = %v, expected none", suivi.demandes)
+	if len(tracked.issues) != 0 {
+		t.Errorf("transitions requested = %v, expected none", tracked.issues)
 	}
 }
 
 // A plan with no release touches nothing: a declared reaction has no business moving a life
 // cycle that does not concern it.
 func TestAPlanWithNoReleaseAdvancesNothing(t *testing.T) {
-	suivi := &testAdvances{etat: string(release.StateBuilding)}
-	NewReleaseLifecycle(suivi, quietLogger()).StageSettled(
+	tracked := &testAdvances{state: string(release.StateBuilding)}
+	NewReleaseLifecycle(tracked, quietLogger()).StageSettled(
 		context.Background(), store.PlanRun{ID: 2}, plan.RoleBuild, plan.Succeeded)
 
-	if len(suivi.demandes) != 0 {
-		t.Errorf("transitions requested = %v", suivi.demandes)
+	if len(tracked.issues) != 0 {
+		t.Errorf("transitions requested = %v", tracked.issues)
 	}
 }
 
@@ -357,8 +357,8 @@ func TestAPlanWithNoReleaseAdvancesNothing(t *testing.T) {
 // The stage holds it with no query: it is **settled** only when all its steps are, and
 // [plan.Progress.StageOutcome] returns nothing before that.
 func TestAPartialBuildDoesNotAdvanceTheRelease(t *testing.T) {
-	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
-	progress := plan.Start(sujet)
+	subject := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
+	progress := plan.Start(subject)
 
 	// The first image concluded, the second is still running.
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 0}, plan.Succeeded)
@@ -381,8 +381,8 @@ func TestAPartialBuildDoesNotAdvanceTheRelease(t *testing.T) {
 // Waiting would keep running builds whose result is already known to be useless, and would
 // delay by as much the moment the screen says what is wrong.
 func TestAFailedImageFailsTheStageAsSoonAsItSettles(t *testing.T) {
-	sujet := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
-	progress := plan.Start(sujet)
+	subject := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
+	progress := plan.Start(subject)
 
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 0}, plan.Failed)
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 1}, plan.Succeeded)
@@ -411,10 +411,10 @@ func TestAStepTargetsAnEarlierStagesArtifact(t *testing.T) {
 		Kind: plan.GestePipeline, Ref: "security-audit",
 		Params: map[string]string{"portal-image": "{artifacts.portal.image}"},
 	}
-	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
-	contexte["artifacts.portal.image"] = "reg.example.fr/portal:1.0.0"
+	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
+	runContext["artifacts.portal.image"] = "reg.example.fr/portal:1.0.0"
 
-	params, err := stepParams(testPipeline(t, "security-audit"), geste, contexte)
+	params, err := stepParams(testPipeline(t, "security-audit"), geste, runContext)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -435,9 +435,9 @@ func TestAMissingArtifactFailsTheStepNamingIt(t *testing.T) {
 		Kind: plan.GestePipeline, Ref: "security-audit",
 		Params: map[string]string{"portal-image": "{artifacts.portal.image}"},
 	}
-	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
+	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
 
-	_, err := stepParams(testPipeline(t, "security-audit"), geste, contexte)
+	_, err := stepParams(testPipeline(t, "security-audit"), geste, runContext)
 	if err == nil {
 		t.Fatal("a missing artifact must fail the step")
 	}
@@ -454,18 +454,18 @@ func TestAnOrdinaryUnresolvedVariableDoesNotFail(t *testing.T) {
 	geste := plan.Geste{
 		Kind: plan.GestePipeline, Ref: buildKind,
 		Params: map[string]string{
-			"note": "construit depuis {branche}",
+			"note": "built from {branch}",
 			// The required ones, without which the refusal would bear on them and not on the note.
 			"image-name": "portal", "target": "web",
 		},
 	}
-	contexte := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
+	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
 
-	params, err := stepParams(testPipeline(t, buildKind), geste, contexte)
+	params, err := stepParams(testPipeline(t, buildKind), geste, runContext)
 	if err != nil {
 		t.Fatalf("%v — only an artifact reference must be required", err)
 	}
-	if params["note"] != "construit depuis {branche}" {
+	if params["note"] != "built from {branch}" {
 		t.Errorf("note = %q", params["note"])
 	}
 }

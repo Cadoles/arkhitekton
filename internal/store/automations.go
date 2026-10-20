@@ -60,7 +60,7 @@ func (db *DB) ReleaseAutomation(ctx context.Context, projectID int64) (ReleaseAu
 		return ReleaseAutomation{}, fmt.Errorf("reading the automation: %w", err)
 	}
 	if err := json.Unmarshal(encoded, &entry.Plan); err != nil {
-		return ReleaseAutomation{}, fmt.Errorf("plan illisible: %w", err)
+		return ReleaseAutomation{}, fmt.Errorf("unreadable plan: %w", err)
 	}
 	return entry, nil
 }
@@ -74,7 +74,7 @@ func (db *DB) SaveReleaseAutomation(
 ) error {
 	encoded, err := json.Marshal(entry.Plan)
 	if err != nil {
-		return fmt.Errorf("plan illisible: %w", err)
+		return fmt.Errorf("unreadable plan: %w", err)
 	}
 
 	const upsert = `

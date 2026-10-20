@@ -15,13 +15,13 @@ func TestAuditKeepsWhatWasRequested(t *testing.T) {
 		map[string]any{"environment": "prod", "tag": "1.8.0_prod"}); err != nil {
 		t.Fatalf("audit: %v", err)
 	}
-	if err := db.Audit(ctx, "autre", AuditJobEnqueue, "", nil); err != nil {
+	if err := db.Audit(ctx, "other", AuditJobEnqueue, "", nil); err != nil {
 		t.Fatalf("audit with no target: %v", err)
 	}
 
 	all, err := db.ListAudit(ctx, "", 0)
 	if err != nil {
-		t.Fatalf("liste: %v", err)
+		t.Fatalf("list: %v", err)
 	}
 	if len(all) != 2 {
 		t.Fatalf("%d entry(ies), expected 2", len(all))

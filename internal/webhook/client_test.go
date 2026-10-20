@@ -31,7 +31,7 @@ func clientFor(options Options) *Client {
 func TestForbiddenTargetsAreRefused(t *testing.T) {
 	client := clientFor(Options{})
 
-	cas := map[string]string{
+	testCases := map[string]string{
 		"cloud metadata":      "https://169.254.169.254/latest/meta-data/",
 		"metadata over IPv6":  "https://[::ffff:169.254.169.254]/latest/",
 		"boucle locale":       "https://127.0.0.1/hook",
@@ -44,10 +44,10 @@ func TestForbiddenTargetsAreRefused(t *testing.T) {
 		"unspecified address": "https://0.0.0.0/hook",
 	}
 
-	for nom, cible := range cas {
-		_, err := client.Post(context.Background(), cible, nil, []byte(`{}`))
+	for name, target := range testCases {
+		_, err := client.Post(context.Background(), target, nil, []byte(`{}`))
 		if !errors.Is(err, ErrBlockedTarget) {
-			t.Errorf("%s (%s): %v, expected ErrBlockedTarget", nom, cible, err)
+			t.Errorf("%s (%s): %v, expected ErrBlockedTarget", name, target, err)
 		}
 	}
 }
@@ -75,7 +75,7 @@ func TestClearTextIsRefusedByDefault(t *testing.T) {
 	if !errors.Is(err, ErrInsecureTarget) {
 		t.Fatalf("%v, expected ErrInsecureTarget", err)
 	}
-	if !strings.Contains(err.Error(), "clair") {
+	if !strings.Contains(err.Error(), "clear text") {
 		t.Errorf("message %q — it must say what would leak", err)
 	}
 }
@@ -85,41 +85,41 @@ func TestClearTextIsRefusedByDefault(t *testing.T) {
 func TestAForeignSchemeIsRefused(t *testing.T) {
 	client := clientFor(Options{AllowInsecure: true, AllowPrivate: true})
 
-	for _, cible := range []string{
+	for _, target := range []string{
 		"file:///etc/passwd", "gopher://example.test/", "ftp://example.test/",
 	} {
-		if _, err := client.Post(context.Background(), cible, nil, nil); !errors.Is(err, ErrBlockedTarget) {
-			t.Errorf("cible %q: %v", cible, err)
+		if _, err := client.Post(context.Background(), target, nil, nil); !errors.Is(err, ErrBlockedTarget) {
+			t.Errorf("target %q: %v", target, err)
 		}
 	}
 }
 
 /*
- * Ce que l'autorisation explicite ouvre — et ce qu'elle n'ouvre pas.
+ * What the explicit authorisation opens, and what it does not.
  */
 
 // A local deployment needs its loopback, and declares it.
 func TestTheExplicitAuthorizationOpensPrivateTargets(t *testing.T) {
-	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer jeton" {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer token" {
 			t.Errorf("authentication header missing: %v", r.Header.Get("Authorization"))
 		}
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte("received"))
 	}))
-	defer serveur.Close()
+	defer server.Close()
 
 	client := clientFor(Options{AllowPrivate: true, AllowInsecure: true})
-	response, err := client.Post(context.Background(), serveur.URL,
-		map[string]string{"Authorization": "Bearer jeton"}, []byte(`{"tag":"1.8.0"}`))
+	response, err := client.Post(context.Background(), server.URL,
+		map[string]string{"Authorization": "Bearer token"}, []byte(`{"tag":"1.8.0"}`))
 	if err != nil {
-		t.Fatalf("appel: %v", err)
+		t.Fatalf("call: %v", err)
 	}
 	if !response.OK() || response.Status != http.StatusAccepted {
 		t.Errorf("response = %+v", response)
 	}
 	if response.Body != "received" {
-		t.Errorf("corps = %q", response.Body)
+		t.Errorf("body = %q", response.Body)
 	}
 }
 
@@ -141,50 +141,50 @@ func TestThePrivateAuthorizationDoesNotOpenLinkLocal(t *testing.T) {
 // No redirect is followed: the recipient answers 302 towards the metadata, and an obliging client
 // goes there.
 func TestNoRedirectIsFollowed(t *testing.T) {
-	var atteint bool
-	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var reached bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/suite" {
-			atteint = true
+			reached = true
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 		http.Redirect(w, r, "/suite", http.StatusFound)
 	}))
-	defer serveur.Close()
+	defer server.Close()
 
 	client := clientFor(Options{AllowPrivate: true, AllowInsecure: true})
-	_, err := client.Post(context.Background(), serveur.URL+"/depart", nil, []byte(`{}`))
+	_, err := client.Post(context.Background(), server.URL+"/depart", nil, []byte(`{}`))
 
 	if !errors.Is(err, ErrBlockedTarget) {
 		t.Fatalf("%v, expected a redirect refusal", err)
 	}
-	if atteint {
+	if reached {
 		t.Error("the redirect was followed")
 	}
 }
 
 /*
- * Ce que le client rapporte, et ce qu'il tait.
+ * What the client reports, and what it keeps quiet.
  */
 
 // A refusal from the recipient is an **observation**, not a failure of the dashboard: the response
 // is returned with its code, and the caller decides.
 func TestARefusalFromTheRecipientIsAnObservation(t *testing.T) {
-	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte("jeton invalide"))
+		_, _ = w.Write([]byte("invalid token"))
 	}))
-	defer serveur.Close()
+	defer server.Close()
 
 	client := clientFor(Options{AllowPrivate: true, AllowInsecure: true})
-	response, err := client.Post(context.Background(), serveur.URL, nil, []byte(`{}`))
+	response, err := client.Post(context.Background(), server.URL, nil, []byte(`{}`))
 	if err != nil {
 		t.Fatalf("a refusal from the recipient must not be an error: %v", err)
 	}
 	if response.OK() {
 		t.Error("a 403 is announced as successful")
 	}
-	if response.Status != http.StatusForbidden || response.Body != "jeton invalide" {
+	if response.Status != http.StatusForbidden || response.Body != "invalid token" {
 		t.Errorf("response = %+v", response)
 	}
 }
@@ -204,15 +204,15 @@ func TestARedirectIsNotASuccess(t *testing.T) {
 // The response is bounded: a hostile recipient would otherwise grow the worker's memory through an
 // endless body.
 func TestTheResponseIsBounded(t *testing.T) {
-	serveur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(strings.Repeat("a", 100_000)))
 	}))
-	defer serveur.Close()
+	defer server.Close()
 
 	client := clientFor(Options{AllowPrivate: true, AllowInsecure: true, MaxResponseBytes: 64})
-	response, err := client.Post(context.Background(), serveur.URL, nil, nil)
+	response, err := client.Post(context.Background(), server.URL, nil, nil)
 	if err != nil {
-		t.Fatalf("appel: %v", err)
+		t.Fatalf("call: %v", err)
 	}
 	if len(response.Body) > 64 {
 		t.Errorf("body of %d bytes, bounded at 64", len(response.Body))
@@ -236,10 +236,10 @@ func TestTheURLIsRedactedInTheErrors(t *testing.T) {
 // A URL with no host is refused rather than dialled: `https:///hook` reaches nobody, and the
 // network error would not say why.
 func TestAURLWithNoHostIsRefused(t *testing.T) {
-	for _, cible := range []string{"", "   ", "https:///hook", "not a url"} {
+	for _, target := range []string{"", "   ", "https:///hook", "not a url"} {
 		if _, err := clientFor(Options{}).Post(
-			context.Background(), cible, nil, nil); !errors.Is(err, ErrBlockedTarget) {
-			t.Errorf("cible %q: %v", cible, err)
+			context.Background(), target, nil, nil); !errors.Is(err, ErrBlockedTarget) {
+			t.Errorf("target %q: %v", target, err)
 		}
 	}
 }

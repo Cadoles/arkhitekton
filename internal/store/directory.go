@@ -27,7 +27,7 @@ func (db *DB) Directory(ctx context.Context) (map[string]string, error) {
 	rows, err := db.pool.Query(ctx,
 		`select subject, coalesce(username, '') from user_roles where username <> ''`)
 	if err != nil {
-		return nil, fmt.Errorf("annuaire: %w", err)
+		return nil, fmt.Errorf("directory: %w", err)
 	}
 	defer rows.Close()
 
@@ -35,7 +35,7 @@ func (db *DB) Directory(ctx context.Context) (map[string]string, error) {
 	for rows.Next() {
 		var subject, username string
 		if err := rows.Scan(&subject, &username); err != nil {
-			return nil, fmt.Errorf("annuaire: %w", err)
+			return nil, fmt.Errorf("directory: %w", err)
 		}
 		names[subject] = username
 	}

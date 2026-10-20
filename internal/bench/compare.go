@@ -58,13 +58,13 @@ func (c Conditions) Why() string {
 		return ""
 	case !c.Exclusive && c.ConcurrentJobs > 0:
 		return fmt.Sprintf(
-			"mesure prise sans réservation du cluster, %d exécution(s) concurrente(s) constatée(s)",
+			"measured without reserving the cluster, %d concurrent run(s) observed",
 			c.ConcurrentJobs)
 	case !c.Exclusive:
-		return "mesure prise sans réservation du cluster"
+		return "measured without reserving the cluster"
 	default:
 		return fmt.Sprintf(
-			"%d exécution(s) tournaient encore au démarrage malgré la réservation", c.ConcurrentJobs)
+			"%d run(s) still running at start despite the reservation", c.ConcurrentJobs)
 	}
 }
 

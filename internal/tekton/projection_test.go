@@ -58,8 +58,8 @@ func TestStatusComesFromConditionStatusNotReason(t *testing.T) {
 		{"failure, unknown reason", corev1.ConditionFalse, "MotifQueTektonInventeraDemain", true, StatusFailed},
 		{"failure, empty reason", corev1.ConditionFalse, "", true, StatusFailed},
 
-		{"annulation", corev1.ConditionFalse, "Cancelled", true, StatusCancelled},
-		{"annulation, ancien motif", corev1.ConditionFalse, "PipelineRunCancelled", true, StatusCancelled},
+		{"cancellation", corev1.ConditionFalse, "Cancelled", true, StatusCancelled},
+		{"cancellation, old reason", corev1.ConditionFalse, "PipelineRunCancelled", true, StatusCancelled},
 		{"timed out", corev1.ConditionFalse, "PipelineRunTimeout", true, StatusTimedOut},
 
 		{"en cours", corev1.ConditionUnknown, "Running", true, StatusRunning},
@@ -152,12 +152,12 @@ func TestPipelineNameFallsBackToRefThenPlaceholder(t *testing.T) {
 	withRef.Labels = nil
 	withRef.Spec.PipelineRef = &tektonv1.PipelineRef{Name: "security-audit"}
 	if got := ProjectRun(withRef).Pipeline; got != "security-audit" {
-		t.Errorf("depuis pipelineRef: %q", got)
+		t.Errorf("from pipelineRef: %q", got)
 	}
 
 	inline := runWith(nil, false)
 	inline.Labels = nil
-	if got := ProjectRun(inline).Pipeline; got != "(en ligne)" {
+	if got := ProjectRun(inline).Pipeline; got != "(inline)" {
 		t.Errorf("inline pipeline: %q, expected an explicit fallback", got)
 	}
 }
@@ -195,10 +195,10 @@ func TestTaskRunProjectionCarriesPodAndSteps(t *testing.T) {
 	// The pod's name is what makes log collection possible: without it there is nothing
 	// to read.
 	if projection.PodName == "" {
-		t.Error("PodName vide")
+		t.Error("PodName empty")
 	}
 	if projection.Status != StatusRunning {
-		t.Errorf("statut = %q", projection.Status)
+		t.Errorf("status = %q", projection.Status)
 	}
 
 	if len(projection.Steps) != 3 {

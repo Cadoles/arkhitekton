@@ -8,12 +8,12 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-type reglages struct {
+type settingsStore struct {
 	config   map[string]string
 	disabled bool
 }
 
-func (r reglages) ResolvedPlugin(_ context.Context, _ int64, pluginID string) (store.PluginSettings, error) {
+func (r settingsStore) ResolvedPlugin(_ context.Context, _ int64, pluginID string) (store.PluginSettings, error) {
 	if r.disabled {
 		return store.PluginSettings{PluginID: pluginID}, store.ErrPluginDisabled
 	}
@@ -22,7 +22,7 @@ func (r reglages) ResolvedPlugin(_ context.Context, _ int64, pluginID string) (s
 
 // The plugin's settings become the values the catalogue references, under the keys it names.
 func TestTheSettingsBecomeTheCataloguesKeys(t *testing.T) {
-	settings := PipelineSettings(reglages{config: map[string]string{
+	settings := PipelineSettings(settingsStore{config: map[string]string{
 		"kustomRepoUrl":   "ssh://git@forge/vcarroy/kustom.git",
 		"kustomRevision":  "main",
 		"e2eRepoUrl":      "ssh://git@forge/vcarroy/e2e.git",
@@ -35,16 +35,16 @@ func TestTheSettingsBecomeTheCataloguesKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
-	attendu := map[string]string{
+	expected := map[string]string{
 		"forge.mseKustom.repoUrl":  "ssh://git@forge/vcarroy/kustom.git",
 		"forge.mseKustom.revision": "main",
 		"forge.e2e.repoUrl":        "ssh://git@forge/vcarroy/e2e.git",
 		"mse.overlayLocation":      "overlays/pipeline",
 	}
-	if len(values) != len(attendu) {
-		t.Fatalf("valeurs = %v", values)
+	if len(values) != len(expected) {
+		t.Fatalf("values = %v", values)
 	}
-	for key, value := range attendu {
+	for key, value := range expected {
 		if values[key] != value {
 			t.Errorf("%s = %q, expected %q", key, values[key], value)
 		}
@@ -54,7 +54,7 @@ func TestTheSettingsBecomeTheCataloguesKeys(t *testing.T) {
 // An empty setting is not returned: it is the instance that supplies it, and an empty string
 // would overwrite its own.
 func TestAnEmptySettingLeavesTheInstances(t *testing.T) {
-	settings := PipelineSettings(reglages{config: map[string]string{
+	settings := PipelineSettings(settingsStore{config: map[string]string{
 		"kustomRepoUrl": "  ", "kustomRevision": "main",
 	}})
 
@@ -66,14 +66,14 @@ func TestAnEmptySettingLeavesTheInstances(t *testing.T) {
 		t.Errorf("an empty setting was returned: %v", values)
 	}
 	if values["forge.mseKustom.revision"] != "main" {
-		t.Errorf("valeurs = %v", values)
+		t.Errorf("values = %v", values)
 	}
 }
 
 // Module switched off for the project: no value. Its pipelines have no kustomization to clone,
 // and saying so here avoids a run that would point elsewhere.
 func TestAProjectWithoutTheModuleBringsNothing(t *testing.T) {
-	settings := PipelineSettings(reglages{disabled: true})
+	settings := PipelineSettings(settingsStore{disabled: true})
 
 	values, err := settings(context.Background(), 2)
 	if err != nil || values != nil {
@@ -84,17 +84,17 @@ func TestAProjectWithoutTheModuleBringsNothing(t *testing.T) {
 // A failed read is reported: a run started with another project's kustomization would be worse
 // than a run refused.
 func TestAFailedReadIsReported(t *testing.T) {
-	settings := PipelineSettings(lectureEnEchec{})
+	settings := PipelineSettings(failingRead{})
 
 	if _, err := settings(context.Background(), 1); err == nil {
 		t.Error("a failed read must be reported")
 	}
 }
 
-type lectureEnEchec struct{}
+type failingRead struct{}
 
-func (lectureEnEchec) ResolvedPlugin(context.Context, int64, string) (store.PluginSettings, error) {
-	return store.PluginSettings{}, errors.New("base injoignable")
+func (failingRead) ResolvedPlugin(context.Context, int64, string) (store.PluginSettings, error) {
+	return store.PluginSettings{}, errors.New("database unreachable")
 }
 
 // The seeding sets only what the configuration supplies.

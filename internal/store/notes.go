@@ -134,7 +134,7 @@ func (db *DB) NoteCandidates(
 		   join issues i on i.project_id = r.project_id
 		  where r.id = $1 and i.status_name = any($2)`, releaseID, statuses)
 	if err != nil {
-		return nil, fmt.Errorf("demandes en revue: %w", err)
+		return nil, fmt.Errorf("issues in review: %w", err)
 	}
 	defer rows.Close()
 
@@ -143,7 +143,7 @@ func (db *DB) NoteCandidates(
 		var entry NoteEntry
 		if err := rows.Scan(&entry.ExternalID, &entry.Tracker, &entry.Subject,
 			&entry.StatusName); err != nil {
-			return nil, fmt.Errorf("demandes en revue: %w", err)
+			return nil, fmt.Errorf("issues in review: %w", err)
 		}
 		entry.Known = true
 		entry.Anomaly = isAnomaly(entry.Tracker)

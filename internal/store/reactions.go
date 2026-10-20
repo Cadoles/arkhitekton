@@ -134,7 +134,7 @@ func (db *DB) SaveReaction(
 ) (int64, error) {
 	encoded, err := json.Marshal(entry.Plan)
 	if err != nil {
-		return 0, fmt.Errorf("plan illisible: %w", err)
+		return 0, fmt.Errorf("unreadable plan: %w", err)
 	}
 	match := entry.Match
 	if match == nil {

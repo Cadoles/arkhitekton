@@ -37,7 +37,7 @@ func TestPluginsAreBornEnabledAndAreNotOverwritten(t *testing.T) {
 	// A manual switch-off survives a restart: otherwise the setting would not outlive a pod.
 	if err := db.SetPluginSettings(ctx,
 		PluginSettings{PluginID: "flux", Enabled: false}, "alice"); err != nil {
-		t.Fatalf("extinction: %v", err)
+		t.Fatalf("switch-off: %v", err)
 	}
 	if err := db.EnsurePlugins(ctx, []string{"redmine", "flux"}); err != nil {
 		t.Fatalf("second bootstrap: %v", err)
@@ -48,7 +48,7 @@ func TestPluginsAreBornEnabledAndAreNotOverwritten(t *testing.T) {
 		t.Error("the bootstrap switched back on a plugin disabled by hand")
 	}
 	if settings["flux"].UpdatedBy != "alice" {
-		t.Errorf("auteur = %q", settings["flux"].UpdatedBy)
+		t.Errorf("author = %q", settings["flux"].UpdatedBy)
 	}
 }
 
@@ -128,14 +128,14 @@ func TestRemovalReturnsTheProjectToInheritance(t *testing.T) {
 	}
 	if err := db.SetProjectPluginSettings(ctx, testProjectID,
 		PluginSettings{PluginID: "delivery-note", Enabled: false}, "alice"); err != nil {
-		t.Fatalf("extinction: %v", err)
+		t.Fatalf("switch-off: %v", err)
 	}
 	if _, err := db.ResolvedPlugin(ctx, testProjectID, "delivery-note"); !errors.Is(err, ErrPluginDisabled) {
 		t.Fatalf("resolution = %v", err)
 	}
 
 	if err := db.ClearProjectPluginSettings(ctx, testProjectID, "delivery-note"); err != nil {
-		t.Fatalf("retrait: %v", err)
+		t.Fatalf("removal: %v", err)
 	}
 	resolved, err := db.ResolvedPlugin(ctx, testProjectID, "delivery-note")
 	if err != nil || !resolved.Enabled {
@@ -144,7 +144,7 @@ func TestRemovalReturnsTheProjectToInheritance(t *testing.T) {
 }
 
 /*
- * Les pipelines qu'un projet retient.
+ * The pipelines a project keeps.
  */
 
 // The absence of a decision means enabled.
@@ -165,7 +165,7 @@ func TestAnUndeclaredPipelineStaysEnabled(t *testing.T) {
 	}
 
 	if err := db.SetProjectPipeline(ctx, testProjectID, "load-tests", false, "alice"); err != nil {
-		t.Fatalf("extinction: %v", err)
+		t.Fatalf("switch-off: %v", err)
 	}
 	if enabled, _ := db.PipelineEnabled(ctx, testProjectID, "load-tests"); enabled {
 		t.Error("the disabled kind stays enabled")
@@ -220,7 +220,7 @@ func TestTheMappingLayersTheDefaultAndTheProjectsDepartures(t *testing.T) {
 		ForgeURL: "https://forge.example.fr", BuildContext: ".",
 	})
 	if err != nil {
-		t.Fatalf("second projet: %v", err)
+		t.Fatalf("second project: %v", err)
 	}
 	neighbour, _ := db.StatusMapping(ctx, other)
 	if neighbour["Fermé"] != "done" {
@@ -232,7 +232,7 @@ func TestTheMappingLayersTheDefaultAndTheProjectsDepartures(t *testing.T) {
 //
 // It fixes the defect the synchroniser documented: a shared cursor made a second project
 // resume from an instant at which it had read nothing, and skip its history.
-func TestChaqueProjetPorteSonPropreCurseur(t *testing.T) {
+func TestEachProjectCarriesItsOwnCursor(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
@@ -241,7 +241,7 @@ func TestChaqueProjetPorteSonPropreCurseur(t *testing.T) {
 		ForgeURL: "https://forge.example.fr", BuildContext: ".",
 	})
 	if err != nil {
-		t.Fatalf("second projet: %v", err)
+		t.Fatalf("second project: %v", err)
 	}
 
 	if err := db.RecordSyncSuccess(ctx, "redmine", testProjectID, "2026-08-01T00:00:00Z"); err != nil {
@@ -260,8 +260,8 @@ func TestChaqueProjetPorteSonPropreCurseur(t *testing.T) {
 	if err := db.RecordSyncFailure(ctx, "redmine", other, "injoignable"); err != nil {
 		t.Fatalf("failure of the second: %v", err)
 	}
-	premier, _ := db.GetSyncState(ctx, "redmine", testProjectID)
-	if premier.LastError != "" {
-		t.Errorf("error of the first = %q — it comes from the other project", premier.LastError)
+	first, _ := db.GetSyncState(ctx, "redmine", testProjectID)
+	if first.LastError != "" {
+		t.Errorf("error of the first = %q — it comes from the other project", first.LastError)
 	}
 }

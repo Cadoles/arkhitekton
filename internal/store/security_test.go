@@ -18,7 +18,7 @@ func auditFixture(t *testing.T, db *DB, failed []string) (int64, int64) {
 		Tool: "security-audit", Status: "warn", Total: 3,
 	}, nil)
 	if err != nil {
-		t.Fatalf("rapport: %v", err)
+		t.Fatalf("report: %v", err)
 	}
 
 	if err := db.SaveSecurityAudit(ctx, SecurityAudit{
@@ -36,7 +36,7 @@ func auditFixture(t *testing.T, db *DB, failed []string) (int64, int64) {
 		{Fingerprint: "b", RunID: "r", TargetKind: "repo", TargetName: "mse",
 			Tool: "semgrep", Category: "sast", RuleID: "php.sql", Severity: "MEDIUM",
 			Title: "Concatenation", Status: "existing",
-			Suppressed: true, SuppressionReason: "faux positif"},
+			Suppressed: true, SuppressionReason: "false positive"},
 		{Fingerprint: "c", RunID: "r", TargetKind: "repo", TargetName: "mse",
 			Tool: "trivy", Category: "sca", RuleID: "CVE-2", Severity: "CRITICAL",
 			Title: "Critique", Status: "new"},
@@ -58,7 +58,7 @@ func TestLatestSecurityAudit(t *testing.T) {
 		t.Errorf("audit = %+v", audit)
 	}
 	if audit.Policy["fail_on"] != "CRITICAL" || audit.ScannerStatus["trivy-fs"] != "ok" {
-		t.Errorf("politique = %v, statut = %v", audit.Policy, audit.ScannerStatus)
+		t.Errorf("policy = %v, status = %v", audit.Policy, audit.ScannerStatus)
 	}
 	if !audit.Measured() {
 		t.Error("no failed scanner: the audit must be measurable")
@@ -138,11 +138,11 @@ func TestPackageVersionsAreKeptApart(t *testing.T) {
 			continue
 		}
 		if finding.PackageInstalled != "7.4.0" || finding.PackageFixed != "7.8.2" {
-			t.Errorf("paquet = %+v", finding)
+			t.Errorf("package = %+v", finding)
 		}
 		return
 	}
-	t.Error("finding introuvable")
+	t.Error("finding not found")
 }
 
 func TestLatestSecurityAuditOnAReleaseWithout(t *testing.T) {

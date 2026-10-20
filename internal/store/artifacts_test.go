@@ -30,13 +30,13 @@ func TestArtifactsKeepEveryGeneration(t *testing.T) {
 			Object:    "artifacts/releases/1.8.0/delivery-note.pdf",
 			SizeBytes: 2048, GeneratedBy: "vcarroy",
 		}); err != nil {
-			t.Fatalf("enregistrement: %v", err)
+			t.Fatalf("recording: %v", err)
 		}
 	}
 
 	artifacts, err := db.ListArtifacts(ctx, releaseID)
 	if err != nil {
-		t.Fatalf("liste: %v", err)
+		t.Fatalf("list: %v", err)
 	}
 	if len(artifacts) != 2 {
 		t.Errorf("%d artifact(s), expected 2", len(artifacts))
@@ -59,7 +59,7 @@ func TestGetArtifactCarriesItsRelease(t *testing.T) {
 		Object: "artifacts/releases/1.8.0/delivery-note.json", GeneratedBy: "vcarroy",
 	})
 	if err != nil {
-		t.Fatalf("enregistrement: %v", err)
+		t.Fatalf("recording: %v", err)
 	}
 
 	artifact, err := db.GetArtifact(ctx, id)

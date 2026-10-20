@@ -37,7 +37,7 @@ const VersionTable = "goose_mse_db_version"
 func withProvider(cfg config.DatabaseConfig, run func(*goose.Provider) error) error {
 	db, err := sql.Open("pgx", cfg.DSN)
 	if err != nil {
-		return fmt.Errorf("DSN PostgreSQL invalide: %w", store.RedactError(err, cfg.DSN))
+		return fmt.Errorf("invalid PostgreSQL DSN: %w", store.RedactError(err, cfg.DSN))
 	}
 	defer db.Close()
 

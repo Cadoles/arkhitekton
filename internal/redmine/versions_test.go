@@ -87,7 +87,7 @@ func TestVersionsDecodeWithTheirFourConventions(t *testing.T) {
 		t.Error("MSE 3.1.2 et v3.1.2 doivent rester distinctes")
 	}
 	if byID["803"].Status != "closed" || byID["804"].Status != "open" {
-		t.Errorf("statuts: 803=%q 804=%q", byID["803"].Status, byID["804"].Status)
+		t.Errorf("statuses: 803=%q 804=%q", byID["803"].Status, byID["804"].Status)
 	}
 
 	// A missing due date and an empty timestamp are not errors.
@@ -111,7 +111,7 @@ func TestRequestsDecodeAcrossSeveralPages(t *testing.T) {
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
 		provider.IssueQuery{Project: "mse-dev"})
 	if err != nil {
-		t.Fatalf("demandes: %v", err)
+		t.Fatalf("issues: %v", err)
 	}
 
 	// Both pages together, with neither duplicate nor omission.
@@ -124,7 +124,7 @@ func TestRequestsDecodeAcrossSeveralPages(t *testing.T) {
 	}
 	for id, count := range seen {
 		if count != 1 {
-			t.Errorf("demande %s rendue %d fois", id, count)
+			t.Errorf("issue %s returned %d times", id, count)
 		}
 	}
 }
@@ -138,7 +138,7 @@ func TestARequestWithNoVersionStaysWithout(t *testing.T) {
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
 		provider.IssueQuery{Project: "mse-dev"})
 	if err != nil {
-		t.Fatalf("demandes: %v", err)
+		t.Fatalf("issues: %v", err)
 	}
 
 	byID := map[string]provider.Issue{}
@@ -166,7 +166,7 @@ func TestTheClosedFlagIsTakenWithoutJudgement(t *testing.T) {
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
 		provider.IssueQuery{Project: "mse-dev"})
 	if err != nil {
-		t.Fatalf("demandes: %v", err)
+		t.Fatalf("issues: %v", err)
 	}
 
 	byID := map[string]provider.Issue{}
@@ -174,10 +174,10 @@ func TestTheClosedFlagIsTakenWithoutJudgement(t *testing.T) {
 		byID[issue.ID] = issue
 	}
 
-	reouverte := byID["9005"]
-	if reouverte.Status != "Ré-ouvert" || !reouverte.StatusClosed {
+	reopened := byID["9005"]
+	if reopened.Status != "Ré-ouvert" || !reopened.StatusClosed {
 		t.Errorf("9005: status %q closed=%v — Redmine's flag must be kept",
-			reouverte.Status, reouverte.StatusClosed)
+			reopened.Status, reopened.StatusClosed)
 	}
 
 	// The two anomaly trackers are distinct: counting anomalies by equality with "Anomalie" would
@@ -188,7 +188,7 @@ func TestTheClosedFlagIsTakenWithoutJudgement(t *testing.T) {
 
 	// Two statuses differing only in case coexist in the instance.
 	if byID["9008"].Status != "En StandBy" {
-		t.Errorf("9008: statut %q", byID["9008"].Status)
+		t.Errorf("9008: status %q", byID["9008"].Status)
 	}
 }
 
@@ -204,7 +204,7 @@ func TestTheRequestAsksForEveryStatusAndAStableSort(t *testing.T) {
 
 	if _, err := clientFor(t, server.URL).ListIssues(context.Background(),
 		provider.IssueQuery{Project: "mse-dev", Since: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)}); err != nil {
-		t.Fatalf("demandes: %v", err)
+		t.Fatalf("issues: %v", err)
 	}
 
 	for _, expected := range []string{
@@ -232,10 +232,10 @@ func TestAnEmptyPageStopsThePagination(t *testing.T) {
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
 		provider.IssueQuery{Project: "mse-dev"})
 	if err != nil {
-		t.Fatalf("demandes: %v", err)
+		t.Fatalf("issues: %v", err)
 	}
 	if len(issues) != 0 {
-		t.Errorf("%d demandes rendues", len(issues))
+		t.Errorf("%d issues returned", len(issues))
 	}
 	if calls != 1 {
 		t.Errorf("%d calls: the pagination must stop on an empty page", calls)

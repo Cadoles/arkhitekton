@@ -17,22 +17,22 @@ import (
 
 // catchUpStore keeps what the catch-up wrote.
 type catchUpStore struct {
-	sans    []store.Project
-	ecrits  map[int64]plan.Plan
-	acteurs map[int64]string
-	eteints map[string]bool
-	err     error
+	without         []store.Project
+	written         map[int64]plan.Plan
+	actorsByName    map[int64]string
+	switchedOffList map[string]bool
+	err             error
 }
 
 func newCatchUpStore(projects ...store.Project) *catchUpStore {
 	return &catchUpStore{
-		sans: projects, ecrits: map[int64]plan.Plan{},
-		acteurs: map[int64]string{}, eteints: map[string]bool{},
+		without: projects, written: map[int64]plan.Plan{},
+		actorsByName: map[int64]string{}, switchedOffList: map[string]bool{},
 	}
 }
 
 func (r *catchUpStore) ProjectsWithoutAutomation(context.Context) ([]store.Project, error) {
-	return r.sans, nil
+	return r.without, nil
 }
 
 func (r *catchUpStore) SaveReleaseAutomation(
@@ -41,13 +41,13 @@ func (r *catchUpStore) SaveReleaseAutomation(
 	if r.err != nil {
 		return r.err
 	}
-	r.ecrits[entry.ProjectID] = entry.Plan
-	r.acteurs[entry.ProjectID] = actor
+	r.written[entry.ProjectID] = entry.Plan
+	r.actorsByName[entry.ProjectID] = actor
 	return nil
 }
 
 func (r *catchUpStore) PipelineEnabled(_ context.Context, _ int64, kind string) (bool, error) {
-	return !r.eteints[kind], nil
+	return !r.switchedOffList[kind], nil
 }
 
 func catchUp(t *testing.T, db *catchUpStore) {
@@ -66,7 +66,7 @@ func TestTheCatchUpReturnsWhatRanTheDayBefore(t *testing.T) {
 	db := newCatchUpStore(twoImageProject())
 	catchUp(t, db)
 
-	caught, present := db.ecrits[1]
+	caught, present := db.written[1]
 	if !present {
 		t.Fatal("the project was not caught up")
 	}
@@ -82,8 +82,8 @@ func TestTheCatchUpReturnsWhatRanTheDayBefore(t *testing.T) {
 	}
 	// The author is readable on screen: someone opening the tab must be able to say "this was not
 	// typed, it comes from my targets".
-	if db.acteurs[1] != catchUpActor {
-		t.Errorf("auteur = %q", db.acteurs[1])
+	if db.actorsByName[1] != catchUpActor {
+		t.Errorf("author = %q", db.actorsByName[1])
 	}
 }
 
@@ -95,7 +95,7 @@ func TestTheCatchUpTargetsTheArtifactWhenTheProjectBuildsTheImage(t *testing.T) 
 	db := newCatchUpStore(twoImageProject())
 	catchUp(t, db)
 
-	audit := stepNamed(t, db.ecrits[1], "security-audit")
+	audit := stepNamed(t, db.written[1], "security-audit")
 	if audit.Params["portal-image"] != "{artifacts.portal.image}" {
 		t.Errorf("parameter = %q, expected the build's artifact",
 			audit.Params["portal-image"])
@@ -108,13 +108,13 @@ func TestTheCatchUpTargetsTheArtifactWhenTheProjectBuildsTheImage(t *testing.T) 
 // a catch-up must break nothing on its way. The fallback recomposes the reference from the
 // registry, as the day before.
 func TestTheCatchUpDoesNotTargetAnArtifactTheProjectDoesNotBuild(t *testing.T) {
-	autre := twoImageProject()
-	autre.Targets = []store.Target{{Stage: "app", Image: "autre-chose"}}
+	other := twoImageProject()
+	other.Targets = []store.Target{{Stage: "app", Image: "autre-chose"}}
 
-	db := newCatchUpStore(autre)
+	db := newCatchUpStore(other)
 	catchUp(t, db)
 
-	audit := stepNamed(t, db.ecrits[1], "security-audit")
+	audit := stepNamed(t, db.written[1], "security-audit")
 	if _, present := audit.Params["portal-image"]; present {
 		t.Errorf("artifact %q is targeted although the project does not build it",
 			audit.Params["portal-image"])
@@ -124,10 +124,10 @@ func TestTheCatchUpDoesNotTargetAnArtifactTheProjectDoesNotBuild(t *testing.T) {
 // A kind switched off on the project does not come back through the catch-up.
 func TestTheCatchUpDoesNotSwitchBackOnASwitchedOffKind(t *testing.T) {
 	db := newCatchUpStore(twoImageProject())
-	db.eteints["e2e-tests"] = true
+	db.switchedOffList["e2e-tests"] = true
 	catchUp(t, db)
 
-	for _, geste := range db.ecrits[1].Stages[1].Gestes {
+	for _, geste := range db.written[1].Stages[1].Gestes {
 		if geste.Ref == "e2e-tests" {
 			t.Error("a switched-off kind was caught up")
 		}
@@ -139,15 +139,15 @@ func TestTheCatchUpDoesNotSwitchBackOnASwitchedOffKind(t *testing.T) {
 // Without it, the catch-up would re-examine it at every start-up. And the row is true: it
 // built nothing the day before either.
 func TestAProjectWithNothingToComposeStillGetsItsRow(t *testing.T) {
-	vide := store.Project{ID: 2, Slug: "vide"}
-	db := newCatchUpStore(vide)
-	db.eteints["security-audit"] = true
-	db.eteints["unit-tests"] = true
-	db.eteints["e2e-tests"] = true
+	empty := store.Project{ID: 2, Slug: "empty"}
+	db := newCatchUpStore(empty)
+	db.switchedOffList["security-audit"] = true
+	db.switchedOffList["unit-tests"] = true
+	db.switchedOffList["e2e-tests"] = true
 
 	catchUp(t, db)
 
-	caught, present := db.ecrits[2]
+	caught, present := db.written[2]
 	if !present {
 		t.Fatal("the project has no row — it would be re-examined at every start-up")
 	}
@@ -172,15 +172,15 @@ func TestAProjectNotCaughtUpDoesNotStopTheNextOnes(t *testing.T) {
 }
 
 // stepNamed returns the step of a plan carrying this reference.
-func stepNamed(t *testing.T, sujet plan.Plan, ref string) plan.Geste {
+func stepNamed(t *testing.T, subject plan.Plan, ref string) plan.Geste {
 	t.Helper()
-	for _, stage := range sujet.Stages {
+	for _, stage := range subject.Stages {
 		for _, geste := range stage.Gestes {
 			if geste.Ref == ref {
 				return geste
 			}
 		}
 	}
-	t.Fatalf("no step %q in %+v", ref, sujet)
+	t.Fatalf("no step %q in %+v", ref, subject)
 	return plan.Geste{}
 }

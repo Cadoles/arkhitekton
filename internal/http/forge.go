@@ -74,7 +74,7 @@ func (h *ForgeHandler) Refs(w http.ResponseWriter, r *http.Request) {
 	if err := group.Wait(); err != nil {
 		// 502 and the client's message: the fault is with the forge or with the token, not in the
 		// dashboard, and the form must be able to say so.
-		writeProblem(w, http.StatusBadGateway, "Forge injoignable", err.Error())
+		writeProblem(w, http.StatusBadGateway, "Forge unreachable", err.Error())
 		return
 	}
 

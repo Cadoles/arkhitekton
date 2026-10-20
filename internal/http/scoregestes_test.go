@@ -20,15 +20,15 @@ import (
 
 // testScore implements what the score needs, and nothing else.
 type scoreDeTest struct {
-	run     store.PlanRun
-	sansRun bool
+	run        store.PlanRun
+	withoutRun bool
 	// steps attaches a result to the position of the step that produced it, as the chain
 	// result → run → job → step would.
 	steps map[int64]store.GesteRef
 }
 
 func (s *scoreDeTest) PlanRunByEvent(_ context.Context, _, _ string) (store.PlanRun, error) {
-	if s.sansRun {
+	if s.withoutRun {
 		return store.PlanRun{}, store.ErrPlanRunNotFound
 	}
 	return s.run, nil
@@ -142,11 +142,11 @@ func TestAStepWithNoWeightCarriesTheOriginalWeighting(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 
-	attendus := map[string]float64{"Tests unitaires": 25, "Tests E2E": 20}
-	for _, composant := range breakdown.Signals {
-		if attendu, connu := attendus[composant.Label]; connu && composant.Declared != attendu {
+	expectedItems := map[string]float64{"Tests unitaires": 25, "Tests E2E": 20}
+	for _, component := range breakdown.Signals {
+		if expected, known := expectedItems[component.Label]; known && component.Declared != expected {
 			t.Errorf("%s: declared weight = %v, expected %v (original weighting)",
-				composant.Label, composant.Declared, attendu)
+				component.Label, component.Declared, expected)
 		}
 	}
 }
@@ -179,14 +179,14 @@ func TestAStepWithNoResultStaysDisplayedWithItsWeight(t *testing.T) {
 	if len(breakdown.Signals) != 1 {
 		t.Fatalf("%d composant(s)", len(breakdown.Signals))
 	}
-	composant := breakdown.Signals[0]
-	if composant.Measured {
+	component := breakdown.Signals[0]
+	if component.Measured {
 		t.Error("a step with no result declares itself measured")
 	}
 	// The weight comes from the signal, which only the catalogue could name here.
-	if composant.Declared != 25 {
+	if component.Declared != 25 {
 		t.Errorf("declared weight = %v, expected 25 — the catalogue did not name its kind",
-			composant.Declared)
+			component.Declared)
 	}
 	if len(breakdown.Redistributed) != 1 {
 		t.Errorf("redistributed = %v", breakdown.Redistributed)
@@ -228,7 +228,7 @@ func TestAZeroWeightStepDoesNotScore(t *testing.T) {
 // Releases predating plans have none. Losing their score would be worse than computing it
 // on an axis that no longer exists.
 func TestAReleaseWithNoPlanKeepsItsScoreByKind(t *testing.T) {
-	source := &scoreDeTest{sansRun: true}
+	source := &scoreDeTest{withoutRun: true}
 	reports := []store.TestResult{testReport(1, "unit", 10, 0)}
 
 	breakdown, err := computeScore(context.Background(), source, 7, reports, nil)

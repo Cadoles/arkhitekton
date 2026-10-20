@@ -128,7 +128,7 @@ func (r *ProbeRunner) WithDispatcher(dispatcher *Dispatcher) *ProbeRunner {
 
 func NewProbeRunner(
 	probes ProbeStore, opener SecretOpener, interval time.Duration,
-	logger *slog.Logger, sondes ...Probe,
+	logger *slog.Logger, registered ...Probe,
 ) *ProbeRunner {
 	if interval < minProbeInterval {
 		interval = minProbeInterval
@@ -137,7 +137,7 @@ func NewProbeRunner(
 		logger = slog.Default()
 	}
 	return &ProbeRunner{
-		store: probes, secrets: opener, probes: sondes,
+		store: probes, secrets: opener, probes: registered,
 		interval: interval, logger: logger, now: time.Now,
 	}
 }
@@ -273,7 +273,7 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 		if err != nil {
 			// A fact that could not be written does not stop the others: the cursor does not advance
 			// either, and the next pass will see it again.
-			return fmt.Errorf("fait %q: %w", fact.Type, err)
+			return fmt.Errorf("fact %q: %w", fact.Type, err)
 		}
 		if !recorded || priming {
 			continue

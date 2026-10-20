@@ -119,13 +119,13 @@ func campaign(scenario string, summary parse.K6) (facts.Set, error) {
 	sort.Strings(thresholds)
 	measures.ThresholdsFailed = len(thresholds) > 0
 
-	parts := []string{fmt.Sprintf("%d mesure(s)", len(measures.Items))}
+	parts := []string{fmt.Sprintf("%d measure(s)", len(measures.Items))}
 	if measures.VUs > 0 {
 		parts = append(parts, fmt.Sprintf("%d VUs at peak", measures.VUs))
 	}
 	if len(thresholds) > 0 {
 		// Named and not counted: knowing which threshold gave way decides what follows.
-		parts = append(parts, "seuils non tenus : "+strings.Join(thresholds, ", "))
+		parts = append(parts, "thresholds not met: "+strings.Join(thresholds, ", "))
 	}
 
 	return facts.Set{

@@ -42,9 +42,9 @@ func TestAMatchIsAConjunction(t *testing.T) {
 func TestMembershipIsWrittenWithCommas(t *testing.T) {
 	subject := subject(map[string]string{"environment": "preprod, production"})
 
-	for _, valeur := range []string{"preprod", "production"} {
-		if !subject.Matches(map[string]string{"environment": valeur}) {
-			t.Errorf("environment %q does not match", valeur)
+	for _, value := range []string{"preprod", "production"} {
+		if !subject.Matches(map[string]string{"environment": value}) {
+			t.Errorf("environment %q does not match", value)
 		}
 	}
 	if subject.Matches(map[string]string{"environment": "qualif"}) {

@@ -171,7 +171,7 @@ func TestThePluginsMigrationsRollBack(t *testing.T) {
 	}
 	for step := range count {
 		if err := Rollback(ctx, cfg); err != nil {
-			t.Fatalf("annulation %d/%d: %v", step+1, count, err)
+			t.Fatalf("rollback %d/%d: %v", step+1, count, err)
 		}
 	}
 	var exists bool
@@ -199,7 +199,7 @@ func TestTheDataMigrationSwitchesThePluginOffOutsideMSE(t *testing.T) {
 		if _, err := db.Pool().Exec(ctx,
 			`insert into projects (slug, repository, label, forge_url, dockerfile, build_context, created_by)
 			 values ($1, 'vcarroy/'||$1, $1, 'https://forge.example', 'Dockerfile', '.', 'test')`, slug); err != nil {
-			t.Fatalf("projet %s: %v", slug, err)
+			t.Fatalf("project %s: %v", slug, err)
 		}
 	}
 	if err := Migrate(ctx, cfg, quietLogger()); err != nil {
@@ -239,7 +239,7 @@ func TestTheDataMigrationSwitchesThePluginOffOutsideMSE(t *testing.T) {
 		_, err := provider.DownTo(ctx, 1)
 		return err
 	}); err != nil {
-		t.Fatalf("annulation: %v", err)
+		t.Fatalf("rollback: %v", err)
 	}
 	if got := decisions(); len(got) != 0 {
 		t.Errorf("decisions remaining after the rollback: %v", got)
@@ -268,7 +268,7 @@ func TestExistingEnvironmentsJoinTheMSEProject(t *testing.T) {
 			t.Fatalf("%s: %v", query, err)
 		}
 	}
-	for _, slug := range []string{"autre-projet", "mse-test-project"} {
+	for _, slug := range []string{"other-project", "mse-test-project"} {
 		exec(`insert into projects (slug, repository, label, forge_url, dockerfile, build_context, created_by)
 		      values ($1, 'vcarroy/'||$1, $1, 'https://forge.example', 'Dockerfile', '.', 'test')`, slug)
 	}
@@ -279,7 +279,7 @@ func TestExistingEnvironmentsJoinTheMSEProject(t *testing.T) {
 	      values ('qualif', now(), '1.8.0', 'portaldata')`)
 	var mseID int64
 	if err := db.Pool().QueryRow(ctx, `select id from projects where slug = 'mse-test-project'`).Scan(&mseID); err != nil {
-		t.Fatalf("projet MSE: %v", err)
+		t.Fatalf("MSE project: %v", err)
 	}
 	versionID, err := db.EnsureVersion(ctx, mseID, "1.8.0")
 	if err != nil {
@@ -313,11 +313,11 @@ func TestExistingEnvironmentsJoinTheMSEProject(t *testing.T) {
 
 	// The same identifier in another project: refused by the old key.
 	var otherID int64
-	if err := db.Pool().QueryRow(ctx, `select id from projects where slug = 'autre-projet'`).Scan(&otherID); err != nil {
-		t.Fatalf("autre projet: %v", err)
+	if err := db.Pool().QueryRow(ctx, `select id from projects where slug = 'other-project'`).Scan(&otherID); err != nil {
+		t.Fatalf("other project: %v", err)
 	}
 	if err := environments.UpsertEnvironment(ctx, Environment{
-		ProjectID: otherID, ID: "qualif", Label: "Qualification", Rank: 2, Namespace: "autre", Visible: true,
+		ProjectID: otherID, ID: "qualif", Label: "Qualification", Rank: 2, Namespace: "other", Visible: true,
 	}); err != nil {
 		t.Errorf("qualif of a second project: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestDeployedReleaseJoinsOnImageVersion(t *testing.T) {
 	ctx := context.Background()
 
 	if err := environments.UpsertEnvironment(ctx, environment("prod", 4, true)); err != nil {
-		t.Fatalf("environnement: %v", err)
+		t.Fatalf("environment: %v", err)
 	}
 	releaseFor(t, db, "1.8.0", "1.8.0-rc3")
 	if err := environments.SaveObservation(ctx, Observation{
@@ -347,13 +347,13 @@ func TestDeployedReleaseJoinsOnImageVersion(t *testing.T) {
 
 	deployed, err := environments.DeployedRelease(ctx, testProjectID, "prod")
 	if err != nil {
-		t.Fatalf("rapprochement: %v", err)
+		t.Fatalf("reconciliation: %v", err)
 	}
 	if deployed.Tag != "1.8.0" || deployed.ImageVersion != "1.8.0-rc3" {
 		t.Errorf("release deployed = %+v", deployed)
 	}
 	if byRelease, err := environments.DeployedByRelease(ctx, testProjectID); err != nil || len(byRelease["1.8.0"]) != 1 {
-		t.Errorf("pastilles = %v (%v)", byRelease, err)
+		t.Errorf("badges = %v (%v)", byRelease, err)
 	}
 }
 
@@ -363,7 +363,7 @@ func TestPromotionResolvesTheAmbiguity(t *testing.T) {
 	ctx := context.Background()
 
 	if err := environments.UpsertEnvironment(ctx, environment("prod", 4, true)); err != nil {
-		t.Fatalf("environnement: %v", err)
+		t.Fatalf("environment: %v", err)
 	}
 	releaseFor(t, db, "1.8.0-rc3", "1.8.0-rc3")
 	finalID := releaseFor(t, db, "1.8.0", "1.8.0-rc3")
@@ -384,7 +384,7 @@ func TestPromotionResolvesTheAmbiguity(t *testing.T) {
 	}
 	deployed, err := environments.DeployedRelease(ctx, testProjectID, "prod")
 	if err != nil {
-		t.Fatalf("rapprochement: %v", err)
+		t.Fatalf("reconciliation: %v", err)
 	}
 	if deployed.Tag != "1.8.0" || deployed.Ambiguous || deployed.PromotedTag != "1.8.0_prod" {
 		t.Errorf("release deployed = %+v, expected the promoted final", deployed)
@@ -396,7 +396,7 @@ func TestAnUnknownDeployedVersionIsReported(t *testing.T) {
 	ctx := context.Background()
 
 	if err := environments.UpsertEnvironment(ctx, environment("prod", 4, true)); err != nil {
-		t.Fatalf("environnement: %v", err)
+		t.Fatalf("environment: %v", err)
 	}
 	if err := environments.SaveObservation(ctx, Observation{
 		ProjectID: testProjectID, EnvironmentID: "prod", PortalVersion: "2024.3.1-legacy", MigrationState: "done", Resolution: "portaldata",
@@ -415,17 +415,17 @@ func TestTheDeployerSettingsMakeTheRoundTripAsTheyAre(t *testing.T) {
 
 	settings := map[string]string{
 		"promotionSuffix": "testing", "acceptsPrerelease": "true",
-		"kustomization": "portal-testing", "inconnueDuDashboard": "valeur",
+		"kustomization": "portal-testing", "unknownToTheDashboard": "value",
 	}
 	qualif := environment("qualif", 2, true)
 	qualif.DeployerSettings = settings
 	if err := environments.UpsertEnvironment(ctx, qualif); err != nil {
-		t.Fatalf("environnement: %v", err)
+		t.Fatalf("environment: %v", err)
 	}
 
 	listed, err := environments.ListEnvironments(ctx, testProjectID)
 	if err != nil || len(listed) != 1 {
-		t.Fatalf("relecture: %v (%v)", listed, err)
+		t.Fatalf("read back: %v (%v)", listed, err)
 	}
 	if !maps.Equal(listed[0].DeployerSettings, settings) {
 		t.Errorf("settings read back %v, deposited %v", listed[0].DeployerSettings, settings)
@@ -454,7 +454,7 @@ func TestTheHistoryFollowsTheRequestedPromotions(t *testing.T) {
 	ctx := context.Background()
 
 	if err := environments.UpsertEnvironment(ctx, environment("qualif", 2, true)); err != nil {
-		t.Fatalf("environnement: %v", err)
+		t.Fatalf("environment: %v", err)
 	}
 	var last int64
 	for _, tag := range []string{"1.8.0-rc1", "1.8.0-rc2"} {
@@ -472,7 +472,7 @@ func TestTheHistoryFollowsTheRequestedPromotions(t *testing.T) {
 	}
 	history, err := environments.ListEnvironmentHistory(ctx, testProjectID, "qualif", 0)
 	if err != nil || len(history) != 2 || history[0].ReleaseTag != "1.8.0-rc2" {
-		t.Errorf("historique = %+v (%v)", history, err)
+		t.Errorf("history = %+v (%v)", history, err)
 	}
 	latest, err := environments.LatestPromotions(ctx, testProjectID)
 	if err != nil || latest["qualif"].ReleaseTag != "1.8.0-rc2" {
@@ -488,7 +488,7 @@ func flow(t *testing.T, environments *Store) {
 	t.Helper()
 	for rank, id := range []string{"unstable", "qualif", "preprod", "prod"} {
 		if err := environments.UpsertEnvironment(context.Background(), environment(id, rank+1, true)); err != nil {
-			t.Fatalf("environnement %s: %v", id, err)
+			t.Fatalf("environment %s: %v", id, err)
 		}
 	}
 }
@@ -500,15 +500,15 @@ func TestASignoffIsSpecificToTheReleaseEnvironmentPair(t *testing.T) {
 	ctx := context.Background()
 	flow(t, environments)
 	release := releaseFor(t, db, "1.8.0-rc1", "1.8.0-rc1")
-	autre := releaseFor(t, db, "1.8.0-rc2", "1.8.0-rc2")
+	other := releaseFor(t, db, "1.8.0-rc2", "1.8.0-rc2")
 
 	if err := environments.SetSignoff(ctx, release, "qualif", "Client", "pass", "", "vcarroy"); err != nil {
-		t.Fatalf("validation: %v", err)
+		t.Fatalf("sign-off: %v", err)
 	}
 	if got, _ := environments.EnvironmentSignoffs(ctx, release, "preprod"); len(got) != 0 {
 		t.Errorf("the qualif sign-off leaked into preprod: %+v", got)
 	}
-	if got, _ := environments.EnvironmentSignoffs(ctx, autre, "qualif"); len(got) != 0 {
+	if got, _ := environments.EnvironmentSignoffs(ctx, other, "qualif"); len(got) != 0 {
 		t.Errorf("the sign-off leaked onto another release: %+v", got)
 	}
 }
@@ -521,15 +521,15 @@ func TestAnOpinionIsReplacedAndTheRolesCoexist(t *testing.T) {
 	release := releaseFor(t, db, "1.8.0-rc1", "1.8.0-rc1")
 
 	for _, decision := range [][3]string{
-		{"Client", "fail", "broken cart"}, {"Client", "pass", ""}, {"Recette", "warn", "lenteur"},
+		{"Client", "fail", "broken cart"}, {"Client", "pass", ""}, {"QA", "warn", "slowness"},
 	} {
 		if err := environments.SetSignoff(ctx, release, "qualif", decision[0], decision[1], decision[2], "vcarroy"); err != nil {
-			t.Fatalf("avis %v: %v", decision, err)
+			t.Fatalf("sign-off %v: %v", decision, err)
 		}
 	}
 	signoffs, err := environments.EnvironmentSignoffs(ctx, release, "qualif")
 	if err != nil || len(signoffs) != 2 {
-		t.Fatalf("avis = %+v (%v)", signoffs, err)
+		t.Fatalf("sign-off = %+v (%v)", signoffs, err)
 	}
 	if signoffs[0].Role != "Client" || signoffs[0].Status != "pass" || signoffs[0].Detail != "" {
 		t.Errorf("the client's opinion = %+v", signoffs[0])
@@ -543,16 +543,16 @@ func TestRemovingAnOpinion(t *testing.T) {
 	flow(t, environments)
 	release := releaseFor(t, db, "1.8.0-rc1", "1.8.0-rc1")
 
-	if err := environments.SetSignoff(ctx, release, "qualif", "Client", "fail", "erreur", "vcarroy"); err != nil {
-		t.Fatalf("refus: %v", err)
+	if err := environments.SetSignoff(ctx, release, "qualif", "Client", "fail", "error", "vcarroy"); err != nil {
+		t.Fatalf("refusal: %v", err)
 	}
 	if err := environments.DeleteSignoff(ctx, release, "qualif", "Client"); err != nil {
-		t.Fatalf("retrait: %v", err)
+		t.Fatalf("removal: %v", err)
 	}
 	if got, _ := environments.EnvironmentSignoffs(ctx, release, "qualif"); len(got) != 0 {
 		t.Errorf("%d opinions survive the removal", len(got))
 	}
-	if err := environments.DeleteSignoff(ctx, release, "qualif", "Personne"); !errors.Is(err, ErrSignoffNotFound) {
+	if err := environments.DeleteSignoff(ctx, release, "qualif", "Nobody"); !errors.Is(err, ErrSignoffNotFound) {
 		t.Errorf("error %v, expected ErrSignoffNotFound", err)
 	}
 }
@@ -566,12 +566,12 @@ func TestTheSignoffsFollowTheFlowAndLeaveWithTheRelease(t *testing.T) {
 
 	for _, id := range []string{"prod", "qualif", "unstable"} {
 		if err := environments.SetSignoff(ctx, release, id, "Client", "pass", "", "vcarroy"); err != nil {
-			t.Fatalf("validation %s: %v", id, err)
+			t.Fatalf("sign-off %s: %v", id, err)
 		}
 	}
 	signoffs, err := environments.ListSignoffs(ctx, release)
 	if err != nil || len(signoffs) != 3 || signoffs[0].EnvironmentID != "unstable" || signoffs[2].EnvironmentID != "prod" {
-		t.Errorf("avis = %+v (%v)", signoffs, err)
+		t.Errorf("sign-off = %+v (%v)", signoffs, err)
 	}
 
 	if _, err := db.Pool().Exec(ctx, `delete from releases where id = $1`, release); err != nil {

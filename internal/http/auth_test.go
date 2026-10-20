@@ -116,15 +116,15 @@ func TestLoginRedirectsWithPKCEChallenge(t *testing.T) {
 // dashboard, on the right domain, would send the authenticated user to a third-party site.
 func TestSafeRedirectRejectsExternalTargets(t *testing.T) {
 	cases := map[string]string{
-		"":                          "/",
-		"/versions":                 "/versions",
-		"/releases/1.8.0":           "/releases/1.8.0",
-		"https://exemple.invalide":  "/",
-		"http://exemple.invalide":   "/",
-		"//exemple.invalide":        "/",
-		"/\\exemple.invalide":       "/",
-		"javascript:alert(1)":       "/",
-		"exemple.invalide/versions": "/",
+		"":                         "/",
+		"/versions":                "/versions",
+		"/releases/1.8.0":          "/releases/1.8.0",
+		"https://example.invalid":  "/",
+		"http://example.invalid":   "/",
+		"//example.invalid":        "/",
+		"/\\example.invalid":       "/",
+		"javascript:alert(1)":      "/",
+		"example.invalid/versions": "/",
 	}
 
 	for input, expected := range cases {
@@ -232,7 +232,7 @@ func TestCallbackDistinguishesProviderRefusal(t *testing.T) {
 }
 
 func TestCallbackRejectsFailedExchange(t *testing.T) {
-	ex := &stubExchanger{err: errors.New("nonce invalide")}
+	ex := &stubExchanger{err: errors.New("invalid nonce")}
 	handler, flows := newAuthHandler(ex, &stubSessions{})
 
 	flow, _ := flows.Begin(context.Background(), "/")

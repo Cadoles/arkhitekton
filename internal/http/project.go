@@ -106,7 +106,7 @@ func requestProjectRecord(
 func buildableProject(ctx context.Context, source projectSource) (int64, error) {
 	project, err := source.BuildableProject(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("projet constructible: %w", err)
+		return 0, fmt.Errorf("buildable project: %w", err)
 	}
 	return project.ID, nil
 }

@@ -78,7 +78,7 @@ Options for reprocess:
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "erreur: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -97,7 +97,7 @@ func run() error {
 	if err != nil {
 		// The configuration is validated before a single port is opened: a half-configured start-up
 		// postpones the failure to the first user, often during the rarest operation.
-		return fmt.Errorf("configuration invalide:\n%w", err)
+		return fmt.Errorf("invalid configuration:\n%w", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -687,7 +687,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 					db, cipher, cfg.Forge.Timeout, logger))
 			if cfg.Webhooks.AllowPrivate || cfg.Webhooks.AllowInsecure {
 				logger.Warn("outgoing calls widened",
-					"cibles_privees", cfg.Webhooks.AllowPrivate,
+					"private_targets", cfg.Webhooks.AllowPrivate,
 					"clair", cfg.Webhooks.AllowInsecure,
 					"consequence", "a badly set reaction can reach the internal network")
 			}
@@ -1358,7 +1358,7 @@ func projectKeys(
 	accounts := pipelines.ServiceAccounts()
 	mounter := deploykeys.NewMounter(cluster.Kube, namespace, accounts...)
 	logger.Info("per-project deploy keys",
-		"namespace", namespace, "comptes_de_service", accounts)
+		"namespace", namespace, "service_accounts", accounts)
 	return deploykeys.NewIssuer(owner, mounter)
 }
 

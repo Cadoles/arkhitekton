@@ -141,8 +141,8 @@ func (p fakeProber) Probe(_ context.Context, _, publicKey string) (provider.Prob
 	}, nil
 }
 
-func trueFlag() *bool  { valeur := true; return &valeur }
-func falseFlag() *bool { valeur := false; return &valeur }
+func trueFlag() *bool  { value := true; return &value }
+func falseFlag() *bool { value := false; return &value }
 
 func asAdmin(request *http.Request) *http.Request {
 	return request.WithContext(context.WithValue(request.Context(), identityKey,
@@ -162,7 +162,7 @@ func createProject(t *testing.T, handler *ProjectsHandler, body string) *httptes
 func TestAMalformedRepositoryIsRefused(t *testing.T) {
 	handler := NewProjectsHandler(newFakeProjectStore())
 
-	for _, repository := range []string{"mse", "", "CNOUS/", "/mse", "CNOUS/mse/sous"} {
+	for _, repository := range []string{"mse", "", "CNOUS/", "/mse", "CNOUS/mse/sub"} {
 		body := `{"repository":"` + repository + `"}`
 		if code := createProject(t, handler, body).Code; code != http.StatusBadRequest {
 			t.Errorf("repository %q: code %d, expected 400", repository, code)
@@ -188,7 +188,7 @@ func TestTheDefaultsAreInferred(t *testing.T) {
 		t.Errorf("forge = %q, expected the one from the configuration", project.ForgeURL)
 	}
 	if project.BuildContext != "." {
-		t.Errorf("contexte = %q", project.BuildContext)
+		t.Errorf("context = %q", project.BuildContext)
 	}
 }
 
@@ -248,7 +248,7 @@ func TestAnUnreachableRepositoryIsACheck(t *testing.T) {
 		t.Errorf("check = %+v — the reason must accompany the failure", payload)
 	}
 	if len(fake.checks) != 1 || fake.checks[0] {
-		t.Errorf("constats = %v", fake.checks)
+		t.Errorf("checks = %v", fake.checks)
 	}
 }
 
@@ -261,7 +261,7 @@ func TestASuccessfulTestRecordsTheBranch(t *testing.T) {
 		t.Fatalf("code %d", code)
 	}
 	if len(fake.checks) != 1 || !fake.checks[0] {
-		t.Fatalf("constats = %v", fake.checks)
+		t.Fatalf("checks = %v", fake.checks)
 	}
 	if !strings.Contains(fake.projects[1].CheckNote, "main") {
 		t.Errorf("note = %q, expected the default branch", fake.projects[1].CheckNote)
@@ -359,7 +359,7 @@ func TestTheTrackedFlagIsReturnedWithTheProject(t *testing.T) {
 		} `json:"projects"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("corps illisible: %v", err)
+		t.Fatalf("unreadable body: %v", err)
 	}
 	if len(payload.Projects) != 1 || payload.Projects[0].TrackerProject != "mse-dev" {
 		t.Errorf("tracked returned: %+v", payload.Projects)
@@ -456,7 +456,7 @@ func TestAQuestionWithNoAnswerOverturnsNothing(t *testing.T) {
 		KeyPresent *bool `json:"key_present"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("corps illisible: %v", err)
+		t.Fatalf("unreadable body: %v", err)
 	}
 	if payload.KeyPresent != nil {
 		t.Errorf("key_present = %v, expected null", *payload.KeyPresent)

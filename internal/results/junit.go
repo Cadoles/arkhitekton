@@ -56,7 +56,7 @@ func SummarizeJUnit(report Report) string {
 		parts = append(parts, fmt.Sprintf("%d failed", report.Failed))
 	}
 	if report.Flaky > 0 {
-		parts = append(parts, fmt.Sprintf("%d instable(s)", report.Flaky))
+		parts = append(parts, fmt.Sprintf("%d flaky", report.Flaky))
 	}
 	if report.Skipped > 0 {
 		parts = append(parts, fmt.Sprintf("%d skipped", report.Skipped))

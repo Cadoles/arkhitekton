@@ -331,13 +331,13 @@ func (s *TrackerSync) reportAdoptions(adoptions []store.Adoption) {
 	for _, adoption := range adoptions {
 		if adoption.Ambiguous {
 			s.logger.Warn("provisional version claimed by several Redmine versions",
-				"provisoire", adoption.PendingName,
+				"provisional", adoption.PendingName,
 				"candidates", adoption.Candidates,
 				"consequence", "attachment left pending, to be settled by hand")
 			continue
 		}
 		s.logger.Info("provisional version adopted",
-			"provisoire", adoption.PendingName,
+			"provisional", adoption.PendingName,
 			"version", adoption.AdoptedInto,
 			"releases", adoption.Releases)
 	}

@@ -45,7 +45,7 @@ pipelines:
 // Ranks and identifiers are unique within a project: two projects may each have a
 // `qualif` of rank 2.
 func TestEnvironmentsAreValidatedPerProject(t *testing.T) {
-	const partages = `
+	const sharedItems = `
 maxConcurrentRuns: 1
 projects:
   mse:
@@ -57,11 +57,11 @@ projects:
 pipelines:
   - {kind: build, pipelineRef: build-image, label: Construction, produces: [image]}
 `
-	if _, err := Parse([]byte(partages)); err != nil {
+	if _, err := Parse([]byte(sharedItems)); err != nil {
 		t.Errorf("two projects with the same environment: %v", err)
 	}
 
-	const doublons = `
+	const duplicates = `
 maxConcurrentRuns: 1
 projects:
   mse:
@@ -72,13 +72,13 @@ projects:
 pipelines:
   - {kind: build, pipelineRef: build-image, label: Construction, produces: [image]}
 `
-	_, err := Parse([]byte(doublons))
+	_, err := Parse([]byte(duplicates))
 	if err == nil {
 		t.Fatal("a duplicated identifier and rank within a project must be refused")
 	}
-	for _, attendu := range []string{`"qualif" declared twice`, "share rank 2"} {
-		if !strings.Contains(err.Error(), attendu) {
-			t.Errorf("error %q — it must say %q", err, attendu)
+	for _, expected := range []string{`"qualif" declared twice`, "share rank 2"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("error %q — it must say %q", err, expected)
 		}
 	}
 }

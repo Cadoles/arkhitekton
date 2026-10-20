@@ -16,7 +16,7 @@ func clientFor(t *testing.T, serverURL string) *Client {
 	t.Helper()
 	client, err := New(Options{URL: serverURL, Token: "test-token", Repository: "CNOUS/mse"})
 	if err != nil {
-		t.Fatalf("construction: %v", err)
+		t.Fatalf("building: %v", err)
 	}
 	return client
 }
@@ -83,7 +83,7 @@ func TestBranchesPageUntilTheShortPage(t *testing.T) {
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		count := pageSize
 		if page == 2 {
-			count = 3 // page courte : la liste est finie
+			count = 3 // short page: the list is over
 		}
 		var payload []map[string]any
 		for i := 0; i < count; i++ {

@@ -41,7 +41,7 @@ type multiStore struct {
 	cursors  map[int64]string
 	failures map[int64]string
 	mappings map[int64]map[string]string
-	faits    map[string]event.Event
+	facts    map[string]event.Event
 }
 
 func newMultiStore() *multiStore {
@@ -56,7 +56,7 @@ func newMultiStore() *multiStore {
 			1: {"En cours": "doing"},
 			2: {"En cours": "done"},
 		},
-		faits: map[string]event.Event{},
+		facts: map[string]event.Event{},
 	}
 }
 
@@ -93,10 +93,10 @@ func (m *multiStore) RecordEvent(_ context.Context, fact event.Event) (bool, err
 	if err := fact.Validate(); err != nil {
 		return false, err
 	}
-	if _, known := m.faits[fact.DedupKey]; known {
+	if _, known := m.facts[fact.DedupKey]; known {
 		return false, nil
 	}
-	m.faits[fact.DedupKey] = fact
+	m.facts[fact.DedupKey] = fact
 	return true, nil
 }
 
@@ -106,9 +106,9 @@ func trackerProbe(
 	connect TrackerConnector,
 ) (*ProbeRunner, Probe) {
 	t.Helper()
-	sonde := NewRedmineProbe(
+	probe := NewRedmineProbe(
 		NewTrackerSync(db, connect, quietLogger()))
-	return NewProbeRunner(db, opener, time.Minute, quietLogger(), sonde), sonde
+	return NewProbeRunner(db, opener, time.Minute, quietLogger(), probe), probe
 }
 
 // Each project advances its own cursor.
@@ -120,14 +120,14 @@ func TestEachProjectAdvancesItsOwnCursor(t *testing.T) {
 	client := &fakeRedmine{versions: []provider.Version{{ID: "1", Name: "v1.0.0", Status: "open"}}}
 
 	connect := func(TrackerConnection) (TrackerReader, error) { return client, nil }
-	runner, sonde := trackerProbe(t, db, testOpener{}, connect)
-	runner.sweep(context.Background(), sonde)
+	runner, probe := trackerProbe(t, db, testOpener{}, connect)
+	runner.sweep(context.Background(), probe)
 
 	if len(db.cursors) != 2 {
 		t.Fatalf("cursors recorded = %v, expected one per project", db.cursors)
 	}
 	if db.cursors[1] == "" || db.cursors[2] == "" {
-		t.Errorf("curseurs = %v", db.cursors)
+		t.Errorf("cursors = %v", db.cursors)
 	}
 }
 
@@ -138,31 +138,31 @@ func TestEachProjectAdvancesItsOwnCursor(t *testing.T) {
 func TestEachProjectQueriesItsOwnServer(t *testing.T) {
 	db := newMultiStore()
 
-	var vues []TrackerConnection
+	var seenItems []TrackerConnection
 	connect := func(connection TrackerConnection) (TrackerReader, error) {
-		vues = append(vues, connection)
+		seenItems = append(seenItems, connection)
 		return &fakeRedmine{}, nil
 	}
-	runner, sonde := trackerProbe(t, db, testOpener{}, connect)
-	runner.sweep(context.Background(), sonde)
+	runner, probe := trackerProbe(t, db, testOpener{}, connect)
+	runner.sweep(context.Background(), probe)
 
-	if len(vues) != 2 {
-		t.Fatalf("%d connections, expected 2", len(vues))
+	if len(seenItems) != 2 {
+		t.Fatalf("%d connections, expected 2", len(seenItems))
 	}
-	if vues[0].URL == vues[1].URL {
-		t.Errorf("both projects target the same server: %q", vues[0].URL)
+	if seenItems[0].URL == seenItems[1].URL {
+		t.Errorf("both projects target the same server: %q", seenItems[0].URL)
 	}
 	// The key is **unsealed** before reaching the client. It is no longer the tracker that opens it
 	// but the loop, for every probe — and the guarantee is the same: the opposite would send an
 	// envelope in place of an API key, and the tracker would answer 401 with no message naming the
 	// sealing.
-	for _, connection := range vues {
+	for _, connection := range seenItems {
 		if strings.HasPrefix(connection.APIKey, "sealed:") {
 			t.Errorf("key still sealed: %q", connection.APIKey)
 		}
 	}
-	if vues[0].Project != "project-one" || vues[1].Project != "project-two" {
-		t.Errorf("projects targeted = %q / %q", vues[0].Project, vues[1].Project)
+	if seenItems[0].Project != "project-one" || seenItems[1].Project != "project-two" {
+		t.Errorf("projects targeted = %q / %q", seenItems[0].Project, seenItems[1].Project)
 	}
 }
 
@@ -173,23 +173,23 @@ func TestEachProjectQueriesItsOwnServer(t *testing.T) {
 // others of synchronisation.
 func TestOneProjectsFailureDoesNotStopTheNextOnes(t *testing.T) {
 	db := newMultiStore()
-	panne := errors.New("redmine injoignable")
+	outage := errors.New("redmine injoignable")
 
 	connect := func(connection TrackerConnection) (TrackerReader, error) {
 		if connection.Project == "project-one" {
-			return nil, panne
+			return nil, outage
 		}
 		return &fakeRedmine{}, nil
 	}
-	runner, sonde := trackerProbe(t, db, testOpener{}, connect)
-	runner.sweep(context.Background(), sonde)
+	runner, probe := trackerProbe(t, db, testOpener{}, connect)
+	runner.sweep(context.Background(), probe)
 
-	consigné, présent := db.failures[1]
-	if !présent {
+	recorded, present := db.failures[1]
+	if !present {
 		t.Fatal("the first project's failure was not recorded")
 	}
-	if !strings.Contains(consigné, "injoignable") {
-		t.Errorf("reason recorded %q — it must carry the outage", consigné)
+	if !strings.Contains(recorded, "injoignable") {
+		t.Errorf("reason recorded %q — it must carry the outage", recorded)
 	}
 	// The failed project's cursor does not advance: the next pass will see again the window it
 	// missed.
@@ -199,7 +199,7 @@ func TestOneProjectsFailureDoesNotStopTheNextOnes(t *testing.T) {
 	if db.cursors[2] == "" {
 		t.Error("the second project was not synchronised")
 	}
-	if _, consigné := db.failures[2]; consigné {
+	if _, recorded := db.failures[2]; recorded {
 		t.Errorf("the second project carries a failure: %q", db.failures[2])
 	}
 }
@@ -212,20 +212,20 @@ func TestAnUnreadableKeySaysSoWithoutQuotingTheValue(t *testing.T) {
 	db := newMultiStore()
 	connect := func(TrackerConnection) (TrackerReader, error) { return &fakeRedmine{}, nil }
 
-	runner, sonde := trackerProbe(t, db,
+	runner, probe := trackerProbe(t, db,
 		testOpener{err: errors.New("decryption refused")}, connect)
-	runner.sweep(context.Background(), sonde)
+	runner.sweep(context.Background(), probe)
 
-	motif, présent := db.failures[1]
-	if !présent {
+	reason, present := db.failures[1]
+	if !present {
 		t.Fatal("an unreadable key must fail the project's pass")
 	}
 	// The field is named: without it, "decryption refused" would not say what to go and look at.
-	if !strings.Contains(motif, "api_key") {
-		t.Errorf("reason %q — it must name the field", motif)
+	if !strings.Contains(reason, "api_key") {
+		t.Errorf("reason %q — it must name the field", reason)
 	}
-	if strings.Contains(motif, "key-one") {
-		t.Errorf("reason %q — it quotes the value", motif)
+	if strings.Contains(reason, "key-one") {
+		t.Errorf("reason %q — it quotes the value", reason)
 	}
 }
 
@@ -238,16 +238,16 @@ func TestTheTrackerIdentifierFallsBackToTheColumn(t *testing.T) {
 	// The setting says nothing about the project: only the column knows it.
 	db.configs[1] = map[string]string{"url": "https://redmine.one.fr", "api_key": "sealed:key"}
 
-	var vues []TrackerConnection
+	var seenItems []TrackerConnection
 	connect := func(connection TrackerConnection) (TrackerReader, error) {
-		vues = append(vues, connection)
+		seenItems = append(seenItems, connection)
 		return &fakeRedmine{}, nil
 	}
-	runner, sonde := trackerProbe(t, db, testOpener{}, connect)
-	runner.sweep(context.Background(), sonde)
+	runner, probe := trackerProbe(t, db, testOpener{}, connect)
+	runner.sweep(context.Background(), probe)
 
-	if len(vues) == 0 || vues[0].Project != "project-one" {
-		t.Errorf("project targeted = %+v", vues)
+	if len(seenItems) == 0 || seenItems[0].Project != "project-one" {
+		t.Errorf("project targeted = %+v", seenItems)
 	}
 }
 
@@ -261,14 +261,14 @@ func TestAProjectWithNoTrackerIdentifierRecordsNoFailure(t *testing.T) {
 	db.configs[1] = map[string]string{"url": "https://redmine.one.fr", "api_key": "sealed:key"}
 
 	connect := func(TrackerConnection) (TrackerReader, error) { return &fakeRedmine{}, nil }
-	runner, sonde := trackerProbe(t, db, testOpener{}, connect)
+	runner, probe := trackerProbe(t, db, testOpener{}, connect)
 
-	projetsSansSuivi := &multiStoreWithoutColumn{multiStore: db}
-	runner.store = projetsSansSuivi
-	runner.sweep(context.Background(), sonde)
+	untrackedProjects := &multiStoreWithoutColumn{multiStore: db}
+	runner.store = untrackedProjects
+	runner.sweep(context.Background(), probe)
 
-	if motif, présent := db.failures[1]; présent {
-		t.Errorf("failure recorded %q — the absence of a tracker is not one", motif)
+	if reason, present := db.failures[1]; present {
+		t.Errorf("failure recorded %q — the absence of a tracker is not one", reason)
 	}
 }
 

@@ -120,12 +120,12 @@ func cursorKey(source string, projectID int64) string {
 	return source + ":" + string(rune('0'+projectID))
 }
 
-func probeFact(cle string) event.Event {
+func probeFact(key string) event.Event {
 	return event.Event{
 		Type: "gitea.pull_request.opened", Subject: "#412",
 		Payload:    map[string]string{"number": "412", "title": "Fix the clone"},
 		OccurredAt: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC),
-		DedupKey:   cle,
+		DedupKey:   key,
 	}
 }
 
@@ -163,7 +163,7 @@ func TestEnablingDoesNotWakeThePast(t *testing.T) {
 	}
 	// The cursor is set: the next pass will start again from there.
 	if base.cursors[cursorKey("gitea.pull_requests", 1)] != "2026-09-03T10:00:00Z" {
-		t.Errorf("curseur = %q", base.cursors[cursorKey("gitea.pull_requests", 1)])
+		t.Errorf("cursor = %q", base.cursors[cursorKey("gitea.pull_requests", 1)])
 	}
 }
 
@@ -188,15 +188,15 @@ func TestASnapshotDoesNotTriggerAfterItsBootstrap(t *testing.T) {
 	}
 	runner := probeRunnerFor(t, base, probe)
 
-	runner.sweep(context.Background(), probe) // amorçage
-	apresAmorcage := base.fresh
+	runner.sweep(context.Background(), probe) // bootstrap
+	afterBootstrap := base.fresh
 
-	runner.sweep(context.Background(), probe) // le tour suivant revoit tout
+	runner.sweep(context.Background(), probe) // the next round sees everything again
 
-	if base.fresh != apresAmorcage {
+	if base.fresh != afterBootstrap {
 		t.Errorf("%d new facts after the bootstrap, expected none — "+
 			"the snapshot re-triggered what the bootstrap was to silence",
-			base.fresh-apresAmorcage)
+			base.fresh-afterBootstrap)
 	}
 }
 
@@ -217,13 +217,13 @@ func TestTheNextPassEmits(t *testing.T) {
 	if len(base.facts) != 1 {
 		t.Fatalf("%d facts emitted, expected 1", len(base.facts))
 	}
-	fait := base.facts["gitea.pr:mse:412"]
+	recorded := base.facts["gitea.pr:mse:412"]
 	// The loop attaches the project and the source; the probe has no business doing it.
-	if fait.ProjectID == nil || *fait.ProjectID != 1 {
-		t.Errorf("fact's project = %v", fait.ProjectID)
+	if recorded.ProjectID == nil || *recorded.ProjectID != 1 {
+		t.Errorf("fact's project = %v", recorded.ProjectID)
 	}
-	if fait.Source != "gitea" {
-		t.Errorf("fact's source = %q, expected the plugin's identifier", fait.Source)
+	if recorded.Source != "gitea" {
+		t.Errorf("fact's source = %q, expected the plugin's identifier", recorded.Source)
 	}
 }
 
@@ -238,7 +238,7 @@ func TestASecondPassOverTheSameWindowDoesNotReNotify(t *testing.T) {
 	probe := &fakeProbe{cursor: "2026-09-03T10:00:00Z"}
 	runner := probeRunnerFor(t, base, probe)
 
-	runner.sweep(context.Background(), probe) // amorçage
+	runner.sweep(context.Background(), probe) // bootstrap
 
 	probe.facts = []event.Event{probeFact("gitea.pr:mse:412")}
 	runner.sweep(context.Background(), probe)
@@ -265,7 +265,7 @@ func TestAnUnreachableForgeDoesNotStopTheOtherProjects(t *testing.T) {
 	probe := &fakeProbe{errFor: "casse", cursor: "2026-09-03T10:00:00Z"}
 	runner := probeRunnerFor(t, base, probe)
 
-	runner.sweep(context.Background(), probe) // amorçage des deux
+	runner.sweep(context.Background(), probe) // bootstrap of both
 
 	probe.facts = []event.Event{probeFact("gitea.pr:sain:1")}
 	runner.sweep(context.Background(), probe)
@@ -286,7 +286,7 @@ func TestAnUnreachableForgeDoesNotStopTheOtherProjects(t *testing.T) {
 }
 
 /*
- * Ce que la boucle fait par ailleurs.
+ * What the loop does besides.
  */
 
 // A switched-off plugin is not queried, and that is not an outage: reporting it at every round
@@ -310,16 +310,16 @@ func TestASwitchedOffPluginIsNotQueried(t *testing.T) {
 func TestSealedFieldsAreOpenedBeforeReachingTheProbe(t *testing.T) {
 	base := newFakeProbeStore(testProject(1, "mse"))
 
-	var vu map[string]string
-	probe := &configReader{target: &vu}
+	var seenParams map[string]string
+	probe := &configReader{target: &seenParams}
 	NewProbeRunner(base, testOpener{}, time.Minute, quietLogger(), probe).
 		sweep(context.Background(), probe)
 
-	if vu["token"] != "token" {
-		t.Errorf("token passed = %q, expected unsealed", vu["token"])
+	if seenParams["token"] != "token" {
+		t.Errorf("token passed = %q, expected unsealed", seenParams["token"])
 	}
-	if vu["url"] != "https://forge.example.fr" {
-		t.Errorf("URL passed = %q", vu["url"])
+	if seenParams["url"] != "https://forge.example.fr" {
+		t.Errorf("URL passed = %q", seenParams["url"])
 	}
 }
 
@@ -342,7 +342,7 @@ func TestTheIntervalFloorIsEnforced(t *testing.T) {
 	runner := NewProbeRunner(newFakeProbeStore(), nil, time.Second, quietLogger())
 
 	if runner.interval < minProbeInterval {
-		t.Errorf("intervalle = %s, plancher %s", runner.interval, minProbeInterval)
+		t.Errorf("interval = %s, floor %s", runner.interval, minProbeInterval)
 	}
 }
 

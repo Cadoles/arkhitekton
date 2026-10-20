@@ -200,7 +200,7 @@ func TestAQueueOutsideTheCatalogueStaysDisplayed(t *testing.T) {
 		t.Errorf("file locale = %+v", local)
 	}
 	if local.Waiting != 1 {
-		t.Errorf("attente = %d", local.Waiting)
+		t.Errorf("waiting = %d", local.Waiting)
 	}
 }
 
@@ -341,7 +341,7 @@ func TestAFancifulParameterNameIsRefused(t *testing.T) {
 	handler := queueHandler(newFakeQueueStore())
 
 	refused := launch(t, handler,
-		`{"kind":"unit-tests","params":{"revision":"main","mauvais nom":"x"}}`)
+		`{"kind":"unit-tests","params":{"revision":"main","bad name":"x"}}`)
 	if refused.Code != http.StatusBadRequest {
 		t.Errorf("code %d, expected 400", refused.Code)
 	}

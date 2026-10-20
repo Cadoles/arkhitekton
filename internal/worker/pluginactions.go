@@ -133,11 +133,11 @@ const (
 
 // bindParams replaces the templates with the triggering fact's payload.
 func bindParams(
-	spec plugin.ActionSpec, declares, contexte map[string]string,
+	spec plugin.ActionSpec, declares, runContext map[string]string,
 ) map[string]string {
 	params := make(map[string]string, len(spec.Fields))
 	for _, field := range spec.Fields {
-		params[field.Name] = action.Expand(declares[field.Name], contexte)
+		params[field.Name] = action.Expand(declares[field.Name], runContext)
 	}
 	return params
 }
@@ -176,11 +176,11 @@ func checkClosedSets(spec plugin.ActionSpec, declares, params map[string]string)
 
 		// The original template is quoted when there was one: without it, `received "succeeded"` does
 		// not teach where the value comes from.
-		origine := strings.TrimSpace(declares[field.Name])
-		if origine != value {
+		origin := strings.TrimSpace(declares[field.Name])
+		if origin != value {
 			return fmt.Errorf("%s is %q after interpolating %q, "+
 				"but the recipient allows only %s",
-				field.Label, value, origine, strings.Join(field.OneOf, ", "))
+				field.Label, value, origin, strings.Join(field.OneOf, ", "))
 		}
 		return fmt.Errorf("%s is %q, but the recipient allows only %s",
 			field.Label, value, strings.Join(field.OneOf, ", "))
@@ -224,7 +224,7 @@ func (r *PluginActionRunner) runGitea(
 		}
 		r.logger.Info("commit status set",
 			"run", run.ID, "project", project.Slug,
-			"contexte", params["context"], "state", params["state"])
+			"context", params["context"], "state", params["state"])
 		return nil
 
 	case giteaCommentRef:

@@ -35,7 +35,7 @@ func TestRenderPDFProducesAPDF(t *testing.T) {
 		t.Errorf("header = %q, expected a PDF", pdf[:min(8, len(pdf))])
 	}
 	if len(pdf) < 1000 {
-		t.Errorf("taille = %d octets, document vraisemblablement vide", len(pdf))
+		t.Errorf("size = %d bytes, document probably empty", len(pdf))
 	}
 }
 

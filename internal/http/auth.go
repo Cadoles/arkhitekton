@@ -95,7 +95,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	flow, err := h.flows.Begin(r.Context(), safeRedirect(r.URL.Query().Get("redirect")))
 	if err != nil {
 		h.logger.Error("opening an authentication transaction", "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Authentification indisponible", "")
+		writeProblem(w, http.StatusInternalServerError, "Authentication unavailable", "")
 		return
 	}
 
@@ -155,14 +155,14 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	session, err := h.sessions.Create(r.Context(), claims.Subject, claims.Username, claims.Email)
 	if err != nil {
 		h.logger.Error("creating a session", "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Session indisponible", "")
+		writeProblem(w, http.StatusInternalServerError, "Session unavailable", "")
 		return
 	}
 
 	h.setSessionCookie(w, session.ID)
 	if err := h.setCSRFCookie(w); err != nil {
 		h.logger.Error("generating the CSRF token", "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Session indisponible", "")
+		writeProblem(w, http.StatusInternalServerError, "Session unavailable", "")
 		return
 	}
 

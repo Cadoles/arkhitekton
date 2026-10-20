@@ -59,7 +59,7 @@ func TestReadyzReportsOKWhenAllChecksPass(t *testing.T) {
 		t.Fatalf("unreadable response: %v", err)
 	}
 	if body.Status != "ready" || body.Checks["postgres"] != "ok" || body.Checks["minio"] != "ok" {
-		t.Errorf("corps inattendu: %+v", body)
+		t.Errorf("unexpected body: %+v", body)
 	}
 }
 
@@ -107,7 +107,7 @@ func TestRunStopsOnContextCancellation(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("extinction en erreur: %v", err)
+			t.Fatalf("shutdown failed: %v", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the server did not shut down after the context was cancelled")

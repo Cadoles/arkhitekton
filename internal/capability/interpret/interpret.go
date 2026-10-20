@@ -85,7 +85,7 @@ func SummarizeTests(cases []facts.Case) string {
 		parts = append(parts, fmt.Sprintf("%d failed", failed))
 	}
 	if flaky > 0 {
-		parts = append(parts, fmt.Sprintf("%d instable(s)", flaky))
+		parts = append(parts, fmt.Sprintf("%d flaky", flaky))
 	}
 	if skipped > 0 {
 		parts = append(parts, fmt.Sprintf("%d skipped", skipped))

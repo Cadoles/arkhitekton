@@ -54,7 +54,7 @@ func TestAuthenticateRejectsExpiredSession(t *testing.T) {
 // loop. The 403 says what to do.
 func TestAuthenticateReturns403ForUserWithoutRole(t *testing.T) {
 	m := testMiddleware(&stubSessions{
-		lookup:    auth.Session{Subject: "sub", Username: "nouveau"},
+		lookup:    auth.Session{Subject: "sub", Username: "new"},
 		lookupErr: auth.ErrNoRole,
 	})
 
@@ -202,9 +202,9 @@ func TestCSRFRejectsUnsafeMethodWithoutMatchingToken(t *testing.T) {
 		header string
 	}{
 		{"no token", "", ""},
-		{"cookie seul", "jeton-abc", ""},
-		{"header only", "", "jeton-abc"},
-		{"different values", "jeton-a", "jeton-b"},
+		{"cookie alone", "token-abc", ""},
+		{"header only", "", "token-abc"},
+		{"different values", "token-a", "token-b"},
 	}
 
 	for _, c := range cases {
@@ -229,8 +229,8 @@ func TestCSRFAcceptsMatchingToken(t *testing.T) {
 	m := testMiddleware(&stubSessions{})
 
 	req := httptest.NewRequest(http.MethodPost, "/x", nil)
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "jeton-partage-abc123"})
-	req.Header.Set(csrfHeaderName, "jeton-partage-abc123")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "shared-token-abc123"})
+	req.Header.Set(csrfHeaderName, "shared-token-abc123")
 
 	rec := httptest.NewRecorder()
 	m.CSRF(okHandler()).ServeHTTP(rec, req)
@@ -251,10 +251,10 @@ func TestChainAppliesMiddlewaresInReadingOrder(t *testing.T) {
 		}
 	}
 
-	handler := Chain(okHandler(), record("premier"), record("second"))
+	handler := Chain(okHandler(), record("first"), record("second"))
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil))
 
-	if len(order) != 2 || order[0] != "premier" || order[1] != "second" {
+	if len(order) != 2 || order[0] != "first" || order[1] != "second" {
 		t.Errorf("unexpected execution order: %v", order)
 	}
 }

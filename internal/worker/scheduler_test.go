@@ -101,11 +101,11 @@ func TestAnUnsafeRunNameIsRefused(t *testing.T) {
 // carried an existing run's name, the creation met a conflict read as "it was already done",
 // and nothing started — the interface displaying the failure of a run hours old.
 func TestARunsNameTellsApartTwoDatabaseGenerations(t *testing.T) {
-	ancienne := RunName("a1b2c3", "build", 1)
-	nouvelle := RunName("d4e5f6", "build", 1)
+	former := RunName("a1b2c3", "build", 1)
+	latter := RunName("d4e5f6", "build", 1)
 
-	if ancienne == nouvelle {
-		t.Errorf("the same name for two databases: %q — a reset would produce namesakes", ancienne)
+	if former == latter {
+		t.Errorf("the same name for two databases: %q — a reset would produce namesakes", former)
 	}
 }
 
@@ -130,7 +130,7 @@ func TestTheNameStaysAValidKubernetesName(t *testing.T) {
 	name := RunName("a1b2c3", "security-audit", 12345)
 
 	if len(name) > 63 {
-		t.Errorf("nom trop long (%d): %q", len(name), name)
+		t.Errorf("name too long (%d): %q", len(name), name)
 	}
 	for _, r := range name {
 		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
@@ -228,15 +228,15 @@ func TestAProjectSettingReplacesTheInstances(t *testing.T) {
 	}
 	// What the project does not state stays the instance's.
 	if settings["registry.project"] != "reg.example.fr/cnous" {
-		t.Errorf("registre = %q", settings["registry.project"])
+		t.Errorf("registry = %q", settings["registry.project"])
 	}
 	// And the instance's map has not moved: it is shared by every job.
 	if scheduler.config["forge.mseKustom.repoUrl"] != "ssh://git@forge/CNOUS/mse-kustom" {
 		t.Error("the instance's configuration was written to")
 	}
 
-	autre := int64(9)
-	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &autre})
+	other := int64(9)
+	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &other})
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
@@ -245,9 +245,9 @@ func TestAProjectSettingReplacesTheInstances(t *testing.T) {
 	}
 }
 
-type depotsDeProjets map[int64]store.Project
+type projectRepositories map[int64]store.Project
 
-func (d depotsDeProjets) GetProject(_ context.Context, id int64) (store.Project, error) {
+func (d projectRepositories) GetProject(_ context.Context, id int64) (store.Project, error) {
 	project, found := d[id]
 	if !found {
 		return store.Project{}, store.ErrProjectNotFound
@@ -261,7 +261,7 @@ func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	scheduler := (&Scheduler{config: map[string]string{
 		projectRepoKey: "ssh://git@forge/CNOUS/mse.git",
 		legacyRepoKey:  "ssh://git@forge/CNOUS/mse.git",
-	}}).WithProjectRepositories(depotsDeProjets{
+	}}).WithProjectRepositories(projectRepositories{
 		7: {ID: 7, Repository: "vcarroy/themes", ForgeURL: "https://forge.example.fr"},
 		// Declared before its forge was filled in.
 		8: {ID: 8, Repository: "vcarroy/no-forge"},
@@ -281,8 +281,8 @@ func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 		t.Errorf("old key = %q", settings[legacyRepoKey])
 	}
 
-	sansForge := int64(8)
-	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &sansForge})
+	withoutForge := int64(8)
+	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &withoutForge})
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}

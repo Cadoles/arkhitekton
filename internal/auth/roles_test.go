@@ -86,7 +86,7 @@ func TestDeployOnUnknownEnvironmentFailsClosed(t *testing.T) {
 	if a.CanDeploy(identity(RoleOperator), 0, "mse", "nouveau-env") {
 		t.Error("an unknown environment must not be deployable by an operator")
 	}
-	if a.CanDeploy(identity(RoleOperator), 0, "autre-projet", "unstable") {
+	if a.CanDeploy(identity(RoleOperator), 0, "other-project", "unstable") {
 		t.Error("an environment of an undeclared project must not be deployable by an operator")
 	}
 	if a.Can(identity(RoleOperator), PermDeploy("unstable")) {

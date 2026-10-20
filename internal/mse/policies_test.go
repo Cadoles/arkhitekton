@@ -20,12 +20,12 @@ func TestSensitivityComesFromTheCatalogueAndForgettingIsSensitive(t *testing.T) 
 	}}))
 
 	operator := auth.Identity{Subject: "s", Role: auth.RoleOperator}
-	for environment, attendu := range map[string]bool{"qualif": true, "prod": false, "oublie": false, "unknown": false} {
-		if got := authorizer.CanDeploy(operator, 0, "mse", environment); got != attendu {
-			t.Errorf("operator to %s: %v, expected %v", environment, got, attendu)
+	for environment, expected := range map[string]bool{"qualif": true, "prod": false, "oublie": false, "unknown": false} {
+		if got := authorizer.CanDeploy(operator, 0, "mse", environment); got != expected {
+			t.Errorf("operator to %s: %v, expected %v", environment, got, expected)
 		}
 	}
-	if authorizer.CanDeploy(operator, 0, "autre", "qualif") {
+	if authorizer.CanDeploy(operator, 0, "other", "qualif") {
 		t.Error("a project with no section returns no environment an operator can promote to")
 	}
 	if authorizer.Sensitive("mse", "qualif") || !authorizer.Sensitive("mse", "oublie") {

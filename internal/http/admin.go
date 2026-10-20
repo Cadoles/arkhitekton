@@ -149,10 +149,10 @@ func (h *AdminHandler) Grant(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, store.ErrLastAdmin) {
 			// 409 and not 403: the request is legitimate and the caller has the right, it is the
 			// system's state that forbids it.
-			writeProblem(w, http.StatusConflict, "Dernier administrateur", err.Error())
+			writeProblem(w, http.StatusConflict, "Last administrator", err.Error())
 			return
 		}
-		writeProblem(w, http.StatusInternalServerError, "Attribution impossible", "")
+		writeProblem(w, http.StatusInternalServerError, "Cannot assign", "")
 		return
 	}
 
@@ -193,9 +193,9 @@ func (h *AdminHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, store.ErrRoleNotFound):
 			writeProblem(w, http.StatusNotFound, "Role not found", "")
 		case errors.Is(err, store.ErrLastAdmin):
-			writeProblem(w, http.StatusConflict, "Dernier administrateur", err.Error())
+			writeProblem(w, http.StatusConflict, "Last administrator", err.Error())
 		default:
-			writeProblem(w, http.StatusInternalServerError, "Retrait impossible", "")
+			writeProblem(w, http.StatusInternalServerError, "Cannot remove", "")
 		}
 		return
 	}

@@ -145,7 +145,7 @@ func (SemVer) Parse(tag string) (Version, error) {
 	matches := semverPattern.FindStringSubmatch(strings.TrimSpace(tag))
 	if matches == nil {
 		return Version{}, fmt.Errorf(
-			"tag %q invalide: forme attendue MAJEUR.MINEUR.CORRECTIF[-prerelease]", tag)
+			"tag %q invalid: expected MAJOR.MINOR.PATCH[-prerelease]", tag)
 	}
 
 	return Version{
@@ -284,7 +284,7 @@ func (Opaque) ID() string { return "opaque" }
 func (Opaque) Parse(tag string) (Version, error) {
 	trimmed := strings.TrimSpace(tag)
 	if trimmed == "" {
-		return Version{}, errors.New("tag vide")
+		return Version{}, errors.New("empty tag")
 	}
 	// Base stays empty and KnowsPrerelease false: the tag does not decompose.
 	return Version{Raw: trimmed}, nil

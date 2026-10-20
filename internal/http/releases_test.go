@@ -612,12 +612,12 @@ func TestUpdateActionsRecordsTheAuthor(t *testing.T) {
 		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body.String())
 	}
 	if fake.actions["1.8.0"] != "- cache purge" {
-		t.Errorf("texte = %q", fake.actions["1.8.0"])
+		t.Errorf("text = %q", fake.actions["1.8.0"])
 	}
 	// The author is set by the server, never by the client: this text ends up in a
 	// contractual document.
 	if fake.releases["1.8.0"].ManualActionsUpdatedBy != "vcarroy" {
-		t.Errorf("auteur = %q", fake.releases["1.8.0"].ManualActionsUpdatedBy)
+		t.Errorf("author = %q", fake.releases["1.8.0"].ManualActionsUpdatedBy)
 	}
 }
 
@@ -688,7 +688,7 @@ func TestDownloadServesTheArtifact(t *testing.T) {
 		{ID: 7, ReleaseID: 22, Kind: store.ArtifactDeliveryNote, Format: "pdf",
 			Object: "artifacts/releases/1.8.0/delivery-note.pdf"},
 	}
-	fake.objects["artifacts/releases/1.8.0/delivery-note.pdf"] = "%PDF-1.3 contenu"
+	fake.objects["artifacts/releases/1.8.0/delivery-note.pdf"] = "%PDF-1.3 content"
 	handler := newReleasesHandler(t, fake)
 
 	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0/exports/7/download", nil)
@@ -704,7 +704,7 @@ func TestDownloadServesTheArtifact(t *testing.T) {
 		t.Errorf("type = %q", recorder.Header().Get("Content-Type"))
 	}
 	if !strings.HasPrefix(recorder.Body.String(), "%PDF-") {
-		t.Errorf("corps = %q", recorder.Body.String())
+		t.Errorf("body = %q", recorder.Body.String())
 	}
 }
 
@@ -1229,7 +1229,7 @@ func TestRerunningOneKindAcceptsOnlyVerifications(t *testing.T) {
 		t.Fatalf("code = %d, expected 202: %s", recorder.Code, recorder.Body.String())
 	}
 	if len(fake.jobs) != 1 || fake.jobs[0].Kind != "unit-tests" {
-		t.Fatalf("jobs mis en file: %+v", fake.jobs)
+		t.Fatalf("jobs enqueued: %+v", fake.jobs)
 	}
 	// The revision verified is the commit that was built, never the branch it came from:
 	// that may have moved, and the tests would then be about something other than the image.

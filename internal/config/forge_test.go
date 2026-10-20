@@ -5,7 +5,7 @@ import "testing"
 // Naming a repository in the configuration must be enough for the pipelines to
 // build it. This is the property that was missing: FORGE_REPO could be switched to
 // a test repository while the Tasks kept cloning the real application.
-func TestCloneURLSuitLeDepotConfigure(t *testing.T) {
+func TestCloneURLFollowsTheConfiguredRepository(t *testing.T) {
 	cases := []struct {
 		url, repo, port, want string
 	}{
@@ -43,7 +43,7 @@ func TestCloneURLSuitLeDepotConfigure(t *testing.T) {
 // With no forge configured, derivation returns an empty string rather than a
 // malformed URL: the caller falls back to its default, and a deployment that never
 // set the forge keeps working.
-func TestSansForgeLaDerivationSabstient(t *testing.T) {
+func TestWithoutForgeTheDerivationAbstains(t *testing.T) {
 	for _, cfg := range []ForgeConfig{
 		{},
 		{URL: "https://forge.cadoles.com"},
@@ -58,7 +58,7 @@ func TestSansForgeLaDerivationSabstient(t *testing.T) {
 
 // The inverse: pipelines clone repositories written as SSH URLs, while the forge
 // API and the projects screen name them `owner/name`.
-func TestLeDepotSeRetrouveDepuisSonURLDeClonage(t *testing.T) {
+func TestTheRepositoryIsFoundFromItsCloneURL(t *testing.T) {
 	cases := []struct {
 		clone      string
 		repository string
@@ -89,7 +89,7 @@ func TestLeDepotSeRetrouveDepuisSonURLDeClonage(t *testing.T) {
 
 // A project's repository gives its clone URL: that is where what its pipelines
 // clone comes from, not an instance-wide key.
-func TestCloneURLForSuitLeDepotDUnProjet(t *testing.T) {
+func TestCloneURLForFollowsAProjectsRepository(t *testing.T) {
 	got := CloneURLFor("https://forge.example.fr", "vcarroy/mse-kustom", "2222")
 	if got != "ssh://git@forge.example.fr:2222/vcarroy/mse-kustom.git" {
 		t.Errorf("URL = %q", got)
@@ -103,9 +103,9 @@ func TestCloneURLForSuitLeDepotDUnProjet(t *testing.T) {
 
 	// A project declared before its forge was set yields nothing: the caller then
 	// falls back to the instance repository.
-	for _, cas := range [][2]string{{"", "vcarroy/mse"}, {"https://forge.example.fr", "  "}} {
-		if got := CloneURLFor(cas[0], cas[1], "2222"); got != "" {
-			t.Errorf("forge %q repository %q: %q, expected no URL", cas[0], cas[1], got)
+	for _, testCases := range [][2]string{{"", "vcarroy/mse"}, {"https://forge.example.fr", "  "}} {
+		if got := CloneURLFor(testCases[0], testCases[1], "2222"); got != "" {
+			t.Errorf("forge %q repository %q: %q, expected no URL", testCases[0], testCases[1], got)
 		}
 	}
 }

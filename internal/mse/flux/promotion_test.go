@@ -124,7 +124,7 @@ func TestPlanPromotionCarriesBothTags(t *testing.T) {
 		t.Errorf("plan = %+v", plan)
 	}
 	if plan.EnvironmentID != "qualif" {
-		t.Errorf("environnement = %q", plan.EnvironmentID)
+		t.Errorf("environment = %q", plan.EnvironmentID)
 	}
 }
 

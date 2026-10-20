@@ -134,6 +134,6 @@ func TestAReadFailureReturnsAnError(t *testing.T) {
 // The file name keeps only what crosses a header unharmed.
 func TestTheFileNameIsSanitised(t *testing.T) {
 	if got := sanitizeFilename(`mse "run"/1`); got != "mse--run--1" {
-		t.Errorf("nom: %q", got)
+		t.Errorf("name: %q", got)
 	}
 }
