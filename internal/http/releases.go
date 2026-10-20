@@ -103,6 +103,8 @@ type ReleasesHandler struct {
 	// logger serves to say what fails without failing the screen. Nil-safe:
 	// `slog.Default()` by default, so tests need not supply one.
 	logger *slog.Logger
+	// exports says whether a project's deliverables are switched on.
+	exports func(ctx context.Context, projectID int64) bool
 	// trackers serves the links to a note's issues. Nil, or a project with no tracker, and the
 	// links are omitted rather than rendered dead.
 	trackers Trackers
@@ -126,6 +128,16 @@ type ReleasesHandler struct {
 	// name the family of a step that produced nothing. The list's badge and a release's
 	// screen must show the same figure, so they must start from the same catalogue.
 	scoreCatalog *catalog.Catalog
+}
+
+// WithExports wires whether a project's deliverables are switched on. Without it, they are.
+func (h *ReleasesHandler) WithExports(enabled func(ctx context.Context, projectID int64) bool) *ReleasesHandler {
+	h.exports = enabled
+	return h
+}
+
+func (h *ReleasesHandler) exportsEnabled(ctx context.Context, projectID int64) bool {
+	return h.exports == nil || h.exports(ctx, projectID)
 }
 
 // WithTrackers wires the links to the issues, which the project's tracker plugin composes.
@@ -307,6 +319,9 @@ type releasePayload struct {
 	// for a build failure.
 	ArtifactsNote string          `json:"artifacts_note,omitempty"`
 	ManualAction  *manualActionVw `json:"manual_actions,omitempty"`
+	// ExportsEnabled says whether the project's deliverables are switched on: off, the screen
+	// offers none.
+	ExportsEnabled bool `json:"exports_enabled"`
 
 	// What a screen shows beside the name, without having to unfold the release.
 	//
@@ -552,6 +567,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	payload.ExportsEnabled = h.exportsEnabled(r.Context(), currentID)
 	payload.Artifacts = h.releaseArtifacts(r.Context(), item.ID, promotions)
 	if h.images == nil && len(payload.Artifacts) > 0 {
 		payload.ArtifactsNote = "The registry is not configured: the digests cannot be read."
@@ -1625,6 +1641,11 @@ func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
 
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
+		return
+	}
+	if !h.exportsEnabled(r.Context(), currentID) {
+		writeProblem(w, http.StatusConflict, "Deliverables switched off",
+			"the plugin producing this project's deliverables is switched off")
 		return
 	}
 

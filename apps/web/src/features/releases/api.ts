@@ -129,6 +129,8 @@ export type ProducedArtifact = {
 
 /** Détail d'une release : la liste n'en porte que l'en-tête. */
 export type ReleaseDetail = Release & {
+  /** Faux : le plugin des livrables est éteint pour ce projet, l'écran n'en propose aucun. */
+  exports_enabled?: boolean
   jobs?: ReleaseJob[]
   artifacts?: ProducedArtifact[]
   /** Dit pourquoi les digests manquent. « Pas de digest » et « impossible de le

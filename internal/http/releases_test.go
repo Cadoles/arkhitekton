@@ -663,6 +663,23 @@ func TestExportEnqueuesAJobBoundToTheRelease(t *testing.T) {
 	}
 }
 
+// A project that switched its deliverables off is refused one, rather than given a job that the
+// worker would refuse in turn.
+func TestExportIsRefusedWhenDeliverablesAreOff(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{ID: 20, Tag: "1.8.0", Kind: "final", State: "ready"}
+	handler := newReleasesHandler(t, fake).WithExports(func(context.Context, int64) bool { return false })
+
+	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/exports", strings.NewReader(`{}`))
+	request.SetPathValue("tag", "1.8.0")
+	recorder := httptest.NewRecorder()
+	handler.Export(recorder, asRole(request, auth.RoleReleaser))
+
+	if recorder.Code != http.StatusConflict || len(fake.jobs) != 0 {
+		t.Errorf("code = %d, %d job(s)", recorder.Code, len(fake.jobs))
+	}
+}
+
 func TestExportRefusesAnUnknownFormat(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0"] = store.Release{ID: 21, Tag: "1.8.0"}

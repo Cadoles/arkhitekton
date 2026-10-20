@@ -81,7 +81,7 @@ export function ReleaseScreen() {
           )}
 
           <ReleaseNotes release={data} />
-          <Exports release={data} />
+          {data.exports_enabled !== false && <Exports release={data} />}
 
           {/* Les exécutions en dernier et repliées : c'est de la matière de
               diagnostic, consultée quand quelque chose ne va pas. Le reste de

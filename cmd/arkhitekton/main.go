@@ -287,6 +287,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		WithDeployments(mse.Deployments(mseBackend.Store, modules)).
 		WithPromotions(mse.Promotions(mseBackend.Store, modules)).
 		WithTrackers(connections).
+		WithExports(deliverablesEnabled(db)).
 		// The release is anchored on a commit and tagged through the project's forge plugin. With
 		// none, the git_ref is kept as typed and the release says so.
 		WithForges(connections).
@@ -598,7 +599,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// The deliverables go through the queue like the rest, but are produced here: generating a
 			// delivery note reads the database and writes an object. Making it cross Tekton would cost a
 			// pod and a workspace to produce two pages.
-			scheduler.Handle(worker.NewExporter(db, storage, exportRegistry(cfg, logger), cfg.Registry.Image, logger))
+			scheduler.Handle(worker.NewExporter(db, storage, exportRegistry(cfg, logger), cfg.Registry.Image, logger).
+				WithGate(deliverablesEnabled(db)))
 
 			// The release note, for the same reason: it reads the tracker, the forge and the database.
 			// Both are the project's plugins, resolved per job: a project with no forge plugin gets a

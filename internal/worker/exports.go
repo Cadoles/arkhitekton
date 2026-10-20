@@ -55,6 +55,7 @@ type Exporter struct {
 	imageName string
 	keys      blob.Keys
 	logger    *slog.Logger
+	enabled   func(ctx context.Context, projectID int64) bool
 }
 
 func NewExporter(
@@ -67,6 +68,12 @@ func NewExporter(
 	}
 }
 
+// WithGate refuses a job whose project has switched the deliverables off since asking.
+func (e *Exporter) WithGate(enabled func(ctx context.Context, projectID int64) bool) *Exporter {
+	e.enabled = enabled
+	return e
+}
+
 // Kind returns the `kind` this generator handles.
 func (e *Exporter) Kind() string { return KindExport }
 
@@ -77,6 +84,9 @@ func (e *Exporter) Kind() string { return KindExport }
 // the same release — the second of which would overwrite the first's object while recording
 // two rows.
 func (e *Exporter) Run(ctx context.Context, job store.Job) error {
+	if e.enabled != nil && job.ProjectID != nil && !e.enabled(ctx, *job.ProjectID) {
+		return fmt.Errorf("deliverables switched off for this project")
+	}
 	release, err := e.store.GetReleaseByID(ctx, derefRelease(job))
 	if err != nil {
 		return fmt.Errorf("release of job %d: %w", job.ID, err)

@@ -11,6 +11,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/deliverynote"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -235,5 +236,14 @@ func pluginGate(db *store.DB) func(ctx context.Context, projectID *int64, plugin
 			return fmt.Errorf("plugin %q is switched off", pluginID)
 		}
 		return nil
+	}
+}
+
+// deliverablesEnabled says whether the delivery-note plugin is switched on for a project. The
+// dashboard renders the deliverable; the plugin is the switch.
+func deliverablesEnabled(db *store.DB) func(ctx context.Context, projectID int64) bool {
+	return func(ctx context.Context, projectID int64) bool {
+		_, err := db.ResolvedPlugin(ctx, projectID, deliverynote.ID)
+		return !errors.Is(err, store.ErrPluginDisabled)
 	}
 }

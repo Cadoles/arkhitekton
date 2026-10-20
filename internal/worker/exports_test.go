@@ -200,3 +200,15 @@ func keysOf(storage fakeStorage) []string {
 	}
 	return keys
 }
+
+// A project that switched its deliverables off after asking gets none.
+func TestTheExporterRefusesWhenDeliverablesAreOff(t *testing.T) {
+	project, release := int64(3), int64(1)
+	exporter := NewExporter(nil, nil, nil, "portal", slog.New(slog.DiscardHandler)).
+		WithGate(func(context.Context, int64) bool { return false })
+
+	err := exporter.Run(context.Background(), store.Job{ID: 1, ProjectID: &project, ReleaseID: &release})
+	if err == nil || !strings.Contains(err.Error(), "switched off") {
+		t.Errorf("%v", err)
+	}
+}
