@@ -223,7 +223,7 @@ export function useGenerateExport(tag: string) {
  *  pré-signée : ces objets portent la preuve d'une livraison, et une URL
  *  pré-signée est transmissible — elle échapperait au contrôle de rôle. */
 export function downloadURL(tag: string, artifact: number): string {
-  return `/api/v1/releases/${encodeURIComponent(tag)}/exports/${artifact}/download`
+  return `/api/v1${projectPath(`/releases/${encodeURIComponent(tag)}/exports/${artifact}/download`)}`
 }
 
 /*
