@@ -12,7 +12,6 @@ import (
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -56,7 +55,7 @@ func NewHandler(
 // Routes mounts the plugin's routes. Each requires the module switched on: switched off, they
 // answer 404 like a route that does not exist.
 func (h *Handler) Routes(mux *http.ServeMux, m *dashhttp.Middleware) {
-	module := m.RequireModule(plugin.ModuleMSE)
+	module := m.RequireModule(PluginID)
 
 	// A release's targets depend on the identity asking: the refusal by role is computed here
 	// rather than in the page.

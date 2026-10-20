@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -46,7 +45,7 @@ type SettingsReader interface {
 // overwrite its own (see [plugin.Resolve]).
 func PipelineSettings(settings SettingsReader) func(context.Context, int64) (map[string]string, error) {
 	return func(ctx context.Context, projectID int64) (map[string]string, error) {
-		resolved, err := settings.ResolvedPlugin(ctx, projectID, plugin.ModuleMSE)
+		resolved, err := settings.ResolvedPlugin(ctx, projectID, PluginID)
 		switch {
 		case errors.Is(err, store.ErrPluginDisabled):
 			return nil, nil

@@ -7,7 +7,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
@@ -19,12 +18,12 @@ type pluginSettings struct {
 }
 
 func (p pluginSettings) PluginSettingsAll(context.Context) (map[string]store.PluginSettings, error) {
-	return map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: p.global}}, nil
+	return map[string]store.PluginSettings{PluginID: {PluginID: PluginID, Enabled: p.global}}, nil
 }
 
 func (p pluginSettings) ProjectPluginSettings(_ context.Context, projectID int64) (map[string]store.PluginSettings, error) {
 	if p.switchedOffList[projectID] {
-		return map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: false}}, nil
+		return map[string]store.PluginSettings{PluginID: {PluginID: PluginID, Enabled: false}}, nil
 	}
 	return nil, nil
 }
@@ -75,7 +74,7 @@ func TestTheOfferedEnvironmentsFollowTheProjectsModule(t *testing.T) {
 // moduleRegistry declares the MSE module, as its plugin does.
 var moduleRegistry = func() *capabilities.Registry {
 	registry, err := capabilities.New(capability.Plugin{
-		ID: plugin.ModuleMSE, Version: "1.0.0", APIVersion: sdk.APIVersion, PerProject: true,
+		ID: PluginID, Version: "1.0.0", APIVersion: sdk.APIVersion, PerProject: true,
 		Capabilities: []capability.Header{{Kind: capability.KindModule, Name: "module"}},
 	})
 	if err != nil {

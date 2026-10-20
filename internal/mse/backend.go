@@ -5,7 +5,6 @@ import (
 
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -26,7 +25,7 @@ func NewBackend(db *store.DB) Backend {
 // function, which returns nothing when the module is switched off for the project.
 func Deployments(environments *storage.Store, modules *dashhttp.Modules) func(context.Context, int64) (map[string][]string, error) {
 	return func(ctx context.Context, projectID int64) (map[string][]string, error) {
-		if !modules.EnabledIn(ctx, projectID, plugin.ModuleMSE) {
+		if !modules.EnabledIn(ctx, projectID, PluginID) {
 			return nil, nil
 		}
 		return environments.DeployedByRelease(ctx, projectID)
@@ -39,7 +38,7 @@ func Promotions(
 	environments *storage.Store, modules *dashhttp.Modules,
 ) func(context.Context, int64, int64) ([]dashhttp.ReleasePromotion, error) {
 	return func(ctx context.Context, projectID, releaseID int64) ([]dashhttp.ReleasePromotion, error) {
-		if !modules.EnabledIn(ctx, projectID, plugin.ModuleMSE) {
+		if !modules.EnabledIn(ctx, projectID, PluginID) {
 			return nil, nil
 		}
 		promotions, err := environments.ListPromotions(ctx, releaseID)

@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -37,8 +36,8 @@ func (l pluginReader) ProjectPluginSettings(_ context.Context, projectID int64) 
 
 func modulesWith(mse bool) *Modules {
 	return NewModules(testRegistry, pluginReader{settings: map[string]store.PluginSettings{
-		plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: mse},
-		"redmine":        {PluginID: "redmine", Enabled: true},
+		moduleID:  {PluginID: moduleID, Enabled: mse},
+		"redmine": {PluginID: "redmine", Enabled: true},
 	}}, quietLogger())
 }
 
@@ -56,7 +55,7 @@ func TestOnlySwitchedOnModulesAreAnnounced(t *testing.T) {
 // fail.
 func TestAFailedReadHidesTheModules(t *testing.T) {
 	modules := NewModules(testRegistry, pluginReader{err: errors.New("database unreachable")}, quietLogger())
-	if modules.Enabled(context.Background(), plugin.ModuleMSE) {
+	if modules.Enabled(context.Background(), moduleID) {
 		t.Error("a module whose state is unreadable is announced switched on")
 	}
 }
@@ -65,7 +64,7 @@ func TestAFailedReadHidesTheModules(t *testing.T) {
 func TestARouteOfASwitchedOffModuleAnswers404(t *testing.T) {
 	middleware := NewMiddleware(nil, nil, quietLogger()).WithModules(modulesWith(false))
 	reached := false
-	handler := middleware.RequireModule(plugin.ModuleMSE)(http.HandlerFunc(
+	handler := middleware.RequireModule(moduleID)(http.HandlerFunc(
 		func(http.ResponseWriter, *http.Request) { reached = true }))
 
 	recorder := httptest.NewRecorder()
@@ -82,7 +81,7 @@ func TestARouteOfASwitchedOffModuleAnswers404(t *testing.T) {
 func TestARouteOfASwitchedOnModulePasses(t *testing.T) {
 	middleware := NewMiddleware(nil, nil, quietLogger()).WithModules(modulesWith(true))
 	reached := false
-	handler := middleware.RequireModule(plugin.ModuleMSE)(http.HandlerFunc(
+	handler := middleware.RequireModule(moduleID)(http.HandlerFunc(
 		func(http.ResponseWriter, *http.Request) { reached = true }))
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/environments", nil))
@@ -117,10 +116,10 @@ func TestMeAnnouncesTheModules(t *testing.T) {
 func TestAModuleResolvesWithinTheProject(t *testing.T) {
 	reader := func(global bool) *Modules {
 		return NewModules(testRegistry, pluginReader{
-			settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: global}},
+			settings: map[string]store.PluginSettings{moduleID: {PluginID: moduleID, Enabled: global}},
 			projects: map[int64]map[string]store.PluginSettings{
-				2: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: false}},
-				3: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: true}},
+				2: {moduleID: {PluginID: moduleID, Enabled: false}},
+				3: {moduleID: {PluginID: moduleID, Enabled: true}},
 			},
 		}, quietLogger())
 	}
@@ -136,7 +135,7 @@ func TestAModuleResolvesWithinTheProject(t *testing.T) {
 		{true, 2, false, "switched off for the project"},
 		{false, 3, false, "the switched-off instance wins over the project"},
 	} {
-		if got := reader(testCases.global).EnabledIn(ctx, testCases.project, plugin.ModuleMSE); got != testCases.expected {
+		if got := reader(testCases.global).EnabledIn(ctx, testCases.project, moduleID); got != testCases.expected {
 			t.Errorf("%s: %v, expected %v", testCases.label, got, testCases.expected)
 		}
 	}
@@ -156,16 +155,16 @@ func (r slugResolver) ProjectBySlug(_ context.Context, slug string) (store.Proje
 // the instance.
 func TestAProjectRouteFollowsTheProjectsModule(t *testing.T) {
 	modules := NewModules(testRegistry, pluginReader{
-		settings: map[string]store.PluginSettings{plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: true}},
+		settings: map[string]store.PluginSettings{moduleID: {PluginID: moduleID, Enabled: true}},
 		projects: map[int64]map[string]store.PluginSettings{
-			2: {plugin.ModuleMSE: {PluginID: plugin.ModuleMSE, Enabled: false}},
+			2: {moduleID: {PluginID: moduleID, Enabled: false}},
 		},
 	}, quietLogger())
 	middleware := NewMiddleware(nil, nil, quietLogger()).
 		WithProjects(slugResolver{"mse": 1, "tekton": 2}).WithModules(modules)
 
 	for slug, expected := range map[string]int{"mse": http.StatusOK, "tekton": http.StatusNotFound} {
-		handler := middleware.RequireModule(plugin.ModuleMSE)(http.HandlerFunc(
+		handler := middleware.RequireModule(moduleID)(http.HandlerFunc(
 			func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 		request := httptest.NewRequest(http.MethodGet, "/projects/"+slug+"/releases/1.0.0/targets", nil)
 		request.SetPathValue("project", slug)
@@ -176,3 +175,6 @@ func TestAProjectRouteFollowsTheProjectsModule(t *testing.T) {
 		}
 	}
 }
+
+// moduleID is the module these tests switch: the core knows no module by name.
+const moduleID = "mse"

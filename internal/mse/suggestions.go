@@ -5,7 +5,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 )
 
 // EnvironmentSuggestions returns the environments the launch form offers for a parameter of
@@ -22,7 +21,7 @@ func EnvironmentSuggestions(
 			return nil
 		}
 		project, err := projects.ProjectBySlug(ctx, projectSlug)
-		if err != nil || !modules.EnabledIn(ctx, project.ID, plugin.ModuleMSE) {
+		if err != nil || !modules.EnabledIn(ctx, project.ID, PluginID) {
 			return nil
 		}
 		environments := declared.EnvironmentsOf(projectSlug)

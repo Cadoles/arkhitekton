@@ -10,16 +10,18 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
+
+// PluginID identifies the MSE plugin, whose switch this module follows.
+const PluginID = "mse"
 
 // ReleasePromoted is the fact of a completed promotion.
 //
 // **The re-tag succeeded**, which is an observation and not the intention of asking for it.
 // What Flux then makes of it is another matter, and it is the environments screen that tells
 // that story.
-const ReleasePromoted = event.Type(plugin.ModuleMSE + ".release.promoted")
+const ReleasePromoted = event.Type(PluginID + ".release.promoted")
 
 // Facts composes the facts the plugin observes.
 type Facts struct{}
@@ -31,7 +33,7 @@ type Facts struct{}
 func (Facts) Promoted(at time.Time, linked store.JobReleaseContext) event.Event {
 	projectID := linked.ProjectID
 	return event.Event{
-		Type: ReleasePromoted, Source: plugin.ModuleMSE,
+		Type: ReleasePromoted, Source: PluginID,
 		ProjectID: &projectID, Subject: linked.Tag, OccurredAt: at,
 		DedupKey: fmt.Sprintf("%s:%d", ReleasePromoted, linked.JobID),
 		Payload: map[string]string{

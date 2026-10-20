@@ -35,12 +35,11 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/portaldata"
 	msestorage "forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -462,121 +461,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
-	// The MSE plugin decides everything that follows: Flux, PortalData, observing the
-	// environments. Switched off, the worker starts on a cluster carrying neither Flux's CRDs nor
-	// the portal's.
-	//
-	// **Read at start-up**, unlike in the `api`: opening a Flux client or closing it along the
-	// way would touch the lease and the observation loop. Flipping the switch therefore needs a
-	// worker restart to take effect here.
-	pluginSettings, err := db.PluginSettingsAll(ctx)
+	// The modules the dashboard runs on the plugins' behalf, each bound to the plugin that declares
+	// it. Started and stopped under the lease by their supervisor, as their plugin is switched.
+	modules, err := hostModules(pluginRegistry,
+		mse.NewModule(msestorage.New(db.Pool()), cluster.RESTConfig, pipelines, cfg.Flux.Namespace, logger))
 	if err != nil {
 		return err
-	}
-	mseSettings := pluginSettings[plugin.ModuleMSE]
-	var environments *mse.Observer
-	if !mseSettings.Enabled {
-		logger.Info("module MSE inactif",
-			"consequence", "neither Flux, nor PortalData, nor environment observation")
-	} else {
-		// Two distinct dependencies, and two distinct clients: one says what the deployment applied,
-		// the other what the application reports about itself. It is their gap that gives the
-		// environments screen its value, and merging them would make it disappear.
-		//
-		// The attestation is **optional**: a cluster without the portal's CRD is a valid
-		// configuration, and the dashboard falls back there to what the deployment declares.
-		var attester mse.Attester
-		switch portalClient, err := portaldata.Open(cluster.RESTConfig); {
-		case errors.Is(err, portaldata.ErrAbsent):
-			logger.Info("no attestation source in this cluster",
-				"consequence", "the environments' state will be the one the deployer declares")
-		case err != nil:
-			return err
-		default:
-			attester = portalClient
-			// `api_version` and not `version`: the logger already carries a `version` attribute — the
-			// binary's — and two keys of the same name in one record make it unreadable.
-			logger.Info("attestation source", "api_version", portalClient.Version())
-		}
-		environments = mse.NewObserver(msestorage.New(db.Pool()), attester, logger)
-
-		// The environments are written for each project that has the module, read at start-up like
-		// the instance's switch. Each is observed by the Flux of its namespace: the project's,
-		// failing that the instance's, failing that the configuration's.
-		projects, err := db.ListProjects(ctx)
-		if err != nil {
-			return err
-		}
-		projectModules := dashhttp.NewModules(pluginRegistry, db, logger)
-		// One client per distinct namespace, shared by the projects that share it: the client
-		// discovers the API versions served, and doing it once per project would multiply the calls
-		// for the same answer.
-		deployers := map[string]*flux.Deployer{}
-		var declared []mse.ProjectEnvironments
-		enabled := map[string]bool{}
-		var slugs []string
-		for _, project := range projects {
-			if !projectModules.EnabledIn(ctx, project.ID, plugin.ModuleMSE) {
-				continue
-			}
-			enabled[project.Slug] = true
-			slugs = append(slugs, project.Slug)
-
-			settings, err := db.ResolvedPlugin(ctx, project.ID, plugin.ModuleMSE)
-			if err != nil {
-				return err
-			}
-			namespace := strings.TrimSpace(settings.Config["namespace"])
-			if namespace == "" {
-				namespace = cfg.Flux.Namespace
-			}
-			deployer, opened := deployers[namespace]
-			if !opened {
-				// The Flux client discovers the API versions served instead of hard-coding them: one
-				// installation may serve `kustomize` and `image` in different versions.
-				fluxClient, err := flux.Open(cluster.RESTConfig, namespace)
-				if err != nil {
-					return fmt.Errorf("Flux client of project %s: %w", project.Slug, err)
-				}
-				logger.Info("Flux client", "namespace", namespace, "versions", fluxClient.Versions())
-				deployer = flux.NewDeployer(fluxClient, flux.DefaultPromotionKind, "")
-				deployers[namespace] = deployer
-			}
-
-			own := pipelines.EnvironmentsOf(project.Slug)
-			if len(own) == 0 {
-				logger.Warn("project of the MSE module with no declared environment",
-					"project", project.Slug, "consequence", "neither promotion nor observation for it")
-			}
-			declared = append(declared, mse.ProjectEnvironments{
-				ProjectID: project.ID, Slug: project.Slug, Environments: own, Deployer: deployer,
-			})
-			logger.Info("project of the MSE module", "project", project.Slug, "flux_namespace", namespace,
-				"environments", len(own),
-				// What its pipelines will clone: a repository that does not match what one believes one is
-				// driving is otherwise visible only when the clone fails.
-				"kustom_repo", settings.Config["kustomRepoUrl"],
-				"kustom_revision", settings.Config["kustomRevision"],
-				"kustom_overlay", settings.Config["overlayLocation"])
-		}
-		for slug := range pipelines.Projects {
-			if !enabled[slug] {
-				// A section for a project that is absent or has switched the module off: without effect, and
-				// saying so avoids hunting for why nothing appears.
-				logger.Warn("environments declared for a project without the MSE module",
-					"project", slug, "consequence", "ignored")
-			}
-		}
-		logger.Info("projects of the MSE module", "projects", slugs)
-
-		// The guard rail: a promotion suffix matching no ImagePolicy would produce a valid tag,
-		// pushed with no error, which Flux would ignore. Better not to start.
-		syncCtx, cancelSync := context.WithTimeout(ctx, 30*time.Second)
-		err = environments.SyncEnvironments(syncCtx, declared)
-		cancelSync()
-		if err != nil {
-			return err
-		}
 	}
 
 	identity := worker.LeaderIdentity()
@@ -637,10 +527,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithInstance(instance).
 				// The emission of facts.
 				WithEvents(db)
-			// A promotion is observed only if the plugin that promotes is there.
-			if mseSettings.Enabled {
-				sink.WithPromotionFacts(mse.Facts{})
-			}
+			// A promotion is observed when one concludes, which only happens while the MSE module
+			// promotes.
+			sink.WithPromotionFacts(mse.Facts{})
 
 			// The plan engine, which chains the verifications of a successful build and concludes their
 			// steps at the end of their job.
@@ -747,9 +636,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
-			if environments != nil {
-				go func() { errs <- environments.Run(leadingCtx) }()
-			}
+			go func() {
+				errs <- module.NewSupervisor(db, moduleTick, logger, modules...).Run(leadingCtx)
+			}()
 			go func() { errs <- purger.Run(leadingCtx) }()
 
 			// Setting the deploy keys. Under the lease like the rest: two workers setting the same key
@@ -799,7 +688,7 @@ func seedMSESettings(ctx context.Context, db *store.DB, logger *slog.Logger) {
 		logger.Error("seeding the MSE plugin's settings", "error", err)
 		return
 	}
-	entry, declared := settings[plugin.ModuleMSE]
+	entry, declared := settings[mse.PluginID]
 	if !declared {
 		// The row does not exist yet: writing it here would set it switched off, whereas it is
 		// `EnsurePlugins` that decides its initial state.
@@ -821,7 +710,7 @@ func seedMSESettings(ctx context.Context, db *store.DB, logger *slog.Logger) {
 	}
 	sort.Strings(posed)
 
-	entry.PluginID = plugin.ModuleMSE
+	entry.PluginID = mse.PluginID
 	entry.Config = config
 	if err := db.SetPluginSettings(ctx, entry, "seeding"); err != nil {
 		logger.Error("seeding the MSE plugin's settings", "error", err)
@@ -1214,7 +1103,7 @@ func projectsHandler(
 		// you route this scheme?" — does not need the cluster. Asked only when the MSE plugin is
 		// switched on: without it, nothing promotes, and no scheme has to be refused.
 		WithSchemeCheck(func(ctx context.Context, scheme versionpkg.Scheme) error {
-			if !modules.Enabled(ctx, plugin.ModuleMSE) {
+			if !modules.Enabled(ctx, mse.PluginID) {
 				return nil
 			}
 			return flux.NewDeployer(nil, flux.DefaultPromotionKind, "").CheckScheme(scheme)

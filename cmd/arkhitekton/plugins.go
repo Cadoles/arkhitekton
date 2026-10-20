@@ -9,6 +9,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -128,7 +129,7 @@ func configuredPlugins(
 
 	if namespace := strings.TrimSpace(cfg.Flux.Namespace); namespace != "" {
 		settings = append(settings, store.PluginSettings{
-			PluginID: plugin.ModuleMSE, Enabled: true,
+			PluginID: mse.PluginID, Enabled: true,
 			Config: map[string]string{"namespace": namespace},
 		})
 	}

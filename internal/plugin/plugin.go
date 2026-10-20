@@ -21,10 +21,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
-// ModuleMSE identifies the MSE plugin: environments, Flux promotion, PortalData
-// attestation.
-const ModuleMSE = "mse"
-
 // KindLabel names each kind of capability for the interface.
 var KindLabel = map[capability.Kind]string{
 	capability.KindPipeline: "Pipeline",

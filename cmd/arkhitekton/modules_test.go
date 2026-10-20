@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -18,7 +17,7 @@ func TestTheFactCarriesTheTypeThePluginDeclares(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	descriptor, err := registry.Plugin(plugin.ModuleMSE)
+	descriptor, err := registry.Plugin(mse.PluginID)
 	if err != nil {
 		t.Fatalf("MSE plugin not found: %v", err)
 	}

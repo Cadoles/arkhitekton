@@ -12,7 +12,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -56,7 +55,7 @@ func NewSignoffsHandler(signoffs SignoffStore, logger *slog.Logger) *SignoffsHan
 // `release:create:final` would reserve validation to those who deliver, whereas validating and
 // delivering are the two acts one wants performed by distinct people.
 func (h *SignoffsHandler) Routes(mux *http.ServeMux, m *dashhttp.Middleware) {
-	module := m.RequireModule(plugin.ModuleMSE)
+	module := m.RequireModule(PluginID)
 
 	mux.Handle("GET /projects/{project}/releases/{tag}/signoffs", dashhttp.Chain(http.HandlerFunc(h.List),
 		m.Authenticate, module, m.RequireIn(auth.PermRead)))
