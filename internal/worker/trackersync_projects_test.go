@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
 /*

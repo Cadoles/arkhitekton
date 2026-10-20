@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
 /*

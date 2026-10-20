@@ -19,11 +19,11 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
 // ReleaseStore is what the release handlers need from the database.

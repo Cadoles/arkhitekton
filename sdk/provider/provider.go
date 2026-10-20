@@ -12,16 +12,10 @@
 // decoupling: it is paid at every addition, when a method specific to Redmine enters a handler
 // with nothing reporting it.
 //
-// # What this package is not
+// # Part of the plugin contract
 //
-// Not a plugin mechanism. No registry, no `init()`, no selection at run time. The configuration
-// still names Redmine and Gitea literally, and the binary can build only those. The day a second
-// provider exists, this is where we will know what to ask of it — not before.
-//
-// Nor a layer of indirection to cross. The callers keep declaring the narrow interface they need,
-// and receiving the concrete client. This package carries the **vocabulary** they exchange and
-// the complete contract each client honours; the conformance assertions, placed next to each
-// implementation, make the contract break at compile time rather than diverge silently.
+// A tracker or forge plugin returns a client honouring these interfaces, and the dashboard reads
+// it through them alone. The package imports only the standard library, like the rest of the sdk.
 //
 // # What is missing, and why
 //

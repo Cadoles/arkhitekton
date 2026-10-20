@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
 /*

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 	"net/url"
 	"strings"
 	"time"

@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
 /*

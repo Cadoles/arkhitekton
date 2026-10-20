@@ -2,7 +2,7 @@ package redmine
 
 import (
 	"context"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/provider"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 	"net/http"
 	"net/http/httptest"
 	"os"
