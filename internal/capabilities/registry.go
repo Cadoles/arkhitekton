@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -62,8 +63,19 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 				problems = append(problems, fmt.Errorf("capability %s declared twice", ref))
 				continue
 			}
+			if len(pipeline.Reading) > 0 {
+				// A declared reading becomes the pipeline's interpreter, checked now rather than on the
+				// first run it would misread.
+				if pipeline.Interpreter != nil {
+					problems = append(problems, fmt.Errorf("capability %s reads its runs in code and declares a reading", ref))
+				} else if declared, err := declarative.Compile(pipeline.Reading, pipeline.Spec); err != nil {
+					problems = append(problems, fmt.Errorf("capability %s: %w", ref, err))
+				} else {
+					pipeline.Interpreter = declared
+				}
+			}
 			registry.pipelines[ref] = pipeline
-			if pipeline.Interpreter == nil && produces(pipeline.Spec, capability.ProductResults) {
+			if pipeline.Interpreter == nil && len(pipeline.Reading) == 0 && produces(pipeline.Spec, capability.ProductResults) {
 				problems = append(problems, fmt.Errorf("capability %s publishes results and reads none", ref))
 			}
 
