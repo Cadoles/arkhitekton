@@ -60,8 +60,9 @@ by a test: a single module file may import feature code.
 
 A pipeline capability is declared by its plugin: the Tekton Pipeline and Tasks it ships, or the
 ones it expects the operator to provide; its parameters; the artifacts it publishes and the
-parser each file is read with; the privileges it needs; and how its runs are **read**, by an
-interpreter written in Go or a reading declared in YAML (§6.3). Capabilities are named
+parser each file is read with; the privileges it needs; and how its runs are **read**: by an
+interpreter written in Go, a reading declared in YAML (§6.3) or an interpreter compiled to
+WebAssembly (§6.4), one way and only one. Capabilities are named
 `plugin/name` (`php/unit-tests`), so two plugins cannot collide. The
 [catalogue](05-pipeline-catalogue.md) binds them to an instance.
 
@@ -148,13 +149,67 @@ table covers its field's values. A declaration that does not hold stops the dash
 start-up rather than misreading a run.
 
 **Checking a reading before shipping it.** `arkhitekton check-reading [--write] <reading.yaml>
-<case>...` reads recorded cases without a database nor a cluster. A case is a directory with
+<case>...` (or a `.wasm`, §6.4) reads recorded cases without a database nor a cluster. A case is a directory with
 `state.json` (the run's state), `records.json` (`[{"tool", "parser", "file"}]`, a tool without
 a file having left no report) and `expected.json` (the facts); `--write` records the facts
 produced where `expected.json` is missing. The built-in readings' cases live in
 `cmd/arkhitekton/testdata/readings/`.
 
-## 6.4 Trackers, forges, probes and actions
+## 6.4 WebAssembly interpreters
+
+What a declaration cannot say, or a format the dashboard does not parse, is read by an
+interpreter compiled to WebAssembly: `capability.Pipeline.Module` carries the module, the
+dashboard runs it in a sandbox. It is the one way a plugin parses a format itself: the artifact is
+declared with the `raw` parser, and the module receives its bytes.
+
+**The sandbox.** The module gets an empty WASI: no directory, no environment variable, no
+argument, no network, no host function of the dashboard's. A module importing anything else is
+refused when the plugin is loaded. Every run gets a fresh instance, so nothing passes from one run
+to the next.
+
+| Limit | Value | Beyond |
+|---|---|---|
+| module size | 32 MiB | refused at load |
+| memory | 64 MiB | the reading fails |
+| duration of a reading | 10 s | the instance is closed, the reading fails |
+| answer | 16 MiB | the reading fails |
+| console (stdout and stderr) | 64 KiB | the rest is dropped; what is kept is logged |
+
+A reading that fails leaves the run read with no facts, as any interpreter's error does; the
+dashboard checks the facts a module returns like any other's, and refuses an attachment the run
+did not keep.
+
+**Writing one in Go.** `sdk/guest` does the exchange; the interpreter registers in an `init`,
+since the module runs as a reactor whose `main` is never called:
+
+```go
+package main
+
+import "forge.cadoles.com/vcarroy/arkhitekton/sdk/guest"
+
+func init() { guest.Register(reader{}) } // reader implements capability.Interpreter
+
+func main() {}
+```
+
+```sh
+GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o reader.wasm .
+```
+
+`sdk/examples/gotest` is a complete example: it reads the event stream of `go test -json`, a test
+per case, a package that does not build as a case of its own, a stream cut off as tests not run.
+
+**The exchange** (ABI 1), for another language: three exports, `arkhitekton_abi() i32` returning
+1, `arkhitekton_alloc(size i32) i32` reserving the input, `arkhitekton_interpret(ptr, len i32) i64`
+returning the answer's `ptr<<32 | len`. The input is the JSON of `guest.Input` (the run's state and
+the records, the payload of a parsed report as JSON, the bytes of a `raw` one in base64), the
+answer that of `guest.Output` (facts, or an error). The sdk's types travel by their Go field
+names, versioned with `sdk.APIVersion`; a k6 metric's error does not travel.
+
+**Checking it.** `arkhitekton check-reading` takes a `.wasm` like a declaration, and runs it
+through the same sandbox on recorded cases (`cmd/arkhitekton/testdata/readings/gotest/`).
+
+## 6.5 Trackers, forges, probes and actions
 
 A plugin that brings a tracker or a forge returns a client for a **target**: the project's
 repository and the plugin's settings for that project, resolved and unsealed by the dashboard,
@@ -176,7 +231,7 @@ An **executor** carries out the actions a plugin declares. The dashboard resolve
 settings, refuses when it is switched off for the project, interpolates the parameters and
 checks them against the declaration; the executor only talks to its boundary.
 
-## 6.5 Settings
+## 6.6 Settings
 
 A descriptor declares its settings as fields:
 
@@ -200,7 +255,7 @@ Settings are edited under **Administration → Plugins** (instance) and in each 
 **Plugins** tab. Environment variables may *seed* them at first start-up, filling only
 what is missing — see [04 §4.12](04-configuration.md#412-plugin-seeds).
 
-## 6.6 Per-project activation
+## 6.7 Per-project activation
 
 A descriptor with `PerProject: true` can be enabled or disabled project by project. A
 plugin without it is instance-wide and does not appear in a project's plugin list.
@@ -217,7 +272,7 @@ Routes belonging to a module are gated: a request to a module's route, for a pro
 where it is disabled, is refused by middleware that resolves the project from the path.
 The interface hides the screens the same way, from the same source of truth.
 
-## 6.7 Events and actions
+## 6.8 Events and actions
 
 A plugin may declare **events** it emits and **actions** it offers. Both are named by a
 suffix, which the core prefixes with the plugin id — the MSE plugin's `release.promoted`
@@ -228,7 +283,7 @@ An event declares the shape of its payload; an action declares the fields it tak
 of which may be a template filled from the event that triggered it. Together they are what
 makes a plugin reachable from the automation screen without the core knowing what it does.
 
-## 6.8 Modules
+## 6.9 Modules
 
 Some plugins need loops that write the dashboard's tables and talk to the cluster, which a
 contract plugin cannot do. Those are **modules**: written against the host
@@ -245,7 +300,7 @@ own version table (`goose_mse_db_version`), applied by the same `migrate` role, 
 exposes its own readiness check. The core's schema does not mention the plugin's tables,
 and dropping the plugin means dropping its migrations — not editing the core's history.
 
-## 6.9 The MSE plugin
+## 6.10 The MSE plugin
 
 Shipped with Arkhitekton, and the reference implementation of a module. Besides its pipeline
 capabilities, it adds:
@@ -262,7 +317,7 @@ capabilities, it adds:
 It is enabled per project. An instance where no project enables it behaves as if it did
 not exist: the worker opens neither Flux nor the portal's CRD.
 
-## 6.10 Writing a plugin
+## 6.11 Writing a plugin
 
 A plugin is a Go package importing the `sdk` module and nothing else of the dashboard. Today it
 is compiled into the binary: add it to `internal/plugins/builtin`. Its version changes
@@ -273,5 +328,5 @@ The licensing is settled: an additional permission under section 7 of the AGPL l
 that uses only the plugin interface be published under any licence its author chooses, and the
 combined work be distributed or served on those terms. See `LICENSE.plugin-exception`.
 
-What remains, in order: interpreters compiled to WebAssembly for what a declaration cannot say;
-plugins packaged as signed OCI artifacts, installed by an administrator.
+What remains: plugins packaged as signed OCI artifacts, a declaration or a module and the Tekton
+definitions they read, installed by an administrator.

@@ -124,7 +124,21 @@ A file is read through the API under the reader's role on the release, never thr
 presigned URL, and a file of another release answers like a missing one. An interpreter can
 only attach a file the dashboard itself kept for that run.
 
-## 9.9 Audit
+## 9.9 Plugin code
+
+A plugin compiled into the binary is trusted like the rest of it. A plugin's **reading** of its
+runs is not code the dashboard trusts when it comes as a declaration or a WebAssembly module:
+
+- a declaration only projects fields through a closed set of filters, with no loop, condition
+  or call, and is checked when the plugin is loaded;
+- a WebAssembly module runs in a fresh instance per run, with an empty WASI (no file, no
+  environment, no argument, no network) and no other host function, bounded memory, duration,
+  answer and console (doc 06 §6.4).
+
+Either way the dashboard checks the facts returned, stamps the producer itself, and refuses an
+attachment naming an object the run did not keep.
+
+## 9.10 Audit
 
 Every administrative act — role granted or revoked, plugin enabled, limit changed,
 project created — is recorded in `audit_log` with its actor, target and payload, and is

@@ -55,6 +55,12 @@ A change shows as a diff to review; `go test ./cmd/arkhitekton -update` records 
 The readings declared in YAML are also compared with the Go readers they replaced, kept as
 oracles in `cmd/arkhitekton/oracles_test.go`, on every report and run state.
 
+**WebAssembly guests** are built by the tests themselves with the standard toolchain
+(`GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared`): the sandbox's in
+`internal/wasm/testdata/guests/` (one per failure: panic, endless loop, memory, oversized answer,
+host access, console), the example in `sdk/examples/gotest`. No `.wasm` is committed. `make vet`
+also vets `sdk/guest` for `wasip1`, the only target its exports build for.
+
 **Adding a view** for declared readings (doc 06 §6.3) means adding it to
 `internal/declarative/views.go`: its parser, the fields every row carries, the closed values of
 enumerated fields, and a sample in `views_test.go`, which checks that every row carries exactly

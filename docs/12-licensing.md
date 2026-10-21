@@ -57,9 +57,11 @@ every plugin declares and the dashboard checks. It imports only the standard lib
 plugins shipped with the dashboard import nothing else of it (`internal/capabilities`
 `boundary_test.go`). `LICENSE.plugin-exception` names that module.
 
-What remains is loading: today a plugin is compiled into the binary, which is precisely what the
-exception makes possible. Declarative interpreters, a WASM runtime and signed distribution are the
-next phases (doc 06).
+A plugin is compiled into the binary, which is precisely what the exception makes possible, or
+brings its reading as a declaration or a WebAssembly module (doc 06 §6.3, §6.4). A module built
+against `sdk/guest` uses only the plugin interface, and is covered by the exception like a
+compiled plugin. Signed distribution, for plugins installed rather than compiled, is the next
+phase.
 
 ## 12.5 Pipelines and catalogues
 
