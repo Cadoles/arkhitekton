@@ -117,6 +117,8 @@ fmt-check: ## Fails if a file is not formatted
 
 vet: ## The toolchain's static analysis
 	$(GO) vet $(GO_PKGS)
+	@# The guest side of WebAssembly interpreters only builds for wasip1.
+	GOOS=wasip1 GOARCH=wasm $(GO) vet ./sdk/guest/
 
 lint: fmt-check vet ## Formatting check + static analysis
 

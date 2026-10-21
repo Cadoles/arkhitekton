@@ -7,7 +7,8 @@
 //   - parse: the records the dashboard's parsers hand to an interpreter;
 //   - facts: what an interpreter returns;
 //   - interpret: helpers shared by interpreters;
-//   - declare: the schema of a reading declared rather than written in code.
+//   - declare: the schema of a reading declared rather than written in code;
+//   - guest: the plugin side of an interpreter compiled to WebAssembly.
 package sdk
 
 // APIVersion is the contract's version. A plugin records the one it was built against, and the
