@@ -104,6 +104,23 @@ type Scheduler struct {
 	logger     *slog.Logger
 }
 
+// ProjectDeployKey is the configuration key naming the secret of the project's own deploy key.
+//
+// Distinct from `pipeline.gitSecret`, the deployment's clone credential: a project's key opens the
+// project's repository and nothing else, so it cannot stand for the clone of another one, like
+// the end-to-end campaign's. The catalogue binds whichever a pipeline clones.
+const ProjectDeployKey = "project.deployKeySecret"
+
+// binds says whether a pipeline mounts the secret a configuration key names.
+func binds(pipeline catalog.Pipeline, configKey string) bool {
+	for _, workspace := range pipeline.Workspaces {
+		if workspace.Secret != nil && workspace.Secret.ConfigKey == configKey {
+			return true
+		}
+	}
+	return false
+}
+
 // ProjectKeys says which secret carries a project's deploy key.
 //
 // A narrow interface rather than the whole store: the scheduler needs only that answer, and
@@ -327,7 +344,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 	// The parameters and the secret names are resolved in the same chain, and from the same
 	// settings: they are two ways for the catalogue to name a configuration value, and handling
 	// them separately would start a run with some resolved by the project and the others not.
-	settings, err := s.settingsFor(ctx, job)
+	settings, err := s.settingsFor(ctx, job, pipeline)
 	var params map[string]string
 	if err == nil {
 		params, err = s.resolveParams(pipeline, job.Params, settings)
@@ -596,12 +613,21 @@ func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
 // half into the repository's settings, then declaring it. Without it, the clone would fail in
 // the pipeline with an SSH error, very far from its cause.
 //
+// Only for a pipeline that clones the project's repository: the key is named under
+// [ProjectDeployKey], and a pipeline cloning another repository binds the deployment's
+// credential instead.
+//
 // The registry secret keeps its fallback, and that is no inconsistency: it is **named** and not
 // created, provisioned by the deployment for the whole instance, and a project naming none in
 // particular legitimately pushes where the others push.
-func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) (map[string]string, error) {
+func (s *Scheduler) settingsFor(ctx context.Context, job store.Job, pipeline catalog.Pipeline) (map[string]string, error) {
 	if job.ProjectID == nil {
-		return s.config, nil
+		// A job predating projects clones with the deployment's key: there is no project key to
+		// name.
+		settings := make(map[string]string, len(s.config)+1)
+		maps.Copy(settings, s.config)
+		settings[ProjectDeployKey] = s.config["pipeline.gitSecret"]
+		return settings, nil
 	}
 
 	overrides := map[string]string{}
@@ -642,6 +668,8 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) (map[string]
 
 	gitSecret, found, err := s.deployKeys.DeployKeySecret(ctx, *job.ProjectID)
 	switch {
+	case err == nil && !found && !binds(pipeline, ProjectDeployKey):
+		// This pipeline clones no repository of the project's: it needs no key of its own.
 	case err != nil:
 		// A failed read does not disguise itself as a missing key: the message would send someone to
 		// enable a key that may already exist. The retry covers the transient case, and the attempt cap
@@ -654,7 +682,9 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job) (map[string]
 				"into the repository settings, then declare it active from "+
 				"the project screen", *job.ProjectID)
 	}
-	overrides["pipeline.gitSecret"] = gitSecret
+	if found {
+		overrides[ProjectDeployKey] = gitSecret
+	}
 
 	registrySecret, found, err := s.deployKeys.RegistrySecret(ctx, *job.ProjectID)
 	if err != nil {

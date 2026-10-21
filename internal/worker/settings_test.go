@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -56,6 +57,16 @@ func jobOf(projectID int64) store.Job {
 	return store.Job{ID: 1, ProjectID: &projectID}
 }
 
+// cloning is a pipeline that clones the project's repository with the project's key.
+var cloning = catalog.Pipeline{Kind: "php/unit-tests", Workspaces: []catalog.Workspace{
+	{Name: "git-credentials", Secret: &catalog.SecretSource{ConfigKey: ProjectDeployKey}},
+}}
+
+// elsewhere is a pipeline that clones another repository with the deployment's credential.
+var elsewhere = catalog.Pipeline{Kind: "mse/e2e-tests", Workspaces: []catalog.Workspace{
+	{Name: "git-credentials", Secret: &catalog.SecretSource{ConfigKey: "pipeline.gitSecret"}},
+}}
+
 // A project's two secrets replace the deployment's, and the rest of the configuration passes
 // through untouched.
 func TestTheProjectsSecretsReplaceTheDeploymentsOnes(t *testing.T) {
@@ -64,13 +75,18 @@ func TestTheProjectsSecretsReplaceTheDeploymentsOnes(t *testing.T) {
 		registry:  "regcred-mse",
 	})
 
-	settings, err := scheduler.settingsFor(context.Background(), jobOf(7))
+	settings, err := scheduler.settingsFor(context.Background(), jobOf(7), cloning)
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
 
-	if settings["pipeline.gitSecret"] != "arkhitekton-project-mse-git" {
-		t.Errorf("git key = %q", settings["pipeline.gitSecret"])
+	if settings[ProjectDeployKey] != "arkhitekton-project-mse-git" {
+		t.Errorf("project key = %q", settings[ProjectDeployKey])
+	}
+	// The deployment's clone credential stays what it is: the project's key opens only its own
+	// repository.
+	if settings["pipeline.gitSecret"] != "git-credentials" {
+		t.Errorf("deployment's credential = %q", settings["pipeline.gitSecret"])
 	}
 	if settings["pipeline.registrySecret"] != "regcred-mse" {
 		t.Errorf("registry secret = %q", settings["pipeline.registrySecret"])
@@ -88,13 +104,13 @@ func TestAProjectNamingNoRegistryPushesWhereTheOthersPush(t *testing.T) {
 		deployKey: "arkhitekton-project-mse-git",
 	})
 
-	settings, err := scheduler.settingsFor(context.Background(), jobOf(7))
+	settings, err := scheduler.settingsFor(context.Background(), jobOf(7), cloning)
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
 
-	if settings["pipeline.gitSecret"] != "arkhitekton-project-mse-git" {
-		t.Errorf("git key = %q", settings["pipeline.gitSecret"])
+	if settings[ProjectDeployKey] != "arkhitekton-project-mse-git" {
+		t.Errorf("project key = %q", settings[ProjectDeployKey])
 	}
 	if settings["pipeline.registrySecret"] != "regcred" {
 		t.Errorf("registry secret = %q — the project names none",
@@ -117,7 +133,7 @@ func TestAProjectNamingNoRegistryPushesWhereTheOthersPush(t *testing.T) {
 func TestAProjectWithNoActiveKeyDoesNotBuild(t *testing.T) {
 	scheduler := schedulerWith(&fakeProjectSecrets{registry: "regcred-mse"})
 
-	_, err := scheduler.settingsFor(context.Background(), jobOf(7))
+	_, err := scheduler.settingsFor(context.Background(), jobOf(7), cloning)
 	if err == nil {
 		t.Fatal("a project with no deploy key was able to start")
 	}
@@ -134,7 +150,7 @@ func TestAProjectWithNoActiveKeyDoesNotBuild(t *testing.T) {
 func TestTheSharedConfigurationIsNeverWrittenTo(t *testing.T) {
 	scheduler := schedulerWith(&fakeProjectSecrets{deployKey: "project-key"})
 
-	_, _ = scheduler.settingsFor(context.Background(), jobOf(7))
+	_, _ = scheduler.settingsFor(context.Background(), jobOf(7), cloning)
 
 	if scheduler.config["pipeline.gitSecret"] != "git-credentials" {
 		t.Errorf("shared configuration altered: %v — the next job would inherit it",
@@ -148,13 +164,13 @@ func TestTheSharedConfigurationIsNeverWrittenTo(t *testing.T) {
 func TestAJobWithNoProjectUsesTheDeploymentsSecrets(t *testing.T) {
 	scheduler := schedulerWith(&fakeProjectSecrets{deployKey: "project-key"})
 
-	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1})
+	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1}, cloning)
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
 
-	if settings["pipeline.gitSecret"] != "git-credentials" {
-		t.Errorf("git key = %q", settings["pipeline.gitSecret"])
+	if settings[ProjectDeployKey] != "git-credentials" {
+		t.Errorf("git key = %q", settings[ProjectDeployKey])
 	}
 }
 
@@ -167,11 +183,29 @@ func TestAReadFailureDoesNotDisguiseItselfAsAMissingKey(t *testing.T) {
 	silentStore := errors.New("silent database")
 	scheduler := schedulerWith(&fakeProjectSecrets{err: silentStore})
 
-	_, err := scheduler.settingsFor(context.Background(), jobOf(7))
+	_, err := scheduler.settingsFor(context.Background(), jobOf(7), cloning)
 	if !errors.Is(err, silentStore) {
 		t.Fatalf("error = %v, expected the database's", err)
 	}
 	if strings.Contains(err.Error(), "coller") {
 		t.Errorf("message %q — it sends someone to enable a key that may exist", err)
+	}
+}
+
+// A pipeline cloning another repository than the project's needs no key of its own, and keeps
+// the deployment's credential: the project's key would not open that repository.
+func TestAPipelineCloningElsewhereNeedsNoProjectKey(t *testing.T) {
+	scheduler := schedulerWith(&fakeProjectSecrets{registry: "regcred-mse"})
+
+	settings, err := scheduler.settingsFor(context.Background(), jobOf(7), elsewhere)
+	if err != nil {
+		t.Fatalf("refused for want of a key it does not use: %v", err)
+	}
+	resolved, err := elsewhere.ResolveSecrets(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name := resolved.Workspaces[0].Secret.SecretName; name != "git-credentials" {
+		t.Errorf("mounted %q, expected the deployment's credential", name)
 	}
 }

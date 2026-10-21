@@ -78,7 +78,8 @@ what lets an automation fill a parameter with nobody typing. It never constrains
 |---|---|
 | `project.repoUrl` | Clone URL of the job's project, built from its forge and repository |
 | `registry.project` | Registry repository prefix |
-| `pipeline.gitSecret` | Name of the secret holding git credentials |
+| `project.deployKeySecret` | Name of the secret holding the project's own deploy key: it opens the project's repository and nothing else |
+| `pipeline.gitSecret` | Name of the secret holding the deployment's git credentials, for a repository that is not the project's |
 | `pipeline.registrySecret` | Name of the secret holding registry credentials |
 | `pipeline.imagePullSecret` | Name of the pull secret |
 | `minio.host`, `minio.pipelineBucket` | Object store as pipelines reach it |
@@ -103,12 +104,14 @@ A capability declares the privileges it needs, from a closed set:
 ```yaml
 needs:
   cluster-deploy: { serviceAccountName: tekton-kubectl }
-  source-read:    { secret: { configKey: pipeline.gitSecret } }
+  source-read:    { secret: { configKey: project.deployKeySecret } }
 volumes:
   mse: { storageClassName: standard, storage: 2Gi }
 ```
 
-A secret is named directly (`secretName`) or through a config key (`configKey`). Only
+A secret is named directly (`secretName`) or through a config key (`configKey`). A pipeline
+cloning the project's repository binds `project.deployKeySecret`, and a project with no active
+key does not run it; a pipeline cloning another repository binds `pipeline.gitSecret`. Only
 `cluster-deploy` accepts a service account: it is the one need that is a cluster identity.
 A need left unbound does not stop start-up: the capability stays known, a plan may name it,
 and its runs are refused with the reason. Volumes are per-run claims; the capability gives

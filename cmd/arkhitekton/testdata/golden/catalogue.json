@@ -69,7 +69,7 @@
       {
         "name": "git-credentials",
         "secret": {
-          "configKey": "pipeline.gitSecret"
+          "configKey": "project.deployKeySecret"
         }
       },
       {
@@ -157,7 +157,7 @@
       {
         "name": "git-credentials",
         "secret": {
-          "configKey": "pipeline.gitSecret"
+          "configKey": "project.deployKeySecret"
         }
       },
       {
@@ -253,7 +253,7 @@
       {
         "name": "git-credentials",
         "secret": {
-          "configKey": "pipeline.gitSecret"
+          "configKey": "project.deployKeySecret"
         }
       },
       {
@@ -306,7 +306,7 @@
       {
         "name": "git-credentials",
         "secret": {
-          "configKey": "pipeline.gitSecret"
+          "configKey": "project.deployKeySecret"
         }
       },
       {
@@ -458,7 +458,7 @@
       {
         "name": "git-credentials",
         "secret": {
-          "configKey": "pipeline.gitSecret"
+          "configKey": "project.deployKeySecret"
         }
       },
       {

@@ -221,7 +221,7 @@ func TestAProjectSettingReplacesTheInstances(t *testing.T) {
 	})
 
 	projectRow := int64(7)
-	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projectRow})
+	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projectRow}, catalog.Pipeline{})
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestAProjectSettingReplacesTheInstances(t *testing.T) {
 	}
 
 	other := int64(9)
-	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &other})
+	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &other}, catalog.Pipeline{})
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	}, "2222")
 
 	projectRow := int64(7)
-	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projectRow})
+	settings, err := scheduler.settingsFor(context.Background(), store.Job{ID: 1, ProjectID: &projectRow}, catalog.Pipeline{})
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	}
 
 	withoutForge := int64(8)
-	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &withoutForge})
+	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &withoutForge}, catalog.Pipeline{})
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	}
 
 	// A job with no project keeps the instance's.
-	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 3})
+	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 3}, catalog.Pipeline{})
 	if err != nil || settings[projectRepoKey] != "ssh://git@forge/CNOUS/mse.git" {
 		t.Errorf("job with no project: %q (%v)", settings[projectRepoKey], err)
 	}

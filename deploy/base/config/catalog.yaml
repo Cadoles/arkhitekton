@@ -110,19 +110,23 @@ podTemplate:
   imagePullSecretsConfigKey: pipeline.imagePullSecret
 
 capabilities:
+  # Two clone credentials, and a pipeline names the one that opens what it clones:
+  # `project.deployKeySecret` is the project's own deploy key, which opens the project's
+  # repository and nothing else; `pipeline.gitSecret` is the deployment's, for a repository that
+  # is not the project's, like the end-to-end campaign's.
   # The security audit requires no parameter: the pipeline carries its own default values. It is
   # the simplest pipeline, and the only one that can be launched without typing anything.
   - ref: security/security-audit
     timeout: 90m
     needs:
-      source-read:   { secret: { configKey: pipeline.gitSecret } }
+      source-read:   { secret: { configKey: project.deployKeySecret } }
       registry-pull: { secret: { configKey: pipeline.registrySecret } }
     volumes:
       shared: { storageClassName: standard }
 
   - ref: core/build
     needs:
-      source-read:   { secret: { configKey: pipeline.gitSecret } }
+      source-read:   { secret: { configKey: project.deployKeySecret } }
       registry-push: { secret: { configKey: pipeline.registrySecret } }
     volumes:
       shared-data: { storageClassName: standard }
@@ -135,13 +139,13 @@ capabilities:
 
   - ref: php/static-tests
     needs:
-      source-read: { secret: { configKey: pipeline.gitSecret } }
+      source-read: { secret: { configKey: project.deployKeySecret } }
     volumes:
       shared-data: { storageClassName: standard }
 
   - ref: php/unit-tests
     needs:
-      source-read: { secret: { configKey: pipeline.gitSecret } }
+      source-read: { secret: { configKey: project.deployKeySecret } }
     volumes:
       shared-data: { storageClassName: standard }
 
@@ -158,7 +162,7 @@ capabilities:
     timeout: 45m
     needs:
       cluster-deploy: { serviceAccountName: tekton-kubectl }
-      source-read:    { secret: { configKey: pipeline.gitSecret } }
+      source-read:    { secret: { configKey: project.deployKeySecret } }
       registry-pull:  { secret: { configKey: pipeline.registrySecret } }
     volumes:
       mse:           { storageClassName: standard }

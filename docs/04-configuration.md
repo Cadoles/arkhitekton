@@ -63,7 +63,7 @@ Each role validates only what it uses. In the tables below, **Required** means r
 | `PIPELINE_CATALOG_PATH` | `/etc/arkhitekton/catalog.yaml` | | Catalogue location |
 | `KUBECONFIG` | — | | Outside a cluster only; in-cluster credentials are used when empty |
 | `TEKTON_DASHBOARD_URL` | — | | Root of a Tekton Dashboard, if deployed. Empty hides the link |
-| `PIPELINE_GIT_SECRET` | — | | Secret holding the pipeline's git credentials |
+| `PIPELINE_GIT_SECRET` | — | | Secret holding the deployment's git credentials, for the repositories that are not a project's own (the end-to-end campaign's). A project's repository is cloned with its own deploy key |
 | `PIPELINE_REGISTRY_SECRET` | — | | Secret holding registry credentials for pipelines |
 | `PIPELINE_IMAGE_PULL_SECRET` | — | | Pull secret added to pipeline pods |
 | `PIPELINE_MINIO_HOST` | — | | Object store as pipelines reach it, when it differs from the dashboard's view |
