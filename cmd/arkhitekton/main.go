@@ -763,7 +763,7 @@ func mseSeedSettings() map[string]string {
 		// the pipeline's default — `unstable`, `CNOUS/mse-kustom`'s convention — and failed at the
 		// clone on any repository that does not carry it: "couldn't find remote ref unstable".
 		envOrDefault("FORGE_MSE_KUSTOM_REVISION", "unstable"),
-		envOrDefault("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tests-e2e.git"),
+		envOrDefault("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-e2e.git"),
 		envOrDefault("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
 	)
 }
