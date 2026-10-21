@@ -16,6 +16,19 @@ const ID = "mse"
 //go:embed manifests
 var manifests embed.FS
 
+//go:embed readings
+var readings embed.FS
+
+// reading is one of the declared readings the plugin ships.
+func reading(name string) []byte {
+	declared, err := readings.ReadFile("readings/" + name)
+	if err != nil {
+		// The embedding is fixed at compile time; the registry's tests read every one.
+		panic(err)
+	}
+	return declared
+}
+
 // Manifests are the Tekton definitions the plugin ships.
 func Manifests() []capability.Manifest {
 	loaded, err := capability.LoadManifests(manifests, "manifests")
@@ -38,9 +51,9 @@ func integrationTests(manifests []capability.Manifest) capability.Pipeline {
 		return capability.Param{Source: capability.ParamBinding, DefaultKey: key}
 	}
 	return capability.Pipeline{
-		Name:        "integration-tests",
-		Label:       "Tests d'intégration",
-		Interpreter: integrationReader{},
+		Name:    "integration-tests",
+		Label:   "Tests d'intégration",
+		Reading: reading("integration-tests.yaml"),
 		Spec: capability.PipelineSpec{
 			PipelineRef:   "php-integration-test",
 			Group:         "integration",

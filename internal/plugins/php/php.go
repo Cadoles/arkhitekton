@@ -18,6 +18,19 @@ const ID = "php"
 //go:embed manifests
 var manifests embed.FS
 
+//go:embed readings
+var readings embed.FS
+
+// reading is one of the declared readings the plugin ships.
+func reading(name string) []byte {
+	declared, err := readings.ReadFile("readings/" + name)
+	if err != nil {
+		// The embedding is fixed at compile time; the registry's tests read every one.
+		panic(err)
+	}
+	return declared
+}
+
 // Manifests are the Tekton definitions the plugin ships.
 func Manifests() []capability.Manifest {
 	loaded, err := capability.LoadManifests(manifests, "manifests")
@@ -65,9 +78,9 @@ var needs = []capability.Need{{Name: capability.NeedSourceRead, Reason: "clone t
 
 func staticTests(manifests []capability.Manifest) capability.Pipeline {
 	return capability.Pipeline{
-		Name:        "static-tests",
-		Label:       "Analyse statique",
-		Interpreter: staticReader{},
+		Name:    "static-tests",
+		Label:   "Analyse statique",
+		Reading: reading("static-tests.yaml"),
 		Spec: capability.PipelineSpec{
 			PipelineRef:   "php-static-tests",
 			Group:         "static",
@@ -92,9 +105,9 @@ func staticTests(manifests []capability.Manifest) capability.Pipeline {
 
 func unitTests(manifests []capability.Manifest) capability.Pipeline {
 	return capability.Pipeline{
-		Name:        "unit-tests",
-		Label:       "Tests unitaires",
-		Interpreter: unitReader{},
+		Name:    "unit-tests",
+		Label:   "Tests unitaires",
+		Reading: reading("unit-tests.yaml"),
 		Spec: capability.PipelineSpec{
 			PipelineRef:   "php-unit-tests",
 			Group:         "unit",

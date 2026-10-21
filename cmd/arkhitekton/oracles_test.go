@@ -1,14 +1,21 @@
-package php
+package main
 
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
+	sdkinterpret "forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
+
+/*
+ * The readings the PHP and MSE plugins wrote in Go before declaring them, kept as the oracle their
+ * declarations are checked against.
+ */
 
 // staticReader reads PHPStan and PHP-CS-Fixer.
 //
@@ -52,12 +59,12 @@ func tool(
 	run capability.RunState, records []parse.Record, name, task string,
 	read func(parse.Record) facts.Set,
 ) (facts.Set, bool) {
-	if record, readable := interpret.Readable(records, name); readable {
+	if record, readable := sdkinterpret.Readable(records, name); readable {
 		set := read(record)
 		set.Tool, set.RawObject = name, record.Object
 		return set, true
 	}
-	if summary, ran := interpret.NotConcluded(run, task); ran {
+	if summary, ran := sdkinterpret.NotConcluded(run, task); ran {
 		return facts.Set{
 			Shape: facts.ShapeCases, Group: groupOf(name), Tool: name,
 			Status: facts.StatusNA, Summary: summary,
@@ -97,10 +104,10 @@ func groupOf(tool string) string {
 func junitSet(group string) func(parse.Record) facts.Set {
 	return func(record parse.Record) facts.Set {
 		report := record.Payload.(parse.JUnit)
-		cases := interpret.JUnitCases(report)
+		cases := sdkinterpret.JUnitCases(report)
 		return facts.Set{
 			Shape: facts.ShapeCases, Group: group, Cases: cases,
-			DurationMS: report.DurationMS, Summary: interpret.SummarizeTests(cases),
+			DurationMS: report.DurationMS, Summary: sdkinterpret.SummarizeTests(cases),
 		}
 	}
 }
@@ -155,10 +162,118 @@ func csFixerSet(record parse.Record) facts.Set {
 func violations(cases []facts.Case, noun string) facts.Set {
 	set := facts.Set{
 		Shape: facts.ShapeCases, Group: "static", Cases: cases,
-		Summary: interpret.SummarizeViolations(cases, noun),
+		Summary: sdkinterpret.SummarizeViolations(cases, noun),
 	}
 	if len(cases) == 0 {
 		set.Status = facts.StatusPass
 	}
 	return set
+}
+
+// integrationReader reads the integration tests' JUnit report.
+type integrationReader struct{}
+
+func (integrationReader) Interpret(_ context.Context, run capability.RunState, records []parse.Record) ([]facts.Set, error) {
+	const tool = "phpunit-integration"
+	if record, readable := sdkinterpret.Readable(records, tool); readable {
+		report := record.Payload.(parse.JUnit)
+		cases := sdkinterpret.JUnitCases(report)
+		return []facts.Set{{
+			Shape: facts.ShapeCases, Group: "integration", Tool: tool, RawObject: record.Object,
+			Cases: cases, DurationMS: report.DurationMS, Summary: sdkinterpret.SummarizeTests(cases),
+		}}, nil
+	}
+	// The tests ran inside a deployed MSE: when they leave no report, saying they did not conclude
+	// is what tells a failed deployment from a clean run.
+	if summary, ran := sdkinterpret.NotConcluded(run, "run-integration-tests"); ran {
+		return []facts.Set{{
+			Shape: facts.ShapeCases, Group: "integration", Tool: tool,
+			Status: facts.StatusNA, Summary: summary,
+		}}, nil
+	}
+	return nil, nil
+}
+
+// Every combination of report and run state the readings must tell apart: a report present,
+// unreadable or absent, against a task that never started, succeeded, failed, crashed or was killed.
+func TestTheDeclaredReadingsReadAsTheirOracles(t *testing.T) {
+	stateOf := func(task string, exit int32, reason string) capability.RunState {
+		return capability.RunState{Tasks: []capability.TaskState{{
+			Name: task, Reason: reason, Steps: []capability.StepState{{Name: "exec", ExitCode: &exit}},
+		}}}
+	}
+	type reading struct {
+		ref    string
+		oracle capability.Interpreter
+		tasks  []string
+		tools  map[string]parse.Record
+	}
+	readings := []reading{
+		{"php/static-tests", staticReader{}, []string{"run-phpstan", "run-cs-fixer"}, map[string]parse.Record{
+			"phpstan":       record(t, "phpstan", parse.PHPStanJSON, report(t, "phpstan.json")),
+			"phpstan-clean": record(t, "phpstan", parse.PHPStanJSON, report(t, "phpstan-clean.json")),
+			"cs-fixer":      record(t, "cs-fixer", parse.CSFixerJSON, report(t, "cs-fixer.json")),
+			"broken":        record(t, "phpstan", parse.PHPStanJSON, []byte("{truncated")),
+		}},
+		{"php/unit-tests", unitReader{}, []string{"run-unit-tests"}, map[string]parse.Record{
+			"junit":  record(t, "phpunit", parse.JUnitXML, report(t, "junit.xml")),
+			"broken": record(t, "phpunit", parse.JUnitXML, []byte("<testsuites")),
+		}},
+		{"mse/integration-tests", integrationReader{}, []string{"run-integration-tests"}, map[string]parse.Record{
+			"junit":  record(t, "phpunit-integration", parse.JUnitXML, report(t, "junit.xml")),
+			"broken": record(t, "phpunit-integration", parse.JUnitXML, []byte("<testsuites")),
+		}},
+	}
+
+	compared := 0
+	for _, entry := range readings {
+		states := map[string]capability.RunState{"not started": {}}
+		for _, task := range entry.tasks {
+			for _, exit := range []int32{0, 1, 8, 16, 137, 255} {
+				reason := ""
+				if exit == 137 {
+					reason = "OOMKilled"
+				}
+				states[fmt.Sprintf("%s exit %d", task, exit)] = stateOf(task, exit, reason)
+			}
+		}
+		recordSets := map[string][]parse.Record{"no report": nil}
+		for name, one := range entry.tools {
+			recordSets[name] = []parse.Record{one}
+		}
+		if entry.ref == "php/static-tests" {
+			recordSets["both"] = []parse.Record{entry.tools["phpstan"], entry.tools["cs-fixer"]}
+		}
+
+		for stateName, state := range states {
+			for recordsName, records := range recordSets {
+				expected, _ := entry.oracle.Interpret(context.Background(), state, records)
+				got := interpret(t, entry.ref, state, records...)
+				if !sameSets(expected, got) {
+					t.Errorf("%s, %s, %s:\n oracle   %+v\n declared %+v", entry.ref, stateName, recordsName, expected, got)
+				}
+				compared++
+			}
+		}
+	}
+	if compared < 50 {
+		t.Fatalf("only %d combinations compared", compared)
+	}
+}
+
+// sameSets compares sets, an empty list of cases equal to none: the stored facts are the same.
+func sameSets(a, b []facts.Set) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		left, right := a[i], b[i]
+		if len(left.Cases) == 0 && len(right.Cases) == 0 {
+			left.Cases, right.Cases = nil, nil
+		}
+		if !reflect.DeepEqual(left, right) {
+			return false
+		}
+	}
+	return true
 }

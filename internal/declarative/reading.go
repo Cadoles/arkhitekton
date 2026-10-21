@@ -129,6 +129,21 @@ func (r interpreter) Interpret(_ context.Context, run capability.RunState, recor
 
 func (t compiledTool) read(run capability.RunState, records []parse.Record) (facts.Set, bool) {
 	record, readable := interpret.Readable(records, t.Tool.Tool)
+	set := facts.Set{Shape: facts.ShapeCases, Group: t.Group, Tool: t.Tool.Tool}
+	if readable {
+		set.RawObject = record.Object
+	}
+
+	// A code outside the results is a failure of the tool, whatever its report says, and whether
+	// it left one or not.
+	if t.ExitCodes != nil {
+		if code, ran := exitCode(run, t.Task); ran && !slices.Contains(t.ExitCodes.Results, code) {
+			set.Status = facts.StatusNA
+			set.Summary = fmt.Sprintf("the tool did not conclude (code %d)", code)
+			return set, true
+		}
+	}
+
 	if !readable {
 		if t.Task == "" {
 			return facts.Set{}, false
@@ -137,18 +152,8 @@ func (t compiledTool) read(run capability.RunState, records []parse.Record) (fac
 		if !ran {
 			return facts.Set{}, false
 		}
-		return facts.Set{
-			Shape: facts.ShapeCases, Group: t.Group, Tool: t.Tool.Tool, Status: facts.StatusNA, Summary: summary,
-		}, true
-	}
-
-	set := facts.Set{Shape: facts.ShapeCases, Group: t.Group, Tool: t.Tool.Tool, RawObject: record.Object}
-	if t.ExitCodes != nil {
-		if code, ran := exitCode(run, t.Task); ran && !slices.Contains(t.ExitCodes.Results, code) {
-			set.Status = facts.StatusNA
-			set.Summary = fmt.Sprintf("the tool did not conclude (code %d)", code)
-			return set, true
-		}
+		set.Status, set.Summary = facts.StatusNA, summary
+		return set, true
 	}
 
 	for _, rule := range t.rules {
