@@ -70,8 +70,8 @@ Usage:
 
 Diagnosis:
   arkhitekton check-tracker  Checks access to the tracker and stops (read-only)
-  arkhitekton check-reading [--write] <reading.yaml> <case>...
-                             Checks a declared reading against recorded runs (no database)
+  arkhitekton check-reading [--write] <reading.yaml|module.wasm> <case>...
+                             Checks a reading against recorded runs (no database)
 
 Options for reprocess:
   --release <tag>  Limits the replay to one release (default: the whole history)

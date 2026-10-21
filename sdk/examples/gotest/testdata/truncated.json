@@ -1,0 +1,8 @@
+{"Time":"2026-10-21T12:17:53.741342356+02:00","Action":"start","Package":"example.org/sample/calc"}
+{"Time":"2026-10-21T12:17:53.743143+02:00","Action":"run","Package":"example.org/sample/calc","Test":"TestAdds"}
+{"Time":"2026-10-21T12:17:53.74318838+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestAdds","Output":"=== RUN   TestAdds\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.743211033+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestAdds","Output":"--- PASS: TestAdds (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.743215305+02:00","Action":"pass","Package":"example.org/sample/calc","Test":"TestAdds","Elapsed":0}
+{"Time":"2026-10-21T12:17:53.74322114+02:00","Action":"run","Package":"example.org/sample/calc","Test":"TestDivides"}
+{"Time":"2026-10-21T12:17:53.743223427+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestDivides","Output":"=== RUN   TestDivides\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.743226477+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestDivides","Output":"    calc_test.go:12: expected 2, got 3\n","OutputType":"error"}

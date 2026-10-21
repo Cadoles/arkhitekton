@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -66,5 +67,24 @@ func TestADriftingReadingFailsTheCheck(t *testing.T) {
 	}
 	if err := runCheckReading([]string{path, dir}); err == nil {
 		t.Error("check-reading succeeded on a drifting reading")
+	}
+}
+
+// The example interpreter compiled to WebAssembly reads its recorded cases as expected, through the
+// sandbox the dashboard runs it in.
+func TestTheExampleModuleReadsItsCases(t *testing.T) {
+	module := filepath.Join(t.TempDir(), "gotest.wasm")
+	build := exec.Command("go", "build", "-buildmode=c-shared", "-o", module, "./examples/gotest")
+	build.Dir = filepath.Join("..", "..", "sdk")
+	build.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+	cases, _ := filepath.Glob(filepath.Join("testdata", "readings", "gotest", "*"))
+	if len(cases) < 4 {
+		t.Fatalf("only %d cases", len(cases))
+	}
+	if err := runCheckReading(append([]string{module}, cases...)); err != nil {
+		t.Error(err)
 	}
 }

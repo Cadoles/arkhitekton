@@ -1,0 +1,33 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "unit",
+    "Tool": "gotest",
+    "Status": "",
+    "Summary": "2 test(s), 1 skipped",
+    "RawObject": "raw/case/go-test.json",
+    "DurationMS": 0,
+    "Cases": [
+      {
+        "Suite": "example.org/sample/calc",
+        "Name": "TestAdds",
+        "Status": "passed",
+        "DurationMS": 0,
+        "Message": "",
+        "Trace": ""
+      },
+      {
+        "Suite": "example.org/sample/calc",
+        "Name": "TestDivides",
+        "Status": "skipped",
+        "DurationMS": 0,
+        "Message": "no outcome: the stream ended before it",
+        "Trace": ""
+      }
+    ],
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  }
+]

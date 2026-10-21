@@ -9,12 +9,14 @@ import (
 	"path/filepath"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/wasm"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 /*
- * Checking a declared reading against recorded runs, before shipping it.
+ * Checking a reading against recorded runs, before shipping it: a declaration, or a module
+ * compiled to WebAssembly, recognised by its first bytes.
  *
  * A case is a directory:
  *
@@ -27,6 +29,9 @@ import (
  * start-up, and its facts compared with the expected ones.
  */
 
+// wasmMagic opens every WebAssembly module.
+var wasmMagic = []byte{0x00, 'a', 's', 'm'}
+
 // CaseRecord is one report of a case.
 type CaseRecord struct {
 	Tool   string   `json:"tool"`
@@ -34,7 +39,7 @@ type CaseRecord struct {
 	File   string   `json:"file,omitempty"`
 }
 
-// Check reads a case with a declared reading, and returns the facts produced and the facts
+// Check reads a case with a declared reading or a WebAssembly module, and returns the facts produced and the facts
 // expected, both as indented JSON. expected is nil when the case records none yet.
 func Check(reading []byte, dir string) (got, expected []byte, err error) {
 	var state capability.RunState
@@ -68,8 +73,15 @@ func Check(reading []byte, dir string) (got, expected []byte, err error) {
 		records = append(records, record)
 	}
 
-	interpreter, err := Compile(reading, spec)
-	if err != nil {
+	var interpreter capability.Interpreter
+	if bytes.HasPrefix(reading, wasmMagic) {
+		module, err := wasm.Load(context.Background(), filepath.Base(dir), reading, wasm.DefaultLimits, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer module.Close(context.Background())
+		interpreter = module
+	} else if interpreter, err = Compile(reading, spec); err != nil {
 		return nil, nil, err
 	}
 	sets, err := interpreter.Interpret(context.Background(), state, records)

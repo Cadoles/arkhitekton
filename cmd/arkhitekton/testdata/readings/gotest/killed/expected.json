@@ -1,0 +1,16 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "unit",
+    "Tool": "gotest",
+    "Status": "na",
+    "Summary": "the tool did not conclude (code 137): OOMKilled",
+    "RawObject": "",
+    "DurationMS": 0,
+    "Cases": null,
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  }
+]
