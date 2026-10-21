@@ -70,6 +70,8 @@ Usage:
 
 Diagnosis:
   arkhitekton check-tracker  Checks access to the tracker and stops (read-only)
+  arkhitekton check-reading [--write] <reading.yaml> <case>...
+                             Checks a declared reading against recorded runs (no database)
 
 Options for reprocess:
   --release <tag>  Limits the replay to one release (default: the whole history)
@@ -87,6 +89,11 @@ func run() error {
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
 		return errors.New("no role supplied")
+	}
+
+	// A tool for plugin authors, with nothing to configure: it reads files and nothing else.
+	if os.Args[1] == "check-reading" {
+		return runCheckReading(os.Args[2:])
 	}
 
 	role := config.Role(os.Args[1])
