@@ -111,10 +111,14 @@ type Plugin struct {
 
 // Pipeline is a pipeline capability.
 type Pipeline struct {
-	Name        string
-	Label       string
-	Spec        PipelineSpec
+	Name  string
+	Label string
+	Spec  PipelineSpec
+	// Interpreter reads the runs in code. A pipeline has it or Reading, never both.
 	Interpreter Interpreter
+	// Reading declares how the runs are read, as YAML the dashboard executes: see the declare
+	// package for what it says.
+	Reading []byte
 }
 
 // Product is what a pipeline leaves behind.

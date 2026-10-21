@@ -6,7 +6,8 @@
 //   - capability: what a plugin declares and brings, pipelines and their interpreters first;
 //   - parse: the records the dashboard's parsers hand to an interpreter;
 //   - facts: what an interpreter returns;
-//   - interpret: helpers shared by interpreters.
+//   - interpret: helpers shared by interpreters;
+//   - declare: the schema of a reading declared rather than written in code.
 package sdk
 
 // APIVersion is the contract's version. A plugin records the one it was built against, and the
