@@ -50,6 +50,17 @@ query to succeed rather than for a readiness command that lies, runs the suite w
 
     REDMINE_LIVE=1 GITEA_LIVE=1 make test-live
 
+**Golden files** record what the built-in readings produce (`cmd/arkhitekton/testdata/golden`).
+A change shows as a diff to review; `go test ./cmd/arkhitekton -update` records the new state.
+The readings declared in YAML are also compared with the Go readers they replaced, kept as
+oracles in `cmd/arkhitekton/oracles_test.go`, on every report and run state.
+
+**Adding a view** for declared readings (doc 06 §6.3) means adding it to
+`internal/declarative/views.go`: its parser, the fields every row carries, the closed values of
+enumerated fields, and a sample in `views_test.go`, which checks that every row carries exactly
+the announced fields. A view is part of the contract: renaming a field breaks every declaration
+that reads it.
+
 ## 11.5 Local cluster
 
     make dev-prereqs   # Flux CRDs and the development Flux objects
