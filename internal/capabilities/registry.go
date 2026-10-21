@@ -3,12 +3,14 @@
 package capabilities
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/wasm"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -63,19 +65,33 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 				problems = append(problems, fmt.Errorf("capability %s declared twice", ref))
 				continue
 			}
-			if len(pipeline.Reading) > 0 {
-				// A declared reading becomes the pipeline's interpreter, checked now rather than on the
-				// first run it would misread.
-				if pipeline.Interpreter != nil {
-					problems = append(problems, fmt.Errorf("capability %s reads its runs in code and declares a reading", ref))
-				} else if declared, err := declarative.Compile(pipeline.Reading, pipeline.Spec); err != nil {
+			// A pipeline reads its runs one way: in code, by declaration or in WebAssembly. The last two
+			// become its interpreter here, checked now rather than on the first run they would misread.
+			ways := 0
+			for _, present := range []bool{pipeline.Interpreter != nil, len(pipeline.Reading) > 0, len(pipeline.Module) > 0} {
+				if present {
+					ways++
+				}
+			}
+			switch {
+			case ways > 1:
+				problems = append(problems, fmt.Errorf("capability %s reads its runs more than one way", ref))
+			case len(pipeline.Reading) > 0:
+				declared, err := declarative.Compile(pipeline.Reading, pipeline.Spec)
+				if err != nil {
+					problems = append(problems, fmt.Errorf("capability %s: %w", ref, err))
+				}
+				pipeline.Interpreter = declared
+			case len(pipeline.Module) > 0:
+				module, err := wasm.Load(context.Background(), ref.String(), pipeline.Module, wasm.DefaultLimits, nil)
+				if err != nil {
 					problems = append(problems, fmt.Errorf("capability %s: %w", ref, err))
 				} else {
-					pipeline.Interpreter = declared
+					pipeline.Interpreter = module
 				}
 			}
 			registry.pipelines[ref] = pipeline
-			if pipeline.Interpreter == nil && len(pipeline.Reading) == 0 && produces(pipeline.Spec, capability.ProductResults) {
+			if ways == 0 && produces(pipeline.Spec, capability.ProductResults) {
 				problems = append(problems, fmt.Errorf("capability %s publishes results and reads none", ref))
 			}
 

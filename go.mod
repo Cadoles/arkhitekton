@@ -10,6 +10,7 @@ require (
 	github.com/minio/minio-go/v7 v7.2.1
 	github.com/pressly/goose/v3 v3.27.3
 	github.com/tektoncd/pipeline v1.11.1
+	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/crypto v0.55.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.22.0
