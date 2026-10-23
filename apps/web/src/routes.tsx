@@ -24,6 +24,7 @@ import {
   ProjectPluginsScreen,
   ProjectSyncScreen,
 } from './features/admin/ProjectTabs'
+import { CapabilitiesScreen } from './features/admin/CapabilitiesScreen'
 import { PluginsScreen } from './features/admin/PluginsScreen'
 import { AuditScreen } from './features/admin/AuditScreen'
 import { VersionsScreen } from './features/versions/VersionsScreen'
@@ -134,6 +135,7 @@ export const routes: RouteObject[] = [
         children: [
           { index: true, element: <ProjectsScreen /> },
           { path: 'plugins', element: <PluginsScreen /> },
+          { path: 'capabilities', element: <CapabilitiesScreen /> },
           { path: 'users', element: <UsersScreen /> },
           // Conservée : l'onglet Projets était à cette adresse, et les liens
           // partagés ne se corrigent pas d'eux-mêmes.

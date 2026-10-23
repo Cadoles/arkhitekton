@@ -24,11 +24,15 @@ import { SubTabs, type SubTab } from '../../components/SubTabs'
  * L'onglet Plugins, qui porte ce que **cette version** du dashboard sait faire et
  * ce qui vaut pour toute l'instance. Ce qui est propre à un projet se règle sur sa
  * page : le global porte les défauts, le projet porte ses écarts.
+ *
+ * L'onglet Capacités, où se lient les pipelines que le fichier de catalogue ne lie
+ * pas : ceux d'un plugin installé depuis un registre d'abord.
  */
 
 const TABS: SubTab[] = [
   { to: '/admin', label: 'Projets', icon: <Icon name="branch" className="size-4" />, end: true },
   { to: '/admin/plugins', label: 'Plugins', icon: <Icon name="link" className="size-4" /> },
+  { to: '/admin/capabilities', label: 'Capacités', icon: <Icon name="layers" className="size-4" /> },
   { to: '/admin/users', label: 'Utilisateurs', icon: <Icon name="user" className="size-4" /> },
   { to: '/admin/logs', label: "Journal d'audit", icon: <Icon name="doc" className="size-4" /> },
 ]
