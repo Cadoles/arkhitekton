@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
 )
 
 // The tests of the catalogue actually shipped. They live with the assembly: the catalogue binds
@@ -90,7 +89,7 @@ func TestTheShippedCatalogueChainsTheFourExpectedKinds(t *testing.T) {
 // The catalogue actually deployed keeps, for mse-test-project, the table `main.go` used to
 // write: moving it must change nothing about who can promote where.
 func TestTheDeployedCatalogueKeepsTheTableFromMain(t *testing.T) {
-	policies := mse.Policies(shippedCatalogue(t))["mse-test-project"]
+	policies := shippedCatalogue(t).EnvironmentPolicies()["mse-test-project"]
 
 	for environment, sensitive := range map[string]bool{
 		"unstable": false, "qualif": false, "preprod": true, "prod": true,

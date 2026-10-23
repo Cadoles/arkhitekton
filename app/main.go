@@ -248,7 +248,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
 	// The sensitivity of the environments is declared in the catalogue and read by the MSE
 	// plugin. Logged: it is what decides who may promote where.
-	policies := mse.Policies(pipelines)
+	policies := pipelines.EnvironmentPolicies()
 	declaredProjects := make([]string, 0, len(policies))
 	for slug := range policies {
 		declaredProjects = append(declaredProjects, slug)

@@ -1,23 +1,22 @@
-package mse
+package catalog
 
 import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 )
 
 // Sensitivity comes from the project's section, and an environment that does not declare it is
 // sensitive: forgetting must make promotion harder, never easier.
 func TestSensitivityComesFromTheCatalogueAndForgettingIsSensitive(t *testing.T) {
 	non, oui := false, true
-	authorizer := auth.NewAuthorizer(Policies(&catalog.Catalog{Projects: map[string]catalog.ProjectDeclaration{
-		"mse": {Environments: []catalog.Environment{
+	authorizer := auth.NewAuthorizer((&Catalog{Projects: map[string]ProjectDeclaration{
+		"mse": {Environments: []Environment{
 			{ID: "qualif", Sensitive: &non},
 			{ID: "prod", Sensitive: &oui},
 			{ID: "oublie"},
 		}},
-	}}))
+	}}).EnvironmentPolicies())
 
 	operator := auth.Identity{Subject: "s", Role: auth.RoleOperator}
 	for environment, expected := range map[string]bool{"qualif": true, "prod": false, "oublie": false, "unknown": false} {
