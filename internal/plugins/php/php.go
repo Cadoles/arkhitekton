@@ -46,7 +46,7 @@ func Plugin() capability.Plugin {
 	all := Manifests()
 	return capability.Plugin{
 		ID:         ID,
-		Version:    "1.0.0",
+		Version:    "1.1.0",
 		APIVersion: sdk.APIVersion,
 		Label:      "PHP",
 		Summary:    "Analyse statique (PHPStan, PHP-CS-Fixer) et tests unitaires PHPUnit.",

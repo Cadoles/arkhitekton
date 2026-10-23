@@ -126,8 +126,10 @@ tools:
 ```
 
 A tool's report becomes a set of cases, one per row of each `cases` rule, in the order the
-rules are declared. A task that ran and left no readable report did not conclude; one that
-never started says nothing. A tool may also read its `duration` from the report as a whole.
+rules are declared. A task that ran and left no readable report did not conclude, and so did
+one whose exit code `exitCodes` does not list, whatever its report says: the summary gives the
+code and why the task ended (`the tool did not conclude (code 137): OOMKilled`). One that never
+started says nothing. A tool may also read its `duration` from the report as a whole.
 
 **Views** are what a declaration reads; the dashboard offers them and adds them:
 

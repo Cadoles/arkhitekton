@@ -31,11 +31,12 @@ func (staticReader) Interpret(_ context.Context, run capability.RunState, record
 	}
 	if set, found := tool(run, records, "cs-fixer", "run-cs-fixer", csFixerSet); found {
 		// PHP-CS-Fixer exits 0 when everything conforms and 8 when files need fixing. Any other code
-		// is a failure of the tool, whatever its report says.
+		// is a failure of the tool, whatever its report says, and says why the task ended.
 		if code, ran := exitCode(run, "run-cs-fixer"); ran && code != 0 && code != 8 {
+			summary, _ := sdkinterpret.NotConcluded(run, "run-cs-fixer")
 			set = facts.Set{
 				Shape: facts.ShapeCases, Group: "static", Tool: "cs-fixer", RawObject: set.RawObject,
-				Status: facts.StatusNA, Summary: fmt.Sprintf("the tool did not conclude (code %d)", code),
+				Status: facts.StatusNA, Summary: summary,
 			}
 		}
 		sets = append(sets, set)

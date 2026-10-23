@@ -135,11 +135,12 @@ func (t compiledTool) read(run capability.RunState, records []parse.Record) (fac
 	}
 
 	// A code outside the results is a failure of the tool, whatever its report says, and whether
-	// it left one or not.
+	// it left one or not. The summary is the one of a tool that left nothing: the code, and why
+	// the task ended, an OOMKilled first.
 	if t.ExitCodes != nil {
 		if code, ran := exitCode(run, t.Task); ran && !slices.Contains(t.ExitCodes.Results, code) {
 			set.Status = facts.StatusNA
-			set.Summary = fmt.Sprintf("the tool did not conclude (code %d)", code)
+			set.Summary, _ = interpret.NotConcluded(run, t.Task)
 			return set, true
 		}
 	}
