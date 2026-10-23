@@ -238,7 +238,7 @@ func computeScore(
 		// The release has no plan. It predates plans, or its tests were launched by hand from the
 		// queue. Its score is computed by family, as before — losing it would be worse than
 		// computing it on an axis that no longer exists.
-		if measures, err = familyMeasures(ctx, source, releaseID, reports); err != nil {
+		if measures, err = familyMeasures(ctx, source, releaseID, reports, registry); err != nil {
 			return results.Breakdown{}, err
 		}
 	}
@@ -253,6 +253,7 @@ func computeScore(
 // produce nothing at all — hence a score computed over a silent subset.
 func familyMeasures(
 	ctx context.Context, source scoreStore, releaseID int64, reports []store.TestResult,
+	registry *catalog.Catalog,
 ) ([]results.Measure, error) {
 	// The last report of each tool, then the sum per family.
 	//
@@ -318,10 +319,14 @@ func familyMeasures(
 		measure.Key = results.SignalKey(measure.Signal)
 		measure.Label = signalLabels[measure.Signal]
 		measure.Weight = results.WeightOf(nil, measure.Signal)
-		// The pipeline and the group of the fallback, derived from the signal: here and nowhere
-		// else, because this is the only path with no step to say them.
-		measure.Ref = signalKinds[measure.Signal]
+		// The group of the fallback, derived from the signal, and the pipeline to re-run, the one
+		// the catalogue shows under that group: here and nowhere else, because this is the only path
+		// with no step to say them. Performance names none: its campaigns come from an outside runner
+		// the dashboard does not trigger.
 		measure.Group = signalGroups[measure.Signal]
+		if measure.Signal != results.SignalPerformance {
+			measure.Ref = registry.KindOfGroup(string(measure.Group))
+		}
 		measure.Shape = defaultShape(measure.Group)
 		measures = append(measures, measure)
 	}
@@ -333,18 +338,7 @@ func familyMeasures(
 // Written here because they have no declaration: they are natures, not steps. A step
 // carries the label somebody gave it.
 //
-// signalKinds and signalGroups complete the per-family fallback.
-//
-// The pipeline family to re-run, and the report family to open. Empty for performance,
-// whose campaigns come from an outside runner the dashboard does not trigger.
-var signalKinds = map[results.Signal]string{
-	results.SignalUnit:        "php/unit-tests",
-	results.SignalIntegration: "mse/integration-tests",
-	results.SignalE2E:         "mse/e2e-tests",
-	results.SignalCode:        "php/static-tests",
-	results.SignalSecurity:    "security/security-audit",
-}
-
+// signalGroups completes the per-family fallback: the report family to open.
 var signalGroups = map[results.Signal]results.Group{
 	results.SignalUnit:        results.GroupUnit,
 	results.SignalIntegration: results.GroupIntegration,

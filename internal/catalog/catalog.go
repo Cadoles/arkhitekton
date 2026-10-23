@@ -885,6 +885,20 @@ func (p Pipeline) Group() string {
 	return found
 }
 
+// KindOfGroup names the pipeline whose results are shown under a group, the first one declared
+// when several are. Empty when none is, or with no catalogue.
+func (c *Catalog) KindOfGroup(group string) string {
+	if c == nil || group == "" {
+		return ""
+	}
+	for _, pipeline := range c.Pipelines {
+		if pipeline.Group() == group {
+			return pipeline.Kind
+		}
+	}
+	return ""
+}
+
 // VerificationKinds lists what a successful build chains.
 //
 // In declaration order, which becomes queueing order: a Go map has no order, and

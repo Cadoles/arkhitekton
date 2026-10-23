@@ -159,3 +159,16 @@ func TestShippedCatalogParses(t *testing.T) {
 		}
 	}
 }
+
+// The pipeline a signal re-runs, found through its group, is the one the score used to name.
+func TestEachSignalReRunsItsPipeline(t *testing.T) {
+	shipped := shippedCatalogue(t)
+	for group, kind := range map[string]string{
+		"unit": "php/unit-tests", "integration": "mse/integration-tests", "e2e": "mse/e2e-tests",
+		"static": "php/static-tests", "security": "security/security-audit",
+	} {
+		if got := shipped.KindOfGroup(group); got != kind {
+			t.Errorf("%s: %q, expected %q", group, got, kind)
+		}
+	}
+}
