@@ -102,12 +102,11 @@ Two boundaries are carved out of that reciprocity:
   ([LICENSE.plugin-exception](LICENSE.plugin-exception)) lets a plugin that uses only the
   plugin interface be published under any licence its author chooses, and the combined
   work be distributed or served on those terms.
-- **Pipelines and catalogues.** They are data read by Tekton, not linked code: writing one
-  creates no derivative work. The shipped examples (`deploy/base/pipelines/`,
-  `deploy/base/config/catalog.yaml`) are under **Apache 2.0**, so they can be copied and
-  adapted freely.
+- **Pipelines, catalogues and examples.** Pipelines and catalogues are data read by Tekton
+  and Arkhitekton, not linked code: writing one creates no derivative work. The shipped
+  examples (`deploy/base/pipelines/`, `deploy/base/config/catalog.yaml`, the example plugins
+  under `sdk/examples/`) are under **Apache 2.0**, so they can be copied and adapted freely.
 
-The reasoning, and what remains before a third-party plugin is technically possible, is in
-[docs/12 — Licensing](docs/12-licensing.md).
+The reasoning is in [docs/12, Licensing](docs/12-licensing.md).
 
 Copyright (C) 2026 Cadoles.

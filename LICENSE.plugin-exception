@@ -21,8 +21,13 @@ DEFINITIONS
   (b) the HTTP API served by the Program;
 
   (c) the declarative formats that the Program reads or writes: pipeline
-      catalogues, Tekton Pipeline and Task definitions, plugin settings and
-      automation declarations.
+      catalogues, Tekton Pipeline and Task definitions, plugin manifests,
+      declared readings, plugin settings and automation declarations;
+
+  (d) the interface through which the Program runs a plugin's WebAssembly
+      module: the module's exports and the data exchanged with it, as
+      documented by the Program, whatever the language the module is
+      written in.
 
 "Plugin" means a work that interacts with the Program solely through the
 Plugin Interface, and that does not otherwise copy or incorporate source code
@@ -49,13 +54,18 @@ covered by the GNU AGPL, whether or not they were made in order to accommodate
 a Plugin.
 
 
-PIPELINES AND CATALOGUES
+DATA AND EXAMPLES
 
-Pipeline catalogues and Tekton definitions are data read by the Program, not
-part of it: writing one does not create a work based on the Program, and the
-GNU AGPL does not require it to be licensed under the same terms. The examples
-distributed with the Program are licensed under the Apache License 2.0 — see
-deploy/base/pipelines/LICENSE — so that they may be copied and adapted freely.
+Pipeline catalogues, Tekton definitions, plugin manifests and declared
+readings are data read by the Program, not part of it: writing one does not
+create a work based on the Program, and the GNU AGPL does not require it to be
+licensed under the same terms.
+
+The examples distributed with the Program are licensed under the Apache
+License 2.0, so that they may be copied and adapted freely, and so that a
+Plugin started from one does not copy source code of the Program: the
+pipelines under deploy/base/pipelines/ and the plugins under sdk/examples/,
+each directory carrying its LICENSE file.
 
 
 NOTE
@@ -75,5 +85,10 @@ Résumé en français, sans valeur juridique — le texte anglais ci-dessus fait
     distribué ou exposé en ligne dans ces conditions.
   - Le noyau reste sous AGPL, ses modifications aussi : qui l'expose en réseau
     en doit les sources, section 13 comprise.
-  - Les pipelines et les catalogues sont des données. Les exemples livrés sont
-    sous Apache 2.0, pour être copiés et adaptés sans contrainte.
+  - L'interface de plugin comprend le module sdk, l'API HTTP, les formats
+    déclaratifs (manifestes de plugin et lectures déclarées compris) et
+    l'interface des modules WebAssembly, quel que soit leur langage.
+  - Les pipelines, les catalogues, les manifestes et les lectures sont des
+    données. Les exemples livrés (deploy/base/pipelines/, sdk/examples/) sont
+    sous Apache 2.0, pour être copiés et adaptés sans contrainte : un plugin
+    parti d'un exemple ne copie pas de code du dashboard.

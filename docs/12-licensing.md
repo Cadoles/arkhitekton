@@ -60,7 +60,8 @@ plugins shipped with the dashboard import nothing else of it (`internal/capabili
 A plugin is compiled into the binary, which is precisely what the exception makes possible, or
 brings its reading as a declaration or a WebAssembly module (doc 06 §6.3, §6.4). A module built
 against `sdk/guest` uses only the plugin interface, and is covered by the exception like a
-compiled plugin.
+compiled plugin; so is a module written in another language, through the interface the
+dashboard runs modules with (item (d) of the exception).
 
 A plugin installed from a registry (doc 06 §6.12) is a directory: its manifest and Tekton
 definitions are YAML the dashboard reads, linked to nothing (§12.5), and its module, when it
@@ -81,6 +82,13 @@ They are therefore under **Apache 2.0** (`deploy/base/pipelines/LICENSE`), the l
 Tekton itself and explicit about patents. `deploy/base/config/catalog.yaml` follows, as a
 catalogue template.
 
+The same holds for plugins. **Nobody writes a plugin from a blank page either**: they start
+from `sdk/examples/gotest`, its manifest, its Tekton definitions and its interpreter. Under
+the AGPL, a plugin started from it would copy source code of the program, and the exception
+covers only a plugin that does not. `sdk/examples/` is therefore under Apache 2.0 too
+(`sdk/examples/LICENSE`); the `sdk` packages a plugin compiles against stay under the AGPL
+and its exception.
+
 ## 12.6 Decisions on record
 
 **Copyright holder: Cadoles.** One line, not a list: accepting outside contributions will
@@ -89,13 +97,18 @@ mean choosing a DCO or a CLA, which is an open question.
 **`AGPL-3.0-or-later`**, not `-only`: without "or later", adopting a future version would
 require every contributor's agreement.
 
-**Apache 2.0 for the shipped pipelines**, not CC0: attribution stays due and the patent
-grant is explicit, which suits infrastructure code that gets copied verbatim.
+**Apache 2.0 for the shipped pipelines and example plugins**, not CC0: attribution stays due
+and the patent grant is explicit, which suits code that gets copied verbatim.
+
+**The plugin interface names every way a plugin talks to the dashboard**: the `sdk` module,
+the HTTP API, the declarative formats (plugin manifests and declared readings included) and
+the interface WebAssembly modules are run through. A format added later is added to the list
+in the exception, not left to interpretation.
 
 **No SPDX headers across the source files.** The root `LICENSE`, this document and the
 README section establish the regime; headers everywhere would add noise to every diff
-without resolving any ambiguity. The two places where two regimes meet —
-`deploy/base/pipelines/` and `catalog.yaml` — are marked.
+without resolving any ambiguity. The places where two regimes meet are marked:
+`deploy/base/pipelines/`, `catalog.yaml` and `sdk/examples/`.
 
 **This document is not legal advice.** The wording of the exception deserves review by a
 lawyer before the first outside publication; it is the only part of the repository whose

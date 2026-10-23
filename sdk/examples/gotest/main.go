@@ -8,6 +8,9 @@
 // A package that fails with no failed test (it did not build, its TestMain failed) is a case of
 // its own, so that the failure is not lost. A test the stream leaves without an outcome was cut
 // off, and is counted as not run.
+//
+// Like everything under sdk/examples, it is under the Apache License 2.0, to be copied as the
+// start of a plugin.
 package main
 
 import (
