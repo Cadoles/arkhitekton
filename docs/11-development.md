@@ -4,6 +4,7 @@
 
     app/                  the binary as a library, the only place plugins are assembled
     cmd/arkhitekton/      the default distribution: app.Main with the built-in plugins
+    host/                 the API compiled-in extensions implement, and hosttest/ for their tests
     internal/
       auth/               roles, permissions, sessions
       catalog/            the pipeline catalogue and its validation
@@ -14,11 +15,12 @@
       plugin/             plugin descriptors and the registry
       capability/, facts/, parse/   the contract plugins compile against
       plugins/            the built-in plugins, and builtin/ which assembles them
-      mse/                the MSE plugin, with its own storage and migrations
+      mse/                the MSE extension, written against host/ only
       results/            the quality score
       tekton/, gitea/, redmine/, registry/, blob/   external systems
       web/                the embedded interface build output
-    apps/web/             the React sources
+    apps/web/             the React sources; src/host/ is what interface modules import,
+                          src/plugins/<id>/ where a distribution puts its modules
     deploy/               kustomize manifests and pipeline definitions
     docs/                 this documentation
 

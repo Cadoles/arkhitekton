@@ -291,24 +291,24 @@ makes a plugin reachable from the automation screen without the core knowing wha
 ## 6.9 Modules
 
 Some plugins need loops that write the dashboard's tables and talk to the cluster, which a
-contract plugin cannot do. Those are **modules**: written against the host
-(`internal/module`), assembled by the `app` package next to the plugin that declares the
-`module` capability, and refused at start-up if no plugin declares it.
+contract plugin cannot do. Those are **modules**, brought by an extension compiled into a
+distribution (§6.13), written against the `host` package, and refused at start-up if their
+plugin does not declare the `module` capability.
 
 The worker's supervisor runs a module while its plugin is switched on for at least one
 project, and restarts it with its new settings when they change. Switching a module on or
 off, or editing its settings, applies within thirty seconds, without a restart. A module that
 fails is started again at the next tick; the worker keeps running.
 
-A plugin that needs tables owns them. The MSE plugin carries its own migrations and its
-own version table (`goose_mse_db_version`), applied by the same `migrate` role, and
-exposes its own readiness check. The core's schema does not mention the plugin's tables,
+A plugin that needs tables owns them. An extension carries its own migrations and its own
+version table (MSE's is `goose_mse_db_version`), applied by the same `migrate` role after the
+core's, and the dashboard adds its readiness check (`schema-mse`). The core's schema does not mention the plugin's tables,
 and dropping the plugin means dropping its migrations — not editing the core's history.
 
 ## 6.10 The MSE plugin
 
-Shipped with Arkhitekton, and the reference implementation of a module. Besides its pipeline
-capabilities, it adds:
+The reference implementation of an extension (§6.13). Besides its pipeline capabilities, it
+adds:
 
 - **environments**, declared per project in the catalogue, with their rank, namespace,
   visibility, observability and sensitivity;
@@ -324,9 +324,16 @@ not exist: the worker opens neither Flux nor the portal's CRD.
 
 ## 6.11 Writing a plugin
 
-A plugin is a Go package importing the `sdk` module and nothing else of the dashboard, compiled
-into the binary: add it to `internal/plugins/builtin`. A plugin that brings pipelines only can
-instead be installed without recompiling (§6.12). Its version changes
+A plugin is a Go package importing the `sdk` module and nothing else of the dashboard. Three
+ways to bring it:
+
+- **built in**: added to `internal/plugins/builtin`, released with the dashboard;
+- **installed** from a registry without recompiling, for a plugin that brings pipelines only
+  (§6.12);
+- **compiled into a distribution** with what pipelines alone cannot do, routes, tables, loops,
+  screens: an extension (§6.13).
+
+ Its version changes
 whenever what its interpreters read changes: a replay refuses to read a run with another
 version than the one that read it, unless asked.
 
@@ -439,3 +446,58 @@ shown without the plugin. A plan naming one of its capabilities fails at launch,
 the worker watch: each rebuilds its capabilities within thirty seconds, at once on the replica
 that took the request. Capabilities that do not build leave the previous ones in force, and are
 tried again.
+
+## 6.13 Extensions and distributions
+
+An **extension** brings what a plugin's pipelines cannot: routes, tables and their migrations,
+loops under the worker's lease, screens. It is compiled into a **distribution** of the
+dashboard: a command of its own that calls `app.Main` with its extensions, and an image built
+from it. `cmd/arkhitekton` is the default distribution.
+
+```go
+package main
+
+import "forge.cadoles.com/vcarroy/arkhitekton/app"
+
+func main() {
+    app.Main(app.Options{
+        Version: version, Revision: revision,
+        Extensions: []host.Extension{mse.Extension()},
+        UI:         web.Dist, // the interface built with the extension's screens
+    })
+}
+```
+
+**The host API.** An extension imports `host`, the contract it implements and what the
+dashboard lends it, and nothing else of the dashboard: Go forbids importing `internal/`
+from another module, and a test enforces the rule for an extension kept in this repository.
+`host.Extension` declares, every field optional:
+
+| Field | What it brings |
+|---|---|
+| `Plugin` | its descriptor (sdk), pipelines included, registered with the built-in plugins |
+| `Stacks` | Tekton definitions added to the reference stacks a project declares |
+| `Migrations` | its tables: a `MigrationSet` with a version table of its own, applied after the core's |
+| `Seed` | settings filled at start-up, projects completed at the first bootstrap, configuration keys |
+| `API` | routes, release deployments and promotions, environment suggestions, version scheme checks |
+| `Worker` | modules, the fact of a promotion, values added to a project's pipelines |
+
+The dashboard lends a `Store` (projects, releases, the queue, the audit log, plugin
+settings), the PostgreSQL pool for the extension's own tables, the catalogue, the
+authorisation, the plugins' switches, the cluster's configuration (worker) and a logger. Data
+is shared through aliases of the dashboard's types, services through narrow interfaces.
+`host/hosttest` gives an extension's tests a throwaway database with the dashboard's schema,
+an authenticated request, the plugins' switches, and the dashboard's parsers and readings.
+
+**Screens.** An extension's screens are an interface module (`src/plugins/<id>/index.tsx`,
+an `AppModule` as default export: routes, navigation, sections and badges of a release, its
+facts' labels). A module imports `@arkhitekton/host` (`apps/web/src/host`), React, the router
+and react-query, and its own files; a test enforces it. To build a distribution's interface,
+the extension's directory is copied into `apps/web/src/plugins/<id>/` of the arkhitekton
+version it builds against, and `npm run build` writes where `ARKHITEKTON_WEB_OUT` says: one
+bundle, one React, the core's checks applied to the module.
+
+**Versions.** The host API is young: until arkhitekton 1.0, a minor version may change it, and
+says so in its notes. An extension requires the arkhitekton version it is built against, and
+the `sdk` version that version requires (tags `vX.Y.Z` and `sdk/vX.Y.Z`).
+

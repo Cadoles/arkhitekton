@@ -89,6 +89,12 @@ is allowed to import feature code.
 The consequence is that an instance with every plugin disabled is still coherent: screens
 that belong to a plugin disappear, nothing else changes. See [06 — Plugins](06-plugins.md).
 
+What a plugin's pipelines cannot bring, routes, tables, loops and screens, comes from an
+**extension** compiled into a distribution of the dashboard, written against the public `host`
+package and its interface counterpart `@arkhitekton/host`: a Go test and a front-end test keep
+an extension to those, so that it can live in another repository. See
+[06, §6.13](06-plugins.md).
+
 ## 2.6 The web interface
 
 React, built with Vite, embedded into the binary and served by the `api` role at `/`.

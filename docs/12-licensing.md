@@ -63,6 +63,11 @@ against `sdk/guest` uses only the plugin interface, and is covered by the except
 compiled plugin; so is a module written in another language, through the interface the
 dashboard runs modules with (item (d) of the exception).
 
+An extension compiled into a distribution (doc 06 §6.13) is written against the host API, the
+`host`, `host/hosttest` and `app` packages and the interface module `apps/web/src/host`, which
+the exception names as part of the plugin interface: its author chooses its licence as for a
+compiled plugin, the distribution combining it with the program on those terms.
+
 A plugin installed from a registry (doc 06 §6.12) is a directory: its manifest and Tekton
 definitions are YAML the dashboard reads, linked to nothing (§12.5), and its module, when it
 has one, is covered as above. Its author chooses its licence; the dashboard checks who signed

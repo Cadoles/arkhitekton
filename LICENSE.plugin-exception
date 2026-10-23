@@ -14,9 +14,12 @@ DEFINITIONS
 
 "Plugin Interface" means:
 
-  (a) the exported identifiers of the Go module that the Program designates
-      as its plugin API — at the date of this file, the module
-      `forge.cadoles.com/vcarroy/arkhitekton/sdk` and every package under it;
+  (a) the exported identifiers of what the Program designates as its plugin
+      API, at the date of this file: the module
+      `forge.cadoles.com/vcarroy/arkhitekton/sdk` and every package under it,
+      the packages `host`, `host/hosttest` and `app` of the module
+      `forge.cadoles.com/vcarroy/arkhitekton`, and the interface module
+      `apps/web/src/host` with the module contract it exports;
 
   (b) the HTTP API served by the Program;
 
@@ -85,9 +88,11 @@ Résumé en français, sans valeur juridique — le texte anglais ci-dessus fait
     distribué ou exposé en ligne dans ces conditions.
   - Le noyau reste sous AGPL, ses modifications aussi : qui l'expose en réseau
     en doit les sources, section 13 comprise.
-  - L'interface de plugin comprend le module sdk, l'API HTTP, les formats
-    déclaratifs (manifestes de plugin et lectures déclarées compris) et
-    l'interface des modules WebAssembly, quel que soit leur langage.
+  - L'interface de plugin comprend le module sdk, l'API hôte des extensions
+    compilées (paquets host, host/hosttest et app, module d'interface
+    apps/web/src/host), l'API HTTP, les formats déclaratifs (manifestes de
+    plugin et lectures déclarées compris) et l'interface des modules
+    WebAssembly, quel que soit leur langage.
   - Les pipelines, les catalogues, les manifestes et les lectures sont des
     données. Les exemples livrés (deploy/base/pipelines/, sdk/examples/) sont
     sous Apache 2.0, pour être copiés et adaptés sans contrainte : un plugin
