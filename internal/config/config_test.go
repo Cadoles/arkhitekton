@@ -105,10 +105,26 @@ func TestLoadWorkerDoesNotRequireOIDC(t *testing.T) {
 		"MINIO_ENDPOINT":   "nuo-s3.nuonet.fr",
 		"MINIO_ACCESS_KEY": "ak",
 		"MINIO_SECRET_KEY": "sk",
+		"TEKTON_NAMESPACE": "pipelines",
 	})
 
 	if _, err := Load(RoleWorker); err != nil {
 		t.Fatalf("worker should not require OIDC: %v", err)
+	}
+}
+
+// The namespace has no default: one named after a deployment would send another's runs there.
+func TestLoadWorkerRequiresTheTektonNamespace(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL":     "postgres://u:p@db:5432/mse",
+		"MINIO_ENDPOINT":   "nuo-s3.nuonet.fr",
+		"MINIO_ACCESS_KEY": "ak",
+		"MINIO_SECRET_KEY": "sk",
+		"TEKTON_NAMESPACE": "",
+	})
+
+	if _, err := Load(RoleWorker); err == nil || !strings.Contains(err.Error(), "TEKTON_NAMESPACE") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

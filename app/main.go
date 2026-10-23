@@ -251,8 +251,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// Every replica follows what is installed and bound: each reads the database's counter.
 	go func() { _ = reloader.Run(ctx) }()
 	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
-	// The sensitivity of the environments is declared in the catalogue and read by the MSE
-	// plugin. Logged: it is what decides who may promote where.
+	// The sensitivity of the environments is declared in the catalogue. Logged: it is what decides
+	// who may promote where.
 	policies := pipelines.EnvironmentPolicies()
 	declaredProjects := make([]string, 0, len(policies))
 	for slug := range policies {
@@ -560,7 +560,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// project above.
 				"default_repo", resolved["project.repoUrl"],
 				"registry_project", resolved["registry.project"],
-				// What the extensions add per project, MSE's kustomization and overlay, is theirs to log.
+				// What the extensions add per project is theirs to log.
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"],
 				// The pipelines' storage is not the dashboard's, and it shows only at the last step of an
@@ -640,7 +640,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// The artifacts' write URLs are minted here: the storage layout belongs to the dashboard, and
 			// that is what takes the MinIO secret out of the test Tasks.
 
-			// The settings the MSE plugin adds to a project's pipelines.
 			scheduler := worker.NewSchedulerFromCatalog(
 				db, cluster, inForce.Catalogs(), resolved, logger).
 				WithUploads(storage).
@@ -652,8 +651,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// The repository this project clones, read from the database: a second project does not build
 				// the first one's.
 				WithProjectRepositories(db, os.Getenv("FORGE_SSH_PORT")).
-				// And the settings the extensions add for this project, MSE's kustomization and overlay.
-				// Nothing from an extension switched off for it.
+				// And the settings the extensions add for this project. Nothing from an extension switched
+				// off for it.
 				WithProjectSettings(composedProjectSettings(extensionHooks)).
 				// A plugin switched off by an administrator stops its pipelines.
 				WithPluginGate(pluginGate(db))
@@ -749,17 +748,14 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 // PipelineRun must be a list one can read, not the whole of the dashboard's configuration.
 // appRepositoryURL returns the application repository the configuration names.
 //
-// Derived from `GITEA_REPO`: it is the same repository whose branches the form offers, and
-// naming it twice let one move without the other. `FORGE_MSE_REPO_URL` stays an explicit
-// exception, not the current setting.
+// Derived from `FORGE_REPO`: it is the same repository whose branches the form offers, and
+// naming it twice let one move without the other. `FORGE_REPO_URL` stays an explicit exception,
+// for a clone URL that cannot be derived. Empty when neither is set: no application is seeded.
 func appRepositoryURL(cfg config.Config) string {
-	if explicit := strings.TrimSpace(os.Getenv("FORGE_MSE_REPO_URL")); explicit != "" {
+	if explicit := strings.TrimSpace(os.Getenv("FORGE_REPO_URL")); explicit != "" {
 		return explicit
 	}
-	if derived := cfg.Forge.CloneURL(os.Getenv("FORGE_SSH_PORT")); derived != "" {
-		return derived
-	}
-	return "ssh://git@forge.cadoles.com:2222/CNOUS/mse.git"
+	return cfg.Forge.CloneURL(os.Getenv("FORGE_SSH_PORT"))
 }
 
 // projectSeedDefaults returns what a project receives when it is seeded: its repository, its
@@ -770,10 +766,10 @@ func appRepositoryURL(cfg config.Config) string {
 func projectSeedDefaults(cfg config.Config) map[string]string {
 	return map[string]string{
 		"repoUrl":    appRepositoryURL(cfg),
-		"dockerfile": envOrDefault("MSE_DOCKERFILE", "./misc/k8s/images/portal/Dockerfile"),
-		// Build context, distinct from the Dockerfile: `mse` puts its own in a subtree while building
-		// from the root.
-		"buildContext": envOrDefault("MSE_BUILD_CONTEXT", "."),
+		"dockerfile": envOrDefault("PROJECT_DOCKERFILE", "Dockerfile"),
+		// Build context, distinct from the Dockerfile: a repository may keep its Dockerfile in a
+		// subtree while building from the root.
+		"buildContext": envOrDefault("PROJECT_BUILD_CONTEXT", "."),
 	}
 }
 
@@ -804,25 +800,25 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		"pipeline.gitSecret":      envOr("PIPELINE_GIT_SECRET", "git-credentials"),
 		"pipeline.registrySecret": envOr("PIPELINE_REGISTRY_SECRET", "regcred"),
 		// Secret for pulling the tooling images, distinct from the one used to push: the pod pulls
-		// from `cnous-mse`, `crane` pushes to the release's project. Two scopes, potentially two
+		// the tooling, `crane` pushes to the release's project. Two scopes, potentially two
 		// accounts.
 		"pipeline.imagePullSecret": envOr("PIPELINE_IMAGE_PULL_SECRET", "regcred"),
 		// The repository of a job that names no project. Those that name one clone **their own**,
 		// read from the database by the scheduler.
 		"project.repoUrl": appRepositoryURL(cfg),
-		// The kustomization, its revision, the E2E tests and the overlay are no longer here: they
-		// name MSE, and come from its plugin's settings, where a project overrides them.
-		// The security audit reads its Semgrep rules and its policies in `mse-tekton`: it is a
-		// repository it clones, just like the application and the deployment infrastructure.
-		"forge.tekton.repoUrl": envOr("FORGE_TEKTON_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-tekton.git"),
-		"registry.project":     envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
+		// What an extension's pipelines read comes from its plugin's settings, where a project
+		// overrides them.
+		// The security audit reads its Semgrep rules and its policies in a repository it clones,
+		// just like the application.
+		"forge.tekton.repoUrl": os.Getenv("FORGE_TEKTON_REPO_URL"),
+		"registry.project":     cfg.Registry.Project,
 		// The Dockerfile and the build context are no longer here: they describe a repository, each
 		// project carries its own in the database, and a release's plan already reads them there.
 		// They now serve only to **seed** a project, and `projectSeedDefaults` returns them for that.
-		// The pipelines' bucket is not the dashboard's: `mse-pipeline` carries the artifacts the
-		// Tasks publish, `arkhitekton` what the dashboard writes itself.
-		"minio.host":           envOr("PIPELINE_MINIO_HOST", "https://nuo-s3.nuonet.fr"),
-		"minio.pipelineBucket": envOr("PIPELINE_MINIO_BUCKET", "mse-pipeline"),
+		// The pipelines' bucket is not the dashboard's: it carries the artifacts the Tasks publish,
+		// the dashboard's what the dashboard writes itself.
+		"minio.host":           os.Getenv("PIPELINE_MINIO_HOST"),
+		"minio.pipelineBucket": os.Getenv("PIPELINE_MINIO_BUCKET"),
 	})
 }
 

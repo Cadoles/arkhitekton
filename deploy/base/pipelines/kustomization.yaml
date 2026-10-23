@@ -24,7 +24,7 @@ kind: Kustomization
 # definitions. It is set here rather than at the top of the repository because the base
 # deliberately has **no** global transformer — see the comment in `../kustomization.yaml`. This
 # nested kustomization transforms only its own resources, which is exactly the scope wanted.
-namespace: mse-tekton-pipelines
+namespace: arkhitekton-pipelines
 
 # The ownership mark. It is not decorative: it is what will let the dashboard reconcile only
 # what it installed, and never adopt what it finds.

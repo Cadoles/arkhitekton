@@ -178,6 +178,24 @@ func TestAnUndeclaredParameterPassesThroughAsItIs(t *testing.T) {
 	}
 }
 
+// A key the configuration leaves empty resolves a required parameter no better than a key it
+// lacks: the run would act on an empty repository or bucket.
+func TestAnEmptyKeyDoesNotResolveARequiredParameter(t *testing.T) {
+	scheduler := &Scheduler{config: map[string]string{"minio.pipelineBucket": ""}}
+
+	pipeline := catalog.Pipeline{
+		Kind: "unit-tests",
+		Params: map[string]catalog.Param{
+			"bucket": {Source: catalog.SourceConfig, Key: "minio.pipelineBucket", Required: true},
+		},
+	}
+
+	if _, err := scheduler.resolveParams(pipeline, nil, scheduler.config); err == nil ||
+		!strings.Contains(err.Error(), "minio.pipelineBucket") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 // The pass-through does not weaken the separation of sources. Letting a request supply a
 // `config` parameter would allow pointing a pipeline at a repository other than the one
 // intended — exactly what this separation exists to prevent.

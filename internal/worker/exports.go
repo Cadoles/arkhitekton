@@ -182,11 +182,14 @@ func (e *Exporter) buildNote(ctx context.Context, release store.Release, request
 	}
 
 	// The image built, then the release's tag: the order of the delivery chain. The promotion
-	// tags no longer appear there: they belong to the MSE plugin, and the delivery note to the
-	// core.
-	tags := []string{release.ImageVersion}
-	if release.Tag != release.ImageVersion {
-		tags = append(tags, release.Tag)
+	// tags no longer appear there: they belong to the extension that deploys, and the delivery
+	// note to the core. No repository configured, no image named.
+	var tags []string
+	if e.imageName != "" {
+		tags = append(tags, release.ImageVersion)
+		if release.Tag != release.ImageVersion {
+			tags = append(tags, release.Tag)
+		}
 	}
 
 	for _, tag := range tags {

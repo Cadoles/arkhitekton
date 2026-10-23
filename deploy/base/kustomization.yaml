@@ -3,7 +3,7 @@ kind: Kustomization
 
 # No `namespace:` transformer is declared, here or in the overlays.
 #
-# The reason is in rbac-tekton.yaml: that Role lives in `mse-tekton-pipelines`. A global
+# The reason is in rbac-tekton.yaml: that Role lives in the pipelines' namespace. A global
 # transformer would move it to `arkhitekton`, where it would grant nothing — with no error, no
 # warning, and the symptom would be a "forbidden" at the first PipelineRun creation. Each
 # resource therefore carries its namespace explicitly.
@@ -66,7 +66,8 @@ configMapGenerator:
       - MINIO_PRESIGN_TTL=2h
       - OIDC_SCOPES=openid,profile,email
       - SESSION_TTL=12h
-      - TEKTON_NAMESPACE=mse-tekton-pipelines
+      # An overlay whose pipelines run elsewhere moves the Tekton Role and definitions with it.
+      - TEKTON_NAMESPACE=arkhitekton-pipelines
 
 images:
   # Substituted by each overlay. `latest` is deliberately wrong: an overlay that forgot to set the

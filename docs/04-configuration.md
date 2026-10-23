@@ -58,7 +58,7 @@ Each role validates only what it uses. In the tables below, **Required** means r
 
 | Variable | Default | Required | Meaning |
 |---|---|---|---|
-| `TEKTON_NAMESPACE` | `mse-tekton-pipelines` | **worker** | Where PipelineRuns are created |
+| `TEKTON_NAMESPACE` | — | **worker** | Where PipelineRuns are created. The reference deployment sets `arkhitekton-pipelines` |
 | `POD_NAMESPACE` | `arkhitekton` | **worker** | Namespace of the leader `Lease`. Deliberately not the Tekton namespace, where the service account may not write |
 | `PIPELINE_CATALOG_PATH` | `/etc/arkhitekton/catalog.yaml` | | Catalogue location |
 | `KUBECONFIG` | — | | Outside a cluster only; in-cluster credentials are used when empty |
@@ -66,8 +66,9 @@ Each role validates only what it uses. In the tables below, **Required** means r
 | `PIPELINE_GIT_SECRET` | — | | Secret holding the deployment's git credentials, for the repositories that are not a project's own (the end-to-end campaign's). A project's repository is cloned with its own deploy key |
 | `PIPELINE_REGISTRY_SECRET` | — | | Secret holding registry credentials for pipelines |
 | `PIPELINE_IMAGE_PULL_SECRET` | — | | Pull secret added to pipeline pods |
-| `PIPELINE_MINIO_HOST` | — | | Object store as pipelines reach it, when it differs from the dashboard's view |
-| `PIPELINE_MINIO_BUCKET` | — | | Bucket pipelines write to, when it differs |
+| `PIPELINE_MINIO_HOST` | — | | Object store as pipelines reach it (`minio.host`). A pipeline requiring it is refused while empty |
+| `PIPELINE_MINIO_BUCKET` | — | | Bucket pipelines write to (`minio.pipelineBucket`), likewise |
+| `FORGE_TEKTON_REPO_URL` | — | | Repository the security audit clones its rules from (`forge.tekton.repoUrl`), likewise |
 | `FORGE_SSH_PORT` | forge default | | SSH port used to build a project's clone URL. It cannot be derived from an HTTPS forge URL |
 
 ## 4.6 Results
@@ -113,11 +114,11 @@ Read-only. Arkhitekton never pushes an image.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `REGISTRY_URL` | `https://reg.cadoles.com` | |
+| `REGISTRY_URL` | — | Empty, the registry is not read |
 | `REGISTRY_USERNAME` | — | |
 | `REGISTRY_PASSWORD` | — | |
-| `REGISTRY_PROJECT` | `reg.cadoles.com/cnous-mse` | Repository prefix |
-| `REGISTRY_IMAGE` | `portal` | The repository that promotion re-tags |
+| `REGISTRY_PROJECT` | — | Repository prefix, host included (`registry.example.com/team`) |
+| `REGISTRY_IMAGE` | — | The repository that promotion re-tags; empty, the delivery note names no image |
 
 ## 4.10 Probes and webhooks
 
@@ -152,8 +153,10 @@ administration screen is not overwritten by the next restart.
 An extension compiled into a distribution reads its own variables for this, and documents
 them.
 
-`MSE_DOCKERFILE` and `MSE_BUILD_CONTEXT` seed the first project's build settings, which
-the project then owns.
+`PROJECT_DOCKERFILE` (default `Dockerfile`) and `PROJECT_BUILD_CONTEXT` (default `.`) seed
+the first project's build settings, which the project then owns. Its repository is derived
+from `FORGE_URL` and `FORGE_REPO`, or given whole by `FORGE_REPO_URL`; with neither, no
+project is seeded.
 
 ## 4.13 Renamed and removed variables
 
@@ -164,6 +167,7 @@ deployment running with a setting it believes it applied.
 |---|---|
 | `GITEA_URL`, `GITEA_TOKEN`, `GITEA_REPO`, `GITEA_TIMEOUT` | `FORGE_*` |
 | `REDMINE_URL`, `REDMINE_API_KEY`, `REDMINE_PROJECT`, `REDMINE_TIMEOUT`, `REDMINE_REVIEW_STATUSES` | `TRACKER_*` |
+| `FORGE_MSE_REPO_URL`, `MSE_DOCKERFILE`, `MSE_BUILD_CONTEXT` | `FORGE_REPO_URL`, `PROJECT_DOCKERFILE`, `PROJECT_BUILD_CONTEXT` |
 | `PIPELINE_GIT_PUBLIC_KEY` | Removed: the shared deploy key no longer exists, each project has its own |
 
 ## 4.14 Installed plugins (role `worker`)

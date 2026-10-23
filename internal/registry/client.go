@@ -54,7 +54,7 @@ var ErrNotConfigured = errors.New("registry not configured")
 
 // Open builds the client. Returns ErrNotConfigured when credentials are missing.
 func Open(cfg config.RegistryConfig) (*Client, error) {
-	if strings.TrimSpace(cfg.Username) == "" || strings.TrimSpace(cfg.Password) == "" {
+	if strings.TrimSpace(cfg.URL) == "" || strings.TrimSpace(cfg.Username) == "" || strings.TrimSpace(cfg.Password) == "" {
 		return nil, ErrNotConfigured
 	}
 

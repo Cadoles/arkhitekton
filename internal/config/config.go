@@ -117,7 +117,7 @@ type ForgeConfig struct {
 	// Token must appear in no log, no error message and no URL. It opens the whole
 	// forge in its holder's name: a `read:repository` token is enough, and better.
 	Token string
-	// Repository au format `owner/nom` — `CNOUS/mse`.
+	// Repository is `owner/name`.
 	Repository string
 	Timeout    time.Duration
 }
@@ -299,18 +299,18 @@ func Load(role Role) (Config, error) {
 			SessionTTL:      durationOr("SESSION_TTL", 12*time.Hour),
 		},
 		Tekton: TektonConfig{
-			Namespace:      envOr("TEKTON_NAMESPACE", "mse-tekton-pipelines"),
+			Namespace:      os.Getenv("TEKTON_NAMESPACE"),
 			DashboardURL:   strings.TrimRight(os.Getenv("TEKTON_DASHBOARD_URL"), "/"),
 			KubeconfigPath: os.Getenv("KUBECONFIG"),
 			CatalogPath:    envOr("PIPELINE_CATALOG_PATH", "/etc/arkhitekton/catalog.yaml"),
 			LeaseNamespace: envOr("POD_NAMESPACE", "arkhitekton"),
 		},
 		Registry: RegistryConfig{
-			URL:      envOr("REGISTRY_URL", "https://reg.cadoles.com"),
+			URL:      os.Getenv("REGISTRY_URL"),
 			Username: os.Getenv("REGISTRY_USERNAME"),
 			Password: os.Getenv("REGISTRY_PASSWORD"),
-			Project:  envOr("REGISTRY_PROJECT", "reg.cadoles.com/cnous-mse"),
-			Image:    envOr("REGISTRY_IMAGE", "portal"),
+			Project:  os.Getenv("REGISTRY_PROJECT"),
+			Image:    os.Getenv("REGISTRY_IMAGE"),
 		},
 		Tracker: TrackerConfig{
 			// The statuses that make an issue eligible for a release note.
@@ -370,6 +370,9 @@ var renamedVariables = map[string]string{
 	"REDMINE_PROJECT":         "TRACKER_PROJECT",
 	"REDMINE_TIMEOUT":         "TRACKER_TIMEOUT",
 	"REDMINE_REVIEW_STATUSES": "TRACKER_REVIEW_STATUSES",
+	"FORGE_MSE_REPO_URL":      "FORGE_REPO_URL",
+	"MSE_DOCKERFILE":          "PROJECT_DOCKERFILE",
+	"MSE_BUILD_CONTEXT":       "PROJECT_BUILD_CONTEXT",
 }
 
 // removedVariables maps each deleted variable to why it went. Distinct from the

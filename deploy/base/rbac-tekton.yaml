@@ -16,8 +16,8 @@
 #
 #     It does write the **reference** implementations — a stack's Tasks, installed when a project
 #     declares it. It installs only what it names, marks what it owns, and never adopts a
-#     definition a third party maintains: on a cluster where `mse-tekton` has already installed
-#     its own, it observes and withdraws.
+#     definition a third party maintains: on a cluster where another repository has already
+#     installed its own, it observes and withdraws.
 #
 # This file carries a hard-coded namespace, different from the rest of the repository's. It is
 # the reason why no `namespace:` transformer is declared in the kustomizations: it would move
@@ -26,7 +26,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: arkhitekton-tekton
-  namespace: mse-tekton-pipelines
+  namespace: arkhitekton-pipelines
 rules:
   # Reading the definitions: the dashboard's pipeline catalogue is validated at start-up against
   # what really exists in the cluster.
@@ -81,7 +81,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: arkhitekton-tekton
-  namespace: mse-tekton-pipelines
+  namespace: arkhitekton-pipelines
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

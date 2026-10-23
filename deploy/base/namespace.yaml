@@ -1,4 +1,4 @@
-# A dedicated namespace, distinct from `mse-tekton-pipelines`.
+# A dedicated namespace, distinct from the pipelines'.
 #
 # The separation is not cosmetic: it makes the dashboard's service account foreign to the
 # pipelines' namespace, hence subject to an explicit Role describing exactly what it is allowed

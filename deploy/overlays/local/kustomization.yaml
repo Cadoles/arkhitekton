@@ -8,7 +8,6 @@ resources:
   - resources/postgres.yaml
   - resources/minio.yaml
   - resources/minio-bucket.yaml
-  # Observation de l'environnement applicatif local.
 
 # The pipelines' credentials, to exercise the chain on a test repository.
 #
@@ -23,12 +22,25 @@ components:
 
 patches:
   - path: patches/ingress-host.yaml
+  # The kind cluster runs its pipelines where `mse-tekton` installed Tekton's, not in the base's
+  # namespace: the Role, its binding and the definitions follow.
+  - target: { group: tekton.dev }
+    patch: &pipelines-namespace |-
+      - op: replace
+        path: /metadata/namespace
+        value: mse-tekton-pipelines
+  - target: { group: rbac.authorization.k8s.io, name: arkhitekton-tekton }
+    patch: *pipelines-namespace
 
 configMapGenerator:
   - name: arkhitekton-config
     namespace: arkhitekton
     behavior: merge
     literals:
+      - TEKTON_NAMESPACE=mse-tekton-pipelines
+      # The bucket `mse-tekton`'s MinIO carries on the kind cluster, and the rules the audit clones.
+      - PIPELINE_MINIO_BUCKET=mse-pipeline
+      - FORGE_TEKTON_REPO_URL=ssh://git@forge.cadoles.com:2222/CNOUS/mse-tekton.git
       - PUBLIC_URL=http://dashboard.mse.local
       - OIDC_REDIRECT_URL=http://dashboard.mse.local/api/v1/auth/callback
       # The fully qualified name, and not the short one: the presigned write URLs are minted with this
