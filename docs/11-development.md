@@ -2,7 +2,8 @@
 
 ## 11.1 Repository layout
 
-    cmd/arkhitekton/      the single binary; the only place plugins are assembled
+    app/                  the binary as a library, the only place plugins are assembled
+    cmd/arkhitekton/      the default distribution: app.Main with the built-in plugins
     internal/
       auth/               roles, permissions, sessions
       catalog/            the pipeline catalogue and its validation
@@ -50,10 +51,10 @@ query to succeed rather than for a readiness command that lies, runs the suite w
 
     REDMINE_LIVE=1 GITEA_LIVE=1 make test-live
 
-**Golden files** record what the built-in readings produce (`cmd/arkhitekton/testdata/golden`).
-A change shows as a diff to review; `go test ./cmd/arkhitekton -update` records the new state.
+**Golden files** record what the built-in readings produce (`app/testdata/golden`).
+A change shows as a diff to review; `go test ./app -update` records the new state.
 The readings declared in YAML are also compared with the Go readers they replaced, kept as
-oracles in `cmd/arkhitekton/oracles_test.go`, on every report and run state.
+oracles in `app/oracles_test.go`, on every report and run state.
 
 **WebAssembly guests** are built by the tests themselves with the standard toolchain
 (`GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared`): the sandbox's in

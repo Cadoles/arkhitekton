@@ -14,7 +14,7 @@ import (
 //
 // This is what guarantees that an instance without it stays coherent: a core
 // package importing it would not compile without it, and switching the module off
-// would be a display toggle and nothing more. Only cmd/arkhitekton assembles it.
+// would be a display toggle and nothing more. Only the app package assembles it.
 // Tests count too: a core test importing it would make the plugin a dependency of
 // the core's own verification.
 func TestTheCoreDoesNotImportTheMSEPlugin(t *testing.T) {
@@ -45,7 +45,7 @@ func TestTheCoreDoesNotImportTheMSEPlugin(t *testing.T) {
 		for _, spec := range parsed.Imports {
 			imported, _ := strconv.Unquote(spec.Path.Value)
 			if imported == pluginPath || strings.HasPrefix(imported, pluginPath+"/") {
-				t.Errorf("%s imports %s — only cmd/arkhitekton assembles the plugin", path, imported)
+				t.Errorf("%s imports %s — only the app package assembles the plugin", path, imported)
 			}
 		}
 		return nil

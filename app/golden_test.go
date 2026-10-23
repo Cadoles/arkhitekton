@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"encoding/json"
@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// update rewrites the golden files from what the code produces now: `go test ./cmd/arkhitekton
-// -update`. A change of reading or of resolution then shows as a diff to review.
+// update rewrites the golden files from what the code produces now: `go test ./app -update`. A
+// change of reading or of resolution then shows as a diff to review.
 var update = flag.Bool("update", false, "rewrite the golden files")
 
 // golden compares a value with its golden file, as indented JSON.

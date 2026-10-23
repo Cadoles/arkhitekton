@@ -1,7 +1,7 @@
 // Package mse carries the MSE plugin: the environments, their promotion by Flux, their
 // attestation by PortalData. See docs/06-plugins.md.
 //
-// The core does not import it. Only `cmd/arkhitekton` assembles it, and an instance without it
+// The core does not import it. Only the `app` package assembles it, and an instance without it
 // stays coherent.
 package mse
 

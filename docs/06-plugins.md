@@ -55,7 +55,7 @@ The types a plugin compiles against form the **contract**, a Go module of its ow
 
 The dashboard refuses a plugin built against another major `sdk.APIVersion`. The built-in
 plugins live under `internal/plugins/<id>` and import nothing but the contract; only
-`internal/plugins/builtin` lists them, and only `cmd/arkhitekton` assembles the registry the
+`internal/plugins/builtin` lists them, and only the `app` package assembles the registry the
 rest of the core is given. Tests enforce both rules. The front-end has the same rule, checked
 by a test: a single module file may import feature code.
 
@@ -158,7 +158,7 @@ start-up rather than misreading a run.
 `state.json` (the run's state), `records.json` (`[{"tool", "parser", "file"}]`, a tool without
 a file having left no report) and `expected.json` (the facts); `--write` records the facts
 produced where `expected.json` is missing. The built-in readings' cases live in
-`cmd/arkhitekton/testdata/readings/`.
+`app/testdata/readings/`.
 
 ## 6.4 WebAssembly interpreters
 
@@ -212,7 +212,7 @@ answer that of `guest.Output` (facts, or an error). The sdk's types travel by th
 names, versioned with `sdk.APIVersion`; a k6 metric's error does not travel.
 
 **Checking it.** `arkhitekton check-reading` takes a `.wasm` like a declaration, and runs it
-through the same sandbox on recorded cases (`cmd/arkhitekton/testdata/readings/gotest/`).
+through the same sandbox on recorded cases (`app/testdata/readings/gotest/`).
 
 ## 6.5 Trackers, forges, probes and actions
 
@@ -292,7 +292,7 @@ makes a plugin reachable from the automation screen without the core knowing wha
 
 Some plugins need loops that write the dashboard's tables and talk to the cluster, which a
 contract plugin cannot do. Those are **modules**: written against the host
-(`internal/module`), assembled by `cmd/arkhitekton` next to the plugin that declares the
+(`internal/module`), assembled by the `app` package next to the plugin that declares the
 `module` capability, and refused at start-up if no plugin declares it.
 
 The worker's supervisor runs a module while its plugin is switched on for at least one

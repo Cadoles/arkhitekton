@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"testing"
@@ -46,7 +46,7 @@ func shippedCatalogue(t *testing.T) *catalog.Catalog {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shipped, err := catalog.Load("../../deploy/base/config/catalog.yaml", catalog.WithCapabilities(registry))
+	shipped, err := catalog.Load("../deploy/base/config/catalog.yaml", catalog.WithCapabilities(registry))
 	if err != nil {
 		t.Fatalf("shipped catalogue: %v", err)
 	}

@@ -2,7 +2,7 @@
 //
 // A contract plugin only reads and reports. Some plugins also need loops that write the dashboard's
 // own tables and talk to the cluster, like observing the MSE environments: those are modules,
-// written against the host and assembled by cmd/arkhitekton next to the plugin that declares them.
+// written against the host and assembled by the app package next to the plugin that declares them.
 //
 // A module runs while its plugin is switched on, and is restarted with its new settings when they
 // change: switching a module off or on, or editing its settings on the administration screen,

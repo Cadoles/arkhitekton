@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"os"
@@ -14,9 +14,9 @@ import (
 // author starts from, and must stay true.
 func TestTheRecordedCasesReadAsExpected(t *testing.T) {
 	readings := map[string]string{
-		"php-static-tests":      "../../internal/plugins/php/readings/static-tests.yaml",
-		"php-unit-tests":        "../../internal/plugins/php/readings/unit-tests.yaml",
-		"mse-integration-tests": "../../internal/plugins/mse/readings/integration-tests.yaml",
+		"php-static-tests":      "../internal/plugins/php/readings/static-tests.yaml",
+		"php-unit-tests":        "../internal/plugins/php/readings/unit-tests.yaml",
+		"mse-integration-tests": "../internal/plugins/mse/readings/integration-tests.yaml",
 	}
 	checked := 0
 	for capability, path := range readings {
@@ -44,7 +44,7 @@ func TestTheRecordedCasesReadAsExpected(t *testing.T) {
 
 // A reading that drifts from its recorded case is reported, and the check fails.
 func TestADriftingReadingFailsTheCheck(t *testing.T) {
-	reading, err := os.ReadFile("../../internal/plugins/php/readings/static-tests.yaml")
+	reading, err := os.ReadFile("../internal/plugins/php/readings/static-tests.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestADriftingReadingFailsTheCheck(t *testing.T) {
 func TestTheExampleModuleReadsItsCases(t *testing.T) {
 	module := filepath.Join(t.TempDir(), "gotest.wasm")
 	build := exec.Command("go", "build", "-buildmode=c-shared", "-o", module, "./examples/gotest")
-	build.Dir = filepath.Join("..", "..", "sdk")
+	build.Dir = filepath.Join("..", "sdk")
 	build.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, output)

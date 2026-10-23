@@ -16,7 +16,7 @@ const module = "forge.cadoles.com/vcarroy/arkhitekton/"
 //
 // The contract, the sdk module, is what a plugin compiles against. Plugins import it and nothing
 // else, so that an internal plugin is written exactly like an external one. And no core package
-// imports a plugin: only the assembler, internal/plugins/builtin, lists them, for cmd/arkhitekton and
+// imports a plugin: only the assembler, internal/plugins/builtin, lists them, for the app package and
 // for the live tests that observe a real deployment.
 func TestThePluginsImportOnlyTheContract(t *testing.T) {
 	root := filepath.Join("..", "..", "internal")

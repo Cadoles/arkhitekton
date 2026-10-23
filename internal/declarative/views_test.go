@@ -12,7 +12,7 @@ import (
 // parsed reads one of the reference reports the interpreters are recorded against.
 func parsed(t *testing.T, parser parse.ID, name string) any {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "cmd", "arkhitekton", "testdata", "reports", name))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "app", "testdata", "reports", name))
 	if err != nil {
 		t.Fatal(err)
 	}

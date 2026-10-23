@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -25,12 +25,12 @@ import (
 // command prints, verified against the public half of the key it was given.
 func TestTheExamplePluginPublishes(t *testing.T) {
 	dir := t.TempDir()
-	example := filepath.Join("..", "..", "sdk", "examples", "gotest")
+	example := filepath.Join("..", "sdk", "examples", "gotest")
 	if err := os.CopyFS(dir, os.DirFS(example)); err != nil {
 		t.Fatal(err)
 	}
 	build := exec.Command("go", "build", "-buildmode=c-shared", "-o", filepath.Join(dir, "gotest.wasm"), "./examples/gotest")
-	build.Dir = filepath.Join("..", "..", "sdk")
+	build.Dir = filepath.Join("..", "sdk")
 	build.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, output)
