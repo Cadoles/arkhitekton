@@ -81,15 +81,32 @@ type Pulled struct {
 	Files fs.FS
 }
 
-// Pull fetches the plugin a reference pins, checks that a trusted key signed it, and unpacks it.
-func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw string) (Pulled, error) {
-	reference, err := registry.ParseReference(raw)
+// Pinned reads a reference that pins a plugin by digest, and returns it as `repository@digest`.
+func Pinned(raw string) (reference, pinned string, err error) {
+	parsed, _, err := pin(raw)
 	if err != nil {
-		return Pulled{}, err
+		return "", "", err
+	}
+	return parsed.Registry + "/" + parsed.Repository + "@" + parsed.Reference, parsed.Reference, nil
+}
+
+func pin(raw string) (registry.Reference, digest.Digest, error) {
+	reference, err := registry.ParseReference(strings.TrimSpace(raw))
+	if err != nil {
+		return registry.Reference{}, "", err
 	}
 	pinned, err := reference.Digest()
+	if err != nil || pinned.Algorithm() != digest.SHA256 {
+		return registry.Reference{}, "", fmt.Errorf("%s: a plugin is installed by digest, `repository@sha256:...`", raw)
+	}
+	return reference, pinned, nil
+}
+
+// Pull fetches the plugin a reference pins, checks that a trusted key signed it, and unpacks it.
+func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw string) (Pulled, error) {
+	reference, pinned, err := pin(raw)
 	if err != nil {
-		return Pulled{}, fmt.Errorf("%s: a plugin is installed by digest, `repository@sha256:...`", raw)
+		return Pulled{}, err
 	}
 	repository, err := registries.repository(reference)
 	if err != nil {
@@ -100,7 +117,7 @@ func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw 
 	if err != nil {
 		return Pulled{}, fmt.Errorf("fetching %s: %w", raw, err)
 	}
-	artifactJSON, err := read(body, descriptor, maxManifest)
+	artifactJSON, err := readBlob(body, descriptor, maxManifest)
 	if err != nil {
 		return Pulled{}, err
 	}
@@ -125,7 +142,7 @@ func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw 
 	if err != nil {
 		return Pulled{}, fmt.Errorf("fetching the plugin layer: %w", err)
 	}
-	layer, err := read(layerBody, layerDescriptor, manifest.MaxSize)
+	layer, err := readBlob(layerBody, layerDescriptor, manifest.MaxSize)
 	if err != nil {
 		return Pulled{}, err
 	}
@@ -139,8 +156,8 @@ func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw 
 	}, nil
 }
 
-// read reads a blob whole, its size and digest checked against its descriptor.
-func read(body io.ReadCloser, descriptor ocispec.Descriptor, limit int64) (string, error) {
+// readBlob reads a blob whole, its size and digest checked against its descriptor.
+func readBlob(body io.ReadCloser, descriptor ocispec.Descriptor, limit int64) (string, error) {
 	defer func() { _ = body.Close() }()
 	if descriptor.Size > limit {
 		return "", fmt.Errorf("%s: %d bytes, more than %d", descriptor.Digest, descriptor.Size, limit)
@@ -163,7 +180,7 @@ func verified(ctx context.Context, repository *remote.Repository, trusted []Trus
 	if err != nil {
 		return TrustedKey{}, fmt.Errorf("no signature: %w", err)
 	}
-	raw, err := read(body, descriptor, maxManifest)
+	raw, err := readBlob(body, descriptor, maxManifest)
 	if err != nil {
 		return TrustedKey{}, err
 	}
@@ -191,7 +208,7 @@ func verified(ctx context.Context, repository *remote.Repository, trusted []Trus
 			problems = append(problems, fmt.Errorf("signature %d: %w", i, err))
 			continue
 		}
-		payload, err := read(body, layer, maxPayload)
+		payload, err := readBlob(body, layer, maxPayload)
 		if err != nil {
 			problems = append(problems, fmt.Errorf("signature %d: %w", i, err))
 			continue

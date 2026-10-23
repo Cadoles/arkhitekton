@@ -15,6 +15,19 @@ import (
 type installingCluster struct {
 	installed bool
 	err       error
+	// shipped is, by definition, the plugin whose label it carries.
+	shipped map[string]string
+}
+
+func (c *installingCluster) Prune(_ context.Context, carried func(plugin string) bool) ([]string, error) {
+	var withdrawn []string
+	for name, plugin := range c.shipped {
+		if !carried(plugin) {
+			delete(c.shipped, name)
+			withdrawn = append(withdrawn, name)
+		}
+	}
+	return withdrawn, nil
 }
 
 func (c *installingCluster) InstallResources(context.Context, []pipelines.Resource) (pipelines.Outcome, error) {
@@ -81,5 +94,27 @@ func TestAnUnreachableClusterKeepsThePreviousAnswer(t *testing.T) {
 
 	if len(sink.published) != 0 {
 		t.Errorf("published %v on an unreachable cluster", sink.published)
+	}
+}
+
+// An uninstalled plugin's definitions are withdrawn; when what is carried cannot be read, nothing is.
+func TestAPassWithdrawsWhatNoPluginCarries(t *testing.T) {
+	cluster := &installingCluster{shipped: map[string]string{"go-unit-tests": "gotest", "php-unit-tests": "php"}}
+	carried := map[string]bool{"php": true}
+	var failure error
+	reconciler := NewCapabilityReconciler(cluster, func() []pipelines.Resource { return []pipelines.Resource{{Name: "php-unit-tests"}} },
+		twoPipelines(), cluster, &recordedAvailability{}, slog.New(slog.DiscardHandler)).
+		WithPruning(func(context.Context) (map[string]bool, error) { return carried, failure })
+
+	failure = errors.New("database unreachable")
+	reconciler.Settle(context.Background())
+	if len(cluster.shipped) != 2 {
+		t.Fatalf("withdrawn on a failed read: %v", cluster.shipped)
+	}
+
+	failure = nil
+	reconciler.Settle(context.Background())
+	if _, kept := cluster.shipped["go-unit-tests"]; kept || len(cluster.shipped) != 1 {
+		t.Errorf("shipped = %v", cluster.shipped)
 	}
 }

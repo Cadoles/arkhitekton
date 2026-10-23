@@ -215,7 +215,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// access to it, and the `worker` does it at start-up.
 	// The capabilities in force, read once per operation: what is installed or bound while the
 	// dashboard runs replaces them as a whole.
-	inForce, reloader, err := startingCapabilities(ctx, cfg, db, logger)
+	sources := newCapabilitySources(cfg, db, storage)
+	inForce, reloader, err := startingCapabilities(ctx, sources, logger)
 	if err != nil {
 		return err
 	}
@@ -356,7 +357,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			middleware, mseHandler.Routes, mse.NewSignoffsHandler(mseBackend, logger).Routes,
 			// The bindings an administrator records for what the catalogue file does not bind.
 			dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
-				checkBinding(cfg, db), reloader.Reload, logger).Routes),
+				sources.checkBinding, reloader.Reload, logger).Routes,
+			// The plugins an administrator installs from a registry, pulled and verified by the worker.
+			dashhttp.NewInstallationsHandler(db, sources.checkActivation, reloader.Reload, logger).Routes),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct from the ping: PostgreSQL may answer although the migration Job has not run yet.
 		// Without this check, the pod would declare itself ready then answer 500 on every missing
@@ -457,7 +460,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 	// The capabilities in force, read once per operation: what is installed or bound while the
 	// dashboard runs replaces them as a whole.
-	inForce, reloader, err := startingCapabilities(ctx, cfg, db, logger)
+	sources := newCapabilitySources(cfg, db, storage)
+	inForce, reloader, err := startingCapabilities(ctx, sources, logger)
 	if err != nil {
 		return err
 	}
@@ -621,6 +625,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			scheduler.Handle(worker.NewExporter(db, storage, exportRegistry(cfg, logger), cfg.Registry.Image, logger).
 				WithGate(deliverablesEnabled(db)))
 
+			// Installing a plugin, for the same reason: pulled and verified here, it is put in force at once
+			// rather than at the next reload.
+			scheduler.Handle(worker.NewPluginInstaller(db, storage, pluginPuller(cfg), sources.checkPlugin,
+				func(ctx context.Context) { _ = reloader.Reload(ctx) }, logger))
+
 			// The release note, for the same reason: it reads the tracker, the forge and the database.
 			// Both are the project's plugins, resolved per job: a project with no forge plugin gets a
 			// failed job saying so, rather than an empty note.
@@ -651,7 +660,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// The bound capabilities' definitions, installed and checked before the first launch. Under the
 			// lease like the rest: two workers putting the same definition in place would rewrite each
 			// other's.
-			reconciler := capabilityReconciler(cluster, cfg, inForce, scheduler, logger)
+			reconciler := capabilityReconciler(cluster, cfg, inForce, sources, scheduler, logger)
 			reloader.OnReplace(func(live.Snapshot) { reconciler.Wake() })
 			go func() { errs <- reloader.Run(leadingCtx) }()
 			reconciler.Settle(leadingCtx)
@@ -1023,9 +1032,11 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 		releaseID = release.ID
 	}
 
-	capabilities, err := builtin.Registry()
+	// The installed plugins too, earlier versions included: a run is replayed by the version that
+	// launched it while it is installed.
+	capabilities, err := newCapabilitySources(cfg, db, storage).registry(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("built-in plugins: %w", err)
+		return err
 	}
 	reader := worker.NewFactIngester(db, worker.NewObjectStore(storage), capabilities, logger)
 	reprocessor := worker.NewReprocessor(db, reader, pluginVersions(capabilities), logger)

@@ -32,10 +32,11 @@ rules:
   # what really exists in the cluster.
   - apiGroups: ["tekton.dev"]
     resources: ["pipelines", "tasks"]
-    # `create` and `update` for the reference library; not `delete`: removing a pipeline that runs
-    # still reference would make them inexplicable, and removing a stack is a rare enough act to stay
-    # manual.
-    verbs: ["get", "list", "watch", "create", "update"]
+    # `create` and `update` for the definitions the bound capabilities ship. `delete` to withdraw
+    # those of a plugin an administrator uninstalled: only what carries both the dashboard's mark and
+    # a plugin's label is deleted, never a definition someone else maintains, and a run already
+    # started keeps the copy Tekton made of its definition.
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
   # Driving the runs. `patch` serves only to set `spec.status: Cancelled`; `delete` to clean up the
   # runs the dashboard created.
   - apiGroups: ["tekton.dev"]

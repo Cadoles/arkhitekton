@@ -41,7 +41,8 @@ func (r *Reloader) OnReplace(replaced func(Snapshot)) {
 }
 
 // Reload builds the capabilities again if the counter moved. A build that fails leaves the
-// snapshot in force and is not tried again until the counter moves once more.
+// snapshot in force and is tried again at the next reload: what failed may be passing, object
+// storage briefly out of reach. It is logged once per version.
 func (r *Reloader) Reload(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -50,13 +51,15 @@ func (r *Reloader) Reload(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if version == r.holder.Current().Version || version == r.failed {
+	if version == r.holder.Current().Version {
 		return nil
 	}
 	next, err := r.build(ctx, version)
 	if err != nil {
-		r.failed = version
-		r.logger.Error("capabilities not rebuilt, the previous ones stay in force", "version", version, "error", err)
+		if r.failed != version {
+			r.failed = version
+			r.logger.Error("capabilities not rebuilt, the previous ones stay in force", "version", version, "error", err)
+		}
 		return err
 	}
 	next.Version = version

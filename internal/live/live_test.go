@@ -31,7 +31,7 @@ func TestAReplacedSnapshotIsReadNext(t *testing.T) {
 }
 
 // The capabilities are built again when the counter moves, and only then; a failed build leaves
-// the previous ones in force and is not retried until the counter moves again.
+// the previous ones in force and is tried again at the next reload.
 func TestTheReloaderFollowsTheCounter(t *testing.T) {
 	registry, _ := capabilities.New()
 	holder := NewHolder(Snapshot{Catalog: &catalog.Catalog{}, Registry: registry, Version: 1})
@@ -64,7 +64,7 @@ func TestTheReloaderFollowsTheCounter(t *testing.T) {
 		t.Error("a failed build reported no error")
 	}
 	_ = reloader.Reload(context.Background())
-	if holder.Current().Version != 2 || builds != 2 {
+	if holder.Current().Version != 2 || builds != 3 {
 		t.Errorf("after a failure: version %d, %d builds", holder.Current().Version, builds)
 	}
 

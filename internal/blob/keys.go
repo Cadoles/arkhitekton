@@ -19,6 +19,7 @@ const (
 	prefixLogs        = "logs"
 	prefixArtifacts   = "artifacts"
 	prefixAttachments = "attachments"
+	prefixPlugins     = "plugins"
 )
 
 // safeSegment accepts only what legitimately makes up a PipelineRun name, a release
@@ -187,6 +188,12 @@ func (Keys) TaskLogPartsPrefix(runName, taskName string) (string, error) {
 // test report. These objects must outlive the purge of raw artifacts.
 func (Keys) ReleaseArtifact(releaseTag, name string) (string, error) {
 	return join(prefixArtifacts, "releases", releaseTag, name)
+}
+
+// PluginLayer names an installed plugin's layer, the directory as packed and signed. The digest
+// makes it immutable: a key is written once, and what is read back is what was verified.
+func (Keys) PluginLayer(pluginID, version, digest string) (string, error) {
+	return join(prefixPlugins, pluginID, version, strings.Replace(digest, ":", "-", 1)+".tar.gz")
 }
 
 // RunPrefix returns the prefix of a run's raw artifacts, for listing or purging.

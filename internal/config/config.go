@@ -34,6 +34,21 @@ type Config struct {
 	Secrets  SecretsConfig
 	Webhooks WebhookConfig
 	Probes   ProbeConfig
+	Plugins  PluginsConfig
+}
+
+// PluginsConfig says how the worker pulls the plugins an administrator installs.
+//
+// Files the operator mounts, not values in the database: which keys are trusted and how private
+// registries are reached is the operator's decision, out of reach of the administration screen.
+type PluginsConfig struct {
+	// TrustedKeys is a PEM file of the public keys a plugin must be signed with. Unset, no plugin
+	// can be installed.
+	TrustedKeys string
+	// RegistryAuth is a Docker `config.json` holding the credentials of private registries.
+	RegistryAuth string
+	// PlainHTTP lists the registries reached without TLS: a registry inside a development cluster.
+	PlainHTTP []string
 }
 
 // ProbeConfig bounds how often outside sources are polled.
@@ -329,6 +344,11 @@ func Load(role Role) (Config, error) {
 		Secrets: SecretsConfig{
 			Key:         strings.TrimSpace(os.Getenv("SECRETS_KEY")),
 			RetiredKeys: listOr("SECRETS_RETIRED_KEYS", nil),
+		},
+		Plugins: PluginsConfig{
+			TrustedKeys:  os.Getenv("PLUGIN_TRUSTED_KEYS"),
+			RegistryAuth: os.Getenv("PLUGIN_REGISTRY_AUTH"),
+			PlainHTTP:    listOr("PLUGIN_PLAIN_HTTP_REGISTRIES", nil),
 		},
 		Forge: ForgeConfig{
 			URL:        strings.TrimRight(os.Getenv("FORGE_URL"), "/"),

@@ -2,13 +2,20 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
+	"os"
+	"sync"
 	"time"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/live"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
@@ -16,6 +23,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
 
 // referenceLibrary is what a project declaring a stack gets installed.
@@ -23,24 +31,147 @@ func referenceLibrary() *pipelinelib.Library {
 	return pipelinelib.NewLibrary(builtin.Stacks())
 }
 
-// capabilitySnapshot builds the capabilities in force: the plugins this binary carries, and the
-// catalogue file completed by the bindings an administrator recorded.
-func capabilitySnapshot(cfg config.Config, db *store.DB) func(ctx context.Context, version int64) (live.Snapshot, error) {
-	return func(ctx context.Context, version int64) (live.Snapshot, error) {
-		registry, err := builtin.Registry()
-		if err != nil {
-			return live.Snapshot{}, fmt.Errorf("built-in plugins: %w", err)
-		}
-		recorded, err := recordedBindings(ctx, db)
-		if err != nil {
-			return live.Snapshot{}, err
-		}
-		pipelines, err := catalog.Load(cfg.Tekton.CatalogPath, catalog.WithCapabilities(registry), catalog.WithBindings(recorded))
-		if err != nil {
-			return live.Snapshot{}, err
-		}
-		return live.Snapshot{Registry: registry, Catalog: pipelines, Version: version}, nil
+// installedPlugins reads the installed plugins from their stored layer. Each layer is compiled once:
+// it is immutable, named by its digest, and a reload that recompiled every module would cost a
+// sandbox per plugin each time a binding changes.
+type installedPlugins struct {
+	db      *store.DB
+	objects interface {
+		Get(ctx context.Context, key string) (io.ReadCloser, error)
 	}
+
+	mu       sync.Mutex
+	compiled map[string]capability.Plugin
+}
+
+// plugin reads one installed plugin, compiled.
+func (p *installedPlugins) plugin(ctx context.Context, object string) (capability.Plugin, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if plugin, cached := p.compiled[object]; cached {
+		return plugin, nil
+	}
+	body, err := p.objects.Get(ctx, object)
+	if err != nil {
+		return capability.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
+	}
+	defer func() { _ = body.Close() }()
+	files, err := installed.Unpack(body, manifest.MaxSize)
+	if err != nil {
+		return capability.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
+	}
+	plugin, err := installed.Read(files)
+	if err != nil {
+		return capability.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
+	}
+	if plugin, err = capabilities.Prepare(plugin); err != nil {
+		return capability.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
+	}
+	if p.compiled == nil {
+		p.compiled = map[string]capability.Plugin{}
+	}
+	p.compiled[object] = plugin
+	return plugin, nil
+}
+
+// load reads the installed plugins: the active version of each, and the earlier ones kept to read
+// the runs they launched.
+func (p *installedPlugins) load(ctx context.Context) (active, earlier []capability.Plugin, err error) {
+	rows, err := p.db.InstalledPlugins(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, row := range rows {
+		plugin, err := p.plugin(ctx, row.Object)
+		if err != nil {
+			return nil, nil, err
+		}
+		if row.Active {
+			active = append(active, plugin)
+		} else {
+			earlier = append(earlier, plugin)
+		}
+	}
+	return active, earlier, nil
+}
+
+// capabilitySources builds the capabilities in force: the plugins this binary carries and those an
+// administrator installed, and the catalogue file completed by the recorded bindings.
+type capabilitySources struct {
+	cfg       config.Config
+	db        *store.DB
+	installed *installedPlugins
+}
+
+func newCapabilitySources(cfg config.Config, db *store.DB, objects *blob.Client) *capabilitySources {
+	return &capabilitySources{cfg: cfg, db: db, installed: &installedPlugins{db: db, objects: objects}}
+}
+
+// registry composes the plugins. With a candidate, it is the registry as it would be with the
+// candidate active in place of its plugin's active version.
+func (s *capabilitySources) registry(ctx context.Context, candidate *capability.Plugin) (*capabilities.Registry, error) {
+	active, earlier, err := s.installed.load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if candidate != nil {
+		kept := make([]capability.Plugin, 0, len(active)+1)
+		for _, plugin := range active {
+			if plugin.ID != candidate.ID {
+				kept = append(kept, plugin)
+			}
+		}
+		active = append(kept, *candidate)
+	}
+
+	carried := builtin.Plugins()
+	builtIn := map[string]bool{}
+	for _, plugin := range carried {
+		builtIn[plugin.ID] = true
+	}
+	activeVersion := map[string]string{}
+	for _, plugin := range active {
+		if builtIn[plugin.ID] {
+			return nil, fmt.Errorf("plugin %q: the id of a built-in plugin", plugin.ID)
+		}
+		activeVersion[plugin.ID] = plugin.Version
+	}
+	registry, err := capabilities.New(append(carried, active...)...)
+	if err != nil {
+		return nil, err
+	}
+	var retained []capability.Plugin
+	for _, plugin := range earlier {
+		if version, carried := activeVersion[plugin.ID]; carried && version != plugin.Version {
+			retained = append(retained, plugin)
+		}
+	}
+	if err := registry.Retain(retained...); err != nil {
+		return nil, err
+	}
+	return registry, nil
+}
+
+// catalog loads the catalogue file against a registry, completed by bindings.
+func (s *capabilitySources) catalog(registry *capabilities.Registry, bindings []catalog.Binding) (*catalog.Catalog, error) {
+	return catalog.Load(s.cfg.Tekton.CatalogPath, catalog.WithCapabilities(registry), catalog.WithBindings(bindings))
+}
+
+// snapshot builds the capabilities in force.
+func (s *capabilitySources) snapshot(ctx context.Context, version int64) (live.Snapshot, error) {
+	registry, err := s.registry(ctx, nil)
+	if err != nil {
+		return live.Snapshot{}, err
+	}
+	recorded, err := recordedBindings(ctx, s.db)
+	if err != nil {
+		return live.Snapshot{}, err
+	}
+	pipelines, err := s.catalog(registry, recorded)
+	if err != nil {
+		return live.Snapshot{}, err
+	}
+	return live.Snapshot{Registry: registry, Catalog: pipelines, Version: version}, nil
 }
 
 func recordedBindings(ctx context.Context, db *store.DB) ([]catalog.Binding, error) {
@@ -61,50 +192,125 @@ func recordedBindings(ctx context.Context, db *store.DB) ([]catalog.Binding, err
 
 // checkBinding builds the catalogue as it would be with one more binding, or a changed one, and says
 // why it could not.
-func checkBinding(cfg config.Config, db *store.DB) func(ctx context.Context, binding catalog.Binding) error {
-	return func(ctx context.Context, binding catalog.Binding) error {
-		registry, err := builtin.Registry()
-		if err != nil {
-			return err
-		}
-		recorded, err := recordedBindings(ctx, db)
-		if err != nil {
-			return err
-		}
-		next := []catalog.Binding{binding}
-		for _, other := range recorded {
-			if other.Ref != binding.Ref {
-				next = append(next, other)
-			}
-		}
-		_, err = catalog.Load(cfg.Tekton.CatalogPath, catalog.WithCapabilities(registry), catalog.WithBindings(next))
+func (s *capabilitySources) checkBinding(ctx context.Context, binding catalog.Binding) error {
+	registry, err := s.registry(ctx, nil)
+	if err != nil {
 		return err
 	}
+	recorded, err := recordedBindings(ctx, s.db)
+	if err != nil {
+		return err
+	}
+	next := []catalog.Binding{binding}
+	for _, other := range recorded {
+		if other.Ref != binding.Ref {
+			next = append(next, other)
+		}
+	}
+	_, err = s.catalog(registry, next)
+	return err
 }
 
-// startingCapabilities builds the first snapshot. A recorded binding that no longer holds must not
-// keep the dashboard from starting: it starts on the file alone, and says so.
-func startingCapabilities(ctx context.Context, cfg config.Config, db *store.DB, logger *slog.Logger) (*live.Holder, *live.Reloader, error) {
-	build := capabilitySnapshot(cfg, db)
-	version, err := db.CapabilityVersion(ctx)
+// checkPlugin builds the capabilities as they would be with a plugin active, and says why they could
+// not be: checked before installing it and before activating it, so that neither leaves the
+// dashboard on capabilities it cannot rebuild.
+func (s *capabilitySources) checkPlugin(ctx context.Context, plugin capability.Plugin) error {
+	registry, err := s.registry(ctx, &plugin)
+	if err != nil {
+		return err
+	}
+	recorded, err := recordedBindings(ctx, s.db)
+	if err != nil {
+		return err
+	}
+	_, err = s.catalog(registry, recorded)
+	return err
+}
+
+// checkActivation checks that an installed version can become the active one.
+func (s *capabilitySources) checkActivation(ctx context.Context, id int64) error {
+	installation, err := s.db.PluginInstallation(ctx, id)
+	if err != nil {
+		return err
+	}
+	if installation.State != store.InstallationInstalled {
+		return fmt.Errorf("installation %d is %s, not installed", id, installation.State)
+	}
+	plugin, err := s.installed.plugin(ctx, installation.Object)
+	if err != nil {
+		return err
+	}
+	return s.checkPlugin(ctx, plugin)
+}
+
+// carried lists the plugins whose Tekton definitions stay: the built-in ones and those installed.
+func (s *capabilitySources) carried(ctx context.Context) (map[string]bool, error) {
+	rows, err := s.db.InstalledPlugins(ctx)
+	if err != nil {
+		return nil, err
+	}
+	carried := map[string]bool{}
+	for _, plugin := range builtin.Plugins() {
+		carried[plugin.ID] = true
+	}
+	for _, row := range rows {
+		carried[row.PluginID] = true
+	}
+	return carried, nil
+}
+
+// startingCapabilities builds the first snapshot. A recorded binding or an installed plugin that no
+// longer holds must not keep the dashboard from starting: it starts on the built-in plugins and the
+// catalogue file alone, says so, and the reloader keeps trying.
+func startingCapabilities(ctx context.Context, sources *capabilitySources, logger *slog.Logger) (*live.Holder, *live.Reloader, error) {
+	version, err := sources.db.CapabilityVersion(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	first, err := build(ctx, version)
+	first, err := sources.snapshot(ctx, version)
 	if err != nil {
-		logger.Error("recorded bindings not applied, starting on the catalogue file alone", "error", err)
+		logger.Error("recorded bindings and installed plugins not applied, starting on the built-in plugins and the catalogue file", "error", err)
 		registry, regErr := builtin.Registry()
 		if regErr != nil {
 			return nil, nil, regErr
 		}
-		pipelines, fileErr := catalog.Load(cfg.Tekton.CatalogPath, catalog.WithCapabilities(registry))
+		pipelines, fileErr := sources.catalog(registry, nil)
 		if fileErr != nil {
 			return nil, nil, fileErr
 		}
-		first = live.Snapshot{Registry: registry, Catalog: pipelines, Version: version}
+		// Built from no version of the counter: the reloader builds again at its first pass.
+		first = live.Snapshot{Registry: registry, Catalog: pipelines, Version: -1}
 	}
 	holder := live.NewHolder(first)
-	return holder, live.NewReloader(holder, db.CapabilityVersion, build, capabilityReloadInterval, logger), nil
+	return holder, live.NewReloader(holder, sources.db.CapabilityVersion, sources.snapshot, capabilityReloadInterval, logger), nil
+}
+
+// pluginPuller pulls a plugin as the operator configured: the keys it trusts, read at each
+// installation so that a key added or withdrawn applies without a restart, and how registries are
+// reached.
+func pluginPuller(cfg config.Config) func(ctx context.Context, reference string) (installed.Pulled, error) {
+	return func(ctx context.Context, reference string) (installed.Pulled, error) {
+		if cfg.Plugins.TrustedKeys == "" {
+			return installed.Pulled{}, errors.New("no key trusted to sign plugins: PLUGIN_TRUSTED_KEYS names no file")
+		}
+		raw, err := os.ReadFile(cfg.Plugins.TrustedKeys)
+		if errors.Is(err, fs.ErrNotExist) {
+			return installed.Pulled{}, fmt.Errorf("no key trusted to sign plugins: %s is not mounted", cfg.Plugins.TrustedKeys)
+		}
+		if err != nil {
+			return installed.Pulled{}, fmt.Errorf("trusted keys: %w", err)
+		}
+		trusted, err := installed.ParseTrustedKeys(raw)
+		if err != nil {
+			return installed.Pulled{}, err
+		}
+		registries := installed.Registries{PlainHTTP: cfg.Plugins.PlainHTTP}
+		// Optional: with no credentials mounted, registries are reached anonymously.
+		if _, err := os.Stat(cfg.Plugins.RegistryAuth); cfg.Plugins.RegistryAuth != "" && err == nil {
+			registries.DockerConfig = cfg.Plugins.RegistryAuth
+		}
+		return installed.Pull(ctx, registries, trusted, reference)
+	}
 }
 
 // capabilityReloadInterval bounds how long an installation or a binding takes to apply.
@@ -112,7 +318,7 @@ const capabilityReloadInterval = 30 * time.Second
 
 // capabilityReconciler wires the installation and the check of the bound capabilities.
 func capabilityReconciler(
-	cluster *tekton.Client, cfg config.Config, inForce *live.Holder,
+	cluster *tekton.Client, cfg config.Config, inForce *live.Holder, sources *capabilitySources,
 	sink worker.AvailabilitySink, logger *slog.Logger,
 ) *worker.CapabilityReconciler {
 	var installer worker.ResourceInstaller
@@ -130,7 +336,8 @@ func capabilityReconciler(
 		}
 		return bound
 	}
-	return worker.NewCapabilityReconciler(installer, resources, inForce.Catalogs(), cluster, sink, logger)
+	return worker.NewCapabilityReconciler(installer, resources, inForce.Catalogs(), cluster, sink, logger).
+		WithPruning(sources.carried)
 }
 
 // boundResources are the definitions the bound capabilities ship, each once.

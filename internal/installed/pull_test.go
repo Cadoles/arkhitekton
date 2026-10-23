@@ -71,6 +71,9 @@ func TestAPublishedPluginIsPulledAndVerified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if pinned, digest, err := Pinned(reference); err != nil || pinned != reference || digest != pulled.Digest {
+		t.Errorf("pinned %s, %s, %v", pinned, digest, err)
+	}
 	if pulled.Reference != reference || pulled.SignedBy != trusted[0].Fingerprint || !strings.HasPrefix(pulled.Digest, "sha256:") {
 		t.Errorf("pulled = %+v", pulled)
 	}
@@ -279,7 +282,7 @@ func moveSignature(t *testing.T, host, from, to string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := read(body, descriptor, maxManifest)
+	raw, err := readBlob(body, descriptor, maxManifest)
 	if err != nil {
 		t.Fatal(err)
 	}

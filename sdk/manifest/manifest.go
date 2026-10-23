@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
@@ -128,6 +129,9 @@ type Member struct {
 	MediaType string   `json:"mediaType,omitempty"`
 }
 
+// versionPattern keeps a version usable as a path segment, where it is stored.
+var versionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.-]*$`)
+
 // Decode reads a manifest from JSON, refusing unknown keys: a misspelt key is a declaration that
 // would silently not apply, and a key the schema does not have, a service account for one, is a
 // privilege the plugin is not given.
@@ -150,8 +154,8 @@ func (m Manifest) Validate() error {
 	if !capability.ValidName(m.ID) {
 		problems = append(problems, fmt.Errorf("id %q: lower case, digits and dashes only", m.ID))
 	}
-	if strings.TrimSpace(m.Version) == "" || strings.TrimSpace(m.Label) == "" {
-		problems = append(problems, errors.New("version and label are required"))
+	if !versionPattern.MatchString(m.Version) || strings.TrimSpace(m.Label) == "" {
+		problems = append(problems, fmt.Errorf("version %q: letters, digits, dots and dashes; and a label", m.Version))
 	}
 	if major, _, _ := strings.Cut(m.SDK, "."); major != sdk.APIVersion {
 		problems = append(problems, fmt.Errorf("built against sdk %q, this schema is sdk %q", m.SDK, sdk.APIVersion))

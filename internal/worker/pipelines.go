@@ -33,9 +33,11 @@ import (
 // someone deploys a Pipeline by hand, which the next pass picks up.
 const capabilityInterval = 10 * time.Minute
 
-// ResourceInstaller puts Tekton definitions in place.
+// ResourceInstaller puts Tekton definitions in place, and withdraws those of plugins no longer
+// carried.
 type ResourceInstaller interface {
 	InstallResources(ctx context.Context, resources []pipelines.Resource) (pipelines.Outcome, error)
+	Prune(ctx context.Context, carried func(plugin string) bool) ([]string, error)
 }
 
 // AvailabilitySink receives, by kind, why the pipelines that cannot run cannot.
@@ -49,12 +51,16 @@ type CapabilityReconciler struct {
 	installer ResourceInstaller
 	// resources are read at every pass: what is bound changes while the dashboard runs.
 	resources func() []pipelines.Resource
-	wake      chan struct{}
-	catalog   catalog.Source
-	cluster   catalog.Cluster
-	sink      AvailabilitySink
-	logger    *slog.Logger
-	last      map[string]string
+	// carried lists the plugins whose definitions stay. Read from what is recorded rather than from
+	// the capabilities in force: a plugin that failed to load is still installed, and its
+	// definitions are not withdrawn for a passing failure.
+	carried func(ctx context.Context) (map[string]bool, error)
+	wake    chan struct{}
+	catalog catalog.Source
+	cluster catalog.Cluster
+	sink    AvailabilitySink
+	logger  *slog.Logger
+	last    map[string]string
 }
 
 // NewCapabilityReconciler wires the loop. The installer may be nil: definitions are then only
@@ -67,6 +73,12 @@ func NewCapabilityReconciler(
 		installer: installer, resources: resources, catalog: pipelines,
 		cluster: cluster, sink: sink, logger: logger, wake: make(chan struct{}, 1),
 	}
+}
+
+// WithPruning withdraws, at every pass, the definitions of the plugins no longer carried.
+func (r *CapabilityReconciler) WithPruning(carried func(ctx context.Context) (map[string]bool, error)) *CapabilityReconciler {
+	r.carried = carried
+	return r
 }
 
 // Wake asks for a pass now: the capabilities in force changed, and a newly bound one must not
@@ -128,6 +140,7 @@ func (r *CapabilityReconciler) install(ctx context.Context) {
 	if r.installer == nil || r.resources == nil {
 		return
 	}
+	r.prune(ctx)
 	resources := r.resources()
 	if len(resources) == 0 {
 		return
@@ -146,6 +159,24 @@ func (r *CapabilityReconciler) install(ctx context.Context) {
 		// from the dashboard does not appear.
 		r.logger.Info("definitions left to their owner", "resources", outcome.Skipped,
 			"reason", "they already exist and were not created by the dashboard")
+	}
+}
+
+func (r *CapabilityReconciler) prune(ctx context.Context) {
+	if r.carried == nil {
+		return
+	}
+	carried, err := r.carried(ctx)
+	if err != nil {
+		r.logger.Error("reading the plugins carried, definitions left in place", "error", err)
+		return
+	}
+	withdrawn, err := r.installer.Prune(ctx, func(plugin string) bool { return carried[plugin] })
+	if err != nil {
+		r.logger.Error("withdrawing the definitions of uninstalled plugins", "error", err)
+	}
+	if len(withdrawn) > 0 {
+		r.logger.Info("definitions withdrawn", "resources", withdrawn, "reason", "their plugin is uninstalled")
 	}
 }
 

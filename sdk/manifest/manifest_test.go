@@ -44,6 +44,7 @@ func TestAManifestAsksForNothingBeyondItsSchema(t *testing.T) {
 		"other schema":       {`arkhitekton.plugin/v1`, `arkhitekton.plugin/v2`},
 		"other sdk":          {`"sdk": "1"`, `"sdk": "2"`},
 		"bad id":             {`"id": "gotest"`, `"id": "Go Test"`},
+		"bad version":        {`"version": "1.0.0"`, `"version": "1.0/../x"`},
 		"path outside":       {`"tekton/task.yaml"`, `"../task.yaml"`},
 		"absolute path":      {`"gotest.wasm"`, `"/gotest.wasm"`},
 		"two readings":       {`"module": "gotest.wasm"`, `"module": "gotest.wasm", "reading": "reading.yaml"`},

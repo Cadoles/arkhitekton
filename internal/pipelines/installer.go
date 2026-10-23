@@ -32,6 +32,9 @@ import (
 // ManagedBy marks the resources the dashboard owns.
 const ManagedBy = "arkhitekton"
 
+// PluginLabel names, on a definition the dashboard owns, the plugin that ships it.
+const PluginLabel = "arkhitekton/plugin"
+
 // Outcome says what an installation produced, resource by resource.
 type Outcome struct {
 	// Installed names what was created.
@@ -104,6 +107,9 @@ func (i *Installer) apply(ctx context.Context, resource Resource) (string, error
 		labels = map[string]string{}
 	}
 	labels["app.kubernetes.io/managed-by"] = ManagedBy
+	if resource.Plugin != "" {
+		labels[PluginLabel] = resource.Plugin
+	}
 	object.SetLabels(labels)
 
 	client, err := i.resourceFor(object)
@@ -139,6 +145,40 @@ func (i *Installer) apply(ctx context.Context, resource Resource) (string, error
 		return "", fmt.Errorf("updating %s %q: %w", resource.Kind, resource.Name, err)
 	}
 	return "updated", nil
+}
+
+// Prune withdraws the definitions the dashboard installed for plugins no longer carried, and returns
+// their names. Only what carries both its own mark and a plugin's label is considered: a definition
+// someone else maintains is never touched, as at installation.
+//
+// A run already started keeps going: Tekton copied the definition into it when it started.
+func (i *Installer) Prune(ctx context.Context, carried func(plugin string) bool) ([]string, error) {
+	var withdrawn []string
+	var problems []error
+	for _, kind := range []string{"Pipeline", "Task"} {
+		mapping, err := i.mapper.RESTMapping(schema.GroupKind{Group: "tekton.dev", Kind: kind})
+		if err != nil {
+			return withdrawn, fmt.Errorf("the CRD %s.tekton.dev is missing from the cluster: %w", kind, err)
+		}
+		client := i.dynamic.Resource(mapping.Resource).Namespace(i.namespace)
+		list, err := client.List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/managed-by=" + ManagedBy + "," + PluginLabel,
+		})
+		if err != nil {
+			return withdrawn, fmt.Errorf("listing the %ss: %w", kind, err)
+		}
+		for _, object := range list.Items {
+			if carried(object.GetLabels()[PluginLabel]) {
+				continue
+			}
+			if err := client.Delete(ctx, object.GetName(), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+				problems = append(problems, fmt.Errorf("withdrawing %s %q: %w", kind, object.GetName(), err))
+				continue
+			}
+			withdrawn = append(withdrawn, object.GetName())
+		}
+	}
+	return withdrawn, errors.Join(problems...)
 }
 
 // resourceFor resolves an object's kind to its endpoint.

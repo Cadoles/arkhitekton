@@ -47,6 +47,9 @@ type Resource struct {
 	// Manifest is the YAML as it is. Not rewritten: the dashboard installs what the library declares,
 	// and a manifest modified on the fly would be a definition nobody has reviewed.
 	Manifest []byte
+	// Plugin is the plugin that ships it, set on the object as a label: what lets the dashboard
+	// withdraw a plugin's definitions once it is uninstalled.
+	Plugin string
 }
 
 // Library is the set of reference libraries, one per stack.

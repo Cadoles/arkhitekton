@@ -183,3 +183,51 @@ func TestAnUnknownStackInstallsNothing(t *testing.T) {
 		t.Errorf("%d resource(s) installed for an unknown stack", len(list.Items))
 	}
 }
+
+// An uninstalled plugin's definitions are withdrawn; those of plugins still carried, and those
+// someone else maintains, stay.
+func TestAnUninstalledPluginsDefinitionsAreWithdrawn(t *testing.T) {
+	ours := map[string]string{"app.kubernetes.io/managed-by": ManagedBy}
+	labelled := func(plugin string) map[string]string {
+		return map[string]string{"app.kubernetes.io/managed-by": ManagedBy, PluginLabel: plugin}
+	}
+	client, installer := installerFor(t,
+		existing("Pipeline", "go-unit-tests", labelled("gotest")),
+		existing("Task", "go-test", labelled("gotest")),
+		existing("Pipeline", "php-unit-tests", labelled("php")),
+		existing("Task", "unit-test", ours),
+		existing("Task", "go-lint", map[string]string{PluginLabel: "gotest"}),
+	)
+
+	withdrawn, err := installer.Prune(context.Background(), func(plugin string) bool { return plugin == "php" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(withdrawn) != 2 {
+		t.Errorf("withdrawn = %v", withdrawn)
+	}
+	for _, kept := range []struct {
+		resource schema.GroupVersionResource
+		name     string
+	}{{pipelineGVR, "php-unit-tests"}, {taskGVR, "unit-test"}, {taskGVR, "go-lint"}} {
+		if _, err := client.Resource(kept.resource).Namespace(namespace).Get(context.Background(), kept.name, metav1.GetOptions{}); err != nil {
+			t.Errorf("%s withdrawn: %v", kept.name, err)
+		}
+	}
+	if _, err := client.Resource(taskGVR).Namespace(namespace).Get(context.Background(), "go-test", metav1.GetOptions{}); err == nil {
+		t.Error("go-test kept")
+	}
+}
+
+// A definition carries the label of the plugin that ships it.
+func TestADefinitionNamesItsPlugin(t *testing.T) {
+	client, installer := installerFor(t)
+	manifest := []byte("apiVersion: tekton.dev/v1\nkind: Task\nmetadata:\n  name: go-test\nspec: {}\n")
+	if _, err := installer.InstallResources(context.Background(), []Resource{{Name: "go-test", Kind: "Task", Manifest: manifest, Plugin: "gotest"}}); err != nil {
+		t.Fatal(err)
+	}
+	posed, err := client.Resource(taskGVR).Namespace(namespace).Get(context.Background(), "go-test", metav1.GetOptions{})
+	if err != nil || posed.GetLabels()[PluginLabel] != "gotest" {
+		t.Errorf("labels %v, %v", posed.GetLabels(), err)
+	}
+}

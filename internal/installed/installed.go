@@ -30,7 +30,26 @@ func Load(fsys fs.FS) (capability.Plugin, error) {
 	return load(fsys, manifest.MaxSize)
 }
 
+// Read reads the plugin at the root of fsys without compiling how its runs are read: for a plugin
+// Load already accepted, about to be compiled once by capabilities.Prepare.
+func Read(fsys fs.FS) (capability.Plugin, error) {
+	return read(fsys, manifest.MaxSize)
+}
+
 func load(fsys fs.FS, limit int64) (capability.Plugin, error) {
+	plugin, err := read(fsys, limit)
+	if err != nil {
+		return capability.Plugin{}, err
+	}
+	// The reading compiled, the module loaded in its sandbox: a plugin that would not load in the
+	// registry is refused now, not at the next reload.
+	if _, err := capabilities.New(plugin); err != nil {
+		return capability.Plugin{}, err
+	}
+	return plugin, nil
+}
+
+func read(fsys fs.FS, limit int64) (capability.Plugin, error) {
 	if err := bounded(fsys, limit); err != nil {
 		return capability.Plugin{}, err
 	}
@@ -68,12 +87,6 @@ func load(fsys fs.FS, limit int64) (capability.Plugin, error) {
 		}
 	}
 	if err := errors.Join(problems...); err != nil {
-		return capability.Plugin{}, err
-	}
-
-	// The reading compiled, the module loaded in its sandbox: a plugin that would not load in the
-	// registry is refused now, not at the next reload.
-	if _, err := capabilities.New(plugin); err != nil {
 		return capability.Plugin{}, err
 	}
 	return plugin, nil

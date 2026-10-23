@@ -58,6 +58,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # The keys a plugin must be signed with, and the credentials of private registries: files the
+            # operator mounts, never values the administration screen could change.
+            - name: PLUGIN_TRUSTED_KEYS
+              value: /etc/arkhitekton-plugins/keys/trusted-keys.pem
+            - name: PLUGIN_REGISTRY_AUTH
+              value: /etc/arkhitekton-plugins/registry/config.json
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -78,10 +84,29 @@ spec:
             - name: catalog
               mountPath: /etc/arkhitekton
               readOnly: true
+            - name: plugin-keys
+              mountPath: /etc/arkhitekton-plugins/keys
+              readOnly: true
+            - name: plugin-registry
+              mountPath: /etc/arkhitekton-plugins/registry
+              readOnly: true
       volumes:
         - name: catalog
           configMap:
             name: arkhitekton-catalog
+        # Optional both: without trusted keys no plugin installs, and says why; without registry
+        # credentials, registries are reached anonymously.
+        - name: plugin-keys
+          configMap:
+            name: arkhitekton-plugin-keys
+            optional: true
+        - name: plugin-registry
+          secret:
+            secretName: arkhitekton-plugin-registry
+            optional: true
+            items:
+              - key: .dockerconfigjson
+                path: config.json
         - name: tmp
           emptyDir:
             # Wider than for the api: the worker fetches the pipeline logs before pushing them to MinIO, and

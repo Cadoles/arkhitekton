@@ -39,6 +39,7 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 	}
 
 	var problems []error
+	shipped := map[string]string{}
 	for _, plugin := range plugins {
 		if !capability.ValidName(plugin.ID) {
 			problems = append(problems, fmt.Errorf("plugin %q: lower case, digits and dashes only", plugin.ID))
@@ -57,6 +58,16 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 		}
 		registry.plugins[plugin.ID] = plugin
 		problems = append(problems, declarationProblems(plugin)...)
+		for _, pipeline := range plugin.Pipelines {
+			for _, manifest := range pipeline.Spec.Manifests {
+				// Two plugins shipping one definition would each overwrite the other at every pass.
+				key := manifest.Kind + "/" + manifest.Name
+				if other, taken := shipped[key]; taken && other != plugin.ID {
+					problems = append(problems, fmt.Errorf("Tekton %s %q shipped by %s and %s", manifest.Kind, manifest.Name, other, plugin.ID))
+				}
+				shipped[key] = plugin.ID
+			}
+		}
 
 		for _, pipeline := range plugin.Pipelines {
 			ref := capability.Ref{Plugin: plugin.ID, Name: pipeline.Name}
@@ -125,6 +136,24 @@ func prepared(ref capability.Ref, pipeline capability.Pipeline) (capability.Pipe
 		pipeline.Interpreter = module
 	}
 	return pipeline, ways, nil
+}
+
+// Prepare compiles a plugin's declared readings and modules into interpreters, once: the plugin
+// returned reads its runs in code, and a registry built from it compiles nothing again.
+func Prepare(plugin capability.Plugin) (capability.Plugin, error) {
+	pipelines := make([]capability.Pipeline, 0, len(plugin.Pipelines))
+	var problems []error
+	for _, pipeline := range plugin.Pipelines {
+		compiled, _, err := prepared(capability.Ref{Plugin: plugin.ID, Name: pipeline.Name}, pipeline)
+		if err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		compiled.Reading, compiled.Module = nil, nil
+		pipelines = append(pipelines, compiled)
+	}
+	plugin.Pipelines = pipelines
+	return plugin, errors.Join(problems...)
 }
 
 // Retain keeps earlier versions of the plugins the registry carries, to read the runs they
