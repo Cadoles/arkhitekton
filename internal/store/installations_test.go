@@ -106,3 +106,18 @@ func TestRemovingTheActiveVersionUninstalls(t *testing.T) {
 		t.Errorf("removed twice: %v", err)
 	}
 }
+
+// Only the installed versions' layers are referenced: a removed version's is an orphan.
+func TestOnlyInstalledLayersAreReferenced(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	installed(t, db, "1.0.0")
+	second := installed(t, db, "1.0.1")
+	if _, err := db.RemovePluginInstallation(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	objects, err := db.PluginObjects(ctx)
+	if err != nil || len(objects) != 1 || !objects["plugins/gotest/1.0.0"] {
+		t.Errorf("objects %v, %v", objects, err)
+	}
+}

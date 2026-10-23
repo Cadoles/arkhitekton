@@ -147,6 +147,13 @@ migrations done). Only the last one justifies saying "deployed".
     artifacts/…                                 exports produced by the dashboard
     plugins/<id>/<version>/sha256-<hex>.tar.gz  an installed plugin's layer, as signed
 
+The worker removes, once a day, what nothing refers to any more: an attachment no result
+names (left by an earlier reading whose members differ), the layer of a plugin version no
+longer installed, and the `raw/` and `logs/` objects of a run the database does not know
+(after a reset). Runs are never deleted, so their artifacts and logs otherwise stay: they are
+what a replay reads. Nothing younger than a day is touched, and the credentials the worker uses
+must allow deleting objects.
+
 An attachment's key hashes the member's path inside its archive, which is free and not a safe
 segment; the same member of the same run always gets the same key, so a replay overwrites
 rather than piling up copies.

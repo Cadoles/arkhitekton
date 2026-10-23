@@ -664,7 +664,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// where each returns `ctx.Err()`. The process would still exit, but leaving behind loops that
 			// were never able to conclude — and a goroutine profile that accuses a leak where there is
 			// only a channel that is too short.
-			errs := make(chan error, 8)
+			errs := make(chan error, 9)
 			// The bound capabilities' definitions, installed and checked before the first launch. Under the
 			// lease like the rest: two workers putting the same definition in place would rewrite each
 			// other's.
@@ -680,6 +680,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				errs <- module.NewSupervisor(db, moduleTick, logger, modules...).Run(leadingCtx)
 			}()
 			go func() { errs <- purger.Run(leadingCtx) }()
+			// The objects nothing refers to any more: attachments of an earlier reading, layers of a
+			// removed plugin, artifacts of runs a reset database forgot.
+			go func() { errs <- worker.NewObjectPurger(db, storage, logger).Run(leadingCtx) }()
 
 			// Setting the deploy keys. Under the lease like the rest: two workers setting the same key
 			// would replace each other's, and the public half recorded would no longer be that of the
