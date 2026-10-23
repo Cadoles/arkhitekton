@@ -54,12 +54,17 @@ Three narrow roles, and the shape of each is the point.
 
 | Resource | Verbs |
 |---|---|
-| `pipelines`, `tasks` | get, list, watch, create, update |
+| `pipelines`, `tasks` | get, list, watch, create, update, delete |
 | `pipelineruns` | get, list, watch, create, patch, delete |
 | `taskruns` | get, list, watch |
 | `pods`, `pods/log` | get, list, watch |
 | `secrets` | **create, patch, update, delete — not get, not list** |
 | `serviceaccounts` | get, update, patch |
+
+`delete` on definitions withdraws those of an uninstalled plugin (doc 06 §6.12): only what
+carries both the dashboard's mark (`app.kubernetes.io/managed-by=arkhitekton`) and a plugin's
+label (`arkhitekton/plugin`) is deleted. A definition someone else maintains is never adopted,
+so never deleted either.
 
 The secrets rule is deliberate and worth stating plainly: **the dashboard designates
 secrets, it never reads them.** It can create the secret a pipeline will mount and delete
@@ -138,8 +143,28 @@ runs is not code the dashboard trusts when it comes as a declaration or a WebAss
 Either way the dashboard checks the facts returned, stamps the producer itself, and refuses an
 attachment naming an object the run did not keep.
 
+**Installed plugins** (doc 06 §6.12) are code nobody compiled with the dashboard, and are
+checked for what a compiled plugin is trusted with:
+
+- **supply chain**: installed by digest only, never by tag; signed in cosign's simple signing
+  format by a key the operator mounted (`PLUGIN_TRUSTED_KEYS`), verified before the layer is
+  fetched, with no call to sigstore's services; the signed payload must name the digest
+  installed. The key's fingerprint and the digest are recorded and audited;
+- **privileges**: no service account, from the manifest or from a binding recorded on the
+  screen; needs limited to `source-read` and `registry-pull`; Tekton definitions limited to
+  Pipelines and Tasks, with no host path, host namespace, privileged container, resolver or
+  bundle;
+- **reading**: declared or in WebAssembly, never Go;
+- **reach**: pipelines only. Trackers, forges, probes, actions and modules run with the
+  dashboard's own privileges and stay with compiled plugins;
+- **credentials**: registry credentials are a Docker `config.json` mounted in the worker, read
+  for its `auths` only. They never reach the database.
+
+What the definitions' pods may do is still bounded by the namespace's Pod Security level: the
+dashboard's checks refuse the obvious escapes, the cluster enforces the rest.
+
 ## 9.10 Audit
 
-Every administrative act — role granted or revoked, plugin enabled, limit changed,
-project created — is recorded in `audit_log` with its actor, target and payload, and is
-readable at `GET /admin/audit` by an administrator.
+Every administrative act (role granted or revoked, plugin enabled, installed, activated or
+uninstalled, capability bound, limit changed, project created) is recorded in `audit_log` with
+its actor, target and payload, and is readable at `GET /admin/audit` by an administrator.

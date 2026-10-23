@@ -113,6 +113,15 @@ twice produce one event.
 
 Secret fields inside `config` are sealed with `SECRETS_KEY`; the API never returns them.
 
+| Table | Key columns |
+|---|---|
+| `capability_bindings` | `ref`, `binding` (the JSON of a catalogue entry, never a service account), `updated_by` |
+| `plugin_installations` | `reference` and `digest` as requested; `plugin_id`, `version`, `signed_by` (the key's fingerprint), `object` once pulled; `state` (`pending`, `installed`, `failed`, `removed`), `error`, `active` |
+| `capability_state` | a single `version`, moved by every binding and installation change: what the api and the worker watch to rebuild their capabilities |
+
+One version of a plugin is active at a time, and a version is installed once (partial unique
+indexes). A removed installation stays, for the record.
+
 ## 8.9 Tables owned by the MSE plugin
 
 These live in the same database but under the plugin's own migration history
@@ -136,6 +145,7 @@ migrations done). Only the last one justifies saying "deployed".
     logs/<pipelinerun>/<task>/<step>.log        collected task logs
     attachments/<pipelinerun>/<hash>/<name>     archive members kept as attachments
     artifacts/…                                 exports produced by the dashboard
+    plugins/<id>/<version>/sha256-<hex>.tar.gz  an installed plugin's layer, as signed
 
 An attachment's key hashes the member's path inside its archive, which is free and not a safe
 segment; the same member of the same run always gets the same key, so a replay overwrites

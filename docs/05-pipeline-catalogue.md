@@ -50,6 +50,14 @@ ships them, or provided by the operator otherwise.
 A binding naming a capability no plugin brings, or a parameter, a need or a volume the
 capability does not declare, stops start-up.
 
+**Bindings recorded from the screen.** An administrator binds, from Administration, Capacités,
+what the file does not: the capabilities of a plugin installed from a registry first (§6.12).
+A recorded binding has the shape of an entry above, without `serviceAccountName` and without
+`podTemplate`: a capability that needs `cluster-deploy` is bound by the file only. **The file
+wins**: a capability it binds is shown read-only, and its recorded binding, if any, ignored. A
+recorded binding that no longer holds does not stop start-up: the dashboard starts on the file
+alone, says so, and keeps trying.
+
 ## 5.3 Parameters
 
 A capability declares every Tekton parameter it takes, and where its value comes from:

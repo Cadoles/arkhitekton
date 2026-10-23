@@ -170,3 +170,29 @@ deployment running with a setting it believes it applied.
 | `GITEA_URL`, `GITEA_TOKEN`, `GITEA_REPO`, `GITEA_TIMEOUT` | `FORGE_*` |
 | `REDMINE_URL`, `REDMINE_API_KEY`, `REDMINE_PROJECT`, `REDMINE_TIMEOUT`, `REDMINE_REVIEW_STATUSES` | `TRACKER_*` |
 | `PIPELINE_GIT_PUBLIC_KEY` | Removed: the shared deploy key no longer exists, each project has its own |
+
+## 4.14 Installed plugins (role `worker`)
+
+The worker pulls the plugins an administrator installs (§6.12). What it trusts, and how it
+reaches private registries, are files the operator mounts: the administration screen can change
+neither.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PLUGIN_TRUSTED_KEYS` | none | PEM file of the public keys, ECDSA or Ed25519, a plugin must be signed with. Unset or absent, no plugin installs, and the installation says why. Read at every installation: a key added or withdrawn applies without a restart |
+| `PLUGIN_REGISTRY_AUTH` | none | Docker `config.json` holding the credentials of private registries. Its `auths` are read; credential helpers are not run. Absent, registries are reached anonymously |
+| `PLUGIN_PLAIN_HTTP_REGISTRIES` | none | Comma-separated registries reached without TLS: a registry inside a development cluster |
+
+The base deployment sets the first two to optional mounts:
+
+| Mount | Source | Content |
+|---|---|---|
+| `/etc/arkhitekton-plugins/keys/trusted-keys.pem` | ConfigMap `arkhitekton-plugin-keys` | the trusted public keys |
+| `/etc/arkhitekton-plugins/registry/config.json` | Secret `arkhitekton-plugin-registry`, key `.dockerconfigjson` | registry credentials |
+
+```sh
+kubectl -n arkhitekton create configmap arkhitekton-plugin-keys --from-file=trusted-keys.pem
+kubectl -n arkhitekton create secret docker-registry arkhitekton-plugin-registry \
+  --docker-server=registry.example --docker-username=… --docker-password=…
+```
+

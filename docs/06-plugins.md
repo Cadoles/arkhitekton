@@ -49,6 +49,9 @@ The types a plugin compiles against form the **contract**, a Go module of its ow
 | `sdk/facts` | what an interpreter returns |
 | `sdk/interpret` | helpers shared by interpreters |
 | `sdk/provider` | the vocabulary of trackers and forges: versions, issues, refs, pull requests |
+| `sdk/declare` | the schema of a declared reading (§6.3) |
+| `sdk/guest` | the plugin side of a WebAssembly interpreter (§6.4) |
+| `sdk/manifest` | the schema of a plugin an instance installs (§6.12) |
 
 The dashboard refuses a plugin built against another major `sdk.APIVersion`. The built-in
 plugins live under `internal/plugins/<id>` and import nothing but the contract; only
@@ -319,8 +322,9 @@ not exist: the worker opens neither Flux nor the portal's CRD.
 
 ## 6.11 Writing a plugin
 
-A plugin is a Go package importing the `sdk` module and nothing else of the dashboard. Today it
-is compiled into the binary: add it to `internal/plugins/builtin`. Its version changes
+A plugin is a Go package importing the `sdk` module and nothing else of the dashboard, compiled
+into the binary: add it to `internal/plugins/builtin`. A plugin that brings pipelines only can
+instead be installed without recompiling (§6.12). Its version changes
 whenever what its interpreters read changes: a replay refuses to read a run with another
 version than the one that read it, unless asked.
 
@@ -328,5 +332,108 @@ The licensing is settled: an additional permission under section 7 of the AGPL l
 that uses only the plugin interface be published under any licence its author chooses, and the
 combined work be distributed or served on those terms. See `LICENSE.plugin-exception`.
 
-What remains: plugins packaged as signed OCI artifacts, a declaration or a module and the Tekton
-definitions they read, installed by an administrator.
+## 6.12 Installed plugins
+
+An administrator installs a plugin **without recompiling**: a signed OCI artifact, pinned by
+digest, pulled and verified by the worker, put in force without a restart. An installed plugin
+brings **pipeline capabilities only**: Tekton definitions, what they publish and need, settings,
+and a declared reading (§6.3) or a WebAssembly module (§6.4). A tracker, a forge, a probe, an
+action or a module is code the dashboard runs with its own privileges, and stays with the plugins
+compiled into it.
+
+**The directory.** `arkhitekton-plugin.yaml` at its root, the files it names next to it.
+`sdk/examples/gotest` is a complete one:
+
+```yaml
+apiVersion: arkhitekton.plugin/v1
+id: gotest
+version: 1.0.0                # letters, digits, dots and dashes
+sdk: "1"                      # the sdk.APIVersion it was built against
+label: Go
+summary: Tests d'un projet Go, lus depuis le flux de `go test -json`.
+settings: { global: [], project: [] }        # capability.Field
+pipelines:
+  - name: unit-tests
+    label: Tests Go
+    pipelineRef: go-unit-tests
+    tekton: [tekton/pipeline-go-unit-tests.yaml, tekton/task-go-test.yaml]
+    externalTasks: [git-clone]
+    params:
+      repo-url: { source: binding, defaultKey: project.repoUrl }
+      revision: { source: input, required: true, label: Révision }
+    workspaces:
+      - { name: git-credentials, need: source-read }
+      - { name: shared-data, volume: { storage: 1Gi } }
+    needs: [{ name: source-read, reason: clone the project }]
+    artifacts:
+      - { name: results, param: results-upload-url, object: go-test.json, format: file,
+          members: [{ match: go-test.json, parser: raw, tool: gotest }] }
+    produces: [results]
+    verification: true
+    group: unit
+    module: gotest.wasm        # or reading: readings/unit-tests.yaml
+```
+
+**What is refused**, when the plugin is published and again when it is installed:
+
+| Refused | Why |
+|---|---|
+| a key the schema does not have, a service account first | a privilege is the operator's to grant, in the catalogue file |
+| a need other than `source-read` and `registry-pull`, a product other than results | pushing images and deploying act on the instance's behalf |
+| a Tekton definition other than a `Pipeline` or a `Task`, or two in one file | the dashboard installs Pipelines and Tasks, and installs what it checked |
+| `serviceAccountName`, `hostPath`, `hostNetwork`, `hostPID`, `hostIPC`, `hostUsers`, `privileged: true` anywhere in a definition | a run reaches nothing beyond its pod |
+| a `resolver` or a `bundle` | a definition fetches nothing its signature does not cover |
+| a Task the Pipeline runs that is neither shipped nor declared in `externalTasks` | |
+| a path leaving the directory, a link, more than 64 MiB in all | |
+| the id of a built-in plugin, a Tekton definition another plugin ships | two plugins would overwrite each other |
+
+**Publishing.** Build what the plugin reads its runs with, then pack, push and sign:
+
+```sh
+make example-plugin     # builds sdk/examples/gotest/gotest.wasm
+arkhitekton publish-plugin --dir sdk/examples/gotest \
+  --ref registry.example/plugins/gotest:1.0.0 --key plugin-key.pem
+# published  registry.example/plugins/gotest@sha256:…
+# signed by  sha256:…
+```
+
+The key is an unencrypted PEM private key, ECDSA or Ed25519; registry credentials are read
+from the Docker `config.json`, `--plain-http` reaches a registry without TLS. The signature is
+cosign's "simple signing" format (`sha256-<digest>.sig` next to the artifact), so
+`cosign sign --key … --tlog-upload=false` signs an artifact the same way. A key pair without
+cosign:
+
+```sh
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out plugin-key.pem
+openssl pkey -in plugin-key.pem -pubout -out trusted-keys.pem
+```
+
+**Installing.** Administration, Plugins: the reference **by digest**, the one
+`publish-plugin` printed. A tag can be moved after an administrator looked at what it named; a
+digest cannot. The request becomes a `plugin-install` job: the worker pulls the artifact,
+checks its signature against `PLUGIN_TRUSTED_KEYS` (§4.14) before fetching the layer, checks
+the plugin as above, checks that the capabilities still build with it, stores the layer under
+`plugins/<id>/<version>/`, and records the key that signed it. A failure is read on the
+installation, and on the job.
+
+**Binding.** An installed capability is launched once bound, from Administration, Capacités:
+secrets for its needs, configuration keys for its parameters, volume sizes, a timeout, a
+ceiling. Never a service account. The catalogue file's binding, when it has one, wins and is
+shown read-only (§5.2).
+
+**Versions.** The first version installed is active. A later one is installed beside it and
+waits to be activated: an update is a decision, not a side effect of pulling. Activation is
+refused if the capabilities would not build with it, a binding that names a parameter the new
+version dropped for one. New runs start with the active version; a run is read by the version
+that launched it, while that version is installed.
+
+**Uninstalling.** Removing an inactive version removes that version. Removing the active one
+uninstalls the plugin: every version, its bindings and its settings. The worker then withdraws
+the Tekton definitions it installed for it (those carrying `arkhitekton/plugin=<id>`); a run
+already started keeps going on the copy Tekton made. The facts its runs produced stay, and are
+shown without the plugin. A plan naming one of its capabilities fails at launch, naming it.
+
+**Taking effect.** Installing, activating, removing and binding move a counter the api and
+the worker watch: each rebuilds its capabilities within thirty seconds, at once on the replica
+that took the request. Capabilities that do not build leave the previous ones in force, and are
+tried again.

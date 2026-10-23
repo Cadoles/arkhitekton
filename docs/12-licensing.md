@@ -49,7 +49,7 @@ Three deliberate limits:
 - **It does not cover a fork.** Copying core code into a plugin leaves the definition.
 - **A recipient may remove it** from their own copy, as section 7 provides.
 
-## 12.4 What is still missing for third-party plugins
+## 12.4 Third-party plugins
 
 The plugin API is the `sdk` module (`forge.cadoles.com/vcarroy/arkhitekton/sdk`), kept in this
 repository but outside `internal/`, with its own `go.mod` and a version, `sdk.APIVersion`, that
@@ -60,8 +60,12 @@ plugins shipped with the dashboard import nothing else of it (`internal/capabili
 A plugin is compiled into the binary, which is precisely what the exception makes possible, or
 brings its reading as a declaration or a WebAssembly module (doc 06 §6.3, §6.4). A module built
 against `sdk/guest` uses only the plugin interface, and is covered by the exception like a
-compiled plugin. Signed distribution, for plugins installed rather than compiled, is the next
-phase.
+compiled plugin.
+
+A plugin installed from a registry (doc 06 §6.12) is a directory: its manifest and Tekton
+definitions are YAML the dashboard reads, linked to nothing (§12.5), and its module, when it
+has one, is covered as above. Its author chooses its licence; the dashboard checks who signed
+it, not under what terms.
 
 ## 12.5 Pipelines and catalogues
 
