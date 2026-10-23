@@ -3,7 +3,7 @@ module forge.cadoles.com/vcarroy/arkhitekton
 go 1.26.4
 
 require (
-	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.0.0-00010101000000-000000000000
+	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.1.0
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/go-pdf/fpdf v0.9.0
 	github.com/google/go-containerregistry v0.21.3
@@ -115,5 +115,6 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.3 // indirect
 )
 
-// The plugin contract is a module of its own, kept in this repository.
+// The plugin contract is a module of its own, kept in this repository. A module requiring
+// arkhitekton does not follow this replace: it resolves the version above, from the tag sdk/vX.Y.Z.
 replace forge.cadoles.com/vcarroy/arkhitekton/sdk => ./sdk
