@@ -1,7 +1,7 @@
 // Package module runs the parts of plugins the dashboard carries out on their behalf.
 //
 // A contract plugin only reads and reports. Some plugins also need loops that write the dashboard's
-// own tables and talk to the cluster, like observing the MSE environments: those are modules,
+// own tables and talk to the cluster, like observing deployment environments: those are modules,
 // written against the host and assembled by the app package next to the plugin that declares them.
 //
 // A module runs while its plugin is switched on, and is restarted with its new settings when they

@@ -120,7 +120,7 @@ type ReleasesHandler struct {
 	// preventing the page.
 	artifactReader ArtifactReader
 	// deployments returns, by tag, the environments where a release runs. Nil: the badge
-	// is never shown. Supplied by the MSE plugin, which owns those tables.
+	// is never shown. Supplied by the extensions, which own those tables.
 	deployments func(context.Context, int64) (map[string][]string, error)
 	// promotions returns a release's requested promotions. Nil: none.
 	promotions func(context.Context, int64, int64) ([]ReleasePromotion, error)
@@ -501,8 +501,8 @@ func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *sco
 	}
 }
 
-// Get returns a release and its promotions. Its targets are served by the MSE plugin,
-// which alone can judge them.
+// Get returns a release and its promotions. Its targets are served by the extension that
+// deploys, which alone can judge them.
 func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {

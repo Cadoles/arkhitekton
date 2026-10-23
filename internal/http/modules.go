@@ -14,7 +14,7 @@ import (
 /*
  * An instance's active modules.
  *
- * A module brings a whole domain — the MSE plugin, its environments and its promotion. Switched
+ * A module brings a whole domain, an extension's observation and promotion for instance. Switched
  * off, its routes answer 404 and the interface does not offer them: an instance without it must
  * stay coherent.
  *

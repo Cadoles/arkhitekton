@@ -35,8 +35,8 @@ export function ReleaseBadges({ release }: { release: Release }) {
       )}
 
       <ScoreBadge score={release.score} />
-      {/* Les pastilles des modules allumés — où la release tourne, pour le
-          plugin MSE. */}
+      {/* Les pastilles des modules allumés : où la release tourne, pour une
+          extension qui déploie. */}
       {modules.flatMap((module) =>
         (module.releaseBadges ?? []).map((Badge, index) => <Badge key={`${module.id}-${index}`} release={release} />),
       )}

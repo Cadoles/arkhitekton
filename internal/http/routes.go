@@ -311,8 +311,8 @@ func NewAPIRouter(
 	mux.Handle("PUT /projects/{project}/sync/tracker/mapping/{status}", Chain(http.HandlerFunc(syncAdmin.SetMapping),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 
-	// The plugins' routes: promotion and environments for the MSE module. Each carries its
-	// own access control, and the core does not know them.
+	// The extensions' routes. Each carries its own access control, and the core does not know
+	// them.
 	for _, mount := range mounts {
 		mount(mux, middleware)
 	}

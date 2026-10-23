@@ -24,7 +24,7 @@ import (
 // plugin must never read as a core migration already applied. A set is applied **after** the
 // core's, its tables referring to the core's.
 type MigrationSet struct {
-	// Name says whose migrations they are, in logs and errors: "MSE plugin".
+	// Name says whose migrations they are, in logs and errors: an extension's id.
 	Name string
 	// Table is the set's version table.
 	Table string

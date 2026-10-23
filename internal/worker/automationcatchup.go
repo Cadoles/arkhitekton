@@ -168,7 +168,7 @@ func DefaultAutomation(
 
 // buildStage composes the build stage from the project's targets.
 //
-// One step per target, and that is the point: MSE's three images stop being a loop in the API
+// One step per target, and that is the point: a project's images stop being a loop in the API
 // and become three steps that are readable, re-runnable and now declared.
 func buildStage(registry *catalog.Catalog, project store.Project) plan.Stage {
 	pipeline, found := registry.Find(buildKind)

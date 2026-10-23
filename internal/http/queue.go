@@ -55,7 +55,7 @@ type QueueHandler struct {
 	registryProject string
 	logger          *slog.Logger
 	// environments returns the environments offered. Nil: none, the field stays free-text.
-	// Supplied by the MSE plugin.
+	// Supplied by the extensions.
 	environments func(ctx context.Context, projectSlug string) []Suggestion
 }
 
@@ -228,7 +228,7 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 // suggestions builds the lists the launch form offers.
 //
 // Composed here and not by the client: the tags come from the database, the
-// environments from the MSE plugin, and the images from a configuration prefix the
+// environments from the extensions, and the images from a configuration prefix the
 // browser does not know. Having the client assemble them would mean sending it that
 // prefix, hence publishing it, for no gain.
 //

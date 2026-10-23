@@ -542,7 +542,7 @@ func (db *DB) ReleaseBadgesByTag(ctx context.Context, buildKind string) (map[str
 		return nil, fmt.Errorf("builds of the releases: %w", err)
 	}
 
-	// The environments where a release runs are not read here: they belong to the MSE
-	// plugin, which supplies them to the screen.
+	// The environments where a release runs are not read here: they belong to the extension that
+	// deploys, which supplies them to the screen.
 	return badges, nil
 }

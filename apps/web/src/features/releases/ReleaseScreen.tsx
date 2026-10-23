@@ -71,7 +71,7 @@ export function ReleaseScreen() {
               savoir où en est la release ; ce qu'elle apporte se relit ensuite,
               au moment de rédiger ce qui part chez le client. */}
           <Artifacts release={data} />
-          {/* Les sections des modules allumés — la promotion pour le plugin MSE.
+          {/* Les sections des modules allumés, la promotion par exemple.
               Éteint, un module n'apporte rien : la section proposerait un geste
               que le serveur refuse. */}
           {modules.flatMap((module) =>

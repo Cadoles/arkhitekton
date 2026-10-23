@@ -115,8 +115,8 @@ type PromotionFacts interface {
 
 // WithPromotionFacts wires the observation of promotions.
 //
-// Without it, no promotion is observed: that is the state of an instance without the MSE
-// plugin, where nothing promotes.
+// Without it, no promotion is observed: that is the state of an instance without an extension
+// that deploys, where nothing promotes.
 func (s *runSink) WithPromotionFacts(facts PromotionFacts) *runSink {
 	s.promotions = facts
 	return s

@@ -17,8 +17,8 @@
 // a release approved. The last could have fallen under the same rule; it does not,
 // because it is a human decision taken outside any automation.
 //
-// Successful promotion left on another ground: the MSE plugin defines what a
-// promotion is, and it is the plugin that observes it.
+// Successful promotion left on another ground: the extension that deploys defines what a
+// promotion is, and it is the extension that observes it.
 //
 // This package emits nothing. It carries the vocabulary and the deduplication rule,
 // nothing else. The emission points live where the fact occurs: the api for human

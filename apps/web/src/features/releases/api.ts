@@ -295,7 +295,7 @@ export function useReleaseRelease(tag: string) {
       }),
     onSuccess: () => {
       // Tout, et pas seulement les releases : ce que les modules montrent en
-      // dépend (les releases promouvables, chez MSE), et le noyau ne nomme pas
+      // dépend (les releases promouvables, par exemple), et le noyau ne nomme pas
       // leurs requêtes. Le geste est rare, et seules les requêtes affichées sont
       // relues.
       void queryClient.invalidateQueries()

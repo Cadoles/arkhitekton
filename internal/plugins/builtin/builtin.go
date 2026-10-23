@@ -30,8 +30,7 @@ func Registry() (*capabilities.Registry, error) {
 }
 
 // Stacks are the reference libraries a project may declare. A distribution's extensions may add
-// to them: MSE adds its integration tests to `php`, which the stack carried before plugins split
-// them.
+// to them, integration tests to `php` for instance.
 func Stacks() map[string][]capability.Manifest {
 	return map[string][]capability.Manifest{
 		"php": php.Manifests(),

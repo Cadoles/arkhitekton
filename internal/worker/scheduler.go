@@ -95,8 +95,8 @@ type Scheduler struct {
 	projects ProjectRepositories
 	// projectSSHPort is the forge's SSH port, which the HTTPS URL does not state.
 	projectSSHPort string
-	// projectSettings returns the configuration values a plugin adds for a project — MSE's
-	// kustomization, its overlay. Nil: the instance's configuration alone.
+	// projectSettings returns the configuration values the extensions add for a project. Nil: the
+	// instance's configuration alone.
 	projectSettings func(ctx context.Context, projectID int64) (map[string]string, error)
 	// deployKeys returns the name of the secret carrying a project's deploy key. Nil when no
 	// per-project key is in service: the runs then mount the shared key.

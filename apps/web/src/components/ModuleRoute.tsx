@@ -24,8 +24,8 @@ export function ModuleRoute({ module, children }: { module: string; children: Re
 /**
  * La page d'accueil.
  *
- * Celle du premier module allumé qui en propose une — les environnements pour le
- * plugin MSE. Les releases sinon : c'est ce que le noyau sait montrer sans module.
+ * Celle du premier module allumé qui en propose une, ses environnements par
+ * exemple. Les releases sinon : c'est ce que le noyau sait montrer sans module.
  */
 export function HomeRedirect() {
   const session = useSession()
