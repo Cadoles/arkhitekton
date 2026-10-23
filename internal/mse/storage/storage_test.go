@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pressly/goose/v3"
-
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -115,10 +113,7 @@ func TestThePluginMigrationTakesOverExistingTables(t *testing.T) {
 	}
 	// The schema from before the transfer: the tables as the core created them, that is, the
 	// plugin's first migration, and nothing of its history.
-	if err := withProvider(cfg, func(provider *goose.Provider) error {
-		_, err := provider.UpTo(ctx, 1)
-		return err
-	}); err != nil {
+	if err := Migrations.UpTo(ctx, cfg, 1); err != nil {
 		t.Fatalf("first migration: %v", err)
 	}
 	// The database from before the transfer: the tables are there, the plugin's history is not.
@@ -235,10 +230,7 @@ func TestTheDataMigrationSwitchesThePluginOffOutsideMSE(t *testing.T) {
 	}
 
 	// Up to the version preceding the data migration.
-	if err := withProvider(cfg, func(provider *goose.Provider) error {
-		_, err := provider.DownTo(ctx, 1)
-		return err
-	}); err != nil {
+	if err := Migrations.DownTo(ctx, cfg, 1); err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
 	if got := decisions(); len(got) != 0 {
@@ -255,10 +247,7 @@ func TestExistingEnvironmentsJoinTheMSEProject(t *testing.T) {
 	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
 		t.Fatalf("core migrations: %v", err)
 	}
-	if err := withProvider(cfg, func(provider *goose.Provider) error {
-		_, err := provider.UpTo(ctx, 2)
-		return err
-	}); err != nil {
+	if err := Migrations.UpTo(ctx, cfg, 2); err != nil {
 		t.Fatalf("plugin migrations up to 2: %v", err)
 	}
 
