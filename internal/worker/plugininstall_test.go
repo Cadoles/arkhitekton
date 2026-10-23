@@ -115,7 +115,8 @@ func TestAnInstallationPullsChecksAndStores(t *testing.T) {
 // A plugin that would not fit with the capabilities in force is refused, and the installation says
 // why; nothing is stored.
 func TestARefusedInstallationSaysWhy(t *testing.T) {
-	db := &installations{installation: store.PluginInstallation{ID: 4, State: store.InstallationPending}}
+	db := &installations{installation: store.PluginInstallation{ID: 4, State: store.InstallationPending, RequestedBy: "admin",
+		Reference: "registry.example/plugins/junit@" + pinnedDigest}}
 	objects := memoryObjects{}
 	installer := NewPluginInstaller(db, objects, pulledPlugin,
 		func(context.Context, capability.Plugin) error { return errors.New(`plugin "junit" declared twice`) },
@@ -124,6 +125,9 @@ func TestARefusedInstallationSaysWhy(t *testing.T) {
 	err := installer.Run(context.Background(), store.Job{ID: 1, Params: map[string]string{ParamInstallation: "4"}})
 	if err == nil || !strings.Contains(db.failed, "declared twice") || len(objects) != 0 || db.completed != "" {
 		t.Errorf("err %v, failed %q, objects %v", err, db.failed, objects)
+	}
+	if len(db.audited) != 1 || !strings.HasPrefix(db.audited[0], "admin plugin.installation.failed ") {
+		t.Errorf("audited = %v", db.audited)
 	}
 
 	db.installation.State = store.InstallationInstalled

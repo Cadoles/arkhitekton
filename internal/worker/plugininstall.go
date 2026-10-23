@@ -73,9 +73,24 @@ func (p *PluginInstaller) Run(ctx context.Context, job store.Job) error {
 		if recordErr := p.store.FailPluginInstallation(ctx, id, err.Error()); recordErr != nil {
 			p.logger.Error("recording a failed installation", "installation", id, "error", recordErr)
 		}
+		p.auditFailure(ctx, id, err)
 		return err
 	}
 	return nil
+}
+
+// auditFailure records a refused installation next to its request: a plugin refused for its
+// signature is what an audit is read for.
+func (p *PluginInstaller) auditFailure(ctx context.Context, id int64, failure error) {
+	installation, err := p.store.PluginInstallation(ctx, id)
+	if err != nil {
+		p.logger.Error("auditing a failed installation", "installation", id, "error", err)
+		return
+	}
+	if err := p.store.Audit(ctx, installation.RequestedBy, "plugin.installation.failed", installation.Reference,
+		map[string]any{"installation": id, "reason": failure.Error()}); err != nil {
+		p.logger.Error("auditing a failed installation", "installation", id, "error", err)
+	}
 }
 
 func (p *PluginInstaller) install(ctx context.Context, id int64) error {

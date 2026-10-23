@@ -165,6 +165,6 @@ dashboard's checks refuse the obvious escapes, the cluster enforces the rest.
 
 ## 9.10 Audit
 
-Every administrative act (role granted or revoked, plugin enabled, installed, activated or
+Every administrative act (role granted or revoked, plugin enabled, installed or refused, activated or
 uninstalled, capability bound, limit changed, project created) is recorded in `audit_log` with
 its actor, target and payload, and is readable at `GET /admin/audit` by an administrator.
