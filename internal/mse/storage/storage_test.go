@@ -6,12 +6,10 @@ import (
 	"io"
 	"log/slog"
 	"maps"
-	"os"
 	"testing"
-	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
+	"forge.cadoles.com/vcarroy/arkhitekton/host/hosttest"
 )
 
 /*
@@ -23,71 +21,38 @@ import (
 
 const testProjectID = 1
 
-func testConfig(t *testing.T) config.DatabaseConfig {
-	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set: integration test skipped")
-	}
-	return config.DatabaseConfig{DSN: dsn, MaxConns: 4, ConnMaxLifetime: time.Minute}
-}
-
 func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 // bareSchema returns an empty database, with no migration at all.
-func bareSchema(t *testing.T) (config.DatabaseConfig, *store.DB) {
+func bareSchema(t *testing.T) (host.DatabaseConfig, *hosttest.Database) {
 	t.Helper()
-	cfg := testConfig(t)
-	ctx := context.Background()
-
-	db, err := store.Open(ctx, cfg)
-	if err != nil {
-		t.Fatalf("connection: %v", err)
-	}
-	t.Cleanup(db.Close)
-	if _, err := db.Pool().Exec(ctx, "drop schema public cascade; create schema public;"); err != nil {
-		t.Fatalf("resetting the schema: %v", err)
-	}
-	return cfg, db
+	db := hosttest.EmptyDatabase(t)
+	return db.Config, db
 }
 
 // migrated returns a database with the core's schema then the plugin's, with one project.
-func migrated(t *testing.T) (*store.DB, *Store) {
+func migrated(t *testing.T) (*hosttest.Database, *Store) {
 	t.Helper()
 	cfg, db := bareSchema(t)
 	ctx := context.Background()
 
-	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
-		t.Fatalf("core migrations: %v", err)
-	}
+	db.MigrateCore(t)
 	if err := Migrate(ctx, cfg, quietLogger()); err != nil {
 		t.Fatalf("plugin migrations: %v", err)
 	}
-	if _, err := db.Pool().Exec(ctx,
+	if _, err := db.Pool.Exec(ctx,
 		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
 		                       tracker_project, created_by)
 		 values ('test', 'vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.',
 		         'projet-suivi', 'test')`); err != nil {
 		t.Fatalf("test project: %v", err)
 	}
-	return db, New(db.Pool())
+	return db, New(db.Pool)
 }
 
-func releaseFor(t *testing.T, db *store.DB, tag, imageVersion string) int64 {
+func releaseFor(t *testing.T, db *hosttest.Database, tag, imageVersion string) int64 {
 	t.Helper()
-	ctx := context.Background()
-	versionID, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
-	if err != nil {
-		t.Fatalf("version: %v", err)
-	}
-	id, err := db.CreateRelease(ctx, store.Release{
-		ProjectID: testProjectID, VersionID: versionID, Tag: tag, Kind: "pre", State: "ready",
-		GitRef: "abc", ImageVersion: imageVersion, CreatedBy: "vcarroy",
-	})
-	if err != nil {
-		t.Fatalf("release %s: %v", tag, err)
-	}
-	return id
+	return db.Release(t, testProjectID, tag, imageVersion)
 }
 
 func environment(id string, rank int, observable bool) Environment {
@@ -108,16 +73,14 @@ func TestThePluginMigrationTakesOverExistingTables(t *testing.T) {
 	cfg, db := bareSchema(t)
 	ctx := context.Background()
 
-	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
-		t.Fatalf("core migrations: %v", err)
-	}
+	db.MigrateCore(t)
 	// The schema from before the transfer: the tables as the core created them, that is, the
 	// plugin's first migration, and nothing of its history.
 	if err := Migrations.UpTo(ctx, cfg, 1); err != nil {
 		t.Fatalf("first migration: %v", err)
 	}
 	// The database from before the transfer: the tables are there, the plugin's history is not.
-	if _, err := db.Pool().Exec(ctx, "drop table "+VersionTable); err != nil {
+	if _, err := db.Pool.Exec(ctx, "drop table "+VersionTable); err != nil {
 		t.Fatalf("removing the history: %v", err)
 	}
 	if err := Migrate(ctx, cfg, quietLogger()); err != nil {
@@ -126,29 +89,27 @@ func TestThePluginMigrationTakesOverExistingTables(t *testing.T) {
 	if pending, err := PendingMigrations(ctx, cfg); err != nil || len(pending) != 0 {
 		t.Errorf("pending after the takeover: %v (%v)", pending, err)
 	}
-	if err := CheckSchema(db.Pool())(ctx); err != nil {
+	if err := CheckSchema(db.Pool)(ctx); err != nil {
 		t.Errorf("schema probe: %v", err)
 	}
 }
 
 // The core alone creates none of the plugin's tables, and `jobs` no longer references them.
 func TestTheCoreAloneDoesNotCreateThePluginsTables(t *testing.T) {
-	cfg, db := bareSchema(t)
+	_, db := bareSchema(t)
 	ctx := context.Background()
 
-	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
-		t.Fatalf("core migrations: %v", err)
-	}
+	db.MigrateCore(t)
 	for _, table := range []string{"environments", "image_promotions", "environment_observations", "release_signoffs"} {
 		var exists bool
-		if err := db.Pool().QueryRow(ctx, "select to_regclass($1) is not null", "public."+table).Scan(&exists); err != nil {
+		if err := db.Pool.QueryRow(ctx, "select to_regclass($1) is not null", "public."+table).Scan(&exists); err != nil {
 			t.Fatalf("catalogue: %v", err)
 		}
 		if exists {
 			t.Errorf("table %s created by the core", table)
 		}
 	}
-	if err := CheckSchema(db.Pool())(ctx); err == nil {
+	if err := CheckSchema(db.Pool)(ctx); err == nil {
 		t.Error("the probe must report a missing plugin schema")
 	}
 }
@@ -156,7 +117,7 @@ func TestTheCoreAloneDoesNotCreateThePluginsTables(t *testing.T) {
 // The plugin rolls back without leaving its tables, and the core stays in place.
 func TestThePluginsMigrationsRollBack(t *testing.T) {
 	db, _ := migrated(t)
-	cfg := testConfig(t)
+	cfg := db.Config
 	ctx := context.Background()
 
 	// All of its migrations, and not the last: it is the first that creates the tables.
@@ -170,13 +131,13 @@ func TestThePluginsMigrationsRollBack(t *testing.T) {
 		}
 	}
 	var exists bool
-	if err := db.Pool().QueryRow(ctx, "select to_regclass('public.environments') is not null").Scan(&exists); err != nil {
+	if err := db.Pool.QueryRow(ctx, "select to_regclass('public.environments') is not null").Scan(&exists); err != nil {
 		t.Fatalf("catalogue: %v", err)
 	}
 	if exists {
 		t.Error("environments survives the rollback")
 	}
-	if err := db.Pool().QueryRow(ctx, "select to_regclass('public.releases') is not null").Scan(&exists); err != nil || !exists {
+	if err := db.Pool.QueryRow(ctx, "select to_regclass('public.releases') is not null").Scan(&exists); err != nil || !exists {
 		t.Errorf("the core's tables were touched (%v)", err)
 	}
 }
@@ -187,11 +148,9 @@ func TestTheDataMigrationSwitchesThePluginOffOutsideMSE(t *testing.T) {
 	cfg, db := bareSchema(t)
 	ctx := context.Background()
 
-	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
-		t.Fatalf("core migrations: %v", err)
-	}
+	db.MigrateCore(t)
 	for _, slug := range []string{"mse-test-project", "mse-tekton"} {
-		if _, err := db.Pool().Exec(ctx,
+		if _, err := db.Pool.Exec(ctx,
 			`insert into projects (slug, repository, label, forge_url, dockerfile, build_context, created_by)
 			 values ($1, 'vcarroy/'||$1, $1, 'https://forge.example', 'Dockerfile', '.', 'test')`, slug); err != nil {
 			t.Fatalf("project %s: %v", slug, err)
@@ -202,7 +161,7 @@ func TestTheDataMigrationSwitchesThePluginOffOutsideMSE(t *testing.T) {
 	}
 
 	decisions := func() map[string]bool {
-		rows, err := db.Pool().Query(ctx,
+		rows, err := db.Pool.Query(ctx,
 			`select p.slug, pp.enabled from project_plugins pp join projects p on p.id = pp.project_id
 			 where pp.plugin_id = 'mse'`)
 		if err != nil {
@@ -244,16 +203,14 @@ func TestExistingEnvironmentsJoinTheMSEProject(t *testing.T) {
 	cfg, db := bareSchema(t)
 	ctx := context.Background()
 
-	if err := store.Migrate(ctx, cfg, quietLogger()); err != nil {
-		t.Fatalf("core migrations: %v", err)
-	}
+	db.MigrateCore(t)
 	if err := Migrations.UpTo(ctx, cfg, 2); err != nil {
 		t.Fatalf("plugin migrations up to 2: %v", err)
 	}
 
 	exec := func(query string, args ...any) {
 		t.Helper()
-		if _, err := db.Pool().Exec(ctx, query, args...); err != nil {
+		if _, err := db.Pool.Exec(ctx, query, args...); err != nil {
 			t.Fatalf("%s: %v", query, err)
 		}
 	}
@@ -267,20 +224,10 @@ func TestExistingEnvironmentsJoinTheMSEProject(t *testing.T) {
 	exec(`insert into environment_observations (environment_id, observed_at, portal_version, resolution)
 	      values ('qualif', now(), '1.8.0', 'portaldata')`)
 	var mseID int64
-	if err := db.Pool().QueryRow(ctx, `select id from projects where slug = 'mse-test-project'`).Scan(&mseID); err != nil {
+	if err := db.Pool.QueryRow(ctx, `select id from projects where slug = 'mse-test-project'`).Scan(&mseID); err != nil {
 		t.Fatalf("MSE project: %v", err)
 	}
-	versionID, err := db.EnsureVersion(ctx, mseID, "1.8.0")
-	if err != nil {
-		t.Fatalf("version: %v", err)
-	}
-	releaseID, err := db.CreateRelease(ctx, store.Release{
-		ProjectID: mseID, VersionID: versionID, Tag: "1.8.0", Kind: "pre", State: "ready",
-		GitRef: "abc", ImageVersion: "1.8.0", CreatedBy: "vcarroy",
-	})
-	if err != nil {
-		t.Fatalf("release: %v", err)
-	}
+	releaseID := db.Release(t, mseID, "1.8.0", "1.8.0")
 	exec(`insert into release_signoffs (release_id, environment_id, role, status, decided_by)
 	      values ($1, 'qualif', 'Client', 'pass', 'vcarroy')`, releaseID)
 
@@ -288,7 +235,7 @@ func TestExistingEnvironmentsJoinTheMSEProject(t *testing.T) {
 		t.Fatalf("migration 0003: %v", err)
 	}
 
-	environments := New(db.Pool())
+	environments := New(db.Pool)
 	if listed, err := environments.ListEnvironments(ctx, mseID); err != nil || len(listed) != 1 {
 		t.Fatalf("environments of the MSE project: %+v (%v)", listed, err)
 	}
@@ -302,7 +249,7 @@ func TestExistingEnvironmentsJoinTheMSEProject(t *testing.T) {
 
 	// The same identifier in another project: refused by the old key.
 	var otherID int64
-	if err := db.Pool().QueryRow(ctx, `select id from projects where slug = 'other-project'`).Scan(&otherID); err != nil {
+	if err := db.Pool.QueryRow(ctx, `select id from projects where slug = 'other-project'`).Scan(&otherID); err != nil {
 		t.Fatalf("other project: %v", err)
 	}
 	if err := environments.UpsertEnvironment(ctx, Environment{
@@ -425,7 +372,7 @@ func TestTheDeployerSettingsMakeTheRoundTripAsTheyAre(t *testing.T) {
 func TestTheSettingsMapAcceptsOnlyStrings(t *testing.T) {
 	db, _ := migrated(t)
 
-	if _, err := db.Pool().Exec(context.Background(),
+	if _, err := db.Pool.Exec(context.Background(),
 		`insert into environments (project_id, id, label, rank, namespace, deployer_settings, observable, visible)
 		 values (1, 'dev', 'Dev', 1, 'mse-dev', '{"acceptsPrerelease": true}'::jsonb, true, true)`,
 	); err == nil {
@@ -563,11 +510,11 @@ func TestTheSignoffsFollowTheFlowAndLeaveWithTheRelease(t *testing.T) {
 		t.Errorf("sign-off = %+v (%v)", signoffs, err)
 	}
 
-	if _, err := db.Pool().Exec(ctx, `delete from releases where id = $1`, release); err != nil {
+	if _, err := db.Pool.Exec(ctx, `delete from releases where id = $1`, release); err != nil {
 		t.Fatalf("deleting the release: %v", err)
 	}
 	var remaining int
-	if err := db.Pool().QueryRow(ctx, `select count(*) from release_signoffs`).Scan(&remaining); err != nil || remaining != 0 {
+	if err := db.Pool.QueryRow(ctx, `select count(*) from release_signoffs`).Scan(&remaining); err != nil || remaining != 0 {
 		t.Errorf("%d validation(s) orpheline(s) (%v)", remaining, err)
 	}
 }

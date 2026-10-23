@@ -1,4 +1,4 @@
-package mse
+package plugin
 
 import (
 	"context"

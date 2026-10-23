@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 )
 
 type settingsStore struct {
@@ -13,11 +13,11 @@ type settingsStore struct {
 	disabled bool
 }
 
-func (r settingsStore) ResolvedPlugin(_ context.Context, _ int64, pluginID string) (store.PluginSettings, error) {
+func (r settingsStore) ResolvedPlugin(_ context.Context, _ int64, pluginID string) (host.PluginSettings, error) {
 	if r.disabled {
-		return store.PluginSettings{PluginID: pluginID}, store.ErrPluginDisabled
+		return host.PluginSettings{PluginID: pluginID}, host.ErrPluginDisabled
 	}
-	return store.PluginSettings{PluginID: pluginID, Enabled: true, Config: r.config}, nil
+	return host.PluginSettings{PluginID: pluginID, Enabled: true, Config: r.config}, nil
 }
 
 // The plugin's settings become the values the catalogue references, under the keys it names.
@@ -93,8 +93,8 @@ func TestAFailedReadIsReported(t *testing.T) {
 
 type failingRead struct{}
 
-func (failingRead) ResolvedPlugin(context.Context, int64, string) (store.PluginSettings, error) {
-	return store.PluginSettings{}, errors.New("database unreachable")
+func (failingRead) ResolvedPlugin(context.Context, int64, string) (host.PluginSettings, error) {
+	return host.PluginSettings{}, errors.New("database unreachable")
 }
 
 // The seeding sets only what the configuration supplies.

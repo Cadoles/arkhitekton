@@ -10,7 +10,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/deliverynote"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/gitea"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/k6"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/mse"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/php"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/redmine"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/security"
@@ -20,7 +19,7 @@ import (
 // Plugins are the plugins compiled into the binary.
 func Plugins() []capability.Plugin {
 	return []capability.Plugin{
-		core.Plugin(), php.Plugin(), mse.Plugin(), security.Plugin(), k6.Plugin(),
+		core.Plugin(), php.Plugin(), security.Plugin(), k6.Plugin(),
 		redmine.Plugin(), gitea.Plugin(), deliverynote.Plugin(),
 	}
 }
@@ -30,10 +29,11 @@ func Registry() (*capabilities.Registry, error) {
 	return capabilities.New(Plugins()...)
 }
 
-// Stacks are the reference libraries a project may declare: `php` installs the PHP pipelines and
-// the MSE integration tests, which the stack carried before plugins split them.
+// Stacks are the reference libraries a project may declare. A distribution's extensions may add
+// to them: MSE adds its integration tests to `php`, which the stack carried before plugins split
+// them.
 func Stacks() map[string][]capability.Manifest {
 	return map[string][]capability.Manifest{
-		"php": append(php.Manifests(), mse.Manifests()...),
+		"php": php.Manifests(),
 	}
 }

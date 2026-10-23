@@ -8,14 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
+	"forge.cadoles.com/vcarroy/arkhitekton/host/hosttest"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 type fakeSignoffStore struct {
-	release      store.Release
+	release      host.Release
 	releaseErr   error
 	environments []storage.Environment
 	signoffs     []storage.Signoff
@@ -26,9 +25,9 @@ type fakeSignoffStore struct {
 	unknownEnv   bool
 }
 
-func (f *fakeSignoffStore) GetRelease(context.Context, int64, string) (store.Release, error) {
+func (f *fakeSignoffStore) GetRelease(context.Context, int64, string) (host.Release, error) {
 	if f.releaseErr != nil {
-		return store.Release{}, f.releaseErr
+		return host.Release{}, f.releaseErr
 	}
 	return f.release, nil
 }
@@ -65,7 +64,7 @@ func (f *fakeSignoffStore) Audit(_ context.Context, _, action, target string, _ 
 
 func newSignoffStore() *fakeSignoffStore {
 	return &fakeSignoffStore{
-		release: store.Release{ID: 1, Tag: "1.8.0-rc1"},
+		release: host.Release{ID: 1, Tag: "1.8.0-rc1"},
 		environments: []storage.Environment{
 			{ID: "qualif", Label: "Qualification", Rank: 2},
 			{ID: "prod", Label: "Production", Rank: 4},
@@ -85,8 +84,8 @@ func signoffRequestFor(t *testing.T, method, target, body string) *http.Request 
 	request.SetPathValue("project", projectSlug)
 	request.SetPathValue("tag", "1.8.0-rc1")
 	request.SetPathValue("env", "qualif")
-	identity := auth.Identity{Subject: "121", Username: "vcarroy", Role: auth.RoleOperator}
-	return request.WithContext(dashhttp.ContextWithIdentity(request.Context(), identity))
+	identity := host.Identity{Subject: "121", Username: "vcarroy", Role: host.RoleOperator}
+	return request.WithContext(hosttest.WithIdentity(request.Context(), identity))
 }
 
 // A reservation or a refusal with no reason tells whoever reads it later nothing, and yet that
@@ -195,14 +194,14 @@ func TestEveryDecisionIsRecorded(t *testing.T) {
 		`{"role":"Client","status":"fail","detail":"broken cart"}`)
 	handler.Set(httptest.NewRecorder(), request)
 
-	if len(fake.audit) != 1 || fake.audit[0] != store.AuditSignoffSet+":1.8.0-rc1" {
+	if len(fake.audit) != 1 || fake.audit[0] != AuditSignoffSet+":1.8.0-rc1" {
 		t.Errorf("journal: %v", fake.audit)
 	}
 
 	removal := signoffRequestFor(t, http.MethodDelete, "/releases/1.8.0-rc1/signoffs/qualif?role=Client", "")
 	handler.Clear(httptest.NewRecorder(), removal)
 
-	if len(fake.audit) != 2 || fake.audit[1] != store.AuditSignoffClear+":1.8.0-rc1" {
+	if len(fake.audit) != 2 || fake.audit[1] != AuditSignoffClear+":1.8.0-rc1" {
 		t.Errorf("log after removal: %v", fake.audit)
 	}
 }
@@ -269,9 +268,9 @@ func TestEveryEnvironmentIsReturnedEvenWithNoOpinion(t *testing.T) {
 
 // ProjectBySlug resolves the project named in the path. One only here: these tests bear on what
 // the handler does with the project, not on resolving it.
-func (f *fakeSignoffStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+func (f *fakeSignoffStore) ProjectBySlug(_ context.Context, slug string) (host.Project, error) {
 	if slug != projectSlug {
-		return store.Project{}, store.ErrProjectNotFound
+		return host.Project{}, host.ErrProjectNotFound
 	}
-	return store.Project{ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
+	return host.Project{ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
 }

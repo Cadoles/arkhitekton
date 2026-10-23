@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/portaldata"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
@@ -73,7 +73,7 @@ func targetOf(environment storage.Environment) flux.Target {
 type ProjectEnvironments struct {
 	ProjectID    int64
 	Slug         string
-	Environments []catalog.Environment
+	Environments []host.Environment
 	// Deployer reads the Flux of the project's namespace.
 	Deployer Deployer
 }

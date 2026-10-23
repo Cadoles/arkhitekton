@@ -171,30 +171,6 @@ func violations(cases []facts.Case, noun string) facts.Set {
 	return set
 }
 
-// integrationReader reads the integration tests' JUnit report.
-type integrationReader struct{}
-
-func (integrationReader) Interpret(_ context.Context, run capability.RunState, records []parse.Record) ([]facts.Set, error) {
-	const tool = "phpunit-integration"
-	if record, readable := sdkinterpret.Readable(records, tool); readable {
-		report := record.Payload.(parse.JUnit)
-		cases := sdkinterpret.JUnitCases(report)
-		return []facts.Set{{
-			Shape: facts.ShapeCases, Group: "integration", Tool: tool, RawObject: record.Object,
-			Cases: cases, DurationMS: report.DurationMS, Summary: sdkinterpret.SummarizeTests(cases),
-		}}, nil
-	}
-	// The tests ran inside a deployed MSE: when they leave no report, saying they did not conclude
-	// is what tells a failed deployment from a clean run.
-	if summary, ran := sdkinterpret.NotConcluded(run, "run-integration-tests"); ran {
-		return []facts.Set{{
-			Shape: facts.ShapeCases, Group: "integration", Tool: tool,
-			Status: facts.StatusNA, Summary: summary,
-		}}, nil
-	}
-	return nil, nil
-}
-
 // Every combination of report and run state the readings must tell apart: a report present,
 // unreadable or absent, against a task that never started, succeeded, failed, crashed or was killed.
 func TestTheDeclaredReadingsReadAsTheirOracles(t *testing.T) {
@@ -219,10 +195,6 @@ func TestTheDeclaredReadingsReadAsTheirOracles(t *testing.T) {
 		{"php/unit-tests", unitReader{}, []string{"run-unit-tests"}, map[string]parse.Record{
 			"junit":  record(t, "phpunit", parse.JUnitXML, report(t, "junit.xml")),
 			"broken": record(t, "phpunit", parse.JUnitXML, []byte("<testsuites")),
-		}},
-		{"mse/integration-tests", integrationReader{}, []string{"run-integration-tests"}, map[string]parse.Record{
-			"junit":  record(t, "phpunit-integration", parse.JUnitXML, report(t, "junit.xml")),
-			"broken": record(t, "phpunit-integration", parse.JUnitXML, []byte("<testsuites")),
 		}},
 	}
 

@@ -22,6 +22,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
@@ -134,13 +135,17 @@ type (
 	Catalog            = catalog.Catalog
 	ProjectDeclaration = catalog.ProjectDeclaration
 	Environment        = catalog.Environment
+	Pipeline           = catalog.Pipeline
 	Authorizer         = auth.Authorizer
+	ProjectPolicies    = auth.ProjectPolicies
+	EnvironmentPolicy  = auth.EnvironmentPolicy
 	Identity           = auth.Identity
 	Permission         = auth.Permission
 	Role               = auth.Role
 	Middleware         = dashhttp.Middleware
 	Mount              = dashhttp.Mount
 	ProjectResolver    = dashhttp.ProjectResolver
+	PluginReader       = dashhttp.PluginReader
 	Modules            = dashhttp.Modules
 	ReleasePromotion   = dashhttp.ReleasePromotion
 	Suggestion         = dashhttp.Suggestion
@@ -152,6 +157,8 @@ type (
 	EventType          = event.Type
 	Scheme             = version.Scheme
 	SemVer             = version.SemVer
+	Opaque             = version.Opaque
+	DatabaseConfig     = config.DatabaseConfig
 )
 
 // The dashboard's errors an extension tells apart with errors.Is.
@@ -166,6 +173,10 @@ var (
 const (
 	PermRead          = auth.PermRead
 	PermReleaseEdit   = auth.PermReleaseEdit
+	RoleViewer        = auth.RoleViewer
+	RoleOperator      = auth.RoleOperator
+	RoleReleaser      = auth.RoleReleaser
+	RoleAdmin         = auth.RoleAdmin
 	KindRetag         = catalog.KindRetag
 	ReleaseStateReady = release.StateReady
 )
@@ -191,6 +202,12 @@ func IdentityFrom(ctx context.Context) (Identity, bool) { return dashhttp.Identi
 // Chain wraps a handler in middleware, the first given being the outermost.
 func Chain(handler http.Handler, middleware ...func(http.Handler) http.Handler) http.Handler {
 	return dashhttp.Chain(handler, middleware...)
+}
+
+// RepositoryFromCloneURL recovers `owner/name` and the forge from a clone URL; both are empty when
+// the URL carries no repository.
+func RepositoryFromCloneURL(clone string) (repository, forgeURL string) {
+	return config.RepositoryFromCloneURL(clone)
 }
 
 // RedactError removes a DSN's password from an error that quotes it.

@@ -14,9 +14,8 @@ import (
 // author starts from, and must stay true.
 func TestTheRecordedCasesReadAsExpected(t *testing.T) {
 	readings := map[string]string{
-		"php-static-tests":      "../internal/plugins/php/readings/static-tests.yaml",
-		"php-unit-tests":        "../internal/plugins/php/readings/unit-tests.yaml",
-		"mse-integration-tests": "../internal/plugins/mse/readings/integration-tests.yaml",
+		"php-static-tests": "../internal/plugins/php/readings/static-tests.yaml",
+		"php-unit-tests":   "../internal/plugins/php/readings/unit-tests.yaml",
 	}
 	checked := 0
 	for capability, path := range readings {
@@ -37,7 +36,7 @@ func TestTheRecordedCasesReadAsExpected(t *testing.T) {
 			checked++
 		}
 	}
-	if checked < 5 {
+	if checked < 4 {
 		t.Fatalf("only %d cases checked", checked)
 	}
 }

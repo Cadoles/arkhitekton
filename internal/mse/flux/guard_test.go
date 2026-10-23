@@ -1,9 +1,10 @@
 package flux
 
 import (
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 	"strings"
 	"testing"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 )
 
 func realPolicies() []ImagePolicy {
@@ -156,7 +157,7 @@ func TestTheSuffixConflictShowsOutOfReach(t *testing.T) {
 // be the most expensive there is: the tag would go, the registry would accept it, Flux would
 // ignore it, and the promotion would look successful.
 func TestAnOpaqueSchemeIsRefusedByThisDeployer(t *testing.T) {
-	err := NewDeployer(nil, DefaultPromotionKind, "").CheckScheme(version.Opaque{})
+	err := NewDeployer(nil, DefaultPromotionKind, "").CheckScheme(host.Opaque{})
 	if err == nil {
 		t.Fatal("a scheme with no marker must be refused: the promotion would have no effect")
 	}
@@ -168,7 +169,7 @@ func TestAnOpaqueSchemeIsRefusedByThisDeployer(t *testing.T) {
 
 // SemVer fits: it is the grammar the ImagePolicies select by.
 func TestASchemeThatCanMarkIsAccepted(t *testing.T) {
-	if err := NewDeployer(nil, DefaultPromotionKind, "").CheckScheme(version.SemVer{}); err != nil {
+	if err := NewDeployer(nil, DefaultPromotionKind, "").CheckScheme(host.SemVer{}); err != nil {
 		t.Errorf("SemVer scheme refused: %v", err)
 	}
 }

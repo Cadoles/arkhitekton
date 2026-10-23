@@ -9,8 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 )
 
 // PluginID identifies the MSE plugin, whose switch this module follows.
@@ -21,7 +20,7 @@ const PluginID = "mse"
 // **The re-tag succeeded**, which is an observation and not the intention of asking for it.
 // What Flux then makes of it is another matter, and it is the environments screen that tells
 // that story.
-const ReleasePromoted = event.Type(PluginID + ".release.promoted")
+const ReleasePromoted = host.EventType(PluginID + ".release.promoted")
 
 // Facts composes the facts the plugin observes.
 type Facts struct{}
@@ -30,9 +29,9 @@ type Facts struct{}
 //
 // Keyed on the job: one release is promoted several times to the same environment — a retry
 // after a missed re-tag — and each completion is a fact.
-func (Facts) Promoted(at time.Time, linked store.JobReleaseContext) event.Event {
+func (Facts) Promoted(at time.Time, linked host.JobReleaseContext) host.Event {
 	projectID := linked.ProjectID
-	return event.Event{
+	return host.Event{
 		Type: ReleasePromoted, Source: PluginID,
 		ProjectID: &projectID, Subject: linked.Tag, OccurredAt: at,
 		DedupKey: fmt.Sprintf("%s:%d", ReleasePromoted, linked.JobID),

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 )
 
 /*
@@ -31,7 +31,7 @@ var pipelineFields = map[string]string{
 
 // SettingsReader returns a plugin's effective settings for a project.
 type SettingsReader interface {
-	ResolvedPlugin(ctx context.Context, projectID int64, pluginID string) (store.PluginSettings, error)
+	ResolvedPlugin(ctx context.Context, projectID int64, pluginID string) (host.PluginSettings, error)
 }
 
 // PipelineSettings returns the configuration values a project adds to the parameters of its
@@ -47,7 +47,7 @@ func PipelineSettings(settings SettingsReader) func(context.Context, int64) (map
 	return func(ctx context.Context, projectID int64) (map[string]string, error) {
 		resolved, err := settings.ResolvedPlugin(ctx, projectID, PluginID)
 		switch {
-		case errors.Is(err, store.ErrPluginDisabled):
+		case errors.Is(err, host.ErrPluginDisabled):
 			return nil, nil
 		case err != nil:
 			return nil, err

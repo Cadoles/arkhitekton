@@ -9,9 +9,9 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
-// The built-in plugins cover every kind, and each says what it is. The test is about kinds, not
-// about how many plugins exist: adding a plugin is routine, inventing a kind takes code and must
-// be visible.
+// The built-in plugins cover every kind but `module`, which only an extension compiled into a
+// distribution brings, and each says what it is. The test is about kinds, not about how many
+// plugins exist: adding a plugin is routine, inventing a kind takes code and must be visible.
 func TestTheBuiltInPluginsCoverEveryKind(t *testing.T) {
 	registry, err := Registry()
 	if err != nil {
@@ -32,8 +32,7 @@ func TestTheBuiltInPluginsCoverEveryKind(t *testing.T) {
 		}
 	}
 	for _, kind := range []capability.Kind{
-		capability.KindPipeline, capability.KindTracker, capability.KindForge,
-		capability.KindExporter, capability.KindModule,
+		capability.KindPipeline, capability.KindTracker, capability.KindForge, capability.KindExporter,
 	} {
 		if !seen[kind] {
 			t.Errorf("no plugin brings kind %q", kind)

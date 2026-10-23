@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 )
 
 /*
@@ -41,7 +40,7 @@ const (
 // dashboard uses the same pipeline outside promotion — giving a final release its own tag from
 // that of its pre-release — but that is another question: one routes to an environment, the
 // other establishes an identity. The two constants coincide without merging.
-const DefaultPromotionKind = catalog.KindRetag
+const DefaultPromotionKind = host.KindRetag
 
 // Deployer plans and observes the promotions on top of Flux.
 type Deployer struct {
@@ -142,7 +141,7 @@ func (d *Deployer) Observe(ctx context.Context, target Target) (Observation, err
 // could one day fit without this check changing. This deployer exists only for MSE, whose tags
 // are SemVer: the question asked of the core for a case that will not arise was removed, and the
 // marker is set here, by the rule that uses it.
-func (d *Deployer) CheckScheme(scheme version.Scheme) error {
+func (d *Deployer) CheckScheme(scheme host.Scheme) error {
 	// A probe tag, never pushed: the scheme is asked whether it **can** set a marker, not what it
 	// would produce.
 	probe, err := scheme.Parse(probeTag)
@@ -153,7 +152,7 @@ func (d *Deployer) CheckScheme(scheme version.Scheme) error {
 				"which this deployer must be able to write: %w", scheme.ID(), probeTag, err)
 	}
 
-	if _, semver := scheme.(version.SemVer); !semver {
+	if _, semver := scheme.(host.SemVer); !semver {
 		return fmt.Errorf(
 			"scheme %q cannot attach a promotion marker, "+
 				"yet this deployer selects by SemVer metadata: a promotion "+
@@ -170,7 +169,7 @@ func (d *Deployer) CheckScheme(scheme version.Scheme) error {
 // An underscore and not `+`: the grammar of OCI tags excludes the latter, whereas SemVer
 // reserves it for build metadata.
 func Mark(tag, marker string) (string, error) {
-	parsed, err := version.SemVer{}.Parse(tag)
+	parsed, err := host.SemVer{}.Parse(tag)
 	if err != nil {
 		return "", err
 	}

@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/portaldata"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
@@ -208,9 +208,9 @@ func TestEachProjectIsObservedByItsDeployer(t *testing.T) {
 
 	if err := observer.SyncEnvironments(ctx, []ProjectEnvironments{
 		{ProjectID: 1, Slug: "mse", Deployer: mse,
-			Environments: []catalog.Environment{{ID: "qualif", Namespace: "mse-dev"}}},
+			Environments: []host.Environment{{ID: "qualif", Namespace: "mse-dev"}}},
 		{ProjectID: 2, Slug: "themes", Deployer: themes,
-			Environments: []catalog.Environment{{ID: "qualif", Namespace: "themes-dev"}}},
+			Environments: []host.Environment{{ID: "qualif", Namespace: "themes-dev"}}},
 	}); err != nil {
 		t.Fatalf("synchronisation: %v", err)
 	}

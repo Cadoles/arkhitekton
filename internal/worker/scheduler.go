@@ -158,14 +158,8 @@ func (s *Scheduler) WithUploads(presigner Presigner) *Scheduler {
 	return s
 }
 
-// The two keys under which the catalogue names the repository to clone.
-//
-// `forge.mse.repoUrl` named MSE in a core key. It stays served for as long as a deployed
-// catalogue still names it.
-const (
-	projectRepoKey = "project.repoUrl"
-	legacyRepoKey  = "forge.mse.repoUrl"
-)
+// projectRepoKey is the key under which the catalogue names the repository to clone.
+const projectRepoKey = "project.repoUrl"
 
 // NewSchedulerFromCatalog assembles the scheduler. `config` supplies the values of the
 // parameters whose source is `config`.
@@ -649,8 +643,6 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job, pipeline cat
 		}
 		if clone := config.CloneURLFor(project.ForgeURL, project.Repository, s.projectSSHPort); clone != "" {
 			overrides[projectRepoKey] = clone
-			// The old key, for as long as a catalogue can still name it.
-			overrides[legacyRepoKey] = clone
 		}
 	}
 

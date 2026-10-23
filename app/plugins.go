@@ -9,7 +9,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/deliverynote"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
@@ -125,13 +124,6 @@ func configuredPlugins(
 	if len(forge) > 0 && forgePluginID != "" {
 		settings = append(settings, store.PluginSettings{
 			PluginID: forgePluginID, Enabled: true, Config: forge,
-		})
-	}
-
-	if namespace := strings.TrimSpace(cfg.Flux.Namespace); namespace != "" {
-		settings = append(settings, store.PluginSettings{
-			PluginID: mse.PluginID, Enabled: true,
-			Config: map[string]string{"namespace": namespace},
 		})
 	}
 

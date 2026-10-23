@@ -8,20 +8,18 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
+	"forge.cadoles.com/vcarroy/arkhitekton/host/hosttest"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 const projectSlug = "test"
 
 type fakeStore struct {
-	releases     map[string]store.Release
+	releases     map[string]host.Release
 	environments []storage.Environment
-	jobs         []store.JobRequest
+	jobs         []host.JobRequest
 	promotions   []storage.Promotion
 	history      []storage.EnvironmentHistory
 	audit        []string
@@ -30,7 +28,7 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		releases: map[string]store.Release{},
+		releases: map[string]host.Release{},
 		environments: []storage.Environment{
 			{ID: "qualif", Label: "Qualification", Rank: 2, Observable: true, Visible: true,
 				DeployerSettings: map[string]string{
@@ -45,11 +43,11 @@ func newFakeStore() *fakeStore {
 }
 
 // fixtureProject carries three images, one of them built without being promoted.
-func fixtureProject() store.Project {
+func fixtureProject() host.Project {
 	promoted, held := true, false
-	return store.Project{
+	return host.Project{
 		Slug: projectSlug, Repository: "vcarroy/mse", Dockerfile: "Dockerfile",
-		Targets: []store.Target{
+		Targets: []host.Target{
 			{Stage: "web", Image: "portal", Promote: &promoted},
 			{Stage: "cli", Image: "portal-cli", Promote: &promoted},
 			{Stage: "dev", Image: "portal-dev", Promote: &held},
@@ -57,21 +55,21 @@ func fixtureProject() store.Project {
 	}
 }
 
-func (f *fakeStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
+func (f *fakeStore) ProjectBySlug(_ context.Context, slug string) (host.Project, error) {
 	if slug != projectSlug {
-		return store.Project{}, store.ErrProjectNotFound
+		return host.Project{}, host.ErrProjectNotFound
 	}
 	return fixtureProject(), nil
 }
 
-func (f *fakeStore) GetProject(context.Context, int64) (store.Project, error) {
+func (f *fakeStore) GetProject(context.Context, int64) (host.Project, error) {
 	return fixtureProject(), nil
 }
 
-func (f *fakeStore) GetRelease(_ context.Context, _ int64, tag string) (store.Release, error) {
+func (f *fakeStore) GetRelease(_ context.Context, _ int64, tag string) (host.Release, error) {
 	item, found := f.releases[tag]
 	if !found {
-		return store.Release{}, store.ErrReleaseNotFound
+		return host.Release{}, host.ErrReleaseNotFound
 	}
 	return item, nil
 }
@@ -100,7 +98,7 @@ func (f *fakeStore) DeployedRelease(context.Context, int64, string) (storage.Dep
 	return storage.DeployedRelease{}, storage.ErrNoDeployedRelease
 }
 
-func (f *fakeStore) Enqueue(_ context.Context, request store.JobRequest) (int64, error) {
+func (f *fakeStore) Enqueue(_ context.Context, request host.JobRequest) (int64, error) {
 	f.jobs = append(f.jobs, request)
 	return int64(len(f.jobs)), nil
 }
@@ -119,8 +117,8 @@ func (f *fakeStore) Audit(_ context.Context, _, action, target string, _ map[str
 }
 
 func newHandler(fake *fakeStore) *Handler {
-	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{Kind: "core/retag", PipelineRef: "retag-image"}}}
-	authorizer := auth.NewAuthorizer(auth.ProjectPolicies{projectSlug: {
+	pipelines := &host.Catalog{Pipelines: []host.Pipeline{{Kind: "core/retag", PipelineRef: "retag-image"}}}
+	authorizer := hosttest.Authorizer(host.ProjectPolicies{projectSlug: {
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	}})
 	// The Flux deployer, with no client: planning needs none.
@@ -128,10 +126,10 @@ func newHandler(fake *fakeStore) *Handler {
 		flux.NewDeployer(nil, flux.DefaultPromotionKind, ""), quietLogger())
 }
 
-func asRole(request *http.Request, role auth.Role) *http.Request {
-	identity := auth.Identity{Subject: "vcarroy", Username: "vcarroy", Role: role}
+func asRole(request *http.Request, role host.Role) *http.Request {
+	identity := host.Identity{Subject: "vcarroy", Username: "vcarroy", Role: role}
 	request.SetPathValue("project", projectSlug)
-	return request.WithContext(dashhttp.ContextWithIdentity(request.Context(), identity))
+	return request.WithContext(hosttest.WithIdentity(request.Context(), identity))
 }
 
 func promote(handler *Handler, tag, environment string) *httptest.ResponseRecorder {
@@ -139,7 +137,7 @@ func promote(handler *Handler, tag, environment string) *httptest.ResponseRecord
 	request.SetPathValue("tag", tag)
 	request.SetPathValue("environment", environment)
 	recorder := httptest.NewRecorder()
-	handler.Promote(recorder, asRole(request, auth.RoleReleaser))
+	handler.Promote(recorder, asRole(request, host.RoleReleaser))
 	return recorder
 }
 
@@ -147,7 +145,7 @@ func promote(handler *Handler, tag, environment string) *httptest.ResponseRecord
 // therefore come from here, before the queueing.
 func TestPromoteRefusesAPrereleaseTowardsProduction(t *testing.T) {
 	fake := newFakeStore()
-	fake.releases["1.8.0-rc1"] = store.Release{
+	fake.releases["1.8.0-rc1"] = host.Release{
 		ID: 1, Tag: "1.8.0-rc1", Kind: "pre", State: "ready", ImageVersion: "1.8.0-rc1",
 	}
 
@@ -165,7 +163,7 @@ func TestPromoteRefusesAPrereleaseTowardsProduction(t *testing.T) {
 // its tag — not from its image's version.
 func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
 	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{
+	fake.releases["1.8.0"] = host.Release{
 		ID: 2, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
 	}
 
@@ -200,7 +198,7 @@ func TestPromoteComposesFromTheReleaseTagNotTheImageVersion(t *testing.T) {
 
 func TestPromoteRefusesAReleaseWithoutImage(t *testing.T) {
 	fake := newFakeStore()
-	fake.releases["1.9.0-rc1"] = store.Release{
+	fake.releases["1.9.0-rc1"] = host.Release{
 		ID: 3, Tag: "1.9.0-rc1", Kind: "pre", State: "draft", ImageVersion: "1.9.0-rc1",
 	}
 
@@ -213,7 +211,7 @@ func TestPromoteRefusesAReleaseWithoutImage(t *testing.T) {
 func TestAFailingAuditDoesNotBlockThePromotion(t *testing.T) {
 	fake := newFakeStore()
 	fake.auditErr = errors.New("history unavailable")
-	fake.releases["1.8.0"] = store.Release{
+	fake.releases["1.8.0"] = host.Release{
 		ID: 12, Tag: "1.8.0", Kind: "final", State: "ready", ImageVersion: "1.8.0-rc3",
 	}
 
@@ -231,14 +229,14 @@ func TestAFailingAuditDoesNotBlockThePromotion(t *testing.T) {
 // with no reason reads as an outage.
 func TestTargetsExplainWhyATargetIsRefused(t *testing.T) {
 	fake := newFakeStore()
-	fake.releases["1.8.0-rc1"] = store.Release{
+	fake.releases["1.8.0-rc1"] = host.Release{
 		ID: 7, Tag: "1.8.0-rc1", Kind: "pre", State: "ready", ImageVersion: "1.8.0-rc1",
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0-rc1/targets", nil)
 	request.SetPathValue("tag", "1.8.0-rc1")
 	recorder := httptest.NewRecorder()
-	newHandler(fake).Targets(recorder, asRole(request, auth.RoleReleaser))
+	newHandler(fake).Targets(recorder, asRole(request, host.RoleReleaser))
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("code = %d", recorder.Code)
@@ -271,7 +269,7 @@ func TestHistoryFollowsWhatWasRequested(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/environments/qualif/history", nil)
 	request.SetPathValue("environment", "qualif")
 	recorder := httptest.NewRecorder()
-	newHandler(fake).History(recorder, asRole(request, auth.RoleViewer))
+	newHandler(fake).History(recorder, asRole(request, host.RoleViewer))
 
 	var payload struct {
 		History []historyPayload `json:"history"`

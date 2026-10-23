@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 )
 
-func testPromotion(jobID int64) store.JobReleaseContext {
-	return store.JobReleaseContext{
+func testPromotion(jobID int64) host.JobReleaseContext {
+	return host.JobReleaseContext{
 		ReleaseID: 42, JobID: jobID, Tag: "1.8.0", Environment: "preprod", ProjectID: 7,
 	}
 }

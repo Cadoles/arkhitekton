@@ -262,7 +262,6 @@ func (d projectRepositories) GetProject(_ context.Context, id int64) (store.Proj
 func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	scheduler := (&Scheduler{config: map[string]string{
 		projectRepoKey: "ssh://git@forge/CNOUS/mse.git",
-		legacyRepoKey:  "ssh://git@forge/CNOUS/mse.git",
 	}}).WithProjectRepositories(projectRepositories{
 		7: {ID: 7, Repository: "vcarroy/themes", ForgeURL: "https://forge.example.fr"},
 		// Declared before its forge was filled in.
@@ -279,9 +278,6 @@ func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 		t.Errorf("repository = %q, expected the project's", settings[projectRepoKey])
 	}
 	// The old key carries the same value, for as long as a catalogue names it.
-	if settings[legacyRepoKey] != expected {
-		t.Errorf("old key = %q", settings[legacyRepoKey])
-	}
 
 	withoutForge := int64(8)
 	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 2, ProjectID: &withoutForge}, catalog.Pipeline{})

@@ -1,7 +1,7 @@
-// Package mse declares the MSE module (environments, Flux promotion, PortalData attestation, run by
-// the dashboard) and brings the pipelines that test a deployed MSE: the integration tests, which
-// deploy the release into a namespace of their own, and the end-to-end campaign.
-package mse
+// Package plugin declares the MSE plugin (environments, Flux promotion, PortalData attestation,
+// run by the dashboard) and brings the pipelines that test a deployed MSE: the integration tests,
+// which deploy the release into a namespace of their own, and the end-to-end campaign.
+package plugin
 
 import (
 	"embed"

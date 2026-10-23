@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
@@ -32,13 +31,6 @@ func record(t *testing.T, tool string, parser parse.ID, raw []byte) parse.Record
 	parsing, _ := parsers.Lookup(parser)
 	payload, err := parsing(raw)
 	return parse.Record{Tool: tool, Parser: parser, Object: "raw/run/" + tool, Payload: payload, Err: err}
-}
-
-// kept is a member the host stored as an attachment.
-func kept(member, mediaType string, size int64) parse.Record {
-	object := "attachments/run/" + strings.ReplaceAll(member, " ", "-")
-	return parse.Record{Artifact: "media", Member: member, Object: "raw/run/media.tar.gz", Parser: parse.Attach,
-		Tool: "cypress", Payload: parse.Attached{Object: object, MediaType: mediaType, Size: size}}
 }
 
 func interpret(t *testing.T, ref string, run capability.RunState, records ...parse.Record) []facts.Set {
@@ -140,17 +132,6 @@ func TestInterpretersReadAsRecorded(t *testing.T) {
 	cases := map[string][]facts.Set{
 		"unit-tests.json": interpret(t, "php/unit-tests", capability.RunState{},
 			record(t, "phpunit", parse.JUnitXML, report(t, "junit.xml"))),
-		"integration-tests.json": interpret(t, "mse/integration-tests", capability.RunState{},
-			record(t, "phpunit-integration", parse.JUnitXML, report(t, "junit.xml"))),
-		"e2e-tests.json": interpret(t, "mse/e2e-tests", capability.RunState{},
-			record(t, "cypress", parse.MochawesomeJSON, report(t, "mochawesome.json"))),
-		"e2e-tests-attachments.json": interpret(t, "mse/e2e-tests", capability.RunState{},
-			record(t, "cypress", parse.MochawesomeJSON, report(t, "mochawesome.json")),
-			kept("videos/login.cy.js.mp4", "video/mp4", 2048),
-			kept("screenshots/login.cy.js/Login -- fails (failed).png", "image/png", 512),
-			kept("screenshots/login.cy.js/Unknown -- test (failed).png", "image/png", 256)),
-		"e2e-tests-no-report.json": interpret(t, "mse/e2e-tests", capability.RunState{},
-			kept("videos/login.cy.js.mp4", "video/mp4", 2048)),
 		"static-tests.json": interpret(t, "php/static-tests", capability.RunState{},
 			record(t, "phpstan", parse.PHPStanJSON, report(t, "phpstan.json")),
 			record(t, "cs-fixer", parse.CSFixerJSON, report(t, "cs-fixer.json"))),

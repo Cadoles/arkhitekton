@@ -27,7 +27,6 @@ type Config struct {
 	Storage  StorageConfig
 	OIDC     OIDCConfig
 	Tekton   TektonConfig
-	Flux     FluxConfig
 	Registry RegistryConfig
 	Tracker  TrackerConfig
 	Forge    ForgeConfig
@@ -182,13 +181,6 @@ type RegistryConfig struct {
 	Image string
 }
 
-// FluxConfig bounds how Flux objects are read.
-type FluxConfig struct {
-	// Namespace where ImagePolicy and Kustomization objects live, distinct from the
-	// pipelines' namespace.
-	Namespace string
-}
-
 // Role says what this process does. One binary, deployed several times with
 // distinct responsibilities — see docs/02-architecture.md.
 type Role string
@@ -312,9 +304,6 @@ func Load(role Role) (Config, error) {
 			KubeconfigPath: os.Getenv("KUBECONFIG"),
 			CatalogPath:    envOr("PIPELINE_CATALOG_PATH", "/etc/arkhitekton/catalog.yaml"),
 			LeaseNamespace: envOr("POD_NAMESPACE", "arkhitekton"),
-		},
-		Flux: FluxConfig{
-			Namespace: envOr("FLUX_NAMESPACE", "flux-system"),
 		},
 		Registry: RegistryConfig{
 			URL:      envOr("REGISTRY_URL", "https://reg.cadoles.com"),

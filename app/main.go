@@ -13,7 +13,6 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"maps"
 	"os"
 	"os/signal"
 	"sort"
@@ -22,9 +21,7 @@ import (
 	"time"
 
 	"k8s.io/client-go/discovery"
-
 	"k8s.io/client-go/dynamic"
-
 	"k8s.io/client-go/restmapper"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/host"
@@ -39,9 +36,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/live"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
-	msestorage "forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -171,10 +165,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
-	// Then the MSE plugin's, migrated just after the core by the same Job.
-	if err := msestorage.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
-		return err
-	}
+	// Then the extensions', migrated just after the core by the same Job.
 	if err := waitForExtensionSchemas(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
@@ -235,7 +226,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	connections := connect.New(pluginRegistry, db, cipher, connect.Timeouts{
 		Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout,
 	})
-	seedMSESettings(ctx, db, logger)
 	seedExtensionSettings(ctx, db, logger)
 
 	// In the database and not in memory: two api replicas with no session affinity serve
@@ -305,7 +295,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	extensionHooks = append(extensionHooks, mseAPIHooks(db, pipelines, authorizer, modules, logger))
 
 	queueHandler := dashhttp.NewQueueHandler(db, inForce.Catalogs()).
 		// The launch form's lists: release tags and published images. The registry's prefix comes
@@ -408,37 +397,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	return server.Run(ctx)
 }
 
-// mseAPIHooks are what the MSE plugin adds to the `api` role, until it is an extension of its own.
-//
-// Its routes are always mounted, and refused per route when the module is switched off. The
-// deployer has no client: planning a promotion, or asking "can you route this scheme?", does not
-// need the cluster.
-func mseAPIHooks(
-	db *store.DB, pipelines *catalog.Catalog, authorizer *auth.Authorizer, modules *dashhttp.Modules,
-	logger *slog.Logger,
-) host.APIHooks {
-	backend := mse.NewBackend(db)
-	deployer := flux.NewDeployer(nil, flux.DefaultPromotionKind, "")
-	return host.APIHooks{
-		Routes: []dashhttp.Mount{
-			mse.NewHandler(backend, pipelines, authorizer, deployer, logger).Routes,
-			mse.NewSignoffsHandler(backend, logger).Routes,
-		},
-		Deployments:            mse.Deployments(backend.Store, modules),
-		Promotions:             mse.Promotions(backend.Store, modules),
-		EnvironmentSuggestions: mse.EnvironmentSuggestions(pipelines, modules, db),
-		// Asked only when the plugin is switched on: without it, nothing promotes, and no scheme has
-		// to be refused.
-		SchemeCheck: func(ctx context.Context, scheme versionpkg.Scheme) error {
-			if !modules.Enabled(ctx, mse.PluginID) {
-				return nil
-			}
-			return deployer.CheckScheme(scheme)
-		},
-		Readiness: []dashhttp.ReadinessCheck{{Name: "schema-mse", Check: msestorage.CheckSchema(db.Pool())}},
-	}
-}
-
 // exportRegistry opens the registry for generating deliverables.
 //
 // Nil when it is not configured: a delivery note stays producible without digests, provided
@@ -475,10 +433,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
-	// Then the MSE plugin's, migrated just after the core by the same Job.
-	if err := msestorage.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
-		return err
-	}
+	// Then the extensions', migrated just after the core by the same Job.
 	if err := waitForExtensionSchemas(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
@@ -502,7 +457,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := db.EnsurePlugins(ctx, pluginIDs(pluginRegistry)); err != nil {
 		logger.Error("seeding the plugins", "error", err)
 	}
-	seedMSESettings(ctx, db, logger)
 	seedExtensionSettings(ctx, db, logger)
 
 	// `versions.normalized_name` is a derived column: changing the normalisation rule makes it
@@ -565,13 +519,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
-	extensionHooks = append(extensionHooks, host.WorkerHooks{
-		Modules: []host.Module{
-			mse.NewModule(msestorage.New(db.Pool()), cluster.RESTConfig, pipelines, cfg.Flux.Namespace, logger),
-		},
-		PromotionFacts:  mse.Facts{},
-		ProjectSettings: mse.PipelineSettings(db),
-	})
 	promotionFacts, err := composedPromotionFacts(extensionHooks)
 	if err != nil {
 		return err
@@ -608,8 +555,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// project above.
 				"default_repo", resolved["project.repoUrl"],
 				"registry_project", resolved["registry.project"],
-				// The kustomization, its revision and the overlay are logged per project, with the Flux
-				// namespace: they come from the MSE plugin's settings.
+				// What the extensions add per project, MSE's kustomization and overlay, is theirs to log.
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"],
 				// The pipelines' storage is not the dashboard's, and it shows only at the last step of an
@@ -796,52 +742,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 //
 // The table is explicit rather than derived by reflection: what a catalogue can inject into a
 // PipelineRun must be a list one can read, not the whole of the dashboard's configuration.
-// seedMSESettings sets the MSE plugin's settings that the environment supplies.
-//
-// Fills in only what is missing: the database is authoritative from the first value written,
-// and a setting changed from the administration screen must not be taken back at the next
-// restart. Without this seeding, an updated instance would see its pipelines refuse to start
-// — the core no longer exposes these keys.
-//
-// Logged and not fatal: the dashboard starts, and the administration screen allows setting
-// these values by hand.
-func seedMSESettings(ctx context.Context, db *store.DB, logger *slog.Logger) {
-	settings, err := db.PluginSettingsAll(ctx)
-	if err != nil {
-		logger.Error("seeding the MSE plugin's settings", "error", err)
-		return
-	}
-	entry, declared := settings[mse.PluginID]
-	if !declared {
-		// The row does not exist yet: writing it here would set it switched off, whereas it is
-		// `EnsurePlugins` that decides its initial state.
-		return
-	}
-
-	config := make(map[string]string, len(entry.Config))
-	maps.Copy(config, entry.Config)
-	var posed []string
-	for field, value := range mseSeedSettings() {
-		if strings.TrimSpace(config[field]) != "" {
-			continue
-		}
-		config[field] = value
-		posed = append(posed, field)
-	}
-	if len(posed) == 0 {
-		return
-	}
-	sort.Strings(posed)
-
-	entry.PluginID = mse.PluginID
-	entry.Config = config
-	if err := db.SetPluginSettings(ctx, entry, "seeding"); err != nil {
-		logger.Error("seeding the MSE plugin's settings", "error", err)
-		return
-	}
-	logger.Info("MSE plugin settings seeded", "champs", posed)
-}
-
 // appRepositoryURL returns the application repository the configuration names.
 //
 // Derived from `GITEA_REPO`: it is the same repository whose branches the form offers, and
@@ -870,23 +770,6 @@ func projectSeedDefaults(cfg config.Config) map[string]string {
 		// from the root.
 		"buildContext": envOrDefault("MSE_BUILD_CONTEXT", "."),
 	}
-}
-
-// mseSeedSettings returns the MSE plugin's settings that the environment supplies.
-//
-// A **seeding**, and not a read: these values set the first setting, then the database is
-// authoritative. Re-reading them at every start-up would take back what an administrator has
-// changed since.
-func mseSeedSettings() map[string]string {
-	return mse.PipelineDefaults(
-		envOrDefault("FORGE_MSE_KUSTOM_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-kustom.git"),
-		// The branch of the deployment infrastructure to audit. Without it, the audit fell back to
-		// the pipeline's default — `unstable`, `CNOUS/mse-kustom`'s convention — and failed at the
-		// clone on any repository that does not carry it: "couldn't find remote ref unstable".
-		envOrDefault("FORGE_MSE_KUSTOM_REVISION", "unstable"),
-		envOrDefault("FORGE_E2E_REPO_URL", "ssh://git@forge.cadoles.com:2222/CNOUS/mse-e2e.git"),
-		envOrDefault("MSE_OVERLAY_LOCATION", "overlays/pipeline"),
-	)
 }
 
 func envOrDefault(name, fallback string) string {
@@ -922,9 +805,6 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// The repository of a job that names no project. Those that name one clone **their own**,
 		// read from the database by the scheduler.
 		"project.repoUrl": appRepositoryURL(cfg),
-		// The old key, which named MSE in the core. Served for as long as a deployed catalogue can
-		// still name it.
-		"forge.mse.repoUrl": appRepositoryURL(cfg),
 		// The kustomization, its revision, the E2E tests and the overlay are no longer here: they
 		// name MSE, and come from its plugin's settings, where a project overrides them.
 		// The security audit reads its Semgrep rules and its policies in `mse-tekton`: it is a
@@ -954,12 +834,7 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 	if err := store.Migrate(ctx, cfg.Database, logger); err != nil {
 		return err
 	}
-	// The MSE plugin after the core: its tables reference `releases` and `jobs`. Applied whether
-	// the module is switched on or not: the switch is flipped without a redeployment, and the
-	// schema must already be there.
-	if err := msestorage.Migrate(ctx, cfg.Database, logger); err != nil {
-		return err
-	}
+	// The extensions after the core: their tables reference the core's.
 	if err := migrateExtensions(ctx, cfg.Database, logger); err != nil {
 		return err
 	}
@@ -1236,35 +1111,12 @@ func projectsHandler(
 	return handler.WithProbe(connections)
 }
 
-// configuredProjects returns the repositories the configuration names.
-//
-// Four, and they do not play the same role: the application is built, the other three are
-// cloned — the kustomization by the integration tests, the pipelines by the audit that reads
-// its rules there, the E2E campaign by itself. Only the first therefore carries a Dockerfile.
-//
-// The application's stages are named here, and nowhere else. They lived in Go constants —
-// `portal`, `portal-cli`, `portal-dev` — that the dashboard walked to know what to build.
-// They describe a given repository, not the product: their place is in the seeding, which is
-// precisely what installs a truth specific to a deployment before the database takes over.
+// configuredProjects returns the repositories the configuration names: the application, which is
+// built, and the pipelines' repository, which the security audit clones to read its rules. The
+// extensions complete them (see extensionProjects).
 func configuredProjects(cfg config.Config) []store.Project {
 	resolved := schedulerConfig(cfg)
-	// The repositories the MSE plugin sets: the seeding of the projects names them just like the
-	// others, and it happens before the database carries them.
-	seeds := mseSeedSettings()
 	project := projectSeedDefaults(cfg)
-
-	promoted, held := true, false
-	targets := []store.Target{
-		// The HTTP runtime: front office, back office, web services.
-		{Stage: "web", Image: "portal", Promote: &promoted},
-		// The Messenger consumers, the cronjobs and the jobs. Named `portal-consumer` until the
-		// FrankenPHP migration, where it stopped serving the consumers only.
-		{Stage: "cli", Image: "portal-cli", Promote: &promoted},
-		// The "fat" image: xdebug, xhprof, PostgreSQL client. It runs the bootstrap job of the
-		// fake-data overlays and allows reproducing a defect on exactly the version delivered. Built
-		// but not promoted: no environment of the flow deploys it.
-		{Stage: "dev", Image: "portal-dev", Promote: &held},
-	}
 
 	declarations := []struct {
 		clone      string
@@ -1272,21 +1124,17 @@ func configuredProjects(cfg config.Config) []store.Project {
 		tracker    string
 		dockerfile string
 		context    string
-		targets    []store.Target
 	}{
 		{
 			clone: project["repoUrl"],
 			label: "Application",
-			// The only one of the four to have a tracker. The other three are repositories cloned by
-			// pipelines: they carry neither version nor release, so there is nothing to match.
+			// The only one to have a tracker: the others are repositories cloned by pipelines, which
+			// carry neither version nor release, so there is nothing to match.
 			tracker:    cfg.Tracker.Project,
 			dockerfile: project["dockerfile"],
 			context:    project["buildContext"],
-			targets:    targets,
 		},
-		{clone: seeds["kustomRepoUrl"], label: "Kustomizations"},
 		{clone: resolved["forge.tekton.repoUrl"], label: "Pipelines Tekton"},
-		{clone: seeds["e2eRepoUrl"], label: "Campagne E2E"},
 	}
 
 	projects := make([]store.Project, 0, len(declarations))
@@ -1313,10 +1161,6 @@ func configuredProjects(cfg config.Config) []store.Project {
 			TrackerProject: declaration.tracker,
 			Dockerfile:     declaration.dockerfile, BuildContext: buildContext,
 			ImageRegistry: registry,
-			// Several targets only where there are any: a simple Dockerfile ticked "multi-stage" would
-			// make one expect a list that does not exist.
-			MultiStage: len(declaration.targets) > 0,
-			Targets:    declaration.targets,
 			// The author is the configuration itself, and saying so avoids attributing to someone a
 			// declaration nobody made.
 			CreatedBy: "configuration",

@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 )
 
 /*
@@ -66,7 +66,7 @@ func PromotionTag(releaseTag string, target PromotionTarget, template string) (s
 		return "", fmt.Errorf("environment %q: no promotion suffix", target.ID)
 	}
 
-	parsed, err := versionpkg.SemVer{}.Parse(version)
+	parsed, err := host.SemVer{}.Parse(version)
 	if err != nil {
 		return "", fmt.Errorf("release tag %q: %w", version, err)
 	}

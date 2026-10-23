@@ -7,26 +7,22 @@ import (
 	"net/http"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 // Store is what the plugin's routes need from the database.
 type Store interface {
-	dashhttp.ProjectResolver
-	GetProject(ctx context.Context, id int64) (store.Project, error)
-	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
+	host.ProjectResolver
+	GetProject(ctx context.Context, id int64) (host.Project, error)
+	GetRelease(ctx context.Context, projectID int64, tag string) (host.Release, error)
 	ListEnvironments(ctx context.Context, projectID int64) ([]storage.Environment, error)
 	ListEnvironmentViews(ctx context.Context, projectID int64) ([]storage.EnvironmentView, error)
 	LatestPromotions(ctx context.Context, projectID int64) (map[string]storage.EnvironmentPromotion, error)
 	ListEnvironmentHistory(ctx context.Context, projectID int64, environmentID string, limit int) ([]storage.EnvironmentHistory, error)
 	DeployedRelease(ctx context.Context, projectID int64, environmentID string) (storage.DeployedRelease, error)
-	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
+	Enqueue(ctx context.Context, request host.JobRequest) (int64, error)
 	RecordPromotion(ctx context.Context, promotion storage.Promotion) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
@@ -34,8 +30,8 @@ type Store interface {
 // Handler serves promotion and the environments.
 type Handler struct {
 	store      Store
-	catalog    *catalog.Catalog
-	authorizer *auth.Authorizer
+	catalog    *host.Catalog
+	authorizer *host.Authorizer
 	// deployer plans a promotion without touching the cluster: it composes a tag and refuses what
 	// the SemVer range excludes.
 	deployer *flux.Deployer
@@ -43,7 +39,7 @@ type Handler struct {
 }
 
 func NewHandler(
-	environments Store, pipelines *catalog.Catalog, authorizer *auth.Authorizer,
+	environments Store, pipelines *host.Catalog, authorizer *host.Authorizer,
 	deployer *flux.Deployer, logger *slog.Logger,
 ) *Handler {
 	return &Handler{
@@ -54,27 +50,27 @@ func NewHandler(
 
 // Routes mounts the plugin's routes. Each requires the module switched on: switched off, they
 // answer 404 like a route that does not exist.
-func (h *Handler) Routes(mux *http.ServeMux, m *dashhttp.Middleware) {
+func (h *Handler) Routes(mux *http.ServeMux, m *host.Middleware) {
 	module := m.RequireModule(PluginID)
 
 	// A release's targets depend on the identity asking: the refusal by role is computed here
 	// rather than in the page.
-	mux.Handle("GET /projects/{project}/releases/{tag}/targets", dashhttp.Chain(http.HandlerFunc(h.Targets),
-		m.Authenticate, module, m.RequireIn(auth.PermRead)))
+	mux.Handle("GET /projects/{project}/releases/{tag}/targets", host.Chain(http.HandlerFunc(h.Targets),
+		m.Authenticate, module, m.RequireIn(host.PermRead)))
 
 	// The environment is in the path and not in the body, so that the authorization — which is per
 	// environment — stays decided by the route.
-	mux.Handle("POST /projects/{project}/releases/{tag}/promote/{environment}", dashhttp.Chain(http.HandlerFunc(h.Promote),
+	mux.Handle("POST /projects/{project}/releases/{tag}/promote/{environment}", host.Chain(http.HandlerFunc(h.Promote),
 		m.Authenticate, module, m.CSRF, m.RequireDeploy("environment")))
 
 	// Knowing what runs where needs no privilege. Under the project: each project deploys to its
 	// own environments.
-	mux.Handle("GET /projects/{project}/environments", dashhttp.Chain(http.HandlerFunc(h.Environments),
-		m.Authenticate, module, m.RequireIn(auth.PermRead)))
-	mux.Handle("GET /projects/{project}/environments/{environment}", dashhttp.Chain(http.HandlerFunc(h.Environment),
-		m.Authenticate, module, m.RequireIn(auth.PermRead)))
-	mux.Handle("GET /projects/{project}/environments/{environment}/history", dashhttp.Chain(http.HandlerFunc(h.History),
-		m.Authenticate, module, m.RequireIn(auth.PermRead)))
+	mux.Handle("GET /projects/{project}/environments", host.Chain(http.HandlerFunc(h.Environments),
+		m.Authenticate, module, m.RequireIn(host.PermRead)))
+	mux.Handle("GET /projects/{project}/environments/{environment}", host.Chain(http.HandlerFunc(h.Environment),
+		m.Authenticate, module, m.RequireIn(host.PermRead)))
+	mux.Handle("GET /projects/{project}/environments/{environment}/history", host.Chain(http.HandlerFunc(h.History),
+		m.Authenticate, module, m.RequireIn(host.PermRead)))
 }
 
 // promotionTargetVw says, environment by environment, whether the release can go there — and
@@ -92,19 +88,19 @@ type promotionTargetVw struct {
 }
 
 // release reads the release named in the path, or writes the response.
-func (h *Handler) release(w http.ResponseWriter, r *http.Request) (store.Release, int64, bool) {
-	projectID, ok := dashhttp.RequestProject(w, r, h.store)
+func (h *Handler) release(w http.ResponseWriter, r *http.Request) (host.Release, int64, bool) {
+	projectID, ok := host.RequestProject(w, r, h.store)
 	if !ok {
-		return store.Release{}, 0, false
+		return host.Release{}, 0, false
 	}
 	item, err := h.store.GetRelease(r.Context(), projectID, r.PathValue("tag"))
 	if err != nil {
-		if errors.Is(err, store.ErrReleaseNotFound) {
-			dashhttp.WriteProblem(w, http.StatusNotFound, "Release not found", "")
-			return store.Release{}, 0, false
+		if errors.Is(err, host.ErrReleaseNotFound) {
+			host.WriteProblem(w, http.StatusNotFound, "Release not found", "")
+			return host.Release{}, 0, false
 		}
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
-		return store.Release{}, 0, false
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
+		return host.Release{}, 0, false
 	}
 	return item, projectID, true
 }
@@ -118,11 +114,11 @@ func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 
 	environments, err := h.store.ListEnvironments(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
 		return
 	}
 
-	identity, _ := dashhttp.IdentityFrom(r.Context())
+	identity, _ := host.IdentityFrom(r.Context())
 	targets := make([]promotionTargetVw, 0, len(environments))
 	for _, environment := range environments {
 		if !environment.Visible {
@@ -130,7 +126,7 @@ func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 		}
 		target := promotionTargetVw{Environment: environment.ID, Label: environment.Label, Allowed: true}
 		switch {
-		case item.State != string(release.StateReady):
+		case item.State != string(host.ReleaseStateReady):
 			target.Allowed = false
 			target.Reason = "this release's image is not built"
 		case !h.authorizer.CanDeploy(identity, projectID, r.PathValue("project"), environment.ID):
@@ -152,7 +148,7 @@ func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 		targets = append(targets, target)
 	}
 
-	dashhttp.WriteJSON(w, http.StatusOK, map[string]any{"targets": targets})
+	host.WriteJSON(w, http.StatusOK, map[string]any{"targets": targets})
 }
 
 // Promote queues the promotion of a release to an environment.
@@ -162,9 +158,9 @@ func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
 // queue, alone in knowing the `exclusive-registry` class, avoids two concurrent re-tags on the
 // same repository.
 func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
-	identity, ok := dashhttp.IdentityFrom(r.Context())
+	identity, ok := host.IdentityFrom(r.Context())
 	if !ok {
-		dashhttp.WriteProblem(w, http.StatusUnauthorized, "Not authenticated", "")
+		host.WriteProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
@@ -172,8 +168,8 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if item.State != string(release.StateReady) {
-		dashhttp.WriteProblem(w, http.StatusConflict, "Release not promotable",
+	if item.State != string(host.ReleaseStateReady) {
+		host.WriteProblem(w, http.StatusConflict, "Release not promotable",
 			"this release's image is not built")
 		return
 	}
@@ -181,7 +177,7 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("environment")
 	environments, err := h.store.ListEnvironments(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
 		return
 	}
 	var environment storage.Environment
@@ -192,13 +188,13 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if environment.ID == "" {
-		dashhttp.WriteProblem(w, http.StatusNotFound, "Unknown environment", name)
+		host.WriteProblem(w, http.StatusNotFound, "Unknown environment", name)
 		return
 	}
 
 	project, err := h.store.GetProject(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Unknown promoted images", err.Error())
+		host.WriteProblem(w, http.StatusInternalServerError, "Unknown promoted images", err.Error())
 		return
 	}
 	images := project.Promotable()
@@ -213,19 +209,19 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// 409 and not 400: the request is well formed, it is the release/environment combination that
 			// makes no sense.
-			dashhttp.WriteProblem(w, http.StatusConflict, "Cannot promote", err.Error())
+			host.WriteProblem(w, http.StatusConflict, "Cannot promote", err.Error())
 			return
 		}
 		plans = append(plans, plan)
 	}
 	if len(plans) == 0 {
-		dashhttp.WriteProblem(w, http.StatusUnprocessableEntity, "Cannot promote",
+		host.WriteProblem(w, http.StatusUnprocessableEntity, "Cannot promote",
 			"no image of this release is promoted")
 		return
 	}
 
 	if _, found := h.catalog.Find(plans[0].Kind); !found {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Incomplete catalogue", plans[0].Kind)
+		host.WriteProblem(w, http.StatusInternalServerError, "Incomplete catalogue", plans[0].Kind)
 		return
 	}
 
@@ -233,12 +229,12 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 	// failed.
 	jobIDs := make([]int64, 0, len(plans))
 	for index, plan := range plans {
-		jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
+		jobID, err := h.store.Enqueue(r.Context(), host.JobRequest{
 			Kind: plan.Kind, Params: plan.Params, RequestedBy: identity.Subject,
 			ReleaseID: &item.ID, Environment: &environment.ID,
 		})
 		if err != nil {
-			dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot enqueue", "")
+			host.WriteProblem(w, http.StatusInternalServerError, "Cannot enqueue", "")
 			return
 		}
 		jobIDs = append(jobIDs, jobID)
@@ -249,21 +245,21 @@ func (h *Handler) Promote(w http.ResponseWriter, r *http.Request) {
 			ReleaseID: item.ID, EnvironmentID: environment.ID,
 			ImageName: images[index].Image, Tag: plan.Reference, JobID: &jobID,
 		}); err != nil {
-			dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot record the promotion", "")
+			host.WriteProblem(w, http.StatusInternalServerError, "Cannot record the promotion", "")
 			return
 		}
 	}
 
 	// The log is a trace, not a transaction: its failure does not cancel a promotion already
 	// queued.
-	if err := h.store.Audit(r.Context(), identity.Subject, store.AuditReleasePromote, item.Tag, map[string]any{
+	if err := h.store.Audit(r.Context(), identity.Subject, AuditReleasePromote, item.Tag, map[string]any{
 		"environment": environment.ID, "tag": plans[0].Reference,
 		"from": item.ImageVersion, "job_ids": jobIDs,
 	}); err != nil {
-		h.logger.Error("journal d'audit", "action", store.AuditReleasePromote, "target", item.Tag, "err", err)
+		h.logger.Error("journal d'audit", "action", AuditReleasePromote, "target", item.Tag, "err", err)
 	}
 
-	dashhttp.WriteJSON(w, http.StatusAccepted, map[string]any{
+	host.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"job_ids": jobIDs, "environment": environment.ID, "tag": plans[0].Reference,
 	})
 }
@@ -300,24 +296,24 @@ type lastPromotion struct {
 
 // Environments returns the overview of the environments.
 func (h *Handler) Environments(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := dashhttp.RequestProject(w, r, h.store)
+	projectID, ok := host.RequestProject(w, r, h.store)
 	if !ok {
 		return
 	}
 
 	views, err := h.store.ListEnvironmentViews(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
 		return
 	}
 
 	promotions, err := h.store.LatestPromotions(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the promotions", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the promotions", "")
 		return
 	}
 
-	identity, _ := dashhttp.IdentityFrom(r.Context())
+	identity, _ := host.IdentityFrom(r.Context())
 	payload := make([]environmentPayload, 0, len(views))
 	for _, view := range views {
 		entry := environmentPayload{
@@ -347,7 +343,7 @@ func (h *Handler) Environments(w http.ResponseWriter, r *http.Request) {
 		payload = append(payload, entry)
 	}
 
-	dashhttp.WriteJSON(w, http.StatusOK, map[string]any{"environments": payload})
+	host.WriteJSON(w, http.StatusOK, map[string]any{"environments": payload})
 }
 
 type historyPayload struct {
@@ -366,13 +362,13 @@ type historyPayload struct {
 // in `mse-kustom`: a promotion no ImagePolicy keeps appears nowhere on the Git side although it
 // was indeed requested.
 func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := dashhttp.RequestProject(w, r, h.store)
+	projectID, ok := host.RequestProject(w, r, h.store)
 	if !ok {
 		return
 	}
 	entries, err := h.store.ListEnvironmentHistory(r.Context(), projectID, r.PathValue("environment"), 50)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the history", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the history", "")
 		return
 	}
 
@@ -384,7 +380,7 @@ func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
 			JobState: entry.JobState, RequestedBy: entry.RequestedBy,
 		})
 	}
-	dashhttp.WriteJSON(w, http.StatusOK, map[string]any{"history": payload})
+	host.WriteJSON(w, http.StatusOK, map[string]any{"history": payload})
 }
 
 type deployedPayload struct {
@@ -410,7 +406,7 @@ type deployedPayload struct {
 // reports is the version baked into the image, still the RC's for any final release produced by
 // re-tag.
 func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := dashhttp.RequestProject(w, r, h.store)
+	projectID, ok := host.RequestProject(w, r, h.store)
 	if !ok {
 		return
 	}
@@ -418,7 +414,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 
 	views, err := h.store.ListEnvironmentViews(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environment", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environment", "")
 		return
 	}
 
@@ -430,11 +426,11 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if view.Environment.ID == "" {
-		dashhttp.WriteProblem(w, http.StatusNotFound, "Unknown environment", name)
+		host.WriteProblem(w, http.StatusNotFound, "Unknown environment", name)
 		return
 	}
 
-	identity, _ := dashhttp.IdentityFrom(r.Context())
+	identity, _ := host.IdentityFrom(r.Context())
 	payload := map[string]any{
 		"id":                view.Environment.ID,
 		"label":             view.Environment.Label,
@@ -483,13 +479,13 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		// A normal case: the dashboard knows only the releases it created.
 		payload["deployed"] = nil
 	default:
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot reconcile", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot reconcile", "")
 		return
 	}
 
 	promotions, err := h.store.LatestPromotions(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the promotions", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the promotions", "")
 		return
 	}
 	if promotion, found := promotions[name]; found {
@@ -499,7 +495,7 @@ func (h *Handler) Environment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	dashhttp.WriteJSON(w, http.StatusOK, payload)
+	host.WriteJSON(w, http.StatusOK, payload)
 }
 
 // observedVersion returns the version observed on an environment, or empty.

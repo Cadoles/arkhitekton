@@ -9,10 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*
@@ -28,8 +26,8 @@ import (
 
 // SignoffStore is what the sign-off routes need from the database.
 type SignoffStore interface {
-	dashhttp.ProjectResolver
-	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
+	host.ProjectResolver
+	GetRelease(ctx context.Context, projectID int64, tag string) (host.Release, error)
 	ListSignoffs(ctx context.Context, releaseID int64) ([]storage.Signoff, error)
 	SetSignoff(ctx context.Context, releaseID int64, environmentID, role, status, detail, decidedBy string) error
 	DeleteSignoff(ctx context.Context, releaseID int64, environmentID, role string) error
@@ -54,15 +52,15 @@ func NewSignoffsHandler(signoffs SignoffStore, logger *slog.Logger) *SignoffsHan
 // actions, because they are the same people who run an acceptance campaign. Requiring
 // `release:create:final` would reserve validation to those who deliver, whereas validating and
 // delivering are the two acts one wants performed by distinct people.
-func (h *SignoffsHandler) Routes(mux *http.ServeMux, m *dashhttp.Middleware) {
+func (h *SignoffsHandler) Routes(mux *http.ServeMux, m *host.Middleware) {
 	module := m.RequireModule(PluginID)
 
-	mux.Handle("GET /projects/{project}/releases/{tag}/signoffs", dashhttp.Chain(http.HandlerFunc(h.List),
-		m.Authenticate, module, m.RequireIn(auth.PermRead)))
-	mux.Handle("PUT /projects/{project}/releases/{tag}/signoffs/{env}", dashhttp.Chain(http.HandlerFunc(h.Set),
-		m.Authenticate, module, m.CSRF, m.RequireIn(auth.PermReleaseEdit)))
-	mux.Handle("DELETE /projects/{project}/releases/{tag}/signoffs/{env}", dashhttp.Chain(http.HandlerFunc(h.Clear),
-		m.Authenticate, module, m.CSRF, m.RequireIn(auth.PermReleaseEdit)))
+	mux.Handle("GET /projects/{project}/releases/{tag}/signoffs", host.Chain(http.HandlerFunc(h.List),
+		m.Authenticate, module, m.RequireIn(host.PermRead)))
+	mux.Handle("PUT /projects/{project}/releases/{tag}/signoffs/{env}", host.Chain(http.HandlerFunc(h.Set),
+		m.Authenticate, module, m.CSRF, m.RequireIn(host.PermReleaseEdit)))
+	mux.Handle("DELETE /projects/{project}/releases/{tag}/signoffs/{env}", host.Chain(http.HandlerFunc(h.Clear),
+		m.Authenticate, module, m.CSRF, m.RequireIn(host.PermReleaseEdit)))
 }
 
 type signoffVw struct {
@@ -80,19 +78,19 @@ type environmentSignoffsVw struct {
 }
 
 // release reads the release named in the path, or writes the response.
-func (h *SignoffsHandler) release(w http.ResponseWriter, r *http.Request) (store.Release, int64, bool) {
-	projectID, ok := dashhttp.RequestProject(w, r, h.store)
+func (h *SignoffsHandler) release(w http.ResponseWriter, r *http.Request) (host.Release, int64, bool) {
+	projectID, ok := host.RequestProject(w, r, h.store)
 	if !ok {
-		return store.Release{}, 0, false
+		return host.Release{}, 0, false
 	}
 	release, err := h.store.GetRelease(r.Context(), projectID, r.PathValue("tag"))
 	if err != nil {
-		if errors.Is(err, store.ErrReleaseNotFound) {
-			dashhttp.WriteProblem(w, http.StatusNotFound, "Release not found", "")
-			return store.Release{}, 0, false
+		if errors.Is(err, host.ErrReleaseNotFound) {
+			host.WriteProblem(w, http.StatusNotFound, "Release not found", "")
+			return host.Release{}, 0, false
 		}
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
-		return store.Release{}, 0, false
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
+		return host.Release{}, 0, false
 	}
 	return release, projectID, true
 }
@@ -110,13 +108,13 @@ func (h *SignoffsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	environments, err := h.store.ListEnvironments(r.Context(), projectID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environments", "")
 		return
 	}
 
 	signoffs, err := h.store.ListSignoffs(r.Context(), release.ID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the sign-offs", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the sign-offs", "")
 		return
 	}
 
@@ -141,7 +139,7 @@ func (h *SignoffsHandler) List(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	dashhttp.WriteJSON(w, http.StatusOK, map[string]any{"environments": payload})
+	host.WriteJSON(w, http.StatusOK, map[string]any{"environments": payload})
 }
 
 type signoffRequest struct {
@@ -158,16 +156,16 @@ var signoffStatuses = map[string]bool{"pass": true, "warn": true, "fail": true}
 
 // Set records a participant's opinion on a release in an environment.
 func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
-	identity, ok := dashhttp.IdentityFrom(r.Context())
+	identity, ok := host.IdentityFrom(r.Context())
 	if !ok {
-		dashhttp.WriteProblem(w, http.StatusUnauthorized, "Not authenticated", "")
+		host.WriteProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
 
 	var request signoffRequest
 	// 16 KiB: a reason for refusal is a sentence, not a report.
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&request); err != nil {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Unreadable request", "")
+		host.WriteProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
@@ -175,19 +173,19 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	detail := strings.TrimSpace(request.Detail)
 
 	if role == "" {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Missing role",
+		host.WriteProblem(w, http.StatusBadRequest, "Missing role",
 			"State who is giving the opinion: “Client”, “Recette”, “Exploitation”.")
 		return
 	}
 	if !signoffStatuses[request.Status] {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Invalid sign-off",
+		host.WriteProblem(w, http.StatusBadRequest, "Invalid sign-off",
 			"The opinion is “pass”, “warn” or “fail”. Waiting is obtained by removing the sign-off.")
 		return
 	}
 	// A reservation or a refusal with no reason tells whoever reads it later nothing. Required by
 	// the API and not by the database: the rule may change, the data written may not.
 	if request.Status != "pass" && detail == "" {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Missing reason",
+		host.WriteProblem(w, http.StatusBadRequest, "Missing reason",
 			"A reservation or a refusal must state its reason.")
 		return
 	}
@@ -200,27 +198,27 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	environmentID := r.PathValue("env")
 	exists, err := h.store.SignoffEnvironmentExists(r.Context(), projectID, environmentID)
 	if err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environment", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot read the environment", "")
 		return
 	}
 	if !exists {
-		dashhttp.WriteProblem(w, http.StatusNotFound, "Environment not found", environmentID)
+		host.WriteProblem(w, http.StatusNotFound, "Environment not found", environmentID)
 		return
 	}
 
 	if err := h.store.SetSignoff(r.Context(), release.ID, environmentID, role,
 		request.Status, detail, identity.Subject); err != nil {
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot save", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot save", "")
 		return
 	}
 
 	// The log carries the whole opinion, reason included: the table keeps only the last state, and
 	// "who had validated before retracting" has an answer only here.
-	h.audit(r, identity, store.AuditSignoffSet, release.Tag, map[string]any{
+	h.audit(r, identity, AuditSignoffSet, release.Tag, map[string]any{
 		"environment": environmentID, "role": role, "status": request.Status, "detail": detail,
 	})
 
-	dashhttp.WriteJSON(w, http.StatusNoContent, nil)
+	host.WriteJSON(w, http.StatusNoContent, nil)
 }
 
 // Clear removes an opinion and puts the role back to waiting.
@@ -230,7 +228,7 @@ func (h *SignoffsHandler) Set(w http.ResponseWriter, r *http.Request) {
 func (h *SignoffsHandler) Clear(w http.ResponseWriter, r *http.Request) {
 	role := strings.TrimSpace(r.URL.Query().Get("role"))
 	if role == "" {
-		dashhttp.WriteProblem(w, http.StatusBadRequest, "Missing role",
+		host.WriteProblem(w, http.StatusBadRequest, "Missing role",
 			"State the role whose opinion is to be removed.")
 		return
 	}
@@ -243,25 +241,25 @@ func (h *SignoffsHandler) Clear(w http.ResponseWriter, r *http.Request) {
 	environmentID := r.PathValue("env")
 	if err := h.store.DeleteSignoff(r.Context(), release.ID, environmentID, role); err != nil {
 		if errors.Is(err, storage.ErrSignoffNotFound) {
-			dashhttp.WriteProblem(w, http.StatusNotFound, "Sign-off not found", "")
+			host.WriteProblem(w, http.StatusNotFound, "Sign-off not found", "")
 			return
 		}
-		dashhttp.WriteProblem(w, http.StatusInternalServerError, "Cannot remove", "")
+		host.WriteProblem(w, http.StatusInternalServerError, "Cannot remove", "")
 		return
 	}
 
-	if identity, ok := dashhttp.IdentityFrom(r.Context()); ok {
-		h.audit(r, identity, store.AuditSignoffClear, release.Tag, map[string]any{
+	if identity, ok := host.IdentityFrom(r.Context()); ok {
+		h.audit(r, identity, AuditSignoffClear, release.Tag, map[string]any{
 			"environment": environmentID, "role": role,
 		})
 	}
 
-	dashhttp.WriteJSON(w, http.StatusNoContent, nil)
+	host.WriteJSON(w, http.StatusNoContent, nil)
 }
 
 // audit records a decision without ever failing it.
 func (h *SignoffsHandler) audit(
-	r *http.Request, identity auth.Identity, action, target string, payload map[string]any,
+	r *http.Request, identity host.Identity, action, target string, payload map[string]any,
 ) {
 	if err := h.store.Audit(r.Context(), identity.Subject, action, target, payload); err != nil {
 		h.logger.Error("journal d'audit", "action", action, "target", target, "err", err)

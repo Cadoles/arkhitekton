@@ -9,8 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 )
 
 //go:embed migrations/*.sql
@@ -21,7 +20,7 @@ const VersionTable = "goose_mse_db_version"
 
 // Migrations are the plugin's migrations, applied **after** the core's: its tables reference
 // `releases` and `jobs`.
-var Migrations = store.MigrationSet{Name: "MSE plugin", Table: VersionTable, Files: migrationsDir()}
+var Migrations = host.MigrationSet{Name: "MSE plugin", Table: VersionTable, Files: migrationsDir()}
 
 func migrationsDir() fs.FS {
 	files, err := fs.Sub(migrationFiles, "migrations")
@@ -32,23 +31,23 @@ func migrationsDir() fs.FS {
 }
 
 // Migrate applies the plugin's migrations.
-func Migrate(ctx context.Context, cfg config.DatabaseConfig, logger *slog.Logger) error {
+func Migrate(ctx context.Context, cfg host.DatabaseConfig, logger *slog.Logger) error {
 	return Migrations.Migrate(ctx, cfg, logger)
 }
 
 // Rollback undoes the plugin's last migration. Reserved for tests.
-func Rollback(ctx context.Context, cfg config.DatabaseConfig) error {
+func Rollback(ctx context.Context, cfg host.DatabaseConfig) error {
 	return Migrations.Rollback(ctx, cfg)
 }
 
 // PendingMigrations returns the plugin's migrations the database does not have yet.
-func PendingMigrations(ctx context.Context, cfg config.DatabaseConfig) ([]string, error) {
+func PendingMigrations(ctx context.Context, cfg host.DatabaseConfig) ([]string, error) {
 	return Migrations.Pending(ctx, cfg)
 }
 
 // WaitForSchema waits until the database carries the plugin's migrations: the worker synchronises
 // the environments as soon as it starts.
-func WaitForSchema(ctx context.Context, cfg config.DatabaseConfig, timeout time.Duration, logger *slog.Logger) error {
+func WaitForSchema(ctx context.Context, cfg host.DatabaseConfig, timeout time.Duration, logger *slog.Logger) error {
 	return Migrations.WaitForSchema(ctx, cfg, timeout, logger)
 }
 

@@ -10,8 +10,7 @@ import (
 
 	"k8s.io/client-go/rest"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/portaldata"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
@@ -25,25 +24,25 @@ import (
 type Module struct {
 	store     *storage.Store
 	cluster   *rest.Config
-	pipelines *catalog.Catalog
+	pipelines *host.Catalog
 	// namespace is Flux's when neither the project nor the instance names one.
 	namespace string
 	logger    *slog.Logger
 }
 
 func NewModule(
-	environments *storage.Store, cluster *rest.Config, pipelines *catalog.Catalog,
+	environments *storage.Store, cluster *rest.Config, pipelines *host.Catalog,
 	namespace string, logger *slog.Logger,
 ) *Module {
 	return &Module{store: environments, cluster: cluster, pipelines: pipelines, namespace: namespace, logger: logger}
 }
 
-var _ module.Module = (*Module)(nil)
+var _ host.Module = (*Module)(nil)
 
 func (m *Module) Plugin() string { return PluginID }
 
 // Run synchronises the declared environments, then observes them until the context ends.
-func (m *Module) Run(ctx context.Context, state module.State) error {
+func (m *Module) Run(ctx context.Context, state host.ModuleState) error {
 	// Two distinct dependencies, and two distinct clients: one says what the deployment applied,
 	// the other what the application reports about itself. It is their gap that gives the
 	// environments screen its value, and merging them would make it disappear.
@@ -83,7 +82,7 @@ func (m *Module) Run(ctx context.Context, state module.State) error {
 
 // declared composes each project's environments and the Flux that observes them: the project's
 // namespace, failing that the instance's, failing that the deployment's.
-func (m *Module) declared(state module.State) ([]ProjectEnvironments, error) {
+func (m *Module) declared(state host.ModuleState) ([]ProjectEnvironments, error) {
 	// One client per distinct namespace, shared by the projects that share it: the client discovers
 	// the API versions served, and doing it once per project would multiply the calls for the same
 	// answer.
