@@ -174,3 +174,49 @@ pipelines:
 		t.Errorf("static-tests = %q, expected the missing Task named", unavailable["static-tests"])
 	}
 }
+
+// An administrator's binding completes the file, never overrides it, and never names a service
+// account.
+func TestRecordedBindingsCompleteTheFile(t *testing.T) {
+	registry, err := capabilities.New(capability.Plugin{ID: "go", Version: "1", APIVersion: sdk.APIVersion,
+		Pipelines: []capability.Pipeline{{Name: "unit", Label: "Tests Go", Interpreter: noFacts{},
+			Spec: capability.PipelineSpec{
+				PipelineRef: "go-unit", Produces: []capability.Product{capability.ProductResults},
+				Artifacts:  []capability.Artifact{{Name: "results", Param: "results-upload-url", Object: "go-test.json", Format: capability.FormatFile}},
+				Workspaces: []capability.Workspace{{Name: "git-credentials", Need: capability.NeedSourceRead}},
+				Needs:      []capability.Need{{Name: capability.NeedSourceRead}},
+			}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := ParseBinding([]byte(`{"ref": "go/unit", "timeout": "20m",
+		"needs": {"source-read": {"secret": {"configKey": "pipeline.gitSecret"}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := Parse([]byte("maxConcurrentRuns: 2\n"), WithCapabilities(registry), WithBindings([]Binding{recorded}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline, found := parsed.Find("go/unit")
+	if !found || pipeline.Timeout != "20m" || parsed.BoundByFile("go/unit") {
+		t.Errorf("pipeline %+v, found %v", pipeline, found)
+	}
+
+	fromFile, err := Parse([]byte("capabilities:\n  - ref: go/unit\n    timeout: 5m\n    needs:\n      source-read: { secret: { secretName: git } }\n"),
+		WithCapabilities(registry), WithBindings([]Binding{recorded}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pipeline, _ := fromFile.Find("go/unit"); pipeline.Timeout != "5m" || !fromFile.BoundByFile("go/unit") {
+		t.Errorf("the file's binding was overridden: %+v", pipeline)
+	}
+
+	if _, err := ParseBinding([]byte(`{"ref": "go/unit", "needs": {"cluster-deploy": {"serviceAccountName": "admin"}}}`)); err == nil {
+		t.Error("a recorded service account accepted")
+	}
+	if _, err := ParseBinding([]byte(`{"ref": "go/unit", "timeouts": "5m"}`)); err == nil {
+		t.Error("an unknown key accepted")
+	}
+}

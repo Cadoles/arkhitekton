@@ -8,6 +8,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"sigs.k8s.io/yaml"
 )
 
 /*
@@ -66,11 +67,74 @@ type Option func(*parseOptions)
 
 type parseOptions struct {
 	registry *capabilities.Registry
+	bindings []Binding
 }
 
 // WithCapabilities resolves the catalogue's bindings against the plugins' capabilities.
 func WithCapabilities(registry *capabilities.Registry) Option {
 	return func(options *parseOptions) { options.registry = registry }
+}
+
+// WithBindings adds the bindings an administrator recorded. The file wins: a capability it binds
+// keeps the file's binding, so that what the operator versions is what runs.
+func WithBindings(bindings []Binding) Option {
+	return func(options *parseOptions) { options.bindings = bindings }
+}
+
+// ErrServiceAccount refuses a binding naming a service account outside the file. Granting a
+// cluster identity is the operator's act, versioned with the deployment, never a screen's.
+var ErrServiceAccount = errors.New("a service account is bound by the catalogue file only")
+
+// ValidateRecorded refuses what an administrator's binding may not say.
+func (b Binding) ValidateRecorded() error {
+	for name, need := range b.Needs {
+		if need.ServiceAccountName != "" {
+			return fmt.Errorf("need %q: %w", name, ErrServiceAccount)
+		}
+	}
+	if _, err := capability.ParseRef(b.Ref); err != nil {
+		return err
+	}
+	return nil
+}
+
+// addBindings appends the administrator's bindings the file does not override.
+func (c *Catalog) addBindings(recorded []Binding) error {
+	c.fileRefs = make(map[string]bool, len(c.Capabilities))
+	for _, binding := range c.Capabilities {
+		c.fileRefs[binding.Ref] = true
+	}
+	var problems []error
+	for _, binding := range recorded {
+		if c.fileRefs[binding.Ref] {
+			continue
+		}
+		if err := binding.ValidateRecorded(); err != nil {
+			problems = append(problems, fmt.Errorf("capability %q: %w", binding.Ref, err))
+			continue
+		}
+		c.Capabilities = append(c.Capabilities, binding)
+	}
+	return errors.Join(problems...)
+}
+
+// BoundByFile says whether the catalogue file binds a capability: then an administrator's binding
+// does not apply to it.
+func (c *Catalog) BoundByFile(ref string) bool { return c.fileRefs[ref] }
+
+// ParseBinding reads a recorded binding, refusing unknown keys like the file does. Its reference may
+// be left out, for the caller to name it; everything else is checked.
+func ParseBinding(raw []byte) (Binding, error) {
+	var binding Binding
+	if err := yaml.UnmarshalStrict(raw, &binding); err != nil {
+		return Binding{}, fmt.Errorf("unreadable binding: %w", err)
+	}
+	if binding.Ref == "" {
+		probe := binding
+		probe.Ref = "any/capability"
+		return binding, probe.ValidateRecorded()
+	}
+	return binding, binding.ValidateRecorded()
 }
 
 // The core's own capabilities: the dashboard builds and re-tags, whatever else a deployment runs.

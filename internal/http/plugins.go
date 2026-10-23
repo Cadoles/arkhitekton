@@ -500,6 +500,6 @@ func (h *PluginsHandler) audit(r *http.Request, action, target string, payload m
 		return
 	}
 	if err := h.store.Audit(r.Context(), identity.Subject, action, target, payload); err != nil {
-		h.logger.Error("journal d'audit", "action", action, "target", target, "error", err)
+		h.logger.Error("audit log", "action", action, "target", target, "error", err)
 	}
 }

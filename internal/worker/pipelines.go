@@ -47,7 +47,9 @@ type AvailabilitySink interface {
 // against the cluster.
 type CapabilityReconciler struct {
 	installer ResourceInstaller
-	resources []pipelines.Resource
+	// resources are read at every pass: what is bound changes while the dashboard runs.
+	resources func() []pipelines.Resource
+	wake      chan struct{}
 	catalog   catalog.Source
 	cluster   catalog.Cluster
 	sink      AvailabilitySink
@@ -58,12 +60,21 @@ type CapabilityReconciler struct {
 // NewCapabilityReconciler wires the loop. The installer may be nil: definitions are then only
 // checked, as on an instance whose pipelines someone else deploys.
 func NewCapabilityReconciler(
-	installer ResourceInstaller, resources []pipelines.Resource,
+	installer ResourceInstaller, resources func() []pipelines.Resource,
 	pipelines catalog.Source, cluster catalog.Cluster, sink AvailabilitySink, logger *slog.Logger,
 ) *CapabilityReconciler {
 	return &CapabilityReconciler{
 		installer: installer, resources: resources, catalog: pipelines,
-		cluster: cluster, sink: sink, logger: logger,
+		cluster: cluster, sink: sink, logger: logger, wake: make(chan struct{}, 1),
+	}
+}
+
+// Wake asks for a pass now: the capabilities in force changed, and a newly bound one must not
+// wait ten minutes for its definitions.
+func (r *CapabilityReconciler) Wake() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -79,6 +90,8 @@ func (r *CapabilityReconciler) Run(ctx context.Context) error {
 			r.logger.Info("pipeline setting stopped")
 			return nil
 		case <-ticker.C:
+			r.Settle(ctx)
+		case <-r.wake:
 			r.Settle(ctx)
 		}
 	}
@@ -112,10 +125,14 @@ func (r *CapabilityReconciler) Settle(ctx context.Context) {
 }
 
 func (r *CapabilityReconciler) install(ctx context.Context) {
-	if r.installer == nil || len(r.resources) == 0 {
+	if r.installer == nil || r.resources == nil {
 		return
 	}
-	outcome, err := r.installer.InstallResources(ctx, r.resources)
+	resources := r.resources()
+	if len(resources) == 0 {
+		return
+	}
+	outcome, err := r.installer.InstallResources(ctx, resources)
 	if err != nil {
 		// A failed definition does not stop the others: the pipeline that needs it will be reported
 		// unavailable by the check that follows.

@@ -131,6 +131,7 @@ All scoped to a project; the permission is checked **in that project**.
 | `GET /admin/roles` · `POST /admin/roles` · `DELETE /admin/roles/{subject}` | `admin` |
 | `GET /admin/audit` | `admin` |
 | `GET /admin/plugins` · `PUT /admin/plugins/{plugin}` | `admin` |
+| `GET /admin/capabilities` · `PUT`/`DELETE /admin/capabilities/{plugin}/{name}/binding` | `admin` |
 | `GET /projects/{project}/plugins` | `admin` |
 | `PUT /projects/{project}/plugins/{plugin}` | `admin` |
 | `DELETE /projects/{project}/plugins/{plugin}` | `admin` — clears the override, restoring inheritance |

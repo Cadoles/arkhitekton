@@ -54,7 +54,7 @@ func twoPipelines() *catalog.Catalog {
 func TestAFreshClusterIsCheckedAfterInstalling(t *testing.T) {
 	cluster := &installingCluster{}
 	sink := &recordedAvailability{}
-	reconciler := NewCapabilityReconciler(cluster, []pipelines.Resource{{Name: "php-unit-tests"}},
+	reconciler := NewCapabilityReconciler(cluster, func() []pipelines.Resource { return []pipelines.Resource{{Name: "php-unit-tests"}} },
 		twoPipelines(), cluster, sink, slog.New(slog.DiscardHandler))
 
 	reconciler.Settle(context.Background())

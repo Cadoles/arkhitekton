@@ -213,13 +213,15 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// The catalogue is loaded by the `api` too: it is what says what is launchable and which
 	// parameters are required. It is not validated against the cluster here — the api has no
 	// access to it, and the `worker` does it at start-up.
-	pipelines, err := loadCatalogue(cfg)
+	// The capabilities in force, read once per operation: what is installed or bound while the
+	// dashboard runs replaces them as a whole.
+	inForce, reloader, err := startingCapabilities(ctx, cfg, db, logger)
 	if err != nil {
 		return err
 	}
-	// The capabilities in force, read once per operation: what is installed or bound while the
-	// dashboard runs replaces them as a whole.
-	inForce := live.NewHolder(live.Snapshot{Registry: pluginRegistry, Catalog: pipelines})
+	pipelines := inForce.Current().Catalog
+	// Every replica follows what is installed and bound: each reads the database's counter.
+	go func() { _ = reloader.Run(ctx) }()
 	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
 	// The sensitivity of the environments is declared in the catalogue and read by the MSE
 	// plugin. Logged: it is what decides who may promote where.
@@ -351,7 +353,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			dashhttp.NewAutomationsHandler(db, inForce.Catalogs(), inForce.Registries(), logger),
 			// What a reaction actually did. An engine one cannot debug is worse than frozen behaviour.
 			dashhttp.NewPlanRunsHandler(db),
-			middleware, mseHandler.Routes, mse.NewSignoffsHandler(mseBackend, logger).Routes),
+			middleware, mseHandler.Routes, mse.NewSignoffsHandler(mseBackend, logger).Routes,
+			// The bindings an administrator records for what the catalogue file does not bind.
+			dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
+				checkBinding(cfg, db), reloader.Reload, logger).Routes),
 		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
 		// Distinct from the ping: PostgreSQL may answer although the migration Job has not run yet.
 		// Without this check, the pod would declare itself ready then answer 500 on every missing
@@ -450,13 +455,13 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
-	pipelines, err := loadCatalogue(cfg)
+	// The capabilities in force, read once per operation: what is installed or bound while the
+	// dashboard runs replaces them as a whole.
+	inForce, reloader, err := startingCapabilities(ctx, cfg, db, logger)
 	if err != nil {
 		return err
 	}
-	// The capabilities in force, read once per operation: what is installed or bound while the
-	// dashboard runs replaces them as a whole.
-	inForce := live.NewHolder(live.Snapshot{Registry: pluginRegistry, Catalog: pipelines})
+	pipelines := inForce.Current().Catalog
 
 	// Checked against the cluster under the lease, once the capabilities' definitions are installed:
 	// checking here refused to start on a fresh cluster, before the dashboard could install them.
@@ -646,7 +651,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// The bound capabilities' definitions, installed and checked before the first launch. Under the
 			// lease like the rest: two workers putting the same definition in place would rewrite each
 			// other's.
-			reconciler := capabilityReconciler(cluster, cfg, pipelines, scheduler, logger)
+			reconciler := capabilityReconciler(cluster, cfg, inForce, scheduler, logger)
+			reloader.OnReplace(func(live.Snapshot) { reconciler.Wake() })
+			go func() { errs <- reloader.Run(leadingCtx) }()
 			reconciler.Settle(leadingCtx)
 			go func() { errs <- reconciler.Run(leadingCtx) }()
 
