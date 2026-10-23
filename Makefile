@@ -81,7 +81,7 @@ test-integration: ## Tests with a throwaway PostgreSQL and MinIO
 		-p $(PG_TEST_PORT):5432 postgres:17-alpine >/dev/null
 	@docker run -d --name $(MINIO_TEST_NAME) -p $(MINIO_TEST_PORT):9000 \
 		-e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-		quay.io/minio/minio:latest server /data >/dev/null
+		cgr.dev/chainguard/minio:latest server /data >/dev/null
 	@# The bucket is created by the test harness itself: doing it here would force
 	@# every runtime environment to redo it in its own way.
 	@until curl -sf http://127.0.0.1:$(MINIO_TEST_PORT)/minio/health/live >/dev/null 2>&1; do sleep 0.5; done
