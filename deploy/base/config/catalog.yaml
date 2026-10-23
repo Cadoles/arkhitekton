@@ -14,75 +14,18 @@
 # need left unbound does not: the capability stays in the catalogue, and its runs are refused
 # with that reason.
 
-# Deployment environments, in their promotion order.
+# Deployment environments, per project, in their promotion order: declared here by an instance
+# whose distribution promotes (the MSE extension's component does, docs/06-plugins.md §6.13).
 #
-# The `promotionSuffix` is the metadata Flux expects in the tag, and it is checked at start-up
-# against the real ImagePolicies: a mistake here produces no visible failure — the tag is
-# pushed, Flux ignores it, and the promotion looks successful.
-#
-# Note `qualif` → `testing`: Flux knows this environment under its old name. It is an **output**
-# mapping, used to build a tag.
-#
-# The settings under `deployer:` belong to the deployment tool and to it alone. The dashboard
-# carries them without reading them — it is the deployer that names and validates them. They
-# were previously three catalogue fields, which imposed Flux's vocabulary on every project,
-# including those with no deployment tool.
-#
-# The values are strings, booleans included: that is what a configuration carries, and the
-# deployer interprets them.
-projects:
-  # Each project declares its environments. A project that has the MSE module with no section
-  # here has neither promotion nor observation.
-  mse-test-project:
-    environments:
-      - id: unstable
-        label: Unstable
-        rank: 1
-        namespace: mse-dev
-        sensitive: false
-        deployer:
-          promotionSuffix: unstable
-          acceptsPrerelease: "true"
-          kustomization: portal-unstable
-
-      - id: qualif
-        label: Qualification
-        rank: 2
-        namespace: mse-dev
-        sensitive: false
-        deployer:
-          promotionSuffix: testing
-          acceptsPrerelease: "true"
-          kustomization: portal-testing
-
-      - id: preprod
-        label: Pré-production
-        rank: 3
-        namespace: mse-dev
-        # Receives what goes to the end user: promotion reserved to the releaser role. An environment
-        # with no `sensitive` is treated as sensitive.
-        sensitive: true
-        deployer:
-          # The RCs go as far as pre-production; the RC / final release boundary sits between preprod and
-          # prod, and not before.
-          promotionSuffix: preprod
-          acceptsPrerelease: "true"
-          kustomization: portal-preprod
-
-      - id: prod
-        label: Production
-        rank: 4
-        namespace: mse-prod
-        sensitive: true
-        deployer:
-          promotionSuffix: prod
-          # Without pre-releases: its policy's SemVer range is written without `-0`, which makes an RC
-          # structurally ineligible.
-          acceptsPrerelease: "false"
-          kustomization: portal-prod
-        # An independent cluster: neither PortalData, nor Deployment, nor Flux status is readable there.
-        # The interface displays it as "not observable", a state distinct from "unknown".
-        observable: false
+# projects:
+#   my-project:
+#     environments:
+#       - id: qualif
+#         label: Qualification
+#         rank: 1
+#         namespace: my-project-dev
+#         sensitive: false     # an environment with no `sensitive` is treated as sensitive
+#         deployer: {}         # the deployment tool's settings, which the dashboard carries unread
 
 # A global cap, across every queue. The pipelines ask for PVCs and build pods, and nothing
 # mechanically stops twenty of them being launched.
@@ -95,17 +38,16 @@ maxConcurrentRuns: 10
 
 # The pull secret applied to every pipeline.
 #
-# All five pull at least one image from `reg.cadoles.com` — `crane` to push, `mktools` to derive
-# a tag, `tekton-mse-manager` to deploy — and the project is private. Without this setting, the
-# runs failed with `TaskRunImagePullFailed`, before even reaching the step one believed at
-# fault.
+# The pipelines pull their tooling from a private registry (`crane` to push, `mktools` to derive
+# a tag). Without this setting, the runs failed with `TaskRunImagePullFailed`, before even
+# reaching the step one believed at fault.
 #
 # Global and not repeated per entry: repeating it would have made it forgotten on the next one.
 # An entry that declares its own `podTemplate` wins.
 #
 # Distinct from the dockerconfig mounted as a workspace: that one serves the **pod** to pull its
-# tooling from `cnous-mse`, this one serves `crane` to **push** the images produced. Two acts,
-# two scopes, potentially two accounts.
+# tooling, this one serves `crane` to **push** the images produced. Two acts, two scopes,
+# potentially two accounts.
 podTemplate:
   imagePullSecretsConfigKey: pipeline.imagePullSecret
 
@@ -113,7 +55,7 @@ capabilities:
   # Two clone credentials, and a pipeline names the one that opens what it clones:
   # `project.deployKeySecret` is the project's own deploy key, which opens the project's
   # repository and nothing else; `pipeline.gitSecret` is the deployment's, for a repository that
-  # is not the project's, like the end-to-end campaign's.
+  # is not the project's.
   # The security audit requires no parameter: the pipeline carries its own default values. It is
   # the simplest pipeline, and the only one that can be launched without typing anything.
   - ref: security/security-audit
@@ -148,22 +90,3 @@ capabilities:
       source-read: { secret: { configKey: project.deployKeySecret } }
     volumes:
       shared-data: { storageClassName: standard }
-
-  # Not chained after a build: it targets a deployed environment, chosen at launch.
-  - ref: mse/e2e-tests
-    timeout: 60m
-    needs:
-      source-read: { secret: { configKey: pipeline.gitSecret } }
-    volumes:
-      shared-data: { storageClassName: standard }
-
-  # Deploys the release into a namespace of its own: the one need granted a service account.
-  - ref: mse/integration-tests
-    timeout: 45m
-    needs:
-      cluster-deploy: { serviceAccountName: tekton-kubectl }
-      source-read:    { secret: { configKey: project.deployKeySecret } }
-      registry-pull:  { secret: { configKey: pipeline.registrySecret } }
-    volumes:
-      mse:           { storageClassName: standard }
-      kustomization: { storageClassName: standard }

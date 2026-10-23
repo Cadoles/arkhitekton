@@ -36,3 +36,7 @@ deploy/overlays/*/components/pipeline-credentials/pipeline-*
 
 # Module du plugin d'exemple, construit avant sa publication.
 /sdk/examples/gotest/gotest.wasm
+
+# Les modules d'interface qu'une distribution dépose avant de construire : ils vivent dans son
+# dépôt, pas dans celui-ci.
+/apps/web/src/plugins/*

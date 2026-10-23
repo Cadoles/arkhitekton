@@ -11,15 +11,34 @@ import { HomeRedirect, ModuleRoute } from './ModuleRoute'
 /*
  * La navigation suit les modules allumés.
  *
- * Une instance sans le plugin MSE n'a pas d'environnements : proposer l'onglet
- * mènerait à un écran dont chaque requête répond 404 (doc 16 §16.8).
+ * Une instance sans un module n'a pas ses écrans : proposer son onglet mènerait à
+ * un écran dont chaque requête répond 404. Le noyau n'embarque aucun module : un
+ * module fictif, « widgets », tient le rôle de ceux qu'une distribution ajoute.
  */
+
+vi.mock('../modules', async () => {
+  const { projectModules, useSession } = await import('../features/auth/session')
+  const widgets = {
+    id: 'widgets',
+    home: '/widgets',
+    nav: [{ to: '/widgets', label: 'Widgets', icon: 'layers' as const }],
+  }
+  return {
+    appModules: () => [widgets],
+    moduleEventLabel: () => undefined,
+    useActiveModules: () => {
+      const session = useSession()
+      if (session.kind !== 'authenticated') return []
+      return [widgets].filter((module) => projectModules(session.identity).includes(module.id))
+    },
+  }
+})
 
 /** Les modules du projet courant, et ceux de l'instance — les mêmes par défaut. */
 function identite(modules: string[], instance: string[] = modules) {
   return {
     subject: 's', username: 'vcarroy', email: 'v@example.fr', role: 'admin',
-    projects: [{ slug: 'mse', label: 'MSE', modules }], modules: instance,
+    projects: [{ slug: 'app', label: 'Application', modules }], modules: instance,
   }
 }
 
@@ -28,29 +47,28 @@ describe('la navigation', () => {
     vi.unstubAllGlobals()
   })
 
-  it("n'affiche pas Environnements sans le module MSE", async () => {
+  it("n'affiche pas l'onglet d'un module éteint", async () => {
     mockFetch([{ path: '/me', body: identite([]) }])
     render(<AppShell />)
 
     expect(await screen.findByRole('link', { name: /Releases/ })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Environnements/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Widgets/ })).not.toBeInTheDocument()
   })
 
-  // Allumé sur l'instance, éteint pour le projet courant : l'onglet suit le projet
-  // (doc 16 §16.18).
-  it("n'affiche pas Environnements quand le projet courant n'a pas le module", async () => {
-    mockFetch([{ path: '/me', body: identite([], ['mse']) }])
+  // Allumé sur l'instance, éteint pour le projet courant : l'onglet suit le projet.
+  it("n'affiche pas l'onglet quand le projet courant n'a pas le module", async () => {
+    mockFetch([{ path: '/me', body: identite([], ['widgets']) }])
     render(<AppShell />)
 
     expect(await screen.findByRole('link', { name: /Releases/ })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Environnements/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Widgets/ })).not.toBeInTheDocument()
   })
 
-  it('affiche Environnements quand le module MSE est allumé', async () => {
-    mockFetch([{ path: '/me', body: identite(['mse']) }])
+  it("affiche l'onglet quand le module est allumé", async () => {
+    mockFetch([{ path: '/me', body: identite(['widgets']) }])
     render(<AppShell />)
 
-    expect(await screen.findByRole('link', { name: /Environnements/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Widgets/ })).toBeInTheDocument()
   })
 })
 
@@ -62,10 +80,10 @@ function naviguer(chemin: string, modules: string[]) {
         <Routes>
           <Route path="/" element={<HomeRedirect />} />
           <Route
-            path="/environments"
+            path="/widgets"
             element={
-              <ModuleRoute module="mse">
-                <p>écran des environnements</p>
+              <ModuleRoute module="widgets">
+                <p>écran des widgets</p>
               </ModuleRoute>
             }
           />
@@ -81,19 +99,19 @@ describe("la page d'accueil et les écrans d'un module", () => {
     vi.unstubAllGlobals()
   })
 
-  it('mène aux releases sans le module MSE', async () => {
+  it('mène aux releases sans module', async () => {
     naviguer('/', [])
     expect(await screen.findByText('écran des releases')).toBeInTheDocument()
   })
 
-  it('mène aux environnements avec le module MSE', async () => {
-    naviguer('/', ['mse'])
-    expect(await screen.findByText('écran des environnements')).toBeInTheDocument()
+  it("mène à l'accueil du module allumé", async () => {
+    naviguer('/', ['widgets'])
+    expect(await screen.findByText('écran des widgets')).toBeInTheDocument()
   })
 
-  it("renvoie une URL d'environnement vers les releases quand le module est éteint", async () => {
-    naviguer('/environments', [])
+  it("renvoie l'URL d'un module éteint vers les releases", async () => {
+    naviguer('/widgets', [])
     expect(await screen.findByText('écran des releases')).toBeInTheDocument()
-    expect(screen.queryByText('écran des environnements')).not.toBeInTheDocument()
+    expect(screen.queryByText('écran des widgets')).not.toBeInTheDocument()
   })
 })

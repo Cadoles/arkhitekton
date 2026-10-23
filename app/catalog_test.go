@@ -68,10 +68,10 @@ func TestEachArtifactDeclaresItsParameterAndItsName(t *testing.T) {
 // catalogue is now their **single** source. What follows therefore no longer compares two lists
 // — it checks that the file shipped does name those expected, the declaration being now what
 // one can get wrong in writing.
-func TestTheShippedCatalogueChainsTheFourExpectedKinds(t *testing.T) {
+func TestTheShippedCatalogueChainsTheExpectedKinds(t *testing.T) {
 	pipelines := shippedCatalogue(t)
 
-	want := []string{"security/security-audit", "php/static-tests", "php/unit-tests", "mse/integration-tests"}
+	want := []string{"security/security-audit", "php/static-tests", "php/unit-tests"}
 	got := pipelines.VerificationKinds()
 
 	if len(got) != len(want) {
@@ -82,21 +82,6 @@ func TestTheShippedCatalogueChainsTheFourExpectedKinds(t *testing.T) {
 		// build make it impossible to compare two releases at a glance.
 		if got[index] != kind {
 			t.Errorf("family %d = %q, expected %q", index, got[index], kind)
-		}
-	}
-}
-
-// The catalogue actually deployed keeps, for mse-test-project, the table `main.go` used to
-// write: moving it must change nothing about who can promote where.
-func TestTheDeployedCatalogueKeepsTheTableFromMain(t *testing.T) {
-	policies := shippedCatalogue(t).EnvironmentPolicies()["mse-test-project"]
-
-	for environment, sensitive := range map[string]bool{
-		"unstable": false, "qualif": false, "preprod": true, "prod": true,
-	} {
-		policy, found := policies[environment]
-		if !found || policy.Sensitive != sensitive {
-			t.Errorf("%s: %+v (found %v), expected sensitive=%v", environment, policy, found, sensitive)
 		}
 	}
 }
@@ -125,47 +110,15 @@ func TestShippedCatalogParses(t *testing.T) {
 	if len(shipped.Pipelines) == 0 {
 		t.Error("no pipeline declared")
 	}
-	environments := shipped.EnvironmentsOf("mse-test-project")
-	if len(environments) != 4 {
-		t.Errorf("%d environment(s) for mse-test-project, expected 4", len(environments))
-	}
-
-	// Checked against the file actually shipped: a GitOps controller may know an
-	// environment under another name, and getting it wrong promotes to nothing.
-	var qualif *catalog.Environment
-	for i := range environments {
-		if environments[i].ID == "qualif" {
-			qualif = &environments[i]
-		}
-	}
-	if qualif == nil {
-		t.Fatal("environment qualif is missing")
-	}
-	// The promotion suffix lives under `deployer:`: the catalogue carries it without
-	// reading it, and only the deployer names it.
-	if qualif.Deployer["promotionSuffix"] != "testing" {
-		t.Errorf("qualif suffix = %q, expected testing",
-			qualif.Deployer["promotionSuffix"])
-	}
-
-	for _, environment := range environments {
-		if environment.ID == "prod" {
-			if environment.Deployer["acceptsPrerelease"] != "false" {
-				t.Error("production must not accept pre-releases")
-			}
-			if environment.IsObservable() {
-				t.Error("production runs in a separate cluster: not observable")
-			}
-		}
-	}
 }
 
 // The pipeline a signal re-runs, found through its group, is the one the score used to name.
 func TestEachSignalReRunsItsPipeline(t *testing.T) {
 	shipped := shippedCatalogue(t)
 	for group, kind := range map[string]string{
-		"unit": "php/unit-tests", "integration": "mse/integration-tests", "e2e": "mse/e2e-tests",
-		"static": "php/static-tests", "security": "security/security-audit",
+		"unit": "php/unit-tests", "static": "php/static-tests", "security": "security/security-audit",
+		// No pipeline of the shipped catalogue shows its results there: nothing to re-run.
+		"integration": "", "e2e": "",
 	} {
 		if got := shipped.KindOfGroup(group); got != kind {
 			t.Errorf("%s: %q, expected %q", group, got, kind)

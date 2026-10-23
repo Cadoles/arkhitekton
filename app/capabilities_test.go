@@ -5,7 +5,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
@@ -41,11 +40,8 @@ func TestAShippedPipelineIsAmongItsManifests(t *testing.T) {
 	}
 }
 
-// shippedCatalogue loads the shipped catalogue as the distribution reads it: its bindings name the
-// MSE extension's capabilities.
 func shippedCatalogue(t *testing.T) *catalog.Catalog {
 	t.Helper()
-	withExtensions(t, mse.Extension())
 	registry, err := carriedRegistry()
 	if err != nil {
 		t.Fatal(err)
