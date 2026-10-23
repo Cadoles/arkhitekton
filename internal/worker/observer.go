@@ -37,7 +37,7 @@ type runSink struct {
 	registryProject string
 	// catalog serves to chain the verifications of a successful build. Nil when it is not wired:
 	// observation continues, with no chaining.
-	catalog *catalog.Catalog
+	catalog catalog.Source
 	// verification queues the chained tests. Extracted into an interface so that the chaining can
 	// be exercised without a database: it is decision logic — what to launch, with which revision
 	// — and it deserves testing on its own.
@@ -118,7 +118,7 @@ type Enqueuer interface {
 }
 
 // WithCatalog wires the chaining of the verifications.
-func (s *runSink) WithCatalog(pipelines *catalog.Catalog, registryProject string) *runSink {
+func (s *runSink) WithCatalog(pipelines catalog.Source, registryProject string) *runSink {
 	s.catalog = pipelines
 	s.registryProject = registryProject
 	return s
@@ -226,7 +226,7 @@ func (s *runSink) checkResultsContract(ctx context.Context, runID int64, run tek
 		s.logger.Error("family of a finished run", "run", run.Name, "job", run.JobID, "error", err)
 		return
 	}
-	if !s.catalog.Yields(job.Kind, catalog.ProductResults) {
+	if !catalog.Of(s.catalog).Yields(job.Kind, catalog.ProductResults) {
 		return
 	}
 
@@ -472,5 +472,5 @@ func (s *runSink) pipelineApplies(ctx context.Context, projectID int64, kind str
 }
 
 func (s *runSink) isVerificationKind(kind string) bool {
-	return s.catalog != nil && s.catalog.IsVerification(kind)
+	return s.catalog != nil && catalog.Of(s.catalog).IsVerification(kind)
 }

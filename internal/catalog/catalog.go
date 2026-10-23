@@ -712,6 +712,24 @@ func (c *Catalog) Concurrency() map[string]int {
 }
 
 // Find returns a kind's entry.
+// Source gives the catalogue in force. A catalogue is its own fixed source; the running dashboard
+// hands out one that changes when capabilities are installed or bound, and a reader takes it once
+// per operation so that the operation reads one catalogue throughout.
+type Source interface {
+	Current() *Catalog
+}
+
+// Current makes a catalogue its own, fixed, source.
+func (c *Catalog) Current() *Catalog { return c }
+
+// Of reads a source that may have been left unset: no source, no catalogue.
+func Of(source Source) *Catalog {
+	if source == nil {
+		return nil
+	}
+	return source.Current()
+}
+
 func (c *Catalog) Find(kind string) (Pipeline, bool) {
 	for _, pipeline := range c.Pipelines {
 		if pipeline.Kind == kind {

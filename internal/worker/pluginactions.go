@@ -49,7 +49,7 @@ type PluginActionStore interface {
 
 // PluginActionRunner carries out the actions the plugins declare.
 type PluginActionRunner struct {
-	registry *capabilities.Registry
+	registry capabilities.Source
 	store    PluginActionStore
 	secrets  SecretOpener
 	timeout  time.Duration
@@ -57,7 +57,7 @@ type PluginActionRunner struct {
 }
 
 func NewPluginActionRunner(
-	registry *capabilities.Registry, settings PluginActionStore, secrets SecretOpener,
+	registry capabilities.Source, settings PluginActionStore, secrets SecretOpener,
 	timeout time.Duration, logger *slog.Logger,
 ) *PluginActionRunner {
 	if timeout <= 0 {
@@ -76,7 +76,7 @@ func NewPluginActionRunner(
 func (r *PluginActionRunner) Run(
 	ctx context.Context, run store.PlanRun, geste plan.Geste,
 ) (*int64, error) {
-	descriptor, spec, found := r.registry.FindAction(geste.Ref)
+	descriptor, spec, found := capabilities.Of(r.registry).FindAction(geste.Ref)
 	if !found {
 		return nil, fmt.Errorf("no plugin declares the action %q", geste.Ref)
 	}

@@ -83,7 +83,7 @@ type ReleasePlanner interface {
 
 type ReleasesHandler struct {
 	store      ReleaseStore
-	catalog    *catalog.Catalog
+	catalog    catalog.Source
 	authorizer *auth.Authorizer
 	// plans opens a release's plan. Nil: no build leaves, and creation says so as a
 	// warning rather than announcing a release as building when it is not.
@@ -127,7 +127,7 @@ type ReleasesHandler struct {
 	// scoreCatalog serves the score, and for the same reason as in the tests handler: to
 	// name the family of a step that produced nothing. The list's badge and a release's
 	// screen must show the same figure, so they must start from the same catalogue.
-	scoreCatalog *catalog.Catalog
+	scoreCatalog catalog.Source
 }
 
 // WithExports wires whether a project's deliverables are switched on. Without it, they are.
@@ -213,7 +213,7 @@ func (h *ReleasesHandler) releasePromotions(ctx context.Context, projectID, rele
 // The weighting no longer comes from configuration but from the automation's steps,
 // frozen in each release's plan. The catalogue is still needed to name what a step
 // would have measured had it run.
-func (h *ReleasesHandler) WithScoreCatalog(registry *catalog.Catalog) *ReleasesHandler {
+func (h *ReleasesHandler) WithScoreCatalog(registry catalog.Source) *ReleasesHandler {
 	h.scoreCatalog = registry
 	return h
 }
@@ -276,7 +276,7 @@ func (h *ReleasesHandler) WithPlans(plans ReleasePlanner) *ReleasesHandler {
 }
 
 func NewReleasesHandler(
-	releases ReleaseStore, pipelines *catalog.Catalog,
+	releases ReleaseStore, pipelines catalog.Source,
 	authorizer *auth.Authorizer, images Images, artifacts Artifacts,
 	imageName, registryProject string,
 ) *ReleasesHandler {
@@ -366,13 +366,13 @@ func (h *ReleasesHandler) jobRole(kind string) (label, role string) {
 	if h.catalog == nil {
 		return "", ""
 	}
-	if pipeline, found := h.catalog.Find(kind); found {
+	if pipeline, found := catalog.Of(h.catalog).Find(kind); found {
 		label, kind = pipeline.Label, pipeline.Kind
 	}
 	switch {
 	case kind == catalog.KindBuild:
 		role = "build"
-	case h.catalog.IsVerification(kind):
+	case catalog.Of(h.catalog).IsVerification(kind):
 		role = "verification"
 	}
 	return label, role
@@ -490,7 +490,7 @@ func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *sco
 	if err != nil {
 		return nil
 	}
-	breakdown, err := computeScore(ctx, h.store, releaseID, reports, h.scoreCatalog)
+	breakdown, err := computeScore(ctx, h.store, releaseID, reports, catalog.Of(h.scoreCatalog))
 	if err != nil {
 		return nil
 	}
@@ -1049,7 +1049,7 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 // give a button that launches what the chain does not, or a chained family that cannot
 // be caught up without rebuilding the whole release.
 func (h *ReleasesHandler) verifiable(kind string) bool {
-	return h.catalog != nil && h.catalog.IsVerification(kind)
+	return h.catalog != nil && catalog.Of(h.catalog).IsVerification(kind)
 }
 
 // Verify re-runs a single verification family on a release.
@@ -1106,7 +1106,7 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pipeline, found := h.catalog.Find(kind)
+	pipeline, found := catalog.Of(h.catalog).Find(kind)
 	if !found {
 		writeProblem(w, http.StatusUnprocessableEntity, "Cannot rerun",
 			fmt.Sprintf("the catalogue declares no %q pipeline", kind))
@@ -1432,7 +1432,7 @@ func buildReference(record store.Release, requested string) string {
 func (h *ReleasesHandler) enqueueRetag(
 	ctx context.Context, projectID, releaseID int64, record store.Release, subject string,
 ) ([]int64, error) {
-	pipeline, found := h.catalog.Find(retagJobKind)
+	pipeline, found := catalog.Of(h.catalog).Find(retagJobKind)
 	if !found {
 		return nil, errors.New("catalogue with no re-tag pipeline")
 	}

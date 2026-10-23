@@ -180,7 +180,7 @@ func (h *AutomationsHandler) checkRoles(entry plan.Plan) error {
 						"is loaded", index+1))
 				continue
 			}
-			pipeline, found := h.catalog.Find(step.Ref)
+			pipeline, found := catalog.Of(h.catalog).Find(step.Ref)
 			if !found {
 				// Already reported by the reference check. Repeating it here would give two messages for
 				// one mistake.

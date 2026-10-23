@@ -115,6 +115,24 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 	return registry, nil
 }
 
+// Source gives the registry in force. A registry is its own fixed source; the running dashboard
+// hands out one that changes when plugins are installed, and a reader takes it once per
+// operation.
+type Source interface {
+	Current() *Registry
+}
+
+// Current makes a registry its own, fixed, source.
+func (r *Registry) Current() *Registry { return r }
+
+// Of reads a source that may have been left unset: no source, no registry.
+func Of(source Source) *Registry {
+	if source == nil {
+		return nil
+	}
+	return source.Current()
+}
+
 // ErrUnknown reports an id no plugin carries.
 var ErrUnknown = errors.New("unknown plugin")
 

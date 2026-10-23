@@ -48,7 +48,7 @@ type AvailabilitySink interface {
 type CapabilityReconciler struct {
 	installer ResourceInstaller
 	resources []pipelines.Resource
-	catalog   *catalog.Catalog
+	catalog   catalog.Source
 	cluster   catalog.Cluster
 	sink      AvailabilitySink
 	logger    *slog.Logger
@@ -59,7 +59,7 @@ type CapabilityReconciler struct {
 // checked, as on an instance whose pipelines someone else deploys.
 func NewCapabilityReconciler(
 	installer ResourceInstaller, resources []pipelines.Resource,
-	pipelines *catalog.Catalog, cluster catalog.Cluster, sink AvailabilitySink, logger *slog.Logger,
+	pipelines catalog.Source, cluster catalog.Cluster, sink AvailabilitySink, logger *slog.Logger,
 ) *CapabilityReconciler {
 	return &CapabilityReconciler{
 		installer: installer, resources: resources, catalog: pipelines,
@@ -88,7 +88,7 @@ func (r *CapabilityReconciler) Run(ctx context.Context) error {
 func (r *CapabilityReconciler) Settle(ctx context.Context) {
 	r.install(ctx)
 
-	unavailable, err := r.catalog.Availability(ctx, r.cluster)
+	unavailable, err := catalog.Of(r.catalog).Availability(ctx, r.cluster)
 	if err != nil {
 		// The previous answer stays published: a cluster briefly unreachable does not make every
 		// pipeline unavailable.

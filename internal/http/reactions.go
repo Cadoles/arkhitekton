@@ -59,21 +59,21 @@ type AutomationStore interface {
 // AutomationsHandler exposes the reactions and the editor's catalogue.
 type AutomationsHandler struct {
 	store    AutomationStore
-	catalog  *catalog.Catalog
-	registry *capabilities.Registry
+	catalog  catalog.Source
+	registry capabilities.Source
 	actions  action.Catalog
 	logger   *slog.Logger
 }
 
 func NewAutomationsHandler(
-	reactions AutomationStore, pipelines *catalog.Catalog, registry *capabilities.Registry, logger *slog.Logger,
+	reactions AutomationStore, pipelines catalog.Source, registry capabilities.Source, logger *slog.Logger,
 ) *AutomationsHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &AutomationsHandler{
 		store: reactions, catalog: pipelines, registry: registry,
-		actions: action.NewCatalog(registry.Plugins()), logger: logger,
+		actions: action.NewCatalog(registry.Current().Plugins()), logger: logger,
 	}
 }
 
@@ -276,7 +276,7 @@ func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	events := coreEventChoices()
-	for _, descriptor := range h.registry.Plugins() {
+	for _, descriptor := range capabilities.Of(h.registry).Plugins() {
 		// A fact whose plugin is switched off does not appear in the editor: a choice that would
 		// never trigger is worse than an absence.
 		if !settings[descriptor.ID].Enabled {
@@ -305,8 +305,8 @@ func (h *AutomationsHandler) Catalogue(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if h.catalog != nil {
-		for _, kind := range h.catalog.Kinds() {
-			pipeline, found := h.catalog.Find(kind)
+		for _, kind := range catalog.Of(h.catalog).Kinds() {
+			pipeline, found := catalog.Of(h.catalog).Find(kind)
 			if !found {
 				continue
 			}
@@ -467,10 +467,10 @@ func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan)
 				"kind %q cannot be checked: no catalogue is loaded", ref))
 			continue
 		}
-		if _, found := h.catalog.Find(ref); !found {
+		if _, found := catalog.Of(h.catalog).Find(ref); !found {
 			problems = append(problems, fmt.Errorf(
 				"kind %q is missing from the catalogue (declared: %s)",
-				ref, strings.Join(h.catalog.Kinds(), ", ")))
+				ref, strings.Join(catalog.Of(h.catalog).Kinds(), ", ")))
 		}
 	}
 	// The settings are read back here rather than passed from liveEventTypes: this path is a
@@ -535,7 +535,7 @@ func (h *AutomationsHandler) liveEventTypes(ctx context.Context, projectID int64
 	for _, choice := range coreEventChoices() {
 		types = append(types, choice.Type)
 	}
-	for _, descriptor := range h.registry.Plugins() {
+	for _, descriptor := range capabilities.Of(h.registry).Plugins() {
 		if !settings[descriptor.ID].Enabled {
 			continue
 		}

@@ -35,12 +35,12 @@ type ProjectPipelineStore interface {
 // ProjectPipelinesHandler exposes the registry and a project's decisions.
 type ProjectPipelinesHandler struct {
 	store   ProjectPipelineStore
-	catalog *catalog.Catalog
+	catalog catalog.Source
 	logger  *slog.Logger
 }
 
 func NewProjectPipelinesHandler(
-	pipelines ProjectPipelineStore, registry *catalog.Catalog, logger *slog.Logger,
+	pipelines ProjectPipelineStore, registry catalog.Source, logger *slog.Logger,
 ) *ProjectPipelinesHandler {
 	if logger == nil {
 		logger = slog.Default()
@@ -79,7 +79,7 @@ func (h *ProjectPipelinesHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	payload := make([]pipelineVw, 0)
 	if h.catalog != nil {
-		for _, pipeline := range h.catalog.Pipelines {
+		for _, pipeline := range catalog.Of(h.catalog).Pipelines {
 			entry, declared := decisions[pipeline.Kind]
 			// The absence of a decision means enabled: that is what keeps a project declared before
 			// this table receiving what it used to receive.
@@ -117,7 +117,7 @@ func (h *ProjectPipelinesHandler) Set(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusConflict, "Catalogue unavailable", "")
 		return
 	}
-	pipeline, found := h.catalog.Find(kind)
+	pipeline, found := catalog.Of(h.catalog).Find(kind)
 	if !found {
 		// Refused rather than recorded: a row for a non-existent kind would give a screen saying
 		// "disabled" about a pipeline nobody launches, and would hide the typo.

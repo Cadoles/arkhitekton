@@ -111,7 +111,7 @@ const minProbeInterval = time.Minute
 // ProbeRunner runs every project's probes.
 type ProbeRunner struct {
 	// registry gives each probe's plugin declaration, which says which fields are sealed.
-	registry *capabilities.Registry
+	registry capabilities.Source
 	store    ProbeStore
 	secrets  SecretOpener
 	probes   []Probe
@@ -130,7 +130,7 @@ func (r *ProbeRunner) WithDispatcher(dispatcher *Dispatcher) *ProbeRunner {
 }
 
 func NewProbeRunner(
-	registry *capabilities.Registry, probes ProbeStore, opener SecretOpener, interval time.Duration,
+	registry capabilities.Source, probes ProbeStore, opener SecretOpener, interval time.Duration,
 	logger *slog.Logger, registered ...Probe,
 ) *ProbeRunner {
 	if interval < minProbeInterval {
@@ -308,7 +308,7 @@ func (r *ProbeRunner) pollOne(ctx context.Context, probe Probe, project store.Pr
 func (r *ProbeRunner) openSecrets(
 	pluginID string, sealed map[string]string,
 ) (map[string]string, error) {
-	descriptor, err := r.registry.Plugin(pluginID)
+	descriptor, err := capabilities.Of(r.registry).Plugin(pluginID)
 	if err != nil {
 		return nil, err
 	}

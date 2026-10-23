@@ -80,7 +80,7 @@ type Scheduler struct {
 	pluginGate func(ctx context.Context, projectID *int64, plugin string) error
 	queue      Queue
 	cluster    *tekton.Client
-	catalog    *catalog.Catalog
+	catalog    catalog.Source
 	config     map[string]string
 	local      map[string]LocalTask
 	// uploads mints the presigned URLs. Nil when storage is not available: the runs then start
@@ -170,7 +170,7 @@ const (
 // NewSchedulerFromCatalog assembles the scheduler. `config` supplies the values of the
 // parameters whose source is `config`.
 func NewSchedulerFromCatalog(
-	queue Queue, cluster *tekton.Client, pipelines *catalog.Catalog,
+	queue Queue, cluster *tekton.Client, pipelines catalog.Source,
 	config map[string]string, logger *slog.Logger,
 ) *Scheduler {
 	return &Scheduler{
@@ -220,7 +220,7 @@ func (s *Scheduler) Handle(task LocalTask) {
 // locked` covers the rest — a double deployment launch in production cannot be undone.
 func (s *Scheduler) Run(ctx context.Context) error {
 	s.logger.Info("scheduler started",
-		"cap", s.catalog.MaxConcurrentRuns, "kinds", s.catalog.Kinds())
+		"cap", catalog.Of(s.catalog).MaxConcurrentRuns, "kinds", catalog.Of(s.catalog).Kinds())
 
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
@@ -261,9 +261,9 @@ func (s *Scheduler) Run(ctx context.Context) error {
 // values.
 func (s *Scheduler) limits(ctx context.Context) store.Limits {
 	limits := store.Limits{
-		PerKind: s.catalog.Concurrency(),
+		PerKind: catalog.Of(s.catalog).Concurrency(),
 		Default: catalog.DefaultKindConcurrency,
-		Global:  s.catalog.MaxConcurrentRuns,
+		Global:  catalog.Of(s.catalog).MaxConcurrentRuns,
 	}
 
 	overrides, err := s.queue.QueueLimits(ctx)
@@ -296,7 +296,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 		return true
 	}
 
-	pipeline, found := s.catalog.Find(job.Kind)
+	pipeline, found := catalog.Of(s.catalog).Find(job.Kind)
 	if !found {
 		// The catalogue changed between the queueing and the launch. Putting the job back in the queue
 		// would make it loop: better to conclude it as failed with a reason that names the cause.

@@ -48,12 +48,12 @@ type FactStore interface {
 type FactIngester struct {
 	store    FactStore
 	objects  Objects
-	registry *capabilities.Registry
+	registry capabilities.Source
 	logger   *slog.Logger
 }
 
 func NewFactIngester(
-	facts FactStore, objects Objects, registry *capabilities.Registry, logger *slog.Logger,
+	facts FactStore, objects Objects, registry capabilities.Source, logger *slog.Logger,
 ) *FactIngester {
 	return &FactIngester{store: facts, objects: objects, registry: registry, logger: logger}
 }
@@ -73,7 +73,7 @@ func (i *FactIngester) Ingest(ctx context.Context, runID int64) error {
 		// A run no capability reads (a Pipeline triggered outside the dashboard) has nothing to say.
 		return err
 	}
-	pipeline, plugin, _ := i.registry.Pipeline(ref)
+	pipeline, plugin, _ := capabilities.Of(i.registry).Pipeline(ref)
 
 	run := store.InterpretedRun{
 		RunID: snapshot.ID, ReleaseID: snapshot.ReleaseID,
@@ -148,10 +148,10 @@ func (i *FactIngester) capabilityOf(
 		if err != nil {
 			return capability.Ref{}, "", false, nil
 		}
-		_, _, found := i.registry.Pipeline(ref)
+		_, _, found := capabilities.Of(i.registry).Pipeline(ref)
 		return ref, job.PluginVersion, found, nil
 	}
-	ref, found := i.registry.ByPipelineRef(snapshot.Pipeline)
+	ref, found := capabilities.Of(i.registry).ByPipelineRef(snapshot.Pipeline)
 	return ref, "", found, nil
 }
 

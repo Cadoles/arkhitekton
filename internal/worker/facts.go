@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -150,7 +151,7 @@ func NewVerificationEngine(
 	// knowing the difference between a pipeline, which becomes a job, and an action, which leaves
 	// the cluster.
 	return NewEngine(plans, stepRouter{
-		pipelines: NewReleaseRunner(sink.catalog, sink.verification, logger),
+		pipelines: NewReleaseRunner(catalog.Of(sink.catalog), sink.verification, logger),
 		actions:   actions,
 	}, logger)
 }

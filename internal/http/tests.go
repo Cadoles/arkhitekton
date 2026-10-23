@@ -39,7 +39,7 @@ type TestsHandler struct {
 	// catalog serves to name the family of a step that produced nothing: without it, a
 	// pipeline that did not run would have neither signal nor default weight, and its cell
 	// would disappear instead of saying it is waiting.
-	catalog *catalog.Catalog
+	catalog catalog.Source
 	// attachments opens the files results keep. Nil: they are listed, not served.
 	attachments AttachmentObjects
 }
@@ -49,7 +49,7 @@ type TestsHandler struct {
 // The weighting is no longer received here: it is declared on the automation's steps, and
 // each release's frozen plan carries it. What remains of the catalogue's weighting is the
 // per-signal default.
-func NewTestsHandler(tests TestStore, registry *catalog.Catalog) *TestsHandler {
+func NewTestsHandler(tests TestStore, registry catalog.Source) *TestsHandler {
 	return &TestsHandler{store: tests, catalog: registry}
 }
 
@@ -208,7 +208,7 @@ func worstStatus(a, b string) string {
 func (h *TestsHandler) score(
 	ctx context.Context, releaseID int64, reports []store.TestResult,
 ) (results.Breakdown, error) {
-	return computeScore(ctx, h.store, releaseID, reports, h.catalog)
+	return computeScore(ctx, h.store, releaseID, reports, catalog.Of(h.catalog))
 }
 
 // scoreStore is what computing the score needs.

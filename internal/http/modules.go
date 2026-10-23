@@ -33,12 +33,12 @@ type PluginReader interface {
 
 // Modules says which modules are active.
 type Modules struct {
-	registry *capabilities.Registry
+	registry capabilities.Source
 	store    PluginReader
 	logger   *slog.Logger
 }
 
-func NewModules(registry *capabilities.Registry, reader PluginReader, logger *slog.Logger) *Modules {
+func NewModules(registry capabilities.Source, reader PluginReader, logger *slog.Logger) *Modules {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -56,7 +56,7 @@ func (m *Modules) Active(ctx context.Context) []string {
 		return []string{}
 	}
 	active := []string{}
-	for _, descriptor := range m.registry.Plugins() {
+	for _, descriptor := range capabilities.Of(m.registry).Plugins() {
 		if descriptor.HasCapability(capability.KindModule) && settings[descriptor.ID].Enabled {
 			active = append(active, descriptor.ID)
 		}
@@ -97,7 +97,7 @@ func (m *Modules) ActiveIn(ctx context.Context, projectID int64) []string {
 		return []string{}
 	}
 	active := []string{}
-	for _, descriptor := range m.registry.Plugins() {
+	for _, descriptor := range capabilities.Of(m.registry).Plugins() {
 		if !descriptor.HasCapability(capability.KindModule) || !settings[descriptor.ID].Enabled {
 			continue
 		}

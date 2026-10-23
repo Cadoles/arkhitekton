@@ -34,6 +34,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/connect"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/live"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse"
@@ -216,6 +217,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// The capabilities in force, read once per operation: what is installed or bound while the
+	// dashboard runs replaces them as a whole.
+	inForce := live.NewHolder(live.Snapshot{Registry: pluginRegistry, Catalog: pipelines})
 	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
 	// The sensitivity of the environments is declared in the catalogue and read by the MSE
 	// plugin. Logged: it is what decides who may promote where.
@@ -238,7 +242,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	authorizer := auth.NewAuthorizer(policies)
 	// The modules are read at each request: the switch is flipped from the administration screen,
 	// and reading it at start-up would make it lie until the next deployment.
-	modules := dashhttp.NewModules(pluginRegistry, db, logger)
+	modules := dashhttp.NewModules(inForce.Registries(), db, logger)
 	authHandler := dashhttp.NewAuthHandler(
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL),
 		cfg.OIDC.SessionTTL).
@@ -258,7 +262,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// `worker`, and the two processes have no meeting point other than MinIO and PostgreSQL.
 	logsHandler := dashhttp.NewLogsHandler(logs.NewReader(storage))
 
-	queueHandler := dashhttp.NewQueueHandler(db, pipelines).
+	queueHandler := dashhttp.NewQueueHandler(db, inForce.Catalogs()).
 		// The launch form's lists: release tags and published images. The registry's prefix comes
 		// from the same configuration as the one used to read the tags — deducing it elsewhere would
 		// make what is offered diverge from what is pulled.
@@ -284,10 +288,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	mseBackend := mse.NewBackend(db)
 
 	releasesHandler := dashhttp.NewReleasesHandler(
-		db, pipelines, authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project).
+		db, inForce.Catalogs(), authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project).
 		// The same weighting as the test manager: the list's badge and a release's screen display the
 		// same figure.
-		WithScoreCatalog(pipelines).
+		WithScoreCatalog(inForce.Catalogs()).
 		WithArtifactReader(db).
 		// The "deployed on" badge and the requested promotions: the core no longer reads the plugin's
 		// tables, which return nothing when it is switched off.
@@ -304,8 +308,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// and queues jobs, which this handler already did. The worker keeps exclusive charge of what
 		// **leaves** — creating the PipelineRuns — and of advancing concluded steps.
 		WithPlans(worker.NewReleasePlanner(
-			worker.NewEngine(db, worker.NewReleaseRunner(pipelines, db, logger), logger).
-				WithArtifacts(db, worker.ProductOf(pipelines)),
+			worker.NewEngine(db, worker.NewReleaseRunner(inForce.Catalogs(), db, logger), logger).
+				WithArtifacts(db, worker.ProductOf(inForce.Catalogs())),
 			pipelines, db, cfg.Registry.Project, logger))
 
 	// The MSE plugin's routes: targets, promotion, environments. Always mounted, and refused per
@@ -319,7 +323,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			releasesHandler, dashhttp.NewBenchHandler(db),
 			// The score's weighting comes from the catalogue: it was accepted by the client and stays
 			// adjustable without a redeployment.
-			dashhttp.NewTestsHandler(db, pipelines).WithAttachments(storage),
+			dashhttp.NewTestsHandler(db, inForce.Catalogs()).WithAttachments(storage),
 			// The project's tracker plugin composes the outgoing links. With none, the links are
 			// omitted rather than rendered broken.
 			dashhttp.NewVersionsHandler(db, connections),
@@ -335,16 +339,16 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// The cipher may be nil: with no key, the settings are read and enabled, only writing a
 			// sensitive field is refused — with a message that names the variable, in the place where one
 			// types it.
-			dashhttp.NewPluginsHandler(pluginRegistry, db, cipher, logger),
+			dashhttp.NewPluginsHandler(inForce.Registries(), db, cipher, logger),
 			// The same catalogue as the queue: the screen shows what the instance can launch, and a
 			// second load could show something else.
-			dashhttp.NewProjectPipelinesHandler(db, pipelines, logger),
+			dashhttp.NewProjectPipelinesHandler(db, inForce.Catalogs(), logger),
 			// The fact feed, read-only. Nothing reacts to it yet: it serves to answer "why did nothing
 			// happen?", a question that only makes sense once one can see what was actually observed.
 			dashhttp.NewEventsHandler(db),
 			// The same catalogue as the queue: the editor offers what the instance can launch, and a
 			// second load could offer something else.
-			dashhttp.NewAutomationsHandler(db, pipelines, pluginRegistry, logger),
+			dashhttp.NewAutomationsHandler(db, inForce.Catalogs(), inForce.Registries(), logger),
 			// What a reaction actually did. An engine one cannot debug is worse than frozen behaviour.
 			dashhttp.NewPlanRunsHandler(db),
 			middleware, mseHandler.Routes, mse.NewSignoffsHandler(mseBackend, logger).Routes),
@@ -450,6 +454,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
+	// The capabilities in force, read once per operation: what is installed or bound while the
+	// dashboard runs replaces them as a whole.
+	inForce := live.NewHolder(live.Snapshot{Registry: pluginRegistry, Catalog: pipelines})
 
 	// Checked against the cluster under the lease, once the capabilities' definitions are installed:
 	// checking here refused to start on a fresh cluster, before the dashboard could install them.
@@ -526,10 +533,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// Finished runs are read by the interpreter of the capability that launched them. A tool
 				// that did not conclude is told apart from a clean one by the run's state, which Tekton
 				// keeps even when the tool wrote nothing.
-				WithFactIngester(worker.NewFactIngester(db, objects, pluginRegistry, logger)).
+				WithFactIngester(worker.NewFactIngester(db, objects, inForce.Registries(), logger)).
 				// The catalogue makes it possible to chain the verifications of a successful build: without
 				// it, observation continues but a built release stays waiting for a test nothing launches.
-				WithCatalog(pipelines, resolved["registry.project"]).
+				WithCatalog(inForce.Catalogs(), resolved["registry.project"]).
 				// Without the database's identity, a run left in the cluster after a reset concludes the
 				// namesake job of the current database.
 				WithInstance(instance).
@@ -560,7 +567,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// precisely because elsewhere it is. The token is the plugin's, opened for the duration of
 				// the call.
 				WithPlugins(worker.NewPluginActionRunner(
-					pluginRegistry, db, cipher, cfg.Forge.Timeout, logger))
+					inForce.Registries(), db, cipher, cfg.Forge.Timeout, logger))
 			if cfg.Webhooks.AllowPrivate || cfg.Webhooks.AllowInsecure {
 				logger.Warn("outgoing calls widened",
 					"private_targets", cfg.Webhooks.AllowPrivate,
@@ -575,7 +582,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithStages(worker.NewReleaseLifecycle(db, logger)).
 				// What the steps produce, collected when they conclude and offered to the following stages
 				// under `{artifacts.<step>.<name>}`.
-				WithArtifacts(db, worker.ProductOf(pipelines))
+				WithArtifacts(db, worker.ProductOf(inForce.Catalogs()))
 			// The routing: what links an observed fact to the reactions a project declared. Without it,
 			// facts are written and nobody reacts to them.
 			dispatcher := worker.NewDispatcher(db, engine, logger)
@@ -587,7 +594,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 			// The settings the MSE plugin adds to a project's pipelines.
 			scheduler := worker.NewSchedulerFromCatalog(
-				db, cluster, pipelines, resolved, logger).
+				db, cluster, inForce.Catalogs(), resolved, logger).
 				WithUploads(storage).
 				WithInstance(instance).
 				WithPluginVersions(pluginVersions()).
@@ -664,7 +671,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			//
 			// A probe is queried only for the projects whose plugin is active, each at its own cadence,
 			// and its first pass triggers nothing — enabling something does not wake the past.
-			probes := worker.NewProbeRunner(pluginRegistry, db, cipher, cfg.Probes.Interval, logger,
+			probes := worker.NewProbeRunner(inForce.Registries(), db, cipher, cfg.Probes.Interval, logger,
 				// The tracker synchronisation is a probe too, one per tracker plugin: the common loop resolves
 				// its settings, unseals its key, keeps its cursor and isolates its failures.
 				append(worker.PluginProbes(pluginRegistry, cfg.Forge.Timeout),

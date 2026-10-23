@@ -193,13 +193,13 @@ func unresolvedArtifact(params map[string]string) string {
 // build the same runner: opening a release's plan is a write to the database, not scheduling.
 // The scheduler stays single, in the worker.
 type ReleaseRunner struct {
-	catalog *catalog.Catalog
+	catalog catalog.Source
 	queue   Enqueuer
 	logger  *slog.Logger
 }
 
 func NewReleaseRunner(
-	registry *catalog.Catalog, queue Enqueuer, logger *slog.Logger,
+	registry catalog.Source, queue Enqueuer, logger *slog.Logger,
 ) *ReleaseRunner {
 	if logger == nil {
 		logger = slog.Default()
@@ -217,7 +217,7 @@ func (r *ReleaseRunner) Run(
 			geste.Ref)
 	}
 
-	pipeline, found := r.catalog.Find(geste.Ref)
+	pipeline, found := catalog.Of(r.catalog).Find(geste.Ref)
 	if !found {
 		return nil, fmt.Errorf("kind %q missing from the catalogue", geste.Ref)
 	}
@@ -332,7 +332,7 @@ func (l *ReleaseLifecycle) StageSettled(
 // PipelineRuns — and of the advance.
 type ReleasePlanner struct {
 	engine      *Engine
-	catalog     *catalog.Catalog
+	catalog     catalog.Source
 	automations Automations
 	registry    string
 	logger      *slog.Logger
@@ -347,7 +347,7 @@ type Automations interface {
 }
 
 func NewReleasePlanner(
-	engine *Engine, registry *catalog.Catalog, automations Automations,
+	engine *Engine, registry catalog.Source, automations Automations,
 	registryProject string, logger *slog.Logger,
 ) *ReleasePlanner {
 	if logger == nil {
@@ -438,12 +438,12 @@ func (p *ReleasePlanner) declaredPlan(
 // pipeline that builds then tests returns two; keeping the first is enough to name the kind of
 // its artifacts, and choosing per artifact would require of the catalogue a declaration per
 // result that it does not carry.
-func ProductOf(registry *catalog.Catalog) func(ref string) string {
+func ProductOf(registry catalog.Source) func(ref string) string {
 	return func(ref string) string {
-		if registry == nil {
+		if registry == nil || registry.Current() == nil {
 			return ""
 		}
-		pipeline, found := registry.Find(ref)
+		pipeline, found := registry.Current().Find(ref)
 		if !found {
 			return ""
 		}

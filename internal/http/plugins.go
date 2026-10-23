@@ -49,7 +49,7 @@ type PluginStore interface {
 
 // PluginsHandler exposes the registry and its settings.
 type PluginsHandler struct {
-	registry *capabilities.Registry
+	registry capabilities.Source
 	store    PluginStore
 	// cipher seals the sensitive fields. Nil when no key is configured: reading stays
 	// possible, writing a sensitive field is refused with a message naming the missing
@@ -60,7 +60,7 @@ type PluginsHandler struct {
 }
 
 func NewPluginsHandler(
-	registry *capabilities.Registry, plugins PluginStore, cipher *secrets.Cipher, logger *slog.Logger,
+	registry capabilities.Source, plugins PluginStore, cipher *secrets.Cipher, logger *slog.Logger,
 ) *PluginsHandler {
 	if logger == nil {
 		logger = slog.Default()
@@ -140,8 +140,8 @@ func (h *PluginsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload := make([]pluginPayload, 0, len(h.registry.Plugins()))
-	for _, descriptor := range h.registry.Plugins() {
+	payload := make([]pluginPayload, 0, len(capabilities.Of(h.registry).Plugins()))
+	for _, descriptor := range capabilities.Of(h.registry).Plugins() {
 		entry := settings[descriptor.ID]
 		payload = append(payload, h.toPayload(descriptor, plugin.ScopeGlobal, entry, entry.Enabled))
 	}
@@ -251,7 +251,7 @@ func (h *PluginsHandler) Set(w http.ResponseWriter, r *http.Request) {
 // One of each per instance: a project's releases are tagged through one forge, and its versions
 // read from one tracker. Two enabled would leave the choice to the registry's order.
 func (h *PluginsHandler) rival(descriptor capability.Plugin, settings map[string]store.PluginSettings) string {
-	for _, other := range h.registry.Plugins() {
+	for _, other := range capabilities.Of(h.registry).Plugins() {
 		if other.ID == descriptor.ID || !settings[other.ID].Enabled {
 			continue
 		}
@@ -280,8 +280,8 @@ func (h *PluginsHandler) ProjectList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload := make([]pluginPayload, 0, len(h.registry.Plugins()))
-	for _, descriptor := range h.registry.Plugins() {
+	payload := make([]pluginPayload, 0, len(capabilities.Of(h.registry).Plugins()))
+	for _, descriptor := range capabilities.Of(h.registry).Plugins() {
 		if !descriptor.PerProject {
 			// What necessarily holds for the whole instance does not appear: a switch that would do
 			// nothing is worse than an absence.
@@ -383,7 +383,7 @@ func (h *PluginsHandler) ClearProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pluginID := strings.TrimSpace(r.PathValue("plugin"))
-	descriptor, err := h.registry.Plugin(pluginID)
+	descriptor, err := capabilities.Of(h.registry).Plugin(pluginID)
 	if err != nil {
 		writeProblem(w, http.StatusNotFound, "Unknown plugin", err.Error())
 		return
@@ -402,7 +402,7 @@ func (h *PluginsHandler) ClearProject(w http.ResponseWriter, r *http.Request) {
 
 // decode reads the plugin targeted and the request's body.
 func (h *PluginsHandler) decode(w http.ResponseWriter, r *http.Request) (capability.Plugin, pluginRequest, bool) {
-	descriptor, err := h.registry.Plugin(strings.TrimSpace(r.PathValue("plugin")))
+	descriptor, err := capabilities.Of(h.registry).Plugin(strings.TrimSpace(r.PathValue("plugin")))
 	if err != nil {
 		writeProblem(w, http.StatusNotFound, "Unknown plugin", err.Error())
 		return capability.Plugin{}, pluginRequest{}, false

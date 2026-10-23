@@ -46,7 +46,7 @@ type Releases interface {
 // QueueHandler exposes the queue and the launching.
 type QueueHandler struct {
 	queue   QueueStore
-	catalog *catalog.Catalog
+	catalog catalog.Source
 	// releases populates the tag lists. Nil-safe: without it the fields concerned stay
 	// free-text, which is the previous behaviour.
 	releases Releases
@@ -59,7 +59,7 @@ type QueueHandler struct {
 	environments func(ctx context.Context, projectSlug string) []Suggestion
 }
 
-func NewQueueHandler(queue QueueStore, pipelines *catalog.Catalog) *QueueHandler {
+func NewQueueHandler(queue QueueStore, pipelines catalog.Source) *QueueHandler {
 	return &QueueHandler{queue: queue, catalog: pipelines}
 }
 
@@ -182,8 +182,8 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 		overrides = map[string]int{}
 	}
 
-	queues := make([]queuePayload, 0, len(h.catalog.Pipelines)+len(order))
-	for _, pipeline := range h.catalog.Pipelines {
+	queues := make([]queuePayload, 0, len(catalog.Of(h.catalog).Pipelines)+len(order))
+	for _, pipeline := range catalog.Of(h.catalog).Pipelines {
 		queues = append(queues, h.toQueuePayload(
 			pipeline.Kind, pipelineLabel(pipeline), pipeline.Concurrency(),
 			true, overrides, byKind))
@@ -200,8 +200,8 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 		delete(byKind, kind)
 	}
 
-	kinds := make([]kindPayload, 0, len(h.catalog.Pipelines))
-	for _, pipeline := range h.catalog.Pipelines {
+	kinds := make([]kindPayload, 0, len(catalog.Of(h.catalog).Pipelines))
+	for _, pipeline := range catalog.Of(h.catalog).Pipelines {
 		inputs := make([]inputPayload, 0, len(pipeline.Params))
 		for _, input := range pipeline.Inputs() {
 			inputs = append(inputs, inputPayload{
@@ -221,7 +221,7 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 		"suggestions": h.suggestions(r.Context(), r.URL.Query().Get("project")),
 		// The global ceiling, across every queue. It prevails over the per-kind ones: without
 		// it, seven queues of five places would allow thirty-five simultaneous runs.
-		"max_concurrent": h.catalog.MaxConcurrentRuns,
+		"max_concurrent": catalog.Of(h.catalog).MaxConcurrentRuns,
 	})
 }
 
@@ -289,7 +289,7 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 	// One list per image declared by the catalogue, and not per image known to the code:
 	// two parameters that both want a reference do not expect the same one, and publishing
 	// one more image must not require a recompile.
-	for _, name := range h.catalog.SuggestedImages() {
+	for _, name := range catalog.Of(h.catalog).SuggestedImages() {
 		references := make([]option, 0, len(releases))
 		for _, release := range releases {
 			reference := imagenames.Reference(h.registryProject, name, release.Tag)
@@ -346,7 +346,7 @@ func (h *QueueHandler) toJobPayload(job store.Job, who actors) jobPayload {
 		QueueReason: job.QueueReason,
 		RunName:     job.RunName,
 	}
-	if pipeline, found := h.catalog.Find(job.Kind); found {
+	if pipeline, found := catalog.Of(h.catalog).Find(job.Kind); found {
 		entry.Label = pipelineLabel(pipeline)
 	}
 	return entry
@@ -490,7 +490,7 @@ func (h *QueueHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pipeline, found := h.catalog.Find(request.Kind)
+	pipeline, found := catalog.Of(h.catalog).Find(request.Kind)
 	if !found {
 		writeProblem(w, http.StatusBadRequest, "Unknown run type", request.Kind)
 		return
