@@ -31,6 +31,13 @@ const FileName = "arkhitekton-plugin.yaml"
 // MaxSize bounds a plugin's directory, every file counted.
 const MaxSize = 64 << 20
 
+// A plugin is distributed as an OCI artifact: an empty config of ConfigMediaType, and one layer of
+// LayerMediaType, the directory as a gzipped tar.
+const (
+	ConfigMediaType = "application/vnd.arkhitekton.plugin.config.v1+json"
+	LayerMediaType  = "application/vnd.arkhitekton.plugin.layer.v1.tar+gzip"
+)
+
 // Manifest is what an installable plugin says about itself.
 type Manifest struct {
 	APIVersion string `json:"apiVersion"`

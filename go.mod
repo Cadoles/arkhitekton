@@ -6,18 +6,22 @@ require (
 	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.0.0-00010101000000-000000000000
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/go-pdf/fpdf v0.9.0
+	github.com/google/go-containerregistry v0.21.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/minio/minio-go/v7 v7.2.1
+	github.com/opencontainers/go-digest v1.0.0
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/pressly/goose/v3 v3.27.3
 	github.com/tektoncd/pipeline v1.11.1
 	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/crypto v0.55.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.24.0
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
 	k8s.io/client-go v0.36.3
 	knative.dev/pkg v0.0.0-20260622140654-39ebae2ee2dc
+	oras.land/oras-go/v2 v2.6.4
 	sigs.k8s.io/yaml v1.6.0
 )
 
