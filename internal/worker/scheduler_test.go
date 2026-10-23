@@ -376,7 +376,7 @@ func TestALaunchRecordsThePluginVersion(t *testing.T) {
 	}}}
 	queue := &unavailableQueue{job: store.Job{ID: 6, Kind: "php/unit-tests", RunName: "mse-x-6"}}
 	scheduler := NewSchedulerFromCatalog(queue, nil, pipelines, nil, slog.New(slog.DiscardHandler)).
-		WithPluginVersions(map[string]string{"php": "1.0.0"})
+		WithPluginVersions(func(plugin string) string { return map[string]string{"php": "1.0.0"}[plugin] })
 
 	scheduler.dispatchOne(context.Background(), store.Limits{})
 

@@ -72,8 +72,8 @@ const uploadTTL = 6 * time.Hour
 
 // Scheduler turns the queued jobs into PipelineRuns.
 type Scheduler struct {
-	// versions gives, by plugin, the version a run is launched with.
-	versions map[string]string
+	// version gives a plugin's version in force, the one a run is launched with.
+	version func(plugin string) string
 	// availability says what the cluster cannot run, kept up to date by the capability reconciler.
 	availability availability
 	// pluginGate refuses a job whose plugin is switched off.
@@ -334,7 +334,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 				return true
 			}
 		}
-		if err := s.queue.RecordCapability(ctx, job.ID, pipeline.Capability, s.versions[plugin]); err != nil {
+		if err := s.queue.RecordCapability(ctx, job.ID, pipeline.Capability, s.pluginVersion(plugin)); err != nil {
 			s.logger.Error("recording the capability", "job", job.ID, "error", err)
 			s.retry(ctx, job.ID, err.Error())
 			return false
@@ -392,10 +392,18 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 	return true
 }
 
-// WithPluginVersions sets, by plugin, the version recorded on the jobs it launches.
-func (s *Scheduler) WithPluginVersions(versions map[string]string) *Scheduler {
-	s.versions = versions
+// WithPluginVersions sets how the version recorded on the jobs it launches is read: from the
+// plugins in force, which an update changes.
+func (s *Scheduler) WithPluginVersions(version func(plugin string) string) *Scheduler {
+	s.version = version
 	return s
+}
+
+func (s *Scheduler) pluginVersion(plugin string) string {
+	if s.version == nil {
+		return ""
+	}
+	return s.version(plugin)
 }
 
 // SetAvailability records what the cluster cannot run.

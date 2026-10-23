@@ -160,11 +160,22 @@ func boundResources(pipelines *catalog.Catalog, registry *capabilities.Registry)
 	return resources, nil
 }
 
-// pluginVersions gives, by plugin, the version of the built-in plugins.
-func pluginVersions() map[string]string {
+// pluginVersions gives, by plugin, the version a registry carries.
+func pluginVersions(registry *capabilities.Registry) map[string]string {
 	versions := map[string]string{}
-	for _, plugin := range builtin.Plugins() {
+	for _, plugin := range registry.Plugins() {
 		versions[plugin.ID] = plugin.Version
 	}
 	return versions
+}
+
+// pluginVersionIn reads a plugin's version from the registry in force at the moment of asking.
+func pluginVersionIn(registries capabilities.Source) func(plugin string) string {
+	return func(plugin string) string {
+		found, err := capabilities.Of(registries).Plugin(plugin)
+		if err != nil {
+			return ""
+		}
+		return found.Version
+	}
 }

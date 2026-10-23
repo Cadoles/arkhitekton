@@ -175,6 +175,34 @@ func TestALaunchedRunIsReadByItsCapability(t *testing.T) {
 	}
 }
 
+// After an update, a run launched by the earlier version is read by it, and says so.
+func TestARunIsReadByTheVersionThatLaunchedIt(t *testing.T) {
+	job := int64(3)
+	db := &factStore{
+		snapshots: map[int64]store.RunSnapshot{1: finished(1, "ark-x-php-unit-tests-3", "php-unit-tests", &job, nil,
+			store.TaskSnapshot{Name: "run-unit-tests", Status: "failed"})},
+		jobs: map[int64]store.Job{3: {ID: 3, Kind: "php/unit-tests", Capability: "php/unit-tests", PluginVersion: "1.0.0"}},
+	}
+	objects := memoryObjects{"raw/ark-x-php-unit-tests-3/unit-tests.tar.gz": tarball(t, map[string]string{
+		"test-results/unit/junit.xml": junitReport,
+	})}
+	registry := testRegistry(t, "phpunit")
+	earlier, _, _ := registry.Pipeline(capability.Ref{Plugin: "php", Name: "unit-tests"})
+	earlier.Interpreter = unitReader{tool: "phpunit-1"}
+	if err := registry.Retain(capability.Plugin{ID: "php", Version: "1.0.0", APIVersion: sdk.APIVersion,
+		Pipelines: []capability.Pipeline{earlier}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewFactIngester(db, objects, registry, slog.New(slog.DiscardHandler)).Ingest(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(db.saved) != 1 || db.saved[0].Producer.String() != "php@1.0.0" ||
+		len(db.saved[0].Sets) != 1 || db.saved[0].Sets[0].Tool != "phpunit-1" {
+		t.Errorf("saved = %+v", db.saved)
+	}
+}
+
 // The PipelineRun may end before its last TaskRun is recorded: reading then would take a task
 // still running for one that never ran.
 func TestARunIsReadOnlyOnceEveryTaskIsOver(t *testing.T) {

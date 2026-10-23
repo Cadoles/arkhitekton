@@ -73,7 +73,7 @@ func (i *FactIngester) Ingest(ctx context.Context, runID int64) error {
 		// A run no capability reads (a Pipeline triggered outside the dashboard) has nothing to say.
 		return err
 	}
-	pipeline, plugin, _ := capabilities.Of(i.registry).Pipeline(ref)
+	pipeline, plugin, _ := capabilities.Of(i.registry).PipelineAt(ref, version)
 
 	run := store.InterpretedRun{
 		RunID: snapshot.ID, ReleaseID: snapshot.ReleaseID,
@@ -88,8 +88,9 @@ func (i *FactIngester) Ingest(ctx context.Context, runID int64) error {
 
 	if pipeline.Interpreter != nil {
 		if version != "" && version != plugin.Version {
-			// A built-in plugin carries only its current interpretation. The run is read by it, and the
-			// producer says so, rather than claiming the version that launched it.
+			// A built-in plugin carries only its current interpretation, and an installed one its
+			// versions still installed. The run is read by the current one, and the producer says so,
+			// rather than claiming the version that launched it.
 			i.logger.Warn("run read by another plugin version than the one that launched it",
 				"run", snapshot.Name, "capability", ref.String(), "launched", version, "reading", plugin.Version)
 		}
@@ -148,7 +149,7 @@ func (i *FactIngester) capabilityOf(
 		if err != nil {
 			return capability.Ref{}, "", false, nil
 		}
-		_, _, found := capabilities.Of(i.registry).Pipeline(ref)
+		_, _, found := capabilities.Of(i.registry).PipelineAt(ref, job.PluginVersion)
 		return ref, job.PluginVersion, found, nil
 	}
 	ref, found := capabilities.Of(i.registry).ByPipelineRef(snapshot.Pipeline)

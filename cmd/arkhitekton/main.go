@@ -602,7 +602,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				db, cluster, inForce.Catalogs(), resolved, logger).
 				WithUploads(storage).
 				WithInstance(instance).
-				WithPluginVersions(pluginVersions()).
+				WithPluginVersions(pluginVersionIn(inForce.Registries())).
 				// The project's deploy key replaces the shared key when the run is composed. A project with
 				// no key of its own falls back to the shared one.
 				WithProjectKeys(db).
@@ -1028,7 +1028,7 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 		return fmt.Errorf("built-in plugins: %w", err)
 	}
 	reader := worker.NewFactIngester(db, worker.NewObjectStore(storage), capabilities, logger)
-	reprocessor := worker.NewReprocessor(db, reader, pluginVersions(), logger)
+	reprocessor := worker.NewReprocessor(db, reader, pluginVersions(capabilities), logger)
 
 	logger.Info("replay started",
 		"release", *releaseTag, "simulation", *dryRun, "scope",

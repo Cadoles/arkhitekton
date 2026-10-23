@@ -23,6 +23,9 @@ type Registry struct {
 	plugins   map[string]capability.Plugin
 	pipelines map[capability.Ref]capability.Pipeline
 	byTekton  map[string]capability.Ref
+	// earlier holds, by `plugin@version`, the versions an update left behind: they launch nothing,
+	// and read the runs they launched.
+	earlier map[string]capability.Plugin
 }
 
 // New gathers plugins and refuses an ambiguous set: two plugins with one ID, two pipelines
@@ -65,30 +68,9 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 				problems = append(problems, fmt.Errorf("capability %s declared twice", ref))
 				continue
 			}
-			// A pipeline reads its runs one way: in code, by declaration or in WebAssembly. The last two
-			// become its interpreter here, checked now rather than on the first run they would misread.
-			ways := 0
-			for _, present := range []bool{pipeline.Interpreter != nil, len(pipeline.Reading) > 0, len(pipeline.Module) > 0} {
-				if present {
-					ways++
-				}
-			}
-			switch {
-			case ways > 1:
-				problems = append(problems, fmt.Errorf("capability %s reads its runs more than one way", ref))
-			case len(pipeline.Reading) > 0:
-				declared, err := declarative.Compile(pipeline.Reading, pipeline.Spec)
-				if err != nil {
-					problems = append(problems, fmt.Errorf("capability %s: %w", ref, err))
-				}
-				pipeline.Interpreter = declared
-			case len(pipeline.Module) > 0:
-				module, err := wasm.Load(context.Background(), ref.String(), pipeline.Module, wasm.DefaultLimits, nil)
-				if err != nil {
-					problems = append(problems, fmt.Errorf("capability %s: %w", ref, err))
-				} else {
-					pipeline.Interpreter = module
-				}
+			pipeline, ways, err := prepared(ref, pipeline)
+			if err != nil {
+				problems = append(problems, err)
 			}
 			registry.pipelines[ref] = pipeline
 			if ways == 0 && produces(pipeline.Spec, capability.ProductResults) {
@@ -113,6 +95,64 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 		return nil, err
 	}
 	return registry, nil
+}
+
+// prepared turns a declared reading or a module into the pipeline's interpreter, and says in how
+// many ways the pipeline reads its runs.
+func prepared(ref capability.Ref, pipeline capability.Pipeline) (capability.Pipeline, int, error) {
+	// A pipeline reads its runs one way: in code, by declaration or in WebAssembly. The last two
+	// become its interpreter here, checked now rather than on the first run they would misread.
+	ways := 0
+	for _, present := range []bool{pipeline.Interpreter != nil, len(pipeline.Reading) > 0, len(pipeline.Module) > 0} {
+		if present {
+			ways++
+		}
+	}
+	switch {
+	case ways > 1:
+		return pipeline, ways, fmt.Errorf("capability %s reads its runs more than one way", ref)
+	case len(pipeline.Reading) > 0:
+		declared, err := declarative.Compile(pipeline.Reading, pipeline.Spec)
+		if err != nil {
+			return pipeline, ways, fmt.Errorf("capability %s: %w", ref, err)
+		}
+		pipeline.Interpreter = declared
+	case len(pipeline.Module) > 0:
+		module, err := wasm.Load(context.Background(), ref.String(), pipeline.Module, wasm.DefaultLimits, nil)
+		if err != nil {
+			return pipeline, ways, fmt.Errorf("capability %s: %w", ref, err)
+		}
+		pipeline.Interpreter = module
+	}
+	return pipeline, ways, nil
+}
+
+// Retain keeps earlier versions of the plugins the registry carries, to read the runs they
+// launched. Called while the registry is built, before anyone reads it.
+func (r *Registry) Retain(plugins ...capability.Plugin) error {
+	var problems []error
+	for _, plugin := range plugins {
+		current, carried := r.plugins[plugin.ID]
+		if !carried || current.Version == plugin.Version {
+			problems = append(problems, fmt.Errorf("plugin %s@%s: not an earlier version of a plugin carried", plugin.ID, plugin.Version))
+			continue
+		}
+		pipelines := make([]capability.Pipeline, 0, len(plugin.Pipelines))
+		for _, pipeline := range plugin.Pipelines {
+			prepared, _, err := prepared(capability.Ref{Plugin: plugin.ID, Name: pipeline.Name}, pipeline)
+			if err != nil {
+				problems = append(problems, fmt.Errorf("plugin %s@%s: %w", plugin.ID, plugin.Version, err))
+				continue
+			}
+			pipelines = append(pipelines, prepared)
+		}
+		plugin.Pipelines = pipelines
+		if r.earlier == nil {
+			r.earlier = map[string]capability.Plugin{}
+		}
+		r.earlier[plugin.ID+"@"+plugin.Version] = plugin
+	}
+	return errors.Join(problems...)
 }
 
 // Source gives the registry in force. A registry is its own fixed source; the running dashboard
@@ -200,10 +240,23 @@ func (r *Registry) Refs() []capability.Ref {
 	return refs
 }
 
-// Interpreter returns the interpreter of a capability, provided the plugin is still at the version
-// that recorded the run.
+// PipelineAt returns a capability as the version that launched a run declared it, when that
+// version is carried or retained, and as the current version otherwise.
+func (r *Registry) PipelineAt(ref capability.Ref, version string) (capability.Pipeline, capability.Plugin, bool) {
+	if earlier, retained := r.earlier[ref.Plugin+"@"+version]; retained {
+		for _, pipeline := range earlier.Pipelines {
+			if pipeline.Name == ref.Name {
+				return pipeline, earlier, true
+			}
+		}
+	}
+	return r.Pipeline(ref)
+}
+
+// Interpreter returns the interpreter of a capability, provided the version that recorded the run
+// is carried or retained.
 func (r *Registry) Interpreter(ref capability.Ref, version string) (capability.Interpreter, error) {
-	pipeline, plugin, found := r.Pipeline(ref)
+	pipeline, plugin, found := r.PipelineAt(ref, version)
 	if !found {
 		return nil, fmt.Errorf("capability %s: unknown", ref)
 	}

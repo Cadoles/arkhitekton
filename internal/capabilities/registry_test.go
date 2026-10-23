@@ -115,3 +115,42 @@ type noReading struct{}
 func (noReading) Interpret(context.Context, capability.RunState, []parse.Record) ([]facts.Set, error) {
 	return nil, nil
 }
+
+// An update leaves the earlier version behind to read the runs it launched; it launches nothing.
+func TestAnEarlierVersionReadsTheRunsItLaunched(t *testing.T) {
+	unit := func(interpreter capability.Interpreter) []capability.Pipeline {
+		return []capability.Pipeline{{Name: "unit", Interpreter: interpreter, Spec: capability.PipelineSpec{
+			PipelineRef: "go-unit", Produces: []capability.Product{capability.ProductResults}}}}
+	}
+	earlier, current := version("1.0.0"), version("1.0.1")
+	registry, err := New(capability.Plugin{ID: "go", Version: "1.0.1", APIVersion: sdk.APIVersion, Pipelines: unit(current)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Retain(capability.Plugin{ID: "go", Version: "1.0.0", APIVersion: sdk.APIVersion, Pipelines: unit(earlier)}); err != nil {
+		t.Fatal(err)
+	}
+
+	ref := capability.Ref{Plugin: "go", Name: "unit"}
+	for recorded, expected := range map[string]capability.Interpreter{"1.0.0": earlier, "1.0.1": current} {
+		if interpreter, err := registry.Interpreter(ref, recorded); err != nil || interpreter != expected {
+			t.Errorf("a run launched by %s read by %v, %v", recorded, interpreter, err)
+		}
+	}
+	if _, plugin, _ := registry.Pipeline(ref); plugin.Version != "1.0.1" {
+		t.Errorf("launched by %s", plugin.Version)
+	}
+	if _, err := registry.Interpreter(ref, "0.9.0"); !errors.Is(err, ErrVersionDrift) {
+		t.Errorf("a version neither carried nor retained: %v", err)
+	}
+	if err := registry.Retain(capability.Plugin{ID: "other", Version: "1", APIVersion: sdk.APIVersion}); err == nil {
+		t.Error("an earlier version of a plugin not carried retained")
+	}
+}
+
+// version is an interpreter told apart by its version.
+type version string
+
+func (version) Interpret(context.Context, capability.RunState, []parse.Record) ([]facts.Set, error) {
+	return nil, nil
+}
