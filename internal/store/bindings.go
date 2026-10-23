@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // CapabilityBinding is a binding an administrator recorded, kept as the JSON the catalogue reads.
@@ -57,12 +59,21 @@ func (db *DB) CapabilityVersion(ctx context.Context) (int64, error) {
 
 // changeCapabilities applies a change to bindings or installations and moves the counter with it.
 func (db *DB) changeCapabilities(ctx context.Context, statement string, args ...any) error {
+	return db.changeCapabilitiesWith(ctx, func(transaction pgx.Tx) error {
+		_, err := transaction.Exec(ctx, statement, args...)
+		return err
+	})
+}
+
+// changeCapabilitiesWith runs a change of several statements and moves the counter, in one
+// transaction: a reload must see the change whole or not at all.
+func (db *DB) changeCapabilitiesWith(ctx context.Context, change func(pgx.Tx) error) error {
 	transaction, err := db.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
-	if _, err := transaction.Exec(ctx, statement, args...); err != nil {
+	if err := change(transaction); err != nil {
 		return fmt.Errorf("changing capabilities: %w", err)
 	}
 	if _, err := transaction.Exec(ctx, `update capability_state set version = version + 1`); err != nil {
