@@ -16,9 +16,11 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/host"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
@@ -133,6 +135,25 @@ func Interpret(t *testing.T, plugin capability.Plugin, pipeline string, run capa
 		}
 	}
 	return sets
+}
+
+// Catalogue loads a catalogue file as a distribution with these extensions reads it: against the
+// built-in plugins and the extensions'.
+func Catalogue(t *testing.T, path string, extensions ...host.Extension) *host.Catalog {
+	t.Helper()
+	plugins := builtin.Plugins()
+	for _, extension := range extensions {
+		plugins = append(plugins, extension.Plugin)
+	}
+	registry, err := capabilities.New(plugins...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := catalog.Load(path, catalog.WithCapabilities(registry))
+	if err != nil {
+		t.Fatalf("catalogue %s: %v", path, err)
+	}
+	return loaded
 }
 
 // CheckReading reads a recorded case with a declared reading, as `arkhitekton check-reading`
