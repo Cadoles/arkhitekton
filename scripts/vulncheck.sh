@@ -81,11 +81,11 @@ fi
 
 # The identifiers that actually affect the code called. The "Symbol Results" section precedes
 # them; what follows concerns only modules that are required but not called, and has never
-# failed this job.
+# failed this job. Space-separated: the membership tests below look for ` id `.
 found=$(printf '%s\n' "$output" \
     | sed -n '/=== Symbol Results ===/,/^Your code is affected\|^No vulnerabilities found/p' \
     | grep -oE 'GO-[0-9]{4}-[0-9]+' \
-    | sort -u)
+    | sort -u | tr '\n' ' ')
 
 blocking=""
 for id in $found; do
