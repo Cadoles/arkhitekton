@@ -149,13 +149,8 @@ Plugin settings live in the database and are edited from the interface. These va
 seed them at first start-up, and **only what is missing**: a value changed from the
 administration screen is not overwritten by the next restart.
 
-| Variable | Seeds |
-|---|---|
-| `FORGE_MSE_KUSTOM_REPO_URL` | MSE plugin: the GitOps repository |
-| `FORGE_MSE_KUSTOM_REVISION` | MSE plugin: its branch |
-| `FORGE_E2E_REPO_URL` | MSE plugin: the end-to-end test repository |
-| `MSE_OVERLAY_LOCATION` | MSE plugin: the overlay path inside the GitOps repository |
-| `FLUX_NAMESPACE` (default `flux-system`) | Namespace where Flux objects are read |
+An extension compiled into a distribution reads its own variables for this, and documents
+them.
 
 `MSE_DOCKERFILE` and `MSE_BUILD_CONTEXT` seed the first project's build settings, which
 the project then owns.

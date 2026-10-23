@@ -122,21 +122,11 @@ Secret fields inside `config` are sealed with `SECRETS_KEY`; the API never retur
 One version of a plugin is active at a time, and a version is installed once (partial unique
 indexes). A removed installation stays, for the record.
 
-## 8.9 Tables owned by the MSE plugin
+## 8.9 Tables owned by extensions
 
-These live in the same database but under the plugin's own migration history
-(`goose_mse_db_version`), and are absent from the core's schema:
-
-| Table | Purpose |
-|---|---|
-| `environments` | Declared environments per project: `rank`, `namespace`, `deployer_settings`, `observable`, `visible`, `security_policy` |
-| `environment_observations` | What each environment runs: `declared_state` (what Flux applied), `portal_version` and `migration_state` (what the application attests), `resolution`, `git_tag`, `git_commit` |
-| `image_promotions` | One row per promotion: `release_id`, `environment_id`, `image_name`, `tag`, `digest`, `job_id` |
-| `release_signoffs` | Per environment sign-off on a release: `role`, `status`, `detail`, `decided_by` |
-
-`resolution` is the hierarchy of evidence: `unobservable` (nothing can be asserted),
-`declared` (Flux applied it), `attested` (the application reports it running with its
-migrations done). Only the last one justifies saying "deployed".
+An extension's tables live in the same database under its own migration history
+(`goose_<id>_db_version` by convention), and are absent from the core's schema. They may refer
+to the core's tables; the core's never refer to theirs. The extension documents them.
 
 ## 8.10 Object store layout
 

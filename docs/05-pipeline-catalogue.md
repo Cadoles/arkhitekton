@@ -30,7 +30,7 @@ plugin.
 ## 5.2 Binding a capability
 
 ```yaml
-- ref: mse/integration-tests # plugin/capability
+- ref: php/unit-tests       # plugin/capability
   verification: true         # (optional) overrides the capability's default
   maxConcurrent: 1           # (optional) overrides the capability's default ceiling
   timeout: 45m               # (optional)
@@ -43,8 +43,8 @@ plugin.
 The order of the entries is the order in which a build chains its verifications.
 
 The built-in plugins bring `core/build`, `core/retag`, `php/static-tests`, `php/unit-tests`,
-`mse/integration-tests`, `mse/e2e-tests`, `security/security-audit` and `k6/load` (observed,
-not launched). Their Tekton definitions are installed by the dashboard when the capability
+`security/security-audit` and `k6/load` (observed, not launched); an extension compiled into a
+distribution brings its own. Their Tekton definitions are installed by the dashboard when the capability
 ships them, or provided by the operator otherwise.
 
 A binding naming a capability no plugin brings, or a parameter, a need or a volume the
@@ -72,7 +72,7 @@ The catalogue only rebinds `binding` parameters to another key:
 
 ```yaml
 params:
-  mse-repo: { key: forge.mse.repoUrl }
+  repo-url: { key: project.repoUrl }
 ```
 
 An `input` carries form metadata (`label`, `help`, `placeholder`) and a `suggest` that names
@@ -93,9 +93,7 @@ what lets an automation fill a parameter with nobody typing. It never constrains
 | `minio.host`, `minio.pipelineBucket` | Object store as pipelines reach it |
 | `forge.status` | Forge base URL used to report commit status |
 
-A plugin adds its own keys, resolved per project: the MSE plugin contributes
-`forge.mseKustom.repoUrl`, `forge.mseKustom.revision`, `forge.e2e.repoUrl` and
-`mse.overlayLocation`. A required parameter that nothing resolves makes the enqueue fail,
+An extension adds its own keys, resolved per project, and documents them. A required parameter that nothing resolves makes the enqueue fail,
 naming the key, rather than starting a run that would act somewhere else.
 
 ## 5.4 Needs, volumes and uploads
@@ -114,7 +112,7 @@ needs:
   cluster-deploy: { serviceAccountName: tekton-kubectl }
   source-read:    { secret: { configKey: project.deployKeySecret } }
 volumes:
-  mse: { storageClassName: standard, storage: 2Gi }
+  shared-data: { storageClassName: standard, storage: 2Gi }
 ```
 
 A secret is named directly (`secretName`) or through a config key (`configKey`). A pipeline

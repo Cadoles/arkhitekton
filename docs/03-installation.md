@@ -19,14 +19,13 @@
 | Issue tracker (Redmine) | Versions and issues are created locally instead of mirrored |
 | Forge API (Gitea) | The release form accepts free-text refs instead of suggesting branches and tags |
 | Container registry | Image digests and tags are not shown |
-| Flux | The MSE plugin cannot observe or promote; disable the plugin |
 
 ## 3.2 What gets deployed
 
 The manifests under `deploy/base` create, in one namespace:
 
-- a `ServiceAccount` and three RBAC bindings — a `Role` for the leader `Lease`, one in the
-  Tekton namespace, one for Flux (see [09 §9.4](09-security.md#94-kubernetes-rbac));
+- a `ServiceAccount` and two RBAC bindings — a `Role` for the leader `Lease`, one in the
+  Tekton namespace (see [09 §9.4](09-security.md#94-kubernetes-rbac));
 - a `Job` that runs `migrate` before the rest starts;
 - two `Deployment`s: `api` (replicated) and `worker` (single active);
 - a `Service` and an `Ingress`;

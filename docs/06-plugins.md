@@ -94,8 +94,7 @@ Each stored result names the plugin version that read it, its shape and its grou
 readable when the plugin changes or goes. A replay reads a run again with the same reading, and
 refuses one another version read unless asked.
 
-The built-in plugins are `core` (build, re-tag), `php` (static analysis, unit tests), `mse`
-(integration and end-to-end tests), `security` (the merged security audit), `k6` (load
+The built-in plugins are `core` (build, re-tag), `php` (static analysis, unit tests), `security` (the merged security audit), `k6` (load
 campaigns, observed rather than launched), `redmine` (tracker), `gitea` (forge) and
 `bon-de-livraison` (the delivery note).
 
@@ -103,7 +102,7 @@ campaigns, observed rather than launched), `redmine` (tracker), `gitea` (forge) 
 
 A capability whose runs produce test cases can declare its reading instead of coding it:
 `capability.Pipeline.Reading` carries YAML the dashboard executes, checked when the plugin is
-loaded. `php/static-tests`, `php/unit-tests` and `mse/integration-tests` are read this way
+loaded. `php/static-tests` and `php/unit-tests` are read this way
 (`internal/plugins/*/readings/`). A pipeline reads its runs in code or by declaration, never
 both.
 
@@ -280,8 +279,8 @@ The interface hides the screens the same way, from the same source of truth.
 ## 6.8 Events and actions
 
 A plugin may declare **events** it emits and **actions** it offers. Both are named by a
-suffix, which the core prefixes with the plugin id — the MSE plugin's `release.promoted`
-becomes the event type `mse.release.promoted`. Prefixing is not decoration: two plugins may both have
+suffix, which the core prefixes with the plugin id — a plugin `deploy`'s `release.promoted`
+becomes the event type `deploy.release.promoted`. Prefixing is not decoration: two plugins may both have
 something to say about "deployed".
 
 An event declares the shape of its payload; an action declares the fields it takes, any
@@ -301,26 +300,22 @@ off, or editing its settings, applies within thirty seconds, without a restart. 
 fails is started again at the next tick; the worker keeps running.
 
 A plugin that needs tables owns them. An extension carries its own migrations and its own
-version table (MSE's is `goose_mse_db_version`), applied by the same `migrate` role after the
-core's, and the dashboard adds its readiness check (`schema-mse`). The core's schema does not mention the plugin's tables,
+version table (`goose_<id>_db_version` by convention), applied by the same `migrate` role after
+the core's, and the dashboard adds its readiness check (`schema-<id>`). The core's schema does not mention the plugin's tables,
 and dropping the plugin means dropping its migrations — not editing the core's history.
 
-## 6.10 The MSE plugin
+## 6.10 Environments and deployment
 
-The reference implementation of an extension (§6.13). Besides its pipeline capabilities, it
-adds:
+The core knows a project's **environments**, declared per project in the catalogue (doc 05
+§5.5) with their rank, namespace, visibility, observability and sensitivity, and the
+`deploy:<environment>` permission they derive (doc 09 §9.3). It does not deploy anything
+itself: re-tagging an image (`core/retag`) is the only promotion it can launch.
 
-- **environments**, declared per project in the catalogue, with their rank, namespace,
-  visibility, observability and sensitivity;
-- **promotion**: re-tagging an image so that a GitOps controller picks it up, subject to
-  the deploy permission of the target environment;
-- **observation**: what each environment actually runs, read from Flux (what was applied)
-  and from the application itself (what is running, and whether its migrations
-  succeeded) — an intention and a fact, kept distinct;
-- **sign-offs** per environment on a release.
-
-It is enabled per project. An instance where no project enables it behaves as if it did
-not exist: the worker opens neither Flux nor the portal's CRD.
+How a promotion reaches an environment, how the dashboard learns what an environment actually
+runs, and who signs a release off are one way of deploying, brought by an extension (§6.13):
+its hooks tell the release screen which environments run a release, list its promotions,
+suggest environments to a run, refuse a version scheme it cannot deploy, and state the fact of
+a concluded promotion. A distribution without such an extension shows no deployment.
 
 ## 6.11 Writing a plugin
 
@@ -462,7 +457,7 @@ import "forge.cadoles.com/vcarroy/arkhitekton/app"
 func main() {
     app.Main(app.Options{
         Version: version, Revision: revision,
-        Extensions: []host.Extension{mse.Extension()},
+        Extensions: []host.Extension{acme.Extension()},
         UI:         web.Dist, // the interface built with the extension's screens
     })
 }

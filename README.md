@@ -46,7 +46,7 @@ store. See [docs/02 — Architecture](docs/02-architecture.md).
 | OIDC provider | Gitea is the reference; any compliant issuer works |
 
 Optional, each degrading one feature rather than blocking start-up: an issue tracker
-(Redmine), the forge API (Gitea), a container registry, and Flux for the GitOps plugin.
+(Redmine), the forge API (Gitea), and a container registry.
 
 ## Installing
 

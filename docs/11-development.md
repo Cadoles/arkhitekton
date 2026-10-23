@@ -15,7 +15,6 @@
       plugin/             plugin descriptors and the registry
       capability/, facts/, parse/   the contract plugins compile against
       plugins/            the built-in plugins, and builtin/ which assembles them
-      mse/                the MSE extension, written against host/ only
       results/            the quality score
       tekton/, gitea/, redmine/, registry/, blob/   external systems
       web/                the embedded interface build output
@@ -72,7 +71,6 @@ that reads it.
 
 ## 11.5 Local cluster
 
-    make dev-prereqs   # Flux CRDs and the development Flux objects
     make deploy        # build, load into kind, render and apply the local overlay
     make logs          # follow the API logs
     make undeploy      # remove it; the namespace takes the volumes with it

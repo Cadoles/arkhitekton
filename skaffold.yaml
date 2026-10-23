@@ -66,8 +66,8 @@ deploy:
 
   kubectl:
     # No `defaultNamespace`: it would pass `--namespace` to kubectl, which then refuses any object
-    # declaring another namespace. The overlay covers five — arkhitekton, flux-system, mse-dev,
-    # mse-tekton-pipelines, and one cluster-scoped object — because each manifest carries its own.
+    # declaring another namespace. The overlay covers three — arkhitekton, mse-tekton-pipelines,
+    # and one cluster-scoped object — because each manifest carries its own.
     #
     # It is the same reason that forbids a `namespace:` transformer in `deploy/base`: there it would
     # silently move the cross-namespace Role, here it fails the deployment. The second case is the

@@ -37,7 +37,7 @@ MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := arkhitekton-test
 
 .PHONY: help build example-plugin test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
-        web web-install web-dev web-check dev-prereqs image image-push kind-load manifests deploy undeploy logs
+        web web-install web-dev web-check image image-push kind-load manifests deploy undeploy logs
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | expand -t24
@@ -159,14 +159,6 @@ web-check: ## Typage, analyse statique et tests de l'interface
 	npm --prefix $(WEB) run typecheck
 	npm --prefix $(WEB) run lint
 	npm --prefix $(WEB) run test
-
-# --- Development environment --------------------------------------------------
-
-# Flux CRDs and development objects, with no controller at all. The PortalData CRD belongs to
-# the `mse` repository and is not copied here: the target fails saying how to install it rather
-# than shipping a copy that would diverge.
-dev-prereqs: ## Installs the Flux CRDs and the development Flux objects
-	./hack/dev-prereqs/install-crds.sh
 
 # --- Image and deployment -----------------------------------------------------
 

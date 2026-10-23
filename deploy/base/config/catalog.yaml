@@ -15,7 +15,7 @@
 # with that reason.
 
 # Deployment environments, per project, in their promotion order: declared here by an instance
-# whose distribution promotes (the MSE extension's component does, docs/06-plugins.md §6.13).
+# whose distribution deploys, usually from the extension's own component (docs/06-plugins.md §6.10).
 #
 # projects:
 #   my-project:

@@ -1,9 +1,0 @@
-# The same name as in production: the Flux objects live there, and the dashboard looks for them
-# there. A different namespace locally would route the lookup through a configuration variable
-# that exists only for development.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: flux-system
-  labels:
-    app.kubernetes.io/part-of: flux

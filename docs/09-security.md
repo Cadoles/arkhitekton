@@ -45,7 +45,7 @@ lower. A typo in a promotion target cannot widen access.
 
 ## 9.4 Kubernetes RBAC
 
-Three narrow roles, and the shape of each is the point.
+Two narrow roles, and the shape of each is the point.
 
 **Leader lease**, in the dashboard's own namespace: `get`, `create`, `update` on
 `coordination.k8s.io/leases`. Nothing else, and nowhere else.
@@ -71,8 +71,8 @@ secrets, it never reads them.** It can create the secret a pipeline will mount a
 it afterwards, and it cannot read that secret's contents — nor any other secret in the
 namespace.
 
-**Flux namespace:** read-only on `imagepolicies`, `imagerepositories`,
-`imageupdateautomations`, `kustomizations` and `gitrepositories`.
+An extension that reads the cluster brings its own roles with its deployment component, and
+documents them.
 
 ## 9.5 Pod hardening
 

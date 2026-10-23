@@ -58,7 +58,7 @@ leadership term, and the loops restart on the next one.
 | **key reconciler** | on tick | Keeps each project's deploy-key secret in sync with what the project declares |
 | **capability reconciler** | at election, then on tick | Installs the bound capabilities' pipeline definitions, leaving foreign ones alone, then checks what the cluster can run; a pipeline it cannot run is refused with the reason |
 | **probes** | `PROBE_INTERVAL` | Polls the tracker and the forge for facts (merged pull requests, reviewed versions) and dispatches reactions |
-| **environments** | 30 s, MSE plugin only | Observes what each environment actually runs |
+| **modules** | 30 s | Runs the modules an extension brings, while their plugin is switched on ([06 §6.9](06-plugins.md#69-modules)) |
 
 ## 2.4 What talks to what
 

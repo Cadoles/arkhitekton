@@ -9,7 +9,6 @@ resources:
   - resources/minio.yaml
   - resources/minio-bucket.yaml
   # Observation de l'environnement applicatif local.
-  - resources/rbac-observer.yaml
 
 # The pipelines' credentials, to exercise the chain on a test repository.
 #

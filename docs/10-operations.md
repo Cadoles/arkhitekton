@@ -13,8 +13,8 @@ database to carry the migrations its own build expects, and exits if it does not
 that started against an older schema would fail later, in a request, instead of at
 deployment time.
 
-**A plugin owns its migrations.** The MSE plugin keeps its own history in
-`goose_mse_db_version`, applied by the same command and waited on the same way. The
+**An extension owns its migrations.** It keeps its own history in its own version table,
+applied by the same command and waited on the same way. The
 core's migration history never mentions plugin tables.
 
 Rolling back is a plugin-level or core-level operation on its own history; there is no
@@ -42,8 +42,8 @@ parallel with another one.
 | `GET /healthz` | The process is alive. Suitable as a liveness probe |
 | `GET /readyz` | Every dependency answers. Suitable as a readiness probe |
 
-`/readyz` reports one entry per check: `postgres`, `schema`, `minio`, and one per plugin
-with a schema of its own (`schema-mse`). A single failing check makes the pod
+`/readyz` reports one entry per check: `postgres`, `schema`, `minio`, and one per extension
+with a schema of its own (`schema-<id>`). A single failing check makes the pod
 unready — it stops receiving traffic without being restarted, which is the right response
 to a dependency that is briefly unavailable.
 
@@ -54,11 +54,11 @@ to a dependency that is briefly unavailable.
 | Scheduler | 2 s, or immediately when a job is enqueued |
 | Observer | 2 s |
 | Purge (sessions, auth flows) | 15 min |
-| Environments (MSE plugin) | 30 s |
+| Module supervisor | 30 s |
 | Probes (tracker, forge) | `PROBE_INTERVAL`, default 5 min, with an enforced floor |
 
-The environment cadence is not tuneable and does not need to be: a GitOps deployment
-takes minutes, so polling faster would learn nothing and multiply API calls.
+The supervisor's cadence bounds how long switching a module on or off takes; what a module
+does at its own pace is its own.
 
 ## 10.5 Logs
 

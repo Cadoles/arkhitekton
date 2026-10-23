@@ -38,7 +38,7 @@ declarative rule that turns an event into an action: run a pipeline, call a webh
 start a plan.
 
 **Plugins.** Everything domain-specific lives in a plugin. The core knows nothing about
-deployment environments, GitOps or sign-offs; the MSE plugin shipped with Arkhitekton
+GitOps, deployment observation or sign-offs; an extension compiled into a distribution
 adds them for one way of deploying. See [06 — Plugins](06-plugins.md).
 
 ## 1.2 What it needs
@@ -47,7 +47,7 @@ At minimum: a PostgreSQL database, an S3-compatible object store, a Kubernetes c
 running Tekton Pipelines, and an OIDC provider to authenticate users.
 
 Optional, each degrading gracefully when absent: an issue tracker (Redmine), a forge API
-(Gitea), a container registry, a GitOps controller (Flux, through the MSE plugin).
+(Gitea), a container registry.
 
 [03 — Installation](03-installation.md) states versions and required access.
 
@@ -68,7 +68,7 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
 
 | Term | Meaning |
 |---|---|
-| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`core/build`, `php/unit-tests`, `mse/e2e-tests`, …). Plugins bring capabilities; the core names only `core/build` and `core/retag`. |
+| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`core/build`, `php/unit-tests`, `security/security-audit`, …). Plugins bring capabilities; the core names only `core/build` and `core/retag`. |
 | **catalogue** | The YAML file that declares which pipelines exist, what they need and what they produce. See [05](05-pipeline-catalogue.md). |
 | **geste** | One pipeline run inside a plan stage. |
 | **fact** | An event normalised to a type a reaction can match. |

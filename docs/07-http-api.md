@@ -140,21 +140,12 @@ All scoped to a project; the permission is checked **in that project**.
 | `DELETE /projects/{project}/plugins/{plugin}` | `admin` — clears the override, restoring inheritance |
 | `GET /projects/{project}/forge/refs` | `read` |
 
-## 7.10 Routes contributed by the MSE plugin
+## 7.10 Routes contributed by extensions
 
-Mounted by the plugin, gated per project: a project with the module disabled refuses
+An extension compiled into a distribution mounts its own routes under the same prefix, with
+the same authentication and CSRF protection, and sets each route's permission itself. A route
+gated by a module refuses a project where its plugin is switched off. The extension documents
 them.
-
-| Route | Permission |
-|---|---|
-| `GET /projects/{project}/environments` | `read` |
-| `GET /projects/{project}/environments/{environment}` | `read` |
-| `GET /projects/{project}/environments/{environment}/history` | `read` |
-| `GET /projects/{project}/releases/{tag}/targets` | `read` |
-| `POST /projects/{project}/releases/{tag}/promote/{environment}` | `deploy:<environment>` in the project |
-| `GET /projects/{project}/releases/{tag}/signoffs` | `read` |
-| `PUT /projects/{project}/releases/{tag}/signoffs/{env}` | per environment |
-| `DELETE /projects/{project}/releases/{tag}/signoffs/{env}` | per environment |
 
 ## 7.11 Outside the API prefix
 

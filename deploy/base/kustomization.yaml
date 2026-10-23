@@ -18,7 +18,6 @@ resources:
   - serviceaccount.yaml
   - rbac-dashboard.yaml
   - rbac-tekton.yaml
-  - rbac-flux.yaml
   - job-migrate.yaml
   - deployment-api.yaml
   - deployment-worker.yaml
