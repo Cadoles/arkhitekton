@@ -1,0 +1,48 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: go-unit-tests
+spec:
+  description: >
+    Tests of a Go project, reported as the event stream of `go test -json`.
+
+  params:
+    - name: repo-url
+    - name: revision
+    # The presigned PUT URL the dashboard hands the run. Empty, the stream is not published.
+    - name: results-upload-url
+      default: ""
+
+  workspaces:
+    - name: shared-data
+    - name: git-credentials
+
+  tasks:
+    - name: git-clone
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+
+    - name: run-go-test
+      runAfter: ["git-clone"]
+      taskRef:
+        name: go-test
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: upload-url
+          value: $(params.results-upload-url)

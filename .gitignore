@@ -33,3 +33,6 @@ deploy/overlays/*/secrets/*
 # d'un composant ; la règle d'ignorance les suit.
 deploy/overlays/*/components/pipeline-credentials/pipeline-*
 !deploy/overlays/*/components/pipeline-credentials/*.yaml
+
+# Module du plugin d'exemple, construit avant sa publication.
+/sdk/examples/gotest/gotest.wasm

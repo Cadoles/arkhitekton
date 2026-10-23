@@ -1,0 +1,35 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: go-test
+spec:
+  description: >
+    Runs `go test -json ./...` and publishes the stream, whatever the tests' outcome.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: upload-url
+      default: ""
+
+  steps:
+    - name: exec
+      image: golang:1.26
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: UPLOAD_URL
+          value: $(params.upload-url)
+      script: |
+        #!/usr/bin/env sh
+        set -u
+
+        # A failing test is a result: the stream is published in every case, and the exit code is kept
+        # for the end, where it tells the dashboard whether the tests concluded.
+        go test -json ./... > go-test.json
+        RC=$?
+
+        if [ -n "${UPLOAD_URL}" ]; then
+          curl --fail --silent --show-error -X PUT -T go-test.json "${UPLOAD_URL}" || exit 1
+        fi
+        exit "${RC}"
