@@ -27,6 +27,7 @@ import (
 
 	"k8s.io/client-go/restmapper"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/host"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
@@ -42,7 +43,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/mse/flux"
 	msestorage "forge.cadoles.com/vcarroy/arkhitekton/internal/mse/storage"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
@@ -58,6 +58,8 @@ type Options struct {
 	// command (see Dockerfile and Makefile).
 	Version  string
 	Revision string
+	// Extensions are what the distribution compiles in beside the built-in plugins.
+	Extensions []host.Extension
 }
 
 // The version is logged at every start-up: diagnosing unexpected behaviour begins with
@@ -97,6 +99,10 @@ func Main(options Options) {
 	}
 	if options.Revision != "" {
 		revision = options.Revision
+	}
+	if err := setExtensions(options.Extensions); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -169,6 +175,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err := msestorage.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
+	if err := waitForExtensionSchemas(ctx, cfg.Database, startupWait, logger); err != nil {
+		return err
+	}
 
 	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
@@ -215,7 +224,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// The missing rows of the embedded plugins, at every start-up. The bootstrap sets them only
 	// once: a plugin appearing in a later version would never have a row, and the screen would
 	// display it with no state.
-	pluginRegistry, err := builtin.Registry()
+	pluginRegistry, err := carriedRegistry()
 	if err != nil {
 		return fmt.Errorf("built-in plugins: %w", err)
 	}
@@ -227,6 +236,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout,
 	})
 	seedMSESettings(ctx, db, logger)
+	seedExtensionSettings(ctx, db, logger)
 
 	// In the database and not in memory: two api replicas with no session affinity serve
 	// `/auth/login` and `/auth/callback` through different instances, and the transition state
@@ -287,12 +297,22 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// `worker`, and the two processes have no meeting point other than MinIO and PostgreSQL.
 	logsHandler := dashhttp.NewLogsHandler(logs.NewReader(storage))
 
+	// What the distribution's extensions add to this role: routes, the releases' deployments and
+	// promotions, environment suggestions, version scheme checks.
+	extensionHooks, err := apiHooks(host.APIHost{
+		Store: db, Pool: db.Pool(), Catalog: pipelines, Authorizer: authorizer, Modules: modules, Logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+	extensionHooks = append(extensionHooks, mseAPIHooks(db, pipelines, authorizer, modules, logger))
+
 	queueHandler := dashhttp.NewQueueHandler(db, inForce.Catalogs()).
 		// The launch form's lists: release tags and published images. The registry's prefix comes
 		// from the same configuration as the one used to read the tags — deducing it elsewhere would
 		// make what is offered diverge from what is pulled.
 		WithSuggestions(db, cfg.Registry.Project, logger).
-		WithEnvironmentSuggestions(mse.EnvironmentSuggestions(pipelines, modules, db))
+		WithEnvironmentSuggestions(composedSuggestions(extensionHooks))
 	// The name of the promoted repository comes from the registry's configuration: it is the same
 	// prefix as the one used to read the tags, and deducing it elsewhere would make reading and
 	// promotion diverge.
@@ -309,19 +329,16 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		images = client
 	}
 
-	// The MSE plugin's tables, read by its routes and supplied to the core as functions.
-	mseBackend := mse.NewBackend(db)
-
 	releasesHandler := dashhttp.NewReleasesHandler(
 		db, inForce.Catalogs(), authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project).
 		// The same weighting as the test manager: the list's badge and a release's screen display the
 		// same figure.
 		WithScoreCatalog(inForce.Catalogs()).
 		WithArtifactReader(db).
-		// The "deployed on" badge and the requested promotions: the core no longer reads the plugin's
-		// tables, which return nothing when it is switched off.
-		WithDeployments(mse.Deployments(mseBackend.Store, modules)).
-		WithPromotions(mse.Promotions(mseBackend.Store, modules)).
+		// The "deployed on" badge and the requested promotions: the core reads no extension's tables,
+		// and a switched-off extension returns nothing.
+		WithDeployments(composedDeployments(extensionHooks)).
+		WithPromotions(composedPromotions(extensionHooks)).
 		WithTrackers(connections).
 		WithExports(deliverablesEnabled(db)).
 		// The release is anchored on a commit and tagged through the project's forge plugin. With
@@ -337,11 +354,20 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 				WithArtifacts(db, worker.ProductOf(inForce.Catalogs())),
 			pipelines, db, cfg.Registry.Project, logger))
 
-	// The MSE plugin's routes: targets, promotion, environments. Always mounted, and refused per
-	// route when the module is switched off. The deployer has no client: planning a promotion
-	// does not need the cluster.
-	mseHandler := mse.NewHandler(mseBackend, pipelines, authorizer,
-		flux.NewDeployer(nil, flux.DefaultPromotionKind, ""), logger)
+	mounts := append(composedRoutes(extensionHooks),
+		// The bindings an administrator records for what the catalogue file does not bind.
+		dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
+			sources.checkBinding, reloader.Reload, logger).Routes,
+		// The plugins an administrator installs from a registry, pulled and verified by the worker.
+		dashhttp.NewInstallationsHandler(db, sources.checkActivation, reloader.Reload, logger).Routes)
+	readiness := append([]dashhttp.ReadinessCheck{
+		{Name: "postgres", Check: db.Ping},
+		// Distinct from the ping: PostgreSQL may answer although the migration Job has not run yet.
+		// Without this check, the pod would declare itself ready then answer 500 on every missing
+		// table.
+		{Name: "schema", Check: db.CheckSchema},
+		{Name: "minio", Check: storage.Ping},
+	}, extensionReadiness(db.Pool(), extensionHooks)...)
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
@@ -360,7 +386,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// The access test uses the forge's token, with one client per repository: the configuration's
 			// is bound to its own, and the test bears precisely on another. With no token, the screen
 			// says so rather than returning a failure one would take for a permission problem.
-			projectsHandler(cfg, db, modules, connections),
+			projectsHandler(cfg, db, composedSchemeCheck(extensionHooks), connections),
 			// The cipher may be nil: with no key, the settings are read and enabled, only writing a
 			// sensitive field is refused — with a message that names the variable, in the place where one
 			// types it.
@@ -376,21 +402,41 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			dashhttp.NewAutomationsHandler(db, inForce.Catalogs(), inForce.Registries(), logger),
 			// What a reaction actually did. An engine one cannot debug is worse than frozen behaviour.
 			dashhttp.NewPlanRunsHandler(db),
-			middleware, mseHandler.Routes, mse.NewSignoffsHandler(mseBackend, logger).Routes,
-			// The bindings an administrator records for what the catalogue file does not bind.
-			dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
-				sources.checkBinding, reloader.Reload, logger).Routes,
-			// The plugins an administrator installs from a registry, pulled and verified by the worker.
-			dashhttp.NewInstallationsHandler(db, sources.checkActivation, reloader.Reload, logger).Routes),
-		dashhttp.ReadinessCheck{Name: "postgres", Check: db.Ping},
-		// Distinct from the ping: PostgreSQL may answer although the migration Job has not run yet.
-		// Without this check, the pod would declare itself ready then answer 500 on every missing
-		// table.
-		dashhttp.ReadinessCheck{Name: "schema", Check: db.CheckSchema},
-		dashhttp.ReadinessCheck{Name: "schema-mse", Check: msestorage.CheckSchema(db.Pool())},
-		dashhttp.ReadinessCheck{Name: "minio", Check: storage.Ping})
+			middleware, mounts...),
+		readiness...)
 
 	return server.Run(ctx)
+}
+
+// mseAPIHooks are what the MSE plugin adds to the `api` role, until it is an extension of its own.
+//
+// Its routes are always mounted, and refused per route when the module is switched off. The
+// deployer has no client: planning a promotion, or asking "can you route this scheme?", does not
+// need the cluster.
+func mseAPIHooks(
+	db *store.DB, pipelines *catalog.Catalog, authorizer *auth.Authorizer, modules *dashhttp.Modules,
+	logger *slog.Logger,
+) host.APIHooks {
+	backend := mse.NewBackend(db)
+	deployer := flux.NewDeployer(nil, flux.DefaultPromotionKind, "")
+	return host.APIHooks{
+		Routes: []dashhttp.Mount{
+			mse.NewHandler(backend, pipelines, authorizer, deployer, logger).Routes,
+			mse.NewSignoffsHandler(backend, logger).Routes,
+		},
+		Deployments:            mse.Deployments(backend.Store, modules),
+		Promotions:             mse.Promotions(backend.Store, modules),
+		EnvironmentSuggestions: mse.EnvironmentSuggestions(pipelines, modules, db),
+		// Asked only when the plugin is switched on: without it, nothing promotes, and no scheme has
+		// to be refused.
+		SchemeCheck: func(ctx context.Context, scheme versionpkg.Scheme) error {
+			if !modules.Enabled(ctx, mse.PluginID) {
+				return nil
+			}
+			return deployer.CheckScheme(scheme)
+		},
+		Readiness: []dashhttp.ReadinessCheck{{Name: "schema-mse", Check: msestorage.CheckSchema(db.Pool())}},
+	}
 }
 
 // exportRegistry opens the registry for generating deliverables.
@@ -433,6 +479,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := msestorage.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
+	if err := waitForExtensionSchemas(ctx, cfg.Database, startupWait, logger); err != nil {
+		return err
+	}
 
 	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
@@ -446,7 +495,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
-	pluginRegistry, err := builtin.Registry()
+	pluginRegistry, err := carriedRegistry()
 	if err != nil {
 		return fmt.Errorf("built-in plugins: %w", err)
 	}
@@ -454,6 +503,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		logger.Error("seeding the plugins", "error", err)
 	}
 	seedMSESettings(ctx, db, logger)
+	seedExtensionSettings(ctx, db, logger)
 
 	// `versions.normalized_name` is a derived column: changing the normalisation rule makes it
 	// stale, and the matching would then compare a form computed with the new rule to a form
@@ -509,8 +559,24 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 	// The modules the dashboard runs on the plugins' behalf, each bound to the plugin that declares
 	// it. Started and stopped under the lease by their supervisor, as their plugin is switched.
-	modules, err := hostModules(pluginRegistry,
-		mse.NewModule(msestorage.New(db.Pool()), cluster.RESTConfig, pipelines, cfg.Flux.Namespace, logger))
+	extensionHooks, err := workerHooks(host.WorkerHost{
+		Store: db, Pool: db.Pool(), Cluster: cluster.RESTConfig, Catalog: pipelines, Logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+	extensionHooks = append(extensionHooks, host.WorkerHooks{
+		Modules: []host.Module{
+			mse.NewModule(msestorage.New(db.Pool()), cluster.RESTConfig, pipelines, cfg.Flux.Namespace, logger),
+		},
+		PromotionFacts:  mse.Facts{},
+		ProjectSettings: mse.PipelineSettings(db),
+	})
+	promotionFacts, err := composedPromotionFacts(extensionHooks)
+	if err != nil {
+		return err
+	}
+	modules, err := hostModules(pluginRegistry, composedModules(extensionHooks)...)
 	if err != nil {
 		return err
 	}
@@ -573,9 +639,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithInstance(instance).
 				// The emission of facts.
 				WithEvents(db)
-			// A promotion is observed when one concludes, which only happens while the MSE module
+			// A promotion is observed when one concludes, which only happens while an extension
 			// promotes.
-			sink.WithPromotionFacts(mse.Facts{})
+			sink.WithPromotionFacts(promotionFacts)
 
 			// The plan engine, which chains the verifications of a successful build and concludes their
 			// steps at the end of their job.
@@ -635,9 +701,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// The repository this project clones, read from the database: a second project does not build
 				// the first one's.
 				WithProjectRepositories(db, os.Getenv("FORGE_SSH_PORT")).
-				// And the settings the MSE plugin adds for this project: its kustomization, its overlay.
-				// Nothing when the module is switched off for it.
-				WithProjectSettings(mse.PipelineSettings(db)).
+				// And the settings the extensions add for this project, MSE's kustomization and overlay.
+				// Nothing from an extension switched off for it.
+				WithProjectSettings(composedProjectSettings(extensionHooks)).
 				// A plugin switched off by an administrator stops its pipelines.
 				WithPluginGate(pluginGate(db))
 
@@ -838,7 +904,7 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		return fallback
 	}
 
-	return map[string]string{
+	return extensionSchedulerConfig(map[string]string{
 		"tekton.namespace": cfg.Tekton.Namespace,
 		// Names of the secrets mounted on the workspaces. The dashboard **names** the credentials, it
 		// never handles them: `secrets` is deliberately absent from its RBAC
@@ -872,7 +938,7 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// Tasks publish, `arkhitekton` what the dashboard writes itself.
 		"minio.host":           envOr("PIPELINE_MINIO_HOST", "https://nuo-s3.nuonet.fr"),
 		"minio.pipelineBucket": envOr("PIPELINE_MINIO_BUCKET", "mse-pipeline"),
-	}
+	})
 }
 
 func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
@@ -892,6 +958,9 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 	// the module is switched on or not: the switch is flipped without a redeployment, and the
 	// schema must already be there.
 	if err := msestorage.Migrate(ctx, cfg.Database, logger); err != nil {
+		return err
+	}
+	if err := migrateExtensions(ctx, cfg.Database, logger); err != nil {
 		return err
 	}
 
@@ -932,7 +1001,7 @@ func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
-	registry, err := builtin.Registry()
+	registry, err := carriedRegistry()
 	if err != nil {
 		return fmt.Errorf("built-in plugins: %w", err)
 	}
@@ -944,7 +1013,7 @@ func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 	report, err := db.Bootstrap(ctx, store.BootstrapSpec{
 		Grants:          configuredGrants(cfg),
-		Projects:        configuredProjects(cfg),
+		Projects:        extensionProjects(configuredProjects(cfg)),
 		Plugins:         plugins,
 		TrackerPluginID: trackerPluginID,
 	})
@@ -1105,7 +1174,7 @@ func scope(releaseTag string) string {
 //
 // The key is never logged. What is: the URL, the account it belongs to, and its `admin` flag.
 func runCheckTracker(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
-	registry, err := builtin.Registry()
+	registry, err := carriedRegistry()
 	if err != nil {
 		return fmt.Errorf("built-in plugins: %w", err)
 	}
@@ -1152,21 +1221,15 @@ func runCheckTracker(ctx context.Context, cfg config.Config, logger *slog.Logger
 // that coexisted with it has been removed — a single key added to several repositories makes
 // its revocation an outage for all of them at once, and says nothing about who cloned what.
 func projectsHandler(
-	cfg config.Config, db *store.DB, modules *dashhttp.Modules, connections *connect.Connections,
+	cfg config.Config, db *store.DB, schemeCheck func(context.Context, versionpkg.Scheme) error,
+	connections *connect.Connections,
 ) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
 		WithLibrary(referenceLibrary()).
 		WithForgeURL(cfg.Forge.URL).
 		WithImageRegistry(cfg.Registry.Project).
-		// The same deployer as the one that promotes, and with no client: the question asked — "can
-		// you route this scheme?" — does not need the cluster. Asked only when the MSE plugin is
-		// switched on: without it, nothing promotes, and no scheme has to be refused.
-		WithSchemeCheck(func(ctx context.Context, scheme versionpkg.Scheme) error {
-			if !modules.Enabled(ctx, mse.PluginID) {
-				return nil
-			}
-			return flux.NewDeployer(nil, flux.DefaultPromotionKind, "").CheckScheme(scheme)
-		})
+		// The extensions that deploy refuse what they cannot route.
+		WithSchemeCheck(schemeCheck)
 
 	// The access test uses the instance's forge settings: the repository being declared belongs to
 	// a project that may not exist yet.

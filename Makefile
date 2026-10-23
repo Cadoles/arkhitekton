@@ -7,8 +7,8 @@ GO     ?= go
 # port of its algorithm. `./...` compiles it, `go vet` analyses it and `gofmt -l` would report
 # it: continuous integration would fail on a third party's code, for a reason impossible to
 # guess from the message.
-GO_PKGS := ./app/... ./cmd/... ./internal/... ./sdk/...
-GO_DIRS := app cmd internal sdk
+GO_PKGS := ./app/... ./cmd/... ./host/... ./internal/... ./sdk/...
+GO_DIRS := app cmd host internal sdk
 
 # A personal registry during development: the dashboard's images do not go into `cnous-mse`
 # until the project is deliverable.

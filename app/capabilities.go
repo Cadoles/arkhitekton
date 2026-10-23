@@ -18,7 +18,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/live"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
@@ -28,7 +27,7 @@ import (
 
 // referenceLibrary is what a project declaring a stack gets installed.
 func referenceLibrary() *pipelinelib.Library {
-	return pipelinelib.NewLibrary(builtin.Stacks())
+	return pipelinelib.NewLibrary(carriedStacks())
 }
 
 // installedPlugins reads the installed plugins from their stored layer. Each layer is compiled once:
@@ -124,7 +123,7 @@ func (s *capabilitySources) registry(ctx context.Context, candidate *capability.
 		active = append(kept, *candidate)
 	}
 
-	carried := builtin.Plugins()
+	carried := carriedPlugins()
 	builtIn := map[string]bool{}
 	for _, plugin := range carried {
 		builtIn[plugin.ID] = true
@@ -250,7 +249,7 @@ func (s *capabilitySources) carried(ctx context.Context) (map[string]bool, error
 		return nil, err
 	}
 	carried := map[string]bool{}
-	for _, plugin := range builtin.Plugins() {
+	for _, plugin := range carriedPlugins() {
 		carried[plugin.ID] = true
 	}
 	for _, row := range rows {
@@ -270,7 +269,7 @@ func startingCapabilities(ctx context.Context, sources *capabilitySources, logge
 	first, err := sources.snapshot(ctx, version)
 	if err != nil {
 		logger.Error("recorded bindings and installed plugins not applied, starting on the built-in plugins and the catalogue file", "error", err)
-		registry, regErr := builtin.Registry()
+		registry, regErr := carriedRegistry()
 		if regErr != nil {
 			return nil, nil, regErr
 		}
