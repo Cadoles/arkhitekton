@@ -51,14 +51,13 @@ export function useProjectEvents() {
 
 /** Ce que chaque type de fait désigne, en français.
  *
- *  Un type absent de la table s'affiche **tel quel** plutôt que de disparaître :
- *  les faits d'un plugin arrivent avec leurs propres libellés, et une table
- *  fermée les rendrait muets. */
+ *  Les faits d'un module prennent le libellé que le module leur donne
+ *  (`eventLabels`). Un type absent des deux s'affiche **tel quel** plutôt que de
+ *  disparaître : une table fermée rendrait muets ceux qu'aucun ne nomme. */
 export const EVENT_LABEL: Record<string, string> = {
   'version.created': 'Version déclarée dans le suivi',
   'release.created': 'Release déclarée',
   'release.released': 'Release validée',
-  'mse.release.promoted': 'Promotion aboutie',
 
   /* Les faits retirés par la réduction (doc 15 §15.3). Plus personne ne les émet,
    * mais le fil est une **histoire** : les lignes déjà écrites restent, et les

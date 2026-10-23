@@ -8,7 +8,8 @@ import type { Release, ReleaseDetail } from '../features/releases/api'
  *
  * Le noyau ne nomme aucun module : il lit ces définitions, et un module éteint
  * n'apporte rien. Seul `src/modules.ts` les assemble, comme le paquet `app`
- * côté serveur (doc 16 §16.6).
+ * côté serveur : il trouve ceux que la distribution a déposés dans
+ * `src/plugins/<id>/` (doc 06 §6.13).
  */
 
 export type ModuleNavEntry = {
@@ -31,4 +32,7 @@ export type AppModule = {
   releaseSections?: ComponentType<{ release: ReleaseDetail }>[]
   /** Les pastilles ajoutées à côté du nom d'une release. */
   releaseBadges?: ComponentType<{ release: Release }>[]
+  /** Les libellés des faits que le plugin émet, par type. Lus même module
+   *  éteint : le fil des faits est une histoire. */
+  eventLabels?: Record<string, string>
 }

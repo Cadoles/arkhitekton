@@ -1,9 +1,6 @@
+import { Card, EmptyState, ErrorState, Icon, Skeleton, TestsPanel, formatDateTime } from '@arkhitekton/host'
 import { Link, useParams } from 'react-router'
-import { Icon } from '../../components/Icon'
-import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
-import { formatDateTime } from '../../lib/format'
 import { SignoffPanel } from './SignoffPanel'
-import { TestsPanel } from '../releases/TestsPanel'
 import {
   describe,
   promotionSuffix,

@@ -1,9 +1,6 @@
+import { Card, EmptyState, Icon, SIGNAL_LABEL, Skeleton, StatusBadge, formatDateTime, hasAtLeast, useSession, useTests } from '@arkhitekton/host'
 import { useState } from 'react'
-import { Icon } from '../../components/Icon'
-import { Card, EmptyState, Skeleton, StatusBadge } from '../../components/primitives'
-import { formatDateTime } from '../../lib/format'
-import { status, type SignoffStatus as Scale } from '../../lib/status'
-import { hasAtLeast, useSession } from '../auth/session'
+import { signoffStyle, type SignoffScale as Scale } from './signoffStyle'
 import {
   useClearSignoff,
   useSetSignoff,
@@ -12,7 +9,6 @@ import {
   type Signoff,
   type SignoffStatus,
 } from './api'
-import { SIGNAL_LABEL, useTests } from '../releases/tests'
 
 /*
  * Validation de recette.
@@ -94,7 +90,7 @@ function AutomaticChecks({ tag }: { tag: string }) {
   return (
     <div className="flex flex-wrap items-baseline gap-3 text-sm">
       <span className="min-w-32 font-medium text-zinc-900">CI / Pipelines</span>
-      <StatusBadge style={status.signoff(scale)} />
+      <StatusBadge style={signoffStyle(scale)} />
       <span className="text-zinc-500">
         {results.length} famille(s)
         {failed.length > 0 && ` — ${failed.map((r) => SIGNAL_LABEL[r.group] ?? r.group).join(', ')} en échec`}
@@ -155,7 +151,7 @@ function SignoffRow({
   return (
     <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-zinc-200 py-1.5 text-sm first:border-t-0">
       <span className="min-w-32 font-medium text-zinc-900">{signoff.role}</span>
-      <StatusBadge style={status.signoff(signoff.status)} />
+      <StatusBadge style={signoffStyle(signoff.status)} />
       {signoff.detail && <span className="text-zinc-600">{signoff.detail}</span>}
       <span className="ml-auto text-zinc-500">
         {signoff.decided_by} — {formatDateTime(signoff.decided_at)}

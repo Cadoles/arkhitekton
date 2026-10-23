@@ -1,5 +1,6 @@
 import { Card, EmptyState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
+import { moduleEventLabel } from '../../modules'
 import { EVENT_LABEL, outcomeOf, useProjectEvents, type ProjectEvent } from './events'
 
 /*
@@ -51,7 +52,7 @@ function EventRow({ event }: { event: ProjectEvent }) {
       <span className="text-sm font-medium text-zinc-900">
         {/* Un type inconnu s'affiche tel quel plutôt que de disparaître : les
             faits d'un plugin arriveront avec leurs propres libellés. */}
-        {EVENT_LABEL[event.type] ?? event.type}
+        {EVENT_LABEL[event.type] ?? moduleEventLabel(event.type) ?? event.type}
       </span>
 
       {event.subject && (

@@ -1,5 +1,4 @@
-import { Icon } from '../../components/Icon'
-import type { Release } from '../releases/api'
+import { Icon, type Release } from '@arkhitekton/host'
 import { useEnvironments } from './api'
 
 /**

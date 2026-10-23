@@ -13,6 +13,11 @@
 
 @import "tailwindcss";
 
+/* Les modules qu'une distribution dépose dans `src/plugins/` y sont ignorés par
+ * git : la détection automatique de Tailwind les sauterait, et leurs classes
+ * manqueraient à la feuille. Une source explicite les inclut. */
+@source "../";
+
 /* Polices auto-hébergées : la CSP de production interdit les hôtes externes
  * (doc 07 §7.5). Seul le sous-ensemble latin est importé — la maquette embarque
  * cyrillique et grec, jamais utilisés par une interface en français. */

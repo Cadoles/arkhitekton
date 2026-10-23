@@ -1,4 +1,4 @@
-import type { AppModule } from '../../lib/modules'
+import type { AppModule } from '@arkhitekton/host'
 import { DeployedBadges } from './DeployedBadges'
 import { Deployment } from './Deployment'
 import { EnvironmentScreen } from './EnvironmentScreen'
@@ -12,7 +12,7 @@ import { HistoryScreen } from './HistoryScreen'
 
 export const MODULE_MSE = 'mse'
 
-export const mseModule: AppModule = {
+const mseModule: AppModule = {
   id: MODULE_MSE,
   // La question qu'on vient poser quand il est allumé : qu'est-ce qui tourne où.
   home: '/environments',
@@ -24,4 +24,7 @@ export const mseModule: AppModule = {
   ],
   releaseSections: [Deployment],
   releaseBadges: [DeployedBadges],
+  eventLabels: { 'mse.release.promoted': 'Promotion aboutie' },
 }
+
+export default mseModule

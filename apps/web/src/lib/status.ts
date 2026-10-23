@@ -29,7 +29,6 @@ import type { IconName } from '../components/Icon'
 export type Health = 'healthy' | 'warn' | 'critical'
 export type PipelineStatus = 'pass' | 'warn' | 'fail' | 'skip' | 'na'
 export type BenchStatus = 'pass' | 'warn' | 'fail' | 'na'
-export type SignoffStatus = 'pass' | 'warn' | 'fail' | 'na'
 export type ReleaseState =
   | 'draft'
   | 'building'
@@ -69,13 +68,6 @@ const BENCH: Record<BenchStatus, StatusStyle> = {
   na: { label: 'Non mesuré', icon: 'minus', text: 'text-zinc-400', bg: 'bg-zinc-50', border: 'border-zinc-200' },
 }
 
-const SIGNOFF: Record<SignoffStatus, StatusStyle> = {
-  pass: { label: 'Validé', icon: 'check', text: 'text-healthy-700', bg: 'bg-healthy-50', border: 'border-healthy-500' },
-  warn: { label: 'Réserve', icon: 'alert', text: 'text-warn-700', bg: 'bg-warn-50', border: 'border-warn-500' },
-  fail: { label: 'Refusé', icon: 'cross', text: 'text-critical-700', bg: 'bg-critical-50', border: 'border-critical-500' },
-  na: { label: 'En attente', icon: 'minus', text: 'text-zinc-400', bg: 'bg-zinc-50', border: 'border-zinc-200' },
-}
-
 /*
  * États d'une release.
  *
@@ -108,5 +100,4 @@ export const status = {
   health: (value: Health) => HEALTH[value],
   pipeline: (value: PipelineStatus) => PIPELINE[value],
   bench: (value: BenchStatus) => BENCH[value],
-  signoff: (value: SignoffStatus) => SIGNOFF[value],
 }

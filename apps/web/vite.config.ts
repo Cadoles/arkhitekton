@@ -1,9 +1,16 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+
+  // Ce qu'un module emprunte au noyau, sous un nom qui ne dit pas où le noyau
+  // range ses fichiers (`src/host/index.ts`).
+  resolve: {
+    alias: { '@arkhitekton/host': fileURLToPath(new URL('./src/host/index.ts', import.meta.url)) },
+  },
 
   // La SPA est embarquée dans le binaire Go (`internal/web/dist`), et servie par
   // le rôle `api`. Construire ailleurs obligerait à une étape de copie, donc à

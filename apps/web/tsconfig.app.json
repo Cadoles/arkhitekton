@@ -16,6 +16,7 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
+    "paths": { "@arkhitekton/host": ["./src/host/index.ts"] },
 
     "noEmit": true,
     "composite": true,

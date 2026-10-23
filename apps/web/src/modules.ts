@@ -1,19 +1,35 @@
 import { projectModules, useSession } from './features/auth/session'
-import { mseModule } from './features/mse/module'
 import type { AppModule } from './lib/modules'
 
 /*
  * L'assemblage des modules de l'interface.
  *
- * Le seul fichier hors d'un module qui a le droit de l'importer : un test le
- * vérifie (`modules.test.ts`).
+ * Une distribution dépose chaque module dans `src/plugins/<id>/`, qui exporte
+ * par défaut sa définition depuis `index.tsx`. Ce fichier est le seul, hors des
+ * modules, à les importer : un test le vérifie (`modules.test.ts`).
  */
 
-/** Les modules que ce build connaît. Une fonction plutôt qu'une constante : les
- *  modules importent des écrans qui importent le noyau, et une liste évaluée au
- *  chargement pourrait l'être avant eux. */
+const discovered = import.meta.glob<{ default: AppModule }>('./plugins/*/index.tsx', {
+  eager: true,
+})
+
+/** Les modules que ce build connaît, dans l'ordre de leur répertoire. Une
+ *  fonction plutôt qu'une constante : les modules importent des écrans qui
+ *  importent le noyau, et une liste évaluée au chargement pourrait l'être avant
+ *  eux. */
 export function appModules(): AppModule[] {
-  return [mseModule]
+  return Object.entries(discovered)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, loaded]) => loaded.default)
+}
+
+/** Le libellé qu'un module donne à un type de fait. */
+export function moduleEventLabel(type: string): string | undefined {
+  for (const module of appModules()) {
+    const label = module.eventLabels?.[type]
+    if (label) return label
+  }
+  return undefined
 }
 
 /** Les modules allumés pour le projet courant. Vide tant que la session n'est pas

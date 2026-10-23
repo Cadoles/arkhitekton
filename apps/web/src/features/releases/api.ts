@@ -294,10 +294,11 @@ export function useReleaseRelease(tag: string) {
         method: 'POST',
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['releases'] })
-      void queryClient.invalidateQueries({ queryKey: ['releases', tag] })
-      // La liste des promouvables change : elle ne retient que les validées.
-      void queryClient.invalidateQueries({ queryKey: ['environments'] })
+      // Tout, et pas seulement les releases : ce que les modules montrent en
+      // dépend (les releases promouvables, chez MSE), et le noyau ne nomme pas
+      // leurs requêtes. Le geste est rare, et seules les requêtes affichées sont
+      // relues.
+      void queryClient.invalidateQueries()
     },
   })
 }
