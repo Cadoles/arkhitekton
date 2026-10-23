@@ -37,7 +37,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mc
-          image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+          # Same source as the server's image, for the same reason.
+          image: cgr.dev/chainguard/minio-client:latest@sha256:72f9978d415ea8294d78051fb3aee2fd258d449237633f77f100b5367bb5225d
           env:
             - name: MINIO_ACCESS_KEY
               valueFrom:

@@ -50,7 +50,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: minio
-          image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+          # MinIO no longer publishes its community images: Chainguard's build, pinned by digest since
+          # Chainguard serves only `latest` freely.
+          image: cgr.dev/chainguard/minio:latest@sha256:d88920d6a50bd0b088223b688be3b76c63e6205dbe494437f67ba1240ea12880
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
