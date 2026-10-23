@@ -36,7 +36,7 @@ MINIO_TEST_NAME   := minio-arkhitekton-test
 MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := arkhitekton-test
 
-.PHONY: help build test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
+.PHONY: help build example-plugin test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
         web web-install web-dev web-check dev-prereqs image image-push kind-load manifests deploy undeploy logs
 
 help: ## Show this help
@@ -44,6 +44,9 @@ help: ## Show this help
 
 build: ## Build the binary
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o $(BINARY) ./cmd/arkhitekton
+
+example-plugin: ## Build the example plugin's module, ready for publish-plugin
+	cd sdk && GOOS=wasip1 GOARCH=wasm $(GO) build -buildmode=c-shared -o examples/gotest/gotest.wasm ./examples/gotest
 
 test: ## Run the tests (the integration tests are skipped without TEST_DATABASE_URL)
 	$(GO) test $(GO_PKGS)

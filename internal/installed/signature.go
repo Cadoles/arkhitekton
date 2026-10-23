@@ -71,6 +71,15 @@ func ParseTrustedKeys(raw []byte) ([]TrustedKey, error) {
 	return keys, nil
 }
 
+// Fingerprint is how a public key is recorded on the installations it verified.
+func Fingerprint(key crypto.PublicKey) (string, error) {
+	der, err := x509.MarshalPKIXPublicKey(key)
+	if err != nil {
+		return "", err
+	}
+	return fingerprint(der), nil
+}
+
 func fingerprint(der []byte) string {
 	sum := sha256.Sum256(der)
 	return "sha256:" + hex.EncodeToString(sum[:])

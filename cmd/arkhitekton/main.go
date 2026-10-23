@@ -74,6 +74,10 @@ Diagnosis:
   arkhitekton check-reading [--write] <reading.yaml|module.wasm> <case>...
                              Checks a reading against recorded runs (no database)
 
+Plugins:
+  arkhitekton publish-plugin --dir <plugin> --ref <registry/repository:tag> --key <key.pem>
+                             Packs, pushes and signs a plugin; prints the reference to install
+
 Options for reprocess:
   --release <tag>  Limits the replay to one release (default: the whole history)
   --dry-run        Lists what would be replayed, erasing nothing
@@ -92,9 +96,13 @@ func run() error {
 		return errors.New("no role supplied")
 	}
 
-	// A tool for plugin authors, with nothing to configure: it reads files and nothing else.
+	// Tools for plugin authors, with nothing to configure: they read files, and the second pushes to
+	// the registry it is given.
 	if os.Args[1] == "check-reading" {
 		return runCheckReading(os.Args[2:])
+	}
+	if os.Args[1] == "publish-plugin" {
+		return runPublishPlugin(os.Args[2:])
 	}
 
 	role := config.Role(os.Args[1])
