@@ -3,8 +3,11 @@ package main
 import (
 	"testing"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 func TestTheBuiltinPluginsFormARegistry(t *testing.T) {
@@ -63,4 +66,31 @@ func TestTheShippedCatalogueResolvesAsRecorded(t *testing.T) {
 		pipelines = append(pipelines, resolved{pipeline, pipeline.Capability, pipeline.Unavailable, pipeline.ExternalTasks})
 	}
 	golden(t, "catalogue.json", pipelines)
+}
+
+// A bound capability's definitions carry their plugin: without it, uninstalling the plugin could
+// not withdraw them.
+func TestBoundDefinitionsNameTheirPlugin(t *testing.T) {
+	registry, err := capabilities.New(capability.Plugin{ID: "gotest", Version: "1", APIVersion: sdk.APIVersion,
+		Pipelines: []capability.Pipeline{{Name: "unit-tests", Spec: capability.PipelineSpec{
+			PipelineRef: "go-unit-tests",
+			Manifests:   []capability.Manifest{{Kind: "Pipeline", Name: "go-unit-tests"}, {Kind: "Task", Name: "go-test"}},
+		}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{Kind: "gotest/unit-tests", Capability: "gotest/unit-tests"}}}
+
+	resources, err := boundResources(pipelines, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resources) != 2 {
+		t.Fatalf("resources = %+v", resources)
+	}
+	for _, resource := range resources {
+		if resource.Plugin != "gotest" {
+			t.Errorf("%s ships with plugin %q", resource.Name, resource.Plugin)
+		}
+	}
 }

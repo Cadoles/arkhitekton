@@ -360,7 +360,7 @@ func boundResources(pipelines *catalog.Catalog, registry *capabilities.Registry)
 			}
 			seen[key] = true
 			resources = append(resources, pipelinelib.Resource{
-				Name: manifest.Name, Kind: manifest.Kind, Manifest: manifest.YAML,
+				Name: manifest.Name, Kind: manifest.Kind, Manifest: manifest.YAML, Plugin: ref.Plugin,
 			})
 		}
 	}
