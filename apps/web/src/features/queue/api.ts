@@ -95,8 +95,12 @@ export function useLaunch() {
   const queryClient = useQueryClient()
 
   return useMutation({
+    // Le projet choisi accompagne le lancement : c'est son dépôt que le run clone, avec sa clé.
     mutationFn: (payload: { kind: string; params: Record<string, string> }) =>
-      request<{ id: number }>('/queue', { method: 'POST', body: JSON.stringify(payload) }),
+      request<{ id: number }>('/queue', {
+        method: 'POST',
+        body: JSON.stringify({ ...payload, project: currentProject() }),
+      }),
     onSuccess: () => {
       // La file est rafraîchie sans attendre le prochain intervalle : voir son
       // job apparaître est ce qui confirme que le lancement a été pris.

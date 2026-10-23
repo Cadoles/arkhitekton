@@ -28,15 +28,19 @@ type fakeQueueStore struct {
 	set      map[string]int
 	// cleared keeps the returns to default: telling setting from undoing is what makes a
 	// setting reversible.
-	cleared []string
+	cleared  []string
+	enqueued []store.JobRequest
 }
 
 func newFakeQueueStore() *fakeQueueStore {
 	return &fakeQueueStore{limits: map[string]int{}, set: map[string]int{}}
 }
 
-func (f *fakeQueueStore) Enqueue(context.Context, store.JobRequest) (int64, error) { return 1, nil }
-func (f *fakeQueueStore) ListQueue(context.Context) ([]store.Job, error)           { return f.jobs, nil }
+func (f *fakeQueueStore) Enqueue(_ context.Context, request store.JobRequest) (int64, error) {
+	f.enqueued = append(f.enqueued, request)
+	return 1, nil
+}
+func (f *fakeQueueStore) ListQueue(context.Context) ([]store.Job, error) { return f.jobs, nil }
 func (f *fakeQueueStore) GetJob(context.Context, int64) (store.Job, error) {
 	return store.Job{}, store.ErrJobNotFound
 }
@@ -367,4 +371,30 @@ func (f *fakeQueueStore) ProjectBySlug(_ context.Context, slug string) (store.Pr
 		return store.Project{}, store.ErrProjectNotFound
 	}
 	return store.Project{ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
+}
+
+// A run launched from a project's screen clones that project's repository: the job carries the
+// project, which an unknown slug refuses rather than dropping.
+func TestALaunchIsForTheSelectedProject(t *testing.T) {
+	fake := newFakeQueueStore()
+	handler := queueHandler(fake)
+	launch := func(body string) int {
+		recorder := httptest.NewRecorder()
+		request := asAdmin(httptest.NewRequest(http.MethodPost, "/queue", strings.NewReader(body)))
+		handler.Launch(recorder, request)
+		return recorder.Code
+	}
+
+	if code := launch(`{"kind": "unit-tests", "params": {"revision": "main"}, "project": "` + testProjectSlug + `"}`); code != http.StatusAccepted {
+		t.Fatalf("status %d", code)
+	}
+	if len(fake.enqueued) != 1 || fake.enqueued[0].ProjectID == nil || *fake.enqueued[0].ProjectID != 1 {
+		t.Errorf("enqueued = %+v", fake.enqueued)
+	}
+	if code := launch(`{"kind": "unit-tests", "params": {"revision": "main"}, "project": "elsewhere"}`); code != http.StatusBadRequest || len(fake.enqueued) != 1 {
+		t.Errorf("an unknown project: status %d, enqueued %d", code, len(fake.enqueued))
+	}
+	if code := launch(`{"kind": "unit-tests", "params": {"revision": "main"}}`); code != http.StatusAccepted || fake.enqueued[1].ProjectID != nil {
+		t.Errorf("no project: status %d, %+v", code, fake.enqueued)
+	}
 }

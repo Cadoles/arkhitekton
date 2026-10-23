@@ -470,6 +470,9 @@ type launchRequest struct {
 	Kind     string            `json:"kind"`
 	Params   map[string]string `json:"params"`
 	Priority int               `json:"priority"`
+	// Project is the slug of the project the run is for: the repository it clones and the key it
+	// clones with are that project's. Empty, the run is the instance's, as before projects.
+	Project string `json:"project"`
 }
 
 // Launch puts a job in the queue.
@@ -526,11 +529,30 @@ func (h *QueueHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var projectID *int64
+	if request.Project != "" {
+		if h.releases == nil {
+			writeProblem(w, http.StatusBadRequest, "Unknown project", request.Project)
+			return
+		}
+		project, err := h.releases.ProjectBySlug(r.Context(), request.Project)
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeProblem(w, http.StatusBadRequest, "Unknown project", request.Project)
+			return
+		}
+		if err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
+			return
+		}
+		projectID = &project.ID
+	}
+
 	id, err := h.queue.Enqueue(r.Context(), store.JobRequest{
 		Kind:        pipeline.Kind,
 		Priority:    request.Priority,
 		Params:      request.Params,
 		RequestedBy: identity.Subject,
+		ProjectID:   projectID,
 	})
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot enqueue", "")
