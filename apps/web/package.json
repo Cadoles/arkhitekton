@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --build && vite build",
-    "postbuild": "node -e \"require('node:fs').writeFileSync('../../internal/web/dist/.gitkeep', '')\"",
+    "postbuild": "node -e \"require('node:fs').writeFileSync((process.env.ARKHITEKTON_WEB_OUT ?? '../../internal/web/dist') + '/.gitkeep', '')\"",
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --build --force",

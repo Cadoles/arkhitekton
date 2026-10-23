@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"sort"
@@ -29,6 +30,9 @@ import (
 
 // extensions are the distribution's, set once by Main.
 var extensions []host.Extension
+
+// ui is the interface the distribution built; nil serves the embedded one.
+var ui fs.FS
 
 // setExtensions refuses an ambiguous set: an extension is a plugin's switch, and two of one id, or
 // one whose descriptor names another plugin, would make the switch control something else.

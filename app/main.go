@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -54,6 +55,9 @@ type Options struct {
 	Revision string
 	// Extensions are what the distribution compiles in beside the built-in plugins.
 	Extensions []host.Extension
+	// UI is the interface the distribution built, its extensions' screens included, index.html
+	// at its root. Nil, the interface embedded in this module is served.
+	UI fs.FS
 }
 
 // The version is logged at every start-up: diagnosing unexpected behaviour begins with
@@ -94,6 +98,7 @@ func Main(options Options) {
 	if options.Revision != "" {
 		revision = options.Revision
 	}
+	ui = options.UI
 	if err := setExtensions(options.Extensions); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -392,7 +397,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// What a reaction actually did. An engine one cannot debug is worse than frozen behaviour.
 			dashhttp.NewPlanRunsHandler(db),
 			middleware, mounts...),
-		readiness...)
+		ui, readiness...)
 
 	return server.Run(ctx)
 }

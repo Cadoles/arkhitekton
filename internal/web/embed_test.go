@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func discardLogger() *slog.Logger {
@@ -133,7 +134,7 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 func newHandler(t *testing.T) http.Handler {
 	t.Helper()
 
-	handler, err := Handler(discardLogger())
+	handler, err := Handler(nil, discardLogger())
 	if err != nil {
 		t.Fatalf("building: %v", err)
 	}
@@ -172,4 +173,22 @@ func get(t *testing.T, handler http.Handler, path string) *httptest.ResponseReco
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
+}
+
+// A distribution's interface is served in place of the embedded one, under the same rules.
+func TestADistributionsInterfaceIsServed(t *testing.T) {
+	dist := fstest.MapFS{
+		"index.html":            {Data: []byte("<!doctype html><title>distribution</title>")},
+		"assets/plugin-1a2b.js": {Data: []byte("console.log(1)")},
+	}
+	handler, err := Handler(dist, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := get(t, handler, "/environments").Body.String(); !strings.Contains(body, "distribution") {
+		t.Errorf("a browser route served %q", body)
+	}
+	if response := get(t, handler, "/assets/plugin-1a2b.js"); !strings.Contains(response.Header().Get("Cache-Control"), "immutable") {
+		t.Errorf("an asset served with %q", response.Header().Get("Cache-Control"))
+	}
 }

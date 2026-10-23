@@ -20,8 +20,11 @@ export default defineConfig({
   // compile plus sur un clone neuf. Le script `postbuild` le repose : le faire
   // dans package.json plutôt que dans le Makefile le rend valable partout où le
   // build tourne, y compris dans l'étage Docker qui appelle npm directement.
+  //
+  // Une distribution qui ajoute ses modules construit dans son propre arbre :
+  // `ARKHITEKTON_WEB_OUT` nomme le répertoire qu'elle embarque.
   build: {
-    outDir: '../../internal/web/dist',
+    outDir: process.env.ARKHITEKTON_WEB_OUT ?? '../../internal/web/dist',
     emptyOutDir: true,
   },
 

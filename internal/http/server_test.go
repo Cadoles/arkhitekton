@@ -17,7 +17,7 @@ import (
 
 func testServer(checks ...ReadinessCheck) *Server {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewServer(config.HTTPConfig{Addr: ":0", ShutdownTimeout: time.Second}, logger, nil, checks...)
+	return NewServer(config.HTTPConfig{Addr: ":0", ShutdownTimeout: time.Second}, logger, nil, nil, checks...)
 }
 
 func do(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {

@@ -34,10 +34,16 @@ var ErrNotBuilt = errors.New("interface non construite")
 // not a file. Without it, reloading a page or following a shared link would give a
 // 404 while internal navigation works — a classic failure, and a confusing one,
 // because it never happens while clicking.
-func Handler(logger *slog.Logger) (http.Handler, error) {
-	dist, err := fs.Sub(assets, "dist")
-	if err != nil {
-		return nil, fmt.Errorf("root of the static files: %w", err)
+//
+// dist is the interface a distribution built, its modules included, index.html at its
+// root. Nil, it is the one embedded here, with no module but those of this repository.
+func Handler(dist fs.FS, logger *slog.Logger) (http.Handler, error) {
+	if dist == nil {
+		embedded, err := fs.Sub(assets, "dist")
+		if err != nil {
+			return nil, fmt.Errorf("root of the static files: %w", err)
+		}
+		dist = embedded
 	}
 
 	index, err := fs.ReadFile(dist, "index.html")

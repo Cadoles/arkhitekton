@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
@@ -31,8 +32,11 @@ type Server struct {
 
 // NewServer assembles the probes and, when supplied, the application router mounted under
 // /api/v1. The probes stay outside that prefix: they are queried by the kubelet, not by the
-// front end, and must not depend on application routing.
-func NewServer(cfg config.HTTPConfig, logger *slog.Logger, api http.Handler, checks ...ReadinessCheck) *Server {
+// front end, and must not depend on application routing. ui is the interface to serve, the
+// embedded one when nil.
+func NewServer(
+	cfg config.HTTPConfig, logger *slog.Logger, api http.Handler, ui fs.FS, checks ...ReadinessCheck,
+) *Server {
 	s := &Server{cfg: cfg, logger: logger, checks: checks}
 
 	mux := http.NewServeMux()
@@ -45,10 +49,10 @@ func NewServer(cfg config.HTTPConfig, logger *slog.Logger, api http.Handler, che
 	// The interface is mounted last, on the root. The ServeMux's "/" pattern is the least
 	// specific: the probes and the API keep their prefixes, and everything else — including the
 	// browser's routes — arrives here.
-	if ui, err := web.Handler(logger); err != nil {
+	if handler, err := web.Handler(ui, logger); err != nil {
 		logger.Error("interface not mounted", "error", err)
 	} else {
-		mux.Handle("/", ui)
+		mux.Handle("/", handler)
 	}
 
 	s.http = &http.Server{
