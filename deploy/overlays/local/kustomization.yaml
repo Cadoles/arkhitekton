@@ -42,6 +42,8 @@ configMapGenerator:
       # the client signs with the same one; keeping `us-east-1` here makes it visible that the
       # production value is not exercised, rather than letting one believe the opposite.
       - MINIO_REGION=us-east-1
+      # The kind cluster's registry, served over HTTP: where plugins are published to be installed.
+      - PLUGIN_PLAIN_HTTP_REGISTRIES=registry-mse:5000
 
 secretGenerator:
   # A file that is not versioned (see .gitignore), with a template in dashboard.env.example.
