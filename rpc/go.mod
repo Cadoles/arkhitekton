@@ -3,7 +3,7 @@ module forge.cadoles.com/vcarroy/arkhitekton/rpc
 go 1.26.4
 
 require (
-	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.1.0
+	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.2.0
 	github.com/hashicorp/go-plugin v1.8.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
