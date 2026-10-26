@@ -113,3 +113,20 @@ func TestRunStopsOnContextCancellation(t *testing.T) {
 		t.Fatal("the server did not shut down after the context was cancelled")
 	}
 }
+
+// A dependency that comes and goes while the server runs, an installed plugin's schema, is checked
+// as it is at each probe.
+func TestReadyzReadsTheChecksThatChange(t *testing.T) {
+	var installed []ReadinessCheck
+	s := testServer(ReadinessCheck{Name: "postgres", Check: func(context.Context) error { return nil }}).
+		WithReadiness(func(context.Context) []ReadinessCheck { return installed })
+
+	if rec := do(t, s, "/readyz"); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "schema-widgets") {
+		t.Fatalf("before: %d %s", rec.Code, rec.Body)
+	}
+	installed = []ReadinessCheck{{Name: "schema-widgets", Check: func(context.Context) error { return errors.New("outdated") }}}
+	rec := do(t, s, "/readyz")
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"schema-widgets":"error"`) {
+		t.Errorf("after: %d %s", rec.Code, rec.Body)
+	}
+}

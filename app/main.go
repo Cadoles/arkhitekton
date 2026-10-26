@@ -400,7 +400,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// What a reaction actually did. An engine one cannot debug is worse than frozen behaviour.
 			dashhttp.NewPlanRunsHandler(db),
 			middleware, mounts...),
-		ui, readiness...)
+		ui, readiness...).
+		// An installed plugin's schema comes and goes with its installation.
+		WithReadiness(installedSchemas(sources, db.Pool(), logger))
 
 	return server.Run(ctx)
 }
@@ -672,7 +674,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// Installing a plugin, for the same reason: pulled and verified here, it is put in force at once
 			// rather than at the next reload.
 			scheduler.Handle(worker.NewPluginInstaller(db, storage, pluginPuller(cfg), sources.checkPlugin,
-				func(ctx context.Context) { _ = reloader.Reload(ctx) }, logger))
+				func(ctx context.Context) { _ = reloader.Reload(ctx) }, logger).
+				WithMigrations(migratePlugin(cfg.Database, logger)))
 
 			// The release note, for the same reason: it reads the tracker, the forge and the database.
 			// Both are the project's plugins, resolved per job: a project with no forge plugin gets a

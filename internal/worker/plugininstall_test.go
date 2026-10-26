@@ -144,3 +144,29 @@ func TestTheInstallationJobIsTheSameOnBothSides(t *testing.T) {
 			dashhttp.PluginInstallJobKind, dashhttp.PluginInstallationKey)
 	}
 }
+
+// A plugin's migrations are applied before it is recorded installed; failing, it is not.
+func TestAnInstallationAppliesTheMigrationsFirst(t *testing.T) {
+	for name, failure := range map[string]error{"applied": nil, "failing": errors.New("relation exists")} {
+		db := &installations{installation: store.PluginInstallation{ID: 4, State: store.InstallationPending, RequestedBy: "admin"}}
+		objects := memoryObjects{}
+		var migrated string
+		installer := NewPluginInstaller(db, objects, pulledPlugin,
+			func(context.Context, capability.Plugin) error { return nil }, nil, slog.New(slog.DiscardHandler)).
+			WithMigrations(func(_ context.Context, plugin installed.Plugin) error {
+				migrated = plugin.ID
+				return failure
+			})
+
+		err := installer.Run(context.Background(), store.Job{ID: 1, Params: map[string]string{ParamInstallation: "4"}})
+		if migrated != "junit" {
+			t.Errorf("%s: migrated %q", name, migrated)
+		}
+		if failure == nil && (err != nil || db.completed == "") {
+			t.Errorf("%s: err %v, completed %q", name, err, db.completed)
+		}
+		if failure != nil && (err == nil || db.completed != "" || len(objects) != 0 || !strings.Contains(db.failed, "migrations")) {
+			t.Errorf("%s: err %v, completed %q, failed %q", name, err, db.completed, db.failed)
+		}
+	}
+}

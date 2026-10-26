@@ -45,6 +45,8 @@ type PluginInstaller struct {
 	check func(ctx context.Context, plugin capability.Plugin) error
 	// changed puts the new capabilities in force at once, rather than at the next reload.
 	changed func(ctx context.Context)
+	// migrate applies the plugin's migrations; nil applies none.
+	migrate func(ctx context.Context, plugin installed.Plugin) error
 	keys    blob.Keys
 	logger  *slog.Logger
 }
@@ -58,6 +60,14 @@ func NewPluginInstaller(
 	return &PluginInstaller{
 		store: installations, storage: storage, pull: pull, check: check, changed: changed, logger: logger,
 	}
+}
+
+// WithMigrations applies an installed plugin's migrations before it is recorded installed: once a
+// version is installed, whether it is active is switched without a deployment, and its tables
+// must already be there.
+func (p *PluginInstaller) WithMigrations(migrate func(ctx context.Context, plugin installed.Plugin) error) *PluginInstaller {
+	p.migrate = migrate
+	return p
 }
 
 // Kind returns the `kind` this installer handles.
@@ -114,6 +124,11 @@ func (p *PluginInstaller) install(ctx context.Context, id int64) error {
 	}
 	if err := p.check(ctx, plugin.Plugin); err != nil {
 		return err
+	}
+	if p.migrate != nil {
+		if err := p.migrate(ctx, plugin); err != nil {
+			return fmt.Errorf("applying the plugin's migrations: %w", err)
+		}
 	}
 
 	key, err := p.keys.PluginLayer(plugin.ID, plugin.Version, pulled.Digest)

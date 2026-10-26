@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
@@ -27,7 +28,16 @@ type Server struct {
 	cfg    config.HTTPConfig
 	logger *slog.Logger
 	checks []ReadinessCheck
-	http   *http.Server
+	// more are the checks that change while the server runs: an installed plugin's schema.
+	more func(context.Context) []ReadinessCheck
+	http *http.Server
+}
+
+// WithReadiness adds checks read at each probe, for dependencies that come and go while the
+// server runs.
+func (s *Server) WithReadiness(more func(context.Context) []ReadinessCheck) *Server {
+	s.more = more
+	return s
 }
 
 // NewServer assembles the probes and, when supplied, the application router mounted under
@@ -105,10 +115,14 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	results := make(map[string]string, len(s.checks))
+	checks := s.checks
+	if s.more != nil {
+		checks = append(slices.Clone(checks), s.more(ctx)...)
+	}
+	results := make(map[string]string, len(checks))
 	status := http.StatusOK
 
-	for _, check := range s.checks {
+	for _, check := range checks {
 		if err := check.Check(ctx); err != nil {
 			// The error's detail goes to the log, not to the response: /readyz is often exposed more
 			// widely than the rest, and a connection message can carry a host, a port, even a credential.

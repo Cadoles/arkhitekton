@@ -1,18 +1,24 @@
 package app
 
 import (
+	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -119,5 +125,59 @@ func unsealer(registries capabilities.Source, cipher *secrets.Cipher) func(strin
 			return nil, err
 		}
 		return plugin.Unseal(descriptor, cipher, sealed)
+	}
+}
+
+// pluginMigrations returns an installed plugin's migrations; nil when it brings none.
+func pluginMigrations(plugin installed.Plugin) (*store.MigrationSet, error) {
+	if plugin.Native == nil || plugin.Native.Manifest.Migrations == nil {
+		return nil, nil
+	}
+	declared := plugin.Native.Manifest.Migrations
+	files, err := fs.Sub(plugin.Native.Files, declared.Dir)
+	if err != nil {
+		return nil, err
+	}
+	return &store.MigrationSet{Name: plugin.ID, Table: declared.Table, Files: files}, nil
+}
+
+// migratePlugin applies a plugin's migrations, as the `migrate` role applies the core's.
+func migratePlugin(
+	cfg config.DatabaseConfig, logger *slog.Logger,
+) func(ctx context.Context, plugin installed.Plugin) error {
+	return func(ctx context.Context, plugin installed.Plugin) error {
+		migrations, err := pluginMigrations(plugin)
+		if err != nil || migrations == nil {
+			return err
+		}
+		return migrations.Migrate(ctx, cfg, logger)
+	}
+}
+
+// installedSchemas checks, at each probe, the schema of every active installed plugin that has
+// one: `schema-<id>`, as for an extension.
+func installedSchemas(
+	sources *capabilitySources, pool *pgxpool.Pool, logger *slog.Logger,
+) func(context.Context) []dashhttp.ReadinessCheck {
+	failing := func(name string, err error) dashhttp.ReadinessCheck {
+		return dashhttp.ReadinessCheck{Name: name, Check: func(context.Context) error { return err }}
+	}
+	return func(ctx context.Context) []dashhttp.ReadinessCheck {
+		active, _, err := sources.installed.load(ctx)
+		if err != nil {
+			logger.Error("listing the installed plugins' schemas", "error", err)
+			return []dashhttp.ReadinessCheck{failing("schema-plugins", err)}
+		}
+		var checks []dashhttp.ReadinessCheck
+		for _, plugin := range active {
+			migrations, err := pluginMigrations(plugin)
+			switch {
+			case err != nil:
+				checks = append(checks, failing("schema-"+plugin.ID, err))
+			case migrations != nil:
+				checks = append(checks, dashhttp.ReadinessCheck{Name: "schema-" + plugin.ID, Check: migrations.CheckSchema(pool)})
+			}
+		}
+		return checks
 	}
 }
