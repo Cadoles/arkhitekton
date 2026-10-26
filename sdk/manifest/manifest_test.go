@@ -49,7 +49,7 @@ func TestAManifestAsksForNothingBeyondItsSchema(t *testing.T) {
 		"absolute path":      {`"reading.yaml"`, `"/reading.yaml"`},
 		"no reading":         {`, "reading": "reading.yaml"`, ``},
 		"former module":      {`"reading": "reading.yaml"`, `"module": "gotest.wasm"`},
-		"deploying":          {`"name": "source-read", "reason"`, `"name": "cluster-deploy", "reason"`},
+		"an unknown need":    {`"name": "source-read", "reason"`, `"name": "root", "reason"`},
 		"pushing images":     {`"produces": ["results"]`, `"produces": ["results", "image"]`},
 		"undeclared need":    {`"need": "source-read"`, `"need": "registry-pull"`},
 		"no reason":          {`"reason": "clone the project"`, `"reason": ""`},
@@ -158,5 +158,15 @@ func TestAPipelineMayLeaveItsDefinitionsToTheOperator(t *testing.T) {
 	}
 	if suggest := declared.Plugin().Pipelines[0].Spec.Params["revision"].Suggest; suggest != "git-ref" {
 		t.Errorf("suggest = %q", suggest)
+	}
+}
+
+// Deploying is asked for, and only the operator's catalogue grants it: a binding from the screen
+// names no service account.
+func TestAPluginMayAskToDeploy(t *testing.T) {
+	deploying := strings.Replace(valid, `"needs": [{"name": "source-read", "reason": "clone the project"}]`,
+		`"needs": [{"name": "source-read", "reason": "clone the project"}, {"name": "cluster-deploy", "reason": "deploy the release"}]`, 1)
+	if _, err := Decode([]byte(deploying)); err != nil {
+		t.Error(err)
 	}
 }

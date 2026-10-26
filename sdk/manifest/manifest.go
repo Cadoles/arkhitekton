@@ -461,11 +461,12 @@ func (p Pipeline) problems(at string) []error {
 	declared := map[capability.NeedName]bool{}
 	for _, need := range p.Needs {
 		switch need.Name {
-		case capability.NeedSourceRead, capability.NeedRegistryPull:
+		case capability.NeedSourceRead, capability.NeedRegistryPull, capability.NeedRegistryPush:
+		case capability.NeedClusterDeploy:
+			// Asked, never granted here: a service account is bound by the operator's catalogue file
+			// only, and a run whose need nobody bound is refused with the reason.
 		default:
-			// Pushing an image and deploying act on the instance's behalf: a binding from the screen
-			// cannot grant them, and an installed plugin cannot ask for them.
-			problems = append(problems, fmt.Errorf("%s.needs: %q, expected source-read or registry-pull", at, need.Name))
+			problems = append(problems, fmt.Errorf("%s.needs: %q, not a need the dashboard binds", at, need.Name))
 		}
 		if strings.TrimSpace(need.Reason) == "" {
 			problems = append(problems, fmt.Errorf("%s.needs.%s: no reason given", at, need.Name))

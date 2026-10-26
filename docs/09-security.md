@@ -150,8 +150,8 @@ does not pretend otherwise. What it guarantees:
   in `PLUGIN_ALLOW_UNSIGNED`, and is recorded `unsigned`. The program's digest is checked again
   before each launch; the key's fingerprint and the digest are recorded and audited;
 - **the cluster stays the operator's**: no service account, from the manifest or from a binding
-  recorded on the screen; needs limited to `source-read` and `registry-pull`; Tekton definitions
-  limited to Pipelines and Tasks, with no host path, host namespace, privileged container,
+  recorded on the screen; a pipeline may ask for `cluster-deploy`, which only the operator's
+  catalogue file binds; Tekton definitions limited to Pipelines and Tasks, with no host path, host namespace, privileged container,
   resolver or bundle. A program reaches the cluster with the worker's service account, whose
   RBAC is the real bound: it still cannot read a Secret (§9.4);
 - **routes**: authentication, CSRF, the plugin's switch for the project and the declared

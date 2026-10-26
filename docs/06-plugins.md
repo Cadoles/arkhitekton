@@ -436,7 +436,7 @@ console says so. Its stylesheet carries only its own utilities, on the dashboard
 | Refused | Why |
 |---|---|
 | a key the schema does not have, a service account first | a privilege is the operator's to grant, in the catalogue file |
-| a need other than `source-read` and `registry-pull`, a product other than results | pushing images and deploying act on the instance's behalf |
+| a product other than results | an image is the build's |
 | a Tekton definition other than a `Pipeline` or a `Task`, or two in one file | the dashboard installs Pipelines and Tasks, and installs what it checked |
 | `serviceAccountName`, `hostPath`, `hostNetwork`, `hostPID`, `hostIPC`, `hostUsers`, `privileged: true` anywhere in a definition | a run reaches nothing beyond its pod |
 | a `resolver` or a `bundle` | a definition fetches nothing its signature does not cover |
@@ -480,8 +480,9 @@ on the installation, and on the job. Settings already recorded for the plugin's 
 
 **Binding.** An installed capability is launched once bound, from Administration, Capacités:
 secrets for its needs, configuration keys for its parameters, volume sizes, a timeout, a
-ceiling. Never a service account. The catalogue file's binding, when it has one, wins and is
-shown read-only (§5.2).
+ceiling. Never a service account: a pipeline that asks for `cluster-deploy` is bound by the
+operator's catalogue file, or its runs are refused with the reason. The catalogue file's
+binding, when it has one, wins and is shown read-only (§5.2).
 
 **Versions.** The first version installed is active. A later one is installed beside it and
 waits to be activated: an update is a decision, not a side effect of pulling. Activation is
