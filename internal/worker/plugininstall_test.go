@@ -11,7 +11,6 @@ import (
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // readingPlugin is an installable plugin whose runs are read by declaration.
@@ -94,7 +93,7 @@ func TestAnInstallationPullsChecksAndStores(t *testing.T) {
 	objects := memoryObjects{}
 	changed := 0
 	installer := NewPluginInstaller(db, objects, pulledPlugin,
-		func(context.Context, capability.Plugin) error { return nil },
+		func(context.Context, installed.Plugin) error { return nil },
 		func(context.Context) { changed++ }, slog.New(slog.DiscardHandler))
 
 	if err := installer.Run(context.Background(), store.Job{ID: 1, Params: map[string]string{ParamInstallation: "4"}}); err != nil {
@@ -119,7 +118,7 @@ func TestARefusedInstallationSaysWhy(t *testing.T) {
 		Reference: "registry.example/plugins/junit@" + pinnedDigest}}
 	objects := memoryObjects{}
 	installer := NewPluginInstaller(db, objects, pulledPlugin,
-		func(context.Context, capability.Plugin) error { return errors.New(`plugin "junit" declared twice`) },
+		func(context.Context, installed.Plugin) error { return errors.New(`plugin "junit" declared twice`) },
 		nil, slog.New(slog.DiscardHandler))
 
 	err := installer.Run(context.Background(), store.Job{ID: 1, Params: map[string]string{ParamInstallation: "4"}})
@@ -152,7 +151,7 @@ func TestAnInstallationAppliesTheMigrationsFirst(t *testing.T) {
 		objects := memoryObjects{}
 		var migrated string
 		installer := NewPluginInstaller(db, objects, pulledPlugin,
-			func(context.Context, capability.Plugin) error { return nil }, nil, slog.New(slog.DiscardHandler)).
+			func(context.Context, installed.Plugin) error { return nil }, nil, slog.New(slog.DiscardHandler)).
 			WithMigrations(func(_ context.Context, plugin installed.Plugin) error {
 				migrated = plugin.ID
 				return failure

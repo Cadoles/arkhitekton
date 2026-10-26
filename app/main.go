@@ -308,13 +308,15 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// And the installed plugins' programs, asked at each call.
+	answers := pluginHooks{programs: servers, db: db, logger: logger}
 
 	queueHandler := dashhttp.NewQueueHandler(db, inForce.Catalogs()).
 		// The launch form's lists: release tags and published images. The registry's prefix comes
 		// from the same configuration as the one used to read the tags — deducing it elsewhere would
 		// make what is offered diverge from what is pulled.
 		WithSuggestions(db, cfg.Registry.Project, logger).
-		WithEnvironmentSuggestions(composedSuggestions(extensionHooks))
+		WithEnvironmentSuggestions(answers.suggestions(composedSuggestions(extensionHooks)))
 	// The name of the promoted repository comes from the registry's configuration: it is the same
 	// prefix as the one used to read the tags, and deducing it elsewhere would make reading and
 	// promotion diverge.
@@ -339,8 +341,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		WithArtifactReader(db).
 		// The "deployed on" badge and the requested promotions: the core reads no extension's tables,
 		// and a switched-off extension returns nothing.
-		WithDeployments(composedDeployments(extensionHooks)).
-		WithPromotions(composedPromotions(extensionHooks)).
+		WithDeployments(answers.deployments(composedDeployments(extensionHooks))).
+		WithPromotions(answers.promotions(composedPromotions(extensionHooks))).
 		WithTrackers(connections).
 		WithExports(deliverablesEnabled(db)).
 		// The release is anchored on a commit and tagged through the project's forge plugin. With
@@ -390,7 +392,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// The access test uses the forge's token, with one client per repository: the configuration's
 			// is bound to its own, and the test bears precisely on another. With no token, the screen
 			// says so rather than returning a failure one would take for a permission problem.
-			projectsHandler(cfg, db, composedSchemeCheck(extensionHooks), connections),
+			projectsHandler(cfg, db, answers.schemeCheck(composedSchemeCheck(extensionHooks)), connections),
 			// The cipher may be nil: with no key, the settings are read and enabled, only writing a
 			// sensitive field is refused — with a message that names the variable, in the place where one
 			// types it.
@@ -539,6 +541,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
+	// And the installed plugins' programs, asked at each call.
+	answers := pluginHooks{programs: readers, db: db, logger: logger}
 	promotionFacts, err := composedPromotionFacts(extensionHooks)
 	if err != nil {
 		return err
@@ -607,7 +611,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithEvents(db)
 			// A promotion is observed when one concludes, which only happens while an extension
 			// promotes.
-			sink.WithPromotionFacts(promotionFacts)
+			sink.WithPromotionFacts(pluginPromotionFacts{hooks: answers, compiled: promotionFacts})
 
 			// The plan engine, which chains the verifications of a successful build and concludes their
 			// steps at the end of their job.
@@ -668,7 +672,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithProjectRepositories(db, os.Getenv("FORGE_SSH_PORT")).
 				// And the settings the extensions add for this project. Nothing from an extension switched
 				// off for it.
-				WithProjectSettings(composedProjectSettings(extensionHooks)).
+				WithProjectSettings(answers.projectSettings(composedProjectSettings(extensionHooks))).
 				// A plugin switched off by an administrator stops its pipelines.
 				WithPluginGate(pluginGate(db))
 

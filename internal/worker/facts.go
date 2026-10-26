@@ -126,7 +126,10 @@ func (s *runSink) emitReleasePromoted(ctx context.Context, linked store.JobRelea
 	if s.promotions == nil || jobState != store.JobSucceeded || linked.Environment == "" {
 		return
 	}
-	s.emit(ctx, s.promotions.Promoted(s.at(), linked))
+	// A plugin may state no fact for this promotion: its type then stays empty.
+	if fact := s.promotions.Promoted(s.at(), linked); fact.Type != "" {
+		s.emit(ctx, fact)
+	}
 }
 
 // WithEngine wires the engine that runs the plans.

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -235,8 +236,11 @@ func (s *capabilitySources) checkBinding(ctx context.Context, binding catalog.Bi
 // checkPlugin builds the capabilities as they would be with a plugin active, and says why they could
 // not be: checked before installing it and before activating it, so that neither leaves the
 // dashboard on capabilities it cannot rebuild.
-func (s *capabilitySources) checkPlugin(ctx context.Context, plugin capability.Plugin) error {
-	registry, err := s.registry(ctx, &plugin)
+func (s *capabilitySources) checkPlugin(ctx context.Context, plugin installed.Plugin) error {
+	if err := s.checkHooks(ctx, plugin); err != nil {
+		return err
+	}
+	registry, err := s.registry(ctx, &plugin.Plugin)
 	if err != nil {
 		return err
 	}
@@ -261,7 +265,7 @@ func (s *capabilitySources) checkActivation(ctx context.Context, id int64) error
 	if err != nil {
 		return err
 	}
-	return s.checkPlugin(ctx, plugin.Plugin)
+	return s.checkPlugin(ctx, plugin)
 }
 
 // carried lists the plugins whose Tekton definitions stay: the built-in ones and those installed.
@@ -418,4 +422,22 @@ func pluginVersionIn(registries capabilities.Source) func(plugin string) string 
 		}
 		return found.Version
 	}
+}
+
+// checkHooks refuses a plugin that would state the facts of a promotion beside another: the same
+// promotion would be stated twice, under two names.
+func (s *capabilitySources) checkHooks(ctx context.Context, plugin installed.Plugin) error {
+	if plugin.Native == nil || !slices.Contains(plugin.Native.Manifest.Hooks, manifest.HookPromotionFacts) {
+		return nil
+	}
+	active, _, err := s.installed.load(ctx)
+	if err != nil {
+		return err
+	}
+	for _, other := range active {
+		if other.ID != plugin.ID && other.Native != nil && slices.Contains(other.Native.Manifest.Hooks, manifest.HookPromotionFacts) {
+			return fmt.Errorf("plugin %q already states the facts of a promotion; two would state each one twice", other.ID)
+		}
+	}
+	return nil
 }

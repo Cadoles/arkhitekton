@@ -11,7 +11,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
 
@@ -42,7 +41,7 @@ type PluginInstaller struct {
 	pull    func(ctx context.Context, reference string) (installed.Pulled, error)
 	// check builds the capabilities as they would be with the plugin active, and says why they
 	// could not be.
-	check func(ctx context.Context, plugin capability.Plugin) error
+	check func(ctx context.Context, plugin installed.Plugin) error
 	// changed puts the new capabilities in force at once, rather than at the next reload.
 	changed func(ctx context.Context)
 	// migrate applies the plugin's migrations; nil applies none.
@@ -54,7 +53,7 @@ type PluginInstaller struct {
 func NewPluginInstaller(
 	installations InstallationStore, storage Storage,
 	pull func(ctx context.Context, reference string) (installed.Pulled, error),
-	check func(ctx context.Context, plugin capability.Plugin) error,
+	check func(ctx context.Context, plugin installed.Plugin) error,
 	changed func(ctx context.Context), logger *slog.Logger,
 ) *PluginInstaller {
 	return &PluginInstaller{
@@ -122,7 +121,7 @@ func (p *PluginInstaller) install(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if err := p.check(ctx, plugin.Plugin); err != nil {
+	if err := p.check(ctx, plugin); err != nil {
 		return err
 	}
 	if p.migrate != nil {
