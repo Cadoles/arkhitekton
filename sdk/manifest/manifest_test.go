@@ -17,7 +17,7 @@ const valid = `{
     "needs": [{"name": "source-read", "reason": "clone the project"}],
     "artifacts": [{"name": "results", "param": "results-upload-url", "object": "go-test.json", "format": "file",
       "members": [{"match": "go-test.json", "parser": "raw", "tool": "gotest"}]}],
-    "produces": ["results"], "group": "unit", "module": "gotest.wasm"
+    "produces": ["results"], "group": "unit", "reading": "reading.yaml"
   }]
 }`
 
@@ -46,9 +46,9 @@ func TestAManifestAsksForNothingBeyondItsSchema(t *testing.T) {
 		"bad id":             {`"id": "gotest"`, `"id": "Go Test"`},
 		"bad version":        {`"version": "1.0.0"`, `"version": "1.0/../x"`},
 		"path outside":       {`"tekton/task.yaml"`, `"../task.yaml"`},
-		"absolute path":      {`"gotest.wasm"`, `"/gotest.wasm"`},
-		"two readings":       {`"module": "gotest.wasm"`, `"module": "gotest.wasm", "reading": "reading.yaml"`},
-		"no reading":         {`, "module": "gotest.wasm"`, ``},
+		"absolute path":      {`"reading.yaml"`, `"/reading.yaml"`},
+		"no reading":         {`, "reading": "reading.yaml"`, ``},
+		"former module":      {`"reading": "reading.yaml"`, `"module": "gotest.wasm"`},
 		"deploying":          {`"name": "source-read", "reason"`, `"name": "cluster-deploy", "reason"`},
 		"pushing images":     {`"produces": ["results"]`, `"produces": ["results", "image"]`},
 		"undeclared need":    {`"need": "source-read"`, `"need": "registry-pull"`},
@@ -131,11 +131,19 @@ func TestAProgramIsCheckedForWhatItBrings(t *testing.T) {
 }
 
 func TestANativeReadingNeedsAProgram(t *testing.T) {
-	native := strings.Replace(valid, `"module": "gotest.wasm"`, `"interpreter": "native"`, 1)
+	native := strings.Replace(valid, `"reading": "reading.yaml"`, `"interpreter": "native"`, 1)
 	if _, err := Decode([]byte(native)); err == nil || !strings.Contains(err.Error(), "program") {
 		t.Errorf("err = %v", err)
 	}
 	if _, err := Decode([]byte(strings.Replace(native, `"interpreter": "native"`, `"interpreter": "wasm"`, 1))); err == nil {
 		t.Error("an unknown interpreter accepted")
+	}
+}
+
+func TestAPipelineReadsItsRunsOneWay(t *testing.T) {
+	both := strings.Replace(valid, `"reading": "reading.yaml"`, `"reading": "reading.yaml", "interpreter": "native"`, 1)
+	both = strings.Replace(both, `"label": "Go",`, `"label": "Go", "binary": "bin/plugin", "protocol": 1,`, 1)
+	if _, err := Decode([]byte(both)); err == nil || !strings.Contains(err.Error(), "one way") {
+		t.Errorf("err = %v", err)
 	}
 }

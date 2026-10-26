@@ -114,16 +114,15 @@ type Pipeline struct {
 	Name  string
 	Label string
 	Spec  PipelineSpec
-	// A pipeline that produces results reads its runs one way, and only one: Interpreter,
-	// Reading or Module.
+	// A pipeline that produces results reads its runs one way, and only one: Interpreter or
+	// Reading.
 	//
-	// Interpreter reads the runs in code compiled with the dashboard.
+	// Interpreter reads the runs in code: compiled with the dashboard, or an installed plugin's
+	// program the dashboard asks.
 	Interpreter Interpreter
 	// Reading declares how the runs are read, as YAML the dashboard executes: see the declare
 	// package for what it says.
 	Reading []byte
-	// Module reads the runs in WebAssembly the dashboard runs in a sandbox: see the guest package.
-	Module []byte
 }
 
 // Product is what a pipeline leaves behind.

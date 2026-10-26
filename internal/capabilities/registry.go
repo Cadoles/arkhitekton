@@ -3,14 +3,12 @@
 package capabilities
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/wasm"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -108,13 +106,13 @@ func New(plugins ...capability.Plugin) (*Registry, error) {
 	return registry, nil
 }
 
-// prepared turns a declared reading or a module into the pipeline's interpreter, and says in how
-// many ways the pipeline reads its runs.
+// prepared turns a declared reading into the pipeline's interpreter, and says in how many ways the
+// pipeline reads its runs.
 func prepared(ref capability.Ref, pipeline capability.Pipeline) (capability.Pipeline, int, error) {
-	// A pipeline reads its runs one way: in code, by declaration or in WebAssembly. The last two
-	// become its interpreter here, checked now rather than on the first run they would misread.
+	// A pipeline reads its runs one way: in code or by declaration. A declaration becomes its
+	// interpreter here, checked now rather than on the first run it would misread.
 	ways := 0
-	for _, present := range []bool{pipeline.Interpreter != nil, len(pipeline.Reading) > 0, len(pipeline.Module) > 0} {
+	for _, present := range []bool{pipeline.Interpreter != nil, len(pipeline.Reading) > 0} {
 		if present {
 			ways++
 		}
@@ -128,17 +126,11 @@ func prepared(ref capability.Ref, pipeline capability.Pipeline) (capability.Pipe
 			return pipeline, ways, fmt.Errorf("capability %s: %w", ref, err)
 		}
 		pipeline.Interpreter = declared
-	case len(pipeline.Module) > 0:
-		module, err := wasm.Load(context.Background(), ref.String(), pipeline.Module, wasm.DefaultLimits, nil)
-		if err != nil {
-			return pipeline, ways, fmt.Errorf("capability %s: %w", ref, err)
-		}
-		pipeline.Interpreter = module
 	}
 	return pipeline, ways, nil
 }
 
-// Prepare compiles a plugin's declared readings and modules into interpreters, once: the plugin
+// Prepare compiles a plugin's declared readings into interpreters, once: the plugin
 // returned reads its runs in code, and a registry built from it compiles nothing again.
 func Prepare(plugin capability.Plugin) (capability.Plugin, error) {
 	pipelines := make([]capability.Pipeline, 0, len(plugin.Pipelines))
@@ -149,7 +141,7 @@ func Prepare(plugin capability.Plugin) (capability.Plugin, error) {
 			problems = append(problems, err)
 			continue
 		}
-		compiled.Reading, compiled.Module = nil, nil
+		compiled.Reading = nil
 		pipelines = append(pipelines, compiled)
 	}
 	plugin.Pipelines = pipelines

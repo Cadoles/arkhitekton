@@ -156,10 +156,9 @@ type Pipeline struct {
 	Verification  bool                 `json:"verification,omitempty"`
 	Exclusive     bool                 `json:"exclusive,omitempty"`
 	Group         string               `json:"group,omitempty"`
-	// Reading, Module or Interpreter, exactly one when the pipeline publishes results: a declared
-	// reading, a WebAssembly module, or `native`, the plugin's program.
+	// Reading or Interpreter, exactly one when the pipeline publishes results: a declared reading,
+	// or `native`, the plugin's program.
 	Reading     string `json:"reading,omitempty"`
-	Module      string `json:"module,omitempty"`
 	Interpreter string `json:"interpreter,omitempty"`
 }
 
@@ -412,7 +411,7 @@ func (p Pipeline) problems(at string) []error {
 		problems = append(problems, fmt.Errorf("%s: no Tekton definition", at))
 	}
 	files := append([]string{}, p.Tekton...)
-	for _, file := range []string{p.Reading, p.Module} {
+	for _, file := range []string{p.Reading} {
 		if file != "" {
 			files = append(files, file)
 		}
@@ -435,7 +434,7 @@ func (p Pipeline) problems(at string) []error {
 		}
 	}
 	readings := 0
-	for _, present := range []bool{p.Reading != "", p.Module != "", p.Interpreter != ""} {
+	for _, present := range []bool{p.Reading != "", p.Interpreter != ""} {
 		if present {
 			readings++
 		}
@@ -444,7 +443,7 @@ func (p Pipeline) problems(at string) []error {
 	case p.Interpreter != "" && p.Interpreter != InterpreterNative:
 		problems = append(problems, fmt.Errorf("%s.interpreter: %q, expected %q", at, p.Interpreter, InterpreterNative))
 	case readings > 1:
-		problems = append(problems, fmt.Errorf("%s: reading, module and interpreter, the runs are read one way", at))
+		problems = append(problems, fmt.Errorf("%s: a reading and an interpreter, the runs are read one way", at))
 	case results && readings == 0:
 		problems = append(problems, fmt.Errorf("%s: publishes results and says nothing of how they are read", at))
 	}

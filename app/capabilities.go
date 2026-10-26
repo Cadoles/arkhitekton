@@ -31,9 +31,9 @@ func referenceLibrary() *pipelinelib.Library {
 	return pipelinelib.NewLibrary(carriedStacks())
 }
 
-// installedPlugins reads the installed plugins from their stored layer. Each layer is compiled once:
-// it is immutable, named by its digest, and a reload that recompiled every module would cost a
-// sandbox per plugin each time a binding changes.
+// installedPlugins reads the installed plugins from their stored layer. Each layer is read and
+// compiled once: it is immutable, named by its digest, and a reload that read every layer again
+// would unpack every plugin each time a binding changes.
 type installedPlugins struct {
 	db      *store.DB
 	objects interface {

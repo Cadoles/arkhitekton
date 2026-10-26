@@ -90,8 +90,8 @@ func load(fsys fs.FS, limit int64) (Plugin, error) {
 	if err != nil {
 		return Plugin{}, err
 	}
-	// The reading compiled, the module loaded in its sandbox: a plugin that would not load in the
-	// registry is refused now, not at the next reload.
+	// The reading compiled, the capabilities composed: a plugin that would not load in the registry
+	// is refused now, not at the next reload.
 	if _, err := capabilities.New(plugin.Plugin); err != nil {
 		return Plugin{}, err
 	}
@@ -125,11 +125,6 @@ func read(fsys fs.FS, limit int64, interpreters Interpreters) (Plugin, error) {
 		plugin.Pipelines[i].Spec.Manifests = definitions
 		if pipeline.Reading != "" {
 			if plugin.Pipelines[i].Reading, err = fs.ReadFile(fsys, pipeline.Reading); err != nil {
-				problems = append(problems, fmt.Errorf("%s: %w", at, err))
-			}
-		}
-		if pipeline.Module != "" {
-			if plugin.Pipelines[i].Module, err = fs.ReadFile(fsys, pipeline.Module); err != nil {
 				problems = append(problems, fmt.Errorf("%s: %w", at, err))
 			}
 		}

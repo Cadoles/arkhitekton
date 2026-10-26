@@ -19,8 +19,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
 
-// runCheckReading checks a declared reading, a module compiled to WebAssembly, or a plugin's
-// program, against recorded cases, without a database nor a cluster: what a plugin author runs
+// runCheckReading checks a declared reading, or a plugin's program, against recorded cases, without a database nor a cluster: what a plugin author runs
 // before shipping a reading. With --write, the facts produced become the expected ones of the
 // cases that record none.
 func runCheckReading(args []string) error {
@@ -43,7 +42,7 @@ func runCheckReading(args []string) error {
 		check = func(dir string) ([]byte, []byte, error) { return declarative.CheckWith(program, dir) }
 	} else {
 		if flags.NArg() < 2 {
-			return errors.New("usage: arkhitekton check-reading [--write] <reading.yaml|module.wasm> <case>...\n" +
+			return errors.New("usage: arkhitekton check-reading [--write] <reading.yaml> <case>...\n" +
 				"       arkhitekton check-reading [--write] --plugin <dir> [--pipeline <name>] <case>...")
 		}
 		reading, err := os.ReadFile(flags.Arg(0))
