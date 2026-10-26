@@ -2,6 +2,7 @@ package extension
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -166,3 +167,52 @@ var (
 	ErrReleaseNotFound = errors.New("release not found")
 	ErrPluginDisabled  = errors.New("plugin disabled for the project")
 )
+
+// Promoted says whether a re-tag propagates the image: an entry that says nothing is.
+func (t Target) Promoted() bool { return t.Promote == nil || *t.Promote }
+
+// DockerfileFor is the file that builds a target: its own, or the project's.
+func (p Project) DockerfileFor(target Target) string {
+	if file := strings.TrimSpace(target.Dockerfile); file != "" {
+		return file
+	}
+	return p.Dockerfile
+}
+
+// Buildable are the targets a Dockerfile builds.
+func (p Project) Buildable() []Target {
+	var buildable []Target
+	for _, target := range p.Targets {
+		if strings.TrimSpace(p.DockerfileFor(target)) != "" {
+			buildable = append(buildable, target)
+		}
+	}
+	return buildable
+}
+
+// Promotable are the built targets a re-tag propagates.
+func (p Project) Promotable() []Target {
+	var promoted []Target
+	for _, target := range p.Buildable() {
+		if target.Promoted() {
+			promoted = append(promoted, target)
+		}
+	}
+	return promoted
+}
+
+// Reference is a target's repository, registry included; empty without a registry or an image.
+func (p Project) Reference(target Target) string {
+	registry := strings.Trim(strings.TrimSpace(p.ImageRegistry), "/")
+	image := strings.TrimSpace(target.Image)
+	if registry == "" || image == "" {
+		return ""
+	}
+	return registry + "/" + image
+}
+
+// IsObservable says whether the dashboard can see the environment's cluster.
+func (e Environment) IsObservable() bool { return e.Observable }
+
+// IsVisible says whether the interface shows the environment.
+func (e Environment) IsVisible() bool { return e.Visible }
