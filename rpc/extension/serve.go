@@ -191,9 +191,9 @@ func (s *server) Serve(ctx context.Context, request *pluginv1.HTTPRequest) (*plu
 	if hooks.Routes == nil {
 		return nil, unimplemented("routes")
 	}
-	ctx = context.WithValue(ctx, identityKey{}, identityFrom(request.GetIdentity()))
+	ctx = WithIdentity(ctx, identityFrom(request.GetIdentity()))
 	if project := request.GetProject(); project != nil {
-		ctx = context.WithValue(ctx, projectKey{}, projectFrom(project))
+		ctx = WithProject(ctx, projectFrom(project))
 	}
 	target := "/" + strings.TrimPrefix(request.GetPath(), "/")
 	if query := request.GetQuery(); query != "" {
@@ -359,6 +359,17 @@ type (
 	identityKey struct{}
 	projectKey  struct{}
 )
+
+// WithIdentity sets the caller as the dashboard does before a route: for a plugin's tests.
+func WithIdentity(ctx context.Context, identity Identity) context.Context {
+	return context.WithValue(ctx, identityKey{}, identity)
+}
+
+// WithProject sets the project as the dashboard does before a project's route: for a plugin's
+// tests.
+func WithProject(ctx context.Context, project Project) context.Context {
+	return context.WithValue(ctx, projectKey{}, project)
+}
 
 // IdentityFrom returns the caller of a route, authenticated by the dashboard.
 func IdentityFrom(ctx context.Context) (Identity, bool) {

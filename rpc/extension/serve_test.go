@@ -205,3 +205,14 @@ func TestAModuleRunsUntilItIsCancelled(t *testing.T) {
 		t.Fatal("the module did not stop")
 	}
 }
+
+// A plugin's tests set the caller and the project as the dashboard does.
+func TestATestSetsTheCallerAndTheProject(t *testing.T) {
+	ctx := extension.WithProject(extension.WithIdentity(context.Background(), extension.Identity{Username: "alice"}),
+		extension.Project{Slug: "app"})
+	identity, identified := extension.IdentityFrom(ctx)
+	project, found := extension.ProjectFrom(ctx)
+	if !identified || identity.Username != "alice" || !found || project.Slug != "app" {
+		t.Errorf("identity %+v, project %+v", identity, project)
+	}
+}
