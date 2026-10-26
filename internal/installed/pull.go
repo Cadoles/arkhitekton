@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"runtime"
+	"slices"
 	"strings"
 	"testing/fstest"
 
@@ -85,12 +86,15 @@ func (r Registries) repository(reference registry.Reference) (*remote.Repository
 	return repository, nil
 }
 
+// Unsigned is what SignedBy says of a plugin the operator lets in without a trusted signature.
+const Unsigned = "unsigned"
+
 // Pulled is a plugin fetched and verified.
 type Pulled struct {
 	// Reference is the repository and digest it was pulled from.
 	Reference string
 	Digest    string
-	// SignedBy is the fingerprint of the trusted key that signed it.
+	// SignedBy is the fingerprint of the trusted key that signed it, or Unsigned.
 	SignedBy string
 	// Layer is the directory as packed and signed: what is stored, and unpacked at each load.
 	Layer []byte
@@ -119,7 +123,11 @@ func pin(raw string) (registry.Reference, digest.Digest, error) {
 }
 
 // Pull fetches the plugin a reference pins, checks that a trusted key signed it, and unpacks it.
-func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw string) (Pulled, error) {
+//
+// A plugin unsigned, or signed by no trusted key, is installed only if its id is in unsigned, the
+// operator's explicit list. Its layer is then fetched before it is trusted, to read that id: it is
+// read, bounded, and nothing of it runs.
+func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, unsigned []string, raw string) (Pulled, error) {
 	reference, pinned, err := pin(raw)
 	if err != nil {
 		return Pulled{}, err
@@ -137,9 +145,13 @@ func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw 
 	if err != nil {
 		return Pulled{}, err
 	}
-	signer, err := verified(ctx, repository, trusted, pinned)
-	if err != nil {
-		return Pulled{}, fmt.Errorf("%s: %w", reference, err)
+	signedBy := ""
+	signer, unverified := verified(ctx, repository, trusted, pinned)
+	switch {
+	case unverified == nil:
+		signedBy = signer.Fingerprint
+	case len(unsigned) == 0:
+		return Pulled{}, fmt.Errorf("%s: %w", reference, unverified)
 	}
 
 	// A plugin with a program is an index, one artifact per platform. The signature covers the
@@ -173,10 +185,34 @@ func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw 
 	if err != nil {
 		return Pulled{}, err
 	}
+	if unverified != nil {
+		id, err := declaredID(files)
+		if err != nil || !slices.Contains(unsigned, id) {
+			return Pulled{}, fmt.Errorf("%s: %w; plugin %q is not one the operator lets in unsigned", reference, unverified, id)
+		}
+		signedBy = Unsigned
+	}
 	return Pulled{
 		Reference: reference.Registry + "/" + reference.Repository + "@" + pinned.String(),
-		Digest:    pinned.String(), SignedBy: signer.Fingerprint, Layer: []byte(layer), Files: files,
+		Digest:    pinned.String(), SignedBy: signedBy, Layer: []byte(layer), Files: files,
 	}, nil
+}
+
+// declaredID reads the id a plugin's manifest states, and nothing else of it.
+func declaredID(files fs.FS) (string, error) {
+	raw, err := fs.ReadFile(files, manifest.FileName)
+	if err != nil {
+		return "", err
+	}
+	converted, err := yaml.YAMLToJSON(raw)
+	if err != nil {
+		return "", err
+	}
+	var declared struct {
+		ID string `json:"id"`
+	}
+	err = json.Unmarshal(converted, &declared)
+	return declared.ID, err
 }
 
 // platformArtifact reads the artifact of an index built for an architecture.

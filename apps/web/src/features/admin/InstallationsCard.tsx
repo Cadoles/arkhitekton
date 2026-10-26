@@ -22,6 +22,9 @@ import {
  * lus restent.
  */
 
+// What the dashboard records for a plugin the operator lets in without a trusted signature.
+const UNSIGNED = 'unsigned'
+
 const STATE_LABEL: Record<Installation['state'], string> = {
   pending: 'En cours',
   installed: 'Installé',
@@ -143,10 +146,16 @@ export function InstallationsCard() {
               <span className="break-all font-mono text-xs text-zinc-500">
                 {installation.reference}
               </span>
-              {installation.signed_by && (
-                <span className="break-all text-xs text-zinc-500">
-                  Signé par <span className="font-mono">{installation.signed_by}</span>
+              {installation.signed_by === UNSIGNED ? (
+                <span className="text-xs text-warn-700">
+                  Non signé : installé parce que l'exploitation l'autorise nommément
                 </span>
+              ) : (
+                installation.signed_by && (
+                  <span className="break-all text-xs text-zinc-500">
+                    Signé par <span className="font-mono">{installation.signed_by}</span>
+                  </span>
+                )
               )}
               {installation.error && (
                 <span className="text-xs text-critical-700">{installation.error}</span>

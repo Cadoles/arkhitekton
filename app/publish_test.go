@@ -69,7 +69,7 @@ func TestTheExamplePluginPublishes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pulled, err := installed.Pull(context.Background(), installed.Registries{PlainHTTP: []string{host}}, trusted, reference)
+	pulled, err := installed.Pull(context.Background(), installed.Registries{PlainHTTP: []string{host}}, trusted, nil, reference)
 	if err != nil {
 		t.Fatalf("pulling %q: %v", reference, err)
 	}

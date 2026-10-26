@@ -67,7 +67,7 @@ func TestAPublishedPluginIsPulledAndVerified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pulled, err := Pull(context.Background(), registries, trusted, reference)
+	pulled, err := Pull(context.Background(), registries, trusted, nil, reference)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestEd25519KeysSign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Pull(context.Background(), registries, trust(t, public), reference); err != nil {
+	if _, err := Pull(context.Background(), registries, trust(t, public), nil, reference); err != nil {
 		t.Error(err)
 	}
 }
@@ -122,21 +122,21 @@ func TestAPluginIsInstalledOnlyAsSigned(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Pull(ctx, registries, stranger, reference); err == nil || !strings.Contains(err.Error(), "no trusted key") {
+	if _, err := Pull(ctx, registries, stranger, nil, reference); err == nil || !strings.Contains(err.Error(), "no trusted key") {
 		t.Errorf("a stranger's key: %v", err)
 	}
-	if _, err := Pull(ctx, registries, trusted, host+"/plugins/gotest:1.0.0"); err == nil || !strings.Contains(err.Error(), "by digest") {
+	if _, err := Pull(ctx, registries, trusted, nil, host+"/plugins/gotest:1.0.0"); err == nil || !strings.Contains(err.Error(), "by digest") {
 		t.Errorf("a tag: %v", err)
 	}
 
 	// The signature of 1.0.1, moved onto 1.0.0: valid, by a trusted key, and about another artifact.
 	moveSignature(t, host, other, reference)
-	if _, err := Pull(ctx, registries, trusted, reference); err == nil || !strings.Contains(err.Error(), "the signature is for") {
+	if _, err := Pull(ctx, registries, trusted, nil, reference); err == nil || !strings.Contains(err.Error(), "the signature is for") {
 		t.Errorf("another artifact's signature: %v", err)
 	}
 
 	unsigned := pushForeign(t, host, "plugins/unsigned", ocispec.Manifest{})
-	if _, err := Pull(ctx, registries, trusted, unsigned); err == nil || !strings.Contains(err.Error(), "no signature") {
+	if _, err := Pull(ctx, registries, trusted, nil, unsigned); err == nil || !strings.Contains(err.Error(), "no signature") {
 		t.Errorf("unsigned: %v", err)
 	}
 }
@@ -157,14 +157,14 @@ func TestAPulledPluginIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	signArtifact(t, host, "plugins/huge", pushed.String(), key)
-	if _, err := Pull(ctx, registries, trusted, host+"/plugins/huge@"+pushed.String()); err == nil || !strings.Contains(err.Error(), "larger") {
+	if _, err := Pull(ctx, registries, trusted, nil, host+"/plugins/huge@"+pushed.String()); err == nil || !strings.Contains(err.Error(), "larger") {
 		t.Errorf("a huge layer: %v", err)
 	}
 
 	other := pushForeign(t, host, "plugins/image", ocispec.Manifest{})
 	_, digest, _ := strings.Cut(other, "@")
 	signArtifact(t, host, "plugins/image", digest, key)
-	if _, err := Pull(ctx, registries, trusted, other); err == nil || !strings.Contains(err.Error(), "not an arkhitekton plugin") {
+	if _, err := Pull(ctx, registries, trusted, nil, other); err == nil || !strings.Contains(err.Error(), "not an arkhitekton plugin") {
 		t.Errorf("not a plugin: %v", err)
 	}
 }
@@ -288,5 +288,30 @@ func moveSignature(t *testing.T, host, from, to string) {
 	}
 	if err := repository.PushReference(ctx, descriptor, strings.NewReader(raw), strings.Replace(toDigest, ":", "-", 1)+".sig"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A plugin signed by no trusted key installs only if the operator named it.
+func TestAnUnsignedPluginInstallsOnlyWhenNamed(t *testing.T) {
+	host, registries := registryHost(t)
+	stranger, _ := ecdsaKey(t)
+	_, trusted := ecdsaKey(t)
+	reference, err := Publish(context.Background(), registries, host+"/plugins/gotest:1.0.0", plugin(t), stranger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := Pull(ctx, registries, trusted, []string{"other"}, reference); err == nil || !strings.Contains(err.Error(), `"gotest" is not one`) {
+		t.Errorf("another plugin named: %v", err)
+	}
+	pulled, err := Pull(ctx, registries, nil, []string{"gotest"}, reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pulled.SignedBy != Unsigned {
+		t.Errorf("signed by %q", pulled.SignedBy)
+	}
+	if loaded, err := Load(pulled.Files); err != nil || loaded.ID != "gotest" {
+		t.Errorf("loaded %v", err)
 	}
 }

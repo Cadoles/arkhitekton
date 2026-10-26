@@ -48,6 +48,9 @@ type PluginsConfig struct {
 	RegistryAuth string
 	// PlainHTTP lists the registries reached without TLS: a registry inside a development cluster.
 	PlainHTTP []string
+	// AllowUnsigned names the plugins installed without a trusted signature. Named by id and
+	// pinned by digest all the same: the operator lets one plugin in, not any.
+	AllowUnsigned []string
 }
 
 // ProbeConfig bounds how often outside sources are polled.
@@ -335,9 +338,10 @@ func Load(role Role) (Config, error) {
 			RetiredKeys: listOr("SECRETS_RETIRED_KEYS", nil),
 		},
 		Plugins: PluginsConfig{
-			TrustedKeys:  os.Getenv("PLUGIN_TRUSTED_KEYS"),
-			RegistryAuth: os.Getenv("PLUGIN_REGISTRY_AUTH"),
-			PlainHTTP:    listOr("PLUGIN_PLAIN_HTTP_REGISTRIES", nil),
+			TrustedKeys:   os.Getenv("PLUGIN_TRUSTED_KEYS"),
+			RegistryAuth:  os.Getenv("PLUGIN_REGISTRY_AUTH"),
+			PlainHTTP:     listOr("PLUGIN_PLAIN_HTTP_REGISTRIES", nil),
+			AllowUnsigned: listOr("PLUGIN_ALLOW_UNSIGNED", nil),
 		},
 		Forge: ForgeConfig{
 			URL:        strings.TrimRight(os.Getenv("FORGE_URL"), "/"),

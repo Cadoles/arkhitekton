@@ -181,6 +181,7 @@ neither.
 | `PLUGIN_TRUSTED_KEYS` | none | PEM file of the public keys, ECDSA or Ed25519, a plugin must be signed with. Unset or absent, no plugin installs, and the installation says why. Read at every installation: a key added or withdrawn applies without a restart |
 | `PLUGIN_REGISTRY_AUTH` | none | Docker `config.json` holding the credentials of private registries. Its `auths` are read; credential helpers are not run. Absent, registries are reached anonymously |
 | `PLUGIN_PLAIN_HTTP_REGISTRIES` | none | Comma-separated registries reached without TLS: a registry inside a development cluster |
+| `PLUGIN_ALLOW_UNSIGNED` | none | Comma-separated plugin ids installed without a trusted signature, still pinned by digest. The installation records them as `unsigned`, and the screen says so. With this list set, `PLUGIN_TRUSTED_KEYS` may be absent: then only these install |
 
 The base deployment sets the first two to optional mounts:
 

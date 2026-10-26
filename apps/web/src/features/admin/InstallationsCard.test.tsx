@@ -76,6 +76,16 @@ describe('InstallationsCard', () => {
     expect(screen.getByRole('button', { name: 'Désinstaller' })).toBeInTheDocument()
   })
 
+  it("dit qu'une installation n'est pas signée plutôt que d'afficher un signataire", async () => {
+    const [first] = installed
+    if (!first) throw new Error('no installation to sign')
+    serve([{ ...first, signed_by: 'unsigned' }])
+    render(<InstallationsCard />)
+
+    expect(await screen.findByText(/Non signé/)).toBeInTheDocument()
+    expect(screen.queryByText('unsigned')).not.toBeInTheDocument()
+  })
+
   it('demande une installation par sa référence', async () => {
     const calls = serve([])
     render(<InstallationsCard />)

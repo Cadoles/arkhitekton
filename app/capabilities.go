@@ -296,17 +296,7 @@ func startingCapabilities(ctx context.Context, sources *capabilitySources, logge
 // reached.
 func pluginPuller(cfg config.Config) func(ctx context.Context, reference string) (installed.Pulled, error) {
 	return func(ctx context.Context, reference string) (installed.Pulled, error) {
-		if cfg.Plugins.TrustedKeys == "" {
-			return installed.Pulled{}, errors.New("no key trusted to sign plugins: PLUGIN_TRUSTED_KEYS names no file")
-		}
-		raw, err := os.ReadFile(cfg.Plugins.TrustedKeys)
-		if errors.Is(err, fs.ErrNotExist) {
-			return installed.Pulled{}, fmt.Errorf("no key trusted to sign plugins: %s is not mounted", cfg.Plugins.TrustedKeys)
-		}
-		if err != nil {
-			return installed.Pulled{}, fmt.Errorf("trusted keys: %w", err)
-		}
-		trusted, err := installed.ParseTrustedKeys(raw)
+		trusted, err := trustedKeys(cfg.Plugins)
 		if err != nil {
 			return installed.Pulled{}, err
 		}
@@ -315,8 +305,30 @@ func pluginPuller(cfg config.Config) func(ctx context.Context, reference string)
 		if _, err := os.Stat(cfg.Plugins.RegistryAuth); cfg.Plugins.RegistryAuth != "" && err == nil {
 			registries.DockerConfig = cfg.Plugins.RegistryAuth
 		}
-		return installed.Pull(ctx, registries, trusted, reference)
+		return installed.Pull(ctx, registries, trusted, cfg.Plugins.AllowUnsigned, reference)
 	}
+}
+
+// trustedKeys reads the keys a plugin must be signed with. None is an error unless the operator
+// lets some plugins in unsigned: then those, and only those, install.
+func trustedKeys(plugins config.PluginsConfig) ([]installed.TrustedKey, error) {
+	if plugins.TrustedKeys == "" {
+		if len(plugins.AllowUnsigned) > 0 {
+			return nil, nil
+		}
+		return nil, errors.New("no key trusted to sign plugins: PLUGIN_TRUSTED_KEYS names no file")
+	}
+	raw, err := os.ReadFile(plugins.TrustedKeys)
+	if errors.Is(err, fs.ErrNotExist) {
+		if len(plugins.AllowUnsigned) > 0 {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("no key trusted to sign plugins: %s is not mounted", plugins.TrustedKeys)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("trusted keys: %w", err)
+	}
+	return installed.ParseTrustedKeys(raw)
 }
 
 // capabilityReloadInterval bounds how long an installation or a binding takes to apply.

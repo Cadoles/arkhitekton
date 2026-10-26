@@ -119,7 +119,7 @@ func TestAProgramIsPublishedPerPlatform(t *testing.T) {
 	}
 	for _, architecture := range Platforms {
 		registries.Architecture = architecture
-		pulled, err := Pull(context.Background(), registries, trusted, reference)
+		pulled, err := Pull(context.Background(), registries, trusted, nil, reference)
 		if err != nil {
 			t.Fatalf("%s: %v", architecture, err)
 		}
@@ -139,7 +139,7 @@ func TestAProgramIsPublishedPerPlatform(t *testing.T) {
 	}
 
 	registries.Architecture = "riscv64"
-	if _, err := Pull(context.Background(), registries, trusted, reference); err == nil || !strings.Contains(err.Error(), "linux/riscv64") {
+	if _, err := Pull(context.Background(), registries, trusted, nil, reference); err == nil || !strings.Contains(err.Error(), "linux/riscv64") {
 		t.Errorf("an absent platform: %v", err)
 	}
 }
