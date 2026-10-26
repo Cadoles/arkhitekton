@@ -115,6 +115,9 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.3 // indirect
 )
 
-// The plugin contract is a module of its own, kept in this repository. A module requiring
-// arkhitekton does not follow this replace: it resolves the version above, from the tag sdk/vX.Y.Z.
+// The plugin contract and the native plugins' wire are modules of their own, kept in this
+// repository. A module requiring arkhitekton does not follow these replaces: it resolves the
+// versions above, from the tags sdk/vX.Y.Z and rpc/vX.Y.Z.
 replace forge.cadoles.com/vcarroy/arkhitekton/sdk => ./sdk
+
+replace forge.cadoles.com/vcarroy/arkhitekton/rpc => ./rpc

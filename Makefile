@@ -7,8 +7,8 @@ GO     ?= go
 # port of its algorithm. `./...` compiles it, `go vet` analyses it and `gofmt -l` would report
 # it: continuous integration would fail on a third party's code, for a reason impossible to
 # guess from the message.
-GO_PKGS := ./app/... ./cmd/... ./host/... ./internal/... ./sdk/...
-GO_DIRS := app cmd host internal sdk
+GO_PKGS := ./app/... ./cmd/... ./host/... ./internal/... ./sdk/... ./rpc/...
+GO_DIRS := app cmd host internal sdk rpc
 
 # A personal registry during development: the dashboard's images do not go into `cnous-mse`
 # until the project is deliverable.
@@ -36,7 +36,7 @@ MINIO_TEST_NAME   := minio-arkhitekton-test
 MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := arkhitekton-test
 
-.PHONY: help build example-plugin test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
+.PHONY: help build example-plugin proto test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
         web web-install web-dev web-check image image-push kind-load manifests deploy undeploy logs
 
 help: ## Show this help
@@ -124,6 +124,11 @@ vet: ## The toolchain's static analysis
 	GOOS=wasip1 GOARCH=wasm $(GO) vet ./sdk/guest/
 
 lint: fmt-check vet ## Formatting check + static analysis
+
+# The native plugins' contract, generated from rpc/proto into rpc/pluginv1. The generated code is
+# committed: this target is only needed after changing the .proto, and fetches its tools by version.
+proto: ## Regenerates the native plugins' gRPC code
+	cd rpc && $(GO) run github.com/bufbuild/buf/cmd/buf@v1.75.0 generate
 
 vuln: ## Looks for vulnerabilities in the dependencies
 	# Goes through a script rather than calling govulncheck directly: govulncheck offers no

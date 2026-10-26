@@ -110,6 +110,11 @@ the HTTP API, the declarative formats (plugin manifests and declared readings in
 the interface WebAssembly modules are run through. A format added later is added to the list
 in the exception, not left to interpretation.
 
+**Native plugins go through `hashicorp/go-plugin`**, under MPL-2.0, as is its `yamux`; the
+rest of what it brings is MIT or Apache 2.0. MPL-2.0 is file-level copyleft and, without the
+"Incompatible With Secondary Licenses" notice, which none of its files carries, combines with
+the AGPL. The `rpc` module that uses it stays under the dashboard's licence.
+
 **No SPDX headers across the source files.** The root `LICENSE`, this document and the
 README section establish the regime; headers everywhere would add noise to every diff
 without resolving any ambiguity. The places where two regimes meet are marked:

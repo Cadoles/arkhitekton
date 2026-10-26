@@ -1,0 +1,296 @@
+// The contract between arkhitekton and a native plugin: a separate program the dashboard launches
+// and talks to over gRPC (hashicorp/go-plugin). Version 1 of the protocol.
+//
+// The plugin implements Plugin; the dashboard implements Host, which it offers the plugin through
+// the go-plugin broker. The sdk's types that already have a JSON form (a run's state, parsed
+// records, facts) travel as JSON: one schema to evolve, not two.
+syntax = "proto3";
+
+package arkhitekton.plugin.v1;
+
+option go_package = "forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1;pluginv1";
+
+service Plugin {
+  // Init hands the plugin the broker id of the Host service and the role it is launched in. Called
+  // once, before anything else.
+  rpc Init(InitRequest) returns (InitResponse);
+
+  // Interpret reads a concluded run into facts.
+  rpc Interpret(InterpretRequest) returns (InterpretResponse);
+
+  // Serve answers one of the routes the plugin declared, once the dashboard has authenticated the
+  // caller and checked the route's permission.
+  rpc Serve(HTTPRequest) returns (HTTPResponse);
+
+  rpc Deployments(ProjectRef) returns (DeploymentMap);
+  rpc Promotions(ReleaseRef) returns (PromotionList);
+  rpc EnvironmentSuggestions(ProjectSlug) returns (Suggestions);
+  rpc CheckScheme(Scheme) returns (Refusal);
+  rpc Promoted(PromotedRequest) returns (Event);
+  rpc ProjectSettings(ProjectRef) returns (Settings);
+
+  // RunModule runs the plugin's module until the call is cancelled. The stream carries nothing but
+  // the end: an error ends the module until the supervisor's next tick.
+  rpc RunModule(ModuleState) returns (stream ModuleStatus);
+}
+
+service Host {
+  rpc ProjectBySlug(ProjectSlug) returns (Project);
+  rpc GetProject(ProjectRef) returns (Project);
+  rpc GetRelease(ReleaseByTag) returns (Release);
+  rpc Enqueue(JobRequest) returns (JobID);
+  rpc Audit(AuditEntry) returns (Empty);
+  // ResolvedPlugin returns the calling plugin's settings for a project, unsealed.
+  rpc ResolvedPlugin(ProjectRef) returns (PluginSettings);
+  // Environments returns the environments a project declares in the catalogue.
+  rpc Environments(ProjectRef) returns (EnvironmentList);
+  // Authorize says whether an identity holds a permission in a project.
+  rpc Authorize(Authorization) returns (Decision);
+}
+
+message Empty {}
+
+message InitRequest {
+  uint32 host_broker_id = 1;
+  // Role is `api`, `worker` or `reprocess`.
+  string role = 2;
+  string plugin_id = 3;
+}
+
+message InitResponse {}
+
+message InterpretRequest {
+  // Pipeline is the capability's name within the plugin: `unit-tests`.
+  string pipeline = 1;
+  // RunState is the JSON of the sdk's capability.RunState.
+  bytes run_state = 2;
+  // Records is the JSON of the records, each as rpc's records.Wire.
+  bytes records = 3;
+}
+
+message InterpretResponse {
+  // Facts is the JSON of a list of the sdk's facts.Set.
+  bytes facts = 1;
+}
+
+message Identity {
+  string subject = 1;
+  string username = 2;
+  string email = 3;
+  // Role is the instance-wide role: `viewer`, `operator`, `releaser`, `admin`.
+  string role = 4;
+  // ProjectRoles replace the instance-wide role on their project.
+  map<int64, string> project_roles = 5;
+}
+
+message HTTPRequest {
+  string method = 1;
+  // Path is the route's path below the plugin's prefix, without a leading slash.
+  string path = 2;
+  string query = 3;
+  map<string, string> headers = 4;
+  bytes body = 5;
+  Identity identity = 6;
+  // Project is empty for an instance-wide route.
+  Project project = 7;
+}
+
+message HTTPResponse {
+  int32 status = 1;
+  map<string, string> headers = 2;
+  bytes body = 3;
+}
+
+message ProjectRef {
+  int64 project_id = 1;
+}
+
+message ProjectSlug {
+  string slug = 1;
+}
+
+message ReleaseRef {
+  int64 project_id = 1;
+  int64 release_id = 2;
+}
+
+message ReleaseByTag {
+  int64 project_id = 1;
+  string tag = 2;
+}
+
+message Target {
+  string stage = 1;
+  string image = 2;
+  string dockerfile = 3;
+  // Promote is unset for an entry written before the field existed: promoted.
+  optional bool promote = 4;
+}
+
+message Project {
+  int64 id = 1;
+  string slug = 2;
+  string repository = 3;
+  string label = 4;
+  string forge_url = 5;
+  string dockerfile = 6;
+  string build_context = 7;
+  string image_registry = 8;
+  string stack = 9;
+  string version_scheme = 10;
+  repeated Target targets = 11;
+  bool multi_stage = 12;
+}
+
+message Release {
+  int64 id = 1;
+  int64 project_id = 2;
+  int64 version_id = 3;
+  string tag = 4;
+  string kind = 5;
+  string state = 6;
+  string image_version = 7;
+  optional int64 source_release_id = 8;
+  string git_ref = 9;
+  string git_commit = 10;
+  string created_by = 11;
+  // Times are RFC 3339.
+  string created_at = 12;
+  string released_at = 13;
+}
+
+message JobRequest {
+  string kind = 1;
+  int32 priority = 2;
+  map<string, string> params = 3;
+  string requested_by = 4;
+  optional int64 release_id = 5;
+  optional string environment = 6;
+  optional int64 project_id = 7;
+}
+
+message JobID {
+  int64 id = 1;
+}
+
+message AuditEntry {
+  string actor = 1;
+  string action = 2;
+  string target = 3;
+  // Payload is a JSON object.
+  bytes payload = 4;
+}
+
+message PluginSettings {
+  bool enabled = 1;
+  map<string, string> config = 2;
+}
+
+message Environment {
+  string id = 1;
+  string label = 2;
+  int32 rank = 3;
+  string namespace = 4;
+  map<string, string> deployer = 5;
+  bool observable = 6;
+  bool visible = 7;
+  bool sensitive = 8;
+}
+
+message EnvironmentList {
+  repeated Environment environments = 1;
+}
+
+message Authorization {
+  Identity identity = 1;
+  int64 project_id = 2;
+  // Permission is `read`, `release:edit`, `deploy:<environment>`…
+  string permission = 3;
+}
+
+message Decision {
+  bool allowed = 1;
+}
+
+message DeploymentMap {
+  // By release tag, the environments running it.
+  map<string, EnvironmentIDs> by_tag = 1;
+}
+
+message EnvironmentIDs {
+  repeated string ids = 1;
+}
+
+message Promotion {
+  string environment = 1;
+  string image = 2;
+  string tag = 3;
+  string digest = 4;
+  optional int64 job_id = 5;
+  string pushed_at = 6;
+}
+
+message PromotionList {
+  repeated Promotion promotions = 1;
+}
+
+message Suggestion {
+  string value = 1;
+  string label = 2;
+}
+
+message Suggestions {
+  // Absent says the plugin offers nothing for this project: the field stays free text.
+  bool offered = 1;
+  repeated Suggestion suggestions = 2;
+}
+
+message Scheme {
+  // Id is the version scheme: `semver`, `opaque`.
+  string id = 1;
+}
+
+message Refusal {
+  // Reason is empty when the scheme is accepted.
+  string reason = 1;
+}
+
+message PromotedRequest {
+  string occurred_at = 1;
+  int64 release_id = 2;
+  int64 job_id = 3;
+  string kind = 4;
+  string tag = 5;
+  string state = 6;
+  string environment = 7;
+  string git_ref = 8;
+  string git_commit = 9;
+  int64 project_id = 10;
+}
+
+message Event {
+  // Stated is false when the plugin states no fact for this promotion.
+  bool stated = 1;
+  // Type is the event's suffix; the dashboard prefixes it with the plugin's id.
+  string type = 2;
+  string subject = 3;
+  string occurred_at = 4;
+  map<string, string> payload = 5;
+  string dedup_key = 6;
+}
+
+message Settings {
+  map<string, string> values = 1;
+}
+
+message ModuleProject {
+  Project project = 1;
+  map<string, string> settings = 2;
+}
+
+message ModuleState {
+  map<string, string> global = 1;
+  repeated ModuleProject projects = 2;
+}
+
+message ModuleStatus {}
