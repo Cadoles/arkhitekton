@@ -34,8 +34,8 @@ deploy/overlays/*/secrets/*
 deploy/overlays/*/components/pipeline-credentials/pipeline-*
 !deploy/overlays/*/components/pipeline-credentials/*.yaml
 
-# Module du plugin d'exemple, construit avant sa publication.
-/sdk/examples/gotest/gotest.wasm
+# Programme du plugin d'exemple, construit avant sa publication.
+/rpc/examples/gotest/bin/
 
 # Les modules d'interface qu'une distribution dépose avant de construire : ils vivent dans son
 # dépôt, pas dans celui-ci.

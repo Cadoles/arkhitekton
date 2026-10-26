@@ -31,6 +31,19 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
+// ReadManifest reads and checks the manifest at the root of a plugin's directory.
+func ReadManifest(fsys fs.FS) (manifest.Manifest, error) {
+	raw, err := fs.ReadFile(fsys, manifest.FileName)
+	if err != nil {
+		return manifest.Manifest{}, fmt.Errorf("plugin manifest: %w", err)
+	}
+	converted, err := yaml.YAMLToJSON(raw)
+	if err != nil {
+		return manifest.Manifest{}, fmt.Errorf("plugin manifest: %w", err)
+	}
+	return manifest.Decode(converted)
+}
+
 // Plugin is an installed plugin as the dashboard runs it.
 type Plugin struct {
 	capability.Plugin
@@ -67,8 +80,12 @@ func Read(fsys fs.FS, interpreters Interpreters) (Plugin, error) {
 	return read(fsys, manifest.MaxSize, interpreters)
 }
 
+// NotRunning gives the pipelines a program reads an interpreter that refuses: for a role that
+// loads the capabilities without reading runs.
+func NotRunning(capability.Plugin, string) capability.Interpreter { return notRunning{} }
+
 func load(fsys fs.FS, limit int64) (Plugin, error) {
-	plugin, err := read(fsys, limit, func(capability.Plugin, string) capability.Interpreter { return notRunning{} })
+	plugin, err := read(fsys, limit, NotRunning)
 	if err != nil {
 		return Plugin{}, err
 	}
@@ -91,15 +108,7 @@ func read(fsys fs.FS, limit int64, interpreters Interpreters) (Plugin, error) {
 	if err := bounded(fsys, limit); err != nil {
 		return Plugin{}, err
 	}
-	raw, err := fs.ReadFile(fsys, manifest.FileName)
-	if err != nil {
-		return Plugin{}, fmt.Errorf("plugin manifest: %w", err)
-	}
-	converted, err := yaml.YAMLToJSON(raw)
-	if err != nil {
-		return Plugin{}, fmt.Errorf("plugin manifest: %w", err)
-	}
-	declared, err := manifest.Decode(converted)
+	declared, err := ReadManifest(fsys)
 	if err != nil {
 		return Plugin{}, err
 	}

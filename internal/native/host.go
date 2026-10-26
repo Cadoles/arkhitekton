@@ -28,7 +28,8 @@ type HostStore interface {
 
 // HostDeps are what the Host service is built from, shared by every plugin of a role.
 type HostDeps struct {
-	Store    HostStore
+	Store HostStore
+	// Catalogs answers Environments; nil answers none, outside the roles that keep a catalogue.
 	Catalogs catalog.Source
 	// Authorizer answers Authorize; nil refuses everything, which is the worker's case: its plugins
 	// serve no route.
@@ -117,6 +118,9 @@ func (h *host) Environments(ctx context.Context, request *pluginv1.ProjectRef) (
 		return nil, storeStatus(err)
 	}
 	list := &pluginv1.EnvironmentList{}
+	if h.deps.Catalogs == nil {
+		return list, nil
+	}
 	for _, environment := range catalog.Of(h.deps.Catalogs).EnvironmentsOf(project.Slug) {
 		list.Environments = append(list.Environments, &pluginv1.Environment{
 			Id: environment.ID, Label: environment.Label, Rank: int32(environment.Rank),

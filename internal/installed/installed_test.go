@@ -1,11 +1,10 @@
 package installed
 
 import (
-	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -16,38 +15,18 @@ import (
 )
 
 /*
- * The example plugin, sdk/examples/gotest, read as an administrator would install it.
+ * The example plugin, rpc/examples/gotest, read as an administrator would install it.
  */
 
-const example = "../../sdk/examples/gotest"
+const example = "../../rpc/examples/gotest"
 
-// module is the example's interpreter, built for the occasion.
-var module []byte
+// exampleProgram stands for the example's program: reading a plugin does not run it.
+var exampleProgram = []byte("the example's program")
 
-func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "arkhitekton-installed-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	out := filepath.Join(dir, "gotest.wasm")
-	build := exec.Command("go", "build", "-buildmode=c-shared", "-o", out, "./examples/gotest")
-	build.Dir = filepath.Join("..", "..", "sdk")
-	build.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
-	if output, err := build.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "building the example: %v\n%s", err, output)
-		os.Exit(1)
-	}
-	module, _ = os.ReadFile(out)
-	code := m.Run()
-	_ = os.RemoveAll(dir)
-	os.Exit(code)
-}
-
-// plugin is the example's directory in memory, its module built.
+// plugin is the example's directory in memory, its program built.
 func plugin(t *testing.T) fstest.MapFS {
 	t.Helper()
-	files := fstest.MapFS{"gotest.wasm": {Data: module}}
+	files := fstest.MapFS{"bin/plugin": {Data: exampleProgram}}
 	for _, name := range []string{manifest.FileName, "tekton/pipeline-go-unit-tests.yaml", "tekton/task-go-test.yaml"} {
 		raw, err := os.ReadFile(filepath.Join(example, name))
 		if err != nil {
@@ -80,8 +59,8 @@ func TestTheExamplePluginLoads(t *testing.T) {
 	for _, definition := range pipeline.Spec.Manifests {
 		kinds[definition.Name] = definition.Kind
 	}
-	if kinds["go-unit-tests"] != "Pipeline" || kinds["go-test"] != "Task" || len(pipeline.Module) == 0 {
-		t.Errorf("definitions %v, module of %d bytes", kinds, len(pipeline.Module))
+	if kinds["go-unit-tests"] != "Pipeline" || kinds["go-test"] != "Task" || pipeline.Interpreter == nil || loaded.Native == nil {
+		t.Errorf("definitions %v, interpreter %v, program %v", kinds, pipeline.Interpreter, loaded.Native)
 	}
 
 	registry, err := capabilities.New(loaded.Plugin)
@@ -99,7 +78,10 @@ func TestTheExampleDirectoryLoads(t *testing.T) {
 	if err := os.CopyFS(dir, os.DirFS(example)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "gotest.wasm"), module, 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "plugin"), exampleProgram, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(os.DirFS(dir)); err != nil {
@@ -144,15 +126,13 @@ func TestAPluginReachesNothingBeyondItsRuns(t *testing.T) {
 			edit(t, files, pipelineFile, "name: go-unit-tests", "name: go-tests")
 		},
 		"a path outside": func(files fstest.MapFS) {
-			edit(t, files, manifest.FileName, "module: gotest.wasm", "module: ../gotest.wasm")
+			edit(t, files, manifest.FileName, "binary: bin/plugin", "binary: ../plugin")
 		},
 		"a missing file": func(files fstest.MapFS) { delete(files, taskFile) },
 		"a link": func(files fstest.MapFS) {
 			files["tekton/link.yaml"] = &fstest.MapFile{Data: []byte("/etc/passwd"), Mode: fs.ModeSymlink}
 		},
-		"a broken module": func(files fstest.MapFS) {
-			files["gotest.wasm"] = &fstest.MapFile{Data: []byte("not wasm")}
-		},
+		"a missing program": func(files fstest.MapFS) { delete(files, "bin/plugin") },
 	} {
 		files := plugin(t)
 		change(files)
@@ -163,7 +143,17 @@ func TestAPluginReachesNothingBeyondItsRuns(t *testing.T) {
 }
 
 func TestAPluginIsBounded(t *testing.T) {
-	if _, err := load(plugin(t), int64(len(module))); err == nil || !strings.Contains(err.Error(), "larger") {
+	if _, err := load(plugin(t), int64(len(exampleProgram))); err == nil || !strings.Contains(err.Error(), "larger") {
 		t.Errorf("err = %v", err)
 	}
+}
+
+// publishable is the example's directory as its author publishes it: the program built for a
+// platform.
+func publishable(t *testing.T) fstest.MapFS {
+	t.Helper()
+	files := plugin(t)
+	files["bin/plugin-linux-"+runtime.GOARCH] = files["bin/plugin"]
+	delete(files, "bin/plugin")
+	return files
 }

@@ -11,7 +11,6 @@ import (
 	"log"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,17 +23,7 @@ import (
 // The example plugin, built and published as its author would, installs: pulled by the digest the
 // command prints, verified against the public half of the key it was given.
 func TestTheExamplePluginPublishes(t *testing.T) {
-	dir := t.TempDir()
-	example := filepath.Join("..", "sdk", "examples", "gotest")
-	if err := os.CopyFS(dir, os.DirFS(example)); err != nil {
-		t.Fatal(err)
-	}
-	build := exec.Command("go", "build", "-buildmode=c-shared", "-o", filepath.Join(dir, "gotest.wasm"), "./examples/gotest")
-	build.Dir = filepath.Join("..", "sdk")
-	build.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("%v\n%s", err, output)
-	}
+	dir := builtExample(t)
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

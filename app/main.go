@@ -37,6 +37,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/live"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -44,6 +45,7 @@ import (
 	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/webhook"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
+	"forge.cadoles.com/vcarroy/arkhitekton/rpc"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
@@ -79,6 +81,7 @@ Usage:
 Diagnosis:
   arkhitekton check-tracker  Checks access to the tracker and stops (read-only)
   arkhitekton check-reading [--write] <reading.yaml|module.wasm> <case>...
+  arkhitekton check-reading [--write] --plugin <dir> [--pipeline <name>] <case>...
                              Checks a reading against recorded runs (no database)
 
 Plugins:
@@ -242,7 +245,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// access to it, and the `worker` does it at start-up.
 	// The capabilities in force, read once per operation: what is installed or bound while the
 	// dashboard runs replaces them as a whole.
-	sources := newCapabilitySources(cfg, db, storage)
+	sources := newCapabilitySources(cfg, db, storage, nil)
 	inForce, reloader, err := startingCapabilities(ctx, sources, logger)
 	if err != nil {
 		return err
@@ -490,12 +493,15 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	}
 
 	// The capabilities in force, read once per operation: what is installed or bound while the
-	// dashboard runs replaces them as a whole.
-	sources := newCapabilitySources(cfg, db, storage)
+	// dashboard runs replaces them as a whole. The installed plugins' programs read their runs.
+	readers := newPrograms(cfg, rpc.RoleWorker, logger)
+	defer readers.close()
+	sources := newCapabilitySources(cfg, db, storage, readers)
 	inForce, reloader, err := startingCapabilities(ctx, sources, logger)
 	if err != nil {
 		return err
 	}
+	readers.lend(native.HostDeps{Store: db, Catalogs: inForce.Catalogs(), Unseal: unsealer(inForce.Registries(), cipher)})
 	pipelines := inForce.Current().Catalog
 
 	// Checked against the cluster under the lease, once the capabilities' definitions are installed:
@@ -1004,7 +1010,10 @@ func runReprocess(ctx context.Context, cfg config.Config, logger *slog.Logger, a
 
 	// The installed plugins too, earlier versions included: a run is replayed by the version that
 	// launched it while it is installed.
-	capabilities, err := newCapabilitySources(cfg, db, storage).registry(ctx, nil)
+	readers := newPrograms(cfg, rpc.RoleReprocess, logger)
+	defer readers.close()
+	readers.lend(native.HostDeps{Store: db})
+	capabilities, err := newCapabilitySources(cfg, db, storage, readers).registry(ctx, nil)
 	if err != nil {
 		return err
 	}

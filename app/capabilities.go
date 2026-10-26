@@ -39,9 +39,8 @@ type installedPlugins struct {
 		Get(ctx context.Context, key string) (io.ReadCloser, error)
 	}
 
-	// interpreters asks a plugin's program to read its pipelines' runs; nil in a role that runs no
-	// program.
-	interpreters installed.Interpreters
+	// programs runs the plugins' programs; nil in a role that reads no run.
+	programs *programs
 
 	mu       sync.Mutex
 	compiled map[string]installed.Plugin
@@ -63,9 +62,16 @@ func (p *installedPlugins) plugin(ctx context.Context, object string) (installed
 	if err != nil {
 		return installed.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
 	}
-	plugin, err := installed.Read(files, p.interpreters)
+	interpreters := installed.NotRunning
+	if p.programs != nil {
+		interpreters = p.programs.interpreters()
+	}
+	plugin, err := installed.Read(files, interpreters)
 	if err != nil {
 		return installed.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
+	}
+	if p.programs != nil {
+		p.programs.register(plugin)
 	}
 	if plugin.Plugin, err = capabilities.Prepare(plugin.Plugin); err != nil {
 		return installed.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
@@ -106,8 +112,8 @@ type capabilitySources struct {
 	installed *installedPlugins
 }
 
-func newCapabilitySources(cfg config.Config, db *store.DB, objects *blob.Client) *capabilitySources {
-	return &capabilitySources{cfg: cfg, db: db, installed: &installedPlugins{db: db, objects: objects}}
+func newCapabilitySources(cfg config.Config, db *store.DB, objects *blob.Client, programs *programs) *capabilitySources {
+	return &capabilitySources{cfg: cfg, db: db, installed: &installedPlugins{db: db, objects: objects, programs: programs}}
 }
 
 // registry composes the plugins. With a candidate, it is the registry as it would be with the
@@ -163,11 +169,19 @@ func (s *capabilitySources) catalog(registry *capabilities.Registry, bindings []
 	return catalog.Load(s.cfg.Tekton.CatalogPath, catalog.WithCapabilities(registry), catalog.WithBindings(bindings))
 }
 
-// snapshot builds the capabilities in force.
+// snapshot builds the capabilities in force, and stops the programs of the versions no longer
+// installed.
 func (s *capabilitySources) snapshot(ctx context.Context, version int64) (live.Snapshot, error) {
 	registry, err := s.registry(ctx, nil)
 	if err != nil {
 		return live.Snapshot{}, err
+	}
+	if programs := s.installed.programs; programs != nil {
+		active, earlier, err := s.installed.load(ctx)
+		if err != nil {
+			return live.Snapshot{}, err
+		}
+		programs.retain(append(active, earlier...))
 	}
 	recorded, err := recordedBindings(ctx, s.db)
 	if err != nil {

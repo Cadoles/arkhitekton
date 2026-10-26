@@ -39,9 +39,31 @@ type CaseRecord struct {
 	File   string   `json:"file,omitempty"`
 }
 
-// Check reads a case with a declared reading or a WebAssembly module, and returns the facts produced and the facts
-// expected, both as indented JSON. expected is nil when the case records none yet.
+// Check reads a case with a declared reading or a WebAssembly module, and returns the facts
+// produced and the facts expected, both as indented JSON. expected is nil when the case records
+// none yet.
 func Check(reading []byte, dir string) (got, expected []byte, err error) {
+	return check(dir, func(spec capability.PipelineSpec) (capability.Interpreter, func(), error) {
+		if bytes.HasPrefix(reading, wasmMagic) {
+			module, err := wasm.Load(context.Background(), filepath.Base(dir), reading, wasm.DefaultLimits, nil)
+			if err != nil {
+				return nil, nil, err
+			}
+			return module, func() { module.Close(context.Background()) }, nil
+		}
+		interpreter, err := Compile(reading, spec)
+		return interpreter, func() {}, err
+	})
+}
+
+// CheckWith reads a case with an interpreter already built: a plugin's program.
+func CheckWith(interpreter capability.Interpreter, dir string) (got, expected []byte, err error) {
+	return check(dir, func(capability.PipelineSpec) (capability.Interpreter, func(), error) {
+		return interpreter, func() {}, nil
+	})
+}
+
+func check(dir string, build func(capability.PipelineSpec) (capability.Interpreter, func(), error)) (got, expected []byte, err error) {
 	var state capability.RunState
 	if err := readJSON(filepath.Join(dir, "state.json"), &state); err != nil {
 		return nil, nil, err
@@ -73,17 +95,11 @@ func Check(reading []byte, dir string) (got, expected []byte, err error) {
 		records = append(records, record)
 	}
 
-	var interpreter capability.Interpreter
-	if bytes.HasPrefix(reading, wasmMagic) {
-		module, err := wasm.Load(context.Background(), filepath.Base(dir), reading, wasm.DefaultLimits, nil)
-		if err != nil {
-			return nil, nil, err
-		}
-		defer module.Close(context.Background())
-		interpreter = module
-	} else if interpreter, err = Compile(reading, spec); err != nil {
+	interpreter, release, err := build(spec)
+	if err != nil {
 		return nil, nil, err
 	}
+	defer release()
 	sets, err := interpreter.Interpret(context.Background(), state, records)
 	if err != nil {
 		return nil, nil, err

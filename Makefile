@@ -45,8 +45,10 @@ help: ## Show this help
 build: ## Build the binary
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o $(BINARY) ./cmd/arkhitekton
 
-example-plugin: ## Build the example plugin's module, ready for publish-plugin
-	cd sdk && GOOS=wasip1 GOARCH=wasm $(GO) build -buildmode=c-shared -o examples/gotest/gotest.wasm ./examples/gotest
+example-plugin: ## Build the example plugin's program for each platform, ready for publish-plugin
+	cd rpc && for arch in amd64 arm64 ; do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -o examples/gotest/bin/plugin-linux-$$arch ./examples/gotest ; \
+	done
 
 test: ## Run the tests (the integration tests are skipped without TEST_DATABASE_URL)
 	$(GO) test $(GO_PKGS)

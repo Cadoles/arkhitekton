@@ -63,7 +63,7 @@ func TestAPublishedPluginIsPulledAndVerified(t *testing.T) {
 	host, registries := registryHost(t)
 	key, trusted := ecdsaKey(t)
 
-	reference, err := Publish(context.Background(), registries, host+"/plugins/gotest:1.0.0", plugin(t), key)
+	reference, err := Publish(context.Background(), registries, host+"/plugins/gotest:1.0.0", publishable(t), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestAPublishedPluginIsPulledAndVerified(t *testing.T) {
 
 	// The same directory packs to the same layer: a republication changes nothing an administrator
 	// reviewed.
-	again, err := Publish(context.Background(), registries, host+"/plugins/gotest:again", plugin(t), key)
+	again, err := Publish(context.Background(), registries, host+"/plugins/gotest:again", publishable(t), key)
 	if err != nil || again != reference {
 		t.Errorf("republished as %s, %v", again, err)
 	}
@@ -96,7 +96,7 @@ func TestEd25519KeysSign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reference, err := Publish(context.Background(), registries, host+"/plugins/gotest:1.0.0", plugin(t), private)
+	reference, err := Publish(context.Background(), registries, host+"/plugins/gotest:1.0.0", publishable(t), private)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,11 +111,11 @@ func TestAPluginIsInstalledOnlyAsSigned(t *testing.T) {
 	key, trusted := ecdsaKey(t)
 	_, stranger := ecdsaKey(t)
 
-	reference, err := Publish(ctx, registries, host+"/plugins/gotest:1.0.0", plugin(t), key)
+	reference, err := Publish(ctx, registries, host+"/plugins/gotest:1.0.0", publishable(t), key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := plugin(t)
+	files := publishable(t)
 	edit(t, files, manifest.FileName, "version: 1.0.0", "version: 1.0.1")
 	other, err := Publish(ctx, registries, host+"/plugins/gotest:1.0.1", files, key)
 	if err != nil {
@@ -296,7 +296,7 @@ func TestAnUnsignedPluginInstallsOnlyWhenNamed(t *testing.T) {
 	host, registries := registryHost(t)
 	stranger, _ := ecdsaKey(t)
 	_, trusted := ecdsaKey(t)
-	reference, err := Publish(context.Background(), registries, host+"/plugins/gotest:1.0.0", plugin(t), stranger)
+	reference, err := Publish(context.Background(), registries, host+"/plugins/gotest:1.0.0", publishable(t), stranger)
 	if err != nil {
 		t.Fatal(err)
 	}

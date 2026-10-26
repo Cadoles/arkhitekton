@@ -67,7 +67,7 @@ licensed under the same terms.
 The examples distributed with the Program are licensed under the Apache
 License 2.0, so that they may be copied and adapted freely, and so that a
 Plugin started from one does not copy source code of the Program: the
-pipelines under deploy/base/pipelines/ and the plugins under sdk/examples/,
+pipelines under deploy/base/pipelines/ and the plugins under rpc/examples/,
 each directory carrying its LICENSE file.
 
 
@@ -94,6 +94,6 @@ Résumé en français, sans valeur juridique — le texte anglais ci-dessus fait
     plugin et lectures déclarées compris) et l'interface des modules
     WebAssembly, quel que soit leur langage.
   - Les pipelines, les catalogues, les manifestes et les lectures sont des
-    données. Les exemples livrés (deploy/base/pipelines/, sdk/examples/) sont
+    données. Les exemples livrés (deploy/base/pipelines/, rpc/examples/) sont
     sous Apache 2.0, pour être copiés et adaptés sans contrainte : un plugin
     parti d'un exemple ne copie pas de code du dashboard.

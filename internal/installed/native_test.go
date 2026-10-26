@@ -90,9 +90,6 @@ func TestAProgramMissingWhatItDeclaresIsRefused(t *testing.T) {
 // that runs programs.
 func TestAPipelineReadByTheProgram(t *testing.T) {
 	files := plugin(t)
-	edit(t, files, manifest.FileName, "    module: gotest.wasm", "    interpreter: native")
-	edit(t, files, manifest.FileName, "label: Go\n", "label: Go\nbinary: bin/plugin\nprotocol: 1\n")
-	files["bin/plugin"] = &fstest.MapFile{Data: []byte("program")}
 
 	if _, err := Load(files); err != nil {
 		t.Fatal(err)

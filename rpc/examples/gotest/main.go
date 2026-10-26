@@ -1,15 +1,15 @@
-// Command gotest is an example interpreter compiled to WebAssembly: it reads the event stream of
+// Command gotest is an example native plugin: its program reads the event stream of
 // `go test -json`, a format the dashboard does not parse, from an artifact declared with the `raw`
-// parser.
+// parser. The dashboard launches it and asks it to read each run.
 //
-//	GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o gotest.wasm .
+//	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/plugin-linux-amd64 .
 //
 // A test is a case: its package is the suite, its name the case's, its last action its status.
 // A package that fails with no failed test (it did not build, its TestMain failed) is a case of
 // its own, so that the failure is not lost. A test the stream leaves without an outcome was cut
 // off, and is counted as not run.
 //
-// Like everything under sdk/examples, it is under the Apache License 2.0, to be copied as the
+// Like everything under rpc/examples, it is under the Apache License 2.0, to be copied as the
 // start of a plugin.
 package main
 
@@ -20,9 +20,9 @@ import (
 	"encoding/json"
 	"strings"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/rpc/extension"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/guest"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
@@ -191,6 +191,8 @@ func firstMessage(output string) string {
 	return ""
 }
 
-func init() { guest.Register(reader{}) }
-
-func main() {}
+func main() {
+	extension.Serve(func(context.Context, extension.Runtime) (extension.Hooks, error) {
+		return extension.Hooks{Interpreters: map[string]capability.Interpreter{"unit-tests": reader{}}}, nil
+	})
+}

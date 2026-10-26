@@ -23,6 +23,8 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc"
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // program is the test plugin, built once.
@@ -192,5 +194,23 @@ func TestAVersionNoLongerRetainedIsStopped(t *testing.T) {
 	launch.Retain(nil)
 	if _, err := process.Connection(context.Background()); err == nil {
 		t.Error("a stopped version answered")
+	}
+}
+
+func TestARunIsReadByTheProgram(t *testing.T) {
+	process := launcher(t).Process(spec(program))
+	interpreter := Interpreter{Process: func() (*Process, error) { return process, nil }, Pipeline: "count"}
+	sets, err := interpreter.Interpret(context.Background(), capability.RunState{Status: "passed"}, []parse.Record{
+		{Parser: parse.Raw, Tool: "go", Payload: parse.Bytes("one")},
+		{Parser: parse.JUnitXML, Tool: "junit", Err: errors.New("unreadable")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sets) != 1 || sets[0].Summary != "2 record(s)" || sets[0].Status != "passed" {
+		t.Errorf("sets = %+v", sets)
+	}
+	if _, err := (Interpreter{Process: interpreter.Process, Pipeline: "absent"}).Interpret(context.Background(), capability.RunState{}, nil); err == nil {
+		t.Error("a pipeline the program does not read answered")
 	}
 }

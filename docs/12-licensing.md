@@ -88,10 +88,10 @@ Tekton itself and explicit about patents. `deploy/base/config/catalog.yaml` foll
 catalogue template.
 
 The same holds for plugins. **Nobody writes a plugin from a blank page either**: they start
-from `sdk/examples/gotest`, its manifest, its Tekton definitions and its interpreter. Under
+from `rpc/examples/gotest`, its manifest, its Tekton definitions and its interpreter. Under
 the AGPL, a plugin started from it would copy source code of the program, and the exception
-covers only a plugin that does not. `sdk/examples/` is therefore under Apache 2.0 too
-(`sdk/examples/LICENSE`); the `sdk` packages a plugin compiles against stay under the AGPL
+covers only a plugin that does not. `rpc/examples/` is therefore under Apache 2.0 too
+(`rpc/examples/LICENSE`); the `sdk` packages a plugin compiles against stay under the AGPL
 and its exception.
 
 ## 12.6 Decisions on record
@@ -118,7 +118,7 @@ the AGPL. The `rpc` module that uses it stays under the dashboard's licence.
 **No SPDX headers across the source files.** The root `LICENSE`, this document and the
 README section establish the regime; headers everywhere would add noise to every diff
 without resolving any ambiguity. The places where two regimes meet are marked:
-`deploy/base/pipelines/`, `catalog.yaml` and `sdk/examples/`.
+`deploy/base/pipelines/`, `catalog.yaml` and `rpc/examples/`.
 
 **This document is not legal advice.** The wording of the exception deserves review by a
 lawyer before the first outside publication; it is the only part of the repository whose

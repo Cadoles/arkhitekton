@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -16,6 +17,9 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc"
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc/extension"
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 func main() {
@@ -57,5 +61,15 @@ func start(_ context.Context, runtime extension.Runtime) (extension.Hooks, error
 		case <-r.Context().Done():
 		}
 	})
-	return extension.Hooks{Routes: mux}, nil
+	return extension.Hooks{Routes: mux, Interpreters: map[string]capability.Interpreter{"count": counter{}}}, nil
+}
+
+// counter states how many records the run left.
+type counter struct{}
+
+func (counter) Interpret(_ context.Context, run capability.RunState, records []parse.Record) ([]facts.Set, error) {
+	return []facts.Set{{
+		Shape: facts.ShapeCases, Group: "unit", Tool: "count", Status: facts.Status(run.Status),
+		Summary: fmt.Sprintf("%d record(s)", len(records)),
+	}}, nil
 }

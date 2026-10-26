@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -69,21 +70,33 @@ func TestADriftingReadingFailsTheCheck(t *testing.T) {
 	}
 }
 
-// The example interpreter compiled to WebAssembly reads its recorded cases as expected, through the
-// sandbox the dashboard runs it in.
-func TestTheExampleModuleReadsItsCases(t *testing.T) {
-	module := filepath.Join(t.TempDir(), "gotest.wasm")
-	build := exec.Command("go", "build", "-buildmode=c-shared", "-o", module, "./examples/gotest")
-	build.Dir = filepath.Join("..", "sdk")
-	build.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
+// builtExample is a copy of the example plugin with its program built for this machine, as its
+// author builds it before publishing.
+func builtExample(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS(filepath.Join("..", "rpc", "examples", "gotest"))); err != nil {
+		t.Fatal(err)
+	}
+	program := filepath.Join(dir, "bin", "plugin-"+runtime.GOOS+"-"+runtime.GOARCH)
+	build := exec.Command("go", "build", "-o", program, "./examples/gotest")
+	build.Dir = filepath.Join("..", "rpc")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, output)
 	}
+	return dir
+}
+
+// The example plugin's program reads its recorded cases as expected, launched as the dashboard
+// launches it.
+func TestTheExampleProgramReadsItsCases(t *testing.T) {
+	dir := builtExample(t)
 	cases, _ := filepath.Glob(filepath.Join("testdata", "readings", "gotest", "*"))
 	if len(cases) < 4 {
 		t.Fatalf("only %d cases", len(cases))
 	}
-	if err := runCheckReading(append([]string{module}, cases...)); err != nil {
+	if err := runCheckReading(append([]string{"--plugin", dir}, cases...)); err != nil {
 		t.Error(err)
 	}
 }

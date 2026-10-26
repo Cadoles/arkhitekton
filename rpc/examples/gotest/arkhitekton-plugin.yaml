@@ -1,13 +1,16 @@
 # What an instance installs: this directory, packed and signed by `arkhitekton publish-plugin`.
-# gotest.wasm is built next to this file before publishing:
+# The program is built beside this file for each platform before publishing:
 #
-#   GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o gotest.wasm .
+#   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/plugin-linux-amd64 .
+#   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/plugin-linux-arm64 .
 apiVersion: arkhitekton.plugin/v2
 id: gotest
 version: 1.0.0
 sdk: "1"
 label: Go
 summary: Tests d'un projet Go, lus depuis le flux de `go test -json`.
+binary: bin/plugin
+protocol: 1
 pipelines:
   - name: unit-tests
     label: Tests Go
@@ -42,4 +45,4 @@ pipelines:
     produces: [results]
     verification: true
     group: unit
-    module: gotest.wasm
+    interpreter: native
