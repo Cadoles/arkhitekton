@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -39,6 +40,7 @@ func main() {
 }
 
 func start(_ context.Context, runtime extension.Runtime) (extension.Hooks, error) {
+	slog.New(slog.NewJSONHandler(os.Stderr, nil)).Info("fake plugin started", "role", runtime.Role)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hello", func(w http.ResponseWriter, r *http.Request) {
 		project, err := runtime.Host.ProjectBySlug(r.Context(), "app")

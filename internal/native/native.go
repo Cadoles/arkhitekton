@@ -192,7 +192,11 @@ func (p *Process) launch(ctx context.Context) (*goplugin.Client, *rpc.Connection
 		AutoMTLS:         true,
 		StartTimeout:     config.StartTimeout,
 		Logger:           newHCLogger(logger),
-		Stderr:           &lineWriter{logger: logger},
+		// What the program writes before go-plugin takes its output over, and what it writes after,
+		// through go-plugin's stdio stream: both are its log.
+		Stderr:     &lineWriter{logger: logger},
+		SyncStderr: &lineWriter{logger: logger},
+		SyncStdout: &lineWriter{logger: logger},
 	})
 	fail := func(err error) (*goplugin.Client, *rpc.Connection, error) {
 		client.Kill()

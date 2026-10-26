@@ -9,11 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -212,5 +214,46 @@ func TestARunIsReadByTheProgram(t *testing.T) {
 	}
 	if _, err := (Interpreter{Process: interpreter.Process, Pipeline: "absent"}).Interpret(context.Background(), capability.RunState{}, nil); err == nil {
 		t.Error("a pipeline the program does not read answered")
+	}
+}
+
+// syncBuffer is a log written by the launcher's goroutines.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// What a program logs on its standard error reaches the dashboard's log, with its level and fields.
+func TestAProgramsLogReachesTheDashboards(t *testing.T) {
+	logs := &syncBuffer{}
+	launch := New(Config{
+		Dir: t.TempDir(), Role: rpc.RoleWorker, Logger: slog.New(slog.NewJSONHandler(logs, nil)),
+		Host: func(pluginID string) pluginv1.HostServer { return NewHost(HostDeps{Store: projects{}}, pluginID) },
+	})
+	t.Cleanup(launch.Close)
+	if _, err := launch.Process(spec(program)).Connection(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(logs.String(), `"msg":"fake plugin started"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("log = %s", logs.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(logs.String(), `"plugin":"widgets"`) || !strings.Contains(logs.String(), `"role":"worker"`) {
+		t.Errorf("log = %s", logs.String())
 	}
 }
