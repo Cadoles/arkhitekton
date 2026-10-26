@@ -135,7 +135,7 @@ func TestAPluginIsInstalledOnlyAsSigned(t *testing.T) {
 		t.Errorf("another artifact's signature: %v", err)
 	}
 
-	unsigned := pushArtifact(t, host, "plugins/unsigned", ocispec.Manifest{})
+	unsigned := pushForeign(t, host, "plugins/unsigned", ocispec.Manifest{})
 	if _, err := Pull(ctx, registries, trusted, unsigned); err == nil || !strings.Contains(err.Error(), "no signature") {
 		t.Errorf("unsigned: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAPulledPluginIsBounded(t *testing.T) {
 		t.Errorf("a huge layer: %v", err)
 	}
 
-	other := pushArtifact(t, host, "plugins/image", ocispec.Manifest{})
+	other := pushForeign(t, host, "plugins/image", ocispec.Manifest{})
 	_, digest, _ := strings.Cut(other, "@")
 	signArtifact(t, host, "plugins/image", digest, key)
 	if _, err := Pull(ctx, registries, trusted, other); err == nil || !strings.Contains(err.Error(), "not an arkhitekton plugin") {
@@ -221,9 +221,9 @@ func remoteRepository(t *testing.T, host, name string) *remote.Repository {
 	return repository
 }
 
-// pushArtifact pushes an artifact that is not a plugin, tagged latest, and returns its reference by
+// pushForeign pushes an artifact that is not a plugin, tagged latest, and returns its reference by
 // digest.
-func pushArtifact(t *testing.T, host, name string, built ocispec.Manifest) string {
+func pushForeign(t *testing.T, host, name string, built ocispec.Manifest) string {
 	t.Helper()
 	ctx := context.Background()
 	repository := remoteRepository(t, host, name)

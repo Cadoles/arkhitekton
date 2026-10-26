@@ -2,7 +2,7 @@
 # gotest.wasm is built next to this file before publishing:
 #
 #   GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o gotest.wasm .
-apiVersion: arkhitekton.plugin/v1
+apiVersion: arkhitekton.plugin/v2
 id: gotest
 version: 1.0.0
 sdk: "1"

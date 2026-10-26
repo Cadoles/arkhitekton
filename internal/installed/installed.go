@@ -1,15 +1,19 @@
 // Package installed reads a plugin an administrator installs: a directory with its manifest, its
-// Tekton definitions and how its runs are read, turned into the plugin the registry carries.
+// Tekton definitions, how its runs are read and, for a plugin with a program, that program and what
+// it brings, turned into the plugin the registry carries.
 //
-// Everything a compiled plugin is trusted with, an installed one is checked for. Its definitions
-// are Pipelines and Tasks only, choose no service account, mount nothing of the node and fetch
-// nothing the signature does not cover; its reading is declared or sandboxed. What it may ask for
-// is closed by the manifest's schema (sdk/manifest).
+// The administrator trusts what they install: a plugin's program runs as the dashboard does. What
+// stays closed is what a plugin asks of the cluster: its definitions are Pipelines and Tasks only,
+// choose no service account, mount nothing of the node and fetch nothing the signature does not
+// cover. What it may ask for is closed by the manifest's schema (sdk/manifest).
 package installed
 
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,48 +26,82 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
-// Load reads the plugin at the root of fsys and checks it as the registry would load it.
-func Load(fsys fs.FS) (capability.Plugin, error) {
+// Plugin is an installed plugin as the dashboard runs it.
+type Plugin struct {
+	capability.Plugin
+	// Native is the plugin's program and what it brings; nil for a plugin without one.
+	Native *Native
+}
+
+// Native is a plugin's program and what the dashboard does with it.
+type Native struct {
+	// Manifest says what the program brings: routes, hooks, module, migrations, interface.
+	Manifest manifest.Manifest
+	// Digest is the program's, `sha256:<hex>`, checked again before each launch.
+	Digest string
+	// Files is the plugin's directory, the program, migrations and interface included.
+	Files fs.FS
+}
+
+// Program opens the plugin's program.
+func (n *Native) Program() (io.ReadCloser, error) { return n.Files.Open(n.Manifest.Binary) }
+
+// Interpreters gives a pipeline its plugin's program reads the interpreter that asks the program.
+type Interpreters func(plugin capability.Plugin, pipeline string) capability.Interpreter
+
+// Load reads the plugin at the root of fsys and checks it as the registry would load it. A pipeline
+// its program reads is checked without the program running.
+func Load(fsys fs.FS) (Plugin, error) {
 	return load(fsys, manifest.MaxSize)
 }
 
 // Read reads the plugin at the root of fsys without compiling how its runs are read: for a plugin
-// Load already accepted, about to be compiled once by capabilities.Prepare.
-func Read(fsys fs.FS) (capability.Plugin, error) {
-	return read(fsys, manifest.MaxSize)
+// Load already accepted, about to be compiled once by capabilities.Prepare. The pipelines its
+// program reads are given their interpreter by interpreters.
+func Read(fsys fs.FS, interpreters Interpreters) (Plugin, error) {
+	return read(fsys, manifest.MaxSize, interpreters)
 }
 
-func load(fsys fs.FS, limit int64) (capability.Plugin, error) {
-	plugin, err := read(fsys, limit)
+func load(fsys fs.FS, limit int64) (Plugin, error) {
+	plugin, err := read(fsys, limit, func(capability.Plugin, string) capability.Interpreter { return notRunning{} })
 	if err != nil {
-		return capability.Plugin{}, err
+		return Plugin{}, err
 	}
 	// The reading compiled, the module loaded in its sandbox: a plugin that would not load in the
 	// registry is refused now, not at the next reload.
-	if _, err := capabilities.New(plugin); err != nil {
-		return capability.Plugin{}, err
+	if _, err := capabilities.New(plugin.Plugin); err != nil {
+		return Plugin{}, err
 	}
 	return plugin, nil
 }
 
-func read(fsys fs.FS, limit int64) (capability.Plugin, error) {
+// notRunning stands for a program's interpreter while a plugin is only checked.
+type notRunning struct{}
+
+func (notRunning) Interpret(context.Context, capability.RunState, []parse.Record) ([]facts.Set, error) {
+	return nil, errors.New("the plugin's program is not running")
+}
+
+func read(fsys fs.FS, limit int64, interpreters Interpreters) (Plugin, error) {
 	if err := bounded(fsys, limit); err != nil {
-		return capability.Plugin{}, err
+		return Plugin{}, err
 	}
 	raw, err := fs.ReadFile(fsys, manifest.FileName)
 	if err != nil {
-		return capability.Plugin{}, fmt.Errorf("plugin manifest: %w", err)
+		return Plugin{}, fmt.Errorf("plugin manifest: %w", err)
 	}
 	converted, err := yaml.YAMLToJSON(raw)
 	if err != nil {
-		return capability.Plugin{}, fmt.Errorf("plugin manifest: %w", err)
+		return Plugin{}, fmt.Errorf("plugin manifest: %w", err)
 	}
 	declared, err := manifest.Decode(converted)
 	if err != nil {
-		return capability.Plugin{}, err
+		return Plugin{}, err
 	}
 
 	plugin := declared.Plugin()
@@ -85,11 +123,56 @@ func read(fsys fs.FS, limit int64) (capability.Plugin, error) {
 				problems = append(problems, fmt.Errorf("%s: %w", at, err))
 			}
 		}
+		if pipeline.Interpreter == manifest.InterpreterNative {
+			if interpreters == nil {
+				problems = append(problems, fmt.Errorf("%s: read by the plugin's program, which this role does not run", at))
+			} else {
+				plugin.Pipelines[i].Interpreter = interpreters(plugin, pipeline.Name)
+			}
+		}
+	}
+	native, err := program(fsys, declared)
+	if err != nil {
+		problems = append(problems, err)
 	}
 	if err := errors.Join(problems...); err != nil {
-		return capability.Plugin{}, err
+		return Plugin{}, err
 	}
-	return plugin, nil
+	return Plugin{Plugin: plugin, Native: native}, nil
+}
+
+// program finds what the plugin's program brings in its directory: the program itself, its
+// migrations, its interface.
+func program(fsys fs.FS, declared manifest.Manifest) (*Native, error) {
+	if declared.Binary == "" {
+		return nil, nil
+	}
+	var problems []error
+	file, err := fsys.Open(declared.Binary)
+	if err != nil {
+		return nil, fmt.Errorf("the plugin's program: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return nil, fmt.Errorf("the plugin's program: %w", err)
+	}
+	if migrations := declared.Migrations; migrations != nil {
+		if entries, err := fs.ReadDir(fsys, migrations.Dir); err != nil || len(entries) == 0 {
+			problems = append(problems, fmt.Errorf("migrations: %s holds no migration", migrations.Dir))
+		}
+	}
+	if ui := declared.UI; ui != nil {
+		for _, file := range append([]string{ui.Entry}, ui.Styles...) {
+			if _, err := fs.Stat(fsys, file); err != nil {
+				problems = append(problems, fmt.Errorf("ui: %w", err))
+			}
+		}
+	}
+	if err := errors.Join(problems...); err != nil {
+		return nil, err
+	}
+	return &Native{Manifest: declared, Digest: "sha256:" + hex.EncodeToString(hash.Sum(nil)), Files: fsys}, nil
 }
 
 // bounded refuses a directory larger than the limit, or holding anything but files and

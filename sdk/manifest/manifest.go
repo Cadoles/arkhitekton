@@ -1,13 +1,13 @@
 // Package manifest is the schema of a plugin an instance installs without recompiling.
 //
 // Such a plugin is a directory: `arkhitekton-plugin.yaml` at its root, the Tekton definitions of its
-// pipelines, and for each pipeline either a declared reading (see the declare package) or a module
-// compiled to WebAssembly (see the guest package). The dashboard converts the YAML to JSON and reads
-// it with this package.
+// pipelines, and how their runs are read. It may bring a program the dashboard launches and talks to
+// over gRPC (the rpc module): its routes, its tables, its module, its extension hooks, its
+// interface. The dashboard converts the YAML to JSON and reads it with this package.
 //
-// An installed plugin brings pipeline capabilities only. A tracker, a forge, a probe, an action or a
-// module is code the dashboard runs with its own privileges: those remain for plugins compiled with
-// it.
+// The administrator who installs a plugin trusts it: its program runs as the dashboard does. What
+// stays closed is what it may ask of the cluster: its Tekton definitions choose no service account,
+// and its pipelines need nothing a binding from the screen cannot give.
 package manifest
 
 import (
@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"slices"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
@@ -24,16 +25,20 @@ import (
 )
 
 // APIVersion is the schema version a manifest states.
-const APIVersion = "arkhitekton.plugin/v1"
+const APIVersion = "arkhitekton.plugin/v2"
+
+// Protocol is the version of the contract a plugin's program speaks (rpc.ProtocolVersion).
+const Protocol = 1
 
 // FileName is the manifest's name at the root of the plugin's directory.
 const FileName = "arkhitekton-plugin.yaml"
 
-// MaxSize bounds a plugin's directory, every file counted.
-const MaxSize = 64 << 20
+// MaxSize bounds a plugin's directory, every file counted, its program included.
+const MaxSize = 256 << 20
 
 // A plugin is distributed as an OCI artifact: an empty config of ConfigMediaType, and one layer of
-// LayerMediaType, the directory as a gzipped tar.
+// LayerMediaType, the directory as a gzipped tar. A plugin with a program is an index of such
+// artifacts, one per platform, each carrying the program built for it.
 const (
 	ConfigMediaType = "application/vnd.arkhitekton.plugin.config.v1+json"
 	LayerMediaType  = "application/vnd.arkhitekton.plugin.layer.v1.tar+gzip"
@@ -46,12 +51,87 @@ type Manifest struct {
 	// Version changes whenever interpretation changes, as for a compiled plugin.
 	Version string `json:"version"`
 	// SDK is the sdk.APIVersion the plugin was built against.
-	SDK       string     `json:"sdk"`
-	Label     string     `json:"label"`
-	Summary   string     `json:"summary,omitempty"`
-	Settings  Settings   `json:"settings,omitzero"`
-	Pipelines []Pipeline `json:"pipelines"`
+	SDK      string   `json:"sdk"`
+	Label    string   `json:"label"`
+	Summary  string   `json:"summary,omitempty"`
+	Settings Settings `json:"settings,omitzero"`
+	// PerProject says a project decides whether the plugin is switched on for it.
+	PerProject bool       `json:"perProject,omitempty"`
+	Pipelines  []Pipeline `json:"pipelines,omitempty"`
+
+	// Binary is the plugin's program, a path in its directory; Protocol, the contract it speaks.
+	Binary   string `json:"binary,omitempty"`
+	Protocol int    `json:"protocol,omitempty"`
+	// Migrations are the plugin's tables, applied when it is installed.
+	Migrations *Migrations `json:"migrations,omitempty"`
+	// Events are the facts the plugin states, by suffix: the dashboard prefixes them with its id.
+	Events []capability.EventSpec `json:"events,omitempty"`
+	// Module says the program runs a module, under the worker's lease, while a project switches the
+	// plugin on.
+	Module bool `json:"module,omitempty"`
+	// Hooks are the extension points the program answers.
+	Hooks []Hook `json:"hooks,omitempty"`
+	// Routes are the API routes the program serves, under the plugin's prefix.
+	Routes []Route `json:"routes,omitempty"`
+	// UI is the plugin's interface module, loaded by the dashboard's interface.
+	UI *UI `json:"ui,omitempty"`
 }
+
+// Migrations are SQL files applied in order, with their own version table.
+type Migrations struct {
+	Dir   string `json:"dir"`
+	Table string `json:"table"`
+}
+
+// Hook is an extension point a plugin's program answers.
+type Hook string
+
+const (
+	HookDeployments            Hook = "deployments"
+	HookPromotions             Hook = "promotions"
+	HookEnvironmentSuggestions Hook = "environmentSuggestions"
+	HookSchemeCheck            Hook = "schemeCheck"
+	HookPromotionFacts         Hook = "promotionFacts"
+	HookProjectSettings        Hook = "projectSettings"
+)
+
+// Hooks are every extension point a plugin may answer.
+var Hooks = []Hook{
+	HookDeployments, HookPromotions, HookEnvironmentSuggestions, HookSchemeCheck, HookPromotionFacts,
+	HookProjectSettings,
+}
+
+// Route is an API route the plugin's program serves. The dashboard authenticates the caller,
+// checks the permission and, for a project's route, that the project switches the plugin on,
+// before the program sees the request.
+type Route struct {
+	Method string `json:"method"`
+	// Path is below the plugin's prefix: segments, `{name}` for a parameter, and a final
+	// `{name...}` for the rest of the path.
+	Path string `json:"path"`
+	// Permission is the caller's: `read`, `release:edit`… or `deploy:{param}`, an environment
+	// taken from the path.
+	Permission string `json:"permission"`
+	// Scope is `project` (the default), under `/projects/{project}/plugins/<id>/`, or `instance`,
+	// under `/plugins/<id>/`.
+	Scope string `json:"scope,omitempty"`
+}
+
+// Route scopes.
+const (
+	ScopeProject  = "project"
+	ScopeInstance = "instance"
+)
+
+// UI is an interface module: an ES module whose default export the dashboard mounts, and the
+// stylesheets it needs.
+type UI struct {
+	Entry  string   `json:"entry"`
+	Styles []string `json:"styles,omitempty"`
+}
+
+// InterpreterNative says the plugin's program reads the pipeline's runs.
+const InterpreterNative = "native"
 
 // Settings are the instance and project settings the plugin expects.
 type Settings struct {
@@ -76,9 +156,11 @@ type Pipeline struct {
 	Verification  bool                 `json:"verification,omitempty"`
 	Exclusive     bool                 `json:"exclusive,omitempty"`
 	Group         string               `json:"group,omitempty"`
-	// Reading or Module, never both: the file that says how the runs are read.
-	Reading string `json:"reading,omitempty"`
-	Module  string `json:"module,omitempty"`
+	// Reading, Module or Interpreter, exactly one when the pipeline publishes results: a declared
+	// reading, a WebAssembly module, or `native`, the plugin's program.
+	Reading     string `json:"reading,omitempty"`
+	Module      string `json:"module,omitempty"`
+	Interpreter string `json:"interpreter,omitempty"`
 }
 
 // Param describes a Pipeline parameter.
@@ -129,8 +211,20 @@ type Member struct {
 	MediaType string   `json:"mediaType,omitempty"`
 }
 
-// versionPattern keeps a version usable as a path segment, where it is stored.
-var versionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.-]*$`)
+var (
+	// versionPattern keeps a version usable as a path segment, where it is stored.
+	versionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.-]*$`)
+	// tablePattern is a PostgreSQL identifier, quoted nowhere.
+	tablePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+	// segmentPattern is a literal segment of a route's path.
+	segmentPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+	// parameterPattern is a route's parameter, `{name}` or a final `{name...}`.
+	parameterPattern = regexp.MustCompile(`^\{([a-z][a-zA-Z0-9_]*)(\.\.\.)?\}$`)
+	// permissionPattern is a permission's name, or `deploy:{param}`.
+	permissionPattern = regexp.MustCompile(`^(?:[a-z]+(?::[a-z]+)?|deploy:\{([a-z][a-zA-Z0-9_]*)\})$`)
+	// suffixPattern is an event's suffix.
+	suffixPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
+)
 
 // Decode reads a manifest from JSON, refusing unknown keys: a misspelt key is a declaration that
 // would silently not apply, and a key the schema does not have, a service account for one, is a
@@ -148,7 +242,11 @@ func Decode(raw []byte) (Manifest, error) {
 // Validate checks what can be checked without the plugin's files.
 func (m Manifest) Validate() error {
 	var problems []error
-	if m.APIVersion != APIVersion {
+	switch m.APIVersion {
+	case APIVersion:
+	case "arkhitekton.plugin/v1":
+		problems = append(problems, fmt.Errorf("apiVersion %q: this dashboard installs %q, rebuild the plugin", m.APIVersion, APIVersion))
+	default:
 		problems = append(problems, fmt.Errorf("apiVersion %q, expected %q", m.APIVersion, APIVersion))
 	}
 	if !capability.ValidName(m.ID) {
@@ -160,9 +258,10 @@ func (m Manifest) Validate() error {
 	if major, _, _ := strings.Cut(m.SDK, "."); major != sdk.APIVersion {
 		problems = append(problems, fmt.Errorf("built against sdk %q, this schema is sdk %q", m.SDK, sdk.APIVersion))
 	}
-	if len(m.Pipelines) == 0 {
-		problems = append(problems, errors.New("no pipeline: an installed plugin brings pipelines"))
+	if len(m.Pipelines) == 0 && m.Binary == "" {
+		problems = append(problems, errors.New("neither pipeline nor program: the plugin brings nothing"))
 	}
+	problems = append(problems, m.programProblems()...)
 	names := map[string]bool{}
 	refs := map[string]bool{}
 	for i, pipeline := range m.Pipelines {
@@ -176,8 +275,129 @@ func (m Manifest) Validate() error {
 		}
 		refs[pipeline.PipelineRef] = true
 		problems = append(problems, pipeline.problems(at)...)
+		if pipeline.Interpreter == InterpreterNative && m.Binary == "" {
+			problems = append(problems, fmt.Errorf("%s: read by the plugin's program, and the plugin has none", at))
+		}
 	}
 	return errors.Join(problems...)
+}
+
+// programProblems checks what the plugin's program brings, and that it has one if it brings
+// anything.
+func (m Manifest) programProblems() []error {
+	var problems []error
+	if m.Binary == "" {
+		for _, brought := range []struct {
+			present bool
+			what    string
+		}{{m.Module, "a module"}, {len(m.Hooks) > 0, "hooks"}, {len(m.Routes) > 0, "routes"}} {
+			if brought.present {
+				problems = append(problems, fmt.Errorf("%s need a program: binary is empty", brought.what))
+			}
+		}
+	} else {
+		if !fs.ValidPath(m.Binary) || m.Binary == "." {
+			problems = append(problems, fmt.Errorf("binary %q is not a path inside the plugin", m.Binary))
+		}
+		if m.Protocol != Protocol {
+			problems = append(problems, fmt.Errorf("protocol %d, this dashboard speaks %d", m.Protocol, Protocol))
+		}
+	}
+	if migrations := m.Migrations; migrations != nil {
+		if !fs.ValidPath(migrations.Dir) || migrations.Dir == "." {
+			problems = append(problems, fmt.Errorf("migrations.dir %q is not a path inside the plugin", migrations.Dir))
+		}
+		if !tablePattern.MatchString(migrations.Table) || migrations.Table == "goose_db_version" {
+			problems = append(problems, fmt.Errorf("migrations.table %q: an identifier of its own", migrations.Table))
+		}
+	}
+	suffixes := map[string]bool{}
+	for i, event := range m.Events {
+		if !suffixPattern.MatchString(event.Suffix) || strings.TrimSpace(event.Label) == "" || suffixes[event.Suffix] {
+			problems = append(problems, fmt.Errorf("events[%d]: a unique suffix (%q) and a label", i, event.Suffix))
+		}
+		suffixes[event.Suffix] = true
+	}
+	hooks := map[Hook]bool{}
+	for _, hook := range m.Hooks {
+		if !slices.Contains(Hooks, hook) || hooks[hook] {
+			problems = append(problems, fmt.Errorf("hooks: %q unknown or declared twice", hook))
+		}
+		hooks[hook] = true
+	}
+	routes := map[string]bool{}
+	for i, route := range m.Routes {
+		at := fmt.Sprintf("routes[%d]", i)
+		problems = append(problems, route.problems(at)...)
+		key := route.Method + " " + route.EffectiveScope() + " " + route.Path
+		if routes[key] {
+			problems = append(problems, fmt.Errorf("%s: %s %s declared twice", at, route.Method, route.Path))
+		}
+		routes[key] = true
+	}
+	if ui := m.UI; ui != nil {
+		if !fs.ValidPath(ui.Entry) || !strings.HasSuffix(ui.Entry, ".js") {
+			problems = append(problems, fmt.Errorf("ui.entry %q: a .js file inside the plugin", ui.Entry))
+		}
+		for _, style := range ui.Styles {
+			if !fs.ValidPath(style) || !strings.HasSuffix(style, ".css") {
+				problems = append(problems, fmt.Errorf("ui.styles: %q, a .css file inside the plugin", style))
+			}
+		}
+	}
+	return problems
+}
+
+// EffectiveScope is the route's scope, a project's when it says none.
+func (r Route) EffectiveScope() string {
+	if r.Scope == "" {
+		return ScopeProject
+	}
+	return r.Scope
+}
+
+// DeployParameter returns the path parameter a `deploy:{param}` permission names.
+func (r Route) DeployParameter() (string, bool) {
+	match := permissionPattern.FindStringSubmatch(r.Permission)
+	if match == nil || match[1] == "" {
+		return "", false
+	}
+	return match[1], true
+}
+
+func (r Route) problems(at string) []error {
+	var problems []error
+	switch r.Method {
+	case "GET", "POST", "PUT", "PATCH", "DELETE":
+	default:
+		problems = append(problems, fmt.Errorf("%s: method %q", at, r.Method))
+	}
+	if r.EffectiveScope() != ScopeProject && r.EffectiveScope() != ScopeInstance {
+		problems = append(problems, fmt.Errorf("%s: scope %q, expected project or instance", at, r.Scope))
+	}
+	parameters := map[string]bool{}
+	segments := strings.Split(r.Path, "/")
+	for i, segment := range segments {
+		if match := parameterPattern.FindStringSubmatch(segment); match != nil {
+			if match[2] != "" && i != len(segments)-1 {
+				problems = append(problems, fmt.Errorf("%s: %q, a {name...} parameter ends the path", at, r.Path))
+			}
+			parameters[match[1]] = true
+			continue
+		}
+		if !segmentPattern.MatchString(segment) {
+			problems = append(problems, fmt.Errorf("%s: path %q, segment %q", at, r.Path, segment))
+		}
+	}
+	switch parameter, deploy := r.DeployParameter(); {
+	case !permissionPattern.MatchString(r.Permission):
+		problems = append(problems, fmt.Errorf("%s: permission %q", at, r.Permission))
+	case deploy && !parameters[parameter]:
+		problems = append(problems, fmt.Errorf("%s: permission %q names no parameter of the path", at, r.Permission))
+	case deploy && r.EffectiveScope() == ScopeInstance:
+		problems = append(problems, fmt.Errorf("%s: a deploy permission belongs to a project's route", at))
+	}
+	return problems
 }
 
 func (p Pipeline) problems(at string) []error {
@@ -214,10 +434,18 @@ func (p Pipeline) problems(at string) []error {
 			problems = append(problems, fmt.Errorf("%s.produces: %q, expected results or none", at, product))
 		}
 	}
+	readings := 0
+	for _, present := range []bool{p.Reading != "", p.Module != "", p.Interpreter != ""} {
+		if present {
+			readings++
+		}
+	}
 	switch {
-	case p.Reading != "" && p.Module != "":
-		problems = append(problems, fmt.Errorf("%s: reading and module, the runs are read one way", at))
-	case results && p.Reading == "" && p.Module == "":
+	case p.Interpreter != "" && p.Interpreter != InterpreterNative:
+		problems = append(problems, fmt.Errorf("%s.interpreter: %q, expected %q", at, p.Interpreter, InterpreterNative))
+	case readings > 1:
+		problems = append(problems, fmt.Errorf("%s: reading, module and interpreter, the runs are read one way", at))
+	case results && readings == 0:
 		problems = append(problems, fmt.Errorf("%s: publishes results and says nothing of how they are read", at))
 	}
 
@@ -279,7 +507,10 @@ func (p Pipeline) problems(at string) []error {
 func (m Manifest) Plugin() capability.Plugin {
 	plugin := capability.Plugin{
 		ID: m.ID, Version: m.Version, APIVersion: m.SDK, Label: m.Label, Summary: m.Summary,
-		Global: m.Settings.Global, Project: m.Settings.Project,
+		Global: m.Settings.Global, Project: m.Settings.Project, Events: m.Events, PerProject: m.PerProject,
+	}
+	if m.Module {
+		plugin.Capabilities = []capability.Header{{Kind: capability.KindModule, Name: "module", Label: "Module"}}
 	}
 	for _, declared := range m.Pipelines {
 		plugin.Pipelines = append(plugin.Pipelines, capability.Pipeline{

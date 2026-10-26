@@ -10,15 +10,19 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"runtime"
 	"strings"
+	"testing/fstest"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/credentials"
+	"sigs.k8s.io/yaml"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
@@ -45,6 +49,18 @@ type Registries struct {
 	DockerConfig string
 	// PlainHTTP lists the registries reached without TLS, a registry inside a development cluster.
 	PlainHTTP []string
+	// Architecture is the platform whose program is pulled; empty, this process's.
+	Architecture string
+}
+
+// Platforms a plugin's program is published for, the dashboard's images' architectures.
+var Platforms = []string{"amd64", "arm64"}
+
+func (r Registries) architecture() string {
+	if r.Architecture != "" {
+		return r.Architecture
+	}
+	return runtime.GOARCH
 }
 
 func (r Registries) repository(reference registry.Reference) (*remote.Repository, error) {
@@ -126,6 +142,13 @@ func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw 
 		return Pulled{}, fmt.Errorf("%s: %w", reference, err)
 	}
 
+	// A plugin with a program is an index, one artifact per platform. The signature covers the
+	// index, and the index names each artifact by its digest.
+	if descriptor.MediaType == ocispec.MediaTypeImageIndex {
+		if artifactJSON, err = platformArtifact(ctx, repository, artifactJSON, registries.architecture()); err != nil {
+			return Pulled{}, fmt.Errorf("%s: %w", reference, err)
+		}
+	}
 	var artifact ocispec.Manifest
 	if err := json.Unmarshal([]byte(artifactJSON), &artifact); err != nil {
 		return Pulled{}, fmt.Errorf("artifact manifest: %w", err)
@@ -154,6 +177,25 @@ func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, raw 
 		Reference: reference.Registry + "/" + reference.Repository + "@" + pinned.String(),
 		Digest:    pinned.String(), SignedBy: signer.Fingerprint, Layer: []byte(layer), Files: files,
 	}, nil
+}
+
+// platformArtifact reads the artifact of an index built for an architecture.
+func platformArtifact(ctx context.Context, repository *remote.Repository, indexJSON, architecture string) (string, error) {
+	var index ocispec.Index
+	if err := json.Unmarshal([]byte(indexJSON), &index); err != nil {
+		return "", fmt.Errorf("plugin index: %w", err)
+	}
+	for _, entry := range index.Manifests {
+		if entry.Platform == nil || entry.Platform.OS != "linux" || entry.Platform.Architecture != architecture {
+			continue
+		}
+		body, err := repository.Fetch(ctx, entry)
+		if err != nil {
+			return "", fmt.Errorf("fetching the linux/%s artifact: %w", architecture, err)
+		}
+		return readBlob(body, entry, maxManifest)
+	}
+	return "", fmt.Errorf("no program built for linux/%s", architecture)
 }
 
 // readBlob reads a blob whole, its size and digest checked against its descriptor.
@@ -227,6 +269,10 @@ func verified(ctx context.Context, repository *remote.Repository, trusted []Trus
 
 // Publish packs a plugin's directory, pushes it under a tag, and signs what it pushed. It returns
 // the reference by digest an administrator installs.
+//
+// A plugin with a program (`binary: bin/plugin`) carries it built for each platform beside that
+// path, `bin/plugin-linux-amd64` and `bin/plugin-linux-arm64`: each becomes the artifact of its
+// platform, holding the program at the declared path, and an index of them is what is signed.
 func Publish(ctx context.Context, registries Registries, target string, fsys fs.FS, signer crypto.Signer) (string, error) {
 	reference, err := registry.ParseReference(target)
 	if err != nil {
@@ -235,31 +281,54 @@ func Publish(ctx context.Context, registries Registries, target string, fsys fs.
 	if err := reference.ValidateReferenceAsTag(); err != nil {
 		return "", fmt.Errorf("%s: published under a tag, installed by the digest this returns", target)
 	}
-	if _, err := Load(fsys); err != nil {
-		return "", fmt.Errorf("the plugin would not install: %w", err)
-	}
-	layer, err := Pack(fsys)
+	built, err := platformDirectories(fsys)
 	if err != nil {
 		return "", err
+	}
+	for platform, files := range built {
+		if _, err := Load(files); err != nil {
+			return "", fmt.Errorf("the plugin would not install%s: %w", platform, err)
+		}
 	}
 	repository, err := registries.repository(reference)
 	if err != nil {
 		return "", err
 	}
 
-	config, err := push(ctx, repository, manifest.ConfigMediaType, []byte("{}"))
-	if err != nil {
-		return "", err
-	}
-	layerDescriptor, err := push(ctx, repository, manifest.LayerMediaType, layer)
-	if err != nil {
-		return "", err
-	}
-	pushed, err := pushManifest(ctx, repository, ocispec.Manifest{
-		Config: config, Layers: []ocispec.Descriptor{layerDescriptor},
-	}, reference.Reference)
-	if err != nil {
-		return "", err
+	var pushed digest.Digest
+	if files, single := built[""]; single {
+		descriptor, err := pushArtifact(ctx, repository, files)
+		if err != nil {
+			return "", err
+		}
+		if pushed, err = pushManifest(ctx, repository, descriptor.manifest, reference.Reference); err != nil {
+			return "", err
+		}
+	} else {
+		var index ocispec.Index
+		for _, architecture := range Platforms {
+			files, found := built[" for linux/"+architecture]
+			if !found {
+				continue
+			}
+			artifact, err := pushArtifact(ctx, repository, files)
+			if err != nil {
+				return "", err
+			}
+			raw, err := json.Marshal(artifact.manifest)
+			if err != nil {
+				return "", err
+			}
+			entry := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, raw)
+			if err := repository.Push(ctx, entry, bytes.NewReader(raw)); err != nil {
+				return "", fmt.Errorf("pushing the linux/%s artifact: %w", architecture, err)
+			}
+			entry.Platform = &ocispec.Platform{OS: "linux", Architecture: architecture}
+			index.Manifests = append(index.Manifests, entry)
+		}
+		if pushed, err = pushIndex(ctx, repository, index, reference.Reference); err != nil {
+			return "", err
+		}
 	}
 
 	repositoryName := reference.Registry + "/" + reference.Repository
@@ -286,6 +355,92 @@ func Publish(ctx context.Context, registries Registries, target string, fsys fs.
 		return "", err
 	}
 	return repositoryName + "@" + pushed.String(), nil
+}
+
+// platformDirectories returns the directory as each platform's artifact holds it, keyed by a label
+// for messages: one, keyed "", for a plugin without a program.
+func platformDirectories(fsys fs.FS) (map[string]fs.FS, error) {
+	raw, err := fs.ReadFile(fsys, manifest.FileName)
+	if err != nil {
+		return nil, fmt.Errorf("plugin manifest: %w", err)
+	}
+	converted, err := yaml.YAMLToJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("plugin manifest: %w", err)
+	}
+	var declared struct {
+		Binary string `json:"binary"`
+	}
+	if err := json.Unmarshal(converted, &declared); err != nil {
+		return nil, fmt.Errorf("plugin manifest: %w", err)
+	}
+	if declared.Binary == "" {
+		return map[string]fs.FS{"": fsys}, nil
+	}
+
+	built := map[string]fs.FS{}
+	for _, architecture := range Platforms {
+		program, err := fs.ReadFile(fsys, declared.Binary+"-linux-"+architecture)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		files := fstest.MapFS{declared.Binary: {Data: program, Mode: 0o755}}
+		err = fs.WalkDir(fsys, ".", func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || path == declared.Binary || strings.HasPrefix(path, declared.Binary+"-linux-") {
+				return err
+			}
+			data, err := fs.ReadFile(fsys, path)
+			files[path] = &fstest.MapFile{Data: data}
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		built[" for linux/"+architecture] = files
+	}
+	if len(built) == 0 {
+		return nil, fmt.Errorf("no program built: %s-linux-<architecture>, for %s", declared.Binary, strings.Join(Platforms, " or "))
+	}
+	return built, nil
+}
+
+type artifact struct{ manifest ocispec.Manifest }
+
+// pushArtifact pushes a directory's config and layer, and returns the manifest that names them.
+func pushArtifact(ctx context.Context, repository *remote.Repository, fsys fs.FS) (artifact, error) {
+	layer, err := Pack(fsys)
+	if err != nil {
+		return artifact{}, err
+	}
+	config, err := push(ctx, repository, manifest.ConfigMediaType, []byte("{}"))
+	if err != nil {
+		return artifact{}, err
+	}
+	layerDescriptor, err := push(ctx, repository, manifest.LayerMediaType, layer)
+	if err != nil {
+		return artifact{}, err
+	}
+	return artifact{manifest: ocispec.Manifest{
+		Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: ocispec.MediaTypeImageManifest,
+		Config: config, Layers: []ocispec.Descriptor{layerDescriptor},
+	}}, nil
+}
+
+func pushIndex(ctx context.Context, repository *remote.Repository, index ocispec.Index, tag string) (digest.Digest, error) {
+	index.SchemaVersion = 2
+	index.MediaType = ocispec.MediaTypeImageIndex
+	raw, err := json.Marshal(index)
+	if err != nil {
+		return "", err
+	}
+	descriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, raw)
+	if err := repository.PushReference(ctx, descriptor, bytes.NewReader(raw), tag); err != nil {
+		return "", fmt.Errorf("pushing the index: %w", err)
+	}
+	return descriptor.Digest, nil
 }
 
 func push(ctx context.Context, repository *remote.Repository, mediaType string, raw []byte) (ocispec.Descriptor, error) {

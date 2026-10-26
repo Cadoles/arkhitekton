@@ -17,7 +17,7 @@ import (
 // readingPlugin is an installable plugin whose runs are read by declaration.
 func readingPlugin() fstest.MapFS {
 	return fstest.MapFS{
-		"arkhitekton-plugin.yaml": {Data: []byte(`apiVersion: arkhitekton.plugin/v1
+		"arkhitekton-plugin.yaml": {Data: []byte(`apiVersion: arkhitekton.plugin/v2
 id: junit
 version: 1.0.0
 sdk: "1"

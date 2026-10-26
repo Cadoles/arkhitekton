@@ -112,7 +112,7 @@ func (p *PluginInstaller) install(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if err := p.check(ctx, plugin); err != nil {
+	if err := p.check(ctx, plugin.Plugin); err != nil {
 		return err
 	}
 

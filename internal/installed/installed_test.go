@@ -84,7 +84,7 @@ func TestTheExamplePluginLoads(t *testing.T) {
 		t.Errorf("definitions %v, module of %d bytes", kinds, len(pipeline.Module))
 	}
 
-	registry, err := capabilities.New(loaded)
+	registry, err := capabilities.New(loaded.Plugin)
 	if err != nil {
 		t.Fatal(err)
 	}

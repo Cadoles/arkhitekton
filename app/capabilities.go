@@ -39,12 +39,16 @@ type installedPlugins struct {
 		Get(ctx context.Context, key string) (io.ReadCloser, error)
 	}
 
+	// interpreters asks a plugin's program to read its pipelines' runs; nil in a role that runs no
+	// program.
+	interpreters installed.Interpreters
+
 	mu       sync.Mutex
-	compiled map[string]capability.Plugin
+	compiled map[string]installed.Plugin
 }
 
 // plugin reads one installed plugin, compiled.
-func (p *installedPlugins) plugin(ctx context.Context, object string) (capability.Plugin, error) {
+func (p *installedPlugins) plugin(ctx context.Context, object string) (installed.Plugin, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if plugin, cached := p.compiled[object]; cached {
@@ -52,22 +56,22 @@ func (p *installedPlugins) plugin(ctx context.Context, object string) (capabilit
 	}
 	body, err := p.objects.Get(ctx, object)
 	if err != nil {
-		return capability.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
+		return installed.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
 	}
 	defer func() { _ = body.Close() }()
 	files, err := installed.Unpack(body, manifest.MaxSize)
 	if err != nil {
-		return capability.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
+		return installed.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
 	}
-	plugin, err := installed.Read(files)
+	plugin, err := installed.Read(files, p.interpreters)
 	if err != nil {
-		return capability.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
+		return installed.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
 	}
-	if plugin, err = capabilities.Prepare(plugin); err != nil {
-		return capability.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
+	if plugin.Plugin, err = capabilities.Prepare(plugin.Plugin); err != nil {
+		return installed.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
 	}
 	if p.compiled == nil {
-		p.compiled = map[string]capability.Plugin{}
+		p.compiled = map[string]installed.Plugin{}
 	}
 	p.compiled[object] = plugin
 	return plugin, nil
@@ -75,7 +79,7 @@ func (p *installedPlugins) plugin(ctx context.Context, object string) (capabilit
 
 // load reads the installed plugins: the active version of each, and the earlier ones kept to read
 // the runs they launched.
-func (p *installedPlugins) load(ctx context.Context) (active, earlier []capability.Plugin, err error) {
+func (p *installedPlugins) load(ctx context.Context) (active, earlier []installed.Plugin, err error) {
 	rows, err := p.db.InstalledPlugins(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -109,18 +113,21 @@ func newCapabilitySources(cfg config.Config, db *store.DB, objects *blob.Client)
 // registry composes the plugins. With a candidate, it is the registry as it would be with the
 // candidate active in place of its plugin's active version.
 func (s *capabilitySources) registry(ctx context.Context, candidate *capability.Plugin) (*capabilities.Registry, error) {
-	active, earlier, err := s.installed.load(ctx)
+	installedActive, installedEarlier, err := s.installed.load(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if candidate != nil {
-		kept := make([]capability.Plugin, 0, len(active)+1)
-		for _, plugin := range active {
-			if plugin.ID != candidate.ID {
-				kept = append(kept, plugin)
-			}
+	var active, earlier []capability.Plugin
+	for _, plugin := range installedActive {
+		if candidate == nil || plugin.ID != candidate.ID {
+			active = append(active, plugin.Plugin)
 		}
-		active = append(kept, *candidate)
+	}
+	if candidate != nil {
+		active = append(active, *candidate)
+	}
+	for _, plugin := range installedEarlier {
+		earlier = append(earlier, plugin.Plugin)
 	}
 
 	carried := carriedPlugins()
@@ -239,7 +246,7 @@ func (s *capabilitySources) checkActivation(ctx context.Context, id int64) error
 	if err != nil {
 		return err
 	}
-	return s.checkPlugin(ctx, plugin)
+	return s.checkPlugin(ctx, plugin.Plugin)
 }
 
 // carried lists the plugins whose Tekton definitions stay: the built-in ones and those installed.
