@@ -24,6 +24,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
@@ -169,6 +170,11 @@ func program(fsys fs.FS, declared manifest.Manifest) (*Native, error) {
 	if migrations := declared.Migrations; migrations != nil {
 		if entries, err := fs.ReadDir(fsys, migrations.Dir); err != nil || len(entries) == 0 {
 			problems = append(problems, fmt.Errorf("migrations: %s holds no migration", migrations.Dir))
+		}
+	}
+	for _, route := range declared.Routes {
+		if _, deploy := route.DeployParameter(); !deploy && !auth.Known(auth.Permission(route.Permission)) {
+			problems = append(problems, fmt.Errorf("route %s %s: no role grants %q", route.Method, route.Path, route.Permission))
 		}
 	}
 	if ui := declared.UI; ui != nil {

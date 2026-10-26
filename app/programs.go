@@ -21,6 +21,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
 
 // programs runs a role's installed plugins' programs: launched at their first use, stopped when
@@ -31,6 +32,8 @@ type programs struct {
 	mu    sync.Mutex
 	specs map[string]native.Spec
 	host  native.HostDeps
+	// active are the active versions with a program, by plugin id: what serves routes and hooks.
+	active map[string]installed.Plugin
 }
 
 // newPrograms prepares a role's programs. The environment a program gets is explicit: the
@@ -99,6 +102,56 @@ func (p *programs) interpreters() installed.Interpreters {
 			Process: func() (*native.Process, error) { return p.process(id, version) }, Pipeline: pipeline,
 		}
 	}
+}
+
+// activate records the active versions, whose programs serve routes and hooks.
+func (p *programs) activate(active []installed.Plugin) {
+	byID := map[string]installed.Plugin{}
+	for _, plugin := range active {
+		if plugin.Native != nil {
+			byID[plugin.ID] = plugin
+		}
+	}
+	p.mu.Lock()
+	p.active = byID
+	p.mu.Unlock()
+}
+
+// activeProcess returns the program of a plugin's active version.
+func (p *programs) activeProcess(pluginID string) (installed.Plugin, *native.Process, bool) {
+	p.mu.Lock()
+	plugin, found := p.active[pluginID]
+	p.mu.Unlock()
+	if !found {
+		return installed.Plugin{}, nil, false
+	}
+	process, err := p.process(plugin.ID, plugin.Version)
+	if err != nil {
+		return installed.Plugin{}, nil, false
+	}
+	return plugin, process, true
+}
+
+// Routes returns the routes the active version of a plugin declares.
+func (p *programs) Routes(pluginID string) ([]manifest.Route, bool) {
+	plugin, _, found := p.activeProcess(pluginID)
+	if !found {
+		return nil, false
+	}
+	return plugin.Native.Manifest.Routes, true
+}
+
+// Serve hands a request to the active version's program.
+func (p *programs) Serve(ctx context.Context, pluginID string, request *pluginv1.HTTPRequest) (*pluginv1.HTTPResponse, error) {
+	_, process, found := p.activeProcess(pluginID)
+	if !found {
+		return nil, fmt.Errorf("plugin %s: no active program", pluginID)
+	}
+	conn, err := process.Connection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return conn.Plugin.Serve(ctx, request)
 }
 
 // retain keeps the programs of the versions still installed, and stops the others.

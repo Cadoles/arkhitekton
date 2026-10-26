@@ -44,6 +44,17 @@ const (
 
 const deployPrefix = "deploy:"
 
+// Known says whether a role grants the permission, a deploy permission aside: a permission no role
+// grants refuses everyone, which an installed plugin's route must not do by a typo.
+func Known(permission Permission) bool {
+	for _, granted := range rolePermissions {
+		if slices.Contains(granted, permission) {
+			return true
+		}
+	}
+	return false
+}
+
 // PermDeploy builds the deploy permission of an environment.
 func PermDeploy(environment string) Permission {
 	return Permission(deployPrefix + environment)

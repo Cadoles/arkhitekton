@@ -244,8 +244,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// parameters are required. It is not validated against the cluster here — the api has no
 	// access to it, and the `worker` does it at start-up.
 	// The capabilities in force, read once per operation: what is installed or bound while the
-	// dashboard runs replaces them as a whole.
-	sources := newCapabilitySources(cfg, db, storage, nil)
+	// dashboard runs replaces them as a whole. The installed plugins' programs serve their routes.
+	servers := newPrograms(cfg, rpc.RoleAPI, logger)
+	defer servers.close()
+	sources := newCapabilitySources(cfg, db, storage, servers)
 	inForce, reloader, err := startingCapabilities(ctx, sources, logger)
 	if err != nil {
 		return err
@@ -273,6 +275,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		logger.Info("sensitive environments", "project", slug, "environments", sensitive)
 	}
 	authorizer := auth.NewAuthorizer(policies)
+	servers.lend(native.HostDeps{
+		Store: db, Catalogs: inForce.Catalogs(), Authorizer: authorizer, Unseal: unsealer(inForce.Registries(), cipher),
+	})
 	// The modules are read at each request: the switch is flipped from the administration screen,
 	// and reading it at start-up would make it lie until the next deployment.
 	modules := dashhttp.NewModules(inForce.Registries(), db, logger)
@@ -356,7 +361,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
 			sources.checkBinding, reloader.Reload, logger).Routes,
 		// The plugins an administrator installs from a registry, pulled and verified by the worker.
-		dashhttp.NewInstallationsHandler(db, sources.checkActivation, reloader.Reload, logger).Routes)
+		dashhttp.NewInstallationsHandler(db, sources.checkActivation, reloader.Reload, logger).Routes,
+		// And the routes their programs serve, checked here before the program sees them.
+		dashhttp.NewPluginRoutesHandler(servers, db, db, authorizer).Routes)
 	readiness := append([]dashhttp.ReadinessCheck{
 		{Name: "postgres", Check: db.Ping},
 		// Distinct from the ping: PostgreSQL may answer although the migration Job has not run yet.

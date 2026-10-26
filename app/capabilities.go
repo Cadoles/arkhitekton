@@ -182,6 +182,7 @@ func (s *capabilitySources) snapshot(ctx context.Context, version int64) (live.S
 			return live.Snapshot{}, err
 		}
 		programs.retain(append(active, earlier...))
+		programs.activate(active)
 	}
 	recorded, err := recordedBindings(ctx, s.db)
 	if err != nil {

@@ -152,3 +152,11 @@ func TestAProgramBuiltForNoPlatformIsNotPublished(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestARouteNeedsAPermissionSomeRoleGrants(t *testing.T) {
+	files := platform("amd64")
+	files[manifest.FileName] = &fstest.MapFile{Data: []byte(strings.Replace(withProgram, "permission: read", "permission: reed", 1))}
+	if _, err := Load(files); err == nil || !strings.Contains(err.Error(), `"reed"`) {
+		t.Errorf("err = %v", err)
+	}
+}
