@@ -56,7 +56,6 @@ func TestAManifestAsksForNothingBeyondItsSchema(t *testing.T) {
 		"two sources":        {`"volume": {"storage": "1Gi"}`, `"volume": {"storage": "1Gi"}, "emptyDir": true`},
 		"unknown param":      {`"source": "input"`, `"source": "environment"`},
 		"unknown format":     {`"format": "file"`, `"format": "zip"`},
-		"no Tekton":          {`"tekton/pipeline.yaml", "tekton/task.yaml"`, ``},
 		"incomplete member":  {`"tool": "gotest"`, `"tool": ""`},
 		"incomplete product": {`"object": "go-test.json"`, `"object": ""`},
 	} {
@@ -145,5 +144,19 @@ func TestAPipelineReadsItsRunsOneWay(t *testing.T) {
 	both = strings.Replace(both, `"label": "Go",`, `"label": "Go", "binary": "bin/plugin", "protocol": 1,`, 1)
 	if _, err := Decode([]byte(both)); err == nil || !strings.Contains(err.Error(), "one way") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// A pipeline the operator provides ships no definition; its inputs say what the form offers.
+func TestAPipelineMayLeaveItsDefinitionsToTheOperator(t *testing.T) {
+	provided := strings.Replace(valid, `"tekton": ["tekton/pipeline.yaml", "tekton/task.yaml"], `, ``, 1)
+	provided = strings.Replace(provided, `"revision": {"source": "input", "required": true}`,
+		`"revision": {"source": "input", "required": true, "suggest": "git-ref"}`, 1)
+	declared, err := Decode([]byte(provided))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suggest := declared.Plugin().Pipelines[0].Spec.Params["revision"].Suggest; suggest != "git-ref" {
+		t.Errorf("suggest = %q", suggest)
 	}
 }

@@ -145,7 +145,8 @@ type Pipeline struct {
 	Label       string `json:"label"`
 	PipelineRef string `json:"pipelineRef"`
 	// Tekton lists the files of the Pipeline and of the Tasks it brings, one definition per file.
-	Tekton []string `json:"tekton"`
+	// Empty, the operator provides the Pipeline.
+	Tekton []string `json:"tekton,omitempty"`
 	// ExternalTasks are Tasks the pipeline uses without bringing them.
 	ExternalTasks []string             `json:"externalTasks,omitempty"`
 	Params        map[string]Param     `json:"params,omitempty"`
@@ -171,6 +172,10 @@ type Param struct {
 	Label       string                 `json:"label,omitempty"`
 	Help        string                 `json:"help,omitempty"`
 	Placeholder string                 `json:"placeholder,omitempty"`
+	// Suggest names what the launch form offers for an input: `git-ref`, `release-tag`, `image`,
+	// `environment`…; Image, the short repository a `suggest: image` expects.
+	Suggest string `json:"suggest,omitempty"`
+	Image   string `json:"image,omitempty"`
 }
 
 // Workspace is a Pipeline workspace, backed by the secret bound to a need, a claim per run or an
@@ -407,9 +412,6 @@ func (p Pipeline) problems(at string) []error {
 	if !capability.ValidName(p.PipelineRef) {
 		problems = append(problems, fmt.Errorf("%s.pipelineRef %q: a Kubernetes name", at, p.PipelineRef))
 	}
-	if len(p.Tekton) == 0 {
-		problems = append(problems, fmt.Errorf("%s: no Tekton definition", at))
-	}
 	files := append([]string{}, p.Tekton...)
 	for _, file := range []string{p.Reading} {
 		if file != "" {
@@ -529,7 +531,8 @@ func (p Pipeline) spec() capability.PipelineSpec {
 		for name, param := range p.Params {
 			spec.Params[name] = capability.Param{
 				Source: param.Source, DefaultKey: param.DefaultKey, Value: param.Value, Required: param.Required,
-				Label: param.Label, Help: param.Help, Placeholder: param.Placeholder,
+				Label: param.Label, Help: param.Help, Placeholder: param.Placeholder, Suggest: param.Suggest,
+				Image: param.Image,
 			}
 		}
 	}

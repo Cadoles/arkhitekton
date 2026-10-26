@@ -239,6 +239,11 @@ func definitions(fsys fs.FS, pipeline manifest.Pipeline) ([]capability.Manifest,
 	if err := errors.Join(problems...); err != nil {
 		return nil, err
 	}
+	// Shipping none, the pipeline is the operator's: the cluster has it, or its runs are refused
+	// with the reason.
+	if len(pipeline.Tekton) == 0 {
+		return nil, nil
+	}
 
 	if len(pipelines) != 1 || pipelines[0].Name != pipeline.PipelineRef {
 		return nil, fmt.Errorf("expected one Tekton Pipeline, %q, the one pipelineRef names", pipeline.PipelineRef)
