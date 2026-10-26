@@ -19,7 +19,14 @@ const sources = import.meta.glob(['./**/*.ts', './**/*.tsx'], {
 }) as Record<string, string>
 
 const PLUGINS = './plugins/'
-const ALLOWED = new Set(['@arkhitekton/host', 'react', 'react-router', '@tanstack/react-query'])
+const ALLOWED = new Set([
+  '@arkhitekton/host',
+  // La feuille des utilitaires d'une interface de plugin, que son entrée importe.
+  '@arkhitekton/host/plugin.css',
+  'react',
+  'react-router',
+  '@tanstack/react-query',
+])
 
 function resolve(from: string, specifier: string): string {
   const parts = from.split('/').slice(0, -1)

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
@@ -14,7 +15,8 @@ import { SHARED } from './src/lib/shared'
  *   npx vite build --config plugin.vite.ts
  *
  * Il produit `index.js`, un script qui appelle `registerModule`, et
- * `index.css`. Ni React, ni le routeur, ni le cache de requêtes, ni l'hôte n'y
+ * `index.css`. L'entrée importe `@arkhitekton/host/plugin.css`, la feuille des
+ * utilitaires du plugin (`src/styles/plugin.css`), sous ce nom stable. Ni React, ni le routeur, ni le cache de requêtes, ni l'hôte n'y
  * sont : le script les prend dans `window.__arkhitekton`, sous les noms de
  * `src/lib/shared.ts`.
  */
@@ -27,6 +29,11 @@ if (!entry || !outDir) {
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@arkhitekton/host/plugin.css': fileURLToPath(new URL('./src/styles/plugin.css', import.meta.url)),
+    },
+  },
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: {
     outDir,

@@ -1,5 +1,6 @@
 /*
- * Les utilitaires de l'interface d'un plugin installé, que son entrée importe.
+ * Les utilitaires de l'interface d'un plugin installé, que son entrée importe
+ * sous le nom `@arkhitekton/host/plugin.css`.
  *
  * Seulement les siens : la base, les polices et les variables du thème viennent
  * de la page du noyau, déjà chargées. Les jetons sont lus sans être émis, pour
