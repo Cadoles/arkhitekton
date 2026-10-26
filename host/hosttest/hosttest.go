@@ -107,6 +107,21 @@ func (m Migrations) Rollback(ctx context.Context, d *Database) error {
 	return m.set().Rollback(ctx, d.config)
 }
 
+// UpTo applies them up to a version, to seed rows a later migration rewrites.
+func (m Migrations) UpTo(ctx context.Context, d *Database, version int64) error {
+	return m.set().UpTo(ctx, d.config, version)
+}
+
+// DownTo undoes them down to a version.
+func (m Migrations) DownTo(ctx context.Context, d *Database, version int64) error {
+	return m.set().DownTo(ctx, d.config, version)
+}
+
+// CheckSchema is the readiness probe the dashboard runs for the plugin, `schema-<id>`.
+func (m Migrations) CheckSchema(ctx context.Context, d *Database) error {
+	return m.set().CheckSchema(d.Pool)(ctx)
+}
+
 // Pending lists those not applied yet.
 func (m Migrations) Pending(ctx context.Context, d *Database) ([]string, error) {
 	return m.set().Pending(ctx, d.config)
