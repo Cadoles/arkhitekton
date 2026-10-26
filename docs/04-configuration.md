@@ -196,3 +196,7 @@ kubectl -n arkhitekton create secret docker-registry arkhitekton-plugin-registry
   --docker-server=registry.example --docker-username=… --docker-password=…
 ```
 
+An installed plugin's program (doc 06 §6.4) runs in the api and worker pods: it is written to
+their `/tmp` (an `emptyDir` of 1 GiB in the base deployment), which must allow execution, and it
+shares the pod's memory limit. Raise the limits for heavy plugins.
+

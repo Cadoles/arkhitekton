@@ -58,10 +58,11 @@ plugins shipped with the dashboard import nothing else of it (`internal/capabili
 `boundary_test.go`). `LICENSE.plugin-exception` names that module.
 
 A plugin is compiled into the binary, which is precisely what the exception makes possible, or
-brings its reading as a declaration or a WebAssembly module (doc 06 §6.3, §6.4). A module built
-against `sdk/guest` uses only the plugin interface, and is covered by the exception like a
-compiled plugin; so is a module written in another language, through the interface the
-dashboard runs modules with (item (d) of the exception).
+is installed: a declared reading, and a program the dashboard launches and talks to over gRPC
+(doc 06 §6.3, §6.4). A program built against `rpc/extension` uses only the plugin interface, and
+is covered by the exception like a compiled plugin; so is a program written in another language,
+through the contract the dashboard talks to programs with, and an interface script built with
+the dashboard's preset (item (d) of the exception).
 
 An extension compiled into a distribution (doc 06 §6.13) is written against the host API, the
 `host`, `host/hosttest` and `app` packages and the interface module `apps/web/src/host`, which
@@ -106,8 +107,8 @@ require every contributor's agreement.
 and the patent grant is explicit, which suits code that gets copied verbatim.
 
 **The plugin interface names every way a plugin talks to the dashboard**: the `sdk` module,
-the HTTP API, the declarative formats (plugin manifests and declared readings included) and
-the interface WebAssembly modules are run through. A format added later is added to the list
+the `rpc` module, the HTTP API, the declarative formats (plugin manifests and declared readings
+included), the gRPC contract programs speak and the contract interface scripts register with. A format added later is added to the list
 in the exception, not left to interpretation.
 
 **Native plugins go through `hashicorp/go-plugin`**, under MPL-2.0, as is its `yamux`; the

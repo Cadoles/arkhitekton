@@ -27,10 +27,13 @@ DEFINITIONS
       catalogues, Tekton Pipeline and Task definitions, plugin manifests,
       declared readings, plugin settings and automation declarations;
 
-  (d) the interface through which the Program runs a plugin's WebAssembly
-      module: the module's exports and the data exchanged with it, as
-      documented by the Program, whatever the language the module is
-      written in.
+  (d) the interface through which the Program runs a plugin's program and
+      loads its interface: the module `forge.cadoles.com/vcarroy/arkhitekton/rpc`
+      and its packages, the gRPC contract under `rpc/proto` and the data
+      exchanged through it, whatever the language the program is written in,
+      and the contract an interface script registers its module with, its
+      build preset `apps/web/plugin.vite.ts` and the stylesheet
+      `apps/web/src/styles/plugin.css`.
 
 "Plugin" means a work that interacts with the Program solely through the
 Plugin Interface, and that does not otherwise copy or incorporate source code
@@ -90,9 +93,10 @@ Résumé en français, sans valeur juridique — le texte anglais ci-dessus fait
     en doit les sources, section 13 comprise.
   - L'interface de plugin comprend le module sdk, l'API hôte des extensions
     compilées (paquets host, host/hosttest et app, module d'interface
-    apps/web/src/host), l'API HTTP, les formats déclaratifs (manifestes de
-    plugin et lectures déclarées compris) et l'interface des modules
-    WebAssembly, quel que soit leur langage.
+    apps/web/src/host), le module rpc et son contrat gRPC, quel que soit le
+    langage du programme, le contrat des scripts d'interface et leur preset de
+    build, l'API HTTP et les formats déclaratifs (manifestes de plugin et
+    lectures déclarées compris).
   - Les pipelines, les catalogues, les manifestes et les lectures sont des
     données. Les exemples livrés (deploy/base/pipelines/, rpc/examples/) sont
     sous Apache 2.0, pour être copiés et adaptés sans contrainte : un plugin

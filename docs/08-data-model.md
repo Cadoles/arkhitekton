@@ -122,11 +122,13 @@ Secret fields inside `config` are sealed with `SECRETS_KEY`; the API never retur
 One version of a plugin is active at a time, and a version is installed once (partial unique
 indexes). A removed installation stays, for the record.
 
-## 8.9 Tables owned by extensions
+## 8.9 Tables owned by plugins
 
-An extension's tables live in the same database under its own migration history
-(`goose_<id>_db_version` by convention), and are absent from the core's schema. They may refer
-to the core's tables; the core's never refer to theirs. The extension documents them.
+An installed plugin's tables, or an extension's, live in the same database under the plugin's own
+migration history (`goose_<id>_db_version` by convention), and are absent from the core's
+schema. They may refer to the core's tables; the core's never refer to theirs. An installed
+plugin's migrations are applied when it is installed; uninstalling it leaves its tables. The
+plugin documents them.
 
 ## 8.10 Object store layout
 

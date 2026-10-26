@@ -140,12 +140,21 @@ All scoped to a project; the permission is checked **in that project**.
 | `DELETE /projects/{project}/plugins/{plugin}` | `admin` — clears the override, restoring inheritance |
 | `GET /projects/{project}/forge/refs` | `read` |
 
-## 7.10 Routes contributed by extensions
+## 7.10 Routes contributed by plugins
+
+An installed plugin's program serves the routes its manifest declares (doc 06 §6.12):
+
+| Route | Permission |
+|---|---|
+| `/projects/{project}/plugins/{plugin}/…` | the route's, checked by the dashboard; `404` when the project switches the plugin off or the route is not declared |
+| `/plugins/{plugin}/…` | the route's, on the instance |
+| `GET /plugin-interfaces/{plugin}/{version}/…` | signed in: the active version's interface files, cached for good |
+
+`503` says the program is restarting, `504` that it did not answer in 30 seconds, `502` that it
+failed; its error is logged, never returned. The plugin documents its routes.
 
 An extension compiled into a distribution mounts its own routes under the same prefix, with
-the same authentication and CSRF protection, and sets each route's permission itself. A route
-gated by a module refuses a project where its plugin is switched off. The extension documents
-them.
+the same authentication and CSRF protection, and sets each route's permission itself.
 
 ## 7.11 Outside the API prefix
 

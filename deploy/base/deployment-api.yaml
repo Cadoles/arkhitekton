@@ -105,6 +105,8 @@ spec:
         - name: catalog
           configMap:
             name: arkhitekton-catalog
+        # Also where installed plugins' programs are written and run from: room for a few, and no
+        # `noexec`.
         - name: tmp
           emptyDir:
-            sizeLimit: 256Mi
+            sizeLimit: 1Gi

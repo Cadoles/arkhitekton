@@ -50,8 +50,8 @@ The types a plugin compiles against form the **contract**, a Go module of its ow
 | `sdk/interpret` | helpers shared by interpreters |
 | `sdk/provider` | the vocabulary of trackers and forges: versions, issues, refs, pull requests |
 | `sdk/declare` | the schema of a declared reading (§6.3) |
-| `sdk/guest` | the plugin side of a WebAssembly interpreter (§6.4) |
 | `sdk/manifest` | the schema of a plugin an instance installs (§6.12) |
+| `rpc/extension` | the program of a native plugin: its hooks served, the Host lent (§6.4) |
 
 The dashboard refuses a plugin built against another major `sdk.APIVersion`. The built-in
 plugins live under `internal/plugins/<id>` and import nothing but the contract; only
@@ -64,8 +64,8 @@ by a test: a single module file may import feature code.
 A pipeline capability is declared by its plugin: the Tekton Pipeline and Tasks it ships, or the
 ones it expects the operator to provide; its parameters; the artifacts it publishes and the
 parser each file is read with; the privileges it needs; and how its runs are **read**: by an
-interpreter written in Go, a reading declared in YAML (§6.3) or an interpreter compiled to
-WebAssembly (§6.4), one way and only one. Capabilities are named
+interpreter written in Go, a reading declared in YAML (§6.3) or a native plugin's program
+(§6.4), one way and only one. Capabilities are named
 `plugin/name` (`php/unit-tests`), so two plugins cannot collide. The
 [catalogue](05-pipeline-catalogue.md) binds them to an instance.
 
@@ -153,65 +153,76 @@ table covers its field's values. A declaration that does not hold stops the dash
 start-up rather than misreading a run.
 
 **Checking a reading before shipping it.** `arkhitekton check-reading [--write] <reading.yaml>
-<case>...` (or a `.wasm`, §6.4) reads recorded cases without a database nor a cluster. A case is a directory with
+<case>...` (or `--plugin <dir>` for a program's, §6.4) reads recorded cases without a database nor a cluster. A case is a directory with
 `state.json` (the run's state), `records.json` (`[{"tool", "parser", "file"}]`, a tool without
 a file having left no report) and `expected.json` (the facts); `--write` records the facts
 produced where `expected.json` is missing. The built-in readings' cases live in
 `app/testdata/readings/`.
 
-## 6.4 WebAssembly interpreters
+## 6.4 Native plugins
 
-What a declaration cannot say, or a format the dashboard does not parse, is read by an
-interpreter compiled to WebAssembly: `capability.Pipeline.Module` carries the module, the
-dashboard runs it in a sandbox. It is the one way a plugin parses a format itself: the artifact is
-declared with the `raw` parser, and the module receives its bytes.
+What a declaration cannot say, a format the dashboard does not parse, a screen, a table, a loop
+that reads the cluster: a plugin brings a **program**. The dashboard launches it as a separate
+process, in its own pod, and talks to it over gRPC (`hashicorp/go-plugin`, the model of
+Terraform, Vault and Grafana's backend plugins). The contract is
+`rpc/proto/arkhitekton/plugin/v1/plugin.proto`, version 1 of the protocol; a program of another
+version is refused at the handshake.
 
-**The sandbox.** The module gets an empty WASI: no directory, no environment variable, no
-argument, no network, no host function of the dashboard's. A module importing anything else is
-refused when the plugin is loaded. Every run gets a fresh instance, so nothing passes from one run
-to the next.
+**What a program answers**, each declared in the manifest (§6.12):
 
-| Limit | Value | Beyond |
-|---|---|---|
-| module size | 32 MiB | refused at load |
-| memory | 64 MiB | the reading fails |
-| duration of a reading | 10 s | the instance is closed, the reading fails |
-| answer | 16 MiB | the reading fails |
-| console (stdout and stderr) | 64 KiB | the rest is dropped; what is kept is logged |
+| Hook | Called |
+|---|---|
+| reading a run (`interpreter: native`) | when a run of one of its pipelines concludes, or is replayed |
+| its routes | for a request below its prefix, once the dashboard has checked it (§6.12) |
+| `deployments`, `promotions` | by the release screen and the releases list |
+| `environmentSuggestions` | by the launch form |
+| `schemeCheck` | when a project's version scheme is saved |
+| `promotionFacts` | when a promotion job concludes; one plugin at most states it |
+| `projectSettings` | when a run is composed, for the configuration keys it adds |
+| its module | under the worker's lease, while a project switches the plugin on (§6.9) |
 
-A reading that fails leaves the run read with no facts, as any interpreter's error does; the
-dashboard checks the facts a module returns like any other's, and refuses an attachment the run
-did not keep.
+**What the dashboard lends it** is the `Host` service: a project, a release, the queue, the audit
+log, its own settings for a project (unsealed), the environments a project declares, and the
+dashboard's authorisation. Its own tables it reaches with the database connection it is given.
 
-**Writing one in Go.** `sdk/guest` does the exchange; the interpreter registers in an `init`,
-since the module runs as a reactor whose `main` is never called:
+**Writing one in Go.** `rpc/extension` serves the hooks and lends the Host:
 
 ```go
 package main
 
-import "forge.cadoles.com/vcarroy/arkhitekton/sdk/guest"
+import "forge.cadoles.com/vcarroy/arkhitekton/rpc/extension"
 
-func init() { guest.Register(reader{}) } // reader implements capability.Interpreter
-
-func main() {}
+func main() {
+    extension.Serve(func(ctx context.Context, runtime extension.Runtime) (extension.Hooks, error) {
+        return extension.Hooks{
+            Interpreters: map[string]capability.Interpreter{"unit-tests": reader{}},
+            Routes:       routes(runtime.Host), // an http.Handler
+        }, nil
+    })
+}
 ```
 
 ```sh
-GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o reader.wasm .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/plugin-linux-amd64 .
 ```
 
-`sdk/examples/gotest` is a complete example: it reads the event stream of `go test -json`, a test
+A route's handler is plain `net/http`: `extension.IdentityFrom` and `extension.ProjectFrom` give
+the caller and the project. The program is static (the dashboard's image is distroless) and
+built for each platform it is published for.
+
+`rpc/examples/gotest` is a complete example: it reads the event stream of `go test -json`, a test
 per case, a package that does not build as a case of its own, a stream cut off as tests not run.
 
-**The exchange** (ABI 1), for another language: three exports, `arkhitekton_abi() i32` returning
-1, `arkhitekton_alloc(size i32) i32` reserving the input, `arkhitekton_interpret(ptr, len i32) i64`
-returning the answer's `ptr<<32 | len`. The input is the JSON of `guest.Input` (the run's state and
-the records, the payload of a parsed report as JSON, the bytes of a `raw` one in base64), the
-answer that of `guest.Output` (facts, or an error). The sdk's types travel by their Go field
-names, versioned with `sdk.APIVersion`; a k6 metric's error does not travel.
+**How it runs.** The program is written from the installed artifact to the pod's `/tmp`, checked
+against its digest before every launch, and launched at its first use. Its environment is
+explicit: `DATABASE_URL`, and in the worker the cluster's address; not the dashboard's sealing
+key, object store credentials, OIDC secret or forge and tracker tokens. A program that dies is
+launched again after a few seconds; meanwhile its hooks are left out and its routes answer 503.
+A version that leaves the capabilities in force is stopped. Each api replica runs its own
+processes; a module runs only in the elected worker.
 
-**Checking it.** `arkhitekton check-reading` takes a `.wasm` like a declaration, and runs it
-through the same sandbox on recorded cases (`app/testdata/readings/gotest/`).
+**Checking a reading.** `arkhitekton check-reading --plugin <dir>` launches the program built for
+the machine and reads recorded cases with it (`app/testdata/readings/gotest/`).
 
 ## 6.5 Trackers, forges, probes and actions
 
@@ -290,12 +301,15 @@ makes a plugin reachable from the automation screen without the core knowing wha
 ## 6.9 Modules
 
 Some plugins need loops that write the dashboard's tables and talk to the cluster, which a
-contract plugin cannot do. Those are **modules**, brought by an extension compiled into a
-distribution (§6.13), written against the `host` package, and refused at start-up if their
-plugin does not declare the `module` capability.
+contract plugin cannot do. Those are **modules**: an installed plugin's program runs one when its
+manifest says `module: true` (§6.4, §6.12); an extension compiled into a distribution (§6.13)
+writes one against the `host` package, refused at start-up if its plugin does not declare the
+`module` capability.
 
 The worker's supervisor runs a module while its plugin is switched on for at least one
-project, and restarts it with its new settings when they change. Switching a module on or
+project, and restarts it with its new settings when they change. An installed plugin's module
+starts once the plugin is installed, is replaced by the next version activated, and stops when
+the plugin is uninstalled. Switching a module on or
 off, or editing its settings, applies within thirty seconds, without a restart. A module that
 fails is started again at the next tick; the worker keeps running.
 
@@ -323,8 +337,8 @@ A plugin is a Go package importing the `sdk` module and nothing else of the dash
 ways to bring it:
 
 - **built in**: added to `internal/plugins/builtin`, released with the dashboard;
-- **installed** from a registry without recompiling, for a plugin that brings pipelines only
-  (§6.12);
+- **installed** from a registry without recompiling, its pipelines and, through a program
+  (§6.4), its routes, tables, hooks, module and screens (§6.12);
 - **compiled into a distribution** with what pipelines alone cannot do, routes, tables, loops,
   screens: an extension (§6.13).
 
@@ -338,45 +352,84 @@ combined work be distributed or served on those terms. See `LICENSE.plugin-excep
 
 ## 6.12 Installed plugins
 
-An administrator installs a plugin **without recompiling**: a signed OCI artifact, pinned by
-digest, pulled and verified by the worker, put in force without a restart. An installed plugin
-brings **pipeline capabilities only**: Tekton definitions, what they publish and need, settings,
-and a declared reading (§6.3) or a WebAssembly module (§6.4). A tracker, a forge, a probe, an
-action or a module is code the dashboard runs with its own privileges, and stays with the plugins
-compiled into it.
+An administrator installs a plugin **without recompiling**: an OCI artifact pinned by digest,
+signed, pulled and verified by the worker, put in force without a restart. It brings pipelines
+(Tekton definitions, what they publish and need, how their runs are read) and, through a program
+(§6.4), routes, tables, extension hooks, a module and screens.
+
+**Trust.** Installing is the administrator's decision, and its consequences are theirs, as in
+Jenkins or Grafana: a plugin's program runs as the dashboard does, and its interface with the
+user's session. What the dashboard guarantees is that what runs is exactly what was installed
+(the digest, and a signature by a trusted key unless the operator names the plugin in
+`PLUGIN_ALLOW_UNSIGNED`), that the installation is audited, and that what reaches the cluster stays
+the operator's to grant (doc 09 §9.9).
 
 **The directory.** `arkhitekton-plugin.yaml` at its root, the files it names next to it.
-`sdk/examples/gotest` is a complete one:
+`rpc/examples/gotest` is a complete one; a plugin with everything:
 
 ```yaml
-apiVersion: arkhitekton.plugin/v1
-id: gotest
-version: 1.0.0                # letters, digits, dots and dashes
-sdk: "1"                      # the sdk.APIVersion it was built against
-label: Go
-summary: Tests d'un projet Go, lus depuis le flux de `go test -json`.
+apiVersion: arkhitekton.plugin/v2
+id: deploy
+version: 2.0.0               # letters, digits, dots and dashes
+sdk: "1"                     # the sdk.APIVersion it was built against
+label: Deploy
+perProject: true             # a project switches it on or off
 settings: { global: [], project: [] }        # capability.Field
+binary: bin/plugin           # its program, built per platform beside: bin/plugin-linux-amd64…
+protocol: 1
+migrations: { dir: migrations, table: goose_deploy_db_version }
+events: [{ suffix: release.promoted, label: Promotion aboutie, payload: [] }]
+module: true
+hooks: [deployments, promotions, environmentSuggestions, schemeCheck, promotionFacts, projectSettings]
+routes:
+  - { method: GET, path: environments, permission: read }
+  - { method: POST, path: "releases/{tag}/promote/{environment}", permission: "deploy:{environment}" }
+  - { method: GET, path: status, permission: admin, scope: instance }
+ui: { entry: ui/index.js, styles: [ui/index.css] }
 pipelines:
   - name: unit-tests
-    label: Tests Go
+    label: Tests
     pipelineRef: go-unit-tests
-    tekton: [tekton/pipeline-go-unit-tests.yaml, tekton/task-go-test.yaml]
+    tekton: [tekton/pipeline.yaml, tekton/task.yaml]
     externalTasks: [git-clone]
     params:
       repo-url: { source: binding, defaultKey: project.repoUrl }
       revision: { source: input, required: true, label: Révision }
-    workspaces:
-      - { name: git-credentials, need: source-read }
-      - { name: shared-data, volume: { storage: 1Gi } }
+    workspaces: [{ name: git-credentials, need: source-read }]
     needs: [{ name: source-read, reason: clone the project }]
     artifacts:
       - { name: results, param: results-upload-url, object: go-test.json, format: file,
           members: [{ match: go-test.json, parser: raw, tool: gotest }] }
     produces: [results]
-    verification: true
     group: unit
-    module: gotest.wasm        # or reading: readings/unit-tests.yaml
+    interpreter: native        # or reading: readings/unit-tests.yaml
 ```
+
+A manifest `arkhitekton.plugin/v1` is refused with a message: rebuild the plugin.
+
+**Routes.** Served under `/api/v1/projects/{project}/plugins/<id>/` (scope `project`, the
+default) or `/api/v1/plugins/<id>/` (scope `instance`). Before the program sees a request, the
+dashboard authenticates the caller, checks the CSRF token of an unsafe method, checks that the
+project switches the plugin on, and checks the route's permission: a role's (`read`,
+`release:edit`, `admin`…) or `deploy:{param}`, judged as a promotion to the environment the path
+names. The program receives the caller and the project, never the session; its answer keeps its
+status, its body and its `Content-Type`, `Cache-Control`, `Content-Disposition` and `Location`.
+A body is 4 MiB at most each way, an answer 30 seconds.
+
+**Tables.** The plugin's SQL migrations (goose files) are applied when it is installed, under the
+worker's lease, before the installation is recorded: whether a version is active is switched
+without a deployment, and its tables must be there. They keep their own version table, which
+`/readyz` checks as `schema-<id>`. Keep them compatible with the previous version: both can be
+installed side by side. Uninstalling leaves the tables and their rows.
+
+**Screens.** The program's `ui.entry` is a script, built with the dashboard's preset
+(`apps/web/plugin.vite.ts`), that calls `registerModule` from `@arkhitekton/host` with an
+`AppModule`: menu entries, routes, sections and badges of a release, labels of its events. It
+carries neither React nor the router: it takes the dashboard's from `window.__arkhitekton`. `/me`
+lists the active plugins' interfaces; the browser loads them before its first screen, from
+`/api/v1/plugin-interfaces/<id>/<version>/`. An interface that fails is left out, and the
+console says so. Its stylesheet carries only its own utilities, on the dashboard's theme
+(`src/styles/plugin.css`).
 
 **What is refused**, when the plugin is published and again when it is installed:
 
@@ -388,24 +441,28 @@ pipelines:
 | `serviceAccountName`, `hostPath`, `hostNetwork`, `hostPID`, `hostIPC`, `hostUsers`, `privileged: true` anywhere in a definition | a run reaches nothing beyond its pod |
 | a `resolver` or a `bundle` | a definition fetches nothing its signature does not cover |
 | a Task the Pipeline runs that is neither shipped nor declared in `externalTasks` | |
-| a path leaving the directory, a link, more than 64 MiB in all | |
+| a route whose permission no role grants, a hook the dashboard does not know, a second plugin stating promotions | |
+| a program of another protocol, a program missing for the platform | |
+| a path leaving the directory, a link, more than 256 MiB in all | |
 | the id of a built-in plugin, a Tekton definition another plugin ships | two plugins would overwrite each other |
 
-**Publishing.** Build what the plugin reads its runs with, then pack, push and sign:
+**Publishing.** Build the program for each platform, then pack, push and sign:
 
 ```sh
-make example-plugin     # builds sdk/examples/gotest/gotest.wasm
-arkhitekton publish-plugin --dir sdk/examples/gotest \
+make example-plugin     # builds rpc/examples/gotest/bin/plugin-linux-{amd64,arm64}
+arkhitekton publish-plugin --dir rpc/examples/gotest \
   --ref registry.example/plugins/gotest:1.0.0 --key plugin-key.pem
 # published  registry.example/plugins/gotest@sha256:…
 # signed by  sha256:…
 ```
 
-The key is an unencrypted PEM private key, ECDSA or Ed25519; registry credentials are read
-from the Docker `config.json`, `--plain-http` reaches a registry without TLS. The signature is
-cosign's "simple signing" format (`sha256-<digest>.sig` next to the artifact), so
-`cosign sign --key … --tlog-upload=false` signs an artifact the same way. A key pair without
-cosign:
+A plugin with a program is published as an index, one artifact per platform carrying the program
+built for it at the declared path; the signature covers the index. The worker pulls its own
+platform's: the dashboard's pods share one architecture. The key is an unencrypted PEM private
+key, ECDSA or Ed25519; registry credentials are read from the Docker `config.json`,
+`--plain-http` reaches a registry without TLS. The signature is cosign's "simple signing" format
+(`sha256-<digest>.sig` next to the artifact), so `cosign sign --key … --tlog-upload=false` signs
+an artifact the same way. A key pair without cosign:
 
 ```sh
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out plugin-key.pem
@@ -415,10 +472,11 @@ openssl pkey -in plugin-key.pem -pubout -out trusted-keys.pem
 **Installing.** Administration, Plugins: the reference **by digest**, the one
 `publish-plugin` printed. A tag can be moved after an administrator looked at what it named; a
 digest cannot. The request becomes a `plugin-install` job: the worker pulls the artifact,
-checks its signature against `PLUGIN_TRUSTED_KEYS` (§4.14) before fetching the layer, checks
-the plugin as above, checks that the capabilities still build with it, stores the layer under
-`plugins/<id>/<version>/`, and records the key that signed it. A failure is read on the
-installation, and on the job.
+checks its signature against `PLUGIN_TRUSTED_KEYS` (§4.14) before fetching the layer, or lets it
+in unsigned if `PLUGIN_ALLOW_UNSIGNED` names it, checks the plugin as above, checks that the
+capabilities still build with it, applies its migrations, stores the layer under
+`plugins/<id>/<version>/`, and records the key that signed it (or `unsigned`). A failure is read
+on the installation, and on the job. Settings already recorded for the plugin's id are kept.
 
 **Binding.** An installed capability is launched once bound, from Administration, Capacités:
 secrets for its needs, configuration keys for its parameters, volume sizes, a timeout, a
@@ -429,18 +487,20 @@ shown read-only (§5.2).
 waits to be activated: an update is a decision, not a side effect of pulling. Activation is
 refused if the capabilities would not build with it, a binding that names a parameter the new
 version dropped for one. New runs start with the active version; a run is read by the version
-that launched it, while that version is installed.
+that launched it, while that version is installed. Routes, hooks, the module and the interface
+are the active version's.
 
 **Uninstalling.** Removing an inactive version removes that version. Removing the active one
-uninstalls the plugin: every version, its bindings and its settings. The worker then withdraws
-the Tekton definitions it installed for it (those carrying `arkhitekton/plugin=<id>`); a run
-already started keeps going on the copy Tekton made. The facts its runs produced stay, and are
-shown without the plugin. A plan naming one of its capabilities fails at launch, naming it.
+uninstalls the plugin: every version, its bindings and its settings; its program is stopped. The
+worker then withdraws the Tekton definitions it installed for it (those carrying
+`arkhitekton/plugin=<id>`); a run already started keeps going on the copy Tekton made. The facts
+its runs produced, and its tables, stay. A plan naming one of its capabilities fails at launch,
+naming it.
 
 **Taking effect.** Installing, activating, removing and binding move a counter the api and
 the worker watch: each rebuilds its capabilities within thirty seconds, at once on the replica
 that took the request. Capabilities that do not build leave the previous ones in force, and are
-tried again.
+tried again. A new interface appears when the page is loaded again.
 
 ## 6.13 Extensions and distributions
 

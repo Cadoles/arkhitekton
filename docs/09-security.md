@@ -131,32 +131,36 @@ only attach a file the dashboard itself kept for that run.
 
 ## 9.9 Plugin code
 
-A plugin compiled into the binary is trusted like the rest of it. A plugin's **reading** of its
-runs is not code the dashboard trusts when it comes as a declaration or a WebAssembly module:
+A plugin compiled into the binary is trusted like the rest of it. A **declared reading** is not
+code: it only projects fields through a closed set of filters, with no loop, condition or call,
+and is checked when the plugin is loaded. Whatever reads a run, the dashboard checks the facts
+returned, stamps the producer itself, and refuses an attachment naming an object the run did not
+keep.
 
-- a declaration only projects fields through a closed set of filters, with no loop, condition
-  or call, and is checked when the plugin is loaded;
-- a WebAssembly module runs in a fresh instance per run, with an empty WASI (no file, no
-  environment, no argument, no network) and no other host function, bounded memory, duration,
-  answer and console (doc 06 §6.4).
-
-Either way the dashboard checks the facts returned, stamps the producer itself, and refuses an
-attachment naming an object the run did not keep.
-
-**Installed plugins** (doc 06 §6.12) are code nobody compiled with the dashboard, and are
-checked for what a compiled plugin is trusted with:
+**Installed plugins** (doc 06 §6.12) are trusted by the administrator who installs them, as in
+Jenkins or Grafana: installing is an administrative act, and a plugin's reliability is theirs to
+judge. A plugin's **program** (doc 06 §6.4) runs as the dashboard's user, in its pods; its
+**interface** runs in the page, with the user's session. There is no sandbox, and the dashboard
+does not pretend otherwise. What it guarantees:
 
 - **supply chain**: installed by digest only, never by tag; signed in cosign's simple signing
   format by a key the operator mounted (`PLUGIN_TRUSTED_KEYS`), verified before the layer is
   fetched, with no call to sigstore's services; the signed payload must name the digest
-  installed. The key's fingerprint and the digest are recorded and audited;
-- **privileges**: no service account, from the manifest or from a binding recorded on the
-  screen; needs limited to `source-read` and `registry-pull`; Tekton definitions limited to
-  Pipelines and Tasks, with no host path, host namespace, privileged container, resolver or
-  bundle;
-- **reading**: declared or in WebAssembly, never Go;
-- **reach**: pipelines only. Trackers, forges, probes, actions and modules run with the
-  dashboard's own privileges and stay with compiled plugins;
+  installed. A plugin unsigned or signed by another key installs only if the operator names it
+  in `PLUGIN_ALLOW_UNSIGNED`, and is recorded `unsigned`. The program's digest is checked again
+  before each launch; the key's fingerprint and the digest are recorded and audited;
+- **the cluster stays the operator's**: no service account, from the manifest or from a binding
+  recorded on the screen; needs limited to `source-read` and `registry-pull`; Tekton definitions
+  limited to Pipelines and Tasks, with no host path, host namespace, privileged container,
+  resolver or bundle. A program reaches the cluster with the worker's service account, whose
+  RBAC is the real bound: it still cannot read a Secret (§9.4);
+- **routes**: authentication, CSRF, the plugin's switch for the project and the declared
+  permission are checked by the dashboard before a program sees a request; the program never
+  receives the session;
+- **environment**: a program is given its database connection and, in the worker, the cluster's
+  address, not the sealing key, the object store's or OIDC's secrets, nor forge and tracker
+  tokens. Hygiene rather than a wall: a process of the same user in the same pod could read its
+  parent's;
 - **credentials**: registry credentials are a Docker `config.json` mounted in the worker, read
   for its `auths` only. They never reach the database.
 

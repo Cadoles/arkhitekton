@@ -57,11 +57,16 @@ A change shows as a diff to review; `go test ./app -update` records the new stat
 The readings declared in YAML are also compared with the Go readers they replaced, kept as
 oracles in `app/oracles_test.go`, on every report and run state.
 
-**WebAssembly guests** are built by the tests themselves with the standard toolchain
-(`GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared`): the sandbox's in
-`internal/wasm/testdata/guests/` (one per failure: panic, endless loop, memory, oversized answer,
-host access, console), the example in `sdk/examples/gotest`. No `.wasm` is committed. `make vet`
-also vets `sdk/guest` for `wasip1`, the only target its exports build for.
+**Plugin programs** are built by the tests themselves (`go build`, `CGO_ENABLED=0`): the
+launcher's in `internal/native/testdata/plugin/` (handshake, crash, slow call, another
+protocol), the hooks' in `app/testdata/hooked/`, the example in `rpc/examples/gotest`. No program
+is committed. The contract lives in `rpc/proto`; `make proto` regenerates `rpc/pluginv1`
+(committed), fetching `buf` and the generators by version.
+
+**A plugin's interface** is built with `apps/web/plugin.vite.ts` from a tree where its module is
+dropped in `src/plugins/<id>/`, beside an `entry.ts` that imports `src/styles/plugin.css` and
+calls `registerModule`. Tailwind reads no file git ignores, even named by `@source`: build that
+tree outside an ignored path.
 
 **Adding a view** for declared readings (doc 06 §6.3) means adding it to
 `internal/declarative/views.go`: its parser, the fields every row carries, the closed values of
