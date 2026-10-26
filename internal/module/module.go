@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"sort"
 	"time"
 
@@ -51,12 +52,35 @@ type Store interface {
 	ResolvedPlugin(ctx context.Context, projectID int64, pluginID string) (store.PluginSettings, error)
 }
 
+// Versioned is a module that changes with its plugin's version: a new version is another module,
+// the previous one stopped.
+type Versioned interface {
+	Version() string
+}
+
 // Supervisor starts, stops and restarts the modules as their settings say.
 type Supervisor struct {
-	modules  []Module
+	modules []Module
+	// more are the modules that come and go while the worker runs: those of installed plugins.
+	more     func() []Module
 	store    Store
 	interval time.Duration
 	logger   *slog.Logger
+}
+
+// WithModules adds modules read at each tick: a module that leaves the list is stopped, one that
+// joins it started.
+func (s *Supervisor) WithModules(more func() []Module) *Supervisor {
+	s.more = more
+	return s
+}
+
+// key tells a module from another across ticks.
+func key(module Module) string {
+	if versioned, ok := module.(Versioned); ok {
+		return module.Plugin() + "@" + versioned.Version()
+	}
+	return module.Plugin()
 }
 
 func NewSupervisor(db Store, interval time.Duration, logger *slog.Logger, modules ...Module) *Supervisor {
@@ -75,11 +99,11 @@ type running struct {
 
 // Run supervises the modules until the context ends, then stops them.
 func (s *Supervisor) Run(ctx context.Context) error {
-	if len(s.modules) == 0 {
+	if len(s.modules) == 0 && s.more == nil {
 		<-ctx.Done()
 		return nil
 	}
-	current := make([]*running, len(s.modules))
+	current := map[string]*running{}
 	defer func() {
 		for _, entry := range current {
 			stop(entry)
@@ -89,8 +113,26 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 	for {
-		for index, module := range s.modules {
-			current[index] = s.reconcile(ctx, module, current[index])
+		modules := s.modules
+		if s.more != nil {
+			modules = append(slices.Clone(modules), s.more()...)
+		}
+		seen := map[string]bool{}
+		for _, module := range modules {
+			id := key(module)
+			seen[id] = true
+			if entry := s.reconcile(ctx, module, current[id]); entry != nil {
+				current[id] = entry
+			} else {
+				delete(current, id)
+			}
+		}
+		for id, entry := range current {
+			if !seen[id] {
+				stop(entry)
+				delete(current, id)
+				s.logger.Info("module stopped", "module", id, "reason", "no longer installed")
+			}
 		}
 		select {
 		case <-ctx.Done():

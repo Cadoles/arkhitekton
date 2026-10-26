@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
@@ -233,4 +236,54 @@ func installedSchemas(
 		}
 		return checks
 	}
+}
+
+// nativeModule runs an installed plugin's module in its program: the supervisor's run lasts as
+// long as the program's RunModule call.
+type nativeModule struct {
+	plugin  installed.Plugin
+	process *native.Process
+}
+
+func (m nativeModule) Plugin() string  { return m.plugin.ID }
+func (m nativeModule) Version() string { return m.plugin.Version }
+
+func (m nativeModule) Run(ctx context.Context, state module.State) error {
+	conn, err := m.process.Connection(ctx)
+	if err != nil {
+		return err
+	}
+	request := &pluginv1.ModuleState{Global: state.Global}
+	for _, project := range state.Projects {
+		request.Projects = append(request.Projects, &pluginv1.ModuleProject{
+			Project: native.ProjectTo(project.Project), Settings: project.Settings,
+		})
+	}
+	stream, err := conn.Plugin.RunModule(ctx, request)
+	if err != nil {
+		return err
+	}
+	if _, err = stream.Recv(); errors.Is(err, io.EOF) || ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
+// modules are the modules of the active versions whose program runs one.
+func (p *programs) modules() []module.Module {
+	p.mu.Lock()
+	active := make([]installed.Plugin, 0, len(p.active))
+	for _, plugin := range p.active {
+		if plugin.Native.Manifest.Module {
+			active = append(active, plugin)
+		}
+	}
+	p.mu.Unlock()
+	var modules []module.Module
+	for _, plugin := range active {
+		if process, err := p.process(plugin.ID, plugin.Version); err == nil {
+			modules = append(modules, nativeModule{plugin: plugin, process: process})
+		}
+	}
+	return modules
 }

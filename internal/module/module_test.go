@@ -139,3 +139,52 @@ func TestAModuleFollowsItsSwitchAndItsSettings(t *testing.T) {
 		t.Errorf("supervisor: %v", err)
 	}
 }
+
+type versioned struct {
+	*recorder
+	version string
+}
+
+func (v versioned) Version() string { return v.version }
+
+// An installed plugin's module joins while the worker runs, is replaced by its next version, and
+// is stopped once uninstalled.
+func TestAnInstalledModuleComesAndGoes(t *testing.T) {
+	board := &switchboard{enabled: true, namespace: "flux-system", off: map[int64]bool{}}
+	first, second := &recorder{}, &recorder{}
+	var mu sync.Mutex
+	var installed []Module
+	install := func(modules ...Module) {
+		mu.Lock()
+		defer mu.Unlock()
+		installed = modules
+	}
+	supervisor := NewSupervisor(board, 10*time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil))).
+		WithModules(func() []Module {
+			mu.Lock()
+			defer mu.Unlock()
+			return installed
+		})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() { done <- supervisor.Run(ctx) }()
+
+	install(versioned{first, "1.0.0"})
+	eventually(t, "the installed module started", func() bool { _, live, _ := first.seen(); return live == 1 })
+
+	install(versioned{second, "1.0.1"})
+	eventually(t, "the next version replaced it", func() bool {
+		_, firstLive, _ := first.seen()
+		_, secondLive, _ := second.seen()
+		return firstLive == 0 && secondLive == 1
+	})
+
+	install()
+	eventually(t, "uninstalled, stopped", func() bool { _, live, _ := second.seen(); return live == 0 })
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("supervisor: %v", err)
+	}
+}

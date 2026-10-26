@@ -727,7 +727,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
 			go func() {
-				errs <- module.NewSupervisor(db, moduleTick, logger, modules...).Run(leadingCtx)
+				errs <- module.NewSupervisor(db, moduleTick, logger, modules...).WithModules(readers.modules).Run(leadingCtx)
 			}()
 			go func() { errs <- purger.Run(leadingCtx) }()
 			// The objects nothing refers to any more: attachments of an earlier reading, layers of a

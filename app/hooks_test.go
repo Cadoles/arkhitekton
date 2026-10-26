@@ -14,6 +14,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
@@ -53,7 +54,7 @@ func hookedPlugin(t *testing.T) pluginHooks {
 	plugin := installed.Plugin{
 		Plugin: capability.Plugin{ID: "deploy", Version: "1.0.0"},
 		Native: &installed.Native{
-			Manifest: manifest.Manifest{Binary: "bin/plugin", Hooks: manifest.Hooks},
+			Manifest: manifest.Manifest{Binary: "bin/plugin", Hooks: manifest.Hooks, Module: true},
 			Digest:   "sha256:" + hex.EncodeToString(sum[:]),
 			Files:    fstest.MapFS{"bin/plugin": {Data: raw}},
 		},
@@ -103,5 +104,34 @@ func TestTheInstalledPluginsAnswerTheHooks(t *testing.T) {
 	}
 	if fact := (pluginPromotionFacts{hooks: hooks}).Promoted(at, store.JobReleaseContext{ProjectID: 8}); fact.Type != "" {
 		t.Errorf("a project switching the plugin off stated %+v", fact)
+	}
+}
+
+// The module runs in the program as long as the supervisor's run lasts.
+func TestAnInstalledModuleRunsInItsProgram(t *testing.T) {
+	hooks := hookedPlugin(t)
+	modules := hooks.programs.modules()
+	if len(modules) != 1 || modules[0].Plugin() != "deploy" {
+		t.Fatalf("modules = %v", modules)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ended := make(chan error, 1)
+	go func() {
+		ended <- modules[0].Run(ctx, module.State{Projects: []module.Project{{Project: store.Project{ID: 7, Slug: "app"}}}})
+	}()
+	select {
+	case err := <-ended:
+		t.Fatalf("the module ended on its own: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the module did not stop")
+	}
+
+	if err := modules[0].Run(context.Background(), module.State{}); err == nil {
+		t.Error("the program's failure did not reach the supervisor")
 	}
 }

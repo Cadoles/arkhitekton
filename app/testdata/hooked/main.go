@@ -35,6 +35,13 @@ func main() {
 			ProjectSettings: func(context.Context, int64) (map[string]string, error) {
 				return map[string]string{"deploy.repoUrl": "ssh://deploy"}, nil
 			},
+			Module: func(ctx context.Context, state extension.ModuleState) error {
+				if len(state.Projects) == 0 {
+					return errors.New("a module started for no project")
+				}
+				<-ctx.Done()
+				return ctx.Err()
+			},
 		}, nil
 	})
 }
