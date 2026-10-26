@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { ApiError, request } from '../../lib/api'
 import { currentProject, setProjects, type ProjectChoice } from '../../lib/project'
+import type { PluginInterface } from '../../lib/runtime'
 
 /** Identité renvoyée par `GET /api/v1/me`. */
 export type Identity = {
@@ -21,6 +22,8 @@ export type Identity = {
    * pour un projet (doc 16 §16.18).
    */
   modules?: string[]
+  /** Les interfaces des plugins installés, à charger avant le premier écran. */
+  interfaces?: PluginInterface[]
 }
 
 export type Role = 'viewer' | 'operator' | 'releaser' | 'admin'

@@ -59,103 +59,107 @@ const VersionScreen = lazy(() =>
   import('./features/versions/VersionScreen').then((module) => ({ default: module.VersionScreen })),
 )
 
-export const routes: RouteObject[] = [
-  {
-    path: '/',
-    element: <AppShell />,
-    children: [
-      { index: true, element: <HomeRedirect /> },
+/** Les routes, avec celles des modules connus à cet instant : appelée une fois
+ *  les interfaces des plugins chargées. */
+export function buildRoutes(): RouteObject[] {
+  return [
+    {
+      path: '/',
+      element: <AppShell />,
+      children: [
+        { index: true, element: <HomeRedirect /> },
 
-      // Les écrans des modules, chacun gardé par son interrupteur : éteint, une
-      // URL qui y mène renvoie à l'accueil.
-      ...appModules().flatMap((module) =>
-        (module.routes ?? []).map((route) => ({
-          ...route,
-          element: <ModuleRoute module={module.id}>{route.element}</ModuleRoute>,
-        })),
-      ),
-
-      { path: 'versions', element: <VersionsScreen /> },
-      { path: 'versions/:id', element: <VersionScreen /> },
-
-      { path: 'releases', element: <ReleasesScreen /> },
-      { path: 'releases/:tag', element: <ReleaseScreen /> },
-      {
-        path: 'releases/:tag/notes',
-        element: (
-          <Placeholder
-            lot="lot 6"
-            title="Note de release"
-            summary="Note générée puis éditable, avec la date et l'auteur de la dernière modification."
-            params={['tag']}
-          />
+        // Les écrans des modules, chacun gardé par son interrupteur : éteint, une
+        // URL qui y mène renvoie à l'accueil.
+        ...appModules().flatMap((module) =>
+          (module.routes ?? []).map((route) => ({
+            ...route,
+            element: <ModuleRoute module={module.id}>{route.element}</ModuleRoute>,
+          })),
         ),
-      },
 
-      /*
-       * Les trois vues d'exécution sous une coquille commune. Elles répondaient
-       * à la même question depuis deux entrées de menu : ce qui tourne, ce qui
-       * attend, et ce qui gouverne l'attente.
-       */
-      {
-        path: 'runs',
-        element: <ExecutionsLayout />,
-        children: [
-          { index: true, element: <RunsScreen /> },
-          { path: 'queue', element: <QueueScreen /> },
-          { path: 'events', element: <EventsScreen /> },
-          { path: 'automations', element: <PlanRunsScreen /> },
-          { path: 'settings', element: <QueueSettingsScreen /> },
-        ],
-      },
-      // Hors coquille : le détail d'une exécution n'est pas une quatrième vue, et
-      // lui coiffer des onglets ferait croire qu'on peut y revenir. Le segment
-      // statique l'emporte sur le paramètre, donc `/runs/queue` ne cherche pas
-      // une exécution de ce nom.
-      { path: 'runs/:name', element: <RunScreen /> },
+        { path: 'versions', element: <VersionsScreen /> },
+        { path: 'versions/:id', element: <VersionScreen /> },
 
-      // Ancienne adresse de la file, conservée : les liens partagés et les
-      // signets ne se corrigent pas d'eux-mêmes.
-      { path: 'queue', element: <Navigate to="/runs/queue" replace /> },
+        { path: 'releases', element: <ReleasesScreen /> },
+        { path: 'releases/:tag', element: <ReleaseScreen /> },
+        {
+          path: 'releases/:tag/notes',
+          element: (
+            <Placeholder
+              lot="lot 6"
+              title="Note de release"
+              summary="Note générée puis éditable, avec la date et l'auteur de la dernière modification."
+              params={['tag']}
+            />
+          ),
+        },
 
-      /*
-       * L'administration, sous une coquille commune : les projets, les plugins de
-       * l'instance, les rôles, le journal d'audit. Ces sujets n'ont ni la même
-       * fréquence de consultation ni le même lecteur, et empilés ils faisaient une
-       * page qu'on parcourait au lieu de la lire.
-       *
-       * Chaque projet a sa page, avec ses propres sous-onglets : ses paramètres,
-       * ses plugins, ses pipelines, l'état de son suivi. C'est la conséquence de
-       * ce que les plugins servent d'abord les spécificités d'un projet — les
-       * régler ailleurs qu'auprès de lui ferait chercher au mauvais endroit.
-       */
-      {
-        path: 'admin',
-        element: <AdminLayout />,
-        children: [
-          { index: true, element: <ProjectsScreen /> },
-          { path: 'plugins', element: <PluginsScreen /> },
-          { path: 'capabilities', element: <CapabilitiesScreen /> },
-          { path: 'users', element: <UsersScreen /> },
-          // Conservée : l'onglet Projets était à cette adresse, et les liens
-          // partagés ne se corrigent pas d'eux-mêmes.
-          { path: 'projects', element: <ProjectsScreen /> },
-          {
-            path: 'projects/:slug',
-            element: <ProjectLayout />,
-            children: [
-              { index: true, element: <ProjectGeneralScreen /> },
-              { path: 'plugins', element: <ProjectPluginsScreen /> },
-              { path: 'pipelines', element: <ProjectPipelinesScreen /> },
-              { path: 'automations', element: <AutomationsScreen /> },
-              { path: 'sync', element: <ProjectSyncScreen /> },
-            ],
-          },
-          { path: 'logs', element: <AuditScreen /> },
-        ],
-      },
+        /*
+         * Les trois vues d'exécution sous une coquille commune. Elles répondaient
+         * à la même question depuis deux entrées de menu : ce qui tourne, ce qui
+         * attend, et ce qui gouverne l'attente.
+         */
+        {
+          path: 'runs',
+          element: <ExecutionsLayout />,
+          children: [
+            { index: true, element: <RunsScreen /> },
+            { path: 'queue', element: <QueueScreen /> },
+            { path: 'events', element: <EventsScreen /> },
+            { path: 'automations', element: <PlanRunsScreen /> },
+            { path: 'settings', element: <QueueSettingsScreen /> },
+          ],
+        },
+        // Hors coquille : le détail d'une exécution n'est pas une quatrième vue, et
+        // lui coiffer des onglets ferait croire qu'on peut y revenir. Le segment
+        // statique l'emporte sur le paramètre, donc `/runs/queue` ne cherche pas
+        // une exécution de ce nom.
+        { path: 'runs/:name', element: <RunScreen /> },
 
-      { path: '*', element: <NotFound /> },
-    ],
-  },
-]
+        // Ancienne adresse de la file, conservée : les liens partagés et les
+        // signets ne se corrigent pas d'eux-mêmes.
+        { path: 'queue', element: <Navigate to="/runs/queue" replace /> },
+
+        /*
+         * L'administration, sous une coquille commune : les projets, les plugins de
+         * l'instance, les rôles, le journal d'audit. Ces sujets n'ont ni la même
+         * fréquence de consultation ni le même lecteur, et empilés ils faisaient une
+         * page qu'on parcourait au lieu de la lire.
+         *
+         * Chaque projet a sa page, avec ses propres sous-onglets : ses paramètres,
+         * ses plugins, ses pipelines, l'état de son suivi. C'est la conséquence de
+         * ce que les plugins servent d'abord les spécificités d'un projet — les
+         * régler ailleurs qu'auprès de lui ferait chercher au mauvais endroit.
+         */
+        {
+          path: 'admin',
+          element: <AdminLayout />,
+          children: [
+            { index: true, element: <ProjectsScreen /> },
+            { path: 'plugins', element: <PluginsScreen /> },
+            { path: 'capabilities', element: <CapabilitiesScreen /> },
+            { path: 'users', element: <UsersScreen /> },
+            // Conservée : l'onglet Projets était à cette adresse, et les liens
+            // partagés ne se corrigent pas d'eux-mêmes.
+            { path: 'projects', element: <ProjectsScreen /> },
+            {
+              path: 'projects/:slug',
+              element: <ProjectLayout />,
+              children: [
+                { index: true, element: <ProjectGeneralScreen /> },
+                { path: 'plugins', element: <ProjectPluginsScreen /> },
+                { path: 'pipelines', element: <ProjectPipelinesScreen /> },
+                { path: 'automations', element: <AutomationsScreen /> },
+                { path: 'sync', element: <ProjectSyncScreen /> },
+              ],
+            },
+            { path: 'logs', element: <AuditScreen /> },
+          ],
+        },
+
+        { path: '*', element: <NotFound /> },
+      ],
+    },
+  ]
+}

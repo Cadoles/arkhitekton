@@ -44,6 +44,14 @@ type AuthHandler struct {
 	// modules returns the active modules with the identity. Nil: `/me` says nothing about
 	// them.
 	modules *Modules
+	// interfaces lists the installed plugins' interfaces the browser loads. Nil: none.
+	interfaces func() []PluginInterface
+}
+
+// WithInterfaces wires the installed plugins' interfaces `/me` lists.
+func (h *AuthHandler) WithInterfaces(interfaces func() []PluginInterface) *AuthHandler {
+	h.interfaces = interfaces
+	return h
 }
 
 // WithModules returns the active modules on `/me`.
@@ -230,6 +238,9 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.modules != nil {
 		payload["modules"] = h.modules.Active(r.Context())
+	}
+	if h.interfaces != nil {
+		payload["interfaces"] = h.interfaces()
 	}
 	writeJSON(w, http.StatusOK, payload)
 }

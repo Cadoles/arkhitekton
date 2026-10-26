@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,8 +42,25 @@ const (
 	pluginTimeout = 30 * time.Second
 )
 
+// PluginInterface is an installed plugin's interface module, as the browser loads it: a script
+// that registers the module, and its stylesheets.
+type PluginInterface struct {
+	Plugin string   `json:"plugin"`
+	Script string   `json:"script"`
+	Styles []string `json:"styles"`
+}
+
+// InterfacePath is where an active version's interface files are served: under its version, so
+// that the browser may keep them for good.
+func InterfacePath(pluginID, version, file string) string {
+	return "/api/v1/plugin-interfaces/" + pluginID + "/" + version + "/" + file
+}
+
 // PluginPrograms are the installed plugins' programs, as the API reaches them.
 type PluginPrograms interface {
+	// InterfaceFiles returns the files of an active version's interface, its entry's directory;
+	// false when that version is not active or has no interface.
+	InterfaceFiles(pluginID, version string) (fs.FS, bool)
 	// Routes returns the routes the active version of a plugin declares; false when no active
 	// version has a program.
 	Routes(pluginID string) ([]manifest.Route, bool)
@@ -73,6 +93,32 @@ func (h *PluginRoutesHandler) Routes(mux *http.ServeMux, middleware *Middleware)
 		Chain(http.HandlerFunc(h.serveProject), middleware.Authenticate, middleware.CSRF))
 	mux.Handle("/plugins/{plugin}/{path...}",
 		Chain(http.HandlerFunc(h.serveInstance), middleware.Authenticate, middleware.CSRF))
+	mux.Handle("GET /plugin-interfaces/{plugin}/{version}/{path...}",
+		Chain(http.HandlerFunc(h.serveInterface), middleware.Authenticate))
+}
+
+// serveInterface serves an interface's file. Its content type comes from its extension, and is
+// never sniffed: a file the plugin names `.png` is not run as a script.
+func (h *PluginRoutesHandler) serveInterface(w http.ResponseWriter, r *http.Request) {
+	files, found := h.programs.InterfaceFiles(r.PathValue("plugin"), r.PathValue("version"))
+	path := r.PathValue("path")
+	if !found || !fs.ValidPath(path) {
+		writeProblem(w, http.StatusNotFound, "No such interface file", "")
+		return
+	}
+	content, err := fs.ReadFile(files, path)
+	if err != nil {
+		writeProblem(w, http.StatusNotFound, "No such interface file", "")
+		return
+	}
+	kind := mime.TypeByExtension(filepath.Ext(path))
+	if kind == "" {
+		kind = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", kind)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	_, _ = w.Write(content)
 }
 
 func (h *PluginRoutesHandler) serveProject(w http.ResponseWriter, r *http.Request) {

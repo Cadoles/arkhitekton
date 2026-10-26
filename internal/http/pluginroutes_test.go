@@ -3,10 +3,12 @@ package http
 import (
 	"context"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -34,6 +36,13 @@ func (p *fakePrograms) Routes(pluginID string) ([]manifest.Route, bool) {
 		{Method: "GET", Path: "files/{rest...}", Permission: "read"},
 		{Method: "GET", Path: "status", Permission: "admin", Scope: manifest.ScopeInstance},
 	}, true
+}
+
+func (p *fakePrograms) InterfaceFiles(pluginID, version string) (fs.FS, bool) {
+	if pluginID != "deploy" || version != "2.0.0" {
+		return nil, false
+	}
+	return fstest.MapFS{"index.js": {Data: []byte("register()")}, "index.css": {Data: []byte("a{}")}}, true
 }
 
 func (p *fakePrograms) Serve(_ context.Context, _ string, request *pluginv1.HTTPRequest) (*pluginv1.HTTPResponse, error) {
@@ -170,5 +179,30 @@ func TestThePluginPrefixesLeaveTheSettingsRoutes(t *testing.T) {
 	_, pattern := mux.Handler(httptest.NewRequest("PUT", "/projects/app/plugins/deploy", nil))
 	if pattern != "PUT /projects/{project}/plugins/{plugin}" {
 		t.Errorf("the settings route went to %q", pattern)
+	}
+}
+
+func TestAnInterfaceFileIsServedByItsVersion(t *testing.T) {
+	handler := NewPluginRoutesHandler(&fakePrograms{}, slugProjects{}, fakeGate{}, auth.NewAuthorizer(nil))
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /plugin-interfaces/{plugin}/{version}/{path...}", handler.serveInterface)
+	for path, expected := range map[string]struct {
+		code int
+		kind string
+	}{
+		"/plugin-interfaces/deploy/2.0.0/index.js":  {200, "javascript"},
+		"/plugin-interfaces/deploy/2.0.0/index.css": {200, "text/css"},
+		"/plugin-interfaces/deploy/1.0.0/index.js":  {404, ""},
+		"/plugin-interfaces/deploy/2.0.0/absent.js": {404, ""},
+		"/plugin-interfaces/other/2.0.0/index.js":   {404, ""},
+	} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest("GET", path, nil))
+		if recorder.Code != expected.code || !strings.Contains(recorder.Header().Get("Content-Type"), expected.kind) {
+			t.Errorf("%s: %d %s", path, recorder.Code, recorder.Header().Get("Content-Type"))
+		}
+		if expected.code == 200 && recorder.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: sniffable", path)
+		}
 	}
 }

@@ -27,31 +27,9 @@
 @import "@fontsource/ibm-plex-mono/latin-400.css";
 @import "@fontsource/ibm-plex-mono/latin-500.css";
 
-/* Le thème sombre est piloté par une classe sur <html>, posée avant le premier
- * rendu par le script anti-flash de index.html. */
-@custom-variant dark (&:where(.dark, .dark *));
-
-@theme {
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-
-  /* Trois familles de statut, une par verdict. Jamais employées seules : chaque
-   * statut porte aussi une icône, pour que l'information ne repose pas sur la
-   * couleur (doc 08 §8.5). */
-  --color-healthy-50: #f0fdf4;
-  --color-healthy-500: #22c55e;
-  --color-healthy-600: #16a34a;
-  --color-healthy-700: #15803d;
-
-  --color-warn-50: #fff7ed;
-  --color-warn-500: #f97316;
-  --color-warn-700: #c2410c;
-
-  --color-critical-50: #fef2f2;
-  --color-critical-500: #ef4444;
-  --color-critical-600: #dc2626;
-  --color-critical-700: #b91c1c;
-}
+/* Les jetons du thème, partagés avec les interfaces des plugins installés
+ * (`plugin.css`). */
+@import "./tokens.css";
 
 /* Inversion. Les valeurs sont celles de la maquette, y compris les teintes de
  * statut assombries : un `#f0fdf4` sur fond sombre serait un aplat lumineux. */

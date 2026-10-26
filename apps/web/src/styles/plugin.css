@@ -1,0 +1,15 @@
+/*
+ * Les utilitaires de l'interface d'un plugin installé, que son entrée importe.
+ *
+ * Seulement les siens : la base, les polices et les variables du thème viennent
+ * de la page du noyau, déjà chargées. Les jetons sont lus sans être émis, pour
+ * que les couleurs et les espacements du plugin soient ceux du noyau.
+ *
+ * Tailwind ne lit pas un fichier ignoré par git, même nommé par `@source` :
+ * l'arbre où le plugin est déposé dans `src/plugins/` doit être construit hors
+ * de tout chemin ignoré (un répertoire temporaire, par exemple).
+ */
+@import "tailwindcss/theme.css" layer(theme) theme(reference);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@reference "./tokens.css";
+@source "../plugins";

@@ -1,12 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { RouterProvider, createBrowserRouter } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import './styles/theme.css'
-import { routes } from './routes'
+import { AppRouter } from './AppRouter'
 import { SessionGate } from './features/auth/SessionGate'
 import { ApiError } from './lib/api'
+import { exposeShared } from './lib/runtime'
+
+// Avant tout : le script d'un plugin installé prend React et le reste ici.
+exposeShared()
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,8 +27,6 @@ const queryClient = new QueryClient({
   },
 })
 
-const router = createBrowserRouter(routes)
-
 const container = document.getElementById('root')
 if (!container) throw new Error('élément #root introuvable')
 
@@ -36,7 +37,7 @@ createRoot(container).render(
           l'identité soit connue, ce qui évite qu'un écran se peuple puis se vide
           quand /me répond 401. */}
       <SessionGate>
-        <RouterProvider router={router} />
+        <AppRouter />
       </SessionGate>
     </QueryClientProvider>
   </StrictMode>,

@@ -12,6 +12,7 @@
  */
 
 export type { AppModule, ModuleNavEntry } from '../lib/modules'
+export { registerModule } from '../lib/registry'
 export { request, ApiError } from '../lib/api'
 export { projectPath } from '../lib/project'
 export { formatBytes, formatDate, formatDateTime } from '../lib/format'

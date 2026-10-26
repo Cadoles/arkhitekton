@@ -284,6 +284,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	authHandler := dashhttp.NewAuthHandler(
 		provider, flows, sessions, logger, secureCookies(cfg.HTTP.PublicURL),
 		cfg.OIDC.SessionTTL).
+		// The installed plugins' interfaces, which the browser loads before its first screen.
+		WithInterfaces(servers.interfaces).
 		// `/me` returns the current project: the interface needs it to compose its URLs, and the list
 		// of projects requires `admin`, which it does not necessarily have.
 		WithProjects(db).

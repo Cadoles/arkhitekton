@@ -1,5 +1,6 @@
 import { projectModules, useSession } from './features/auth/session'
 import type { AppModule } from './lib/modules'
+import { registeredModules } from './lib/registry'
 
 /*
  * L'assemblage des modules de l'interface.
@@ -13,14 +14,15 @@ const discovered = import.meta.glob<{ default: AppModule }>('./plugins/*/index.t
   eager: true,
 })
 
-/** Les modules que ce build connaît, dans l'ordre de leur répertoire. Une
- *  fonction plutôt qu'une constante : les modules importent des écrans qui
- *  importent le noyau, et une liste évaluée au chargement pourrait l'être avant
- *  eux. */
+/** Les modules que ce build connaît, dans l'ordre de leur répertoire, puis
+ *  ceux des plugins installés. Une fonction plutôt qu'une constante : les modules
+ *  importent des écrans qui importent le noyau, et une liste évaluée au
+ *  chargement pourrait l'être avant eux ; ceux des plugins arrivent après. */
 export function appModules(): AppModule[] {
-  return Object.entries(discovered)
+  const built = Object.entries(discovered)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([, loaded]) => loaded.default)
+  return [...built, ...registeredModules()]
 }
 
 /** Le libellé qu'un module donne à un type de fait. */

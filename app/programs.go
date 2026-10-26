@@ -8,7 +8,10 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -286,4 +289,40 @@ func (p *programs) modules() []module.Module {
 		}
 	}
 	return modules
+}
+
+// InterfaceFiles returns the directory of an active version's interface entry.
+func (p *programs) InterfaceFiles(pluginID, version string) (fs.FS, bool) {
+	p.mu.Lock()
+	plugin, found := p.active[pluginID]
+	p.mu.Unlock()
+	if !found || plugin.Version != version || plugin.Native.Manifest.UI == nil {
+		return nil, false
+	}
+	files, err := fs.Sub(plugin.Native.Files, path.Dir(plugin.Native.Manifest.UI.Entry))
+	return files, err == nil
+}
+
+// interfaces lists the interfaces of the active versions, for the browser to load.
+func (p *programs) interfaces() []dashhttp.PluginInterface {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	listed := []dashhttp.PluginInterface{}
+	for _, plugin := range p.active {
+		ui := plugin.Native.Manifest.UI
+		if ui == nil {
+			continue
+		}
+		dir := path.Dir(ui.Entry)
+		file := func(name string) string {
+			return dashhttp.InterfacePath(plugin.ID, plugin.Version, strings.TrimPrefix(name, dir+"/"))
+		}
+		styles := make([]string, 0, len(ui.Styles))
+		for _, style := range ui.Styles {
+			styles = append(styles, file(style))
+		}
+		listed = append(listed, dashhttp.PluginInterface{Plugin: plugin.ID, Script: file(ui.Entry), Styles: styles})
+	}
+	slices.SortFunc(listed, func(a, b dashhttp.PluginInterface) int { return strings.Compare(a.Plugin, b.Plugin) })
+	return listed
 }
