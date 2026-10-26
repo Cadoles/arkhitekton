@@ -1,0 +1,135 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-image
+spec:
+  description: >
+    Builds **one** image from a Git reference, and publishes it.
+
+    One run, one image. The pipeline used to carry the three targets of `mstore`'s
+    Dockerfile literally — `portal`, then `portal-consumer`, then `portal-dev` —
+    which had three defects: adding an image required modifying the pipeline, the
+    failure of one failed the whole run with no way of knowing which, and the
+    three shared a workspace so could not run in parallel.
+
+    The image's name and the Dockerfile target are now parameters. The caller
+    launches as many runs as there are images to produce: the dashboard launches
+    three for a release, and each appears, fails and is re-run separately.
+
+  params:
+    - name: repo-url
+    - name: revision
+    - name: reg-project
+    - name: dockerfile
+    - name: context
+    - name: tag-name
+    - name: image-name
+      description: >
+        Name of the published repository, without the project: `portal`,
+        `portal-cli`, `portal-dev`. It is what the kustomizations deploy, and the
+        parameter exists so that the pipeline does not have to know it.
+    - name: target
+      description: >
+        The Dockerfile target to build — `web`, `cli`, `dev`. Distinct from the
+        image's name: the mapping belongs to the caller, and a renamed target must
+        not force renaming a repository in the registry.
+    - name: version
+      default: ""
+      description: >
+        An imposed SemVer tag, with no promotion metadata. Empty to let mktools
+        derive it (triggers outside the dashboard, SemVer transition).
+
+  workspaces:
+    - name: shared-data
+    - name: git-credentials
+    - name: dockerconfig
+
+  results:
+    - name: image
+      description: Full reference of the published image, tag included.
+      value: $(tasks.build.results.IMAGE_URL)
+    - name: tag
+      description: The computed tag, so that the caller knows what to look for.
+      value: $(tasks.generate-tag.results.tag)
+
+  tasks:
+    - name: git-clone
+      displayName: Clone mstore
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+
+    - name: generate-tag
+      displayName: Generate build tag
+      runAfter: ["git-clone"]
+      taskRef:
+        name: generate-image-tag
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: version
+          value: $(params.version)
+        - name: revision
+          value: $(params.revision)
+        - name: branch-name
+          value: $(params.tag-name)
+
+    # The tag is recomputed at every run rather than passed from one image to the next. It is
+    # deterministic — `version` imposes it when the dashboard supplies it — so the three images of a
+    # release do carry the same one, without having to chain them or share a result between
+    # pipelines.
+    - name: build
+      displayName: Build image
+      runAfter: ["generate-tag"]
+      taskRef:
+        name: buildx-build-image
+      workspaces:
+        - name: source
+          workspace: shared-data
+        - name: dockerconfig
+          workspace: dockerconfig
+      params:
+        - name: image
+          value: $(params.reg-project)/$(params.image-name):$(tasks.generate-tag.results.tag)
+        - name: dockerfile
+          value: $(params.dockerfile)
+        - name: context
+          value: $(params.context)
+        - name: version
+          value: $(tasks.generate-tag.results.tag)
+        - name: target
+          value: $(params.target)
+        - name: push
+          value: "false"
+        - name: output-tar
+          value: $(params.image-name).tar
+
+    - name: push
+      displayName: Push image
+      runAfter: ["build"]
+      taskRef:
+        name: push-image
+      params:
+        - name: image-path
+          value: $(params.image-name).tar
+        - name: image-tag
+          value: $(tasks.build.results.IMAGE_URL)
+      workspaces:
+        - name: source
+          workspace: shared-data
+        - name: dockerconfig
+          workspace: dockerconfig

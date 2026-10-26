@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Credentials the pipelines mount, in the namespace where Tekton mounts them —
+# `mstore-pipelines`, and not the dashboard's, which never reads them.
+#
+# They exist because `mstore-pipelines`'s target the real application: the `git-credentials` key is a
+# deploy key of `team/mstore`, and the `regcred` account (`registry-account`) has `push` on `team` only.
+# Exercising the chain on a test repository therefore requires other credentials.
+#
+# The dashboard **names** them through `PIPELINE_GIT_SECRET` and `PIPELINE_REGISTRY_SECRET`; it
+# never handles them.
+#
+# In production, these two secrets come from an `ExternalSecret` backed by Vault. This component
+# is a development shortcut.
+
+secretGenerator:
+  # `disableNameSuffixHash` is essential: Tekton references the secret by a fixed name in the
+  # workspace, and a hash suffix would make it impossible to find at every change of content.
+  - name: arkhitekton-pipeline-git
+    namespace: mstore-pipelines
+    type: Opaque
+    options:
+      disableNameSuffixHash: true
+    files:
+      # The key names are those the `git-clone` Task of mstore-pipelines expects. The files live in this
+      # directory and not in `secrets/`: kustomize refuses to read above a component's root, as a
+      # safety measure.
+      - id_ed25519=pipeline-ssh-key
+      - known_hosts=pipeline-known-hosts
+
+  - name: arkhitekton-pipeline-registry
+    namespace: mstore-pipelines
+    type: kubernetes.io/dockerconfigjson
+    options:
+      disableNameSuffixHash: true
+    files:
+      - .dockerconfigjson=pipeline-dockerconfig.json

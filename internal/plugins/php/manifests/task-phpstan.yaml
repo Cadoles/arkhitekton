@@ -1,0 +1,90 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: phpstan
+spec:
+  description: >
+    PHPStan static analysis.
+
+    PHPStan produces only one output format at a time. Rather than running it twice —
+    the analysis is the dominant cost, not the rendering — the task produces the JSON
+    and derives the readable rendering from it. The human output gains by it: one
+    "file:line: message" per violation is more usable in a log than a truncated ASCII
+    table.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: output-dir
+      default: test-results/phpstan
+      description: Artifacts directory, relative to the source workspace.
+    - name: configuration
+      default: phpstan-pipeline.neon
+
+  results:
+    - name: summary
+      description: Number of violations, e.g. "12 violations".
+
+  steps:
+    - name: exec
+      image: php:8.4-alpine
+      script: |
+        #!/usr/bin/env sh
+        set -eu -o pipefail
+
+        cd $(workspaces.source.path)
+
+        OUT="$(params.output-dir)"
+        mkdir -p "${OUT}"
+
+        # A violation makes PHPStan exit with an error. It is a result, not an outage: the summary must
+        # be written in both cases, and the exit code propagated at the end of the script.
+        set +e
+        vendor/bin/phpstan analyse \
+          --configuration "$(params.configuration)" \
+          --no-progress \
+          --memory-limit 512M \
+          --error-format=json > "${OUT}/phpstan.json"
+        RC=$?
+        set -e
+
+        # A readable rendering and a count derived from the JSON, in a single pass. Returns -1 if the
+        # report is missing or unreadable — distinct from zero violations.
+        COUNT=$(php -r '
+          [$script, $reportPath, $logPath] = $argv;
+          $report = is_readable($reportPath)
+              ? json_decode(file_get_contents($reportPath), true)
+              : null;
+          if (!is_array($report)) {
+              file_put_contents($logPath, "phpstan: JSON report missing or invalid\n");
+              echo "-1";
+              exit(0);
+          }
+          $lines = [];
+          foreach (($report["files"] ?? []) as $file => $info) {
+              foreach (($info["messages"] ?? []) as $message) {
+                  $lines[] = sprintf("%s:%s: %s",
+                      $file, $message["line"] ?? "?", $message["message"] ?? "");
+              }
+          }
+          foreach (($report["errors"] ?? []) as $error) {
+              $lines[] = "general: " . $error;
+          }
+          file_put_contents($logPath,
+              $lines ? implode("\n", $lines) . "\n" : "No violation.\n");
+          $totals = $report["totals"] ?? [];
+          echo (int) (($totals["file_errors"] ?? 0) + ($totals["errors"] ?? 0));
+        ' "${OUT}/phpstan.json" "${OUT}/phpstan.log")
+
+        cat "${OUT}/phpstan.log"
+
+        if [ "${COUNT}" = "-1" ]; then
+          SUMMARY="unreadable report"
+        else
+          SUMMARY="${COUNT} violations"
+        fi
+
+        printf '%s' "${SUMMARY}" > "$(results.summary.path)"
+
+        exit ${RC}

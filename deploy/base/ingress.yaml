@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: arkhitekton
+  namespace: arkhitekton
+  labels:
+    app.kubernetes.io/name: arkhitekton
+  annotations:
+    # Following a run goes through SSE. With buffering on — nginx's default — the events are
+    # accumulated then delivered in a block: the interface shows a frozen run for several seconds,
+    # then jumps to the final state.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # An SSE stream stays open as long as the run. The 60 s default would cut it in the middle of
+    # every pipeline, and the browser would reconnect in a loop.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    # A deliberately unusable host: each overlay must set its own. A plausible name here would be
+    # worse — it would produce an Ingress the controller accepts and nobody can reach.
+    - host: dashboard.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: arkhitekton-api
+                port:
+                  name: http

@@ -1,0 +1,66 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: unit-test
+spec:
+  description: >
+    Runs the PHPUnit unit test suite.
+
+    Produces a JUnit XML report besides the text log. The text stays meant for direct
+    reading in the Tekton logs; the XML is what an interface parses in order to display
+    the test-by-test detail. Neither replaces the other.
+
+    Also emits, on stdout, a run descriptor and a summary line. The descriptor is
+    produced here and not deduced downstream because only the process that launches the
+    tool can tell "the tool failed" from "the tool found nothing" — a missing report and
+    an empty report look alike, but do not say the same thing.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: output-dir
+      default: test-results/unit
+      description: Artifacts directory, relative to the source workspace.
+
+  results:
+    - name: summary
+      description: PHPUnit summary line, e.g. "OK (123 tests, 456 assertions)".
+
+  steps:
+    - name: exec
+      image: php:8.4-alpine
+      script: |
+        #!/usr/bin/env sh
+        set -eu -o pipefail
+
+        apk add --no-cache libxml2-dev rabbitmq-c-dev pcre-dev $PHPIZE_DEPS
+        pecl install redis amqp
+
+        docker-php-ext-install soap bcmath
+        docker-php-ext-enable redis.so amqp.so
+
+        cd $(workspaces.source.path)
+
+        OUT="$(params.output-dir)"
+        mkdir -p "${OUT}"
+
+        # errexit is lifted for the duration of the run: a failed test is a result, not an outage, and
+        # the summary must be written in both cases. The exit code is propagated at the end of the
+        # script: it is what tells the dashboard whether PHPUnit concluded.
+        set +e
+        php -d memory_limit=1024M vendor/bin/phpunit \
+          --testsuite unit \
+          --log-junit "${OUT}/junit.xml" \
+          | tee "${OUT}/phpunit.log"
+        RC=$?
+        set -e
+
+        # The same reason as the one pipelines-manager applies to the integration tests: a single
+        # reading rule for both families.
+        SUMMARY=$(grep -E '^[[:space:]]*(OK \(|OK, but|Tests: )' "${OUT}/phpunit.log" \
+          | tail -n1 | sed 's/^[[:space:]]*//' || true)
+
+        printf '%s' "${SUMMARY}" > "$(results.summary.path)"
+
+        exit ${RC}

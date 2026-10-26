@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Cadoles — this catalogue is a template, see docs/12-licensing.md.
+
+# How this instance runs the pipelines its plugins bring.
+#
+# A plugin says what a pipeline is: its Tekton definition, its parameters, what it publishes and
+# the privileges it needs. This file says how this instance runs it: which secret satisfies a
+# need, which service account deploys, how long a run may last, how large its volumes are. It
+# never describes a pipeline, and a plugin never chooses a privilege.
+#
+# This file lives outside the binary, in a ConfigMap, and is validated at start-up: a capability
+# no plugin brings, a parameter or a need the capability does not declare, a service account
+# given to anything but `cluster-deploy`, each prevents start-up with a message that names it. A
+# need left unbound does not: the capability stays in the catalogue, and its runs are refused
+# with that reason.
+
+# Deployment environments, per project, in their promotion order: declared here by an instance
+# whose distribution deploys, usually from the extension's own component (docs/06-plugins.md §6.10).
+#
+# projects:
+#   my-project:
+#     environments:
+#       - id: qualif
+#         label: Qualification
+#         rank: 1
+#         namespace: my-project-dev
+#         sensitive: false     # an environment with no `sensitive` is treated as sensitive
+#         deployer: {}         # the deployment tool's settings, which the dashboard carries unread
+
+# A global cap, across every queue. The pipelines ask for PVCs and build pods, and nothing
+# mechanically stops twenty of them being launched.
+#
+# It takes precedence over the per-type caps and is not their sum: seven queues of five places
+# would allow thirty-five. It is on the other hand high enough for the queues to breathe —
+# setting it to four would make the per-type cap decorative, since no type would ever reach its
+# own.
+maxConcurrentRuns: 10
+
+# The pull secret applied to every pipeline.
+#
+# The pipelines pull their tooling from a private registry (`crane` to push, `mktools` to derive
+# a tag). Without this setting, the runs failed with `TaskRunImagePullFailed`, before even
+# reaching the step one believed at fault.
+#
+# Global and not repeated per entry: repeating it would have made it forgotten on the next one.
+# An entry that declares its own `podTemplate` wins.
+#
+# Distinct from the dockerconfig mounted as a workspace: that one serves the **pod** to pull its
+# tooling, this one serves `crane` to **push** the images produced. Two acts, two scopes,
+# potentially two accounts.
+podTemplate:
+  imagePullSecretsConfigKey: pipeline.imagePullSecret
+
+capabilities:
+  # Two clone credentials, and a pipeline names the one that opens what it clones:
+  # `project.deployKeySecret` is the project's own deploy key, which opens the project's
+  # repository and nothing else; `pipeline.gitSecret` is the deployment's, for a repository that
+  # is not the project's.
+  # The security audit requires no parameter: the pipeline carries its own default values. It is
+  # the simplest pipeline, and the only one that can be launched without typing anything.
+  - ref: security/security-audit
+    timeout: 90m
+    needs:
+      source-read:   { secret: { configKey: project.deployKeySecret } }
+      registry-pull: { secret: { configKey: pipeline.registrySecret } }
+    volumes:
+      shared: { storageClassName: standard }
+
+  - ref: core/build
+    needs:
+      source-read:   { secret: { configKey: project.deployKeySecret } }
+      registry-push: { secret: { configKey: pipeline.registrySecret } }
+    volumes:
+      shared-data: { storageClassName: standard }
+
+  # A re-tag, and not a "promotion": the pipeline promotes nothing, it sets an extra tag on an
+  # image already published. Flux deduces the promotion from it.
+  - ref: core/retag
+    needs:
+      registry-push: { secret: { configKey: pipeline.registrySecret } }
+
+  - ref: php/static-tests
+    needs:
+      source-read: { secret: { configKey: project.deployKeySecret } }
+    volumes:
+      shared-data: { storageClassName: standard }
+
+  - ref: php/unit-tests
+    needs:
+      source-read: { secret: { configKey: project.deployKeySecret } }
+    volumes:
+      shared-data: { storageClassName: standard }

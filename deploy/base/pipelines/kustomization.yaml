@@ -1,0 +1,54 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The pipeline core: what the dashboard **owns**.
+#
+# Building an image and setting an extra tag are not infrastructure that operations chooses:
+# they are the dashboard's mechanisms. It knows their parameters, expects their results, and its
+# state machine concludes on their outcome. Leaving them to each deployment would guarantee
+# divergent implementations of what it believes it drives.
+#
+# They lived in `mstore-pipelines`, whose name stated the coupling: a second project would have had to
+# fork it. They are now shipped with the binary that uses them, and their version follows its own
+# — like the migration Job, which is a resource of this same deployment and yet runs the
+# dashboard's code.
+#
+# What is **not** here, and has no business being: the pipelines specific to a deployment —
+# environment deployment, in-house E2E campaign, security audit. They stay with their owner, and
+# the catalogue references them without the dashboard owning them.
+#
+# The contract these pipelines honour is written in the results documentation. It is normative:
+# these are implementations of it, not the definition.
+
+# The namespace is the pipelines', not the dashboard's: that is where Tekton reads the
+# definitions. It is set here rather than at the top of the repository because the base
+# deliberately has **no** global transformer — see the comment in `../kustomization.yaml`. This
+# nested kustomization transforms only its own resources, which is exactly the scope wanted.
+namespace: arkhitekton-pipelines
+
+# The ownership mark. It is not decorative: it is what will let the dashboard reconcile only
+# what it installed, and never adopt what it finds.
+#
+# A key **specific to the project**, and not `app.kubernetes.io/managed-by`. That space is
+# contested: Skaffold writes `kustomize` over it, Flux would write its own, and the mark
+# disappeared with not a single message — observed right here, the first version of this file set
+# `managed-by: arkhitekton` and the cluster returned `managed-by: kustomize`. An ownership a
+# deployment tool can erase proves nothing.
+labels:
+  - includeSelectors: false
+    pairs:
+      dashboard.cadoles.com/owner: core
+
+resources:
+  # `git-clone` comes from the Tekton catalogue, pinned at 0.6. Vendored rather than pulled by
+  # URL: a kustomization that downloads at every render fails offline, and the version used then
+  # appears in no diff.
+  - task-git-clone.yaml
+
+  - task-generate-image-tag.yaml
+  - task-buildx-build-image.yaml
+  - task-push-image.yaml
+  - task-tag-image.yaml
+
+  - pipeline-build-image.yaml
+  - pipeline-retag-image.yaml

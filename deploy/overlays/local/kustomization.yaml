@@ -1,0 +1,81 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  # PostgreSQL and MinIO in the cluster: development only. In production they are CloudNativePG and
+  # `s3.example.org`, which are not described here.
+  - resources/postgres.yaml
+  - resources/minio.yaml
+  - resources/minio-bucket.yaml
+
+# The pipelines' credentials, to exercise the chain on a test repository.
+#
+# Optional, and that is the point: `mstore-pipelines`'s `git-credentials` and `regcred` defaults suit
+# whoever works on the real application, and the overlay must render with no secret file
+# existing at all. Making these generators unconditional would fail `skaffold run` for everyone.
+#
+#   make pipeline-credentials     # builds the three files
+#   then uncomment the line below
+components:
+  - components/pipeline-credentials
+
+patches:
+  - path: patches/ingress-host.yaml
+  # The kind cluster runs its pipelines where `mstore-pipelines` installed Tekton's, not in the base's
+  # namespace: the Role, its binding and the definitions follow.
+  - target: { group: tekton.dev }
+    patch: &pipelines-namespace |-
+      - op: replace
+        path: /metadata/namespace
+        value: mstore-pipelines
+  - target: { group: rbac.authorization.k8s.io, name: arkhitekton-tekton }
+    patch: *pipelines-namespace
+
+configMapGenerator:
+  - name: arkhitekton-config
+    namespace: arkhitekton
+    behavior: merge
+    literals:
+      - TEKTON_NAMESPACE=mstore-pipelines
+      # The bucket `mstore-pipelines`'s MinIO carries on the kind cluster, and the rules the audit clones.
+      - PIPELINE_MINIO_BUCKET=mstore-pipeline
+      - FORGE_TEKTON_REPO_URL=ssh://git@forge.cadoles.com:2222/team/mstore-pipelines.git
+      - PUBLIC_URL=http://dashboard.arkhitekton.local
+      - OIDC_REDIRECT_URL=http://dashboard.arkhitekton.local/api/v1/auth/callback
+      # The fully qualified name, and not the short one: the presigned write URLs are minted with this
+      # host then handed to the pipelines, which run in `mstore-pipelines`. The short name does not
+      # resolve there — publication failed on "Could not resolve host", after tests that nonetheless
+      # passed.
+      - MINIO_ENDPOINT=arkhitekton-minio.arkhitekton.svc.cluster.local:9000
+      - MINIO_USE_SSL=false
+      # `us-east-1` is the production instance's region. Locally, MinIO accepts any region provided
+      # the client signs with the same one; keeping `us-east-1` here makes it visible that the
+      # production value is not exercised, rather than letting one believe the opposite.
+      - MINIO_REGION=us-east-1
+      # The kind cluster's registry, served over HTTP: where plugins are published to be installed.
+      - PLUGIN_PLAIN_HTTP_REGISTRIES=kind-registry:5000
+
+secretGenerator:
+  # A file that is not versioned (see .gitignore), with a template in dashboard.env.example.
+  #
+  # It also carries two values that are not secrets — OIDC_CLIENT_ID and BOOTSTRAP_ADMINS — because
+  # they are specific to each developer. Putting them in the versioned ConfigMap would force
+  # everyone to modify a file tracked by git in order to write their own identifier into it, which
+  # always ends up being committed by accident.
+  #
+  # The order of the `envFrom` entries in the Deployments puts the Secret after the ConfigMap: this
+  # file can therefore redefine any variable above.
+  - name: arkhitekton-secrets
+    namespace: arkhitekton
+    envs:
+      - secrets/dashboard.env
+
+images:
+  - name: reg.cadoles.com/vcarroy/arkhitekton
+    newName: reg.cadoles.com/vcarroy/arkhitekton
+    # The tag carries the commit the image comes from. Republishing under the same tag would not be
+    # enough to make the cluster take the image again: the pods set no `imagePullPolicy`, so
+    # `IfNotPresent` applies as soon as the tag is not `latest`. To iterate without committing, pin
+    # `digest` instead of `newTag`.
+    newTag: dev

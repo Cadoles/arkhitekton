@@ -1,0 +1,82 @@
+# Creating the bucket — development only.
+#
+# `blob.Open` refuses to start if the bucket is absent: without that check, a wrong credential
+# would pass start-up and the failure would appear at the first artifact publication, that is, at
+# the end of a pipeline. The price is that the bucket must be created before the application
+# pods.
+#
+# No shell is invoked: the image's entrypoint is `mc` itself, and the alias goes through
+# MC_HOST_<name>, which avoids a prior `mc alias set` — hence a `sh -c` in an image that does not
+# guarantee one is present.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: arkhitekton-minio-bucket
+  namespace: arkhitekton
+  labels:
+    app.kubernetes.io/name: arkhitekton
+    app.kubernetes.io/component: minio-bucket
+spec:
+  # Generous on purpose: the Job starts at the same time as MinIO and fails as long as the server
+  # accepts no connection. The retries stand in for a wait, with no polling loop to write.
+  backoffLimit: 30
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: arkhitekton
+        app.kubernetes.io/component: minio-bucket
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mc
+          # Same source as the server's image, for the same reason.
+          image: cgr.dev/chainguard/minio-client:latest@sha256:72f9978d415ea8294d78051fb3aee2fd258d449237633f77f100b5367bb5225d
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: arkhitekton-secrets
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: arkhitekton-secrets
+                  key: MINIO_SECRET_KEY
+            # Kubernetes resolves $(VAR) from the variables declared before. The credentials therefore appear
+            # in a URL: they must be safe for a URL component, hence the instruction to keep them
+            # alphanumeric in dashboard.env.example.
+            - name: MC_HOST_local
+              value: "http://$(MINIO_ACCESS_KEY):$(MINIO_SECRET_KEY)@arkhitekton-minio:9000"
+          args:
+            - "--config-dir"
+            - "/tmp/mc"
+            - "mb"
+            - "--ignore-existing"
+            - "local/arkhitekton"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi

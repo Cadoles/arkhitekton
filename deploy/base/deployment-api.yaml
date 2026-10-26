@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arkhitekton-api
+  namespace: arkhitekton
+  labels:
+    app.kubernetes.io/name: arkhitekton
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: arkhitekton
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: arkhitekton
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: arkhitekton
+      # The `api` role never speaks to the Kubernetes API: creating the PipelineRuns belongs to the
+      # `worker`, the api only records a request in the database. Mounting a token would give it a
+      # capability it does not exercise.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          # `preferred` and not `required`: two replicas on distinct nodes is what one wants in
+          # production, but requiring it would leave the second replica forever Pending on a single-node
+          # kind cluster — the environment where the manifest is exercised most often.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: arkhitekton
+                    app.kubernetes.io/component: api
+      containers:
+        - name: api
+          image: reg.cadoles.com/vcarroy/arkhitekton:latest
+          args: ["api"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: arkhitekton-config
+            - secretRef:
+                name: arkhitekton-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # /healthz has no dependency: a liveness probe that fails because PostgreSQL went down would
+          # restart a healthy process and turn a database outage into a crash loop.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          # /readyz checks the dependencies, the schema version among them: a pod started before the
+          # migration Job finished stays out of the Service instead of answering 500 on every missing
+          # table.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          # OIDC discovery and the bucket check happen at start-up: the first /healthz may therefore be
+          # late. Without a startupProbe, the liveness probe would kill the process in the middle of that
+          # initialisation.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            # The root file system is read-only: generating PDF reports and the HTTP library's buffers need
+            # a writable /tmp, and nothing else.
+            - name: tmp
+              mountPath: /tmp
+            - name: catalog
+              mountPath: /etc/arkhitekton
+              readOnly: true
+      volumes:
+        - name: catalog
+          configMap:
+            name: arkhitekton-catalog
+        # Also where installed plugins' programs are written and run from: room for a few, and no
+        # `noexec`.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi

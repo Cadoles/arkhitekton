@@ -1,0 +1,24 @@
+{"ImportPath":"example.org/sample/broken [example.org/sample/broken.test]","Action":"build-output","Output":"# example.org/sample/broken [example.org/sample/broken.test]\n"}
+{"ImportPath":"example.org/sample/broken [example.org/sample/broken.test]","Action":"build-output","Output":"broken/broken_test.go:5:34: undefined: undefined\n"}
+{"ImportPath":"example.org/sample/broken [example.org/sample/broken.test]","Action":"build-fail"}
+{"Time":"2026-10-21T12:17:53.793369931+02:00","Action":"start","Package":"example.org/sample/broken"}
+{"Time":"2026-10-21T12:17:53.793467607+02:00","Action":"output","Package":"example.org/sample/broken","Output":"FAIL\texample.org/sample/broken [build failed]\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.793482403+02:00","Action":"fail","Package":"example.org/sample/broken","Elapsed":0,"FailedBuild":"example.org/sample/broken [example.org/sample/broken.test]"}
+{"Time":"2026-10-21T12:17:53.862375466+02:00","Action":"start","Package":"example.org/sample/calc"}
+{"Time":"2026-10-21T12:17:53.864043413+02:00","Action":"run","Package":"example.org/sample/calc","Test":"TestAdds"}
+{"Time":"2026-10-21T12:17:53.864082107+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestAdds","Output":"=== RUN   TestAdds\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.86408971+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestAdds","Output":"--- PASS: TestAdds (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.864095548+02:00","Action":"pass","Package":"example.org/sample/calc","Test":"TestAdds","Elapsed":0}
+{"Time":"2026-10-21T12:17:53.864099511+02:00","Action":"run","Package":"example.org/sample/calc","Test":"TestDivides"}
+{"Time":"2026-10-21T12:17:53.864101665+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestDivides","Output":"=== RUN   TestDivides\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.864104314+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestDivides","Output":"    calc_test.go:12: expected 2, got 3\n","OutputType":"error"}
+{"Time":"2026-10-21T12:17:53.864113395+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestDivides","Output":"--- FAIL: TestDivides (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.86411627+02:00","Action":"fail","Package":"example.org/sample/calc","Test":"TestDivides","Elapsed":0}
+{"Time":"2026-10-21T12:17:53.864118825+02:00","Action":"run","Package":"example.org/sample/calc","Test":"TestSlow"}
+{"Time":"2026-10-21T12:17:53.864120863+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestSlow","Output":"=== RUN   TestSlow\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.864123168+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestSlow","Output":"    calc_test.go:16: needs a database\n"}
+{"Time":"2026-10-21T12:17:53.86412599+02:00","Action":"output","Package":"example.org/sample/calc","Test":"TestSlow","Output":"--- SKIP: TestSlow (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.864128518+02:00","Action":"skip","Package":"example.org/sample/calc","Test":"TestSlow","Elapsed":0}
+{"Time":"2026-10-21T12:17:53.864130788+02:00","Action":"output","Package":"example.org/sample/calc","Output":"FAIL\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.8642295+02:00","Action":"output","Package":"example.org/sample/calc","Output":"FAIL\texample.org/sample/calc\t0.002s\n","OutputType":"frame"}
+{"Time":"2026-10-21T12:17:53.864253867+02:00","Action":"fail","Package":"example.org/sample/calc","Elapsed":0.002}

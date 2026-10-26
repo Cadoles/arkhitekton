@@ -1,0 +1,41 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "unit",
+    "Tool": "gotest",
+    "Status": "",
+    "Summary": "3 test(s), 1 failed, 1 skipped",
+    "RawObject": "raw/case/go-test.json",
+    "DurationMS": 2,
+    "Cases": [
+      {
+        "Suite": "example.org/sample/calc",
+        "Name": "TestAdds",
+        "Status": "passed",
+        "DurationMS": 0,
+        "Message": "",
+        "Trace": ""
+      },
+      {
+        "Suite": "example.org/sample/calc",
+        "Name": "TestDivides",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "calc_test.go:12: expected 2, got 3",
+        "Trace": "=== RUN   TestDivides\n    calc_test.go:12: expected 2, got 3\n--- FAIL: TestDivides (0.00s)"
+      },
+      {
+        "Suite": "example.org/sample/calc",
+        "Name": "TestSlow",
+        "Status": "skipped",
+        "DurationMS": 0,
+        "Message": "calc_test.go:16: needs a database",
+        "Trace": ""
+      }
+    ],
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  }
+]

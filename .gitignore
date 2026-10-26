@@ -1,0 +1,42 @@
+/bin/
+/dist/
+# Binaire déposé à la racine par un `go build` sans -o : il porte le nom du
+# module et se confond avec le dépôt lui-même.
+/arkhitekton
+*.test
+
+# Vidages mémoire déposés dans l'arbre de travail par un outil externe.
+core.[0-9]*
+.env
+.env.local
+apps/web/node_modules/
+apps/web/node_modules/.tmp/
+
+# Produit de build du frontend. Vite écrit directement là où `//go:embed` le
+# lit ; le répertoire doit donc exister dans le dépôt pour que le paquet
+# compile même sans build frontend, d'où le .gitkeep conservé.
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+
+# Fichiers d'environnement des overlays : identifiants de base, de stockage objet
+# et d'OIDC. Seuls les *.example sont versionnés.
+# Tout ce qui vit dans un répertoire `secrets/` est ignoré, sauf les modèles.
+# La règle est inversée — tout interdit, exceptions explicites — parce que
+# l'ancienne ne couvrait que `*.env` : une clé SSH privée déposée sous un autre
+# nom passait au travers, et une clé privée commitée ne se dé-commite pas.
+deploy/overlays/*/secrets/*
+!deploy/overlays/*/secrets/*.example
+!deploy/overlays/*/secrets/.gitkeep
+
+# Idem pour les identifiants des pipelines. Ils vivent dans le composant plutôt
+# que dans `secrets/` parce que kustomize refuse de lire au-dessus de la racine
+# d'un composant ; la règle d'ignorance les suit.
+deploy/overlays/*/components/pipeline-credentials/pipeline-*
+!deploy/overlays/*/components/pipeline-credentials/*.yaml
+
+# Programme du plugin d'exemple, construit avant sa publication.
+/rpc/examples/gotest/bin/
+
+# Les modules d'interface qu'une distribution dépose avant de construire : ils vivent dans son
+# dépôt, pas dans celui-ci.
+/apps/web/src/plugins/*

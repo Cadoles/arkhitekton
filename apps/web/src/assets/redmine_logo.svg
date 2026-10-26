@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Marque de Redmine, réduite à l'arche.
+
+  Le fichier officiel porte en plus le mot « REDMINE », son baseline, et la police
+  Delicious-Bold embarquée en base64 pour les rendre — à elle seule les quatre
+  cinquièmes du poids. Il porte aussi un calque de sept polygones gris, aux mêmes
+  coordonnées que ceux en couleur et entièrement recouvert par eux.
+
+  Rien de tout cela n'a d'objet ici : la marque accompagne toujours le mot
+  « Redmine » écrit dans la police de l'interface, à seize pixels de haut, où le
+  texte du logo serait illisible et le calque gris invisible.
+
+  Les coordonnées des sept claveaux sont celles de l'original, intactes. Seule la
+  fenêtre change : elle se referme sur l'arche, qui occupait le tiers gauche.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 16.75 77.4 52.8">
+  <polygon fill-rule="evenodd" clip-rule="evenodd" fill="#9C0000" points="0,69.55 16.8,69.55 18,55.149 2.399,51.55 "/>
+  <polygon fill-rule="evenodd" clip-rule="evenodd" fill="#B50808" points="3,49.149 18,52.75 21.601,40.149 9,33.55 "/>
+  <polygon fill-rule="evenodd" clip-rule="evenodd" fill="#C61818" points="10.2,31.149 22.2,37.75 31.8,31.149 22.8,20.949 "/>
+  <polygon fill-rule="evenodd" clip-rule="evenodd" fill="#9C0000" points="77.399,69.55 60.601,69.55 59.399,55.149 75,51.55 "/>
+  <polygon fill-rule="evenodd" clip-rule="evenodd" fill="#B50808" points="74.399,49.149 59.399,52.75 55.8,40.149 68.399,33.55 "/>
+  <polygon fill-rule="evenodd" clip-rule="evenodd" fill="#C61818" points="67.2,31.149 55.2,37.75 45.601,31.149 54.601,20.949 "/>
+  <polygon fill-rule="evenodd" clip-rule="evenodd" fill="#CE3129" points="25.8,19.149 34.8,29.949 43.2,29.949 51,19.149 43.2,16.75 34.589,16.75 "/>
+</svg>

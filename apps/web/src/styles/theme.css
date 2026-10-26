@@ -1,0 +1,104 @@
+/*
+ * Thème repris de la maquette, token pour token (B9 : la maquette sert de
+ * référence design).
+ *
+ * Le point à comprendre avant d'y toucher : le thème sombre n'est pas obtenu par
+ * des variantes `dark:` disséminées dans les composants, mais en **inversant
+ * l'échelle zinc** et en échangeant blanc et noir au niveau des variables. Un
+ * composant écrit `bg-white text-zinc-900` et fonctionne dans les deux thèmes.
+ *
+ * La conséquence est qu'un `dark:` ajouté quelque part serait presque toujours
+ * une erreur : il s'appliquerait *en plus* de l'inversion, donc à l'envers.
+ */
+
+@import "tailwindcss";
+
+/* Les modules qu'une distribution dépose dans `src/plugins/` y sont ignorés par
+ * git : la détection automatique de Tailwind les sauterait, et leurs classes
+ * manqueraient à la feuille. Une source explicite les inclut. */
+@source "../";
+
+/* Polices auto-hébergées : la CSP de production interdit les hôtes externes
+ * (doc 07 §7.5). Seul le sous-ensemble latin est importé — la maquette embarque
+ * cyrillique et grec, jamais utilisés par une interface en français. */
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+
+/* Les jetons du thème, partagés avec les interfaces des plugins installés
+ * (`plugin.css`). */
+@import "./tokens.css";
+
+/* Inversion. Les valeurs sont celles de la maquette, y compris les teintes de
+ * statut assombries : un `#f0fdf4` sur fond sombre serait un aplat lumineux. */
+.dark {
+  color-scheme: dark;
+
+  --color-white: #18181b;
+  --color-zinc-50: #0a0a0b;
+  --color-zinc-100: #26262a;
+  --color-zinc-200: #2f2f35;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #5c5c63;
+  --color-zinc-500: #8b8b93;
+  --color-zinc-600: #a1a1aa;
+  --color-zinc-700: #c4c4cc;
+  --color-zinc-800: #d4d4d8;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-950: #fafafa;
+
+  --color-healthy-50: #0c2a18;
+  --color-healthy-700: #5be08c;
+  --color-warn-50: #2e1606;
+  --color-warn-700: #fb9a4b;
+  --color-critical-50: #2c1010;
+  --color-critical-700: #f6776f;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+
+    /* Le fond est posé ici et pas seulement sur `body` : c'est `<html>` qui
+     * couvre la fenêtre entière, y compris ce qu'aucun élément de la mise en
+     * page n'atteint. */
+    @apply bg-zinc-50;
+
+    /* La piste de l'ascenseur suit le thème.
+     *
+     * `color-scheme: dark` fait peindre les ascenseurs par le navigateur, et une
+     * piste sombre tranchait sur le fond de page. `scrollbar-color` est la
+     * propriété standard, et les variables suivent l'inversion du thème :
+     * `zinc-50` est le fond de page dans les deux, donc la piste s'y fond, et
+     * `zinc-300` donne un curseur visible sans être dur.
+     *
+     * Posée sur `<html>` et non sur le conteneur qui défile : elle est héritée,
+     * donc tous les ascenseurs de l'application la reprennent — celui de la
+     * coquille comme celui d'une modale. */
+    scrollbar-color: var(--color-zinc-300) var(--color-zinc-50);
+
+    /* Pas de `scrollbar-gutter` ici, et c'est le point : réservée sur `<html>`,
+     * la gouttière découpait une bande hors de **tout** ce qui vit dedans —
+     * l'en-tête s'arrêtait avant le bord droit, et le voile d'une modale,
+     * `position: fixed`, ne l'atteignait pas davantage. L'ascenseur a été
+     * descendu d'un cran, dans la coquille (voir `AppShell`), où il réserve sa
+     * gouttière sans amputer la fenêtre.
+     *
+     * `overflow` reste libre : les écrans rendus hors coquille — connexion,
+     * erreur de session — n'ont pas d'ascenseur à eux et doivent pouvoir
+     * défiler. La coquille faisant exactement la hauteur visible, le document
+     * ne déborde pas pour autant. */
+  }
+
+  body {
+    @apply bg-zinc-50 text-zinc-900;
+  }
+
+  /* Anneau de focus visible partout : la navigation au clavier doit rester
+   * praticable de bout en bout (doc 08 §8.5). */
+  :focus-visible {
+    @apply outline-none ring-2 ring-zinc-400 ring-offset-1;
+  }
+}

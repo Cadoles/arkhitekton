@@ -1,0 +1,9 @@
+{"stats":{"duration":4200},"results":[{"file":"cypress/e2e/login.cy.js","tests":[
+  {"title":"top","fullTitle":"top","pass":true,"duration":10}],
+  "suites":[{"title":"Login","tests":[
+    {"title":"passes","fullTitle":"Login passes","pass":true,"duration":100},
+    {"title":"fails","fullTitle":"Login fails","fail":true,"err":{"message":"expected 200\nbut got 500","estack":"at line 3"}},
+    {"title":"retried","fullTitle":"Login retried","pass":true,"currentRetry":1,"err":{"message":"first attempt failed"}},
+    {"title":"pending","fullTitle":"Login pending","pending":true},
+    {"title":"died","fullTitle":"","duration":0}],
+   "suites":[{"title":"SSO","file":"cypress/e2e/sso.cy.js","tests":[{"title":"redirects","fullTitle":"SSO redirects","pass":true}]}]}]}]}

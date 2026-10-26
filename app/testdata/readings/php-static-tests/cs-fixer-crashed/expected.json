@@ -1,0 +1,16 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "static",
+    "Tool": "cs-fixer",
+    "Status": "na",
+    "Summary": "the tool did not conclude (code 16)",
+    "RawObject": "raw/case/cs-fixer.json",
+    "DurationMS": 0,
+    "Cases": null,
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  }
+]

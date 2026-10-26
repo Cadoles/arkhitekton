@@ -1,0 +1,1 @@
+[{"tool":"phpstan","parser":"phpstan-json","file":"phpstan.json"},{"tool":"cs-fixer","parser":"cs-fixer-json","file":"cs-fixer.json"}]

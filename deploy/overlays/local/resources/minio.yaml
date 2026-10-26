@@ -1,0 +1,127 @@
+# A development MinIO — never deployed elsewhere.
+#
+# An instance specific to the dashboard, and not `mstore-dev`'s: the `arkhitekton` bucket must stay
+# distinct from `mstore-pipeline` so that retention and permissions are independent. Sharing the
+# application's instance would also make an unfortunate `mc rb` able to take both away.
+#
+# A reminder: MinIO locally handles SigV4 natively, which says nothing about
+# `s3.example.org`. A success here is not a validation of the target.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: arkhitekton-minio
+  namespace: arkhitekton
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arkhitekton-minio
+  namespace: arkhitekton
+  labels:
+    app.kubernetes.io/name: arkhitekton
+    app.kubernetes.io/component: minio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: arkhitekton
+      app.kubernetes.io/component: minio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: arkhitekton
+        app.kubernetes.io/component: minio
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          # MinIO no longer publishes its community images: Chainguard's build, pinned by digest since
+          # Chainguard serves only `latest` freely.
+          image: cgr.dev/chainguard/minio:latest@sha256:d88920d6a50bd0b088223b688be3b76c63e6205dbe494437f67ba1240ea12880
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: arkhitekton-secrets
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: arkhitekton-secrets
+                  key: MINIO_SECRET_KEY
+            # MinIO writes its client configuration under $HOME. Without a redirect to a writable volume, the
+            # read-only root FS would fail it.
+            - name: HOME
+              value: /tmp
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: s3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: arkhitekton-minio
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: arkhitekton-minio
+  namespace: arkhitekton
+spec:
+  selector:
+    app.kubernetes.io/name: arkhitekton
+    app.kubernetes.io/component: minio
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+    - name: console
+      port: 9001
+      targetPort: console

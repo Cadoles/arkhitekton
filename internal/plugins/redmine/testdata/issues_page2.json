@@ -1,0 +1,38 @@
+{
+  "issues": [
+    {
+      "id": 9006,
+      "subject": "terminee",
+      "tracker": { "id": 2, "name": "Évolution" },
+      "status": { "id": 5, "name": "Fermé", "is_closed": true },
+      "priority": { "id": 2, "name": "Normal" },
+      "assigned_to": { "id": 1, "name": "Compte Fictif" },
+      "fixed_version": { "id": 805, "name": "v3.2.0" },
+      "done_ratio": 100,
+      "updated_on": "2026-08-14T14:00:00Z"
+    },
+    {
+      "id": 9007,
+      "subject": "rejetee: ne doit pas peser dans la completion",
+      "tracker": { "id": 2, "name": "Évolution" },
+      "status": { "id": 6, "name": "Rejeté", "is_closed": true },
+      "priority": { "id": 4, "name": "Basse" },
+      "fixed_version": { "id": 805, "name": "v3.2.0" },
+      "done_ratio": 0,
+      "updated_on": "2026-08-14T15:00:00Z"
+    },
+    {
+      "id": 9008,
+      "subject": "statut differant du precedent par la seule casse",
+      "tracker": { "id": 2, "name": "Évolution" },
+      "status": { "id": 22, "name": "En StandBy", "is_closed": false },
+      "priority": { "id": 2, "name": "Normal" },
+      "fixed_version": { "id": 804, "name": "v3.1.2" },
+      "done_ratio": 10,
+      "updated_on": "2026-08-14T16:00:00Z"
+    }
+  ],
+  "total_count": 8,
+  "offset": 5,
+  "limit": 5
+}

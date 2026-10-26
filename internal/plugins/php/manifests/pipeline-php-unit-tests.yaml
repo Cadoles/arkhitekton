@@ -1,0 +1,89 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: php-unit-tests
+spec:
+  description: >
+    Unit tests of the application.
+
+    Separate from `php-static-tests`: the two answer different questions — "does
+    the code do what is expected" and "is the code written cleanly" — and merging
+    them gave a single verdict for two signals the score weighs separately. A
+    non-conforming cs-fixer failed the same run as green tests.
+
+    The split has an accepted cost: both pipelines clone and install the
+    dependencies each on their own. It is the price of independent runs, each
+    re-runnable without the other.
+
+  params:
+    - name: repo-url
+    - name: revision
+    # The results' presigned PUT URL, supplied by the dashboard. Empty, publication is skipped: a
+    # run triggered by a webhook has nobody to hand it one, and must go on running.
+    - name: results-upload-url
+      default: ""
+
+  workspaces:
+    - name: shared-data
+    - name: git-credentials
+
+  tasks:
+    - name: git-clone
+      displayName: Clone mstore
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+
+    - name: composer-install
+      displayName: Install composer dependencies
+      runAfter: ["git-clone"]
+      taskRef:
+        name: composer-install
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: install-dev-dependencies
+          value: "true"
+
+    - name: run-unit-tests
+      displayName: Run unit tests
+      runAfter: ["composer-install"]
+      taskRef:
+        name: unit-test
+      workspaces:
+        - name: source
+          workspace: shared-data
+
+  finally:
+    # In `finally`: a failed test makes its task exit with an error, and a publication placed after
+    # it would not run. The report would be lost exactly in the case where it is useful.
+    - name: save-results
+      displayName: Publish test results
+      taskRef:
+        name: publish-artifact
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: path
+          value: test-results
+        # The three families write under `test-results/` and the number of files depends on what ran:
+        # one archive, under a key unique to the run.
+        - name: mode
+          value: archive
+        - name: upload-url
+          value: $(params.results-upload-url)

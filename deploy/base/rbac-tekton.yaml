@@ -1,0 +1,92 @@
+# The dashboard's rights in the pipelines' namespace.
+#
+# The list follows the security documentation. What is absent from it is absent deliberately:
+#
+#   - **reading** the secrets: the dashboard has no reason to read Tekton's, and this namespace
+#     contains some (registry, shared SSH key, MinIO). It does create some, on the other hand —
+#     one deploy key per project — and in Kubernetes RBAC the verbs are independent: `create`,
+#     `patch` and `delete` are granted without `get` or `list`. A role that owns what it creates
+#     without being able to read anything of the namespace is therefore expressible, and it
+#     honours the original intent to the letter.
+#   - `pods/exec`: log collection goes through `pods/log`, never through running a command in a
+#     container.
+#   - writing the **core**'s `pipelines` and `tasks`: build and re-tag arrive with the binary,
+#     through its kustomization, like the migration Job. The dashboard does not modify them at
+#     run time.
+#
+#     It does write the **reference** implementations — a stack's Tasks, installed when a project
+#     declares it. It installs only what it names, marks what it owns, and never adopts a
+#     definition a third party maintains: on a cluster where another repository has already
+#     installed its own, it observes and withdraws.
+#
+# This file carries a hard-coded namespace, different from the rest of the repository's. It is
+# the reason why no `namespace:` transformer is declared in the kustomizations: it would move
+# this Role to `arkhitekton`, where it would grant nothing, with not a single error message.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: arkhitekton-tekton
+  namespace: arkhitekton-pipelines
+rules:
+  # Reading the definitions: the dashboard's pipeline catalogue is validated at start-up against
+  # what really exists in the cluster.
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelines", "tasks"]
+    # `create` and `update` for the definitions the bound capabilities ship. `delete` to withdraw
+    # those of a plugin an administrator uninstalled: only what carries both the dashboard's mark and
+    # a plugin's label is deleted, never a definition someone else maintains, and a run already
+    # started keeps the copy Tekton made of its definition.
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  # Driving the runs. `patch` serves only to set `spec.status: Cancelled`; `delete` to clean up the
+  # runs the dashboard created.
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: ["tekton.dev"]
+    resources: ["taskruns"]
+    verbs: ["get", "list", "watch"]
+  # Log collection.
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Writing the secrets the dashboard **owns**: one deploy key per project, of which it keeps only
+  # the public half.
+  #
+  # Without `get` or `list`, and that is structuring rather than decorative: having no way of
+  # asking the cluster whether a secret belongs to it, the dashboard reads its ownership in its
+  # database — `projects.deploy_key_public` — and refuses to adopt a pre-existing secret. The
+  # restriction produces the guarantee.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "patch", "update", "delete"]
+  # The list of mountable secrets of the pipelines' service account.
+  #
+  # `kubernetes.io/enforce-mountable-secrets: "true"` is what actually stops a Task helping itself
+  # in the namespace. By becoming the owner of secrets, the dashboard becomes responsible for what
+  # can mount them: it adds only the names it derives itself from a project, and never removes an
+  # entry it did not set.
+  #
+  # `get` is granted here: a service account is not a secret, and without it the list could be
+  # modified only by overwriting it — which would prune the deployment's credentials.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "update", "patch"]
+  # Diagnosing a run that does not start: PVC not bound, image not pulled, quota reached. Without
+  # the events, the interface can display only "waiting".
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arkhitekton-tekton
+  namespace: arkhitekton-pipelines
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: arkhitekton-tekton
+subjects:
+  - kind: ServiceAccount
+    name: arkhitekton
+    namespace: arkhitekton

@@ -1,0 +1,276 @@
+name: Continuous integration
+
+# Checks and publication live in the same file for a single reason: the publication must be
+# able to depend on the checks. Two separate workflows cannot wait for each other, and a tag
+# would then put an image on the registry with no test having run — precisely the delivery
+# chain defect this dashboard exists to make visible.
+#
+# The trigger follows `mstore-pipelines`'s convention: the integration branches and the pull
+# requests, not every branch pushed. Covering `**` would double every run as soon as a PR is
+# opened, for a signal the PR already gives.
+on:
+  push:
+    # `dashboard` is the project's working branch as long as no merge has happened. Without it, CI
+    # would run on nothing: the branches below do not exist in this repository yet.
+    branches: [main, master, develop, dashboard]
+    tags: ["v*"]
+  pull_request:
+
+env:
+  KUSTOMIZE_VERSION: "5.8.1"
+  KUSTOMIZE_SHA256: "029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d"
+  KUBE_LINTER_VERSION: "0.8.3"
+  KUBE_LINTER_SHA256: "1a6d8419b11971372971fdbc22682b684ebfb7cf1c39591662d1b6ca736c41df"
+  REGISTRY: reg.cadoles.com
+  # A personal namespace as long as the project is not deliverable: an image published in
+  # `team` is a signal of availability for the rest of the team, and emitting it before the
+  # dashboard does anything would be misleading. Switch to `team` at the first version meant
+  # to be deployed.
+  IMAGE_NAMESPACE: vcarroy
+  IMAGE_NAME: arkhitekton
+
+jobs:
+  go:
+    name: Formatage, analyse statique et tests
+    runs-on: ubuntu-latest
+
+    # PostgreSQL and MinIO are real: what the tests check — applying a schema, SigV4 signing,
+    # reading by range — is not usefully simulated, and it is precisely running against the real
+    # server that counts as proof.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: t3st
+          POSTGRES_DB: mstore
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d mstore"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+      minio:
+        # `edge-cicd` and not `latest`: it is the variant whose default command is `minio server
+        # /data`. The ordinary image expects those arguments on the command line, which the `services`
+        # syntax cannot supply — it would therefore start on a usage message and the service would
+        # never be reachable.
+        #
+        # Pinned by digest: `edge-cicd` is a moving tag, and a CI whose dependencies change with no
+        # commit produces failures no bisection finds.
+        image: minio/minio@sha256:29e8e51691d11e779468f275002779b221fd3902518d103e35c8a8bb2ef0f3ea
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+
+    steps:
+      - name: Check out the sources
+        uses: actions/checkout@v4
+
+      - name: Installation de Go
+        uses: actions/setup-go@v5
+        with:
+          # The version comes from go.mod: a single source of truth, and CI automatically follows a
+          # version bump of the module.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Formatage et analyse statique
+        run: make lint
+
+      # MinIO exposes no executable probe in its image: the wait therefore happens in the job.
+      # `services` guarantees that the container runs, not that the server accepts requests.
+      - name: Attente de MinIO
+        run: |
+          set -eu
+          for _ in $(seq 1 60); do
+            if curl -sf http://minio:9000/minio/health/live > /dev/null; then
+              echo "MinIO ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MinIO did not answer within 60 s" >&2
+          exit 1
+
+      - name: Tests
+        env:
+          TEST_DATABASE_URL: postgres://postgres:t3st@postgres:5432/mstore?sslmode=disable
+          TEST_MINIO_ENDPOINT: minio:9000
+          TEST_MINIO_BUCKET: arkhitekton-test
+          # The bucket is created by the harness itself; no prior step is needed.
+        run: make test-ci
+
+  vuln:
+    name: Dependency vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the sources
+        uses: actions/checkout@v4
+
+      - name: Installation de Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Blocking on purpose. govulncheck reports only the vulnerabilities actually reachable from the
+      # code called, which keeps the noise low enough for a failure to stay a signal.
+      - name: govulncheck
+        run: make vuln
+
+  web:
+    name: Interface
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the sources
+        uses: actions/checkout@v4
+
+      - name: Installation de Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install the dependencies
+        run: npm --prefix apps/web ci --no-audit --no-fund
+
+      - name: Typage et analyse statique
+        run: make web-check
+
+      # The build is checked here, but its result is not kept: the image rebuilds the interface in
+      # its own stage. Carrying a `dist/` from one job to the next would open the door to an image
+      # whose interface and API do not come from the same commit.
+      - name: Construction
+        run: make web
+
+  manifests:
+    name: Rendu et analyse des manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the sources
+        uses: actions/checkout@v4
+
+      - name: Installation de kustomize et kube-linter
+        run: |
+          set -eu
+          cd /tmp
+
+          curl -sSLo kustomize.tgz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          echo "${KUSTOMIZE_SHA256}  kustomize.tgz" | sha256sum -c -
+          tar xzf kustomize.tgz kustomize
+
+          curl -sSLo kube-linter.tgz \
+            "https://github.com/stackrox/kube-linter/releases/download/v${KUBE_LINTER_VERSION}/kube-linter-linux.tar.gz"
+          echo "${KUBE_LINTER_SHA256}  kube-linter.tgz" | sha256sum -c -
+          tar xzf kube-linter.tgz kube-linter
+
+          # Installed into the job's PATH rather than into /usr/local/bin: `sudo` is not guaranteed
+          # depending on the runner's image, and a job that fails on the absence of sudo teaches nothing
+          # about the manifests.
+          mkdir -p "${HOME}/.local/bin"
+          install -m 0755 kustomize kube-linter "${HOME}/.local/bin/"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      # The local overlay reads an environment file that is not versioned. The template is enough
+      # here: this job renders and analyses manifests, it deploys none, and the values enter none of
+      # the rules checked.
+      - name: Fichier d'environnement de rendu
+        run: |
+          cp deploy/overlays/local/secrets/dashboard.env.example \
+             deploy/overlays/local/secrets/dashboard.env
+
+      # `make manifests` and not a dedicated action: the analysis bears on kustomize's output, not on
+      # the repository's files. Analysing them as they are would let through precisely what happens
+      # at the transformation — a patch that does not apply, an unresolved ConfigMap reference.
+      - name: Rendu et analyse
+        run: make manifests
+
+  image:
+    name: Construction de l'image
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the sources
+        uses: actions/checkout@v4
+
+      - name: Configuration de Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:v0.23.2
+
+      # Built without being pushed: outside a tag, the point is to see that a broken Dockerfile is
+      # broken, rather than at delivery time. On a tag, it is the `publish` job that builds — no need
+      # to do it twice.
+      - name: Construction sans publication
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            REVISION=${{ github.sha }}
+
+  publish:
+    name: Publication de l'image
+    # On a tag only, and only after the checks. Publishing from a branch would produce images
+    # nothing says what they correspond to: a version must be a named object, not a branch's state
+    # at a given instant.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: [go, vuln, web, manifests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the sources
+        uses: actions/checkout@v4
+
+      - name: Authentification au registre
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Configuration de Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:v0.23.2
+
+      - name: Derive the tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_NAME }}"
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE}:${VERSION}"
+
+            # The moving tags are set for a final version only. A pre-release become `latest` would do
+            # exactly what the dashboard exists to prevent: delivering a candidate where a stable version
+            # was expected.
+            if [[ "${VERSION}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "${IMAGE}:v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+              echo "${IMAGE}:v${BASH_REMATCH[1]}"
+              echo "${IMAGE}:latest"
+            fi
+
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Construction et publication
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          # VERSION is compiled into the binary and logged at every start-up: knowing which binary is
+          # running must not depend on the image tag, which can be republished.
+          build-args: |
+            VERSION=${{ steps.tags.outputs.version }}
+            REVISION=${{ github.sha }}

@@ -1,0 +1,88 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: cs-fixer
+spec:
+  description: >
+    Code style check by php-cs-fixer, in `--dry-run` mode.
+
+    Produces a JSON report including the diffs, from which the readable rendering is
+    derived. php-cs-fixer exits with 8 when it finds files to fix: that is a result,
+    not an outage, and the descriptor tells it from a real error.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: output-dir
+      default: test-results/cs-fixer
+      description: Artifacts directory, relative to the source workspace.
+
+  results:
+    - name: summary
+      description: Number of non-conforming files, e.g. "3 files to fix".
+
+  steps:
+    - name: exec
+      image: php:8.4-alpine
+      script: |
+        #!/usr/bin/env sh
+        set -eu -o pipefail
+
+        cd $(workspaces.source.path)
+
+        OUT="$(params.output-dir)"
+        mkdir -p "${OUT}"
+
+        set +e
+        vendor/bin/php-cs-fixer fix \
+          --allow-unsupported-php-version=yes \
+          --dry-run \
+          --using-cache=no \
+          --diff \
+          --format=json > "${OUT}/cs-fixer.json"
+        RC=$?
+        set -e
+
+        # A readable rendering and a count derived from the JSON. Returns -1 if the report is missing
+        # or unreadable — distinct from zero files to fix.
+        COUNT=$(php -r '
+          [$script, $reportPath, $logPath] = $argv;
+          $report = is_readable($reportPath)
+              ? json_decode(file_get_contents($reportPath), true)
+              : null;
+          if (!is_array($report)) {
+              file_put_contents($logPath, "cs-fixer: JSON report missing or invalid\n");
+              echo "-1";
+              exit(0);
+          }
+          $files = $report["files"] ?? [];
+          $lines = [];
+          foreach ($files as $file) {
+              $name = $file["name"] ?? "?";
+              $applied = $file["appliedFixers"] ?? [];
+              $lines[] = $applied
+                  ? sprintf("%s: %s", $name, implode(", ", $applied))
+                  : $name;
+              if (!empty($file["diff"])) {
+                  $lines[] = $file["diff"];
+              }
+          }
+          file_put_contents($logPath,
+              $lines ? implode("\n", $lines) . "\n" : "No file to fix.\n");
+          echo count($files);
+        ' "${OUT}/cs-fixer.json" "${OUT}/cs-fixer.log")
+
+        cat "${OUT}/cs-fixer.log"
+
+        # 0 = conforming, 8 = files to fix. Any other code is a failure of the tool, whether the report
+        # is readable or not.
+        if [ "${COUNT}" = "-1" ] || { [ "${RC}" -ne 0 ] && [ "${RC}" -ne 8 ]; }; then
+          SUMMARY="analysis failed"
+        else
+          SUMMARY="${COUNT} files to fix"
+        fi
+
+        printf '%s' "${SUMMARY}" > "$(results.summary.path)"
+
+        exit ${RC}

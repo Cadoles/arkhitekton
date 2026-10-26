@@ -1,0 +1,57 @@
+{
+  "issues": [
+    {
+      "id": 9001,
+      "subject": "demande rattachee, en cours",
+      "tracker": { "id": 2, "name": "Évolution" },
+      "status": { "id": 2, "name": "En cours", "is_closed": false },
+      "priority": { "id": 2, "name": "Normal" },
+      "assigned_to": { "id": 1, "name": "Compte Fictif" },
+      "fixed_version": { "id": 805, "name": "v3.2.0" },
+      "done_ratio": 40,
+      "updated_on": "2026-08-14T09:00:00Z"
+    },
+    {
+      "id": 9002,
+      "subject": "anomalie du tracker principal",
+      "tracker": { "id": 3, "name": "Anomalie" },
+      "status": { "id": 1, "name": "Nouveau", "is_closed": false },
+      "priority": { "id": 3, "name": "Haute" },
+      "fixed_version": { "id": 805, "name": "v3.2.0" },
+      "done_ratio": 0,
+      "updated_on": "2026-08-14T10:00:00Z"
+    },
+    {
+      "id": 9003,
+      "subject": "anomalie du second tracker: le nom n'est pas unique dans l'instance",
+      "tracker": { "id": 11, "name": "Anomalie (SDN4)" },
+      "status": { "id": 1, "name": "Nouveau", "is_closed": false },
+      "priority": { "id": 2, "name": "Normal" },
+      "fixed_version": { "id": 805, "name": "v3.2.0" },
+      "done_ratio": 0,
+      "updated_on": "2026-08-14T11:00:00Z"
+    },
+    {
+      "id": 9004,
+      "subject": "sans version: le rattachement est un geste de planification",
+      "tracker": { "id": 2, "name": "Évolution" },
+      "status": { "id": 11, "name": "Brouillon", "is_closed": false },
+      "priority": { "id": 2, "name": "Normal" },
+      "done_ratio": 0,
+      "updated_on": "2026-08-14T12:00:00Z"
+    },
+    {
+      "id": 9005,
+      "subject": "reouverte, mais Redmine la declare close",
+      "tracker": { "id": 3, "name": "Anomalie" },
+      "status": { "id": 24, "name": "Ré-ouvert", "is_closed": true },
+      "priority": { "id": 2, "name": "Normal" },
+      "fixed_version": { "id": 805, "name": "v3.2.0" },
+      "done_ratio": 60,
+      "updated_on": "2026-08-14T13:00:00Z"
+    }
+  ],
+  "total_count": 8,
+  "offset": 0,
+  "limit": 5
+}

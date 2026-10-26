@@ -1,0 +1,63 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: generate-image-tag
+spec:
+  description: >
+    Determines the tag of the images to build.
+
+    Two modes, in this order of priority:
+
+    1. `version` supplied — the tag is that one, as it is. It is the dashboard's
+       mode: it already knows the version when it sets the Git tag and has no
+       reason to have it recomputed. Deriving it here would open the door to a
+       divergence between the Git tag, the image tag and the embedded
+       `version.txt`, whereas those three values must be identical for the chain
+       release → image → AppData to stay connected.
+
+    2. `version` empty — fallback to `mktools mkt-project-version`, the historical
+       behaviour. It covers the triggers outside the dashboard (Gitea push,
+       CronJobs) and the transition period towards SemVer, during which the two
+       tag schemes coexist.
+
+  workspaces:
+    - name: source
+  params:
+    - name: version
+      default: ""
+      description: >
+        An imposed tag, with no promotion metadata (`1.8.0`, `1.8.0-rc1`). Empty to
+        let mktools derive it from the branch and the revision.
+    - name: branch-name
+      default: ""
+    - name: revision
+  results:
+    - name: tag
+      description: Generated image tag
+  steps:
+    - name: generate-tag
+      image: reg.cadoles.com/cadoles/mktools:1.0
+      workspaces:
+        - name: source
+          mountPath: /code
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        set +x
+
+        # Unconditional: the revision must be set for the build that follows, whether the tag is imposed
+        # or derived.
+        git checkout $(params.revision)
+
+        if [ -n "$(params.version)" ]; then
+          echo -n "$(params.version)" | tee "$(results.tag.path)"
+          exit 0
+        fi
+
+        if [ ! -z "$(params.branch-name)" ];then
+          export BRANCH_NAME=$(params.branch-name)
+          export CI=true
+        fi
+
+        version=$(mktools mkt-project-version)
+        echo -n "${version}" | tee "$(results.tag.path)"

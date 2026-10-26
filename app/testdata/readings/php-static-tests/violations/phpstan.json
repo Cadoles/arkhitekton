@@ -1,0 +1,7 @@
+{"totals":{"errors":1,"file_errors":3},
+ "files":{
+  "src/Zeta.php":{"errors":1,"messages":[{"message":"Call to undefined method.\nSee docs","line":12,"identifier":"method.notFound","ignorable":true}]},
+  "src/Alpha.php":{"errors":2,"messages":[
+    {"message":"Variable $x might not be defined.","line":4,"ignorable":true},
+    {"message":"Dead code.","line":9,"identifier":"deadCode.unreachable","ignorable":true}]}},
+ "errors":["Ignored error pattern was not matched\nin config"]}

@@ -1,0 +1,125 @@
+# A development PostgreSQL — never deployed elsewhere.
+#
+# In production, the database is a CloudNativePG instance with scheduled backups. Reproducing
+# CNPG locally would bring nothing: what the dashboard exercises is SQL, identical in both cases,
+# and the operator would add a generated secret whose password would have to be extracted before
+# a DSN could be built.
+#
+# Here the password comes from the same environment file as DATABASE_URL, which makes the two
+# consistent by construction.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: arkhitekton-postgres
+  namespace: arkhitekton
+spec:
+  accessModes: ["ReadWriteOnce"]
+  # kind supplies `standard` (local-path), and not `local-path` as production does. Of no
+  # consequence: the dashboard reads no volume.
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arkhitekton-postgres
+  namespace: arkhitekton
+  labels:
+    app.kubernetes.io/name: arkhitekton
+    app.kubernetes.io/component: postgres
+  annotations:
+    # An accepted and local exception: the PostgreSQL image writes outside its volumes (domain
+    # socket, lock files). Making it compatible would require one mount per path concerned, for a
+    # database that exists only in development. The dashboard's pods, for their part, stay read-only.
+    ignore-check.kube-linter.io/no-read-only-root-fs: "development database, never deployed elsewhere"
+spec:
+  replicas: 1
+  # Recreate: two postgres pods on the same ReadWriteOnce PVC would not start, and a RollingUpdate
+  # would attempt exactly that at every update.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: arkhitekton
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: arkhitekton
+        app.kubernetes.io/component: postgres
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # 70 = `postgres` in the Alpine image. The namespace applies the `restricted` profile: with no
+        # explicit UID, the entrypoint would start as root and admission would refuse the pod.
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - name: POSTGRES_USER
+              value: dashboard
+            - name: POSTGRES_DB
+              value: dashboard
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: arkhitekton-secrets
+                  key: POSTGRES_PASSWORD
+            # An imposed subdirectory: a PVC's root contains `lost+found`, and initdb refuses a directory
+            # that is not empty.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # Unlike the dashboard, the PostgreSQL image writes outside its volumes — a domain socket in
+            # /var/run/postgresql, lock files. A read-only root FS would require one mount per path
+            # concerned, for a development database.
+            readOnlyRootFilesystem: false
+          readinessProbe:
+            exec:
+              # pg_isready declares itself ready on initdb's temporary server, before the final server accepts
+              # TCP connections. A real query on the target database is the only reliable signal.
+              command: ["psql", "-U", "dashboard", "-d", "dashboard", "-c", "select 1"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: arkhitekton-postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: arkhitekton-postgres
+  namespace: arkhitekton
+spec:
+  selector:
+    app.kubernetes.io/name: arkhitekton
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

@@ -1,0 +1,88 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "static",
+    "Tool": "phpstan",
+    "Status": "",
+    "Summary": "4 violation(s) in 3 file(s)",
+    "RawObject": "raw/case/phpstan.json",
+    "DurationMS": 0,
+    "Cases": [
+      {
+        "Suite": "phpstan",
+        "Name": "erreur d'analyse",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "Ignored error pattern was not matched",
+        "Trace": ""
+      },
+      {
+        "Suite": "src/Alpha.php",
+        "Name": "Variable $x might not be defined.",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "line 4: Variable $x might not be defined.",
+        "Trace": ""
+      },
+      {
+        "Suite": "src/Alpha.php",
+        "Name": "deadCode.unreachable",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "line 9: Dead code.",
+        "Trace": ""
+      },
+      {
+        "Suite": "src/Zeta.php",
+        "Name": "method.notFound",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "line 12: Call to undefined method.",
+        "Trace": ""
+      }
+    ],
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  },
+  {
+    "Shape": "cases",
+    "Group": "static",
+    "Tool": "cs-fixer",
+    "Status": "",
+    "Summary": "3 style deviation(s) in 2 file(s)",
+    "RawObject": "raw/case/cs-fixer.json",
+    "DurationMS": 0,
+    "Cases": [
+      {
+        "Suite": "src/A.php",
+        "Name": "braces",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "style deviation: braces",
+        "Trace": "--- a\n+++ b\n"
+      },
+      {
+        "Suite": "src/A.php",
+        "Name": "no_unused_imports",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "style deviation: no_unused_imports",
+        "Trace": "--- a\n+++ b\n"
+      },
+      {
+        "Suite": "src/B.php",
+        "Name": "style",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "style deviation: style",
+        "Trace": ""
+      }
+    ],
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  }
+]

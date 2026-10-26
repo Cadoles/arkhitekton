@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arkhitekton-worker
+  namespace: arkhitekton
+  labels:
+    app.kubernetes.io/name: arkhitekton
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  # Recreate, and not RollingUpdate: the old pod is stopped before the new one starts. The Lease
+  # already covers the overlap, but avoiding it costs less than an election at every deployment,
+  # and the worker takes no traffic — there is therefore nothing to keep available during the
+  # switch-over.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: arkhitekton
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: arkhitekton
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: arkhitekton
+      # The worker, for its part, speaks to the Kubernetes API: creating PipelineRuns, informer, log
+      # collection, leader election.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: reg.cadoles.com/vcarroy/arkhitekton:latest
+          args: ["worker"]
+          envFrom:
+            - configMapRef:
+                name: arkhitekton-config
+            - secretRef:
+                name: arkhitekton-secrets
+          env:
+            # The pod's name identifies the Lease's holder. Without it, the log says a leader exists without
+            # saying which, which is precisely the useful piece of information when two pods are contending
+            # for the place.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Namespace of the Lease. It must be the dashboard's and not the pipelines': the service account
+            # is allowed to write a Lease only in the first.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # The keys a plugin must be signed with, and the credentials of private registries: files the
+            # operator mounts, never values the administration screen could change.
+            - name: PLUGIN_TRUSTED_KEYS
+              value: /etc/arkhitekton-plugins/keys/trusted-keys.pem
+            - name: PLUGIN_REGISTRY_AUTH
+              value: /etc/arkhitekton-plugins/registry/config.json
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # No HTTP probe: the worker opens no port. It lives or it exits, and the Deployment restarts it.
+          # A liveness probe would be an HTTP server added for the sole benefit of the probe.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: catalog
+              mountPath: /etc/arkhitekton
+              readOnly: true
+            - name: plugin-keys
+              mountPath: /etc/arkhitekton-plugins/keys
+              readOnly: true
+            - name: plugin-registry
+              mountPath: /etc/arkhitekton-plugins/registry
+              readOnly: true
+      volumes:
+        - name: catalog
+          configMap:
+            name: arkhitekton-catalog
+        # Optional both: without trusted keys no plugin installs, and says why; without registry
+        # credentials, registries are reached anonymously.
+        - name: plugin-keys
+          configMap:
+            name: arkhitekton-plugin-keys
+            optional: true
+        - name: plugin-registry
+          secret:
+            secretName: arkhitekton-plugin-registry
+            optional: true
+            items:
+              - key: .dockerconfigjson
+                path: config.json
+        - name: tmp
+          emptyDir:
+            # Wider than for the api: the worker fetches the pipeline logs before pushing them to MinIO, and
+            # an integration run produces tens of megabytes of them.
+            sizeLimit: 1Gi

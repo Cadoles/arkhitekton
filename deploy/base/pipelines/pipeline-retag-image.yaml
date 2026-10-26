@@ -1,0 +1,51 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: retag-image
+spec:
+  description: >
+    Sets an extra tag on **one** image that is already published.
+
+    Named `promote-image` until now, which described the intention rather than the
+    act. It promotes nothing: it re-tags. It is Flux that deploys, by seeing the
+    new tag. And the dashboard uses it for something other than a promotion —
+    giving a final release its own tag, from that of its source pre-release —
+    where the word "promotion" was frankly misleading.
+
+    One run, one image, as for the build. The pipeline carried the two
+    repositories literally: adding an image required modifying it, and the failure
+    of one failed the run with no way of knowing which.
+
+    The re-tag never rebuilds: it is the same digest that receives a second tag,
+    and that is what makes it checkable that what is promoted is what was
+    validated.
+
+  params:
+    - name: reg-project
+    - name: image-name
+      description: >
+        Name of the repository, without the project: `portal`, `portal-cli`. The
+        development image is not re-tagged — no environment of the promotion flow
+        deploys it — but nothing here forbids it: it is the caller that decides
+        what it promotes.
+    - name: old-tag
+      description: The existing tag, the one the image to re-tag carries.
+    - name: new-tag
+      description: The tag to set. The digest is unchanged.
+
+  workspaces:
+    - name: dockerconfig
+
+  tasks:
+    - name: retag
+      displayName: Re-tag image
+      taskRef:
+        name: tag-image
+      params:
+        - name: image-source
+          value: $(params.reg-project)/$(params.image-name):$(params.old-tag)
+        - name: tag
+          value: $(params.new-tag)
+      workspaces:
+        - name: dockerconfig
+          workspace: dockerconfig

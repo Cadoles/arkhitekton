@@ -1,0 +1,430 @@
+import { useState } from 'react'
+import { Link } from 'react-router'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { Icon } from '../../components/Icon'
+import { Modal } from '../../components/Modal'
+import { hasAtLeast, useSession } from '../auth/session'
+import { useCreateRelease, useReleases, type ReleaseKind } from '../releases/api'
+import { useForgeRefs, type Version, type VersionRelease } from './api'
+import { projectPath } from '../../lib/project'
+
+/*
+ * Création d'une release depuis le périmètre d'une version (doc 08 §8.4).
+ *
+ * C'est ici que le geste a du sens : on crée une release **pour** une version, au
+ * vu de son avancement et de ses anomalies. Le formulaire est en modale et non en
+ * panneau au bas de la page : il ne sert qu'à un moment précis, et l'espace qu'il
+ * occupait poussait les releases produites — ce qu'on vient consulter — hors du
+ * premier écran. Le tag est
+ * pré-rempli depuis le numéro de la version, et le nom Redmine est transmis pour
+ * que le serveur vérifie la jointure (B17) — une release rattachée à la mauvaise
+ * version produirait une note de release comparant des périmètres sans rapport.
+ *
+ * Aucune règle n'est pré-vérifiée côté client : cohérence tag/nature, permission
+ * de livrer, existence de la source — tout est tranché par le serveur, et son
+ * message d'erreur est affiché tel quel. Dupliquer ces règles ici les ferait
+ * diverger (doc 07 §7.2).
+ */
+
+// Valeur sentinelle du choix « Autre référence… ». Un double underscore : aucun
+// nom de branche légitime ne commence ainsi.
+const CUSTOM_REF = '__custom__'
+
+/**
+ * Ce que fait chaque mode, dit à l'utilisateur.
+ *
+ * Le **mode** est un jeu fermé — deux primitives que le dashboard sait
+ * exécuter — alors que les natures sont déclarées par le projet. C'est donc le
+ * seul endroit où un texte peut être écrit d'avance sans rien supposer du
+ * vocabulaire de qui l'emploie.
+ */
+const MODE_HINTS: Record<string, string> = {
+  build: 'construite depuis une référence Git, puis testée',
+  retag: 're-tag bit à bit de l’image d’une release existante',
+}
+
+/*
+ * Ce que ce formulaire ne calcule plus.
+ *
+ * Il composait le tag proposé lui-même : il retirait les préfixes `v` et `Mstore `,
+ * puis suffixait `-rc<N>` en cherchant le rang le plus haut. Deux règles que le
+ * serveur possède — la convention de nommage est configurable depuis le
+ * chantier 5, la forme des pré-releases appartient au schéma de version depuis
+ * le lot B — et qui n'avaient plus aucune raison d'être justes ici.
+ *
+ * Une suggestion fausse n'est pas dramatique, le champ reste modifiable. Mais
+ * elle **enseigne** une convention à qui découvre l'outil, et c'est ainsi qu'une
+ * hypothèse ambiante se réinstalle.
+ */
+
+export function CreateReleaseButton({
+  version,
+  releases,
+  suggestions,
+}: {
+  version: Version
+  releases: VersionRelease[]
+  /** Tag proposé par nature, calculé par le serveur. Une nature absente de cette
+   *  carte n'a pas de suggestion : le schéma du projet ne sait rien en dire. */
+  suggestions: Record<string, string>
+}) {
+  const session = useSession()
+  const create = useCreateRelease()
+
+  const [open, setOpen] = useState(false)
+  // La nature **choisie**, vide tant que l'utilisateur n'a rien coché. La nature
+  // effective est `selected`, qui retombe sur la première déclarée : le projet
+  // range son cycle dans l'ordre où il veut le voir proposé.
+  //
+  // Les deux ne doivent jamais être confondues à la soumission. Elles l'ont
+  // été : le formulaire envoyait `kind`, donc la chaîne vide tant qu'on n'avait
+  // pas cliqué un bouton radio, alors que l'écran montrait la première nature
+  // cochée. Créer une release sans toucher au choix affiché échouait sur
+  // « nature de release inconnue », en désignant une valeur que l'utilisateur
+  // n'avait jamais vue.
+  const [kind, setKind] = useState<ReleaseKind>('')
+  const [tag, setTag] = useState('')
+  // '' = suivre la branche par défaut du dépôt ; CUSTOM_REF = saisie libre.
+  const [refChoice, setRefChoice] = useState('')
+  const [customRef, setCustomRef] = useState('')
+  const [sourceTag, setSourceTag] = useState('')
+  const [testsGreen, setTestsGreen] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+
+  const refs = useForgeRefs(open)
+
+  // Le cycle vient du projet. Vide tant que la liste n'est pas chargée : le
+  // formulaire ne propose alors rien plutôt que d'inventer des natures.
+  const cycle = useReleases().data?.kinds ?? []
+  const selected = cycle.find((entry) => entry.id === kind) ?? cycle[0]
+  const buildMode = selected?.mode === 'build'
+
+  // La branche par défaut du dépôt tient lieu de choix tant que l'utilisateur n'a
+  // rien sélectionné : c'est le cas courant, et il ne doit demander aucun geste.
+  const forgeReady = refs.data?.configured === true
+  const defaultBranch = refs.data?.default_branch ?? ''
+  const refValue =
+    refChoice === CUSTOM_REF || !forgeReady ? customRef : refChoice || defaultBranch
+  // La source d'un re-tag : les releases de la nature que la déclaration
+  // désigne, ou toutes si elle n'en désigne aucune.
+  const sources = releases.filter(
+    (release) => !selected?.source || release.kind === selected.source,
+  )
+
+  // Le rôle décide de ce qui est proposé, pas de ce qui est permis : masquer une
+  // action interdite évite un clic qui échouera, la décision reste au serveur.
+  const canCreate = session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
+  const canFinal = session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'releaser')
+
+  if (!canCreate) return null
+
+  const selectKind = (next: ReleaseKind) => {
+    setKind(next)
+    // Le tag suit la nature tant qu'il n'a pas été édité à la main — le
+    // recalculer après une saisie écraserait ce que l'utilisateur vient de taper.
+    // Le tag vient du serveur, qui connaît le schéma du projet. Absent, la
+    // saisie reste libre : un schéma opaque ne propose rien, et inventer un
+    // numéro serait pire que de laisser l'utilisateur écrire le sien.
+    setTag(suggestions[next] ?? '')
+  }
+
+  const openForm = () => {
+    setOpen(true)
+    // La suggestion de la première nature du cycle, qui est celle présélectionnée.
+    setTag(suggestions[selected?.id ?? ''] ?? '')
+  }
+
+  // La fermeture efface le résultat de la dernière création : dans une carte il
+  // restait à l'écran, ce qui avait du sens ; dans une modale, le rouvrir
+  // afficherait le succès d'une release créée il y a dix minutes comme s'il
+  // venait de se produire.
+  const closeForm = () => {
+    setOpen(false)
+    setConfirming(false)
+    create.reset()
+  }
+
+  const submit = () => {
+    setConfirming(false)
+    create.mutate({
+      tag: tag.trim(),
+      // `selected.id` et non `kind` : c'est la nature **affichée comme cochée**,
+      // et l'écran ne doit jamais soumettre autre chose que ce qu'il montre.
+      kind: selected?.id ?? '',
+      // Le nom Redmine n'est transmis que s'il en est un : celui d'une provisoire
+      // vient d'un tag, et le vérifier contre lui-même ne vérifierait rien.
+      tracked_version: version.pending ? undefined : version.name,
+      // Le git_ref n'accompagne qu'une pré-release : c'est elle qui se construit
+      // depuis une branche ou un tag. Une finale est un re-tag — son origine Git
+      // est celle de sa RC source.
+      git_ref: buildMode && refValue.trim() !== '' ? refValue.trim() : undefined,
+      source_tag: buildMode ? undefined : sourceTag,
+      tests_green: buildMode ? undefined : testsGreen,
+    })
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={openForm}
+        className="flex items-center gap-1.5 rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700"
+      >
+        <Icon name="tag" className="size-4" />
+        Créer une release
+      </button>
+
+      {open && (
+        <Modal
+          title={`Créer une release pour ${version.name}`}
+          onClose={closeForm}
+          // Échap ne doit pas traverser la confirmation ouverte par-dessus :
+          // l'utilisateur annulerait la confirmation et perdrait sa saisie du
+          // même geste.
+          closable={!confirming}
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              setConfirming(true)
+            }}
+            className="flex flex-col gap-3"
+          >
+            <fieldset className="flex flex-wrap gap-2">
+              <legend className="mb-1 text-sm text-zinc-500">Nature</legend>
+              {cycle.map((option) => {
+                // Le verrou est indicatif : le serveur décide, et la nature y
+                // porte sa propre permission. Ici, seul le mode `retag` est
+                // supposé livrable — une approximation assumée, qui évite un
+                // clic voué à un 403 sans jamais autoriser quoi que ce soit.
+                const locked = option.mode === 'retag' && !canFinal
+                return (
+                  <label
+                    key={option.id}
+                    className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+                      selected?.id === option.id ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200'
+                    } ${locked ? 'opacity-50' : 'cursor-pointer'}`}
+                    title={locked ? 'Livrer exige le rôle releaser.' : undefined}
+                  >
+                    <input
+                      type="radio"
+                      name="kind"
+                      value={option.id}
+                      checked={selected?.id === option.id}
+                      onChange={() => selectKind(option.id)}
+                      disabled={locked}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="block font-medium text-zinc-900">{option.label}</span>
+                      <span className="block text-xs text-zinc-500">
+                        {MODE_HINTS[option.mode] ?? ''}
+                      </span>
+                    </span>
+                  </label>
+                )
+              })}
+            </fieldset>
+
+            <label className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="min-w-24 text-zinc-500">Tag</span>
+              <input
+                value={tag}
+                onChange={(event) => setTag(event.target.value)}
+                className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+              />
+            </label>
+
+            {buildMode && (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="min-w-24 text-zinc-500">Branche ou tag</span>
+
+                {/* Un vrai <select>, pas un datalist : un datalist filtre ses
+                    suggestions par le contenu du champ, et le pré-remplir avec la
+                    branche par défaut vidait donc le menu — l'utilisateur voyait
+                    une liste vide alors que 72 branches étaient chargées. Le select
+                    montre tout, toujours ; la saisie libre passe par le dernier
+                    choix, qui ouvre un champ. */}
+                {refs.isPending && <span className="text-zinc-500">lecture de la forge…</span>}
+
+                {forgeReady && (
+                  <select
+                    value={refChoice === CUSTOM_REF ? CUSTOM_REF : refValue}
+                    onChange={(event) => setRefChoice(event.target.value)}
+                    aria-label="Branche ou tag à construire"
+                    className="max-w-72 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+                  >
+                    <optgroup label="Branches">
+                      {(refs.data?.branches ?? []).map((branch) => (
+                        <option key={`b-${branch.name}`} value={branch.name}>
+                          {branch.name}
+                          {branch.name === defaultBranch ? ' (défaut)' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Tags récents">
+                      {(refs.data?.tags ?? []).map((tagRef) => (
+                        <option key={`t-${tagRef.name}`} value={tagRef.name}>
+                          {tagRef.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                    {/* L'échappatoire : un commit précis, ou une référence au-delà
+                        de la borne de lecture. Une liste fermée l'interdirait. */}
+                    <option value={CUSTOM_REF}>Autre référence…</option>
+                  </select>
+                )}
+
+                {(refChoice === CUSTOM_REF || (!forgeReady && !refs.isPending)) && (
+                  <input
+                    value={customRef}
+                    onChange={(event) => setCustomRef(event.target.value)}
+                    placeholder="branche, tag ou commit"
+                    aria-label="Référence saisie librement"
+                    className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+                  />
+                )}
+
+                {refs.data && !refs.data.configured && (
+                  <span className="text-xs text-zinc-500">Forge non configurée : saisie libre.</span>
+                )}
+                {refs.data?.truncated && (
+                  <span className="text-xs text-zinc-500">
+                    Liste bornée aux références récentes — « Autre référence… » pour le reste.
+                  </span>
+                )}
+                {refs.isError && (
+                  <span className="flex items-center gap-1 text-xs text-warn-700">
+                    <Icon name="alert" className="size-3.5" />
+                    {(refs.error as Error).message} — saisie libre.
+                  </span>
+                )}
+              </div>
+            )}
+
+            {!buildMode && (
+              <>
+                <label className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="min-w-24 text-zinc-500">Pré-release source</span>
+                  <select
+                    value={sourceTag}
+                    onChange={(event) => setSourceTag(event.target.value)}
+                    className="rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+                  >
+                    <option value="">— choisir —</option>
+                    {sources.map((source) => (
+                      <option key={source.tag} value={source.tag}>
+                        {source.tag} ({source.state})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {sources.length === 0 && (
+                  <p className="flex items-start gap-2 text-sm text-warn-700">
+                    <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+                    Aucune pré-release pour cette version : une finale se produit par re-tag d'une RC
+                    validée, jamais depuis rien (B17).
+                  </p>
+                )}
+                <label className="flex items-center gap-2 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={testsGreen}
+                    onChange={(event) => setTestsGreen(event.target.checked)}
+                  />
+                  Je confirme que les résultats de la RC source sont au vert.
+                </label>
+              </>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={
+                create.isPending ||
+                tag.trim() === '' ||
+                // Sans cycle chargé, aucune nature n'est soumettable : la liste
+                // vient du serveur, et l'envoyer vide échouerait à coup sûr.
+                !selected ||
+                (!buildMode && sourceTag === '')
+              }
+                className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Créer
+              </button>
+              <button
+                type="button"
+                onClick={closeForm}
+                className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+              >
+                Annuler
+              </button>
+            </div>
+
+            {create.isError && (
+              <p className="flex items-start gap-2 text-sm text-critical-700">
+                <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+                {(create.error as Error).message}
+              </p>
+            )}
+          </form>
+
+          {create.isSuccess && (
+            <div className="mt-3 border-t border-zinc-200 pt-3 text-sm">
+              <p className="text-healthy-700">
+                Release{' '}
+                <Link
+                  to={projectPath(`/releases/${encodeURIComponent(create.data.release.tag)}`)}
+                  className="font-mono font-medium hover:underline"
+                >
+                  {create.data.release.tag}
+                </Link>{' '}
+                créée.
+              </p>
+              {/* Les réserves du serveur : la création a réussi malgré elles, et
+                  les taire ferait croire à un succès sans condition. */}
+              {(create.data.warnings ?? []).map((warning) => (
+                <p key={warning} className="mt-1 flex items-start gap-2 text-warn-700">
+                  <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+                  {warning}
+                </p>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {confirming && (
+        <ConfirmDialog
+          title={`Créer la release ${tag.trim()}`}
+          confirmLabel="Créer la release"
+          // La ressaisie pour ce qui engage une livraison : une finale ou un patch
+          // met un re-tag en file vers le registre — action sortante (doc 08 §8.5).
+          // Une pré-release ne crée qu'un brouillon local : confirmation simple.
+          challenge={buildMode ? undefined : tag.trim()}
+          onConfirm={submit}
+          onCancel={() => setConfirming(false)}
+          pending={create.isPending}
+        >
+          <p>
+            {selected?.label} pour la version{' '}
+            <span className="font-mono">{version.name}</span>
+            {buildMode && refValue.trim() && (
+              <>
+                {' '}
+                — construite depuis <span className="font-mono">{refValue.trim()}</span>
+              </>
+            )}
+            {!buildMode && sourceTag && (
+              <>
+                {' '}
+                — re-tag de <span className="font-mono">{sourceTag}</span>
+              </>
+            )}
+            .
+          </p>
+        </ConfirmDialog>
+      )}
+    </>
+  )
+}

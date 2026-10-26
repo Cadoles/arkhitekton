@@ -1,0 +1,96 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: php-static-tests
+spec:
+  description: >
+    Static analysis of the application — PHP-CS-Fixer and PHPStan.
+
+    The unit tests have their own pipeline, `php-unit-tests`: "does the code do
+    what is expected" and "is the code written cleanly" are two questions, which
+    the score weighs separately. Merging them gave a single verdict for two
+    signals, and a non-conforming cs-fixer failed the same run as green tests.
+
+  params:
+    - name: repo-url
+    - name: revision
+    # The results' presigned PUT URL, supplied by the dashboard. Empty, publication is skipped: a
+    # run triggered by a webhook has nobody to hand it one, and must go on running.
+    - name: results-upload-url
+      default: ""
+
+  workspaces:
+    - name: shared-data
+    - name: git-credentials
+
+  tasks:
+    - name: git-clone
+      displayName: Clone mstore
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+
+    - name: composer-install
+      displayName: Install composer dependencies
+      runAfter: ["git-clone"]
+      taskRef:
+        name: composer-install
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: install-dev-dependencies
+          value: "true"
+
+    - name: run-cs-fixer
+      displayName: Run cs-fixer
+      runAfter: ["composer-install"]
+      taskRef:
+        name: cs-fixer
+      workspaces:
+        - name: source
+          workspace: shared-data
+
+    - name: run-phpstan
+      displayName: Run phpstan
+      runAfter: ["composer-install"]
+      taskRef:
+        name: phpstan
+      workspaces:
+        - name: source
+          workspace: shared-data
+
+  finally:
+    # In `finally`, and not after each test: a PHPStan violation or a failed unit test makes its
+    # task exit with an error, which until now stopped the publication running. The results were
+    # therefore lost exactly in the case where they are useful. The three families write under
+    # `test-results/`, a single upload is enough.
+    - name: save-results
+      displayName: Publish test results
+      taskRef:
+        name: publish-artifact
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: path
+          value: test-results
+        # The three families write under `test-results/` and the number of files depends on what ran:
+        # one archive, under a key unique to the run.
+        - name: mode
+          value: archive
+        - name: upload-url
+          value: $(params.results-upload-url)

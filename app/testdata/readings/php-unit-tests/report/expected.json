@@ -1,0 +1,57 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "unit",
+    "Tool": "phpunit",
+    "Status": "",
+    "Summary": "5 test(s), 2 failed, 1 flaky, 1 skipped",
+    "RawObject": "raw/case/junit.xml",
+    "DurationMS": 2500,
+    "Cases": [
+      {
+        "Suite": "App\\Tests\\LoginTest",
+        "Name": "testAccepts",
+        "Status": "passed",
+        "DurationMS": 500,
+        "Message": "",
+        "Trace": ""
+      },
+      {
+        "Suite": "App\\Tests\\LoginTest",
+        "Name": "testRefuses",
+        "Status": "failed",
+        "DurationMS": 250,
+        "Message": "Failed asserting that false is true.",
+        "Trace": "trace of the failure"
+      },
+      {
+        "Suite": "tests/Unit / LoginTest.php",
+        "Name": "testErrors",
+        "Status": "failed",
+        "DurationMS": 100,
+        "Message": "first meaningful line",
+        "Trace": "first meaningful line\nrest of the stack"
+      },
+      {
+        "Suite": "App\\Tests\\LoginTest",
+        "Name": "testRetried",
+        "Status": "flaky",
+        "DurationMS": 0,
+        "Message": "flaky once",
+        "Trace": "stack"
+      },
+      {
+        "Suite": "App\\Tests\\LoginTest",
+        "Name": "testSkipped",
+        "Status": "skipped",
+        "DurationMS": 0,
+        "Message": "",
+        "Trace": ""
+      }
+    ],
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  }
+]

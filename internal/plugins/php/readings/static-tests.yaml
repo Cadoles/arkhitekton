@@ -1,0 +1,41 @@
+# PHPStan and PHP-CS-Fixer, read as violations projected onto cases: the question asked is the
+# same as for tests, what appeared and what disappeared. A violation's identity is its file and its
+# rule, never its line: a line moves at every commit.
+apiVersion: arkhitekton.reading/v1
+tools:
+  - tool: phpstan
+    task: run-phpstan
+    group: static
+    summary: { violations: "violation(s)" }
+    # A clean analysis ran and found nothing, which is not the same as not running.
+    empty: pass
+    cases:
+      # Errors outside a file are failures of the tool, not of the code: kept apart under a suite
+      # of their own.
+      - from: phpstan.errors
+        suite: phpstan
+        name: "erreur d'analyse"
+        status: failed
+        message: "{message | firstline}"
+      # Older versions emit no rule identifier: the message stands in for it.
+      - from: phpstan.messages
+        suite: "{file}"
+        name: "{identifier | or: message | firstline}"
+        status: failed
+        message: "line {line}: {message | firstline}"
+
+  - tool: cs-fixer
+    task: run-cs-fixer
+    group: static
+    summary: { violations: "style deviation(s)" }
+    empty: pass
+    # 0 when everything conforms, 8 when files need fixing. Any other code is a failure of the
+    # tool, whatever its report says.
+    exitCodes: { results: [0, 8] }
+    cases:
+      - from: csfixer.fixers
+        suite: "{file}"
+        name: "{fixer | or: 'style'}"
+        status: failed
+        message: "style deviation: {fixer | or: 'style'}"
+        trace: "{diff}"

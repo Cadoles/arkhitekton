@@ -1,0 +1,102 @@
+Arkhitekton — Additional permission under GNU AGPL version 3 section 7
+
+Copyright (C) 2026 Cadoles
+
+Arkhitekton is distributed under the GNU Affero General Public License,
+version 3 or (at your option) any later version — see the LICENSE file. The
+following additional permission is granted so that plugins written by third
+parties may be published under terms of their authors' choosing.
+
+
+DEFINITIONS
+
+"the Program" means Arkhitekton, as distributed under the GNU AGPL.
+
+"Plugin Interface" means:
+
+  (a) the exported identifiers of what the Program designates as its plugin
+      API, at the date of this file: the module
+      `forge.cadoles.com/vcarroy/arkhitekton/sdk` and every package under it,
+      the package `host/hosttest` of the module
+      `forge.cadoles.com/vcarroy/arkhitekton`, and the interface module
+      `apps/web/src/host` with the module contract it exports;
+
+  (b) the HTTP API served by the Program;
+
+  (c) the declarative formats that the Program reads or writes: pipeline
+      catalogues, Tekton Pipeline and Task definitions, plugin manifests,
+      declared readings, plugin settings and automation declarations;
+
+  (d) the interface through which the Program runs a plugin's program and
+      loads its interface: the module `forge.cadoles.com/vcarroy/arkhitekton/rpc`
+      and its packages, the gRPC contract under `rpc/proto` and the data
+      exchanged through it, whatever the language the program is written in,
+      and the contract an interface script registers its module with, its
+      build preset `apps/web/plugin.vite.ts` and the stylesheet
+      `apps/web/src/styles/plugin.css`.
+
+"Plugin" means a work that interacts with the Program solely through the
+Plugin Interface, and that does not otherwise copy or incorporate source code
+of the Program.
+
+
+GRANT
+
+As an additional permission under section 7 of the GNU AGPL version 3, you are
+permitted to link or combine a Plugin with the Program, to convey the
+resulting combined work, and to make that combined work available to users
+interacting with it remotely through a computer network, while licensing the
+Plugin under terms of your choice, provided that:
+
+  1. you comply with the GNU AGPL in all respects for the Program itself and
+     for every modification you make to it, including the obligations of
+     section 13 with respect to that code; and
+
+  2. the terms you choose for the Plugin do not purport to restrict the rights
+     that the GNU AGPL grants to recipients of the Program.
+
+This permission covers the Plugin only. Modifications to the Program remain
+covered by the GNU AGPL, whether or not they were made in order to accommodate
+a Plugin.
+
+
+DATA AND EXAMPLES
+
+Pipeline catalogues, Tekton definitions, plugin manifests and declared
+readings are data read by the Program, not part of it: writing one does not
+create a work based on the Program, and the GNU AGPL does not require it to be
+licensed under the same terms.
+
+The examples distributed with the Program are licensed under the Apache
+License 2.0, so that they may be copied and adapted freely, and so that a
+Plugin started from one does not copy source code of the Program: the
+pipelines under deploy/base/pipelines/ and the plugins under rpc/examples/,
+each directory carrying its LICENSE file.
+
+
+NOTE
+
+As provided by section 7 of the GNU AGPL, a recipient may remove this
+additional permission from their own copy of the Program. Doing so does not
+affect any other copy.
+
+
+---
+
+Résumé en français, sans valeur juridique — le texte anglais ci-dessus fait foi.
+
+  - Arkhitekton est sous AGPL v3 ou ultérieure.
+  - Un plugin qui n'emploie que l'interface de plugin peut être publié sous la
+    licence que son auteur veut, y compris fermée, et l'ensemble peut être
+    distribué ou exposé en ligne dans ces conditions.
+  - Le noyau reste sous AGPL, ses modifications aussi : qui l'expose en réseau
+    en doit les sources, section 13 comprise.
+  - L'interface de plugin comprend le module sdk, le paquet de test
+    host/hosttest, le module d'interface apps/web/src/host, le module rpc et son contrat gRPC, quel que soit le
+    langage du programme, le contrat des scripts d'interface et leur preset de
+    build, l'API HTTP et les formats déclaratifs (manifestes de plugin et
+    lectures déclarées compris).
+  - Les pipelines, les catalogues, les manifestes et les lectures sont des
+    données. Les exemples livrés (deploy/base/pipelines/, rpc/examples/) sont
+    sous Apache 2.0, pour être copiés et adaptés sans contrainte : un plugin
+    parti d'un exemple ne copie pas de code du dashboard.

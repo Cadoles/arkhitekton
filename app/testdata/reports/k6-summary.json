@@ -1,0 +1,5 @@
+{"metrics":{
+  "http_req_duration":{"type":"trend","values":{"p(95)":310.2,"med":120.5},"thresholds":{"p(95)<300":{"ok":false}}},
+  "http_reqs":{"count":1200,"rate":40.1},
+  "http_req_failed":{"values":{"rate":0.002},"thresholds":{"rate<0.01":{"ok":true}}},
+  "vus_max":{"value":50}}}

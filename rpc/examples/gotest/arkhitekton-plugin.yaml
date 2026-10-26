@@ -1,0 +1,48 @@
+# What an instance installs: this directory, packed and signed by `arkhitekton publish-plugin`.
+# The program is built beside this file for each platform before publishing:
+#
+#   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/plugin-linux-amd64 .
+#   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/plugin-linux-arm64 .
+apiVersion: arkhitekton.plugin/v2
+id: gotest
+version: 1.0.0
+sdk: "1"
+label: Go
+summary: Tests d'un projet Go, lus depuis le flux de `go test -json`.
+binary: bin/plugin
+protocol: 1
+pipelines:
+  - name: unit-tests
+    label: Tests Go
+    pipelineRef: go-unit-tests
+    tekton:
+      - tekton/pipeline-go-unit-tests.yaml
+      - tekton/task-go-test.yaml
+    externalTasks: [git-clone]
+    params:
+      repo-url:
+        source: binding
+        defaultKey: project.repoUrl
+      revision:
+        source: input
+        required: true
+        label: Révision
+    workspaces:
+      - name: git-credentials
+        need: source-read
+      - name: shared-data
+        volume: { storage: 1Gi }
+    needs:
+      - name: source-read
+        reason: clone the project
+    artifacts:
+      - name: results
+        param: results-upload-url
+        object: go-test.json
+        format: file
+        members:
+          - { match: go-test.json, parser: raw, tool: gotest }
+    produces: [results]
+    verification: true
+    group: unit
+    interpreter: native
