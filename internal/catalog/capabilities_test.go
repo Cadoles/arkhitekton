@@ -220,3 +220,25 @@ func TestRecordedBindingsCompleteTheFile(t *testing.T) {
 		t.Error("an unknown key accepted")
 	}
 }
+
+// The file binds, before its plugin is installed, what only the file can bind: the binding waits.
+func TestABindingWaitsForItsPlugin(t *testing.T) {
+	parsed, err := Parse([]byte(`
+capabilities:
+  - ref: mse/integration-tests
+    needs:
+      source-read: { secret: { configKey: pipeline.gitSecret } }
+  - ref: absent/deploy
+    needs:
+      cluster-deploy: { serviceAccountName: deployer }
+`), WithCapabilities(deployRegistry(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Awaiting) != 1 || parsed.Awaiting[0] != "absent/deploy" {
+		t.Errorf("awaiting = %v", parsed.Awaiting)
+	}
+	if _, found := parsed.Find("absent/deploy"); found {
+		t.Error("a capability without its plugin is launchable")
+	}
+}

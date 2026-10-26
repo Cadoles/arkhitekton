@@ -47,8 +47,10 @@ The built-in plugins bring `core/build`, `core/retag`, `php/static-tests`, `php/
 its own. Their Tekton definitions are installed by the dashboard when the capability
 ships them, or provided by the operator otherwise.
 
-A binding naming a capability no plugin brings, or a parameter, a need or a volume the
-capability does not declare, stops start-up.
+A binding naming a plugin that is not installed waits for it, and says so at start-up: the file
+binds what only it can bind, a service account, before the plugin is installed. A binding naming
+a capability its plugin does not bring, or a parameter, a need or a volume the capability does
+not declare, stops start-up.
 
 **Bindings recorded from the screen.** An administrator binds, from Administration, Capacités,
 what the file does not: the capabilities of a plugin installed from a registry first (§6.12).

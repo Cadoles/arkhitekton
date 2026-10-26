@@ -45,6 +45,8 @@ type Catalog struct {
 	// Pipelines are the pipelines the dashboard can launch, resolved from the bindings. Never read
 	// from the file: a pipeline enters only through a plugin.
 	Pipelines []Pipeline `json:"-"`
+	// Awaiting are the bindings whose plugin is not installed: they apply once it is.
+	Awaiting []string `json:"-"`
 	// fileRefs are the capabilities the file binds: an administrator's binding never overrides them.
 	fileRefs map[string]bool
 	// Projects carries what the catalogue declares per project, keyed by slug.

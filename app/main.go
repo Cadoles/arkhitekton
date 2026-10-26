@@ -238,7 +238,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	pipelines := inForce.Current().Catalog
 	// Every replica follows what is installed and bound: each reads the database's counter.
 	go func() { _ = reloader.Run(ctx) }()
-	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
+	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns,
+		"awaiting_plugin", pipelines.Awaiting)
 	// The sensitivity of the environments is declared in the catalogue. Logged: it is what decides
 	// who may promote where.
 	policies := pipelines.EnvironmentPolicies()
@@ -491,7 +492,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 	// Checked against the cluster under the lease, once the capabilities' definitions are installed:
 	// checking here refused to start on a fresh cluster, before the dashboard could install them.
-	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns)
+	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns,
+		"awaiting_plugin", pipelines.Awaiting)
 
 	// The projects that never declared their automation receive it, composed from their targets.
 	// Without it, all of them would stop building on the deployment of this version.

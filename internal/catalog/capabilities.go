@@ -143,6 +143,9 @@ const (
 	KindRetag = "core/retag"
 )
 
+// errPluginAbsent says a binding names a plugin that is not installed.
+var errPluginAbsent = errors.New("its plugin is not installed")
+
 // resolve turns the bindings into pipelines.
 func (c *Catalog) resolve(registry *capabilities.Registry) error {
 	if len(c.Capabilities) == 0 {
@@ -155,6 +158,13 @@ func (c *Catalog) resolve(registry *capabilities.Registry) error {
 	var problems []error
 	for _, binding := range c.Capabilities {
 		pipeline, err := resolveBinding(registry, binding)
+		if errors.Is(err, errPluginAbsent) {
+			// The operator binds what only the file can bind, a service account, before the plugin
+			// is installed: the binding waits for it. A plugin present that lacks the capability is a
+			// mistake, and stops start-up.
+			c.Awaiting = append(c.Awaiting, binding.Ref)
+			continue
+		}
 		if err != nil {
 			problems = append(problems, fmt.Errorf("capability %q: %w", binding.Ref, err))
 			continue
@@ -171,7 +181,10 @@ func resolveBinding(registry *capabilities.Registry, binding Binding) (Pipeline,
 	}
 	declared, _, found := registry.Pipeline(ref)
 	if !found {
-		return Pipeline{}, errors.New("no plugin brings it")
+		if _, err := registry.Plugin(ref.Plugin); err != nil {
+			return Pipeline{}, errPluginAbsent
+		}
+		return Pipeline{}, errors.New("its plugin does not bring it")
 	}
 	spec := declared.Spec
 	if spec.PipelineRef == "" {
