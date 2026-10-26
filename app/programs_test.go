@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"log/slog"
+	"os"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/host/hosttest"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
@@ -39,7 +42,8 @@ migrations: { dir: migrations, table: goose_widgets_db_version }
 	if err := migrations.CheckSchema(database.Pool)(context.Background()); err == nil {
 		t.Error("a schema not yet applied reads as ready")
 	}
-	if err := migratePlugin(database.Config, slog.New(slog.DiscardHandler))(context.Background(), plugin); err != nil {
+	cfg := config.DatabaseConfig{DSN: os.Getenv("TEST_DATABASE_URL"), MaxConns: 2, ConnMaxLifetime: time.Minute}
+	if err := migratePlugin(cfg, slog.New(slog.DiscardHandler))(context.Background(), plugin); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrations.CheckSchema(database.Pool)(context.Background()); err != nil {

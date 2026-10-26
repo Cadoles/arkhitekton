@@ -13,7 +13,7 @@ database to carry the migrations its own build expects, and exits if it does not
 that started against an older schema would fail later, in a request, instead of at
 deployment time.
 
-**An extension owns its migrations.** It keeps its own history in its own version table,
+**A plugin owns its migrations.** It keeps its own history in its own version table,
 applied by the same command and waited on the same way. The
 core's migration history never mentions plugin tables.
 
@@ -42,7 +42,7 @@ parallel with another one.
 | `GET /healthz` | The process is alive. Suitable as a liveness probe |
 | `GET /readyz` | Every dependency answers. Suitable as a readiness probe |
 
-`/readyz` reports one entry per check: `postgres`, `schema`, `minio`, and one per extension
+`/readyz` reports one entry per check: `postgres`, `schema`, `minio`, and one per installed plugin
 with a schema of its own (`schema-<id>`). A single failing check makes the pod
 unready — it stops receiving traffic without being restarted, which is the right response
 to a dependency that is briefly unavailable.

@@ -12,7 +12,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,7 +24,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/restmapper"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/host"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
@@ -49,17 +47,12 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
-// Options are what a distribution's command gives the dashboard.
+// Options are what the command gives the dashboard.
 type Options struct {
-	// Version and Revision are filled in at compile time through -ldflags, in the distribution's
-	// command (see Dockerfile and Makefile).
+	// Version and Revision are filled in at compile time through -ldflags, in the command (see
+	// Dockerfile and Makefile).
 	Version  string
 	Revision string
-	// Extensions are what the distribution compiles in beside the built-in plugins.
-	Extensions []host.Extension
-	// UI is the interface the distribution built, its extensions' screens included, index.html
-	// at its root. Nil, the interface embedded in this module is served.
-	UI fs.FS
 }
 
 // The version is logged at every start-up: diagnosing unexpected behaviour begins with
@@ -100,11 +93,6 @@ func Main(options Options) {
 	}
 	if options.Revision != "" {
 		revision = options.Revision
-	}
-	ui = options.UI
-	if err := setExtensions(options.Extensions); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
 	}
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -173,10 +161,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
-	// Then the extensions', migrated just after the core by the same Job.
-	if err := waitForExtensionSchemas(ctx, cfg.Database, startupWait, logger); err != nil {
-		return err
-	}
 
 	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
@@ -234,7 +218,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	connections := connect.New(pluginRegistry, db, cipher, connect.Timeouts{
 		Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout,
 	})
-	seedExtensionSettings(ctx, db, logger)
 
 	// In the database and not in memory: two api replicas with no session affinity serve
 	// `/auth/login` and `/auth/callback` through different instances, and the transition state
@@ -302,15 +285,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// `worker`, and the two processes have no meeting point other than MinIO and PostgreSQL.
 	logsHandler := dashhttp.NewLogsHandler(logs.NewReader(storage))
 
-	// What the distribution's extensions add to this role: routes, the releases' deployments and
-	// promotions, environment suggestions, version scheme checks.
-	extensionHooks, err := apiHooks(host.APIHost{
-		Store: db, Pool: db.Pool(), Catalog: pipelines, Authorizer: authorizer, Modules: modules, Logger: logger,
-	})
-	if err != nil {
-		return err
-	}
-	// And the installed plugins' programs, asked at each call.
+	// What the installed plugins' programs add to this role, asked at each call: the releases'
+	// deployments and promotions, environment suggestions, version scheme checks.
 	answers := pluginHooks{programs: servers, db: db, logger: logger}
 
 	queueHandler := dashhttp.NewQueueHandler(db, inForce.Catalogs()).
@@ -318,7 +294,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// from the same configuration as the one used to read the tags — deducing it elsewhere would
 		// make what is offered diverge from what is pulled.
 		WithSuggestions(db, cfg.Registry.Project, logger).
-		WithEnvironmentSuggestions(answers.suggestions(composedSuggestions(extensionHooks)))
+		WithEnvironmentSuggestions(answers.suggestions())
 	// The name of the promoted repository comes from the registry's configuration: it is the same
 	// prefix as the one used to read the tags, and deducing it elsewhere would make reading and
 	// promotion diverge.
@@ -341,10 +317,10 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// same figure.
 		WithScoreCatalog(inForce.Catalogs()).
 		WithArtifactReader(db).
-		// The "deployed on" badge and the requested promotions: the core reads no extension's tables,
-		// and a switched-off extension returns nothing.
-		WithDeployments(answers.deployments(composedDeployments(extensionHooks))).
-		WithPromotions(answers.promotions(composedPromotions(extensionHooks))).
+		// The "deployed on" badge and the requested promotions: the core reads no plugin's tables,
+		// and a switched-off plugin is not asked.
+		WithDeployments(answers.deployments()).
+		WithPromotions(answers.promotions()).
 		WithTrackers(connections).
 		WithExports(deliverablesEnabled(db)).
 		// The release is anchored on a commit and tagged through the project's forge plugin. With
@@ -360,22 +336,23 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 				WithArtifacts(db, worker.ProductOf(inForce.Catalogs())),
 			pipelines, db, cfg.Registry.Project, logger))
 
-	mounts := append(composedRoutes(extensionHooks),
+	mounts := []dashhttp.Mount{
 		// The bindings an administrator records for what the catalogue file does not bind.
 		dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
 			sources.checkBinding, reloader.Reload, logger).Routes,
 		// The plugins an administrator installs from a registry, pulled and verified by the worker.
 		dashhttp.NewInstallationsHandler(db, sources.checkActivation, reloader.Reload, logger).Routes,
 		// And the routes their programs serve, checked here before the program sees them.
-		dashhttp.NewPluginRoutesHandler(servers, db, db, authorizer).Routes)
-	readiness := append([]dashhttp.ReadinessCheck{
+		dashhttp.NewPluginRoutesHandler(servers, db, db, authorizer).Routes,
+	}
+	readiness := []dashhttp.ReadinessCheck{
 		{Name: "postgres", Check: db.Ping},
 		// Distinct from the ping: PostgreSQL may answer although the migration Job has not run yet.
 		// Without this check, the pod would declare itself ready then answer 500 on every missing
 		// table.
 		{Name: "schema", Check: db.CheckSchema},
 		{Name: "minio", Check: storage.Ping},
-	}, extensionReadiness(db.Pool(), extensionHooks)...)
+	}
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
@@ -394,7 +371,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// The access test uses the forge's token, with one client per repository: the configuration's
 			// is bound to its own, and the test bears precisely on another. With no token, the screen
 			// says so rather than returning a failure one would take for a permission problem.
-			projectsHandler(cfg, db, answers.schemeCheck(composedSchemeCheck(extensionHooks)), connections),
+			projectsHandler(cfg, db, answers.schemeCheck(), connections),
 			// The cipher may be nil: with no key, the settings are read and enabled, only writing a
 			// sensitive field is refused — with a message that names the variable, in the place where one
 			// types it.
@@ -411,7 +388,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// What a reaction actually did. An engine one cannot debug is worse than frozen behaviour.
 			dashhttp.NewPlanRunsHandler(db),
 			middleware, mounts...),
-		ui, readiness...).
+		nil, readiness...).
 		// An installed plugin's schema comes and goes with its installation.
 		WithReadiness(installedSchemas(sources, db.Pool(), logger))
 
@@ -454,10 +431,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := store.WaitForSchema(ctx, cfg.Database, startupWait, logger); err != nil {
 		return err
 	}
-	// Then the extensions', migrated just after the core by the same Job.
-	if err := waitForExtensionSchemas(ctx, cfg.Database, startupWait, logger); err != nil {
-		return err
-	}
 
 	db, err := store.Open(ctx, cfg.Database)
 	if err != nil {
@@ -478,7 +451,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := db.EnsurePlugins(ctx, pluginIDs(pluginRegistry)); err != nil {
 		logger.Error("seeding the plugins", "error", err)
 	}
-	seedExtensionSettings(ctx, db, logger)
 
 	// `versions.normalized_name` is a derived column: changing the normalisation rule makes it
 	// stale, and the matching would then compare a form computed with the new rule to a form
@@ -535,24 +507,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 
-	// The modules the dashboard runs on the plugins' behalf, each bound to the plugin that declares
-	// it. Started and stopped under the lease by their supervisor, as their plugin is switched.
-	extensionHooks, err := workerHooks(host.WorkerHost{
-		Store: db, Pool: db.Pool(), Cluster: cluster.RESTConfig, Catalog: pipelines, Logger: logger,
-	})
-	if err != nil {
-		return err
-	}
-	// And the installed plugins' programs, asked at each call.
+	// What the installed plugins' programs add to this role, asked at each call: the facts of a
+	// promotion, the settings a project adds to its pipelines.
 	answers := pluginHooks{programs: readers, db: db, logger: logger}
-	promotionFacts, err := composedPromotionFacts(extensionHooks)
-	if err != nil {
-		return err
-	}
-	modules, err := hostModules(pluginRegistry, composedModules(extensionHooks)...)
-	if err != nil {
-		return err
-	}
 
 	identity := worker.LeaderIdentity()
 	logger.Info("standing for the lease", "identity", identity, "lease_namespace", cfg.Tekton.LeaseNamespace)
@@ -581,7 +538,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// project above.
 				"default_repo", resolved["project.repoUrl"],
 				"registry_project", resolved["registry.project"],
-				// What the extensions add per project is theirs to log.
+				// What the plugins add per project is theirs to log.
 				"git_secret", resolved["pipeline.gitSecret"],
 				"registry_secret", resolved["pipeline.registrySecret"],
 				// The pipelines' storage is not the dashboard's, and it shows only at the last step of an
@@ -611,9 +568,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithInstance(instance).
 				// The emission of facts.
 				WithEvents(db)
-			// A promotion is observed when one concludes, which only happens while an extension
-			// promotes.
-			sink.WithPromotionFacts(pluginPromotionFacts{hooks: answers, compiled: promotionFacts})
+			// A promotion is observed when one concludes, which only happens while a plugin promotes.
+			sink.WithPromotionFacts(pluginPromotionFacts{hooks: answers})
 
 			// The plan engine, which chains the verifications of a successful build and concludes their
 			// steps at the end of their job.
@@ -672,9 +628,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// The repository this project clones, read from the database: a second project does not build
 				// the first one's.
 				WithProjectRepositories(db, os.Getenv("FORGE_SSH_PORT")).
-				// And the settings the extensions add for this project. Nothing from an extension switched
+				// And the settings the plugins add for this project. Nothing from a plugin switched
 				// off for it.
-				WithProjectSettings(answers.projectSettings(composedProjectSettings(extensionHooks))).
+				WithProjectSettings(answers.projectSettings()).
 				// A plugin switched off by an administrator stops its pipelines.
 				WithPluginGate(pluginGate(db))
 
@@ -729,7 +685,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			go func() { errs <- observer.Run(leadingCtx) }()
 			go func() { errs <- scheduler.Run(leadingCtx) }()
 			go func() {
-				errs <- module.NewSupervisor(db, moduleTick, logger, modules...).WithModules(readers.modules).Run(leadingCtx)
+				errs <- module.NewSupervisor(db, moduleTick, logger).WithModules(readers.modules).Run(leadingCtx)
 			}()
 			go func() { errs <- purger.Run(leadingCtx) }()
 			// The objects nothing refers to any more: attachments of an earlier reading, layers of a
@@ -810,7 +766,7 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		return fallback
 	}
 
-	return extensionSchedulerConfig(map[string]string{
+	return map[string]string{
 		"tekton.namespace": cfg.Tekton.Namespace,
 		// Names of the secrets mounted on the workspaces. The dashboard **names** the credentials, it
 		// never handles them: `secrets` is deliberately absent from its RBAC
@@ -828,7 +784,7 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// The repository of a job that names no project. Those that name one clone **their own**,
 		// read from the database by the scheduler.
 		"project.repoUrl": appRepositoryURL(cfg),
-		// What an extension's pipelines read comes from its plugin's settings, where a project
+		// What a plugin's pipelines read comes from its settings, where a project
 		// overrides them.
 		// The security audit reads its Semgrep rules and its policies in a repository it clones,
 		// just like the application.
@@ -841,7 +797,7 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// the dashboard's what the dashboard writes itself.
 		"minio.host":           os.Getenv("PIPELINE_MINIO_HOST"),
 		"minio.pipelineBucket": os.Getenv("PIPELINE_MINIO_BUCKET"),
-	})
+	}
 }
 
 func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
@@ -855,10 +811,6 @@ func runMigrate(ctx context.Context, cfg config.Config, logger *slog.Logger) err
 	}
 
 	if err := store.Migrate(ctx, cfg.Database, logger); err != nil {
-		return err
-	}
-	// The extensions after the core: their tables reference the core's.
-	if err := migrateExtensions(ctx, cfg.Database, logger); err != nil {
 		return err
 	}
 
@@ -911,7 +863,7 @@ func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 	report, err := db.Bootstrap(ctx, store.BootstrapSpec{
 		Grants:          configuredGrants(cfg),
-		Projects:        extensionProjects(configuredProjects(cfg)),
+		Projects:        configuredProjects(cfg),
 		Plugins:         plugins,
 		TrackerPluginID: trackerPluginID,
 	})
@@ -1129,7 +1081,7 @@ func projectsHandler(
 		WithLibrary(referenceLibrary()).
 		WithForgeURL(cfg.Forge.URL).
 		WithImageRegistry(cfg.Registry.Project).
-		// The extensions that deploy refuse what they cannot route.
+		// The plugins that deploy refuse what they cannot route.
 		WithSchemeCheck(schemeCheck)
 
 	// The access test uses the instance's forge settings: the repository being declared belongs to
@@ -1138,8 +1090,7 @@ func projectsHandler(
 }
 
 // configuredProjects returns the repositories the configuration names: the application, which is
-// built, and the pipelines' repository, which the security audit clones to read its rules. The
-// extensions complete them (see extensionProjects).
+// built, and the pipelines' repository, which the security audit clones to read its rules.
 func configuredProjects(cfg config.Config) []store.Project {
 	resolved := schedulerConfig(cfg)
 	project := projectSeedDefaults(cfg)

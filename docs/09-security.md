@@ -71,7 +71,7 @@ secrets, it never reads them.** It can create the secret a pipeline will mount a
 it afterwards, and it cannot read that secret's contents — nor any other secret in the
 namespace.
 
-An extension that reads the cluster brings its own roles with its deployment component, and
+A plugin that reads the cluster needs roles its operator grants the worker's account, and
 documents them.
 
 ## 9.5 Pod hardening

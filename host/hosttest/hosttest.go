@@ -1,11 +1,13 @@
-// Package hosttest is what an extension's tests borrow from the dashboard: a throwaway database
-// with the dashboard's schema, an authenticated request, the plugins' switches, and its parsers
-// and interpreters, so that a reading is checked as the dashboard will run it.
+// Package hosttest is what an installed plugin's tests borrow from the dashboard: a throwaway
+// database with the dashboard's schema and the plugin's migrations applied as the dashboard applies
+// them, its catalogue as an instance reads it, and its parsers and interpreters, so that a reading
+// is checked as the dashboard will run it.
 package hosttest
 
 import (
 	"context"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"testing"
@@ -13,12 +15,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/host"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -32,8 +32,8 @@ func Logger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil
 
 // Database is a PostgreSQL the test may empty, named by TEST_DATABASE_URL.
 type Database struct {
-	Config host.DatabaseConfig
 	Pool   *pgxpool.Pool
+	config config.DatabaseConfig
 	core   *store.DB
 }
 
@@ -45,7 +45,7 @@ func EmptyDatabase(t *testing.T) *Database {
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set: integration test skipped")
 	}
-	cfg := host.DatabaseConfig{DSN: dsn, MaxConns: 4, ConnMaxLifetime: time.Minute}
+	cfg := config.DatabaseConfig{DSN: dsn, MaxConns: 4, ConnMaxLifetime: time.Minute}
 	ctx := context.Background()
 	db, err := store.Open(ctx, cfg)
 	if err != nil {
@@ -55,19 +55,16 @@ func EmptyDatabase(t *testing.T) *Database {
 	if _, err := db.Pool().Exec(ctx, "drop schema public cascade; create schema public;"); err != nil {
 		t.Fatalf("resetting the schema: %v", err)
 	}
-	return &Database{Config: cfg, Pool: db.Pool(), core: db}
+	return &Database{Pool: db.Pool(), config: cfg, core: db}
 }
 
-// MigrateCore applies the dashboard's migrations, which an extension's follow.
+// MigrateCore applies the dashboard's migrations, which a plugin's follow.
 func (d *Database) MigrateCore(t *testing.T) {
 	t.Helper()
-	if err := store.Migrate(context.Background(), d.Config, Logger()); err != nil {
+	if err := store.Migrate(context.Background(), d.config, Logger()); err != nil {
 		t.Fatalf("the dashboard's migrations: %v", err)
 	}
 }
-
-// Store is the dashboard's store on this database.
-func (d *Database) Store() host.Store { return d.core }
 
 // Release creates a release of a project, its version included, and returns its id.
 func (d *Database) Release(t *testing.T, projectID int64, tag, imageVersion string) int64 {
@@ -87,23 +84,32 @@ func (d *Database) Release(t *testing.T, projectID int64, tag, imageVersion stri
 	return id
 }
 
-// WithIdentity sets an identity on a context as authentication would.
-func WithIdentity(ctx context.Context, identity host.Identity) context.Context {
-	return dashhttp.ContextWithIdentity(ctx, identity)
+// Migrations are a plugin's, as its manifest declares them: the files of its `migrations.dir`, its
+// version table. The dashboard applies them when the plugin is installed; a test applies them
+// here, the same way.
+type Migrations struct {
+	Plugin string
+	Table  string
+	Files  fs.FS
 }
 
-// Authorizer decides with the given environment policies.
-func Authorizer(policies host.ProjectPolicies) *host.Authorizer { return auth.NewAuthorizer(policies) }
+func (m Migrations) set() store.MigrationSet {
+	return store.MigrationSet{Name: m.Plugin, Table: m.Table, Files: m.Files}
+}
 
-// Modules answers whether a plugin is switched on, from the settings a reader returns, for the
-// given plugins.
-func Modules(t *testing.T, reader host.PluginReader, plugins ...capability.Plugin) *host.Modules {
-	t.Helper()
-	registry, err := capabilities.New(plugins...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return dashhttp.NewModules(registry, reader, Logger())
+// Migrate applies them all.
+func (m Migrations) Migrate(ctx context.Context, d *Database) error {
+	return m.set().Migrate(ctx, d.config, Logger())
+}
+
+// Rollback undoes the last one applied.
+func (m Migrations) Rollback(ctx context.Context, d *Database) error {
+	return m.set().Rollback(ctx, d.config)
+}
+
+// Pending lists those not applied yet.
+func (m Migrations) Pending(ctx context.Context, d *Database) ([]string, error) {
+	return m.set().Pending(ctx, d.config)
 }
 
 // Record parses a report as the dashboard does for a member declared with this parser.
@@ -137,14 +143,11 @@ func Interpret(t *testing.T, plugin capability.Plugin, pipeline string, run capa
 	return sets
 }
 
-// Catalogue loads a catalogue file as a distribution with these extensions reads it: against the
-// built-in plugins and the extensions'.
-func Catalogue(t *testing.T, path string, extensions ...host.Extension) *host.Catalog {
+// Catalogue loads a catalogue file as an instance with these plugins installed reads it: against
+// the built-in plugins and theirs.
+func Catalogue(t *testing.T, path string, installed ...capability.Plugin) *catalog.Catalog {
 	t.Helper()
-	plugins := builtin.Plugins()
-	for _, extension := range extensions {
-		plugins = append(plugins, extension.Plugin)
-	}
+	plugins := append(builtin.Plugins(), installed...)
 	registry, err := capabilities.New(plugins...)
 	if err != nil {
 		t.Fatal(err)

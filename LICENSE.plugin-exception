@@ -17,7 +17,7 @@ DEFINITIONS
   (a) the exported identifiers of what the Program designates as its plugin
       API, at the date of this file: the module
       `forge.cadoles.com/vcarroy/arkhitekton/sdk` and every package under it,
-      the packages `host`, `host/hosttest` and `app` of the module
+      the package `host/hosttest` of the module
       `forge.cadoles.com/vcarroy/arkhitekton`, and the interface module
       `apps/web/src/host` with the module contract it exports;
 
@@ -91,9 +91,8 @@ Résumé en français, sans valeur juridique — le texte anglais ci-dessus fait
     distribué ou exposé en ligne dans ces conditions.
   - Le noyau reste sous AGPL, ses modifications aussi : qui l'expose en réseau
     en doit les sources, section 13 comprise.
-  - L'interface de plugin comprend le module sdk, l'API hôte des extensions
-    compilées (paquets host, host/hosttest et app, module d'interface
-    apps/web/src/host), le module rpc et son contrat gRPC, quel que soit le
+  - L'interface de plugin comprend le module sdk, le paquet de test
+    host/hosttest, le module d'interface apps/web/src/host, le module rpc et son contrat gRPC, quel que soit le
     langage du programme, le contrat des scripts d'interface et leur preset de
     build, l'API HTTP et les formats déclaratifs (manifestes de plugin et
     lectures déclarées compris).

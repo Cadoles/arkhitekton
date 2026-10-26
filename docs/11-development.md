@@ -3,8 +3,10 @@
 ## 11.1 Repository layout
 
     app/                  the binary as a library, the only place plugins are assembled
-    cmd/arkhitekton/      the default distribution: app.Main with the built-in plugins
-    host/                 the API compiled-in extensions implement, and hosttest/ for their tests
+    cmd/arkhitekton/      the command: app.Main
+    host/hosttest/        what an installed plugin's tests borrow from the dashboard
+    rpc/                  the native plugins' contract (proto, pluginv1), extension/ the kit
+                          a plugin's program imports, examples/ the example plugin
     internal/
       auth/               roles, permissions, sessions
       catalog/            the pipeline catalogue and its validation
@@ -19,7 +21,7 @@
       tekton/, gitea/, redmine/, registry/, blob/   external systems
       web/                the embedded interface build output
     apps/web/             the React sources; src/host/ is what interface modules import,
-                          src/plugins/<id>/ where a distribution puts its modules
+                          src/plugins/<id>/ where a plugin's module is dropped to build it
     deploy/               kustomize manifests and pipeline definitions
     docs/                 this documentation
 

@@ -1,5 +1,5 @@
-// Command arkhitekton is the default distribution: the dashboard and its built-in plugins. A
-// distribution with extensions has a command of its own (docs/06-plugins.md §6.13).
+// Command arkhitekton is the dashboard and its built-in plugins; the others are installed
+// (docs/06-plugins.md §6.12).
 package main
 
 import "forge.cadoles.com/vcarroy/arkhitekton/app"

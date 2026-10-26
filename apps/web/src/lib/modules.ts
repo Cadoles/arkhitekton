@@ -7,9 +7,8 @@ import type { Release, ReleaseDetail } from '../features/releases/api'
  * Ce qu'un module apporte à l'interface.
  *
  * Le noyau ne nomme aucun module : il lit ces définitions, et un module éteint
- * n'apporte rien. Seul `src/modules.ts` les assemble, comme le paquet `app`
- * côté serveur : il trouve ceux que la distribution a déposés dans
- * `src/plugins/<id>/` (doc 06 §6.13).
+ * n'apporte rien. Seul `src/modules.ts` les assemble : ceux que les plugins
+ * installés enregistrent en se chargeant (doc 06 §6.12).
  */
 
 export type ModuleNavEntry = {

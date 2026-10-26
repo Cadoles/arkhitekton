@@ -302,9 +302,7 @@ makes a plugin reachable from the automation screen without the core knowing wha
 
 Some plugins need loops that write the dashboard's tables and talk to the cluster, which a
 contract plugin cannot do. Those are **modules**: an installed plugin's program runs one when its
-manifest says `module: true` (§6.4, §6.12); an extension compiled into a distribution (§6.13)
-writes one against the `host` package, refused at start-up if its plugin does not declare the
-`module` capability.
+manifest says `module: true` (§6.4, §6.12).
 
 The worker's supervisor runs a module while its plugin is switched on for at least one
 project, and restarts it with its new settings when they change. An installed plugin's module
@@ -313,10 +311,11 @@ the plugin is uninstalled. Switching a module on or
 off, or editing its settings, applies within thirty seconds, without a restart. A module that
 fails is started again at the next tick; the worker keeps running.
 
-A plugin that needs tables owns them. An extension carries its own migrations and its own
-version table (`goose_<id>_db_version` by convention), applied by the same `migrate` role after
-the core's, and the dashboard adds its readiness check (`schema-<id>`). The core's schema does not mention the plugin's tables,
-and dropping the plugin means dropping its migrations — not editing the core's history.
+A plugin that needs tables owns them. An installed plugin carries its own migrations and its own
+version table (`goose_<id>_db_version` by convention), applied when it is installed, and the
+dashboard adds its readiness check (`schema-<id>`). The core's schema does not mention the
+plugin's tables, and dropping the plugin means dropping its migrations, not editing the core's
+history.
 
 ## 6.10 Environments and deployment
 
@@ -326,21 +325,19 @@ The core knows a project's **environments**, declared per project in the catalog
 itself: re-tagging an image (`core/retag`) is the only promotion it can launch.
 
 How a promotion reaches an environment, how the dashboard learns what an environment actually
-runs, and who signs a release off are one way of deploying, brought by an extension (§6.13):
-its hooks tell the release screen which environments run a release, list its promotions,
+runs, and who signs a release off are one way of deploying, brought by an installed plugin
+(§6.4): its hooks tell the release screen which environments run a release, list its promotions,
 suggest environments to a run, refuse a version scheme it cannot deploy, and state the fact of
-a concluded promotion. A distribution without such an extension shows no deployment.
+a concluded promotion. An instance without such a plugin shows no deployment.
 
 ## 6.11 Writing a plugin
 
-A plugin is a Go package importing the `sdk` module and nothing else of the dashboard. Three
-ways to bring it:
+A plugin imports the `sdk` module, and for a program the `rpc` module, and nothing else of the
+dashboard. Two ways to bring it:
 
 - **built in**: added to `internal/plugins/builtin`, released with the dashboard;
 - **installed** from a registry without recompiling, its pipelines and, through a program
-  (§6.4), its routes, tables, hooks, module and screens (§6.12);
-- **compiled into a distribution** with what pipelines alone cannot do, routes, tables, loops,
-  screens: an extension (§6.13).
+  (§6.4), its routes, tables, hooks, module and screens (§6.12).
 
  Its version changes
 whenever what its interpreters read changes: a replay refuses to read a run with another
@@ -503,57 +500,22 @@ the worker watch: each rebuilds its capabilities within thirty seconds, at once 
 that took the request. Capabilities that do not build leave the previous ones in force, and are
 tried again. A new interface appears when the page is loaded again.
 
-## 6.13 Extensions and distributions
+## 6.13 Testing a plugin
 
-An **extension** brings what a plugin's pipelines cannot: routes, tables and their migrations,
-loops under the worker's lease, screens. It is compiled into a **distribution** of the
-dashboard: a command of its own that calls `app.Main` with its extensions, and an image built
-from it. `cmd/arkhitekton` is the default distribution.
+`host/hosttest` gives an installed plugin's tests what the dashboard does, so that what passes
+there runs the same once installed:
 
-```go
-package main
+- `EmptyDatabase` (with `TEST_DATABASE_URL`), `MigrateCore`, and `Migrations{Plugin, Table,
+  Files}` applying the plugin's own as the dashboard applies them at installation, rolled back
+  or listed as pending;
+- `Catalogue`: a catalogue file loaded as an instance with the plugin installed reads it;
+- `Record`, `Interpret`, `CheckReading`, `SameFacts`: a report parsed by the dashboard's parsers,
+  a run read by the plugin's interpreter, a declared reading checked against recorded cases.
 
-import "forge.cadoles.com/vcarroy/arkhitekton/app"
+A route's handler is tested as plain `net/http`, its caller and project set with
+`extension.WithIdentity` and `extension.WithProject`. A program as a whole is checked with
+`arkhitekton check-reading --plugin`, and the interface's module with the dashboard's own front-end
+checks, once dropped in `apps/web/src/plugins/<id>/` of a tree built outside any ignored path.
 
-func main() {
-    app.Main(app.Options{
-        Version: version, Revision: revision,
-        Extensions: []host.Extension{acme.Extension()},
-        UI:         web.Dist, // the interface built with the extension's screens
-    })
-}
-```
-
-**The host API.** An extension imports `host`, the contract it implements and what the
-dashboard lends it, and nothing else of the dashboard: Go forbids importing `internal/`
-from another module, and a test enforces the rule for an extension kept in this repository.
-`host.Extension` declares, every field optional:
-
-| Field | What it brings |
-|---|---|
-| `Plugin` | its descriptor (sdk), pipelines included, registered with the built-in plugins |
-| `Stacks` | Tekton definitions added to the reference stacks a project declares |
-| `Migrations` | its tables: a `MigrationSet` with a version table of its own, applied after the core's |
-| `Seed` | settings filled at start-up, projects completed at the first bootstrap, configuration keys |
-| `API` | routes, release deployments and promotions, environment suggestions, version scheme checks |
-| `Worker` | modules, the fact of a promotion, values added to a project's pipelines |
-
-The dashboard lends a `Store` (projects, releases, the queue, the audit log, plugin
-settings), the PostgreSQL pool for the extension's own tables, the catalogue, the
-authorisation, the plugins' switches, the cluster's configuration (worker) and a logger. Data
-is shared through aliases of the dashboard's types, services through narrow interfaces.
-`host/hosttest` gives an extension's tests a throwaway database with the dashboard's schema,
-an authenticated request, the plugins' switches, and the dashboard's parsers and readings.
-
-**Screens.** An extension's screens are an interface module (`src/plugins/<id>/index.tsx`,
-an `AppModule` as default export: routes, navigation, sections and badges of a release, its
-facts' labels). A module imports `@arkhitekton/host` (`apps/web/src/host`), React, the router
-and react-query, and its own files; a test enforces it. To build a distribution's interface,
-the extension's directory is copied into `apps/web/src/plugins/<id>/` of the arkhitekton
-version it builds against, and `npm run build` writes where `ARKHITEKTON_WEB_OUT` says: one
-bundle, one React, the core's checks applied to the module.
-
-**Versions.** The host API is young: until arkhitekton 1.0, a minor version may change it, and
-says so in its notes. An extension requires the arkhitekton version it is built against, and
-the `sdk` version that version requires (tags `vX.Y.Z` and `sdk/vX.Y.Z`).
-
+The plugin requires the versions of `sdk` and `rpc` it is built against, and of the dashboard for
+`hosttest`. Until arkhitekton 1.0, a minor version may change the kit, and says so in its notes.

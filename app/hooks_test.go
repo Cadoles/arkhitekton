@@ -71,27 +71,27 @@ func TestTheInstalledPluginsAnswerTheHooks(t *testing.T) {
 	hooks := hookedPlugin(t)
 	ctx := context.Background()
 
-	deployed, err := hooks.deployments(nil)(ctx, 7)
+	deployed, err := hooks.deployments()(ctx, 7)
 	if err != nil || len(deployed["1.0.0"]) != 1 || deployed["1.0.0"][0] != "staging" {
 		t.Errorf("deployments %v, %v", deployed, err)
 	}
-	if deployed, _ := hooks.deployments(nil)(ctx, 8); len(deployed) != 0 {
+	if deployed, _ := hooks.deployments()(ctx, 8); len(deployed) != 0 {
 		t.Errorf("a project switching the plugin off heard it: %v", deployed)
 	}
-	promotions, err := hooks.promotions(nil)(ctx, 7, 3)
+	promotions, err := hooks.promotions()(ctx, 7, 3)
 	if err != nil || len(promotions) != 1 || promotions[0].Tag != "r3" {
 		t.Errorf("promotions %v, %v", promotions, err)
 	}
-	if suggested := hooks.suggestions(nil)(ctx, "app"); len(suggested) != 1 || suggested[0].Label != "Staging de app" {
+	if suggested := hooks.suggestions()(ctx, "app"); len(suggested) != 1 || suggested[0].Label != "Staging de app" {
 		t.Errorf("suggestions %v", suggested)
 	}
-	if err := hooks.schemeCheck(nil)(ctx, versionpkg.Opaque{}); err == nil {
+	if err := hooks.schemeCheck()(ctx, versionpkg.Opaque{}); err == nil {
 		t.Error("a scheme the plugin refuses accepted")
 	}
-	if err := hooks.schemeCheck(nil)(ctx, versionpkg.SemVer{}); err != nil {
+	if err := hooks.schemeCheck()(ctx, versionpkg.SemVer{}); err != nil {
 		t.Errorf("semver refused: %v", err)
 	}
-	settings, err := hooks.projectSettings(nil)(ctx, 7)
+	settings, err := hooks.projectSettings()(ctx, 7)
 	if err != nil || settings["deploy.repoUrl"] != "ssh://deploy" {
 		t.Errorf("settings %v, %v", settings, err)
 	}

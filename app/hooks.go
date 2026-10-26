@@ -7,18 +7,18 @@ import (
 	"maps"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/host"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
 
 /*
- * The extension hooks installed plugins answer, composed with the compiled extensions'.
+ * The extension hooks installed plugins answer.
  *
  * Read at each call among the active versions: installing or switching a plugin changes what the
  * release screen, the launch form or the scheduler hear, without a restart. A program that fails
@@ -66,16 +66,9 @@ func (h pluginHooks) failed(plugin string, hook manifest.Hook, err error) {
 	h.logger.Warn("plugin left out of a hook", "plugin", plugin, "hook", hook, "error", err)
 }
 
-func (h pluginHooks) deployments(compiled func(context.Context, int64) (map[string][]string, error)) func(context.Context, int64) (map[string][]string, error) {
+func (h pluginHooks) deployments() func(context.Context, int64) (map[string][]string, error) {
 	return func(ctx context.Context, projectID int64) (map[string][]string, error) {
 		merged := map[string][]string{}
-		if compiled != nil {
-			deployed, err := compiled(ctx, projectID)
-			if err != nil {
-				return nil, err
-			}
-			maps.Copy(merged, deployed)
-		}
 		ctx, cancel := context.WithTimeout(ctx, hookTimeout)
 		defer cancel()
 		for id, client := range h.answering(ctx, manifest.HookDeployments, projectID) {
@@ -92,16 +85,9 @@ func (h pluginHooks) deployments(compiled func(context.Context, int64) (map[stri
 	}
 }
 
-func (h pluginHooks) promotions(compiled func(context.Context, int64, int64) ([]host.ReleasePromotion, error)) func(context.Context, int64, int64) ([]host.ReleasePromotion, error) {
-	return func(ctx context.Context, projectID, releaseID int64) ([]host.ReleasePromotion, error) {
-		var all []host.ReleasePromotion
-		if compiled != nil {
-			promotions, err := compiled(ctx, projectID, releaseID)
-			if err != nil {
-				return nil, err
-			}
-			all = append(all, promotions...)
-		}
+func (h pluginHooks) promotions() func(context.Context, int64, int64) ([]dashhttp.ReleasePromotion, error) {
+	return func(ctx context.Context, projectID, releaseID int64) ([]dashhttp.ReleasePromotion, error) {
+		var all []dashhttp.ReleasePromotion
 		ctx, cancel := context.WithTimeout(ctx, hookTimeout)
 		defer cancel()
 		for id, client := range h.answering(ctx, manifest.HookPromotions, projectID) {
@@ -123,12 +109,9 @@ func (h pluginHooks) promotions(compiled func(context.Context, int64, int64) ([]
 }
 
 // suggestions answers nil when nobody offers anything: the field then stays free text.
-func (h pluginHooks) suggestions(compiled func(context.Context, string) []host.Suggestion) func(context.Context, string) []host.Suggestion {
-	return func(ctx context.Context, slug string) []host.Suggestion {
-		var all []host.Suggestion
-		if compiled != nil {
-			all = append(all, compiled(ctx, slug)...)
-		}
+func (h pluginHooks) suggestions() func(context.Context, string) []dashhttp.Suggestion {
+	return func(ctx context.Context, slug string) []dashhttp.Suggestion {
+		var all []dashhttp.Suggestion
 		project, err := h.db.ProjectBySlug(ctx, slug)
 		if err != nil {
 			return all
@@ -145,7 +128,7 @@ func (h pluginHooks) suggestions(compiled func(context.Context, string) []host.S
 				continue
 			}
 			for _, suggestion := range answer.GetSuggestions() {
-				all = append(all, host.Suggestion{Value: suggestion.GetValue(), Label: suggestion.GetLabel()})
+				all = append(all, dashhttp.Suggestion{Value: suggestion.GetValue(), Label: suggestion.GetLabel()})
 			}
 		}
 		return all
@@ -154,13 +137,8 @@ func (h pluginHooks) suggestions(compiled func(context.Context, string) []host.S
 
 // schemeCheck refuses a scheme any switched-on plugin refuses. A plugin that cannot answer does
 // not refuse: it may be restarting, and saving a project must not wait for it.
-func (h pluginHooks) schemeCheck(compiled func(context.Context, host.Scheme) error) func(context.Context, host.Scheme) error {
-	return func(ctx context.Context, scheme host.Scheme) error {
-		if compiled != nil {
-			if err := compiled(ctx, scheme); err != nil {
-				return err
-			}
-		}
+func (h pluginHooks) schemeCheck() func(context.Context, versionpkg.Scheme) error {
+	return func(ctx context.Context, scheme versionpkg.Scheme) error {
 		ctx, cancel := context.WithTimeout(ctx, hookTimeout)
 		defer cancel()
 		for id, client := range h.answering(ctx, manifest.HookSchemeCheck, 0) {
@@ -177,16 +155,9 @@ func (h pluginHooks) schemeCheck(compiled func(context.Context, host.Scheme) err
 	}
 }
 
-func (h pluginHooks) projectSettings(compiled func(context.Context, int64) (map[string]string, error)) func(context.Context, int64) (map[string]string, error) {
+func (h pluginHooks) projectSettings() func(context.Context, int64) (map[string]string, error) {
 	return func(ctx context.Context, projectID int64) (map[string]string, error) {
 		merged := map[string]string{}
-		if compiled != nil {
-			values, err := compiled(ctx, projectID)
-			if err != nil {
-				return nil, err
-			}
-			maps.Copy(merged, values)
-		}
 		ctx, cancel := context.WithTimeout(ctx, hookTimeout)
 		defer cancel()
 		for id, client := range h.answering(ctx, manifest.HookProjectSettings, projectID) {
@@ -201,17 +172,13 @@ func (h pluginHooks) projectSettings(compiled func(context.Context, int64) (map[
 	}
 }
 
-// pluginPromotionFacts states a concluded promotion through the one plugin that does: a compiled
-// extension, or else the installed plugin that declares the hook.
+// pluginPromotionFacts states a concluded promotion through the one installed plugin that declares
+// the hook.
 type pluginPromotionFacts struct {
-	hooks    pluginHooks
-	compiled host.PromotionFacts
+	hooks pluginHooks
 }
 
 func (f pluginPromotionFacts) Promoted(at time.Time, linked store.JobReleaseContext) event.Event {
-	if f.compiled != nil {
-		return f.compiled.Promoted(at, linked)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
 	defer cancel()
 	for id, client := range f.hooks.answering(ctx, manifest.HookPromotionFacts, linked.ProjectID) {

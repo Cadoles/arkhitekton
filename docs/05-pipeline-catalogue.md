@@ -43,8 +43,8 @@ plugin.
 The order of the entries is the order in which a build chains its verifications.
 
 The built-in plugins bring `core/build`, `core/retag`, `php/static-tests`, `php/unit-tests`,
-`security/security-audit` and `k6/load` (observed, not launched); an extension compiled into a
-distribution brings its own. Their Tekton definitions are installed by the dashboard when the capability
+`security/security-audit` and `k6/load` (observed, not launched); an installed plugin brings
+its own. Their Tekton definitions are installed by the dashboard when the capability
 ships them, or provided by the operator otherwise.
 
 A binding naming a capability no plugin brings, or a parameter, a need or a volume the
@@ -93,7 +93,7 @@ what lets an automation fill a parameter with nobody typing. It never constrains
 | `minio.host`, `minio.pipelineBucket` | Object store as pipelines reach it |
 | `forge.status` | Forge base URL used to report commit status |
 
-An extension adds its own keys, resolved per project, and documents them. A required parameter that nothing resolves makes the enqueue fail,
+An installed plugin adds its own keys, resolved per project, and documents them. A required parameter that nothing resolves makes the enqueue fail,
 naming the key, rather than starting a run that would act somewhere else.
 
 ## 5.4 Needs, volumes and uploads

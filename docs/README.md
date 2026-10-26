@@ -13,7 +13,7 @@ This documentation describes the software as it is. It is reference material, no
 | [03 — Installation](03-installation.md) | Prerequisites, deployment, bootstrap, first project |
 | [04 — Configuration](04-configuration.md) | Every environment variable, its default and its role |
 | [05 — Pipeline catalogue](05-pipeline-catalogue.md) | Catalogue format, parameters, uploads, and the contract a pipeline honours |
-| [06 — Plugins](06-plugins.md) | Descriptors, settings, per-project activation, extensions and distributions |
+| [06 — Plugins](06-plugins.md) | Descriptors, settings, per-project activation, native plugins, testing a plugin |
 | [07 — HTTP API](07-http-api.md) | Every route, its permission, its conventions |
 | [08 — Data model](08-data-model.md) | PostgreSQL schema and object store layout |
 | [09 — Security](09-security.md) | Authentication, roles, Kubernetes RBAC, secrets |

@@ -8,11 +8,8 @@ import (
 )
 
 /*
- * What a plugin serving its own routes borrows from the core.
- *
- * The host package re-exports this one to extensions; the reverse is forbidden. An extension
- * receives the multiplexer and the middleware through [Mount], and answers in the same format as
- * the rest of the API.
+ * What a set of routes mounted beside the core's borrows from it: the multiplexer and the
+ * middleware through [Mount], and the API's answer format.
  */
 
 // Mount mounts a plugin's routes. Each route sets its own access control, including

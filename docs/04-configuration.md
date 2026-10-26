@@ -150,7 +150,7 @@ Plugin settings live in the database and are edited from the interface. These va
 seed them at first start-up, and **only what is missing**: a value changed from the
 administration screen is not overwritten by the next restart.
 
-An extension compiled into a distribution reads its own variables for this, and documents
+An installed plugin's settings are set from the administration screen, and the plugin documents
 them.
 
 `PROJECT_DOCKERFILE` (default `Dockerfile`) and `PROJECT_BUILD_CONTEXT` (default `.`) seed

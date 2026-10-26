@@ -153,9 +153,6 @@ An installed plugin's program serves the routes its manifest declares (doc 06 §
 `503` says the program is restarting, `504` that it did not answer in 30 seconds, `502` that it
 failed; its error is logged, never returned. The plugin documents its routes.
 
-An extension compiled into a distribution mounts its own routes under the same prefix, with
-the same authentication and CSRF protection, and sets each route's permission itself.
-
 ## 7.11 Outside the API prefix
 
 | Route | Purpose |

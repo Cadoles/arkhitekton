@@ -45,8 +45,8 @@ function specifiers(text: string): string[] {
 }
 
 describe("les règles d'import des modules", () => {
-  // Le noyau n'embarque aucun module : une distribution les dépose dans
-  // `src/plugins/` avant de construire, et ces règles s'appliquent alors aux siens.
+  // Le noyau n'embarque aucun module : un plugin dépose le sien dans `src/plugins/`
+  // pour construire son script, et ces règles s'appliquent alors à lui.
   it('lit bien les sources', () => {
     expect(Object.keys(sources).length).toBeGreaterThan(50)
   })

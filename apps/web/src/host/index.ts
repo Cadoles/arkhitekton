@@ -3,8 +3,8 @@
  *
  * Un module (`src/plugins/<id>/`) n'importe que ce fichier, sous l'alias
  * `@arkhitekton/host`, plus `react`, `react-router` et `@tanstack/react-query` :
- * c'est ce qui lui permet de vivre dans un autre dépôt et d'être déposé dans
- * celui-ci au moment de construire une distribution. Un test le vérifie
+ * c'est ce qui lui permet de vivre dans un autre dépôt et d'y être construit en
+ * script que le noyau charge à chaud. Un test le vérifie
  * (`modules.test.ts`).
  *
  * Contrat encore jeune : jusqu'à arkhitekton 1.0, une version mineure peut le

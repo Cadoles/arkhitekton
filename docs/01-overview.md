@@ -38,7 +38,7 @@ declarative rule that turns an event into an action: run a pipeline, call a webh
 start a plan.
 
 **Plugins.** Everything domain-specific lives in a plugin. The core knows nothing about
-GitOps, deployment observation or sign-offs; an extension compiled into a distribution
+GitOps, deployment observation or sign-offs; a plugin installed on the instance
 adds them for one way of deploying. See [06 — Plugins](06-plugins.md).
 
 ## 1.2 What it needs
