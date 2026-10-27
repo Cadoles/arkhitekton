@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { testQueryClient } from './test/render'
 import { Outlet, RouterProvider, createMemoryRouter } from 'react-router'
 import { buildRoutes } from './routes'
 import { registerComponent } from './lib/components'
@@ -29,7 +31,11 @@ const screens: Screen[] = [
 
 function at(path: string) {
   const router = createMemoryRouter(buildRoutes({ ...EMPTY_INTERFACE, screens }), { initialEntries: [path] })
-  render(<RouterProvider router={router} />)
+  render(
+    <QueryClientProvider client={testQueryClient()}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 describe("les routes de l'interface", () => {

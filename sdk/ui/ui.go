@@ -115,7 +115,6 @@ var CoreSources = map[string][]string{
 	"releases": {},
 	"version":  {"id"},
 	"run":      {"name"},
-	"project":  {},
 }
 
 // Condition shows a block or a widget only when the data says so. Exactly one test.
