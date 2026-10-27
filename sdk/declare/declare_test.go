@@ -1,6 +1,8 @@
 package declare
 
 import (
+	"encoding/json"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -112,6 +114,36 @@ func TestAnInconsistentDeclarationIsRefused(t *testing.T) {
 	} {
 		if _, err := Decode([]byte(broken)); err == nil {
 			t.Errorf("%s: accepted", label)
+		}
+	}
+}
+
+// The browser renders display templates with its own implementation of the grammar: both read the
+// same cases.
+func TestDisplayTemplatesReadAsTheBrowserReadsThem(t *testing.T) {
+	raw, err := os.ReadFile("testdata/display.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases struct {
+		Parse []struct {
+			Template string   `json:"template"`
+			Fields   []string `json:"fields"`
+			Error    bool     `json:"error"`
+		} `json:"parse"`
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases.Parse {
+		template, err := ParseDisplayTemplate(c.Template)
+		switch {
+		case c.Error && err == nil:
+			t.Errorf("%q accepted", c.Template)
+		case !c.Error && err != nil:
+			t.Errorf("%q: %v", c.Template, err)
+		case !c.Error && !slices.Equal(template.Fields(), c.Fields) && len(c.Fields)+len(template.Fields()) > 0:
+			t.Errorf("%q reads %v, expected %v", c.Template, template.Fields(), c.Fields)
 		}
 	}
 }
