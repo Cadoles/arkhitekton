@@ -79,7 +79,7 @@ export type Widget = {
   action?: Action
   empty?: { text: string }
   use?: { widget: string; with?: Record<string, string> }
-  tabs?: { navigation: string }
+  tabs?: { navigation: string; label?: string }
   outlet?: Record<string, never>
 }
 

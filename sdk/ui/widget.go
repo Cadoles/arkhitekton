@@ -222,9 +222,10 @@ type Use struct {
 	With   map[string]string `json:"with,omitempty"`
 }
 
-// Tabs renders a navigation as a screen's tabs.
+// Tabs renders a navigation as a screen's tabs; Label names them for assistive technologies.
 type Tabs struct {
 	Navigation string `json:"navigation"`
+	Label      string `json:"label,omitempty"`
 }
 
 // Outlet is where a framing screen shows its child.
