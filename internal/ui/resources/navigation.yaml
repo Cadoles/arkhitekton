@@ -1,0 +1,46 @@
+# The main menu and the tabs of the screens that have some. A plugin adds entries under its prefix,
+# placed next to the core's; the main menu's home is left to a plugin to set.
+apiVersion: ui.arkhitekton/v1
+kind: Navigation
+metadata: { name: main }
+spec:
+  items:
+    - { id: core.versions, label: Versions, icon: tag, to: /versions }
+    - { id: core.releases, label: Releases, icon: doc, to: /releases }
+    # One entry for the three execution views: history, queues and their settings are tabs, not
+    # separate destinations.
+    - { id: core.runs, label: Exécutions, icon: beaker, to: /runs }
+    - { id: core.admin, label: Administration, icon: cog, to: /admin }
+---
+apiVersion: ui.arkhitekton/v1
+kind: Navigation
+metadata: { name: executions }
+spec:
+  items:
+    - { id: core.runs, label: Exécutions, icon: beaker, to: /runs, end: true }
+    - { id: core.queue, label: File d'attente, icon: queue, to: /runs/queue }
+    - { id: core.events, label: Faits, icon: doc, to: /runs/events }
+    - { id: core.automations, label: Automatisations, icon: beaker, to: /runs/automations }
+    - { id: core.settings, label: Paramètres, icon: cog, to: /runs/settings }
+---
+apiVersion: ui.arkhitekton/v1
+kind: Navigation
+metadata: { name: admin }
+spec:
+  items:
+    - { id: core.projects, label: Projets, icon: branch, to: /admin, end: true }
+    - { id: core.plugins, label: Plugins, icon: link, to: /admin/plugins }
+    - { id: core.capabilities, label: Capacités, icon: layers, to: /admin/capabilities }
+    - { id: core.users, label: Utilisateurs, icon: user, to: /admin/users }
+    - { id: core.logs, label: Journal d'audit, icon: doc, to: /admin/logs }
+---
+apiVersion: ui.arkhitekton/v1
+kind: Navigation
+metadata: { name: project }
+spec:
+  items:
+    - { id: core.general, label: Paramètres, icon: branch, to: "/admin/projects/{route.slug}", end: true }
+    - { id: core.plugins, label: Plugins, icon: link, to: "/admin/projects/{route.slug}/plugins" }
+    - { id: core.pipelines, label: Pipelines, icon: queue, to: "/admin/projects/{route.slug}/pipelines" }
+    - { id: core.automations, label: Automatisations, icon: beaker, to: "/admin/projects/{route.slug}/automations" }
+    - { id: core.sync, label: Suivi, icon: doc, to: "/admin/projects/{route.slug}/sync" }

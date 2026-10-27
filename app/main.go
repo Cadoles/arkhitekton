@@ -76,6 +76,8 @@ Diagnosis:
   arkhitekton check-reading [--write] <reading.yaml> <case>...
   arkhitekton check-reading [--write] --plugin <dir> [--pipeline <name>] <case>...
                              Checks a reading against recorded runs (no database)
+  arkhitekton check-ui --plugin <dir> [--print]
+                             Checks that a plugin's interface composes with the core's
 
 Plugins:
   arkhitekton publish-plugin --dir <plugin> --ref <registry/repository:tag> --key <key.pem>
@@ -110,6 +112,9 @@ func run() error {
 	// the registry it is given.
 	if os.Args[1] == "check-reading" {
 		return runCheckReading(os.Args[2:])
+	}
+	if os.Args[1] == "check-ui" {
+		return runCheckUI(os.Args[2:])
 	}
 	if os.Args[1] == "publish-plugin" {
 		return runPublishPlugin(os.Args[2:])
@@ -345,6 +350,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		dashhttp.NewInstallationsHandler(db, sources.checkActivation, reloader.Reload, logger).Routes,
 		// And the routes their programs serve, checked here before the program sees them.
 		dashhttp.NewPluginRoutesHandler(servers, db, db, authorizer).Routes,
+		// The screens and menus of the core and of the active plugins, composed for the viewer.
+		dashhttp.NewUIHandler(servers, db, db, authorizer).Routes,
 	}
 	readiness := []dashhttp.ReadinessCheck{
 		{Name: "postgres", Check: db.Ping},

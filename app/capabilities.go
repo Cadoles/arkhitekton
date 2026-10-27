@@ -21,6 +21,7 @@ import (
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
@@ -240,6 +241,9 @@ func (s *capabilitySources) checkPlugin(ctx context.Context, plugin installed.Pl
 	if err := s.checkHooks(ctx, plugin); err != nil {
 		return err
 	}
+	if err := s.checkInterface(ctx, plugin); err != nil {
+		return err
+	}
 	registry, err := s.registry(ctx, &plugin.Plugin)
 	if err != nil {
 		return err
@@ -422,6 +426,26 @@ func pluginVersionIn(registries capabilities.Source) func(plugin string) string 
 		}
 		return found.Version
 	}
+}
+
+// checkInterface refuses a plugin whose screens, menu entries and blocks would not compose with
+// the core's and the active plugins': refused now, not left out of every screen later.
+func (s *capabilitySources) checkInterface(ctx context.Context, plugin installed.Plugin) error {
+	if plugin.Native == nil || len(plugin.Native.Interface) == 0 {
+		return nil
+	}
+	active, _, err := s.installed.load(ctx)
+	if err != nil {
+		return err
+	}
+	byID := map[string]installed.Plugin{}
+	for _, other := range active {
+		byID[other.ID] = other
+	}
+	if err := ui.Check(ui.Core(), contributions(byID), contributionOf(plugin), interfaceOptions); err != nil {
+		return fmt.Errorf("its interface: %w", err)
+	}
+	return nil
 }
 
 // checkHooks refuses a plugin that would state the facts of a promotion beside another: the same

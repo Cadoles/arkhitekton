@@ -1,0 +1,8 @@
+# The application's frame: header, main menu, and the outlet where every other screen shows.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: shell }
+spec:
+  path: /
+  blocks:
+    - { id: core.shell, component: core/shell }
