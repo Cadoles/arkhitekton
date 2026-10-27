@@ -1,7 +1,8 @@
 // Package hosttest is what an installed plugin's tests borrow from the dashboard: a throwaway
 // database with the dashboard's schema and the plugin's migrations applied as the dashboard applies
 // them, its catalogue as an instance reads it, and its parsers and interpreters, so that a reading
-// is checked as the dashboard will run it.
+// is checked as the dashboard will run it, and its interface composed as the dashboard will compose
+// it.
 package hosttest
 
 import (
@@ -15,13 +16,16 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
@@ -182,3 +186,20 @@ func CheckReading(reading []byte, dir string) (got, expected []byte, err error) 
 
 // SameFacts says whether two serialised fact lists say the same.
 func SameFacts(got, expected []byte) bool { return declarative.Same(got, expected) }
+
+// Interface checks that the interface of the plugin at the root of dir composes with the core's, as
+// its installation will, and returns it as a viewer with every permission sees it, the plugin
+// switched on.
+func Interface(t *testing.T, dir string) ui.View {
+	t.Helper()
+	contribution, err := installed.InterfaceOf(os.DirFS(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := ui.Options{KnownPermission: func(permission string) bool { return auth.Known(auth.Permission(permission)) }}
+	if err := ui.Check(ui.Core(), nil, contribution, options); err != nil {
+		t.Fatal(err)
+	}
+	composed, _ := ui.Compose(ui.Core(), []ui.Contribution{contribution}, options)
+	return composed.For(ui.Viewer{Active: func(string) bool { return true }, Can: func(string) bool { return true }})
+}

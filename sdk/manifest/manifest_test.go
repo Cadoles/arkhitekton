@@ -79,7 +79,7 @@ const withProgram = `{
     {"method": "POST", "path": "releases/{tag}/promote/{environment}", "permission": "deploy:{environment}"},
     {"method": "GET", "path": "status/{rest...}", "permission": "read", "scope": "instance"}
   ],
-  "ui": {"entry": "ui/index.js", "styles": ["ui/index.css"]}
+  "ui": {"entry": "ui/index.js", "styles": ["ui/index.css"], "resources": ["ui/resources/*.yaml"]}
 }`
 
 func TestAProgramBringsWhatTheDashboardRunsIt(t *testing.T) {
@@ -118,6 +118,10 @@ func TestAProgramIsCheckedForWhatItBrings(t *testing.T) {
 		"route twice":           {`"path": "environments", "permission": "read"`, `"path": "status/{rest...}", "permission": "read", "scope": "instance"`},
 		"entry not a script":    {`"ui/index.js"`, `"ui/index.html"`},
 		"style not a sheet":     {`"ui/index.css"`, `"ui/index.js"`},
+		"resources not YAML":    {`"ui/resources/*.yaml"`, `"ui/resources/*.json"`},
+		"resources outside":     {`"ui/resources/*.yaml"`, `"../resources/*.yaml"`},
+		"styles without entry":  {`"entry": "ui/index.js", `, ``},
+		"empty interface":       {`"entry": "ui/index.js", "styles": ["ui/index.css"], "resources": ["ui/resources/*.yaml"]`, ``},
 		"event without label":   {`"label": "Promotion aboutie"`, `"label": ""`},
 	} {
 		if !strings.Contains(withProgram, edit[0]) {

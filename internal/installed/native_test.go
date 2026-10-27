@@ -24,7 +24,16 @@ module: true
 migrations: { dir: migrations, table: goose_deploy_db_version }
 routes:
   - { method: GET, path: environments, permission: read }
-ui: { entry: ui/index.js }
+ui: { entry: ui/index.js, resources: [ui/screens/*.yaml] }
+`
+
+const environmentsScreen = `apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: deploy.environments }
+spec:
+  path: environments
+  parent: shell
+  blocks: [{ id: deploy.list, component: deploy/environments }]
 `
 
 // programPlugin is a plugin directory with a program per platform, as publish-plugin finds it.
@@ -35,6 +44,7 @@ func programPlugin() fstest.MapFS {
 		"bin/plugin-linux-arm64":           {Data: []byte("program for arm64")},
 		"migrations/0001_environments.sql": {Data: []byte("-- +goose Up\nselect 1;\n")},
 		"ui/index.js":                      {Data: []byte("export default {}")},
+		"ui/screens/environments.yaml":     {Data: []byte(environmentsScreen)},
 	}
 }
 
@@ -70,6 +80,9 @@ func TestAProgramIsReadWithWhatItBrings(t *testing.T) {
 	if len(loaded.Capabilities) != 1 || loaded.Capabilities[0].Kind != capability.KindModule {
 		t.Errorf("capabilities = %+v", loaded.Capabilities)
 	}
+	if resources := loaded.Native.Interface; len(resources) != 1 || resources[0].Name != "deploy.environments" {
+		t.Errorf("interface = %+v", resources)
+	}
 }
 
 func TestAProgramMissingWhatItDeclaresIsRefused(t *testing.T) {
@@ -77,12 +90,21 @@ func TestAProgramMissingWhatItDeclaresIsRefused(t *testing.T) {
 		"program":    "bin/plugin",
 		"migrations": "migrations/0001_environments.sql",
 		"interface":  "ui/index.js",
+		"screens":    "ui/screens/environments.yaml",
 	} {
 		files := platform("amd64")
 		delete(files, remove)
 		if _, err := Load(files); err == nil {
 			t.Errorf("without its %s: accepted", name)
 		}
+	}
+}
+
+func TestAnInterfaceResourceThatDoesNotReadIsRefused(t *testing.T) {
+	files := platform("amd64")
+	files["ui/screens/environments.yaml"] = &fstest.MapFile{Data: []byte(strings.Replace(environmentsScreen, "component: deploy/environments", "component: nothing", 1))}
+	if _, err := Load(files); err == nil || !strings.Contains(err.Error(), "environments.yaml") {
+		t.Errorf("err = %v", err)
 	}
 }
 

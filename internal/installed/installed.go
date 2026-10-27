@@ -26,10 +26,12 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	uischema "forge.cadoles.com/vcarroy/arkhitekton/sdk/ui"
 )
 
 // ReadManifest reads and checks the manifest at the root of a plugin's directory.
@@ -60,6 +62,9 @@ type Native struct {
 	Digest string
 	// Files is the plugin's directory, the program, migrations and interface included.
 	Files fs.FS
+	// Interface is what the plugin adds to the dashboard's screens and menus, read from its
+	// resources: whether it composes with the others' is checked when it is installed or activated.
+	Interface []uischema.Resource
 }
 
 // Program opens the plugin's program.
@@ -172,17 +177,34 @@ func program(fsys fs.FS, declared manifest.Manifest) (*Native, error) {
 			problems = append(problems, fmt.Errorf("route %s %s: no role grants %q", route.Method, route.Path, route.Permission))
 		}
 	}
-	if ui := declared.UI; ui != nil {
-		for _, file := range append([]string{ui.Entry}, ui.Styles...) {
+	var resources []uischema.Resource
+	if declaredUI := declared.UI; declaredUI != nil {
+		files := declaredUI.Styles
+		if declaredUI.Entry != "" {
+			files = append([]string{declaredUI.Entry}, files...)
+		}
+		for _, file := range files {
 			if _, err := fs.Stat(fsys, file); err != nil {
 				problems = append(problems, fmt.Errorf("ui: %w", err))
 			}
 		}
+		for _, pattern := range declaredUI.Resources {
+			if matched, err := fs.Glob(fsys, pattern); err != nil || len(matched) == 0 {
+				problems = append(problems, fmt.Errorf("ui.resources: %q matches no file", pattern))
+			}
+		}
+		read, err := ui.ReadFiles(fsys, declaredUI.Resources...)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("ui.resources: %w", err))
+		}
+		resources = read
 	}
 	if err := errors.Join(problems...); err != nil {
 		return nil, err
 	}
-	return &Native{Manifest: declared, Digest: "sha256:" + hex.EncodeToString(hash.Sum(nil)), Files: fsys}, nil
+	return &Native{
+		Manifest: declared, Digest: "sha256:" + hex.EncodeToString(hash.Sum(nil)), Files: fsys, Interface: resources,
+	}, nil
 }
 
 // bounded refuses a directory larger than the limit, or holding anything but files and
@@ -369,4 +391,19 @@ func (d definition) taskRefs() []string {
 		}
 	}
 	return names
+}
+
+// InterfaceOf reads what a plugin's directory brings to the interface: its resources and the routes
+// its blocks may call. Its program is not needed.
+func InterfaceOf(fsys fs.FS) (ui.Contribution, error) {
+	declared, err := ReadManifest(fsys)
+	if err != nil {
+		return ui.Contribution{}, err
+	}
+	contribution := ui.Contribution{Plugin: declared.ID, Routes: declared.Routes}
+	if declared.UI == nil || len(declared.UI.Resources) == 0 {
+		return contribution, nil
+	}
+	contribution.Resources, err = ui.ReadFiles(fsys, declared.UI.Resources...)
+	return contribution, err
 }

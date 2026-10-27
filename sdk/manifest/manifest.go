@@ -123,11 +123,13 @@ const (
 	ScopeInstance = "instance"
 )
 
-// UI is an interface module: an ES module whose default export the dashboard mounts, and the
-// stylesheets it needs.
+// UI is the plugin's interface: its screens, menu entries and blocks as resources (sdk/ui), and
+// the script that registers its components with the stylesheets it needs.
 type UI struct {
-	Entry  string   `json:"entry"`
+	Entry  string   `json:"entry,omitempty"`
 	Styles []string `json:"styles,omitempty"`
+	// Resources are YAML files, or patterns matching them, of interface resources.
+	Resources []string `json:"resources,omitempty"`
 }
 
 // InterpreterNative says the plugin's program reads the pipeline's runs.
@@ -294,7 +296,7 @@ func (m Manifest) programProblems() []error {
 		for _, brought := range []struct {
 			present bool
 			what    string
-		}{{m.Module, "a module"}, {len(m.Hooks) > 0, "hooks"}, {len(m.Routes) > 0, "routes"}} {
+		}{{m.Module, "a module"}, {len(m.Hooks) > 0, "hooks"}, {len(m.Routes) > 0, "routes"}, {m.UI != nil, "an interface"}} {
 			if brought.present {
 				problems = append(problems, fmt.Errorf("%s need a program: binary is empty", brought.what))
 			}
@@ -340,8 +342,19 @@ func (m Manifest) programProblems() []error {
 		routes[key] = true
 	}
 	if ui := m.UI; ui != nil {
-		if !fs.ValidPath(ui.Entry) || !strings.HasSuffix(ui.Entry, ".js") {
+		if ui.Entry == "" && len(ui.Resources) == 0 {
+			problems = append(problems, errors.New("ui: an entry, resources, or both"))
+		}
+		if ui.Entry == "" && len(ui.Styles) > 0 {
+			problems = append(problems, errors.New("ui.styles: an entry's"))
+		}
+		if ui.Entry != "" && (!fs.ValidPath(ui.Entry) || !strings.HasSuffix(ui.Entry, ".js")) {
 			problems = append(problems, fmt.Errorf("ui.entry %q: a .js file inside the plugin", ui.Entry))
+		}
+		for _, resource := range ui.Resources {
+			if !fs.ValidPath(resource) || !(strings.HasSuffix(resource, ".yaml") || strings.HasSuffix(resource, ".yml")) {
+				problems = append(problems, fmt.Errorf("ui.resources: %q, YAML files inside the plugin", resource))
+			}
 		}
 		for _, style := range ui.Styles {
 			if !fs.ValidPath(style) || !strings.HasSuffix(style, ".css") {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
@@ -25,6 +26,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
@@ -40,6 +42,9 @@ type programs struct {
 	host  native.HostDeps
 	// active are the active versions with a program, by plugin id: what serves routes and hooks.
 	active map[string]installed.Plugin
+	// composed is the interface with what the active versions bring.
+	composed *ui.Interface
+	logger   *slog.Logger
 }
 
 // newPrograms prepares a role's programs. The environment a program gets is explicit: the
@@ -54,7 +59,7 @@ func newPrograms(cfg config.Config, role string, logger *slog.Logger) *programs 
 			}
 		}
 	}
-	p := &programs{specs: map[string]native.Spec{}}
+	p := &programs{specs: map[string]native.Spec{}, logger: logger}
 	p.launcher = native.New(native.Config{
 		Dir: filepath.Join(os.TempDir(), "arkhitekton-plugins"), Role: role, Env: env, Logger: logger,
 		Host: func(pluginID string) pluginv1.HostServer {
@@ -118,9 +123,62 @@ func (p *programs) activate(active []installed.Plugin) {
 			byID[plugin.ID] = plugin
 		}
 	}
+	composed, refused := ui.Compose(ui.Core(), contributions(byID), interfaceOptions)
+	for _, err := range refused {
+		// Checked when installed and when activated: an interface refused here is one that composed
+		// then, against plugins since changed.
+		p.logger.Error("a plugin's interface is left out", "error", err)
+	}
 	p.mu.Lock()
 	p.active = byID
+	if composed != nil {
+		p.composed = composed
+	}
 	p.mu.Unlock()
+}
+
+// interfaceOptions are what the interface composes against.
+var interfaceOptions = ui.Options{KnownPermission: func(permission string) bool {
+	return auth.Known(auth.Permission(permission))
+}}
+
+// contributions are what the plugins bring to the interface.
+func contributions(plugins map[string]installed.Plugin) []ui.Contribution {
+	var brought []ui.Contribution
+	for _, plugin := range plugins {
+		if plugin.Native != nil && len(plugin.Native.Interface) > 0 {
+			brought = append(brought, contributionOf(plugin))
+		}
+	}
+	return brought
+}
+
+func contributionOf(plugin installed.Plugin) ui.Contribution {
+	return ui.Contribution{Plugin: plugin.ID, Resources: plugin.Native.Interface, Routes: plugin.Native.Manifest.Routes}
+}
+
+// Interface is the composed interface.
+func (p *programs) Interface() *ui.Interface {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.composed == nil {
+		composed, _ := ui.Compose(ui.Core(), nil, interfaceOptions)
+		p.composed = composed
+	}
+	return p.composed
+}
+
+// EventLabels are the labels the active versions give the facts they state, by type.
+func (p *programs) EventLabels() map[string]string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	labels := map[string]string{}
+	for _, plugin := range p.active {
+		for _, event := range plugin.Events {
+			labels[plugin.EventType(event)] = event.Label
+		}
+	}
+	return labels
 }
 
 // activeProcess returns the program of a plugin's active version.
@@ -296,7 +354,7 @@ func (p *programs) InterfaceFiles(pluginID, version string) (fs.FS, bool) {
 	p.mu.Lock()
 	plugin, found := p.active[pluginID]
 	p.mu.Unlock()
-	if !found || plugin.Version != version || plugin.Native.Manifest.UI == nil {
+	if !found || plugin.Version != version || plugin.Native.Manifest.UI == nil || plugin.Native.Manifest.UI.Entry == "" {
 		return nil, false
 	}
 	files, err := fs.Sub(plugin.Native.Files, path.Dir(plugin.Native.Manifest.UI.Entry))
@@ -309,19 +367,19 @@ func (p *programs) interfaces() []dashhttp.PluginInterface {
 	defer p.mu.Unlock()
 	listed := []dashhttp.PluginInterface{}
 	for _, plugin := range p.active {
-		ui := plugin.Native.Manifest.UI
-		if ui == nil {
+		declared := plugin.Native.Manifest.UI
+		if declared == nil || declared.Entry == "" {
 			continue
 		}
-		dir := path.Dir(ui.Entry)
+		dir := path.Dir(declared.Entry)
 		file := func(name string) string {
 			return dashhttp.InterfacePath(plugin.ID, plugin.Version, strings.TrimPrefix(name, dir+"/"))
 		}
-		styles := make([]string, 0, len(ui.Styles))
-		for _, style := range ui.Styles {
+		styles := make([]string, 0, len(declared.Styles))
+		for _, style := range declared.Styles {
 			styles = append(styles, file(style))
 		}
-		listed = append(listed, dashhttp.PluginInterface{Plugin: plugin.ID, Script: file(ui.Entry), Styles: styles})
+		listed = append(listed, dashhttp.PluginInterface{Plugin: plugin.ID, Script: file(declared.Entry), Styles: styles})
 	}
 	slices.SortFunc(listed, func(a, b dashhttp.PluginInterface) int { return strings.Compare(a.Plugin, b.Plugin) })
 	return listed
