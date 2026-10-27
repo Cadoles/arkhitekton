@@ -186,8 +186,11 @@ type Action struct {
 	// Invalidates names the data the action changes: loaded again once it succeeds.
 	Invalidates []string `json:"invalidates,omitempty"`
 	Danger      bool     `json:"danger,omitempty"`
-	// Permission is the route's, filled in by the dashboard, not by the plugin.
+	// Permission, Plugin and Scope are filled in by the dashboard from the route the path matches,
+	// as for a data source.
 	Permission string `json:"permission,omitempty"`
+	Plugin     string `json:"plugin,omitempty"`
+	Scope      string `json:"scope,omitempty"`
 }
 
 // Confirm asks before acting; Challenge, when set, must be typed back.
@@ -438,8 +441,8 @@ func (a Action) problems(at string) []error {
 		problems = append(problems, fmt.Errorf("%s.method: %q, expected POST, PUT or DELETE", at, a.Method))
 	}
 	problems = append(problems, requiredTemplate(at+".path", a.Path)...)
-	if a.Permission != "" {
-		problems = append(problems, fmt.Errorf("%s.permission: the route's, not the screen's to state", at))
+	if a.Permission != "" || a.Plugin != "" || a.Scope != "" {
+		problems = append(problems, fmt.Errorf("%s: permission, plugin and scope are the route's, not the screen's to state", at))
 	}
 	if a.Confirm != nil {
 		problems = append(problems, requiredTemplate(at+".confirm.text", a.Confirm.Text)...)

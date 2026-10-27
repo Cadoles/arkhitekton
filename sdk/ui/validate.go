@@ -110,6 +110,9 @@ func dataProblems(at string, data map[string]DataSource) []error {
 	var problems []error
 	for name, source := range data {
 		sourceAt := at + "." + name
+		if source.Plugin != "" || source.Scope != "" {
+			problems = append(problems, fmt.Errorf("%s: plugin and scope are the route's, not the screen's to state", sourceAt))
+		}
 		if !pathPattern.MatchString(name) || strings.Contains(name, ".") || name == "route" {
 			problems = append(problems, fmt.Errorf("%s: %q is not a free data name", sourceAt, name))
 		}

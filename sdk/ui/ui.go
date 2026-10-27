@@ -102,6 +102,11 @@ type DataSource struct {
 	Name   string            `json:"name,omitempty"`
 	Params map[string]string `json:"params,omitempty"`
 	Path   string            `json:"path,omitempty"`
+	// Plugin and Scope are filled in by the dashboard, from the route the path matches: the
+	// browser calls `/projects/{project}/plugins/<plugin>/<path>`, or `/plugins/<plugin>/<path>`
+	// for an instance route.
+	Plugin string `json:"plugin,omitempty"`
+	Scope  string `json:"scope,omitempty"`
 }
 
 // CoreSources are the reads a screen may name, with the parameters each takes.
