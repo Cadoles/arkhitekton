@@ -1,7 +1,6 @@
 import { Link, Outlet, useParams } from 'react-router'
-import { Icon } from '../../components/Icon'
+import { NavTabs } from '../../components/NavTabs'
 import { ErrorState, Skeleton } from '../../components/primitives'
-import { SubTabs, type SubTab } from '../../components/SubTabs'
 import { useProjects, type Project } from './api'
 
 /*
@@ -17,35 +16,6 @@ import { useProjects, type Project } from './api'
  * qui les porte plutôt que l'identifiant : il est stable, lisible, et déjà celui
  * des autres écrans.
  */
-
-const TABS = (slug: string): SubTab[] => [
-  {
-    to: `/admin/projects/${slug}`,
-    label: 'Paramètres',
-    icon: <Icon name="branch" className="size-4" />,
-    end: true,
-  },
-  {
-    to: `/admin/projects/${slug}/plugins`,
-    label: 'Plugins',
-    icon: <Icon name="link" className="size-4" />,
-  },
-  {
-    to: `/admin/projects/${slug}/pipelines`,
-    label: 'Pipelines',
-    icon: <Icon name="queue" className="size-4" />,
-  },
-  {
-    to: `/admin/projects/${slug}/automations`,
-    label: 'Automatisations',
-    icon: <Icon name="beaker" className="size-4" />,
-  },
-  {
-    to: `/admin/projects/${slug}/sync`,
-    label: 'Suivi',
-    icon: <Icon name="doc" className="size-4" />,
-  },
-]
 
 export function ProjectLayout() {
   const { slug = '' } = useParams()
@@ -84,7 +54,7 @@ export function ProjectLayout() {
         <span className="font-mono text-xs text-zinc-500">{project.data.repository}</span>
       </div>
 
-      <SubTabs tabs={TABS(encodeURIComponent(slug))} label={`Réglages de ${project.data.label}`} />
+      <NavTabs navigation="project" label={`Réglages de ${project.data.label}`} />
       <Outlet context={project.data} />
     </div>
   )

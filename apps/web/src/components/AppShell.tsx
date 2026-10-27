@@ -1,11 +1,12 @@
 import { Suspense } from 'react'
 import { NavLink, Outlet } from 'react-router'
-import { Icon, type IconName } from './Icon'
+import { Icon, iconOr, type IconName } from './Icon'
 import { Skeleton } from './primitives'
 import { useTheme } from '../lib/theme'
 import { logout } from '../lib/api'
 import { roleLabel, useSession } from '../features/auth/session'
 import { useActiveModules } from '../modules'
+import { useNavigation } from '../lib/interface'
 import { currentProject, projects, selectProject } from '../lib/project'
 
 /*
@@ -23,14 +24,6 @@ type NavEntry = {
   icon: IconName
 }
 
-const NAV: NavEntry[] = [
-  { to: '/versions', label: 'Versions', icon: 'tag' },
-  { to: '/releases', label: 'Releases', icon: 'doc' },
-  // Une entrée pour les trois vues d'exécution : l'historique, les files et
-  // leurs réglages sont des sous-onglets, pas des destinations distinctes.
-  { to: '/runs', label: 'Exécutions', icon: 'beaker' },
-  { to: '/admin', label: 'Administration', icon: 'cog' },
-]
 
 /**
  * Choix du projet dont les écrans de releases et de versions parlent.
@@ -130,9 +123,13 @@ function SessionBadge() {
 export const APP_SCROLL_ID = 'app-scroll'
 
 export function AppShell() {
-  // Les entrées des modules allumés d'abord : c'est l'ordre d'avant, où
-  // Environnements ouvrait la navigation.
-  const entries: NavEntry[] = [...useActiveModules().flatMap((module) => module.nav ?? []), ...NAV]
+  // Le menu de l'interface, où un plugin place ses entrées à côté de celles du
+  // noyau. Les modules d'avant le leur, s'il en reste, d'abord.
+  const main = useNavigation('main').items ?? []
+  const entries: NavEntry[] = [
+    ...useActiveModules().flatMap((module) => module.nav ?? []),
+    ...main.map((item) => ({ to: item.to, label: item.label, icon: iconOr(item.icon) })),
+  ]
 
   return (
     /*

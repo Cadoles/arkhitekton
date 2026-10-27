@@ -45,6 +45,12 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS
 
+/** Le nom d'une icône venue des données, ou `fallback` s'il n'en désigne
+ *  aucune : une ressource d'interface nomme ses icônes en texte. */
+export function iconOr(name: string | undefined, fallback: IconName = 'doc'): IconName {
+  return name !== undefined && name in PATHS ? (name as IconName) : fallback
+}
+
 type IconProps = {
   name: IconName
   className?: string

@@ -82,6 +82,15 @@ func readInterface(t *testing.T, recorder *httptest.ResponseRecorder) served {
 	return body
 }
 
+func servesScreen(body served, name string) bool {
+	for _, screen := range body.Screens {
+		if screen.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func TestTheInterfaceFollowsTheProjectAndTheRole(t *testing.T) {
 	mux := uiServer(t)
 
@@ -90,7 +99,7 @@ func TestTheInterfaceFollowsTheProjectAndTheRole(t *testing.T) {
 	if main.Home != "/environments" || len(main.Items) != 5 || main.Items[0].ID != "deploy.environments" {
 		t.Errorf("main, viewer, switched on = %+v", main)
 	}
-	if len(on.Screens) != 2 || on.EventLabels["deploy.release.promoted"] != "Promotion aboutie" {
+	if !servesScreen(on, "deploy.environments") || on.EventLabels["deploy.release.promoted"] != "Promotion aboutie" {
 		t.Errorf("served = %+v", on)
 	}
 	if admin := readInterface(t, call(mux, auth.RoleAdmin, "GET", "/ui?project=app")); len(admin.Navigations["main"].Items) != 6 {
@@ -98,7 +107,7 @@ func TestTheInterfaceFollowsTheProjectAndTheRole(t *testing.T) {
 	}
 
 	off := readInterface(t, call(mux, auth.RoleViewer, "GET", "/ui?project=off"))
-	if main := off.Navigations["main"]; main.Home != "" || len(main.Items) != 4 || len(off.Screens) != 1 {
+	if main := off.Navigations["main"]; main.Home != "" || len(main.Items) != 4 || servesScreen(off, "deploy.environments") {
 		t.Errorf("switched off = %+v", off)
 	}
 

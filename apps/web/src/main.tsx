@@ -7,9 +7,11 @@ import { AppRouter } from './AppRouter'
 import { SessionGate } from './features/auth/SessionGate'
 import { ApiError } from './lib/api'
 import { exposeShared } from './lib/runtime'
+import { registerCoreComponents } from './screens/core'
 
 // Avant tout : le script d'un plugin installé prend React et le reste ici.
 exposeShared()
+registerCoreComponents()
 
 const queryClient = new QueryClient({
   defaultOptions: {

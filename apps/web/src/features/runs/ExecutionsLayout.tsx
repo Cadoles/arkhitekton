@@ -1,6 +1,5 @@
 import { Outlet } from 'react-router'
-import { Icon } from '../../components/Icon'
-import { SubTabs, type SubTab } from '../../components/SubTabs'
+import { NavTabs } from '../../components/NavTabs'
 
 /*
  * Coquille des trois vues d'exécution.
@@ -19,22 +18,11 @@ import { SubTabs, type SubTab } from '../../components/SubTabs'
  * naviguer pour rapprocher un fait du run qui l'a produit.
  */
 
-const TABS: SubTab[] = [
-  { to: '/runs', label: 'Exécutions', icon: <Icon name="beaker" className="size-4" />, end: true },
-  { to: '/runs/queue', label: "File d'attente", icon: <Icon name="queue" className="size-4" /> },
-  { to: '/runs/events', label: 'Faits', icon: <Icon name="doc" className="size-4" /> },
-  {
-    to: '/runs/automations',
-    label: 'Automatisations',
-    icon: <Icon name="beaker" className="size-4" />,
-  },
-  { to: '/runs/settings', label: 'Paramètres', icon: <Icon name="cog" className="size-4" /> },
-]
 
 export function ExecutionsLayout() {
   return (
     <div className="flex flex-col gap-4">
-      <SubTabs tabs={TABS} label="Vues d'exécution" />
+      <NavTabs navigation="executions" label="Vues d'exécution" />
       <Outlet />
     </div>
   )

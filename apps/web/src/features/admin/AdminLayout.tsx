@@ -1,6 +1,5 @@
 import { Outlet } from 'react-router'
-import { Icon } from '../../components/Icon'
-import { SubTabs, type SubTab } from '../../components/SubTabs'
+import { NavTabs } from '../../components/NavTabs'
 
 /*
  * Coquille de l'administration.
@@ -27,21 +26,17 @@ import { SubTabs, type SubTab } from '../../components/SubTabs'
  *
  * L'onglet Capacités, où se lient les pipelines que le fichier de catalogue ne lie
  * pas : ceux d'un plugin installé depuis un registre d'abord.
+ *
+ * Les onglets sont ceux de la navigation `admin` de l'interface : un plugin peut
+ * y ajouter les siens.
  */
 
-const TABS: SubTab[] = [
-  { to: '/admin', label: 'Projets', icon: <Icon name="branch" className="size-4" />, end: true },
-  { to: '/admin/plugins', label: 'Plugins', icon: <Icon name="link" className="size-4" /> },
-  { to: '/admin/capabilities', label: 'Capacités', icon: <Icon name="layers" className="size-4" /> },
-  { to: '/admin/users', label: 'Utilisateurs', icon: <Icon name="user" className="size-4" /> },
-  { to: '/admin/logs', label: "Journal d'audit", icon: <Icon name="doc" className="size-4" /> },
-]
 
 export function AdminLayout() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-semibold text-zinc-900">Administration</h1>
-      <SubTabs tabs={TABS} label="Vues d'administration" />
+      <NavTabs navigation="admin" label="Vues d'administration" />
       <Outlet />
     </div>
   )

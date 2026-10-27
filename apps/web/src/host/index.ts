@@ -13,6 +13,9 @@
 
 export type { AppModule, ModuleNavEntry } from '../lib/modules'
 export { registerModule } from '../lib/registry'
+export { registerComponent } from '../lib/components'
+export type { BlockComponentProps } from '../lib/components'
+export { Slot } from '../components/Screen'
 export { request, ApiError } from '../lib/api'
 export { projectPath } from '../lib/project'
 export { formatBytes, formatDate, formatDateTime } from '../lib/format'
