@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import { render } from '../test/render'
 import { ScreenView, Slot } from './Screen'
 import { registerComponent, type BlockComponentProps } from '../lib/components'
 

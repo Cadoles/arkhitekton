@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Icon } from '../../components/Icon'
 import type { Plugin, PluginDraft, PluginField } from './plugins'
+import { FieldInput } from '../../components/FieldInput'
 
 /*
  * Le formulaire d'un plugin, à l'une ou l'autre portée.
@@ -155,18 +156,7 @@ function PluginFieldRow({
   const id = `${scope}-${field.name}`
 
   if (field.type === 'bool') {
-    return (
-      <label htmlFor={id} className="flex items-center gap-2 text-sm text-zinc-700">
-        <input
-          id={id}
-          type="checkbox"
-          checked={value === 'true'}
-          onChange={(event) => onChange(event.target.checked ? 'true' : 'false')}
-          className="size-4 rounded border-zinc-300"
-        />
-        {field.label}
-      </label>
-    )
+    return <FieldInput field={{ label: field.label, type: 'boolean' }} value={value} onChange={onChange} />
   }
 
   return (
