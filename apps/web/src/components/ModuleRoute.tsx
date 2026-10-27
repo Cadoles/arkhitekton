@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Navigate } from 'react-router'
 import { useModule, useSession } from '../features/auth/session'
 import { useActiveModules } from '../modules'
+import { useNavigation } from '../lib/interface'
 import { Skeleton } from './primitives'
 
 /*
@@ -24,12 +25,14 @@ export function ModuleRoute({ module, children }: { module: string; children: Re
 /**
  * La page d'accueil.
  *
- * Celle du premier module allumé qui en propose une, ses environnements par
- * exemple. Les releases sinon : c'est ce que le noyau sait montrer sans module.
+ * Celle que le menu principal de l'interface désigne, qu'un plugin peut fixer :
+ * ses environnements par exemple. Les releases sinon : c'est ce que le noyau
+ * sait montrer sans plugin.
  */
 export function HomeRedirect() {
   const session = useSession()
-  const home = useActiveModules().find((module) => module.home)?.home
+  const modules = useActiveModules()
+  const home = useNavigation('main').home ?? modules.find((module) => module.home)?.home
 
   if (session.kind === 'loading') return <Skeleton className="h-64 w-full" />
   return <Navigate to={home ?? '/releases'} replace />

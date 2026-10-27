@@ -7,6 +7,21 @@ import { render, testQueryClient } from '../test/render'
 import { mockFetch } from '../test/http'
 import { AppShell } from './AppShell'
 import { HomeRedirect, ModuleRoute } from './ModuleRoute'
+import { EMPTY_INTERFACE, InterfaceContext } from '../lib/interface'
+
+/** Le menu du noyau, tel que l'interface composée le sert. */
+const withMenu = {
+  ...EMPTY_INTERFACE,
+  navigations: { main: { items: [{ id: 'core.releases', label: 'Releases', icon: 'doc', to: '/releases' }] } },
+}
+
+function renderShell() {
+  return render(
+    <InterfaceContext.Provider value={withMenu}>
+      <AppShell />
+    </InterfaceContext.Provider>,
+  )
+}
 
 /*
  * La navigation suit les modules allumés.
@@ -49,7 +64,7 @@ describe('la navigation', () => {
 
   it("n'affiche pas l'onglet d'un module éteint", async () => {
     mockFetch([{ path: '/me', body: identite([]) }])
-    render(<AppShell />)
+    renderShell()
 
     expect(await screen.findByRole('link', { name: /Releases/ })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Widgets/ })).not.toBeInTheDocument()
@@ -58,7 +73,7 @@ describe('la navigation', () => {
   // Allumé sur l'instance, éteint pour le projet courant : l'onglet suit le projet.
   it("n'affiche pas l'onglet quand le projet courant n'a pas le module", async () => {
     mockFetch([{ path: '/me', body: identite([], ['widgets']) }])
-    render(<AppShell />)
+    renderShell()
 
     expect(await screen.findByRole('link', { name: /Releases/ })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Widgets/ })).not.toBeInTheDocument()
@@ -66,7 +81,7 @@ describe('la navigation', () => {
 
   it("affiche l'onglet quand le module est allumé", async () => {
     mockFetch([{ path: '/me', body: identite(['widgets']) }])
-    render(<AppShell />)
+    renderShell()
 
     expect(await screen.findByRole('link', { name: /Widgets/ })).toBeInTheDocument()
   })
@@ -93,6 +108,42 @@ function naviguer(chemin: string, modules: string[]) {
     </QueryClientProvider>,
   )
 }
+
+describe('le menu principal', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("suit l'interface composée, et l'accueil qu'un plugin y fixe", async () => {
+    mockFetch([{ path: '/me', body: identite([]) }])
+    const ui = {
+      ...EMPTY_INTERFACE,
+      navigations: {
+        main: {
+          home: '/environments',
+          items: [
+            { id: 'mse.environments', label: 'Environnements', icon: 'server', to: '/environments' },
+            { id: 'core.releases', label: 'Releases', icon: 'doc', to: '/releases' },
+          ],
+        },
+      },
+    }
+    baseRender(
+      <QueryClientProvider client={testQueryClient()}>
+        <InterfaceContext.Provider value={ui}>
+          <MemoryRouter initialEntries={['/']}>
+            <Routes>
+              <Route path="/" element={<HomeRedirect />} />
+              <Route path="/environments" element={<AppShell />} />
+            </Routes>
+          </MemoryRouter>
+        </InterfaceContext.Provider>
+      </QueryClientProvider>,
+    )
+    const links = await screen.findAllByRole('link')
+    expect(links.map((link) => link.textContent)).toEqual(['Environnements', 'Releases'])
+  })
+})
 
 describe("la page d'accueil et les écrans d'un module", () => {
   beforeEach(() => {

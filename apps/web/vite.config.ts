@@ -50,6 +50,9 @@ export default defineConfig({
   },
 
   server: {
+    // Les gabarits d'affichage sont lus par le serveur et par le navigateur :
+    // leurs tests partagent les cas du sdk, hors de l'arbre de l'interface.
+    fs: { allow: ['.', '../../sdk/declare/testdata'] },
     // En développement, Vite sert l'interface et relaie l'API au binaire Go.
     // Sans cela, le cookie de session — `SameSite=Lax`, posé sur l'origine du
     // backend — ne serait pas renvoyé depuis l'origine de Vite.

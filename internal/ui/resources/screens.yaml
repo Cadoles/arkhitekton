@@ -1,0 +1,234 @@
+# The core's screens. A screen frames its children (parent): the shell frames them all, and the
+# executions, administration and project screens frame their tabs. Each is one block for now, the
+# screen's component; a plugin adds blocks next to them, under its prefix.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: home }
+spec:
+  parent: shell
+  blocks: [{ id: core.home, component: core/home-redirect }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: versions }
+spec:
+  path: versions
+  parent: shell
+  blocks: [{ id: core.versions, component: core/versions }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: version }
+spec:
+  path: versions/:id
+  parent: shell
+  blocks: [{ id: core.version, component: core/version }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: releases }
+spec:
+  path: releases
+  parent: shell
+  blocks: [{ id: core.releases, component: core/releases }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: release }
+spec:
+  path: releases/:tag
+  parent: shell
+  blocks: [{ id: core.release, component: core/release }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: release-notes }
+spec:
+  path: releases/:tag/notes
+  parent: shell
+  blocks:
+    - id: core.notes
+      component: core/placeholder
+      props:
+        lot: lot 6
+        title: Note de release
+        summary: Note générée puis éditable, avec la date et l'auteur de la dernière modification.
+        params: [tag]
+---
+# The three execution views under one frame: what runs, what waits, and what governs the wait.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: executions }
+spec:
+  path: runs
+  parent: shell
+  blocks: [{ id: core.executions, component: core/executions-layout }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: runs }
+spec:
+  parent: executions
+  blocks: [{ id: core.runs, component: core/runs }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: queue }
+spec:
+  path: queue
+  parent: executions
+  blocks: [{ id: core.queue, component: core/queue }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: events }
+spec:
+  path: events
+  parent: executions
+  blocks: [{ id: core.events, component: core/events }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: plan-runs }
+spec:
+  path: automations
+  parent: executions
+  blocks: [{ id: core.plan-runs, component: core/plan-runs }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: queue-settings }
+spec:
+  path: settings
+  parent: executions
+  blocks: [{ id: core.queue-settings, component: core/queue-settings }]
+---
+# Outside the frame: a run's detail is not a fourth view. The static segment wins over the
+# parameter, so /runs/queue does not look for a run of that name.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: run }
+spec:
+  path: runs/:name
+  parent: shell
+  blocks: [{ id: core.run, component: core/run }]
+---
+# The queue's former address, kept for links already shared.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: queue-former }
+spec:
+  path: queue
+  parent: shell
+  redirect: /runs/queue
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin }
+spec:
+  path: admin
+  parent: shell
+  blocks: [{ id: core.admin, component: core/admin-layout }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-projects }
+spec:
+  parent: admin
+  blocks: [{ id: core.projects, component: core/projects }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-plugins }
+spec:
+  path: plugins
+  parent: admin
+  blocks: [{ id: core.plugins, component: core/plugins }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-capabilities }
+spec:
+  path: capabilities
+  parent: admin
+  blocks: [{ id: core.capabilities, component: core/capabilities }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-users }
+spec:
+  path: users
+  parent: admin
+  blocks: [{ id: core.users, component: core/users }]
+---
+# Kept: the projects tab lived at this address, and shared links do not correct themselves.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-projects-former }
+spec:
+  path: projects
+  parent: admin
+  blocks: [{ id: core.projects, component: core/projects }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-logs }
+spec:
+  path: logs
+  parent: admin
+  blocks: [{ id: core.audit, component: core/audit }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: project }
+spec:
+  path: projects/:slug
+  parent: admin
+  blocks: [{ id: core.project, component: core/project-layout }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: project-general }
+spec:
+  parent: project
+  blocks: [{ id: core.general, component: core/project-general }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: project-plugins }
+spec:
+  path: plugins
+  parent: project
+  blocks: [{ id: core.plugins, component: core/project-plugins }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: project-pipelines }
+spec:
+  path: pipelines
+  parent: project
+  blocks: [{ id: core.pipelines, component: core/project-pipelines }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: project-automations }
+spec:
+  path: automations
+  parent: project
+  blocks: [{ id: core.automations, component: core/project-automations }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: project-sync }
+spec:
+  path: sync
+  parent: project
+  blocks: [{ id: core.sync, component: core/project-sync }]
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: not-found }
+spec:
+  path: "*"
+  parent: shell
+  blocks: [{ id: core.not-found, component: core/not-found }]
