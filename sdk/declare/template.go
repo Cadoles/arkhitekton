@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -19,6 +20,17 @@ import (
  *   lower                lower case
  *   or: <field|'text'>   the value, or this field or text when it is empty
  *   replace: 're' 'to'   every match of the regular expression replaced
+ *
+ * A display template, the one a screen declares (sdk/ui), reads a dotted path in the data the
+ * browser loaded rather than a field of a row, and renders there. It knows the filters above but
+ * `replace` (a regular expression would not read the same in Go and in the browser), plus:
+ *
+ *   upper                upper case
+ *   date, datetime       an RFC 3339 instant, as a date or a date and time
+ *   age                  an RFC 3339 instant, as the time elapsed since
+ *   bytes                a size, in a human unit
+ *   count                the number of elements of a list
+ *   join: 'sep'          the elements of a list, separated (`, ` by default)
  */
 
 // Template is a parsed template.
@@ -47,8 +59,37 @@ type argument struct {
 
 var fieldName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-// ParseTemplate reads a template.
+var dataPath = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$`)
+
+// grammar is what a kind of template may name: its fields, and the filters it knows with how many
+// arguments each takes.
+type grammar struct {
+	field   *regexp.Regexp
+	filters map[string][2]int
+}
+
+var (
+	readingGrammar = grammar{field: fieldName, filters: map[string][2]int{
+		"firstline": {0, 0}, "trim": {0, 0}, "lower": {0, 0}, "or": {1, 1}, "replace": {2, 2},
+	}}
+	displayGrammar = grammar{field: dataPath, filters: map[string][2]int{
+		"firstline": {0, 0}, "trim": {0, 0}, "lower": {0, 0}, "or": {1, 1}, "upper": {0, 0},
+		"date": {0, 0}, "datetime": {0, 0}, "age": {0, 0}, "bytes": {0, 0}, "count": {0, 0},
+		"join": {0, 1},
+	}}
+)
+
+// ParseTemplate reads a template of a run reading.
 func ParseTemplate(source string) (Template, error) {
+	return parseTemplate(source, readingGrammar)
+}
+
+// ParseDisplayTemplate reads a template of a screen.
+func ParseDisplayTemplate(source string) (Template, error) {
+	return parseTemplate(source, displayGrammar)
+}
+
+func parseTemplate(source string, grammar grammar) (Template, error) {
 	template := Template{source: source}
 	rest := source
 	for rest != "" {
@@ -68,7 +109,7 @@ func ParseTemplate(source string) (Template, error) {
 		if end < 0 {
 			return Template{}, fmt.Errorf("template %q: a `{` is not closed", source)
 		}
-		expression, err := parseExpression(rest[open+1 : open+end])
+		expression, err := parseExpression(rest[open+1:open+end], grammar)
 		if err != nil {
 			return Template{}, fmt.Errorf("template %q: %w", source, err)
 		}
@@ -78,10 +119,10 @@ func ParseTemplate(source string) (Template, error) {
 	return template, nil
 }
 
-func parseExpression(source string) (part, error) {
+func parseExpression(source string, grammar grammar) (part, error) {
 	segments := splitOutsideQuotes(source, '|')
 	field := strings.TrimSpace(segments[0])
-	if !fieldName.MatchString(field) {
+	if !grammar.field.MatchString(field) {
 		return part{}, fmt.Errorf("%q is not a field name", field)
 	}
 	expression := part{field: field}
@@ -93,19 +134,19 @@ func parseExpression(source string) (part, error) {
 			return part{}, err
 		}
 		parsed := filter{name: name, args: args}
-		switch name {
-		case "firstline", "trim", "lower":
-			if len(args) != 0 {
-				return part{}, fmt.Errorf("filter %s takes no argument", name)
-			}
-		case "or":
+		arity, known := grammar.filters[name]
+		if !known {
+			return part{}, fmt.Errorf("unknown filter %q", name)
+		}
+		switch {
+		case name == "or":
 			if len(args) != 1 {
 				return part{}, errors.New("filter or takes one field or one 'text'")
 			}
-			if !args[0].literal && !fieldName.MatchString(args[0].value) {
+			if !args[0].literal && !grammar.field.MatchString(args[0].value) {
 				return part{}, fmt.Errorf("%q is not a field name", args[0].value)
 			}
-		case "replace":
+		case name == "replace":
 			if len(args) != 2 || !args[0].literal || !args[1].literal {
 				return part{}, errors.New("filter replace takes 'expression' 'replacement'")
 			}
@@ -114,8 +155,10 @@ func parseExpression(source string) (part, error) {
 				return part{}, fmt.Errorf("filter replace: %w", err)
 			}
 			parsed.pattern = pattern
-		default:
-			return part{}, fmt.Errorf("unknown filter %q", name)
+		case arity[1] == 0 && len(args) != 0:
+			return part{}, fmt.Errorf("filter %s takes no argument", name)
+		case len(args) > arity[1] || slices.ContainsFunc(args, func(arg argument) bool { return !arg.literal }):
+			return part{}, fmt.Errorf("filter %s takes at most %d 'text'", name, arity[1])
 		}
 		expression.filters = append(expression.filters, parsed)
 	}

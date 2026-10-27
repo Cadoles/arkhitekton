@@ -1,0 +1,41 @@
+{
+  "comment": "Display templates, read by sdk/declare (parse) and by the browser (parse and render): one grammar, two implementations.",
+  "parse": [
+    { "template": "plain text", "fields": [] },
+    { "template": "{release.tag}", "fields": ["release.tag"] },
+    { "template": "{deployed.since | age}", "fields": ["deployed.since"] },
+    { "template": "{state | or: fallback.state | upper}", "fields": ["state", "fallback.state"] },
+    { "template": "{items | join: ' / '}", "fields": ["items"] },
+    { "template": "{items | count} élément(s)", "fields": ["items"] },
+    { "template": "{size | bytes}", "fields": ["size"] },
+    { "template": "{camelCase.Field_2}", "fields": ["camelCase.Field_2"] },
+    { "template": "{x", "error": true },
+    { "template": "x}", "error": true },
+    { "template": "{a..b}", "error": true },
+    { "template": "{.a}", "error": true },
+    { "template": "{a | replace: 'x' 'y'}", "error": true },
+    { "template": "{a | unknown}", "error": true },
+    { "template": "{a | upper: 'x'}", "error": true },
+    { "template": "{a | join: b}", "error": true },
+    { "template": "{a | join: 'x' 'y'}", "error": true },
+    { "template": "{a | or}", "error": true }
+  ],
+  "render": [
+    { "template": "Release {release.tag}", "data": { "release": { "tag": "3.4.0" } }, "expected": "Release 3.4.0" },
+    { "template": "{absent.path}", "data": {}, "expected": "" },
+    { "template": "{n} / {ok} / {no} / {none}", "data": { "n": 12, "ok": true, "no": false, "none": null }, "expected": "12 / oui / non / " },
+    { "template": "{list}", "data": { "list": ["a", "b"] }, "expected": "a, b" },
+    { "template": "{object}", "data": { "object": { "a": 1 } }, "expected": "" },
+    { "template": "{state | or: 'inconnu'}", "data": { "state": "" }, "expected": "inconnu" },
+    { "template": "{state | or: other}", "data": { "other": "repli" }, "expected": "repli" },
+    { "template": "{text | firstline | upper}", "data": { "text": "\n  first line \nsecond" }, "expected": "FIRST LINE" },
+    { "template": "{text | trim | lower}", "data": { "text": "  MiXeD  " }, "expected": "mixed" },
+    { "template": "{items | count}", "data": { "items": [1, 2, 3] }, "expected": "3" },
+    { "template": "{items | count}", "data": { "items": "nope" }, "expected": "" },
+    { "template": "{items | join}", "data": { "items": ["a", "b"] }, "expected": "a, b" },
+    { "template": "{items | join: ' / '}", "data": { "items": ["a", "b"] }, "expected": "a / b" },
+    { "template": "{size | bytes}", "data": { "size": 2048 }, "expected": "2 Kio" },
+    { "template": "{size | bytes}", "data": { "size": "x" }, "expected": "x" },
+    { "template": "{when | age}", "data": { "when": "not a date" }, "expected": "not a date" }
+  ]
+}
