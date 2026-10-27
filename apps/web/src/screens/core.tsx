@@ -20,8 +20,18 @@ import { ProjectsScreen } from '../features/admin/ProjectsScreen'
 import { UsersScreen } from '../features/admin/UsersScreen'
 import { QueueScreen } from '../features/queue/QueueScreen'
 import { QueueSettingsScreen } from '../features/queue/QueueSettingsScreen'
-import { ReleaseScreen } from '../features/releases/ReleaseScreen'
-import { ReleasesScreen } from '../features/releases/ReleasesScreen'
+import {
+  ArtifactsBlock,
+  ExecutionsBlock,
+  ExportsBlock,
+  ModuleSectionsBlock,
+  NotesBlock,
+  PublishBlock,
+  RebuildBlock,
+  ReleaseHeaderBlock,
+  TestsBlock,
+} from '../features/releases/ReleaseScreen'
+import { ReleasesList } from '../features/releases/ReleasesScreen'
 import { EventsScreen } from '../features/runs/EventsScreen'
 import { ExecutionsLayout } from '../features/runs/ExecutionsLayout'
 import { PlanRunsScreen } from '../features/runs/PlanRunsScreen'
@@ -67,8 +77,16 @@ export function registerCoreComponents(): void {
     placeholder: PlaceholderBlock,
     versions: VersionsScreen,
     version: VersionScreen,
-    releases: ReleasesScreen,
-    release: ReleaseScreen,
+    'releases-list': ReleasesList,
+    'release-header': ReleaseHeaderBlock,
+    'release-rebuild': RebuildBlock,
+    'release-publish': PublishBlock,
+    'release-tests': TestsBlock,
+    'release-artifacts': ArtifactsBlock,
+    'release-modules': ModuleSectionsBlock,
+    'release-notes': NotesBlock,
+    'release-exports': ExportsBlock,
+    'release-executions': ExecutionsBlock,
     'executions-layout': ExecutionsLayout,
     runs: RunsScreen,
     run: RunScreen,

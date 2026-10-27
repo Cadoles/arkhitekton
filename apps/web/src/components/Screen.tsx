@@ -25,7 +25,7 @@ export function ScreenView({ screen }: { screen: Screen }) {
         {blocks.length === 1 && blocks[0] ? (
           <BlockView block={blocks[0]} />
         ) : (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-5">
             {blocks.map((block) => (
               <BlockView key={block.id} block={block} />
             ))}
