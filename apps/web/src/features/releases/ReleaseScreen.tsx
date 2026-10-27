@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ComponentType } from 'react'
 import { Link, useParams } from 'react-router'
 import { TestsPanel } from './TestsPanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -6,10 +6,10 @@ import { Icon } from '../../components/Icon'
 import { CollapsibleSection } from '../../components/CollapsibleSection'
 import { ReleaseBadges } from './ReleaseBadges'
 import { ReleaseNotes } from './ReleaseNotes'
-import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
+import { Card, EmptyState, Skeleton, StatusBadge } from '../../components/primitives'
+import { Slot } from '../../components/Screen'
 import { formatBytes, formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
-import { hasAtLeast, useSession } from '../auth/session'
 import { useActiveModules } from '../../modules'
 import {
   downloadURL,
@@ -24,75 +24,94 @@ import {
 } from './api'
 
 /*
- * Agrégat d'une release.
+ * Agrégat d'une release, en blocs que l'écran `release` ordonne
+ * (`internal/ui/resources/release.yaml`) : un plugin y place les siens.
  *
  * L'écran est indexé par release plutôt que par environnement : c'est la même
  * matière que `/environments/:env` de la maquette, vue depuis ce qui est livré
  * plutôt que depuis l'endroit où ça tourne.
  *
- * Les résultats de tests, le score et les anomalies rattachées viendront des
- * lots 4 et 1 ; ce qui est ici est ce que le système sait déjà dire.
+ * Chaque bloc lit la release de la route ; la requête est partagée, l'écran
+ * l'a déjà chargée.
  */
-export function ReleaseScreen() {
+function useRouteRelease(): ReleaseDetail | undefined {
   const { tag } = useParams()
-  const { data, isPending, error, refetch } = useRelease(tag)
-  const modules = useActiveModules()
+  return useRelease(tag).data
+}
 
+function withRelease(Rendered: ComponentType<{ release: ReleaseDetail }>) {
+  return function ReleaseBlock() {
+    const release = useRouteRelease()
+    return release ? <Rendered release={release} /> : null
+  }
+}
+
+/** L'en-tête, et le retour à la liste. */
+export function ReleaseHeaderBlock() {
+  const { tag } = useParams()
+  const release = useRouteRelease()
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <Header tag={tag ?? ''} release={data} />
-        <Link
-          to="/releases"
-          className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
-        >
-          <Icon name="arrow-left" className="size-4" />
-          Toutes les releases
-        </Link>
-      </div>
-
-      {isPending && <Skeleton className="h-64 w-full" />}
-      {error && <ErrorState message="Cette release n'a pas pu être chargée." onRetry={() => void refetch()} />}
-
-      {data && (
-        <>
-          {/* Les deux actions restent en tête et hors des sections repliables :
-              elles ne s'affichent que lorsqu'une décision est attendue, et une
-              décision qu'il faut déplier n'est pas demandée. */}
-          <RebuildAction release={data} />
-          <ReleaseAction release={data} />
-
-          {/* Le score en premier : c'est le bloc qu'on lit d'un coup d'œil, et
-              celui qui dit s'il faut ouvrir le reste. */}
-          <TestsPanel tag={data.tag} jobs={data.jobs ?? []} />
-
-          {/* L'état technique d'abord — ce que l'automatisation a produit, où il
-              tournent — puis le contenu fonctionnel. On vient sur cet écran pour
-              savoir où en est la release ; ce qu'elle apporte se relit ensuite,
-              au moment de rédiger ce qui part chez le client. */}
-          <Artifacts release={data} />
-          {/* Les sections des modules allumés, la promotion par exemple.
-              Éteint, un module n'apporte rien : la section proposerait un geste
-              que le serveur refuse. */}
-          {modules.flatMap((module) =>
-            (module.releaseSections ?? []).map((Section, index) => (
-              <Section key={`${module.id}-${index}`} release={data} />
-            )),
-          )}
-
-          <ReleaseNotes release={data} />
-          {data.exports_enabled !== false && <Exports release={data} />}
-
-          {/* Les exécutions en dernier et repliées : c'est de la matière de
-              diagnostic, consultée quand quelque chose ne va pas. Le reste de
-              l'écran répond déjà à « où en est cette release », et une liste de
-              runs entre les deux repoussait les exports hors du premier écran. */}
-          <Executions release={data} />
-        </>
-      )}
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <Header tag={tag ?? ''} release={release} />
+      <Link
+        to="/releases"
+        className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+      >
+        <Icon name="arrow-left" className="size-4" />
+        Toutes les releases
+      </Link>
     </div>
   )
 }
+
+/*
+ * Les deux actions restent en tête et hors des sections repliables : elles ne
+ * s'affichent que lorsqu'une décision est attendue (l'écran le dit, par l'état
+ * de la release et la permission), et une décision qu'il faut déplier n'est
+ * pas demandée.
+ */
+export const RebuildBlock = withRelease(RebuildAction)
+export const PublishBlock = withRelease(ReleaseAction)
+
+/** Le score en premier : c'est le bloc qu'on lit d'un coup d'œil, et celui qui
+ *  dit s'il faut ouvrir le reste. */
+export const TestsBlock = withRelease(function Tests({ release }) {
+  return <TestsPanel tag={release.tag} jobs={release.jobs ?? []} />
+})
+
+/*
+ * L'état technique d'abord, ce que l'automatisation a produit, où il tourne,
+ * puis le contenu fonctionnel. On vient sur cet écran pour savoir où en est la
+ * release ; ce qu'elle apporte se relit ensuite, au moment de rédiger ce qui
+ * part chez le client.
+ */
+export const ArtifactsBlock = withRelease(Artifacts)
+
+/** Les sections des modules d'avant les écrans en données. Éteint, un module
+ *  n'apporte rien : la section proposerait un geste que le serveur refuse. */
+export const ModuleSectionsBlock = withRelease(function ModuleSections({ release }) {
+  const modules = useActiveModules()
+  return (
+    <>
+      {modules.flatMap((module) =>
+        (module.releaseSections ?? []).map((Section, index) => (
+          <Section key={`${module.id}-${index}`} release={release} />
+        )),
+      )}
+    </>
+  )
+})
+
+export const NotesBlock = withRelease(ReleaseNotes)
+export const ExportsBlock = withRelease(Exports)
+
+/*
+ * Les exécutions en dernier et repliées : c'est de la matière de diagnostic,
+ * consultée quand quelque chose ne va pas. Le reste de l'écran répond déjà à
+ * « où en est cette release », et une liste de runs entre les deux repoussait
+ * les exports hors du premier écran.
+ */
+export const ExecutionsBlock = withRelease(Executions)
 
 /**
  * En-tête de la release — repris de la maquette.
@@ -228,6 +247,11 @@ function Artifacts({ release }: { release: ReleaseDetail }) {
           ))}
         </ul>
       )}
+      {/* Ce que des plugins ajoutent à ce qui a été produit, un digest signé par
+          exemple. */}
+      <div className="mt-2 flex flex-col gap-2 empty:hidden">
+        <Slot name="rows" context={{ release }} />
+      </div>
     </CollapsibleSection>
   )
 }
@@ -401,14 +425,8 @@ function Exports({ release }: { release: ReleaseDetail }) {
  * l'utilisateur (doc 08 §8.5).
  */
 function ReleaseAction({ release }: { release: ReleaseDetail }) {
-  const session = useSession()
   const validate = useReleaseRelease(release.tag)
   const [confirming, setConfirming] = useState(false)
-
-  const canRelease =
-    session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'releaser')
-
-  if (release.state !== 'ready' || !canRelease) return null
 
   return (
     <Card title="Décision">
@@ -487,17 +505,12 @@ function failedStage(jobs: ReleaseJob[]): 'build' | 'verification' | 'inconnue' 
  * jamais concernée — c'est un re-tag, son image est celle de sa RC source.
  */
 function RebuildAction({ release }: { release: ReleaseDetail }) {
-  const session = useSession()
   const rebuild = useRebuild(release.tag)
 
-  const canBuild =
-    session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
-
-  // Le serveur refuse la reconstruction d'une nature en re-tag et le dit ; ici,
-  // seul l'état compte. Masquer selon le nom `final` aurait laissé le bouton sur
-  // la nature `ga` d'un autre projet, et l'aurait retiré à un `final` qui
-  // construit.
-  if (release.state !== 'failed' || !canBuild) return null
+  // Montré sur un état en échec seulement (l'écran le dit). Le serveur refuse la
+  // reconstruction d'une nature en re-tag et le dit : masquer selon le nom
+  // `final` aurait laissé le bouton sur la nature `ga` d'un autre projet, et
+  // l'aurait retiré à un `final` qui construit.
 
   const stage = failedStage(release.jobs ?? [])
   const title =

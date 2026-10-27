@@ -26,22 +26,6 @@ spec:
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Screen
-metadata: { name: releases }
-spec:
-  path: releases
-  parent: shell
-  blocks: [{ id: core.releases, component: core/releases }]
----
-apiVersion: ui.arkhitekton/v1
-kind: Screen
-metadata: { name: release }
-spec:
-  path: releases/:tag
-  parent: shell
-  blocks: [{ id: core.release, component: core/release }]
----
-apiVersion: ui.arkhitekton/v1
-kind: Screen
 metadata: { name: release-notes }
 spec:
   path: releases/:tag/notes

@@ -1,0 +1,40 @@
+# The releases, and a release's aggregate. A plugin adds badges next to a release's name (the
+# `badges` slot of the list and of the header), rows to what was produced (`rows`), and sections
+# between the core's blocks.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: releases }
+spec:
+  path: releases
+  parent: shell
+  blocks:
+    - { id: core.title, widget: { heading: { text: Releases } } }
+    - { id: core.list, component: core/releases-list, slots: { badges: [] } }
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: release }
+spec:
+  path: releases/:tag
+  parent: shell
+  data:
+    release: { source: core, name: release, params: { tag: "{route.tag}" } }
+  blocks:
+    - { id: core.header, component: core/release-header, slots: { badges: [] } }
+    # The two decisions come first, and only when one is expected.
+    - id: core.rebuild
+      component: core/release-rebuild
+      permission: pipeline:run
+      when: [{ field: release.state, equals: failed }]
+    - id: core.publish
+      component: core/release-publish
+      permission: release:create:final
+      when: [{ field: release.state, equals: ready }]
+    - { id: core.tests, component: core/release-tests }
+    - { id: core.artifacts, component: core/release-artifacts, slots: { rows: [] } }
+    - { id: core.modules, component: core/release-modules }
+    - { id: core.notes, component: core/release-notes }
+    - id: core.exports
+      component: core/release-exports
+      when: [{ field: release.exports_enabled, equals: true }]
+    - { id: core.executions, component: core/release-executions }

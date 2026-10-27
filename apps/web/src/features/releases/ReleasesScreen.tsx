@@ -11,13 +11,13 @@ const KIND_LABEL: Record<Release['kind'], string> = {
   patch: 'Correctif',
 }
 
-export function ReleasesScreen() {
+/** La liste des releases, sous le titre que l'écran `releases` pose ; ses
+ *  lignes ont un emplacement `badges`. */
+export function ReleasesList() {
   const { data, isPending, error, refetch } = useReleases()
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold text-zinc-900">Releases</h1>
-
+    <>
       {isPending && <Skeleton className="h-48 w-full" />}
       {error && <ErrorState message="Les releases n'ont pas pu être chargées." onRetry={() => void refetch()} />}
 
@@ -60,6 +60,6 @@ export function ReleasesScreen() {
           )}
         </Card>
       )}
-    </div>
+    </>
   )
 }
