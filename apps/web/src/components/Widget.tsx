@@ -224,7 +224,9 @@ function WidgetContent({ widget, scope }: { widget: Widget; scope: Scope }) {
       </ScopeContext.Provider>
     )
   }
-  if (widget.tabs) return <NavTabs navigation={widget.tabs.navigation} label={widget.tabs.navigation} />
+  if (widget.tabs) {
+    return <NavTabs navigation={widget.tabs.navigation} label={widget.tabs.label ?? widget.tabs.navigation} />
+  }
   if (widget.outlet) return <Outlet />
   return null
 }

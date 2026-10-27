@@ -39,14 +39,18 @@ spec:
         summary: Note générée puis éditable, avec la date et l'auteur de la dernière modification.
         params: [tag]
 ---
-# The three execution views under one frame: what runs, what waits, and what governs the wait.
+# The execution views under one frame: what runs, what waits, the facts observed, what they
+# triggered, and what governs it all. Three ways of looking at what the dashboard did: separated,
+# bringing a fact next to the run that produced it would take navigating.
 apiVersion: ui.arkhitekton/v1
 kind: Screen
 metadata: { name: executions }
 spec:
   path: runs
   parent: shell
-  blocks: [{ id: core.executions, component: core/executions-layout }]
+  blocks:
+    - { id: core.tabs, widget: { tabs: { navigation: executions, label: Vues d'exécution } } }
+    - { id: core.outlet, widget: { outlet: {} } }
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Screen
