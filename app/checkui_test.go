@@ -1,10 +1,14 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
 
 func pluginWithInterface(t *testing.T, resources string) string {
@@ -37,5 +41,15 @@ func TestCheckUISaysWhetherAnInterfaceComposes(t *testing.T) {
 		"spec: { items: [{ id: core.versions, label: Mine, to: /mine }] }\n")
 	if err := runCheckUI([]string{"--plugin", refused}); err == nil || !strings.Contains(err.Error(), "core.versions") {
 		t.Errorf("a conflicting interface: %v", err)
+	}
+}
+
+// A plugin of the retired module contract brings a script and no resource: installing it would show
+// none of its screens, so it is refused with the reason.
+func TestAPluginOfTheRetiredModuleContractIsRefused(t *testing.T) {
+	plugin := installed.Plugin{Native: &installed.Native{Manifest: manifest.Manifest{UI: &manifest.UI{Entry: "ui/index.js"}}}}
+	err := (&capabilitySources{}).checkInterface(context.Background(), plugin)
+	if err == nil || !strings.Contains(err.Error(), "ui.resources") {
+		t.Errorf("err = %v", err)
 	}
 }

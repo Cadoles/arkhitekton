@@ -1,18 +1,17 @@
 /*
- * Ce qu'un module de l'interface emprunte au noyau.
+ * Ce que le script d'un plugin emprunte au noyau.
  *
- * Un module (`src/plugins/<id>/`) n'importe que ce fichier, sous l'alias
- * `@arkhitekton/host`, plus `react`, `react-router` et `@tanstack/react-query` :
- * c'est ce qui lui permet de vivre dans un autre dépôt et d'y être construit en
- * script que le noyau charge à chaud. Un test le vérifie
- * (`modules.test.ts`).
+ * Ses écrans, entrées de menu et blocs sont des ressources (`ui.resources` de son
+ * manifeste) ; son script enregistre seulement les composants qu'elles nomment
+ * (`registerComponent`). Construit dans `src/plugins/<id>/`, il n'importe que ce
+ * fichier, sous l'alias `@arkhitekton/host`, plus `react`, `react-router` et
+ * `@tanstack/react-query` : c'est ce qui lui permet de vivre dans un autre dépôt.
+ * Un test le vérifie (`modules.test.ts`).
  *
  * Contrat encore jeune : jusqu'à arkhitekton 1.0, une version mineure peut le
  * changer, et le dit dans ses notes.
  */
 
-export type { AppModule, ModuleNavEntry } from '../lib/modules'
-export { registerModule } from '../lib/registry'
 export { registerComponent } from '../lib/components'
 export type { BlockComponentProps } from '../lib/components'
 export { Slot } from '../components/Screen'

@@ -431,7 +431,15 @@ func pluginVersionIn(registries capabilities.Source) func(plugin string) string 
 // checkInterface refuses a plugin whose screens, menu entries and blocks would not compose with
 // the core's and the active plugins': refused now, not left out of every screen later.
 func (s *capabilitySources) checkInterface(ctx context.Context, plugin installed.Plugin) error {
-	if plugin.Native == nil || len(plugin.Native.Interface) == 0 {
+	if plugin.Native == nil {
+		return nil
+	}
+	// A script alone registered a whole module under the contract arkhitekton 0.4 retired: its
+	// components now show only where resources name them.
+	if declared := plugin.Native.Manifest.UI; declared != nil && declared.Entry != "" && len(declared.Resources) == 0 {
+		return errors.New("its interface is a script without resources (ui.resources): the module contract it registers was retired, its screens would not show")
+	}
+	if len(plugin.Native.Interface) == 0 {
 		return nil
 	}
 	active, _, err := s.installed.load(ctx)

@@ -32,7 +32,6 @@ spec:
       when: [{ field: release.state, equals: ready }]
     - { id: core.tests, component: core/release-tests }
     - { id: core.artifacts, component: core/release-artifacts, slots: { rows: [] } }
-    - { id: core.modules, component: core/release-modules }
     - { id: core.notes, component: core/release-notes }
     - id: core.exports
       component: core/release-exports

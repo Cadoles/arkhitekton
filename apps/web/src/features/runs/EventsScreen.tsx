@@ -1,6 +1,6 @@
 import { Card, EmptyState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
-import { moduleEventLabel } from '../../modules'
+import { useInterface } from '../../lib/interface'
 import { EVENT_LABEL, outcomeOf, useProjectEvents, type ProjectEvent } from './events'
 
 /*
@@ -45,6 +45,9 @@ export function EventsScreen() {
 }
 
 function EventRow({ event }: { event: ProjectEvent }) {
+  // Les faits d'un plugin arrivent avec ses libellés, que son manifeste déclare ;
+  // lus même plugin éteint : le fil des faits est une histoire.
+  const { eventLabels } = useInterface()
   const outcome = outcomeOf(event)
 
   return (
@@ -52,7 +55,7 @@ function EventRow({ event }: { event: ProjectEvent }) {
       <span className="text-sm font-medium text-zinc-900">
         {/* Un type inconnu s'affiche tel quel plutôt que de disparaître : les
             faits d'un plugin arriveront avec leurs propres libellés. */}
-        {EVENT_LABEL[event.type] ?? moduleEventLabel(event.type) ?? event.type}
+        {EVENT_LABEL[event.type] ?? eventLabels[event.type] ?? event.type}
       </span>
 
       {event.subject && (

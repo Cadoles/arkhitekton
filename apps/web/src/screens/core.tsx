@@ -1,6 +1,6 @@
 import { lazy } from 'react'
 import { AppShell } from '../components/AppShell'
-import { HomeRedirect } from '../components/ModuleRoute'
+import { HomeRedirect } from '../components/HomeRedirect'
 import { NotFound } from '../components/NotFound'
 import { Placeholder } from '../components/Placeholder'
 import { registerComponent, type BlockComponentProps } from '../lib/components'
@@ -23,7 +23,6 @@ import {
   ArtifactsBlock,
   ExecutionsBlock,
   ExportsBlock,
-  ModuleSectionsBlock,
   NotesBlock,
   PublishBlock,
   RebuildBlock,
@@ -81,7 +80,6 @@ export function registerCoreComponents(): void {
     'release-publish': PublishBlock,
     'release-tests': TestsBlock,
     'release-artifacts': ArtifactsBlock,
-    'release-modules': ModuleSectionsBlock,
     'release-notes': NotesBlock,
     'release-exports': ExportsBlock,
     'release-executions': ExecutionsBlock,

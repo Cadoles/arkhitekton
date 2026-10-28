@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { testQueryClient } from './test/render'
@@ -6,8 +6,6 @@ import { Outlet, RouterProvider, createMemoryRouter } from 'react-router'
 import { buildRoutes } from './routes'
 import { registerComponent } from './lib/components'
 import { EMPTY_INTERFACE, type Screen } from './lib/interface'
-
-vi.mock('./modules', () => ({ appModules: () => [], useActiveModules: () => [] }))
 
 function Frame() {
   return (
