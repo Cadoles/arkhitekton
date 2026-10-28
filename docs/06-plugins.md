@@ -382,7 +382,7 @@ routes:
   - { method: GET, path: environments, permission: read }
   - { method: POST, path: "releases/{tag}/promote/{environment}", permission: "deploy:{environment}" }
   - { method: GET, path: status, permission: admin, scope: instance }
-ui: { entry: ui/index.js, styles: [ui/index.css] }
+ui: { entry: ui/index.js, styles: [ui/index.css], resources: [ui/resources/*.yaml] }
 pipelines:
   - name: unit-tests
     label: Tests
@@ -419,14 +419,15 @@ without a deployment, and its tables must be there. They keep their own version 
 `/readyz` checks as `schema-<id>`. Keep them compatible with the previous version: both can be
 installed side by side. Uninstalling leaves the tables and their rows.
 
-**Screens.** The program's `ui.entry` is a script, built with the dashboard's preset
-(`apps/web/plugin.vite.ts`), that calls `registerModule` from `@arkhitekton/host` with an
-`AppModule`: menu entries, routes, sections and badges of a release, labels of its events. It
-carries neither React nor the router: it takes the dashboard's from `window.__arkhitekton`. `/me`
-lists the active plugins' interfaces; the browser loads them before its first screen, from
-`/api/v1/plugin-interfaces/<id>/<version>/`. An interface that fails is left out, and the
-console says so. Its stylesheet carries only its own utilities, on the dashboard's theme
-(`src/styles/plugin.css`).
+**Screens.** The plugin's screens, menu entries and blocks are resources, `ui.resources`
+(§6.14). Its `ui.entry`, if it has components of its own, is a script built with the dashboard's
+preset (`apps/web/plugin.vite.ts`) that calls `registerComponent` from `@arkhitekton/host` for
+each `<id>/<name>` its resources render. It carries neither React nor the router: it takes the
+dashboard's from `window.__arkhitekton`. `/me` lists the active plugins' scripts; the browser
+loads them before its first screen, from `/api/v1/plugin-interfaces/<id>/<version>/`. A script
+that fails is left out, and the console says so. Its stylesheet carries only its own utilities,
+on the dashboard's theme (`src/styles/plugin.css`). A script without resources is the module
+contract arkhitekton 0.4 retired: such a plugin is refused at installation and activation.
 
 **What is refused**, when the plugin is published and again when it is installed:
 
@@ -514,8 +515,124 @@ there runs the same once installed:
 
 A route's handler is tested as plain `net/http`, its caller and project set with
 `extension.WithIdentity` and `extension.WithProject`. A program as a whole is checked with
-`arkhitekton check-reading --plugin`, and the interface's module with the dashboard's own front-end
-checks, once dropped in `apps/web/src/plugins/<id>/` of a tree built outside any ignored path.
+`arkhitekton check-reading --plugin`, its interface resources with `arkhitekton check-ui --plugin`
+(or `hosttest.Interface`, which returns the composed interface for assertions), and its
+components with the dashboard's own front-end checks, once dropped in `apps/web/src/plugins/<id>/`
+of a tree built outside any ignored path.
 
 The plugin requires the versions of `sdk` and `rpc` it is built against, and of the dashboard for
 `hosttest`. Until arkhitekton 1.0, a minor version may change the kit, and says so in its notes.
+
+## 6.14 Screens as data
+
+The dashboard's screens, its main menu and the tabs of its screens are resources, in the manner of
+Kubernetes objects (`apiVersion: ui.arkhitekton/v1`, schema in `sdk/ui`). The core's are in
+`internal/ui/resources`; a plugin brings its own in `ui.resources`. The dashboard composes them,
+filters them for whoever asks in the project they look at, and serves the result on
+`GET /api/v1/ui`; the browser builds its router and menus from it, merging nothing.
+
+**Three kinds.**
+
+- `Screen`: a route (`path`, relative to its `parent`; none, the parent's index; `redirect`, an
+  address kept for shared links), the data it loads, and its `blocks`, in order. Only the shell has
+  no parent.
+- `Navigation`: the main menu (`main`, whose `home` is where `/` leads) and the tabs a screen
+  shows (`executions`, `admin`, `project`). An entry's `to` may cite the route (`{route.slug}`).
+- `Widget`: a widget composed of others, with parameters, that blocks reuse with `use`.
+
+A block is a component or a widget. A component is named `<owner>/<name>`: `core/…` are the
+dashboard's, `<id>/…` those the plugin's script registers. A component may declare `slots`, places
+inside it where others add blocks: the release header's and the release list's `badges`, the
+artifacts' `rows`. A slot entry receives what the component passes it, the release of a row for
+instance, first in what its templates read.
+
+```yaml
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: release }          # no prefix: a contribution to the core's screen
+spec:
+  blocks:
+    - id: mse.deployment
+      after: core.artifacts
+      data: { deployment: { source: plugin, path: "releases/{route.tag}/deployment" } }
+      widget:
+        card:
+          title: Déploiement
+          children:
+            - table:
+                rows: deployment.environments
+                empty: Aucun environnement
+                columns:
+                  - { label: Environnement, value: "{label}" }
+                  - { label: Depuis, value: "{deployed.since | age}" }
+                  - label: État
+                    badge: { text: "{state}", tone: { from: state, map: { ok: success, drift: warning }, default: neutral } }
+                  - label: ""
+                    when: [{ field: can_deploy, equals: true }]
+                    action:
+                      label: Promouvoir
+                      method: POST
+                      path: "releases/{route.tag}/promote/{id}"
+                      confirm: { text: "Promouvoir {route.tag} vers {label} ?", challenge: "{id}" }
+                      invalidates: [deployment]
+    - id: core.header
+      slots: { badges: [{ id: mse.deployed, component: mse/deployed-badges }] }
+---
+apiVersion: ui.arkhitekton/v1
+kind: Navigation
+metadata: { name: main }
+spec:
+  home: /environments
+  items:
+    - { id: mse.environments, before: core.versions, label: Environnements, icon: server, to: /environments }
+```
+
+**Merging.** Resources merge by name, the way Kubernetes merges an object two managers apply:
+
+- a plugin creates resources, blocks, entries and slot entries under its prefix (`<id>.`); a
+  resource without it is a contribution to the core's resource of that name, refused if there is
+  none;
+- lists (`blocks`, `items`, a slot's entries) merge by `id`; an added entry goes `after` or
+  `before` an anchor, the core's or the plugin's own, never another plugin's, so that what one
+  plugin brings does not depend on another being installed; without either, it goes last;
+- on an entry it does not own, a plugin may only add to its slots: it never removes, hides,
+  replaces nor moves a block of the core or of another plugin. A field two sources set is a
+  conflict (the main menu's `home`, for instance), refused naming its first owner.
+
+The composition is checked when a plugin is installed and when a version is activated: a
+contribution to a screen that does not exist, a creation without the prefix, a second owner, an
+anchor that is not there, a component of another plugin, a route the plugin does not declare are
+refused there with their reason, not discovered on a screen.
+
+**Data.** A screen or a block loads named sources. `source: plugin` calls a GET route the plugin
+declares, its path a template over the route (`{route.tag}`); `source: core` names one of the
+core's reads (`release`, `releases`, `version`, `run`), shared with the screens that read it.
+`when` shows a block, a widget or a table column only if every condition holds: `equals`, `in`, or
+`present`. A block's `permission`, and whether its plugin is switched on for the project, are
+the server's to decide; a permission that depends on the row, `deploy:{id}`, is the data's to
+tell, through `when`. Hiding is not refusing: the API still decides.
+
+**Widgets**, a closed vocabulary only the core extends: `stack` (a column, or a `row`), `grid`,
+`card` (`collapsible`), `heading`, `keyValue`, `table` (columns with a `value` and its `link`, a
+`badge`, or an `action`), `list`, `badge` and `stat` (tone `neutral`, `info`, `success`,
+`warning`, `danger`, fixed or read through a table), `text`, `markdown` (paragraphs, lists,
+emphasis, code and links, no HTML), `link` (a path of the dashboard or an https address),
+`action`, `empty`, `use`, `tabs` and `outlet`. An `action` calls a route of the block's plugin
+(POST, PUT or DELETE), after a confirmation (`confirm`, with a `challenge` to type back) and a
+form (`form`: text, textarea, boolean or select fields, sent as a JSON object), then loads again
+the data it `invalidates`. The dashboard fills in its route's permission and hides it from a role
+that may not call it. A need the vocabulary does not cover is a component the plugin registers.
+
+**Templates.** Text a widget shows is a template, `{path | filter | …}`, the grammar of declared
+readings (§6.3) with dotted paths. Inside a table or a list, a row's fields are read first, then
+the block's data, then the route (`route`). Filters: `firstline`, `trim`, `lower`, `upper`,
+`or: <path|'text'>`, `date`, `datetime`, `age`, `bytes`, `count`, `join: 'sep'`. The dashboard
+checks them at installation; the browser renders them. A number is written as is, a boolean
+`oui` or `non`, a list joined, an object not at all.
+
+**A block that fails** shows where it stands, with its id, and the rest of the screen renders: a
+plugin in trouble does not take the core's screen with it.
+
+**Facts' labels** come from the manifest's `events`, served with the interface, read even while
+the plugin is switched off.
+

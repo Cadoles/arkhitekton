@@ -61,8 +61,9 @@ A plugin is compiled into the binary, which is precisely what the exception make
 is installed: a declared reading, and a program the dashboard launches and talks to over gRPC
 (doc 06 §6.3, §6.4). A program built against `rpc/extension` uses only the plugin interface, and
 is covered by the exception like a compiled plugin; so is a program written in another language,
-through the contract the dashboard talks to programs with, and an interface script built with
-the dashboard's preset (item (d) of the exception).
+through the contract the dashboard talks to programs with; so are its interface resources
+(`ui.arkhitekton/v1`) and an interface script built with the dashboard's preset (item (d) of the
+exception).
 
 A plugin's tests may use `host/hosttest` (doc 06 §6.13), and its interface the module
 `apps/web/src/host`, both named by the exception as part of the plugin interface.
@@ -106,7 +107,8 @@ and the patent grant is explicit, which suits code that gets copied verbatim.
 
 **The plugin interface names every way a plugin talks to the dashboard**: the `sdk` module,
 the `rpc` module, the HTTP API, the declarative formats (plugin manifests and declared readings
-included), the gRPC contract programs speak and the contract interface scripts register with. A format added later is added to the list
+included), the gRPC contract programs speak, the interface resources and the contract interface
+scripts register components with. A format added later is added to the list
 in the exception, not left to interpretation.
 
 **Native plugins go through `hashicorp/go-plugin`**, under MPL-2.0, as is its `yamux`; the

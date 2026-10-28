@@ -38,6 +38,7 @@ exempt from the write timeout.
 | `GET /auth/callback` | public | Completes it, creates the session |
 | `POST /auth/logout` | CSRF | Revokes the session |
 | `GET /me` | authenticated | Identity, instance role, per-project roles |
+| `GET /ui?project={slug}` | authenticated | The screens, menus and widgets of the core and of the plugins switched on for the project, filtered for the caller's role (doc 06 §6.14); `ETag`, answers 304 to `If-None-Match` |
 
 ## 7.3 Runs and logs
 
