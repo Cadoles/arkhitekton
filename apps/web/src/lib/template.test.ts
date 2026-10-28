@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import display from '../../../../sdk/declare/testdata/display.json?raw'
 import { parseTemplate, renderTemplate, templateFields } from './template'
 
 /*
@@ -10,9 +9,18 @@ type Vectors = {
   parse: { template: string; fields?: string[]; error?: boolean }[]
   render: { template: string; data: Record<string, unknown>; expected: string }[]
 }
-const vectors = JSON.parse(display) as Vectors
+// Lus par un glob, qui rend un objet vide hors du dépôt du noyau : l'arbre où un
+// plugin construit son interface ne copie que `apps/web`, et le noyau les lit
+// toujours.
+const shared = import.meta.glob('../../../../sdk/declare/testdata/display.json', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
+const display = Object.values(shared)[0]
+const vectors: Vectors = display ? (JSON.parse(display) as Vectors) : { parse: [], render: [] }
 
-describe('gabarits d’affichage', () => {
+describe.skipIf(!display)('gabarits d’affichage, cas partagés avec le serveur', () => {
   it.each(vectors.parse)('lit « $template » comme le serveur', ({ template, fields, error }) => {
     if (error) {
       expect(() => parseTemplate(template)).toThrow()
@@ -24,7 +32,9 @@ describe('gabarits d’affichage', () => {
   it.each(vectors.render)('rend « $template »', ({ template, data, expected }) => {
     expect(renderTemplate(template, [data])).toBe(expected)
   })
+})
 
+describe('gabarits d’affichage', () => {
   it('lit la ligne avant les données du bloc, et la route en dernier', () => {
     const scope = [{ label: 'Prod' }, { label: 'masqué', release: { tag: '3.4.0' } }, { route: { tag: 'x' } }]
     expect(renderTemplate('{label} {release.tag} {route.tag}', scope)).toBe('Prod 3.4.0 x')
