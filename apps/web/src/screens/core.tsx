@@ -4,7 +4,6 @@ import { HomeRedirect } from '../components/ModuleRoute'
 import { NotFound } from '../components/NotFound'
 import { Placeholder } from '../components/Placeholder'
 import { registerComponent, type BlockComponentProps } from '../lib/components'
-import { AdminLayout } from '../features/admin/AdminLayout'
 import { AuditScreen } from '../features/admin/AuditScreen'
 import { AutomationsScreen } from '../features/admin/AutomationsScreen'
 import { CapabilitiesScreen } from '../features/admin/CapabilitiesScreen'
@@ -92,7 +91,6 @@ export function registerCoreComponents(): void {
     events: EventsScreen,
     'plan-runs': PlanRunsScreen,
     'queue-settings': QueueSettingsScreen,
-    'admin-layout': AdminLayout,
     projects: ProjectsScreen,
     plugins: PluginsScreen,
     capabilities: CapabilitiesScreen,

@@ -110,13 +110,19 @@ spec:
   parent: shell
   redirect: /runs/queue
 ---
+# The administration under one frame: projects, the instance's plugins and capabilities, roles,
+# the audit log. They have neither the same reader nor the same frequency, and stacked they made a
+# page one scrolled through instead of reading. What belongs to one project lives on its page.
 apiVersion: ui.arkhitekton/v1
 kind: Screen
 metadata: { name: admin }
 spec:
   path: admin
   parent: shell
-  blocks: [{ id: core.admin, component: core/admin-layout }]
+  blocks:
+    - { id: core.title, widget: { heading: { text: Administration } } }
+    - { id: core.tabs, widget: { tabs: { navigation: admin, label: Vues d'administration } } }
+    - { id: core.outlet, widget: { outlet: {} } }
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Screen
