@@ -65,10 +65,19 @@ protocol), the hooks' in `app/testdata/hooked/`, the example in `rpc/examples/go
 is committed. The contract lives in `rpc/proto`; `make proto` regenerates `rpc/pluginv1`
 (committed), fetching `buf` and the generators by version.
 
-**A plugin's interface** is built with `apps/web/plugin.vite.ts` from a tree where its module is
-dropped in `src/plugins/<id>/`, beside an `entry.ts` that imports `src/styles/plugin.css` and
-calls `registerModule`. Tailwind reads no file git ignores, even named by `@source`: build that
+**A plugin's interface** is built with `apps/web/plugin.vite.ts` from a tree where its components
+are dropped in `src/plugins/<id>/`, beside an `entry.ts` that imports `src/styles/plugin.css` and
+calls `registerComponent`. Tailwind reads no file git ignores, even named by `@source`: build that
 tree outside an ignored path.
+
+**The core's screens** are resources in `internal/ui/resources` (doc 06 §6.14), their components
+registered under `core/<name>` by `apps/web/src/screens/core.tsx`. A screen or a block added there
+changes `internal/ui/testdata/core.json`, the core's interface as a viewer with every permission
+gets it: run `go test ./internal/ui -update` and read the diff, it is what plugins compose with. A
+new widget goes in three places: `sdk/ui` (its schema and validation), `apps/web/src/components/
+Widget.tsx` (its rendering) and doc 06 §6.14. A new core source, in `sdk/ui.CoreSources` and
+`apps/web/src/lib/data.ts`. A template filter, in `sdk/declare/template.go`,
+`apps/web/src/lib/template.ts` and the cases both read, `sdk/declare/testdata/display.json`.
 
 **Adding a view** for declared readings (doc 06 §6.3) means adding it to
 `internal/declarative/views.go`: its parser, the fields every row carries, the closed values of

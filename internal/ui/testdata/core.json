@@ -1,0 +1,561 @@
+{
+  "screens": [
+    {
+      "name": "releases",
+      "path": "releases",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.title",
+          "widget": {
+            "heading": {
+              "text": "Releases"
+            }
+          }
+        },
+        {
+          "id": "core.list",
+          "component": "core/releases-list",
+          "slots": {
+            "badges": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "release",
+      "path": "releases/:tag",
+      "parent": "shell",
+      "data": {
+        "release": {
+          "source": "core",
+          "name": "release",
+          "params": {
+            "tag": "{route.tag}"
+          }
+        }
+      },
+      "blocks": [
+        {
+          "id": "core.header",
+          "component": "core/release-header",
+          "slots": {
+            "badges": []
+          }
+        },
+        {
+          "id": "core.rebuild",
+          "component": "core/release-rebuild",
+          "when": [
+            {
+              "field": "release.state",
+              "equals": "failed"
+            }
+          ],
+          "permission": "pipeline:run"
+        },
+        {
+          "id": "core.publish",
+          "component": "core/release-publish",
+          "when": [
+            {
+              "field": "release.state",
+              "equals": "ready"
+            }
+          ],
+          "permission": "release:create:final"
+        },
+        {
+          "id": "core.tests",
+          "component": "core/release-tests"
+        },
+        {
+          "id": "core.artifacts",
+          "component": "core/release-artifacts",
+          "slots": {
+            "rows": []
+          }
+        },
+        {
+          "id": "core.notes",
+          "component": "core/release-notes"
+        },
+        {
+          "id": "core.exports",
+          "component": "core/release-exports",
+          "when": [
+            {
+              "field": "release.exports_enabled",
+              "equals": true
+            }
+          ]
+        },
+        {
+          "id": "core.executions",
+          "component": "core/release-executions"
+        }
+      ]
+    },
+    {
+      "name": "home",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.home",
+          "component": "core/home-redirect"
+        }
+      ]
+    },
+    {
+      "name": "versions",
+      "path": "versions",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.versions",
+          "component": "core/versions"
+        }
+      ]
+    },
+    {
+      "name": "version",
+      "path": "versions/:id",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.version",
+          "component": "core/version"
+        }
+      ]
+    },
+    {
+      "name": "release-notes",
+      "path": "releases/:tag/notes",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.notes",
+          "component": "core/placeholder",
+          "props": {
+            "lot": "lot 6",
+            "params": [
+              "tag"
+            ],
+            "summary": "Note générée puis éditable, avec la date et l'auteur de la dernière modification.",
+            "title": "Note de release"
+          }
+        }
+      ]
+    },
+    {
+      "name": "executions",
+      "path": "runs",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.tabs",
+          "widget": {
+            "tabs": {
+              "navigation": "executions",
+              "label": "Vues d'exécution"
+            }
+          }
+        },
+        {
+          "id": "core.outlet",
+          "widget": {
+            "outlet": {}
+          }
+        }
+      ]
+    },
+    {
+      "name": "runs",
+      "parent": "executions",
+      "blocks": [
+        {
+          "id": "core.runs",
+          "component": "core/runs"
+        }
+      ]
+    },
+    {
+      "name": "queue",
+      "path": "queue",
+      "parent": "executions",
+      "blocks": [
+        {
+          "id": "core.queue",
+          "component": "core/queue"
+        }
+      ]
+    },
+    {
+      "name": "events",
+      "path": "events",
+      "parent": "executions",
+      "blocks": [
+        {
+          "id": "core.events",
+          "component": "core/events"
+        }
+      ]
+    },
+    {
+      "name": "plan-runs",
+      "path": "automations",
+      "parent": "executions",
+      "blocks": [
+        {
+          "id": "core.plan-runs",
+          "component": "core/plan-runs"
+        }
+      ]
+    },
+    {
+      "name": "queue-settings",
+      "path": "settings",
+      "parent": "executions",
+      "blocks": [
+        {
+          "id": "core.queue-settings",
+          "component": "core/queue-settings"
+        }
+      ]
+    },
+    {
+      "name": "run",
+      "path": "runs/:name",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.run",
+          "component": "core/run"
+        }
+      ]
+    },
+    {
+      "name": "queue-former",
+      "path": "queue",
+      "parent": "shell",
+      "redirect": "/runs/queue"
+    },
+    {
+      "name": "admin",
+      "path": "admin",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.title",
+          "widget": {
+            "heading": {
+              "text": "Administration"
+            }
+          }
+        },
+        {
+          "id": "core.tabs",
+          "widget": {
+            "tabs": {
+              "navigation": "admin",
+              "label": "Vues d'administration"
+            }
+          }
+        },
+        {
+          "id": "core.outlet",
+          "widget": {
+            "outlet": {}
+          }
+        }
+      ]
+    },
+    {
+      "name": "admin-projects",
+      "parent": "admin",
+      "blocks": [
+        {
+          "id": "core.projects",
+          "component": "core/projects"
+        }
+      ]
+    },
+    {
+      "name": "admin-plugins",
+      "path": "plugins",
+      "parent": "admin",
+      "blocks": [
+        {
+          "id": "core.plugins",
+          "component": "core/plugins"
+        }
+      ]
+    },
+    {
+      "name": "admin-capabilities",
+      "path": "capabilities",
+      "parent": "admin",
+      "blocks": [
+        {
+          "id": "core.capabilities",
+          "component": "core/capabilities"
+        }
+      ]
+    },
+    {
+      "name": "admin-users",
+      "path": "users",
+      "parent": "admin",
+      "blocks": [
+        {
+          "id": "core.users",
+          "component": "core/users"
+        }
+      ]
+    },
+    {
+      "name": "admin-projects-former",
+      "path": "projects",
+      "parent": "admin",
+      "blocks": [
+        {
+          "id": "core.projects",
+          "component": "core/projects"
+        }
+      ]
+    },
+    {
+      "name": "admin-logs",
+      "path": "logs",
+      "parent": "admin",
+      "blocks": [
+        {
+          "id": "core.audit",
+          "component": "core/audit"
+        }
+      ]
+    },
+    {
+      "name": "project",
+      "path": "projects/:slug",
+      "parent": "admin",
+      "blocks": [
+        {
+          "id": "core.project",
+          "component": "core/project-layout"
+        }
+      ]
+    },
+    {
+      "name": "project-general",
+      "parent": "project",
+      "blocks": [
+        {
+          "id": "core.general",
+          "component": "core/project-general"
+        }
+      ]
+    },
+    {
+      "name": "project-plugins",
+      "path": "plugins",
+      "parent": "project",
+      "blocks": [
+        {
+          "id": "core.plugins",
+          "component": "core/project-plugins"
+        }
+      ]
+    },
+    {
+      "name": "project-pipelines",
+      "path": "pipelines",
+      "parent": "project",
+      "blocks": [
+        {
+          "id": "core.pipelines",
+          "component": "core/project-pipelines"
+        }
+      ]
+    },
+    {
+      "name": "project-automations",
+      "path": "automations",
+      "parent": "project",
+      "blocks": [
+        {
+          "id": "core.automations",
+          "component": "core/project-automations"
+        }
+      ]
+    },
+    {
+      "name": "project-sync",
+      "path": "sync",
+      "parent": "project",
+      "blocks": [
+        {
+          "id": "core.sync",
+          "component": "core/project-sync"
+        }
+      ]
+    },
+    {
+      "name": "not-found",
+      "path": "*",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.not-found",
+          "component": "core/not-found"
+        }
+      ]
+    },
+    {
+      "name": "shell",
+      "path": "/",
+      "blocks": [
+        {
+          "id": "core.shell",
+          "component": "core/shell"
+        }
+      ]
+    }
+  ],
+  "navigations": {
+    "admin": {
+      "items": [
+        {
+          "id": "core.projects",
+          "label": "Projets",
+          "icon": "branch",
+          "to": "/admin",
+          "end": true
+        },
+        {
+          "id": "core.plugins",
+          "label": "Plugins",
+          "icon": "link",
+          "to": "/admin/plugins"
+        },
+        {
+          "id": "core.capabilities",
+          "label": "Capacités",
+          "icon": "layers",
+          "to": "/admin/capabilities"
+        },
+        {
+          "id": "core.users",
+          "label": "Utilisateurs",
+          "icon": "user",
+          "to": "/admin/users"
+        },
+        {
+          "id": "core.logs",
+          "label": "Journal d'audit",
+          "icon": "doc",
+          "to": "/admin/logs"
+        }
+      ]
+    },
+    "executions": {
+      "items": [
+        {
+          "id": "core.runs",
+          "label": "Exécutions",
+          "icon": "beaker",
+          "to": "/runs",
+          "end": true
+        },
+        {
+          "id": "core.queue",
+          "label": "File d'attente",
+          "icon": "queue",
+          "to": "/runs/queue"
+        },
+        {
+          "id": "core.events",
+          "label": "Faits",
+          "icon": "doc",
+          "to": "/runs/events"
+        },
+        {
+          "id": "core.automations",
+          "label": "Automatisations",
+          "icon": "beaker",
+          "to": "/runs/automations"
+        },
+        {
+          "id": "core.settings",
+          "label": "Paramètres",
+          "icon": "cog",
+          "to": "/runs/settings"
+        }
+      ]
+    },
+    "main": {
+      "items": [
+        {
+          "id": "core.versions",
+          "label": "Versions",
+          "icon": "tag",
+          "to": "/versions"
+        },
+        {
+          "id": "core.releases",
+          "label": "Releases",
+          "icon": "doc",
+          "to": "/releases"
+        },
+        {
+          "id": "core.runs",
+          "label": "Exécutions",
+          "icon": "beaker",
+          "to": "/runs"
+        },
+        {
+          "id": "core.admin",
+          "label": "Administration",
+          "icon": "cog",
+          "to": "/admin"
+        }
+      ]
+    },
+    "project": {
+      "items": [
+        {
+          "id": "core.general",
+          "label": "Paramètres",
+          "icon": "branch",
+          "to": "/admin/projects/{route.slug}",
+          "end": true
+        },
+        {
+          "id": "core.plugins",
+          "label": "Plugins",
+          "icon": "link",
+          "to": "/admin/projects/{route.slug}/plugins"
+        },
+        {
+          "id": "core.pipelines",
+          "label": "Pipelines",
+          "icon": "queue",
+          "to": "/admin/projects/{route.slug}/pipelines"
+        },
+        {
+          "id": "core.automations",
+          "label": "Automatisations",
+          "icon": "beaker",
+          "to": "/admin/projects/{route.slug}/automations"
+        },
+        {
+          "id": "core.sync",
+          "label": "Suivi",
+          "icon": "doc",
+          "to": "/admin/projects/{route.slug}/sync"
+        }
+      ]
+    }
+  },
+  "widgets": {}
+}

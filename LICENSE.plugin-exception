@@ -19,7 +19,7 @@ DEFINITIONS
       `forge.cadoles.com/vcarroy/arkhitekton/sdk` and every package under it,
       the package `host/hosttest` of the module
       `forge.cadoles.com/vcarroy/arkhitekton`, and the interface module
-      `apps/web/src/host` with the module contract it exports;
+      `apps/web/src/host` with the component contract it exports;
 
   (b) the HTTP API served by the Program;
 
@@ -31,8 +31,10 @@ DEFINITIONS
       loads its interface: the module `forge.cadoles.com/vcarroy/arkhitekton/rpc`
       and its packages, the gRPC contract under `rpc/proto` and the data
       exchanged through it, whatever the language the program is written in,
-      and the contract an interface script registers its module with, its
-      build preset `apps/web/plugin.vite.ts` and the stylesheet
+      the interface resources schema `ui.arkhitekton/v1` (the package `sdk/ui`
+      of the module `forge.cadoles.com/vcarroy/arkhitekton/sdk`), the
+      contract an interface script registers its components with, its build
+      preset `apps/web/plugin.vite.ts` and the stylesheet
       `apps/web/src/styles/plugin.css`.
 
 "Plugin" means a work that interacts with the Program solely through the
