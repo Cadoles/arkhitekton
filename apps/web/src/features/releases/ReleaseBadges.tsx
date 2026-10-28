@@ -1,7 +1,6 @@
 import { Icon } from '../../components/Icon'
 import { Slot } from '../../components/Screen'
 import { status } from '../../lib/status'
-import { useActiveModules } from '../../modules'
 import type { Release } from './api'
 
 /*
@@ -24,8 +23,6 @@ import type { Release } from './api'
  * cycle, ce qu'aucune des trois ne recouvre.
  */
 export function ReleaseBadges({ release }: { release: Release }) {
-  const modules = useActiveModules()
-
   return (
     <>
       {release.build_failed && (
@@ -38,11 +35,8 @@ export function ReleaseBadges({ release }: { release: Release }) {
       <ScoreBadge score={release.score} />
       {/* Les pastilles que des plugins ajoutent à l'emplacement `badges` de
           l'en-tête ou de la liste : où la release tourne, pour un plugin qui
-          déploie. Celles des modules d'avant les écrans en données ensuite. */}
+          déploie. */}
       <Slot name="badges" context={{ release }} />
-      {modules.flatMap((module) =>
-        (module.releaseBadges ?? []).map((Badge, index) => <Badge key={`${module.id}-${index}`} release={release} />),
-      )}
     </>
   )
 }

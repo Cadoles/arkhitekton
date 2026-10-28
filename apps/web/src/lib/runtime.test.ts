@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { exposeShared, loadInterfaces } from './runtime'
-import { registerModule, registeredModules } from './registry'
+import { componentFor, registerComponent } from './components'
 import { SHARED } from './shared'
 
 /*
@@ -20,12 +20,12 @@ describe('runtime', () => {
     expect(typeof shared.react?.useState).toBe('function')
     expect(typeof shared.jsx?.jsx).toBe('function')
     expect(typeof shared.router?.Link).toBe('object')
-    expect(typeof shared.host?.registerModule).toBe('function')
+    expect(typeof shared.host?.registerComponent).toBe('function')
     // Chaque nom que le preset de build donne au script d'un plugin est prêté.
     for (const name of Object.values(SHARED)) expect(shared[name]).toBeDefined()
   })
 
-  it('charge les feuilles et les scripts, et attend que le script ait enregistré son module', async () => {
+  it('charge les feuilles et les scripts, et attend que le script ait enregistré ses composants', async () => {
     const loading = loadInterfaces([
       { plugin: 'deploy', script: '/api/v1/plugin-interfaces/deploy/2.0.0/index.js', styles: ['/x.css'] },
     ])
@@ -33,10 +33,10 @@ describe('runtime', () => {
     expect(script?.getAttribute('src')).toBe('/api/v1/plugin-interfaces/deploy/2.0.0/index.js')
     expect(document.head.querySelector('link')?.getAttribute('href')).toBe('/x.css')
 
-    registerModule({ id: 'deploy' })
+    registerComponent('deploy/environments', () => null)
     script?.dispatchEvent(new Event('load'))
     await loading
-    expect(registeredModules().map((module) => module.id)).toContain('deploy')
+    expect(componentFor('deploy/environments')).toBeDefined()
   })
 
   it("laisse de côté une interface qui échoue ou tarde, et le dit", async () => {
@@ -55,11 +55,11 @@ describe('runtime', () => {
     expect(logged).toHaveBeenCalledTimes(2)
   })
 
-  it("remplace un module enregistré deux fois plutôt que de le doubler", () => {
-    registerModule({ id: 'twice', home: '/a' })
-    registerModule({ id: 'twice', home: '/b' })
-    const twice = registeredModules().filter((module) => module.id === 'twice')
-    expect(twice).toHaveLength(1)
-    expect(twice[0]?.home).toBe('/b')
+  it("remplace un composant enregistré deux fois plutôt que de le doubler", () => {
+    const first = () => null
+    const second = () => null
+    registerComponent('twice/c', first)
+    registerComponent('twice/c', second)
+    expect(componentFor('twice/c')).toBe(second)
   })
 })

@@ -5,7 +5,6 @@ import { Skeleton } from './primitives'
 import { useTheme } from '../lib/theme'
 import { logout } from '../lib/api'
 import { roleLabel, useSession } from '../features/auth/session'
-import { useActiveModules } from '../modules'
 import { useNavigation } from '../lib/interface'
 import { currentProject, projects, selectProject } from '../lib/project'
 
@@ -124,12 +123,12 @@ export const APP_SCROLL_ID = 'app-scroll'
 
 export function AppShell() {
   // Le menu de l'interface, où un plugin place ses entrées à côté de celles du
-  // noyau. Les modules d'avant le leur, s'il en reste, d'abord.
-  const main = useNavigation('main').items ?? []
-  const entries: NavEntry[] = [
-    ...useActiveModules().flatMap((module) => module.nav ?? []),
-    ...main.map((item) => ({ to: item.to, label: item.label, icon: iconOr(item.icon) })),
-  ]
+  // noyau.
+  const entries: NavEntry[] = (useNavigation('main').items ?? []).map((item) => ({
+    to: item.to,
+    label: item.label,
+    icon: iconOr(item.icon),
+  }))
 
   return (
     /*

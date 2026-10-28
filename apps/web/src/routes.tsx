@@ -1,7 +1,5 @@
 import { Navigate, type RouteObject } from 'react-router'
-import { ModuleRoute } from './components/ModuleRoute'
 import { ScreenView } from './components/Screen'
-import { appModules } from './modules'
 import type { Screen, UIInterface } from './lib/interface'
 
 /*
@@ -29,19 +27,8 @@ function childrenOf(parent: string, screens: Screen[]): RouteObject[] {
   return screens.filter((screen) => screen.parent === parent).map((screen) => toRoute(screen, screens))
 }
 
-/** Les routes de l'interface, avec celles des modules connus à cet instant :
- *  appelée une fois l'interface et les scripts des plugins chargés. */
+/** Les routes de l'interface : appelée une fois l'interface et les scripts des
+ *  plugins chargés. */
 export function buildRoutes(ui: UIInterface): RouteObject[] {
-  const roots = ui.screens.filter((screen) => !screen.parent).map((screen) => toRoute(screen, ui.screens))
-  // Les écrans des modules d'avant les écrans en données, chacun gardé par son
-  // interrupteur : éteint, une URL qui y mène renvoie à l'accueil.
-  const modules = appModules().flatMap((module) =>
-    (module.routes ?? []).map((route) => ({
-      ...route,
-      element: <ModuleRoute module={module.id}>{route.element}</ModuleRoute>,
-    })),
-  )
-  const shell = roots.find((route) => route.path === '/')
-  if (shell && modules.length > 0) shell.children = [...modules, ...(shell.children ?? [])]
-  return roots
+  return ui.screens.filter((screen) => !screen.parent).map((screen) => toRoute(screen, ui.screens))
 }

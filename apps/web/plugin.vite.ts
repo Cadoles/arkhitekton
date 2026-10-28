@@ -14,7 +14,7 @@ import { SHARED } from './src/lib/shared'
  *   ARKHITEKTON_PLUGIN_OUT=<répertoire de l'interface> \
  *   npx vite build --config plugin.vite.ts
  *
- * Il produit `index.js`, un script qui appelle `registerModule`, et
+ * Il produit `index.js`, un script qui appelle `registerComponent`, et
  * `index.css`. L'entrée importe `@arkhitekton/host/plugin.css`, la feuille des
  * utilitaires du plugin (`src/styles/plugin.css`), sous ce nom stable. Ni React, ni le routeur, ni le cache de requêtes, ni l'hôte n'y
  * sont : le script les prend dans `window.__arkhitekton`, sous les noms de

@@ -1,110 +1,40 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { render as baseRender, screen } from '@testing-library/react'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render as baseRender } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { render, testQueryClient } from '../test/render'
+import { testQueryClient } from '../test/render'
 import { mockFetch } from '../test/http'
 import { AppShell } from './AppShell'
-import { HomeRedirect, ModuleRoute } from './ModuleRoute'
-import { EMPTY_INTERFACE, InterfaceContext } from '../lib/interface'
-
-/** Le menu du noyau, tel que l'interface composée le sert. */
-const withMenu = {
-  ...EMPTY_INTERFACE,
-  navigations: { main: { items: [{ id: 'core.releases', label: 'Releases', icon: 'doc', to: '/releases' }] } },
-}
-
-function renderShell() {
-  return render(
-    <InterfaceContext.Provider value={withMenu}>
-      <AppShell />
-    </InterfaceContext.Provider>,
-  )
-}
+import { HomeRedirect } from './HomeRedirect'
+import { EMPTY_INTERFACE, InterfaceContext, type UIInterface } from '../lib/interface'
 
 /*
- * La navigation suit les modules allumés.
- *
- * Une instance sans un module n'a pas ses écrans : proposer son onglet mènerait à
- * un écran dont chaque requête répond 404. Le noyau n'embarque aucun module : un
- * module fictif, « widgets », tient le rôle de ceux qu'une distribution ajoute.
+ * Le menu principal et l'accueil suivent l'interface composée par le serveur :
+ * un plugin éteint pour le projet n'y a plus d'entrée, le serveur l'a retirée.
  */
 
-vi.mock('../modules', async () => {
-  const { projectModules, useSession } = await import('../features/auth/session')
-  const widgets = {
-    id: 'widgets',
-    home: '/widgets',
-    nav: [{ to: '/widgets', label: 'Widgets', icon: 'layers' as const }],
-  }
-  return {
-    appModules: () => [widgets],
-    moduleEventLabel: () => undefined,
-    useActiveModules: () => {
-      const session = useSession()
-      if (session.kind !== 'authenticated') return []
-      return [widgets].filter((module) => projectModules(session.identity).includes(module.id))
-    },
-  }
-})
-
-/** Les modules du projet courant, et ceux de l'instance — les mêmes par défaut. */
-function identite(modules: string[], instance: string[] = modules) {
-  return {
-    subject: 's', username: 'vcarroy', email: 'v@example.fr', role: 'admin',
-    projects: [{ slug: 'app', label: 'Application', modules }], modules: instance,
-  }
+const identity = {
+  subject: 's', username: 'vcarroy', email: 'v@example.fr', role: 'admin',
+  projects: [{ slug: 'app', label: 'Application' }],
 }
 
-describe('la navigation', () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals()
-  })
+function withMain(main: UIInterface['navigations'][string]): UIInterface {
+  return { ...EMPTY_INTERFACE, navigations: { main } }
+}
 
-  it("n'affiche pas l'onglet d'un module éteint", async () => {
-    mockFetch([{ path: '/me', body: identite([]) }])
-    renderShell()
-
-    expect(await screen.findByRole('link', { name: /Releases/ })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Widgets/ })).not.toBeInTheDocument()
-  })
-
-  // Allumé sur l'instance, éteint pour le projet courant : l'onglet suit le projet.
-  it("n'affiche pas l'onglet quand le projet courant n'a pas le module", async () => {
-    mockFetch([{ path: '/me', body: identite([], ['widgets']) }])
-    renderShell()
-
-    expect(await screen.findByRole('link', { name: /Releases/ })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Widgets/ })).not.toBeInTheDocument()
-  })
-
-  it("affiche l'onglet quand le module est allumé", async () => {
-    mockFetch([{ path: '/me', body: identite(['widgets']) }])
-    renderShell()
-
-    expect(await screen.findByRole('link', { name: /Widgets/ })).toBeInTheDocument()
-  })
-})
-
-function naviguer(chemin: string, modules: string[]) {
-  mockFetch([{ path: '/me', body: identite(modules) }])
+function show(ui: UIInterface, path: string) {
+  mockFetch([{ path: '/me', body: identity }])
   return baseRender(
     <QueryClientProvider client={testQueryClient()}>
-      <MemoryRouter initialEntries={[chemin]}>
-        <Routes>
-          <Route path="/" element={<HomeRedirect />} />
-          <Route
-            path="/widgets"
-            element={
-              <ModuleRoute module="widgets">
-                <p>écran des widgets</p>
-              </ModuleRoute>
-            }
-          />
-          <Route path="/releases" element={<p>écran des releases</p>} />
-        </Routes>
-      </MemoryRouter>
+      <InterfaceContext.Provider value={ui}>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/" element={<HomeRedirect />} />
+            <Route path="/environments" element={<AppShell />} />
+            <Route path="/releases" element={<p>écran des releases</p>} />
+          </Routes>
+        </MemoryRouter>
+      </InterfaceContext.Provider>
     </QueryClientProvider>,
   )
 }
@@ -115,54 +45,22 @@ describe('le menu principal', () => {
   })
 
   it("suit l'interface composée, et l'accueil qu'un plugin y fixe", async () => {
-    mockFetch([{ path: '/me', body: identite([]) }])
-    const ui = {
-      ...EMPTY_INTERFACE,
-      navigations: {
-        main: {
-          home: '/environments',
-          items: [
-            { id: 'mse.environments', label: 'Environnements', icon: 'server', to: '/environments' },
-            { id: 'core.releases', label: 'Releases', icon: 'doc', to: '/releases' },
-          ],
-        },
-      },
-    }
-    baseRender(
-      <QueryClientProvider client={testQueryClient()}>
-        <InterfaceContext.Provider value={ui}>
-          <MemoryRouter initialEntries={['/']}>
-            <Routes>
-              <Route path="/" element={<HomeRedirect />} />
-              <Route path="/environments" element={<AppShell />} />
-            </Routes>
-          </MemoryRouter>
-        </InterfaceContext.Provider>
-      </QueryClientProvider>,
+    show(
+      withMain({
+        home: '/environments',
+        items: [
+          { id: 'mse.environments', label: 'Environnements', icon: 'server', to: '/environments' },
+          { id: 'core.releases', label: 'Releases', icon: 'doc', to: '/releases' },
+        ],
+      }),
+      '/',
     )
     const links = await screen.findAllByRole('link')
     expect(links.map((link) => link.textContent)).toEqual(['Environnements', 'Releases'])
   })
-})
 
-describe("la page d'accueil et les écrans d'un module", () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  it('mène aux releases sans module', async () => {
-    naviguer('/', [])
+  it('mène aux releases quand aucun plugin ne fixe l’accueil', async () => {
+    show(withMain({ items: [] }), '/')
     expect(await screen.findByText('écran des releases')).toBeInTheDocument()
-  })
-
-  it("mène à l'accueil du module allumé", async () => {
-    naviguer('/', ['widgets'])
-    expect(await screen.findByText('écran des widgets')).toBeInTheDocument()
-  })
-
-  it("renvoie l'URL d'un module éteint vers les releases", async () => {
-    naviguer('/widgets', [])
-    expect(await screen.findByText('écran des releases')).toBeInTheDocument()
-    expect(screen.queryByText('écran des widgets')).not.toBeInTheDocument()
   })
 })

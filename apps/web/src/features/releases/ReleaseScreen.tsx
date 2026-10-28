@@ -10,7 +10,6 @@ import { Card, EmptyState, Skeleton, StatusBadge } from '../../components/primit
 import { Slot } from '../../components/Screen'
 import { formatBytes, formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
-import { useActiveModules } from '../../modules'
 import {
   downloadURL,
   useExports,
@@ -86,21 +85,6 @@ export const TestsBlock = withRelease(function Tests({ release }) {
  * part chez le client.
  */
 export const ArtifactsBlock = withRelease(Artifacts)
-
-/** Les sections des modules d'avant les écrans en données. Éteint, un module
- *  n'apporte rien : la section proposerait un geste que le serveur refuse. */
-export const ModuleSectionsBlock = withRelease(function ModuleSections({ release }) {
-  const modules = useActiveModules()
-  return (
-    <>
-      {modules.flatMap((module) =>
-        (module.releaseSections ?? []).map((Section, index) => (
-          <Section key={`${module.id}-${index}`} release={release} />
-        )),
-      )}
-    </>
-  )
-})
 
 export const NotesBlock = withRelease(ReleaseNotes)
 export const ExportsBlock = withRelease(Exports)
