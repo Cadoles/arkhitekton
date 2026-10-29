@@ -164,7 +164,7 @@ func seal(cipher *secrets.Cipher, value, what string) (string, error) {
 // The designation is written `plugin.field` — `redmine.api_key`. It is the only path by which
 // a secret reaches an outgoing call: it passes through no template, no body, no log.
 type secretResolver struct {
-	registry *capabilities.Registry
+	registry capabilities.Source
 	store    *store.DB
 	cipher   *secrets.Cipher
 }
@@ -181,7 +181,7 @@ func (r secretResolver) ResolveSecret(
 		return "", fmt.Errorf("designation %q expected in the form `plugin.field`", reference)
 	}
 
-	descriptor, err := r.registry.Plugin(pluginID)
+	descriptor, err := capabilities.Of(r.registry).Plugin(pluginID)
 	if err != nil {
 		return "", err
 	}

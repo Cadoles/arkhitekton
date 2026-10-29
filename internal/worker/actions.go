@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/webhook"
@@ -47,15 +48,32 @@ type SecretResolver interface {
 // the check that precedes it — resolving the descriptor and revalidating the parameters —
 // holds for both.
 type ActionRunner struct {
-	actions  action.Catalog
+	actions  ActionCatalog
 	webhooks *webhook.Client
 	secrets  SecretResolver
 	plugins  GesteRunner
 	logger   *slog.Logger
 }
 
+// ActionCatalog finds an action's declaration by its reference.
+type ActionCatalog interface {
+	Get(ref string) (action.Descriptor, error)
+}
+
+// LiveActions is the catalogue of the actions the registry in force declares: an installed plugin
+// brings or takes its actions with it.
+func LiveActions(registry capabilities.Source) ActionCatalog {
+	return registryActions{registry: registry}
+}
+
+type registryActions struct{ registry capabilities.Source }
+
+func (l registryActions) Get(ref string) (action.Descriptor, error) {
+	return action.NewCatalog(capabilities.Of(l.registry).Plugins()).Get(ref)
+}
+
 func NewActionRunner(
-	actions action.Catalog, webhooks *webhook.Client, secrets SecretResolver, logger *slog.Logger,
+	actions ActionCatalog, webhooks *webhook.Client, secrets SecretResolver, logger *slog.Logger,
 ) *ActionRunner {
 	if logger == nil {
 		logger = slog.Default()

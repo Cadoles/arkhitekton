@@ -114,7 +114,10 @@ type ProbeRunner struct {
 	registry capabilities.Source
 	store    ProbeStore
 	secrets  SecretOpener
-	probes   []Probe
+	// discover lists the probes to run. Called again whenever the runner is woken: an installed
+	// plugin brings or takes its probes with it.
+	discover func() []Probe
+	wake     chan struct{}
 	// dispatcher triggers the declared reactions of a new fact. Nil: facts are observed and nobody
 	// reacts to them.
 	dispatcher *Dispatcher
@@ -129,6 +132,13 @@ func (r *ProbeRunner) WithDispatcher(dispatcher *Dispatcher) *ProbeRunner {
 	return r
 }
 
+// WithDiscovery replaces the probes registered at construction by those a function lists, read
+// again at each [ProbeRunner.Wake].
+func (r *ProbeRunner) WithDiscovery(discover func() []Probe) *ProbeRunner {
+	r.discover = discover
+	return r
+}
+
 func NewProbeRunner(
 	registry capabilities.Source, probes ProbeStore, opener SecretOpener, interval time.Duration,
 	logger *slog.Logger, registered ...Probe,
@@ -140,9 +150,42 @@ func NewProbeRunner(
 		logger = slog.Default()
 	}
 	return &ProbeRunner{
-		registry: registry, store: probes, secrets: opener, probes: registered,
+		registry: registry, store: probes, secrets: opener,
+		discover: func() []Probe { return registered }, wake: make(chan struct{}, 1),
 		interval: interval, logger: logger, now: time.Now,
 	}
+}
+
+// Wake has the runner list its probes again: a probe that appeared starts, one that disappeared
+// stops.
+func (r *ProbeRunner) Wake() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
+
+// probeLoop is a probe running at its cadence. Its probe is replaced in place when a new listing
+// brings the same source at the same cadence: the next pass uses the new one.
+type probeLoop struct {
+	schedule Schedule
+	cancel   context.CancelFunc
+	done     chan struct{}
+
+	mu    sync.Mutex
+	probe Probe
+}
+
+func (l *probeLoop) current() Probe {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.probe
+}
+
+func (l *probeLoop) replace(probe Probe) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.probe = probe
 }
 
 // Run queries the probes until cancellation.
@@ -151,28 +194,61 @@ func NewProbeRunner(
 // the fastest to agree, and the tracker — five minutes — would then lay down the law for a
 // forge one wants to watch more often.
 func (r *ProbeRunner) Run(ctx context.Context) error {
-	if len(r.probes) == 0 {
-		// Nothing to query. The loop does not spin for nothing: it would produce a round of log per
-		// interval to do nothing.
-		<-ctx.Done()
-		return ctx.Err()
+	running := map[string]*probeLoop{}
+	defer func() {
+		for source, loop := range running {
+			r.stop(running, source, loop)
+		}
+	}()
+	for {
+		r.reconcile(ctx, running)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-r.wake:
+		}
 	}
+}
 
-	var pending sync.WaitGroup
-	for _, probe := range r.probes {
-		pending.Add(1)
-		go func(probe Probe) {
-			defer pending.Done()
-			r.loop(ctx, probe)
-		}(probe)
+// reconcile starts the listed probes that do not run, stops those no longer listed, and starts
+// again a probe whose cadence changed.
+func (r *ProbeRunner) reconcile(ctx context.Context, running map[string]*probeLoop) {
+	listed := map[string]Probe{}
+	for _, probe := range r.discover() {
+		listed[probe.Source()] = probe
 	}
-	pending.Wait()
-	return ctx.Err()
+	for source, loop := range running {
+		probe, kept := listed[source]
+		if kept && probe.Schedule() == loop.schedule {
+			loop.replace(probe)
+			continue
+		}
+		r.stop(running, source, loop)
+	}
+	for source, probe := range listed {
+		if _, started := running[source]; started {
+			continue
+		}
+		loopCtx, cancel := context.WithCancel(ctx)
+		loop := &probeLoop{schedule: probe.Schedule(), cancel: cancel, done: make(chan struct{}), probe: probe}
+		running[source] = loop
+		go func() {
+			defer close(loop.done)
+			r.loop(loopCtx, loop)
+		}()
+	}
+}
+
+// stop ends a probe's loop once its pass in flight is over.
+func (r *ProbeRunner) stop(running map[string]*probeLoop, source string, loop *probeLoop) {
+	loop.cancel()
+	<-loop.done
+	delete(running, source)
 }
 
 // loop runs a probe at its cadence.
-func (r *ProbeRunner) loop(ctx context.Context, probe Probe) {
-	schedule := probe.Schedule()
+func (r *ProbeRunner) loop(ctx context.Context, loop *probeLoop) {
+	schedule := loop.schedule
 	// The deployment's floor wins: a probe declares its cadence above it, never below.
 	interval := schedule.Interval
 	if interval < r.interval {
@@ -183,7 +259,7 @@ func (r *ProbeRunner) loop(ctx context.Context, probe Probe) {
 	// source that only observes has nothing to catch up, and waiting stops a restart loop
 	// hammering a third-party machine.
 	if schedule.Eager {
-		r.sweep(ctx, probe)
+		r.sweep(ctx, loop.current())
 	}
 
 	ticker := time.NewTicker(interval)
@@ -194,7 +270,7 @@ func (r *ProbeRunner) loop(ctx context.Context, probe Probe) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			r.sweep(ctx, probe)
+			r.sweep(ctx, loop.current())
 		}
 	}
 }
