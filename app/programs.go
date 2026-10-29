@@ -288,6 +288,22 @@ func migratePlugin(
 	}
 }
 
+// purgePlugin undoes an uninstalled plugin's migrations and drops its version table.
+func purgePlugin(
+	cfg config.DatabaseConfig, logger *slog.Logger,
+) func(ctx context.Context, plugin installed.Plugin) error {
+	return func(ctx context.Context, plugin installed.Plugin) error {
+		migrations, err := pluginMigrations(plugin)
+		if err != nil {
+			return err
+		}
+		if migrations == nil {
+			return fmt.Errorf("plugin %s has no migrations to undo", plugin.ID)
+		}
+		return migrations.Purge(ctx, cfg, logger)
+	}
+}
+
 // installedSchemas checks, at each probe, the schema of every active installed plugin that has
 // one: `schema-<id>`, as for an extension.
 func installedSchemas(

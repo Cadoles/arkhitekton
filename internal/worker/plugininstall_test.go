@@ -138,6 +138,9 @@ func TestARefusedInstallationSaysWhy(t *testing.T) {
 // Written on both sides, as the release note's: diverging, a requested installation would stay
 // queued with nothing to carry it out.
 func TestTheInstallationJobIsTheSameOnBothSides(t *testing.T) {
+	if KindPluginPurge != dashhttp.PluginPurgeJobKind || ParamPlugin != dashhttp.PluginPurgeKey {
+		t.Errorf("purge: worker %s/%s, api %s/%s", KindPluginPurge, ParamPlugin, dashhttp.PluginPurgeJobKind, dashhttp.PluginPurgeKey)
+	}
 	if KindPluginInstall != dashhttp.PluginInstallJobKind || ParamInstallation != dashhttp.PluginInstallationKey {
 		t.Errorf("worker: %q %q, api: %q %q", KindPluginInstall, ParamInstallation,
 			dashhttp.PluginInstallJobKind, dashhttp.PluginInstallationKey)

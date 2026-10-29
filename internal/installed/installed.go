@@ -69,6 +69,14 @@ type Native struct {
 	Interface []uischema.Resource
 }
 
+// MigrationsTable is the version table of the plugin's migrations, empty when it has none.
+func (p Plugin) MigrationsTable() string {
+	if p.Native == nil || p.Native.Manifest.Migrations == nil {
+		return ""
+	}
+	return p.Native.Manifest.Migrations.Table
+}
+
 // Program opens the plugin's program.
 func (n *Native) Program() (io.ReadCloser, error) { return n.Files.Open(n.Manifest.Binary) }
 

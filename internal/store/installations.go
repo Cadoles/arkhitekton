@@ -44,18 +44,21 @@ type PluginInstallation struct {
 	RequestedAt time.Time
 	InstalledAt *time.Time
 	RemovedAt   *time.Time
+	// MigrationsTable is the version table of the plugin's migrations, empty when it has none or
+	// was installed before it was recorded.
+	MigrationsTable string
 }
 
 const installationColumns = `id, reference, digest, coalesce(plugin_id, ''), coalesce(version, ''),
 	coalesce(signed_by, ''), coalesce(object, ''), state, error, active, requested_by, requested_at,
-	installed_at, removed_at`
+	installed_at, removed_at, migrations_table`
 
 func scanInstallation(row pgx.Row) (PluginInstallation, error) {
 	var installation PluginInstallation
 	err := row.Scan(&installation.ID, &installation.Reference, &installation.Digest, &installation.PluginID,
 		&installation.Version, &installation.SignedBy, &installation.Object, &installation.State,
 		&installation.Error, &installation.Active, &installation.RequestedBy, &installation.RequestedAt,
-		&installation.InstalledAt, &installation.RemovedAt)
+		&installation.InstalledAt, &installation.RemovedAt, &installation.MigrationsTable)
 	return installation, err
 }
 
@@ -118,6 +121,8 @@ type CompletedInstallation struct {
 	// SwitchedOff installs the plugin switched off for the instance: a plugin bringing a tracker or
 	// a forge, of which one each is switched on.
 	SwitchedOff bool
+	// MigrationsTable is the version table of the plugin's migrations, empty when it has none.
+	MigrationsTable string
 }
 
 // CompletePluginInstallation records a plugin pulled and verified. The first version of a plugin
@@ -130,9 +135,9 @@ func (db *DB) CompletePluginInstallation(
 	err = db.changeCapabilitiesWith(ctx, func(transaction pgx.Tx) error {
 		tag, err := transaction.Exec(ctx, `update plugin_installations
 			set plugin_id = $2, version = $3, signed_by = $4, object = $5, state = 'installed', error = '',
-			    installed_at = now(),
+			    installed_at = now(), migrations_table = $6,
 			    active = not exists (select 1 from plugin_installations where plugin_id = $2 and active)
-			where id = $1 and state = 'pending'`, id, pluginID, version, signedBy, object)
+			where id = $1 and state = 'pending'`, id, pluginID, version, signedBy, object, completed.MigrationsTable)
 		var violation *pgconn.PgError
 		if errors.As(err, &violation) && violation.Code == "23505" {
 			return ErrVersionInstalled
@@ -142,6 +147,11 @@ func (db *DB) CompletePluginInstallation(
 		}
 		if tag.RowsAffected() == 0 {
 			return fmt.Errorf("installation %d: not pending", id)
+		}
+		// Installed again, the plugin owns its tables again: they are no longer a leftover.
+		if _, err := transaction.Exec(ctx, `update plugin_installations set leftover = false
+			where plugin_id = $1 and leftover`, pluginID); err != nil {
+			return err
 		}
 		// The plugin is switched on for the instance, as a built-in plugin is at its first start.
 		if _, err := transaction.Exec(ctx, `insert into plugin_settings (plugin_id, enabled)
@@ -187,6 +197,17 @@ func (db *DB) ActivatePluginInstallation(ctx context.Context, id int64) error {
 	})
 }
 
+// NoteMigrationsTable records the version table of an installed version that does not say it yet:
+// one installed before the table was recorded.
+func (db *DB) NoteMigrationsTable(ctx context.Context, id int64, table string) error {
+	_, err := db.pool.Exec(ctx, `update plugin_installations set migrations_table = $2
+		where id = $1 and migrations_table = '' and state = 'installed'`, id, table)
+	if err != nil {
+		return fmt.Errorf("recording the version table of installation %d: %w", id, err)
+	}
+	return nil
+}
+
 // RemovePluginInstallation removes a version. Removing the active one uninstalls the plugin: every
 // version, its bindings and its settings go with it. The facts its runs produced stay: they carry
 // their producer and are shown without the plugin. It returns the plugin uninstalled, if any.
@@ -219,7 +240,84 @@ func (db *DB) RemovePluginInstallation(ctx context.Context, id int64) (uninstall
 				return err
 			}
 		}
-		return nil
+		// The active version's tables are what the plugin leaves: its layer is kept for a purge.
+		_, err = transaction.Exec(ctx, `update plugin_installations set leftover = migrations_table <> ''
+			where id = $1`, id)
+		return err
 	})
 	return uninstalled, err
+}
+
+// ErrNothingToPurge reports a plugin that left no tables behind: installed, never installed, or
+// purged already.
+var ErrNothingToPurge = errors.New("the plugin left no tables to purge")
+
+// PluginLeftover is what an uninstalled plugin left behind: the tables of the version that was
+// active, and the layer that undoes them.
+type PluginLeftover struct {
+	PluginID string
+	Version  string
+	// Object is the stored layer, which carries the migrations.
+	Object string
+	// Table is the version table of its migrations.
+	Table     string
+	RemovedAt *time.Time
+}
+
+// PluginLeftovers lists what uninstalled plugins left behind, by plugin.
+func (db *DB) PluginLeftovers(ctx context.Context) ([]PluginLeftover, error) {
+	rows, err := db.pool.Query(ctx, `select plugin_id, version, object, migrations_table, removed_at
+		from plugin_installations where leftover order by plugin_id`)
+	if err != nil {
+		return nil, fmt.Errorf("plugin leftovers: %w", err)
+	}
+	defer rows.Close()
+	var leftovers []PluginLeftover
+	for rows.Next() {
+		var leftover PluginLeftover
+		if err := rows.Scan(&leftover.PluginID, &leftover.Version, &leftover.Object, &leftover.Table, &leftover.RemovedAt); err != nil {
+			return nil, fmt.Errorf("plugin leftovers: %w", err)
+		}
+		leftovers = append(leftovers, leftover)
+	}
+	return leftovers, rows.Err()
+}
+
+// PluginLeftoverOf returns what a plugin left behind, or ErrNothingToPurge.
+func (db *DB) PluginLeftoverOf(ctx context.Context, pluginID string) (PluginLeftover, error) {
+	leftover := PluginLeftover{PluginID: pluginID}
+	err := db.pool.QueryRow(ctx, `select version, object, migrations_table, removed_at
+		from plugin_installations where leftover and plugin_id = $1`, pluginID).
+		Scan(&leftover.Version, &leftover.Object, &leftover.Table, &leftover.RemovedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PluginLeftover{}, ErrNothingToPurge
+	}
+	if err != nil {
+		return PluginLeftover{}, fmt.Errorf("leftover of plugin %q: %w", pluginID, err)
+	}
+	return leftover, nil
+}
+
+// RecordPluginPurged records a plugin's tables purged, and forgets its probes' cursors: installed
+// again, it starts as a plugin never seen.
+func (db *DB) RecordPluginPurged(ctx context.Context, pluginID string) error {
+	transaction, err := db.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	tag, err := transaction.Exec(ctx, `update plugin_installations set leftover = false
+		where plugin_id = $1 and leftover`, pluginID)
+	if err != nil {
+		return fmt.Errorf("recording plugin %q purged: %w", pluginID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNothingToPurge
+	}
+	// A probe's cursor is named after its plugin: `gitea`, or `gitea.pull_requests`.
+	if _, err := transaction.Exec(ctx, `delete from sync_state
+		where source = $1 or left(source, length($1) + 1) = $1 || '.'`, pluginID); err != nil {
+		return fmt.Errorf("forgetting the cursors of plugin %q: %w", pluginID, err)
+	}
+	return transaction.Commit(ctx)
 }
