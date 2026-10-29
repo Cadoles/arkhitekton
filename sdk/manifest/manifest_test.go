@@ -174,3 +174,55 @@ func TestAPluginMayAskToDeploy(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+const withProviders = `{
+  "apiVersion": "arkhitekton.plugin/v2", "id": "forgery", "version": "1.0.0", "sdk": "1", "label": "Forgery",
+  "perProject": true, "binary": "bin/plugin", "protocol": 1, "tracker": true, "forge": true,
+  "events": [{"suffix": "pull_request.opened", "label": "PR ouverte"}],
+  "probes": [{"name": "pull_requests", "interval": "5m", "eager": true}],
+  "actions": [{"suffix": "status", "label": "Statut de commit", "summary": "Pose un statut.",
+    "fields": [{"name": "commit", "label": "Commit", "required": true, "template": true},
+      {"name": "state", "label": "État", "one_of": ["success", "failure"]}]}]
+}`
+
+func TestAProgramMayBringATrackerAForgeProbesAndActions(t *testing.T) {
+	declared, err := Decode([]byte(withProviders))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if schedule := declared.Probes[0].Schedule(); schedule.Interval.Minutes() != 5 || !schedule.Eager {
+		t.Errorf("schedule = %+v", schedule)
+	}
+	plugin := declared.Plugin()
+	if len(plugin.Actions) != 1 || plugin.ActionRef(plugin.Actions[0]) != "forgery.status" ||
+		plugin.Actions[0].Fields[1].OneOf[1] != "failure" {
+		t.Errorf("actions = %+v", plugin.Actions)
+	}
+	// The dashboard attaches what runs them: the manifest only declares.
+	if plugin.Tracker != nil || plugin.Forge != nil || plugin.Executor != nil || len(plugin.Probes) != 0 {
+		t.Errorf("plugin = %+v", plugin)
+	}
+}
+
+func TestATrackerAForgeProbesAndActionsAreChecked(t *testing.T) {
+	for name, edit := range map[string][2]string{
+		"no program":            {`"binary": "bin/plugin", "protocol": 1, `, ``},
+		"not per project":       {`"perProject": true, `, ``},
+		"probe without events":  {`"events": [{"suffix": "pull_request.opened", "label": "PR ouverte"}],`, ``},
+		"badly named probe":     {`"name": "pull_requests"`, `"name": "Pull Requests"`},
+		"probe twice":           {`"eager": true}]`, `"eager": true}, {"name": "pull_requests"}]`},
+		"bad interval":          {`"interval": "5m"`, `"interval": "often"`},
+		"negative interval":     {`"interval": "5m"`, `"interval": "-5m"`},
+		"bad action suffix":     {`"suffix": "status"`, `"suffix": "Set Status"`},
+		"action without label":  {`"label": "Statut de commit"`, `"label": ""`},
+		"badly named parameter": {`"name": "commit"`, `"name": "Commit SHA"`},
+		"parameter twice":       {`"name": "state"`, `"name": "commit"`},
+	} {
+		if !strings.Contains(withProviders, edit[0]) {
+			t.Fatalf("%s: %q not in the manifest", name, edit[0])
+		}
+		if _, err := Decode([]byte(strings.Replace(withProviders, edit[0], edit[1], 1))); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}

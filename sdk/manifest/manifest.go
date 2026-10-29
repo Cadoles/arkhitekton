@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
@@ -75,6 +76,32 @@ type Manifest struct {
 	Routes []Route `json:"routes,omitempty"`
 	// UI is the plugin's interface module, loaded by the dashboard's interface.
 	UI *UI `json:"ui,omitempty"`
+
+	// Tracker and Forge say the program connects to a tracker or a forge, as a compiled plugin's
+	// implementation does. One of each is switched on per instance: such a plugin is installed
+	// switched off.
+	Tracker bool `json:"tracker,omitempty"`
+	Forge   bool `json:"forge,omitempty"`
+	// Probes are the probes the program runs, their schedule decided here.
+	Probes []Probe `json:"probes,omitempty"`
+	// Actions are the steps the program carries out.
+	Actions []capability.ActionSpec `json:"actions,omitempty"`
+}
+
+// Probe is a probe the plugin's program runs.
+type Probe struct {
+	// Name names the probe's cursor within the plugin: lower case, digits, dashes and underscores.
+	Name string `json:"name"`
+	// Interval is a duration, `5m`; empty, the deployment's floor. The floor wins over a shorter one.
+	Interval string `json:"interval,omitempty"`
+	// Eager asks for a pass at start-up, for a source that fills a screen.
+	Eager bool `json:"eager,omitempty"`
+}
+
+// Schedule returns the probe's schedule. An interval that does not parse is refused by Validate.
+func (p Probe) Schedule() capability.Schedule {
+	interval, _ := time.ParseDuration(p.Interval)
+	return capability.Schedule{Interval: interval, Eager: p.Eager}
 }
 
 // Migrations are SQL files applied in order, with their own version table.
@@ -228,8 +255,10 @@ var (
 	parameterPattern = regexp.MustCompile(`^\{([a-z][a-zA-Z0-9_]*)(\.\.\.)?\}$`)
 	// permissionPattern is a permission's name, or `deploy:{param}`.
 	permissionPattern = regexp.MustCompile(`^(?:[a-z]+(?::[a-z]+)?|deploy:\{([a-z][a-zA-Z0-9_]*)\})$`)
-	// suffixPattern is an event's suffix.
+	// suffixPattern is an event's or an action's suffix.
 	suffixPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
+	// fieldPattern is an action's parameter, named in the payload's templates.
+	fieldPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 )
 
 // Decode reads a manifest from JSON, refusing unknown keys: a misspelt key is a declaration that
@@ -296,7 +325,10 @@ func (m Manifest) programProblems() []error {
 		for _, brought := range []struct {
 			present bool
 			what    string
-		}{{m.Module, "a module"}, {len(m.Hooks) > 0, "hooks"}, {len(m.Routes) > 0, "routes"}, {m.UI != nil, "an interface"}} {
+		}{
+			{m.Module, "a module"}, {len(m.Hooks) > 0, "hooks"}, {len(m.Routes) > 0, "routes"}, {m.UI != nil, "an interface"},
+			{m.Tracker, "a tracker"}, {m.Forge, "a forge"}, {len(m.Probes) > 0, "probes"}, {len(m.Actions) > 0, "actions"},
+		} {
 			if brought.present {
 				problems = append(problems, fmt.Errorf("%s need a program: binary is empty", brought.what))
 			}
@@ -324,6 +356,7 @@ func (m Manifest) programProblems() []error {
 		}
 		suffixes[event.Suffix] = true
 	}
+	problems = append(problems, m.providerProblems()...)
 	hooks := map[Hook]bool{}
 	for _, hook := range m.Hooks {
 		if !slices.Contains(Hooks, hook) || hooks[hook] {
@@ -517,12 +550,50 @@ func (p Pipeline) problems(at string) []error {
 	return problems
 }
 
+// providerProblems checks the plugin's tracker, forge, probes and actions.
+func (m Manifest) providerProblems() []error {
+	var problems []error
+	if (m.Tracker || m.Forge) && !m.PerProject {
+		problems = append(problems, errors.New("a tracker or a forge is chosen per project: perProject must be set"))
+	}
+	if len(m.Probes) > 0 && len(m.Events) == 0 {
+		problems = append(problems, errors.New("probes report events, and the plugin declares none"))
+	}
+	probes := map[string]bool{}
+	for i, probe := range m.Probes {
+		if !capability.ValidName(strings.ReplaceAll(probe.Name, "_", "-")) || probes[probe.Name] {
+			problems = append(problems, fmt.Errorf("probes[%d]: %q badly named or declared twice", i, probe.Name))
+		}
+		probes[probe.Name] = true
+		if interval, err := time.ParseDuration(probe.Interval); probe.Interval != "" && (err != nil || interval <= 0) {
+			problems = append(problems, fmt.Errorf("probes[%d]: interval %q is not a positive duration", i, probe.Interval))
+		}
+	}
+	actions := map[string]bool{}
+	for i, action := range m.Actions {
+		at := fmt.Sprintf("actions[%d]", i)
+		if !suffixPattern.MatchString(action.Suffix) || strings.TrimSpace(action.Label) == "" || actions[action.Suffix] {
+			problems = append(problems, fmt.Errorf("%s: a unique suffix (%q) and a label", at, action.Suffix))
+		}
+		actions[action.Suffix] = true
+		fields := map[string]bool{}
+		for j, field := range action.Fields {
+			if !fieldPattern.MatchString(field.Name) || strings.TrimSpace(field.Label) == "" || fields[field.Name] {
+				problems = append(problems, fmt.Errorf("%s.fields[%d]: a unique name (%q) and a label", at, j, field.Name))
+			}
+			fields[field.Name] = true
+		}
+	}
+	return problems
+}
+
 // Plugin is the plugin as the dashboard registers it, its Tekton definitions, reading and module
 // still to be read from its files.
 func (m Manifest) Plugin() capability.Plugin {
 	plugin := capability.Plugin{
 		ID: m.ID, Version: m.Version, APIVersion: m.SDK, Label: m.Label, Summary: m.Summary,
 		Global: m.Settings.Global, Project: m.Settings.Project, Events: m.Events, PerProject: m.PerProject,
+		Actions: m.Actions,
 	}
 	if m.Module {
 		plugin.Capabilities = []capability.Header{{Kind: capability.KindModule, Name: "module", Label: "Module"}}
