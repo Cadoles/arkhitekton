@@ -37,13 +37,14 @@ type Timeouts struct {
 
 // Connections resolves and builds the connections.
 type Connections struct {
-	registry *capabilities.Registry
+	// registry is read at each connection: an installed plugin may bring the tracker or the forge.
+	registry capabilities.Source
 	store    Store
 	opener   plugin.Opener
 	timeouts Timeouts
 }
 
-func New(registry *capabilities.Registry, db Store, opener plugin.Opener, timeouts Timeouts) *Connections {
+func New(registry capabilities.Source, db Store, opener plugin.Opener, timeouts Timeouts) *Connections {
 	return &Connections{registry: registry, store: db, opener: opener, timeouts: timeouts}
 }
 
@@ -112,7 +113,7 @@ func (c *Connections) Probe(ctx context.Context, repository, publicKey string) (
 	if err != nil {
 		return provider.Probe{}, err
 	}
-	for _, candidate := range c.registry.Plugins() {
+	for _, candidate := range capabilities.Of(c.registry).Plugins() {
 		if candidate.Forge == nil || !all[candidate.ID].Enabled {
 			continue
 		}
@@ -149,7 +150,7 @@ func (c *Connections) forge(ctx context.Context, projectID int64) (capability.Pl
 func (c *Connections) resolve(
 	ctx context.Context, projectID int64, brings func(capability.Plugin) bool,
 ) (capability.Plugin, capability.Settings, error) {
-	for _, candidate := range c.registry.Plugins() {
+	for _, candidate := range capabilities.Of(c.registry).Plugins() {
 		if !brings(candidate) {
 			continue
 		}

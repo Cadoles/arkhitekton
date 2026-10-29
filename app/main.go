@@ -24,7 +24,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/restmapper"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
@@ -219,11 +218,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err := db.EnsurePlugins(ctx, pluginIDs(pluginRegistry)); err != nil {
 		logger.Error("seeding the plugins", "error", err)
 	}
-	// The tracker and forge clients, built from the plugins enabled for each project.
-	connections := connect.New(pluginRegistry, db, cipher, connect.Timeouts{
-		Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout,
-	})
-
 	// In the database and not in memory: two api replicas with no session affinity serve
 	// `/auth/login` and `/auth/callback` through different instances, and the transition state
 	// would be missing half the time.
@@ -241,6 +235,11 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	pipelines := inForce.Current().Catalog
+	// The tracker and forge clients, built from the plugins enabled for each project: an installed
+	// plugin may bring them.
+	connections := connect.New(inForce.Registries(), db, cipher, connect.Timeouts{
+		Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout,
+	})
 	// Every replica follows what is installed and bound: each reads the database's counter.
 	go func() { _ = reloader.Run(ctx) }()
 	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns,
@@ -589,13 +588,13 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// deployment and are false by default: a URL typed into the interface is issued from the
 			// cluster.
 			actions := worker.NewActionRunner(
-				action.NewCatalog(pluginRegistry.Plugins()),
+				worker.LiveActions(inForce.Registries()),
 				webhook.New(webhook.Options{
 					AllowPrivate:  cfg.Webhooks.AllowPrivate,
 					AllowInsecure: cfg.Webhooks.AllowInsecure,
 					Timeout:       cfg.Webhooks.Timeout,
 				}),
-				secretResolver{registry: pluginRegistry, store: db, cipher: cipher}, logger).
+				secretResolver{registry: inForce.Registries(), store: db, cipher: cipher}, logger).
 				// The steps a plugin supplies. They do not use the transport above: their target is not typed
 				// into a form but read from the plugin's configuration, and the address check exists
 				// precisely because elsewhere it is. The token is the plugin's, opened for the duration of
@@ -659,7 +658,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// Both are the project's plugins, resolved per job: a project with no forge plugin gets a
 			// failed job saying so, rather than an empty note.
 			scheduler.Handle(worker.NewNoteBuilder(nil, db, cfg.Tracker.ReviewStatuses, logger).
-				WithSources(connect.New(pluginRegistry, db, cipher, connect.Timeouts{
+				WithSources(connect.New(inForce.Registries(), db, cipher, connect.Timeouts{
 					Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout,
 				})))
 
@@ -715,12 +714,17 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			//
 			// A probe is queried only for the projects whose plugin is active, each at its own cadence,
 			// and its first pass triggers nothing — enabling something does not wake the past.
-			probes := worker.NewProbeRunner(inForce.Registries(), db, cipher, cfg.Probes.Interval, logger,
+			probes := worker.NewProbeRunner(inForce.Registries(), db, cipher, cfg.Probes.Interval, logger).
 				// The tracker synchronisation is a probe too, one per tracker plugin: the common loop resolves
-				// its settings, unseals its key, keeps its cursor and isolates its failures.
-				append(worker.PluginProbes(pluginRegistry, cfg.Forge.Timeout),
-					worker.TrackerProbes(pluginRegistry, db, cfg.Tracker.Timeout, logger)...)...).
+				// its settings, unseals its key, keeps its cursor and isolates its failures. Listed again
+				// whenever the capabilities in force change: an installed plugin brings its probes.
+				WithDiscovery(func() []worker.Probe {
+					registry := inForce.Current().Registry
+					return append(worker.PluginProbes(registry, cfg.Forge.Timeout),
+						worker.TrackerProbes(registry, db, cfg.Tracker.Timeout, logger)...)
+				}).
 				WithDispatcher(dispatcher)
+			reloader.OnReplace(func(live.Snapshot) { probes.Wake() })
 			go func() { errs <- probes.Run(leadingCtx) }()
 
 			// The first error wins: a dead loop must make the lease be lost rather than let the other run

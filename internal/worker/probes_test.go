@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -361,4 +362,93 @@ func TestEachProbeDeclaresItsCadenceAboveTheFloor(t *testing.T) {
 	if !NewTrackerProbe(nil, nil).Schedule().Eager {
 		t.Error("the tracker probe must ask for an immediate pass")
 	}
+}
+
+// listedProbe signals each of its passes.
+type listedProbe struct {
+	source   string
+	interval time.Duration
+	polled   chan string
+}
+
+func (p listedProbe) PluginID() string { return "gitea" }
+func (p listedProbe) Source() string   { return p.source }
+func (p listedProbe) Schedule() Schedule {
+	return Schedule{Interval: p.interval, Eager: true}
+}
+
+func (p listedProbe) Poll(context.Context, store.Project, map[string]string, string) ([]event.Event, string, error) {
+	p.polled <- p.source
+	return nil, "cursor", nil
+}
+
+// The probes follow the capabilities in force: an installed plugin brings its probes and takes
+// them away, without restarting the worker.
+func TestTheProbesFollowWhatIsListed(t *testing.T) {
+	polled := make(chan string, 8)
+	var (
+		mu     sync.Mutex
+		listed []Probe
+	)
+	list := func(probes ...Probe) {
+		mu.Lock()
+		defer mu.Unlock()
+		listed = probes
+	}
+	runner := NewProbeRunner(providerRegistry, newFakeProbeStore(testProject(1, "app")), testOpener{}, time.Minute,
+		quietLogger()).WithDiscovery(func() []Probe {
+		mu.Lock()
+		defer mu.Unlock()
+		return listed
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	ended := make(chan error, 1)
+	go func() { ended <- runner.Run(ctx) }()
+	defer func() {
+		cancel()
+		<-ended
+	}()
+
+	expect := func(source string) {
+		t.Helper()
+		select {
+		case got := <-polled:
+			if got != source {
+				t.Fatalf("polled %s, expected %s", got, source)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s was not polled", source)
+		}
+	}
+	quiet := func() {
+		t.Helper()
+		select {
+		case got := <-polled:
+			t.Fatalf("%s polled again", got)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	pulls := listedProbe{source: "gitea.pull_requests", interval: time.Hour, polled: polled}
+	list(pulls)
+	runner.Wake()
+	expect(pulls.source)
+
+	// Listed again at the same cadence: the loop goes on, with no new pass.
+	runner.Wake()
+	quiet()
+
+	// Another cadence: the loop starts again.
+	pulls.interval = 2 * time.Hour
+	list(pulls)
+	runner.Wake()
+	expect(pulls.source)
+
+	// Taken away, then brought back: it had stopped, since it starts again.
+	list()
+	runner.Wake()
+	quiet()
+	list(pulls)
+	runner.Wake()
+	expect(pulls.source)
 }
