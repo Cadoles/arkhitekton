@@ -162,7 +162,12 @@ does not pretend otherwise. What it guarantees:
   tokens. Hygiene rather than a wall: a process of the same user in the same pod could read its
   parent's;
 - **credentials**: registry credentials are a Docker `config.json` mounted in the worker, read
-  for its `auths` only. They never reach the database.
+  for its `auths` only. They never reach the database. A program bringing a tracker, a forge,
+  probes or actions is handed its own settings for each call, unsealed, over the local mTLS
+  connection: they are the plugin's, as they are a compiled plugin's;
+- **purge**: undoing an uninstalled plugin's tables runs its own `Down` migrations, with the trust
+  its `Up` migrations had; an administrator asks for it, typing the plugin's id, and it is
+  audited.
 
 What the definitions' pods may do is still bounded by the namespace's Pod Security level: the
 dashboard's checks refuse the obvious escapes, the cluster enforces the rest.
@@ -170,5 +175,5 @@ dashboard's checks refuse the obvious escapes, the cluster enforces the rest.
 ## 9.10 Audit
 
 Every administrative act (role granted or revoked, plugin enabled, installed or refused, activated or
-uninstalled, capability bound, limit changed, project created) is recorded in `audit_log` with
+uninstalled, its tables purged, capability bound, limit changed, project created) is recorded in `audit_log` with
 its actor, target and payload, and is readable at `GET /admin/audit` by an administrator.

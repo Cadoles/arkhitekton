@@ -61,8 +61,11 @@ oracles in `app/oracles_test.go`, on every report and run state.
 
 **Plugin programs** are built by the tests themselves (`go build`, `CGO_ENABLED=0`): the
 launcher's in `internal/native/testdata/plugin/` (handshake, crash, slow call, another
-protocol), the hooks' in `app/testdata/hooked/`, the example in `rpc/examples/gotest`. No program
-is committed. The contract lives in `rpc/proto`; `make proto` regenerates `rpc/pluginv1`
+protocol), the hooks' in `app/testdata/hooked/`, the example in `rpc/examples/gotest`, and
+`app/testdata/providers/`, which serves the core's Redmine and Gitea code: `app/providers_test.go`
+reads the same fake instances through it and through the compiled plugins, and wants the same
+answers. `make providers-demo` builds it for publishing, to try an installed tracker, forge and
+purge on a cluster. No program is committed. The contract lives in `rpc/proto`; `make proto` regenerates `rpc/pluginv1`
 (committed), fetching `buf` and the generators by version.
 
 **A plugin's interface** is built with `apps/web/plugin.vite.ts` from a tree where its components

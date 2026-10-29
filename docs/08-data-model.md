@@ -120,15 +120,18 @@ Secret fields inside `config` are sealed with `SECRETS_KEY`; the API never retur
 | `capability_state` | a single `version`, moved by every binding and installation change: what the api and the worker watch to rebuild their capabilities |
 
 One version of a plugin is active at a time, and a version is installed once (partial unique
-indexes). A removed installation stays, for the record.
+indexes). A removed installation stays, for the record. An installation records its migrations'
+version table; the one that was active when its plugin was uninstalled is its `leftover` until the
+plugin is purged or installed again, one per plugin.
 
 ## 8.9 Tables owned by plugins
 
 An installed plugin's tables live in the same database under its own
 migration history (`goose_<id>_db_version` by convention), and are absent from the core's
 schema. They may refer to the core's tables; the core's never refer to theirs. An installed
-plugin's migrations are applied when it is installed; uninstalling it leaves its tables. The
-plugin documents them.
+plugin's migrations are applied when it is installed; uninstalling it leaves its tables, which an
+administrator may purge: the migrations undone, the version table dropped, the plugin's
+`sync_state` cursors forgotten (doc 06 §6.12). The plugin documents them.
 
 ## 8.10 Object store layout
 
@@ -141,7 +144,7 @@ plugin documents them.
 
 The worker removes, once a day, what nothing refers to any more: an attachment no result
 names (left by an earlier reading whose members differ), the layer of a plugin version no
-longer installed, and the `raw/` and `logs/` objects of a run the database does not know
+longer installed and not kept to purge its plugin's tables, and the `raw/` and `logs/` objects of a run the database does not know
 (after a reset). Runs are never deleted, so their artifacts and logs otherwise stay: they are
 what a replay reads. Nothing younger than a day is touched, and the credentials the worker uses
 must allow deleting objects.

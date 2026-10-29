@@ -136,6 +136,7 @@ All scoped to a project; the permission is checked **in that project**.
 | `GET /admin/plugins/installations` · `POST /admin/plugins/installations` (`{"reference": "repository@sha256:…"}`, queues the job, `202`) | `admin` |
 | `POST /admin/plugins/installations/{id}/activate` (`409` when the capabilities would not build with it) | `admin` |
 | `DELETE /admin/plugins/installations/{id}` (the active version uninstalls the plugin) | `admin` |
+| `GET /admin/plugins/leftovers` (the tables uninstalled plugins left) · `POST /admin/plugins/leftovers/{plugin}/purge` (queues the purge, `202`; `404` when the plugin left none, `409` while an installation is pending) | `admin` |
 | `GET /projects/{project}/plugins` | `admin` |
 | `PUT /projects/{project}/plugins/{plugin}` | `admin` |
 | `DELETE /projects/{project}/plugins/{plugin}` | `admin` — clears the override, restoring inheritance |

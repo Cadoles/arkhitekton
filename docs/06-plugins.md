@@ -180,12 +180,17 @@ version is refused at the handshake.
 | `promotionFacts` | when a promotion job concludes; one plugin at most states it |
 | `projectSettings` | when a run is composed, for the configuration keys it adds |
 | its module | under the worker's lease, while a project switches the plugin on (§6.9) |
+| its tracker, its forge (`tracker: true`, `forge: true`) | as a compiled plugin's (§6.5) |
+| its probes (`probes:`) | at the cadence the manifest declares, under the worker's lease |
+| its actions (`actions:`) | when a plan carries one of the steps it declares |
 
 **What the dashboard lends it** is the `Host` service: a project, a release, the queue, the audit
 log, its own settings for a project (unsealed), the environments a project declares, and the
 dashboard's authorisation. Its own tables it reaches with the database connection it is given.
 
-**Writing one in Go.** `rpc/extension` serves the hooks and lends the Host:
+**Writing one in Go.** `rpc/extension` serves the hooks and lends the Host. A tracker, a forge,
+probes and an executor are the sdk's own interfaces, as a compiled plugin declares them:
+`Hooks.Tracker`, `Hooks.Forge`, `Hooks.Probes` and `Hooks.Executor`.
 
 ```go
 package main
@@ -224,6 +229,13 @@ processes; a module runs only in the elected worker.
 **Checking a reading.** `arkhitekton check-reading --plugin <dir>` launches the program built for
 the machine and reads recorded cases with it (`app/testdata/readings/gotest/`).
 
+**A tracker, a forge, probes and actions over the wire.** Every call carries its target: the
+program connects for it, and keeps its clients by target. A provider's errors cross as themselves
+(`provider.ErrNotConfigured`, `ErrWriteForbidden`, `ErrTagExists`), so that the dashboard branches
+on them as on a compiled plugin's. The tracker's links are asked once per distinct settings, as
+patterns the dashboard fills with each identifier. A message is 32 MiB at most either way, a call
+the target's timeout and five seconds, a probe's pass two minutes.
+
 ## 6.5 Trackers, forges, probes and actions
 
 A plugin that brings a tracker or a forge returns a client for a **target**: the project's
@@ -233,7 +245,9 @@ it talks to: the target comes from what an administrator typed. The deployment's
 and `FORGE_*` variables only seed those settings.
 
 At most one enabled plugin brings the instance's tracker, and one its forge: the
-administration screen refuses a second. A project with none falls back to what works without
+administration screen refuses a second. An installed plugin that brings either is installed
+switched off: the administrator switches it on once the other is off. Its manifest sets
+`perProject`, since a project chooses its tracker and forge. A project with none falls back to what works without
 it: the release form takes a free-text git reference, the versions screen shows no links.
 
 A **probe** observes an outside source and reports observations under the suffixes its plugin
@@ -362,7 +376,8 @@ user's session. What the dashboard guarantees is that what runs is exactly what 
 the operator's to grant (doc 09 §9.9).
 
 **The directory.** `arkhitekton-plugin.yaml` at its root, the files it names next to it.
-`rpc/examples/gotest` is a complete one; a plugin with everything:
+`rpc/examples/gotest` is a complete one, `app/testdata/providers` one that brings a tracker and a
+forge; a plugin with everything:
 
 ```yaml
 apiVersion: arkhitekton.plugin/v2
@@ -383,6 +398,12 @@ routes:
   - { method: POST, path: "releases/{tag}/promote/{environment}", permission: "deploy:{environment}" }
   - { method: GET, path: status, permission: admin, scope: instance }
 ui: { entry: ui/index.js, styles: [ui/index.css], resources: [ui/resources/*.yaml] }
+tracker: true                # its program connects to a tracker, a forge (§6.5)
+forge: true
+probes: [{ name: pull_requests, interval: 5m, eager: false }]   # reports declared events
+actions:
+  - { suffix: status, label: Statut de commit, summary: Pose un statut.,
+      fields: [{ name: commit, label: Commit, required: true, template: true }] }
 pipelines:
   - name: unit-tests
     label: Tests
@@ -417,7 +438,7 @@ A body is 4 MiB at most each way, an answer 30 seconds.
 worker's lease, before the installation is recorded: whether a version is active is switched
 without a deployment, and its tables must be there. They keep their own version table, which
 `/readyz` checks as `schema-<id>`. Keep them compatible with the previous version: both can be
-installed side by side. Uninstalling leaves the tables and their rows.
+installed side by side. Uninstalling leaves the tables and their rows, until they are purged.
 
 **Screens.** The plugin's screens, menu entries and blocks are resources, `ui.resources`
 (§6.14). Its `ui.entry`, if it has components of its own, is a script built with the dashboard's
@@ -496,9 +517,18 @@ worker then withdraws the Tekton definitions it installed for it (those carrying
 its runs produced, and its tables, stay. A plan naming one of its capabilities fails at launch,
 naming it.
 
+**Purging.** Administration, Plugins, *Données conservées*: the tables an uninstalled plugin left,
+by the version that was active. Its layer is kept for that, past the daily purge of unused
+objects. Purging, confirmed by typing the plugin's id, is a `plugin-purge` job: the worker undoes
+every migration with that layer's files, under the lease, then drops the version table and forgets
+the cursors of the plugin's probes. It is refused while an installation is pending, and before
+anything is undone when an applied migration has no `Down` section, which goose would run empty.
+Only the plugin's tables go: the facts of its runs, the jobs and the audit are the core's.
+Installing the plugin again before a purge finds its tables and rows.
+
 **Taking effect.** Installing, activating, removing and binding move a counter the api and
 the worker watch: each rebuilds its capabilities within thirty seconds, at once on the replica
-that took the request. Capabilities that do not build leave the previous ones in force, and are
+that took the request. The worker starts and stops installed plugins' probes with them. Capabilities that do not build leave the previous ones in force, and are
 tried again. A new interface appears when the page is loaded again.
 
 ## 6.13 Testing a plugin
@@ -512,6 +542,10 @@ there runs the same once installed:
 - `Catalogue`: a catalogue file loaded as an instance with the plugin installed reads it;
 - `Record`, `Interpret`, `CheckReading`, `SameFacts`: a report parsed by the dashboard's parsers,
   a run read by the plugin's interpreter, a declared reading checked against recorded cases.
+
+A tracker, a forge, a probe or an executor is the sdk's interface: tested in-process against a
+fake server, as `internal/plugins/gitea` and `internal/plugins/redmine` are. `rpc/providers`
+carries them over the wire, and its tests show the program's side and the dashboard's together.
 
 A route's handler is tested as plain `net/http`, its caller and project set with
 `extension.WithIdentity` and `extension.WithProject`. A program as a whole is checked with
