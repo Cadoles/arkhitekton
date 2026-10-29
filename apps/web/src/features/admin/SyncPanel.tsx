@@ -6,6 +6,7 @@ import {
   useForceResync,
   useSetStatusBucket,
   useSyncAdmin,
+  trackerName,
   type Bucket,
   type SyncAdmin,
 } from '../versions/api'
@@ -180,8 +181,9 @@ function MappingTable({ data, project }: { data: SyncAdmin; project: string }) {
       </div>
 
       <p className="mt-1 text-sm text-zinc-500">
-        Chaque statut Redmine est rangé dans un seau. Le taux de complétion vaut « terminé »
-        divisé par « tout sauf écarté » : changer un seau déplace donc un chiffre affiché.
+        Chaque statut de {trackerName(data.sync.tracker)} est rangé dans un seau. Le taux de
+        complétion vaut « terminé » divisé par « tout sauf écarté » : changer un seau déplace donc
+        un chiffre affiché.
       </p>
 
       {open && (
@@ -298,11 +300,11 @@ function PendingVersions({ data }: { data: SyncAdmin }) {
   return (
     <div className="mt-4 border-t border-zinc-200 pt-3">
       <h3 className="text-sm font-medium text-zinc-900">
-        {data.pending.length} version(s) inconnue(s) de Redmine
+        {data.pending.length} version(s) inconnue(s) de {trackerName(data.sync.tracker)}
       </h3>
       <p className="mt-1 text-sm text-zinc-500">
-        Créées par une release. Aucune version Redmine ne porte ce numéro — vérifiez le tag, ou la
-        liste des ambiguïtés ci-dessus.
+        Créées par une release. Aucune version de {trackerName(data.sync.tracker)} ne porte ce
+        numéro — vérifiez le tag, ou la liste des ambiguïtés ci-dessus.
       </p>
       <ul className="mt-2 flex flex-wrap gap-2 font-mono text-sm text-zinc-600">
         {data.pending.map((name) => (

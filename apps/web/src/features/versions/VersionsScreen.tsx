@@ -4,10 +4,12 @@ import { Icon } from '../../components/Icon'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import {
+  trackerName,
   useDeclareVersion,
   useVersions,
   type Completion,
   type SyncState,
+  type TrackerRef,
   type Version,
 } from './api'
 
@@ -98,7 +100,7 @@ function VersionLists({ versions, sync }: { versions: Version[]; sync: SyncState
       ) : (
         <ul className="flex flex-col gap-2">
           {active.map((version) => (
-            <VersionRow key={version.id} version={version} />
+            <VersionRow key={version.id} version={version} tracker={sync.tracker} />
           ))}
         </ul>
       )}
@@ -117,7 +119,7 @@ function VersionLists({ versions, sync }: { versions: Version[]; sync: SyncState
           {showClosed && (
             <ul className="mt-2 flex flex-col gap-2">
               {closed.map((version) => (
-                <VersionRow key={version.id} version={version} />
+                <VersionRow key={version.id} version={version} tracker={sync.tracker} />
               ))}
             </ul>
           )}
@@ -155,7 +157,7 @@ function SyncBanner({ sync }: { sync: SyncState }) {
         <span>
           Dernière synchronisation en échec. Les données affichées datent du{' '}
           {sync.last_ok ? formatDateTime(sync.last_ok) : 'néant'} et restent exploitables, mais
-          n'intègrent pas les modifications faites depuis dans Redmine.
+          n'intègrent pas les modifications faites depuis dans {trackerName(sync.tracker)}.
         </span>
       </p>
     )
@@ -174,7 +176,7 @@ const STATUS_LABEL: Record<string, string> = {
   closed: 'Close',
 }
 
-function VersionRow({ version }: { version: Version }) {
+function VersionRow({ version, tracker }: { version: Version; tracker?: TrackerRef }) {
   return (
     <li className="rounded-md border border-zinc-200 px-3 py-2">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -189,11 +191,11 @@ function VersionRow({ version }: { version: Version }) {
         </span>
 
         {version.pending && (
-          // Le nom vient d'un tag de release, pas de Redmine : la synchronisation
+          // Le nom vient d'un tag de release, pas du suivi : la synchronisation
           // n'a trouvé aucune version correspondante.
           <span className="flex items-center gap-1 text-sm text-warn-700">
             <Icon name="alert" className="size-3.5" />
-            inconnue de Redmine
+            inconnue de {trackerName(tracker)}
           </span>
         )}
 

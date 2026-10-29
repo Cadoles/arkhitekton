@@ -44,12 +44,12 @@ type inMemoryStore struct {
 	issues   []store.TrackedIssue
 }
 
-func (m *inMemoryStore) UpsertRedmineVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
+func (m *inMemoryStore) UpsertTrackedVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
 	m.versions = append(m.versions, version)
 	return int64(len(m.versions)), nil
 }
 
-func (m *inMemoryStore) UpsertRedmineIssue(_ context.Context, issue store.TrackedIssue) error {
+func (m *inMemoryStore) UpsertTrackedIssue(_ context.Context, issue store.TrackedIssue) error {
 	m.issues = append(m.issues, issue)
 	return nil
 }

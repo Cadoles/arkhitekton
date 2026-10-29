@@ -68,7 +68,7 @@ type TrackedIssue struct {
 	UpdatedOn         *time.Time
 }
 
-// UpsertRedmineVersion records a version and returns its local key.
+// UpsertTrackedVersion records a version and returns its local key.
 //
 // Simple, deliberately: the identity is the pair (tool, external_id). Matching with
 // provisional versions is a separate operation ([DB.AdoptPendingVersions]), run
@@ -78,7 +78,7 @@ type TrackedIssue struct {
 // same number; whichever came first would adopt the provisional one, and a release
 // would end up attached to the closed version rather than the open one — an
 // invisible arbitrary choice.
-func (db *DB) UpsertRedmineVersion(ctx context.Context, version TrackedVersion) (int64, error) {
+func (db *DB) UpsertTrackedVersion(ctx context.Context, version TrackedVersion) (int64, error) {
 	var id int64
 	err := db.pool.QueryRow(ctx,
 		`insert into versions
@@ -140,7 +140,7 @@ type Adoption struct {
 // nothing is adopted. Attaching to the wrong version is worse than attaching to
 // none, and the case is returned to the caller for display.
 //
-// To be called after [DB.UpsertRedmineVersion] over every version: that is what
+// To be called after [DB.UpsertTrackedVersion] over every version: that is what
 // makes the result independent of read order.
 func (db *DB) AdoptPendingVersions(ctx context.Context) ([]Adoption, error) {
 	tx, err := db.pool.Begin(ctx)
@@ -319,7 +319,7 @@ func mergeVersion(ctx context.Context, tx pgx.Tx, pendingID, realID int64) (int6
 	return tag.RowsAffected(), nil
 }
 
-// UpsertRedmineIssue records an issue.
+// UpsertTrackedIssue records an issue.
 //
 // The attachment is made by a sub-query on `external_id`: synchronisation knows only
 // the tracker's identifiers, and resolving the local key in Go would cost a round
@@ -332,7 +332,7 @@ func mergeVersion(ctx context.Context, tx pgx.Tx, pendingID, realID int64) (int6
 // The attachment is bounded to the project. Two tracked projects may carry the same
 // tracker identifier — two instances, or two projects of one instance — and a
 // sub-query without that bound would attach the issue to the other's version.
-func (db *DB) UpsertRedmineIssue(ctx context.Context, issue TrackedIssue) error {
+func (db *DB) UpsertTrackedIssue(ctx context.Context, issue TrackedIssue) error {
 	_, err := db.pool.Exec(ctx,
 		`insert into issues
 		     (project_id, tool, external_id, version_id, tracker, subject,

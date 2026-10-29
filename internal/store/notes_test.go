@@ -214,7 +214,7 @@ func TestANoteDoesNotFetchAnotherProjectsIssue(t *testing.T) {
 
 	// Number 1234 exists on both sides, with two different subjects.
 	issueOf(t, db, 1234, 920, "Évolution", "En revue", BucketDoing, 100, false)
-	if err := db.UpsertRedmineIssue(ctx, TrackedIssue{
+	if err := db.UpsertTrackedIssue(ctx, TrackedIssue{
 		ProjectID: second, Tool: "redmine", ExternalID: "1234",
 		Tracker: "Anomalie", Subject: "the other deployment's subject",
 		StatusName: "En revue", StatusBucket: BucketDoing,

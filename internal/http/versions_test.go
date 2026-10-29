@@ -224,3 +224,31 @@ func TestTheListSaysWhetherTheProjectIsTracked(t *testing.T) {
 		}
 	}
 }
+
+// The screens name the tracker by its plugin: they say "Redmine" only of Redmine.
+func TestTheListNamesTheTrackerPlugin(t *testing.T) {
+	projects := untracked()
+	projects.project.TrackerProject = "mse-dev"
+	request := httptest.NewRequest(http.MethodGet, "/projects/app/versions", nil)
+	request.SetPathValue("project", "app")
+
+	for tracker, want := range map[Trackers]string{fixedTracker{id: "forgery"}: "Suivi forgery", nil: ""} {
+		recorder := httptest.NewRecorder()
+		NewVersionsHandler(projects, tracker).List(recorder, request)
+		var payload struct {
+			Sync struct {
+				Tracker *struct{ ID, Label string } `json:"tracker"`
+			} `json:"sync"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("unreadable body: %v", err)
+		}
+		got := ""
+		if payload.Sync.Tracker != nil {
+			got = payload.Sync.Tracker.Label
+		}
+		if got != want {
+			t.Errorf("tracker = %q, expected %q", got, want)
+		}
+	}
+}

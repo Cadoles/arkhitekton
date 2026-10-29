@@ -150,6 +150,7 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	sync := syncStateView(state)
 	sync.Tracked = tracked
+	sync.Tracker = tracker.view()
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"versions": payload,
@@ -253,6 +254,7 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":   h.view(summary, tracker),
+		"tracker":   tracker.view(),
 		"buckets":   buckets,
 		"anomalies": anomalies,
 		"releases":  releasePayload,
@@ -281,6 +283,8 @@ type syncStateVw struct {
 	// project that never had one. That is exactly the gap the verification milestone forbids:
 	// the interface must say it properly.
 	Tracked bool `json:"tracked"`
+	// Tracker names the tracker plugin, absent when none is switched on for the project.
+	Tracker *trackerVw `json:"tracker,omitempty"`
 }
 
 func syncStateView(state store.SyncState) syncStateVw {

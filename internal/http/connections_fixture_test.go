@@ -16,7 +16,7 @@ type fixedTracker struct {
 
 func (f fixedTracker) TrackerPlugin(context.Context, int64) (connect.Tracker, error) {
 	return connect.Tracker{
-		Plugin:   capability.Plugin{ID: f.id, Tracker: linkTracker{}},
+		Plugin:   capability.Plugin{ID: f.id, Label: "Suivi " + f.id, Tracker: linkTracker{}},
 		Settings: capability.Settings{"url": f.url},
 	}, nil
 }

@@ -225,8 +225,8 @@ export function ProjectForm({
               className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
             />
             <span className="text-xs text-zinc-500">
-              Son identifiant dans Redmine. Vide, ce projet n'a aucun suivi : ses versions se
-              déclarent à la main.
+              Son identifiant dans l'outil de suivi. Vide, ce projet n'a aucun suivi : ses versions
+              se déclarent à la main.
             </span>
           </label>
 

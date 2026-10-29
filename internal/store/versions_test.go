@@ -12,7 +12,7 @@ import (
 // redmineVersion writes a real version, as synchronisation would.
 func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) int64 {
 	t.Helper()
-	id, err := db.UpsertRedmineVersion(context.Background(), TrackedVersion{
+	id, err := db.UpsertTrackedVersion(context.Background(), TrackedVersion{
 		ProjectID: testProjectID, Tool: "redmine", ExternalID: fmt.Sprint(redmineID), Name: name,
 		Normalized: release.NormalizeVersionName(name),
 		Status:     status,
@@ -25,7 +25,7 @@ func redmineVersion(t *testing.T, db *DB, redmineID int64, name, status string) 
 
 func issueOf(t *testing.T, db *DB, redmineID int64, versionRedmineID int64, tracker, status, bucket string, doneRatio int, closed bool) {
 	t.Helper()
-	if err := db.UpsertRedmineIssue(context.Background(), TrackedIssue{
+	if err := db.UpsertTrackedIssue(context.Background(), TrackedIssue{
 		ProjectID: testProjectID, Tool: "redmine", ExternalID: fmt.Sprint(redmineID),
 		VersionExternalID: externalRef(versionRedmineID),
 		Tracker:           tracker, Subject: "subject", StatusName: status, StatusBucket: bucket,
@@ -492,7 +492,7 @@ func TestTheDatabaseAcceptsTheFiveBucketsAndNothingElse(t *testing.T) {
 	redmineVersion(t, db, 805, "v3.2.0", "open")
 
 	for i, bucket := range []string{BucketTodo, BucketDoing, BucketClientTest, BucketDone, BucketRejected} {
-		if err := db.UpsertRedmineIssue(ctx, TrackedIssue{
+		if err := db.UpsertTrackedIssue(ctx, TrackedIssue{
 			ProjectID: testProjectID,
 			Tool:      "redmine", ExternalID: fmt.Sprint(100 + i), Tracker: "Évolution", Subject: "s",
 			StatusName: "x", StatusBucket: bucket,
@@ -501,7 +501,7 @@ func TestTheDatabaseAcceptsTheFiveBucketsAndNothingElse(t *testing.T) {
 		}
 	}
 
-	if err := db.UpsertRedmineIssue(ctx, TrackedIssue{
+	if err := db.UpsertTrackedIssue(ctx, TrackedIssue{
 		ProjectID: testProjectID, Tool: "redmine", ExternalID: "200", Tracker: "Évolution", Subject: "s",
 		StatusName: "x", StatusBucket: "invente",
 	}); err == nil {
@@ -1082,7 +1082,7 @@ func TestTwoProjectsDoNotStealEachOthersVersions(t *testing.T) {
 	// The same number, declared on both sides. The same tracker identifier too: two
 	// projects may track two instances, or two projects of the same one.
 	for _, projectID := range []int64{testProjectID, second} {
-		if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
+		if _, err := db.UpsertTrackedVersion(ctx, TrackedVersion{
 			ProjectID: projectID, Tool: "redmine", ExternalID: fmt.Sprint(900), Name: "v3.1.2",
 			Normalized: release.NormalizeVersionName("v3.1.2"), Status: "open",
 		}); err != nil {
@@ -1252,7 +1252,7 @@ func TestTwoToolsMayShareAnIdentifier(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
+	if _, err := db.UpsertTrackedVersion(ctx, TrackedVersion{
 		ProjectID: testProjectID, Tool: "redmine", ExternalID: "42",
 		Name: "v1.0.0", Normalized: "1.0.0", Status: "open",
 	}); err != nil {
@@ -1261,7 +1261,7 @@ func TestTwoToolsMayShareAnIdentifier(t *testing.T) {
 
 	// The same number, in another tool. A single integer unique per project would have
 	// refused it with no message saying why.
-	if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
+	if _, err := db.UpsertTrackedVersion(ctx, TrackedVersion{
 		ProjectID: testProjectID, Tool: "jira", ExternalID: "42",
 		Name: "MSE-42", Normalized: "MSE-42", Status: "open",
 	}); err != nil {
@@ -1299,7 +1299,7 @@ func TestTheVersionListDoesNotSpillOntoAnotherProject(t *testing.T) {
 	}
 
 	redmineVersion(t, db, 900, "v3.1.0", "open")
-	if _, err := db.UpsertRedmineVersion(ctx, TrackedVersion{
+	if _, err := db.UpsertTrackedVersion(ctx, TrackedVersion{
 		ProjectID: second, Tool: "redmine", ExternalID: "901", Name: "v9.9.9",
 		Normalized: release.NormalizeVersionName("v9.9.9"), Status: "open",
 	}); err != nil {

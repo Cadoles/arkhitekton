@@ -573,7 +573,7 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 		// Neither green nor red: the check did not happen. Recording it as a failure would send
 		// someone hunting for an access problem where there is only a missing token.
 		writeProblem(w, http.StatusServiceUnavailable, "Test unavailable",
-			"the forge is not configured: GITEA_URL and GITEA_TOKEN are required")
+			"no forge is configured: switch a forge plugin on and set its URL and token")
 		return
 	}
 

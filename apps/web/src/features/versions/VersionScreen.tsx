@@ -6,7 +6,7 @@ import { formatDateTime } from '../../lib/format'
 import { CompletionBar } from './VersionsScreen'
 import { RedmineMark } from '../../components/RedmineMark'
 import { CreateReleaseButton } from './CreateReleaseButton'
-import { useVersion, type Bucket, type Issue, type VersionRelease } from './api'
+import { trackerName, useVersion, type Bucket, type Issue, type VersionRelease } from './api'
 
 /*
  * Périmètre d'une version.
@@ -46,8 +46,8 @@ export function VersionScreen() {
               rel="noreferrer noopener"
               className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
             >
-              <RedmineMark className="h-4 w-6" />
-              Redmine
+              {data.tracker?.id === 'redmine' && <RedmineMark className="h-4 w-6" />}
+              {data.tracker?.label ?? 'Suivi'}
               {/* La sortie du dashboard est annoncée : l'onglet change, et rien
                   d'autre dans la barre ne le fait. */}
               <Icon name="external" className="size-3.5 text-zinc-400" />
@@ -73,8 +73,9 @@ export function VersionScreen() {
               <p className="mb-3 flex items-start gap-2 rounded-md border border-warn-500 bg-warn-50 px-3 py-2 text-sm text-warn-700">
                 <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
                 <span>
-                  Cette version vient d'un tag de release et non de Redmine : la synchronisation n'y
-                  a trouvé aucune version correspondante. Elle n'a donc ni périmètre ni échéance.
+                  Cette version vient d'un tag de release et non de {trackerName(data.tracker)} : la
+                  synchronisation n'y a trouvé aucune version correspondante. Elle n'a donc ni
+                  périmètre ni échéance.
                 </span>
               </p>
             )}

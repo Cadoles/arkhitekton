@@ -86,8 +86,8 @@ type TrackerConnector func(capability.Target) (TrackerReader, error)
 // which holds them for every source. It is the clearest measure of what the contract absorbed:
 // what remains here is the work specific to the tracker, and nothing else.
 type TrackerStore interface {
-	UpsertRedmineVersion(ctx context.Context, version store.TrackedVersion) (int64, error)
-	UpsertRedmineIssue(ctx context.Context, issue store.TrackedIssue) error
+	UpsertTrackedVersion(ctx context.Context, version store.TrackedVersion) (int64, error)
+	UpsertTrackedIssue(ctx context.Context, issue store.TrackedIssue) error
 	AdoptPendingVersions(ctx context.Context) ([]store.Adoption, error)
 	StatusMapping(ctx context.Context, projectID int64) (map[string]string, error)
 }
@@ -146,7 +146,7 @@ func (s *TrackerSync) Observe(
 
 	facts := make([]event.Event, 0, len(versions))
 	for _, version := range versions {
-		versionID, err := s.store.UpsertRedmineVersion(ctx, store.TrackedVersion{
+		versionID, err := s.store.UpsertTrackedVersion(ctx, store.TrackedVersion{
 			ProjectID: projectID,
 			// The tool and the identifier it uses, rather than an integer whose name already said which
 			// product it came from.
@@ -196,7 +196,7 @@ func (s *TrackerSync) Observe(
 			unmapped[issue.Status]++
 		}
 
-		if err := s.store.UpsertRedmineIssue(ctx, store.TrackedIssue{
+		if err := s.store.UpsertTrackedIssue(ctx, store.TrackedIssue{
 			ProjectID:  projectID,
 			Tool:       s.source.Tool,
 			ExternalID: issue.ID,
