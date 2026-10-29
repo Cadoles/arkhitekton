@@ -36,6 +36,22 @@ const (
 	Plugin_Promoted_FullMethodName               = "/arkhitekton.plugin.v1.Plugin/Promoted"
 	Plugin_ProjectSettings_FullMethodName        = "/arkhitekton.plugin.v1.Plugin/ProjectSettings"
 	Plugin_RunModule_FullMethodName              = "/arkhitekton.plugin.v1.Plugin/RunModule"
+	Plugin_Connect_FullMethodName                = "/arkhitekton.plugin.v1.Plugin/Connect"
+	Plugin_TrackerLinks_FullMethodName           = "/arkhitekton.plugin.v1.Plugin/TrackerLinks"
+	Plugin_ListVersions_FullMethodName           = "/arkhitekton.plugin.v1.Plugin/ListVersions"
+	Plugin_ListIssues_FullMethodName             = "/arkhitekton.plugin.v1.Plugin/ListIssues"
+	Plugin_TrackerAccess_FullMethodName          = "/arkhitekton.plugin.v1.Plugin/TrackerAccess"
+	Plugin_DefaultBranch_FullMethodName          = "/arkhitekton.plugin.v1.Plugin/DefaultBranch"
+	Plugin_ListBranches_FullMethodName           = "/arkhitekton.plugin.v1.Plugin/ListBranches"
+	Plugin_ListTags_FullMethodName               = "/arkhitekton.plugin.v1.Plugin/ListTags"
+	Plugin_ResolveCommit_FullMethodName          = "/arkhitekton.plugin.v1.Plugin/ResolveCommit"
+	Plugin_ListMergedPullRequests_FullMethodName = "/arkhitekton.plugin.v1.Plugin/ListMergedPullRequests"
+	Plugin_LoadCommitMessages_FullMethodName     = "/arkhitekton.plugin.v1.Plugin/LoadCommitMessages"
+	Plugin_ForgeAccess_FullMethodName            = "/arkhitekton.plugin.v1.Plugin/ForgeAccess"
+	Plugin_CreateTag_FullMethodName              = "/arkhitekton.plugin.v1.Plugin/CreateTag"
+	Plugin_ProbeRepository_FullMethodName        = "/arkhitekton.plugin.v1.Plugin/ProbeRepository"
+	Plugin_Poll_FullMethodName                   = "/arkhitekton.plugin.v1.Plugin/Poll"
+	Plugin_Execute_FullMethodName                = "/arkhitekton.plugin.v1.Plugin/Execute"
 )
 
 // PluginClient is the client API for Plugin service.
@@ -59,6 +75,31 @@ type PluginClient interface {
 	// RunModule runs the plugin's module until the call is cancelled. The stream carries nothing but
 	// the end: an error ends the module until the supervisor's next tick.
 	RunModule(ctx context.Context, in *ModuleState, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ModuleStatus], error)
+	// Connect checks that the plugin reaches its tracker or forge with a target's settings. Every
+	// provider call carries its target again: the plugin connects for each one, and may keep its
+	// clients by target.
+	Connect(ctx context.Context, in *ConnectRequest, opts ...grpc.CallOption) (*ConnectResponse, error)
+	// TrackerLinks returns the patterns of the tracker's links, `{id}` standing for a version's or an
+	// issue's identifier: the dashboard links every row of a list without a call per row.
+	TrackerLinks(ctx context.Context, in *Settings, opts ...grpc.CallOption) (*Links, error)
+	// The tracker's and forge's reads and writes. Their arguments and results are the JSON of the
+	// sdk's provider types, named in each call's comment.
+	ListVersions(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	ListIssues(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	TrackerAccess(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	DefaultBranch(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	ListBranches(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	ListTags(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	ResolveCommit(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	ListMergedPullRequests(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	LoadCommitMessages(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	ForgeAccess(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	CreateTag(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	ProbeRepository(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	// Poll runs one of the probes the manifest declares.
+	Poll(ctx context.Context, in *PollRequest, opts ...grpc.CallOption) (*PollResponse, error)
+	// Execute carries out one of the actions the manifest declares.
+	Execute(ctx context.Context, in *ExecuteRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type pluginClient struct {
@@ -178,6 +219,166 @@ func (c *pluginClient) RunModule(ctx context.Context, in *ModuleState, opts ...g
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Plugin_RunModuleClient = grpc.ServerStreamingClient[ModuleStatus]
 
+func (c *pluginClient) Connect(ctx context.Context, in *ConnectRequest, opts ...grpc.CallOption) (*ConnectResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConnectResponse)
+	err := c.cc.Invoke(ctx, Plugin_Connect_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) TrackerLinks(ctx context.Context, in *Settings, opts ...grpc.CallOption) (*Links, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Links)
+	err := c.cc.Invoke(ctx, Plugin_TrackerLinks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) ListVersions(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_ListVersions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) ListIssues(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_ListIssues_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) TrackerAccess(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_TrackerAccess_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) DefaultBranch(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_DefaultBranch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) ListBranches(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_ListBranches_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) ListTags(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_ListTags_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) ResolveCommit(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_ResolveCommit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) ListMergedPullRequests(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_ListMergedPullRequests_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) LoadCommitMessages(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_LoadCommitMessages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) ForgeAccess(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_ForgeAccess_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) CreateTag(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_CreateTag_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) ProbeRepository(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_ProbeRepository_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) Poll(ctx context.Context, in *PollRequest, opts ...grpc.CallOption) (*PollResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PollResponse)
+	err := c.cc.Invoke(ctx, Plugin_Poll_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) Execute(ctx context.Context, in *ExecuteRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, Plugin_Execute_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PluginServer is the server API for Plugin service.
 // All implementations must embed UnimplementedPluginServer
 // for forward compatibility.
@@ -199,6 +400,31 @@ type PluginServer interface {
 	// RunModule runs the plugin's module until the call is cancelled. The stream carries nothing but
 	// the end: an error ends the module until the supervisor's next tick.
 	RunModule(*ModuleState, grpc.ServerStreamingServer[ModuleStatus]) error
+	// Connect checks that the plugin reaches its tracker or forge with a target's settings. Every
+	// provider call carries its target again: the plugin connects for each one, and may keep its
+	// clients by target.
+	Connect(context.Context, *ConnectRequest) (*ConnectResponse, error)
+	// TrackerLinks returns the patterns of the tracker's links, `{id}` standing for a version's or an
+	// issue's identifier: the dashboard links every row of a list without a call per row.
+	TrackerLinks(context.Context, *Settings) (*Links, error)
+	// The tracker's and forge's reads and writes. Their arguments and results are the JSON of the
+	// sdk's provider types, named in each call's comment.
+	ListVersions(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	ListIssues(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	TrackerAccess(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	DefaultBranch(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	ListBranches(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	ListTags(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	ResolveCommit(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	ListMergedPullRequests(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	LoadCommitMessages(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	ForgeAccess(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	CreateTag(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	ProbeRepository(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	// Poll runs one of the probes the manifest declares.
+	Poll(context.Context, *PollRequest) (*PollResponse, error)
+	// Execute carries out one of the actions the manifest declares.
+	Execute(context.Context, *ExecuteRequest) (*Empty, error)
 	mustEmbedUnimplementedPluginServer()
 }
 
@@ -238,6 +464,54 @@ func (UnimplementedPluginServer) ProjectSettings(context.Context, *ProjectRef) (
 }
 func (UnimplementedPluginServer) RunModule(*ModuleState, grpc.ServerStreamingServer[ModuleStatus]) error {
 	return status.Error(codes.Unimplemented, "method RunModule not implemented")
+}
+func (UnimplementedPluginServer) Connect(context.Context, *ConnectRequest) (*ConnectResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Connect not implemented")
+}
+func (UnimplementedPluginServer) TrackerLinks(context.Context, *Settings) (*Links, error) {
+	return nil, status.Error(codes.Unimplemented, "method TrackerLinks not implemented")
+}
+func (UnimplementedPluginServer) ListVersions(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListVersions not implemented")
+}
+func (UnimplementedPluginServer) ListIssues(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListIssues not implemented")
+}
+func (UnimplementedPluginServer) TrackerAccess(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TrackerAccess not implemented")
+}
+func (UnimplementedPluginServer) DefaultBranch(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DefaultBranch not implemented")
+}
+func (UnimplementedPluginServer) ListBranches(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBranches not implemented")
+}
+func (UnimplementedPluginServer) ListTags(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListTags not implemented")
+}
+func (UnimplementedPluginServer) ResolveCommit(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolveCommit not implemented")
+}
+func (UnimplementedPluginServer) ListMergedPullRequests(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMergedPullRequests not implemented")
+}
+func (UnimplementedPluginServer) LoadCommitMessages(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LoadCommitMessages not implemented")
+}
+func (UnimplementedPluginServer) ForgeAccess(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ForgeAccess not implemented")
+}
+func (UnimplementedPluginServer) CreateTag(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateTag not implemented")
+}
+func (UnimplementedPluginServer) ProbeRepository(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProbeRepository not implemented")
+}
+func (UnimplementedPluginServer) Poll(context.Context, *PollRequest) (*PollResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Poll not implemented")
+}
+func (UnimplementedPluginServer) Execute(context.Context, *ExecuteRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method Execute not implemented")
 }
 func (UnimplementedPluginServer) mustEmbedUnimplementedPluginServer() {}
 func (UnimplementedPluginServer) testEmbeddedByValue()                {}
@@ -433,6 +707,294 @@ func _Plugin_RunModule_Handler(srv interface{}, stream grpc.ServerStream) error 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Plugin_RunModuleServer = grpc.ServerStreamingServer[ModuleStatus]
 
+func _Plugin_Connect_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConnectRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).Connect(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_Connect_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).Connect(ctx, req.(*ConnectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_TrackerLinks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Settings)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).TrackerLinks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_TrackerLinks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).TrackerLinks(ctx, req.(*Settings))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_ListVersions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ListVersions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ListVersions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ListVersions(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_ListIssues_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ListIssues(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ListIssues_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ListIssues(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_TrackerAccess_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).TrackerAccess(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_TrackerAccess_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).TrackerAccess(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_DefaultBranch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).DefaultBranch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_DefaultBranch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).DefaultBranch(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_ListBranches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ListBranches(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ListBranches_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ListBranches(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_ListTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ListTags(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ListTags_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ListTags(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_ResolveCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ResolveCommit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ResolveCommit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ResolveCommit(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_ListMergedPullRequests_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ListMergedPullRequests(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ListMergedPullRequests_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ListMergedPullRequests(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_LoadCommitMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).LoadCommitMessages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_LoadCommitMessages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).LoadCommitMessages(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_ForgeAccess_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ForgeAccess(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ForgeAccess_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ForgeAccess(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_CreateTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).CreateTag(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_CreateTag_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).CreateTag(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_ProbeRepository_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ProbeRepository(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ProbeRepository_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ProbeRepository(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_Poll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PollRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).Poll(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_Poll_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).Poll(ctx, req.(*PollRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_Execute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExecuteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).Execute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_Execute_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).Execute(ctx, req.(*ExecuteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Plugin_ServiceDesc is the grpc.ServiceDesc for Plugin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -475,6 +1037,70 @@ var Plugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ProjectSettings",
 			Handler:    _Plugin_ProjectSettings_Handler,
+		},
+		{
+			MethodName: "Connect",
+			Handler:    _Plugin_Connect_Handler,
+		},
+		{
+			MethodName: "TrackerLinks",
+			Handler:    _Plugin_TrackerLinks_Handler,
+		},
+		{
+			MethodName: "ListVersions",
+			Handler:    _Plugin_ListVersions_Handler,
+		},
+		{
+			MethodName: "ListIssues",
+			Handler:    _Plugin_ListIssues_Handler,
+		},
+		{
+			MethodName: "TrackerAccess",
+			Handler:    _Plugin_TrackerAccess_Handler,
+		},
+		{
+			MethodName: "DefaultBranch",
+			Handler:    _Plugin_DefaultBranch_Handler,
+		},
+		{
+			MethodName: "ListBranches",
+			Handler:    _Plugin_ListBranches_Handler,
+		},
+		{
+			MethodName: "ListTags",
+			Handler:    _Plugin_ListTags_Handler,
+		},
+		{
+			MethodName: "ResolveCommit",
+			Handler:    _Plugin_ResolveCommit_Handler,
+		},
+		{
+			MethodName: "ListMergedPullRequests",
+			Handler:    _Plugin_ListMergedPullRequests_Handler,
+		},
+		{
+			MethodName: "LoadCommitMessages",
+			Handler:    _Plugin_LoadCommitMessages_Handler,
+		},
+		{
+			MethodName: "ForgeAccess",
+			Handler:    _Plugin_ForgeAccess_Handler,
+		},
+		{
+			MethodName: "CreateTag",
+			Handler:    _Plugin_CreateTag_Handler,
+		},
+		{
+			MethodName: "ProbeRepository",
+			Handler:    _Plugin_ProbeRepository_Handler,
+		},
+		{
+			MethodName: "Poll",
+			Handler:    _Plugin_Poll_Handler,
+		},
+		{
+			MethodName: "Execute",
+			Handler:    _Plugin_Execute_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

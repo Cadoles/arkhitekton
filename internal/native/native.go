@@ -189,6 +189,7 @@ func (p *Process) launch(ctx context.Context) (*goplugin.Client, *rpc.Connection
 		SkipHostEnv:      true,
 		SecureConfig:     &goplugin.SecureConfig{Checksum: sum, Hash: sha256.New()},
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
+		GRPCDialOptions:  rpc.DialOptions(),
 		AutoMTLS:         true,
 		StartTimeout:     config.StartTimeout,
 		Logger:           newHCLogger(logger),

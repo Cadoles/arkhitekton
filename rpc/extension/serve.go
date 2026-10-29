@@ -26,6 +26,7 @@ import (
 	"time"
 
 	goplugin "github.com/hashicorp/go-plugin"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -72,6 +73,15 @@ type Hooks struct {
 	// Module runs until its context ends, for the projects that switch the plugin on. It is
 	// started again with the new state when settings or projects change.
 	Module func(ctx context.Context, state ModuleState) error
+
+	// Tracker and Forge are the plugin's connections, as a compiled plugin declares them. The
+	// dashboard hands every call its target; the connections are kept here, by target.
+	Tracker capability.TrackerCapability
+	Forge   capability.ForgeCapability
+	// Probes are the probes the manifest declares, found by name: the manifest's schedule wins.
+	Probes []capability.Probe
+	// Executor carries out the actions the manifest declares.
+	Executor capability.ActionExecutor
 }
 
 // Start builds the plugin's hooks, once, when the dashboard initialises it.
@@ -84,7 +94,9 @@ func Serve(start Start) {
 		Plugins: rpc.PluginSet(&rpc.GRPCPlugin{Implementation: func(broker *goplugin.GRPCBroker) pluginv1.PluginServer {
 			return &server{start: start, broker: broker}
 		}}),
-		GRPCServer: goplugin.DefaultGRPCServer,
+		GRPCServer: func(options []grpc.ServerOption) *grpc.Server {
+			return goplugin.DefaultGRPCServer(append(options, rpc.ServerOptions()...))
+		},
 	})
 }
 
@@ -100,10 +112,12 @@ type server struct {
 
 	mu    sync.RWMutex
 	hooks *Hooks
+
+	connections connections
 }
 
 func (s *server) Init(ctx context.Context, request *pluginv1.InitRequest) (*pluginv1.InitResponse, error) {
-	conn, err := s.broker.Dial(request.GetHostBrokerId())
+	conn, err := s.broker.DialWithOptions(request.GetHostBrokerId(), rpc.DialOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("reaching the dashboard: %w", err)
 	}
