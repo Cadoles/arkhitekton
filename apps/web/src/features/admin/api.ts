@@ -104,6 +104,15 @@ export const ACTION_LABEL: Record<string, string> = {
   'bench.baseline.pin': 'Épinglage de baseline',
   'role.grant': 'Attribution de rôle',
   'role.revoke': 'Retrait de rôle',
+  'plugin.installation.requested': "Demande d'installation de plugin",
+  'plugin.installed': 'Installation de plugin',
+  'plugin.installation.failed': "Échec d'installation de plugin",
+  'plugin.activated': 'Activation de version de plugin',
+  'plugin.version.removed': 'Retrait de version de plugin',
+  'plugin.uninstalled': 'Désinstallation de plugin',
+  'plugin.purge.requested': 'Demande de purge de plugin',
+  'plugin.purged': 'Purge de plugin',
+  'plugin.purge.failed': 'Échec de purge de plugin',
 }
 
 /*

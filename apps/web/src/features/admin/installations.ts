@@ -86,3 +86,37 @@ export function useRemoveInstallation() {
     onSuccess: invalidate,
   })
 }
+
+/** Ce qu'un plugin désinstallé a laissé : les tables de la version qui était
+ *  active, que ses migrations défont. */
+export type Leftover = {
+  plugin: string
+  version: string
+  /** Sa table de versions, que la purge supprime en dernier. */
+  table: string
+  removed_at?: string
+}
+
+const LEFTOVERS = ['admin', 'plugins', 'leftovers']
+
+/** `watching` relit la liste tant qu'une purge demandée n'a pas abouti : elle se
+ *  mène dans le worker, hors de toute requête. */
+export function useLeftovers(watching: boolean) {
+  return useQuery({
+    queryKey: LEFTOVERS,
+    queryFn: () => request<{ leftovers: Leftover[] }>('/admin/plugins/leftovers'),
+    refetchInterval: watching ? 3000 : false,
+  })
+}
+
+export function usePurgeLeftover() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (plugin: string) =>
+      request<{ job: number; plugin: string }>(
+        `/admin/plugins/leftovers/${encodeURIComponent(plugin)}/purge`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: LEFTOVERS }),
+  })
+}
