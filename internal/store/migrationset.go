@@ -106,6 +106,75 @@ func (s MigrationSet) Rollback(ctx context.Context, cfg config.DatabaseConfig) e
 	})
 }
 
+// Purge undoes every migration of the set, then drops its version table: what an uninstalled
+// plugin leaves behind. Refused before anything is undone when an applied migration has no Down
+// section: goose would run it empty, record it undone, and leave its tables.
+func (s MigrationSet) Purge(ctx context.Context, cfg config.DatabaseConfig, logger *slog.Logger) error {
+	err := s.withProvider(cfg, func(provider *goose.Provider) error {
+		statuses, err := provider.Status(ctx)
+		if err != nil {
+			return fmt.Errorf("state of the %s migrations: %w", s.Name, RedactError(err, cfg.DSN))
+		}
+		var empty []string
+		for _, status := range statuses {
+			if status.State != goose.StateApplied {
+				continue
+			}
+			raw, err := fs.ReadFile(s.Files, status.Source.Path)
+			if err != nil {
+				return fmt.Errorf("%s migration %s: %w", s.Name, status.Source.Path, err)
+			}
+			if !undoes(string(raw)) {
+				empty = append(empty, status.Source.Path)
+			}
+		}
+		if len(empty) > 0 {
+			return fmt.Errorf("%s: %s undo nothing (no Down section), and their tables would stay",
+				s.Name, strings.Join(empty, ", "))
+		}
+		results, err := provider.DownTo(ctx, 0)
+		if err != nil {
+			return fmt.Errorf("undoing the %s migrations: %w", s.Name, RedactError(err, cfg.DSN))
+		}
+		for _, result := range results {
+			logger.Info("migration undone", "set", s.Name, "file", result.Source.Path, "duration", result.Duration)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	db, err := openSQL(cfg)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	// The name is checked by withProvider: an identifier of its own, which can be concatenated.
+	if _, err := db.ExecContext(ctx, "drop table if exists "+s.Table); err != nil {
+		return fmt.Errorf("dropping the %s version table: %w", s.Name, RedactError(err, cfg.DSN))
+	}
+	return nil
+}
+
+// gooseDown opens a migration's Down section.
+var gooseDown = regexp.MustCompile(`(?mi)^--\s*\+goose\s+down\b`)
+
+// undoes says whether a SQL migration's Down section holds a statement: a line that is neither
+// blank nor a comment.
+func undoes(migration string) bool {
+	at := gooseDown.FindStringIndex(migration)
+	if at == nil {
+		return false
+	}
+	for _, line := range strings.Split(migration[at[1]:], "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "--") {
+			return true
+		}
+	}
+	return false
+}
+
 // Pending returns the set's migrations the database does not have yet.
 func (s MigrationSet) Pending(ctx context.Context, cfg config.DatabaseConfig) ([]string, error) {
 	var pending []string

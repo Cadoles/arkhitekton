@@ -19,9 +19,10 @@ func (db *DB) AttachmentObjects(ctx context.Context) (map[string]bool, error) {
 	return db.keys(ctx, `select object from result_attachments`)
 }
 
-// PluginObjects are the stored layers of the plugin versions installed.
+// PluginObjects are the stored layers of the plugin versions installed, and of those an
+// uninstalled plugin left behind: they undo its tables when it is purged.
 func (db *DB) PluginObjects(ctx context.Context) (map[string]bool, error) {
-	return db.keys(ctx, `select object from plugin_installations where state = 'installed'`)
+	return db.keys(ctx, `select object from plugin_installations where state = 'installed' or leftover`)
 }
 
 func (db *DB) keys(ctx context.Context, query string) (map[string]bool, error) {

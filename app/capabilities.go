@@ -97,6 +97,13 @@ func (p *installedPlugins) load(ctx context.Context) (active, earlier []installe
 		if err != nil {
 			return nil, nil, err
 		}
+		// A version installed before its version table was recorded: recorded now, so that its
+		// tables can be purged once it is uninstalled.
+		if migrations := plugin.MigrationsTable(); row.MigrationsTable == "" && migrations != "" {
+			if err := p.db.NoteMigrationsTable(ctx, row.ID, migrations); err != nil {
+				return nil, nil, err
+			}
+		}
 		if row.Active {
 			active = append(active, plugin)
 		} else {

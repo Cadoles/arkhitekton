@@ -19,6 +19,7 @@ func installed(t *testing.T, db *DB, version string) int64 {
 	}
 	if _, err := db.CompletePluginInstallation(ctx, id, CompletedInstallation{
 		PluginID: "gotest", Version: version, SignedBy: "sha256:key", Object: "plugins/gotest/" + version,
+		MigrationsTable: "goose_gotest_db_version",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -146,5 +147,61 @@ func TestATrackerOrAForgeIsInstalledSwitchedOff(t *testing.T) {
 	}
 	if entry, found := settings["forgery"]; !found || entry.Enabled {
 		t.Errorf("settings = %+v, %v", entry, found)
+	}
+}
+
+// Uninstalling leaves the active version's tables behind, its layer kept to undo them; a purge or
+// a new installation ends the leftover, and a purge forgets the plugin's cursors.
+func TestAnUninstalledPluginLeavesItsTablesUntilPurged(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	first := installed(t, db, "1.0.0")
+	if err := db.RecordSyncSuccess(ctx, "gotest.pulls", testProjectID, "cursor"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordSyncSuccess(ctx, "gotests", testProjectID, "cursor"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.PluginLeftoverOf(ctx, "gotest"); !errors.Is(err, ErrNothingToPurge) {
+		t.Errorf("an installed plugin left %v", err)
+	}
+	if _, err := db.RemovePluginInstallation(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+
+	leftovers, err := db.PluginLeftovers(ctx)
+	if err != nil || len(leftovers) != 1 || leftovers[0].Version != "1.0.0" || leftovers[0].Table != "goose_gotest_db_version" {
+		t.Fatalf("leftovers %+v, %v", leftovers, err)
+	}
+	if objects, _ := db.PluginObjects(ctx); !objects["plugins/gotest/1.0.0"] {
+		t.Errorf("the leftover's layer is not kept: %v", objects)
+	}
+
+	// Installed again, its tables are its own again.
+	second := installed(t, db, "1.0.1")
+	if leftovers, _ := db.PluginLeftovers(ctx); len(leftovers) != 0 {
+		t.Errorf("a reinstalled plugin still leaves %+v", leftovers)
+	}
+	if _, err := db.RemovePluginInstallation(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if leftover, err := db.PluginLeftoverOf(ctx, "gotest"); err != nil || leftover.Version != "1.0.1" {
+		t.Fatalf("leftover %+v, %v", leftover, err)
+	}
+
+	if err := db.RecordPluginPurged(ctx, "gotest"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordPluginPurged(ctx, "gotest"); !errors.Is(err, ErrNothingToPurge) {
+		t.Errorf("purged twice: %v", err)
+	}
+	if objects, _ := db.PluginObjects(ctx); len(objects) != 0 {
+		t.Errorf("a purged plugin's layer is kept: %v", objects)
+	}
+	if state, _ := db.GetSyncState(ctx, "gotest.pulls", testProjectID); state.Cursor != "" {
+		t.Errorf("the purged plugin's cursor stays: %+v", state)
+	}
+	if state, _ := db.GetSyncState(ctx, "gotests", testProjectID); state.Cursor != "cursor" {
+		t.Errorf("another plugin's cursor went: %+v", state)
 	}
 }

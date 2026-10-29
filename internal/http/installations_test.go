@@ -17,10 +17,27 @@ type installationStore struct {
 	activated []int64
 	removed   []int64
 	audit     []string
+	// pending has an installation in progress.
+	pending bool
 }
 
 func (s *installationStore) PluginInstallations(context.Context) ([]store.PluginInstallation, error) {
-	return []store.PluginInstallation{{ID: 2, PluginID: "gotest", Version: "1.0.0", State: store.InstallationInstalled, Active: true}}, nil
+	installations := []store.PluginInstallation{{ID: 2, PluginID: "gotest", Version: "1.0.0", State: store.InstallationInstalled, Active: true}}
+	if s.pending {
+		installations = append(installations, store.PluginInstallation{ID: 5, State: store.InstallationPending})
+	}
+	return installations, nil
+}
+
+func (s *installationStore) PluginLeftovers(context.Context) ([]store.PluginLeftover, error) {
+	return []store.PluginLeftover{{PluginID: "deploy", Version: "2.0.1", Table: "goose_deploy_db_version"}}, nil
+}
+
+func (s *installationStore) PluginLeftoverOf(_ context.Context, pluginID string) (store.PluginLeftover, error) {
+	if pluginID != "deploy" {
+		return store.PluginLeftover{}, store.ErrNothingToPurge
+	}
+	return store.PluginLeftover{PluginID: "deploy", Version: "2.0.1", Table: "goose_deploy_db_version"}, nil
 }
 
 func (s *installationStore) RequestPluginInstallation(_ context.Context, reference, digest, _ string) (int64, error) {
@@ -60,7 +77,13 @@ const pinned = "reg.example/plugins/gotest@sha256:0123456789abcdef0123456789abcd
 
 func callInstallations(t *testing.T, method, path, body string) (*httptest.ResponseRecorder, *installationStore, int) {
 	t.Helper()
-	db := &installationStore{}
+	return callInstallationsWith(t, &installationStore{}, method, path, body)
+}
+
+func callInstallationsWith(
+	t *testing.T, db *installationStore, method, path, body string,
+) (*httptest.ResponseRecorder, *installationStore, int) {
+	t.Helper()
 	reloads := 0
 	handler := NewInstallationsHandler(db, func(_ context.Context, id int64) error {
 		if id == 9 {
@@ -73,6 +96,8 @@ func callInstallations(t *testing.T, method, path, body string) (*httptest.Respo
 	mux.HandleFunc("POST /admin/plugins/installations", handler.Request)
 	mux.HandleFunc("POST /admin/plugins/installations/{id}/activate", handler.Activate)
 	mux.HandleFunc("DELETE /admin/plugins/installations/{id}", handler.Remove)
+	mux.HandleFunc("GET /admin/plugins/leftovers", handler.Leftovers)
+	mux.HandleFunc("POST /admin/plugins/leftovers/{plugin}/purge", handler.Purge)
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, asAdmin(httptest.NewRequest(method, path, strings.NewReader(body))))
 	return recorder, db, reloads
@@ -119,5 +144,31 @@ func TestRemovingTheActiveVersionIsAudited(t *testing.T) {
 	}
 	if recorder, _, _ := callInstallations(t, http.MethodDelete, "/admin/plugins/installations/404", ""); recorder.Code != http.StatusNotFound {
 		t.Errorf("an unknown installation: %d", recorder.Code)
+	}
+}
+
+// A purge is queued for what an uninstalled plugin left, and refused for anything else or while an
+// installation is in progress.
+func TestAPurgeIsQueuedForWhatAPluginLeft(t *testing.T) {
+	recorder, _, _ := callInstallations(t, http.MethodGet, "/admin/plugins/leftovers", "")
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"table":"goose_deploy_db_version"`) {
+		t.Errorf("leftovers %d: %s", recorder.Code, recorder.Body)
+	}
+
+	recorder, db, _ := callInstallations(t, http.MethodPost, "/admin/plugins/leftovers/deploy/purge", "")
+	if recorder.Code != http.StatusAccepted || len(db.jobs) != 1 || db.jobs[0].Kind != PluginPurgeJobKind ||
+		db.jobs[0].Params[PluginPurgeKey] != "deploy" {
+		t.Fatalf("status %d, jobs %+v: %s", recorder.Code, db.jobs, recorder.Body)
+	}
+	if len(db.audit) != 1 || db.audit[0] != "plugin.purge.requested:deploy" {
+		t.Errorf("audit = %v", db.audit)
+	}
+
+	if recorder, db, _ := callInstallations(t, http.MethodPost, "/admin/plugins/leftovers/gotest/purge", ""); recorder.Code != http.StatusNotFound || len(db.jobs) != 0 {
+		t.Errorf("an installed plugin purged: %d, %v", recorder.Code, db.jobs)
+	}
+	busy := &installationStore{pending: true}
+	if recorder, _, _ := callInstallationsWith(t, busy, http.MethodPost, "/admin/plugins/leftovers/deploy/purge", ""); recorder.Code != http.StatusConflict || len(busy.jobs) != 0 {
+		t.Errorf("a purge beside an installation: %d, %v", recorder.Code, busy.jobs)
 	}
 }

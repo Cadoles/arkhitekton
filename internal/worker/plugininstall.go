@@ -139,7 +139,7 @@ func (p *PluginInstaller) install(ctx context.Context, id int64) error {
 	}
 	activated, err := p.store.CompletePluginInstallation(ctx, id, store.CompletedInstallation{
 		PluginID: plugin.ID, Version: plugin.Version, SignedBy: pulled.SignedBy, Object: key,
-		SwitchedOff: plugin.Tracker != nil || plugin.Forge != nil,
+		SwitchedOff: plugin.Tracker != nil || plugin.Forge != nil, MigrationsTable: plugin.MigrationsTable(),
 	})
 	if err != nil {
 		return err

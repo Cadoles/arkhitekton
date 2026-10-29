@@ -28,6 +28,8 @@ import (
 const (
 	PluginInstallJobKind  = "plugin-install"
 	PluginInstallationKey = "installation"
+	PluginPurgeJobKind    = "plugin-purge"
+	PluginPurgeKey        = "plugin"
 )
 
 // InstallationStore is what managing installations needs from the database.
@@ -37,6 +39,8 @@ type InstallationStore interface {
 	FailPluginInstallation(ctx context.Context, id int64, reason string) error
 	ActivatePluginInstallation(ctx context.Context, id int64) error
 	RemovePluginInstallation(ctx context.Context, id int64) (string, error)
+	PluginLeftovers(ctx context.Context) ([]store.PluginLeftover, error)
+	PluginLeftoverOf(ctx context.Context, pluginID string) (store.PluginLeftover, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
@@ -71,6 +75,8 @@ func (h *InstallationsHandler) Routes(mux *http.ServeMux, m *Middleware) {
 	mux.Handle("POST /admin/plugins/installations", admin(h.Request))
 	mux.Handle("POST /admin/plugins/installations/{id}/activate", admin(h.Activate))
 	mux.Handle("DELETE /admin/plugins/installations/{id}", admin(h.Remove))
+	mux.Handle("GET /admin/plugins/leftovers", admin(h.Leftovers))
+	mux.Handle("POST /admin/plugins/leftovers/{plugin}/purge", admin(h.Purge))
 }
 
 type installationView struct {
@@ -193,6 +199,71 @@ func (h *InstallationsHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	h.audit(r, action, strconv.FormatInt(id, 10), payload)
 	h.applyNow(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"uninstalled": uninstalled})
+}
+
+type leftoverView struct {
+	Plugin    string     `json:"plugin"`
+	Version   string     `json:"version"`
+	Table     string     `json:"table"`
+	RemovedAt *time.Time `json:"removed_at,omitempty"`
+}
+
+// Leftovers lists the tables uninstalled plugins left behind.
+func (h *InstallationsHandler) Leftovers(w http.ResponseWriter, r *http.Request) {
+	leftovers, err := h.store.PluginLeftovers(r.Context())
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Cannot read what the plugins left", "")
+		return
+	}
+	views := make([]leftoverView, 0, len(leftovers))
+	for _, leftover := range leftovers {
+		views = append(views, leftoverView{
+			Plugin: leftover.PluginID, Version: leftover.Version, Table: leftover.Table, RemovedAt: leftover.RemovedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"leftovers": views})
+}
+
+// Purge queues the job that drops an uninstalled plugin's tables. Refused while an installation is
+// pending: it may be the same plugin, whose migrations would run against tables being dropped.
+func (h *InstallationsHandler) Purge(w http.ResponseWriter, r *http.Request) {
+	pluginID := r.PathValue("plugin")
+	leftover, err := h.store.PluginLeftoverOf(r.Context(), pluginID)
+	if errors.Is(err, store.ErrNothingToPurge) {
+		writeProblem(w, http.StatusNotFound, "Nothing to purge", err.Error())
+		return
+	}
+	if err != nil {
+		h.logger.Error("reading a plugin's leftover", "plugin", pluginID, "error", err)
+		writeProblem(w, http.StatusInternalServerError, "Cannot purge the plugin", "")
+		return
+	}
+	installations, err := h.store.PluginInstallations(r.Context())
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the installations", "")
+		return
+	}
+	for _, installation := range installations {
+		if installation.State == store.InstallationPending {
+			writeProblem(w, http.StatusConflict, "An installation is pending",
+				"purge once the installations in progress have concluded")
+			return
+		}
+	}
+	identity, _ := IdentityFrom(r.Context())
+	job, err := h.store.Enqueue(r.Context(), store.JobRequest{
+		Kind: PluginPurgeJobKind, RequestedBy: identity.Subject,
+		Params: map[string]string{PluginPurgeKey: pluginID},
+	})
+	if err != nil {
+		h.logger.Error("queueing a purge", "plugin", pluginID, "error", err)
+		writeProblem(w, http.StatusInternalServerError, "Cannot queue the purge", "")
+		return
+	}
+	h.audit(r, "plugin.purge.requested", pluginID, map[string]any{
+		"job": job, "version": leftover.Version, "table": leftover.Table,
+	})
+	writeJSON(w, http.StatusAccepted, map[string]any{"job": job, "plugin": pluginID})
 }
 
 func installationID(w http.ResponseWriter, r *http.Request) (int64, bool) {

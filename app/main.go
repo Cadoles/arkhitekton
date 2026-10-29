@@ -653,6 +653,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			scheduler.Handle(worker.NewPluginInstaller(db, storage, pluginPuller(cfg), sources.checkPlugin,
 				func(ctx context.Context) { _ = reloader.Reload(ctx) }, logger).
 				WithMigrations(migratePlugin(cfg.Database, logger)))
+			// Purging what an uninstalled plugin left, under the lease like its migrations.
+			scheduler.Handle(worker.NewPluginPurger(db, storage, purgePlugin(cfg.Database, logger), logger))
 
 			// The release note, for the same reason: it reads the tracker, the forge and the database.
 			// Both are the project's plugins, resolved per job: a project with no forge plugin gets a
