@@ -36,6 +36,7 @@ deploy/overlays/*/components/pipeline-credentials/pipeline-*
 
 # Programme du plugin d'exemple, construit avant sa publication.
 /rpc/examples/gotest/bin/
+/app/testdata/providers/bin/
 
 # Les modules d'interface qu'une distribution dépose avant de construire : ils vivent dans son
 # dépôt, pas dans celui-ci.

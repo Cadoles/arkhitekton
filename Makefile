@@ -36,7 +36,7 @@ MINIO_TEST_NAME   := minio-arkhitekton-test
 MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := arkhitekton-test
 
-.PHONY: help build example-plugin proto test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
+.PHONY: help build example-plugin providers-demo proto test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
         web web-install web-dev web-check image image-push kind-load manifests deploy undeploy logs
 
 help: ## Show this help
@@ -48,6 +48,13 @@ build: ## Build the binary
 example-plugin: ## Build the example plugin's program for each platform, ready for publish-plugin
 	cd rpc && for arch in amd64 arm64 ; do \
 		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -o examples/gotest/bin/plugin-linux-$$arch ./examples/gotest ; \
+	done
+
+# The core's Redmine tracker and Gitea forge served by a native program: for trying an installed
+# tracker and forge, and a purge, on a cluster.
+providers-demo: ## Build the providers demonstration plugin's program for each platform, ready for publish-plugin
+	for arch in amd64 arm64 ; do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -o app/testdata/providers/bin/plugin-linux-$$arch ./app/testdata/providers ; \
 	done
 
 test: ## Run the tests (the integration tests are skipped without TEST_DATABASE_URL)

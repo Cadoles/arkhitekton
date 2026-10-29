@@ -29,7 +29,7 @@ const pullTimeout = 5 * time.Minute
 // InstallationStore is what the installer needs from the database.
 type InstallationStore interface {
 	PluginInstallation(ctx context.Context, id int64) (store.PluginInstallation, error)
-	CompletePluginInstallation(ctx context.Context, id int64, pluginID, version, signedBy, object string) (bool, error)
+	CompletePluginInstallation(ctx context.Context, id int64, completed store.CompletedInstallation) (bool, error)
 	FailPluginInstallation(ctx context.Context, id int64, reason string) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
@@ -137,7 +137,10 @@ func (p *PluginInstaller) install(ctx context.Context, id int64) error {
 	if err := p.storage.Put(ctx, key, bytes.NewReader(pulled.Layer), int64(len(pulled.Layer)), manifest.LayerMediaType); err != nil {
 		return fmt.Errorf("storing the plugin: %w", err)
 	}
-	activated, err := p.store.CompletePluginInstallation(ctx, id, plugin.ID, plugin.Version, pulled.SignedBy, key)
+	activated, err := p.store.CompletePluginInstallation(ctx, id, store.CompletedInstallation{
+		PluginID: plugin.ID, Version: plugin.Version, SignedBy: pulled.SignedBy, Object: key,
+		SwitchedOff: plugin.Tracker != nil || plugin.Forge != nil,
+	})
 	if err != nil {
 		return err
 	}

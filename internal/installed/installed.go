@@ -27,6 +27,8 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
+	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
+	"forge.cadoles.com/vcarroy/arkhitekton/rpc/providers"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
@@ -70,8 +72,14 @@ type Native struct {
 // Program opens the plugin's program.
 func (n *Native) Program() (io.ReadCloser, error) { return n.Files.Open(n.Manifest.Binary) }
 
-// Interpreters gives a pipeline its plugin's program reads the interpreter that asks the program.
-type Interpreters func(plugin capability.Plugin, pipeline string) capability.Interpreter
+// Programs gives what a plugin's program carries out its stand-ins, which ask the program.
+type Programs struct {
+	// Interpreter reads the runs of a pipeline the program reads. Nil: this role does not run
+	// programs.
+	Interpreter func(plugin capability.Plugin, pipeline string) capability.Interpreter
+	// Dial reaches the program for its tracker, forge, probes and actions.
+	Dial func(plugin capability.Plugin) providers.Dial
+}
 
 // Load reads the plugin at the root of fsys and checks it as the registry would load it. A pipeline
 // its program reads is checked without the program running.
@@ -80,15 +88,23 @@ func Load(fsys fs.FS) (Plugin, error) {
 }
 
 // Read reads the plugin at the root of fsys without compiling how its runs are read: for a plugin
-// Load already accepted, about to be compiled once by capabilities.Prepare. The pipelines its
-// program reads are given their interpreter by interpreters.
-func Read(fsys fs.FS, interpreters Interpreters) (Plugin, error) {
-	return read(fsys, manifest.MaxSize, interpreters)
+// Load already accepted, about to be compiled once by capabilities.Prepare. What its program carries
+// out asks the program through programs.
+func Read(fsys fs.FS, programs Programs) (Plugin, error) {
+	return read(fsys, manifest.MaxSize, programs)
 }
 
-// NotRunning gives the pipelines a program reads an interpreter that refuses: for a role that
-// loads the capabilities without reading runs.
-func NotRunning(capability.Plugin, string) capability.Interpreter { return notRunning{} }
+// errNotRunning answers what asks a program no role runs.
+var errNotRunning = errors.New("the plugin's program is not running")
+
+// NotRunning stands for the programs of a role that loads the capabilities without running them,
+// or of a plugin only checked: what asks the program is refused.
+var NotRunning = Programs{
+	Interpreter: func(capability.Plugin, string) capability.Interpreter { return notRunning{} },
+	Dial: func(capability.Plugin) providers.Dial {
+		return func(context.Context) (pluginv1.PluginClient, error) { return nil, errNotRunning }
+	},
+}
 
 func load(fsys fs.FS, limit int64) (Plugin, error) {
 	plugin, err := read(fsys, limit, NotRunning)
@@ -107,10 +123,10 @@ func load(fsys fs.FS, limit int64) (Plugin, error) {
 type notRunning struct{}
 
 func (notRunning) Interpret(context.Context, capability.RunState, []parse.Record) ([]facts.Set, error) {
-	return nil, errors.New("the plugin's program is not running")
+	return nil, errNotRunning
 }
 
-func read(fsys fs.FS, limit int64, interpreters Interpreters) (Plugin, error) {
+func read(fsys fs.FS, limit int64, programs Programs) (Plugin, error) {
 	if err := bounded(fsys, limit); err != nil {
 		return Plugin{}, err
 	}
@@ -134,12 +150,15 @@ func read(fsys fs.FS, limit int64, interpreters Interpreters) (Plugin, error) {
 			}
 		}
 		if pipeline.Interpreter == manifest.InterpreterNative {
-			if interpreters == nil {
+			if programs.Interpreter == nil {
 				problems = append(problems, fmt.Errorf("%s: read by the plugin's program, which this role does not run", at))
 			} else {
-				plugin.Pipelines[i].Interpreter = interpreters(plugin, pipeline.Name)
+				plugin.Pipelines[i].Interpreter = programs.Interpreter(plugin, pipeline.Name)
 			}
 		}
+	}
+	if programs.Dial != nil {
+		attach(&plugin, declared, programs.Dial(plugin))
 	}
 	native, err := program(fsys, declared)
 	if err != nil {
@@ -149,6 +168,23 @@ func read(fsys fs.FS, limit int64, interpreters Interpreters) (Plugin, error) {
 		return Plugin{}, err
 	}
 	return Plugin{Plugin: plugin, Native: native}, nil
+}
+
+// attach gives the plugin the tracker, forge, probes and executor its manifest declares, each
+// asking the program.
+func attach(plugin *capability.Plugin, declared manifest.Manifest, dial providers.Dial) {
+	if declared.Tracker {
+		plugin.Tracker = &providers.Tracker{Plugin: plugin.ID, Dial: dial}
+	}
+	if declared.Forge {
+		plugin.Forge = providers.Forge{Plugin: plugin.ID, Dial: dial}
+	}
+	for _, probe := range declared.Probes {
+		plugin.Probes = append(plugin.Probes, providers.Probe(plugin.ID, dial, probe.Name, probe.Schedule()))
+	}
+	if len(declared.Actions) > 0 {
+		plugin.Executor = providers.Executor{Plugin: plugin.ID, Dial: dial}
+	}
 }
 
 // program finds what the plugin's program brings in its directory: the program itself, its

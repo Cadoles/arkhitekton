@@ -1,0 +1,57 @@
+apiVersion: arkhitekton.plugin/v2
+id: providers-demo
+version: 1.0.0
+sdk: "1"
+label: Suivi et forge de démonstration
+summary: Le suivi Redmine et la forge Gitea du cœur, servis par un programme natif.
+perProject: true
+binary: bin/plugin
+protocol: 1
+tracker: true
+forge: true
+migrations: { dir: migrations, table: goose_providers_demo_db_version }
+settings:
+  global:
+    - { name: tracker_url, label: URL du suivi, type: url, placeholder: "https://redmine.example.fr" }
+    - { name: tracker_api_key, label: Clé d'API du suivi, type: text, secret: true }
+    - { name: forge_url, label: URL de la forge, type: url, placeholder: "https://forge.example.fr" }
+    - { name: forge_token, label: Jeton de la forge, type: text, secret: true }
+  project:
+    - { name: project, label: Identifiant du projet dans le suivi, type: text, required: true }
+    - { name: review_statuses, label: Statuts de revue, type: list }
+events:
+  - suffix: issue.closed
+    label: Demande fermée
+    payload:
+      - { name: issue_id, label: Numéro }
+      - { name: subject, label: Sujet }
+      - { name: tracker, label: Type }
+      - { name: status, label: Statut }
+      - { name: version_id, label: Version visée }
+  - suffix: pull_request.opened
+    label: Demande de fusion ouverte
+    payload:
+      - { name: number, label: Numéro }
+      - { name: title, label: Titre }
+      - { name: author, label: Auteur }
+      - { name: source_branch, label: Branche source }
+      - { name: target_branch, label: Branche cible }
+      - { name: url, label: Lien, type: url }
+probes:
+  - { name: pull_requests }
+actions:
+  - suffix: status
+    label: Statut de commit
+    summary: Pose un statut sur un commit.
+    fields:
+      - { name: commit, label: Commit, required: true, template: true, placeholder: "{git_commit}" }
+      - { name: state, label: État, required: true, one_of: [pending, success, failure, error] }
+      - { name: context, label: Contexte, required: true }
+      - { name: description, label: Description, template: true }
+      - { name: target_url, label: Lien, template: true }
+  - suffix: comment
+    label: Commentaire sur une demande de fusion
+    summary: Ajoute un commentaire à une demande de fusion.
+    fields:
+      - { name: number, label: Numéro, required: true, template: true, placeholder: "{number}" }
+      - { name: body, label: Message, required: true, template: true }

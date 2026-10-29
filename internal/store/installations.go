@@ -112,12 +112,21 @@ func (db *DB) installations(ctx context.Context, query string) ([]PluginInstalla
 	return installations, rows.Err()
 }
 
+// CompletedInstallation is a plugin pulled and verified.
+type CompletedInstallation struct {
+	PluginID, Version, SignedBy, Object string
+	// SwitchedOff installs the plugin switched off for the instance: a plugin bringing a tracker or
+	// a forge, of which one each is switched on.
+	SwitchedOff bool
+}
+
 // CompletePluginInstallation records a plugin pulled and verified. The first version of a plugin
 // becomes active; a later one waits for an administrator to activate it, so that an update is a
 // decision and not a side effect of pulling.
 func (db *DB) CompletePluginInstallation(
-	ctx context.Context, id int64, pluginID, version, signedBy, object string,
+	ctx context.Context, id int64, completed CompletedInstallation,
 ) (activated bool, err error) {
+	pluginID, version, signedBy, object := completed.PluginID, completed.Version, completed.SignedBy, completed.Object
 	err = db.changeCapabilitiesWith(ctx, func(transaction pgx.Tx) error {
 		tag, err := transaction.Exec(ctx, `update plugin_installations
 			set plugin_id = $2, version = $3, signed_by = $4, object = $5, state = 'installed', error = '',
@@ -136,7 +145,7 @@ func (db *DB) CompletePluginInstallation(
 		}
 		// The plugin is switched on for the instance, as a built-in plugin is at its first start.
 		if _, err := transaction.Exec(ctx, `insert into plugin_settings (plugin_id, enabled)
-			values ($1, true) on conflict (plugin_id) do nothing`, pluginID); err != nil {
+			values ($1, $2) on conflict (plugin_id) do nothing`, pluginID, !completed.SwitchedOff); err != nil {
 			return err
 		}
 		return transaction.QueryRow(ctx, `select active from plugin_installations where id = $1`, id).Scan(&activated)

@@ -17,7 +17,9 @@ func installed(t *testing.T, db *DB, version string) int64 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.CompletePluginInstallation(ctx, id, "gotest", version, "sha256:key", "plugins/gotest/"+version); err != nil {
+	if _, err := db.CompletePluginInstallation(ctx, id, CompletedInstallation{
+		PluginID: "gotest", Version: version, SignedBy: "sha256:key", Object: "plugins/gotest/" + version,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -57,7 +59,9 @@ func TestPluginVersionsLiveSideBySide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.CompletePluginInstallation(ctx, id, "gotest", "1.0.1", "sha256:key", "x"); !errors.Is(err, ErrVersionInstalled) {
+	if _, err := db.CompletePluginInstallation(ctx, id, CompletedInstallation{
+		PluginID: "gotest", Version: "1.0.1", SignedBy: "sha256:key", Object: "x",
+	}); !errors.Is(err, ErrVersionInstalled) {
 		t.Errorf("a version installed twice: %v", err)
 	}
 	if err := db.FailPluginInstallation(ctx, id, "already installed"); err != nil {
@@ -119,5 +123,28 @@ func TestOnlyInstalledLayersAreReferenced(t *testing.T) {
 	objects, err := db.PluginObjects(ctx)
 	if err != nil || len(objects) != 1 || !objects["plugins/gotest/1.0.0"] {
 		t.Errorf("objects %v, %v", objects, err)
+	}
+}
+
+// A plugin bringing a tracker or a forge is installed switched off: one of each is switched on,
+// and the administrator switches the other off first.
+func TestATrackerOrAForgeIsInstalledSwitchedOff(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	id, err := db.RequestPluginInstallation(ctx, "registry.example/plugins/forgery@"+digest, digest, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CompletePluginInstallation(ctx, id, CompletedInstallation{
+		PluginID: "forgery", Version: "1.0.0", SignedBy: "sha256:key", Object: "plugins/forgery/1.0.0", SwitchedOff: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := db.PluginSettingsAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry, found := settings["forgery"]; !found || entry.Enabled {
+		t.Errorf("settings = %+v, %v", entry, found)
 	}
 }

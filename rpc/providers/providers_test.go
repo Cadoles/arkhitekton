@@ -187,7 +187,7 @@ func target(settings capability.Settings) capability.Target {
 
 func TestATrackerIsReadThroughTheProgram(t *testing.T) {
 	served := serve(t)
-	tracker := &providers.Tracker{Dial: served.dial}
+	tracker := &providers.Tracker{Plugin: "fake", Dial: served.dial}
 
 	if _, err := tracker.Connect(target(nil)); !errors.Is(err, provider.ErrNotConfigured) {
 		t.Fatalf("an unconfigured tracker answered %v", err)
@@ -216,7 +216,7 @@ func TestATrackerIsReadThroughTheProgram(t *testing.T) {
 
 func TestTheTrackersLinksAreFilledWithTheIdentifier(t *testing.T) {
 	served := serve(t)
-	tracker := &providers.Tracker{Dial: served.dial}
+	tracker := &providers.Tracker{Plugin: "fake", Dial: served.dial}
 	settings := capability.Settings{"url": "https://tracker.test"}
 
 	if link := tracker.VersionURL(settings, "3 4"); link != "https://tracker.test/versions/3%204" {
@@ -232,7 +232,7 @@ func TestTheTrackersLinksAreFilledWithTheIdentifier(t *testing.T) {
 
 func TestAForgeIsReadAndWrittenThroughTheProgram(t *testing.T) {
 	served := serve(t)
-	forge := providers.Forge{Dial: served.dial}
+	forge := providers.Forge{Plugin: "fake", Dial: served.dial}
 	ctx := context.Background()
 
 	client, err := forge.Connect(target(nil))
@@ -283,7 +283,7 @@ func TestAForgeIsReadAndWrittenThroughTheProgram(t *testing.T) {
 
 func TestAProbeIsPolledAndAPanicIsAnError(t *testing.T) {
 	served := serve(t)
-	probe := providers.Probe(served.dial, "pulls", capability.Schedule{Interval: time.Hour})
+	probe := providers.Probe("fake", served.dial, "pulls", capability.Schedule{Interval: time.Hour})
 	if probe.Name() != "pulls" || probe.Schedule().Interval != time.Hour {
 		t.Errorf("probe = %s %+v", probe.Name(), probe.Schedule())
 	}
@@ -295,14 +295,14 @@ func TestAProbeIsPolledAndAPanicIsAnError(t *testing.T) {
 	if _, _, err := probe.Poll(context.Background(), target(nil), "boom"); err == nil || !strings.Contains(err.Error(), "panicked") {
 		t.Errorf("a panic answered %v", err)
 	}
-	if _, _, err := providers.Probe(served.dial, "other", capability.Schedule{}).Poll(context.Background(), target(nil), ""); err == nil {
+	if _, _, err := providers.Probe("fake", served.dial, "other", capability.Schedule{}).Poll(context.Background(), target(nil), ""); err == nil {
 		t.Error("an undeclared probe was polled")
 	}
 }
 
 func TestAnActionIsCarriedOut(t *testing.T) {
 	served := serve(t)
-	executor := providers.Executor{Dial: served.dial}
+	executor := providers.Executor{Plugin: "fake", Dial: served.dial}
 	if err := executor.Execute(context.Background(), target(nil), "status", map[string]string{"commit": "abc"}); err != nil {
 		t.Fatal(err)
 	}
