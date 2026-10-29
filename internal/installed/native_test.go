@@ -116,14 +116,14 @@ func TestAPipelineReadByTheProgram(t *testing.T) {
 	if _, err := Load(files); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Read(files, nil); err == nil || !strings.Contains(err.Error(), "does not run") {
+	if _, err := Read(files, Programs{}); err == nil || !strings.Contains(err.Error(), "does not run") {
 		t.Errorf("read without programs: %v", err)
 	}
 	asked := ""
-	read, err := Read(files, func(plugin capability.Plugin, pipeline string) capability.Interpreter {
+	read, err := Read(files, Programs{Interpreter: func(plugin capability.Plugin, pipeline string) capability.Interpreter {
 		asked = plugin.ID + "/" + pipeline
 		return notRunning{}
-	})
+	}})
 	if err != nil || asked != "gotest/unit-tests" || read.Pipelines[0].Interpreter == nil {
 		t.Errorf("read %v, asked %q", err, asked)
 	}

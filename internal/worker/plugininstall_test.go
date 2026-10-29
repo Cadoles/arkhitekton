@@ -64,8 +64,8 @@ func (i *installations) PluginInstallation(context.Context, int64) (store.Plugin
 	return i.installation, nil
 }
 
-func (i *installations) CompletePluginInstallation(_ context.Context, _ int64, pluginID, version, signedBy, object string) (bool, error) {
-	i.completed = strings.Join([]string{pluginID, version, signedBy, object}, " ")
+func (i *installations) CompletePluginInstallation(_ context.Context, _ int64, completed store.CompletedInstallation) (bool, error) {
+	i.completed = strings.Join([]string{completed.PluginID, completed.Version, completed.SignedBy, completed.Object}, " ")
 	return true, nil
 }
 

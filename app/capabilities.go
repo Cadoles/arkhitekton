@@ -64,11 +64,11 @@ func (p *installedPlugins) plugin(ctx context.Context, object string) (installed
 	if err != nil {
 		return installed.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
 	}
-	interpreters := installed.NotRunning
+	programs := installed.NotRunning
 	if p.programs != nil {
-		interpreters = p.programs.interpreters()
+		programs = p.programs.runtime()
 	}
-	plugin, err := installed.Read(files, interpreters)
+	plugin, err := installed.Read(files, programs)
 	if err != nil {
 		return installed.Plugin{}, fmt.Errorf("installed plugin %s: %w", object, err)
 	}

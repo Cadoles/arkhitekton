@@ -28,6 +28,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
 	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
+	nativeproviders "forge.cadoles.com/vcarroy/arkhitekton/rpc/providers"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
@@ -105,13 +106,29 @@ func (p *programs) process(id, version string) (*native.Process, error) {
 	return p.launcher.Process(spec), nil
 }
 
-// interpreters gives the pipelines a program reads their interpreter.
-func (p *programs) interpreters() installed.Interpreters {
-	return func(plugin capability.Plugin, pipeline string) capability.Interpreter {
-		id, version := plugin.ID, plugin.Version
-		return native.Interpreter{
-			Process: func() (*native.Process, error) { return p.process(id, version) }, Pipeline: pipeline,
-		}
+// runtime gives what an installed version's program carries out the stand-ins that ask it.
+func (p *programs) runtime() installed.Programs {
+	return installed.Programs{
+		Interpreter: func(plugin capability.Plugin, pipeline string) capability.Interpreter {
+			id, version := plugin.ID, plugin.Version
+			return native.Interpreter{
+				Process: func() (*native.Process, error) { return p.process(id, version) }, Pipeline: pipeline,
+			}
+		},
+		Dial: func(plugin capability.Plugin) nativeproviders.Dial {
+			id, version := plugin.ID, plugin.Version
+			return func(ctx context.Context) (pluginv1.PluginClient, error) {
+				process, err := p.process(id, version)
+				if err != nil {
+					return nil, err
+				}
+				connection, err := process.Connection(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return connection.Plugin, nil
+			}
+		},
 	}
 }
 
