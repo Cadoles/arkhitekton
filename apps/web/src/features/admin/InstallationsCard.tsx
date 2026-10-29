@@ -18,8 +18,8 @@ import {
  *
  * Deux versions d'un plugin cohabitent : la nouvelle attend qu'on l'active, et
  * l'ancienne reste chargée pour lire les runs qu'elle a lancés. Retirer la version
- * active désinstalle le plugin, ses liaisons et ses réglages ; les résultats déjà
- * lus restent.
+ * active désinstalle le plugin, ses liaisons et ses réglages ; ses tables et les
+ * résultats déjà lus restent, ses tables jusqu'à une purge.
  */
 
 // What the dashboard records for a plugin the operator lets in without a trusted signature.
@@ -132,7 +132,7 @@ export function InstallationsCard() {
                       disabled={remove.isPending}
                       onClick={() => {
                         const question = installation.active
-                          ? `Désinstaller ${installation.plugin} ? Ses définitions, liaisons et réglages seront retirés ; les résultats déjà lus restent.`
+                          ? `Désinstaller ${installation.plugin} ? Ses définitions, liaisons et réglages seront retirés ; ses tables et les résultats déjà lus restent, ses tables jusqu'à une purge.`
                           : 'Retirer cette version ?'
                         if (window.confirm(question)) remove.mutate(installation.id)
                       }}

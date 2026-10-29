@@ -1,5 +1,6 @@
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { InstallationsCard } from './InstallationsCard'
+import { LeftoversCard } from './LeftoversCard'
 import { PluginCard } from './PluginCard'
 import { usePlugins, useSavePlugin } from './plugins'
 
@@ -7,9 +8,8 @@ import { usePlugins, useSavePlugin } from './plugins'
  * Les plugins de l'instance.
  *
  * Ceux que le binaire embarque (doc 12 §12.5), et ceux qu'un administrateur a
- * installés depuis un registre : ces derniers n'apportent que des capacités de
- * pipeline. L'écran dit lesquels sont disponibles et porte ce qui vaut pour
- * toute l'instance.
+ * installés depuis un registre. L'écran dit lesquels sont disponibles et porte
+ * ce qui vaut pour toute l'instance.
  *
  * Ce qui est propre à un projet — son serveur de suivi, ses livrables — se règle
  * sur sa page. Le partage est celui de doc 12 §12.5 : le global porte les
@@ -30,6 +30,7 @@ export function PluginsScreen() {
   return (
     <div className="flex flex-col gap-4">
       <InstallationsCard />
+      <LeftoversCard />
       <Card title={`Plugins (${data.plugins.length})`}>
         <p className="mb-3 text-sm text-zinc-500">
           Ce que cette version du dashboard sait faire. Un plugin retiré ici disparaît des écrans de
