@@ -53,6 +53,20 @@ func (t projectTracker) issueURL(id string) string {
 	return t.tracker.IssueURL(id)
 }
 
+// trackerVw names a project's tracker for the screens, which say "Redmine" only of Redmine.
+type trackerVw struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// view names the tracker; nil when the project has none.
+func (t projectTracker) view() *trackerVw {
+	if !t.found {
+		return nil
+	}
+	return &trackerVw{ID: t.tracker.Plugin.ID, Label: t.tracker.Plugin.Label}
+}
+
 // source is the synchronisation's cursor: the tracker plugin's identifier.
 func (t projectTracker) source() string {
 	if !t.found {

@@ -50,18 +50,18 @@ type fakeRedmineStore struct {
 	adoptions []store.Adoption
 	adopted   int
 	// locals assigns one local key per identity, as the real store's uniqueness does. See the
-	// comment on `UpsertRedmineVersion` below.
+	// comment on `UpsertTrackedVersion` below.
 	locals map[string]int64
 }
 
-// UpsertRedmineVersion returns a local key **per identity**, and that is what makes this
+// UpsertTrackedVersion returns a local key **per identity**, and that is what makes this
 // fixture a faithful model.
 //
 // It returned the tool's identifier reinterpreted as an integer. Version 805 of two projects
 // therefore received the same local key — impossible in the database, where uniqueness bears on
 // `(project_id, tool, external_id)`. Since the `version.created` fact is now deduplicated on
 // that key, the fixture would have made a fact the real store tells apart look shared.
-func (f *fakeRedmineStore) UpsertRedmineVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
+func (f *fakeRedmineStore) UpsertTrackedVersion(_ context.Context, version store.TrackedVersion) (int64, error) {
 	f.versions = append(f.versions, version)
 
 	if f.locals == nil {
@@ -76,7 +76,7 @@ func (f *fakeRedmineStore) UpsertRedmineVersion(_ context.Context, version store
 	return id, nil
 }
 
-func (f *fakeRedmineStore) UpsertRedmineIssue(_ context.Context, issue store.TrackedIssue) error {
+func (f *fakeRedmineStore) UpsertTrackedIssue(_ context.Context, issue store.TrackedIssue) error {
 	f.issues = append(f.issues, issue)
 	return nil
 }

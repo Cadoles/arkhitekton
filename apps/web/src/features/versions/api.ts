@@ -83,6 +83,17 @@ export type SyncState = {
    *  tags : dire « aucune version dans le projet Redmine » à un projet qui n'a
    *  jamais eu de Redmine enverrait chercher une panne inexistante. */
   tracked: boolean
+  /** Le plugin de suivi allumé pour le projet ; absent s'il n'y en a pas. */
+  tracker?: TrackerRef
+}
+
+/** Le plugin qui apporte le suivi d'un projet. */
+export type TrackerRef = { id: string; label: string }
+
+/** Le nom de l'outil de suivi d'un projet : celui de son plugin, sinon un nom
+ *  générique. L'écran ne dit « Redmine » que de Redmine. */
+export function trackerName(tracker?: TrackerRef | null): string {
+  return tracker?.label ?? "l'outil de suivi"
 }
 
 export function useVersions() {
@@ -98,6 +109,7 @@ export function useVersion(id: string | undefined) {
     queryFn: () =>
       request<{
         version: Version
+        tracker?: TrackerRef | null
         buckets: Record<Bucket, Issue[]>
         anomalies: Issue[]
         releases: VersionRelease[]

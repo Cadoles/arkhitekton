@@ -85,7 +85,8 @@ func (h *SyncAdminHandler) State(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var state store.SyncState
-	if source := trackerOf(r.Context(), h.trackers, project.ID).source(); source != "" {
+	tracker := trackerOf(r.Context(), h.trackers, project.ID)
+	if source := tracker.source(); source != "" {
 		var err error
 		state, err = h.store.GetSyncState(r.Context(), source, project.ID)
 		if err != nil {
@@ -132,13 +133,15 @@ func (h *SyncAdminHandler) State(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	sync := syncStateView(state)
+	sync.Tracker = tracker.view()
 	writeJSON(w, http.StatusOK, map[string]any{
 		// "Configured" is now read from the project: it declares its tracker, or it does not.
 		// Without that distinction the screen would say "never synchronised" of a project that
 		// simply has no tracker, and send someone hunting for a fault.
 		"configured": strings.TrimSpace(project.TrackerProject) != "",
 		"project":    project.Slug,
-		"sync":       syncStateView(state),
+		"sync":       sync,
 		"unmapped":   unmappedPayload,
 		"ambiguous":  ambiguousPayload,
 		"pending":    orEmptyStrings(pending),
