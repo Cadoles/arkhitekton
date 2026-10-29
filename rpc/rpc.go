@@ -20,6 +20,21 @@ import (
 // the handshake, before any call.
 const ProtocolVersion = 1
 
+// MaxMessageSize bounds a message either way: above the 16 MiB a route may answer, and the records of
+// a run, which the host already bounds.
+const MaxMessageSize = 32 << 20
+
+// ServerOptions are the options of both sides' servers.
+func ServerOptions() []grpc.ServerOption {
+	return []grpc.ServerOption{grpc.MaxRecvMsgSize(MaxMessageSize), grpc.MaxSendMsgSize(MaxMessageSize)}
+}
+
+// DialOptions are the options of both sides' clients.
+func DialOptions() []grpc.DialOption {
+	return []grpc.DialOption{grpc.WithDefaultCallOptions(
+		grpc.MaxCallRecvMsgSize(MaxMessageSize), grpc.MaxCallSendMsgSize(MaxMessageSize))}
+}
+
 // Name is the single plugin a native plugin's program serves.
 const Name = "arkhitekton"
 
@@ -72,7 +87,7 @@ type Connection struct {
 func (c *Connection) Init(ctx context.Context, host pluginv1.HostServer, role, pluginID string) error {
 	id := c.broker.NextId()
 	go c.broker.AcceptAndServe(id, func(options []grpc.ServerOption) *grpc.Server {
-		server := grpc.NewServer(options...)
+		server := grpc.NewServer(append(options, ServerOptions()...)...)
 		pluginv1.RegisterHostServer(server, host)
 		return server
 	})

@@ -32,6 +32,34 @@ service Plugin {
   // RunModule runs the plugin's module until the call is cancelled. The stream carries nothing but
   // the end: an error ends the module until the supervisor's next tick.
   rpc RunModule(ModuleState) returns (stream ModuleStatus);
+
+  // Connect checks that the plugin reaches its tracker or forge with a target's settings. Every
+  // provider call carries its target again: the plugin connects for each one, and may keep its
+  // clients by target.
+  rpc Connect(ConnectRequest) returns (ConnectResponse);
+  // TrackerLinks returns the patterns of the tracker's links, `{id}` standing for a version's or an
+  // issue's identifier: the dashboard links every row of a list without a call per row.
+  rpc TrackerLinks(Settings) returns (Links);
+
+  // The tracker's and forge's reads and writes. Their arguments and results are the JSON of the
+  // sdk's provider types, named in each call's comment.
+  rpc ListVersions(ProviderRequest) returns (ProviderResponse);           // {Project} -> []Version
+  rpc ListIssues(ProviderRequest) returns (ProviderResponse);             // IssueQuery -> []Issue
+  rpc TrackerAccess(ProviderRequest) returns (ProviderResponse);          // {} -> Account
+  rpc DefaultBranch(ProviderRequest) returns (ProviderResponse);          // {} -> string
+  rpc ListBranches(ProviderRequest) returns (ProviderResponse);           // {} -> {Refs, Truncated}
+  rpc ListTags(ProviderRequest) returns (ProviderResponse);               // {} -> {Refs, Truncated}
+  rpc ResolveCommit(ProviderRequest) returns (ProviderResponse);          // {Ref} -> string
+  rpc ListMergedPullRequests(ProviderRequest) returns (ProviderResponse); // {Since} -> []PullRequest
+  rpc LoadCommitMessages(ProviderRequest) returns (ProviderResponse);     // PullRequest -> PullRequest
+  rpc ForgeAccess(ProviderRequest) returns (ProviderResponse);            // {} -> Account
+  rpc CreateTag(ProviderRequest) returns (ProviderResponse);              // {Tag, Commit, Message} -> null
+  rpc ProbeRepository(ProviderRequest) returns (ProviderResponse);        // {Repository, PublicKey} -> Probe
+
+  // Poll runs one of the probes the manifest declares.
+  rpc Poll(PollRequest) returns (PollResponse);
+  // Execute carries out one of the actions the manifest declares.
+  rpc Execute(ExecuteRequest) returns (Empty);
 }
 
 service Host {
@@ -294,3 +322,58 @@ message ModuleState {
 }
 
 message ModuleStatus {}
+
+// ProviderTarget is what the plugin is given to reach its tracker or forge for one project.
+message ProviderTarget {
+  string project = 1;
+  // Repository is `owner/name`, empty when the project declares none.
+  string repository = 2;
+  // Settings are the project's layered over the instance's, sensitive fields unsealed.
+  map<string, string> settings = 3;
+  // TimeoutMs bounds each call the plugin makes to the outside.
+  int64 timeout_ms = 4;
+}
+
+message ConnectRequest {
+  // Kind is `tracker`, `forge`, `writer` or `prober`.
+  string kind = 1;
+  ProviderTarget target = 2;
+}
+
+message ConnectResponse {
+  // Absent says the connection is possible and brings nothing: a forge whose token cannot write
+  // has no writer.
+  bool absent = 1;
+}
+
+message Links {
+  string version = 1;
+  string issue = 2;
+}
+
+message ProviderRequest {
+  ProviderTarget target = 1;
+  bytes arguments = 2;
+}
+
+message ProviderResponse {
+  bytes result = 1;
+}
+
+message PollRequest {
+  string probe = 1;
+  ProviderTarget target = 2;
+  string cursor = 3;
+}
+
+message PollResponse {
+  // Observations is the JSON of a list of the sdk's capability.Observation.
+  bytes observations = 1;
+  string cursor = 2;
+}
+
+message ExecuteRequest {
+  ProviderTarget target = 1;
+  string suffix = 2;
+  map<string, string> params = 3;
+}
