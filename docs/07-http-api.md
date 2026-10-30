@@ -113,6 +113,16 @@ All scoped to a project; the permission is checked **in that project**.
 | `GET /projects/{project}/automation` | `admin` |
 | `PUT /projects/{project}/automation` | `admin` |
 | `GET /admin/automations/catalogue` | `admin` |
+| `POST /hooks/{plugin}/projects/{project}` | none: the delivery's signature, see below |
+
+**Receiving a webhook.** The one route that changes something without a session. The plugin
+declares how a delivery is signed (doc 06 §6.5); the dashboard checks it against the secret the
+project's plugin settings hold, before the plugin reads the body. `202` with `{"facts", "new"}`
+once the facts are recorded, including when the delivery is about nothing the plugin observes;
+`401` for a signature that does not match; `403` when no secret is set, since an unsigned delivery
+is never accepted; `404` for an unknown plugin or project, or a plugin switched off for the
+project; `413` above 4 MiB; `422` with the plugin's reason when it cannot read an authenticated
+delivery. A delivery launches nothing itself: the reactions of the project do.
 
 ## 7.9 Projects and administration
 

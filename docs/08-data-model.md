@@ -93,7 +93,7 @@ tool that failed is recorded as failed, not as zero findings.
 
 | Table | Key columns |
 |---|---|
-| `events` | `type`, `source`, `project_id`, `subject`, `payload`, `occurred_at`, `depth`, `dedup_key` |
+| `events` | `type`, `source`, `project_id`, `subject`, `payload`, `occurred_at`, `depth`, `dedup_key`, `dispatch_pending` |
 | `reactions` | `name`, `event_type`, `enabled`, `match`, `plan` |
 | `release_automations` | The plan a project runs for a release, per project |
 | `plan_runs` | `trigger`, `event_key`, `plan`, `context`, `state` |
@@ -102,7 +102,9 @@ tool that failed is recorded as failed, not as zero findings.
 
 `events.depth` bounds cascades — a reaction that triggers an event that triggers a
 reaction cannot recurse indefinitely. `dedup_key` makes a probe that sees the same fact
-twice produce one event.
+twice produce one event, and a webhook delivered twice too. `dispatch_pending` marks a fact a
+webhook brought: the `api` records it and the worker routes it to the reactions, then clears the
+mark.
 
 ## 8.8 Plugin settings
 

@@ -183,6 +183,7 @@ version is refused at the handshake.
 | its tracker, its forge (`tracker: true`, `forge: true`) | as a compiled plugin's (§6.5) |
 | its probes (`probes:`) | at the cadence the manifest declares, under the worker's lease |
 | its actions (`actions:`) | when a plan carries one of the steps it declares |
+| its webhook (`webhook:`) | for a delivery the dashboard has authenticated (§6.5) |
 
 **What the dashboard lends it** is the `Host` service: a project, a release, the queue, the audit
 log, its own settings for a project (unsealed), the environments a project declares, and the
@@ -190,7 +191,7 @@ dashboard's authorisation. Its own tables it reaches with the database connectio
 
 **Writing one in Go.** `rpc/extension` serves the hooks and lends the Host. A tracker, a forge,
 probes and an executor are the sdk's own interfaces, as a compiled plugin declares them:
-`Hooks.Tracker`, `Hooks.Forge`, `Hooks.Probes` and `Hooks.Executor`.
+`Hooks.Tracker`, `Hooks.Forge`, `Hooks.Probes`, `Hooks.Executor` and `Hooks.Receiver`.
 
 ```go
 package main
@@ -255,6 +256,29 @@ declares as events. The dashboard names them (`gitea` plus `pull_request.opened`
 cursor, deduplicates on the probe's key, isolates each project's failures and triggers nothing
 on a first pass. The tracker synchronisation is the core's own probe, run once per plugin that
 brings a tracker: it writes versions and issues to the core's tables.
+
+A **webhook** is the same observation, pushed instead of pulled. A plugin that receives declares
+how a delivery is signed: the setting holding the shared secret, which must be marked secret, the
+header carrying the proof, the scheme (`hmac-sha256` of the body, or `token`, the secret itself in
+a header), a prefix to strip, and the header naming the event. The dashboard serves
+`/api/v1/hooks/<plugin>/projects/<project>` and checks the signature before the plugin reads the
+body; the plugin returns observations under its declared suffixes, and they become facts exactly as
+a probe's do. A forge's hook is therefore set per repository, at the address the project's
+**Plugins** tab shows. Two consequences are worth knowing:
+
+- a fact received and the same fact polled carry the same key, and are written once: the Gitea
+  plugin's `pull_request.opened` arrives either way;
+- a delivery launches nothing. It records facts, and the project's reactions decide what runs: a
+  reaction on `gitea.push` matching `branch = main` and running `php/static-tests` is the whole
+  configuration, the pushed commit reaching the pipeline as its revision.
+
+The Gitea plugin receives `push`, with the commit as `revision`, `branch` or `tag`, `ref`,
+`before`, `pusher`, `commits`, `message` and `compare_url`, and the opening of a pull request. Its
+secret is `webhook_secret`, at the instance's scope or the project's; the hook sends
+`application/json`. A delivery about another repository than the project's is refused.
+
+The `api` receives and the worker routes: the reactions' outgoing calls leave from the worker. A
+received fact therefore starts its reactions within the two seconds the worker takes to see it.
 
 An **executor** carries out the actions a plugin declares. The dashboard resolves the plugin's
 settings, refuses when it is switched off for the project, interpolates the parameters and
@@ -373,7 +397,7 @@ Jenkins or Grafana: a plugin's program runs as the dashboard does, and its inter
 user's session. What the dashboard guarantees is that what runs is exactly what was installed
 (the digest, and a signature by a trusted key unless the operator names the plugin in
 `PLUGIN_ALLOW_UNSIGNED`), that the installation is audited, and that what reaches the cluster stays
-the operator's to grant (doc 09 §9.9).
+the operator's to grant (doc 09 §9.10).
 
 **The directory.** `arkhitekton-plugin.yaml` at its root, the files it names next to it.
 `rpc/examples/gotest` is a complete one, `app/testdata/providers` one that brings a tracker and a
@@ -404,6 +428,9 @@ probes: [{ name: pull_requests, interval: 5m, eager: false }]   # reports declar
 actions:
   - { suffix: status, label: Statut de commit, summary: Pose un statut.,
       fields: [{ name: commit, label: Commit, required: true, template: true }] }
+webhook:                     # deliveries the program reads, once the dashboard checked them
+  { secret: webhook_secret, signature: X-Hub-Signature-256, prefix: "sha256=",
+    scheme: hmac-sha256, event: X-GitHub-Event }   # the secret: a declared setting marked secret
 pipelines:
   - name: unit-tests
     label: Tests
