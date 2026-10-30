@@ -126,6 +126,17 @@ type pluginPayload struct {
 	// sensitive fields rather than let someone type a value that will be refused on save.
 	Configured bool   `json:"secrets_configured"`
 	UpdatedBy  string `json:"updated_by,omitempty"`
+	// WebhookPath is where the forge delivers for this project, for a plugin that receives. Empty
+	// at the instance's scope: the address names a project.
+	WebhookPath string `json:"webhook_path,omitempty"`
+}
+
+// webhookPath is the address a plugin receives a project's deliveries at, as the forge is given it.
+func webhookPath(descriptor capability.Plugin, slug string) string {
+	if descriptor.Webhook == nil {
+		return ""
+	}
+	return "/api/v1/hooks/" + descriptor.ID + "/projects/" + slug
 }
 
 // List returns the registry and the instance's settings.
@@ -303,6 +314,7 @@ func (h *PluginsHandler) ProjectList(w http.ResponseWriter, r *http.Request) {
 
 		view := h.toPayload(descriptor, plugin.ScopeProject, entry, enabled)
 		view.UpdatedBy = entry.UpdatedBy
+		view.WebhookPath = webhookPath(descriptor, project.Slug)
 		payload = append(payload, view)
 	}
 
@@ -369,7 +381,9 @@ func (h *PluginsHandler) SetProject(w http.ResponseWriter, r *http.Request) {
 	h.audit(r, "plugin.project.settings", project.Slug+"/"+descriptor.ID,
 		map[string]any{"enabled": request.Enabled})
 
-	writeJSON(w, http.StatusOK, h.toPayload(descriptor, plugin.ScopeProject, entry, entry.Enabled))
+	view := h.toPayload(descriptor, plugin.ScopeProject, entry, entry.Enabled)
+	view.WebhookPath = webhookPath(descriptor, project.Slug)
+	writeJSON(w, http.StatusOK, view)
 }
 
 // ClearProject returns a project to inheriting the instance's setting.

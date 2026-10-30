@@ -51,6 +51,8 @@ export type Plugin = {
    *  sera refusée. */
   secrets_configured: boolean
   updated_by?: string
+  /** Où la forge livre pour ce projet, quand le plugin reçoit des webhooks. */
+  webhook_path?: string
 }
 
 export type PluginDraft = {

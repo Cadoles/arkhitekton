@@ -123,4 +123,25 @@ describe('PluginCard', () => {
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.getByText('Toujours actif')).toBeInTheDocument()
   })
+
+  // L'adresse se colle telle quelle dans la forge : complète, avec l'origine.
+  it("montre l'adresse du webhook d'un plugin qui en reçoit", () => {
+    render(
+      <PluginCard
+        plugin={{ ...redmine, webhook_path: '/api/v1/hooks/gitea/projects/mse' }}
+        scope="project"
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Adresse du webhook')).toHaveValue(
+      `${window.location.origin}/api/v1/hooks/gitea/projects/mse`,
+    )
+  })
+
+  it("ne montre aucune adresse pour un plugin qui n'en reçoit pas", () => {
+    render(<PluginCard plugin={redmine} scope="project" saving={false} onSave={vi.fn()} />)
+    expect(screen.queryByLabelText('Adresse du webhook')).not.toBeInTheDocument()
+  })
 })
