@@ -14,7 +14,7 @@ func pipelineWithSecrets() Pipeline {
 }
 
 func TestSecretNamesComeFromConfiguration(t *testing.T) {
-	resolved, err := pipelineWithSecrets().ResolveSecrets(map[string]string{
+	resolved, err := pipelineWithSecrets().ResolveNames(map[string]string{
 		"pipeline.gitSecret":      "git-credentials-test",
 		"pipeline.registrySecret": "regcred-vcarroy",
 	})
@@ -42,7 +42,7 @@ func TestALiteralNameIsPreserved(t *testing.T) {
 		Workspaces: []Workspace{{Name: "dockerconfig", Secret: &SecretSource{SecretName: "regcred"}}},
 	}
 
-	resolved, err := pipeline.ResolveSecrets(map[string]string{})
+	resolved, err := pipeline.ResolveNames(map[string]string{})
 	if err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestAMissingKeyRefusesTheRun(t *testing.T) {
 		{"pipeline.gitSecret": ""},
 		{"pipeline.registrySecret": "regcred"},
 	} {
-		if _, err := pipelineWithSecrets().ResolveSecrets(config); err == nil {
+		if _, err := pipelineWithSecrets().ResolveNames(config); err == nil {
 			t.Errorf("config %v: resolution should fail", config)
 		}
 	}
@@ -72,7 +72,7 @@ func TestAMissingKeyRefusesTheRun(t *testing.T) {
 func TestResolutionDoesNotContaminateTheCatalogue(t *testing.T) {
 	pipeline := pipelineWithSecrets()
 
-	if _, err := pipeline.ResolveSecrets(map[string]string{
+	if _, err := pipeline.ResolveNames(map[string]string{
 		"pipeline.gitSecret":      "git-credentials-test",
 		"pipeline.registrySecret": "regcred-vcarroy",
 	}); err != nil {
@@ -105,7 +105,7 @@ func TestThePullSecretIsInheritedFromTheCatalogue(t *testing.T) {
 		t.Fatalf("podTemplate not inherited: %+v", build.PodTemplate)
 	}
 
-	resolved, err := build.ResolveSecrets(map[string]string{"pipeline.imagePullSecret": "regcred"})
+	resolved, err := build.ResolveNames(map[string]string{"pipeline.imagePullSecret": "regcred"})
 	if err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestResolvingThePodTemplateDoesNotContaminate(t *testing.T) {
 	}
 
 	build, _ := c.Find("build")
-	if _, err := build.ResolveSecrets(map[string]string{"pipeline.imagePullSecret": "regcred"}); err != nil {
+	if _, err := build.ResolveNames(map[string]string{"pipeline.imagePullSecret": "regcred"}); err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
 
@@ -149,7 +149,62 @@ func TestAMissingPullSecretKeyRefusesTheRun(t *testing.T) {
 	}
 	build, _ := c.Find("build")
 
-	if _, err := build.ResolveSecrets(map[string]string{}); err == nil {
+	if _, err := build.ResolveNames(map[string]string{}); err == nil {
 		t.Error("resolution should fail on a missing key")
+	}
+}
+
+// A config map name resolves like a secret's, and for the same reason: a test instance reads
+// another policy than the real one, and the name is all that distinguishes them.
+func TestAConfigMapNameComesFromConfiguration(t *testing.T) {
+	pipeline := Pipeline{
+		Kind: "security-audit",
+		Workspaces: []Workspace{
+			{Name: "policies", ConfigMap: &ConfigMapSource{ConfigKey: "security.policies"}},
+			{Name: "rules", ConfigMap: &ConfigMapSource{Name: "semgrep-rules"}},
+		},
+	}
+
+	resolved, err := pipeline.ResolveNames(map[string]string{"security.policies": "policies-staging"})
+	if err != nil {
+		t.Fatalf("resolution: %v", err)
+	}
+
+	if got := resolved.Workspaces[0].ConfigMap.Name; got != "policies-staging" {
+		t.Errorf("policies = %q", got)
+	}
+	if got := resolved.Workspaces[0].ConfigMap.ConfigKey; got != "" {
+		t.Errorf("the key survived resolution: %q", got)
+	}
+	// A literal name stays literal.
+	if got := resolved.Workspaces[1].ConfigMap.Name; got != "semgrep-rules" {
+		t.Errorf("rules = %q", got)
+	}
+}
+
+func TestAMissingConfigMapKeyIsRefused(t *testing.T) {
+	pipeline := Pipeline{
+		Kind:       "security-audit",
+		Workspaces: []Workspace{{Name: "policies", ConfigMap: &ConfigMapSource{ConfigKey: "security.policies"}}},
+	}
+
+	if _, err := pipeline.ResolveNames(map[string]string{}); err == nil {
+		t.Error("a missing key was accepted")
+	}
+}
+
+// Resolution must not write into the shared catalogue: the second run would read the first run's
+// resolved name as if it were literal.
+func TestConfigMapResolutionDoesNotContaminateTheCatalogue(t *testing.T) {
+	pipeline := Pipeline{
+		Kind:       "security-audit",
+		Workspaces: []Workspace{{Name: "policies", ConfigMap: &ConfigMapSource{ConfigKey: "security.policies"}}},
+	}
+
+	if _, err := pipeline.ResolveNames(map[string]string{"security.policies": "policies-staging"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := pipeline.Workspaces[0].ConfigMap.ConfigKey; got != "security.policies" {
+		t.Errorf("the catalogue was modified: key = %q", got)
 	}
 }

@@ -71,6 +71,12 @@ type needView struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// configMapView is a workspace an administrator fills with a ConfigMap of their own.
+type configMapView struct {
+	Workspace string `json:"workspace"`
+	Reason    string `json:"reason,omitempty"`
+}
+
 type capabilityView struct {
 	Ref    string     `json:"ref"`
 	Label  string     `json:"label"`
@@ -80,6 +86,10 @@ type capabilityView struct {
 	Params []string `json:"params"`
 	// Volumes are the per-run claims a binding sizes.
 	Volumes []string `json:"volumes"`
+	// ConfigMaps are the workspaces a binding fills with data the operator owns. Carried with
+	// their reason, like the needs: without it, an administrator sees a field and not what to put
+	// in it.
+	ConfigMaps []configMapView `json:"config_maps"`
 	// BoundBy is `file`, `database` or empty: the file's binding is shown, not edited.
 	BoundBy string          `json:"bound_by,omitempty"`
 	Binding json.RawMessage `json:"binding,omitempty"`
@@ -108,7 +118,7 @@ func (h *CapabilitiesHandler) List(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		view := capabilityView{Ref: ref.String(), Label: declared.Label, Plugin: plugin.ID, Needs: []needView{},
-			Params: []string{}, Volumes: []string{}}
+			Params: []string{}, Volumes: []string{}, ConfigMaps: []configMapView{}}
 		for _, need := range declared.Spec.Needs {
 			view.Needs = append(view.Needs, needView{Name: string(need.Name), Reason: need.Reason})
 		}
@@ -121,6 +131,10 @@ func (h *CapabilitiesHandler) List(w http.ResponseWriter, r *http.Request) {
 		for _, workspace := range declared.Spec.Workspaces {
 			if workspace.Volume != nil {
 				view.Volumes = append(view.Volumes, workspace.Name)
+			}
+			if workspace.ConfigMap != nil {
+				view.ConfigMaps = append(view.ConfigMaps, configMapView{
+					Workspace: workspace.Name, Reason: workspace.ConfigMap.Reason})
 			}
 		}
 		switch {

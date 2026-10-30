@@ -201,7 +201,7 @@ func TestAPipelineCloningElsewhereNeedsNoProjectKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refused for want of a key it does not use: %v", err)
 	}
-	resolved, err := elsewhere.ResolveSecrets(settings)
+	resolved, err := elsewhere.ResolveNames(settings)
 	if err != nil {
 		t.Fatal(err)
 	}

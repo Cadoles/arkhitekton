@@ -37,6 +37,7 @@ plugin.
   params: {}                 # see 5.3
   needs: {}                  # see 5.4
   volumes: {}                # see 5.4
+  configMaps: {}             # see 5.4
   podTemplate: {}            # (optional) overrides the top-level one
 ```
 
@@ -98,7 +99,7 @@ what lets an automation fill a parameter with nobody typing. It never constrains
 An installed plugin adds its own keys, resolved per project, and documents them. A required parameter that nothing resolves makes the enqueue fail,
 naming the key, rather than starting a run that would act somewhere else.
 
-## 5.4 Needs, volumes and uploads
+## 5.4 Needs, volumes, config maps and uploads
 
 A capability declares the privileges it needs, from a closed set:
 
@@ -115,15 +116,36 @@ needs:
   source-read:    { secret: { configKey: project.deployKeySecret } }
 volumes:
   shared-data: { storageClassName: standard, storage: 2Gi }
+configMaps:
+  policies: { configKey: security.policies }
 ```
 
 A secret is named directly (`secretName`) or through a config key (`configKey`). A pipeline
 cloning the project's repository binds `project.deployKeySecret`, and a project with no active
 key does not run it; a pipeline cloning another repository binds `pipeline.gitSecret`. Only
 `cluster-deploy` accepts a service account: it is the one need that is a cluster identity.
-A need left unbound does not stop start-up: the capability stays known, a plan may name it,
-and its runs are refused with the reason. Volumes are per-run claims; the capability gives
-their default size, the catalogue their storage class and, if needed, another size.
+Volumes are per-run claims; the capability gives their default size, the catalogue their storage
+class and, if needed, another size.
+
+Leaving a need unbound has two outcomes, and the difference is the workspace. `cluster-deploy`
+carries none: the capability stays known, a plan may name it, and its runs are refused with the
+reason. A need backing a workspace leaves that workspace with no source, which **stops start-up**
+naming it: a PipelineRun whose workspace is bound to nothing is accepted by Tekton and fails at
+mount time, where the reason is harder to read.
+
+A **config map** is the fourth source a workspace may have, beside a secret, a per-run claim and
+an empty directory. It carries data the operator owns and the pipeline reads: a severity scale, a
+set of rules, a policy. It is not a need, and the distinction is deliberate. A need is a privilege,
+and its set is closed so that the operator reads from the name alone what granting it means;
+mounting a config map grants nothing, since the dashboard binds it as a volume and the run's
+service account never reads it. Adding "a policy" to the set of privileges would make that set
+grow with every kind of data a pipeline reads.
+
+It exists for what a plugin must not carry: data that belongs to the operator and changes without
+publishing a plugin. The capability declares the workspace and says, in one sentence, what it
+expects there; the catalogue names the ConfigMap, directly (`name`) or through a config key
+(`configKey`), for the same reason a secret may be named either way. Unbound, it stops start-up
+like the workspace of an unbound need.
 
 A pipeline never receives object-store credentials. For each artifact the capability
 declares, the dashboard mints a **presigned URL** for one exact object under the run's prefix
