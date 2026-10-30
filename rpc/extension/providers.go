@@ -333,3 +333,27 @@ func (s *server) Execute(ctx context.Context, request *pluginv1.ExecuteRequest) 
 	}
 	return &pluginv1.Empty{}, nil
 }
+
+func (s *server) Receive(ctx context.Context, request *pluginv1.ReceiveRequest) (*pluginv1.ReceiveResponse, error) {
+	hooks, err := s.started()
+	if err != nil {
+		return nil, err
+	}
+	if hooks.Receiver == nil {
+		return nil, unimplemented("webhook")
+	}
+	response := &pluginv1.ReceiveResponse{}
+	err = guarded(func() error {
+		observations, err := hooks.Receiver.Receive(ctx, providers.TargetFrom(request.GetTarget()),
+			capability.Delivery{Event: request.GetEvent(), Body: request.GetBody()})
+		if err != nil {
+			return err
+		}
+		response.Observations, err = json.Marshal(observations)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}

@@ -82,6 +82,9 @@ type Hooks struct {
 	Probes []capability.Probe
 	// Executor carries out the actions the manifest declares.
 	Executor capability.ActionExecutor
+	// Receiver reads the deliveries of the webhook the manifest declares, which the dashboard has
+	// authenticated.
+	Receiver capability.Receiver
 }
 
 // Start builds the plugin's hooks, once, when the dashboard initialises it.

@@ -60,6 +60,9 @@ service Plugin {
   rpc Poll(PollRequest) returns (PollResponse);
   // Execute carries out one of the actions the manifest declares.
   rpc Execute(ExecuteRequest) returns (Empty);
+  // Receive reads a delivery the manifest's webhook declares, once the dashboard has checked its
+  // signature.
+  rpc Receive(ReceiveRequest) returns (ReceiveResponse);
 }
 
 service Host {
@@ -370,6 +373,18 @@ message PollResponse {
   // Observations is the JSON of a list of the sdk's capability.Observation.
   bytes observations = 1;
   string cursor = 2;
+}
+
+message ReceiveRequest {
+  ProviderTarget target = 1;
+  // Event is the value of the header the webhook names.
+  string event = 2;
+  bytes body = 3;
+}
+
+message ReceiveResponse {
+  // Observations is the JSON of a list of the sdk's capability.Observation.
+  bytes observations = 1;
 }
 
 message ExecuteRequest {

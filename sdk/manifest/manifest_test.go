@@ -256,3 +256,49 @@ func TestAConfigMapWorkspaceIsChecked(t *testing.T) {
 		}
 	}
 }
+
+var withWebhook = strings.Replace(withProviders, `"tracker": true,`, `"tracker": true,
+  "settings": {"project": [{"name": "webhook_secret", "label": "Secret", "type": "text", "secret": true}]},
+  "webhook": {"secret": "webhook_secret", "signature": "X-Hub-Signature-256", "prefix": "sha256=",
+    "scheme": "hmac-sha256", "event": "X-GitHub-Event"},`, 1)
+
+// The manifest declares how a delivery is authenticated; the program only reads it, and the
+// dashboard attaches what calls the program.
+func TestAProgramMayReceiveWebhooks(t *testing.T) {
+	declared, err := Decode([]byte(withWebhook))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := declared.Webhook.Spec()
+	if spec.Secret != "webhook_secret" || spec.Prefix != "sha256=" || spec.Scheme != capability.SignatureHMACSHA256 ||
+		spec.Signature != "X-Hub-Signature-256" || spec.Event != "X-GitHub-Event" || spec.Receiver != nil {
+		t.Errorf("webhook = %+v", spec)
+	}
+	if declared.Plugin().Webhook != nil {
+		t.Error("the manifest attached a webhook nothing reads")
+	}
+}
+
+func TestAWebhookIsChecked(t *testing.T) {
+	for name, edit := range map[string][2]string{
+		"no program":        {`"binary": "bin/plugin", "protocol": 1, `, ``},
+		"no events":         {`"events": [{"suffix": "pull_request.opened", "label": "PR ouverte"}],`, `"events": [],`},
+		"unknown scheme":    {`"scheme": "hmac-sha256"`, `"scheme": "md5"`},
+		"bad header":        {`"event": "X-GitHub-Event"`, `"event": "X GitHub Event"`},
+		"no signature":      {`"signature": "X-Hub-Signature-256", `, ``},
+		"secret not typed":  {`"secret": "webhook_secret", "signature"`, `"secret": "token", "signature"`},
+		"secret not secret": {`"type": "text", "secret": true`, `"type": "text"`},
+	} {
+		if !strings.Contains(withWebhook, edit[0]) {
+			t.Fatalf("%s: %q not in the manifest", name, edit[0])
+		}
+		edited := strings.Replace(withWebhook, edit[0], edit[1], 1)
+		if name == "no events" {
+			// Probes report events too: without them, the probe would be the refusal, not the webhook.
+			edited = strings.Replace(edited, `"probes": [{"name": "pull_requests", "interval": "5m", "eager": true}],`, ``, 1)
+		}
+		if _, err := Decode([]byte(edited)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}

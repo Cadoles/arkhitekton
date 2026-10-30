@@ -52,6 +52,7 @@ const (
 	Plugin_ProbeRepository_FullMethodName        = "/arkhitekton.plugin.v1.Plugin/ProbeRepository"
 	Plugin_Poll_FullMethodName                   = "/arkhitekton.plugin.v1.Plugin/Poll"
 	Plugin_Execute_FullMethodName                = "/arkhitekton.plugin.v1.Plugin/Execute"
+	Plugin_Receive_FullMethodName                = "/arkhitekton.plugin.v1.Plugin/Receive"
 )
 
 // PluginClient is the client API for Plugin service.
@@ -100,6 +101,9 @@ type PluginClient interface {
 	Poll(ctx context.Context, in *PollRequest, opts ...grpc.CallOption) (*PollResponse, error)
 	// Execute carries out one of the actions the manifest declares.
 	Execute(ctx context.Context, in *ExecuteRequest, opts ...grpc.CallOption) (*Empty, error)
+	// Receive reads a delivery the manifest's webhook declares, once the dashboard has checked its
+	// signature.
+	Receive(ctx context.Context, in *ReceiveRequest, opts ...grpc.CallOption) (*ReceiveResponse, error)
 }
 
 type pluginClient struct {
@@ -379,6 +383,16 @@ func (c *pluginClient) Execute(ctx context.Context, in *ExecuteRequest, opts ...
 	return out, nil
 }
 
+func (c *pluginClient) Receive(ctx context.Context, in *ReceiveRequest, opts ...grpc.CallOption) (*ReceiveResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReceiveResponse)
+	err := c.cc.Invoke(ctx, Plugin_Receive_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PluginServer is the server API for Plugin service.
 // All implementations must embed UnimplementedPluginServer
 // for forward compatibility.
@@ -425,6 +439,9 @@ type PluginServer interface {
 	Poll(context.Context, *PollRequest) (*PollResponse, error)
 	// Execute carries out one of the actions the manifest declares.
 	Execute(context.Context, *ExecuteRequest) (*Empty, error)
+	// Receive reads a delivery the manifest's webhook declares, once the dashboard has checked its
+	// signature.
+	Receive(context.Context, *ReceiveRequest) (*ReceiveResponse, error)
 	mustEmbedUnimplementedPluginServer()
 }
 
@@ -512,6 +529,9 @@ func (UnimplementedPluginServer) Poll(context.Context, *PollRequest) (*PollRespo
 }
 func (UnimplementedPluginServer) Execute(context.Context, *ExecuteRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Execute not implemented")
+}
+func (UnimplementedPluginServer) Receive(context.Context, *ReceiveRequest) (*ReceiveResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Receive not implemented")
 }
 func (UnimplementedPluginServer) mustEmbedUnimplementedPluginServer() {}
 func (UnimplementedPluginServer) testEmbeddedByValue()                {}
@@ -995,6 +1015,24 @@ func _Plugin_Execute_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Plugin_Receive_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReceiveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).Receive(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_Receive_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).Receive(ctx, req.(*ReceiveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Plugin_ServiceDesc is the grpc.ServiceDesc for Plugin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1101,6 +1139,10 @@ var Plugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Execute",
 			Handler:    _Plugin_Execute_Handler,
+		},
+		{
+			MethodName: "Receive",
+			Handler:    _Plugin_Receive_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -33,6 +33,7 @@ func main() {
 		return extension.Hooks{
 			Tracker: trackerOnly{tracker.Tracker}, Forge: forgeOnly{forge.Forge},
 			Probes: probes, Executor: forgeExecutor{forge.Executor},
+			Receiver: forgeReceiver{forge.Webhook.Receiver},
 		}, nil
 	})
 }
@@ -91,4 +92,12 @@ type forgeExecutor struct{ capability.ActionExecutor }
 
 func (e forgeExecutor) Execute(ctx context.Context, target capability.Target, suffix string, params map[string]string) error {
 	return e.ActionExecutor.Execute(ctx, scopedTarget(target, "forge_"), suffix, params)
+}
+
+type forgeReceiver struct{ capability.Receiver }
+
+func (r forgeReceiver) Receive(
+	ctx context.Context, target capability.Target, delivery capability.Delivery,
+) ([]capability.Observation, error) {
+	return r.Receiver.Receive(ctx, scopedTarget(target, "forge_"), delivery)
 }

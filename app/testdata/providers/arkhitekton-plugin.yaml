@@ -16,10 +16,19 @@ settings:
     - { name: tracker_api_key, label: Clé d'API du suivi, type: text, secret: true }
     - { name: forge_url, label: URL de la forge, type: url, placeholder: "https://forge.example.fr" }
     - { name: forge_token, label: Jeton de la forge, type: text, secret: true }
+    - { name: forge_webhook_secret, label: Secret du webhook, type: text, secret: true }
   project:
     - { name: project, label: Identifiant du projet dans le suivi, type: text, required: true }
     - { name: review_statuses, label: Statuts de revue, type: list }
+webhook:
+  { secret: forge_webhook_secret, signature: X-Gitea-Signature, scheme: hmac-sha256, event: X-Gitea-Event }
 events:
+  - suffix: push
+    label: Poussée
+    payload:
+      - { name: revision, label: Commit poussé }
+      - { name: branch, label: Branche }
+      - { name: tag, label: Tag }
   - suffix: issue.closed
     label: Demande fermée
     payload:
