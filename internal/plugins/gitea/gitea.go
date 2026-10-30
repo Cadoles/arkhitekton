@@ -3,6 +3,8 @@
 package gitea
 
 import (
+	"time"
+
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -14,14 +16,18 @@ const ID = "gitea"
 func Plugin() capability.Plugin {
 	return capability.Plugin{
 		ID:         ID,
-		Version:    "1.0.0",
+		Version:    "1.1.0",
 		APIVersion: sdk.APIVersion,
 		Forge:      forge{},
 		Probes:     []capability.Probe{pullProbe{}},
 		Executor:   executor{},
-		Label:      "Gitea",
+		Webhook: &capability.Webhook{
+			Secret: webhookSecret, Signature: "X-Gitea-Signature", Event: "X-Gitea-Event",
+			Scheme: capability.SignatureHMACSHA256, Receiver: receiver{now: time.Now},
+		},
+		Label: "Gitea",
 		Summary: "Branches, tags et références proposés au formulaire de release, " +
-			"détection des demandes de fusion ouvertes, et retour vers la forge.",
+			"demandes de fusion ouvertes et poussées reçues de la forge, et retour vers la forge.",
 		Actions: []capability.ActionSpec{
 			{
 				Suffix: "status", Label: "Statut de commit",
@@ -81,6 +87,20 @@ func Plugin() capability.Plugin {
 			},
 		},
 		Events: []capability.EventSpec{{
+			Suffix: push,
+			Label:  "Poussée",
+			Payload: []capability.Field{
+				{Name: "revision", Label: "Commit poussé"},
+				{Name: "branch", Label: "Branche"},
+				{Name: "tag", Label: "Tag"},
+				{Name: "ref", Label: "Référence"},
+				{Name: "before", Label: "Commit précédent"},
+				{Name: "pusher", Label: "Auteur de la poussée"},
+				{Name: "commits", Label: "Nombre de commits"},
+				{Name: "message", Label: "Message du dernier commit"},
+				{Name: "compare_url", Label: "Comparaison", Type: capability.FieldURL},
+			},
+		}, {
 			Suffix: "pull_request.opened",
 			Label:  "Demande de fusion ouverte",
 			Payload: []capability.Field{
@@ -104,13 +124,25 @@ func Plugin() capability.Plugin {
 					"nom de son détenteur. `write:repository` n'est nécessaire " +
 					"que pour poser des tags, des statuts ou des commentaires.",
 			},
+			webhookSecretField,
 		},
-		// No per-project settings: the repository is already declared in the
-		// project's own parameters, and asking again here would make two places
-		// to correct it — so one place to forget.
+		// The repository is not asked again here: it is already declared in the
+		// project's own parameters, and two places to correct it would make one
+		// place to forget. The webhook's secret is, since each repository's hook
+		// may carry its own.
+		Project: []capability.Field{webhookSecretField},
 		//
 		// Per-project activation, though: watching a repository's pull requests
 		// is a project's decision, even when the connection is instance-wide.
 		PerProject: true,
 	}
+}
+
+// webhookSecretField holds the secret the forge's hook signs its deliveries with. At both scopes: an
+// organisation's hook signs every repository with one secret, a repository's hook with its own.
+var webhookSecretField = capability.Field{
+	Name: webhookSecret, Label: "Secret du webhook", Type: capability.FieldText, Secret: true,
+	Help: "Le secret saisi dans le webhook de la forge, type de contenu `application/json`, " +
+		"adresse `<dashboard>/api/v1/hooks/gitea/projects/<projet>`. Sans secret, " +
+		"les livraisons sont refusées.",
 }
