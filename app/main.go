@@ -351,6 +351,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		dashhttp.NewPluginRoutesHandler(servers, db, db, authorizer).Routes,
 		// The screens and menus of the core and of the active plugins, composed for the viewer.
 		dashhttp.NewUIHandler(servers, db, db, authorizer).Routes,
+		// What a source pushes, authenticated by its signature and routed by the worker.
+		dashhttp.NewHooksHandler(inForce.Registries(), db, unsealer(inForce.Registries(), cipher),
+			cfg.Forge.Timeout, logger).Routes,
 	}
 	readiness := []dashhttp.ReadinessCheck{
 		{Name: "postgres", Check: db.Ping},
@@ -682,7 +685,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// where each returns `ctx.Err()`. The process would still exit, but leaving behind loops that
 			// were never able to conclude — and a goroutine profile that accuses a leak where there is
 			// only a channel that is too short.
-			errs := make(chan error, 9)
+			errs := make(chan error, 10)
 			// The bound capabilities' definitions, installed and checked before the first launch. Under the
 			// lease like the rest: two workers putting the same definition in place would rewrite each
 			// other's.
@@ -728,6 +731,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithDispatcher(dispatcher)
 			reloader.OnReplace(func(live.Snapshot) { probes.Wake() })
 			go func() { errs <- probes.Run(leadingCtx) }()
+			// What a source pushed: the api records it, and the reactions leave from here.
+			go func() { errs <- worker.NewReceivedFacts(db, dispatcher, logger).Run(leadingCtx) }()
 
 			// The first error wins: a dead loop must make the lease be lost rather than let the other run
 			// half-way.
