@@ -178,8 +178,8 @@ func read(fsys fs.FS, limit int64, programs Programs) (Plugin, error) {
 	return Plugin{Plugin: plugin, Native: native}, nil
 }
 
-// attach gives the plugin the tracker, forge, probes and executor its manifest declares, each
-// asking the program.
+// attach gives the plugin the tracker, forge, probes, executor and webhook its manifest declares,
+// each asking the program.
 func attach(plugin *capability.Plugin, declared manifest.Manifest, dial providers.Dial) {
 	if declared.Tracker {
 		plugin.Tracker = &providers.Tracker{Plugin: plugin.ID, Dial: dial}
@@ -192,6 +192,11 @@ func attach(plugin *capability.Plugin, declared manifest.Manifest, dial provider
 	}
 	if len(declared.Actions) > 0 {
 		plugin.Executor = providers.Executor{Plugin: plugin.ID, Dial: dial}
+	}
+	if declared.Webhook != nil {
+		hook := declared.Webhook.Spec()
+		hook.Receiver = providers.Receiver{Plugin: plugin.ID, Dial: dial}
+		plugin.Webhook = &hook
 	}
 }
 

@@ -146,6 +146,18 @@ func (e fakeExecutor) Execute(_ context.Context, target capability.Target, suffi
 	return nil
 }
 
+type fakeReceiver struct{}
+
+func (fakeReceiver) Receive(_ context.Context, target capability.Target, delivery capability.Delivery) ([]capability.Observation, error) {
+	if delivery.Event != "push" {
+		return nil, errors.New("not a push")
+	}
+	return []capability.Observation{{
+		Suffix: "push", Subject: target.Repository, Payload: map[string]string{"secret": target.Settings["webhook_secret"]},
+		OccurredAt: due, Key: string(delivery.Body),
+	}}, nil
+}
+
 type plugin struct {
 	connects int
 	executed []string
@@ -161,6 +173,7 @@ func serve(t *testing.T) *plugin {
 		return extension.Hooks{
 			Tracker: fakeTracker{connects: &served.connects}, Forge: fakeForge{},
 			Probes: []capability.Probe{fakeProbe{}}, Executor: fakeExecutor{done: &served.executed},
+			Receiver: fakeReceiver{},
 		}, nil
 	}
 	client, _ := goplugin.TestPluginGRPCConn(t, false, map[string]goplugin.Plugin{
@@ -312,5 +325,22 @@ func TestAnActionIsCarriedOut(t *testing.T) {
 	if err := executor.Execute(context.Background(), target(nil), "fail", nil); err == nil ||
 		!strings.Contains(err.Error(), "refused by the forge") {
 		t.Errorf("a failed action answered %v", err)
+	}
+}
+
+// A delivery reaches the program with its event, its body and the project's target, and what the
+// program could not read comes back as an error.
+func TestADeliveryIsReadThroughTheProgram(t *testing.T) {
+	served := serve(t)
+	receiver := providers.Receiver{Plugin: "fake", Dial: served.dial}
+	observations, err := receiver.Receive(context.Background(), target(capability.Settings{"webhook_secret": "s"}),
+		capability.Delivery{Event: "push", Body: []byte("abc")})
+	if err != nil || len(observations) != 1 || observations[0].Key != "abc" || observations[0].Subject != "team/app" ||
+		observations[0].Payload["secret"] != "s" || !observations[0].OccurredAt.Equal(due) {
+		t.Errorf("receive = %+v, %v", observations, err)
+	}
+	if _, err := receiver.Receive(context.Background(), target(nil), capability.Delivery{Event: "issues"}); err == nil ||
+		!strings.Contains(err.Error(), "not a push") {
+		t.Errorf("an unread delivery answered %v", err)
 	}
 }

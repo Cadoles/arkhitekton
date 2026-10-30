@@ -326,3 +326,34 @@ func (e Executor) Execute(ctx context.Context, target capability.Target, suffix 
 	_, err = client.Execute(ctx, &pluginv1.ExecuteRequest{Target: TargetOf(target), Suffix: suffix, Params: params})
 	return named(e.Plugin, Error(err))
 }
+
+// Receiver reads a native plugin's webhook deliveries.
+type Receiver struct {
+	// Plugin names the plugin in errors.
+	Plugin string
+	Dial   Dial
+}
+
+var _ capability.Receiver = Receiver{}
+
+func (r Receiver) Receive(
+	ctx context.Context, target capability.Target, delivery capability.Delivery,
+) ([]capability.Observation, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeoutOf(target))
+	defer cancel()
+	client, err := r.Dial(ctx)
+	if err != nil {
+		return nil, named(r.Plugin, err)
+	}
+	answer, err := client.Receive(ctx, &pluginv1.ReceiveRequest{
+		Target: TargetOf(target), Event: delivery.Event, Body: delivery.Body,
+	})
+	if err != nil {
+		return nil, named(r.Plugin, Error(err))
+	}
+	var observations []capability.Observation
+	if err := json.Unmarshal(answer.GetObservations(), &observations); err != nil {
+		return nil, named(r.Plugin, fmt.Errorf("the delivery's observations: %w", err))
+	}
+	return observations, nil
+}

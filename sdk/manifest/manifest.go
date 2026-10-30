@@ -86,6 +86,28 @@ type Manifest struct {
 	Probes []Probe `json:"probes,omitempty"`
 	// Actions are the steps the program carries out.
 	Actions []capability.ActionSpec `json:"actions,omitempty"`
+	// Webhook says the program reads what a source pushes, and how the dashboard authenticates it.
+	Webhook *Webhook `json:"webhook,omitempty"`
+}
+
+// Webhook declares the deliveries the plugin's program reads. The dashboard checks their signature
+// before the program reads a byte.
+type Webhook struct {
+	// Secret names a setting marked secret, holding the shared secret.
+	Secret string `json:"secret"`
+	// Signature names the header carrying the proof; Prefix is stripped from its value.
+	Signature string                     `json:"signature"`
+	Scheme    capability.SignatureScheme `json:"scheme"`
+	Prefix    string                     `json:"prefix,omitempty"`
+	// Event names the header saying what a delivery is about.
+	Event string `json:"event"`
+}
+
+// Spec is the webhook as the dashboard registers it, its receiver still to be attached.
+func (w Webhook) Spec() capability.Webhook {
+	return capability.Webhook{
+		Secret: w.Secret, Signature: w.Signature, Scheme: w.Scheme, Prefix: w.Prefix, Event: w.Event,
+	}
 }
 
 // Probe is a probe the plugin's program runs.
@@ -335,6 +357,7 @@ func (m Manifest) programProblems() []error {
 		}{
 			{m.Module, "a module"}, {len(m.Hooks) > 0, "hooks"}, {len(m.Routes) > 0, "routes"}, {m.UI != nil, "an interface"},
 			{m.Tracker, "a tracker"}, {m.Forge, "a forge"}, {len(m.Probes) > 0, "probes"}, {len(m.Actions) > 0, "actions"},
+			{m.Webhook != nil, "a webhook"},
 		} {
 			if brought.present {
 				problems = append(problems, fmt.Errorf("%s need a program: binary is empty", brought.what))
@@ -583,6 +606,9 @@ func (m Manifest) providerProblems() []error {
 			problems = append(problems, fmt.Errorf("probes[%d]: interval %q is not a positive duration", i, probe.Interval))
 		}
 	}
+	if m.Webhook != nil {
+		problems = append(problems, m.webhookProblems()...)
+	}
 	actions := map[string]bool{}
 	for i, action := range m.Actions {
 		at := fmt.Sprintf("actions[%d]", i)
@@ -597,6 +623,37 @@ func (m Manifest) providerProblems() []error {
 			}
 			fields[field.Name] = true
 		}
+	}
+	return problems
+}
+
+// webhookProblems refuses a webhook the dashboard could not authenticate, or that could report
+// nothing.
+func (m Manifest) webhookProblems() []error {
+	hook := m.Webhook
+	var problems []error
+	if len(m.Events) == 0 {
+		problems = append(problems, errors.New("webhook: deliveries report events, and the plugin declares none"))
+	}
+	switch hook.Scheme {
+	case capability.SignatureHMACSHA256, capability.SignatureToken:
+	default:
+		problems = append(problems, fmt.Errorf("webhook.scheme: %q is neither %q nor %q",
+			hook.Scheme, capability.SignatureHMACSHA256, capability.SignatureToken))
+	}
+	for name, header := range map[string]string{"signature": hook.Signature, "event": hook.Event} {
+		if strings.TrimSpace(header) == "" || strings.ContainsAny(header, " :\t") {
+			problems = append(problems, fmt.Errorf("webhook.%s: %q is not a header name", name, header))
+		}
+	}
+	sealed := false
+	for _, field := range append(append([]capability.Field{}, m.Settings.Global...), m.Settings.Project...) {
+		if field.Name == hook.Secret {
+			sealed = field.Secret
+		}
+	}
+	if !sealed {
+		problems = append(problems, fmt.Errorf("webhook.secret: %q is not a setting marked secret", hook.Secret))
 	}
 	return problems
 }

@@ -374,6 +374,46 @@ func TestANativeProbeObservesAsTheCompiledOne(t *testing.T) {
 	}
 }
 
+// A delivery is read alike by the program and by the compiled plugin: the opening it carries is the
+// one the probes above observe, and the push is keyed the same.
+func TestANativeWebhookReceivesAsTheCompiledOne(t *testing.T) {
+	plugin, _ := providersPlugin(t)
+	gitea := compiled(t, "gitea")
+	if plugin.Webhook == nil || plugin.Webhook.Secret != "forge_webhook_secret" ||
+		plugin.Webhook.Signature != gitea.Webhook.Signature || plugin.Webhook.Scheme != gitea.Webhook.Scheme {
+		t.Fatalf("webhook = %+v", plugin.Webhook)
+	}
+	deliveries := map[string]string{
+		"push": `{"ref": "refs/heads/develop", "before": "c0", "after": "c1", "total_commits": 1,
+			"repository": {"full_name": "team/app"}, "pusher": {"login": "alice"}}`,
+		"pull_request": `{"action": "opened", "repository": {"full_name": "team/app"},
+			"pull_request": {"number": 43, "title": "Next", "html_url": "https://forge.test/team/app/pulls/43",
+			"user": {"login": "alice"}, "head": {"ref": "feature"}, "base": {"ref": "develop"},
+			"created_at": "2026-10-27T09:30:00Z"}}`,
+	}
+	for event, body := range deliveries {
+		observed := same(t, event+" received", func(native bool) ([]capability.Observation, error) {
+			receiver := gitea.Webhook.Receiver
+			if native {
+				receiver = plugin.Webhook.Receiver
+			}
+			observations, err := receiver.Receive(context.Background(), capability.Target{
+				Project: "app", Repository: "team/app", Timeout: 5 * time.Second,
+			}, capability.Delivery{Event: event, Body: []byte(body)})
+			// The reception's instant differs by construction: the rest must not.
+			for i := range observations {
+				if observations[i].Suffix == "push" {
+					observations[i].OccurredAt = time.Time{}
+				}
+			}
+			return observations, err
+		})
+		if len(observed) != 1 {
+			t.Errorf("%s: observed %+v", event, observed)
+		}
+	}
+}
+
 // A program stopped during a call fails that call, and the error names the plugin.
 func TestAProgramStoppedDuringACallFailsItNamed(t *testing.T) {
 	server := newProvidersServer(t)
