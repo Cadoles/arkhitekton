@@ -271,6 +271,19 @@ func NewAPIRouter(
 	mux.Handle("DELETE /projects/{project}/reactions/{reaction}", Chain(http.HandlerFunc(reactions.Delete),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 
+	// Declared schedules: plans a clock opens. `admin` for the reactions' reason, the plan
+	// launching pipelines in the instance's name.
+	if reactions.schedules != nil {
+		mux.Handle("GET /projects/{project}/schedules", Chain(http.HandlerFunc(reactions.ListSchedules),
+			middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+		mux.Handle("POST /projects/{project}/schedules", Chain(http.HandlerFunc(reactions.SaveSchedule),
+			middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+		mux.Handle("PUT /projects/{project}/schedules/{schedule}", Chain(http.HandlerFunc(reactions.SaveSchedule),
+			middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+		mux.Handle("DELETE /projects/{project}/schedules/{schedule}", Chain(http.HandlerFunc(reactions.DeleteSchedule),
+			middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	}
+
 	// A release's automation: what the project builds, then verifies. `admin` for the same
 	// reason, and one more — emptying this declaration makes a project stop building, which
 	// is not repaired by rewriting it: the releases created meanwhile left with nothing.

@@ -394,7 +394,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			dashhttp.NewEventsHandler(db),
 			// The same catalogue as the queue: the editor offers what the instance can launch, and a
 			// second load could offer something else.
-			dashhttp.NewAutomationsHandler(db, inForce.Catalogs(), inForce.Registries(), logger),
+			dashhttp.NewAutomationsHandler(db, inForce.Catalogs(), inForce.Registries(), logger).
+				WithSchedules(db),
 			// What a reaction actually did. An engine one cannot debug is worse than frozen behaviour.
 			dashhttp.NewPlanRunsHandler(db),
 			middleware, mounts...),
@@ -685,7 +686,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// where each returns `ctx.Err()`. The process would still exit, but leaving behind loops that
 			// were never able to conclude — and a goroutine profile that accuses a leak where there is
 			// only a channel that is too short.
-			errs := make(chan error, 10)
+			errs := make(chan error, 11)
 			// The bound capabilities' definitions, installed and checked before the first launch. Under the
 			// lease like the rest: two workers putting the same definition in place would rewrite each
 			// other's.
@@ -733,6 +734,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			go func() { errs <- probes.Run(leadingCtx) }()
 			// What a source pushed: the api records it, and the reactions leave from here.
 			go func() { errs <- worker.NewReceivedFacts(db, dispatcher, logger).Run(leadingCtx) }()
+			// The schedules: plans a clock opens, their branch resolved through the project's forge.
+			schedules := worker.NewScheduleRunner(db, engine, connect.New(inForce.Registries(), db, cipher,
+				connect.Timeouts{Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout}), logger)
+			go func() { errs <- schedules.Run(leadingCtx) }()
 
 			// The first error wins: a dead loop must make the lease be lost rather than let the other run
 			// half-way.

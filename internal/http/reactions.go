@@ -63,6 +63,8 @@ type AutomationsHandler struct {
 	registry capabilities.Source
 	actions  action.Catalog
 	logger   *slog.Logger
+	// schedules serves the schedules; nil, their routes answer 404.
+	schedules ScheduleStore
 }
 
 func NewAutomationsHandler(
