@@ -314,6 +314,16 @@ func (s *runSink) finishJob(ctx context.Context, run tekton.Run) error {
 // case, which is logged and not treated as an error — a pipeline arriving after the fact does
 // not have the last word.
 func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobState string) error {
+	// The step this job was carrying out, if it came from a plan. Before the state conclusion: it
+	// is the plan's advance that will start the next stage, and delaying it would make the chain
+	// wait a turn. Before the release too: a plan a push or a pull request triggered carries jobs
+	// with no release, and its next stage must start all the same.
+	//
+	// Without effect for most jobs, which come from no plan.
+	if s.engine != nil {
+		s.engine.Advance(ctx, jobID, planStateOf(jobState))
+	}
+
 	linked, err := s.releases.JobRelease(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobWithoutRelease) {
@@ -321,14 +331,6 @@ func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobStat
 			return nil
 		}
 		return err
-	}
-	// The step this job was carrying out, if it came from a plan. Before the state conclusion: it
-	// is the plan's advance that will start the next stage, and delaying it would make the chain
-	// wait a turn.
-	//
-	// Without effect for most jobs, which come from no plan.
-	if s.engine != nil {
-		s.engine.Advance(ctx, jobID, planStateOf(jobState))
 	}
 
 	// Building and verifying no longer pass through here.
