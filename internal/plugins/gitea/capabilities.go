@@ -100,26 +100,31 @@ func (pullProbe) Poll(
 	observed := make([]capability.Observation, 0, len(pulls))
 	newest := since
 	for _, pull := range pulls {
-		number := strconv.FormatInt(pull.Number, 10)
-		observed = append(observed, capability.Observation{
-			Suffix:  pullRequestOpened,
-			Subject: "#" + number,
-			Payload: map[string]string{
-				"number":        number,
-				"title":         pull.Title,
-				"author":        pull.Author,
-				"source_branch": pull.SourceBranch,
-				"target_branch": pull.TargetBranch,
-				"url":           pull.URL,
-			},
-			OccurredAt: pull.CreatedAt,
-			Key:        target.Repository + ":" + number,
-		})
+		observed = append(observed, opened(target, pull))
 		if pull.CreatedAt.After(newest) {
 			newest = pull.CreatedAt
 		}
 	}
 	return observed, formatCursor(newest, since), nil
+}
+
+// opened is the fact of a pull request opening, polled or received.
+func opened(target capability.Target, pull OpenPullRequest) capability.Observation {
+	number := strconv.FormatInt(pull.Number, 10)
+	return capability.Observation{
+		Suffix:  pullRequestOpened,
+		Subject: "#" + number,
+		Payload: map[string]string{
+			"number":        number,
+			"title":         pull.Title,
+			"author":        pull.Author,
+			"source_branch": pull.SourceBranch,
+			"target_branch": pull.TargetBranch,
+			"url":           pull.URL,
+		},
+		OccurredAt: pull.CreatedAt,
+		Key:        target.Repository + ":" + number,
+	}
 }
 
 // parseCursor reads the cursor, or returns zero.
