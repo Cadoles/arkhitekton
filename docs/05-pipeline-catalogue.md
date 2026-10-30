@@ -43,9 +43,8 @@ plugin.
 
 The order of the entries is the order in which a build chains its verifications.
 
-The built-in plugins bring `core/build`, `core/retag`, `php/static-tests`, `php/unit-tests`,
-`security/security-audit` and `k6/load` (observed, not launched); an installed plugin brings
-its own. Their Tekton definitions are installed by the dashboard when the capability
+The built-in plugins bring `core/build`, `core/retag`, `php/static-tests`, `php/unit-tests`
+and `k6/load` (observed, not launched); an installed plugin brings its own. Their Tekton definitions are installed by the dashboard when the capability
 ships them, or provided by the operator otherwise.
 
 A binding naming a plugin that is not installed waits for it, and says so at start-up: the file
