@@ -138,8 +138,9 @@ func Plugin() capability.Plugin {
 	}
 }
 
-// webhookSecretField holds the secret the forge's hook signs its deliveries with. At both scopes: an
-// organisation's hook signs every repository with one secret, a repository's hook with its own.
+// webhookSecretField holds the secret the forge's hook signs its deliveries with. At both scopes: one
+// secret for every repository's hook, or one per repository. A hook is set per repository either
+// way, since its address names the project.
 var webhookSecretField = capability.Field{
 	Name: webhookSecret, Label: "Secret du webhook", Type: capability.FieldText, Secret: true,
 	Help: "Le secret saisi dans le webhook de la forge, type de contenu `application/json`, " +

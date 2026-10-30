@@ -125,8 +125,8 @@ func TestWhatThePluginDoesNotNameIsIgnored(t *testing.T) {
 	}
 }
 
-// A hook set on an organisation signs every repository's pushes with the same secret: the signature
-// does not say which project a delivery is for, the repository does.
+// A secret set for the instance signs every repository's hook alike: the signature does not say
+// which project a delivery is for, the repository does.
 func TestADeliveryAboutAnotherRepositoryIsRefused(t *testing.T) {
 	body := strings.Replace(branchPush, `"CNOUS/mse"`, `"CNOUS/other"`, 1)
 	if _, err := receive(t, "push", body); err == nil || !strings.Contains(err.Error(), "CNOUS/other") {
