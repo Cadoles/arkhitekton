@@ -205,3 +205,63 @@ func TestAnUninstalledPluginLeavesItsTablesUntilPurged(t *testing.T) {
 		t.Errorf("another plugin's cursor went: %+v", state)
 	}
 }
+
+// A source the instance does not recognise parks the installation with the plugin's id, which is
+// what an administrator is then asked about and what the acceptance is recorded against.
+func TestAnAcceptedSourceIsRememberedForThePlugin(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	id, err := db.RequestPluginInstallation(ctx, "registry.example/plugins/junit@"+digest, digest, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ParkPluginInstallation(ctx, id, "junit", "signed by no trusted key"); err != nil {
+		t.Fatal(err)
+	}
+	parked, err := db.PluginInstallation(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parked.State != InstallationUnrecognised || parked.PluginID != "junit" ||
+		parked.Error != "signed by no trusted key" {
+		t.Fatalf("parked = %+v", parked)
+	}
+
+	accepted, err := db.AcceptedSources(ctx)
+	if err != nil || len(accepted) != 0 {
+		t.Fatalf("accepted = %v, %v", accepted, err)
+	}
+	if err := db.AcceptSource(ctx, "junit", parked.Error, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	// Idempotent, and the first acceptance is the one kept: a second says nothing new.
+	if err := db.AcceptSource(ctx, "junit", "another reason", "someone-else"); err != nil {
+		t.Fatal(err)
+	}
+	if accepted, err = db.AcceptedSources(ctx); err != nil || len(accepted) != 1 || accepted[0] != "junit" {
+		t.Fatalf("accepted = %v, %v", accepted, err)
+	}
+
+	if err := db.RetryPluginInstallation(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := db.PluginInstallation(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.State != InstallationPending || retried.Error != "" {
+		t.Errorf("retried = %+v", retried)
+	}
+	// Only a parked installation is retried: it is now pending, and a second retry finds nothing.
+	if err := db.RetryPluginInstallation(ctx, id); !errors.Is(err, ErrInstallationNotFound) {
+		t.Errorf("a second retry: %v", err)
+	}
+
+	if err := db.WithdrawSource(ctx, "junit"); err != nil {
+		t.Fatal(err)
+	}
+	if accepted, err = db.AcceptedSources(ctx); err != nil || len(accepted) != 0 {
+		t.Errorf("withdrawn: accepted = %v, %v", accepted, err)
+	}
+}

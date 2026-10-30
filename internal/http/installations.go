@@ -39,6 +39,9 @@ type InstallationStore interface {
 	FailPluginInstallation(ctx context.Context, id int64, reason string) error
 	ActivatePluginInstallation(ctx context.Context, id int64) error
 	RemovePluginInstallation(ctx context.Context, id int64) (string, error)
+	PluginInstallation(ctx context.Context, id int64) (store.PluginInstallation, error)
+	AcceptSource(ctx context.Context, pluginID, reason, subject string) error
+	RetryPluginInstallation(ctx context.Context, id int64) error
 	PluginLeftovers(ctx context.Context) ([]store.PluginLeftover, error)
 	PluginLeftoverOf(ctx context.Context, pluginID string) (store.PluginLeftover, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
@@ -74,6 +77,7 @@ func (h *InstallationsHandler) Routes(mux *http.ServeMux, m *Middleware) {
 	mux.Handle("GET /admin/plugins/installations", admin(h.List))
 	mux.Handle("POST /admin/plugins/installations", admin(h.Request))
 	mux.Handle("POST /admin/plugins/installations/{id}/activate", admin(h.Activate))
+	mux.Handle("POST /admin/plugins/installations/{id}/accept", admin(h.Accept))
 	mux.Handle("DELETE /admin/plugins/installations/{id}", admin(h.Remove))
 	mux.Handle("GET /admin/plugins/leftovers", admin(h.Leftovers))
 	mux.Handle("POST /admin/plugins/leftovers/{plugin}/purge", admin(h.Purge))
@@ -150,6 +154,62 @@ func (h *InstallationsHandler) Request(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r, "plugin.installation.requested", reference, map[string]any{"installation": id, "job": job})
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "job": job, "reference": reference})
+}
+
+// Accept records that an administrator accepts a plugin whose source the instance does not
+// recognise, and puts its installation back in the queue.
+//
+// The acceptance is recorded against the **plugin's id**, so the next version of that plugin
+// installs without asking again. It is not recorded against a key: the signature format carries
+// no public key, so an unknown signer leaves nothing to remember.
+//
+// Only an installation waiting on that decision can be accepted. An installation that failed for
+// another reason is not turned into an acceptance by this route.
+func (h *InstallationsHandler) Accept(w http.ResponseWriter, r *http.Request) {
+	id, ok := installationID(w, r)
+	if !ok {
+		return
+	}
+	installation, err := h.store.PluginInstallation(r.Context(), id)
+	if errors.Is(err, store.ErrInstallationNotFound) {
+		writeProblem(w, http.StatusNotFound, "Unknown installation", "")
+		return
+	}
+	if err != nil {
+		h.logger.Error("reading an installation", "installation", id, "error", err)
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the installation", "")
+		return
+	}
+	if installation.State != store.InstallationUnrecognised {
+		writeProblem(w, http.StatusConflict, "Nothing to accept",
+			"this installation is not waiting for a decision on its source")
+		return
+	}
+
+	identity, _ := IdentityFrom(r.Context())
+	if err := h.store.AcceptSource(r.Context(), installation.PluginID, installation.Error, identity.Subject); err != nil {
+		h.logger.Error("accepting a source", "plugin", installation.PluginID, "error", err)
+		writeProblem(w, http.StatusInternalServerError, "Cannot accept the source", "")
+		return
+	}
+	if err := h.store.RetryPluginInstallation(r.Context(), id); err != nil {
+		h.logger.Error("retrying an installation", "installation", id, "error", err)
+		writeProblem(w, http.StatusInternalServerError, "Cannot retry the installation", "")
+		return
+	}
+	job, err := h.store.Enqueue(r.Context(), store.JobRequest{
+		Kind: PluginInstallJobKind, RequestedBy: identity.Subject,
+		Params: map[string]string{PluginInstallationKey: strconv.FormatInt(id, 10)},
+	})
+	if err != nil {
+		h.logger.Error("queueing an installation", "installation", id, "error", err)
+		_ = h.store.FailPluginInstallation(r.Context(), id, "the installation job could not be queued")
+		writeProblem(w, http.StatusInternalServerError, "Cannot queue the installation", "")
+		return
+	}
+	h.audit(r, "plugin.source.accepted", installation.Reference,
+		map[string]any{"installation": id, "plugin": installation.PluginID, "reason": installation.Error, "job": job})
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "job": job, "plugin": installation.PluginID})
 }
 
 // Activate makes an installed version the one new runs are launched with.

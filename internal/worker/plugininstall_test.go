@@ -57,6 +57,7 @@ type installations struct {
 	installation store.PluginInstallation
 	completed    string
 	failed       string
+	parked       string
 	audited      []string
 }
 
@@ -71,6 +72,11 @@ func (i *installations) CompletePluginInstallation(_ context.Context, _ int64, c
 
 func (i *installations) FailPluginInstallation(_ context.Context, _ int64, reason string) error {
 	i.failed = reason
+	return nil
+}
+
+func (i *installations) ParkPluginInstallation(_ context.Context, _ int64, pluginID, reason string) error {
+	i.parked = pluginID + ": " + reason
 	return nil
 }
 
@@ -170,5 +176,36 @@ func TestAnInstallationAppliesTheMigrationsFirst(t *testing.T) {
 		if failure != nil && (err == nil || db.completed != "" || len(objects) != 0 || !strings.Contains(db.failed, "migrations")) {
 			t.Errorf("%s: err %v, completed %q, failed %q", name, err, db.completed, db.failed)
 		}
+	}
+}
+
+// A source the instance does not recognise parks the installation and does not fail the job: the
+// job pulled what it was asked for and read the plugin's id, and what remains is a decision.
+// Failing it would lose the distinction the screen needs to offer that decision.
+func TestAnUnrecognisedSourceParksTheInstallation(t *testing.T) {
+	db := &installations{installation: store.PluginInstallation{
+		ID: 4, State: store.InstallationPending, RequestedBy: "admin",
+		Reference: "registry.example/plugins/junit@" + pinnedDigest,
+	}}
+	unrecognised := func(context.Context, string) (installed.Pulled, error) {
+		return installed.Pulled{}, &installed.UnrecognisedSource{
+			PluginID: "junit", Reason: errors.New("signed by no trusted key"),
+		}
+	}
+	installer := NewPluginInstaller(db, memoryObjects{}, unrecognised,
+		func(context.Context, installed.Plugin) error { return nil },
+		func(context.Context) {}, slog.New(slog.DiscardHandler))
+
+	if err := installer.Run(context.Background(), store.Job{ID: 1, Params: map[string]string{ParamInstallation: "4"}}); err != nil {
+		t.Fatalf("the job failed: %v", err)
+	}
+	if db.parked != "junit: signed by no trusted key" {
+		t.Errorf("parked = %q", db.parked)
+	}
+	if db.failed != "" {
+		t.Errorf("failed = %q", db.failed)
+	}
+	if len(db.audited) != 1 || db.audited[0] != "admin plugin.source.unrecognised registry.example/plugins/junit@"+pinnedDigest {
+		t.Errorf("audited = %v", db.audited)
 	}
 }

@@ -19,6 +19,10 @@ type installationStore struct {
 	audit     []string
 	// pending has an installation in progress.
 	pending bool
+	// parked is the installation waiting for a decision on its source, if any.
+	parked   *store.PluginInstallation
+	accepted []string
+	retried  []int64
 }
 
 func (s *installationStore) PluginInstallations(context.Context) ([]store.PluginInstallation, error) {
@@ -46,6 +50,23 @@ func (s *installationStore) RequestPluginInstallation(_ context.Context, referen
 }
 
 func (s *installationStore) FailPluginInstallation(context.Context, int64, string) error { return nil }
+
+func (s *installationStore) PluginInstallation(_ context.Context, id int64) (store.PluginInstallation, error) {
+	if s.parked == nil || s.parked.ID != id {
+		return store.PluginInstallation{}, store.ErrInstallationNotFound
+	}
+	return *s.parked, nil
+}
+
+func (s *installationStore) AcceptSource(_ context.Context, pluginID, reason, subject string) error {
+	s.accepted = append(s.accepted, pluginID+" "+reason+" "+subject)
+	return nil
+}
+
+func (s *installationStore) RetryPluginInstallation(_ context.Context, id int64) error {
+	s.retried = append(s.retried, id)
+	return nil
+}
 
 func (s *installationStore) ActivatePluginInstallation(_ context.Context, id int64) error {
 	s.activated = append(s.activated, id)
@@ -95,6 +116,7 @@ func callInstallationsWith(
 	mux.HandleFunc("GET /admin/plugins/installations", handler.List)
 	mux.HandleFunc("POST /admin/plugins/installations", handler.Request)
 	mux.HandleFunc("POST /admin/plugins/installations/{id}/activate", handler.Activate)
+	mux.HandleFunc("POST /admin/plugins/installations/{id}/accept", handler.Accept)
 	mux.HandleFunc("DELETE /admin/plugins/installations/{id}", handler.Remove)
 	mux.HandleFunc("GET /admin/plugins/leftovers", handler.Leftovers)
 	mux.HandleFunc("POST /admin/plugins/leftovers/{plugin}/purge", handler.Purge)
@@ -170,5 +192,55 @@ func TestAPurgeIsQueuedForWhatAPluginLeft(t *testing.T) {
 	busy := &installationStore{pending: true}
 	if recorder, _, _ := callInstallationsWith(t, busy, http.MethodPost, "/admin/plugins/leftovers/deploy/purge", ""); recorder.Code != http.StatusConflict || len(busy.jobs) != 0 {
 		t.Errorf("a purge beside an installation: %d, %v", recorder.Code, busy.jobs)
+	}
+}
+
+// Accepting a source records it against the plugin's id, not against a key: the signature format
+// carries no public key, so an unknown signer leaves nothing else to remember. The next version of
+// that plugin then installs without asking again.
+func TestAcceptingASourceRecordsItAndQueuesTheInstallation(t *testing.T) {
+	db := &installationStore{parked: &store.PluginInstallation{
+		ID: 4, State: store.InstallationUnrecognised, PluginID: "gotest",
+		Reference: pinned, Error: "signed by no trusted key",
+	}}
+	recorder, _, _ := callInstallationsWith(t, db, http.MethodPost, "/admin/plugins/installations/4/accept", "")
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
+	}
+	if len(db.accepted) != 1 || db.accepted[0] != "gotest signed by no trusted key 121" {
+		t.Errorf("accepted = %v", db.accepted)
+	}
+	if len(db.retried) != 1 || db.retried[0] != 4 {
+		t.Errorf("retried = %v", db.retried)
+	}
+	if len(db.jobs) != 1 || db.jobs[0].Kind != PluginInstallJobKind || db.jobs[0].Params[PluginInstallationKey] != "4" {
+		t.Errorf("jobs = %+v", db.jobs)
+	}
+	if len(db.audit) != 1 || db.audit[0] != "plugin.source.accepted:"+pinned {
+		t.Errorf("audit = %v", db.audit)
+	}
+}
+
+// Only an installation waiting on that decision can be accepted: one that failed for another
+// reason is not turned into an acceptance by this route, and an unknown one is not found.
+func TestOnlyAnInstallationWaitingOnItsSourceIsAccepted(t *testing.T) {
+	failed := &installationStore{parked: &store.PluginInstallation{
+		ID: 4, State: store.InstallationFailed, PluginID: "gotest", Reference: pinned,
+	}}
+	recorder, _, _ := callInstallationsWith(t, failed, http.MethodPost, "/admin/plugins/installations/4/accept", "")
+	if recorder.Code != http.StatusConflict {
+		t.Errorf("a failed installation: status = %d", recorder.Code)
+	}
+	if len(failed.accepted) != 0 || len(failed.jobs) != 0 {
+		t.Errorf("accepted = %v, jobs = %+v", failed.accepted, failed.jobs)
+	}
+
+	recorder, unknown, _ := callInstallations(t, http.MethodPost, "/admin/plugins/installations/7/accept", "")
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("an unknown installation: status = %d", recorder.Code)
+	}
+	if len(unknown.accepted) != 0 {
+		t.Errorf("accepted = %v", unknown.accepted)
 	}
 }

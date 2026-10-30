@@ -650,7 +650,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 			// Installing a plugin, for the same reason: pulled and verified here, it is put in force at once
 			// rather than at the next reload.
-			scheduler.Handle(worker.NewPluginInstaller(db, storage, pluginPuller(cfg), sources.checkPlugin,
+			scheduler.Handle(worker.NewPluginInstaller(db, storage, pluginPuller(cfg, db), sources.checkPlugin,
 				func(ctx context.Context) { _ = reloader.Reload(ctx) }, logger).
 				WithMigrations(migratePlugin(cfg.Database, logger)))
 			// Purging what an uninstalled plugin left, under the lease like its migrations.

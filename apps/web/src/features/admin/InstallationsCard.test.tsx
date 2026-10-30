@@ -45,6 +45,19 @@ const installed: Installation[] = [
   },
 ]
 
+/** Tirée, mais d'une source que l'instance ne reconnaît pas : elle attend une décision. */
+const unrecognised: Installation = {
+  id: 6,
+  reference: 'reg.example/plugins/junit@sha256:dd',
+  digest: 'sha256:dd',
+  plugin: 'junit',
+  state: 'unrecognised',
+  error: 'signed by no trusted key',
+  active: false,
+  requested_by: 'admin',
+  requested_at: '2026-10-30T09:00:00Z',
+}
+
 function serve(installations: Installation[]) {
   const calls: { url: string; method: string; body?: string }[] = []
   vi.stubGlobal(
@@ -84,6 +97,31 @@ describe('InstallationsCard', () => {
 
     expect(await screen.findByText(/Non signé/)).toBeInTheDocument()
     expect(screen.queryByText('unsigned')).not.toBeInTheDocument()
+  })
+
+  it('avertit sur une source non reconnue et propose de l\'accepter', async () => {
+    const calls = serve([unrecognised])
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<InstallationsCard />)
+
+    expect(await screen.findByText(/ne vient pas d'une source reconnue/)).toBeInTheDocument()
+    // Pas de bouton d'activation : il n'y a rien d'installé à activer.
+    expect(screen.queryByRole('button', { name: 'Activer' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Accepter la source' }))
+
+    const posted = calls.find((call) => call.method === 'POST')
+    expect(posted?.url).toBe('/api/v1/admin/plugins/installations/6/accept')
+  })
+
+  // L'acceptation est une décision : rien n'est envoyé si elle n'est pas confirmée.
+  it("n'accepte rien sans confirmation", async () => {
+    const calls = serve([unrecognised])
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<InstallationsCard />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Accepter la source' }))
+    expect(calls.find((call) => call.method === 'POST')).toBeUndefined()
   })
 
   it('demande une installation par sa référence', async () => {

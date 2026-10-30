@@ -499,6 +499,24 @@ capabilities still build with it, applies its migrations, stores the layer under
 `plugins/<id>/<version>/`, and records the key that signed it (or `unsigned`). A failure is read
 on the installation, and on the job. Settings already recorded for the plugin's id are kept.
 
+**A source the instance does not recognise.** Unsigned, or signed by a key no trusted key
+matches, and named by neither list: the installation stops in the state `unrecognised` instead of
+failing, and waits. The screen warns that the plugin does not come from a recognised source, and
+accepting it records the plugin's **id**, after which its next version installs without asking
+again. Withdrawing that acceptance applies to the next installation; versions already installed
+stay.
+
+The id is what is recorded, and the only thing there is to record: the signature format carries
+no public key, so an unknown signer leaves no fingerprint to keep or to compare. To read the id,
+the layer is fetched before the plugin is trusted, which is what `PLUGIN_ALLOW_UNSIGNED` already
+did: it is read, bounded, and nothing of it runs.
+
+Installing a plugin is the administrator's act, and they already pin the digest, which asserts
+more about an artifact than a signature by an unknown key. An instance that would rather a
+compromised administrator account could install nothing sets `PLUGIN_OFFER_UNRECOGNISED` to
+`false`: the refusal is then final, and the layer of a plugin that could not be accepted is never
+fetched.
+
 **Workspaces.** A workspace has exactly one source: the secret bound to a need, a claim created
 per run, an empty directory, or a **ConfigMap the operator owns**. The last is for data a plugin
 must not carry, because it belongs to the operator and changes without publishing a plugin: a

@@ -9,7 +9,13 @@ import { request } from '../../lib/api'
  * vigueur. L'écran suit donc un état, et le relit tant qu'une demande attend.
  */
 
-export type InstallationState = 'pending' | 'installed' | 'failed' | 'removed'
+export type InstallationState =
+  | 'pending'
+  | 'installed'
+  | 'failed'
+  | 'removed'
+  /** Tirée, mais d'une source que l'instance ne reconnaît pas : elle attend une décision. */
+  | 'unrecognised'
 
 export type Installation = {
   id: number
@@ -60,6 +66,20 @@ export function useRequestInstallation() {
       request<{ id: number; job: number; reference: string }>('/admin/plugins/installations', {
         method: 'POST',
         body: JSON.stringify({ reference }),
+      }),
+    onSuccess: invalidate,
+  })
+}
+
+/** Accepter la source d'un plugin que l'instance ne reconnaît pas, et relancer son installation.
+ *  L'acceptation est retenue pour l'identifiant du plugin : la prochaine version s'installera
+ *  sans reposer la question. */
+export function useAcceptSource() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: (id: number) =>
+      request<void>(`/admin/plugins/installations/${id}/accept`, {
+        method: 'POST',
       }),
     onSuccess: invalidate,
   })

@@ -16,6 +16,10 @@ const (
 	InstallationInstalled = "installed"
 	InstallationFailed    = "failed"
 	InstallationRemoved   = "removed"
+	// InstallationUnrecognised waits for an administrator: the plugin was pulled, its source is
+	// not one the instance recognises, and refusing it outright would send a decision that is the
+	// administrator's through a deployment.
+	InstallationUnrecognised = "unrecognised"
 )
 
 // ErrInstallationNotFound reports a missing installation.
@@ -169,6 +173,81 @@ func (db *DB) FailPluginInstallation(ctx context.Context, id int64, reason strin
 		where id = $1 and state = 'pending'`, id, reason)
 	if err != nil {
 		return fmt.Errorf("failing installation %d: %w", id, err)
+	}
+	return nil
+}
+
+// ParkPluginInstallation records an installation waiting for a decision on its source.
+//
+// It carries the plugin's id, which the pull read from the layer: without it the screen could not
+// say what is to be accepted, and the acceptance is recorded against that id.
+func (db *DB) ParkPluginInstallation(ctx context.Context, id int64, pluginID, reason string) error {
+	_, err := db.pool.Exec(ctx, `update plugin_installations
+		set state = 'unrecognised', plugin_id = $2, error = $3
+		where id = $1 and state = 'pending'`, id, pluginID, reason)
+	if err != nil {
+		return fmt.Errorf("parking installation %d: %w", id, err)
+	}
+	return nil
+}
+
+// RetryPluginInstallation puts a parked installation back in the queue's reach.
+//
+// Back to `pending` rather than a state of its own: what follows is an installation like any
+// other, and the job that carries it out refuses anything else.
+func (db *DB) RetryPluginInstallation(ctx context.Context, id int64) error {
+	tag, err := db.pool.Exec(ctx, `update plugin_installations set state = 'pending', error = ''
+		where id = $1 and state = 'unrecognised'`, id)
+	if err != nil {
+		return fmt.Errorf("retrying installation %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrInstallationNotFound
+	}
+	return nil
+}
+
+// AcceptedSources are the plugin ids an administrator accepted despite an unrecognised source.
+//
+// Read at every installation, like the trusted keys: an acceptance withdrawn applies without a
+// restart.
+func (db *DB) AcceptedSources(ctx context.Context) ([]string, error) {
+	rows, err := db.pool.Query(ctx, `select plugin_id from accepted_sources order by plugin_id`)
+	if err != nil {
+		return nil, fmt.Errorf("reading the accepted sources: %w", err)
+	}
+	defer rows.Close()
+
+	var accepted []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("reading the accepted sources: %w", err)
+		}
+		accepted = append(accepted, id)
+	}
+	return accepted, rows.Err()
+}
+
+// AcceptSource records that an administrator accepted a plugin whose source is not recognised.
+//
+// Idempotent, and the first acceptance is the one kept: a second says nothing new, and keeping it
+// would lose who decided.
+func (db *DB) AcceptSource(ctx context.Context, pluginID, reason, subject string) error {
+	_, err := db.pool.Exec(ctx, `insert into accepted_sources (plugin_id, reason, accepted_by)
+		values ($1, $2, $3) on conflict (plugin_id) do nothing`, pluginID, reason, subject)
+	if err != nil {
+		return fmt.Errorf("accepting the source of %q: %w", pluginID, err)
+	}
+	return nil
+}
+
+// WithdrawSource takes an acceptance back. Installed versions stay: what is withdrawn is the
+// permission to install another one from a source still not recognised.
+func (db *DB) WithdrawSource(ctx context.Context, pluginID string) error {
+	_, err := db.pool.Exec(ctx, `delete from accepted_sources where plugin_id = $1`, pluginID)
+	if err != nil {
+		return fmt.Errorf("withdrawing the source of %q: %w", pluginID, err)
 	}
 	return nil
 }
