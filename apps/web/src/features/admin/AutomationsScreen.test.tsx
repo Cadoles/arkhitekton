@@ -109,11 +109,13 @@ const automatisation = {
   updated_by: 'system:reprise',
 }
 
-function armer(reactions: unknown[], automation: unknown = automatisation) {
+function armer(reactions: unknown[], automation: unknown = automatisation, schedules: unknown[] = []) {
   return mockFetch([
     { path: '/automations/catalogue', body: catalogue },
     { path: '/automation', body: automation },
     { path: '/reactions', body: { reactions, project: 'mse' } },
+    { path: '/schedules', body: { schedules } },
+    { path: '/schedules', method: 'POST', body: { id: 4 } },
   ])
 }
 
@@ -335,5 +337,62 @@ describe('le poids au score', () => {
 
     await userEvent.type(champ, '0')
     expect(await screen.findByText(/ne note pas la release/)).toBeInTheDocument()
+  })
+})
+
+/*
+ * Les planifications : les mêmes plans, ouverts par une horloge.
+ */
+
+describe('les planifications', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('dit quand une planification tire, et ce que son dernier tic a donné', async () => {
+    armer([], automatisation, [
+      {
+        id: 4,
+        name: 'Intégration',
+        cron: '0 8,12,16 * * 1-5',
+        timezone: 'Europe/Paris',
+        ref: 'migration-symfony',
+        enabled: true,
+        plan: { stages: [{ gestes: [{ kind: 'pipeline', ref: 'unit-tests' }] }] },
+        next_fire_at: '2026-11-02T11:00:00Z',
+        last_fired_at: '2026-11-02T07:00:00Z',
+        last_outcome: 'skipped: the previous run is still going',
+      },
+    ])
+    render(<AutomationsScreen />)
+
+    expect(await screen.findByText('Intégration')).toBeInTheDocument()
+    expect(screen.getByText('0 8,12,16 * * 1-5')).toBeInTheDocument()
+    expect(screen.getByText('migration-symfony')).toBeInTheDocument()
+    expect(screen.getByText(/Prochain tic/)).toBeInTheDocument()
+    expect(screen.getByText(/the previous run is still going/)).toBeInTheDocument()
+  })
+
+  it('envoie l’expression, le fuseau et la branche que l’on saisit', async () => {
+    const calls = armer([])
+    render(<AutomationsScreen />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Planifier' }))
+    await userEvent.type(screen.getByLabelText('Nom'), 'Audit du lundi')
+    await userEvent.type(screen.getByLabelText('Quand (cron)'), '0 5 * * MON')
+    await userEvent.clear(screen.getByLabelText('Fuseau'))
+    await userEvent.type(screen.getByLabelText('Fuseau'), 'Europe/Paris')
+    await userEvent.type(screen.getByLabelText('Branche ou tag'), 'main')
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+
+    const sent = calls.find((call) => call.method === 'POST' && call.url.includes('/schedules'))
+    expect(sent?.url).toContain('/projects/mse/schedules')
+    expect(sent?.body).toMatchObject({
+      name: 'Audit du lundi',
+      cron: '0 5 * * MON',
+      timezone: 'Europe/Paris',
+      ref: 'main',
+      enabled: true,
+    })
   })
 })

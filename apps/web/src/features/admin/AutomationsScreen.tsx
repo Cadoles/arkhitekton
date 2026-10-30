@@ -3,23 +3,30 @@ import { useOutletContext } from 'react-router'
 import { Card, EmptyState, Skeleton } from '../../components/primitives'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
+import { formatDateTime } from '../../lib/format'
 import type { Project } from './api'
 import {
+  SCHEDULE_FIELDS,
   emptyPlan,
   gesteLabel,
   gestesPourRole,
   useAutomation,
   useAutomationCatalogue,
   useDeleteReaction,
+  useDeleteSchedule,
   useReactions,
   useSaveAutomation,
   useSaveReaction,
+  useSaveSchedule,
+  useSchedules,
   type Automation,
   type Catalogue,
   type Geste,
   type Plan,
   type Reaction,
   type ReactionDraft,
+  type Schedule,
+  type ScheduleDraft,
 } from './automations'
 
 /*
@@ -100,7 +107,263 @@ export function AutomationsScreen() {
           onDone={() => setEditing(null)}
         />
       )}
+
+      {catalogue.data && <SchedulesCard slug={project.slug} catalogue={catalogue.data} />}
     </div>
+  )
+}
+
+/*
+ * Les planifications : les mêmes plans, ouverts par une horloge.
+ *
+ * Elles remplacent les CronJobs qui créaient des PipelineRun hors de la file. Un
+ * tic n'ouvre rien tant que le plan précédent tourne, et un tic manqué pendant
+ * une panne n'est pas rattrapé en retard : l'écran dit ce que le dernier a donné.
+ */
+function SchedulesCard({ slug, catalogue }: { slug: string; catalogue: Catalogue }) {
+  const schedules = useSchedules(slug)
+  const [editing, setEditing] = useState<Schedule | 'new' | null>(null)
+
+  return (
+    <>
+      <Card
+        title="Planifications"
+        action={
+          <button
+            type="button"
+            onClick={() => setEditing('new')}
+            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+          >
+            Planifier
+          </button>
+        }
+      >
+        {schedules.isPending ? (
+          <Skeleton className="h-16 w-full" />
+        ) : (schedules.data?.schedules.length ?? 0) === 0 ? (
+          <EmptyState>
+            Aucune planification. Une planification ouvre un plan à heures fixes : des
+            tests d'intégration trois fois par jour, un audit chaque lundi.
+          </EmptyState>
+        ) : (
+          <ul className="flex flex-col divide-y divide-zinc-200">
+            {schedules.data?.schedules.map((entry) => (
+              <ScheduleRow
+                key={entry.id}
+                schedule={entry}
+                catalogue={catalogue}
+                slug={slug}
+                onEdit={() => setEditing(entry)}
+              />
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {editing && (
+        <ScheduleEditor
+          slug={slug}
+          catalogue={catalogue}
+          schedule={editing === 'new' ? null : editing}
+          onDone={() => setEditing(null)}
+        />
+      )}
+    </>
+  )
+}
+
+function ScheduleRow({
+  schedule,
+  catalogue,
+  slug,
+  onEdit,
+}: {
+  schedule: Schedule
+  catalogue: Catalogue
+  slug: string
+  onEdit: () => void
+}) {
+  const remove = useDeleteSchedule(slug)
+  const [confirming, setConfirming] = useState(false)
+  const gestes = schedule.plan.stages.flatMap((stage) => stage.gestes)
+
+  return (
+    <li className="flex flex-col gap-1 py-2">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="text-sm font-medium text-zinc-900">{schedule.name}</span>
+        <span className="font-mono text-xs text-zinc-600">{schedule.cron}</span>
+        <span className="text-xs text-zinc-500">{schedule.timezone || 'UTC'}</span>
+        {!schedule.enabled && (
+          <span className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs text-zinc-600">
+            éteinte
+          </span>
+        )}
+        <span className="ml-auto flex gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+          >
+            Modifier
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+          >
+            Supprimer
+          </button>
+        </span>
+      </div>
+
+      <p className="text-xs text-zinc-500">
+        sur <span className="font-mono">{schedule.ref || 'la branche par défaut'}</span> —{' '}
+        {gestes.length === 0 ? 'aucun geste' : gestes.map((geste) => gesteLabel(catalogue, geste)).join(', ')}
+      </p>
+      <p className="text-xs text-zinc-500">
+        {schedule.next_fire_at && <>Prochain tic : {formatDateTime(schedule.next_fire_at)}. </>}
+        {schedule.last_fired_at && (
+          <>
+            Dernier : {formatDateTime(schedule.last_fired_at)}, {schedule.last_outcome}.
+          </>
+        )}
+      </p>
+
+      {confirming && (
+        <ConfirmDialog
+          title={`Supprimer « ${schedule.name} » ?`}
+          confirmLabel="Supprimer"
+          pending={remove.isPending}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            remove.mutate(schedule.id)
+            setConfirming(false)
+          }}
+        >
+          <p>Les exécutions déjà ouvertes restent consultables ; plus rien ne partira.</p>
+        </ConfirmDialog>
+      )}
+    </li>
+  )
+}
+
+/** Le fuseau du navigateur, proposé par défaut : on écrit une heure là où on la lit. */
+function browserZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch {
+    return ''
+  }
+}
+
+function ScheduleEditor({
+  slug,
+  catalogue,
+  schedule,
+  onDone,
+}: {
+  slug: string
+  catalogue: Catalogue
+  schedule: Schedule | null
+  onDone: () => void
+}) {
+  const save = useSaveSchedule(slug)
+  const [draft, setDraft] = useState<ScheduleDraft>(() => ({
+    name: schedule?.name ?? '',
+    cron: schedule?.cron ?? '',
+    timezone: schedule?.timezone ?? browserZone(),
+    ref: schedule?.ref ?? '',
+    enabled: schedule?.enabled ?? true,
+    plan: schedule?.plan ?? emptyPlan(),
+  }))
+  const set = <K extends keyof ScheduleDraft>(key: K, value: ScheduleDraft[K]) =>
+    setDraft((previous) => ({ ...previous, [key]: value }))
+
+  return (
+    <Card title={schedule ? `Modifier « ${schedule.name} »` : 'Planifier un plan'}>
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(submit) => {
+          submit.preventDefault()
+          save.mutate({ id: schedule?.id, draft }, { onSuccess: onDone })
+        }}
+      >
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Nom</span>
+            <input
+              value={draft.name}
+              onChange={(change) => set('name', change.target.value)}
+              placeholder="Intégration trois fois par jour"
+              className="w-64 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Quand (cron)</span>
+            <input
+              value={draft.cron}
+              onChange={(change) => set('cron', change.target.value)}
+              placeholder="0 8,12,16 * * 1-5"
+              className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Fuseau</span>
+            <input
+              value={draft.timezone}
+              onChange={(change) => set('timezone', change.target.value)}
+              placeholder="Europe/Paris"
+              className="w-40 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Branche ou tag</span>
+            <input
+              value={draft.ref}
+              onChange={(change) => set('ref', change.target.value)}
+              placeholder="la branche par défaut"
+              className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={draft.enabled}
+              onChange={(change) => set('enabled', change.target.checked)}
+            />
+            Active
+          </label>
+        </div>
+        <p className="text-xs text-zinc-500">
+          Minute, heure, jour du mois, mois, jour de la semaine : <span className="font-mono">0 3 * * *</span>{' '}
+          chaque nuit à 3 h, <span className="font-mono">0 5 * * MON</span> le lundi à 5 h. La branche est
+          résolue en commit à chaque tic : le run dit quel commit il a testé.
+        </p>
+
+        <PlanEditor
+          catalogue={catalogue}
+          fields={SCHEDULE_FIELDS}
+          plan={draft.plan}
+          onChange={(plan) => set('plan', plan)}
+          legend="À chaque tic"
+        />
+
+        {save.error && <p className="text-xs text-critical-700">{(save.error as Error).message}</p>}
+
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={save.isPending}
+            className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm font-medium text-zinc-800 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+          >
+            Enregistrer
+          </button>
+          <button type="button" onClick={onDone} className="rounded-md px-3 py-1 text-sm text-zinc-600 hover:underline">
+            Annuler
+          </button>
+        </div>
+      </form>
+    </Card>
   )
 }
 
