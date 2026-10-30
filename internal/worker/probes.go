@@ -18,17 +18,17 @@ import (
 /*
  * The probes: where a plugin's facts come from.
  *
- * # A probe rather than reception
+ * # A probe, and reception beside it
  *
  * "Detecting" hides two very different mechanisms. The dashboard queries, or the forge pushes.
- * The probe was chosen for three reasons that hold together:
+ * The probe came first: the machinery existed, the tracker synchronisation does exactly that, and
+ * `sync_state` already carries `(source, project_id)`.
  *
- *   - the machinery exists — the tracker synchronisation does exactly that, and `sync_state`
- *     already carries `(source, project_id)`;
- *   - reception would add a **public entry point**, unauthenticated by nature, requiring a
- *     shared signature and an anti-replay window: a decision of another kind, not a point of
- *     extension;
- *   - the same debate was already settled this way for the tracker.
+ * Reception came later, for what a probe cannot see: a forge keeps no list of pushes to read back.
+ * It is a public entry point, and was taken as the decision of another kind it is: the signature is
+ * checked by the dashboard, and a replay is bounded by the facts' keys rather than by a window. A
+ * delivery produces the same observations under the same keys, so a fact both polled and received
+ * is written once. See `http/hooks.go` and `received.go`.
  *
  * # The three obligations, held **here** and not by each probe
  *

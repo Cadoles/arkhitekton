@@ -115,7 +115,33 @@ refused unless explicitly allowed, and link-local is never reopened: a URL typed
 interface becomes a request issued from inside the cluster, which is a
 server-side-request-forgery primitive if left open.
 
-## 9.8 Files from pipelines
+## 9.8 Inbound webhooks
+
+`POST /api/v1/hooks/{plugin}/projects/{project}` is reachable without a session, by design: a
+forge holds none. What stands in for authentication:
+
+- **The signature is checked by the dashboard, not by the plugin.** The plugin declares the scheme
+  (HMAC-SHA256 of the body, or a token in a header) and the header; the dashboard compares in
+  constant time against the secret the project's plugin settings hold, sealed at rest, before the
+  plugin reads a byte. A plugin cannot forget the check.
+- **No secret, no delivery.** A project whose plugin has no secret refuses every delivery with
+  `403`, rather than accepting unsigned ones.
+- **The body is bounded** to 4 MiB before the signature is computed, so an unauthenticated caller
+  cannot make the API read without limit.
+- **A replay writes nothing.** A fact is keyed on what it says, a push on its repository, ref and
+  commit, not on the delivery: a delivery replayed by anyone holding a copy is the same fact, not
+  recorded again and not routed again. The token scheme is weaker, since a token read in transit
+  signs any body; prefer HMAC where the forge offers it.
+- **The repository must be the project's.** A secret shared at the instance's scope signs every
+  repository's hook alike; the Gitea plugin refuses a delivery about another repository than the
+  project's, so a hook pointed at the wrong address cannot build the wrong code.
+- **A delivery launches nothing itself.** It records facts; what runs is what the project's
+  reactions, declared by an administrator, say.
+
+What it costs an unauthenticated caller to try: a project lookup, a settings read and an HMAC
+over at most 4 MiB. Rate limiting, if wanted, belongs to the ingress.
+
+## 9.9 Files from pipelines
 
 The files a run keeps (screenshots, videos, HTML reports) are third-party content served under
 the dashboard's origin, where the session cookie lives and the CSRF token can be read by
@@ -129,7 +155,7 @@ A file is read through the API under the reader's role on the release, never thr
 presigned URL, and a file of another release answers like a missing one. An interpreter can
 only attach a file the dashboard itself kept for that run.
 
-## 9.9 Plugin code
+## 9.10 Plugin code
 
 A plugin compiled into the binary is trusted like the rest of it. A **declared reading** is not
 code: it only projects fields through a closed set of filters, with no loop, condition or call,
@@ -172,7 +198,7 @@ does not pretend otherwise. What it guarantees:
 What the definitions' pods may do is still bounded by the namespace's Pod Security level: the
 dashboard's checks refuse the obvious escapes, the cluster enforces the rest.
 
-## 9.10 Audit
+## 9.11 Audit
 
 Every administrative act (role granted or revoked, plugin enabled, installed or refused, activated or
 uninstalled, its tables purged, capability bound, limit changed, project created) is recorded in `audit_log` with
