@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -31,6 +32,7 @@ type InstallationStore interface {
 	PluginInstallation(ctx context.Context, id int64) (store.PluginInstallation, error)
 	CompletePluginInstallation(ctx context.Context, id int64, completed store.CompletedInstallation) (bool, error)
 	FailPluginInstallation(ctx context.Context, id int64, reason string) error
+	ParkPluginInstallation(ctx context.Context, id int64, pluginID, reason string) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
@@ -79,6 +81,14 @@ func (p *PluginInstaller) Run(ctx context.Context, job store.Job) error {
 		return fmt.Errorf("job %d names no installation", job.ID)
 	}
 	if err := p.install(ctx, id); err != nil {
+		// A source the instance does not recognise is not a failure of the job: it pulled what it
+		// was asked for, read the plugin's id, and what remains is a decision. Returning an error
+		// would mark the job failed and lose the distinction the screen needs.
+		var unrecognised *installed.UnrecognisedSource
+		if errors.As(err, &unrecognised) {
+			p.park(ctx, id, unrecognised)
+			return nil
+		}
 		if recordErr := p.store.FailPluginInstallation(ctx, id, err.Error()); recordErr != nil {
 			p.logger.Error("recording a failed installation", "installation", id, "error", recordErr)
 		}
@@ -86,6 +96,28 @@ func (p *PluginInstaller) Run(ctx context.Context, job store.Job) error {
 		return err
 	}
 	return nil
+}
+
+// park records an installation waiting for a decision on its source, and audits it: a plugin
+// offered for acceptance is what an audit is read for, as much as one refused.
+func (p *PluginInstaller) park(ctx context.Context, id int64, unrecognised *installed.UnrecognisedSource) {
+	reason := unrecognised.Reason.Error()
+	if err := p.store.ParkPluginInstallation(ctx, id, unrecognised.PluginID, reason); err != nil {
+		p.logger.Error("parking an installation", "installation", id, "error", err)
+		return
+	}
+	p.logger.Warn("plugin from an unrecognised source",
+		"installation", id, "plugin", unrecognised.PluginID, "reason", reason)
+
+	installation, err := p.store.PluginInstallation(ctx, id)
+	if err != nil {
+		p.logger.Error("auditing an unrecognised source", "installation", id, "error", err)
+		return
+	}
+	if err := p.store.Audit(ctx, installation.RequestedBy, "plugin.source.unrecognised", installation.Reference,
+		map[string]any{"installation": id, "plugin": unrecognised.PluginID, "reason": reason}); err != nil {
+		p.logger.Error("auditing an unrecognised source", "installation", id, "error", err)
+	}
 }
 
 // auditFailure records a refused installation next to its request: a plugin refused for its

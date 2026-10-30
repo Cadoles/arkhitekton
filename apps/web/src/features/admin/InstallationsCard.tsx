@@ -3,6 +3,7 @@ import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primiti
 import { ApiError } from '../../lib/api'
 import {
   type Installation,
+  useAcceptSource,
   useActivateInstallation,
   useInstallations,
   useRemoveInstallation,
@@ -30,6 +31,7 @@ const STATE_LABEL: Record<Installation['state'], string> = {
   installed: 'Installé',
   failed: 'Échec',
   removed: 'Retiré',
+  unrecognised: 'Source non reconnue',
 }
 
 function reason(error: Error | null): string | undefined {
@@ -44,9 +46,11 @@ export function InstallationsCard() {
   const install = useRequestInstallation()
   const activate = useActivateInstallation()
   const remove = useRemoveInstallation()
+  const accept = useAcceptSource()
   const [reference, setReference] = useState('')
 
-  const failure = reason(install.error) ?? reason(activate.error) ?? reason(remove.error)
+  const failure =
+    reason(install.error) ?? reason(activate.error) ?? reason(remove.error) ?? reason(accept.error)
   const shown = data?.installations.filter((installation) => installation.state !== 'removed') ?? []
 
   return (
@@ -126,6 +130,25 @@ export function InstallationsCard() {
                       Activer
                     </button>
                   )}
+                  {installation.state === 'unrecognised' && (
+                    <button
+                      type="button"
+                      disabled={accept.isPending}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Ce plugin ne vient pas d'une source reconnue par cette instance. ` +
+                              `L'accepter retient ${installation.plugin} : ses prochaines versions ` +
+                              `s'installeront sans reposer la question.`,
+                          )
+                        )
+                          accept.mutate(installation.id)
+                      }}
+                      className="rounded-md border border-warn-700 bg-white px-2.5 py-1 text-xs font-medium text-warn-700 transition-colors hover:bg-warn-50"
+                    >
+                      Accepter la source
+                    </button>
+                  )}
                   {installation.state !== 'pending' && (
                     <button
                       type="button"
@@ -157,8 +180,16 @@ export function InstallationsCard() {
                   </span>
                 )
               )}
-              {installation.error && (
-                <span className="text-xs text-critical-700">{installation.error}</span>
+              {installation.state === 'unrecognised' ? (
+                <span className="text-xs text-warn-700">
+                  Attention, ce plugin ne vient pas d'une source reconnue
+                  {installation.error && ` : ${installation.error}`}. L'installer est votre
+                  décision ; elle sera retenue pour les prochaines versions de ce plugin.
+                </span>
+              ) : (
+                installation.error && (
+                  <span className="text-xs text-critical-700">{installation.error}</span>
+                )
               )}
               <span className="text-xs text-zinc-400">demandé par {installation.requested_by}</span>
             </li>

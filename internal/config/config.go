@@ -51,6 +51,14 @@ type PluginsConfig struct {
 	// AllowUnsigned names the plugins installed without a trusted signature. Named by id and
 	// pinned by digest all the same: the operator lets one plugin in, not any.
 	AllowUnsigned []string
+	// OfferUnrecognised lets an administrator accept, from the screen, a plugin whose source the
+	// instance does not recognise. True by default: installing a plugin is the administrator's
+	// act, and they already pin the digest.
+	//
+	// Set to false by an instance that would rather a compromised administrator account could
+	// install nothing: an unrecognised source is then refused outright, and only the operator's
+	// `AllowUnsigned` and the trusted keys let a plugin in.
+	OfferUnrecognised bool
 }
 
 // ProbeConfig bounds how often outside sources are polled.
@@ -342,6 +350,9 @@ func Load(role Role) (Config, error) {
 			RegistryAuth:  os.Getenv("PLUGIN_REGISTRY_AUTH"),
 			PlainHTTP:     listOr("PLUGIN_PLAIN_HTTP_REGISTRIES", nil),
 			AllowUnsigned: listOr("PLUGIN_ALLOW_UNSIGNED", nil),
+			// Default true: refusing by default would send a decision that is the administrator's
+			// through a deployment, which is what this exists to avoid.
+			OfferUnrecognised: boolOr("PLUGIN_OFFER_UNRECOGNISED", true),
 		},
 		Forge: ForgeConfig{
 			URL:        strings.TrimRight(os.Getenv("FORGE_URL"), "/"),

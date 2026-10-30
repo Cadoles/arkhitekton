@@ -13,6 +13,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"io"
 	"io/fs"
 	"log"
@@ -67,7 +68,7 @@ func TestAPublishedPluginIsPulledAndVerified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pulled, err := Pull(context.Background(), registries, trusted, nil, reference)
+	pulled, err := Pull(context.Background(), registries, trusted, nil, false, reference)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +101,7 @@ func TestEd25519KeysSign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Pull(context.Background(), registries, trust(t, public), nil, reference); err != nil {
+	if _, err := Pull(context.Background(), registries, trust(t, public), nil, false, reference); err != nil {
 		t.Error(err)
 	}
 }
@@ -122,21 +123,21 @@ func TestAPluginIsInstalledOnlyAsSigned(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Pull(ctx, registries, stranger, nil, reference); err == nil || !strings.Contains(err.Error(), "no trusted key") {
+	if _, err := Pull(ctx, registries, stranger, nil, false, reference); err == nil || !strings.Contains(err.Error(), "no trusted key") {
 		t.Errorf("a stranger's key: %v", err)
 	}
-	if _, err := Pull(ctx, registries, trusted, nil, host+"/plugins/gotest:1.0.0"); err == nil || !strings.Contains(err.Error(), "by digest") {
+	if _, err := Pull(ctx, registries, trusted, nil, false, host+"/plugins/gotest:1.0.0"); err == nil || !strings.Contains(err.Error(), "by digest") {
 		t.Errorf("a tag: %v", err)
 	}
 
 	// The signature of 1.0.1, moved onto 1.0.0: valid, by a trusted key, and about another artifact.
 	moveSignature(t, host, other, reference)
-	if _, err := Pull(ctx, registries, trusted, nil, reference); err == nil || !strings.Contains(err.Error(), "the signature is for") {
+	if _, err := Pull(ctx, registries, trusted, nil, false, reference); err == nil || !strings.Contains(err.Error(), "the signature is for") {
 		t.Errorf("another artifact's signature: %v", err)
 	}
 
 	unsigned := pushForeign(t, host, "plugins/unsigned", ocispec.Manifest{})
-	if _, err := Pull(ctx, registries, trusted, nil, unsigned); err == nil || !strings.Contains(err.Error(), "no signature") {
+	if _, err := Pull(ctx, registries, trusted, nil, false, unsigned); err == nil || !strings.Contains(err.Error(), "no signature") {
 		t.Errorf("unsigned: %v", err)
 	}
 }
@@ -157,14 +158,14 @@ func TestAPulledPluginIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	signArtifact(t, host, "plugins/huge", pushed.String(), key)
-	if _, err := Pull(ctx, registries, trusted, nil, host+"/plugins/huge@"+pushed.String()); err == nil || !strings.Contains(err.Error(), "larger") {
+	if _, err := Pull(ctx, registries, trusted, nil, false, host+"/plugins/huge@"+pushed.String()); err == nil || !strings.Contains(err.Error(), "larger") {
 		t.Errorf("a huge layer: %v", err)
 	}
 
 	other := pushForeign(t, host, "plugins/image", ocispec.Manifest{})
 	_, digest, _ := strings.Cut(other, "@")
 	signArtifact(t, host, "plugins/image", digest, key)
-	if _, err := Pull(ctx, registries, trusted, nil, other); err == nil || !strings.Contains(err.Error(), "not an arkhitekton plugin") {
+	if _, err := Pull(ctx, registries, trusted, nil, false, other); err == nil || !strings.Contains(err.Error(), "not an arkhitekton plugin") {
 		t.Errorf("not a plugin: %v", err)
 	}
 }
@@ -301,10 +302,10 @@ func TestAnUnsignedPluginInstallsOnlyWhenNamed(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := Pull(ctx, registries, trusted, []string{"other"}, reference); err == nil || !strings.Contains(err.Error(), `"gotest" is not one`) {
+	if _, err := Pull(ctx, registries, trusted, []string{"other"}, false, reference); err == nil || !strings.Contains(err.Error(), `"gotest" is not one`) {
 		t.Errorf("another plugin named: %v", err)
 	}
-	pulled, err := Pull(ctx, registries, nil, []string{"gotest"}, reference)
+	pulled, err := Pull(ctx, registries, nil, []string{"gotest"}, false, reference)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,5 +314,70 @@ func TestAnUnsignedPluginInstallsOnlyWhenNamed(t *testing.T) {
 	}
 	if loaded, err := Load(pulled.Files); err != nil || loaded.ID != "gotest" {
 		t.Errorf("loaded %v", err)
+	}
+}
+
+// A source the instance does not recognise is offered rather than refused, and what it carries is
+// the plugin's declared id: it is what an administrator is asked about, and the only thing there
+// is to record, the signature format carrying no public key.
+func TestAnUnrecognisedSourceIsOfferedWithItsID(t *testing.T) {
+	ctx := context.Background()
+	host, registries := registryHost(t)
+	key, _ := ecdsaKey(t)
+	_, stranger := ecdsaKey(t)
+
+	reference, err := Publish(ctx, registries, host+"/plugins/gotest:1.0.0", publishable(t), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var unrecognised *UnrecognisedSource
+	if _, err := Pull(ctx, registries, stranger, nil, true, reference); !errors.As(err, &unrecognised) {
+		t.Fatalf("a stranger's key, offered: %v", err)
+	}
+	if unrecognised.PluginID != "gotest" {
+		t.Errorf("plugin = %q", unrecognised.PluginID)
+	}
+	if !strings.Contains(unrecognised.Reason.Error(), "no trusted key") {
+		t.Errorf("reason = %v", unrecognised.Reason)
+	}
+
+	// With no key trusted at all, the offer still names the plugin: that is the case of an instance
+	// mounting no key, where every plugin is an unrecognised source.
+	if _, err := Pull(ctx, registries, nil, nil, true, reference); !errors.As(err, &unrecognised) {
+		t.Errorf("no trusted key, offered: %v", err)
+	}
+
+	// An id already let in installs, and is recorded unsigned: the acceptance and the operator's
+	// list answer the same question.
+	pulled, err := Pull(ctx, registries, stranger, []string{"gotest"}, true, reference)
+	if err != nil {
+		t.Fatalf("an accepted source: %v", err)
+	}
+	if pulled.SignedBy != Unsigned {
+		t.Errorf("signed by %q", pulled.SignedBy)
+	}
+}
+
+// Without the offer, the refusal is final: an instance that turned it off is one that would rather
+// a compromised administrator account could install nothing.
+func TestWithoutTheOfferAnUnrecognisedSourceIsRefused(t *testing.T) {
+	ctx := context.Background()
+	host, registries := registryHost(t)
+	key, _ := ecdsaKey(t)
+	_, stranger := ecdsaKey(t)
+
+	reference, err := Publish(ctx, registries, host+"/plugins/gotest:1.0.0", publishable(t), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var unrecognised *UnrecognisedSource
+	_, err = Pull(ctx, registries, stranger, nil, false, reference)
+	if err == nil || errors.As(err, &unrecognised) {
+		t.Fatalf("refusal expected, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "no trusted key") {
+		t.Errorf("error = %v", err)
 	}
 }

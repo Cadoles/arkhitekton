@@ -321,36 +321,59 @@ func startingCapabilities(ctx context.Context, sources *capabilitySources, logge
 	return holder, live.NewReloader(holder, sources.db.CapabilityVersion, sources.snapshot, capabilityReloadInterval, logger), nil
 }
 
+// AcceptedSources is what the puller reads from the database: the plugin ids an administrator
+// accepted despite an unrecognised source.
+type AcceptedSources interface {
+	AcceptedSources(ctx context.Context) ([]string, error)
+}
+
 // pluginPuller pulls a plugin as the operator configured: the keys it trusts, read at each
 // installation so that a key added or withdrawn applies without a restart, and how registries are
 // reached.
-func pluginPuller(cfg config.Config) func(ctx context.Context, reference string) (installed.Pulled, error) {
+//
+// The accepted sources are read at each installation for the same reason: an acceptance
+// withdrawn applies to the next installation, without a restart.
+func pluginPuller(cfg config.Config, accepted AcceptedSources) func(ctx context.Context, reference string) (installed.Pulled, error) {
 	return func(ctx context.Context, reference string) (installed.Pulled, error) {
 		trusted, err := trustedKeys(cfg.Plugins)
 		if err != nil {
 			return installed.Pulled{}, err
+		}
+		letIn := cfg.Plugins.AllowUnsigned
+		if accepted != nil {
+			recorded, err := accepted.AcceptedSources(ctx)
+			if err != nil {
+				return installed.Pulled{}, err
+			}
+			// The operator's list and the administrator's acceptances answer the same question,
+			// and nothing distinguishes them once the plugin is pulled: both say this id may
+			// install from a source the instance cannot vouch for.
+			letIn = append(append([]string{}, letIn...), recorded...)
 		}
 		registries := installed.Registries{PlainHTTP: cfg.Plugins.PlainHTTP}
 		// Optional: with no credentials mounted, registries are reached anonymously.
 		if _, err := os.Stat(cfg.Plugins.RegistryAuth); cfg.Plugins.RegistryAuth != "" && err == nil {
 			registries.DockerConfig = cfg.Plugins.RegistryAuth
 		}
-		return installed.Pull(ctx, registries, trusted, cfg.Plugins.AllowUnsigned, reference)
+		return installed.Pull(ctx, registries, trusted, letIn, cfg.Plugins.OfferUnrecognised, reference)
 	}
 }
 
-// trustedKeys reads the keys a plugin must be signed with. None is an error unless the operator
-// lets some plugins in unsigned: then those, and only those, install.
+// trustedKeys reads the keys a plugin must be signed with.
+//
+// None is an error unless something else can let a plugin in: the operator's unsigned list, or an
+// administrator's acceptance. Otherwise no installation could ever succeed, and saying so at the
+// first attempt is better than pulling an artifact to refuse it.
 func trustedKeys(plugins config.PluginsConfig) ([]installed.TrustedKey, error) {
 	if plugins.TrustedKeys == "" {
-		if len(plugins.AllowUnsigned) > 0 {
+		if len(plugins.AllowUnsigned) > 0 || plugins.OfferUnrecognised {
 			return nil, nil
 		}
 		return nil, errors.New("no key trusted to sign plugins: PLUGIN_TRUSTED_KEYS names no file")
 	}
 	raw, err := os.ReadFile(plugins.TrustedKeys)
 	if errors.Is(err, fs.ErrNotExist) {
-		if len(plugins.AllowUnsigned) > 0 {
+		if len(plugins.AllowUnsigned) > 0 || plugins.OfferUnrecognised {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("no key trusted to sign plugins: %s is not mounted", plugins.TrustedKeys)

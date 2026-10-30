@@ -182,6 +182,7 @@ neither.
 | `PLUGIN_REGISTRY_AUTH` | none | Docker `config.json` holding the credentials of private registries. Its `auths` are read; credential helpers are not run. Absent, registries are reached anonymously |
 | `PLUGIN_PLAIN_HTTP_REGISTRIES` | none | Comma-separated registries reached without TLS: a registry inside a development cluster |
 | `PLUGIN_ALLOW_UNSIGNED` | none | Comma-separated plugin ids installed without a trusted signature, still pinned by digest. The installation records them as `unsigned`, and the screen says so. With this list set, `PLUGIN_TRUSTED_KEYS` may be absent: then only these install |
+| `PLUGIN_OFFER_UNRECOGNISED` | `true` | A plugin from a source the instance does not recognise waits for an administrator rather than being refused: the screen warns, and accepting records the plugin's id so its next version installs without asking. Installing a plugin is the administrator's act, and they already pin the digest. Set to `false` for an instance that would rather a compromised administrator account could install nothing: the refusal is then final, and only the trusted keys and `PLUGIN_ALLOW_UNSIGNED` let a plugin in |
 
 The base deployment sets the first two to optional mounts:
 

@@ -89,6 +89,24 @@ func (r Registries) repository(reference registry.Reference) (*remote.Repository
 // Unsigned is what SignedBy says of a plugin the operator lets in without a trusted signature.
 const Unsigned = "unsigned"
 
+// UnrecognisedSource reports a plugin the instance cannot vouch for, and which an administrator
+// may accept: unsigned, or signed by a key no trusted key matches.
+//
+// It carries the plugin's **declared** id, read from the layer and nothing else of it. The id is
+// what an acceptance is recorded against, and the only thing there is to record: the signature
+// format carries no public key, so an unknown signer leaves no fingerprint to keep.
+type UnrecognisedSource struct {
+	PluginID string
+	// Reason is what verification found: no signature, or no trusted key matching.
+	Reason error
+}
+
+func (e *UnrecognisedSource) Error() string {
+	return fmt.Sprintf("plugin %q comes from a source this instance does not recognise: %v", e.PluginID, e.Reason)
+}
+
+func (e *UnrecognisedSource) Unwrap() error { return e.Reason }
+
 // Pulled is a plugin fetched and verified.
 type Pulled struct {
 	// Reference is the repository and digest it was pulled from.
@@ -124,10 +142,16 @@ func pin(raw string) (registry.Reference, digest.Digest, error) {
 
 // Pull fetches the plugin a reference pins, checks that a trusted key signed it, and unpacks it.
 //
-// A plugin unsigned, or signed by no trusted key, is installed only if its id is in unsigned, the
-// operator's explicit list. Its layer is then fetched before it is trusted, to read that id: it is
-// read, bounded, and nothing of it runs.
-func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, unsigned []string, raw string) (Pulled, error) {
+// A plugin unsigned, or signed by no trusted key, is installed only if its id is in unsigned: the
+// operator's list, and the sources an administrator accepted. Its layer is then fetched before it
+// is trusted, to read that id: it is read, bounded, and nothing of it runs.
+//
+// With offer, an id in neither list returns [UnrecognisedSource] rather than a refusal, so that
+// the decision can be put to an administrator. Without it, the refusal is final and the layer of
+// a plugin that could not be accepted is never fetched.
+func Pull(
+	ctx context.Context, registries Registries, trusted []TrustedKey, unsigned []string, offer bool, raw string,
+) (Pulled, error) {
 	reference, pinned, err := pin(raw)
 	if err != nil {
 		return Pulled{}, err
@@ -150,7 +174,7 @@ func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, unsi
 	switch {
 	case unverified == nil:
 		signedBy = signer.Fingerprint
-	case len(unsigned) == 0:
+	case len(unsigned) == 0 && !offer:
 		return Pulled{}, fmt.Errorf("%s: %w", reference, unverified)
 	}
 
@@ -187,10 +211,18 @@ func Pull(ctx context.Context, registries Registries, trusted []TrustedKey, unsi
 	}
 	if unverified != nil {
 		id, err := declaredID(files)
-		if err != nil || !slices.Contains(unsigned, id) {
-			return Pulled{}, fmt.Errorf("%s: %w; plugin %q is not one the operator lets in unsigned", reference, unverified, id)
+		switch {
+		case err != nil:
+			return Pulled{}, fmt.Errorf("%s: %w; and it declares no id: %w", reference, unverified, err)
+		case slices.Contains(unsigned, id):
+			signedBy = Unsigned
+		case offer:
+			// Not a failure yet: the id is what an administrator is asked about.
+			return Pulled{}, &UnrecognisedSource{PluginID: id, Reason: unverified}
+		default:
+			return Pulled{}, fmt.Errorf(
+				"%s: %w; plugin %q is not one the operator lets in unsigned", reference, unverified, id)
 		}
-		signedBy = Unsigned
 	}
 	return Pulled{
 		Reference: reference.Registry + "/" + reference.Repository + "@" + pinned.String(),
