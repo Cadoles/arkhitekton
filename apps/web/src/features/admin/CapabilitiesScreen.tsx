@@ -66,6 +66,8 @@ export type BindingDraft = {
   /** Par besoin : un Secret nommé, ou une clé de configuration qui le nomme. */
   needs: Record<string, { source: 'secretName' | 'configKey'; value: string }>
   volumes: Record<string, { storage: string; storageClassName: string }>
+  /** Par espace de travail : une ConfigMap nommée, ou une clé de configuration qui la nomme. */
+  configMaps: Record<string, { source: 'name' | 'configKey'; value: string }>
 }
 
 export function draftOf(capability: Capability): BindingDraft {
@@ -93,6 +95,17 @@ export function draftOf(capability: Capability): BindingDraft {
         },
       ]),
     ),
+    configMaps: Object.fromEntries(
+      capability.config_maps.map(({ workspace }) => {
+        const bound = binding?.configMaps?.[workspace]
+        return [
+          workspace,
+          bound?.configKey
+            ? { source: 'configKey' as const, value: bound.configKey }
+            : { source: 'name' as const, value: bound?.name ?? '' },
+        ]
+      }),
+    ),
   }
 }
 
@@ -118,6 +131,10 @@ export function bindingOf(ref: string, draft: BindingDraft): Binding {
     if (volume.storage.trim()) sized.storage = volume.storage.trim()
     if (volume.storageClassName.trim()) sized.storageClassName = volume.storageClassName.trim()
     if (Object.keys(sized).length > 0) (binding.volumes ??= {})[name] = sized
+  }
+  for (const [workspace, bound] of Object.entries(draft.configMaps)) {
+    if (!bound.value.trim()) continue
+    ;(binding.configMaps ??= {})[workspace] = { [bound.source]: bound.value.trim() }
   }
   return binding
 }
@@ -277,6 +294,63 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
                   onChange={(event) => set('storageClassName', event.target.value)}
                   className={input}
                 />
+              </div>
+            )
+          })}
+
+          {capability.config_maps.map(({ workspace, reason }) => {
+            const bound = draft.configMaps[workspace] ?? {
+              source: 'name' as const,
+              value: '',
+            }
+            return (
+              <div key={workspace} className="flex flex-col gap-1">
+                <label
+                  htmlFor={`${capability.ref}-configmap-${workspace}`}
+                  className="text-sm text-zinc-700"
+                >
+                  ConfigMap de <span className="font-mono">{workspace}</span>
+                  {reason && <span className="text-zinc-500"> : {reason}</span>}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    aria-label={`Source de la ConfigMap de ${workspace}`}
+                    value={bound.source}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        configMaps: {
+                          ...current.configMaps,
+                          [workspace]: {
+                            ...bound,
+                            source: event.target.value as 'name' | 'configKey',
+                          },
+                        },
+                      }))
+                    }
+                    className="rounded-md border border-zinc-300 px-2 py-1 text-sm"
+                  >
+                    <option value="name">ConfigMap nommée</option>
+                    <option value="configKey">Clé de configuration</option>
+                  </select>
+                  <input
+                    id={`${capability.ref}-configmap-${workspace}`}
+                    value={bound.value}
+                    placeholder={
+                      bound.source === 'name' ? 'security-policies' : 'security.policies'
+                    }
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        configMaps: {
+                          ...current.configMaps,
+                          [workspace]: { ...bound, value: event.target.value },
+                        },
+                      }))
+                    }
+                    className={`flex-1 ${input}`}
+                  />
+                </div>
               </div>
             )
           })}

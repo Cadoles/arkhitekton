@@ -105,6 +105,16 @@ func workspaceBinding(workspace catalog.Workspace) (tektonv1.WorkspaceBinding, e
 	case workspace.EmptyDir:
 		binding.EmptyDir = &corev1.EmptyDirVolumeSource{}
 
+	case workspace.ConfigMap != nil:
+		// The resolved name, never the key: a `configKey` still present here means resolution did not
+		// run, and binding an empty name would mount nothing while reporting success.
+		if workspace.ConfigMap.Name == "" {
+			return binding, fmt.Errorf("config map of workspace %q is not resolved", workspace.Name)
+		}
+		binding.ConfigMap = &corev1.ConfigMapVolumeSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: workspace.ConfigMap.Name},
+		}
+
 	case workspace.VolumeClaimTemplate != nil:
 		quantity, err := resource.ParseQuantity(workspace.VolumeClaimTemplate.Storage)
 		if err != nil {

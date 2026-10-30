@@ -38,8 +38,13 @@ type Binding struct {
 	// Needs say what satisfies each privilege the capability declares.
 	Needs map[string]NeedBinding `json:"needs,omitempty"`
 	// Volumes size the per-run claims.
-	Volumes     map[string]VolumeBinding `json:"volumes,omitempty"`
-	PodTemplate *PodTemplate             `json:"podTemplate,omitempty"`
+	Volumes map[string]VolumeBinding `json:"volumes,omitempty"`
+	// ConfigMaps name the data the operator owns, by workspace. Leaving one unbound stops
+	// start-up, like leaving unbound the need a workspace carries: the workspace would have no
+	// source, and a PipelineRun bound to nothing fails at mount time, where the reason is harder
+	// to read.
+	ConfigMaps  map[string]ConfigMapBinding `json:"configMaps,omitempty"`
+	PodTemplate *PodTemplate                `json:"podTemplate,omitempty"`
 }
 
 // ParamBinding names the configuration key that fills a parameter.
@@ -60,6 +65,13 @@ type VolumeBinding struct {
 	StorageClassName string   `json:"storageClassName,omitempty"`
 	Storage          string   `json:"storage,omitempty"`
 	AccessModes      []string `json:"accessModes,omitempty"`
+}
+
+// ConfigMapBinding names the ConfigMap satisfying a workspace. One of the two forms of
+// [ConfigMapSource], never both.
+type ConfigMapBinding struct {
+	Name      string `json:"name,omitempty"`
+	ConfigKey string `json:"configKey,omitempty"`
 }
 
 // Option configures parsing.
@@ -323,6 +335,16 @@ func bindWorkspaces(pipeline *Pipeline, spec capability.PipelineSpec, binding Bi
 		}
 	}
 
+	for name := range binding.ConfigMaps {
+		var found bool
+		for _, workspace := range spec.Workspaces {
+			found = found || (workspace.Name == name && workspace.ConfigMap != nil)
+		}
+		if !found {
+			problems = append(problems, fmt.Errorf("config map %q is not declared by the capability", name))
+		}
+	}
+
 	for _, declared := range spec.Workspaces {
 		workspace := Workspace{Name: declared.Name, EmptyDir: declared.EmptyDir}
 		switch {
@@ -331,6 +353,18 @@ func bindWorkspaces(pipeline *Pipeline, spec capability.PipelineSpec, binding Bi
 				secret := *bound.Secret
 				workspace.Secret = &secret
 			}
+		case declared.ConfigMap != nil:
+			bound, found := binding.ConfigMaps[declared.Name]
+			if !found || (bound.Name == "" && bound.ConfigKey == "") {
+				pipeline.unavailable(fmt.Sprintf("workspace %s is bound to no config map", declared.Name))
+				break
+			}
+			if bound.Name != "" && bound.ConfigKey != "" {
+				problems = append(problems, fmt.Errorf(
+					"config map %q: a name and a configuration key together, only one is read", declared.Name))
+				break
+			}
+			workspace.ConfigMap = &ConfigMapSource{Name: bound.Name, ConfigKey: bound.ConfigKey}
 		case declared.Volume != nil:
 			volume := binding.Volumes[declared.Name]
 			claim := &VolumeClaimTemplate{

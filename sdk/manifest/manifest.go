@@ -207,18 +207,25 @@ type Param struct {
 	Image   string `json:"image,omitempty"`
 }
 
-// Workspace is a Pipeline workspace, backed by the secret bound to a need, a claim per run or an
-// empty directory.
+// Workspace is a Pipeline workspace, backed by the secret bound to a need, a claim per run, an
+// empty directory or a ConfigMap the operator owns.
 type Workspace struct {
-	Name     string              `json:"name"`
-	Need     capability.NeedName `json:"need,omitempty"`
-	Volume   *Volume             `json:"volume,omitempty"`
-	EmptyDir bool                `json:"emptyDir,omitempty"`
+	Name      string              `json:"name"`
+	Need      capability.NeedName `json:"need,omitempty"`
+	Volume    *Volume             `json:"volume,omitempty"`
+	EmptyDir  bool                `json:"emptyDir,omitempty"`
+	ConfigMap *ConfigMap          `json:"configMap,omitempty"`
 }
 
 // Volume is a claim created for each run.
 type Volume struct {
 	Storage string `json:"storage"`
+}
+
+// ConfigMap asks for data the operator owns. See [capability.ConfigMapWorkspace] for why this is
+// not a need.
+type ConfigMap struct {
+	Reason string `json:"reason,omitempty"`
 }
 
 // Need is a privilege the pipeline declares, with why it needs it.
@@ -521,7 +528,9 @@ func (p Pipeline) problems(at string) []error {
 	}
 	for _, workspace := range p.Workspaces {
 		sources := 0
-		for _, present := range []bool{workspace.Need != "", workspace.Volume != nil, workspace.EmptyDir} {
+		for _, present := range []bool{
+			workspace.Need != "", workspace.Volume != nil, workspace.EmptyDir, workspace.ConfigMap != nil,
+		} {
 			if present {
 				sources++
 			}
@@ -531,6 +540,11 @@ func (p Pipeline) problems(at string) []error {
 		}
 		if workspace.Need != "" && !declared[workspace.Need] {
 			problems = append(problems, fmt.Errorf("%s.workspaces.%s: need %q not declared", at, workspace.Name, workspace.Need))
+		}
+		// A reason is required for the same purpose as a need's: the operator binds a ConfigMap of
+		// their own, and nothing else in the manifest says which one.
+		if workspace.ConfigMap != nil && strings.TrimSpace(workspace.ConfigMap.Reason) == "" {
+			problems = append(problems, fmt.Errorf("%s.workspaces.%s: no reason given", at, workspace.Name))
 		}
 	}
 
@@ -625,6 +639,9 @@ func (p Pipeline) spec() capability.PipelineSpec {
 		converted := capability.Workspace{Name: workspace.Name, Need: workspace.Need, EmptyDir: workspace.EmptyDir}
 		if workspace.Volume != nil {
 			converted.Volume = &capability.Volume{Storage: workspace.Volume.Storage}
+		}
+		if workspace.ConfigMap != nil {
+			converted.ConfigMap = &capability.ConfigMapWorkspace{Reason: workspace.ConfigMap.Reason}
 		}
 		spec.Workspaces = append(spec.Workspaces, converted)
 	}

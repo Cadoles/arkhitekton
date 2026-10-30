@@ -368,6 +368,7 @@ type Workspace struct {
 	Secret              *SecretSource        `json:"secret,omitempty"`
 	VolumeClaimTemplate *VolumeClaimTemplate `json:"volumeClaimTemplate,omitempty"`
 	EmptyDir            bool                 `json:"emptyDir,omitempty"`
+	ConfigMap           *ConfigMapSource     `json:"configMap,omitempty"`
 }
 
 // SecretSource names the secret mounted on a workspace.
@@ -389,6 +390,24 @@ type Workspace struct {
 type SecretSource struct {
 	SecretName string `json:"secretName,omitempty"`
 	ConfigKey  string `json:"configKey,omitempty"`
+}
+
+// ConfigMapSource names the ConfigMap mounted on a workspace.
+//
+// The same two mutually exclusive forms as [SecretSource], and for the same reason: a test
+// instance reads another policy than the real one, and the ConfigMap's name is all that
+// distinguishes them.
+//
+//	configMap: { name: security-policies }            # a literal name
+//	configMap: { configKey: security.policies }       # a name from configuration
+//
+// Unlike a secret, the content here is not sensitive, and that is precisely why it travels by
+// ConfigMap: a severity scale or a set of rules is read by whoever can read the pipeline's pod.
+// What must not be assumed is that it is the plugin's: it belongs to the operator, and it changes
+// without publishing a plugin.
+type ConfigMapSource struct {
+	Name      string `json:"name,omitempty"`
+	ConfigKey string `json:"configKey,omitempty"`
 }
 
 type VolumeClaimTemplate struct {
@@ -600,9 +619,12 @@ func (p Pipeline) validate() []error {
 		if workspace.EmptyDir {
 			sources++
 		}
+		if workspace.ConfigMap != nil {
+			sources++
+		}
 		if sources != 1 {
 			problems = append(problems, fmt.Errorf(
-				"kind %q, workspace %q: exactly one source expected (secret, volumeClaimTemplate or emptyDir)",
+				"kind %q, workspace %q: exactly one source expected (secret, volumeClaimTemplate, emptyDir or configMap)",
 				p.Kind, name))
 		}
 	}
@@ -979,13 +1001,13 @@ func (c *Catalog) ScoreWeights() map[string]float64 {
 	return weights
 }
 
-// ResolveSecrets returns a copy of the pipeline with secret names resolved from
-// configuration.
+// ResolveNames returns a copy of the pipeline with the names it defers to configuration
+// resolved: secrets, image pull secrets and config maps.
 //
 // Resolved before creating the PipelineRun rather than when loading the
 // catalogue, which happens once at start-up: a missing configuration key must
 // report itself when it is missing, naming the kind that asks for it.
-func (p Pipeline) ResolveSecrets(config map[string]string) (Pipeline, error) {
+func (p Pipeline) ResolveNames(config map[string]string) (Pipeline, error) {
 	resolved := p
 	resolved.Workspaces = make([]Workspace, len(p.Workspaces))
 	copy(resolved.Workspaces, p.Workspaces)
@@ -1017,6 +1039,21 @@ func (p Pipeline) ResolveSecrets(config map[string]string) (Pipeline, error) {
 		// shared catalogue, and the second run would see the first run's resolved name as
 		// if it were literal.
 		resolved.Workspaces[i].Secret = &SecretSource{SecretName: name}
+	}
+
+	for i, workspace := range resolved.Workspaces {
+		if workspace.ConfigMap == nil || workspace.ConfigMap.ConfigKey == "" {
+			continue
+		}
+
+		name, present := config[workspace.ConfigMap.ConfigKey]
+		if !present || name == "" {
+			return Pipeline{}, fmt.Errorf(
+				"kind %q, workspace %q: configuration key %q is missing",
+				p.Kind, workspace.Name, workspace.ConfigMap.ConfigKey)
+		}
+
+		resolved.Workspaces[i].ConfigMap = &ConfigMapSource{Name: name}
 	}
 
 	return resolved, nil

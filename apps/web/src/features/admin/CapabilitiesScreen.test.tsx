@@ -8,9 +8,9 @@ import type { Capability } from './capabilities'
 /*
  * L'éditeur de liaisons.
  *
- * Il désigne des secrets et dimensionne des volumes : les tests portent sur ce
- * qu'il envoie (rien de vide, jamais de compte de service) et sur ce qu'il ne
- * laisse pas modifier (ce que lie le fichier).
+ * Il désigne des secrets et des ConfigMaps, et dimensionne des volumes : les tests
+ * portent sur ce qu'il envoie (rien de vide, jamais de compte de service) et sur ce
+ * qu'il ne laisse pas modifier (ce que lie le fichier).
  */
 
 const gotest: Capability = {
@@ -20,6 +20,14 @@ const gotest: Capability = {
   needs: [{ name: 'source-read', reason: 'clone the project' }],
   params: ['repo-url'],
   volumes: ['shared-data'],
+  config_maps: [],
+}
+
+/** Une capacité qui attend une politique de l'exploitation. */
+const audit: Capability = {
+  ...gotest,
+  ref: 'gotest/audit',
+  config_maps: [{ workspace: 'policies', reason: 'le barème de sévérité' }],
 }
 
 describe('bindingOf', () => {
@@ -51,6 +59,19 @@ describe('bindingOf', () => {
     expect(bindingOf(deploying.ref, draft).needs).toBeUndefined()
   })
 
+  it('lie une ConfigMap par son nom ou par une clé', () => {
+    const draft = draftOf(audit)
+    draft.configMaps['policies'] = { source: 'configKey', value: ' security.policies ' }
+
+    expect(bindingOf(audit.ref, draft).configMaps).toEqual({
+      policies: { configKey: 'security.policies' },
+    })
+  })
+
+  it("n'envoie pas une ConfigMap laissée vide", () => {
+    expect(bindingOf(audit.ref, draftOf(audit)).configMaps).toBeUndefined()
+  })
+
   it('relit une liaison enregistrée', () => {
     const bound: Capability = {
       ...gotest,
@@ -78,6 +99,13 @@ describe('CapabilityCard', () => {
 
     expect(screen.getByText(/se modifie avec le déploiement/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Enregistrer la liaison' })).not.toBeInTheDocument()
+  })
+
+  it("dit à quoi sert la ConfigMap qu'elle attend", () => {
+    render(<CapabilityCard capability={audit} />)
+
+    expect(screen.getByLabelText(/^ConfigMap de/)).toBeInTheDocument()
+    expect(screen.getByText(/le barème de sévérité/)).toBeInTheDocument()
   })
 
   it('propose de lier ce que le fichier ne lie pas', async () => {

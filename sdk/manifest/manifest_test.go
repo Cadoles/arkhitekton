@@ -226,3 +226,33 @@ func TestATrackerAForgeProbesAndActionsAreChecked(t *testing.T) {
 		}
 	}
 }
+
+// A ConfigMap workspace is the fourth source, and the schema counts it: without that, a manifest
+// declaring one would be read as declaring none, and refused for having no source.
+func TestAWorkspaceMayExpectAConfigMap(t *testing.T) {
+	declared, err := Decode([]byte(strings.Replace(valid,
+		`{"name": "shared-data", "volume": {"storage": "1Gi"}}`,
+		`{"name": "policies", "configMap": {"reason": "the severity scale"}}`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := declared.Plugin().Pipelines[0].Spec.Workspaces[1]
+	if workspace.ConfigMap == nil || workspace.ConfigMap.Reason != "the severity scale" {
+		t.Errorf("workspace = %+v", workspace)
+	}
+}
+
+func TestAConfigMapWorkspaceIsChecked(t *testing.T) {
+	for name, replacement := range map[string]string{
+		// A binding is the operator's act, and nothing else in the manifest says which ConfigMap.
+		"no reason": `{"name": "policies", "configMap": {}}`,
+		// Two sources at once: the host would have to guess which one to mount.
+		"two sources": `{"name": "policies", "configMap": {"reason": "r"}, "emptyDir": true}`,
+	} {
+		edited := strings.Replace(valid, `{"name": "shared-data", "volume": {"storage": "1Gi"}}`, replacement, 1)
+		if _, err := Decode([]byte(edited)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

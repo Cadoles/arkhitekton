@@ -348,7 +348,7 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 	}
 	resolved := pipeline
 	if err == nil {
-		resolved, err = pipeline.ResolveSecrets(settings)
+		resolved, err = pipeline.ResolveNames(settings)
 	}
 	if err != nil {
 		s.logger.Error("job parameters", "job", job.ID, "error", err)

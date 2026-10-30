@@ -242,3 +242,88 @@ capabilities:
 		t.Error("a capability without its plugin is launchable")
 	}
 }
+
+// policyRegistry declares a capability expecting data the operator owns.
+//
+// Separate from [deployRegistry]: a config map is not a privilege, and mixing the two in one
+// fixture would hide which of the two paths a failure came from.
+func policyRegistry(t *testing.T) *capabilities.Registry {
+	t.Helper()
+	registry, err := capabilities.New(capability.Plugin{ID: "security", Version: "1", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
+		Name: "security-audit", Label: "Audit de sécurité", Interpreter: noFacts{},
+		Spec: capability.PipelineSpec{
+			PipelineRef: "security-audit", Group: "security",
+			Produces: []capability.Product{capability.ProductNone},
+			Workspaces: []capability.Workspace{
+				{Name: "policies", ConfigMap: &capability.ConfigMapWorkspace{Reason: "the severity scale"}},
+			},
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry
+}
+
+func TestAConfigMapIsBoundByNameOrByKey(t *testing.T) {
+	for name, binding := range map[string]string{
+		"a literal name":      "policies: { name: security-policies }",
+		"a configuration key": "policies: { configKey: security.policies }",
+	} {
+		parsed, err := Parse([]byte(`
+capabilities:
+  - ref: security/security-audit
+    configMaps:
+      `+binding+`
+`), WithCapabilities(policyRegistry(t)))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+
+		pipeline, found := parsed.Find("security/security-audit")
+		if !found {
+			t.Fatalf("%s: kinds = %v", name, parsed.Kinds())
+		}
+		if pipeline.Unavailable != "" {
+			t.Fatalf("%s: unavailable: %s", name, pipeline.Unavailable)
+		}
+		source := pipeline.Workspaces[0].ConfigMap
+		if source == nil || (source.Name == "" && source.ConfigKey == "") {
+			t.Errorf("%s: workspace = %+v", name, pipeline.Workspaces[0])
+		}
+	}
+}
+
+// Left unbound, the workspace has no source and start-up stops, naming it. The same thing an
+// unbound need does today: launching the pipeline would create a PipelineRun whose workspace is
+// bound to nothing, which Tekton accepts before failing at mount time, where the reason is harder
+// to read.
+func TestAnUnboundConfigMapStopsStartUp(t *testing.T) {
+	_, err := Parse([]byte(`
+capabilities:
+  - ref: security/security-audit
+`), WithCapabilities(policyRegistry(t)))
+	if err == nil {
+		t.Fatal("a capability expecting a config map was accepted with none bound")
+	}
+	if !strings.Contains(err.Error(), "policies") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestAConfigMapBindingIsChecked(t *testing.T) {
+	for name, binding := range map[string]string{
+		"a workspace the capability does not declare": "rules: { name: semgrep-rules }",
+		"a name and a key together":                   "policies: { name: p, configKey: security.policies }",
+	} {
+		_, err := Parse([]byte(`
+capabilities:
+  - ref: security/security-audit
+    configMaps:
+      `+binding+`
+`), WithCapabilities(policyRegistry(t)))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

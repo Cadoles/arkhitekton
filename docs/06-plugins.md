@@ -413,7 +413,9 @@ pipelines:
     params:
       repo-url: { source: binding, defaultKey: project.repoUrl }
       revision: { source: input, required: true, label: Révision }
-    workspaces: [{ name: git-credentials, need: source-read }]
+    workspaces:
+      - { name: git-credentials, need: source-read }
+      - { name: policies, configMap: { reason: le barème de sévérité } }
     needs: [{ name: source-read, reason: clone the project }]
     artifacts:
       - { name: results, param: results-upload-url, object: go-test.json, format: file,
@@ -497,9 +499,18 @@ capabilities still build with it, applies its migrations, stores the layer under
 `plugins/<id>/<version>/`, and records the key that signed it (or `unsigned`). A failure is read
 on the installation, and on the job. Settings already recorded for the plugin's id are kept.
 
+**Workspaces.** A workspace has exactly one source: the secret bound to a need, a claim created
+per run, an empty directory, or a **ConfigMap the operator owns**. The last is for data a plugin
+must not carry, because it belongs to the operator and changes without publishing a plugin: a
+severity scale, a set of rules, a policy. It is not a need, and that is deliberate. A need is a
+privilege whose set is closed, so that the operator reads from the name alone what granting it
+means; mounting a ConfigMap grants nothing, since the dashboard binds it as a volume and the run's
+service account never reads it. The plugin declares the workspace with a `reason`, one sentence
+saying what it expects there, and the operator binds a ConfigMap of their own (§5.4).
+
 **Binding.** An installed capability is launched once bound, from Administration, Capacités:
-secrets for its needs, configuration keys for its parameters, volume sizes, a timeout, a
-ceiling. Never a service account: a pipeline that asks for `cluster-deploy` is bound by the
+secrets for its needs, ConfigMaps for the workspaces that expect them, configuration keys for its
+parameters, volume sizes, a timeout, a ceiling. Never a service account: a pipeline that asks for `cluster-deploy` is bound by the
 operator's catalogue file, or its runs are refused with the reason. The catalogue file's
 binding, when it has one, wins and is shown read-only (§5.2).
 

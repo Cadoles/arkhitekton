@@ -202,12 +202,35 @@ type Workspace struct {
 	// Volume asks for a claim per run. The operator chooses its storage class and may resize it.
 	Volume   *Volume
 	EmptyDir bool
+	// ConfigMap asks for data the operator owns, mounted read-only.
+	ConfigMap *ConfigMapWorkspace
 }
 
 // Volume is a claim created for each run.
 type Volume struct {
 	// Storage is the default size, `1Gi`.
 	Storage string
+}
+
+// ConfigMapWorkspace asks for a ConfigMap the operator owns, which the pipeline reads.
+//
+// # Why not a need
+//
+// A [Need] is a privilege, and its set is closed so that the operator reads from the name alone
+// what granting it means. Mounting a ConfigMap grants nothing: the dashboard binds it as a volume
+// and the run's service account never reads it. Adding "a policy" to the set of privileges would
+// make that set grow with every kind of data a pipeline reads, and each new name would say less
+// about what it grants.
+//
+// # What it is for
+//
+// What a plugin must not carry: security policies, severity scales, rule sets. They belong to the
+// operator, they change without publishing a plugin, and the capability only declares that it
+// expects them.
+type ConfigMapWorkspace struct {
+	// Reason tells the operator what to bind, for the same purpose as [Need.Reason]: a binding is
+	// their act, and they must be able to make it without reading the pipeline.
+	Reason string
 }
 
 // ArtifactFormat says how an artifact is packed.

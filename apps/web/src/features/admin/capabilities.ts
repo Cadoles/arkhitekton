@@ -12,6 +12,11 @@ import { request } from '../../lib/api'
 
 export type CapabilityNeed = { name: string; reason?: string }
 
+/** Un espace de travail rempli par une ConfigMap de l'exploitation : une politique,
+ *  un barème, un jeu de règles. Ce n'est pas un besoin, puisque le monter n'accorde
+ *  rien ; la raison dit quoi y mettre. */
+export type CapabilityConfigMap = { workspace: string; reason?: string }
+
 export type Capability = {
   ref: string
   label: string
@@ -21,6 +26,8 @@ export type Capability = {
   params: string[]
   /** Les volumes créés à chaque run, qu'une liaison dimensionne. */
   volumes: string[]
+  /** Les espaces de travail qu'une liaison remplit avec une ConfigMap. */
+  config_maps: CapabilityConfigMap[]
   bound_by?: 'file' | 'database'
   binding?: Binding
   /** Pourquoi le catalogue ne peut pas la lancer ; vide quand il le peut. */
@@ -29,6 +36,9 @@ export type Capability = {
 
 export type SecretSource = { secretName?: string; configKey?: string }
 
+/** Les deux formes d'une ConfigMap liée, jamais les deux à la fois. */
+export type ConfigMapSource = { name?: string; configKey?: string }
+
 export type Binding = {
   ref: string
   maxConcurrent?: number
@@ -36,6 +46,7 @@ export type Binding = {
   params?: Record<string, { key: string }>
   needs?: Record<string, { secret?: SecretSource; serviceAccountName?: string }>
   volumes?: Record<string, { storageClassName?: string; storage?: string }>
+  configMaps?: Record<string, ConfigMapSource>
 }
 
 /** Le seul besoin qui soit une identité de cluster : il se lie dans le fichier. */
