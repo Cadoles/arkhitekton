@@ -27,21 +27,34 @@ import (
 // The distinction also serves diagnosis: "emitted" and "already known" do not read the same
 // when looking for why a reaction did not fire.
 func (db *DB) RecordEvent(ctx context.Context, fact event.Event) (bool, error) {
+	return db.recordEvent(ctx, fact, false)
+}
+
+// RecordReceivedEvent records a fact a source pushed, to be routed by the worker.
+//
+// The `api` receives it and the `worker` routes it: the reactions' outgoing transport lives
+// there. A fact already known is neither recorded nor routed again, which is what makes a replayed
+// delivery harmless.
+func (db *DB) RecordReceivedEvent(ctx context.Context, fact event.Event) (bool, error) {
+	return db.recordEvent(ctx, fact, true)
+}
+
+func (db *DB) recordEvent(ctx context.Context, fact event.Event, pending bool) (bool, error) {
 	if err := fact.Validate(); err != nil {
 		return false, err
 	}
 
 	const query = `
 		insert into events (type, source, project_id, subject, payload,
-		                    occurred_at, depth, dedup_key)
-		values ($1, $2, $3, $4, $5, $6, $7, $8)
+		                    occurred_at, depth, dedup_key, dispatch_pending)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		on conflict (dedup_key) do nothing
 		returning id`
 
 	var id int64
 	err := db.pool.QueryRow(ctx, query,
 		string(fact.Type), fact.Source, fact.ProjectID, fact.Subject,
-		orEmptyPayload(fact.Payload), fact.OccurredAt, fact.Depth, fact.DedupKey,
+		orEmptyPayload(fact.Payload), fact.OccurredAt, fact.Depth, fact.DedupKey, pending,
 	).Scan(&id)
 	switch {
 	case err == nil:
@@ -52,6 +65,44 @@ func (db *DB) RecordEvent(ctx context.Context, fact event.Event) (bool, error) {
 	default:
 		return false, fmt.Errorf("recording fact %q: %w", fact.Type, err)
 	}
+}
+
+// PendingEvents returns the received facts not routed yet, oldest first.
+func (db *DB) PendingEvents(ctx context.Context, limit int) ([]RecordedEvent, error) {
+	const query = `
+		select id, type, source, project_id, subject, payload,
+		       occurred_at, depth, recorded_at, dedup_key
+		from events
+		where dispatch_pending
+		order by id
+		limit $1`
+
+	rows, err := db.pool.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("received facts: %w", err)
+	}
+	defer rows.Close()
+
+	var events []RecordedEvent
+	for rows.Next() {
+		var entry RecordedEvent
+		if err := rows.Scan(&entry.ID, &entry.Type, &entry.Source, &entry.ProjectID,
+			&entry.Subject, &entry.Payload, &entry.OccurredAt, &entry.Depth,
+			&entry.RecordedAt, &entry.DedupKey); err != nil {
+			return nil, fmt.Errorf("reading a fact: %w", err)
+		}
+		events = append(events, entry)
+	}
+	return events, rows.Err()
+}
+
+// MarkEventDispatched records that a received fact was routed.
+func (db *DB) MarkEventDispatched(ctx context.Context, id int64) error {
+	if _, err := db.pool.Exec(ctx,
+		`update events set dispatch_pending = false where id = $1`, id); err != nil {
+		return fmt.Errorf("routing of fact %d: %w", id, err)
+	}
+	return nil
 }
 
 // RecordedEvent is a fact read back, with what the database added to it.
