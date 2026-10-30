@@ -178,6 +178,70 @@ export function useDeleteReaction(slug: string) {
   })
 }
 
+/** Une planification : un plan qu'une horloge ouvre. */
+export type Schedule = {
+  id: number
+  name: string
+  /** Cinq champs : minute, heure, jour du mois, mois, jour de la semaine. */
+  cron: string
+  /** Le fuseau où l'expression se lit. Vide : UTC. */
+  timezone: string
+  /** La branche ou le tag que prennent les pipelines, résolu en commit au tic.
+   *  Vide : la branche par défaut du dépôt. */
+  ref: string
+  enabled: boolean
+  plan: Plan
+  next_fire_at?: string
+  last_fired_at?: string
+  last_outcome?: string
+}
+
+export type ScheduleDraft = Omit<Schedule, 'id' | 'next_fire_at' | 'last_fired_at' | 'last_outcome'>
+
+/** Les variables qu'un tic met à la disposition des gestes. */
+export const SCHEDULE_FIELDS = ['schedule', 'tick', 'revision']
+
+export function useSchedules(slug: string) {
+  return useQuery({
+    queryKey: ['schedules', slug],
+    queryFn: () =>
+      request<{ schedules: Schedule[] }>(`/projects/${encodeURIComponent(slug)}/schedules`),
+    enabled: slug !== '',
+  })
+}
+
+export function useSaveSchedule(slug: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    // Comme pour une réaction, l'identifiant est dans le chemin, jamais dans le corps.
+    mutationFn: ({ id, draft }: { id?: number; draft: ScheduleDraft }) =>
+      request<{ id: number; next_fire_at?: string }>(
+        id === undefined
+          ? `/projects/${encodeURIComponent(slug)}/schedules`
+          : `/projects/${encodeURIComponent(slug)}/schedules/${id}`,
+        { method: id === undefined ? 'POST' : 'PUT', body: JSON.stringify(draft) },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['schedules', slug] })
+    },
+  })
+}
+
+export function useDeleteSchedule(slug: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) =>
+      request<{ id: number }>(`/projects/${encodeURIComponent(slug)}/schedules/${id}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['schedules', slug] })
+    },
+  })
+}
+
 export function useAutomation(slug: string) {
   return useQuery({
     queryKey: ['automation', slug],
