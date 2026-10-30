@@ -71,7 +71,7 @@ func TestEachArtifactDeclaresItsParameterAndItsName(t *testing.T) {
 func TestTheShippedCatalogueChainsTheExpectedKinds(t *testing.T) {
 	pipelines := shippedCatalogue(t)
 
-	want := []string{"security/security-audit", "php/static-tests", "php/unit-tests"}
+	want := []string{"php/static-tests", "php/unit-tests"}
 	got := pipelines.VerificationKinds()
 
 	if len(got) != len(want) {
@@ -116,7 +116,9 @@ func TestShippedCatalogParses(t *testing.T) {
 func TestEachSignalReRunsItsPipeline(t *testing.T) {
 	shipped := shippedCatalogue(t)
 	for group, kind := range map[string]string{
-		"unit": "php/unit-tests", "static": "php/static-tests", "security": "security/security-audit",
+		"unit": "php/unit-tests", "static": "php/static-tests",
+		// The security audit is the MSE plugin's: the core names no pipeline for this group.
+		"security": "",
 		// No pipeline of the shipped catalogue shows its results there: nothing to re-run.
 		"integration": "", "e2e": "",
 	} {

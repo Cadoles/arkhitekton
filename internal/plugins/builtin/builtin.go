@@ -12,14 +12,13 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/k6"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/php"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/redmine"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/security"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // Plugins are the plugins compiled into the binary.
 func Plugins() []capability.Plugin {
 	return []capability.Plugin{
-		core.Plugin(), php.Plugin(), security.Plugin(), k6.Plugin(),
+		core.Plugin(), php.Plugin(), k6.Plugin(),
 		redmine.Plugin(), gitea.Plugin(), deliverynote.Plugin(),
 	}
 }

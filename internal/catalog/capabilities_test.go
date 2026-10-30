@@ -249,10 +249,10 @@ capabilities:
 // fixture would hide which of the two paths a failure came from.
 func policyRegistry(t *testing.T) *capabilities.Registry {
 	t.Helper()
-	registry, err := capabilities.New(capability.Plugin{ID: "security", Version: "1", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
-		Name: "security-audit", Label: "Audit de sécurité", Interpreter: noFacts{},
+	registry, err := capabilities.New(capability.Plugin{ID: "auditor", Version: "1", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
+		Name: "scan", Label: "Analyse", Interpreter: noFacts{},
 		Spec: capability.PipelineSpec{
-			PipelineRef: "security-audit", Group: "security",
+			PipelineRef: "scan", Group: "security",
 			Produces: []capability.Product{capability.ProductNone},
 			Workspaces: []capability.Workspace{
 				{Name: "policies", ConfigMap: &capability.ConfigMapWorkspace{Reason: "the severity scale"}},
@@ -272,7 +272,7 @@ func TestAConfigMapIsBoundByNameOrByKey(t *testing.T) {
 	} {
 		parsed, err := Parse([]byte(`
 capabilities:
-  - ref: security/security-audit
+  - ref: auditor/scan
     configMaps:
       `+binding+`
 `), WithCapabilities(policyRegistry(t)))
@@ -280,7 +280,7 @@ capabilities:
 			t.Fatalf("%s: %v", name, err)
 		}
 
-		pipeline, found := parsed.Find("security/security-audit")
+		pipeline, found := parsed.Find("auditor/scan")
 		if !found {
 			t.Fatalf("%s: kinds = %v", name, parsed.Kinds())
 		}
@@ -301,7 +301,7 @@ capabilities:
 func TestAnUnboundConfigMapStopsStartUp(t *testing.T) {
 	_, err := Parse([]byte(`
 capabilities:
-  - ref: security/security-audit
+  - ref: auditor/scan
 `), WithCapabilities(policyRegistry(t)))
 	if err == nil {
 		t.Fatal("a capability expecting a config map was accepted with none bound")
@@ -318,7 +318,7 @@ func TestAConfigMapBindingIsChecked(t *testing.T) {
 	} {
 		_, err := Parse([]byte(`
 capabilities:
-  - ref: security/security-audit
+  - ref: auditor/scan
     configMaps:
       `+binding+`
 `), WithCapabilities(policyRegistry(t)))

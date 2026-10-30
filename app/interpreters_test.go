@@ -85,31 +85,6 @@ func TestAnUnreadableReportDidNotConclude(t *testing.T) {
 	}
 }
 
-func TestTheSecurityAuditReadsTheProducersReport(t *testing.T) {
-	sets := interpret(t, "security/security-audit", capability.RunState{},
-		record(t, "security-audit", parse.SecuritySummaryJSON, report(t, "summary.json")),
-		record(t, "security-audit", parse.SecurityFindingsJSONL, report(t, "findings.jsonl")))
-	if len(sets) != 1 {
-		t.Fatalf("sets = %+v", sets)
-	}
-	set := sets[0]
-	if set.Verdict() != facts.StatusFail ||
-		set.Summary != "5 finding(s), 1 critical, 2 high, 2 new, 1 suppressed by exception" {
-		t.Errorf("verdict %q, summary %q", set.Verdict(), set.Summary)
-	}
-	audit := set.Findings
-	if audit.BySeverity[facts.SeverityHigh] != 2 || audit.DeltaResolved != 1 || audit.PreviousRunID != "20260830T100000Z" {
-		t.Errorf("audit = %+v", audit)
-	}
-	if len(audit.Items) != 2 || audit.Items[0].Location != "composer.lock:42" || audit.Items[0].PackageFixed != "1.1" {
-		t.Errorf("first finding = %+v", audit.Items[0])
-	}
-	if second := audit.Items[1]; second.Severity != facts.SeverityInfo || !second.Suppressed ||
-		second.SuppressionReason != "accepted" {
-		t.Errorf("second finding = %+v", second)
-	}
-}
-
 // One scenario published under `load/` and under `k6/` is one campaign, not two history points.
 func TestAScenarioPublishedTwiceIsReadOnce(t *testing.T) {
 	load := record(t, "k6", parse.K6SummaryJSON, report(t, "k6-summary.json"))
@@ -137,9 +112,6 @@ func TestInterpretersReadAsRecorded(t *testing.T) {
 			record(t, "cs-fixer", parse.CSFixerJSON, report(t, "cs-fixer.json"))),
 		"static-tests-clean.json": interpret(t, "php/static-tests", capability.RunState{},
 			record(t, "phpstan", parse.PHPStanJSON, report(t, "phpstan-clean.json"))),
-		"security-audit.json": interpret(t, "security/security-audit", capability.RunState{},
-			record(t, "security-audit", parse.SecuritySummaryJSON, report(t, "summary.json")),
-			record(t, "security-audit", parse.SecurityFindingsJSONL, report(t, "findings.jsonl"))),
 		"load.json": interpret(t, "k6/load", capability.RunState{}, load),
 	}
 	for name, sets := range cases {

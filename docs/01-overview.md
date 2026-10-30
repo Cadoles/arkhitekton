@@ -68,7 +68,7 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
 
 | Term | Meaning |
 |---|---|
-| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`core/build`, `php/unit-tests`, `security/security-audit`, …). Plugins bring capabilities; the core names only `core/build` and `core/retag`. |
+| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`core/build`, `php/unit-tests`, `mse/security-audit`, …). Plugins bring capabilities; the core names only `core/build` and `core/retag`. |
 | **catalogue** | The YAML file that declares which pipelines exist, what they need and what they produce. See [05](05-pipeline-catalogue.md). |
 | **geste** | One pipeline run inside a plan stage. |
 | **fact** | An event normalised to a type a reaction can match. |
