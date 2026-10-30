@@ -89,6 +89,8 @@ export function PluginCard({
         </div>
       )}
 
+      {plugin.webhook_path && <WebhookAddress path={plugin.webhook_path} />}
+
       {!plugin.secrets_configured && plugin.fields.some((field) => field.secret) && (
         <p className="flex items-start gap-1.5 text-xs text-warn-700">
           <Icon name="alert" className="mt-0.5 size-3.5 shrink-0" />
@@ -194,6 +196,36 @@ function PluginFieldRow({
       </div>
 
       {field.help && <p className="text-xs text-zinc-500">{field.help}</p>}
+    </div>
+  )
+}
+
+/**
+ * L'adresse à donner au webhook de la forge, pour ce projet.
+ *
+ * Composée sur l'origine de la page : c'est celle que la forge doit joindre, et
+ * le serveur ne la connaît pas toujours derrière un proxy.
+ */
+function WebhookAddress({ path }: { path: string }) {
+  const address = `${window.location.origin}${path}`
+  return (
+    <div className="flex flex-col gap-1 border-t border-zinc-200 pt-3">
+      <label htmlFor={`webhook-${path}`} className="text-sm font-medium text-zinc-700">
+        Adresse du webhook
+      </label>
+      <input
+        id={`webhook-${path}`}
+        readOnly
+        value={address}
+        onFocus={(event) => event.target.select()}
+        className="min-w-64 rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-900"
+      />
+      <p className="text-xs text-zinc-500">
+        À saisir dans le webhook du dépôt, type de contenu{' '}
+        <span className="font-mono">application/json</span>, avec le secret ci-dessus. Une
+        livraison n'enclenche rien par elle-même : ce sont les automatisations du projet qui
+        réagissent aux faits qu'elle apporte.
+      </p>
     </div>
   )
 }

@@ -237,3 +237,17 @@ func TestTheSignatureSchemes(t *testing.T) {
 		}
 	}
 }
+
+// The project's plugin screen gives the forge the address this file serves.
+func TestTheWebhookPathIsTheRouteServed(t *testing.T) {
+	_, _, handler := receiving(t)
+	plugin := capability.Plugin{ID: "forge", Webhook: &capability.Webhook{}}
+	path := strings.TrimPrefix(webhookPath(plugin, "shop"), "/api/v1")
+	response := deliver(handler, path, "push", sign("s3cret", "abc"), "abc")
+	if response.Code != http.StatusAccepted {
+		t.Errorf("%s answered %d", path, response.Code)
+	}
+	if webhookPath(capability.Plugin{ID: "quiet"}, "shop") != "" {
+		t.Error("a plugin receiving nothing has an address")
+	}
+}
