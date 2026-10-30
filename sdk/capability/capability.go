@@ -105,6 +105,8 @@ type Plugin struct {
 	Tracker      TrackerCapability
 	Forge        ForgeCapability
 	Probes       []Probe
+	// Webhook receives what a source pushes. Nil for a plugin that only polls.
+	Webhook *Webhook
 	// Executor carries out the declared Actions. Required when there are any.
 	Executor ActionExecutor
 }

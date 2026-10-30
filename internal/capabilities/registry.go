@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -329,6 +330,46 @@ func declarationProblems(plugin capability.Plugin) []error {
 		}
 		names[probe.Name()] = true
 	}
+	if plugin.Webhook != nil {
+		problems = append(problems, webhookProblems(plugin)...)
+	}
+	return problems
+}
+
+// webhookProblems refuses a webhook the dashboard could not authenticate, or that could observe
+// nothing.
+func webhookProblems(plugin capability.Plugin) []error {
+	hook := plugin.Webhook
+	var problems []error
+	if hook.Receiver == nil {
+		problems = append(problems, fmt.Errorf("plugin %q receives deliveries and reads none", plugin.ID))
+	}
+	if len(plugin.Events) == 0 {
+		problems = append(problems, fmt.Errorf("plugin %q receives deliveries and declares no event", plugin.ID))
+	}
+	switch hook.Scheme {
+	case capability.SignatureHMACSHA256, capability.SignatureToken:
+	default:
+		problems = append(problems, fmt.Errorf("plugin %q: signature scheme %q unknown", plugin.ID, hook.Scheme))
+	}
+	for label, header := range map[string]string{"signature": hook.Signature, "event": hook.Event} {
+		if strings.TrimSpace(header) == "" || strings.ContainsAny(header, " :\t") {
+			problems = append(problems, fmt.Errorf("plugin %q: %s header %q is not a header name",
+				plugin.ID, label, header))
+		}
+	}
+	// A secret the dashboard would not seal could be read back from the settings screen, and a
+	// setting nobody declared could never be typed: either way no delivery would be authentic.
+	sealed := false
+	for _, field := range append(append([]capability.Field{}, plugin.Global...), plugin.Project...) {
+		if field.Name == hook.Secret {
+			sealed = field.Secret
+		}
+	}
+	if !sealed {
+		problems = append(problems, fmt.Errorf("plugin %q: the webhook secret %q is not a secret setting",
+			plugin.ID, hook.Secret))
+	}
 	return problems
 }
 
@@ -347,4 +388,39 @@ func (r *Registry) Probes() []PluginProbe {
 		}
 	}
 	return probes
+}
+
+// Facts names a plugin's observations, whether a probe polled them or a delivery carried them.
+//
+// The plugin reads; the dashboard names. The type is the plugin's identifier and the declared
+// suffix, the key is prefixed by the type, and an undeclared suffix is refused: a plugin cannot
+// produce a fact under another plugin's name, nor one its declaration does not announce.
+func Facts(plugin capability.Plugin, observed []capability.Observation) ([]event.Event, error) {
+	facts := make([]event.Event, 0, len(observed))
+	for _, observation := range observed {
+		spec, declared := declaredEvent(plugin, observation.Suffix)
+		if !declared {
+			return nil, fmt.Errorf("plugin %q observed %q, which it does not declare",
+				plugin.ID, observation.Suffix)
+		}
+		eventType := plugin.EventType(spec)
+		facts = append(facts, event.Event{
+			Type:       event.Type(eventType),
+			Source:     plugin.ID,
+			Subject:    observation.Subject,
+			Payload:    observation.Payload,
+			OccurredAt: observation.OccurredAt,
+			DedupKey:   eventType + ":" + observation.Key,
+		})
+	}
+	return facts, nil
+}
+
+func declaredEvent(plugin capability.Plugin, suffix string) (capability.EventSpec, bool) {
+	for _, spec := range plugin.Events {
+		if spec.Suffix == suffix {
+			return spec, true
+		}
+	}
+	return capability.EventSpec{}, false
 }

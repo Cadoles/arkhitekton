@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
@@ -56,30 +55,9 @@ func (p pluginProbe) Poll(
 		return nil, "", err
 	}
 
-	facts := make([]event.Event, 0, len(observed))
-	for _, observation := range observed {
-		spec, declared := p.event(observation.Suffix)
-		if !declared {
-			return nil, "", fmt.Errorf("plugin %q observed %q, which it does not declare",
-				p.plugin.ID, observation.Suffix)
-		}
-		eventType := p.plugin.EventType(spec)
-		facts = append(facts, event.Event{
-			Type:       event.Type(eventType),
-			Subject:    observation.Subject,
-			Payload:    observation.Payload,
-			OccurredAt: observation.OccurredAt,
-			DedupKey:   eventType + ":" + observation.Key,
-		})
+	facts, err := capabilities.Facts(p.plugin, observed)
+	if err != nil {
+		return nil, "", err
 	}
 	return facts, next, nil
-}
-
-func (p pluginProbe) event(suffix string) (capability.EventSpec, bool) {
-	for _, spec := range p.plugin.Events {
-		if spec.Suffix == suffix {
-			return spec, true
-		}
-	}
-	return capability.EventSpec{}, false
 }
