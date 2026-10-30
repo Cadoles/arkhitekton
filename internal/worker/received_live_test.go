@@ -9,6 +9,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
 )
 
 // A received fact is routed once, by the worker, and only a received one: a fact a probe or the
@@ -78,5 +79,60 @@ func TestLiveAReceivedFactIsRoutedOnce(t *testing.T) {
 	}
 	if pending, err := db.PendingEvents(ctx, 10); err != nil || len(pending) != 0 {
 		t.Errorf("still pending: %v, %v", pending, err)
+	}
+}
+
+// enqueuingRunner queues each step as a job of the project, attached to no release, as a reaction
+// to a push does.
+type enqueuingRunner struct{ db *store.DB }
+
+func (r enqueuingRunner) Run(ctx context.Context, run store.PlanRun, geste plan.Geste) (*int64, error) {
+	id, err := r.db.Enqueue(ctx, store.JobRequest{Kind: geste.Ref, ProjectID: run.ProjectID, RequestedBy: "system:plan"})
+	return &id, err
+}
+
+// A plan a push triggered carries jobs with no release, and still moves to its next stage when
+// they conclude: seen on kind-mse, where the step stayed `running` after its pipeline succeeded.
+func TestLiveAPlanWithoutAReleaseAdvances(t *testing.T) {
+	db := throwawayDatabase(t)
+	ctx := context.Background()
+
+	projectID, err := db.CreateProject(ctx, store.Project{
+		Repository: "acme/shop", Label: "Shop", ForgeURL: "https://forge.example.fr",
+		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
+	})
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	engine := NewEngine(db, enqueuingRunner{db: db}, quietLogger())
+	if started := engine.Trigger(ctx, store.PlanRun{
+		Trigger: "reaction:1", EventKey: "gitea.push:acme/shop:refs/heads/main:abc", ProjectID: &projectID,
+		Plan: plan.Plan{Stages: []plan.Stage{
+			{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "php/static-tests"}}},
+			{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "php/unit-tests"}}},
+		}},
+	}); started != 1 {
+		t.Fatalf("%d steps started", started)
+	}
+	runs, err := db.ListPlanRuns(ctx, projectID, 0)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("runs %v, %v", runs, err)
+	}
+	steps, err := db.PlanSteps(ctx, runs[0].ID)
+	if err != nil || steps[0].JobID == nil {
+		t.Fatalf("steps %+v, %v", steps, err)
+	}
+
+	sink := NewRunSink(db).WithEngine(engine)
+	if err := sink.finishJob(ctx, tekton.Run{JobID: *steps[0].JobID, Status: tekton.StatusSucceeded}); err != nil {
+		t.Fatal(err)
+	}
+
+	steps, err = db.PlanSteps(ctx, runs[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steps[0].State != string(plan.Succeeded) || steps[1].JobID == nil {
+		t.Errorf("after the first job: %+v", steps)
 	}
 }
