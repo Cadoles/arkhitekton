@@ -95,6 +95,7 @@ tool that failed is recorded as failed, not as zero findings.
 |---|---|
 | `events` | `type`, `source`, `project_id`, `subject`, `payload`, `occurred_at`, `depth`, `dedup_key`, `dispatch_pending` |
 | `reactions` | `name`, `event_type`, `enabled`, `match`, `plan` |
+| `schedules` | `name`, `cron`, `timezone`, `ref`, `enabled`, `plan`, `next_fire_at`, `last_fired_at`, `last_outcome` |
 | `release_automations` | The plan a project runs for a release, per project |
 | `plan_runs` | `trigger`, `event_key`, `plan`, `context`, `state` |
 | `plan_steps` | `stage`, `position`, `kind`, `ref`, `state`, `job_id`, `detail` |
@@ -105,6 +106,11 @@ reaction cannot recurse indefinitely. `dedup_key` makes a probe that sees the sa
 twice produce one event, and a webhook delivered twice too. `dispatch_pending` marks a fact a
 webhook brought: the `api` records it and the worker routes it to the reactions, then clears the
 mark.
+
+A schedule's run is a plan run whose trigger is `schedule:<id>` and whose key is the tick,
+`schedule:<id>:<instant>`: the uniqueness of `(trigger, event_key)` is what keeps a tick seen by
+two workers, or again after a restart, from opening two runs. `next_fire_at` is null for a
+schedule switched off.
 
 ## 8.8 Plugin settings
 
