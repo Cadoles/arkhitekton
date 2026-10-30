@@ -62,9 +62,10 @@ type repositoryVw struct {
 	FullName string `json:"full_name"`
 }
 
-// sameRepository refuses a delivery about another repository than the project's. A hook set on an
-// organisation, with an instance-wide secret, signs every repository's pushes: the signature alone
-// does not say which project they are for.
+// sameRepository refuses a delivery about another repository than the project's. A secret set for
+// the instance signs every repository's hook alike: the signature does not say which project a
+// delivery is for, the repository does, and a hook pointed at another project's address must not
+// build that project.
 func sameRepository(target capability.Target, delivered repositoryVw) error {
 	if !strings.EqualFold(delivered.FullName, target.Repository) {
 		return fmt.Errorf("gitea: the delivery is about %q, project %q builds %q",
