@@ -154,3 +154,45 @@ type version string
 func (version) Interpret(context.Context, capability.RunState, []parse.Record) ([]facts.Set, error) {
 	return nil, nil
 }
+
+type silentReceiver struct{}
+
+func (silentReceiver) Receive(context.Context, capability.Target, capability.Delivery) ([]capability.Observation, error) {
+	return nil, nil
+}
+
+// A webhook the dashboard could not authenticate is refused at load: the first delivery would
+// otherwise be the first sign of it, refused or, worse, accepted.
+func TestAWebhookThatCannotBeAuthenticatedIsRefused(t *testing.T) {
+	valid := func() capability.Plugin {
+		return capability.Plugin{
+			ID: "forge", Version: "1", APIVersion: sdk.APIVersion,
+			Events:  []capability.EventSpec{{Suffix: "push"}},
+			Project: []capability.Field{{Name: "secret", Secret: true}},
+			Webhook: &capability.Webhook{
+				Secret: "secret", Signature: "X-Forge-Signature", Event: "X-Forge-Event",
+				Scheme: capability.SignatureHMACSHA256, Receiver: silentReceiver{},
+			},
+		}
+	}
+	if _, err := New(valid()); err != nil {
+		t.Fatalf("valid webhook refused: %v", err)
+	}
+
+	broken := map[string]func(*capability.Plugin){
+		"no receiver":       func(p *capability.Plugin) { p.Webhook.Receiver = nil },
+		"no event":          func(p *capability.Plugin) { p.Events = nil },
+		"unknown scheme":    func(p *capability.Plugin) { p.Webhook.Scheme = "md5" },
+		"no signature":      func(p *capability.Plugin) { p.Webhook.Signature = "" },
+		"bad event header":  func(p *capability.Plugin) { p.Webhook.Event = "X Forge" },
+		"undeclared secret": func(p *capability.Plugin) { p.Webhook.Secret = "other" },
+		"secret not sealed": func(p *capability.Plugin) { p.Project[0].Secret = false },
+	}
+	for name, breakIt := range broken {
+		plugin := valid()
+		breakIt(&plugin)
+		if _, err := New(plugin); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
