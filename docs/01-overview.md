@@ -35,7 +35,14 @@ own as jobs conclude.
 **Events and reactions.** Anything worth reacting to is recorded as an event — a build
 succeeded, a version was reviewed, a plugin observed a promotion. A reaction is a
 declarative rule that turns an event into an action: run a pipeline, call a webhook,
-start a plan.
+start a plan. A forge can push its events to the dashboard instead of being polled for them
+([06 §6.5](06-plugins.md#65-trackers-forges-probes-and-actions)).
+
+**Schedules.** A schedule opens a plan at the times a cron expression names, in a time zone,
+on a branch resolved to its commit at each tick. It replaces CronJobs creating PipelineRuns
+outside the queue: its pipelines go through the queue, its runs are read like any other. A tick
+does not start while the schedule's previous run is still going, and a tick missed during an
+outage is recorded as missed rather than run late.
 
 **Plugins.** Everything domain-specific lives in a plugin. The core knows nothing about
 GitOps, deployment observation or sign-offs; a plugin installed on the instance

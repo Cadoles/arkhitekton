@@ -113,6 +113,10 @@ All scoped to a project; the permission is checked **in that project**.
 | `GET /projects/{project}/automation` | `admin` |
 | `PUT /projects/{project}/automation` | `admin` |
 | `GET /admin/automations/catalogue` | `admin` |
+| `GET /projects/{project}/schedules` | `admin` |
+| `POST /projects/{project}/schedules` | `admin` |
+| `PUT /projects/{project}/schedules/{schedule}` | `admin` |
+| `DELETE /projects/{project}/schedules/{schedule}` | `admin` |
 | `POST /hooks/{plugin}/projects/{project}` | none: the delivery's signature, see below |
 
 **Receiving a webhook.** The one route that changes something without a session. The plugin
@@ -123,6 +127,14 @@ once the facts are recorded, including when the delivery is about nothing the pl
 is never accepted; `404` for an unknown plugin or project, or a plugin switched off for the
 project; `413` above 4 MiB; `422` with the plugin's reason when it cannot read an authenticated
 delivery. A delivery launches nothing itself: the reactions of the project do.
+
+**A schedule** is `{name, cron, timezone, ref, enabled, plan}`: five cron fields (`*`, values,
+ranges, lists, steps, English month and day abbreviations, `@daily` and its siblings) read in an
+IANA zone, empty meaning UTC; `ref` a branch or tag resolved to its commit at each tick through
+the project's forge plugin, empty meaning the default branch. Saving returns `next_fire_at`,
+computed from now: a schedule switched back on does not fire the ticks it slept through. The list
+adds `next_fire_at`, `last_fired_at` and `last_outcome`. A stage of a schedule's plan carries no
+role, for the reason a reaction's does not: it aims at no release.
 
 ## 7.9 Projects and administration
 

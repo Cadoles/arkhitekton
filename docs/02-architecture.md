@@ -58,6 +58,8 @@ leadership term, and the loops restart on the next one.
 | **key reconciler** | on tick | Keeps each project's deploy-key secret in sync with what the project declares |
 | **capability reconciler** | at election, then on tick | Installs the bound capabilities' pipeline definitions, leaving foreign ones alone, then checks what the cluster can run; a pipeline it cannot run is refused with the reason |
 | **probes** | `PROBE_INTERVAL` | Polls the tracker and the forge for facts (merged pull requests, reviewed versions) and dispatches reactions |
+| **received facts** | 2 s | Routes the facts a webhook brought to the `api` to the project's reactions |
+| **schedules** | 20 s | Opens the plans of the schedules that are due; one run per tick, none while the previous one goes, none for a tick more than 15 minutes late |
 | **modules** | 30 s | Runs the modules installed plugins bring, while their plugin is switched on ([06 §6.9](06-plugins.md#69-modules)) |
 
 ## 2.4 What talks to what
