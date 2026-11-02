@@ -30,6 +30,8 @@ import {
   TestsBlock,
 } from '../features/releases/ReleaseScreen'
 import { ReleasesList } from '../features/releases/ReleasesScreen'
+import { PullScreen } from '../features/pulls/PullScreen'
+import { PullsScreen } from '../features/pulls/PullsScreen'
 import { EventsScreen } from '../features/runs/EventsScreen'
 import { PlanRunsScreen } from '../features/runs/PlanRunsScreen'
 import { RunsScreen } from '../features/runs/RunsScreen'
@@ -83,6 +85,8 @@ export function registerCoreComponents(): void {
     'release-notes': NotesBlock,
     'release-exports': ExportsBlock,
     'release-executions': ExecutionsBlock,
+    pulls: PullsScreen,
+    pull: PullScreen,
     runs: RunsScreen,
     run: RunScreen,
     queue: QueueScreen,

@@ -1,6 +1,28 @@
 {
   "screens": [
     {
+      "name": "pulls",
+      "path": "pulls",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.list",
+          "component": "core/pulls"
+        }
+      ]
+    },
+    {
+      "name": "pull",
+      "path": "pulls/:number",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.page",
+          "component": "core/pull"
+        }
+      ]
+    },
+    {
       "name": "releases",
       "path": "releases",
       "parent": "shell",
@@ -506,6 +528,12 @@
           "label": "Releases",
           "icon": "doc",
           "to": "/releases"
+        },
+        {
+          "id": "core.pulls",
+          "label": "Pull requests",
+          "icon": "branch",
+          "to": "/pulls"
         },
         {
           "id": "core.runs",

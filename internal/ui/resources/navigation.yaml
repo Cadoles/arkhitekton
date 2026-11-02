@@ -7,6 +7,7 @@ spec:
   items:
     - { id: core.versions, label: Versions, icon: tag, to: /versions }
     - { id: core.releases, label: Releases, icon: doc, to: /releases }
+    - { id: core.pulls, label: Pull requests, icon: branch, to: /pulls }
     # One entry for the three execution views: history, queues and their settings are tabs, not
     # separate destinations.
     - { id: core.runs, label: Exécutions, icon: beaker, to: /runs }

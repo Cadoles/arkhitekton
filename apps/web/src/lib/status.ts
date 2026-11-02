@@ -95,8 +95,17 @@ const RELEASE: Record<ReleaseState, StatusStyle> = {
   cancelled: { label: 'Abandonnée', icon: 'skip', text: 'text-zinc-500', bg: 'bg-zinc-100', border: 'border-zinc-300' },
 }
 
+export type PullState = 'open' | 'closed' | 'merged'
+
+const PULL: Record<PullState, StatusStyle> = {
+  open: { label: 'Ouverte', icon: 'branch', text: 'text-zinc-700', bg: 'bg-zinc-50', border: 'border-zinc-300' },
+  merged: { label: 'Fusionnée', icon: 'check', text: 'text-healthy-700', bg: 'bg-healthy-50', border: 'border-healthy-500' },
+  closed: { label: 'Fermée', icon: 'skip', text: 'text-zinc-500', bg: 'bg-zinc-100', border: 'border-zinc-300' },
+}
+
 export const status = {
   release: (value: ReleaseState) => RELEASE[value],
+  pull: (value: PullState) => PULL[value] ?? PULL.open,
   health: (value: Health) => HEALTH[value],
   pipeline: (value: PipelineStatus) => PIPELINE[value],
   bench: (value: BenchStatus) => BENCH[value],
