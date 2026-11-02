@@ -65,7 +65,8 @@ type Applier struct {
 // The returned warnings name what a value left unchanged because its reference resolves to
 // nothing, and what the prune does not touch.
 func (a Applier) Plan(ctx context.Context, desired configfile.Set, prune bool) ([]Op, []string, error) {
-	if err := a.preflight(desired); err != nil {
+	checks, err := a.checker()
+	if err != nil {
 		return nil, nil, err
 	}
 	current, err := Exporter{Store: a.Store, Registry: a.Registry}.Export(ctx)
@@ -73,7 +74,7 @@ func (a Applier) Plan(ctx context.Context, desired configfile.Set, prune bool) (
 		return nil, nil, err
 	}
 
-	p := &planner{applier: a, prune: prune}
+	p := &planner{applier: a, prune: prune, checks: checks}
 	if desired.Instance != nil {
 		p.instance(*desired.Instance, current.Set.Instance)
 	}
@@ -103,6 +104,7 @@ func (a Applier) Execute(ctx context.Context, ops []Op) error {
 
 type planner struct {
 	applier  Applier
+	checks   checker
 	prune    bool
 	ops      []Op
 	warnings []string
@@ -111,6 +113,16 @@ type planner struct {
 
 func (p *planner) add(description string, run func(ctx context.Context) error) {
 	p.ops = append(p.ops, Op{Description: description, run: run})
+}
+
+// check records the problems of what an operation would write. Only what is written is checked:
+// an entity the files leave as it is stays, even if it names something the instance lost since.
+func (p *planner) check(problems ...error) {
+	for _, problem := range problems {
+		if problem != nil {
+			p.problems = append(p.problems, problem)
+		}
+	}
 }
 
 func (p *planner) warn(format string, args ...any) {
@@ -162,6 +174,7 @@ func (p *planner) instance(desired configfile.Instance, current *configfile.Inst
 		if existing, recorded := current.CapabilityBindings[ref]; recorded && sameJSON(existing, binding) {
 			continue
 		}
+		p.check(p.checks.binding(ref))
 		p.add("~ binding "+ref, func(ctx context.Context) error {
 			parsed, err := services.Bindings.Ref(ref)
 			if err != nil {
@@ -364,6 +377,7 @@ func (p *planner) project(ctx context.Context, desired configfile.Project, curre
 		if existing, declared := current.Pipelines[kind]; declared && existing == enabled {
 			continue
 		}
+		p.check(p.checks.kind("project "+slug+": pipeline", kind))
 		p.add(fmt.Sprintf("~ pipeline %s/%s: %s", slug, kind, onOff(enabled)), func(ctx context.Context) error {
 			project, err := find(ctx)
 			if err != nil {
@@ -392,6 +406,7 @@ func (p *planner) project(ctx context.Context, desired configfile.Project, curre
 	if desired.ReleaseAutomation != nil && (current.ReleaseAutomation == nil ||
 		!samePlan(*current.ReleaseAutomation, *desired.ReleaseAutomation)) {
 		automation := *desired.ReleaseAutomation
+		p.check(p.checks.plan("project "+slug+": release automation", automation))
 		p.add("~ release automation "+slug, func(ctx context.Context) error {
 			project, err := find(ctx)
 			if err != nil {
@@ -481,6 +496,8 @@ func (p *planner) reactions(ctx context.Context, slug string, find func(context.
 		if found {
 			sign = "~"
 		}
+		where := fmt.Sprintf("project %s: reaction %q", slug, wanted.Name)
+		p.check(p.checks.event(where, wanted.EventType), p.checks.plan(where, wanted.Plan))
 		p.add(sign+" reaction "+slug+"/"+wanted.Name, func(ctx context.Context) error {
 			project, err := find(ctx)
 			if err != nil {
@@ -545,6 +562,7 @@ func (p *planner) schedules(ctx context.Context, slug string, find func(context.
 		if found {
 			sign = "~"
 		}
+		p.check(p.checks.plan(fmt.Sprintf("project %s: schedule %q", slug, wanted.Name), wanted.Plan))
 		p.add(sign+" schedule "+slug+"/"+wanted.Name, func(ctx context.Context) error {
 			project, err := find(ctx)
 			if err != nil {
@@ -658,15 +676,22 @@ func onOff(enabled bool) string {
  * What can be checked before writing anything.
  */
 
-// preflight refuses what names nothing in this instance: an unknown plugin, a kind missing from the
-// catalogue, an unknown action or fact. Whether a plugin is switched on for a project depends on
-// the order of the writes, and is checked by the services when they write.
-func (a Applier) preflight(desired configfile.Set) error {
+// checker refuses what names nothing in this instance: a kind missing from the catalogue, an
+// unknown action or fact, a binding for a capability no plugin declares. Whether a plugin is
+// switched on for a project depends on the order of the writes, and is checked by the services when
+// they write.
+type checker struct {
+	registry *capabilities.Registry
+	catalog  *catalog.Catalog
+	actions  action.Catalog
+	events   map[string]bool
+}
+
+func (a Applier) checker() (checker, error) {
 	registry := capabilities.Of(a.Registry)
 	if registry == nil {
-		return errors.New("no plugin registry: nothing can be checked")
+		return checker{}, errors.New("no plugin registry: nothing can be checked")
 	}
-	actions := action.NewCatalog(registry.Plugins())
 	events := map[string]bool{}
 	for _, core := range CoreEvents() {
 		events[core.Type] = true
@@ -676,70 +701,50 @@ func (a Applier) preflight(desired configfile.Set) error {
 			events[descriptor.EventType(spec)] = true
 		}
 	}
+	return checker{
+		registry: registry, catalog: catalog.Of(a.Catalog),
+		actions: action.NewCatalog(registry.Plugins()), events: events,
+	}, nil
+}
 
+func (c checker) kind(where, kind string) error {
+	if c.catalog == nil {
+		return fmt.Errorf("%s: kind %q cannot be checked: no catalogue is loaded", where, kind)
+	}
+	if _, found := c.catalog.Find(kind); !found {
+		return fmt.Errorf("%s: kind %q is missing from the catalogue", where, kind)
+	}
+	return nil
+}
+
+func (c checker) plan(where string, entry plan.Plan) error {
 	var problems []error
-	known := func(where, id string) bool {
-		if _, err := registry.Plugin(id); err != nil {
-			problems = append(problems, fmt.Errorf("%s: plugin %q: no plugin of this instance carries it", where, id))
-			return false
-		}
-		return true
+	pipelines, refs := plan.Refs(entry)
+	for _, ref := range pipelines {
+		problems = append(problems, c.kind(where, ref))
 	}
-	checkPlan := func(where string, entry plan.Plan) {
-		pipelines, refs := plan.Refs(entry)
-		for _, ref := range pipelines {
-			if pipelines := catalog.Of(a.Catalog); pipelines == nil {
-				problems = append(problems, fmt.Errorf("%s: kind %q cannot be checked: no catalogue is loaded", where, ref))
-			} else if _, found := pipelines.Find(ref); !found {
-				problems = append(problems, fmt.Errorf("%s: kind %q is missing from the catalogue", where, ref))
-			}
-		}
-		for _, ref := range refs {
-			if _, err := actions.Get(ref); err != nil {
-				problems = append(problems, fmt.Errorf("%s: %w", where, err))
-			}
-		}
-	}
-
-	if desired.Instance != nil {
-		for id := range desired.Instance.Plugins {
-			if desired.Instance.Plugins[id].Install == nil {
-				known("instance", id)
-			}
-		}
-		for ref := range desired.Instance.CapabilityBindings {
-			if parsed, err := capability.ParseRef(ref); err != nil {
-				problems = append(problems, fmt.Errorf("instance: binding %q: %w", ref, err))
-			} else if _, _, found := registry.Pipeline(parsed); !found {
-				problems = append(problems, fmt.Errorf("instance: binding %q: no plugin declares this capability", ref))
-			}
-		}
-	}
-	for _, project := range desired.Projects {
-		where := "project " + project.Name
-		for id := range project.Plugins {
-			known(where, id)
-		}
-		for kind := range project.Pipelines {
-			if pipelines := catalog.Of(a.Catalog); pipelines != nil {
-				if _, found := pipelines.Find(kind); !found {
-					problems = append(problems, fmt.Errorf("%s: pipeline %q is missing from the catalogue", where, kind))
-				}
-			}
-		}
-		if project.ReleaseAutomation != nil {
-			checkPlan(where+": release automation", *project.ReleaseAutomation)
-		}
-		for _, entry := range project.Reactions {
-			if !events[strings.TrimSpace(entry.Event)] {
-				problems = append(problems, fmt.Errorf("%s: reaction %q: no plugin of this instance produces %q",
-					where, entry.Name, entry.Event))
-			}
-			checkPlan(fmt.Sprintf("%s: reaction %q", where, entry.Name), entry.Plan)
-		}
-		for _, entry := range project.Schedules {
-			checkPlan(fmt.Sprintf("%s: schedule %q", where, entry.Name), entry.Plan)
+	for _, ref := range refs {
+		if _, err := c.actions.Get(ref); err != nil {
+			problems = append(problems, fmt.Errorf("%s: %w", where, err))
 		}
 	}
 	return errors.Join(problems...)
+}
+
+func (c checker) event(where, event string) error {
+	if !c.events[strings.TrimSpace(event)] {
+		return fmt.Errorf("%s: no plugin of this instance produces %q", where, event)
+	}
+	return nil
+}
+
+func (c checker) binding(ref string) error {
+	parsed, err := capability.ParseRef(ref)
+	if err != nil {
+		return fmt.Errorf("instance: binding %q: %w", ref, err)
+	}
+	if _, _, found := c.registry.Pipeline(parsed); !found {
+		return fmt.Errorf("instance: binding %q: no plugin declares this capability", ref)
+	}
+	return nil
 }

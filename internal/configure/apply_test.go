@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
 )
 
@@ -218,5 +219,25 @@ func TestASecretWithNoValueAnywhereIsRefused(t *testing.T) {
 	_, _, err := fresh.applier(nil).Plan(context.Background(), read(t, exported), false)
 	if err == nil || !strings.Contains(err.Error(), "ARK_GITEA_TOKEN is not set and no value is recorded") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+// Only what is written is checked: an entity the files leave as it is does not block an apply,
+// even when it names a kind the instance has lost since; changed, it is refused.
+func TestOnlyWhatIsWrittenIsChecked(t *testing.T) {
+	i := configured(t)
+	set := read(t, i.export(t))
+	i.catalog = &catalog.Catalog{Pipelines: []catalog.Pipeline{
+		{Kind: "core/build", PipelineRef: "build-image", Produces: []catalog.Product{catalog.ProductImage}},
+	}}
+
+	if ops, _ := planOps(t, i.applier(nil), set, false); len(ops) != 0 {
+		t.Errorf("an unchanged configuration writes:\n%s", descriptions(ops))
+	}
+
+	set.Projects[0].Reactions[0].Enabled = configfile.On(false)
+	_, _, err := i.applier(nil).Plan(context.Background(), set, false)
+	if err == nil || !strings.Contains(err.Error(), `"php/static-tests" is missing from the catalogue`) {
+		t.Errorf("error = %v, want the changed reaction's lost kind named", err)
 	}
 }
