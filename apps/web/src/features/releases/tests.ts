@@ -70,14 +70,44 @@ export type ScoreBreakdown = {
   redistributed: string[]
 }
 
-export function useTests(tag: string | undefined) {
+/**
+ * Whose results a screen reads: a release's or a pull request's.
+ *
+ * The same results, under two paths: what changes is the URL they are read at and the cache key
+ * they live under, never how they are displayed.
+ */
+export type ResultSubject = {
+  kind: 'release' | 'pull'
+  /** The path under the project, without a trailing slash: `/releases/1.8.0`, `/pulls/12`. */
+  path: string
+  key: readonly unknown[]
+  /** What names it in a title: the tag, or `#12`. */
+  label: string
+}
+
+export function releaseSubject(tag: string): ResultSubject {
+  return { kind: 'release', path: `/releases/${encodeURIComponent(tag)}`, key: ['releases', tag], label: tag }
+}
+
+export function pullSubject(number: number): ResultSubject {
+  return { kind: 'pull', path: `/pulls/${number}`, key: ['pulls', number], label: `#${number}` }
+}
+
+/** A release's tag still names its subject: the plugins' screens pass one. */
+function subjectOf(input: ResultSubject | string | undefined): ResultSubject | undefined {
+  if (typeof input === 'string') return input ? releaseSubject(input) : undefined
+  return input
+}
+
+export function useTests(input: ResultSubject | string | undefined) {
+  const subject = subjectOf(input)
   return useQuery({
-    queryKey: ['releases', tag, 'tests'],
+    queryKey: [...(subject?.key ?? ['releases', undefined]), 'tests'],
     queryFn: () =>
       request<{ results: TestResult[]; score: ScoreBreakdown }>(
-        projectPath(`/releases/${encodeURIComponent(tag as string)}/tests`),
+        projectPath(`${(subject as ResultSubject).path}/tests`),
       ),
-    enabled: Boolean(tag),
+    enabled: Boolean(subject),
   })
 }
 
@@ -114,8 +144,8 @@ export type Attachment = {
 
 /** URL d'un fichier. Le contenu transite par l'api, sous le rôle du lecteur,
  *  jamais par une URL pré-signée. */
-export function attachmentURL(tag: string, id: number, download = false): string {
-  const path = projectPath(`/releases/${encodeURIComponent(tag)}/attachments/${id}`)
+export function attachmentURL(subject: ResultSubject, id: number, download = false): string {
+  const path = projectPath(`${subject.path}/attachments/${id}`)
   return `/api/v1${path}${download ? '?download=1' : ''}`
 }
 
@@ -150,23 +180,23 @@ export type GroupPage = {
  * ce qui fait sauter la mise en page à chaque clic.
  */
 export function useGroup(
-  tag: string | undefined,
+  subject: ResultSubject | undefined,
   group: string | undefined,
   offset = 0,
   query = '',
 ) {
   return useQuery({
-    queryKey: ['releases', tag, 'tests', group, { offset, query }],
+    queryKey: [...(subject?.key ?? ['releases', undefined]), 'tests', group, { offset, query }],
     queryFn: () => {
       const params = new URLSearchParams()
       if (offset > 0) params.set('offset', String(offset))
       if (query) params.set('q', query)
       const suffix = params.size > 0 ? `?${params}` : ''
       return request<GroupPage>(
-        projectPath(`/releases/${encodeURIComponent(tag as string)}/tests/${encodeURIComponent(group as string)}${suffix}`),
+        projectPath(`${(subject as ResultSubject).path}/tests/${encodeURIComponent(group as string)}${suffix}`),
       )
     },
-    enabled: Boolean(tag && group),
+    enabled: Boolean(subject && group),
     placeholderData: (previous) => previous,
   })
 }
@@ -240,11 +270,11 @@ export type SecurityReport = {
   findings?: Finding[]
 }
 
-export function useSecurity(tag: string | undefined) {
+export function useSecurity(subject: ResultSubject | undefined) {
   return useQuery({
-    queryKey: ['releases', tag, 'security'],
-    queryFn: () => request<SecurityReport>(projectPath(`/releases/${encodeURIComponent(tag as string)}/security`)),
-    enabled: Boolean(tag),
+    queryKey: [...(subject?.key ?? ['releases', undefined]), 'security'],
+    queryFn: () => request<SecurityReport>(projectPath(`${(subject as ResultSubject).path}/security`)),
+    enabled: Boolean(subject),
   })
 }
 

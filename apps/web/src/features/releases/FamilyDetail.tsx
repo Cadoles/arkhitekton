@@ -12,6 +12,7 @@ import {
   type Attachment,
   type CaseDiff,
   type Change,
+  type ResultSubject,
   type TestCase,
 } from './tests'
 
@@ -66,12 +67,12 @@ function caseKey(suite: string, name: string): string {
 }
 
 export function FamilyDetail({
-  tag,
+  subject,
   group,
   /** Run en cours mesurant cette famille, s'il y en a un. */
   runName,
 }: {
-  tag: string | undefined
+  subject: ResultSubject | undefined
   group: string | undefined
   runName?: string
 }) {
@@ -92,7 +93,7 @@ export function FamilyDetail({
     return () => clearTimeout(timer)
   }, [input])
 
-  const { data, isPending, error, refetch } = useGroup(tag, group, offset, needle)
+  const { data, isPending, error, refetch } = useGroup(subject, group, offset, needle)
 
   const changes = new Map<string, Change>()
   for (const entry of data?.diff ?? []) changes.set(caseKey(entry.suite, entry.name), entry.change)
@@ -142,10 +143,10 @@ export function FamilyDetail({
 
           <AttributeList attributes={data.attributes} />
 
-          {tag && loose.length > 0 && (
+          {subject && loose.length > 0 && (
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold text-zinc-900">Fichiers ({loose.length})</h3>
-              <AttachmentList tag={tag} attachments={loose} />
+              <AttachmentList subject={subject} attachments={loose} />
             </section>
           )}
         </>
@@ -167,7 +168,7 @@ export function FamilyDetail({
           </div>
 
           <CaseList
-            tag={tag}
+            subject={subject}
             cases={data.cases}
             filtered={needle !== ''}
             changes={changes}
@@ -319,13 +320,13 @@ function Pagination({
 // qui permet à « aucun cas ne correspond » de porter sur la famille entière et non
 // sur la page affichée.
 function CaseList({
-  tag,
+  subject,
   cases,
   filtered,
   changes,
   attachments,
 }: {
-  tag: string | undefined
+  subject: ResultSubject | undefined
   cases: TestCase[]
   filtered: boolean
   changes: Map<string, Change>
@@ -344,7 +345,7 @@ function CaseList({
       {cases.map((entry) => (
         <CaseRow
           key={caseKey(entry.suite, entry.name)}
-          tag={tag}
+          subject={subject}
           entry={entry}
           change={changes.get(caseKey(entry.suite, entry.name))}
           attachments={attachments.get(caseKey(entry.suite, entry.name)) ?? []}
@@ -355,12 +356,12 @@ function CaseList({
 }
 
 function CaseRow({
-  tag,
+  subject,
   entry,
   change,
   attachments,
 }: {
-  tag: string | undefined
+  subject: ResultSubject | undefined
   entry: TestCase
   change?: Change
   attachments: Attachment[]
@@ -411,9 +412,9 @@ function CaseRow({
           {entry.trace}
         </pre>
       )}
-      {open && tag && attachments.length > 0 && (
+      {open && subject && attachments.length > 0 && (
         <div className="mt-2">
-          <AttachmentList tag={tag} attachments={attachments} />
+          <AttachmentList subject={subject} attachments={attachments} />
         </div>
       )}
     </li>

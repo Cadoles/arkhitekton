@@ -5,6 +5,7 @@ import { setProjects } from '../../lib/project'
 import { render } from '../../test/render'
 import { AttachmentList } from './AttachmentList'
 import type { Attachment } from './tests'
+import { releaseSubject } from './tests'
 
 /*
  * Les fichiers d'un résultat : chacun selon son type, et seulement les types
@@ -22,7 +23,7 @@ describe('AttachmentList', () => {
   setProjects([{ slug: 'mse', label: 'MSE' }])
 
   it('montre une capture et une vidéo depuis le projet, sous le rôle du lecteur', () => {
-    const { container } = render(<AttachmentList tag="1.0.0" attachments={files} />)
+    const { container } = render(<AttachmentList subject={releaseSubject('1.0.0')} attachments={files} />)
 
     expect(screen.getByAltText('fails.png')).toHaveAttribute(
       'src',
@@ -35,7 +36,7 @@ describe('AttachmentList', () => {
 
   // Un SVG peut porter du script : il ne s'affiche jamais, il se télécharge.
   it("n'affiche pas un SVG", () => {
-    render(<AttachmentList tag="1.0.0" attachments={files} />)
+    render(<AttachmentList subject={releaseSubject('1.0.0')} attachments={files} />)
 
     expect(screen.queryByAltText('logo.svg')).toBeNull()
     expect(screen.getAllByRole('link', { name: 'Télécharger' })).toHaveLength(4)
@@ -44,7 +45,7 @@ describe('AttachmentList', () => {
   // Un rapport HTML s'ouvre à la demande, dans un cadre sans script ni accès à
   // l'origine du dashboard.
   it('ouvre un rapport HTML dans un cadre isolé', async () => {
-    const { container } = render(<AttachmentList tag="1.0.0" attachments={files} />)
+    const { container } = render(<AttachmentList subject={releaseSubject('1.0.0')} attachments={files} />)
     expect(container.querySelector('iframe')).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: 'Afficher' }))

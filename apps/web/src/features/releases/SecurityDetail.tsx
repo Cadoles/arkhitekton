@@ -4,7 +4,7 @@ import { Card, EmptyState, ErrorState, Skeleton, StatusBadge } from '../../compo
 import { status } from '../../lib/status'
 import { PipelineTimeline } from './PipelineTimeline'
 import { RunLink } from './RunLink'
-import { SEVERITY_LABEL, useSecurity, type Finding, type SecurityReport, type Severity } from './tests'
+import { SEVERITY_LABEL, useSecurity, type Finding, type SecurityReport, type Severity, type ResultSubject } from './tests'
 
 /*
  * Findings de sécurité d'une release.
@@ -18,8 +18,8 @@ import { SEVERITY_LABEL, useSecurity, type Finding, type SecurityReport, type Se
  * Sans cadre, comme `FamilyDetail` : il s'affiche dans la modale ouverte depuis
  * la tuile Sécurité du score.
  */
-export function SecurityDetail({ tag, runName }: { tag: string | undefined; runName?: string }) {
-  const { data, isPending, error, refetch } = useSecurity(tag)
+export function SecurityDetail({ subject, runName }: { subject: ResultSubject | undefined; runName?: string }) {
+  const { data, isPending, error, refetch } = useSecurity(subject)
   const [showSuppressed, setShowSuppressed] = useState(false)
 
   return (
