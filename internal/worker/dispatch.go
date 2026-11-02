@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"strconv"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
@@ -81,7 +82,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, fact event.Event) {
 			Trigger:   declared.Trigger(),
 			EventKey:  fact.DedupKey,
 			ProjectID: fact.ProjectID,
-			Plan:      declared.Plan,
+			// A pull request's fact opens a plan on that request: its jobs, their results and what
+			// they produce show on its page.
+			PullRequestID: pullRequestOf(fact),
+			Plan:          declared.Plan,
 			// The fact's payload becomes the run's context: it is what binds the steps' templates. The
 			// plan **names**, the run resolves.
 			Context: fact.Payload,
@@ -90,4 +94,20 @@ func (d *Dispatcher) Dispatch(ctx context.Context, fact event.Event) {
 			"reaction", declared.Name, "fact", fact.Type,
 			"subject", fact.Subject, "steps", started)
 	}
+}
+
+// pullRequestOf returns the pull request a core pull request fact names, nil for any other fact. A
+// plugin's fact carrying the same key names nothing the core recorded.
+func pullRequestOf(fact event.Event) *int64 {
+	switch fact.Type {
+	case event.PullRequestOpened, event.PullRequestSynchronized, event.PullRequestClosed,
+		event.PullRequestMerged, event.PullRequestReopened:
+	default:
+		return nil
+	}
+	id, err := strconv.ParseInt(fact.Payload[ContextPullRequest], 10, 64)
+	if err != nil || id <= 0 {
+		return nil
+	}
+	return &id
 }
