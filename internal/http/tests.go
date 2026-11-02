@@ -105,22 +105,16 @@ type signalPayload struct {
 
 // Tests returns a release's reports and the score they compose.
 func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
-	currentID, ok := requestProject(w, r, h.store)
+	source, ok := h.releaseSource(w, r)
 	if !ok {
 		return
 	}
+	h.writeTests(w, r, source)
+}
 
-	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
-	if err != nil {
-		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
-		return
-	}
-
-	reports, err := h.store.ListReleaseTestResults(r.Context(), release.ID)
+// writeTests answers a subject's reports and the score they compose.
+func (h *TestsHandler) writeTests(w http.ResponseWriter, r *http.Request, source resultSource) {
+	reports, err := source.results(r.Context())
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the results", "")
 		return
@@ -137,7 +131,7 @@ func (h *TestsHandler) Tests(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	breakdown, err := h.score(r.Context(), release.ID, reports)
+	breakdown, err := source.score(r.Context(), reports)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot compute the score", "")
 		return
@@ -459,21 +453,15 @@ type casePayload struct {
 // "what changed?" — and not "how many tests pass". A stable counter can hide a resolved
 // failure and a new one.
 func (h *TestsHandler) Group(w http.ResponseWriter, r *http.Request) {
-	currentID, ok := requestProject(w, r, h.store)
+	source, ok := h.releaseSource(w, r)
 	if !ok {
 		return
 	}
+	h.writeGroup(w, r, source)
+}
 
-	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
-	if err != nil {
-		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
-		return
-	}
-
+// writeGroup answers a subject's latest report of a group, and what changed since the one before.
+func (h *TestsHandler) writeGroup(w http.ResponseWriter, r *http.Request, source resultSource) {
 	group := r.PathValue("group")
 	page := store.CasePage{
 		Limit:  casePageSize,
@@ -481,7 +469,7 @@ func (h *TestsHandler) Group(w http.ResponseWriter, r *http.Request) {
 		Query:  r.URL.Query().Get("q"),
 	}
 
-	reports, err := h.store.ListReleaseTestResults(r.Context(), release.ID)
+	reports, err := source.results(r.Context())
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the results", "")
 		return
@@ -548,13 +536,12 @@ func (h *TestsHandler) Group(w http.ResponseWriter, r *http.Request) {
 		response["measured_at"] = measuredAt
 	}
 
-	previous, err := h.store.PreviousRelease(r.Context(), release.ID)
-	if err == nil {
-		diffs, err := h.store.DiffGroup(r.Context(), release.ID, previous, group)
-		if err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Cannot compare with the previous release", "")
-			return
-		}
+	diffs, compared, err := source.diff(r.Context(), group)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Cannot compare with the previous results", "")
+		return
+	}
+	if compared {
 
 		changed := make([]caseDiffPayload, 0, len(diffs))
 		for _, diff := range diffs {
@@ -570,8 +557,8 @@ func (h *TestsHandler) Group(w http.ResponseWriter, r *http.Request) {
 		}
 		response["diff"] = changed
 	}
-	// No previous release: no comparison, and that is not an error. A project's first release
-	// has nothing to compare against.
+	// Nothing before: no comparison, and that is not an error. A project's first release has
+	// nothing to compare against.
 
 	writeJSON(w, http.StatusOK, response)
 }
@@ -605,22 +592,16 @@ type findingPayload struct {
 
 // Security returns a release's latest audit and its findings.
 func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
-	currentID, ok := requestProject(w, r, h.store)
+	source, ok := h.releaseSource(w, r)
 	if !ok {
 		return
 	}
+	h.writeSecurity(w, r, source)
+}
 
-	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
-	if err != nil {
-		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
-		return
-	}
-
-	audit, err := h.store.LatestSecurityAudit(r.Context(), release.ID)
+// writeSecurity answers a subject's latest audit and its findings.
+func (h *TestsHandler) writeSecurity(w http.ResponseWriter, r *http.Request, source resultSource) {
+	audit, err := source.audit(r.Context())
 	if err != nil {
 		if errors.Is(err, store.ErrAuditNotFound) {
 			// No audit is a legitimate state, distinct from an empty audit: say so rather than return
@@ -710,4 +691,65 @@ func attachmentPayloadOf(attachment store.ResultAttachment) attachmentPayload {
 		payload.Attributes = attachment.Attributes
 	}
 	return payload
+}
+
+// resultSource reads one subject's results: a release's, or a pull request's.
+type resultSource interface {
+	results(ctx context.Context) ([]store.TestResult, error)
+	audit(ctx context.Context) (store.SecurityAudit, error)
+	// diff compares a group's latest report with what came before it; false when nothing did.
+	diff(ctx context.Context, group string) ([]store.CaseDiff, bool, error)
+	score(ctx context.Context, reports []store.TestResult) (results.Breakdown, error)
+	// owns says whether a file belongs to the subject's results.
+	owns(attachment store.ResultAttachment) bool
+}
+
+// releaseSource resolves the release a request names.
+func (h *TestsHandler) releaseSource(w http.ResponseWriter, r *http.Request) (resultSource, bool) {
+	currentID, ok := requestProject(w, r, h.store)
+	if !ok {
+		return nil, false
+	}
+	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release not found", "")
+			return nil, false
+		}
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
+		return nil, false
+	}
+	return releaseResults{handler: h, release: release}, true
+}
+
+// releaseResults are a release's results. Compared with the previous release, scored on its plan's
+// steps when it has one.
+type releaseResults struct {
+	handler *TestsHandler
+	release store.Release
+}
+
+func (s releaseResults) results(ctx context.Context) ([]store.TestResult, error) {
+	return s.handler.store.ListReleaseTestResults(ctx, s.release.ID)
+}
+
+func (s releaseResults) audit(ctx context.Context) (store.SecurityAudit, error) {
+	return s.handler.store.LatestSecurityAudit(ctx, s.release.ID)
+}
+
+func (s releaseResults) diff(ctx context.Context, group string) ([]store.CaseDiff, bool, error) {
+	previous, err := s.handler.store.PreviousRelease(ctx, s.release.ID)
+	if err != nil {
+		return nil, false, nil
+	}
+	diffs, err := s.handler.store.DiffGroup(ctx, s.release.ID, previous, group)
+	return diffs, err == nil, err
+}
+
+func (s releaseResults) score(ctx context.Context, reports []store.TestResult) (results.Breakdown, error) {
+	return s.handler.score(ctx, s.release.ID, reports)
+}
+
+func (s releaseResults) owns(attachment store.ResultAttachment) bool {
+	return attachment.ReleaseID != nil && *attachment.ReleaseID == s.release.ID
 }

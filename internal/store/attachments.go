@@ -14,21 +14,23 @@ type ResultAttachment struct {
 	TestResultID int64
 	// ReleaseID is the release the result belongs to: the file is served under it, and nowhere
 	// else.
-	ReleaseID  *int64
-	Name       string
-	MediaType  string
-	Object     string
-	SizeBytes  int64
-	CaseSuite  string
-	CaseName   string
-	Attributes map[string]string
+	ReleaseID *int64
+	// PullRequestID is the pull request the result belongs to, for a file served under it.
+	PullRequestID *int64
+	Name          string
+	MediaType     string
+	Object        string
+	SizeBytes     int64
+	CaseSuite     string
+	CaseName      string
+	Attributes    map[string]string
 }
 
 // ErrAttachmentNotFound reports an attachment that does not exist.
 var ErrAttachmentNotFound = errors.New("attachment not found")
 
-const attachmentColumns = `a.id, a.test_result_id, t.release_id, a.name, a.media_type, a.object, a.size_bytes,
-	coalesce(a.case_suite, ''), coalesce(a.case_name, ''), a.attributes`
+const attachmentColumns = `a.id, a.test_result_id, t.release_id, t.pull_request_id, a.name, a.media_type,
+	a.object, a.size_bytes, coalesce(a.case_suite, ''), coalesce(a.case_name, ''), a.attributes`
 
 // ResultAttachments lists a result's files, in the order they were recorded.
 func (db *DB) ResultAttachments(ctx context.Context, resultID int64) ([]ResultAttachment, error) {
@@ -68,7 +70,7 @@ func (db *DB) GetAttachment(ctx context.Context, id int64) (ResultAttachment, er
 
 func scanAttachment(row pgx.Row) (ResultAttachment, error) {
 	var attachment ResultAttachment
-	err := row.Scan(&attachment.ID, &attachment.TestResultID, &attachment.ReleaseID,
+	err := row.Scan(&attachment.ID, &attachment.TestResultID, &attachment.ReleaseID, &attachment.PullRequestID,
 		&attachment.Name, &attachment.MediaType, &attachment.Object, &attachment.SizeBytes,
 		&attachment.CaseSuite, &attachment.CaseName, &attachment.Attributes)
 	return attachment, err

@@ -137,3 +137,54 @@ func TestAnEarlyPassIsTakenOnce(t *testing.T) {
 		t.Errorf("the request moved the cursor: %+v", state)
 	}
 }
+
+// A pull request's results are read by its scope, and its latest push compared with the previous.
+func TestAPullRequestsPushesAreCompared(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+	projectID := project(t, db, "team/app")
+	pull, _, err := db.UpsertPullRequest(ctx, openPull(projectID, 7, "aaa", time.Now()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(name string, status facts.CaseStatus) {
+		t.Helper()
+		jobID, err := db.Enqueue(ctx, JobRequest{Kind: "php/static-tests", PullRequestID: &pull.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		record := runningRecord(name)
+		record.JobID = jobID
+		runID, err := db.UpsertRun(ctx, record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.SaveFacts(ctx, InterpretedRun{
+			RunID: runID, Producer: facts.Producer{Plugin: "php", Version: "1.0.0"}, Capability: "php/static-tests",
+			Sets: []facts.Set{{Shape: facts.ShapeCases, Group: "static", Tool: "phpstan",
+				Cases: []facts.Case{{Suite: "src/A.php", Name: "rule", Status: status}}}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run("first-push", facts.CasePassed)
+	if _, err := db.DiffLatestRuns(ctx, PullRequestScope(pull.ID), "static"); err != ErrNothingToCompare {
+		t.Errorf("a single push compared: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	run("second-push", facts.CaseFailed)
+
+	reports, err := db.ListTestResults(ctx, PullRequestScope(pull.ID))
+	if err != nil || len(reports) != 2 {
+		t.Fatalf("reports = %d, %v", len(reports), err)
+	}
+	if releases, _ := db.ListTestResults(ctx, ReleaseScope(pull.ID)); len(releases) != 0 {
+		t.Errorf("a release with the same id reads the pull request's results: %d", len(releases))
+	}
+	diffs, err := db.DiffLatestRuns(ctx, PullRequestScope(pull.ID), "static")
+	if err != nil || len(diffs) != 1 || diffs[0].Change != "new-failure" {
+		t.Errorf("diffs = %+v, %v", diffs, err)
+	}
+}
