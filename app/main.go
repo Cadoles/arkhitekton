@@ -71,6 +71,10 @@ Usage:
   arkhitekton reprocess Replays the results from the raw artifacts
   arkhitekton config export [-o <dir>]
                         Writes the instance's configuration as YAML resources
+  arkhitekton config diff -f <file|dir|->
+                        Prints what applying a configuration would write
+  arkhitekton config apply -f <file|dir|-> [--dry-run] [--prune] [--actor <name>]
+                        Imposes a configuration on the instance
 
 Diagnosis:
   arkhitekton check-tracker  Checks access to the tracker and stops (read-only)

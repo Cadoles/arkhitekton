@@ -68,6 +68,15 @@ func (db *DB) SetProjectPipeline(ctx context.Context, projectID int64, kind stri
 	return nil
 }
 
+// ClearProjectPipeline forgets a project's decision about a kind: it follows the default again.
+func (db *DB) ClearProjectPipeline(ctx context.Context, projectID int64, kind string) error {
+	if _, err := db.pool.Exec(ctx,
+		`delete from project_pipelines where project_id = $1 and kind = $2`, projectID, kind); err != nil {
+		return fmt.Errorf("pipeline %q of project %d: %w", kind, projectID, err)
+	}
+	return nil
+}
+
 // PipelineEnabled says whether a kind applies to a project.
 //
 // The question is asked in the database rather than derived from a map loaded once: the
