@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -26,8 +26,8 @@ import (
 // The contract with the worker, repeated here rather than imported: the api does not depend on the
 // worker. A consistency test keeps the two aligned.
 const (
-	PluginInstallJobKind  = "plugin-install"
-	PluginInstallationKey = "installation"
+	PluginInstallJobKind  = configure.PluginInstallJobKind
+	PluginInstallationKey = configure.PluginInstallationKey
 	PluginPurgeJobKind    = "plugin-purge"
 	PluginPurgeKey        = "plugin"
 )
@@ -119,7 +119,6 @@ func (h *InstallationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"installations": views})
 }
 
-// Request records a reference to install and queues the job that pulls it.
 func (h *InstallationsHandler) Request(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Reference string `json:"reference"`
@@ -129,86 +128,28 @@ func (h *InstallationsHandler) Request(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "expected {\"reference\": \"repository@sha256:...\"}")
 		return
 	}
-	// By digest only: a tag can be moved after the administrator looked at what it named.
-	reference, digest, err := installed.Pinned(body.Reference)
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid reference", err.Error())
-		return
-	}
 	identity, _ := IdentityFrom(r.Context())
-	id, err := h.store.RequestPluginInstallation(r.Context(), reference, digest, identity.Subject)
+	id, job, reference, err := h.service().Request(r.Context(), identity.Subject, body.Reference)
 	if err != nil {
-		h.logger.Error("requesting an installation", "reference", reference, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot request the installation", "")
+		writeRefusal(w, err)
 		return
 	}
-	job, err := h.store.Enqueue(r.Context(), store.JobRequest{
-		Kind: PluginInstallJobKind, RequestedBy: identity.Subject,
-		Params: map[string]string{PluginInstallationKey: strconv.FormatInt(id, 10)},
-	})
-	if err != nil {
-		h.logger.Error("queueing an installation", "installation", id, "error", err)
-		_ = h.store.FailPluginInstallation(r.Context(), id, "the installation job could not be queued")
-		writeProblem(w, http.StatusInternalServerError, "Cannot queue the installation", "")
-		return
-	}
-	h.audit(r, "plugin.installation.requested", reference, map[string]any{"installation": id, "job": job})
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "job": job, "reference": reference})
 }
 
 // Accept records that an administrator accepts a plugin whose source the instance does not
 // recognise, and puts its installation back in the queue.
-//
-// The acceptance is recorded against the **plugin's id**, so the next version of that plugin
-// installs without asking again. It is not recorded against a key: the signature format carries
-// no public key, so an unknown signer leaves nothing to remember.
-//
-// Only an installation waiting on that decision can be accepted. An installation that failed for
-// another reason is not turned into an acceptance by this route.
 func (h *InstallationsHandler) Accept(w http.ResponseWriter, r *http.Request) {
 	id, ok := installationID(w, r)
 	if !ok {
 		return
 	}
-	installation, err := h.store.PluginInstallation(r.Context(), id)
-	if errors.Is(err, store.ErrInstallationNotFound) {
-		writeProblem(w, http.StatusNotFound, "Unknown installation", "")
-		return
-	}
-	if err != nil {
-		h.logger.Error("reading an installation", "installation", id, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the installation", "")
-		return
-	}
-	if installation.State != store.InstallationUnrecognised {
-		writeProblem(w, http.StatusConflict, "Nothing to accept",
-			"this installation is not waiting for a decision on its source")
-		return
-	}
-
 	identity, _ := IdentityFrom(r.Context())
-	if err := h.store.AcceptSource(r.Context(), installation.PluginID, installation.Error, identity.Subject); err != nil {
-		h.logger.Error("accepting a source", "plugin", installation.PluginID, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot accept the source", "")
-		return
-	}
-	if err := h.store.RetryPluginInstallation(r.Context(), id); err != nil {
-		h.logger.Error("retrying an installation", "installation", id, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot retry the installation", "")
-		return
-	}
-	job, err := h.store.Enqueue(r.Context(), store.JobRequest{
-		Kind: PluginInstallJobKind, RequestedBy: identity.Subject,
-		Params: map[string]string{PluginInstallationKey: strconv.FormatInt(id, 10)},
-	})
+	installation, job, err := h.service().Accept(r.Context(), identity.Subject, id)
 	if err != nil {
-		h.logger.Error("queueing an installation", "installation", id, "error", err)
-		_ = h.store.FailPluginInstallation(r.Context(), id, "the installation job could not be queued")
-		writeProblem(w, http.StatusInternalServerError, "Cannot queue the installation", "")
+		writeRefusal(w, err)
 		return
 	}
-	h.audit(r, "plugin.source.accepted", installation.Reference,
-		map[string]any{"installation": id, "plugin": installation.PluginID, "reason": installation.Error, "job": job})
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "job": job, "plugin": installation.PluginID})
 }
 
@@ -218,22 +159,16 @@ func (h *InstallationsHandler) Activate(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	if err := h.check(r.Context(), id); err != nil {
-		if errors.Is(err, store.ErrInstallationNotFound) {
-			writeProblem(w, http.StatusNotFound, "Unknown installation", "")
-			return
-		}
-		writeProblem(w, http.StatusConflict, "Cannot activate this version", err.Error())
+	identity, _ := IdentityFrom(r.Context())
+	if err := h.service().Activate(r.Context(), identity.Subject, id); err != nil {
+		writeRefusal(w, err)
 		return
 	}
-	if err := h.store.ActivatePluginInstallation(r.Context(), id); err != nil {
-		h.logger.Error("activating an installation", "installation", id, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot activate this version", "")
-		return
-	}
-	h.audit(r, "plugin.activated", strconv.FormatInt(id, 10), nil)
-	h.applyNow(r.Context())
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *InstallationsHandler) service() configure.Installations {
+	return configure.Installations{Store: h.store, Check: h.check, Reload: h.reload, Logger: h.logger}
 }
 
 // Remove removes a version; removing the active one uninstalls the plugin.

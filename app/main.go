@@ -73,7 +73,7 @@ Usage:
                         Writes the instance's configuration as YAML resources
   arkhitekton config diff -f <file|dir|->
                         Prints what applying a configuration would write
-  arkhitekton config apply -f <file|dir|-> [--dry-run] [--prune] [--actor <name>]
+  arkhitekton config apply -f <file|dir|-> [--dry-run] [--prune] [--actor <name>] [--wait-timeout 10m]
                         Imposes a configuration on the instance
 
 Diagnosis:
