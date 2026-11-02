@@ -71,6 +71,8 @@ Usage:
   arkhitekton reprocess Replays the results from the raw artifacts
   arkhitekton config export [-o <dir>]
                         Writes the instance's configuration as YAML resources
+  arkhitekton config split -o <dir>
+                        Splits an exported stream read on the standard input into files
   arkhitekton config diff -f <file|dir|->
                         Prints what applying a configuration would write
   arkhitekton config apply -f <file|dir|-> [--dry-run] [--prune] [--actor <name>] [--wait-timeout 10m]
@@ -123,6 +125,11 @@ func run() error {
 	}
 	if os.Args[1] == "publish-plugin" {
 		return runPublishPlugin(os.Args[2:])
+	}
+	// Splitting an exported stream into files reads the standard input, nothing else: it runs on
+	// the operator's machine, where the export arrived through `kubectl exec`.
+	if os.Args[1] == "config" && len(os.Args) > 2 && os.Args[2] == "split" {
+		return runConfigSplit(os.Args[3:], os.Stdin)
 	}
 
 	role := config.Role(os.Args[1])

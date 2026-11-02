@@ -29,11 +29,11 @@ Each role validates only what it uses. In the tables below, **Required** means r
 | `DATABASE_MAX_CONNS` | `10` | | Pool size, must be ≥ 1 |
 | `DATABASE_CONN_MAX_LIFETIME` | `1h` | | Connection recycling |
 
-## 4.3 Object store (roles `api`, `worker`, `reprocess`)
+## 4.3 Object store (roles `api`, `worker`, `reprocess`, `config`)
 
 | Variable | Default | Required | Meaning |
 |---|---|---|---|
-| `MINIO_ENDPOINT` | — | **api, worker, reprocess** | `host:port`, no scheme |
+| `MINIO_ENDPOINT` | — | **api, worker, reprocess, config** | `host:port`, no scheme |
 | `MINIO_ACCESS_KEY` | — | **idem** | |
 | `MINIO_SECRET_KEY` | — | **idem** | |
 | `MINIO_BUCKET` | `arkhitekton` | | Bucket holding logs, reports and exports |
@@ -152,6 +152,9 @@ administration screen is not overwritten by the next restart.
 
 An installed plugin's settings are set from the administration screen, and the plugin documents
 them.
+
+A whole configuration (projects, plugins, automations) can also be applied from versioned files,
+which supersedes these seeds for a new instance: see [§10.9](10-operations.md#109-the-configuration-as-files).
 
 `PROJECT_DOCKERFILE` (default `Dockerfile`) and `PROJECT_BUILD_CONTEXT` (default `.`) seed
 the first project's build settings, which the project then owns. Its repository is derived
