@@ -57,3 +57,27 @@ func (s StatusMappings) Set(ctx context.Context, actor string, project store.Pro
 	})
 	return moved, nil
 }
+
+type statusClearer interface {
+	ClearStatusBucket(ctx context.Context, projectID int64, statusName string) error
+}
+
+// Clear removes a project's own mapping of a status, then reapplies the mapping.
+func (s StatusMappings) Clear(ctx context.Context, actor string, project store.Project, statusName string) error {
+	logger := loggerOr(s.Logger)
+	clearer, ok := s.Store.(statusClearer)
+	if !ok {
+		return refuse(http.StatusNotImplemented, "Cannot clear a status mapping", "")
+	}
+	if err := clearer.ClearStatusBucket(ctx, project.ID, statusName); err != nil {
+		return failure(logger, "Cannot save", err, "project", project.Slug, "status", statusName)
+	}
+	moved, err := s.Store.ReprojectIssues(ctx, project.ID)
+	if err != nil {
+		return failure(logger, "Cannot reapply", err, "project", project.Slug)
+	}
+	audit(ctx, logger, s.Store, actor, "sync.tracker.mapping", project.Slug+"/"+statusName, map[string]any{
+		"bucket": nil, "issues_moved": moved,
+	})
+	return nil
+}

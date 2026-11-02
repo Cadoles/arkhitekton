@@ -96,3 +96,21 @@ func (s QueueLimits) Clear(ctx context.Context, actor, kind string) error {
 	audit(ctx, logger, s.Store, actor, store.AuditQueueLimit, kind, map[string]any{"max_concurrent": nil})
 	return nil
 }
+
+type pipelineClearer interface {
+	ClearProjectPipeline(ctx context.Context, projectID int64, kind string) error
+}
+
+// Clear forgets a project's decision about a kind: it follows the default again.
+func (s ProjectPipelines) Clear(ctx context.Context, actor string, project store.Project, kind string) error {
+	logger := loggerOr(s.Logger)
+	clearer, ok := s.Store.(pipelineClearer)
+	if !ok {
+		return refuse(http.StatusNotImplemented, "Cannot clear a pipeline decision", "")
+	}
+	if err := clearer.ClearProjectPipeline(ctx, project.ID, kind); err != nil {
+		return failure(logger, "Cannot save", err, "project", project.Slug, "kind", kind)
+	}
+	audit(ctx, logger, s.Store, actor, "project.pipeline", project.Slug+"/"+kind, map[string]any{"enabled": nil})
+	return nil
+}

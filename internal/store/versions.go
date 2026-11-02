@@ -490,6 +490,17 @@ func (db *DB) SetStatusBucket(ctx context.Context, projectID int64, statusName, 
 	return nil
 }
 
+// ClearStatusBucket removes a project's own mapping of a status: the instance's default applies
+// again, if there is one.
+func (db *DB) ClearStatusBucket(ctx context.Context, projectID int64, statusName string) error {
+	if _, err := db.pool.Exec(ctx,
+		`delete from issue_status_mapping where project_id = $1 and status_name = $2`,
+		projectID, statusName); err != nil {
+		return fmt.Errorf("mapping of status %q: %w", statusName, err)
+	}
+	return nil
+}
+
 // ReprojectIssues reapplies the mapping to issues already recorded.
 //
 // Necessary after correcting the mapping: without it the new rule would hold only
