@@ -280,6 +280,26 @@ secret is `webhook_secret`, at the instance's scope or the project's; the hook s
 The `api` receives and the worker routes: the reactions' outgoing calls leave from the worker. A
 received fact therefore starts its reactions within the two seconds the worker takes to see it.
 
+**Pull requests** are followed by the core through the forge, not by a plugin's probe: one probe of
+the core per plugin bringing a forge, run by the same loop, reads the requests updated since its
+previous pass and records them in `pull_requests`. A forge offers it by implementing
+`provider.PullRequestLister` (`ListPullRequests(ctx, since)`: every request updated since an
+instant, the most recently updated first, with its state, branches, author, head commit and
+dates), optional beside `provider.Forge`: a forge without it is simply not followed. Any
+authenticated delivery of a forge's webhook asks for an early pass of its project, so that a push,
+a closing or a merge shows within seconds rather than at the next minute.
+
+What changes becomes a **core fact**, like `version.created`: `pull_request.opened`,
+`pull_request.synchronized` (the head moved), `pull_request.closed` (without merging),
+`pull_request.merged` and `pull_request.reopened`. They carry `number`, `title`, `author`,
+`source_branch`, `target_branch`, `url`, `pull_request_id`, and the three keys a release's plan reads
+its subject from: `revision` (the head), `tag` (`pr-<number>-<commit>`) and `registry`. A plan a
+reaction opens on one of them therefore builds and tests the head as a release's plan builds the
+release, and its jobs, results and artifacts belong to the request. `synchronized` carries the head
+in its key, so a reaction on it runs again at each push. The first pass of a project imports its
+requests without a fact. The Gitea plugin's own `gitea.pull_request.opened` remains for the
+reactions that use it; it carries no head.
+
 An **executor** carries out the actions a plugin declares. The dashboard resolves the plugin's
 settings, refuses when it is switched off for the project, interpolates the parameters and
 checks them against the declaration; the executor only talks to its boundary.
