@@ -46,6 +46,7 @@ const (
 	Plugin_ListTags_FullMethodName               = "/arkhitekton.plugin.v1.Plugin/ListTags"
 	Plugin_ResolveCommit_FullMethodName          = "/arkhitekton.plugin.v1.Plugin/ResolveCommit"
 	Plugin_ListMergedPullRequests_FullMethodName = "/arkhitekton.plugin.v1.Plugin/ListMergedPullRequests"
+	Plugin_ListPullRequests_FullMethodName       = "/arkhitekton.plugin.v1.Plugin/ListPullRequests"
 	Plugin_LoadCommitMessages_FullMethodName     = "/arkhitekton.plugin.v1.Plugin/LoadCommitMessages"
 	Plugin_ForgeAccess_FullMethodName            = "/arkhitekton.plugin.v1.Plugin/ForgeAccess"
 	Plugin_CreateTag_FullMethodName              = "/arkhitekton.plugin.v1.Plugin/CreateTag"
@@ -93,6 +94,7 @@ type PluginClient interface {
 	ListTags(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	ResolveCommit(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	ListMergedPullRequests(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
+	ListPullRequests(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	LoadCommitMessages(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	ForgeAccess(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	CreateTag(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
@@ -323,6 +325,16 @@ func (c *pluginClient) ListMergedPullRequests(ctx context.Context, in *ProviderR
 	return out, nil
 }
 
+func (c *pluginClient) ListPullRequests(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderResponse)
+	err := c.cc.Invoke(ctx, Plugin_ListPullRequests_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *pluginClient) LoadCommitMessages(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ProviderResponse)
@@ -431,6 +443,7 @@ type PluginServer interface {
 	ListTags(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	ResolveCommit(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	ListMergedPullRequests(context.Context, *ProviderRequest) (*ProviderResponse, error)
+	ListPullRequests(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	LoadCommitMessages(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	ForgeAccess(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	CreateTag(context.Context, *ProviderRequest) (*ProviderResponse, error)
@@ -511,6 +524,9 @@ func (UnimplementedPluginServer) ResolveCommit(context.Context, *ProviderRequest
 }
 func (UnimplementedPluginServer) ListMergedPullRequests(context.Context, *ProviderRequest) (*ProviderResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListMergedPullRequests not implemented")
+}
+func (UnimplementedPluginServer) ListPullRequests(context.Context, *ProviderRequest) (*ProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListPullRequests not implemented")
 }
 func (UnimplementedPluginServer) LoadCommitMessages(context.Context, *ProviderRequest) (*ProviderResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LoadCommitMessages not implemented")
@@ -907,6 +923,24 @@ func _Plugin_ListMergedPullRequests_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Plugin_ListPullRequests_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ListPullRequests(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ListPullRequests_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ListPullRequests(ctx, req.(*ProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Plugin_LoadCommitMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ProviderRequest)
 	if err := dec(in); err != nil {
@@ -1115,6 +1149,10 @@ var Plugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListMergedPullRequests",
 			Handler:    _Plugin_ListMergedPullRequests_Handler,
+		},
+		{
+			MethodName: "ListPullRequests",
+			Handler:    _Plugin_ListPullRequests_Handler,
 		},
 		{
 			MethodName: "LoadCommitMessages",

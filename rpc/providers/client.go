@@ -249,6 +249,14 @@ func (f forge) ListMergedPullRequests(ctx context.Context, since time.Time) ([]p
 		pluginv1.PluginClient.ListMergedPullRequests)
 }
 
+// ListPullRequests asks the program; one whose forge cannot list its requests answers
+// errors.ErrUnsupported.
+func (f forge) ListPullRequests(ctx context.Context, since time.Time) ([]provider.PullRequest, bool, error) {
+	pulls, err := call[PullsResult](ctx, f.plugin, f.dial, f.target, SinceArguments{Since: since},
+		pluginv1.PluginClient.ListPullRequests)
+	return pulls.Pulls, pulls.Truncated, err
+}
+
 func (f forge) LoadCommitMessages(ctx context.Context, pull *provider.PullRequest) error {
 	loaded, err := call[provider.PullRequest](ctx, f.plugin, f.dial, f.target, pull, pluginv1.PluginClient.LoadCommitMessages)
 	if err != nil {

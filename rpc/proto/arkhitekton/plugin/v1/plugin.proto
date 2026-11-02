@@ -51,6 +51,7 @@ service Plugin {
   rpc ListTags(ProviderRequest) returns (ProviderResponse);               // {} -> {Refs, Truncated}
   rpc ResolveCommit(ProviderRequest) returns (ProviderResponse);          // {Ref} -> string
   rpc ListMergedPullRequests(ProviderRequest) returns (ProviderResponse); // {Since} -> []PullRequest
+  rpc ListPullRequests(ProviderRequest) returns (ProviderResponse);       // {Since} -> {Pulls, Truncated}
   rpc LoadCommitMessages(ProviderRequest) returns (ProviderResponse);     // PullRequest -> PullRequest
   rpc ForgeAccess(ProviderRequest) returns (ProviderResponse);            // {} -> Account
   rpc CreateTag(ProviderRequest) returns (ProviderResponse);              // {Tag, Commit, Message} -> null

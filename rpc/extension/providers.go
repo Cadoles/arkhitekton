@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -255,6 +256,18 @@ func (s *server) ListMergedPullRequests(ctx context.Context, request *pluginv1.P
 	return answer(ctx, s, providers.KindForge, request,
 		func(ctx context.Context, forge provider.Forge, arguments providers.SinceArguments) (any, error) {
 			return forge.ListMergedPullRequests(ctx, arguments.Since)
+		})
+}
+
+func (s *server) ListPullRequests(ctx context.Context, request *pluginv1.ProviderRequest) (*pluginv1.ProviderResponse, error) {
+	return answer(ctx, s, providers.KindForge, request,
+		func(ctx context.Context, forge provider.Forge, arguments providers.SinceArguments) (any, error) {
+			lister, ok := forge.(provider.PullRequestLister)
+			if !ok {
+				return nil, fmt.Errorf("listing pull requests: %w", errors.ErrUnsupported)
+			}
+			pulls, truncated, err := lister.ListPullRequests(ctx, arguments.Since)
+			return providers.PullsResult{Pulls: pulls, Truncated: truncated}, err
 		})
 }
 

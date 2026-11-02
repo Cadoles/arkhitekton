@@ -64,8 +64,14 @@ func (c fakeTrackerClient) CheckAccess(context.Context) (provider.Account, error
 type fakeForge struct{}
 
 func (fakeForge) Connect(target capability.Target) (provider.Forge, error) {
+	if target.Settings["unlisted"] != "" {
+		return unlistedForge{fakeForgeClient{repository: target.Repository}}, nil
+	}
 	return fakeForgeClient{repository: target.Repository}, nil
 }
+
+// unlistedForge is a forge that cannot list its pull requests.
+type unlistedForge struct{ provider.Forge }
 
 func (fakeForge) Writer(target capability.Target) (provider.TagWriter, error) {
 	if target.Settings["write"] == "" {
@@ -98,6 +104,13 @@ func (fakeForgeClient) ResolveCommit(_ context.Context, ref string) (string, err
 
 func (fakeForgeClient) ListMergedPullRequests(_ context.Context, since time.Time) ([]provider.PullRequest, error) {
 	return []provider.PullRequest{{Number: 42, Title: "Feature", MergedAt: &since}}, nil
+}
+
+func (fakeForgeClient) ListPullRequests(_ context.Context, since time.Time) ([]provider.PullRequest, bool, error) {
+	return []provider.PullRequest{{
+		Number: 7, Title: "Draft", State: provider.PullOpen, Author: "dev", SourceBranch: "feature",
+		TargetBranch: "main", HeadSHA: "abc123", URL: "https://forge.test/pulls/7", UpdatedAt: since,
+	}}, true, nil
 }
 
 func (fakeForgeClient) LoadCommitMessages(_ context.Context, pull *provider.PullRequest) error {
@@ -291,6 +304,39 @@ func TestAForgeIsReadAndWrittenThroughTheProgram(t *testing.T) {
 	probe, err := prober.Probe(ctx, "team/other", "ssh-ed25519 AAAA")
 	if err != nil || probe.KeyPresent == nil || !*probe.KeyPresent || probe.KeyNote != "team/other" {
 		t.Errorf("probe = %+v, %v", probe, err)
+	}
+}
+
+// A forge's pull requests cross the wire with their head and state; a forge that cannot list them
+// answers unsupported, which the dashboard tells apart from a failure.
+func TestPullRequestsAreListedThroughTheProgram(t *testing.T) {
+	served := serve(t)
+	forge := providers.Forge{Plugin: "fake", Dial: served.dial}
+	ctx := context.Background()
+
+	client, err := forge.Connect(target(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lister, ok := client.(provider.PullRequestLister)
+	if !ok {
+		t.Fatal("a native forge does not offer the listing")
+	}
+	pulls, truncated, err := lister.ListPullRequests(ctx, due)
+	if err != nil || !truncated || len(pulls) != 1 {
+		t.Fatalf("pulls = %+v %v, %v", pulls, truncated, err)
+	}
+	if pull := pulls[0]; pull.HeadSHA != "abc123" || pull.State != provider.PullOpen || pull.SourceBranch != "feature" ||
+		!pull.UpdatedAt.Equal(due) {
+		t.Errorf("pull = %+v", pull)
+	}
+
+	unlisted, err := forge.Connect(target(capability.Settings{"unlisted": "yes"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := unlisted.(provider.PullRequestLister).ListPullRequests(ctx, due); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("a forge that cannot list answered %v, want errors.ErrUnsupported", err)
 	}
 }
 
