@@ -182,16 +182,6 @@ func (p pullRequestProbe) transitions(project store.Project, previous *store.Pul
 	return nil
 }
 
-// PullRequestTag is the tag a request's images are built under: `pr-<number>-<commit>`, short
-// enough to read, distinct for every commit built.
-func PullRequestTag(pull store.PullRequest) string {
-	head := pull.HeadSHA
-	if len(head) > 7 {
-		head = head[:7]
-	}
-	return "pr-" + strconv.FormatInt(pull.Number, 10) + "-" + head
-}
-
 // PullRequestPayload is what a request's facts carry. `revision`, `tag` and `registry` are the keys
 // a plan's steps read a release's commit, tag and registry from: a plan opened by such a fact builds
 // and tests the request's head the way a release's plan builds the release.
@@ -199,7 +189,7 @@ func PullRequestPayload(pull store.PullRequest, registry string) map[string]stri
 	return map[string]string{
 		"number": strconv.FormatInt(pull.Number, 10), "title": pull.Title, "author": pull.Author,
 		"source_branch": pull.SourceBranch, "target_branch": pull.TargetBranch, "url": pull.URL,
-		contextRevision: pull.HeadSHA, contextTag: PullRequestTag(pull), contextRegistry: registry,
+		contextRevision: pull.HeadSHA, contextTag: pull.Tag(), contextRegistry: registry,
 		ContextPullRequest: strconv.FormatInt(pull.ID, 10),
 	}
 }

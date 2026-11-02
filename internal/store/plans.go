@@ -279,14 +279,24 @@ const maxPlanRunPage = 100
 // the runs in Go from a flattened product would cost more code than the second query
 // saves in round trips.
 func (db *DB) ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]PlanRunSummary, error) {
+	return db.listPlanRuns(ctx, "project_id", projectID, limit)
+}
+
+// ListPullRequestPlanRuns returns the runs a pull request's facts opened, the most recent first.
+func (db *DB) ListPullRequestPlanRuns(ctx context.Context, pullRequestID int64, limit int) ([]PlanRunSummary, error) {
+	return db.listPlanRuns(ctx, "pull_request_id", pullRequestID, limit)
+}
+
+// listPlanRuns lists the runs whose `column` is `id`. The column is one of the callers' constants.
+func (db *DB) listPlanRuns(ctx context.Context, column string, projectID int64, limit int) ([]PlanRunSummary, error) {
 	if limit <= 0 || limit > maxPlanRunPage {
 		limit = maxPlanRunPage
 	}
 
-	const query = `
+	query := `
 		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at, pull_request_id
 		from plan_runs
-		where project_id = $1
+		where ` + column + ` = $1
 		order by created_at desc, id desc
 		limit $2`
 

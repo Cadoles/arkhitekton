@@ -361,7 +361,14 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 				WithArtifacts(db, worker.ProductOf(inForce.Catalogs())),
 			pipelines, db, cfg.Registry.Project, logger))
 
+	// The score's weighting comes from the catalogue: it was accepted by the client and stays
+	// adjustable without a redeployment. Releases' results and pull requests' alike.
+	testsHandler := dashhttp.NewTestsHandler(db, inForce.Catalogs()).WithAttachments(storage).WithPullRequests(db)
+
 	mounts := []dashhttp.Mount{
+		// A project's pull requests, followed from its forge by the worker: launching on their head and
+		// reading what ran there.
+		dashhttp.NewPullsHandler(db, inForce.Catalogs(), cfg.Registry.Project, logger).WithResults(testsHandler).Routes,
 		// The bindings an administrator records for what the catalogue file does not bind.
 		dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
 			sources.checkBinding, reloader.Reload, logger).Routes,
@@ -386,10 +393,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	server := dashhttp.NewServer(cfg.HTTP, logger,
 		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
-			releasesHandler, dashhttp.NewBenchHandler(db),
-			// The score's weighting comes from the catalogue: it was accepted by the client and stays
-			// adjustable without a redeployment.
-			dashhttp.NewTestsHandler(db, inForce.Catalogs()).WithAttachments(storage),
+			releasesHandler, dashhttp.NewBenchHandler(db), testsHandler,
 			// The project's tracker plugin composes the outgoing links. With none, the links are
 			// omitted rather than rendered broken.
 			dashhttp.NewVersionsHandler(db, connections),
