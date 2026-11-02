@@ -84,6 +84,8 @@ type JobRequest struct {
 	// without it, it can only fall back to the shared key and undo the benefit of
 	// separating them.
 	ProjectID *int64
+	// PullRequestID attaches the job to the pull request it runs on: its results show there.
+	PullRequestID *int64
 }
 
 // Job is a job in the queue.
@@ -138,13 +140,14 @@ func (db *DB) Enqueue(ctx context.Context, request JobRequest) (int64, error) {
 		// forget: the run would then have left with the shared key, with no error. Here the
 		// rule is written once.
 		`insert into jobs (kind, priority, state, params, requested_by, release_id,
-		                   environment_id, project_id)
+		                   environment_id, project_id, pull_request_id)
 		 values ($1, $2, 'queued', $3, $4, $5, $6,
-		         coalesce($7, (select project_id from releases where id = $5)))
+		         coalesce($7, (select project_id from releases where id = $5),
+		                  (select project_id from pull_requests where id = $8)), $8)
 		 returning id`,
 		request.Kind, request.Priority, params,
 		request.RequestedBy, request.ReleaseID, request.Environment,
-		request.ProjectID).Scan(&id)
+		request.ProjectID, request.PullRequestID).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("queueing %q: %w", request.Kind, err)
 	}
