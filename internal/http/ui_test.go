@@ -96,18 +96,18 @@ func TestTheInterfaceFollowsTheProjectAndTheRole(t *testing.T) {
 
 	on := readInterface(t, call(mux, auth.RoleViewer, "GET", "/ui?project=app"))
 	main := on.Navigations["main"]
-	if main.Home != "/environments" || len(main.Items) != 5 || main.Items[0].ID != "deploy.environments" {
+	if main.Home != "/environments" || len(main.Items) != 6 || main.Items[0].ID != "deploy.environments" {
 		t.Errorf("main, viewer, switched on = %+v", main)
 	}
 	if !servesScreen(on, "deploy.environments") || on.EventLabels["deploy.release.promoted"] != "Promotion aboutie" {
 		t.Errorf("served = %+v", on)
 	}
-	if admin := readInterface(t, call(mux, auth.RoleAdmin, "GET", "/ui?project=app")); len(admin.Navigations["main"].Items) != 6 {
+	if admin := readInterface(t, call(mux, auth.RoleAdmin, "GET", "/ui?project=app")); len(admin.Navigations["main"].Items) != 7 {
 		t.Errorf("main, admin = %+v", admin.Navigations["main"])
 	}
 
 	off := readInterface(t, call(mux, auth.RoleViewer, "GET", "/ui?project=off"))
-	if main := off.Navigations["main"]; main.Home != "" || len(main.Items) != 4 || servesScreen(off, "deploy.environments") {
+	if main := off.Navigations["main"]; main.Home != "" || len(main.Items) != 5 || servesScreen(off, "deploy.environments") {
 		t.Errorf("switched off = %+v", off)
 	}
 
