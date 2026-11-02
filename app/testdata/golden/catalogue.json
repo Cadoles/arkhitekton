@@ -177,7 +177,6 @@
     "Unavailable": "",
     "ExternalTasks": [
       "git-clone",
-      "composer-install",
       "publish-artifact"
     ]
   },
@@ -230,7 +229,6 @@
     "Unavailable": "",
     "ExternalTasks": [
       "git-clone",
-      "composer-install",
       "publish-artifact"
     ]
   }

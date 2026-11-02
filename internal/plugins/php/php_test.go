@@ -12,7 +12,7 @@ func TestThePluginShipsItsPipelinesAndTasks(t *testing.T) {
 	}
 	for name, kind := range map[string]string{
 		"php-static-tests": "Pipeline", "php-unit-tests": "Pipeline",
-		"phpstan": "Task", "cs-fixer": "Task", "unit-test": "Task",
+		"phpstan": "Task", "cs-fixer": "Task", "unit-test": "Task", "composer-install": "Task",
 	} {
 		if kinds[name] != kind {
 			t.Errorf("%s: %q, expected a %s", name, kinds[name], kind)

@@ -51,14 +51,14 @@ func Plugin() capability.Plugin {
 		Label:      "PHP",
 		Summary:    "Analyse statique (PHPStan, PHP-CS-Fixer) et tests unitaires PHPUnit.",
 		Pipelines: []capability.Pipeline{
-			staticTests(pick(all, "php-static-tests", "phpstan", "cs-fixer")),
-			unitTests(pick(all, "php-unit-tests", "unit-test")),
+			staticTests(pick(all, "php-static-tests", "phpstan", "cs-fixer", "composer-install")),
+			unitTests(pick(all, "php-unit-tests", "unit-test", "composer-install")),
 		},
 	}
 }
 
-// The Tasks the pipelines use without shipping them.
-var external = []string{"git-clone", "composer-install", "publish-artifact"}
+// The Tasks the pipelines use without shipping them: the core's deployment ships both.
+var external = []string{"git-clone", "publish-artifact"}
 
 func source() map[string]capability.Param {
 	return map[string]capability.Param{

@@ -1,0 +1,26 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: composer-install
+spec:
+  workspaces:
+    - name: source
+  params:
+    - name: install-dev-dependencies
+      default: "false"
+      description: Install require-dev dependencies when true
+  steps:
+    - name: install
+      image: composer:2
+      script: |
+        #!/usr/bin/env sh
+        set -eu -o pipefail
+
+        cd $(workspaces.source.path)
+
+        INSTALL_ARGS="--no-interaction --no-ansi --no-progress --prefer-dist --ignore-platform-reqs"
+        if [ "$(params.install-dev-dependencies)" != "true" ]; then
+          INSTALL_ARGS="$INSTALL_ARGS --no-dev"
+        fi
+
+        composer install $INSTALL_ARGS
