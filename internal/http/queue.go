@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -384,51 +385,32 @@ type limitRequest struct {
 	MaxConcurrent int `json:"max_concurrent"`
 }
 
-// maxQueueLimit bounds what a setting may ask for.
-//
-// The global ceiling stays above it anyway, but accepting 10,000 in the form would
-// suggest the number means something. Twenty is already more than the cluster holds.
-const maxQueueLimit = 20
-
 // SetLimit sets a queue's ceiling.
 //
 // Reserved to administration: raising a ceiling commits the cluster, and lowering it can
-// immobilise a verification mid-way. The value lives in the database and not in the
-// catalogue — a setting that requires rebuilding a ConfigMap is not a setting.
+// immobilise a verification mid-way.
 func (h *QueueHandler) SetLimit(w http.ResponseWriter, r *http.Request) {
 	identity, ok := IdentityFrom(r.Context())
 	if !ok {
 		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
-
 	kind := r.PathValue("kind")
 	if kind == "" {
 		writeProblem(w, http.StatusBadRequest, "Missing queue type", "")
 		return
 	}
-
 	var request limitRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
-	if request.MaxConcurrent < 1 || request.MaxConcurrent > maxQueueLimit {
-		writeProblem(w, http.StatusBadRequest, "Invalid ceiling",
-			fmt.Sprintf("expected between 1 and %d", maxQueueLimit))
+
+	service := configure.QueueLimits{Store: h.queue}
+	if err := service.Set(r.Context(), identity.Subject, kind, request.MaxConcurrent); err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	if err := h.queue.SetQueueLimit(r.Context(), kind, request.MaxConcurrent, identity.Subject); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot set", "")
-		return
-	}
-
-	// Recorded like the other operational decisions: "who opened the queue to ten" must have
-	// an answer without consulting the application logs.
-	_ = h.queue.Audit(r.Context(), identity.Subject, store.AuditQueueLimit, kind,
-		map[string]any{"max_concurrent": request.MaxConcurrent})
-
 	writeJSON(w, http.StatusOK, map[string]any{"kind": kind, "max_concurrent": request.MaxConcurrent})
 }
 
@@ -439,16 +421,11 @@ func (h *QueueHandler) ClearLimit(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
-
 	kind := r.PathValue("kind")
-	if err := h.queue.ClearQueueLimit(r.Context(), kind); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot set", "")
+	if err := (configure.QueueLimits{Store: h.queue}).Clear(r.Context(), identity.Subject, kind); err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	_ = h.queue.Audit(r.Context(), identity.Subject, store.AuditQueueLimit, kind,
-		map[string]any{"max_concurrent": nil})
-
 	writeJSON(w, http.StatusOK, map[string]any{"kind": kind})
 }
 

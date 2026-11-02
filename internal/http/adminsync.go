@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -193,56 +194,25 @@ type statusMappingRequest struct {
 	Bucket string `json:"bucket"`
 }
 
-// The accepted buckets come from the store: a second enumeration here would diverge from
-// the database constraint at the first addition.
-
 // SetMapping declares a status's mapping, then reapplies it.
-//
-// Reapplying happens in the same gesture, and that is not a detail: without it the new rule
-// would hold only for issues modified afterwards in the tracker, and the screen would mix
-// two rules without saying so.
 func (h *SyncAdminHandler) SetMapping(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
 		return
 	}
-
-	statusName := strings.TrimSpace(r.PathValue("status"))
-	if statusName == "" {
-		writeProblem(w, http.StatusBadRequest, "Missing status", "")
-		return
-	}
-
 	var request statusMappingRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
-	if !store.ValidBucket(request.Bucket) {
-		writeProblem(w, http.StatusBadRequest, "Invalid bucket",
-			"The bucket is one of “todo”, “doing”, “client-test”, “done” or “rejected”.")
-		return
-	}
 
-	if err := h.store.SetStatusBucket(r.Context(), project.ID, statusName, request.Bucket); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
-		return
-	}
-
-	// Bounded to the project, like the declaration: reapplying one's mapping must not move the
-	// other's issues, whose vocabulary is not the same.
-	moved, err := h.store.ReprojectIssues(r.Context(), project.ID)
+	statusName := strings.TrimSpace(r.PathValue("status"))
+	identity, _ := IdentityFrom(r.Context())
+	moved, err := (configure.StatusMappings{Store: h.store}).Set(r.Context(), identity.Subject, project, statusName, request.Bucket)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot reapply", "")
+		writeRefusal(w, err)
 		return
 	}
-
-	// The log carries how many moved: changing a status's mapping moves a completion rate
-	// displayed to the client, which deserves a record.
-	h.audit(r, "sync.tracker.mapping", project.Slug+"/"+statusName, map[string]any{
-		"bucket": request.Bucket, "issues_moved": moved,
-	})
-
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status_name": statusName, "bucket": request.Bucket, "issues_moved": moved,
 	})

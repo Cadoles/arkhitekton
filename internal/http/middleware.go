@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 )
 
 type contextKey string
@@ -235,4 +236,10 @@ func writeProblem(w http.ResponseWriter, status int, title, detail string) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(problem{Title: title, Status: status, Detail: detail})
+}
+
+// writeRefusal returns what a configuration service refused, as that service worded it.
+func writeRefusal(w http.ResponseWriter, err error) {
+	refusal := configure.AsProblem(err)
+	writeProblem(w, refusal.Status, refusal.Title, refusal.Detail)
 }

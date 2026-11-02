@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -55,8 +54,9 @@ type PluginsHandler struct {
 	// possible, writing a sensitive field is refused with a message naming the missing
 	// variable. Refusing the whole screen would punish a deployment that has no secret to
 	// protect yet.
-	cipher *secrets.Cipher
-	logger *slog.Logger
+	cipher  *secrets.Cipher
+	service configure.Plugins
+	logger  *slog.Logger
 }
 
 func NewPluginsHandler(
@@ -65,7 +65,10 @@ func NewPluginsHandler(
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &PluginsHandler{registry: registry, store: plugins, cipher: cipher, logger: logger}
+	return &PluginsHandler{
+		registry: registry, store: plugins, cipher: cipher, logger: logger,
+		service: configure.Plugins{Store: plugins, Registry: registry, Cipher: cipher, Logger: logger},
+	}
 }
 
 // fieldPayload describes a field to the screen that types it in.
@@ -210,67 +213,17 @@ type pluginRequest struct {
 
 // Set records the instance's settings for a plugin.
 func (h *PluginsHandler) Set(w http.ResponseWriter, r *http.Request) {
-	descriptor, request, ok := h.decode(w, r)
+	request, ok := decodePluginRequest(w, r)
 	if !ok {
 		return
 	}
-	if descriptor.Mandatory && !request.Enabled {
-		writeProblem(w, http.StatusConflict, "Mandatory plugin",
-			fmt.Sprintf("the dashboard cannot work without plugin %q", descriptor.ID))
-		return
-	}
-
-	existing, err := h.store.PluginSettingsAll(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the plugins", "")
-		return
-	}
-	if request.Enabled {
-		if rival := h.rival(descriptor, existing); rival != "" {
-			writeProblem(w, http.StatusConflict, "Another plugin plays this part",
-				fmt.Sprintf("plugin %q already brings this instance's tracker or forge: switch it off first", rival))
-			return
-		}
-	}
-
-	config, ok := h.merge(w, descriptor, plugin.ScopeGlobal, request,
-		existing[descriptor.ID].Config, nil)
-	if !ok {
-		return
-	}
-
 	identity, _ := IdentityFrom(r.Context())
-	entry := store.PluginSettings{
-		PluginID: descriptor.ID, Enabled: request.Enabled, Config: config,
-	}
-	if err := h.store.SetPluginSettings(r.Context(), entry, identity.Subject); err != nil {
-		h.logger.Error("recording a plugin", "plugin", descriptor.ID, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
+	descriptor, entry, err := h.service.Set(r.Context(), identity.Subject, r.PathValue("plugin"), request.input())
+	if err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	// The log carries whether it is enabled, never the configuration: that contains sensitive
-	// fields, and an audit log is read with fewer precautions than a database — which is
-	// precisely its purpose.
-	h.audit(r, "plugin.settings", descriptor.ID, map[string]any{"enabled": request.Enabled})
-
 	writeJSON(w, http.StatusOK, h.toPayload(descriptor, plugin.ScopeGlobal, entry, entry.Enabled))
-}
-
-// rival names an enabled plugin bringing the same tracker or forge part as this one.
-//
-// One of each per instance: a project's releases are tagged through one forge, and its versions
-// read from one tracker. Two enabled would leave the choice to the registry's order.
-func (h *PluginsHandler) rival(descriptor capability.Plugin, settings map[string]store.PluginSettings) string {
-	for _, other := range capabilities.Of(h.registry).Plugins() {
-		if other.ID == descriptor.ID || !settings[other.ID].Enabled {
-			continue
-		}
-		if (descriptor.Tracker != nil && other.Tracker != nil) || (descriptor.Forge != nil && other.Forge != nil) {
-			return other.ID
-		}
-	}
-	return ""
 }
 
 // ProjectList returns the plugins a project can set, and their effective state.
@@ -330,167 +283,51 @@ func (h *PluginsHandler) SetProject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	descriptor, request, ok := h.decode(w, r)
+	request, ok := decodePluginRequest(w, r)
 	if !ok {
 		return
 	}
-	if !descriptor.PerProject {
-		writeProblem(w, http.StatusConflict, "Plugin not settable per project",
-			"“"+descriptor.Label+"” applies to the whole instance: what it carries "+
-				"is not a property of a project.")
-		return
-	}
-
-	global, err := h.store.PluginSettingsAll(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the plugins", "")
-		return
-	}
-	if !global[descriptor.ID].Enabled {
-		writeProblem(w, http.StatusConflict, "Plugin disabled on the instance",
-			"A project cannot switch back on what the instance switched off: the "+
-				"deployment does not carry it, and every call would fail.")
-		return
-	}
-
-	own, err := h.store.ProjectPluginSettings(r.Context(), project.ID)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the project's plugins", "")
-		return
-	}
-
-	// Validation is against the resolved value: a project leaving the URL empty because the
-	// instance provides it must not be refused.
-	config, ok := h.merge(w, descriptor, plugin.ScopeProject, request,
-		own[descriptor.ID].Config, global[descriptor.ID].Config)
-	if !ok {
-		return
-	}
-
 	identity, _ := IdentityFrom(r.Context())
-	entry := store.PluginSettings{
-		PluginID: descriptor.ID, Enabled: request.Enabled, Config: config,
-	}
-	if err := h.store.SetProjectPluginSettings(r.Context(), project.ID, entry, identity.Subject); err != nil {
-		h.logger.Error("recording a project plugin",
-			"plugin", descriptor.ID, "project", project.Slug, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
+	descriptor, entry, err := h.service.SetProject(r.Context(), identity.Subject, project, r.PathValue("plugin"), request.input())
+	if err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	h.audit(r, "plugin.project.settings", project.Slug+"/"+descriptor.ID,
-		map[string]any{"enabled": request.Enabled})
-
 	view := h.toPayload(descriptor, plugin.ScopeProject, entry, entry.Enabled)
 	view.WebhookPath = webhookPath(descriptor, project.Slug)
 	writeJSON(w, http.StatusOK, view)
 }
 
 // ClearProject returns a project to inheriting the instance's setting.
-//
-// Distinct from disabling: "I have nothing particular to say" is not "no". Confusing them
-// would mean a project, once departed from the common setting, could never follow it
-// again.
 func (h *PluginsHandler) ClearProject(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
 		return
 	}
-	pluginID := strings.TrimSpace(r.PathValue("plugin"))
-	descriptor, err := capabilities.Of(h.registry).Plugin(pluginID)
+	identity, _ := IdentityFrom(r.Context())
+	descriptor, err := h.service.ClearProject(r.Context(), identity.Subject, project, r.PathValue("plugin"))
 	if err != nil {
-		writeProblem(w, http.StatusNotFound, "Unknown plugin", err.Error())
+		writeRefusal(w, err)
 		return
 	}
-
-	if err := h.store.ClearProjectPluginSettings(r.Context(), project.ID, descriptor.ID); err != nil {
-		h.logger.Error("removing a project plugin",
-			"plugin", descriptor.ID, "project", project.Slug, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot remove", "")
-		return
-	}
-
-	h.audit(r, "plugin.project.clear", project.Slug+"/"+descriptor.ID, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"plugin": descriptor.ID, "inherited": true})
 }
 
-// decode reads the plugin targeted and the request's body.
-func (h *PluginsHandler) decode(w http.ResponseWriter, r *http.Request) (capability.Plugin, pluginRequest, bool) {
-	descriptor, err := capabilities.Of(h.registry).Plugin(strings.TrimSpace(r.PathValue("plugin")))
-	if err != nil {
-		writeProblem(w, http.StatusNotFound, "Unknown plugin", err.Error())
-		return capability.Plugin{}, pluginRequest{}, false
-	}
-
+// decodePluginRequest reads a plugin's settings from the request's body.
+//
+// The plugin is looked up by the service, after the body: an unknown plugin and an unreadable body
+// both refuse the request, and the order changes nothing to what is written.
+func decodePluginRequest(w http.ResponseWriter, r *http.Request) (pluginRequest, bool) {
 	var request pluginRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&request); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
-		return capability.Plugin{}, pluginRequest{}, false
+		return pluginRequest{}, false
 	}
-	return descriptor, request, true
+	return request, true
 }
 
-// merge composes the configuration to write from the input and what exists.
-//
-// Three rules, each correcting a way of losing a value:
-//
-//   - a sensitive field absent from the input is kept: the screen never receives it, so it
-//     cannot send it back;
-//   - a sensitive field explicitly cleared is cleared, which requires a distinct gesture
-//     rather than a field left empty;
-//   - a sensitive field supplied is sealed, never written as is.
-func (h *PluginsHandler) merge(
-	w http.ResponseWriter, descriptor capability.Plugin, scope plugin.Scope,
-	request pluginRequest, existing, inherited map[string]string,
-) (map[string]string, bool) {
-	typed := plugin.Values{}
-	maps.Copy(typed, request.Config)
-
-	if err := plugin.Validate(descriptor, scope, typed, plugin.Values(inherited)); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid settings", err.Error())
-		return nil, false
-	}
-
-	config := map[string]string{}
-	// Sensitive fields already stored are carried over as they are — sealed, without being
-	// opened: reopening them to reseal would move plaintext through a process that does not
-	// need it.
-	for name, value := range existing {
-		if plugin.IsSecret(descriptor, scope, name) {
-			config[name] = value
-		}
-	}
-	for _, name := range request.ClearedSecrets {
-		delete(config, name)
-	}
-
-	for name, value := range typed {
-		if !plugin.IsSecret(descriptor, scope, name) {
-			config[name] = value
-			continue
-		}
-		if strings.TrimSpace(value) == "" {
-			// Empty means "unchanged". Clearing goes through `cleared_secrets`.
-			continue
-		}
-		if !h.cipher.Configured() {
-			writeProblem(w, http.StatusConflict, "Sealing not configured",
-				"SECRETS_KEY is not set: the dashboard refuses to write "+
-					"a sensitive field in clear text. Produce it with "+
-					"“openssl rand -base64 32”, then declare it in the deployment.")
-			return nil, false
-		}
-		sealed, err := h.cipher.Seal(value)
-		if err != nil {
-			h.logger.Error("sealing a setting",
-				"plugin", descriptor.ID, "field", name, "error", err)
-			writeProblem(w, http.StatusInternalServerError, "Cannot seal", "")
-			return nil, false
-		}
-		config[name] = sealed
-	}
-
-	return config, true
+func (r pluginRequest) input() configure.PluginInput {
+	return configure.PluginInput{Enabled: r.Enabled, Config: r.Config, ClearedSecrets: r.ClearedSecrets}
 }
 
 // project resolves the project named in the path.
@@ -506,14 +343,4 @@ func (h *PluginsHandler) project(w http.ResponseWriter, r *http.Request) (store.
 		return store.Project{}, false
 	}
 	return project, true
-}
-
-func (h *PluginsHandler) audit(r *http.Request, action, target string, payload map[string]any) {
-	identity, ok := IdentityFrom(r.Context())
-	if !ok {
-		return
-	}
-	if err := h.store.Audit(r.Context(), identity.Subject, action, target, payload); err != nil {
-		h.logger.Error("audit log", "action", action, "target", target, "error", err)
-	}
 }
