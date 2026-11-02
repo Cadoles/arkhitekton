@@ -228,11 +228,12 @@ func (r *ReleaseRunner) Run(
 	}
 
 	id, err := r.queue.Enqueue(ctx, store.JobRequest{
-		Kind:        pipeline.Kind,
-		Params:      params,
-		RequestedBy: verificationRequester,
-		ReleaseID:   run.ReleaseID,
-		ProjectID:   run.ProjectID,
+		Kind:          pipeline.Kind,
+		Params:        params,
+		RequestedBy:   verificationRequester,
+		ReleaseID:     run.ReleaseID,
+		ProjectID:     run.ProjectID,
+		PullRequestID: run.PullRequestID,
 	})
 	if err != nil {
 		return nil, err
