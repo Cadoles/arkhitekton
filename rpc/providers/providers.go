@@ -47,6 +47,10 @@ type (
 		Refs      []provider.Ref
 		Truncated bool
 	}
+	PullsResult struct {
+		Pulls     []provider.PullRequest
+		Truncated bool
+	}
 )
 
 // TargetOf returns the wire form of a target.
@@ -76,6 +80,7 @@ var sentinels = []struct {
 	{provider.ErrNotConfigured, codes.FailedPrecondition, "NOT_CONFIGURED"},
 	{provider.ErrWriteForbidden, codes.PermissionDenied, "WRITE_FORBIDDEN"},
 	{provider.ErrTagExists, codes.AlreadyExists, "TAG_EXISTS"},
+	{errors.ErrUnsupported, codes.Unimplemented, "UNSUPPORTED"},
 }
 
 // Status returns the error a plugin's program answers for a provider's error.
@@ -126,6 +131,11 @@ func Error(err error) error {
 				return remoteError{message: state.Message(), sentinel: sentinel.err}
 			}
 		}
+	}
+	// A program built before a call existed answers it unimplemented, with no detail: the call is
+	// unsupported, not failed.
+	if state.Code() == codes.Unimplemented {
+		return remoteError{message: state.Message(), sentinel: errors.ErrUnsupported}
 	}
 	return err
 }
