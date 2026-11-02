@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -153,8 +153,10 @@ func (h *CapabilitiesHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Bind records a capability's binding, after checking the capabilities still build with it.
 func (h *CapabilitiesHandler) Bind(w http.ResponseWriter, r *http.Request) {
-	ref, ok := h.ref(w, r)
-	if !ok {
+	service := h.service()
+	ref, err := service.Ref(r.PathValue("plugin") + "/" + r.PathValue("name"))
+	if err != nil {
+		writeRefusal(w, err)
 		return
 	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
@@ -162,85 +164,33 @@ func (h *CapabilitiesHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "Unreadable binding", "")
 		return
 	}
-	binding, err := catalog.ParseBinding(raw)
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid binding", err.Error())
-		return
-	}
-	if binding.Ref == "" {
-		binding.Ref = ref.String()
-	}
-	if binding.Ref != ref.String() {
-		writeProblem(w, http.StatusBadRequest, "Invalid binding", "the binding names another capability")
-		return
-	}
-	if catalog.Of(h.catalog).BoundByFile(binding.Ref) {
-		writeProblem(w, http.StatusConflict, "Bound by the catalogue file", "the file's binding wins: change it there")
-		return
-	}
-	if err := h.check(r.Context(), binding); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid binding", err.Error())
-		return
-	}
-	normalised, err := json.Marshal(binding)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot record the binding", "")
-		return
-	}
 	identity, _ := IdentityFrom(r.Context())
-	if err := h.store.SetCapabilityBinding(r.Context(), binding.Ref, normalised, identity.Subject); err != nil {
-		h.logger.Error("recording a binding", "capability", binding.Ref, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot record the binding", "")
+	normalised, err := service.Set(r.Context(), identity.Subject, ref, raw)
+	if err != nil {
+		writeRefusal(w, err)
 		return
 	}
-	h.audit(r, "capability.binding", binding.Ref)
-	h.applyNow(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"ref": binding.Ref, "binding": json.RawMessage(normalised)})
+	writeJSON(w, http.StatusOK, map[string]any{"ref": ref.String(), "binding": json.RawMessage(normalised)})
 }
 
 // Unbind removes a recorded binding: the capability can no longer be launched.
 func (h *CapabilitiesHandler) Unbind(w http.ResponseWriter, r *http.Request) {
-	ref, ok := h.ref(w, r)
-	if !ok {
+	service := h.service()
+	ref, err := service.Ref(r.PathValue("plugin") + "/" + r.PathValue("name"))
+	if err != nil {
+		writeRefusal(w, err)
 		return
 	}
-	if err := h.store.DeleteCapabilityBinding(r.Context(), ref.String()); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot remove the binding", "")
+	identity, _ := IdentityFrom(r.Context())
+	if err := service.Delete(r.Context(), identity.Subject, ref); err != nil {
+		writeRefusal(w, err)
 		return
 	}
-	h.audit(r, "capability.unbinding", ref.String())
-	h.applyNow(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *CapabilitiesHandler) ref(w http.ResponseWriter, r *http.Request) (capability.Ref, bool) {
-	ref, err := capability.ParseRef(r.PathValue("plugin") + "/" + r.PathValue("name"))
-	if err != nil {
-		writeProblem(w, http.StatusNotFound, "Unknown capability", err.Error())
-		return capability.Ref{}, false
-	}
-	if _, _, found := capabilities.Of(h.registry).Pipeline(ref); !found {
-		writeProblem(w, http.StatusNotFound, "Unknown capability", ref.String())
-		return capability.Ref{}, false
-	}
-	return ref, true
-}
-
-func (h *CapabilitiesHandler) applyNow(ctx context.Context) {
-	if h.reload == nil {
-		return
-	}
-	if err := h.reload(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		h.logger.Error("applying a binding", "error", err)
-	}
-}
-
-func (h *CapabilitiesHandler) audit(r *http.Request, action, target string) {
-	identity, ok := IdentityFrom(r.Context())
-	if !ok {
-		return
-	}
-	if err := h.store.Audit(r.Context(), identity.Subject, action, target, nil); err != nil {
-		h.logger.Error("audit log", "action", action, "target", target, "error", err)
+func (h *CapabilitiesHandler) service() configure.Bindings {
+	return configure.Bindings{
+		Store: h.store, Registry: h.registry, Catalog: h.catalog, Check: h.check, Reload: h.reload, Logger: h.logger,
 	}
 }

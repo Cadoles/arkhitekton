@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -111,20 +112,6 @@ func (h *ProjectPipelinesHandler) Set(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
-	kind := strings.TrimSpace(r.PathValue("kind"))
-	if h.catalog == nil {
-		writeProblem(w, http.StatusConflict, "Catalogue unavailable", "")
-		return
-	}
-	pipeline, found := catalog.Of(h.catalog).Find(kind)
-	if !found {
-		// Refused rather than recorded: a row for a non-existent kind would give a screen saying
-		// "disabled" about a pipeline nobody launches, and would hide the typo.
-		writeProblem(w, http.StatusNotFound, "Kind unknown to the catalogue", kind)
-		return
-	}
-
 	var request projectPipelineRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
@@ -132,19 +119,12 @@ func (h *ProjectPipelinesHandler) Set(w http.ResponseWriter, r *http.Request) {
 	}
 
 	identity, _ := IdentityFrom(r.Context())
-	if err := h.store.SetProjectPipeline(
-		r.Context(), project.ID, pipeline.Kind, request.Enabled, identity.Subject); err != nil {
-		h.logger.Error("recording a project pipeline",
-			"project", project.Slug, "kind", pipeline.Kind, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
+	service := configure.ProjectPipelines{Store: h.store, Catalog: h.catalog, Logger: h.logger}
+	pipeline, err := service.Set(r.Context(), identity.Subject, project, r.PathValue("kind"), request.Enabled)
+	if err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	// Recorded: disabling a verification changes what a release will have gone through before
-	// being shipped, and that is the kind of decision one wants to be able to find again.
-	h.audit(r, "project.pipeline", project.Slug+"/"+pipeline.Kind,
-		map[string]any{"enabled": request.Enabled})
-
 	writeJSON(w, http.StatusOK, pipelineVw{
 		Kind: pipeline.Kind, Label: pipeline.Label,
 		Verification: pipeline.Verification,
@@ -163,14 +143,4 @@ func (h *ProjectPipelinesHandler) project(w http.ResponseWriter, r *http.Request
 		return store.Project{}, false
 	}
 	return project, true
-}
-
-func (h *ProjectPipelinesHandler) audit(r *http.Request, action, target string, payload map[string]any) {
-	identity, ok := IdentityFrom(r.Context())
-	if !ok {
-		return
-	}
-	if err := h.store.Audit(r.Context(), identity.Subject, action, target, payload); err != nil {
-		h.logger.Error("journal d'audit", "action", action, "target", target, "error", err)
-	}
 }

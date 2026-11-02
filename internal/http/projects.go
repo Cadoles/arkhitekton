@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -283,105 +284,33 @@ type projectRequest struct {
 	ReleaseKinds release.Cycle `json:"release_kinds,omitempty"`
 }
 
-// repositoryPattern bounds the shape of a repository.
-//
-// `owner/name`, which the forge API expects. Checking it here rather than at the first
-// call avoids an access check failing on a malformed URL and reading as a rights
-// problem.
-const repositorySeparator = "/"
+// service is the declaration's rules, built from what the deployment set on this handler.
+func (h *ProjectsHandler) service() configure.Projects {
+	return configure.Projects{
+		Store: h.store, ForgeURL: h.forgeURL, ImageRegistry: h.imageRegistry,
+		SchemeCheck: h.schemeCheck, Library: h.library,
+	}
+}
 
-func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projectRequest, bool) {
+func decodeProject(w http.ResponseWriter, r *http.Request) (configure.ProjectInput, bool) {
 	var request projectRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10)).Decode(&request); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
-		return request, false
+		return configure.ProjectInput{}, false
 	}
-
-	request.Repository = strings.Trim(strings.TrimSpace(request.Repository), "/")
-	owner, name, found := strings.Cut(request.Repository, repositorySeparator)
-	if !found || owner == "" || name == "" || strings.Contains(name, repositorySeparator) {
-		writeProblem(w, http.StatusBadRequest, "Invalid repository", "expected owner/name")
-		return request, false
-	}
-
-	request.Label = strings.TrimSpace(request.Label)
-	if request.Label == "" {
-		// The repository's name makes an acceptable label, and requiring one would stumble over
-		// a field whose value is obvious.
-		request.Label = name
-	}
-
-	request.ForgeURL = strings.TrimRight(strings.TrimSpace(request.ForgeURL), "/")
-	if request.ForgeURL == "" {
-		request.ForgeURL = h.forgeURL
-	}
-
-	request.BuildContext = strings.TrimSpace(request.BuildContext)
-	if request.BuildContext == "" {
-		request.BuildContext = "."
-	}
-	request.Dockerfile = strings.TrimSpace(request.Dockerfile)
-	// Trailing slashes are stripped: composing the reference would double them, and
-	// `registry/project//image` is not the same image as `registry/project/image` to a
-	// registry.
-	request.ImageRegistry = strings.Trim(strings.TrimSpace(request.ImageRegistry), "/")
-	if request.ImageRegistry == "" {
-		request.ImageRegistry = h.imageRegistry
-	}
-
-	// The scheme × deployer coupling is refused here, at configuration time, and not
-	// discovered at the first deployment that does not leave.
-	//
-	// It is the failure mode of a GitOps controller selecting by SemVer range: with an
-	// opaque scheme the promotion tag would be pushed, accepted by the registry, ignored by
-	// the controller — the promotion would look successful and nothing would move.
-	request.VersionScheme = strings.TrimSpace(request.VersionScheme)
-	scheme, err := version.For(request.VersionScheme)
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Unknown version scheme", err.Error())
-		return request, false
-	}
-	if h.schemeCheck != nil {
-		if err := h.schemeCheck(r.Context(), scheme); err != nil {
-			writeProblem(w, http.StatusBadRequest,
-				"Version scheme incompatible with the deployer", err.Error())
-			return request, false
-		}
-	}
-	if len(request.ReleaseKinds) > 0 {
-		if err := request.ReleaseKinds.Validate(scheme); err != nil {
-			writeProblem(w, http.StatusBadRequest, "Invalid release cycle", err.Error())
-			return request, false
-		}
-	}
-
-	// The stack is refused at declaration time if no library covers it. Learning it here
-	// rather than at the first launch avoids finding a pipeline missing without knowing
-	// why — and the message says what to do: a project whose stack is not covered writes its
-	// own.
-	request.Stack = strings.TrimSpace(request.Stack)
-	if _, err := h.library.For(request.Stack); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Unknown stack", err.Error())
-		return request, false
-	}
-
-	return request, true
-}
-
-func targetsOf(request projectRequest) []store.Target {
-	targets := make([]store.Target, 0, len(request.Targets))
+	targets := make([]configure.TargetInput, 0, len(request.Targets))
 	for _, target := range request.Targets {
-		// Written explicitly, including when it is true: the form settled it, and leaving the
-		// entry silent would make it indistinguishable from those the migration caught up.
-		promote := target.Promote
-		targets = append(targets, store.Target{
-			Stage:      strings.TrimSpace(target.Stage),
-			Image:      strings.TrimSpace(target.Image),
-			Dockerfile: strings.TrimSpace(target.Dockerfile),
-			Promote:    &promote,
+		targets = append(targets, configure.TargetInput{
+			Stage: target.Stage, Image: target.Image, Dockerfile: target.Dockerfile, Promote: target.Promote,
 		})
 	}
-	return targets
+	return configure.ProjectInput{
+		Repository: request.Repository, Label: request.Label, ForgeURL: request.ForgeURL,
+		Dockerfile: request.Dockerfile, BuildContext: request.BuildContext, Slug: request.Slug,
+		ImageRegistry: request.ImageRegistry, RegistrySecret: request.RegistrySecret,
+		VersionScheme: request.VersionScheme, Stack: request.Stack, TrackerProject: request.TrackerProject,
+		MultiStage: request.MultiStage, Targets: targets, ReleaseKinds: request.ReleaseKinds,
+	}, true
 }
 
 // Create declares a repository.
@@ -391,39 +320,19 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
-
-	request, ok := h.decode(w, r)
+	input, ok := decodeProject(w, r)
 	if !ok {
 		return
 	}
 
-	id, err := h.store.CreateProject(r.Context(), store.Project{
-		Repository: request.Repository, Label: request.Label, ForgeURL: request.ForgeURL,
-		Dockerfile: request.Dockerfile, BuildContext: request.BuildContext,
-		Slug:           strings.TrimSpace(request.Slug),
-		ImageRegistry:  request.ImageRegistry,
-		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
-		VersionScheme:  strings.TrimSpace(request.VersionScheme),
-		Stack:          strings.TrimSpace(request.Stack),
-		TrackerProject: strings.TrimSpace(request.TrackerProject),
-		MultiStage:     request.MultiStage, Targets: targetsOf(request),
-		ReleaseKinds: request.ReleaseKinds,
-		CreatedBy:    identity.Subject,
-	})
+	id, err := h.service().Create(r.Context(), identity.Subject, input)
 	if err != nil {
-		if errors.Is(err, store.ErrProjectExists) {
-			writeProblem(w, http.StatusConflict, "Repository already declared", request.Repository)
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot declare", "")
+		writeRefusal(w, err)
 		return
 	}
 
-	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectSet, request.Repository,
-		map[string]any{"label": request.Label})
-
-	// The project's key is set by the worker, which alone talks to the cluster. The project
-	// is usable immediately: meanwhile its pipelines mount the deployment's shared key.
+	// The project's key is set by the worker, which alone talks to the cluster. The project is
+	// usable immediately: meanwhile its pipelines mount the deployment's shared key.
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
@@ -472,48 +381,21 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
-
 	id, ok := projectID(w, r)
 	if !ok {
 		return
 	}
-
-	request, ok := h.decode(w, r)
+	input, ok := decodeProject(w, r)
 	if !ok {
 		return
 	}
 
-	// The repository is editable, and that is the main use case: bootstrapped projects
-	// carry the one the configuration named, and correcting it is exactly what this is for.
-	// Changing it clears the access verdict — it was about something no longer driven.
-	err := h.store.UpdateProject(r.Context(), store.Project{
-		ID: id, Repository: request.Repository, Label: request.Label,
-		ForgeURL: request.ForgeURL, Dockerfile: request.Dockerfile,
-		BuildContext: request.BuildContext, ImageRegistry: request.ImageRegistry,
-		RegistrySecret: strings.TrimSpace(request.RegistrySecret),
-		VersionScheme:  strings.TrimSpace(request.VersionScheme),
-		Stack:          strings.TrimSpace(request.Stack),
-		TrackerProject: strings.TrimSpace(request.TrackerProject),
-		Slug:           strings.TrimSpace(request.Slug),
-		MultiStage:     request.MultiStage, Targets: targetsOf(request),
-		ReleaseKinds: request.ReleaseKinds,
-	})
-	if err != nil {
-		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Project not found", "")
-			return
-		}
-		if errors.Is(err, store.ErrProjectExists) {
-			writeProblem(w, http.StatusConflict, "Repository already declared", request.Repository)
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot update", "")
+	// The repository is editable, and that is the main use case: bootstrapped projects carry the
+	// one the configuration named, and correcting it is exactly what this is for.
+	if err := h.service().Update(r.Context(), identity.Subject, id, input); err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectSet, request.Repository,
-		map[string]any{"label": request.Label, "id": id})
-
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
