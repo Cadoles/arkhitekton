@@ -237,8 +237,10 @@ type Ref struct {
 	SHA string
 }
 
-// PullRequest is a completed pull request, reduced to what serves the matching with the tracker's
-// requests.
+// PullRequest is a pull request.
+//
+// [Forge.ListMergedPullRequests] fills what serves the matching with the tracker's requests;
+// [PullRequestLister.ListPullRequests] fills everything else, what following a request needs.
 type PullRequest struct {
 	Number   int64
 	Title    string
@@ -247,6 +249,37 @@ type PullRequest struct {
 	// Commits carries the commits' messages. Filled by LoadCommitMessages: the list of requests does
 	// not contain them.
 	Commits []string
+
+	// State is one of [PullOpen], [PullClosed], [PullMerged]: a merged request is not reported as
+	// merely closed, a merge and an abandonment do not call for the same reaction.
+	State        string
+	Author       string
+	SourceBranch string
+	TargetBranch string
+	// HeadSHA is the commit at the tip of the request's branch: what a pipeline run on the request
+	// builds and tests.
+	HeadSHA   string
+	URL       string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	ClosedAt  *time.Time
+}
+
+// The states of a pull request.
+const (
+	PullOpen   = "open"
+	PullClosed = "closed"
+	PullMerged = "merged"
+)
+
+// PullRequestLister lists a repository's pull requests in every state.
+//
+// Apart from [Forge], which every forge implements: a forge that cannot list its requests is still
+// a forge, and its projects are simply not followed.
+type PullRequestLister interface {
+	// ListPullRequests returns the requests updated since an instant, the most recently updated
+	// first, and says whether the reading bound was reached before reaching that instant.
+	ListPullRequests(ctx context.Context, since time.Time) ([]PullRequest, bool, error)
 }
 
 // Reference returns `#42`, as one writes it in a note.
