@@ -201,3 +201,19 @@ func runConfigExport(ctx context.Context, cfg config.Config, args []string, stdo
 	_, err = stdout.Write(raw)
 	return err
 }
+
+func runConfigSplit(args []string, stdin io.Reader) error {
+	flags := flag.NewFlagSet("config split", flag.ContinueOnError)
+	dir := flags.String("o", "", "the directory to write instance.yaml and projects/<slug>.yaml into")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *dir == "" {
+		return errors.New("config split: -o is required")
+	}
+	set, err := configfile.ReadPath("-", stdin)
+	if err != nil {
+		return err
+	}
+	return configfile.WriteDir(*dir, set)
+}

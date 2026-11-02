@@ -28,6 +28,13 @@ OVERLAY ?= deploy/overlays/local
 # keys. Distinct from the dashboard's.
 TEKTON_NAMESPACE ?= mse-tekton-pipelines
 
+# The instance's configuration is read and written by the worker, which has the database, the
+# installed plugins, the catalogue and the sealing key. The image has no shell: everything goes
+# through the standard streams of `kubectl exec`. Set KUBECONFIG to target a cluster.
+DASHBOARD_NAMESPACE ?= arkhitekton
+CONFIG := kubectl -n $(DASHBOARD_NAMESPACE) exec -i deploy/arkhitekton-worker -c worker -- /usr/local/bin/arkhitekton config
+CONFIG_STREAM = find $(DIR) -name '*.yaml' | sort | while read -r file; do echo '---'; cat "$$file"; done
+
 PG_TEST_NAME := pg-arkhitekton-test
 PG_TEST_PORT := 15432
 PG_TEST_DSN  := postgres://postgres:t3st@127.0.0.1:$(PG_TEST_PORT)/mse?sslmode=disable
@@ -36,7 +43,7 @@ MINIO_TEST_NAME   := minio-arkhitekton-test
 MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := arkhitekton-test
 
-.PHONY: help build example-plugin providers-demo proto test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
+.PHONY: config-export config-diff config-apply help build example-plugin providers-demo proto test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
         web web-install web-dev web-check image image-push kind-load manifests deploy undeploy logs
 
 help: ## Show this help
@@ -220,6 +227,18 @@ manifests: ## Rend et analyse les manifests de l'overlay
 #
 # Without effect on a secret already repaired, and without effect on the projects created after
 # the fix.
+config-export: ## Writes the instance's configuration into DIR, one file per project
+	@test -n "$(DIR)" || { echo "usage: make config-export DIR=<directory>" >&2; exit 1; }
+	@$(CONFIG) export | $(GO) run ./cmd/arkhitekton config split -o $(DIR)
+
+config-diff: ## Prints what applying DIR would write (ARGS=--prune to include removals)
+	@test -n "$(DIR)" || { echo "usage: make config-diff DIR=<directory>" >&2; exit 1; }
+	@$(CONFIG_STREAM) | $(CONFIG) diff -f - $(ARGS)
+
+config-apply: ## Applies DIR to the instance (ARGS=--prune to remove what it no longer declares)
+	@test -n "$(DIR)" || { echo "usage: make config-apply DIR=<directory>" >&2; exit 1; }
+	@$(CONFIG_STREAM) | $(CONFIG) apply -f - $(ARGS)
+
 deploy-keys-repair: ## Adds id_ed25519 to the deploy keys written before the fix
 	@for secret in $$(kubectl -n $(TEKTON_NAMESPACE) get secrets \
 	    -l app.kubernetes.io/managed-by=arkhitekton -o name); do \

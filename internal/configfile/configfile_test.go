@@ -175,3 +175,26 @@ func TestMistakesAreRefusedWithTheirPath(t *testing.T) {
 		})
 	}
 }
+
+// A project the instance no longer has disappears from an exported directory: applying the
+// directory again would otherwise bring it back.
+func TestAnExportRemovesTheFilesOfProjectsThatAreGone(t *testing.T) {
+	set, err := Read([]byte(example), "example.yaml")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	dir := t.TempDir()
+	gone := filepath.Join(dir, ProjectsDir, "gone.yaml")
+	if err := os.MkdirAll(filepath.Dir(gone), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gone, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteDir(dir, set); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := os.Stat(gone); !os.IsNotExist(err) {
+		t.Errorf("the file of a project that is gone is still there (%v)", err)
+	}
+}

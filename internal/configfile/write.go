@@ -74,11 +74,21 @@ func Files(set Set) (map[string][]byte, error) {
 	return files, nil
 }
 
-// WriteDir writes a set's files under a directory, replacing those of the same name.
+// WriteDir writes a set's files under a directory, replacing those of the same name. A project file
+// the set no longer has is removed: applying the directory again would bring the project back.
 func WriteDir(dir string, set Set) error {
 	files, err := Files(set)
 	if err != nil {
 		return err
+	}
+	stale, _ := filepath.Glob(filepath.Join(dir, ProjectsDir, "*.yaml"))
+	for _, path := range stale {
+		relative, _ := filepath.Rel(dir, path)
+		if _, kept := files[relative]; !kept {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+		}
 	}
 	for name, raw := range files {
 		path := filepath.Join(dir, name)

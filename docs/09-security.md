@@ -101,6 +101,13 @@ half for an administrator to install on the forge, and keeps the private half in
 Kubernetes secret that pipelines mount. Rotation is a request recorded on the project,
 so that the old key keeps working until the new one is installed.
 
+**A configuration applied from files never carries a secret.** Sensitive settings are written as
+references to the worker's environment or to a mounted file, resolved when applied, then sealed;
+the export writes the reference's name, never the value, sealed or not. `arkhitekton config apply`
+writes to the database with an administrator's authority, through the same rules as the
+interface: running it is an operator's act, reserved to who can `exec` into the worker's pod, and
+its writes are audited under the name given by `--actor` (`config-apply` by default).
+
 ## 9.7 Outbound requests
 
 **The tracker transport refuses any method but GET and HEAD** before the request leaves

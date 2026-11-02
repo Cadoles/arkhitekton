@@ -123,3 +123,86 @@ trailing slash included.
 **Promotion is refused for an environment that exists.** The catalogue's `projects:`
 section is keyed by project slug: an environment declared under the wrong slug is unknown
 for that project, and unknown environments fail closed to the higher role.
+
+## 10.9 The configuration as files
+
+What an administrator sets in the interface (projects, plugin settings, a project's pipelines,
+its release automation, reactions and schedules, queue limits, recorded bindings, installed
+plugins) can be kept in versioned YAML files, tried on a local cluster, then applied to another
+instance. The database stays authoritative: the interface remains editable, and an export reads
+what it holds back into files.
+
+    make config-export DIR=config/local          # one file per project, plus instance.yaml
+    make config-diff   DIR=config/local          # what applying would write, nothing written
+    make config-apply  DIR=config/local          # writes it
+    make config-apply  DIR=config/local ARGS=--prune
+
+The targets run `arkhitekton config export | diff | apply` in the worker's pod through
+`kubectl exec` (set `KUBECONFIG` to choose the cluster): it already has the database, the
+installed plugins, the catalogue and `SECRETS_KEY`. The image has no shell, so the files travel on
+the standard streams; `arkhitekton config split -o <dir>` turns an exported stream into files on
+the operator's machine.
+
+```yaml
+apiVersion: arkhitekton.config/v1
+kind: Instance
+spec:
+  plugins:
+    gitea:
+      config: {url: https://forge.example, token: {env: ARK_GITEA_TOKEN}}
+    mse:
+      install: {reference: "forge.example/mse-plugin@sha256:…"}
+  queueLimits: {mse/integration-tests: 1}
+---
+apiVersion: arkhitekton.config/v1
+kind: Project
+metadata: {name: portal}
+spec:
+  repository: team/portal
+  stack: php
+  plugins:
+    mse: {config: {deployer: flux}}
+  pipelines: {mse/e2e-tests: false}
+  releaseAutomation:
+    stages: [{role: build, gestes: [{kind: pipeline, ref: core/build}]}]
+  schedules:
+    - name: Integration
+      cron: "0 8,12,16 * * 1-5"
+      timezone: Europe/Paris
+      ref: main
+      plan: {stages: [{gestes: [{kind: pipeline, ref: mse/integration-tests}]}]}
+```
+
+Plans keep the shape the automation editor writes. Switches (`enabled`, a target's `promote`)
+default to on. Unknown keys are refused, with the path of the mistake.
+
+**What is declared is imposed in full; what is not declared is left alone.** A field omitted takes
+its default, as at creation from the interface; a setting omitted from a plugin's `config` is
+removed. `--prune` also removes, for the declared projects and the instance, the reactions,
+schedules, project plugin settings, pipeline switches, status mappings, queue limits and bindings
+the files no longer declare. It never removes a project nor uninstalls a plugin. Reactions and
+schedules are matched by name: a rename is a removal and a creation, and the run history of the
+old one keeps naming it by its id.
+
+**Every write goes through the rules the interface applies**, and everything that can be checked
+without writing (an unknown plugin, a kind missing from the catalogue, an unknown action or fact)
+is checked before the first write. A failure in the middle names its operation; applying again
+resumes from there. The deployer's version-scheme check is a hook of a running plugin and is only
+applied from the interface.
+
+**Sensitive settings are references, never values.** `{env: NAME}` reads the worker's
+environment, `{file: PATH}` a file mounted in its pod. A resolved reference is sealed like a value
+typed into the interface. An unresolved one keeps the value already recorded, so that applying an
+export changes nothing; with no value recorded either, it is refused. A sensitive value can
+therefore also be typed once in the interface, then kept by every apply. The export names each
+sensitive setting `ARK_<PLUGIN>_<FIELD>`, or `ARK_<PROJECT>_<PLUGIN>_<FIELD>` for a project, and
+lists the names on its error output.
+
+**Installed plugins are installed first**, then the rest is planned against the registry they
+complete: an installation is requested, pulled by the worker (`--wait-timeout`, 10 minutes by
+default), then activated. A source the instance does not recognise is accepted only when the file
+sets `acceptSource: true`.
+
+The export writes what was decided, never what was observed (access verdicts, deploy keys, next
+firings), and leaves out a plugin left as the dashboard seeds it. Roles, users, the catalogue's
+environments and plugins' own tables are not part of it.
