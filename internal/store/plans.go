@@ -29,7 +29,9 @@ type PlanRun struct {
 	EventKey  string
 	ProjectID *int64
 	ReleaseID *int64
-	Plan      plan.Plan
+	// PullRequestID is the pull request whose fact opened the run: its jobs run on it.
+	PullRequestID *int64
+	Plan          plan.Plan
 	// Context is the triggering fact's payload. It binds the steps' parameters: the plan
 	// names, the run resolves.
 	Context   map[string]string
@@ -82,12 +84,12 @@ func (db *DB) CreatePlanRun(ctx context.Context, run PlanRun) (PlanRun, bool, er
 
 	var id int64
 	err = tx.QueryRow(ctx,
-		`insert into plan_runs (trigger, event_key, project_id, release_id, plan, context)
-		 values ($1, $2, $3, $4, $5, $6)
+		`insert into plan_runs (trigger, event_key, project_id, release_id, plan, context, pull_request_id)
+		 values ($1, $2, $3, $4, $5, $6, $7)
 		 on conflict (trigger, event_key) do nothing
 		 returning id`,
 		run.Trigger, run.EventKey, run.ProjectID, run.ReleaseID, encoded,
-		orEmptyContext(run.Context)).Scan(&id)
+		orEmptyContext(run.Context), run.PullRequestID).Scan(&id)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Already open. The existing one is returned, so the caller can advance it rather
@@ -121,7 +123,7 @@ func (db *DB) CreatePlanRun(ctx context.Context, run PlanRun) (PlanRun, bool, er
 // PlanRunByEvent returns the run opened for a fact.
 func (db *DB) PlanRunByEvent(ctx context.Context, trigger, eventKey string) (PlanRun, error) {
 	const query = `
-		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at
+		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at, pull_request_id
 		from plan_runs where trigger = $1 and event_key = $2`
 
 	return db.scanPlanRun(ctx, query, trigger, eventKey)
@@ -130,7 +132,7 @@ func (db *DB) PlanRunByEvent(ctx context.Context, trigger, eventKey string) (Pla
 // PlanRunByID returns a run by its identifier.
 func (db *DB) PlanRunByID(ctx context.Context, id int64) (PlanRun, error) {
 	const query = `
-		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at
+		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at, pull_request_id
 		from plan_runs where id = $1`
 
 	return db.scanPlanRun(ctx, query, id)
@@ -143,7 +145,7 @@ func (db *DB) scanPlanRun(ctx context.Context, query string, args ...any) (PlanR
 	)
 	err := db.pool.QueryRow(ctx, query, args...).Scan(
 		&run.ID, &run.Trigger, &run.EventKey, &run.ProjectID, &run.ReleaseID,
-		&encoded, &run.Context, &run.State, &run.CreatedAt)
+		&encoded, &run.Context, &run.State, &run.CreatedAt, &run.PullRequestID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return PlanRun{}, ErrPlanRunNotFound
@@ -282,7 +284,7 @@ func (db *DB) ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]P
 	}
 
 	const query = `
-		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at
+		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at, pull_request_id
 		from plan_runs
 		where project_id = $1
 		order by created_at desc, id desc
@@ -302,7 +304,7 @@ func (db *DB) ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]P
 			encoded []byte
 		)
 		if err := rows.Scan(&run.ID, &run.Trigger, &run.EventKey, &run.ProjectID,
-			&run.ReleaseID, &encoded, &run.Context, &run.State, &run.CreatedAt); err != nil {
+			&run.ReleaseID, &encoded, &run.Context, &run.State, &run.CreatedAt, &run.PullRequestID); err != nil {
 			return nil, fmt.Errorf("reading a run: %w", err)
 		}
 		if err := json.Unmarshal(encoded, &run.Plan); err != nil {
@@ -401,8 +403,8 @@ func (db *DB) RecordPlanArtifacts(
 	}
 
 	const query = `
-		insert into plan_artifacts (run_id, stage, position, name, kind, reference, release_id)
-		values ($1, $2, $3, $4, $5, $6, $7)
+		insert into plan_artifacts (run_id, stage, position, name, kind, reference, release_id, pull_request_id)
+		values ($1, $2, $3, $4, $5, $6, $7, (select pull_request_id from plan_runs where id = $1))
 		on conflict (run_id, stage, position, name) do update
 		set kind = excluded.kind, reference = excluded.reference`
 

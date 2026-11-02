@@ -91,11 +91,12 @@ func insertTestResult(ctx context.Context, transaction pgx.Tx, result TestResult
 		`insert into test_results (
 		     run_id, release_id, tool, status, total, passed, failed, skipped,
 		     flaky, duration_ms, summary, raw_object, producer, shape, fact_group, capability,
-		     exclusive, concurrent_jobs
+		     exclusive, concurrent_jobs, pull_request_id
 		 ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, nullif($11, ''), nullif($12, ''),
 		           $13, $14, $15, coalesce(nullif($16, ''),
 		               (select j.capability from runs r join jobs j on j.id = r.job_id where r.id = $1)),
-		           $17, $18)
+		           $17, $18,
+		           (select j.pull_request_id from runs r join jobs j on j.id = r.job_id where r.id = $1))
 		 returning id`,
 		result.RunID, result.ReleaseID, result.Tool, result.Status,
 		result.Total, result.Passed, result.Failed, result.Skipped, result.Flaky,

@@ -83,10 +83,11 @@ func insertLoadResult(
 	err := transaction.QueryRow(ctx,
 		`insert into test_results (
 		     run_id, release_id, tool, status, duration_ms, summary, raw_object,
-		     exclusive, concurrent_jobs, producer, shape, fact_group, capability
+		     exclusive, concurrent_jobs, producer, shape, fact_group, capability, pull_request_id
 		 ) values ($1, $2, $10, $3, $4, $5, nullif($6, ''), $7, $8, $11, 'measures', $9,
 		           coalesce(nullif($12, ''),
-		               (select j.capability from runs r join jobs j on j.id = r.job_id where r.id = $1)))
+		               (select j.capability from runs r join jobs j on j.id = r.job_id where r.id = $1)),
+		           (select j.pull_request_id from runs r join jobs j on j.id = r.job_id where r.id = $1))
 		 returning id`,
 		result.RunID, result.ReleaseID, status, result.DurationMS,
 		result.Summary, result.RawObject, result.Exclusive, result.ConcurrentJobs,
