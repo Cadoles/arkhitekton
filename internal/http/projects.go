@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
@@ -277,6 +278,9 @@ type projectRequest struct {
 	TrackerProject string          `json:"tracker_project"`
 	MultiStage     bool            `json:"multi_stage"`
 	Targets        []targetPayload `json:"targets"`
+	// ReleaseKinds declares the release cycle. Absent: the default at creation, the recorded
+	// cycle at a correction.
+	ReleaseKinds release.Cycle `json:"release_kinds,omitempty"`
 }
 
 // repositoryPattern bounds the shape of a repository.
@@ -344,6 +348,12 @@ func (h *ProjectsHandler) decode(w http.ResponseWriter, r *http.Request) (projec
 			return request, false
 		}
 	}
+	if len(request.ReleaseKinds) > 0 {
+		if err := request.ReleaseKinds.Validate(scheme); err != nil {
+			writeProblem(w, http.StatusBadRequest, "Invalid release cycle", err.Error())
+			return request, false
+		}
+	}
 
 	// The stack is refused at declaration time if no library covers it. Learning it here
 	// rather than at the first launch avoids finding a pipeline missing without knowing
@@ -397,7 +407,8 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Stack:          strings.TrimSpace(request.Stack),
 		TrackerProject: strings.TrimSpace(request.TrackerProject),
 		MultiStage:     request.MultiStage, Targets: targetsOf(request),
-		CreatedBy: identity.Subject,
+		ReleaseKinds: request.ReleaseKinds,
+		CreatedBy:    identity.Subject,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrProjectExists) {
@@ -485,6 +496,7 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		TrackerProject: strings.TrimSpace(request.TrackerProject),
 		Slug:           strings.TrimSpace(request.Slug),
 		MultiStage:     request.MultiStage, Targets: targetsOf(request),
+		ReleaseKinds: request.ReleaseKinds,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrProjectNotFound) {
