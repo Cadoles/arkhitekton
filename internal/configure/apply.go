@@ -14,6 +14,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
@@ -134,10 +135,11 @@ func (p *planner) instance(desired configfile.Instance, current *configfile.Inst
 	for _, id := range sortedKeys(desired.Plugins) {
 		entry := desired.Plugins[id]
 		if entry.Install != nil {
-			installed := current.Plugins[id].Install
-			if installed == nil || installed.Reference != entry.Install.Reference {
-				p.fail("plugin %s: installing %s from a configuration is not supported yet: install it from the screen",
-					id, entry.Install.Reference)
+			reference, _, _ := installed.Pinned(entry.Install.Reference)
+			active := current.Plugins[id].Install
+			if active == nil || active.Reference != reference {
+				// Installed by the Installer before this plan is computed; reaching here is a dry run.
+				p.warn("plugin %s: its settings are checked once %s is installed", id, entry.Install.Reference)
 				continue
 			}
 		}

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
@@ -50,6 +51,7 @@ func runConfigApply(
 	dryRun := flags.Bool("dry-run", false, "print the operations without writing anything")
 	prune := flags.Bool("prune", false, "also remove what the declared projects and the instance no longer declare")
 	actor := flags.String("actor", "config-apply", "the name the audit log records the writes under")
+	wait := flags.Duration("wait-timeout", 10*time.Minute, "how long a declared plugin's installation may take")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -75,6 +77,31 @@ func runConfigApply(
 		return err
 	}
 	sources := newCapabilitySources(cfg, db, storage, nil)
+
+	// The declared plugins are installed first: the rest of the configuration may name what they
+	// bring, and nothing of it can be checked before they are there.
+	installer := configure.Installer{
+		Installations: configure.Installations{Store: db, Check: sources.checkActivation, Logger: logger},
+		Store:         db, Actor: *actor, Wait: *wait,
+	}
+	installs, err := installer.Installs(ctx, desired)
+	if err != nil {
+		return err
+	}
+	for _, op := range installs {
+		fmt.Fprintln(stdout, op.Description)
+	}
+	if len(installs) > 0 {
+		if *dryRun {
+			fmt.Fprintf(stdout, "%d installation(s), nothing written (dry run): the rest of the configuration "+
+				"is checked once %s installed.\n", len(installs), strings.Join(configure.PendingPlugins(installs), ", "))
+			return nil
+		}
+		if err := (configure.Applier{}).Execute(ctx, installs); err != nil {
+			return fmt.Errorf("stopped: %w", err)
+		}
+	}
+
 	snapshot, err := sources.snapshot(ctx, 0)
 	if err != nil {
 		return err
@@ -111,7 +138,9 @@ func runConfigApply(
 		return fmt.Errorf("nothing written:\n%w", err)
 	}
 	if len(ops) == 0 {
-		fmt.Fprintln(stdout, "The instance already matches the configuration.")
+		if len(installs) == 0 {
+			fmt.Fprintln(stdout, "The instance already matches the configuration.")
+		}
 		return nil
 	}
 	for _, op := range ops {
