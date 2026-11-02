@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 )
 
 /*
@@ -263,6 +265,30 @@ func TestACorrectionKeepingTheRepositoryKeepsTheCheck(t *testing.T) {
 	read, _ := db.GetProject(ctx, id)
 	if read.CheckedAt == nil || read.CheckOK == nil || !*read.CheckOK {
 		t.Errorf("verdict lost on a label correction: %+v", read)
+	}
+}
+
+// The edit form does not carry the cycle: a correction that names none keeps the recorded one.
+func TestACorrectionWithoutCycleKeepsTheRecordedKinds(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+
+	id := project(t, db, "CNOUS/mse")
+	cycle := release.Cycle{{ID: "rc", Label: "RC", Mode: release.ModeBuild}}
+	base := Project{ID: id, Repository: "CNOUS/mse", Label: "Portail", BuildContext: "."}
+
+	declared := base
+	declared.ReleaseKinds = cycle
+	if err := db.UpdateProject(ctx, declared); err != nil {
+		t.Fatalf("declaring the cycle: %v", err)
+	}
+	if err := db.UpdateProject(ctx, base); err != nil {
+		t.Fatalf("correction: %v", err)
+	}
+
+	read, _ := db.GetProject(ctx, id)
+	if len(read.ReleaseKinds) != 1 || read.ReleaseKinds[0].ID != "rc" {
+		t.Errorf("cycle after a correction = %+v, want the declared rc", read.ReleaseKinds)
 	}
 }
 

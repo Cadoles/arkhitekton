@@ -494,16 +494,13 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		project.Slug = SlugFor(project.Repository)
 	}
 
-	// The cycle is serialised here rather than left to the caller: the column is
-	// constrained non-empty, and a project declared with no kind would be refused by the
-	// database with a message naming nothing useful.
-	cycle := project.ReleaseKinds
-	if len(cycle) == 0 {
-		cycle = release.DefaultCycle()
-	}
-	kinds, err := json.Marshal(cycle)
-	if err != nil {
-		return fmt.Errorf("serialising the cycle: %w", err)
+	// No cycle keeps the recorded one: the edit form does not carry it, and writing the default
+	// in its place erased a project's kinds at every correction.
+	var kinds []byte
+	if len(project.ReleaseKinds) > 0 {
+		if kinds, err = json.Marshal(project.ReleaseKinds); err != nil {
+			return fmt.Errorf("serialising the cycle: %w", err)
+		}
 	}
 
 	tag, err := db.pool.Exec(ctx,
@@ -512,7 +509,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		     build_context = $6, image_registry = $7, multi_stage = $8,
 		     targets = $9, slug = $10, tracker_project = $11, registry_secret = $12,
 		     version_scheme = coalesce(nullif($13, ''), 'semver'),
-		     release_kinds = $14, stack = $15,
+		     release_kinds = coalesce($14::jsonb, release_kinds), stack = $15,
 		     -- The verdict survives only an unchanged repository. The comparison
 		     -- is on the stored value, still readable during the update: a prior
 		     -- read would open a window between the verdict and the write.
