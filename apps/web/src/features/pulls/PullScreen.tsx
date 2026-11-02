@@ -20,8 +20,11 @@ import { useLaunchOnPull, usePull, type PullDetail } from './api'
  * sur ses faits. Chaque famille se compare à la poussée précédente de la même PR.
  */
 
-/** Ce que la tête de la PR remplit : la révision, l'étiquette de PR, les images construites dessous. */
-const FILLED_BY_HEAD = new Set(['git-ref', 'release-tag', 'image'])
+/** Ce que la tête de la PR remplit : la révision, l'étiquette de PR, les images construites dessous.
+ *  Une image se suggère sous `image:<dépôt>`. */
+function filledByHead(suggest: string | undefined): boolean {
+  return suggest === 'git-ref' || suggest === 'release-tag' || suggest === 'image' || Boolean(suggest?.startsWith('image:'))
+}
 
 export function PullScreen() {
   const { number } = useParams()
@@ -167,7 +170,7 @@ function LaunchModal({ number, onClose }: { number: number; onClose: () => void 
 
   const kind: Kind | undefined = kinds.find((entry) => entry.kind === selected) ?? kinds[0]
   // Ce que la tête de la PR remplit n'est pas demandé : le serveur l'impose.
-  const asked = (kind?.inputs ?? []).filter((input) => !FILLED_BY_HEAD.has(input.suggest ?? ''))
+  const asked = (kind?.inputs ?? []).filter((input) => !filledByHead(input.suggest))
 
   const submit = () => {
     if (!kind) return
