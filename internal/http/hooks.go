@@ -180,7 +180,27 @@ func (h *HooksHandler) Receive(w http.ResponseWriter, r *http.Request) {
 		h.logger.Info("delivery received", "plugin", plugin.ID, "project", project.Slug,
 			"facts", len(facts), "new", recorded)
 	}
+	h.requestPullRequestSync(r.Context(), plugin, project)
 	writeJSON(w, http.StatusAccepted, receivedVw{Facts: len(facts), New: recorded})
+}
+
+// syncRequester asks the worker for an early pass. Optional: without it, the pull requests are
+// followed at the probe's cadence.
+type syncRequester interface {
+	RequestSync(ctx context.Context, source string, projectID int64) error
+}
+
+// requestPullRequestSync asks for an early pass of a forge's pull request following. Any
+// authenticated delivery of a forge asks for one, whether or not the plugin made a fact of it: a
+// push to a request's branch, a closing, a merge all change what the tab shows.
+func (h *HooksHandler) requestPullRequestSync(ctx context.Context, plugin capability.Plugin, project store.Project) {
+	requester, ok := h.store.(syncRequester)
+	if !ok || plugin.Forge == nil {
+		return
+	}
+	if err := requester.RequestSync(ctx, store.PullRequestSyncSource(plugin.ID), project.ID); err != nil {
+		h.logger.Error("asking for a pull request pass", "plugin", plugin.ID, "project", project.Slug, "error", err)
+	}
 }
 
 // authentic says whether a delivery carries the proof its webhook declares, compared in constant

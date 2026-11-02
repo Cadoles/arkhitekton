@@ -112,3 +112,28 @@ func TestWhatRunsOnAPullRequestCarriesIt(t *testing.T) {
 			jobProject, jobPull, resultPull, artifactPull, projectID, pull.ID)
 	}
 }
+
+// An early pass asked for is taken once.
+func TestAnEarlyPassIsTakenOnce(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+	projectID := project(t, db, "team/app")
+	if err := db.RecordSyncSuccess(ctx, PullRequestSyncSource("gitea"), projectID, "2026-11-02T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := db.RequestSync(ctx, PullRequestSyncSource("gitea"), projectID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	taken, err := db.TakeSyncRequests(ctx)
+	if err != nil || len(taken) != 1 || taken[0].ProjectID != projectID || taken[0].Source != "gitea.pull_request_sync" {
+		t.Fatalf("taken = %+v, %v", taken, err)
+	}
+	if again, _ := db.TakeSyncRequests(ctx); len(again) != 0 {
+		t.Errorf("taken twice: %+v", again)
+	}
+	if state, _ := db.GetSyncState(ctx, PullRequestSyncSource("gitea"), projectID); state.Cursor != "2026-11-02T10:00:00Z" {
+		t.Errorf("the request moved the cursor: %+v", state)
+	}
+}

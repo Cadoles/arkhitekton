@@ -61,6 +61,13 @@ type CoreEvent struct {
 	Fields []string
 }
 
+// pullRequestFields are what a pull request's facts carry. `revision`, `tag` and `registry` are
+// what a plan's steps take as a release's: a plan opened by such a fact builds and tests the head.
+var pullRequestFields = []string{
+	"number", "title", "author", "source_branch", "target_branch", "url",
+	"revision", "tag", "registry", "pull_request_id",
+}
+
 // CoreEvents lists the facts the core produces, whatever plugins are enabled.
 func CoreEvents() []CoreEvent {
 	return []CoreEvent{
@@ -70,6 +77,11 @@ func CoreEvents() []CoreEvent {
 			Fields: []string{"release_id", "tag", "kind", "git_ref", "version"}},
 		{Type: string(event.ReleaseReleased), Label: "Release validated",
 			Fields: []string{"release_id", "tag", "released_by"}},
+		{Type: string(event.PullRequestOpened), Label: "Pull request opened", Fields: pullRequestFields},
+		{Type: string(event.PullRequestSynchronized), Label: "Pull request pushed to", Fields: pullRequestFields},
+		{Type: string(event.PullRequestClosed), Label: "Pull request closed without merging", Fields: pullRequestFields},
+		{Type: string(event.PullRequestMerged), Label: "Pull request merged", Fields: pullRequestFields},
+		{Type: string(event.PullRequestReopened), Label: "Pull request reopened", Fields: pullRequestFields},
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
 )
 
 /*
@@ -35,15 +36,18 @@ var instant = time.Date(2026, 9, 2, 14, 30, 0, 0, time.UTC)
 //
 // The reduction removed three of them. Leaving them here would have left them choosable in
 // the editor, for reactions nothing triggers any more.
-func TestTheCatalogueOffersTheCoresThreeFacts(t *testing.T) {
+func TestTheCatalogueOffersTheCoresFacts(t *testing.T) {
 	expectedItems := map[string]bool{
 		string(event.VersionCreated): true, string(event.ReleaseCreated): true,
-		string(event.ReleaseReleased): true,
+		string(event.ReleaseReleased):   true,
+		string(event.PullRequestOpened): true, string(event.PullRequestSynchronized): true,
+		string(event.PullRequestClosed): true, string(event.PullRequestMerged): true,
+		string(event.PullRequestReopened): true,
 	}
 
 	for _, choice := range coreEventChoices() {
 		if !expectedItems[choice.Type] {
-			t.Errorf("fact %q offered — it is not one of the core's three", choice.Type)
+			t.Errorf("fact %q offered — it is not one of the core's", choice.Type)
 		}
 		delete(expectedItems, choice.Type)
 		if choice.Label == "" {
@@ -71,6 +75,11 @@ func TestEveryAnnouncedFieldExistsInThePayload(t *testing.T) {
 			instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0").Payload,
 		string(event.ReleaseReleased): event.ReleaseReleasedAt(
 			instant, 7, 42, "1.8.0", "vcarroy").Payload,
+	}
+	pull := worker.PullRequestPayload(store.PullRequest{ID: 3, Number: 12, HeadSHA: "abcdef0123"}, "reg/team")
+	for _, kind := range []event.Type{event.PullRequestOpened, event.PullRequestSynchronized,
+		event.PullRequestClosed, event.PullRequestMerged, event.PullRequestReopened} {
+		charges[string(kind)] = pull
 	}
 
 	for _, choice := range coreEventChoices() {
