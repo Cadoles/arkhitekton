@@ -55,6 +55,17 @@ func AsProblem(err error) *Problem {
 	return &Problem{Status: http.StatusInternalServerError, Title: "Internal error"}
 }
 
+// Services gathers every writer, for a caller that writes a whole configuration.
+type Services struct {
+	Projects         Projects
+	Plugins          Plugins
+	ProjectPipelines ProjectPipelines
+	QueueLimits      QueueLimits
+	Bindings         Bindings
+	StatusMappings   StatusMappings
+	Automations      Automations
+}
+
 // Auditor records an administration act.
 type Auditor interface {
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error

@@ -69,6 +69,8 @@ Usage:
   arkhitekton worker    Background loops (single instance, leader election)
   arkhitekton migrate   Applies the schema migrations
   arkhitekton reprocess Replays the results from the raw artifacts
+  arkhitekton config export [-o <dir>]
+                        Writes the instance's configuration as YAML resources
 
 Diagnosis:
   arkhitekton check-tracker  Checks access to the tracker and stops (read-only)
@@ -120,7 +122,12 @@ func run() error {
 	}
 
 	role := config.Role(os.Args[1])
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})).
+	// The config role writes YAML on the standard output: its log goes to the error output.
+	logOutput := os.Stdout
+	if role == config.RoleConfig {
+		logOutput = os.Stderr
+	}
+	logger := slog.New(slog.NewJSONHandler(logOutput, &slog.HandlerOptions{Level: slog.LevelInfo})).
 		With("version", version, "revision", revision)
 
 	cfg, err := config.Load(role)
@@ -144,6 +151,8 @@ func run() error {
 		return runReprocess(ctx, cfg, logger, os.Args[2:])
 	case config.RoleCheckTracker:
 		return runCheckTracker(ctx, cfg, logger)
+	case config.RoleConfig:
+		return runConfig(ctx, cfg, logger, os.Args[2:])
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		return fmt.Errorf("unknown role %q", role)

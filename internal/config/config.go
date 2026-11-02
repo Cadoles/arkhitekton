@@ -207,6 +207,10 @@ const (
 	// it targets is a production one: without it, the only way to know whether a
 	// key works is to wait for a screen to use it.
 	RoleCheckTracker Role = "check-tracker"
+	// RoleConfig exports or applies the instance's configuration as YAML resources. A one-off role
+	// run inside the worker's pod, which already has the database, the object store, the catalogue
+	// and the sealing key.
+	RoleConfig Role = "config"
 )
 
 type HTTPConfig struct {
@@ -463,6 +467,10 @@ func (c Config) validate() error {
 		// The object store is enough: replaying reads raw artifacts and writes to
 		// the database, without touching the cluster or creating any run.
 		problems = append(problems, c.validateStorage()...)
+	case RoleConfig:
+		// The object store holds the installed plugins, whose descriptors say which settings are
+		// sensitive and which facts and actions a plan may name.
+		problems = append(problems, c.validateStorage()...)
 	case RoleCheckTracker:
 		// No database, no store, no cluster: this role only performs an HTTP read.
 		if !c.Tracker.Configured() {
@@ -478,7 +486,7 @@ func (c Config) validate() error {
 		}
 	default:
 		problems = append(problems, fmt.Errorf(
-			"unknown role %q (expected: api, worker, migrate, reprocess, check-tracker)", c.Role))
+			"unknown role %q (expected: api, worker, migrate, reprocess, config, check-tracker)", c.Role))
 	}
 
 	return errors.Join(problems...)

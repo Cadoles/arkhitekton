@@ -407,6 +407,27 @@ func (db *DB) StatusMapping(ctx context.Context, projectID int64) (map[string]st
 	return mapping, rows.Err()
 }
 
+// OwnStatusMapping returns the mappings a project declared, without the instance's defaults: what
+// an export writes and what a configuration may prune.
+func (db *DB) OwnStatusMapping(ctx context.Context, projectID int64) (map[string]string, error) {
+	rows, err := db.pool.Query(ctx,
+		`select status_name, bucket from issue_status_mapping where project_id = $1`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("status mapping: %w", err)
+	}
+	defer rows.Close()
+
+	mapping := map[string]string{}
+	for rows.Next() {
+		var name, bucket string
+		if err := rows.Scan(&name, &bucket); err != nil {
+			return nil, fmt.Errorf("status mapping: %w", err)
+		}
+		mapping[name] = bucket
+	}
+	return mapping, rows.Err()
+}
+
 // UnmappedStatus is a status met with no declared mapping.
 type UnmappedStatus struct {
 	StatusName string
