@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -14,7 +13,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -108,7 +107,7 @@ func (h *AutomationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	live, err := h.liveEventTypes(r.Context(), project.ID)
+	live, err := h.service().LiveEventTypes(r.Context(), project.ID)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the plugins", "")
 		return
@@ -148,16 +147,15 @@ func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
 	var request reactionRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10)).Decode(&request); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
-	// The identifier comes from the path and not from the body: a body carrying it would
-	// allow moving a reaction from one project to another by editing two fields, and the URL
-	// would stop saying what is being written.
+	// The identifier comes from the path and not from the body: a body carrying it would allow
+	// moving a reaction from one project to another by editing two fields, and the URL would stop
+	// saying what is being written.
 	var id int64
 	if raw := strings.TrimSpace(r.PathValue("reaction")); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
@@ -168,44 +166,15 @@ func (h *AutomationsHandler) Save(w http.ResponseWriter, r *http.Request) {
 		id = parsed
 	}
 
-	entry := reaction.Reaction{
-		ID: id, ProjectID: project.ID, Name: strings.TrimSpace(request.Name),
-		EventType: strings.TrimSpace(request.EventType), Enabled: request.Enabled,
-		Match: request.Match, Plan: request.Plan,
-	}
-
-	if err := entry.Validate(); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid reaction", err.Error())
-		return
-	}
-	if err := h.checkRefs(r.Context(), entry); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid reaction", err.Error())
-		return
-	}
-
 	identity, _ := IdentityFrom(r.Context())
-	saved, err := h.store.SaveReaction(r.Context(), entry, identity.Subject)
-	switch {
-	case errors.Is(err, store.ErrReactionExists):
-		writeProblem(w, http.StatusConflict, "Name already taken",
-			"a reaction of this project already carries this name")
-		return
-	case errors.Is(err, store.ErrReactionNotFound):
-		writeProblem(w, http.StatusNotFound, "Reaction not found", "")
-		return
-	case err != nil:
-		h.logger.Error("recording a reaction",
-			"project", project.Slug, "name", entry.Name, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
+	saved, err := h.service().SaveReaction(r.Context(), identity.Subject, project, reaction.Reaction{
+		ID: id, Name: request.Name, EventType: request.EventType, Enabled: request.Enabled,
+		Match: request.Match, Plan: request.Plan,
+	})
+	if err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	// The log carries the fact listened for and whether it is enabled. Not the plan: it
-	// carries templates, and an audit log is read with fewer precautions than a database.
-	h.audit(r, "reaction.save", project.Slug+"/"+entry.Name, map[string]any{
-		"event_type": entry.EventType, "enabled": entry.Enabled,
-	})
-
 	writeJSON(w, http.StatusOK, map[string]any{"id": saved})
 }
 
@@ -215,23 +184,16 @@ func (h *AutomationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
 	id, err := strconv.ParseInt(strings.TrimSpace(r.PathValue("reaction")), 10, 64)
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
 		return
 	}
-
-	if err := h.store.DeleteReaction(r.Context(), project.ID, id); err != nil {
-		if errors.Is(err, store.ErrReactionNotFound) {
-			writeProblem(w, http.StatusNotFound, "Reaction not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot delete", "")
+	identity, _ := IdentityFrom(r.Context())
+	if err := h.service().DeleteReaction(r.Context(), identity.Subject, project, id); err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	h.audit(r, "reaction.delete", project.Slug+"/"+strconv.FormatInt(id, 10), nil)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
@@ -393,14 +355,12 @@ func produces(pipeline catalog.Pipeline) []string {
 // not declared by a plugin — and giving them a registry for the sole convenience of this
 // list would add a second truth to keep aligned.
 func coreEventChoices() []eventChoice {
-	return []eventChoice{
-		{Type: string(event.VersionCreated), Label: "Version declared in the tracker",
-			Fields: []string{"version_id", "name", "status", "tool", "external_id", "due_date"}},
-		{Type: string(event.ReleaseCreated), Label: "Release declared",
-			Fields: []string{"release_id", "tag", "kind", "git_ref", "version"}},
-		{Type: string(event.ReleaseReleased), Label: "Release validated",
-			Fields: []string{"release_id", "tag", "released_by"}},
+	core := configure.CoreEvents()
+	choices := make([]eventChoice, 0, len(core))
+	for _, event := range core {
+		choices = append(choices, eventChoice{Type: event.Type, Label: event.Label, Fields: event.Fields})
 	}
+	return choices
 }
 
 func fieldNames(fields []capability.Field) []string {
@@ -423,134 +383,6 @@ func actionFields(descriptor action.Descriptor) []fieldPayload {
 	return fields
 }
 
-/*
- * The reference checks.
- */
-
-// checkRefs refuses a reaction one of whose references names nothing.
-func (h *AutomationsHandler) checkRefs(ctx context.Context, entry reaction.Reaction) error {
-	var problems []error
-
-	live, err := h.liveEventTypes(ctx, entry.ProjectID)
-	if err != nil {
-		return err
-	}
-	if !slices.Contains(live, entry.EventType) {
-		problems = append(problems, fmt.Errorf(
-			"fact %q is produced by no active plugin of this version (known: %s)",
-			entry.EventType, strings.Join(live, ", ")))
-	}
-
-	// A role on a reaction's stage makes no sense and would be ignored: it is the stages of a
-	// release's plan that advance its state, and a reaction aims at no particular release.
-	for index, stage := range entry.Plan.Stages {
-		if stage.Role != "" {
-			problems = append(problems, fmt.Errorf(
-				"stage %d of a reaction carries the role %q: a role only advances "+
-					"a release's automation", index+1, stage.Role))
-		}
-	}
-
-	problems = append(problems, h.checkPlanRefs(ctx, entry.Plan))
-	return errors.Join(problems...)
-}
-
-// checkPlanRefs refuses a plan one of whose steps names nothing executable.
-//
-// Shared by the reactions and a release's automation: both carry the same structure, and
-// two checks would diverge at the first addition.
-func (h *AutomationsHandler) checkPlanRefs(ctx context.Context, entry plan.Plan) error {
-	var problems []error
-
-	pipelines, actions := plan.Refs(entry)
-	for _, ref := range pipelines {
-		if h.catalog == nil {
-			problems = append(problems, fmt.Errorf(
-				"kind %q cannot be checked: no catalogue is loaded", ref))
-			continue
-		}
-		if _, found := catalog.Of(h.catalog).Find(ref); !found {
-			problems = append(problems, fmt.Errorf(
-				"kind %q is missing from the catalogue (declared: %s)",
-				ref, strings.Join(catalog.Of(h.catalog).Kinds(), ", ")))
-		}
-	}
-	// The settings are read back here rather than passed from liveEventTypes: this path is a
-	// save, not a display, and a second read costs less here than one more parameter to carry
-	// around.
-	settings, err := h.store.PluginSettingsAll(ctx)
-	if err != nil {
-		return err
-	}
-	for _, ref := range actions {
-		descriptor, err := h.actions.Get(ref)
-		if err != nil {
-			problems = append(problems, err)
-			continue
-		}
-		// A step whose plugin is switched off is refused when saved, like a fact no active plugin
-		// produces. The symmetry is not aesthetic: in both cases the reaction would be declared,
-		// visible, and without effect — which is what must not be suggested.
-		if descriptor.Plugin != "" && !settings[descriptor.Plugin].Enabled {
-			problems = append(problems, fmt.Errorf(
-				"step %q comes from plugin %q, which is switched off for this instance: "+
-					"it would not start", ref, descriptor.Plugin))
-		}
-	}
-
-	// An action's parameters are validated against its descriptor: a malformed URL or a
-	// mismatched template is corrected in front of the form, not in front of a halted chain.
-	for _, stage := range entry.Stages {
-		for _, step := range stage.Gestes {
-			if step.Kind != plan.GesteAction {
-				continue
-			}
-			descriptor, err := h.actions.Get(step.Ref)
-			if err != nil {
-				continue
-			}
-			if err := descriptor.Validate(step.Params); err != nil {
-				problems = append(problems, err)
-			}
-		}
-	}
-
-	return errors.Join(problems...)
-}
-
-// liveEventTypes lists the facts a project can actually listen for.
-//
-// The core's, plus those of the plugins active for this project: a fact whose plugin is
-// switched off will never be produced, and accepting it would give a reaction that never
-// leaves with nobody knowing why.
-func (h *AutomationsHandler) liveEventTypes(ctx context.Context, projectID int64) ([]string, error) {
-	settings, err := h.store.PluginSettingsAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	own, err := h.store.ProjectPluginSettings(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	types := make([]string, 0, 12)
-	for _, choice := range coreEventChoices() {
-		types = append(types, choice.Type)
-	}
-	for _, descriptor := range capabilities.Of(h.registry).Plugins() {
-		if !settings[descriptor.ID].Enabled {
-			continue
-		}
-		if entry, declared := own[descriptor.ID]; declared && descriptor.PerProject && !entry.Enabled {
-			continue
-		}
-		for _, spec := range descriptor.Events {
-			types = append(types, descriptor.EventType(spec))
-		}
-	}
-	return types, nil
-}
-
 func (h *AutomationsHandler) project(w http.ResponseWriter, r *http.Request) (store.Project, bool) {
 	project, err := h.store.ProjectBySlug(r.Context(),
 		strings.TrimSpace(r.PathValue("project")))
@@ -563,14 +395,4 @@ func (h *AutomationsHandler) project(w http.ResponseWriter, r *http.Request) (st
 		return store.Project{}, false
 	}
 	return project, true
-}
-
-func (h *AutomationsHandler) audit(r *http.Request, name, target string, payload map[string]any) {
-	identity, ok := IdentityFrom(r.Context())
-	if !ok {
-		return
-	}
-	if err := h.store.Audit(r.Context(), identity.Subject, name, target, payload); err != nil {
-		h.logger.Error("journal d'audit", "action", name, "target", target, "error", err)
-	}
 }
