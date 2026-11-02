@@ -161,6 +161,11 @@ func insertSecurityAudit(
 
 // LatestSecurityAudit returns a release's most recent audit.
 func (db *DB) LatestSecurityAudit(ctx context.Context, releaseID int64) (SecurityAudit, error) {
+	return db.LatestSecurityAuditIn(ctx, ReleaseScope(releaseID))
+}
+
+// LatestSecurityAuditIn returns a scope's most recent audit.
+func (db *DB) LatestSecurityAuditIn(ctx context.Context, scope Scope) (SecurityAudit, error) {
 	var audit SecurityAudit
 	var status, policy []byte
 	var generatedAt, previousRunID *string
@@ -177,9 +182,9 @@ func (db *DB) LatestSecurityAudit(ctx context.Context, releaseID int64) (Securit
 		 -- audit. A loose join: the report outlives the purge of its projection,
 		 -- and an audit with no run stays readable.
 		 left join runs p on p.id = r.run_id
-		 where r.release_id = $1
+		 where `+scope.on("r")+`
 		 order by a.created_at desc
-		 limit 1`, releaseID).
+		 limit 1`, scope.ID).
 		Scan(&audit.TestResultID, &audit.RunID, &generatedAt, &audit.Total,
 			&audit.Critical, &audit.High, &audit.Medium, &audit.Low, &audit.Suppressed,
 			&audit.DeltaNew, &audit.DeltaExisting, &audit.DeltaResolved,
@@ -189,7 +194,7 @@ func (db *DB) LatestSecurityAudit(ctx context.Context, releaseID int64) (Securit
 		if errors.Is(err, pgx.ErrNoRows) {
 			return audit, ErrAuditNotFound
 		}
-		return audit, fmt.Errorf("audit of release %d: %w", releaseID, err)
+		return audit, fmt.Errorf("audit of %s: %w", scope, err)
 	}
 
 	if generatedAt != nil {

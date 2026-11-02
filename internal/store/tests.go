@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -157,6 +158,11 @@ func (db *DB) RunHasResults(ctx context.Context, runID int64) (bool, error) {
 
 // ListReleaseTestResults returns a release's reports.
 func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]TestResult, error) {
+	return db.ListTestResults(ctx, ReleaseScope(releaseID))
+}
+
+// ListTestResults returns a scope's reports, the most recent first.
+func (db *DB) ListTestResults(ctx context.Context, scope Scope) ([]TestResult, error) {
 	rows, err := db.pool.Query(ctx,
 		// The run's name is joined rather than resolved afterwards: it serves to send the
 		// reader back to the run that produced the report, and a second query per report for
@@ -168,10 +174,10 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 		        coalesce(r.pipelinerun_name, ''), t.attributes
 		 from test_results t
 		 left join runs r on r.id = t.run_id
-		 where t.release_id = $1 and t.shape <> 'measures'
-		 order by t.created_at desc`, releaseID)
+		 where `+scope.on("t")+` and t.shape <> 'measures'
+		 order by t.created_at desc`, scope.ID)
 	if err != nil {
-		return nil, fmt.Errorf("results of release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("results of %s: %w", scope, err)
 	}
 	defer rows.Close()
 
@@ -183,7 +189,7 @@ func (db *DB) ListReleaseTestResults(ctx context.Context, releaseID int64) ([]Te
 			&result.Passed, &result.Failed, &result.Skipped, &result.Flaky, &result.DurationMS,
 			&result.Summary, &result.RawObject, &result.CreatedAt, &result.RunName,
 			&result.Attributes); err != nil {
-			return nil, fmt.Errorf("results of release %d: %w", releaseID, err)
+			return nil, fmt.Errorf("results of %s: %w", scope, err)
 		}
 		results = append(results, result)
 	}
@@ -291,6 +297,24 @@ const (
 	ChangeUnchanged  = "unchanged"
 )
 
+// caseDiffSelect pairs `current_cases` and `previous_cases` and names each case's change.
+const caseDiffSelect = `
+		select coalesce(c.suite, p.suite), coalesce(c.name, p.name),
+		       coalesce(c.status, ''), coalesce(p.status, ''),
+		       case
+		           when p.name is null then 'added'
+		           when c.name is null then 'removed'
+		           when c.status in ('failed', 'flaky') and p.status not in ('failed', 'flaky')
+		               then 'new-failure'
+		           when p.status in ('failed', 'flaky') and c.status not in ('failed', 'flaky')
+		               then 'fixed'
+		           else 'unchanged'
+		       end as change
+		from current_cases c
+		full outer join previous_cases p
+		  on p.tool = c.tool and p.suite = c.suite and p.name = c.name
+		order by 5, 1, 2`
+
 // DiffGroup compares a group's cases between two releases.
 //
 // Compared in the database and not in Go: the two sets of cases may number thousands
@@ -321,26 +345,59 @@ func (db *DB) DiffGroup(ctx context.Context, releaseID, previousID int64, group 
 		    where r.release_id = $2 and r.fact_group = $3
 		    order by r.tool, c.suite, c.name, r.created_at desc
 		)
-		select coalesce(c.suite, p.suite), coalesce(c.name, p.name),
-		       coalesce(c.status, ''), coalesce(p.status, ''),
-		       case
-		           when p.name is null then 'added'
-		           when c.name is null then 'removed'
-		           when c.status in ('failed', 'flaky') and p.status not in ('failed', 'flaky')
-		               then 'new-failure'
-		           when p.status in ('failed', 'flaky') and c.status not in ('failed', 'flaky')
-		               then 'fixed'
-		           else 'unchanged'
-		       end as change
-		from current_cases c
-		full outer join previous_cases p
-		  on p.tool = c.tool and p.suite = c.suite and p.name = c.name
-		order by 5, 1, 2`
+		` + caseDiffSelect
 
 	rows, err := db.pool.Query(ctx, query, releaseID, previousID, group)
 	if err != nil {
 		return nil, fmt.Errorf("comparing group %q: %w", group, err)
 	}
+	return scanCaseDiffs(rows, group)
+}
+
+// ErrNothingToCompare reports a scope whose group has a single report: nothing came before it.
+var ErrNothingToCompare = errors.New("nothing to compare with")
+
+// DiffLatestRuns compares a group's latest report with the one before it, tool by tool, within a
+// scope: a pull request's latest push against its previous one.
+func (db *DB) DiffLatestRuns(ctx context.Context, scope Scope, group string) ([]CaseDiff, error) {
+	query := `
+		with ranked as (
+		    select r.id, r.tool,
+		           row_number() over (partition by r.tool order by r.created_at desc, r.id desc) as rank
+		    from test_results r
+		    where ` + scope.on("r") + ` and r.fact_group = $2
+		),
+		current_cases as (
+		    select r.tool, c.suite, c.name, c.status
+		    from test_cases c join ranked r on r.id = c.test_result_id
+		    where r.rank = 1
+		),
+		previous_cases as (
+		    select r.tool, c.suite, c.name, c.status
+		    from test_cases c join ranked r on r.id = c.test_result_id
+		    where r.rank = 2
+		)` + caseDiffSelect
+
+	var compared bool
+	if err := db.pool.QueryRow(ctx,
+		`select exists (select 1 from (
+		     select row_number() over (partition by r.tool order by r.created_at desc, r.id desc) as rank
+		     from test_results r where `+scope.on("r")+` and r.fact_group = $2) ranked where rank = 2)`,
+		scope.ID, group).Scan(&compared); err != nil {
+		return nil, fmt.Errorf("comparing group %q of %s: %w", group, scope, err)
+	}
+	if !compared {
+		return nil, ErrNothingToCompare
+	}
+
+	rows, err := db.pool.Query(ctx, query, scope.ID, group)
+	if err != nil {
+		return nil, fmt.Errorf("comparing group %q of %s: %w", group, scope, err)
+	}
+	return scanCaseDiffs(rows, group)
+}
+
+func scanCaseDiffs(rows pgx.Rows, group string) ([]CaseDiff, error) {
 	defer rows.Close()
 
 	var diffs []CaseDiff

@@ -60,19 +60,15 @@ func (h *TestsHandler) WithAttachments(objects AttachmentObjects) *TestsHandler 
 
 // Attachment serves one file of a release's results.
 func (h *TestsHandler) Attachment(w http.ResponseWriter, r *http.Request) {
-	currentID, ok := requestProject(w, r, h.store)
+	source, ok := h.releaseSource(w, r)
 	if !ok {
 		return
 	}
-	release, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
-	if err != nil {
-		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
-		return
-	}
+	h.serveAttachment(w, r, source)
+}
+
+// serveAttachment serves one file of a subject's results.
+func (h *TestsHandler) serveAttachment(w http.ResponseWriter, r *http.Request, source resultSource) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "Invalid attachment identifier", "")
@@ -80,10 +76,9 @@ func (h *TestsHandler) Attachment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	attachment, err := h.store.GetAttachment(r.Context(), id)
-	// A file of another release answers like a missing one: identifiers are sequential, and telling
+	// A file of another subject answers like a missing one: identifiers are sequential, and telling
 	// them apart would let anyone enumerate the files of releases they cannot read.
-	if errors.Is(err, store.ErrAttachmentNotFound) || (err == nil &&
-		(attachment.ReleaseID == nil || *attachment.ReleaseID != release.ID)) {
+	if errors.Is(err, store.ErrAttachmentNotFound) || (err == nil && !source.owns(attachment)) {
 		writeProblem(w, http.StatusNotFound, "Attachment not found", "")
 		return
 	}

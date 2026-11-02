@@ -184,6 +184,11 @@ func (db *DB) ListResultMeasures(ctx context.Context, resultID int64) ([]BenchMe
 
 // ListReleaseLoadResults returns the campaigns attached to a release.
 func (db *DB) ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]LoadResult, error) {
+	return db.ListLoadResults(ctx, ReleaseScope(releaseID))
+}
+
+// ListLoadResults returns a scope's campaigns, the most recent first.
+func (db *DB) ListLoadResults(ctx context.Context, scope Scope) ([]LoadResult, error) {
 	rows, err := db.pool.Query(ctx,
 		`select r.id, r.run_id, r.release_id, coalesce(m.scenario, ''),
 		        coalesce(r.exclusive, false), coalesce(r.concurrent_jobs, 0),
@@ -195,10 +200,10 @@ func (db *DB) ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]Lo
 		 left join lateral (
 		     select scenario from bench_measures where test_result_id = r.id limit 1
 		 ) m on true
-		 where r.release_id = $1 and r.shape = 'measures'
-		 order by r.created_at desc`, releaseID)
+		 where `+scope.on("r")+` and r.shape = 'measures'
+		 order by r.created_at desc`, scope.ID)
 	if err != nil {
-		return nil, fmt.Errorf("campaigns of release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("campaigns of %s: %w", scope, err)
 	}
 	defer rows.Close()
 
@@ -208,7 +213,7 @@ func (db *DB) ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]Lo
 		if err := rows.Scan(&result.ID, &result.RunID, &result.ReleaseID, &result.Scenario,
 			&result.Exclusive, &result.ConcurrentJobs, &result.DurationMS,
 			&result.Summary, &result.RawObject, &result.CreatedAt); err != nil {
-			return nil, fmt.Errorf("campaigns of release %d: %w", releaseID, err)
+			return nil, fmt.Errorf("campaigns of %s: %w", scope, err)
 		}
 		results = append(results, result)
 	}
