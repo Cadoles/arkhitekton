@@ -42,6 +42,8 @@ type TestsHandler struct {
 	catalog catalog.Source
 	// attachments opens the files results keep. Nil: they are listed, not served.
 	attachments AttachmentObjects
+	// pulls reads pull requests' results. Nil: only releases' are served.
+	pulls PullResultStore
 }
 
 // NewTestsHandler assembles the handler.
@@ -752,4 +754,121 @@ func (s releaseResults) score(ctx context.Context, reports []store.TestResult) (
 
 func (s releaseResults) owns(attachment store.ResultAttachment) bool {
 	return attachment.ReleaseID != nil && *attachment.ReleaseID == s.release.ID
+}
+
+// PullResultStore is what reading a pull request's results needs beyond the release's.
+type PullResultStore interface {
+	PullRequestByNumber(ctx context.Context, projectID, number int64) (store.PullRequest, error)
+	ListTestResults(ctx context.Context, scope store.Scope) ([]store.TestResult, error)
+	LatestSecurityAuditIn(ctx context.Context, scope store.Scope) (store.SecurityAudit, error)
+	ListLoadResults(ctx context.Context, scope store.Scope) ([]store.LoadResult, error)
+	DiffLatestRuns(ctx context.Context, scope store.Scope, group string) ([]store.CaseDiff, error)
+}
+
+// WithPullRequests serves pull requests' results as well as releases'.
+func (h *TestsHandler) WithPullRequests(pulls PullResultStore) *TestsHandler {
+	h.pulls = pulls
+	return h
+}
+
+// PullTests, PullGroup, PullSecurity and PullAttachment are the release's routes, for a pull request.
+func (h *TestsHandler) PullTests(w http.ResponseWriter, r *http.Request) {
+	if source, ok := h.pullSource(w, r); ok {
+		h.writeTests(w, r, source)
+	}
+}
+
+func (h *TestsHandler) PullGroup(w http.ResponseWriter, r *http.Request) {
+	if source, ok := h.pullSource(w, r); ok {
+		h.writeGroup(w, r, source)
+	}
+}
+
+func (h *TestsHandler) PullSecurity(w http.ResponseWriter, r *http.Request) {
+	if source, ok := h.pullSource(w, r); ok {
+		h.writeSecurity(w, r, source)
+	}
+}
+
+func (h *TestsHandler) PullAttachment(w http.ResponseWriter, r *http.Request) {
+	if source, ok := h.pullSource(w, r); ok {
+		h.serveAttachment(w, r, source)
+	}
+}
+
+// pullSource resolves the pull request a request names.
+func (h *TestsHandler) pullSource(w http.ResponseWriter, r *http.Request) (resultSource, bool) {
+	if h.pulls == nil {
+		writeProblem(w, http.StatusNotFound, "Pull requests not followed", "")
+		return nil, false
+	}
+	projectID, ok := requestProject(w, r, h.store)
+	if !ok {
+		return nil, false
+	}
+	pull, ok := resolvePull(w, r, h.pulls, projectID)
+	if !ok {
+		return nil, false
+	}
+	return pullResults{handler: h, pull: pull, scope: store.PullRequestScope(pull.ID)}, true
+}
+
+// pullResults are a pull request's results: compared push with push, scored by family, since no
+// release plan weighs them.
+type pullResults struct {
+	handler *TestsHandler
+	pull    store.PullRequest
+	scope   store.Scope
+}
+
+func (s pullResults) results(ctx context.Context) ([]store.TestResult, error) {
+	return s.handler.pulls.ListTestResults(ctx, s.scope)
+}
+
+func (s pullResults) audit(ctx context.Context) (store.SecurityAudit, error) {
+	return s.handler.pulls.LatestSecurityAuditIn(ctx, s.scope)
+}
+
+func (s pullResults) diff(ctx context.Context, group string) ([]store.CaseDiff, bool, error) {
+	diffs, err := s.handler.pulls.DiffLatestRuns(ctx, s.scope, group)
+	if errors.Is(err, store.ErrNothingToCompare) {
+		return nil, false, nil
+	}
+	return diffs, err == nil, err
+}
+
+func (s pullResults) score(ctx context.Context, reports []store.TestResult) (results.Breakdown, error) {
+	measures, err := familyMeasures(ctx, pullScores{handler: s.handler, scope: s.scope}, 0, reports,
+		catalog.Of(s.handler.catalog))
+	if err != nil {
+		return results.Breakdown{}, err
+	}
+	return results.Score(measures), nil
+}
+
+func (s pullResults) owns(attachment store.ResultAttachment) bool {
+	return attachment.PullRequestID != nil && *attachment.PullRequestID == s.pull.ID
+}
+
+// pullScores gives the family score a pull request's audit and campaigns where it asks for a
+// release's: the computation is the same, only whose results it reads changes.
+type pullScores struct {
+	handler *TestsHandler
+	scope   store.Scope
+}
+
+func (s pullScores) LatestSecurityAudit(ctx context.Context, _ int64) (store.SecurityAudit, error) {
+	return s.handler.pulls.LatestSecurityAuditIn(ctx, s.scope)
+}
+
+func (s pullScores) ListReleaseLoadResults(ctx context.Context, _ int64) ([]store.LoadResult, error) {
+	return s.handler.pulls.ListLoadResults(ctx, s.scope)
+}
+
+func (s pullScores) ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error) {
+	return s.handler.store.ListResultMeasures(ctx, resultID)
+}
+
+func (s pullScores) Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error) {
+	return s.handler.store.Baselines(ctx, scenario)
 }

@@ -268,12 +268,22 @@ type ReleaseJob struct {
 // It is the path between a promotion and its evidence: the promotion says what was
 // asked, the job says what happened, and its run carries the logs.
 func (db *DB) ListReleaseJobs(ctx context.Context, releaseID int64) ([]ReleaseJob, error) {
+	return db.listJobsOf(ctx, "release_id", releaseID)
+}
+
+// ListPullRequestJobs returns the jobs launched on a pull request, the most recent first.
+func (db *DB) ListPullRequestJobs(ctx context.Context, pullRequestID int64) ([]ReleaseJob, error) {
+	return db.listJobsOf(ctx, "pull_request_id", pullRequestID)
+}
+
+// listJobsOf lists the jobs whose `column` is `id`. The column is one of the callers' constants.
+func (db *DB) listJobsOf(ctx context.Context, column string, releaseID int64) ([]ReleaseJob, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, kind, state, coalesce(environment_id, ''), coalesce(run_name, ''),
 		        requested_by, requested_at, finished_at
-		 from jobs where release_id = $1 order by requested_at desc`, releaseID)
+		 from jobs where `+column+` = $1 order by requested_at desc`, releaseID)
 	if err != nil {
-		return nil, fmt.Errorf("jobs of release %d: %w", releaseID, err)
+		return nil, fmt.Errorf("jobs of %s %d: %w", column, releaseID, err)
 	}
 	defer rows.Close()
 
@@ -282,7 +292,7 @@ func (db *DB) ListReleaseJobs(ctx context.Context, releaseID int64) ([]ReleaseJo
 		var job ReleaseJob
 		if err := rows.Scan(&job.ID, &job.Kind, &job.State, &job.EnvironmentID,
 			&job.RunName, &job.RequestedBy, &job.RequestedAt, &job.FinishedAt); err != nil {
-			return nil, fmt.Errorf("jobs of release %d: %w", releaseID, err)
+			return nil, fmt.Errorf("jobs of %s %d: %w", column, releaseID, err)
 		}
 		jobs = append(jobs, job)
 	}

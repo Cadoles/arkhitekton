@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -37,6 +38,16 @@ const (
 	PullRequestsOpen   = "open"
 	PullRequestsClosed = "closed"
 )
+
+// Tag is what a request's head is built under: `pr-<number>-<commit>`, short enough to read,
+// distinct for every commit built.
+func (p PullRequest) Tag() string {
+	head := p.HeadSHA
+	if len(head) > 7 {
+		head = head[:7]
+	}
+	return "pr-" + strconv.FormatInt(p.Number, 10) + "-" + head
+}
 
 const pullRequestColumns = `id, project_id, number, title, author, source_branch, target_branch, head_sha,
 	state, url, created_at, updated_at, closed_at, merged_at, synced_at`

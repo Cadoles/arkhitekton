@@ -92,6 +92,17 @@ All scoped to a project; the permission is checked **in that project**.
 | `GET /projects/{project}/releases/{tag}/bench` | `read` |
 | `POST /projects/{project}/releases/{tag}/bench/{measure}/baseline` | `release:create:final` |
 
+**Pull requests.** The same results, read for a pull request: `GET /projects/{project}/pulls/{number}/tests`,
+`…/tests/{group}`, `…/attachments/{id}` and `…/security`, all `read`. A group is compared with the
+previous report on the same request (its previous push) rather than with a previous release, and the
+score is computed by family: no release plan weighs a request's steps.
+
+| Route | Permission | Purpose |
+|---|---|---|
+| `GET /projects/{project}/pulls?state=open\|closed` | `read` | The project's pull requests, as the worker follows them; `closed` includes the merged ones |
+| `GET /projects/{project}/pulls/{number}` | `read` | A pull request, the jobs launched on it and the plans its facts opened |
+| `POST /projects/{project}/pulls/{number}/launch` | `pipeline:run` | Queues `{kind, params}` on the head: the revision, the request's tag `pr-<n>-<commit>` and the images built under it are filled and cannot be overridden |
+
 ## 7.7 Versions and issues
 
 | Route | Permission |
