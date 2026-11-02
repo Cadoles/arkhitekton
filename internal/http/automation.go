@@ -3,11 +3,9 @@ package http
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -79,134 +77,23 @@ func (h *AutomationsHandler) SaveAutomation(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-
 	var request automationRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10)).Decode(&request); err != nil {
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
 
-	// An empty plan is accepted, deliberately: it is how to say "this project no longer
-	// builds". plan.Validate would refuse it — a reaction with no stage reacts to nothing — so
-	// it is only checked when it carries something.
-	if len(request.Plan.Stages) > 0 {
-		if err := request.Plan.Validate(); err != nil {
-			writeProblem(w, http.StatusBadRequest, "Invalid automation", err.Error())
-			return
-		}
-		if err := h.checkPlanRefs(r.Context(), request.Plan); err != nil {
-			writeProblem(w, http.StatusBadRequest, "Invalid automation", err.Error())
-			return
-		}
-		if err := h.checkRoles(request.Plan); err != nil {
-			writeProblem(w, http.StatusBadRequest, "Invalid automation", err.Error())
-			return
-		}
-	}
-
 	identity, _ := IdentityFrom(r.Context())
-	err := h.store.SaveReleaseAutomation(r.Context(), store.ReleaseAutomation{
-		ProjectID: project.ID, Plan: request.Plan,
-	}, identity.Subject)
-	if err != nil {
-		h.logger.Error("recording the automation",
-			"project", project.Slug, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
+	if err := h.service().SaveReleaseAutomation(r.Context(), identity.Subject, project, request.Plan); err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	// The log carries the count of stages and steps, not the plan: it carries templates, and an
-	// audit log is read with fewer precautions than a database. The count is enough to see that
-	// an automation was emptied.
-	h.audit(r, "automation.save", project.Slug, map[string]any{
-		"stages": len(request.Plan.Stages), "steps": stepCount(request.Plan),
-	})
-
 	writeJSON(w, http.StatusOK, automationPayload{Plan: request.Plan, Declared: true})
 }
 
-func stepCount(p plan.Plan) int {
-	total := 0
-	for _, stage := range p.Stages {
-		total += len(stage.Gestes)
+// service is the plans' rules, built from what this handler was given.
+func (h *AutomationsHandler) service() configure.Automations {
+	return configure.Automations{
+		Store: h.store, Schedules: h.schedules, Catalog: h.catalog, Registry: h.registry, Logger: h.logger,
 	}
-	return total
-}
-
-/*
- * The role check.
- */
-
-// roleProduct says what a step must produce to hold a role.
-//
-// A table and not a switch: it reads at a glance, and the error message uses it to name
-// what it expected.
-var roleProduct = map[plan.Role]catalog.Product{
-	plan.RoleBuild: catalog.ProductImage,
-	plan.RoleTest:  catalog.ProductResults,
-}
-
-// checkRoles refuses a stage whose steps do not hold its role.
-//
-// Without that check, a release's life cycle would change by accident. Two cases, and the
-// second is the more insidious:
-//
-//   - a test step in a `build` stage: the release would move to verification as soon as the
-//     tests concluded, that is, after them;
-//   - an action in a stage with a role: a failed webhook would fail the release, although it
-//     has nothing to say about its quality.
-func (h *AutomationsHandler) checkRoles(entry plan.Plan) error {
-	var problems []error
-
-	for index, stage := range entry.Stages {
-		expected, carries := roleProduct[stage.Role]
-		if !carries {
-			// A stage with no role touches nothing: it may carry what it likes. It is what allows
-			// warning a team without putting the release's state at stake.
-			continue
-		}
-
-		for _, step := range stage.Gestes {
-			if step.Kind != plan.GestePipeline {
-				problems = append(problems, fmt.Errorf(
-					"stage %d carries the role %q and the step %q is not a pipeline: "+
-						"its failure would fail the release without saying anything about its quality",
-					index+1, stage.Role, step.Ref))
-				continue
-			}
-			if h.catalog == nil {
-				problems = append(problems, fmt.Errorf(
-					"the role of stage %d cannot be checked: no catalogue "+
-						"is loaded", index+1))
-				continue
-			}
-			pipeline, found := catalog.Of(h.catalog).Find(step.Ref)
-			if !found {
-				// Already reported by the reference check. Repeating it here would give two messages for
-				// one mistake.
-				continue
-			}
-			if !pipeline.Yields(expected) {
-				problems = append(problems, fmt.Errorf(
-					"stage %d carries the role %q and the pipeline %q does not produce %q "+
-						"(il produit: %s)",
-					index+1, stage.Role, step.Ref, expected,
-					productsOf(pipeline)))
-			}
-		}
-	}
-
-	return errors.Join(problems...)
-}
-
-// productsOf names what a pipeline declares it produces, for a message.
-func productsOf(pipeline catalog.Pipeline) string {
-	if len(pipeline.Produces) == 0 {
-		return "nothing declared"
-	}
-	names := make([]string, 0, len(pipeline.Produces))
-	for _, product := range pipeline.Produces {
-		names = append(names, string(product))
-	}
-	return strings.Join(names, ", ")
 }

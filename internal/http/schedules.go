@@ -3,8 +3,6 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -74,64 +72,26 @@ func (h *AutomationsHandler) SaveSchedule(w http.ResponseWriter, r *http.Request
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return
 	}
-	// The identifier comes from the path, as for a reaction: the body cannot move a schedule to
-	// another project.
-	var id int64
+	// The identifier comes from the path, as a reaction's does.
+	request.ID = 0
 	if raw := strings.TrimSpace(r.PathValue("schedule")); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
 			writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
 			return
 		}
-		id = parsed
-	}
-	entry := schedule.Schedule{
-		ID: id, ProjectID: project.ID, Name: strings.TrimSpace(request.Name),
-		Cron: strings.TrimSpace(request.Cron), Timezone: strings.TrimSpace(request.Timezone),
-		Ref: strings.TrimSpace(request.Ref), Enabled: request.Enabled, Plan: request.Plan,
-	}
-	if err := entry.Validate(); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid schedule", err.Error())
-		return
-	}
-	if err := h.checkScheduleRefs(r.Context(), entry); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid schedule", err.Error())
-		return
-	}
-
-	var next *time.Time
-	if entry.Enabled {
-		at, err := entry.Next(time.Now())
-		if err != nil {
-			writeProblem(w, http.StatusBadRequest, "Invalid schedule", err.Error())
-			return
-		}
-		next = &at
+		request.ID = parsed
 	}
 
 	identity, _ := IdentityFrom(r.Context())
-	saved, err := h.schedules.SaveSchedule(r.Context(), entry, next, identity.Subject)
-	switch {
-	case errors.Is(err, store.ErrScheduleExists):
-		writeProblem(w, http.StatusConflict, "Name already taken",
-			"a schedule of this project already carries this name")
-		return
-	case errors.Is(err, store.ErrScheduleNotFound):
-		writeProblem(w, http.StatusNotFound, "Schedule not found", "")
-		return
-	case err != nil:
-		h.logger.Error("recording a schedule", "project", project.Slug, "name", entry.Name, "error", err)
-		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
+	saved, next, err := h.service().SaveSchedule(r.Context(), identity.Subject, project, request)
+	if err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	h.audit(r, "schedule.save", project.Slug+"/"+entry.Name, map[string]any{
-		"cron": entry.Cron, "timezone": entry.Timezone, "ref": entry.Ref, "enabled": entry.Enabled,
-	})
 	writeJSON(w, http.StatusOK, map[string]any{"id": saved, "next_fire_at": next})
 }
 
-// DeleteSchedule removes a schedule.
 func (h *AutomationsHandler) DeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	project, ok := h.project(w, r)
 	if !ok {
@@ -142,29 +102,10 @@ func (h *AutomationsHandler) DeleteSchedule(w http.ResponseWriter, r *http.Reque
 		writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
 		return
 	}
-	if err := h.schedules.DeleteSchedule(r.Context(), project.ID, id); err != nil {
-		if errors.Is(err, store.ErrScheduleNotFound) {
-			writeProblem(w, http.StatusNotFound, "Schedule not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot delete", "")
+	identity, _ := IdentityFrom(r.Context())
+	if err := h.service().DeleteSchedule(r.Context(), identity.Subject, project, id); err != nil {
+		writeRefusal(w, err)
 		return
 	}
-	h.audit(r, "schedule.delete", project.Slug+"/"+strconv.FormatInt(id, 10), nil)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
-}
-
-// checkScheduleRefs refuses a plan naming nothing executable, and a role: as for a reaction, a
-// schedule aims at no release, and a role would advance none.
-func (h *AutomationsHandler) checkScheduleRefs(ctx context.Context, entry schedule.Schedule) error {
-	var problems []error
-	for index, stage := range entry.Plan.Stages {
-		if stage.Role != "" {
-			problems = append(problems, fmt.Errorf(
-				"stage %d of a schedule carries the role %q: a role only advances "+
-					"a release's automation", index+1, stage.Role))
-		}
-	}
-	problems = append(problems, h.checkPlanRefs(ctx, entry.Plan))
-	return errors.Join(problems...)
 }
