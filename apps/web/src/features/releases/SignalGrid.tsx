@@ -3,12 +3,12 @@ import { Icon, type IconName } from '../../components/Icon'
 import { Modal } from '../../components/Modal'
 import { status } from '../../lib/status'
 import { hasAtLeast, useSession } from '../auth/session'
-import { useVerify, type ReleaseJob } from './api'
+import { useReplay, type ReleaseJob } from './api'
 import { BenchDetail } from './BenchDetail'
 import { FamilyDetail } from './FamilyDetail'
 import { SecurityDetail } from './SecurityDetail'
 import { runningJobFor } from './signals'
-import { type Shape, type SignalScore } from './tests'
+import { type ResultSubject, type Shape, type SignalScore } from './tests'
 
 /*
  * Les composants du score, en tuiles.
@@ -66,11 +66,11 @@ const SIGNAL_ICON: Record<string, IconName> = {
 }
 
 export function SignalGrid({
-  tag,
+  subject,
   signals,
   jobs,
 }: {
-  tag: string
+  subject: ResultSubject
   signals: SignalScore[]
   jobs: ReleaseJob[]
 }) {
@@ -80,7 +80,7 @@ export function SignalGrid({
         // La clé est celle du composant — le geste — et non le signal : deux
         // campagnes E2E le partagent, et React en confondrait les tuiles.
         <li key={signal.key}>
-          <SignalTile tag={tag} signal={signal} jobs={jobs} />
+          <SignalTile subject={subject} signal={signal} jobs={jobs} />
         </li>
       ))}
     </ul>
@@ -88,16 +88,16 @@ export function SignalGrid({
 }
 
 function SignalTile({
-  tag,
+  subject,
   signal,
   jobs,
 }: {
-  tag: string
+  subject: ResultSubject
   signal: SignalScore
   jobs: ReleaseJob[]
 }) {
   const session = useSession()
-  const verify = useVerify(tag)
+  const verify = useReplay(subject)
   const [open, setOpen] = useState(false)
 
   const runningJob = runningJobFor(signal.ref, jobs)
@@ -110,7 +110,9 @@ function SignalTile({
   // campagnes. Aucun ne mène plus à une page — perdre le score et les autres
   // composants pour lire une liste coûtait plus que ça ne rapportait.
   const group = signal.group
-  const detail = detailFor(group ? signal.shape : undefined)
+  // A pull request has no load campaign screen: its campaigns are scored, not detailed.
+  const shape = group ? signal.shape : undefined
+  const detail = subject.kind === 'pull' && shape === 'measures' ? 'none' : detailFor(shape)
 
   const canReplay =
     session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
@@ -208,17 +210,17 @@ function SignalTile({
 
       {open && (
         <Modal
-          title={`${signal.label || signal.signal} — ${tag}`}
+          title={`${signal.label || signal.signal} — ${subject.label}`}
           onClose={() => setOpen(false)}
           size="lg"
         >
           {detail === 'reports' && group && (
-            <FamilyDetail tag={tag} group={group} runName={runningJob?.run_name} />
+            <FamilyDetail subject={subject} group={group} runName={runningJob?.run_name} />
           )}
-          {detail === 'security' && <SecurityDetail tag={tag} runName={runningJob?.run_name} />}
+          {detail === 'security' && <SecurityDetail subject={subject} runName={runningJob?.run_name} />}
           {/* La charge n'a pas de pipeline que le dashboard lance : ses campagnes
               viennent d'un runner extérieur (B16), d'où l'absence de frise. */}
-          {detail === 'bench' && <BenchDetail tag={tag} />}
+          {detail === 'bench' && <BenchDetail tag={subject.label} />}
         </Modal>
       )}
     </>

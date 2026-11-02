@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import { render } from '../../test/render'
 import { SignalGrid } from './SignalGrid'
 import type { SignalScore } from './tests'
+import { releaseSubject } from './tests'
 
 /*
  * Les cases du score, une par geste déclaré.
@@ -36,7 +37,7 @@ describe('les cases du score', () => {
   it('rend une case par composant, et pas six cases écrites d’avance', () => {
     render(
       <SignalGrid
-        tag="1.8.0"
+        subject={releaseSubject('1.8.0')}
         jobs={[]}
         signals={[
           composant({ key: 'geste:1.0', label: 'Tests unitaires', ref: 'unit-tests', group: 'unit', shape: 'cases' }),
@@ -55,7 +56,7 @@ describe('les cases du score', () => {
   it('distingue deux campagnes de même nature', () => {
     render(
       <SignalGrid
-        tag="1.8.0"
+        subject={releaseSubject('1.8.0')}
         jobs={[]}
         signals={[
           composant({
@@ -81,7 +82,7 @@ describe('les cases du score', () => {
   it('n’ouvre pas de détail pour un composant qui n’en publie pas', () => {
     render(
       <SignalGrid
-        tag="1.8.0"
+        subject={releaseSubject('1.8.0')}
         jobs={[]}
         signals={[composant({ key: 'geste:1.0', label: 'Déploiement de recette', group: undefined })]}
       />,
@@ -96,7 +97,7 @@ describe('les cases du score', () => {
   it('n’affiche pas de valeur pour un composant non mesuré', () => {
     render(
       <SignalGrid
-        tag="1.8.0"
+        subject={releaseSubject('1.8.0')}
         jobs={[]}
         signals={[
           composant({

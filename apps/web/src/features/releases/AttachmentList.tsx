@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { formatBytes } from '../../lib/format'
-import { attachmentURL, type Attachment } from './tests'
+import { attachmentURL, type Attachment, type ResultSubject } from './tests'
 
 /*
  * Les fichiers qu'un résultat garde : captures, vidéos, rapports.
@@ -23,21 +23,21 @@ function kindOf(mediaType: string): Kind {
   return 'other'
 }
 
-export function AttachmentList({ tag, attachments }: { tag: string; attachments: Attachment[] }) {
+export function AttachmentList({ subject, attachments }: { subject: ResultSubject; attachments: Attachment[] }) {
   if (attachments.length === 0) return null
 
   return (
     <ul className="flex flex-col gap-3">
       {attachments.map((attachment) => (
-        <AttachmentItem key={attachment.id} tag={tag} attachment={attachment} />
+        <AttachmentItem key={attachment.id} subject={subject} attachment={attachment} />
       ))}
     </ul>
   )
 }
 
-function AttachmentItem({ tag, attachment }: { tag: string; attachment: Attachment }) {
+function AttachmentItem({ subject, attachment }: { subject: ResultSubject; attachment: Attachment }) {
   const [open, setOpen] = useState(false)
-  const url = attachmentURL(tag, attachment.id)
+  const url = attachmentURL(subject, attachment.id)
   const kind = kindOf(attachment.media_type)
 
   return (
@@ -56,7 +56,7 @@ function AttachmentItem({ tag, attachment }: { tag: string; attachment: Attachme
           </button>
         )}
         <a
-          href={attachmentURL(tag, attachment.id, true)}
+          href={attachmentURL(subject, attachment.id, true)}
           className="ml-auto rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
         >
           Télécharger

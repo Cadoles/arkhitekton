@@ -2,6 +2,7 @@ import type { Health } from '../../lib/status'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 import { projectPath } from '../../lib/project'
+import type { ResultSubject } from './tests'
 
 /**
  * États d'une release, dans l'ordre du chemin construit (doc 04 §4.2).
@@ -337,6 +338,26 @@ export function useVerify(tag: string) {
       // alors que le run est parti.
       void queryClient.invalidateQueries({ queryKey: ['releases', tag] })
       void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'tests'] })
+      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
+}
+
+/**
+ * Replaying one verification on a subject: on a release, on the image already published; on a pull
+ * request, on its head, which the server fills.
+ */
+export function useReplay(subject: ResultSubject) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (kind: string) =>
+      subject.kind === 'release'
+        ? request<unknown>(projectPath(`${subject.path}/verify/${encodeURIComponent(kind)}`), { method: 'POST' })
+        : request<unknown>(projectPath(`${subject.path}/launch`), { method: 'POST', body: JSON.stringify({ kind }) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: subject.key })
+      void queryClient.invalidateQueries({ queryKey: [...subject.key, 'tests'] })
       void queryClient.invalidateQueries({ queryKey: ['queue'] })
     },
   })

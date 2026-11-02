@@ -3,7 +3,7 @@ import { Skeleton } from '../../components/primitives'
 import { HealthGauge } from './HealthGauge'
 import { SignalGrid, Spinner } from './SignalGrid'
 import { buildIsRunning } from './signals'
-import { useTests, type ScoreBreakdown } from './tests'
+import { releaseSubject, useTests, type ResultSubject, type ScoreBreakdown } from './tests'
 import type { ReleaseJob } from './api'
 
 /*
@@ -24,9 +24,12 @@ import type { ReleaseJob } from './api'
  */
 export function TestsPanel({
   tag,
+  subject,
   jobs = [],
 }: {
-  tag: string
+  /** A release's tag: what the plugins' screens pass. */
+  tag?: string
+  subject?: ResultSubject
   /** Exécutions de la release, d'où l'écran déduit ce qui est en cours.
    *
    *  Absentes sur l'écran d'un environnement, qui montre le score de la release
@@ -34,20 +37,22 @@ export function TestsPanel({
    *  ce qui est exact — il n'y a pas d'action à y attendre. */
   jobs?: ReleaseJob[]
 }) {
-  const { data, isPending } = useTests(tag)
+  const resolved = subject ?? (tag ? releaseSubject(tag) : undefined)
+  const { data, isPending } = useTests(resolved)
 
+  if (!resolved) return null
   if (isPending) return <Skeleton className="h-48 w-full" />
   if (!data) return null
 
-  return <ScoreCard tag={tag} score={data.score} jobs={jobs} />
+  return <ScoreCard subject={resolved} score={data.score} jobs={jobs} />
 }
 
 function ScoreCard({
-  tag,
+  subject,
   score,
   jobs,
 }: {
-  tag: string
+  subject: ResultSubject
   score: ScoreBreakdown
   jobs: ReleaseJob[]
 }) {
@@ -101,7 +106,7 @@ function ScoreCard({
             </p>
           )}
 
-          <SignalGrid tag={tag} signals={score.signals} jobs={jobs} />
+          <SignalGrid subject={subject} signals={score.signals} jobs={jobs} />
         </div>
       </div>
     </section>
