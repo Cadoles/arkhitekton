@@ -83,8 +83,8 @@ function ScoreCard({
             // Zéro serait un jugement, et le plus sévère possible sur une release
             // qu'on n'a pas regardée.
             <p className="text-sm text-zinc-500">
-              Rien n&apos;a été mesuré pour cette release : il n&apos;y a pas de score, ce qui
-              n&apos;est pas la même chose qu&apos;un score de zéro.
+              Rien n&apos;a été mesuré pour cette {subject.kind === 'pull' ? 'pull request' : 'release'} : il
+              n&apos;y a pas de score, ce qui n&apos;est pas la même chose qu&apos;un score de zéro.
             </p>
           )}
 

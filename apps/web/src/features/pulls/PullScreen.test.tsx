@@ -29,6 +29,7 @@ const queue = {
         { name: 'revision', required: true, suggest: 'git-ref' },
         { name: 'tag-name', required: true, suggest: 'release-tag' },
         { name: 'image-name', required: true, suggest: 'image-name' },
+        { name: 'portal-image', required: true, suggest: 'image:portal' },
       ],
     },
   ],
@@ -71,6 +72,7 @@ describe("la page d'une pull request", () => {
     expect(await screen.findByText('image-name')).toBeInTheDocument()
     expect(screen.queryByText('revision')).not.toBeInTheDocument()
     expect(screen.queryByText('tag-name')).not.toBeInTheDocument()
+    expect(screen.queryByText('portal-image')).not.toBeInTheDocument()
 
     await userEvent.type(screen.getByLabelText(/image-name/), 'portal')
     await userEvent.click(screen.getByRole('button', { name: 'Lancer' }))
