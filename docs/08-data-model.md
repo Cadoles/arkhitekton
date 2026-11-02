@@ -100,12 +100,19 @@ tool that failed is recorded as failed, not as zero findings.
 | `plan_runs` | `trigger`, `event_key`, `plan`, `context`, `state` |
 | `plan_steps` | `stage`, `position`, `kind`, `ref`, `state`, `job_id`, `detail` |
 | `plan_artifacts` | What a step produced: `name`, `kind`, `reference` |
+| `pull_requests` | A project's pull requests as last read from its forge: `number`, `title`, `author`, `source_branch`, `target_branch`, `head_sha`, `state` (`open`, `closed`, `merged`), `url`, dates; unique per project and number |
 
 `events.depth` bounds cascades — a reaction that triggers an event that triggers a
 reaction cannot recurse indefinitely. `dedup_key` makes a probe that sees the same fact
 twice produce one event, and a webhook delivered twice too. `dispatch_pending` marks a fact a
 webhook brought: the `api` records it and the worker routes it to the reactions, then clears the
 mark.
+
+`pull_request_id` sits beside `release_id` on `jobs`, `test_results`, `plan_runs` and
+`plan_artifacts`, with the same meaning: a job launched on a pull request, its results, the plan
+its fact opened and what that plan produced. A result takes it from its run's job. The pull request
+following keeps its cursor in `sync_state` under `<forge>.pull_request_sync`; `requested_at` there
+is an early pass a webhook delivery asked for.
 
 A schedule's run is a plan run whose trigger is `schedule:<id>` and whose key is the tick,
 `schedule:<id>:<instant>`: the uniqueness of `(trigger, event_key)` is what keeps a tick seen by

@@ -173,6 +173,23 @@ spec:
       plan: {stages: [{gestes: [{kind: pipeline, ref: mse/integration-tests}]}]}
 ```
 
+A reaction on a pull request's fact builds and verifies its head the way a release's plan does,
+its results showing on the pull request's page:
+
+```yaml
+  reactions:
+    - name: Verify each push
+      event: pull_request.synchronized
+      match: {target_branch: main}
+      plan:
+        stages:
+          - gestes: [{kind: pipeline, ref: core/build, params: {image-name: portal, target: web}}]
+          - gestes: [{kind: pipeline, ref: php/static-tests}, {kind: pipeline, ref: php/unit-tests}]
+```
+
+Every image built that way stays in the registry under its `pr-<number>-<commit>` tag: the
+registry's retention is the operator's.
+
 Plans keep the shape the automation editor writes. Switches (`enabled`, a target's `promote`)
 default to on. Unknown keys are refused, with the path of the mistake.
 

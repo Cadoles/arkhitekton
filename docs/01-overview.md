@@ -24,6 +24,11 @@ built from them, and works without a tracker at all — versions can be created 
 the images it produced, the results of every pipeline that ran against it, its release
 notes, and the artifacts it exported.
 
+**Pull requests.** The pull requests of a project's repository, followed from its forge: open,
+closed and merged, each with the commit at its head. Pipelines are launched on a pull request as
+on a release, its build included (images tagged `pr-<number>-<commit>`), and its page shows their
+results, compared push with push. Its transitions are facts reactions listen for.
+
 **Jobs and runs.** A job is a request to run a pipeline: queued, dispatched to Tekton,
 observed until it concludes. A run is what Tekton did with it — its tasks, its logs, its
 results.
