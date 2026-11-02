@@ -1,0 +1,102 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: publish-artifact
+spec:
+  description: >
+    Publishes an artifact of the workspace to a presigned PUT URL.
+
+    The storage layout belongs to whoever reads the artifacts, not to whoever produces them. The
+    dashboard computes each object's exact key and hands the matching URL to the PipelineRun as a
+    parameter: the pipeline knows neither the bucket, nor the prefix, nor the naming convention,
+    and the reader no longer guesses where to look. A presigned URL grants writing one key for a
+    bounded time, where storage credentials would open the whole bucket to every Task mounting
+    them.
+
+    Two modes, because two kinds of artifact coexist. A JUnit report is a file whose name is
+    known in advance: one URL is enough. Cypress videos are a directory whose names depend on the
+    specs run: nobody can presign them one by one, so the directory leaves as one archive, under
+    one key.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: path
+      description: >
+        The artifact's path, relative to the source workspace. A file in `file` mode, a directory
+        in `archive` mode.
+
+    - name: upload-url
+      description: >
+        Presigned PUT URL, supplied by the dashboard. Empty, publication is skipped: a run
+        triggered outside the dashboard has nobody to hand it one.
+      default: ""
+
+    - name: mode
+      description: >
+        `file` publishes the artifact as it is. `archive` packs the directory as `tar.gz` before
+        sending it. Explicit rather than deduced from the path: the destination key is computed
+        before the run and already carries the expected extension.
+      default: file
+
+  steps:
+    - name: upload
+      image: reg.cadoles.com/dh/alpine/curl:8.17.0
+      script: |
+        #!/usr/bin/env sh
+        # Never `set -x`: the presigned URL carries a signature that is a right to write, and the
+        # run's logs are archived and read again.
+        set -eu
+
+        UPLOAD_URL="$(params.upload-url)"
+        if [ -z "${UPLOAD_URL}" ]; then
+          echo "no upload URL provided, skipping publication"
+          exit 0
+        fi
+
+        SRC="$(workspaces.source.path)/$(params.path)"
+
+        case "$(params.mode)" in
+          file)
+            if [ ! -f "${SRC}" ]; then
+              # A task that did not run produces no artifact. Failing here would fail the
+              # `finally` block and hide the real failure, the one being diagnosed.
+              echo "no artifact at $(params.path), skipping"
+              exit 0
+            fi
+            PAYLOAD="${SRC}"
+            ;;
+
+          archive)
+            if [ ! -d "${SRC}" ]; then
+              echo "no directory at $(params.path), skipping"
+              exit 0
+            fi
+            if [ -z "$(ls -A "${SRC}" 2>/dev/null)" ]; then
+              # An empty directory would make a valid archive of no file, which nothing would then
+              # tell apart from a campaign without captures.
+              echo "$(params.path) is empty, skipping"
+              exit 0
+            fi
+            PAYLOAD="$(mktemp -d)/artifact.tar.gz"
+            # `-C` then `.`: the archive carries relative paths, without the workspace's prefix.
+            tar -czf "${PAYLOAD}" -C "${SRC}" .
+            ;;
+
+          *)
+            echo "unknown mode '$(params.mode)': expected 'file' or 'archive'" >&2
+            exit 1
+            ;;
+        esac
+
+        echo "publishing $(params.path) ($(wc -c < "${PAYLOAD}") bytes)"
+
+        # An empty `Expect:` disables 100-continue: the signature does not cover it, and some
+        # intermediaries answer it badly on large bodies. `--fail-with-body` brings back the
+        # storage's error message rather than a bare code.
+        curl --fail-with-body --silent --show-error \
+             --header 'Expect:' \
+             --upload-file "${PAYLOAD}" "${UPLOAD_URL}"
+
+        echo "published $(params.path)"

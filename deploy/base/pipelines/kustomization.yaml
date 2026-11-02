@@ -52,3 +52,8 @@ resources:
 
   - pipeline-build-image.yaml
   - pipeline-retag-image.yaml
+
+  # The other half of the results contract: a pipeline uploads its reports to the presigned URL
+  # the dashboard hands it. Every plugin's pipelines use it, and a plugin cannot ship a Task
+  # another plugin ships too, so it is the core's.
+  - task-publish-artifact.yaml
