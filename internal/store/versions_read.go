@@ -389,3 +389,43 @@ func (db *DB) ListVersionReleases(ctx context.Context, versionID int64) ([]Versi
 	}
 	return releases, rows.Err()
 }
+
+// SyncRequest is an early pass asked for a source and a project.
+type SyncRequest struct {
+	Source    string
+	ProjectID int64
+}
+
+// RequestSync asks for an early pass of a source over a project.
+func (db *DB) RequestSync(ctx context.Context, source string, projectID int64) error {
+	_, err := db.pool.Exec(ctx,
+		`insert into sync_state (source, project_id, requested_at, updated_at)
+		 values ($1, $2, now(), now())
+		 on conflict (source, project_id) where project_id is not null do update set requested_at = now()`,
+		source, projectID)
+	if err != nil {
+		return fmt.Errorf("asking for a pass of %q: %w", source, err)
+	}
+	return nil
+}
+
+// TakeSyncRequests returns the passes asked for, and clears them: each is taken once.
+func (db *DB) TakeSyncRequests(ctx context.Context) ([]SyncRequest, error) {
+	rows, err := db.pool.Query(ctx,
+		`update sync_state set requested_at = null
+		 where requested_at is not null and project_id is not null
+		 returning source, project_id`)
+	if err != nil {
+		return nil, fmt.Errorf("passes asked for: %w", err)
+	}
+	defer rows.Close()
+	var requests []SyncRequest
+	for rows.Next() {
+		var request SyncRequest
+		if err := rows.Scan(&request.Source, &request.ProjectID); err != nil {
+			return nil, fmt.Errorf("passes asked for: %w", err)
+		}
+		requests = append(requests, request)
+	}
+	return requests, rows.Err()
+}

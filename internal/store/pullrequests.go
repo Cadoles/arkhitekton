@@ -138,3 +138,7 @@ func (db *DB) PullRequestByNumber(ctx context.Context, projectID, number int64) 
 	}
 	return pull, nil
 }
+
+// PullRequestSyncSource names the cursor of a forge plugin's pull request following in
+// `sync_state`: shared by the worker that follows and the api that asks for an early pass.
+func PullRequestSyncSource(pluginID string) string { return pluginID + ".pull_request_sync" }

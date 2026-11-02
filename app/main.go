@@ -746,8 +746,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// whenever the capabilities in force change: an installed plugin brings its probes.
 				WithDiscovery(func() []worker.Probe {
 					registry := inForce.Current().Registry
-					return append(worker.PluginProbes(registry, cfg.Forge.Timeout),
+					probes := append(worker.PluginProbes(registry, cfg.Forge.Timeout),
 						worker.TrackerProbes(registry, db, cfg.Tracker.Timeout, logger)...)
+					// And the pull requests, followed through each forge plugin.
+					return append(probes, worker.PullRequestProbes(
+						registry, db, cfg.Forge.Timeout, cfg.Registry.Project, logger)...)
 				}).
 				WithDispatcher(dispatcher)
 			reloader.OnReplace(func(live.Snapshot) { probes.Wake() })

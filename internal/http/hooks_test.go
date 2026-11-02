@@ -41,10 +41,16 @@ func (p pushReceiver) Receive(
 }
 
 type hooksFixture struct {
-	projects map[string]store.Project
-	disabled bool
-	secret   string
-	recorded map[string]event.Event
+	projects  map[string]store.Project
+	disabled  bool
+	secret    string
+	recorded  map[string]event.Event
+	requested []string
+}
+
+func (f *hooksFixture) RequestSync(_ context.Context, source string, projectID int64) error {
+	f.requested = append(f.requested, fmt.Sprintf("%s:%d", source, projectID))
+	return nil
 }
 
 func (f *hooksFixture) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
@@ -81,7 +87,7 @@ func receiving(t *testing.T) (*hooksFixture, *int, http.Handler) {
 	called := 0
 	registry := mustRegistry(
 		capability.Plugin{
-			ID: "forge", Label: "Forge", PerProject: true,
+			ID: "forge", Label: "Forge", PerProject: true, Forge: noForge{},
 			Events:  []capability.EventSpec{{Suffix: "push", Label: "Poussée"}},
 			Project: []capability.Field{{Name: "webhook_secret", Label: "Secret", Secret: true}},
 			Webhook: &capability.Webhook{
@@ -139,6 +145,22 @@ func TestAnAuthenticDeliveryRecordsItsFactsOnce(t *testing.T) {
 	}
 	if fact.ProjectID == nil || *fact.ProjectID != 7 || fact.Type != "forge.push" || fact.Source != "forge" {
 		t.Errorf("fact %+v", fact)
+	}
+}
+
+// Any authentic delivery of a forge asks the worker for an early pull request pass, whether or not
+// the plugin made a fact of it.
+func TestAForgeDeliveryAsksForAPullRequestPass(t *testing.T) {
+	fixture, _, handler := receiving(t)
+	if response := deliver(handler, "/hooks/forge/projects/shop", "pull_request", sign("s3cret", "{}"), "{}"); response.Code != http.StatusAccepted {
+		t.Fatalf("status %d, %s", response.Code, response.Body)
+	}
+	if len(fixture.requested) != 1 || fixture.requested[0] != "forge.pull_request_sync:7" {
+		t.Errorf("requested = %v", fixture.requested)
+	}
+	if response := deliver(handler, "/hooks/forge/projects/shop", "push", "bad", "abc"); response.Code == http.StatusAccepted ||
+		len(fixture.requested) != 1 {
+		t.Errorf("a refused delivery asked for a pass: %d, %v", response.Code, fixture.requested)
 	}
 }
 

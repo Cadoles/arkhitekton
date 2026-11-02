@@ -61,6 +61,16 @@ const (
 	// ReleaseReleased: a release is approved for shipping. The only transition nothing
 	// automates.
 	ReleaseReleased Type = "release.released"
+
+	// The transitions of a pull request, observed by following the project's forge. Core facts,
+	// like VersionCreated: a reaction declared on "a pull request is merged" need not be rewritten
+	// when the deployment changes forge.
+	PullRequestOpened Type = "pull_request.opened"
+	// PullRequestSynchronized: the commit at the request's head changed.
+	PullRequestSynchronized Type = "pull_request.synchronized"
+	PullRequestClosed       Type = "pull_request.closed"
+	PullRequestMerged       Type = "pull_request.merged"
+	PullRequestReopened     Type = "pull_request.reopened"
 )
 
 // Event is an observed fact.
@@ -179,6 +189,23 @@ func VersionCreatedAt(
 		OccurredAt: at,
 		DedupKey:   key(string(VersionCreated), id(versionID)),
 		Payload:    payload,
+	}
+}
+
+// PullRequestAt returns a transition of a project's pull request.
+//
+// The key carries the project, the request and what tells two occurrences of the same transition
+// apart: the head commit for a push, the instant for a closing or a reopening. An opening and a
+// merge happen once.
+func PullRequestAt(
+	kind Type, at time.Time, projectID, number int64, occurrence string, payload map[string]string,
+) Event {
+	parts := []string{string(kind), id(projectID), id(number)}
+	if occurrence != "" {
+		parts = append(parts, occurrence)
+	}
+	return Event{
+		Type: kind, Subject: "#" + id(number), Payload: payload, OccurredAt: at, DedupKey: key(parts...),
 	}
 }
 

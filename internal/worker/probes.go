@@ -174,6 +174,8 @@ type probeLoop struct {
 
 	mu    sync.Mutex
 	probe Probe
+	// polling serialises the passes over one project: the loop's and those asked for early.
+	polling sync.Mutex
 }
 
 func (l *probeLoop) current() Probe {
@@ -200,14 +202,68 @@ func (r *ProbeRunner) Run(ctx context.Context) error {
 			r.stop(running, source, loop)
 		}
 	}()
+	requests := time.NewTicker(syncRequestInterval)
+	defer requests.Stop()
+	r.reconcile(ctx, running)
 	for {
-		r.reconcile(ctx, running)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-r.wake:
+			r.reconcile(ctx, running)
+		case <-requests.C:
+			r.serveRequests(ctx, running)
 		}
 	}
+}
+
+// syncRequestInterval spaces two readings of the passes asked for early. Short: a push someone is
+// waiting on shows in the time the queue takes to notice a job.
+const syncRequestInterval = 2 * time.Second
+
+// syncRequests is what reading the passes asked for needs. Optional: a store without it gets no
+// early pass, only the probes' cadence.
+type syncRequests interface {
+	TakeSyncRequests(ctx context.Context) ([]store.SyncRequest, error)
+}
+
+// serveRequests runs, for each pass asked for, the probe of that source over that project.
+func (r *ProbeRunner) serveRequests(ctx context.Context, running map[string]*probeLoop) {
+	taker, ok := r.store.(syncRequests)
+	if !ok {
+		return
+	}
+	requests, err := taker.TakeSyncRequests(ctx)
+	if err != nil {
+		r.logger.Error("passes asked for", "error", err)
+		return
+	}
+	if len(requests) == 0 {
+		return
+	}
+	projects, err := r.store.ListProjects(ctx)
+	if err != nil {
+		r.logger.Error("projects to probe", "error", err)
+		return
+	}
+	for _, request := range requests {
+		loop, found := running[request.Source]
+		if !found {
+			continue
+		}
+		for _, project := range projects {
+			if project.ID == request.ProjectID {
+				go r.pollLocked(ctx, loop, project)
+			}
+		}
+	}
+}
+
+// pollLocked runs a loop's probe over one project, between two passes of the loop.
+func (r *ProbeRunner) pollLocked(ctx context.Context, loop *probeLoop, project store.Project) {
+	loop.polling.Lock()
+	defer loop.polling.Unlock()
+	r.pollAndRecord(ctx, loop.current(), project)
 }
 
 // reconcile starts the listed probes that do not run, stops those no longer listed, and starts
@@ -259,7 +315,7 @@ func (r *ProbeRunner) loop(ctx context.Context, loop *probeLoop) {
 	// source that only observes has nothing to catch up, and waiting stops a restart loop
 	// hammering a third-party machine.
 	if schedule.Eager {
-		r.sweep(ctx, loop.current())
+		r.sweepLoop(ctx, loop)
 	}
 
 	ticker := time.NewTicker(interval)
@@ -270,8 +326,23 @@ func (r *ProbeRunner) loop(ctx context.Context, loop *probeLoop) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			r.sweep(ctx, loop.current())
+			r.sweepLoop(ctx, loop)
 		}
+	}
+}
+
+// sweepLoop runs a loop's probe over every project, one project at a time with the passes asked
+// for early.
+func (r *ProbeRunner) sweepLoop(ctx context.Context, loop *probeLoop) {
+	projects, err := r.store.ListProjects(ctx)
+	if err != nil {
+		r.logger.Error("projects to probe", "error", err)
+		return
+	}
+	for _, project := range projects {
+		loop.polling.Lock()
+		r.pollAndRecord(ctx, loop.current(), project)
+		loop.polling.Unlock()
 	}
 }
 
@@ -282,18 +353,22 @@ func (r *ProbeRunner) sweep(ctx context.Context, probe Probe) {
 		r.logger.Error("projects to probe", "error", err)
 		return
 	}
-
 	for _, project := range projects {
-		// One project's failure **does not stop** the next ones: two projects may target two servers,
-		// and one's outage says nothing about the other.
-		if err := r.pollOne(ctx, probe, project); err != nil {
-			r.logger.Error("probe",
-				"source", probe.Source(), "project", project.Slug, "error", err)
-			if recordErr := r.store.RecordSyncFailure(
-				ctx, probe.Source(), project.ID, err.Error()); recordErr != nil {
-				r.logger.Error("recording a probe's failure",
-					"source", probe.Source(), "project", project.Slug, "error", recordErr)
-			}
+		r.pollAndRecord(ctx, probe, project)
+	}
+}
+
+// pollAndRecord queries a probe for one project and records its failure. One project's failure
+// does not stop the next ones: two projects may target two servers, and one's outage says nothing
+// about the other.
+func (r *ProbeRunner) pollAndRecord(ctx context.Context, probe Probe, project store.Project) {
+	if err := r.pollOne(ctx, probe, project); err != nil {
+		r.logger.Error("probe",
+			"source", probe.Source(), "project", project.Slug, "error", err)
+		if recordErr := r.store.RecordSyncFailure(
+			ctx, probe.Source(), project.ID, err.Error()); recordErr != nil {
+			r.logger.Error("recording a probe's failure",
+				"source", probe.Source(), "project", project.Slug, "error", recordErr)
 		}
 	}
 }
