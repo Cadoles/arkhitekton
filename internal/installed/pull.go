@@ -25,6 +25,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote/credentials"
 	"sigs.k8s.io/yaml"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
 
@@ -354,8 +355,13 @@ func Publish(ctx context.Context, registries Registries, target string, fsys fs.
 		return "", err
 	}
 	for platform, files := range built {
-		if _, err := Load(files); err != nil {
+		plugin, err := Load(files)
+		if err != nil {
 			return "", fmt.Errorf("the plugin would not install%s: %w", platform, err)
+		}
+		// A version's tag is what a following instance compares: it must be the version it carries.
+		if _, err := (version.SemVer{}).Parse(reference.Reference); err == nil && reference.Reference != plugin.Version {
+			return "", fmt.Errorf("%s: the tag %s is a version, and the plugin is %s", target, reference.Reference, plugin.Version)
 		}
 	}
 	repository, err := registries.repository(reference)
