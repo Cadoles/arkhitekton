@@ -87,6 +87,8 @@ type Engine struct {
 	stages StageSink
 	// steps is told when a pipeline step starts or concludes. Nil: nobody is told.
 	steps StepSink
+	// contexts adds what the database knows of a run's subject to its context. Nil: nothing.
+	contexts ContextSource
 	// artifacts carries what the steps produce. Nil: no artifact is kept, and `{artifacts.…}`
 	// stays literal in the steps that follow.
 	artifacts ArtifactStore
@@ -263,7 +265,7 @@ func (e *Engine) advance(ctx context.Context, run store.PlanRun) int {
 		// What the stages already concluded produced, added to the context. That is what lets a
 		// test step target the image the build has just published: `{artifacts.portal.image}`.
 		run.Context = opening
-		run.Context = e.withArtifacts(ctx, run, progress.Plan)
+		run.Context = e.withVariables(ctx, run, progress)
 
 		settledAtOnce := false
 		for _, step := range progress.Next() {
@@ -329,6 +331,12 @@ func (e *Engine) WithArtifacts(artifacts ArtifactStore, products func(ref string
 // StepSink is told each time a pipeline step starts or concludes.
 type StepSink interface {
 	StepChanged(ctx context.Context, run store.PlanRun, geste plan.Geste, state plan.State)
+}
+
+// WithContext wires what adds a run's release and pull request variables to its context.
+func (e *Engine) WithContext(source ContextSource) *Engine {
+	e.contexts = source
+	return e
 }
 
 // WithSteps wires the observer of the pipeline steps.

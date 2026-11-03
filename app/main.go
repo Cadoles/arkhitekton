@@ -618,12 +618,22 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// The engine, and the anchoring of the life cycle on the stages with a role: it is the
 			// settling of a stage that advances the release, where the observer counted the builds job by
 			// job.
+			links := connect.New(inForce.Registries(), db, cipher, connect.Timeouts{
+				Forge: cfg.Forge.Timeout, Tracker: cfg.Tracker.Timeout,
+			})
 			engine := worker.NewVerificationEngine(sink, db, actions, logger).
 				WithStages(worker.NewReleaseLifecycle(db, logger)).
 				// A plan that asks for it has each of its pipeline steps reported on its commit.
-				WithSteps(worker.NewCommitStatuses(
-					connect.New(inForce.Registries(), db, cipher, connect.Timeouts{Forge: cfg.Forge.Timeout}),
-					db, cfg.HTTP.PublicURL, logger)).
+				WithSteps(worker.NewCommitStatuses(links, db, cfg.HTTP.PublicURL, logger)).
+				// What a step's templates read of the release or the pull request the run bears on.
+				WithContext(worker.NewRunContext(db, cfg.HTTP.PublicURL,
+					func(ctx context.Context, projectID int64, issue string) string {
+						tracker, err := links.Tracker(ctx, projectID)
+						if err != nil {
+							return ""
+						}
+						return tracker.IssueURL(issue)
+					}, logger)).
 				// What the steps produce, collected when they conclude and offered to the following stages
 				// under `{artifacts.<step>.<name>}`.
 				WithArtifacts(db, worker.ProductOf(inForce.Catalogs()))
