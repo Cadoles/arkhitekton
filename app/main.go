@@ -283,9 +283,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		logger.Info("sensitive environments", "project", slug, "environments", sensitive)
 	}
 	authorizer := auth.NewAuthorizer(policies)
-	servers.lend(native.HostDeps{
-		Store: db, Catalogs: inForce.Catalogs(), Authorizer: authorizer, Unseal: unsealer(inForce.Registries(), cipher),
-	})
 	// The modules are read at each request: the switch is flipped from the administration screen,
 	// and reading it at start-up would make it lie until the next deployment.
 	modules := dashhttp.NewModules(inForce.Registries(), db, logger)
@@ -360,6 +357,13 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			worker.NewEngine(db, worker.NewReleaseRunner(inForce.Catalogs(), db, logger), logger).
 				WithArtifacts(db, worker.ProductOf(inForce.Catalogs())),
 			pipelines, db, cfg.Registry.Project, logger))
+
+	// Lent once the releases' handler exists: a plugin's deliverable reads the release's dossier as
+	// its screen composes it.
+	servers.lend(native.HostDeps{
+		Store: db, Catalogs: inForce.Catalogs(), Authorizer: authorizer, Unseal: unsealer(inForce.Registries(), cipher),
+		Dossier: releasesHandler.Dossier,
+	})
 
 	// The score's weighting comes from the catalogue: it was accepted by the client and stays
 	// adjustable without a redeployment. Releases' results and pull requests' alike.

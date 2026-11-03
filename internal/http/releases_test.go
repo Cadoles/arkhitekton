@@ -51,6 +51,9 @@ type fakeReleaseStore struct {
 	// pipelines is the catalogue the handler uses. The store carries it because it must
 	// return the project's automation, which is composed from the declared kinds.
 	pipelines *catalog.Catalog
+	// notes and results are a release's note and measures, for the dossier.
+	notes   []store.NoteEntry
+	results []store.TestResult
 }
 
 // fixtureProject reproduces what the bootstrap installs: three stages, one of them
@@ -1159,7 +1162,7 @@ func (f *fakeReleaseStore) ReleaseBadgesByTag(context.Context, string) (map[stri
 }
 
 func (f *fakeReleaseStore) ListReleaseTestResults(context.Context, int64) ([]store.TestResult, error) {
-	return nil, nil
+	return f.results, nil
 }
 
 func (f *fakeReleaseStore) LatestSecurityAudit(context.Context, int64) (store.SecurityAudit, error) {
@@ -1198,7 +1201,11 @@ func (f *fakeReleaseStore) jobsOfKind(kind string) []store.JobRequest {
 }
 
 func (f *fakeReleaseStore) ListNoteEntries(context.Context, int64) ([]store.NoteEntry, error) {
-	return nil, nil
+	return f.notes, nil
+}
+
+func (f *fakeReleaseStore) VersionName(context.Context, int64) (string, error) {
+	return "1.8.0", nil
 }
 
 func (f *fakeReleaseStore) LinkNoteIssue(context.Context, int64, string, string, string, string) error {

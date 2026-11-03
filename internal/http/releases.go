@@ -55,6 +55,7 @@ type ReleaseStore interface {
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
 	ReleaseBadgesByTag(ctx context.Context, buildKind string) (map[string]store.ReleaseBadges, error)
 	ListNoteEntries(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
+	VersionName(ctx context.Context, versionID int64) (string, error)
 	ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
 	LinkNoteIssue(ctx context.Context, releaseID int64, reference, source, pullRequest, actor string) error
 	UnlinkNoteIssue(ctx context.Context, releaseID int64, reference string) error
