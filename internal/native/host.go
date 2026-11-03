@@ -36,6 +36,8 @@ type HostDeps struct {
 	Authorizer *auth.Authorizer
 	// Unseal opens a plugin's sensitive settings.
 	Unseal func(pluginID string, sealed map[string]string) (map[string]string, error)
+	// Dossier answers GetReleaseDossier; nil answers Unimplemented, outside the api.
+	Dossier DossierSource
 }
 
 // NewHost returns the Host service lent to one plugin.
