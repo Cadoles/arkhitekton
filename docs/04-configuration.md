@@ -36,7 +36,7 @@ Each role validates only what it uses. In the tables below, **Required** means r
 | `MINIO_ENDPOINT` | — | **api, worker, reprocess, config** | `host:port`, no scheme |
 | `MINIO_ACCESS_KEY` | — | **idem** | |
 | `MINIO_SECRET_KEY` | — | **idem** | |
-| `MINIO_BUCKET` | `arkhitekton` | | Bucket holding logs, reports and exports |
+| `MINIO_BUCKET` | `arkhitekton` | | Bucket holding logs, reports, attachments and plugins |
 | `MINIO_REGION` | `NUO-Region` | | Must match the server. A wrong region invalidates the SigV4 signature, with a server message that does not say so |
 | `MINIO_USE_SSL` | `true` | | |
 | `MINIO_PRESIGN_TTL` | `2h` | | Lifetime of the upload URLs handed to pipelines. Must outlast the longest pipeline |
@@ -118,7 +118,6 @@ Read-only. Arkhitekton never pushes an image.
 | `REGISTRY_USERNAME` | — | |
 | `REGISTRY_PASSWORD` | — | |
 | `REGISTRY_PROJECT` | — | Repository prefix, host included (`registry.example.com/team`) |
-| `REGISTRY_IMAGE` | — | The repository that promotion re-tags; empty, the delivery note names no image |
 
 ## 4.10 Probes and webhooks
 

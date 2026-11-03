@@ -14,7 +14,6 @@ plugin: one plugin may bring a pipeline and a screen.
 | `pipeline` | A Tekton pipeline, what it publishes, the privileges it needs, and how its runs are read |
 | `tracker` | Where versions and issues come from |
 | `forge` | Where code and refs come from, and where tags, statuses and comments go |
-| `exporter` | What a release can be exported as |
 | `module` | Screens, routes and loops the dashboard runs on the plugin's behalf |
 
 A plugin declares itself in its own package, as a `capability.Plugin`: its settings, events and
@@ -95,8 +94,9 @@ readable when the plugin changes or goes. A replay reads a run again with the sa
 refuses one another version read unless asked.
 
 The built-in plugins are `core` (build, re-tag), `php` (static analysis, unit tests), `security` (the merged security audit), `k6` (load
-campaigns, observed rather than launched), `redmine` (tracker), `gitea` (forge) and
-`bon-de-livraison` (the delivery note).
+campaigns, observed rather than launched), `redmine` (tracker) and `gitea` (forge).
+A deliverable such as a delivery note belongs to the plugin of the deployment that delivers it:
+the MSE plugin produces the MSE one, from the release's dossier (below).
 
 ## 6.3 Declared readings
 
@@ -188,6 +188,12 @@ version is refused at the handshake.
 **What the dashboard lends it** is the `Host` service: a project, a release, the queue, the audit
 log, its own settings for a project (unsealed), the environments a project declares, and the
 dashboard's authorisation. Its own tables it reaches with the database connection it is given.
+
+In the api, the Host also lends a release's **dossier** (`ReleaseDossier`): the tracker version,
+the manual actions, the note, what the automation produced with its digests, the results, the
+score and the latest security audit, composed by the same code as the release's screen. A plugin
+producing a deliverable attests to what the screen shows, verdicts included: it does not grade
+anything itself.
 
 **Writing one in Go.** `rpc/extension` serves the hooks and lends the Host. A tracker, a forge,
 probes and an executor are the sdk's own interfaces, as a compiled plugin declares them:
@@ -335,7 +341,7 @@ plugin without it is instance-wide and does not appear in a project's plugin lis
 
 Every built-in plugin can be switched off on the instance, except `core`, which the
 dashboard cannot work without. A pipeline plugin switched off has its jobs refused with the
-reason, and a delivery-note plugin switched off for a project offers no deliverable there.
+reason, and a plugin switched off for a project shows none of its sections there.
 
 The state resolves to: enabled here, disabled here, or inherited from the instance.
 Asking for a disabled plugin's settings returns a sentinel error rather than empty

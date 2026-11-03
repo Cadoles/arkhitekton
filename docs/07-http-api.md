@@ -77,9 +77,10 @@ All scoped to a project; the permission is checked **in that project**.
 | `POST /projects/{project}/releases/{tag}/notes/{issue}` | `release:edit` |
 | `DELETE /projects/{project}/releases/{tag}/notes/{issue}` | `release:edit` |
 | `PUT /projects/{project}/releases/{tag}/actions` | `release:edit` |
-| `GET /projects/{project}/releases/{tag}/exports` | `read` |
-| `POST /projects/{project}/releases/{tag}/exports` | `release:export` |
-| `GET /projects/{project}/releases/{tag}/exports/{artifact}/download` | `read` |
+
+A release's deliverables are a plugin's routes, under `/projects/{project}/plugins/{plugin}/…`:
+the MSE plugin's delivery note is produced with `release:export`, the permission a plugin route
+names for it.
 
 ## 7.6 Results
 
