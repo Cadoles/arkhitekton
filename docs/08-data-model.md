@@ -130,7 +130,8 @@ Secret fields inside `config` are sealed with `SECRETS_KEY`; the API never retur
 | Table | Key columns |
 |---|---|
 | `capability_bindings` | `ref`, `binding` (the JSON of a catalogue entry, never a service account), `updated_by` |
-| `plugin_installations` | `reference` and `digest` as requested; `plugin_id`, `version`, `signed_by` (the key's fingerprint), `object` once pulled; `state` (`pending`, `installed`, `failed`, `removed`, `unrecognised`), `error`, `active` |
+| `plugin_installations` | `reference` and `digest` as requested, the digest resolved by the worker for a repository or a tag; `follows`, `expected_version` (the tag's), `replaces` (the installation an update replaces); `plugin_id`, `version`, `signed_by` (the key's fingerprint), `object` once pulled; `state` (`pending`, `installed`, `failed`, `removed`, `unrecognised`), `error`, `active` |
+| `plugin_sources` | per installed plugin: the `repository` it comes from, `pinned`, what the last check found (`latest_version`, `latest_digest`, `checked_at`, `check_error`), `check_requested_at` |
 | `accepted_sources` | `plugin_id` an administrator accepted although the instance recognises neither its signature nor its absence, the `reason` found then, `accepted_by` |
 | `capability_state` | a single `version`, moved by every binding and installation change: what the api and the worker watch to rebuild their capabilities |
 
