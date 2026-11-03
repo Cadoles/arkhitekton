@@ -40,6 +40,22 @@ func (h *fakeHost) Audit(_ context.Context, entry *pluginv1.AuditEntry) (*plugin
 	return &pluginv1.Empty{}, nil
 }
 
+func (h *fakeHost) GetReleaseDossier(_ context.Context, request *pluginv1.ReleaseByTag) (*pluginv1.ReleaseDossier, error) {
+	if request.GetTag() != "1.2.0" {
+		return nil, status.Error(codes.NotFound, extension.ErrReleaseNotFound.Error())
+	}
+	return &pluginv1.ReleaseDossier{
+		Version:       "1.2.0",
+		ManualActions: &pluginv1.ManualActions{Markdown: "- vider le cache", UpdatedBy: "Alice", UpdatedAt: "2026-11-03T10:00:00Z"},
+		Notes:         []*pluginv1.DossierNote{{ExternalId: "42", Subject: "Recherche", Anomaly: true, Known: true}},
+		Artifacts:     []*pluginv1.DossierArtifact{{Name: "image", Reference: "reg/app:1.2.0", Digest: "sha256:ab"}},
+		Results:       []*pluginv1.DossierResult{{Group: "unit", Status: "pass", Total: 10, Passed: 10, MeasuredAt: "2026-11-03T09:00:00Z"}},
+		Score: &pluginv1.DossierScore{Value: 92, Measured: true, Health: "good",
+			Signals: []*pluginv1.DossierSignal{{Key: "unit", Value: 100, Weight: 50, Measured: true}}},
+		Audit: &pluginv1.DossierAudit{Measured: true, Total: 3, High: 1},
+	}, nil
+}
+
 type counter struct{}
 
 func (counter) Interpret(_ context.Context, run capability.RunState, records []parse.Record) ([]facts.Set, error) {
@@ -108,6 +124,31 @@ func TestAPluginIsInitialisedWithTheHost(t *testing.T) {
 	_, started := connect(t, &fakeHost{})
 	if started.Role != rpc.RoleAPI || started.PluginID != "widgets" {
 		t.Errorf("runtime = %+v", started)
+	}
+}
+
+func TestAReleaseDossierCrossesTheHost(t *testing.T) {
+	_, started := connect(t, &fakeHost{})
+
+	dossier, err := started.Host.ReleaseDossier(context.Background(), 7, "1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dossier.ManualActions == nil || dossier.ManualActions.UpdatedAt == nil || dossier.ManualActions.UpdatedBy != "Alice" {
+		t.Errorf("manual actions = %+v", dossier.ManualActions)
+	}
+	if len(dossier.Notes) != 1 || !dossier.Notes[0].Anomaly || dossier.Artifacts[0].Digest != "sha256:ab" {
+		t.Errorf("notes and artifacts = %+v %+v", dossier.Notes, dossier.Artifacts)
+	}
+	if len(dossier.Results) != 1 || dossier.Results[0].MeasuredAt.IsZero() || dossier.Results[0].Passed != 10 {
+		t.Errorf("results = %+v", dossier.Results)
+	}
+	if dossier.Score.Value != 92 || len(dossier.Score.Signals) != 1 || dossier.Audit == nil || dossier.Audit.High != 1 {
+		t.Errorf("score and audit = %+v %+v", dossier.Score, dossier.Audit)
+	}
+
+	if _, err := started.Host.ReleaseDossier(context.Background(), 7, "9.9.9"); !errors.Is(err, extension.ErrReleaseNotFound) {
+		t.Errorf("a missing release = %v", err)
 	}
 }
 

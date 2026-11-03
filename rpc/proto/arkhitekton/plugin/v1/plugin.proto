@@ -78,6 +78,9 @@ service Host {
   rpc Environments(ProjectRef) returns (EnvironmentList);
   // Authorize says whether an identity holds a permission in a project.
   rpc Authorize(Authorization) returns (Decision);
+  // GetReleaseDossier returns what the dashboard records about a release, as its screen shows it:
+  // what a deliverable attests to. Served by the api only.
+  rpc GetReleaseDossier(ReleaseByTag) returns (ReleaseDossier);
 }
 
 message Empty {}
@@ -242,6 +245,101 @@ message Authorization {
 
 message Decision {
   bool allowed = 1;
+}
+
+message ReleaseDossier {
+  // Version is the name of the tracker's version the release delivers.
+  string version = 1;
+  optional ManualActions manual_actions = 2;
+  repeated DossierNote notes = 3;
+  repeated DossierArtifact artifacts = 4;
+  // ArtifactsNote says why the digests are missing, when they are.
+  string artifacts_note = 5;
+  repeated DossierResult results = 6;
+  DossierScore score = 7;
+  // Audit is unset when no security audit ran on the release.
+  optional DossierAudit audit = 8;
+}
+
+message ManualActions {
+  string markdown = 1;
+  // UpdatedBy is a name, not a subject.
+  string updated_by = 2;
+  string updated_at = 3;
+}
+
+message DossierNote {
+  string external_id = 1;
+  string subject = 2;
+  string tracker = 3;
+  string status = 4;
+  bool anomaly = 5;
+  // Known is false while the tracker's synchronisation has not seen the issue.
+  bool known = 6;
+  string pull_request = 7;
+  string url = 8;
+}
+
+message DossierArtifact {
+  // Geste names the step that produced it.
+  string geste = 1;
+  string name = 2;
+  string kind = 3;
+  string reference = 4;
+  // Digest is empty when the registry could not be read, or for what is not an image.
+  string digest = 5;
+}
+
+message DossierResult {
+  string group = 1;
+  string shape = 2;
+  string tool = 3;
+  string status = 4;
+  int32 total = 5;
+  int32 passed = 6;
+  int32 failed = 7;
+  int32 skipped = 8;
+  int32 flaky = 9;
+  int64 duration_ms = 10;
+  string measured_at = 11;
+  string run_name = 12;
+}
+
+message DossierScore {
+  int32 value = 1;
+  // Measured separates "not evaluated" from zero.
+  bool measured = 2;
+  string health = 3;
+  repeated DossierSignal signals = 4;
+  repeated string redistributed = 5;
+}
+
+message DossierSignal {
+  string key = 1;
+  string label = 2;
+  string group = 3;
+  double value = 4;
+  double weight = 5;
+  bool measured = 6;
+  string health = 7;
+  string detail = 8;
+}
+
+message DossierAudit {
+  // Measured is false when a scanner did not conclude: the audit then grades nothing.
+  bool measured = 1;
+  repeated string failed_scanners = 2;
+  int32 total = 3;
+  int32 critical = 4;
+  int32 high = 5;
+  int32 medium = 6;
+  int32 low = 7;
+  int32 suppressed = 8;
+  int32 delta_new = 9;
+  int32 delta_existing = 10;
+  int32 delta_resolved = 11;
+  string generated_at = 12;
+  string run_name = 13;
 }
 
 message DeploymentMap {

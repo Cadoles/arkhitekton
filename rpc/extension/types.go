@@ -134,6 +134,104 @@ type (
 		Project  Project
 		Settings map[string]string
 	}
+
+	// Dossier is what the dashboard records about a release, as its screen shows it: what a
+	// deliverable attests to.
+	Dossier struct {
+		// Version is the name of the tracker's version the release delivers.
+		Version       string
+		ManualActions *ManualActions
+		Notes         []DossierNote
+		Artifacts     []DossierArtifact
+		// ArtifactsNote says why the digests are missing, when they are.
+		ArtifactsNote string
+		Results       []DossierResult
+		Score         DossierScore
+		// Audit is nil when no security audit ran on the release.
+		Audit *DossierAudit
+	}
+
+	ManualActions struct {
+		Markdown string
+		// UpdatedBy is a name, not a subject.
+		UpdatedBy string
+		UpdatedAt *time.Time
+	}
+
+	DossierNote struct {
+		ExternalID string
+		Subject    string
+		Tracker    string
+		Status     string
+		// Anomaly files the issue among the fixes.
+		Anomaly bool
+		// Known is false while the tracker's synchronisation has not seen the issue.
+		Known       bool
+		PullRequest string
+		URL         string
+	}
+
+	DossierArtifact struct {
+		// Geste names the step that produced it.
+		Geste     string
+		Name      string
+		Kind      string
+		Reference string
+		// Digest is empty when the registry could not be read, or for what is not an image.
+		Digest string
+	}
+
+	DossierResult struct {
+		Group      string
+		Shape      string
+		Tool       string
+		Status     string
+		Total      int
+		Passed     int
+		Failed     int
+		Skipped    int
+		Flaky      int
+		DurationMS int64
+		MeasuredAt time.Time
+		RunName    string
+	}
+
+	DossierScore struct {
+		Value int
+		// Measured separates "not evaluated" from zero.
+		Measured      bool
+		Health        string
+		Signals       []DossierSignal
+		Redistributed []string
+	}
+
+	DossierSignal struct {
+		Key      string
+		Label    string
+		Group    string
+		Value    float64
+		Weight   float64
+		Measured bool
+		Health   string
+		Detail   string
+	}
+
+	DossierAudit struct {
+		// Measured is false when a scanner did not conclude: the audit then grades nothing.
+		Measured       bool
+		FailedScanners []string
+		Total          int
+		Critical       int
+		High           int
+		Medium         int
+		Low            int
+		Suppressed     int
+		DeltaNew       int
+		DeltaExisting  int
+		DeltaResolved  int
+		GeneratedAt    string
+		RunName        string
+	}
 )
 
 // Role is a role in the dashboard, from the least to the most.
@@ -150,6 +248,8 @@ const (
 const (
 	PermRead        = "read"
 	PermReleaseEdit = "release:edit"
+	// PermReleaseExport is the permission to produce a release's deliverable.
+	PermReleaseExport = "release:export"
 )
 
 // PermDeploy is the permission to promote to an environment.
