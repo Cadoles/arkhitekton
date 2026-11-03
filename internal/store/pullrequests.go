@@ -24,8 +24,11 @@ type PullRequest struct {
 	TargetBranch string
 	HeadSHA      string
 	// State is `open`, `closed` or `merged`.
-	State     string
-	URL       string
+	State string
+	URL   string
+	// Draft is true while the request is not ready for review; Body is its description.
+	Draft     bool
+	Body      string
 	CreatedAt *time.Time
 	UpdatedAt *time.Time
 	ClosedAt  *time.Time
@@ -50,13 +53,14 @@ func (p PullRequest) Tag() string {
 }
 
 const pullRequestColumns = `id, project_id, number, title, author, source_branch, target_branch, head_sha,
-	state, url, created_at, updated_at, closed_at, merged_at, synced_at`
+	state, url, created_at, updated_at, closed_at, merged_at, synced_at, draft, body`
 
 func scanPullRequest(row pgx.Row) (PullRequest, error) {
 	var pull PullRequest
 	err := row.Scan(&pull.ID, &pull.ProjectID, &pull.Number, &pull.Title, &pull.Author,
 		&pull.SourceBranch, &pull.TargetBranch, &pull.HeadSHA, &pull.State, &pull.URL,
-		&pull.CreatedAt, &pull.UpdatedAt, &pull.ClosedAt, &pull.MergedAt, &pull.SyncedAt)
+		&pull.CreatedAt, &pull.UpdatedAt, &pull.ClosedAt, &pull.MergedAt, &pull.SyncedAt,
+		&pull.Draft, &pull.Body)
 	return pull, err
 }
 
@@ -84,16 +88,19 @@ func (db *DB) UpsertPullRequest(ctx context.Context, pull PullRequest) (PullRequ
 
 	recorded, err := scanPullRequest(tx.QueryRow(ctx,
 		`insert into pull_requests (project_id, number, title, author, source_branch, target_branch,
-		                            head_sha, state, url, created_at, updated_at, closed_at, merged_at)
-		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		                            head_sha, state, url, created_at, updated_at, closed_at, merged_at,
+		                            draft, body)
+		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		 on conflict (project_id, number) do update
 		 set title = excluded.title, author = excluded.author, source_branch = excluded.source_branch,
 		     target_branch = excluded.target_branch, head_sha = excluded.head_sha, state = excluded.state,
 		     url = excluded.url, created_at = excluded.created_at, updated_at = excluded.updated_at,
-		     closed_at = excluded.closed_at, merged_at = excluded.merged_at, synced_at = now()
+		     closed_at = excluded.closed_at, merged_at = excluded.merged_at, synced_at = now(),
+		     draft = excluded.draft, body = excluded.body
 		 returning `+pullRequestColumns,
 		pull.ProjectID, pull.Number, pull.Title, pull.Author, pull.SourceBranch, pull.TargetBranch,
-		pull.HeadSHA, pull.State, pull.URL, pull.CreatedAt, pull.UpdatedAt, pull.ClosedAt, pull.MergedAt))
+		pull.HeadSHA, pull.State, pull.URL, pull.CreatedAt, pull.UpdatedAt, pull.ClosedAt, pull.MergedAt,
+		pull.Draft, pull.Body))
 	if err != nil {
 		return PullRequest{}, nil, fmt.Errorf("recording pull request #%d: %w", pull.Number, err)
 	}

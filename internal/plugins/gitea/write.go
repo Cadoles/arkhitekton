@@ -9,6 +9,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -26,10 +27,10 @@ import (
  * status replaces the previous one of the same context, a comment is added to a thread; neither
  * makes what was there disappear.
  *
- * `DELETE` stays refused, and `PATCH` with it: setting a tag is repairable — one sets another —
- * whereas deleting one destroys a deliverable's reference, an act no automaton should be able to
- * perform. The same caution holds for someone else's comment that a badly set action could
- * rewrite.
+ * `DELETE` stays refused: setting a tag is repairable — one sets another — whereas deleting one
+ * destroys a deliverable's reference, an act no automaton should be able to perform. `PATCH` is let
+ * through on one route only, a comment's, and the writer edits only a comment its own account
+ * posted with its marker: a summary kept up to date at each push, never someone else's words.
  */
 
 // ErrTagExists reports a tag already set. It wraps the contract's sentinel: setting a
@@ -48,8 +49,11 @@ type writeTransport struct {
 	token string
 }
 
+var commentRoute = regexp.MustCompile(`^/api/v1/repos/[^/]+/[^/]+/issues/comments/[0-9]+$`)
+
 func (t *writeTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if !writeMethods[request.Method] {
+	editsComment := request.Method == http.MethodPatch && commentRoute.MatchString(request.URL.Path)
+	if !writeMethods[request.Method] && !editsComment {
 		return nil, fmt.Errorf("%w (%s %s): this client adds, it neither removes nor rewrites",
 			ErrWriteForbidden, request.Method, request.URL.Path)
 	}

@@ -194,7 +194,19 @@ func (executor) Execute(
 			return fmt.Errorf("the pull request number is %q after "+
 				"interpolation: does this fact really carry the named variable?", raw)
 		}
+		if marker := strings.TrimSpace(params["marker"]); marker != "" {
+			return writer.UpsertComment(ctx, number, marker, params["body"])
+		}
 		return writer.CommentOnPullRequest(ctx, number, params["body"])
+
+	case "release":
+		tag := strings.TrimSpace(params["tag"])
+		if tag == "" || strings.Contains(tag, "{") {
+			return fmt.Errorf("the release's tag is %q after interpolation: "+
+				"does this run bear on a release?", tag)
+		}
+		return writer.CreateRelease(ctx, tag, params["name"], params["body"],
+			strings.TrimSpace(params["prerelease"]) == "true")
 
 	default:
 		return fmt.Errorf("action %q unknown to plugin %q", suffix, ID)

@@ -124,7 +124,7 @@ func (d *Dispatcher) releaseOf(ctx context.Context, fact event.Event) *int64 {
 func pullRequestOf(fact event.Event) *int64 {
 	switch fact.Type {
 	case event.PullRequestOpened, event.PullRequestSynchronized, event.PullRequestClosed,
-		event.PullRequestMerged, event.PullRequestReopened:
+		event.PullRequestMerged, event.PullRequestReopened, event.PullRequestReady:
 	default:
 		return nil
 	}

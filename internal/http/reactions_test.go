@@ -42,7 +42,7 @@ func TestTheCatalogueOffersTheCoresFacts(t *testing.T) {
 		string(event.ReleaseCreated): true, string(event.ReleaseReleased): true,
 		string(event.PullRequestOpened): true, string(event.PullRequestSynchronized): true,
 		string(event.PullRequestClosed): true, string(event.PullRequestMerged): true,
-		string(event.PullRequestReopened): true,
+		string(event.PullRequestReopened): true, string(event.PullRequestReady): true,
 	}
 
 	for _, choice := range coreEventChoices() {
@@ -80,7 +80,7 @@ func TestEveryAnnouncedFieldExistsInThePayload(t *testing.T) {
 	}
 	pull := worker.PullRequestPayload(store.PullRequest{ID: 3, Number: 12, HeadSHA: "abcdef0123"}, "reg/team")
 	for _, kind := range []event.Type{event.PullRequestOpened, event.PullRequestSynchronized,
-		event.PullRequestClosed, event.PullRequestMerged, event.PullRequestReopened} {
+		event.PullRequestClosed, event.PullRequestMerged, event.PullRequestReopened, event.PullRequestReady} {
 		charges[string(kind)] = pull
 	}
 

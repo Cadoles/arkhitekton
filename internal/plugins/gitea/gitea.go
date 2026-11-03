@@ -36,9 +36,9 @@ func Plugin() capability.Plugin {
 				Fields: []capability.ActionField{
 					{
 						Name: "commit", Label: "Commit", Required: true, Template: true,
-						Help: "Le SHA visé. `{git_commit}` pour celui de la " +
-							"construction qui vient de conclure.",
-						Placeholder: "{git_commit}",
+						Help: "Le SHA visé. `{revision}` pour le commit sur lequel " +
+							"porte le plan : celui de la release ou la tête de la demande.",
+						Placeholder: "{revision}",
 					},
 					{
 						Name: "state", Label: "État", Required: true,
@@ -82,6 +82,36 @@ func Plugin() capability.Plugin {
 					{
 						Name: "body", Label: "Message", Required: true, Template: true,
 						Help: "Markdown, avec les variables de la charge du fait.",
+					},
+					{
+						Name: "marker", Label: "Marqueur",
+						Help: "Renseigné, le commentaire est mis à jour plutôt que répété : " +
+							"le compte du plugin édite celui qu'il a posé avec ce marqueur. " +
+							"Un récapitulatif tenu à jour à chaque poussée, par exemple.",
+						Placeholder: "pr-summary",
+					},
+				},
+			},
+			{
+				Suffix: "release", Label: "Release sur la forge",
+				Summary: "Publie une release sur le tag d'une release du dashboard. " +
+					"Une release déjà publiée sur ce tag est laissée telle quelle.",
+				Fields: []capability.ActionField{
+					{
+						Name: "tag", Label: "Tag", Required: true, Template: true,
+						Help: "`{tag}` dans le plan d'une release.", Placeholder: "{tag}",
+					},
+					{Name: "name", Label: "Titre", Template: true, Help: "Vide : le tag."},
+					{
+						Name: "body", Label: "Corps", Template: true,
+						Help: "Markdown : `{release.notes}` pour les tickets, " +
+							"`{release.images}` pour les images construites.",
+					},
+					{
+						Name: "prerelease", Label: "Pré-release", Template: true,
+						Help: "`true` pour une pré-release ; `{release.prerelease}` " +
+							"le déduit du tag.",
+						Placeholder: "{release.prerelease}",
 					},
 				},
 			},

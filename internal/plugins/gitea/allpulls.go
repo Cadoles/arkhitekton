@@ -45,6 +45,8 @@ func (c *Client) ListPullRequests(ctx context.Context, since time.Time) ([]provi
 		var batch []struct {
 			Number  int64  `json:"number"`
 			Title   string `json:"title"`
+			Body    string `json:"body"`
+			Draft   bool   `json:"draft"`
 			State   string `json:"state"`
 			HTMLURL string `json:"html_url"`
 			User    struct {
@@ -82,7 +84,8 @@ func (c *Client) ListPullRequests(ctx context.Context, since time.Time) ([]provi
 				state = provider.PullClosed
 			}
 			pulls = append(pulls, provider.PullRequest{
-				Number: entry.Number, Title: entry.Title, State: state, Author: entry.User.Login,
+				Number: entry.Number, Title: entry.Title, Body: entry.Body, Draft: entry.Draft,
+				State: state, Author: entry.User.Login,
 				SourceBranch: entry.Head.Ref, TargetBranch: entry.Base.Ref, HeadSHA: entry.Head.SHA,
 				URL: entry.HTMLURL, CreatedAt: entry.CreatedAt, UpdatedAt: entry.UpdatedAt,
 				ClosedAt: entry.ClosedAt, MergedAt: entry.MergedAt,
