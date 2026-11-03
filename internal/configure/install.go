@@ -90,7 +90,7 @@ func latestOf(installations []store.PluginInstallation, reference string) (store
 func (i Installer) install(ctx context.Context, id, reference string, latest store.PluginInstallation, found, accept bool) error {
 	installationID := latest.ID
 	if !found || latest.State == store.InstallationFailed || latest.State == store.InstallationRemoved {
-		requested, _, _, err := i.Installations.Request(ctx, i.Actor, reference)
+		requested, _, _, err := i.Installations.Request(ctx, i.Actor, reference, ModeInstall)
 		if err != nil {
 			return err
 		}

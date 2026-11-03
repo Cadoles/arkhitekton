@@ -2,6 +2,7 @@ package configure
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,34 @@ type workerFake struct {
 	conclude []string
 	accepted []string
 	actions  []string
+	sources  map[string]store.PluginSource
 }
+
+func (f *workerFake) PluginSources(context.Context) ([]store.PluginSource, error) {
+	var all []store.PluginSource
+	for _, source := range f.sources {
+		all = append(all, source)
+	}
+	return all, nil
+}
+
+func (f *workerFake) PluginSource(_ context.Context, pluginID string) (store.PluginSource, error) {
+	source, found := f.sources[pluginID]
+	if !found {
+		return store.PluginSource{}, store.ErrSourceNotFound
+	}
+	return source, nil
+}
+
+func (f *workerFake) SetSourcePinned(_ context.Context, pluginID string, pinned bool) error {
+	source := f.sources[pluginID]
+	source.Pinned = pinned
+	f.sources[pluginID] = source
+	f.actions = append(f.actions, fmt.Sprintf("pin %v", pinned))
+	return nil
+}
+
+func (f *workerFake) RequestUpdateCheck(context.Context, string) error { return nil }
 
 func (f *workerFake) PluginInstallations(context.Context) ([]store.PluginInstallation, error) {
 	var all []store.PluginInstallation
