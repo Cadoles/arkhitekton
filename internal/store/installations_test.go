@@ -13,7 +13,7 @@ const digest = "sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123
 func installed(t *testing.T, db *DB, version string) int64 {
 	t.Helper()
 	ctx := context.Background()
-	id, err := db.RequestPluginInstallation(ctx, "registry.example/plugins/gotest@"+digest, digest, "admin")
+	id, err := db.RequestPluginInstallation(ctx, InstallationRequest{Reference: "registry.example/plugins/gotest@" + digest, Digest: digest, Actor: "admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestPluginVersionsLiveSideBySide(t *testing.T) {
 		t.Errorf("settings %+v, %v", settings["gotest"], err)
 	}
 
-	id, err := db.RequestPluginInstallation(ctx, "registry.example/plugins/gotest@"+digest, digest, "admin")
+	id, err := db.RequestPluginInstallation(ctx, InstallationRequest{Reference: "registry.example/plugins/gotest@" + digest, Digest: digest, Actor: "admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestOnlyInstalledLayersAreReferenced(t *testing.T) {
 func TestATrackerOrAForgeIsInstalledSwitchedOff(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
-	id, err := db.RequestPluginInstallation(ctx, "registry.example/plugins/forgery@"+digest, digest, "admin")
+	id, err := db.RequestPluginInstallation(ctx, InstallationRequest{Reference: "registry.example/plugins/forgery@" + digest, Digest: digest, Actor: "admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestAnAcceptedSourceIsRememberedForThePlugin(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	id, err := db.RequestPluginInstallation(ctx, "registry.example/plugins/junit@"+digest, digest, "admin")
+	id, err := db.RequestPluginInstallation(ctx, InstallationRequest{Reference: "registry.example/plugins/junit@" + digest, Digest: digest, Actor: "admin"})
 	if err != nil {
 		t.Fatal(err)
 	}

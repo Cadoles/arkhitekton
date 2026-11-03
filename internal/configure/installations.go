@@ -19,7 +19,7 @@ const (
 
 // InstallationStore is what installing a plugin needs from the database.
 type InstallationStore interface {
-	RequestPluginInstallation(ctx context.Context, reference, digest, actor string) (int64, error)
+	RequestPluginInstallation(ctx context.Context, request store.InstallationRequest) (int64, error)
 	FailPluginInstallation(ctx context.Context, id int64, reason string) error
 	ActivatePluginInstallation(ctx context.Context, id int64) error
 	PluginInstallation(ctx context.Context, id int64) (store.PluginInstallation, error)
@@ -48,7 +48,7 @@ func (s Installations) Request(ctx context.Context, actor, raw string) (id, job 
 	if err != nil {
 		return 0, 0, "", invalid("Invalid reference", err)
 	}
-	id, err = s.Store.RequestPluginInstallation(ctx, reference, digest, actor)
+	id, err = s.Store.RequestPluginInstallation(ctx, store.InstallationRequest{Reference: reference, Digest: digest, Actor: actor})
 	if err != nil {
 		return 0, 0, "", failure(logger, "Cannot request the installation", err, "reference", reference)
 	}

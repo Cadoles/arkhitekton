@@ -35,7 +35,7 @@ const (
 // InstallationStore is what managing installations needs from the database.
 type InstallationStore interface {
 	PluginInstallations(ctx context.Context) ([]store.PluginInstallation, error)
-	RequestPluginInstallation(ctx context.Context, reference, digest, actor string) (int64, error)
+	RequestPluginInstallation(ctx context.Context, request store.InstallationRequest) (int64, error)
 	FailPluginInstallation(ctx context.Context, id int64, reason string) error
 	ActivatePluginInstallation(ctx context.Context, id int64) error
 	RemovePluginInstallation(ctx context.Context, id int64) (string, error)
