@@ -27,6 +27,10 @@
         "help": "Nom court du dépôt d'image, sans le registre ni le tag. C'est aussi le nom sous lequel les étapes suivantes désigneront ce qu'il produit.",
         "placeholder": "portal"
       },
+      "insecure-registry": {
+        "source": "config",
+        "key": "registry.insecure"
+      },
       "reg-project": {
         "source": "config",
         "key": "registry.project"
@@ -100,6 +104,10 @@
         "source": "input",
         "required": true,
         "suggest": "image-name"
+      },
+      "insecure-registry": {
+        "source": "config",
+        "key": "registry.insecure"
       },
       "new-tag": {
         "source": "input",

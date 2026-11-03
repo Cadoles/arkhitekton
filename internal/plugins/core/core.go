@@ -33,8 +33,9 @@ func build() capability.Pipeline {
 			PipelineRef: "build-image",
 			Produces:    []capability.Product{capability.ProductImage},
 			Params: map[string]capability.Param{
-				"repo-url":    {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"},
-				"reg-project": {Source: capability.ParamBinding, DefaultKey: "registry.project"},
+				"repo-url":          {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"},
+				"reg-project":       {Source: capability.ParamBinding, DefaultKey: "registry.project"},
+				"insecure-registry": {Source: capability.ParamBinding, DefaultKey: "registry.insecure"},
 				"dockerfile": {
 					Source: capability.ParamInput, Label: "Dockerfile",
 					Help: "Chemin du fichier qui construit cette image, depuis la racine du dépôt. " +
@@ -86,10 +87,11 @@ func retag() capability.Pipeline {
 			Produces:    []capability.Product{capability.ProductImage},
 			Exclusive:   true,
 			Params: map[string]capability.Param{
-				"reg-project": {Source: capability.ParamBinding, DefaultKey: "registry.project"},
-				"image-name":  {Source: capability.ParamInput, Required: true, Suggest: "image-name"},
-				"old-tag":     {Source: capability.ParamInput, Required: true, Suggest: "release-tag"},
-				"new-tag":     {Source: capability.ParamInput, Required: true, Suggest: "release-tag"},
+				"reg-project":       {Source: capability.ParamBinding, DefaultKey: "registry.project"},
+				"insecure-registry": {Source: capability.ParamBinding, DefaultKey: "registry.insecure"},
+				"image-name":        {Source: capability.ParamInput, Required: true, Suggest: "image-name"},
+				"old-tag":           {Source: capability.ParamInput, Required: true, Suggest: "release-tag"},
+				"new-tag":           {Source: capability.ParamInput, Required: true, Suggest: "release-tag"},
 			},
 			Workspaces: []capability.Workspace{
 				{Name: "dockerconfig", Need: capability.NeedRegistryPush},

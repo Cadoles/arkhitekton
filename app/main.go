@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -839,6 +840,7 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		// just like the application.
 		"forge.tekton.repoUrl": os.Getenv("FORGE_TEKTON_REPO_URL"),
 		"registry.project":     cfg.Registry.Project,
+		"registry.insecure":    strconv.FormatBool(cfg.Registry.Insecure),
 		// The Dockerfile and the build context are no longer here: they describe a repository, each
 		// project carries its own in the database, and a release's plan already reads them there.
 		// They now serve only to **seed** a project, and `projectSeedDefaults` returns them for that.

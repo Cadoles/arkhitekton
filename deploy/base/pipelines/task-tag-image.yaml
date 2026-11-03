@@ -8,6 +8,10 @@ spec:
   params:
     - name: image-source
     - name: tag
+    - name: insecure
+      default: "false"
+      description: >
+        "true" for a registry served over plain HTTP: a local one, never a shared one.
   steps:
     - name: push-image-tar
       image: reg.cadoles.com/cnous-mse/go-containerregistry/crane/debug:v0.20.3
@@ -18,5 +22,8 @@ spec:
         mkdir ~/.docker || true
         cp $(workspaces.dockerconfig.path)/.dockerconfigjson ~/.docker/config.json
         
+        flags=""
+        if [ "$(params.insecure)" = "true" ]; then flags="--insecure"; fi
+
         echo "== TAG IMAGE ==================================="
-        crane tag $(params.image-source) $(params.tag)
+        crane tag ${flags} $(params.image-source) $(params.tag)

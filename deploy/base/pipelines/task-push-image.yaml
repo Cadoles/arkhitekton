@@ -9,6 +9,10 @@ spec:
   params:
     - name: image-tag
     - name: image-path
+    - name: insecure
+      default: "false"
+      description: >
+        "true" for a registry served over plain HTTP: a local one, never a shared one.
   steps:
     - name: push-image-tar
       image: reg.cadoles.com/cnous-mse/go-containerregistry/crane/debug:v0.20.3
@@ -25,13 +29,16 @@ spec:
           *) image_path="$(workspaces.source.path)/${image_path}" ;;
         esac
         
+        flags=""
+        if [ "$(params.insecure)" = "true" ]; then flags="--insecure"; fi
+
         echo "== PUSH IMAGE ==================================="
 
         max_iteration=5
 
         for i in $(seq 1 $max_iteration)
         do
-          crane push "${image_path}" $(params.image-tag)
+          crane push ${flags} "${image_path}" $(params.image-tag)
           result=$?
           if [[ $result -eq 0 ]]
           then
