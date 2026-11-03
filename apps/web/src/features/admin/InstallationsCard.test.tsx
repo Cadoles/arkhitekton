@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from '../../test/render'
 import { InstallationsCard } from './InstallationsCard'
-import type { Installation } from './installations'
+import type { Installation, PluginSource } from './installations'
 
 /*
  * Les plugins installés depuis un registre.
@@ -58,8 +58,9 @@ const unrecognised: Installation = {
   requested_at: '2026-10-30T09:00:00Z',
 }
 
-function serve(installations: Installation[]) {
+function serve(installations: Installation[], plugins: PluginSource[] = [], refuseFirstInstall = false) {
   const calls: { url: string; method: string; body?: string }[] = []
+  let refusing = refuseFirstInstall
   vi.stubGlobal(
     'fetch',
     vi.fn((url: string, init?: RequestInit) => {
@@ -69,12 +70,32 @@ function serve(installations: Installation[]) {
         body: init?.body as string | undefined,
       })
       if ((init?.method ?? 'GET') === 'GET') {
-        return Promise.resolve(new Response(JSON.stringify({ installations }), { status: 200 }))
+        return Promise.resolve(new Response(JSON.stringify({ installations, plugins }), { status: 200 }))
+      }
+      if (refusing && url.endsWith('/admin/plugins/installations')) {
+        refusing = false
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ status: 409, title: 'Plugin already installed', detail: 'gotest 1.0.0 is installed from this repository' }),
+            { status: 409 },
+          ),
+        )
       }
       return Promise.resolve(new Response(JSON.stringify({ id: 5, job: 9 }), { status: 202 }))
     }),
   )
   return calls
+}
+
+const following: PluginSource = {
+  plugin: 'gotest',
+  repository: 'reg.example/plugins/gotest',
+  pinned: false,
+  version: '1.0.0',
+  latest_version: '2.0.0',
+  update_available: true,
+  major: true,
+  checked_at: '2026-11-03T10:00:00Z',
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -122,6 +143,42 @@ describe('InstallationsCard', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Accepter la source' }))
     expect(calls.find((call) => call.method === 'POST')).toBeUndefined()
+  })
+
+  it('propose la mise à jour d\'un plugin qui suit son dépôt, avec ce qu\'elle remplace', async () => {
+    const calls = serve(installed, [following])
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<InstallationsCard />)
+
+    expect(await screen.findByText('Version 2.0.0 disponible')).toBeInTheDocument()
+    expect(screen.getByText('version majeure')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Mettre à jour' }))
+
+    expect(confirm.mock.calls.at(-1)?.[0]).toMatch(/1\.0\.0 sera retirée/)
+    const posted = calls.find((call) => call.method === 'POST')
+    expect(posted?.url).toBe('/api/v1/admin/plugins/gotest/update')
+  })
+
+  it('signale une version plus récente sans la proposer pour un plugin épinglé', async () => {
+    serve(installed, [{ ...following, pinned: true }])
+    render(<InstallationsCard />)
+
+    expect(await screen.findByText(/est épinglé à 1\.0\.0/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Mettre à jour' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Suivre le dépôt' })).toBeInTheDocument()
+  })
+
+  it('demande comment installer une autre version d\'un plugin déjà installé', async () => {
+    const calls = serve(installed, [{ ...following, pinned: true }], true)
+    render(<InstallationsCard />)
+
+    await userEvent.type(await screen.findByLabelText('Référence du plugin'), 'reg.example/plugins/gotest@sha256:ee')
+    await userEvent.click(screen.getByRole('button', { name: 'Installer' }))
+    await userEvent.click(await screen.findByRole('button', { name: "Mettre à jour l'existant" }))
+
+    const posted = calls.filter((call) => call.method === 'POST')
+    expect(posted).toHaveLength(2)
+    expect(JSON.parse(posted[1]?.body ?? '{}')).toEqual({ reference: 'reg.example/plugins/gotest@sha256:ee', mode: 'update' })
   })
 
   it('demande une installation par sa référence', async () => {
