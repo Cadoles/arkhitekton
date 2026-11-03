@@ -160,10 +160,12 @@ metadata: {name: portal}
 spec:
   repository: team/portal
   stack: php
+  versionFile: version.txt      # committed with the tag on the branch a release builds
   plugins:
     mse: {config: {deployer: flux}}
   pipelines: {mse/e2e-tests: false}
   releaseAutomation:
+    statuses: true              # each pipeline reported on the release's commit
     stages: [{role: build, gestes: [{kind: pipeline, ref: core/build}]}]
   schedules:
     - name: Integration

@@ -70,6 +70,11 @@ A capability declares every Tekton parameter it takes, and where its value comes
 | `input` | Provided when the run is launched, by a human or by an automation |
 | `literal` | A fixed value |
 
+A `binding` parameter declared `overridable: true` takes a step's value when the step supplies a
+non-empty one, and its key's otherwise: an integration test deploying the branch a pull request
+names, for instance. Only such a parameter: a repository, a secret's name or a literal value never
+come from a step.
+
 The catalogue only rebinds `binding` parameters to another key:
 
 ```yaml
@@ -88,6 +93,7 @@ what lets an automation fill a parameter with nobody typing. It never constrains
 |---|---|
 | `project.repoUrl` | Clone URL of the job's project, built from its forge and repository |
 | `registry.project` | Registry repository prefix |
+| `registry.insecure` | `true` when that registry is served over plain HTTP (`PIPELINE_INSECURE_REGISTRY`) |
 | `project.deployKeySecret` | Name of the secret holding the project's own deploy key: it opens the project's repository and nothing else |
 | `pipeline.gitSecret` | Name of the secret holding the deployment's git credentials, for a repository that is not the project's |
 | `pipeline.registrySecret` | Name of the secret holding registry credentials |

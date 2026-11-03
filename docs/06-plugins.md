@@ -297,14 +297,25 @@ a closing or a merge shows within seconds rather than at the next minute.
 
 What changes becomes a **core fact**, like `version.created`: `pull_request.opened`,
 `pull_request.synchronized` (the head moved), `pull_request.closed` (without merging),
-`pull_request.merged` and `pull_request.reopened`. They carry `number`, `title`, `author`,
-`source_branch`, `target_branch`, `url`, `pull_request_id`, and the three keys a release's plan reads
+`pull_request.merged`, `pull_request.reopened` and `pull_request.ready` (no longer a draft). They
+carry `number`, `title`, `author`, `source_branch`, `target_branch`, `url`, `pull_request_id`,
+`draft` (`true` or `false`: a reaction matches `draft: "false"` to leave drafts alone), one
+`trailer.<key>` for each `Key: value` line of the request's description (`mse-kustom: feature/x`
+gives `trailer.mse-kustom`, keys lowercased), and the three keys a release's plan reads
 its subject from: `revision` (the head), `tag` (`pr-<number>-<commit>`) and `registry`. A plan a
 reaction opens on one of them therefore builds and tests the head as a release's plan builds the
 release, and its jobs, results and artifacts belong to the request. `synchronized` carries the head
 in its key, so a reaction on it runs again at each push. The first pass of a project imports its
 requests without a fact. The Gitea plugin's own `gitea.pull_request.opened` remains for the
 reactions that use it; it carries no head.
+
+The Gitea plugin's actions: `gitea.status` (a commit status), `gitea.comment` (a comment on a
+pull request; with a `marker`, the comment the plugin's account posted with that marker is edited
+rather than a new one added, which keeps one summary up to date at each push) and `gitea.release`
+(a release on a tag already set, marked pre-release on request; one already published on that tag
+is left as it is). Its writer also commits a file (a release's version file) and sets the statuses
+a plan asks for. The `rocketchat` plugin's `rocketchat.message` posts to the channel of an incoming
+webhook, whose address, carrying its token, is a sensitive setting of the instance or the project.
 
 An **executor** carries out the actions a plugin declares. The dashboard resolves the plugin's
 settings, refuses when it is switched off for the project, interpolates the parameters and
@@ -361,6 +372,33 @@ something to say about "deployed".
 An event declares the shape of its payload; an action declares the fields it takes, any
 of which may be a template filled from the event that triggered it. Together they are what
 makes a plugin reachable from the automation screen without the core knowing what it does.
+
+**Plans.** A plan is a list of stages; a stage's steps run together, the next stage starts once
+it has settled. A step's `when` is `success` (the default: no earlier stage failed), `failure` (an
+earlier stage failed) or `always`. A stage skipped entirely failed nothing but hides no earlier
+failure: tests skipped after a failed build leave a later `success` step put. Every stage runs in
+the worker, actions included, a release's plan too.
+
+A plan with `statuses: true` has each of its pipeline steps reported on the commit it bears on
+(the release's, or the request's head) through the project's forge: `pending` when it starts,
+then `success` or `failure`, under the context `arkhitekton/<step>` and with a link to the release
+or the request on the dashboard.
+
+A template reads `{name}`, or `{name|default}` with a default, possibly empty, when the variable is
+unknown. Besides the fact's payload and `{artifacts.<step>.<name>}`, a run reads:
+
+| Variable | Value |
+|---|---|
+| `steps.<step>.state` | `pending`, `running`, `succeeded`, `failed`, `skipped` |
+| `plan.summary` | a Markdown table of the plan's pipelines and their state |
+| `pull_request.url` | the request's page on the dashboard |
+| `release.url` | the release's page on the dashboard |
+| `release.notes` | the release's issues, one Markdown line each, linked to the tracker |
+| `release.images` | the images its automation published, one Markdown line each |
+| `release.prerelease` | `true` for a pre-release tag |
+
+The `release.*` variables need a run bearing on a release: a release's plan, or a reaction to a
+fact whose `release_id` names a release of its project (`mse.release.promoted`, for instance).
 
 ## 6.9 Modules
 
