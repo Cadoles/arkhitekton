@@ -24,6 +24,7 @@ type ExportStore interface {
 	PluginSettingsAll(ctx context.Context) (map[string]store.PluginSettings, error)
 	ProjectPluginSettings(ctx context.Context, projectID int64) (map[string]store.PluginSettings, error)
 	PluginInstallations(ctx context.Context) ([]store.PluginInstallation, error)
+	PluginSources(ctx context.Context) ([]store.PluginSource, error)
 	AcceptedSources(ctx context.Context) ([]string, error)
 	QueueLimits(ctx context.Context) (map[string]int, error)
 	CapabilityBindings(ctx context.Context) ([]store.CapabilityBinding, error)
@@ -99,6 +100,16 @@ func (e Exporter) instance(ctx context.Context, out *Exported, secrets map[strin
 	if err != nil {
 		return nil, err
 	}
+	sources, err := e.Store.PluginSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	following := map[string]string{}
+	for _, source := range sources {
+		if !source.Pinned {
+			following[source.PluginID] = source.Repository
+		}
+	}
 	installed := map[string]store.PluginInstallation{}
 	for _, installation := range installations {
 		if installation.Active && installation.State == store.InstallationInstalled {
@@ -127,9 +138,13 @@ func (e Exporter) instance(ctx context.Context, out *Exported, secrets map[strin
 			Config:  exportConfig(descriptor, plugin.ScopeGlobal, entry.Config, secretName("", id), secrets),
 		}
 		if installation, ok := installed[id]; ok {
-			declared.Install = &configfile.Install{
-				Reference: installation.Reference, AcceptSource: slices.Contains(accepted, id),
+			// A plugin following its repository is written as the repository: applying the file again
+			// keeps it following rather than pinning it to today's version.
+			reference := installation.Reference
+			if repository, follows := following[id]; follows {
+				reference = repository
 			}
+			declared.Install = &configfile.Install{Reference: reference, AcceptSource: slices.Contains(accepted, id)}
 		}
 		// A plugin left as the dashboard seeds it says nothing: writing it would only make the
 		// file longer and tie it to this binary's set of plugins.

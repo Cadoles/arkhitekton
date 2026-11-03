@@ -147,9 +147,15 @@ func (p *planner) instance(desired configfile.Instance, current *configfile.Inst
 	for _, id := range sortedKeys(desired.Plugins) {
 		entry := desired.Plugins[id]
 		if entry.Install != nil {
-			reference, _, _ := installed.Pinned(entry.Install.Reference)
+			// Installed from the declared repository, the plugin's settings can be checked: whether it
+			// follows or is pinned changes nothing of them.
+			wanted, _ := installed.ParseSource(entry.Install.Reference)
 			active := current.Plugins[id].Install
-			if active == nil || active.Reference != reference {
+			var running installed.Source
+			if active != nil {
+				running, _ = installed.ParseSource(active.Reference)
+			}
+			if active == nil || running.Repository != wanted.Repository {
 				// Installed by the Installer before this plan is computed; reaching here is a dry run.
 				p.warn("plugin %s: its settings are checked once %s is installed", id, entry.Install.Reference)
 				continue
