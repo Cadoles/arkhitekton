@@ -64,10 +64,10 @@ async function openAndSubmit(calls: Call[], suggestions: Record<string, string>)
   await user.click(await screen.findByRole('button', { name: /créer une release/i }))
   // La nature n'est **pas** cliquée : c'est tout le sujet. L'écran en montre une
   // cochée, et c'est elle qui doit partir.
+  await user.click(await screen.findByRole('button', { name: /^créer le brouillon$/i }))
+  // La confirmation est une étape à part, et son bouton porte un autre nom : le
+  // formulaire et la boîte de dialogue sont alors tous deux à l'écran.
   await user.click(await screen.findByRole('button', { name: /^créer$/i }))
-  // La confirmation est une étape à part : créer une release met un re-tag en
-  // file vers le registre, action sortante que l'interface fait confirmer.
-  await user.click(await screen.findByRole('button', { name: /créer la release/i }))
 
   await waitFor(() => {
     expect(calls.some((call) => call.method === 'POST')).toBe(true)

@@ -66,6 +66,17 @@
           }
         },
         {
+          "id": "core.draft",
+          "component": "core/release-draft",
+          "when": [
+            {
+              "field": "release.state",
+              "equals": "draft"
+            }
+          ],
+          "permission": "release:create"
+        },
+        {
           "id": "core.rebuild",
           "component": "core/release-rebuild",
           "when": [

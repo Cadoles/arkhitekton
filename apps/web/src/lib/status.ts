@@ -80,7 +80,7 @@ const BENCH: Record<BenchStatus, StatusStyle> = {
  * qui n'est qu'un travail en cours.
  */
 const RELEASE: Record<ReleaseState, StatusStyle> = {
-  draft: { label: 'Créée', icon: 'doc', text: 'text-zinc-600', bg: 'bg-zinc-50', border: 'border-zinc-300' },
+  draft: { label: 'Brouillon', icon: 'doc', text: 'text-zinc-600', bg: 'bg-zinc-50', border: 'border-zinc-300' },
   building: { label: 'Construction en cours', icon: 'cog', text: 'text-zinc-600', bg: 'bg-zinc-50', border: 'border-zinc-300' },
   verifying: { label: 'Tests en cours', icon: 'beaker', text: 'text-zinc-600', bg: 'bg-zinc-50', border: 'border-zinc-300' },
   ready: { label: 'Décision en attente', icon: 'alert', text: 'text-warn-700', bg: 'bg-warn-50', border: 'border-warn-500' },

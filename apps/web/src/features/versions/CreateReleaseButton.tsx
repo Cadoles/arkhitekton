@@ -350,7 +350,7 @@ export function CreateReleaseButton({
               }
                 className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Créer
+                Créer le brouillon
               </button>
               <button
                 type="button"
@@ -372,14 +372,15 @@ export function CreateReleaseButton({
           {create.isSuccess && (
             <div className="mt-3 border-t border-zinc-200 pt-3 text-sm">
               <p className="text-healthy-700">
-                Release{' '}
+                Brouillon{' '}
                 <Link
                   to={projectPath(`/releases/${encodeURIComponent(create.data.release.tag)}`)}
                   className="font-mono font-medium hover:underline"
                 >
                   {create.data.release.tag}
                 </Link>{' '}
-                créée.
+                créé. Rien n&apos;est lancé : rattachez-lui ses tickets, puis lancez-le depuis
+                son écran.
               </p>
               {/* Les réserves du serveur : la création a réussi malgré elles, et
                   les taire ferait croire à un succès sans condition. */}
@@ -396,12 +397,10 @@ export function CreateReleaseButton({
 
       {confirming && (
         <ConfirmDialog
-          title={`Créer la release ${tag.trim()}`}
-          confirmLabel="Créer la release"
-          // La ressaisie pour ce qui engage une livraison : une finale ou un patch
-          // met un re-tag en file vers le registre — action sortante (doc 08 §8.5).
-          // Une pré-release ne crée qu'un brouillon local : confirmation simple.
-          challenge={buildMode ? undefined : tag.trim()}
+          title={`Créer le brouillon ${tag.trim()}`}
+          confirmLabel="Créer"
+          // Un brouillon ne sort rien du dashboard : la ressaisie du tag est
+          // demandée au lancement, qui met en file la construction ou le re-tag.
           onConfirm={submit}
           onCancel={() => setConfirming(false)}
           pending={create.isPending}
