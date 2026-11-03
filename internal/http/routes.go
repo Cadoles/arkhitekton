@@ -95,6 +95,15 @@ func NewAPIRouter(
 	mux.Handle("POST /projects/{project}/releases", Chain(http.HandlerFunc(releases.Create),
 		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseCreate)))
 
+	// A draft is launched, edited or deleted by whoever may create it. Its kind may require
+	// more for launching and deleting, which the handler checks as creation does.
+	mux.Handle("POST /projects/{project}/releases/{tag}/launch", Chain(http.HandlerFunc(releases.Launch),
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseCreate)))
+	mux.Handle("PUT /projects/{project}/releases/{tag}/draft", Chain(http.HandlerFunc(releases.UpdateDraft),
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseCreate)))
+	mux.Handle("DELETE /projects/{project}/releases/{tag}", Chain(http.HandlerFunc(releases.DeleteDraft),
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseCreate)))
+
 	// Approving a release commits what will reach the user: the same permission as producing
 	// a final release, and not `release:edit`. It is also the only transition nothing
 	// automates — a green pipeline says the code works, not that anyone wants to ship it.
@@ -121,6 +130,8 @@ func NewAPIRouter(
 	mux.Handle("POST /projects/{project}/releases/{tag}/notes/{issue}", Chain(http.HandlerFunc(releases.AddNote),
 		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 	mux.Handle("DELETE /projects/{project}/releases/{tag}/notes/{issue}", Chain(http.HandlerFunc(releases.RemoveNote),
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
+	mux.Handle("POST /projects/{project}/releases/{tag}/notes/detect", Chain(http.HandlerFunc(releases.DetectNotes),
 		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 
 	// The manual actions are editable by those who produce the deliverable, not only by

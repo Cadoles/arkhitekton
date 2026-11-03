@@ -29,6 +29,10 @@ type ReleaseStore interface {
 	EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error)
 	CreateRelease(ctx context.Context, release store.Release) (int64, error)
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
+	GetReleaseByID(ctx context.Context, id int64) (store.Release, error)
+	LaunchRelease(ctx context.Context, id int64, to, commit, actor string) error
+	UpdateDraftRelease(ctx context.Context, id int64, gitRef string) error
+	DeleteDraftRelease(ctx context.Context, id int64) error
 	ListReleases(ctx context.Context, projectID int64, limit int) ([]store.Release, error)
 	SetManualActions(ctx context.Context, tag, markdown, author string) error
 	ListReleaseJobs(ctx context.Context, releaseID int64) ([]store.ReleaseJob, error)
@@ -266,6 +270,8 @@ type releasePayload struct {
 	SourceTag  string              `json:"source_tag,omitempty"`
 	CreatedBy  string              `json:"created_by"`
 	CreatedAt  time.Time           `json:"created_at"`
+	LaunchedBy string              `json:"launched_by,omitempty"`
+	LaunchedAt *time.Time          `json:"launched_at,omitempty"`
 	ReleasedAt *time.Time          `json:"released_at,omitempty"`
 	Promotions []promotionPayload  `json:"promotions,omitempty"`
 	Jobs       []releaseJobPayload `json:"jobs,omitempty"`
@@ -358,6 +364,7 @@ func toReleasePayload(release store.Release, sourceTag string, who actors) relea
 		GitCommit: release.GitCommit, SourceTag: sourceTag,
 		CreatedBy: who.name(release.CreatedBy),
 		CreatedAt: release.CreatedAt, ReleasedAt: release.ReleasedAt,
+		LaunchedBy: who.name(release.LaunchedBy), LaunchedAt: release.LaunchedAt,
 	}
 }
 
@@ -478,7 +485,13 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	who := h.actorsFor(r.Context())
-	payload := toReleasePayload(item, "", who)
+	sourceTag := ""
+	if item.SourceReleaseID != nil {
+		if source, err := h.store.GetReleaseByID(r.Context(), *item.SourceReleaseID); err == nil {
+			sourceTag = source.Tag
+		}
+	}
+	payload := toReleasePayload(item, sourceTag, who)
 
 	promotions, err := h.releasePromotions(r.Context(), currentID, item.ID)
 	if err != nil {
@@ -619,27 +632,27 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		// translated every database error into a conflict, and the message sent someone
 		// looking for a duplicate.
 		ProjectID: project.ID,
-		Tag:       parsed.Raw, Kind: spec.ID, GitRef: request.GitRef,
+		Tag:       parsed.Raw, Kind: spec.ID, GitRef: strings.TrimSpace(request.GitRef),
+		// Every release starts as a draft: nothing leaves until it is launched, which leaves
+		// time to attach issues to it.
+		State:     string(release.StateDraft),
 		CreatedBy: identity.Subject,
 	}
 	var warnings []string
 
 	if spec.Mode == release.ModeBuild {
-		// The image does not exist yet: it will carry the tag itself, and the build pipeline
-		// is what moves the release to `ready`.
+		// The image does not exist yet: it will carry the tag itself.
 		//
 		// The branch is on the mode and not on a kind's name. That is what made two kinds ask
 		// for two branches for a single behaviour — building from code — and a fourth kind
 		// would have asked for a third.
-		record.State = string(release.StateDraft)
 		record.ImageVersion = parsed.Raw
-	} else {
-		currentID, ok := requestProject(w, r, h.store)
-		if !ok {
-			return
+		if record.GitRef == "" {
+			warnings = append(warnings,
+				"the draft names no Git reference: give it one before launching it")
 		}
-
-		source, err := h.store.GetRelease(r.Context(), currentID, request.SourceTag)
+	} else {
+		source, err := h.store.GetRelease(r.Context(), project.ID, request.SourceTag)
 		if err != nil {
 			if errors.Is(err, store.ErrReleaseNotFound) {
 				writeProblem(w, http.StatusBadRequest,
@@ -650,6 +663,8 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Checked as soon as the draft is created, and again at launch: the source may be
+		// cancelled meanwhile.
 		imageVersion, sourceWarnings, err := release.FinalFromSource(release.Source{
 			Tag:          source.Tag,
 			ImageVersion: source.ImageVersion,
@@ -660,55 +675,13 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusBadRequest, "Cannot re-tag", err.Error())
 			return
 		}
-
-		// Re-tag: the image is already built and approved, so the release is promotable
-		// immediately. That is the whole point of the procedure — what goes to production is
-		// bit for bit what was tested.
-		record.State = string(release.StateReady)
 		record.ImageVersion = imageVersion
 		record.SourceReleaseID = &source.ID
 		warnings = sourceWarnings
 	}
 
-	// Anchoring on a commit, then setting the tag.
-	//
-	// The order matters: the reference is resolved into a commit before the release is
-	// created, so that what is recorded names an immutable point. Setting the tag
-	// afterwards gives that point a name readable in the forge.
-	//
-	// Both are optional and say so: with no forge configured, or no token able to write,
-	// the release still exists — with a caveat. Refusing the creation would deny the whole
-	// chain for an anchor that can be added afterwards.
-	//
-	// `tagged` is a local variable and not a handler field: the handler is shared by every
-	// request, and two simultaneous creations would read each other's flag.
-	//
-	// The mode and not the name: only a kind that builds starts from a git reference, and
-	// it is the one that deserves a tag and an anchoring commit.
-	if spec.Mode == release.ModeBuild {
-		commit, resolveWarnings := h.anchorCommit(r.Context(), project.ID, request.GitRef)
-		record.GitCommit = commit
-		warnings = append(warnings, resolveWarnings...)
-
-		if commit != "" {
-			// The tag is set for humans and for traceability; the build starts from the commit.
-			// Its failure is therefore a caveat and does not prevent building.
-			_, tagWarnings := h.tagRelease(r.Context(), project.ID, parsed.Raw, commit)
-			warnings = append(warnings, tagWarnings...)
-		}
-	}
-
-	currentID := project.ID
-
-	// The version line, when the scheme knows it. On an opaque scheme it is empty, and
-	// the whole tag then serves as the name: it is what the project wrote, and inventing
-	// one would be worse than reusing it.
-	line := parsed.Base
-	if line == "" {
-		line = parsed.Raw
-	}
-
-	versionID, err := h.store.EnsureVersion(r.Context(), currentID, line)
+	line := versionLine(parsed)
+	versionID, err := h.store.EnsureVersion(r.Context(), project.ID, line)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Version unavailable", "")
 		return
@@ -738,95 +711,326 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// everything that follows names the release by an identifier that does not exist.
 	// Observed in production: opening the plan failed on the release foreign key, with a
 	// fact key ending in `:0`, and the release stayed a draft with no build leaving.
-	//
-	// The earlier enqueue took the release id as an explicit parameter, which hid the
-	// trap. Fixed here rather than in every caller: there is only one place where the
-	// identifier becomes known.
 	record.ID = releaseID
 
 	h.audit(r, store.AuditReleaseCreate, record.Tag, map[string]any{
 		"kind": record.Kind, "image_version": record.ImageVersion, "source": request.SourceTag,
 	})
-	// The first fact of a release's life. Emitted as soon as it is inserted, before the
-	// enqueues that follow: those can fail without the release ceasing to exist, and a
-	// fact waiting for their success would miss precisely the creations that went wrong.
-	h.emit(r, event.ReleaseCreatedAt(
-		time.Now(), currentID, releaseID,
+	h.emit(r, event.ReleaseDraftedAt(
+		time.Now(), project.ID, releaseID,
 		record.Tag, record.Kind, record.GitRef, line))
 
-	who := h.actorsFor(r.Context())
-	response := map[string]any{
-		"release": toReleasePayload(record, request.SourceTag, who), "warnings": warnings,
-	}
-
-	// A built release chains onto the build pipeline. Without that chaining it stayed
-	// `draft` indefinitely: the pipeline existed in the cluster, but nothing triggered
-	// it, and the screen showed a draft nobody knew how to advance.
-	if record.State == string(release.StateDraft) && spec.Mode == release.ModeBuild {
-		// Never from a branch when the commit is known: rebuilding the same release six
-		// months later must produce the same image.
-		buildRef := buildReference(record, request.GitRef)
-		// The release's plan, and no longer a loop over its targets.
-		//
-		// The same thing leaves — one job per image — but it leaves as a stage of a plan whose
-		// next stage chains the verifications. The round trip through a `release.built` fact,
-		// which joined this loop to a second one in the observer, goes with it.
-		started := 0
-		if h.plans != nil {
-			started = h.plans.OpenReleasePlan(r.Context(), project, record, buildRef)
-		}
-		switch {
-		case started == 0:
-			// Nothing left. The release is created: say so, rather than suggest a creation
-			// failure — and do not announce it as building, which it is not.
-			warnings = append(warnings,
-				"the release is created but no build could be queued")
-			response["warnings"] = warnings
-		default:
-			response["build_jobs"] = started
-			// The state follows the enqueue and not the end of the pipeline: `building` means
-			// "build requested", which is exactly what is known at that instant.
-			if err := h.store.SetReleaseState(r.Context(), releaseID, string(release.StateBuilding)); err != nil {
-				warnings = append(warnings,
-					"build queued, but the release's state could not be advanced")
-				response["warnings"] = warnings
-			} else {
-				record.State = string(release.StateBuilding)
-				response["release"] = toReleasePayload(record, request.SourceTag, who)
-			}
-		}
-	}
-
-	// The release note is composed in the background: detection queries up to two hundred
-	// pull requests, and doing it here would have made the user wait in front of their
-	// form. Its failure does not call the creation into
-	if _, err := h.store.Enqueue(r.Context(), store.JobRequest{
-		Kind:        ReleaseNotesJobKind,
-		Params:      map[string]string{},
-		RequestedBy: identity.Subject,
-		ReleaseID:   &releaseID,
-	}); err != nil {
+	// The release note is detected on the draft: what it finds is a proposal, completed or
+	// corrected by hand before the launch. In the background, since detection queries up
+	// to two hundred pull requests.
+	if err := h.enqueueNoteDetection(r.Context(), releaseID, identity.Subject); err != nil {
 		warnings = append(warnings,
 			"the release note could not be queued: "+err.Error())
-		response["warnings"] = warnings
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"release":  toReleasePayload(record, request.SourceTag, h.actorsFor(r.Context())),
+		"warnings": warnings,
+	})
+}
+
+// versionLine is the version line of a tag, when the scheme knows it. On an opaque scheme it
+// is empty, and the whole tag then serves as the name: it is what the project wrote, and
+// inventing one would be worse than reusing it.
+func versionLine(parsed version.Version) string {
+	if parsed.Base == "" {
+		return parsed.Raw
+	}
+	return parsed.Base
+}
+
+func (h *ReleasesHandler) enqueueNoteDetection(ctx context.Context, releaseID int64, actor string) error {
+	_, err := h.store.Enqueue(ctx, store.JobRequest{
+		Kind:        ReleaseNotesJobKind,
+		Params:      map[string]string{},
+		RequestedBy: actor,
+		ReleaseID:   &releaseID,
+	})
+	return err
+}
+
+// draft reads the release a draft route names, and refuses one that is no longer a draft.
+func (h *ReleasesHandler) draft(w http.ResponseWriter, r *http.Request, project store.Project) (store.Release, bool) {
+	tag := r.PathValue("tag")
+	record, err := h.store.GetRelease(r.Context(), project.ID, tag)
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release not found", tag)
+			return record, false
+		}
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
+		return record, false
+	}
+	if record.State != string(release.StateDraft) {
+		writeProblem(w, http.StatusConflict, "Not a draft",
+			fmt.Sprintf("release %q is in state %q: it was launched already", tag, record.State))
+		return record, false
+	}
+	return record, true
+}
+
+// kindAllowed checks the permission the release's kind declares, as creation does.
+func (h *ReleasesHandler) kindAllowed(
+	w http.ResponseWriter, identity auth.Identity, project store.Project, record store.Release,
+) (release.KindSpec, bool) {
+	spec, err := project.ReleaseKinds.Find(record.Kind)
+	if err != nil {
+		writeProblem(w, http.StatusConflict, "Unknown release kind", err.Error())
+		return spec, false
+	}
+	if spec.Permission != "" && !h.authorizer.Can(identity, auth.Permission(spec.Permission)) {
+		writeProblem(w, http.StatusForbidden, "Insufficient permission",
+			fmt.Sprintf("a %q release requires the %q permission", spec.ID, spec.Permission))
+		return spec, false
+	}
+	return spec, true
+}
+
+// Launch launches a draft: what follows a release leaves now, and only now.
+//
+// A built release is anchored on the commit its reference names at this instant, tagged, then
+// its plan opens. A re-tag goes to `ready` and its re-tag is queued. Both emit
+// `release.created`, the fact the reactions listen to.
+func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
+		return
+	}
+	project, err := requestProjectRecord(w, r, h.store)
+	if err != nil {
+		return
+	}
+	record, ok := h.draft(w, r, project)
+	if !ok {
+		return
+	}
+	spec, ok := h.kindAllowed(w, identity, project, record)
+	if !ok {
+		return
+	}
+	scheme, err := version.For(project.VersionScheme)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Unreadable version scheme", "")
+		return
+	}
+	parsed, err := scheme.Parse(record.Tag)
+	if err != nil {
+		writeProblem(w, http.StatusConflict, "Invalid tag", err.Error())
+		return
+	}
+
+	var warnings []string
+	to := release.StateBuilding
+	sourceTag := ""
+	if spec.Mode == release.ModeBuild {
+		// Nothing builds without a reference: the plan would refuse it, and the release would
+		// fail for a reason the draft could still fix.
+		if record.GitRef == "" {
+			writeProblem(w, http.StatusUnprocessableEntity, "Cannot launch",
+				"the draft names no Git reference to build")
+			return
+		}
+		// Anchoring on a commit before the launch is recorded, so that what is recorded names
+		// an immutable point. Optional and said so: with no forge configured, the release
+		// still launches, with a caveat.
+		commit, resolveWarnings := h.anchorCommit(r.Context(), project.ID, record.GitRef)
+		record.GitCommit = commit
+		warnings = append(warnings, resolveWarnings...)
+	} else {
+		to = release.StateReady
+		if record.SourceReleaseID == nil {
+			writeProblem(w, http.StatusConflict, "Cannot re-tag", release.ErrSourceRequired.Error())
+			return
+		}
+		source, err := h.store.GetReleaseByID(r.Context(), *record.SourceReleaseID)
+		if err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the source", "")
+			return
+		}
+		// The candidate's results were flagged when the draft was created: the check here is
+		// that it is still approved.
+		if _, _, err := release.FinalFromSource(release.Source{
+			Tag: source.Tag, ImageVersion: source.ImageVersion,
+			State: release.State(source.State), TestsGreen: true,
+		}); err != nil {
+			writeProblem(w, http.StatusConflict, "Cannot re-tag", err.Error())
+			return
+		}
+		sourceTag = source.Tag
+	}
+
+	switch err := h.store.LaunchRelease(r.Context(), record.ID, string(to), record.GitCommit, identity.Subject); {
+	case errors.Is(err, store.ErrNotADraft):
+		writeProblem(w, http.StatusConflict, "Not a draft",
+			"the release was launched or deleted in the meantime, reload the page")
+		return
+	case err != nil:
+		writeProblem(w, http.StatusInternalServerError, "Cannot launch", "")
+		return
+	}
+	now := time.Now()
+	record.State, record.LaunchedBy, record.LaunchedAt = string(to), identity.Subject, &now
+
+	if spec.Mode == release.ModeBuild && record.GitCommit != "" {
+		// The tag is set for humans and for traceability; the build starts from the commit.
+		// Its failure is therefore a caveat and does not prevent building.
+		_, tagWarnings := h.tagRelease(r.Context(), project.ID, record.Tag, record.GitCommit)
+		warnings = append(warnings, tagWarnings...)
+	}
+
+	h.audit(r, store.AuditReleaseLaunch, record.Tag, map[string]any{
+		"kind": record.Kind, "git_ref": record.GitRef, "git_commit": record.GitCommit,
+	})
+	// Emitted as soon as the launch is recorded, before the enqueues that follow: those can
+	// fail without the launch being undone, and a fact waiting for their success would miss
+	// precisely the launches that went wrong.
+	h.emit(r, event.ReleaseCreatedAt(
+		now, project.ID, record.ID, record.Tag, record.Kind, record.GitRef, versionLine(parsed)))
+
+	response := map[string]any{}
+	if spec.Mode == release.ModeBuild {
+		// Never from a branch when the commit is known: rebuilding the same release six
+		// months later must produce the same image.
+		started := 0
+		if h.plans != nil {
+			started = h.plans.OpenReleasePlan(r.Context(), project, record, buildReference(record, record.GitRef))
+		}
+		if started == 0 {
+			// Nothing left: the release says so by failing, and "Rebuild" relaunches it. Left
+			// `building`, it would wait for a pipeline that never comes.
+			warnings = append(warnings, "the release is launched but no build could be queued")
+			if err := h.store.SetReleaseState(r.Context(), record.ID, string(release.StateFailed)); err == nil {
+				record.State = string(release.StateFailed)
+			}
+		} else {
+			response["build_jobs"] = started
+		}
 	}
 
 	// A final release must exist under its own tag in the registry, not only under its
 	// candidate's. Without that re-tag, the final tag names nothing: no image policy can
 	// select it, and the release is promotable nowhere although its image is ready.
 	if record.ImageVersion != record.Tag {
-		jobIDs, err := h.enqueueRetag(r.Context(), currentID, releaseID, record, identity.Subject)
+		jobIDs, err := h.enqueueRetag(r.Context(), project.ID, record.ID, record, identity.Subject)
 		if err != nil {
-			// The release is created: say so, rather than suggest a creation failure. The re-tag
-			// can be run again.
-			response["warnings"] = append(warnings,
-				"the release is created but the re-tag to its own tag could not be queued")
+			// The release is launched: say so, rather than suggest a failure. The re-tag can be
+			// run again.
+			warnings = append(warnings,
+				"the release is launched but the re-tag to its own tag could not be queued")
 		} else {
 			response["retag_job_ids"] = jobIDs
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, response)
+	response["release"] = toReleasePayload(record, sourceTag, h.actorsFor(r.Context()))
+	response["warnings"] = warnings
+	writeJSON(w, http.StatusOK, response)
+}
+
+type updateDraftRequest struct {
+	GitRef string `json:"git_ref"`
+}
+
+// UpdateDraft changes the Git reference a draft will build. The tag and the kind do not
+// change: deleting the draft and creating another says the same thing more plainly.
+func (h *ReleasesHandler) UpdateDraft(w http.ResponseWriter, r *http.Request) {
+	project, err := requestProjectRecord(w, r, h.store)
+	if err != nil {
+		return
+	}
+	var request updateDraftRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
+		return
+	}
+	record, ok := h.draft(w, r, project)
+	if !ok {
+		return
+	}
+	if spec, err := project.ReleaseKinds.Find(record.Kind); err == nil && spec.Mode != release.ModeBuild {
+		writeProblem(w, http.StatusConflict, "Nothing to edit",
+			fmt.Sprintf("a %q release takes its source's image: it names no Git reference", spec.ID))
+		return
+	}
+
+	record.GitRef = strings.TrimSpace(request.GitRef)
+	switch err := h.store.UpdateDraftRelease(r.Context(), record.ID, record.GitRef); {
+	case errors.Is(err, store.ErrNotADraft):
+		writeProblem(w, http.StatusConflict, "Not a draft",
+			"the release was launched or deleted in the meantime, reload the page")
+		return
+	case err != nil:
+		writeProblem(w, http.StatusInternalServerError, "Cannot save", "")
+		return
+	}
+	h.audit(r, store.AuditReleaseDraftUpdate, record.Tag, map[string]any{"git_ref": record.GitRef})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"release": toReleasePayload(record, "", h.actorsFor(r.Context())),
+	})
+}
+
+// DeleteDraft deletes a draft nobody will launch, which frees its tag. Its
+// `release.drafted` fact stays in the history: a fact is not withdrawn, and the audit says
+// what became of it.
+func (h *ReleasesHandler) DeleteDraft(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
+		return
+	}
+	project, err := requestProjectRecord(w, r, h.store)
+	if err != nil {
+		return
+	}
+	record, ok := h.draft(w, r, project)
+	if !ok {
+		return
+	}
+	if _, ok := h.kindAllowed(w, identity, project, record); !ok {
+		return
+	}
+
+	switch err := h.store.DeleteDraftRelease(r.Context(), record.ID); {
+	case errors.Is(err, store.ErrNotADraft):
+		writeProblem(w, http.StatusConflict, "Not a draft",
+			"the release was launched or deleted in the meantime, reload the page")
+		return
+	case err != nil:
+		writeProblem(w, http.StatusInternalServerError, "Cannot delete", "")
+		return
+	}
+	h.audit(r, store.AuditReleaseDraftDelete, record.Tag, map[string]any{"kind": record.Kind})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DetectNotes detects a draft's note again. The detection only adds: what was linked stays,
+// and what someone removed is set aside.
+func (h *ReleasesHandler) DetectNotes(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
+		return
+	}
+	project, err := requestProjectRecord(w, r, h.store)
+	if err != nil {
+		return
+	}
+	record, ok := h.draft(w, r, project)
+	if !ok {
+		return
+	}
+	if err := h.enqueueNoteDetection(r.Context(), record.ID, identity.Subject); err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Cannot queue the detection", "")
+		return
+	}
+	h.audit(r, store.AuditReleaseNoteDetect, record.Tag, nil)
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // Release approves a release and allows it to go to an environment.
@@ -945,6 +1149,11 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if record.State == string(release.StateDraft) {
+		writeProblem(w, http.StatusConflict, "Cannot rebuild",
+			fmt.Sprintf("release %q is a draft: launching it builds it", tag))
+		return
+	}
 	from := release.State(record.State)
 	if !release.CanTransition(from, release.StateBuilding) {
 		writeProblem(w, http.StatusConflict, "Cannot rebuild",
@@ -1047,6 +1256,12 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
+		return
+	}
+
+	if record.State == string(release.StateDraft) {
+		writeProblem(w, http.StatusConflict, "Cannot rerun",
+			fmt.Sprintf("release %q is a draft: nothing is built to verify yet", tag))
 		return
 	}
 

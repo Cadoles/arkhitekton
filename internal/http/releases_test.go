@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,6 +118,57 @@ func (f *fakeReleaseStore) GetRelease(_ context.Context, _ int64, tag string) (s
 		return store.Release{}, store.ErrReleaseNotFound
 	}
 	return release, nil
+}
+
+func (f *fakeReleaseStore) GetReleaseByID(_ context.Context, id int64) (store.Release, error) {
+	for _, release := range f.releases {
+		if release.ID == id {
+			return release, nil
+		}
+	}
+	return store.Release{}, store.ErrReleaseNotFound
+}
+
+// draftOf finds a draft by identifier, as the conditional writes of the database do.
+func (f *fakeReleaseStore) draftOf(id int64) (string, store.Release, bool) {
+	for tag, release := range f.releases {
+		if release.ID == id && release.State == "draft" {
+			return tag, release, true
+		}
+	}
+	return "", store.Release{}, false
+}
+
+func (f *fakeReleaseStore) LaunchRelease(_ context.Context, id int64, to, commit, actor string) error {
+	tag, release, found := f.draftOf(id)
+	if !found {
+		return store.ErrNotADraft
+	}
+	release.State, release.LaunchedBy = to, actor
+	if commit != "" {
+		release.GitCommit = commit
+	}
+	f.releases[tag] = release
+	return nil
+}
+
+func (f *fakeReleaseStore) UpdateDraftRelease(_ context.Context, id int64, gitRef string) error {
+	tag, release, found := f.draftOf(id)
+	if !found {
+		return store.ErrNotADraft
+	}
+	release.GitRef = gitRef
+	f.releases[tag] = release
+	return nil
+}
+
+func (f *fakeReleaseStore) DeleteDraftRelease(_ context.Context, id int64) error {
+	tag, _, found := f.draftOf(id)
+	if !found {
+		return store.ErrNotADraft
+	}
+	delete(f.releases, tag)
+	return nil
 }
 
 func (f *fakeReleaseStore) ListReleases(context.Context, int64, int) ([]store.Release, error) {
@@ -298,6 +350,36 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 			pipelines, store, "reg.cadoles.com/vcarroy", quietLogger()))
 }
 
+// launched creates a draft from the body, then launches it, and returns the launch's response.
+func launched(t *testing.T, handler *ReleasesHandler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	var request struct {
+		Tag string `json:"tag"`
+	}
+	if err := json.Unmarshal([]byte(body), &request); err != nil {
+		t.Fatal(err)
+	}
+	created := httptest.NewRecorder()
+	handler.Create(created, asRole(
+		httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(body)), auth.RoleReleaser))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("creation: code %d: %s", created.Code, created.Body.String())
+	}
+	recorder := launchDraft(handler, request.Tag, auth.RoleReleaser)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("launch: code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	return recorder
+}
+
+func launchDraft(handler *ReleasesHandler, tag string, role auth.Role) *httptest.ResponseRecorder {
+	request := asRole(httptest.NewRequest(http.MethodPost, "/releases/"+tag+"/launch", nil), role)
+	request.SetPathValue("tag", tag)
+	recorder := httptest.NewRecorder()
+	handler.Launch(recorder, request)
+	return recorder
+}
+
 func asRole(request *http.Request, role auth.Role) *http.Request {
 	identity := auth.Identity{Subject: "vcarroy", Username: "vcarroy", Role: role}
 	// The project is set here because every request to a project-scoped handler goes
@@ -363,8 +445,15 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 	if created.ImageVersion != "1.8.0-rc3" {
 		t.Errorf("image version = %q, expected the RC's", created.ImageVersion)
 	}
-	if created.State != "ready" {
-		t.Errorf("state = %q: the image already exists, the release is promotable", created.State)
+	if created.State != "draft" || len(fake.jobsOfKind("core/retag")) != 0 {
+		t.Fatalf("state = %q, jobs = %+v: a draft re-tags nothing", created.State, fake.jobs)
+	}
+
+	if recorder := launchDraft(handler, "1.8.0", auth.RoleReleaser); recorder.Code != http.StatusOK {
+		t.Fatalf("launch: code = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if launched := fake.releases["1.8.0"]; launched.State != "ready" {
+		t.Errorf("state = %q: the image already exists, the release is promotable", launched.State)
 	}
 
 	retags := fake.jobsOfKind("core/retag")
@@ -622,6 +711,30 @@ func TestAPreReleaseQueuesItsBuild(t *testing.T) {
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
+	// A draft: the note is detected, and nothing else leaves.
+	if len(fake.jobsOfKind("core/build")) != 0 || len(fake.planRuns) != 0 {
+		t.Fatalf("a draft builds nothing: jobs %+v", fake.jobs)
+	}
+	if fake.releases["3.2.0-rc1"].State != "draft" {
+		t.Errorf("state = %q, expected draft", fake.releases["3.2.0-rc1"].State)
+	}
+	if _, emitted := fake.facts[event.ReleaseCreatedKey(fake.releases["3.2.0-rc1"].ID)]; emitted {
+		t.Error("release.created is emitted at launch, not at drafting")
+	}
+	if len(fake.facts) != 1 {
+		t.Errorf("facts = %+v, expected release.drafted alone", fake.facts)
+	}
+
+	recorder = launchDraft(handler, "3.2.0-rc1", auth.RoleReleaser)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("launch: code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if _, emitted := fake.facts[event.ReleaseCreatedKey(fake.releases["3.2.0-rc1"].ID)]; !emitted {
+		t.Error("the launch emits release.created")
+	}
+	if again := launchDraft(handler, "3.2.0-rc1", auth.RoleReleaser); again.Code != http.StatusConflict {
+		t.Errorf("a second launch: code %d, expected 409", again.Code)
+	}
 
 	// One run per image: the pipeline builds only one, and it is the dashboard that decides
 	// how many it launches.
@@ -724,10 +837,127 @@ func TestAPreReleaseWithNoReferenceIsCreatedWithAReservation(t *testing.T) {
 	if len(response.Warnings) == 0 {
 		t.Error("the reservation must be returned: the release exists but nothing is building")
 	}
+	if recorder := launchDraft(handler, "3.2.0-rc9", auth.RoleReleaser); recorder.Code != http.StatusUnprocessableEntity {
+		t.Errorf("launching with no reference: code %d, expected 422", recorder.Code)
+	}
 	for _, job := range fake.jobs {
 		if job.Kind == "core/build" {
 			t.Error("no build must start without a Git reference")
 		}
+	}
+}
+
+// draftRoute calls a draft route on a tag.
+func draftRoute(
+	handler http.HandlerFunc, method, tag, body string, role auth.Role,
+) *httptest.ResponseRecorder {
+	request := asRole(httptest.NewRequest(method, "/releases/"+tag, strings.NewReader(body)), role)
+	request.SetPathValue("tag", tag)
+	recorder := httptest.NewRecorder()
+	handler(recorder, request)
+	return recorder
+}
+
+// A draft's reference can change until it is launched; after, the release is built from what
+// it named.
+func TestADraftsReferenceChangesUntilItIsLaunched(t *testing.T) {
+	fake := newFakeStore()
+	forge := &fakeForge{commit: "abc123def456"}
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
+	created := httptest.NewRecorder()
+	handler.Create(created, asRole(httptest.NewRequest(http.MethodPost, "/releases",
+		strings.NewReader(`{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)), auth.RoleReleaser))
+	if created.Code != http.StatusCreated || len(forge.resolved) != 0 || len(forge.tags) != 0 {
+		t.Fatalf("code %d, resolved %v, tags %v: a draft touches no forge", created.Code, forge.resolved, forge.tags)
+	}
+
+	if recorder := draftRoute(handler.UpdateDraft, http.MethodPut, "3.2.0-rc1",
+		`{"git_ref":" release/3.2 "}`, auth.RoleReleaser); recorder.Code != http.StatusOK {
+		t.Fatalf("update: code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := launchDraft(handler, "3.2.0-rc1", auth.RoleReleaser); recorder.Code != http.StatusOK {
+		t.Fatalf("launch: code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(forge.resolved) != 1 || forge.resolved[0] != "release/3.2" {
+		t.Errorf("resolved %v, expected the reference edited", forge.resolved)
+	}
+	launched := fake.releases["3.2.0-rc1"]
+	if launched.State != "building" || launched.LaunchedBy != "vcarroy" || launched.GitCommit != "abc123def456" {
+		t.Errorf("launched = %+v", launched)
+	}
+
+	for name, recorder := range map[string]*httptest.ResponseRecorder{
+		"update": draftRoute(handler.UpdateDraft, http.MethodPut, "3.2.0-rc1", `{"git_ref":"main"}`, auth.RoleReleaser),
+		"delete": draftRoute(handler.DeleteDraft, http.MethodDelete, "3.2.0-rc1", "", auth.RoleReleaser),
+		"detect": draftRoute(handler.DetectNotes, http.MethodPost, "3.2.0-rc1", "", auth.RoleReleaser),
+	} {
+		if recorder.Code != http.StatusConflict {
+			t.Errorf("%s on a launched release: code %d, expected 409", name, recorder.Code)
+		}
+	}
+}
+
+// A draft nobody launches is deleted, and its tag is free again.
+func TestADraftIsDeleted(t *testing.T) {
+	fake := newFakeStore()
+	handler := newReleasesHandler(t, fake)
+	body := `{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`
+	created := httptest.NewRecorder()
+	handler.Create(created, asRole(httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(body)), auth.RoleReleaser))
+
+	if recorder := draftRoute(handler.DetectNotes, http.MethodPost, "3.2.0-rc1", "", auth.RoleReleaser); recorder.Code != http.StatusAccepted {
+		t.Errorf("detect: code %d", recorder.Code)
+	}
+	if notes := fake.jobsOfKind(ReleaseNotesJobKind); len(notes) != 2 {
+		t.Errorf("%d note detection(s), expected the draft's and the one asked for", len(notes))
+	}
+	if recorder := draftRoute(handler.Rebuild, http.MethodPost, "3.2.0-rc1", "", auth.RoleReleaser); recorder.Code != http.StatusConflict {
+		t.Errorf("rebuilding a draft: code %d, expected 409", recorder.Code)
+	}
+	if recorder := draftRoute(handler.DeleteDraft, http.MethodDelete, "3.2.0-rc1", "", auth.RoleReleaser); recorder.Code != http.StatusNoContent {
+		t.Fatalf("delete: code %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if _, found := fake.releases["3.2.0-rc1"]; found {
+		t.Error("the draft is still there")
+	}
+	if len(fake.jobsOfKind("core/build")) != 0 {
+		t.Errorf("a deleted draft built something: %+v", fake.jobs)
+	}
+	if !slices.Contains(fake.audit, store.AuditReleaseDraftDelete+":3.2.0-rc1") {
+		t.Errorf("audit = %v", fake.audit)
+	}
+}
+
+// A final's draft is launched only while its source is still approved, and only by whoever
+// may create a final.
+func TestAFinalsDraftChecksItsSourceAgainAtLaunch(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0-rc3"] = store.Release{
+		ID: 4, Tag: "1.8.0-rc3", Kind: "pre", State: "released", ImageVersion: "1.8.0-rc3",
+	}
+	handler := newReleasesHandler(t, fake)
+	created := httptest.NewRecorder()
+	handler.Create(created, asRole(httptest.NewRequest(http.MethodPost, "/releases",
+		strings.NewReader(`{"tag":"1.8.0","kind":"final","source_tag":"1.8.0-rc3","tests_green":true}`)), auth.RoleReleaser))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("code %d: %s", created.Code, created.Body.String())
+	}
+
+	if recorder := draftRoute(handler.UpdateDraft, http.MethodPut, "1.8.0", `{"git_ref":"main"}`, auth.RoleReleaser); recorder.Code != http.StatusConflict {
+		t.Errorf("editing a re-tag's reference: code %d, expected 409", recorder.Code)
+	}
+	if recorder := launchDraft(handler, "1.8.0", auth.RoleOperator); recorder.Code != http.StatusForbidden {
+		t.Errorf("launching a final without its permission: code %d, expected 403", recorder.Code)
+	}
+
+	source := fake.releases["1.8.0-rc3"]
+	source.State = "cancelled"
+	fake.releases["1.8.0-rc3"] = source
+	if recorder := launchDraft(handler, "1.8.0", auth.RoleReleaser); recorder.Code != http.StatusConflict {
+		t.Errorf("launching from a cancelled source: code %d, expected 409", recorder.Code)
+	}
+	if fake.releases["1.8.0"].State != "draft" || len(fake.jobsOfKind("core/retag")) != 0 {
+		t.Errorf("a refused launch changed something: %+v, %+v", fake.releases["1.8.0"], fake.jobs)
 	}
 }
 
@@ -871,15 +1101,7 @@ func TestAPreReleaseIsAnchoredOnACommitAndTagged(t *testing.T) {
 	forge := &fakeForge{commit: "abc123def456"}
 	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
 
-	recorder := httptest.NewRecorder()
-	handler.Create(recorder, asRole(
-		httptest.NewRequest(http.MethodPost, "/releases",
-			strings.NewReader(`{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)),
-		auth.RoleReleaser))
-
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
-	}
+	launched(t, handler, `{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)
 
 	// The branch is resolved into a commit, and the tag set on that commit — never on the
 	// branch, which would name something else a minute later.
@@ -915,15 +1137,7 @@ func TestWithoutWriteAccessTheReleaseStaysAnchoredOnItsCommit(t *testing.T) {
 	// Forge wired read-only: no tagger.
 	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge})
 
-	recorder := httptest.NewRecorder()
-	handler.Create(recorder, asRole(
-		httptest.NewRequest(http.MethodPost, "/releases",
-			strings.NewReader(`{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)),
-		auth.RoleReleaser))
-
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
-	}
+	recorder := launched(t, handler, `{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)
 
 	var response struct {
 		Warnings []string `json:"warnings"`
@@ -936,7 +1150,7 @@ func TestWithoutWriteAccessTheReleaseStaysAnchoredOnItsCommit(t *testing.T) {
 	}
 
 	// The build starts from the commit: immutable, even with no tag.
-	if got := fake.jobs[0].Params["revision"]; got != "abc123def456" {
+	if got := fake.jobsOfKind("core/build")[0].Params["revision"]; got != "abc123def456" {
 		t.Errorf("revision built %q, expected the resolved commit", got)
 	}
 }
@@ -948,19 +1162,11 @@ func TestAnUnreachableForgeDoesNotPreventCreation(t *testing.T) {
 	forge := &fakeForge{resolveErr: errors.New("forge injoignable")}
 	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
 
-	recorder := httptest.NewRecorder()
-	handler.Create(recorder, asRole(
-		httptest.NewRequest(http.MethodPost, "/releases",
-			strings.NewReader(`{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)),
-		auth.RoleReleaser))
-
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
-	}
+	launched(t, handler, `{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)
 	if len(forge.tags) != 0 {
 		t.Error("no tag must be set without a resolved commit")
 	}
-	if got := fake.jobs[0].Params["revision"]; got != "main" {
+	if got := fake.jobsOfKind("core/build")[0].Params["revision"]; got != "main" {
 		t.Errorf("revision built %q, expected the fallback to the reference typed", got)
 	}
 }
@@ -975,15 +1181,7 @@ func TestAFinalReleaseIsNotTaggedASecondTime(t *testing.T) {
 	forge := &fakeForge{commit: "abc123"}
 	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
 
-	recorder := httptest.NewRecorder()
-	handler.Create(recorder, asRole(
-		httptest.NewRequest(http.MethodPost, "/releases",
-			strings.NewReader(`{"tag":"3.2.0","kind":"final","source_tag":"3.2.0-rc1","tests_green":true}`)),
-		auth.RoleReleaser))
-
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
-	}
+	launched(t, handler, `{"tag":"3.2.0","kind":"final","source_tag":"3.2.0-rc1","tests_green":true}`)
 	if len(forge.tags) != 0 || len(forge.resolved) != 0 {
 		t.Errorf("a final must neither resolve nor tag: resolved=%v tags=%v",
 			forge.resolved, forge.tags)
@@ -1267,15 +1465,7 @@ func TestThePlanTargetsTheIdentifierReturnedByTheInsert(t *testing.T) {
 	forge := &fakeForge{commit: "abc123def456"}
 	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
 
-	recorder := httptest.NewRecorder()
-	handler.Create(recorder, asRole(
-		httptest.NewRequest(http.MethodPost, "/releases",
-			strings.NewReader(`{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)),
-		auth.RoleReleaser))
-
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
-	}
+	launched(t, handler, `{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)
 
 	if len(fake.planRuns) != 1 {
 		t.Fatalf("%d plan run(s), expected 1", len(fake.planRuns))

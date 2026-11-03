@@ -25,9 +25,9 @@ import (
  * client would be a false note, and a false note is worse than an empty one: it reads as a
  * checked list.
  *
- * The detection runs **when the release is created** and does not replay itself. What it found
- * becomes a proposal one completes or corrects by hand: replaying would erase those
- * adjustments.
+ * The detection runs **when the draft is created**, and again when someone asks for it while the
+ * release is still a draft. What it found becomes a proposal one completes or corrects by hand,
+ * and running it again only adds: what was linked stays, and what someone removed is set aside.
  */
 
 // PullReader is what the detection needs from the forge.
@@ -42,7 +42,7 @@ type NoteStore interface {
 	LinkNoteIssue(ctx context.Context, releaseID int64, reference, source, pullRequest, actor string) error
 }
 
-// NoteBuilder composes a release's note when it is created.
+// NoteBuilder composes a release's note while it is a draft.
 type NoteBuilder struct {
 	forge  PullReader
 	store  NoteStore
