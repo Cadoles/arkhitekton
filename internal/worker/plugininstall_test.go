@@ -58,6 +58,7 @@ type installations struct {
 	completed    string
 	failed       string
 	parked       string
+	resolved     string
 	audited      []string
 }
 
@@ -80,6 +81,11 @@ func (i *installations) ParkPluginInstallation(_ context.Context, _ int64, plugi
 	return nil
 }
 
+func (i *installations) ResolvePluginInstallation(_ context.Context, _ int64, reference, digest, expected string) error {
+	i.resolved = reference + " " + digest + " " + expected
+	return nil
+}
+
 func (i *installations) Audit(_ context.Context, actor, action, target string, _ map[string]any) error {
 	i.audited = append(i.audited, actor+" "+action+" "+target)
 	return nil
@@ -95,7 +101,7 @@ func pulledPlugin(context.Context, string) (installed.Pulled, error) {
 }
 
 func TestAnInstallationPullsChecksAndStores(t *testing.T) {
-	db := &installations{installation: store.PluginInstallation{ID: 4, State: store.InstallationPending, RequestedBy: "admin"}}
+	db := &installations{installation: store.PluginInstallation{ID: 4, Digest: pinnedDigest, State: store.InstallationPending, RequestedBy: "admin"}}
 	objects := memoryObjects{}
 	changed := 0
 	installer := NewPluginInstaller(db, objects, pulledPlugin,
@@ -120,7 +126,7 @@ func TestAnInstallationPullsChecksAndStores(t *testing.T) {
 // A plugin that would not fit with the capabilities in force is refused, and the installation says
 // why; nothing is stored.
 func TestARefusedInstallationSaysWhy(t *testing.T) {
-	db := &installations{installation: store.PluginInstallation{ID: 4, State: store.InstallationPending, RequestedBy: "admin",
+	db := &installations{installation: store.PluginInstallation{ID: 4, Digest: pinnedDigest, State: store.InstallationPending, RequestedBy: "admin",
 		Reference: "registry.example/plugins/junit@" + pinnedDigest}}
 	objects := memoryObjects{}
 	installer := NewPluginInstaller(db, objects, pulledPlugin,
@@ -156,7 +162,7 @@ func TestTheInstallationJobIsTheSameOnBothSides(t *testing.T) {
 // A plugin's migrations are applied before it is recorded installed; failing, it is not.
 func TestAnInstallationAppliesTheMigrationsFirst(t *testing.T) {
 	for name, failure := range map[string]error{"applied": nil, "failing": errors.New("relation exists")} {
-		db := &installations{installation: store.PluginInstallation{ID: 4, State: store.InstallationPending, RequestedBy: "admin"}}
+		db := &installations{installation: store.PluginInstallation{ID: 4, Digest: pinnedDigest, State: store.InstallationPending, RequestedBy: "admin"}}
 		objects := memoryObjects{}
 		var migrated string
 		installer := NewPluginInstaller(db, objects, pulledPlugin,
@@ -184,7 +190,7 @@ func TestAnInstallationAppliesTheMigrationsFirst(t *testing.T) {
 // Failing it would lose the distinction the screen needs to offer that decision.
 func TestAnUnrecognisedSourceParksTheInstallation(t *testing.T) {
 	db := &installations{installation: store.PluginInstallation{
-		ID: 4, State: store.InstallationPending, RequestedBy: "admin",
+		ID: 4, Digest: pinnedDigest, State: store.InstallationPending, RequestedBy: "admin",
 		Reference: "registry.example/plugins/junit@" + pinnedDigest,
 	}}
 	unrecognised := func(context.Context, string) (installed.Pulled, error) {
@@ -207,5 +213,46 @@ func TestAnUnrecognisedSourceParksTheInstallation(t *testing.T) {
 	}
 	if len(db.audited) != 1 || db.audited[0] != "admin plugin.source.unrecognised registry.example/plugins/junit@"+pinnedDigest {
 		t.Errorf("audited = %v", db.audited)
+	}
+}
+
+// A tag that does not carry its version is refused: every later check would compare the wrong one.
+func TestATagThatLiesAboutItsVersionIsRefused(t *testing.T) {
+	db := &installations{installation: store.PluginInstallation{ID: 4, Digest: pinnedDigest, State: store.InstallationPending, RequestedBy: "admin",
+		ExpectedVersion: "1.1.0"}}
+	installer := NewPluginInstaller(db, memoryObjects{}, pulledPlugin,
+		func(context.Context, installed.Plugin) error { return nil }, nil, slog.New(slog.DiscardHandler))
+
+	err := installer.Run(context.Background(), store.Job{ID: 1, Params: map[string]string{ParamInstallation: "4"}})
+	if err == nil || !strings.Contains(db.failed, "1.1.0") || db.completed != "" {
+		t.Errorf("err %v, failed %q, completed %q", err, db.failed, db.completed)
+	}
+}
+
+// An installation asked for by repository is resolved to a digest before anything is pulled, and
+// the version its tag announces is checked against the manifest.
+func TestAnInstallationByRepositoryIsResolvedThenPulled(t *testing.T) {
+	db := &installations{installation: store.PluginInstallation{ID: 4, State: store.InstallationPending, RequestedBy: "admin",
+		Reference: "registry.example/plugins/junit", Follows: true}}
+	pulled := ""
+	pull := func(ctx context.Context, reference string) (installed.Pulled, error) {
+		pulled = reference
+		return pulledPlugin(ctx, reference)
+	}
+	resolve := func(context.Context, string) (installed.Source, string, error) {
+		return installed.Source{Repository: "registry.example/plugins/junit", Digest: pinnedDigest}, "1.0.0", nil
+	}
+	installer := NewPluginInstaller(db, memoryObjects{}, pull,
+		func(context.Context, installed.Plugin) error { return nil }, nil, slog.New(slog.DiscardHandler)).
+		WithResolver(resolve)
+
+	if err := installer.Run(context.Background(), store.Job{ID: 1, Params: map[string]string{ParamInstallation: "4"}}); err != nil {
+		t.Fatal(err)
+	}
+	if pulled != "registry.example/plugins/junit@"+pinnedDigest || db.resolved != pulled+" "+pinnedDigest+" 1.0.0" {
+		t.Errorf("pulled %q, resolved %q", pulled, db.resolved)
+	}
+	if !strings.HasPrefix(db.completed, "junit 1.0.0") {
+		t.Errorf("completed %q", db.completed)
 	}
 }

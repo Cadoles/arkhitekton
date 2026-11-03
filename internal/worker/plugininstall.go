@@ -34,6 +34,7 @@ type InstallationStore interface {
 	CompletePluginInstallation(ctx context.Context, id int64, completed store.CompletedInstallation) (bool, error)
 	FailPluginInstallation(ctx context.Context, id int64, reason string) error
 	ParkPluginInstallation(ctx context.Context, id int64, pluginID, reason string) error
+	ResolvePluginInstallation(ctx context.Context, id int64, reference, digest, expectedVersion string) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
@@ -54,6 +55,9 @@ type PluginInstaller struct {
 	changed func(ctx context.Context)
 	// migrate applies the plugin's migrations; nil applies none.
 	migrate func(ctx context.Context, plugin installed.Plugin) error
+	// resolve names the digest of an installation asked for by repository or tag; nil resolves
+	// none, and such an installation fails.
+	resolve func(ctx context.Context, raw string) (installed.Source, string, error)
 	keys    blob.Keys
 	logger  *slog.Logger
 }
@@ -74,6 +78,12 @@ func NewPluginInstaller(
 // must already be there.
 func (p *PluginInstaller) WithMigrations(migrate func(ctx context.Context, plugin installed.Plugin) error) *PluginInstaller {
 	p.migrate = migrate
+	return p
+}
+
+// WithResolver resolves the installations asked for by repository or by tag.
+func (p *PluginInstaller) WithResolver(resolve func(ctx context.Context, raw string) (installed.Source, string, error)) *PluginInstaller {
+	p.resolve = resolve
 	return p
 }
 
@@ -140,6 +150,23 @@ func (p *PluginInstaller) auditFailure(ctx context.Context, id int64, failure er
 	}
 }
 
+// resolved records the digest a repository or a tag names, before anything is pulled: what is
+// installed is always a digest, and the row says which.
+func (p *PluginInstaller) resolved(ctx context.Context, installation store.PluginInstallation) (store.PluginInstallation, error) {
+	if p.resolve == nil {
+		return installation, fmt.Errorf("%s: no digest, and nothing resolves one", installation.Reference)
+	}
+	source, expected, err := p.resolve(ctx, installation.Reference)
+	if err != nil {
+		return installation, err
+	}
+	if err := p.store.ResolvePluginInstallation(ctx, installation.ID, source.Reference(), source.Digest, expected); err != nil {
+		return installation, err
+	}
+	installation.Reference, installation.Digest, installation.ExpectedVersion = source.Reference(), source.Digest, expected
+	return installation, nil
+}
+
 func (p *PluginInstaller) install(ctx context.Context, id int64) error {
 	installation, err := p.store.PluginInstallation(ctx, id)
 	if err != nil {
@@ -151,6 +178,11 @@ func (p *PluginInstaller) install(ctx context.Context, id int64) error {
 
 	pulling, cancel := context.WithTimeout(ctx, pullTimeout)
 	defer cancel()
+	if installation.Digest == "" {
+		if installation, err = p.resolved(pulling, installation); err != nil {
+			return err
+		}
+	}
 	pulled, err := p.pull(pulling, installation.Reference)
 	if err != nil {
 		return err
@@ -158,6 +190,11 @@ func (p *PluginInstaller) install(ctx context.Context, id int64) error {
 	plugin, err := installed.Load(pulled.Files)
 	if err != nil {
 		return err
+	}
+	// A following instance compares tags: a tag that does not carry its version would make every
+	// later check wrong.
+	if installation.ExpectedVersion != "" && plugin.Version != installation.ExpectedVersion {
+		return fmt.Errorf("the tag %s names a plugin of version %s", installation.ExpectedVersion, plugin.Version)
 	}
 	if err := p.check(ctx, plugin); err != nil {
 		return err
