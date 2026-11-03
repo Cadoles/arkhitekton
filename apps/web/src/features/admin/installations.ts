@@ -35,16 +35,43 @@ export type Installation = {
   removed_at?: string
 }
 
+/**
+ * Ce qu'un plugin installé suit, et ce que la dernière vérification de son dépôt
+ * a trouvé.
+ *
+ * Par défaut un plugin suit son dépôt : une version stable plus récente y est
+ * proposée en mise à jour. Épinglé, il la signale seulement.
+ */
+export type PluginSource = {
+  plugin: string
+  repository: string
+  pinned: boolean
+  /** La version active. */
+  version?: string
+  latest_version?: string
+  update_available: boolean
+  /** La mise à jour change de version majeure. */
+  major?: boolean
+  checked_at?: string
+  check_error?: string
+  /** Une vérification demandée, que le worker sert dans les secondes qui suivent. */
+  check_requested?: boolean
+}
+
+export type Installations = { installations: Installation[]; plugins?: PluginSource[] }
+
 const KEY = ['admin', 'plugins', 'installations']
 
 export function useInstallations() {
   return useQuery({
     queryKey: KEY,
-    queryFn: () => request<{ installations: Installation[] }>('/admin/plugins/installations'),
+    queryFn: () => request<Installations>('/admin/plugins/installations'),
     // Une demande se règle dans le worker, hors de toute requête : sans relecture,
-    // elle resterait affichée « en attente » jusqu'au prochain rechargement.
+    // elle resterait affichée « en attente » jusqu'au prochain rechargement. De
+    // même pour une vérification demandée.
     refetchInterval: (query) =>
-      query.state.data?.installations.some((installation) => installation.state === 'pending')
+      query.state.data?.installations.some((installation) => installation.state === 'pending') ||
+      query.state.data?.plugins?.some((source) => source.check_requested)
         ? 3000
         : false,
   })
@@ -59,13 +86,52 @@ function useInvalidate() {
   }
 }
 
+/** `install` met la version à côté de l'active, `update` la remplace. Sans mode,
+ *  un plugin déjà installé depuis ce dépôt répond 409 : l'administrateur choisit. */
+export type InstallMode = 'install' | 'update'
+
 export function useRequestInstallation() {
   const invalidate = useInvalidate()
   return useMutation({
-    mutationFn: (reference: string) =>
+    mutationFn: ({ reference, mode }: { reference: string; mode?: InstallMode }) =>
       request<{ id: number; job: number; reference: string }>('/admin/plugins/installations', {
         method: 'POST',
-        body: JSON.stringify({ reference }),
+        body: JSON.stringify(mode ? { reference, mode } : { reference }),
+      }),
+    onSuccess: invalidate,
+  })
+}
+
+/** Remplace la version active par la plus récente que le dépôt publie. Les
+ *  réglages et les liaisons du plugin sont conservés. */
+export function useUpdatePlugin() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: (plugin: string) =>
+      request<{ id: number; job: number }>(`/admin/plugins/${encodeURIComponent(plugin)}/update`, {
+        method: 'POST',
+      }),
+    onSuccess: invalidate,
+  })
+}
+
+export function useCheckPlugin() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: (plugin: string) =>
+      request<void>(`/admin/plugins/${encodeURIComponent(plugin)}/check`, { method: 'POST' }),
+    onSuccess: invalidate,
+  })
+}
+
+/** Épingle un plugin à sa version, ou le fait suivre son dépôt. Rien n'est installé. */
+export function useSetPluginSource() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({ plugin, pinned }: { plugin: string; pinned: boolean }) =>
+      request<void>(`/admin/plugins/${encodeURIComponent(plugin)}/source`, {
+        method: 'PUT',
+        body: JSON.stringify({ pinned }),
       }),
     onSuccess: invalidate,
   })
