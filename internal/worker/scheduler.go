@@ -517,6 +517,10 @@ func (s *Scheduler) resolveParams(
 			params[name] = declared.Value
 
 		case catalog.SourceConfig:
+			if supplied := provided[name]; declared.Overridable && supplied != "" {
+				params[name] = supplied
+				continue
+			}
 			value, present := settings[declared.Key]
 			if !present || (value == "" && declared.Required) {
 				return nil, fmt.Errorf("parameter %q: configuration key %q missing", name, declared.Key)

@@ -225,6 +225,9 @@ type Param struct {
 	Key      string `json:"key,omitempty"`
 	Value    string `json:"value,omitempty"`
 	Required bool   `json:"required,omitempty"`
+	// Overridable lets a step's non-empty value replace the configuration's, for a `config`
+	// parameter. The others are never replaced: a secret's name must not come from a step.
+	Overridable bool `json:"overridable,omitempty"`
 	// Suggest names the nature of the expected value, so the launch form can offer a
 	// list instead of an empty field.
 	//

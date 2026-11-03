@@ -218,6 +218,7 @@ type Pipeline struct {
 type Param struct {
 	Source      capability.ParamSource `json:"source"`
 	DefaultKey  string                 `json:"defaultKey,omitempty"`
+	Overridable bool                   `json:"overridable,omitempty"`
 	Value       string                 `json:"value,omitempty"`
 	Required    bool                   `json:"required,omitempty"`
 	Label       string                 `json:"label,omitempty"`
@@ -686,7 +687,8 @@ func (p Pipeline) spec() capability.PipelineSpec {
 		spec.Params = make(map[string]capability.Param, len(p.Params))
 		for name, param := range p.Params {
 			spec.Params[name] = capability.Param{
-				Source: param.Source, DefaultKey: param.DefaultKey, Value: param.Value, Required: param.Required,
+				Source: param.Source, DefaultKey: param.DefaultKey, Overridable: param.Overridable,
+				Value: param.Value, Required: param.Required,
 				Label: param.Label, Help: param.Help, Placeholder: param.Placeholder, Suggest: param.Suggest,
 				Image: param.Image,
 			}
