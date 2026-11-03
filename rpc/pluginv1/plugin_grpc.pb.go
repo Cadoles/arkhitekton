@@ -1194,14 +1194,15 @@ var Plugin_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	Host_ProjectBySlug_FullMethodName  = "/arkhitekton.plugin.v1.Host/ProjectBySlug"
-	Host_GetProject_FullMethodName     = "/arkhitekton.plugin.v1.Host/GetProject"
-	Host_GetRelease_FullMethodName     = "/arkhitekton.plugin.v1.Host/GetRelease"
-	Host_Enqueue_FullMethodName        = "/arkhitekton.plugin.v1.Host/Enqueue"
-	Host_Audit_FullMethodName          = "/arkhitekton.plugin.v1.Host/Audit"
-	Host_ResolvedPlugin_FullMethodName = "/arkhitekton.plugin.v1.Host/ResolvedPlugin"
-	Host_Environments_FullMethodName   = "/arkhitekton.plugin.v1.Host/Environments"
-	Host_Authorize_FullMethodName      = "/arkhitekton.plugin.v1.Host/Authorize"
+	Host_ProjectBySlug_FullMethodName     = "/arkhitekton.plugin.v1.Host/ProjectBySlug"
+	Host_GetProject_FullMethodName        = "/arkhitekton.plugin.v1.Host/GetProject"
+	Host_GetRelease_FullMethodName        = "/arkhitekton.plugin.v1.Host/GetRelease"
+	Host_Enqueue_FullMethodName           = "/arkhitekton.plugin.v1.Host/Enqueue"
+	Host_Audit_FullMethodName             = "/arkhitekton.plugin.v1.Host/Audit"
+	Host_ResolvedPlugin_FullMethodName    = "/arkhitekton.plugin.v1.Host/ResolvedPlugin"
+	Host_Environments_FullMethodName      = "/arkhitekton.plugin.v1.Host/Environments"
+	Host_Authorize_FullMethodName         = "/arkhitekton.plugin.v1.Host/Authorize"
+	Host_GetReleaseDossier_FullMethodName = "/arkhitekton.plugin.v1.Host/GetReleaseDossier"
 )
 
 // HostClient is the client API for Host service.
@@ -1219,6 +1220,9 @@ type HostClient interface {
 	Environments(ctx context.Context, in *ProjectRef, opts ...grpc.CallOption) (*EnvironmentList, error)
 	// Authorize says whether an identity holds a permission in a project.
 	Authorize(ctx context.Context, in *Authorization, opts ...grpc.CallOption) (*Decision, error)
+	// GetReleaseDossier returns what the dashboard records about a release, as its screen shows it:
+	// what a deliverable attests to. Served by the api only.
+	GetReleaseDossier(ctx context.Context, in *ReleaseByTag, opts ...grpc.CallOption) (*ReleaseDossier, error)
 }
 
 type hostClient struct {
@@ -1309,6 +1313,16 @@ func (c *hostClient) Authorize(ctx context.Context, in *Authorization, opts ...g
 	return out, nil
 }
 
+func (c *hostClient) GetReleaseDossier(ctx context.Context, in *ReleaseByTag, opts ...grpc.CallOption) (*ReleaseDossier, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseDossier)
+	err := c.cc.Invoke(ctx, Host_GetReleaseDossier_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // HostServer is the server API for Host service.
 // All implementations must embed UnimplementedHostServer
 // for forward compatibility.
@@ -1324,6 +1338,9 @@ type HostServer interface {
 	Environments(context.Context, *ProjectRef) (*EnvironmentList, error)
 	// Authorize says whether an identity holds a permission in a project.
 	Authorize(context.Context, *Authorization) (*Decision, error)
+	// GetReleaseDossier returns what the dashboard records about a release, as its screen shows it:
+	// what a deliverable attests to. Served by the api only.
+	GetReleaseDossier(context.Context, *ReleaseByTag) (*ReleaseDossier, error)
 	mustEmbedUnimplementedHostServer()
 }
 
@@ -1357,6 +1374,9 @@ func (UnimplementedHostServer) Environments(context.Context, *ProjectRef) (*Envi
 }
 func (UnimplementedHostServer) Authorize(context.Context, *Authorization) (*Decision, error) {
 	return nil, status.Error(codes.Unimplemented, "method Authorize not implemented")
+}
+func (UnimplementedHostServer) GetReleaseDossier(context.Context, *ReleaseByTag) (*ReleaseDossier, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetReleaseDossier not implemented")
 }
 func (UnimplementedHostServer) mustEmbedUnimplementedHostServer() {}
 func (UnimplementedHostServer) testEmbeddedByValue()              {}
@@ -1523,6 +1543,24 @@ func _Host_Authorize_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Host_GetReleaseDossier_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseByTag)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HostServer).GetReleaseDossier(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Host_GetReleaseDossier_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HostServer).GetReleaseDossier(ctx, req.(*ReleaseByTag))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Host_ServiceDesc is the grpc.ServiceDesc for Host service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1561,6 +1599,10 @@ var Host_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Authorize",
 			Handler:    _Host_Authorize_Handler,
+		},
+		{
+			MethodName: "GetReleaseDossier",
+			Handler:    _Host_GetReleaseDossier_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

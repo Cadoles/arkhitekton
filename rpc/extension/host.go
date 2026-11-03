@@ -26,6 +26,8 @@ type Host interface {
 	Environments(ctx context.Context, projectID int64) ([]Environment, error)
 	// Authorize says whether an identity holds a permission in a project.
 	Authorize(ctx context.Context, identity Identity, projectID int64, permission string) (bool, error)
+	// ReleaseDossier returns what the dashboard records about a release. The api serves it.
+	ReleaseDossier(ctx context.Context, projectID int64, tag string) (Dossier, error)
 }
 
 type hostClient struct{ client pluginv1.HostClient }
@@ -108,6 +110,14 @@ func (h hostClient) Authorize(ctx context.Context, identity Identity, projectID 
 		return false, hostError(err)
 	}
 	return decision.GetAllowed(), nil
+}
+
+func (h hostClient) ReleaseDossier(ctx context.Context, projectID int64, tag string) (Dossier, error) {
+	dossier, err := h.client.GetReleaseDossier(ctx, &pluginv1.ReleaseByTag{ProjectId: projectID, Tag: tag})
+	if err != nil {
+		return Dossier{}, hostError(err)
+	}
+	return dossierFrom(dossier), nil
 }
 
 // hostError gives back the errors a plugin tells apart. The Host says which by its status: not
@@ -204,4 +214,59 @@ func formatTime(value time.Time) string {
 		return ""
 	}
 	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func dossierFrom(dossier *pluginv1.ReleaseDossier) Dossier {
+	converted := Dossier{Version: dossier.GetVersion(), ArtifactsNote: dossier.GetArtifactsNote()}
+	if actions := dossier.GetManualActions(); actions != nil {
+		converted.ManualActions = &ManualActions{
+			Markdown: actions.GetMarkdown(), UpdatedBy: actions.GetUpdatedBy(),
+			UpdatedAt: optionalTime(actions.GetUpdatedAt()),
+		}
+	}
+	for _, note := range dossier.GetNotes() {
+		converted.Notes = append(converted.Notes, DossierNote{
+			ExternalID: note.GetExternalId(), Subject: note.GetSubject(), Tracker: note.GetTracker(),
+			Status: note.GetStatus(), Anomaly: note.GetAnomaly(), Known: note.GetKnown(),
+			PullRequest: note.GetPullRequest(), URL: note.GetUrl(),
+		})
+	}
+	for _, artifact := range dossier.GetArtifacts() {
+		converted.Artifacts = append(converted.Artifacts, DossierArtifact{
+			Geste: artifact.GetGeste(), Name: artifact.GetName(), Kind: artifact.GetKind(),
+			Reference: artifact.GetReference(), Digest: artifact.GetDigest(),
+		})
+	}
+	for _, result := range dossier.GetResults() {
+		converted.Results = append(converted.Results, DossierResult{
+			Group: result.GetGroup(), Shape: result.GetShape(), Tool: result.GetTool(),
+			Status: result.GetStatus(), Total: int(result.GetTotal()), Passed: int(result.GetPassed()),
+			Failed: int(result.GetFailed()), Skipped: int(result.GetSkipped()), Flaky: int(result.GetFlaky()),
+			DurationMS: result.GetDurationMs(), MeasuredAt: parseTime(result.GetMeasuredAt()),
+			RunName: result.GetRunName(),
+		})
+	}
+	score := dossier.GetScore()
+	converted.Score = DossierScore{
+		Value: int(score.GetValue()), Measured: score.GetMeasured(), Health: score.GetHealth(),
+		Redistributed: score.GetRedistributed(),
+	}
+	for _, signal := range score.GetSignals() {
+		converted.Score.Signals = append(converted.Score.Signals, DossierSignal{
+			Key: signal.GetKey(), Label: signal.GetLabel(), Group: signal.GetGroup(),
+			Value: signal.GetValue(), Weight: signal.GetWeight(), Measured: signal.GetMeasured(),
+			Health: signal.GetHealth(), Detail: signal.GetDetail(),
+		})
+	}
+	if audit := dossier.GetAudit(); audit != nil {
+		converted.Audit = &DossierAudit{
+			Measured: audit.GetMeasured(), FailedScanners: audit.GetFailedScanners(),
+			Total: int(audit.GetTotal()), Critical: int(audit.GetCritical()), High: int(audit.GetHigh()),
+			Medium: int(audit.GetMedium()), Low: int(audit.GetLow()), Suppressed: int(audit.GetSuppressed()),
+			DeltaNew: int(audit.GetDeltaNew()), DeltaExisting: int(audit.GetDeltaExisting()),
+			DeltaResolved: int(audit.GetDeltaResolved()), GeneratedAt: audit.GetGeneratedAt(),
+			RunName: audit.GetRunName(),
+		}
+	}
+	return converted
 }
