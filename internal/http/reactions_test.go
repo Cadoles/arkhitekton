@@ -32,14 +32,14 @@ import (
 // instant fixes the date of the example facts.
 var instant = time.Date(2026, 9, 2, 14, 30, 0, 0, time.UTC)
 
-// The catalogue offers exactly the three core facts.
+// The catalogue offers exactly the core's facts.
 //
 // The reduction removed three of them. Leaving them here would have left them choosable in
 // the editor, for reactions nothing triggers any more.
 func TestTheCatalogueOffersTheCoresFacts(t *testing.T) {
 	expectedItems := map[string]bool{
-		string(event.VersionCreated): true, string(event.ReleaseCreated): true,
-		string(event.ReleaseReleased):   true,
+		string(event.VersionCreated): true, string(event.ReleaseDrafted): true,
+		string(event.ReleaseCreated): true, string(event.ReleaseReleased): true,
 		string(event.PullRequestOpened): true, string(event.PullRequestSynchronized): true,
 		string(event.PullRequestClosed): true, string(event.PullRequestMerged): true,
 		string(event.PullRequestReopened): true,
@@ -71,6 +71,8 @@ func TestEveryAnnouncedFieldExistsInThePayload(t *testing.T) {
 	charges := map[string]map[string]string{
 		string(event.VersionCreated): event.VersionCreatedAt(
 			instant, 805, "v3.2.0", "open", "redmine", "412", &dueDate).Payload,
+		string(event.ReleaseDrafted): event.ReleaseDraftedAt(
+			instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0").Payload,
 		string(event.ReleaseCreated): event.ReleaseCreatedAt(
 			instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0").Payload,
 		string(event.ReleaseReleased): event.ReleaseReleasedAt(

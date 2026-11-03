@@ -56,7 +56,12 @@ const (
 	// be rewritten when the deployment changes tool. The plugin that observed it is
 	// still named by [Event.Source].
 	VersionCreated Type = "version.created"
-	// ReleaseCreated: a release is declared. The first fact of its life.
+	// ReleaseDrafted: a release is drafted. The first fact of its life: nothing is built yet, and
+	// issues can still be attached to it.
+	ReleaseDrafted Type = "release.drafted"
+	// ReleaseCreated: a draft is launched, and what follows a release starts: its build, its
+	// verifications, the reactions. The name predates drafts, and keeping it keeps the reactions
+	// declared on it.
 	ReleaseCreated Type = "release.created"
 	// ReleaseReleased: a release is approved for shipping. The only transition nothing
 	// automates.
@@ -209,7 +214,7 @@ func PullRequestAt(
 	}
 }
 
-// ReleaseCreatedKey returns the key of the fact of a release being declared.
+// ReleaseCreatedKey returns the key of the fact of a release being launched.
 //
 // Exported so that opening the plan and emitting the fact compose the same key: it is
 // what makes the run unique per release, and two spellings would open two.
@@ -217,19 +222,33 @@ func ReleaseCreatedKey(releaseID int64) string {
 	return key(string(ReleaseCreated), id(releaseID))
 }
 
-// ReleaseCreatedAt returns the fact of a release being declared.
+// ReleaseCreatedAt returns the fact of a release being launched.
 //
-// Keyed on the release alone: a release is created only once, and a second call would
-// be a duplicate that the uniqueness constraint already refuses upstream.
+// Keyed on the release alone: a draft is launched only once, which the conditional write of the
+// launch guarantees upstream.
 func ReleaseCreatedAt(
 	at time.Time, projectID, releaseID int64, tag, kind, gitRef, version string,
 ) Event {
+	return releaseFact(ReleaseCreated, at, projectID, releaseID, tag, kind, gitRef, version)
+}
+
+// ReleaseDraftedAt returns the fact of a release being drafted. It carries what the launch will:
+// a reaction may move from one to the other without rewriting its match.
+func ReleaseDraftedAt(
+	at time.Time, projectID, releaseID int64, tag, kind, gitRef, version string,
+) Event {
+	return releaseFact(ReleaseDrafted, at, projectID, releaseID, tag, kind, gitRef, version)
+}
+
+func releaseFact(
+	kind Type, at time.Time, projectID, releaseID int64, tag, releaseKind, gitRef, version string,
+) Event {
 	return Event{
-		Type: ReleaseCreated, ProjectID: &projectID, Subject: tag,
+		Type: kind, ProjectID: &projectID, Subject: tag,
 		OccurredAt: at,
-		DedupKey:   ReleaseCreatedKey(releaseID),
+		DedupKey:   key(string(kind), id(releaseID)),
 		Payload: map[string]string{
-			"release_id": id(releaseID), "tag": tag, "kind": kind,
+			"release_id": id(releaseID), "tag": tag, "kind": releaseKind,
 			"git_ref": gitRef, "version": version,
 		},
 	}

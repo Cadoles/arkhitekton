@@ -73,7 +73,9 @@ func CoreEvents() []CoreEvent {
 	return []CoreEvent{
 		{Type: string(event.VersionCreated), Label: "Version declared in the tracker",
 			Fields: []string{"version_id", "name", "status", "tool", "external_id", "due_date"}},
-		{Type: string(event.ReleaseCreated), Label: "Release declared",
+		{Type: string(event.ReleaseDrafted), Label: "Release drafted",
+			Fields: []string{"release_id", "tag", "kind", "git_ref", "version"}},
+		{Type: string(event.ReleaseCreated), Label: "Release launched",
 			Fields: []string{"release_id", "tag", "kind", "git_ref", "version"}},
 		{Type: string(event.ReleaseReleased), Label: "Release validated",
 			Fields: []string{"release_id", "tag", "released_by"}},

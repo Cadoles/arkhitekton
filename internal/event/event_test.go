@@ -55,11 +55,13 @@ func TestAVersionKeyCarriesTheLocalLine(t *testing.T) {
 // Two facts of different kinds are never conflated, even on the same object: the key
 // carries the type.
 func TestTwoKindsAreNeverConflated(t *testing.T) {
+	drafted := ReleaseDraftedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0")
 	created := ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0")
 	released := ReleaseReleasedAt(instant, 7, 42, "1.8.0-rc1", "vcarroy")
 
-	if created.DedupKey == released.DedupKey {
-		t.Errorf("key %q shared between two kinds", created.DedupKey)
+	if created.DedupKey == released.DedupKey || drafted.DedupKey == created.DedupKey {
+		t.Errorf("a key shared between two kinds: %q, %q, %q",
+			drafted.DedupKey, created.DedupKey, released.DedupKey)
 	}
 }
 
@@ -134,15 +136,18 @@ func TestEveryConstructorProducesAValidFact(t *testing.T) {
  *
  * `release.promoted` left in its turn: it is the MSE plugin that defines what a promotion is, so
  * it is the plugin that observes it.
+ *
+ * `release.drafted` came in: drafting is someone's act, which no plan causes, and launching the
+ * draft is what `release.created` now says.
  */
-func TestTheCoreHasOnlyThreeFacts(t *testing.T) {
+func TestTheCoreHasOnlyFourFacts(t *testing.T) {
 	expectedItems := map[Type]bool{
-		VersionCreated: true, ReleaseCreated: true, ReleaseReleased: true,
+		VersionCreated: true, ReleaseDrafted: true, ReleaseCreated: true, ReleaseReleased: true,
 	}
 
 	for _, recorded := range everyFact() {
 		if !expectedItems[recorded.Type] {
-			t.Errorf("fact %q outside the three core ones — does a plan cause it?", recorded.Type)
+			t.Errorf("fact %q outside the four core ones: does a plan cause it?", recorded.Type)
 		}
 		delete(expectedItems, recorded.Type)
 	}
@@ -168,6 +173,7 @@ func everyFact() []Event {
 	dueDate := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	return []Event{
 		VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", &dueDate),
+		ReleaseDraftedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0"),
 		ReleaseCreatedAt(instant, 7, 42, "1.8.0-rc1", "pre", "main", "1.8.0"),
 		ReleaseReleasedAt(instant, 7, 42, "1.8.0", "vcarroy"),
 	}
