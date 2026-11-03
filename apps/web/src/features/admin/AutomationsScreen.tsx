@@ -778,7 +778,7 @@ function PlanEditor({
   withRoles?: boolean
 }) {
   const setStage = (index: number, stage: Plan['stages'][number]) =>
-    onChange({ stages: plan.stages.map((entry, rank) => (rank === index ? stage : entry)) })
+    onChange({ ...plan, stages: plan.stages.map((entry, rank) => (rank === index ? stage : entry)) })
 
   return (
     <fieldset className="flex flex-col gap-3">
@@ -836,7 +836,7 @@ function PlanEditor({
               <button
                 type="button"
                 onClick={() =>
-                  onChange({ stages: plan.stages.filter((_, rank) => rank !== index) })
+                  onChange({ ...plan, stages: plan.stages.filter((_, rank) => rank !== index) })
                 }
                 className="ml-auto text-xs text-zinc-500 hover:underline"
               >
@@ -918,12 +918,23 @@ function PlanEditor({
 
       <button
         type="button"
-        onClick={() => onChange({ stages: [...plan.stages, { gestes: [] }] })}
+        onClick={() => onChange({ ...plan, stages: [...plan.stages, { gestes: [] }] })}
         className="w-44 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
       >
         <Icon name="queue" className="mr-1 inline size-3.5" />
         Ajouter une étape
       </button>
+
+      {/* Chaque pipeline du plan annoncé sur le commit visé, par la forge du
+          projet : en cours au départ, puis son issue. */}
+      <label className="flex items-center gap-2 text-sm text-zinc-700">
+        <input
+          type="checkbox"
+          checked={plan.statuses ?? false}
+          onChange={(change) => onChange({ ...plan, statuses: change.target.checked || undefined })}
+        />
+        Poser un commit status pour chaque pipeline
+      </label>
     </fieldset>
   )
 }

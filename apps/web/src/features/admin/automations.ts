@@ -37,7 +37,8 @@ export type Geste = {
  *  porterait un est refusée — elle ne vise aucune release en particulier. */
 export type Stage = { label?: string; role?: string; gestes: Geste[] }
 
-export type Plan = { stages: Stage[] }
+/** `statuses` fait annoncer chaque pipeline du plan sur le commit visé. */
+export type Plan = { stages: Stage[]; statuses?: boolean }
 
 /** Un rôle d'étape, et ce qu'il exige de ses gestes. */
 export type RoleChoice = {

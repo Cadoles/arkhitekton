@@ -141,6 +141,8 @@ func (w *Writer) CreateTag(ctx context.Context, tag, commit, message string) err
 	}
 }
 
+var _ provider.CommitStatusWriter = (*Writer)(nil)
+
 // SetCommitStatus sets a status on a commit.
 //
 // The `context` is the replacement key: the forge displays one status per context per

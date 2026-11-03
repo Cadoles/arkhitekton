@@ -153,6 +153,9 @@ type Stage struct {
 // Plan is a sequence of stages.
 type Plan struct {
 	Stages []Stage `json:"stages"`
+	// Statuses has each pipeline step reported on the commit the run bears on, through the
+	// project's forge: pending when it starts, then its outcome.
+	Statuses bool `json:"statuses,omitempty"`
 }
 
 // Empty says a plan has nothing to do.

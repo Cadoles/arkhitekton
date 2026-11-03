@@ -40,9 +40,13 @@ export type ProjectChoice = { slug: string; label: string; modules?: string[] }
 export function setProjects(projects: ProjectChoice[]): void {
   available = projects
 
-  const remembered = readRemembered()
+  // Un lien venu d'ailleurs, un commit status de la forge par exemple, nomme
+  // son projet : il l'emporte sur celui que ce navigateur retient.
+  const named = new URLSearchParams(window.location.search).get('project')
+  const remembered = named && projects.some((project) => project.slug === named) ? named : readRemembered()
   const keep = projects.find((project) => project.slug === remembered)
   current = keep?.slug ?? projects[0]?.slug ?? ''
+  if (named && current === named) selectProject(named)
 }
 
 /** Rend les projets entre lesquels choisir. */
