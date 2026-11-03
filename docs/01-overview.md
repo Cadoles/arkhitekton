@@ -22,7 +22,8 @@ built from them, and works without a tracker at all — versions can be created 
 
 **Releases.** A release is a tag of a project's repository, built and verified. It carries
 the images it produced, the results of every pipeline that ran against it, its release
-notes, and the artifacts it exported.
+notes, and the artifacts it exported. It starts as a **draft**: nothing is built, tagged or
+automated until someone launches it, which leaves time to attach issues to its note.
 
 **Pull requests.** The pull requests of a project's repository, followed from its forge: open,
 closed and merged, each with the commit at its head. Pipelines are launched on a pull request as
@@ -66,13 +67,18 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
 ## 1.3 How a release moves
 
 1. A version is created, or mirrored from the tracker, and gathers issues.
-2. A release is created from a git ref. Arkhitekton records the tag and the commit.
-3. The project's declared plan starts: build, then the tests and audits it requires.
+2. A release is drafted from a git ref, emitting `release.drafted`. The issues the release
+   brings are detected from the merged pull requests, and completed or corrected by hand;
+   the reference can still change. A draft nobody launches is deleted, which frees its tag.
+3. The draft is launched, emitting `release.created`: the reference is resolved to the commit
+   it names at that instant, the git tag is set, and the project's declared plan starts:
+   build, then the tests and audits it requires. A final release by re-tag goes to `ready`
+   and its re-tag is queued instead. The reactions listening for `release.created` start
+   here.
 4. Each job is queued, dispatched to Tekton, and observed. Its results — test cases,
    security findings, benchmark measures, artifacts — are read back from the object
    store and the pipeline's own output.
-5. The release note is assembled from the issues of the version, edited if needed, and
-   exported.
+5. The release note, assembled on the draft, is edited if needed and exported.
 6. A release that satisfies its plan becomes final; what happens next — promotion to an
    environment, sign-off, GitOps deployment — is a plugin's business.
 

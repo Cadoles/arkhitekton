@@ -70,13 +70,25 @@ All scoped to a project; the permission is checked **in that project**.
 | `GET /projects/{project}/releases` | `read` |
 | `GET /projects/{project}/releases/{tag}` | `read` |
 | `POST /projects/{project}/releases` | `release:create` |
+| `PUT /projects/{project}/releases/{tag}/draft` | `release:create` |
+| `POST /projects/{project}/releases/{tag}/launch` | `release:create` |
+| `DELETE /projects/{project}/releases/{tag}` | `release:create` |
 | `POST /projects/{project}/releases/{tag}/build` | `release:create` |
 | `POST /projects/{project}/releases/{tag}/verify/{kind}` | `release:create` |
 | `POST /projects/{project}/releases/{tag}/release` | `release:create:final` |
 | `GET /projects/{project}/releases/{tag}/notes` | authenticated |
 | `POST /projects/{project}/releases/{tag}/notes/{issue}` | `release:edit` |
 | `DELETE /projects/{project}/releases/{tag}/notes/{issue}` | `release:edit` |
+| `POST /projects/{project}/releases/{tag}/notes/detect` | `release:edit` |
 | `PUT /projects/{project}/releases/{tag}/actions` | `release:edit` |
+
+Creating a release creates a draft (`201`, state `draft`): its note is detected, and nothing
+else leaves. `launch` resolves its reference, sets its git tag and opens its plan, or queues
+the re-tag of a final; a second launch answers `409`. `draft` changes the git reference of a
+draft that builds (`{"git_ref": "…"}`), `DELETE` removes a draft, and `notes/detect` detects
+its note again; each answers `409` once the release is launched. Launching or deleting also
+requires the permission the release's kind declares, as creating it does (a final:
+`release:create:final`).
 
 A release's deliverables are a plugin's routes, under `/projects/{project}/plugins/{plugin}/…`:
 the MSE plugin's delivery note is produced with `release:export`, the permission a plugin route
