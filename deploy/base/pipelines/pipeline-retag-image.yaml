@@ -22,6 +22,10 @@ spec:
 
   params:
     - name: reg-project
+    - name: insecure-registry
+      default: "false"
+      description: >
+        "true" when `reg-project` is served over plain HTTP: a local registry only.
     - name: image-name
       description: >
         Name of the repository, without the project: `portal`, `portal-cli`. The
@@ -46,6 +50,8 @@ spec:
           value: $(params.reg-project)/$(params.image-name):$(params.old-tag)
         - name: tag
           value: $(params.new-tag)
+        - name: insecure
+          value: $(params.insecure-registry)
       workspaces:
         - name: dockerconfig
           workspace: dockerconfig

@@ -20,6 +20,10 @@ spec:
     - name: repo-url
     - name: revision
     - name: reg-project
+    - name: insecure-registry
+      default: "false"
+      description: >
+        "true" when `reg-project` is served over plain HTTP: a local registry only.
     - name: dockerfile
     - name: context
     - name: tag-name
@@ -128,6 +132,8 @@ spec:
           value: $(params.image-name).tar
         - name: image-tag
           value: $(tasks.build.results.IMAGE_URL)
+        - name: insecure
+          value: $(params.insecure-registry)
       workspaces:
         - name: source
           workspace: shared-data

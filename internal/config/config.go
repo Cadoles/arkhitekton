@@ -186,6 +186,9 @@ type RegistryConfig struct {
 	Password string
 	// Project is the repository prefix.
 	Project string
+	// Insecure says the registry is served over plain HTTP. A local registry only: the pipelines
+	// then push and re-tag without TLS.
+	Insecure bool
 }
 
 // Role says what this process does. One binary, deployed several times with
@@ -321,6 +324,7 @@ func Load(role Role) (Config, error) {
 			Username: os.Getenv("REGISTRY_USERNAME"),
 			Password: os.Getenv("REGISTRY_PASSWORD"),
 			Project:  os.Getenv("REGISTRY_PROJECT"),
+			Insecure: os.Getenv("PIPELINE_INSECURE_REGISTRY") == "true",
 		},
 		Tracker: TrackerConfig{
 			// The statuses that make an issue eligible for a release note.
