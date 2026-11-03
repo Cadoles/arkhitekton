@@ -96,7 +96,7 @@ failed screen.
 | What | Where | Note |
 |---|---|---|
 | Database | PostgreSQL | Everything except large payloads |
-| Objects | Bucket | Logs, raw reports, exports |
+| Objects | Bucket | Logs, raw reports, attachments, plugin layers |
 | `SECRETS_KEY` | **Outside both** | A database backup is unreadable without it, and restoring one without the key leaves settings nothing can open |
 
 ## 10.8 Troubleshooting

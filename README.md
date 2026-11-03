@@ -18,8 +18,8 @@ release note, promote an image — without leaving the page.
   conclude, with their logs streamed and kept.
 - **Results, not just exit codes.** Test cases, security findings with their deltas, and
   benchmark measures are parsed from what pipelines upload, and stay addressable per run.
-- **Release notes from the tracker.** Issues of a version become a note you can edit and
-  export.
+- **Release notes from the tracker.** Issues of a version become a note you can edit, which a
+  plugin can carry into a deliverable.
 - **Several projects per instance.** Each with its own repository, deploy key, registry,
   pipelines and permissions.
 - **Roles per project.** A user may be an operator on one project and a viewer on another.

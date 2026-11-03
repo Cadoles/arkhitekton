@@ -20,7 +20,7 @@ Four roles, ordered. Each includes what the ones before it can do:
 
 | Role | Adds |
 |---|---|
-| `viewer` | Read everything it may see; export a release |
+| `viewer` | Read everything it may see; produce a release's deliverable |
 | `operator` | Run and cancel pipelines; create and edit releases |
 | `releaser` | Make a release final; pin a benchmark baseline |
 | `admin` | Everything, including administration |

@@ -56,7 +56,6 @@ locally and one mirrored from Redmine differ by these columns alone.
 | `releases` | `tag`, `kind`, `state`, `git_ref`, `git_branch`, `git_commit`, `image_version`, `version_id`, `source_release_id`, `notes_md`, `quality_score`, `manual_actions_md`, `released_at` |
 | `release_images` | `name`, `repository`, `tag`, `digest`, `size_bytes` |
 | `release_notes` | `source`, `pull_request`, `external_id`, `added_by` |
-| `artifacts` | `kind`, `format`, `object`, `size_bytes`, `generated_by` — `object` is a key in the store |
 
 `source_release_id` links a final release to the release candidate it was promoted from,
 which is how a final release inherits results it did not produce itself.
@@ -155,7 +154,6 @@ administrator may purge: the migrations undone, the version table dropped, the p
     raw/<pipelinerun>/meta/<tool>.json          the descriptor a tool emitted
     logs/<pipelinerun>/<task>/<step>.log        collected task logs
     attachments/<pipelinerun>/<hash>/<name>     archive members kept as attachments
-    artifacts/…                                 exports produced by the dashboard
     plugins/<id>/<version>/sha256-<hex>.tar.gz  an installed plugin's layer, as signed
 
 The worker removes, once a day, what nothing refers to any more: an attachment no result
