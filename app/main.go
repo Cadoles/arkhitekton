@@ -347,15 +347,9 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// The release is anchored on a commit and tagged through the project's forge plugin. With
 		// none, the git_ref is kept as typed and the release says so.
 		WithForges(connections).
-		// Opening a release's plan, when it is created.
-		//
-		// An engine on the `api` side, and it is not a second scheduler: opening a plan writes a run
-		// and queues jobs, which this handler already did. The worker keeps exclusive charge of what
-		// **leaves** — creating the PipelineRuns — and of advancing concluded steps.
-		WithPlans(worker.NewReleasePlanner(
-			worker.NewEngine(db, worker.NewReleaseRunner(inForce.Catalogs(), db, logger), logger).
-				WithArtifacts(db, worker.ProductOf(inForce.Catalogs())),
-			pipelines, db, cfg.Registry.Project, logger))
+		// Opening a release's plan, when it is launched or rebuilt: queued for the worker, which alone
+		// can carry out a plan's actions.
+		WithPlans(worker.QueuedReleasePlans{Queue: db, Logger: logger})
 
 	// Lent once the releases' handler exists: a plugin's deliverable reads the release's dossier as
 	// its screen composes it.
@@ -663,6 +657,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithResolver(pluginResolver(cfg)))
 			// Purging what an uninstalled plugin left, under the lease like its migrations.
 			scheduler.Handle(worker.NewPluginPurger(db, storage, purgePlugin(cfg.Database, logger), logger))
+
+			// A release's plan, opened with the engine that carries out pipelines and actions alike.
+			scheduler.Handle(worker.NewReleasePlanTask(
+				worker.NewReleasePlanner(engine, pipelines, db, cfg.Registry.Project, logger), db, logger))
 
 			// The release note, for the same reason: it reads the tracker, the forge and the database.
 			// Both are the project's plugins, resolved per job: a project with no forge plugin gets a

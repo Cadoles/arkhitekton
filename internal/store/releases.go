@@ -617,14 +617,15 @@ func (db *DB) ReleaseBadgesByTag(ctx context.Context, buildKind string) (map[str
 func (db *DB) GetReleaseByID(ctx context.Context, id int64) (Release, error) {
 	var release Release
 	err := db.pool.QueryRow(ctx,
-		`select id, version_id, tag, kind, state, coalesce(git_ref, ''), image_version,
+		`select id, project_id, version_id, tag, kind, state, coalesce(git_ref, ''),
+		        coalesce(git_commit, ''), image_version,
 		        source_release_id, created_by, created_at, coalesce(launched_by, ''), launched_at,
 		        released_at,
 		        coalesce(manual_actions_md, ''), coalesce(manual_actions_updated_by, ''),
 		        manual_actions_updated_at
 		 from releases where id = $1`, id).
-		Scan(&release.ID, &release.VersionID, &release.Tag, &release.Kind, &release.State,
-			&release.GitRef, &release.ImageVersion, &release.SourceReleaseID,
+		Scan(&release.ID, &release.ProjectID, &release.VersionID, &release.Tag, &release.Kind, &release.State,
+			&release.GitRef, &release.GitCommit, &release.ImageVersion, &release.SourceReleaseID,
 			&release.CreatedBy, &release.CreatedAt, &release.LaunchedBy, &release.LaunchedAt, &release.ReleasedAt,
 			&release.ManualActions, &release.ManualActionsUpdatedBy, &release.ManualActionsUpdatedAt)
 	if err != nil {
