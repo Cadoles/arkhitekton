@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,19 +33,16 @@ type fakeReleaseStore struct {
 	audit      []string
 	// facts carries the emitted facts, keyed by their deduplication key: that is the
 	// database's shape, and a slice would not say whether a duplicate was discarded.
-	facts     map[string]event.Event
-	actions   map[string]string
-	artifacts []store.Artifact
-	objects   map[string]string
-	registry  Images
-	states    map[int64]string
+	facts    map[string]event.Event
+	actions  map[string]string
+	registry Images
+	states   map[int64]string
 	// project describes what the release builds. Nil, the fixture below applies: these
 	// tests are about how many runs are queued and with which parameters, not about the
 	// table's content.
 	project *store.Project
 	// produced carries what the automation produced, as the `plan_artifacts` table would
-	// return it. Distinct from `artifacts`, which carries the delivery note's exports — two
-	// natures, two tables, two names.
+	// return it.
 	produits []store.PlanArtifact
 	// pipelines is the catalogue the handler uses. The store carries it because it must
 	// return the project's automation, which is composed from the declared kinds.
@@ -168,34 +164,6 @@ func (f *fakeReleaseStore) RecordEvent(_ context.Context, fact event.Event) (boo
 	return true, nil
 }
 
-func (f *fakeReleaseStore) ListArtifacts(_ context.Context, releaseID int64) ([]store.Artifact, error) {
-	var found []store.Artifact
-	for _, artifact := range f.artifacts {
-		if artifact.ReleaseID == releaseID {
-			found = append(found, artifact)
-		}
-	}
-	return found, nil
-}
-
-func (f *fakeReleaseStore) GetArtifact(_ context.Context, id int64) (store.Artifact, error) {
-	for _, artifact := range f.artifacts {
-		if artifact.ID == id {
-			return artifact, nil
-		}
-	}
-	return store.Artifact{}, store.ErrArtifactNotFound
-}
-
-// Get doubles as the object store: the handler expects only a read from it.
-func (f *fakeReleaseStore) Get(_ context.Context, key string) (io.ReadCloser, error) {
-	content, found := f.objects[key]
-	if !found {
-		return nil, errors.New("object missing")
-	}
-	return io.NopCloser(strings.NewReader(content)), nil
-}
-
 func (f *fakeReleaseStore) Enqueue(_ context.Context, request store.JobRequest) (int64, error) {
 	f.jobs = append(f.jobs, request)
 	return int64(len(f.jobs)), nil
@@ -251,7 +219,6 @@ func newFakeStore() *fakeReleaseStore {
 	return &fakeReleaseStore{
 		releases: map[string]store.Release{},
 		actions:  map[string]string{},
-		objects:  map[string]string{},
 	}
 }
 
@@ -317,8 +284,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	authorizer := auth.NewAuthorizer(auth.ProjectPolicies{testProjectSlug: {
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	}})
-	return NewReleasesHandler(store, pipelines, authorizer, store.registry, store,
-		"portal", "reg.cadoles.com/vcarroy").
+	return NewReleasesHandler(store, pipelines, authorizer, store.registry, "reg.cadoles.com/vcarroy").
 		// The real planner, on the same fake store. A substitute here would make these tests
 		// pass while saying nothing about what creation actually queues.
 		WithArtifactReader(store).
@@ -633,132 +599,6 @@ func TestUpdateActionsOnAnUnknownRelease(t *testing.T) {
 	recorder := httptest.NewRecorder()
 
 	handler.UpdateActions(recorder, asRole(request, auth.RoleOperator))
-
-	if recorder.Code != http.StatusNotFound {
-		t.Errorf("code = %d, expected 404", recorder.Code)
-	}
-}
-
-func TestExportEnqueuesAJobBoundToTheRelease(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{ID: 20, Tag: "1.8.0", Kind: "final", State: "ready"}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/exports", strings.NewReader(`{}`))
-	request.SetPathValue("tag", "1.8.0")
-	recorder := httptest.NewRecorder()
-	handler.Export(recorder, asRole(request, auth.RoleReleaser))
-
-	if recorder.Code != http.StatusAccepted {
-		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body.String())
-	}
-	if len(fake.jobs) != 1 {
-		t.Fatalf("%d job(s)", len(fake.jobs))
-	}
-	job := fake.jobs[0]
-	if job.Kind != exportJobKind || job.ReleaseID == nil || *job.ReleaseID != 20 {
-		t.Errorf("job = %+v", job)
-	}
-	// The generator starts from the release, not from the tag: without the attachment it
-	// would not know what to produce.
-	if job.Params[exportParamKind] != store.ArtifactDeliveryNote || job.Params[exportParamFormat] != "pdf" {
-		t.Errorf("parameters = %v", job.Params)
-	}
-}
-
-// A project that switched its deliverables off is refused one, rather than given a job that the
-// worker would refuse in turn.
-func TestExportIsRefusedWhenDeliverablesAreOff(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{ID: 20, Tag: "1.8.0", Kind: "final", State: "ready"}
-	handler := newReleasesHandler(t, fake).WithExports(func(context.Context, int64) bool { return false })
-
-	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/exports", strings.NewReader(`{}`))
-	request.SetPathValue("tag", "1.8.0")
-	recorder := httptest.NewRecorder()
-	handler.Export(recorder, asRole(request, auth.RoleReleaser))
-
-	if recorder.Code != http.StatusConflict || len(fake.jobs) != 0 {
-		t.Errorf("code = %d, %d job(s)", recorder.Code, len(fake.jobs))
-	}
-}
-
-func TestExportRefusesAnUnknownFormat(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{ID: 21, Tag: "1.8.0"}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodPost, "/releases/1.8.0/exports", strings.NewReader(`{"format":"docx"}`))
-	request.SetPathValue("tag", "1.8.0")
-	recorder := httptest.NewRecorder()
-	handler.Export(recorder, asRole(request, auth.RoleReleaser))
-
-	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("code = %d, expected 400", recorder.Code)
-	}
-	if len(fake.jobs) != 0 {
-		t.Error("no job must start for an unknown format")
-	}
-}
-
-func TestDownloadServesTheArtifact(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{ID: 22, Tag: "1.8.0"}
-	fake.artifacts = []store.Artifact{
-		{ID: 7, ReleaseID: 22, Kind: store.ArtifactDeliveryNote, Format: "pdf",
-			Object: "artifacts/releases/1.8.0/delivery-note.pdf"},
-	}
-	fake.objects["artifacts/releases/1.8.0/delivery-note.pdf"] = "%PDF-1.3 content"
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0/exports/7/download", nil)
-	request.SetPathValue("tag", "1.8.0")
-	request.SetPathValue("artifact", "7")
-	recorder := httptest.NewRecorder()
-	handler.Download(recorder, asRole(request, auth.RoleViewer))
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("code = %d", recorder.Code)
-	}
-	if recorder.Header().Get("Content-Type") != "application/pdf" {
-		t.Errorf("type = %q", recorder.Header().Get("Content-Type"))
-	}
-	if !strings.HasPrefix(recorder.Body.String(), "%PDF-") {
-		t.Errorf("body = %q", recorder.Body.String())
-	}
-}
-
-// Without that check, a guessed identifier would give another release's delivery note —
-// a contractual document that is not its own.
-func TestDownloadRefusesAnArtifactOfAnotherRelease(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{ID: 23, Tag: "1.8.0"}
-	fake.artifacts = []store.Artifact{{ID: 8, ReleaseID: 999, Object: "ailleurs"}}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0/exports/8/download", nil)
-	request.SetPathValue("tag", "1.8.0")
-	request.SetPathValue("artifact", "8")
-	recorder := httptest.NewRecorder()
-	handler.Download(recorder, asRole(request, auth.RoleViewer))
-
-	if recorder.Code != http.StatusNotFound {
-		t.Errorf("code = %d, expected 404", recorder.Code)
-	}
-}
-
-// The row outlives a purge of the bucket: saying so beats an empty file.
-func TestDownloadReportsAMissingObject(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0"] = store.Release{ID: 24, Tag: "1.8.0"}
-	fake.artifacts = []store.Artifact{{ID: 9, ReleaseID: 24, Format: "pdf", Object: "purged"}}
-	handler := newReleasesHandler(t, fake)
-
-	request := httptest.NewRequest(http.MethodGet, "/releases/1.8.0/exports/9/download", nil)
-	request.SetPathValue("tag", "1.8.0")
-	request.SetPathValue("artifact", "9")
-	recorder := httptest.NewRecorder()
-	handler.Download(recorder, asRole(request, auth.RoleViewer))
 
 	if recorder.Code != http.StatusNotFound {
 		t.Errorf("code = %d, expected 404", recorder.Code)

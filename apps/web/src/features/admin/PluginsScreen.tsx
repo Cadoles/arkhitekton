@@ -11,7 +11,7 @@ import { usePlugins, useSavePlugin } from './plugins'
  * installés depuis un registre. L'écran dit lesquels sont disponibles et porte
  * ce qui vaut pour toute l'instance.
  *
- * Ce qui est propre à un projet — son serveur de suivi, ses livrables — se règle
+ * Ce qui est propre à un projet — son serveur de suivi, son déploiement — se règle
  * sur sa page. Le partage est celui de doc 12 §12.5 : le global porte les
  * **défauts**, le projet porte ses **écarts**.
  */

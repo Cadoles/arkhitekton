@@ -123,21 +123,21 @@ func TestRemovalReturnsTheProjectToInheritance(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	if err := db.EnsurePlugins(ctx, []string{"delivery-note"}); err != nil {
+	if err := db.EnsurePlugins(ctx, []string{"k6"}); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
 	if err := db.SetProjectPluginSettings(ctx, testProjectID,
-		PluginSettings{PluginID: "delivery-note", Enabled: false}, "alice"); err != nil {
+		PluginSettings{PluginID: "k6", Enabled: false}, "alice"); err != nil {
 		t.Fatalf("switch-off: %v", err)
 	}
-	if _, err := db.ResolvedPlugin(ctx, testProjectID, "delivery-note"); !errors.Is(err, ErrPluginDisabled) {
+	if _, err := db.ResolvedPlugin(ctx, testProjectID, "k6"); !errors.Is(err, ErrPluginDisabled) {
 		t.Fatalf("resolution = %v", err)
 	}
 
-	if err := db.ClearProjectPluginSettings(ctx, testProjectID, "delivery-note"); err != nil {
+	if err := db.ClearProjectPluginSettings(ctx, testProjectID, "k6"); err != nil {
 		t.Fatalf("removal: %v", err)
 	}
-	resolved, err := db.ResolvedPlugin(ctx, testProjectID, "delivery-note")
+	resolved, err := db.ResolvedPlugin(ctx, testProjectID, "k6")
 	if err != nil || !resolved.Enabled {
 		t.Errorf("after removal: %+v (%v) — the project should follow the instance", resolved, err)
 	}

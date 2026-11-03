@@ -26,7 +26,6 @@ var KindLabel = map[capability.Kind]string{
 	capability.KindPipeline: "Pipeline",
 	capability.KindTracker:  "Suivi",
 	capability.KindForge:    "Forge",
-	capability.KindExporter: "Livrables",
 	capability.KindModule:   "Module",
 }
 

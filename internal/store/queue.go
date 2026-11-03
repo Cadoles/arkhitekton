@@ -103,7 +103,7 @@ type Job struct {
 	QueueReason string
 	Error       string
 	RunName     string
-	// ReleaseID attaches the job to a release. Set for promotions and exports, whose run
+	// ReleaseID attaches the job to a release. Set for promotions and re-tags, whose run
 	// starts from the release and not from parameters.
 	ReleaseID *int64
 	// ProjectID attaches the job to its repository. Nil for jobs predating the migration

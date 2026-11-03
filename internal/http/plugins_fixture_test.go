@@ -7,8 +7,8 @@ import (
 )
 
 // testRegistry declares plugins shaped like the built-in ones these tests talk about: a tracker
-// with a required project identifier and a sealed key, a forge, a module and an exporter decided per
-// project. The core does not import the plugins, so it describes them again here.
+// with a required project identifier and a sealed key, a forge, a module, and load campaigns decided
+// per project. The core does not import the plugins, so it describes them again here.
 var testRegistry = mustRegistry(
 	capability.Plugin{
 		ID: "redmine", Label: "Redmine", PerProject: true,
@@ -47,8 +47,7 @@ var testRegistry = mustRegistry(
 		Project:      []capability.Field{{Name: "namespace", Label: "Namespace Flux", Type: capability.FieldText}},
 	},
 	capability.Plugin{
-		ID: "bon-de-livraison", Label: "Bon de livraison", PerProject: true,
-		Capabilities: []capability.Header{{Kind: capability.KindExporter, Name: "exporter", Label: "Livrables"}},
+		ID: "k6", Label: "k6", PerProject: true,
 	},
 	capability.Plugin{ID: "core", Label: "Socle", Mandatory: true},
 )

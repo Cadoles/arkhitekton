@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strconv"
 	"time"
@@ -34,6 +35,11 @@ type InstallationStore interface {
 	FailPluginInstallation(ctx context.Context, id int64, reason string) error
 	ParkPluginInstallation(ctx context.Context, id int64, pluginID, reason string) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
+}
+
+// Storage is what the installer needs from object storage.
+type Storage interface {
+	Put(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error
 }
 
 // PluginInstaller pulls a plugin, verifies it, stores it and records it installed.

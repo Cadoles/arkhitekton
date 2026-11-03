@@ -36,10 +36,10 @@ type fakePluginStore struct {
 func newFakePluginStore() *fakePluginStore {
 	return &fakePluginStore{
 		global: map[string]store.PluginSettings{
-			"redmine":          {PluginID: "redmine", Enabled: true, Config: map[string]string{}},
-			"gitea":            {PluginID: "gitea", Enabled: true, Config: map[string]string{}},
-			"mse":              {PluginID: "mse", Enabled: true, Config: map[string]string{}},
-			"bon-de-livraison": {PluginID: "bon-de-livraison", Enabled: true, Config: map[string]string{}},
+			"redmine": {PluginID: "redmine", Enabled: true, Config: map[string]string{}},
+			"gitea":   {PluginID: "gitea", Enabled: true, Config: map[string]string{}},
+			"mse":     {PluginID: "mse", Enabled: true, Config: map[string]string{}},
+			"k6":      {PluginID: "k6", Enabled: true, Config: map[string]string{}},
 		},
 		byProject: map[int64]map[string]store.PluginSettings{},
 	}
@@ -304,8 +304,8 @@ func TestAnUnknownPluginAnswers404(t *testing.T) {
 // wondering why nothing changes.
 func TestTheProjectSeesOnlyWhatItCanDecide(t *testing.T) {
 	fake := newFakePluginStore()
-	// The instance switches off the delivery note: the project must no longer see it.
-	fake.global["bon-de-livraison"] = store.PluginSettings{PluginID: "bon-de-livraison", Enabled: false}
+	// The instance switches off the load campaigns: the project must no longer see it.
+	fake.global["k6"] = store.PluginSettings{PluginID: "k6", Enabled: false}
 	handler := pluginsHandlerWith(t, fake, testKey)
 
 	request := httptest.NewRequest(http.MethodGet, "/projects/mse/plugins", nil)
@@ -337,7 +337,7 @@ func TestTheProjectSeesOnlyWhatItCanDecide(t *testing.T) {
 		}
 	}
 
-	if slices.Contains(ids, "bon-de-livraison") {
+	if slices.Contains(ids, "k6") {
 		t.Error("a plugin switched off on the instance is offered to the project")
 	}
 	if !slices.Contains(ids, "redmine") {
@@ -349,11 +349,11 @@ func TestTheProjectSeesOnlyWhatItCanDecide(t *testing.T) {
 // carry it, and every call would fail.
 func TestAProjectCannotSwitchBackOnWhatTheInstanceSwitchedOff(t *testing.T) {
 	fake := newFakePluginStore()
-	fake.global["bon-de-livraison"] = store.PluginSettings{PluginID: "bon-de-livraison", Enabled: false}
+	fake.global["k6"] = store.PluginSettings{PluginID: "k6", Enabled: false}
 	handler := pluginsHandlerWith(t, fake, testKey)
 
 	recorder := putPlugin(t, handler.SetProject,
-		"/projects/mse/plugins/bon-de-livraison", "bon-de-livraison", `{"enabled":true}`)
+		"/projects/mse/plugins/k6", "k6", `{"enabled":true}`)
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("code %d, expected 409 — %s", recorder.Code, recorder.Body.String())
 	}
@@ -423,23 +423,23 @@ func TestRemovalReturnsTheProjectToInheritance(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, testKey)
 
-	putPlugin(t, handler.SetProject, "/projects/mse/plugins/bon-de-livraison",
-		"bon-de-livraison", `{"enabled":false}`)
-	if fake.byProject[7]["bon-de-livraison"].Enabled {
+	putPlugin(t, handler.SetProject, "/projects/mse/plugins/k6",
+		"k6", `{"enabled":false}`)
+	if fake.byProject[7]["k6"].Enabled {
 		t.Fatal("the switch-off was not recorded")
 	}
 
 	request := asAdmin(httptest.NewRequest(http.MethodDelete,
-		"/projects/mse/plugins/bon-de-livraison", nil))
+		"/projects/mse/plugins/k6", nil))
 	request.SetPathValue("project", "mse")
-	request.SetPathValue("plugin", "bon-de-livraison")
+	request.SetPathValue("plugin", "k6")
 	recorder := httptest.NewRecorder()
 	handler.ClearProject(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("code %d — %s", recorder.Code, recorder.Body.String())
 	}
-	if _, declared := fake.byProject[7]["bon-de-livraison"]; declared {
+	if _, declared := fake.byProject[7]["k6"]; declared {
 		t.Error("the project's decision survives the removal")
 	}
 }

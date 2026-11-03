@@ -138,8 +138,8 @@ func TestAnUnknownKindTakesTheDefault(t *testing.T) {
 
 	limits := Limits{PerKind: map[string]int{"build": 5}, Default: 1, Global: 10}
 
-	enqueue(t, db, "delivery-note", 100)
-	enqueue(t, db, "delivery-note", 100)
+	enqueue(t, db, "release-notes", 100)
+	enqueue(t, db, "release-notes", 100)
 
 	if _, err := claim(t, db, limits); err != nil {
 		t.Fatalf("first: %v", err)

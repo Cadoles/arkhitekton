@@ -17,7 +17,6 @@ import (
 const (
 	prefixRaw         = "raw"
 	prefixLogs        = "logs"
-	prefixArtifacts   = "artifacts"
 	prefixAttachments = "attachments"
 	prefixPlugins     = "plugins"
 )
@@ -182,12 +181,6 @@ func (Keys) TaskLogPartsPrefix(runName, taskName string) (string, error) {
 		return "", err
 	}
 	return key + "/", nil
-}
-
-// ReleaseArtifact names a deliverable attached to a release — a delivery note, a
-// test report. These objects must outlive the purge of raw artifacts.
-func (Keys) ReleaseArtifact(releaseTag, name string) (string, error) {
-	return join(prefixArtifacts, "releases", releaseTag, name)
 }
 
 // PluginLayer names an installed plugin's layer, the directory as packed and signed. The digest

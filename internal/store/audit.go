@@ -47,11 +47,10 @@ const (
 	// Declaring a version by hand only happens on a project with no tracker: elsewhere the
 	// tracking tool is authoritative. The record says who decided a scope existed, which no
 	// synchronisation will say in its place.
-	AuditVersionDeclare   = "version.declare"
-	AuditProjectRemove    = "project.remove"
-	AuditProjectProbe     = "project.probe"
-	AuditArtifactGenerate = "artifact.generate"
-	AuditBaselinePin      = "bench.baseline.pin"
+	AuditVersionDeclare = "version.declare"
+	AuditProjectRemove  = "project.remove"
+	AuditProjectProbe   = "project.probe"
+	AuditBaselinePin    = "bench.baseline.pin"
 	// Acceptance approval is the decision that authorises a delivery. Its history cannot live
 	// in `release_signoffs`, where a change of mind replaces the previous one: the log is the
 	// only place that answers "who had approved, before retracting".
