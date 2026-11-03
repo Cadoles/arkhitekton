@@ -3,6 +3,7 @@ package configure
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -25,9 +26,26 @@ type InstallationStore interface {
 	PluginInstallation(ctx context.Context, id int64) (store.PluginInstallation, error)
 	AcceptSource(ctx context.Context, pluginID, reason, subject string) error
 	RetryPluginInstallation(ctx context.Context, id int64) error
+	PluginSources(ctx context.Context) ([]store.PluginSource, error)
+	PluginSource(ctx context.Context, pluginID string) (store.PluginSource, error)
+	SetSourcePinned(ctx context.Context, pluginID string, pinned bool) error
+	RequestUpdateCheck(ctx context.Context, pluginID string) error
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	Auditor
 }
+
+// Mode says what an installation of a plugin already installed from the same repository does.
+type Mode string
+
+const (
+	// ModeAsk refuses with a conflict when the plugin is already installed, so that the
+	// administrator chooses.
+	ModeAsk Mode = ""
+	// ModeInstall installs the version beside the active one, to activate later.
+	ModeInstall Mode = "install"
+	// ModeUpdate replaces the active version, its configuration kept.
+	ModeUpdate Mode = "update"
+)
 
 // Installations requests, accepts and activates the plugins an administrator installs from an OCI
 // registry. The pull itself is a job of the worker: it can take a while and fail, and the queue
@@ -41,14 +59,52 @@ type Installations struct {
 	Logger *slog.Logger
 }
 
-// Request records an installation of a reference pinned by digest, and queues its pull.
-func (s Installations) Request(ctx context.Context, actor, raw string) (id, job int64, reference string, err error) {
+// Request records an installation and queues its pull. A repository alone installs its latest
+// stable version, which the plugin then follows; a tag or a digest pins it. The worker resolves a
+// repository or a tag to its digest: it holds the registries' credentials, the api does not.
+//
+// A plugin already installed from the same repository is not installed a second time without the
+// administrator saying how: beside the active version, or replacing it.
+func (s Installations) Request(ctx context.Context, actor, raw string, mode Mode) (id, job int64, reference string, err error) {
 	logger := loggerOr(s.Logger)
-	reference, digest, err := installed.Pinned(raw)
+	source, err := installed.ParseSource(raw)
 	if err != nil {
 		return 0, 0, "", invalid("Invalid reference", err)
 	}
-	id, err = s.Store.RequestPluginInstallation(ctx, store.InstallationRequest{Reference: reference, Digest: digest, Actor: actor})
+	if mode != ModeAsk && mode != ModeInstall && mode != ModeUpdate {
+		return 0, 0, "", refuse(http.StatusBadRequest, "Unknown mode", `expected "install" or "update"`)
+	}
+	request := store.InstallationRequest{Actor: actor, Follows: !source.Pinned(), Reference: source.Repository}
+	switch {
+	case source.Digest != "":
+		request.Reference, request.Digest = source.Reference(), source.Digest
+	case source.Tag != "":
+		request.Reference = source.Repository + ":" + source.Tag
+	}
+
+	sources, err := s.Store.PluginSources(ctx)
+	if err != nil {
+		return 0, 0, "", failure(logger, "Cannot read the plugins' sources", err)
+	}
+	var current *store.PluginSource
+	for i := range sources {
+		if sources[i].Repository == source.Repository && sources[i].ActiveID != 0 {
+			current = &sources[i]
+		}
+	}
+	switch {
+	case current != nil && mode == ModeAsk:
+		return 0, 0, "", refuse(http.StatusConflict, "Plugin already installed", fmt.Sprintf(
+			"%s %s is installed from this repository: install this version beside it, or update it",
+			current.PluginID, current.ActiveVersion))
+	case current != nil && mode == ModeUpdate:
+		request.Replaces = &current.ActiveID
+	case current == nil && mode == ModeUpdate:
+		return 0, 0, "", refuse(http.StatusNotFound, "Nothing to update", "no plugin is installed from this repository")
+	}
+	reference = request.Reference
+
+	id, err = s.Store.RequestPluginInstallation(ctx, request)
 	if err != nil {
 		return 0, 0, "", failure(logger, "Cannot request the installation", err, "reference", reference)
 	}
@@ -56,8 +112,84 @@ func (s Installations) Request(ctx context.Context, actor, raw string) (id, job 
 	if err != nil {
 		return 0, 0, "", err
 	}
-	audit(ctx, logger, s.Store, actor, "plugin.installation.requested", reference, map[string]any{"installation": id, "job": job})
+	audit(ctx, logger, s.Store, actor, "plugin.installation.requested", reference, map[string]any{
+		"installation": id, "job": job, "follows": request.Follows, "mode": string(mode),
+	})
 	return id, job, reference, nil
+}
+
+// Update installs the newer version a following plugin's repository publishes, in place of the
+// active one, its configuration kept. A pinned plugin is not updated: the administrator pinned it.
+func (s Installations) Update(ctx context.Context, actor, pluginID string) (id, job int64, err error) {
+	logger := loggerOr(s.Logger)
+	source, err := s.source(ctx, pluginID)
+	if err != nil {
+		return 0, 0, err
+	}
+	switch {
+	case source.Pinned:
+		return 0, 0, refuse(http.StatusConflict, "Plugin pinned",
+			fmt.Sprintf("%s is pinned to %s: follow its repository to update it", pluginID, source.ActiveVersion))
+	case source.LatestDigest == "" || source.LatestVersion == source.ActiveVersion:
+		return 0, 0, refuse(http.StatusConflict, "Up to date", "no newer version was found in its repository")
+	case source.ActiveID == 0:
+		return 0, 0, refuse(http.StatusConflict, "No active version", "an installation of this plugin is under way")
+	}
+	active := source.ActiveID
+	id, err = s.Store.RequestPluginInstallation(ctx, store.InstallationRequest{
+		Reference: source.Repository + "@" + source.LatestDigest, Digest: source.LatestDigest, Actor: actor,
+		Follows: true, ExpectedVersion: source.LatestVersion, Replaces: &active,
+	})
+	if err != nil {
+		return 0, 0, failure(logger, "Cannot request the update", err, "plugin", pluginID)
+	}
+	if job, err = s.queue(ctx, actor, id); err != nil {
+		return 0, 0, err
+	}
+	audit(ctx, logger, s.Store, actor, "plugin.update.requested", pluginID, map[string]any{
+		"installation": id, "job": job, "from": source.ActiveVersion, "to": source.LatestVersion,
+	})
+	return id, job, nil
+}
+
+// CheckUpdates asks the worker to read a plugin's repository now rather than at its next round.
+func (s Installations) CheckUpdates(ctx context.Context, pluginID string) error {
+	if _, err := s.source(ctx, pluginID); err != nil {
+		return err
+	}
+	if err := s.Store.RequestUpdateCheck(ctx, pluginID); err != nil {
+		return failure(loggerOr(s.Logger), "Cannot request the check", err, "plugin", pluginID)
+	}
+	return nil
+}
+
+// SetSource pins a plugin to its version, or makes it follow its repository. Nothing is installed:
+// following makes a newer version offered, at the next check.
+func (s Installations) SetSource(ctx context.Context, actor, pluginID string, pinned bool) error {
+	logger := loggerOr(s.Logger)
+	if _, err := s.source(ctx, pluginID); err != nil {
+		return err
+	}
+	if err := s.Store.SetSourcePinned(ctx, pluginID, pinned); err != nil {
+		return failure(logger, "Cannot change what the plugin follows", err, "plugin", pluginID)
+	}
+	action := "plugin.source.followed"
+	if pinned {
+		action = "plugin.source.pinned"
+	}
+	audit(ctx, logger, s.Store, actor, action, pluginID, nil)
+	return nil
+}
+
+func (s Installations) source(ctx context.Context, pluginID string) (store.PluginSource, error) {
+	source, err := s.Store.PluginSource(ctx, pluginID)
+	if errors.Is(err, store.ErrSourceNotFound) {
+		return source, refuse(http.StatusNotFound, "Plugin not installed", pluginID)
+	}
+	if err != nil {
+		return source, failure(loggerOr(s.Logger), "Cannot read the plugin's source", err, "plugin", pluginID)
+	}
+	return source, nil
 }
 
 // Accept records that an administrator accepts a plugin whose source the instance does not

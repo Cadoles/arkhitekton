@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,6 +24,37 @@ type installationStore struct {
 	parked   *store.PluginInstallation
 	accepted []string
 	retried  []int64
+	// sources are the installed plugins' sources; pins and checks record what was asked.
+	sources map[string]store.PluginSource
+	pins    []string
+	checks  []string
+	request []store.InstallationRequest
+}
+
+func (s *installationStore) PluginSources(context.Context) ([]store.PluginSource, error) {
+	var all []store.PluginSource
+	for _, source := range s.sources {
+		all = append(all, source)
+	}
+	return all, nil
+}
+
+func (s *installationStore) PluginSource(_ context.Context, pluginID string) (store.PluginSource, error) {
+	source, found := s.sources[pluginID]
+	if !found {
+		return store.PluginSource{}, store.ErrSourceNotFound
+	}
+	return source, nil
+}
+
+func (s *installationStore) SetSourcePinned(_ context.Context, pluginID string, pinned bool) error {
+	s.pins = append(s.pins, fmt.Sprintf("%s %v", pluginID, pinned))
+	return nil
+}
+
+func (s *installationStore) RequestUpdateCheck(_ context.Context, pluginID string) error {
+	s.checks = append(s.checks, pluginID)
+	return nil
 }
 
 func (s *installationStore) PluginInstallations(context.Context) ([]store.PluginInstallation, error) {
@@ -46,6 +78,7 @@ func (s *installationStore) PluginLeftoverOf(_ context.Context, pluginID string)
 
 func (s *installationStore) RequestPluginInstallation(_ context.Context, request store.InstallationRequest) (int64, error) {
 	s.requested = append(s.requested, request.Reference+" "+request.Digest)
+	s.request = append(s.request, request)
 	return 3, nil
 }
 
@@ -120,6 +153,9 @@ func callInstallationsWith(
 	mux.HandleFunc("DELETE /admin/plugins/installations/{id}", handler.Remove)
 	mux.HandleFunc("GET /admin/plugins/leftovers", handler.Leftovers)
 	mux.HandleFunc("POST /admin/plugins/leftovers/{plugin}/purge", handler.Purge)
+	mux.HandleFunc("POST /admin/plugins/{plugin}/update", handler.Update)
+	mux.HandleFunc("POST /admin/plugins/{plugin}/check", handler.CheckUpdates)
+	mux.HandleFunc("PUT /admin/plugins/{plugin}/source", handler.SetSource)
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, asAdmin(httptest.NewRequest(method, path, strings.NewReader(body))))
 	return recorder, db, reloads
@@ -135,11 +171,103 @@ func TestAnInstallationIsRequestedByDigest(t *testing.T) {
 		t.Errorf("requested %v, jobs %+v", db.requested, db.jobs)
 	}
 
-	for _, reference := range []string{"reg.example/plugins/gotest:1.0.0", "reg.example/plugins/gotest", "not a reference"} {
+	if request := db.request[0]; request.Follows || request.Digest == "" {
+		t.Errorf("a digest pins: %+v", request)
+	}
+
+	recorder, _, _ = callInstallations(t, http.MethodPost, "/admin/plugins/installations", `{"reference": "not a reference"}`)
+	if recorder.Code != http.StatusBadRequest {
+		t.Errorf("status %d", recorder.Code)
+	}
+}
+
+// A repository alone installs what it publishes and the plugin follows it; a tag pins. Neither has a
+// digest yet: the worker resolves it, the api has no access to the registries.
+func TestAnInstallationIsRequestedByRepositoryOrTag(t *testing.T) {
+	for reference, follows := range map[string]bool{"reg.example/plugins/gotest": true, "reg.example/plugins/gotest:1.0.0": false} {
 		recorder, db, _ := callInstallations(t, http.MethodPost, "/admin/plugins/installations", `{"reference": "`+reference+`"}`)
-		if recorder.Code != http.StatusBadRequest || len(db.jobs) != 0 {
-			t.Errorf("%s: status %d, jobs %v", reference, recorder.Code, db.jobs)
+		if recorder.Code != http.StatusAccepted || len(db.request) != 1 {
+			t.Fatalf("%s: status %d: %s", reference, recorder.Code, recorder.Body)
 		}
+		if request := db.request[0]; request.Follows != follows || request.Digest != "" || request.Reference != reference {
+			t.Errorf("%s: %+v", reference, request)
+		}
+	}
+}
+
+func installedSource(pinned bool) *installationStore {
+	return &installationStore{sources: map[string]store.PluginSource{"gotest": {
+		PluginID: "gotest", Repository: "reg.example/plugins/gotest", Pinned: pinned, ActiveVersion: "1.0.0", ActiveID: 2,
+		LatestVersion: "2.0.0", LatestDigest: "sha256:new",
+	}}}
+}
+
+// Another version of a plugin installed from the same repository asks how: beside it, or in its
+// place.
+func TestAnotherVersionOfAnInstalledPluginAsksHow(t *testing.T) {
+	recorder, db, _ := callInstallationsWith(t, installedSource(true), http.MethodPost, "/admin/plugins/installations", `{"reference": "`+pinned+`"}`)
+	if recorder.Code != http.StatusConflict || len(db.jobs) != 0 {
+		t.Fatalf("status %d, jobs %v", recorder.Code, db.jobs)
+	}
+
+	_, db, _ = callInstallationsWith(t, installedSource(true), http.MethodPost, "/admin/plugins/installations",
+		`{"reference": "`+pinned+`", "mode": "update"}`)
+	if len(db.request) != 1 || db.request[0].Replaces == nil || *db.request[0].Replaces != 2 || db.request[0].Follows {
+		t.Errorf("update: %+v", db.request)
+	}
+	_, db, _ = callInstallationsWith(t, installedSource(true), http.MethodPost, "/admin/plugins/installations",
+		`{"reference": "`+pinned+`", "mode": "install"}`)
+	if len(db.request) != 1 || db.request[0].Replaces != nil {
+		t.Errorf("beside: %+v", db.request)
+	}
+}
+
+// A following plugin is updated to the version found, in place of the active one; a pinned one is
+// not.
+func TestAFollowingPluginIsUpdatedAndAPinnedOneIsNot(t *testing.T) {
+	recorder, db, _ := callInstallationsWith(t, installedSource(false), http.MethodPost, "/admin/plugins/gotest/update", ``)
+	if recorder.Code != http.StatusAccepted || len(db.request) != 1 || len(db.jobs) != 1 {
+		t.Fatalf("status %d: %s", recorder.Code, recorder.Body)
+	}
+	request := db.request[0]
+	if request.Reference != "reg.example/plugins/gotest@sha256:new" || request.ExpectedVersion != "2.0.0" ||
+		!request.Follows || request.Replaces == nil || *request.Replaces != 2 {
+		t.Errorf("request = %+v", request)
+	}
+
+	recorder, db, _ = callInstallationsWith(t, installedSource(true), http.MethodPost, "/admin/plugins/gotest/update", ``)
+	if recorder.Code != http.StatusConflict || len(db.jobs) != 0 {
+		t.Errorf("pinned: status %d", recorder.Code)
+	}
+	recorder, _, _ = callInstallationsWith(t, installedSource(false), http.MethodPost, "/admin/plugins/other/update", ``)
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("unknown plugin: status %d", recorder.Code)
+	}
+}
+
+// The list says which plugin has a newer version, and whether it crosses a major version.
+func TestTheListSaysWhatCanBeUpdated(t *testing.T) {
+	recorder, _, _ := callInstallationsWith(t, installedSource(false), http.MethodGet, "/admin/plugins/installations", ``)
+	body := recorder.Body.String()
+	for _, expected := range []string{`"update_available":true`, `"major":true`, `"latest_version":"2.0.0"`, `"pinned":false`} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("%s not in %s", expected, body)
+		}
+	}
+}
+
+func TestAPluginIsPinnedOrFollowedAndCheckedOnRequest(t *testing.T) {
+	recorder, db, _ := callInstallationsWith(t, installedSource(false), http.MethodPut, "/admin/plugins/gotest/source", `{"pinned": true}`)
+	if recorder.Code != http.StatusNoContent || len(db.pins) != 1 || db.pins[0] != "gotest true" {
+		t.Errorf("status %d, pins %v", recorder.Code, db.pins)
+	}
+	recorder, db, _ = callInstallationsWith(t, installedSource(false), http.MethodPost, "/admin/plugins/gotest/check", ``)
+	if recorder.Code != http.StatusAccepted || len(db.checks) != 1 {
+		t.Errorf("status %d, checks %v", recorder.Code, db.checks)
+	}
+	recorder, _, _ = callInstallationsWith(t, installedSource(false), http.MethodPut, "/admin/plugins/gotest/source", `{}`)
+	if recorder.Code != http.StatusBadRequest {
+		t.Errorf("status %d", recorder.Code)
 	}
 }
 
