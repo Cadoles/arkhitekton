@@ -327,8 +327,8 @@ func Expand(template string, values map[string]string) string {
 		}
 		end += index
 
-		name := template[index+1 : end]
-		if !plausibleName(name) {
+		name, fallback, defaulted := strings.Cut(template[index+1:end], "|")
+		if !plausibleName(name) || (defaulted && strings.ContainsAny(fallback, "{\n")) {
 			// A structural brace. This one is written and we resume just after it: the closing brace just
 			// seen may belong to a real variable, and consuming it here would make it disappear.
 			out.WriteByte('{')
@@ -336,9 +336,13 @@ func Expand(template string, values map[string]string) string {
 			continue
 		}
 
-		if value, known := values[name]; known {
+		switch value, known := values[name]; {
+		case known:
 			out.WriteString(value)
-		} else {
+		case defaulted:
+			// `{name|default}`: the default, possibly empty, when the variable is unknown.
+			out.WriteString(fallback)
+		default:
 			out.WriteString(template[index : end+1])
 		}
 		index = end + 1

@@ -262,7 +262,8 @@ func bindParams(pipeline *Pipeline, spec capability.PipelineSpec, binding Bindin
 	for name, declared := range spec.Params {
 		param := Param{
 			Required: declared.Required, Suggest: declared.Suggest, Image: declared.Image,
-			Label: declared.Label, Help: declared.Help, Placeholder: declared.Placeholder,
+			Overridable: declared.Overridable,
+			Label:       declared.Label, Help: declared.Help, Placeholder: declared.Placeholder,
 		}
 		switch declared.Source {
 		case capability.ParamBinding:

@@ -424,3 +424,25 @@ func TestAJobOfASwitchedOffPluginIsRefused(t *testing.T) {
 		t.Errorf("finished = %v", queue.finished)
 	}
 }
+
+// A parameter the catalogue declares overridable takes a step's non-empty value; an empty one
+// leaves the configuration's.
+func TestAnOverridableParameterTakesTheStepsValue(t *testing.T) {
+	scheduler := &Scheduler{config: map[string]string{"forge.mseKustom.revision": "unstable"}}
+	pipeline := catalog.Pipeline{
+		Kind: "mse/integration-tests",
+		Params: map[string]catalog.Param{
+			"mse-kustom-revision": {Source: catalog.SourceConfig, Key: "forge.mseKustom.revision", Overridable: true},
+		},
+	}
+
+	for supplied, expected := range map[string]string{"feature/x": "feature/x", "": "unstable"} {
+		params, err := scheduler.resolveParams(pipeline, map[string]string{"mse-kustom-revision": supplied}, scheduler.config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if params["mse-kustom-revision"] != expected {
+			t.Errorf("supplied %q: got %q, expected %q", supplied, params["mse-kustom-revision"], expected)
+		}
+	}
+}

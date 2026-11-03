@@ -184,7 +184,10 @@ const (
 type Param struct {
 	Source ParamSource
 	// DefaultKey is the configuration key read when the catalogue binds none.
-	DefaultKey  string
+	DefaultKey string
+	// Overridable lets a step's non-empty value replace a binding's: a pull request naming the
+	// branch of a repository its tests deploy, for instance.
+	Overridable bool
 	Value       string
 	Required    bool
 	Suggest     string
