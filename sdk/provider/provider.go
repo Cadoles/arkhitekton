@@ -226,6 +226,15 @@ type TagWriter interface {
 	CreateTag(ctx context.Context, tag, commit, message string) error
 }
 
+// CommitStatusWriter sets a status on a commit. Optional: a [TagWriter] that also implements it
+// lets the dashboard report each step of a plan on the commit it bears on.
+//
+// `state` is `pending`, `success`, `failure` or `error`. `context` is the replacement key: a
+// second status of the same context on the same commit replaces the first.
+type CommitStatusWriter interface {
+	SetCommitStatus(ctx context.Context, commit, state, context, description, targetURL string) error
+}
+
 // Ref is a branch or a tag.
 type Ref struct {
 	Name string

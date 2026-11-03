@@ -85,6 +85,8 @@ type Engine struct {
 	// stages is told when a stage with a role settles. Nil: plans run without anything outside
 	// depending on them.
 	stages StageSink
+	// steps is told when a pipeline step starts or concludes. Nil: nobody is told.
+	steps StepSink
 	// artifacts carries what the steps produce. Nil: no artifact is kept, and `{artifacts.…}`
 	// stays literal in the steps that follow.
 	artifacts ArtifactStore
@@ -168,6 +170,9 @@ func (e *Engine) Advance(ctx context.Context, jobID int64, state plan.State) {
 	if err != nil {
 		e.logger.Error("running a concluded step", "run", runID, "error", err)
 		return
+	}
+	if step.Stage < len(run.Plan.Stages) && step.Position < len(run.Plan.Stages[step.Stage].Gestes) {
+		e.stepChanged(ctx, run, run.Plan.Stages[step.Stage].Gestes[step.Position], state)
 	}
 
 	// What the step produced, **before** starting what follows: the next stage may target it, and
@@ -289,6 +294,7 @@ func (e *Engine) advance(ctx context.Context, run store.PlanRun) int {
 			}
 			// A pipeline step stays **in progress**: its job's conclusion is what will settle it.
 			e.mark(ctx, run.ID, step.Position, plan.Running, job, "")
+			e.stepChanged(ctx, run, step.Geste, plan.Running)
 		}
 
 		if !settledAtOnce {
@@ -317,6 +323,17 @@ type StageSink interface {
 // decide what is launched.
 func (e *Engine) WithArtifacts(artifacts ArtifactStore, products func(ref string) string) *Engine {
 	e.artifacts, e.products = artifacts, products
+	return e
+}
+
+// StepSink is told each time a pipeline step starts or concludes.
+type StepSink interface {
+	StepChanged(ctx context.Context, run store.PlanRun, geste plan.Geste, state plan.State)
+}
+
+// WithSteps wires the observer of the pipeline steps.
+func (e *Engine) WithSteps(sink StepSink) *Engine {
+	e.steps = sink
 	return e
 }
 
@@ -412,6 +429,12 @@ func stepLabelAt(frozen plan.Plan, stage, position int) string {
 		return ""
 	}
 	return gestes[position].Label
+}
+
+func (e *Engine) stepChanged(ctx context.Context, run store.PlanRun, geste plan.Geste, state plan.State) {
+	if e.steps != nil {
+		e.steps.StepChanged(ctx, run, geste, state)
+	}
 }
 
 // mark writes a step's outcome without interrupting the others' advance.

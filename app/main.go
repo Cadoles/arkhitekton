@@ -620,6 +620,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// job.
 			engine := worker.NewVerificationEngine(sink, db, actions, logger).
 				WithStages(worker.NewReleaseLifecycle(db, logger)).
+				// A plan that asks for it has each of its pipeline steps reported on its commit.
+				WithSteps(worker.NewCommitStatuses(
+					connect.New(inForce.Registries(), db, cipher, connect.Timeouts{Forge: cfg.Forge.Timeout}),
+					db, cfg.HTTP.PublicURL, logger)).
 				// What the steps produce, collected when they conclude and offered to the following stages
 				// under `{artifacts.<step>.<name>}`.
 				WithArtifacts(db, worker.ProductOf(inForce.Catalogs()))
