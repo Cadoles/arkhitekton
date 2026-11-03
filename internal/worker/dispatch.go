@@ -82,6 +82,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, fact event.Event) {
 			Trigger:   declared.Trigger(),
 			EventKey:  fact.DedupKey,
 			ProjectID: fact.ProjectID,
+			// A fact naming a release of its project opens a plan on that release: its messages can
+			// then list the release's issues and images.
+			ReleaseID: d.releaseOf(ctx, fact),
 			// A pull request's fact opens a plan on that request: its jobs, their results and what
 			// they produce show on its page.
 			PullRequestID: pullRequestOf(fact),
@@ -94,6 +97,26 @@ func (d *Dispatcher) Dispatch(ctx context.Context, fact event.Event) {
 			"reaction", declared.Name, "fact", fact.Type,
 			"subject", fact.Subject, "steps", started)
 	}
+}
+
+// releaseOf returns the release a fact's `release_id` names, when it belongs to the fact's
+// project. Nil otherwise: a payload is not trusted to point into another project.
+func (d *Dispatcher) releaseOf(ctx context.Context, fact event.Event) *int64 {
+	releases, ok := d.store.(interface {
+		GetReleaseByID(ctx context.Context, id int64) (store.Release, error)
+	})
+	if !ok || fact.ProjectID == nil {
+		return nil
+	}
+	id, err := strconv.ParseInt(fact.Payload[contextReleaseID], 10, 64)
+	if err != nil || id <= 0 {
+		return nil
+	}
+	record, err := releases.GetReleaseByID(ctx, id)
+	if err != nil || record.ProjectID != *fact.ProjectID {
+		return nil
+	}
+	return &id
 }
 
 // pullRequestOf returns the pull request a core pull request fact names, nil for any other fact. A

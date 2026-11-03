@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"log/slog"
-	"net/url"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
@@ -83,22 +82,14 @@ func (c *CommitStatuses) StepChanged(ctx context.Context, run store.PlanRun, ges
 	}
 }
 
-// link is the dashboard page of what the run bears on, naming its project: the screen otherwise
-// opens the project last chosen in the browser.
+// link is the dashboard page of what the run bears on.
 func (c *CommitStatuses) link(ctx context.Context, run store.PlanRun) string {
-	if c.publicURL == "" || run.ProjectID == nil {
-		return ""
-	}
-	project, err := c.projects.GetProject(ctx, *run.ProjectID)
-	if err != nil {
-		return ""
-	}
-	query := "?project=" + url.QueryEscape(project.Slug)
+	links := DashboardLinks{PublicURL: c.publicURL, Projects: c.projects}
 	switch {
-	case run.ReleaseID != nil && run.Context["tag"] != "":
-		return c.publicURL + "/releases/" + url.PathEscape(run.Context["tag"]) + query
-	case run.PullRequestID != nil && run.Context["number"] != "":
-		return c.publicURL + "/pulls/" + url.PathEscape(run.Context["number"]) + query
+	case run.ReleaseID != nil:
+		return links.Release(ctx, run.ProjectID, run.Context["tag"])
+	case run.PullRequestID != nil:
+		return links.PullRequest(ctx, run.ProjectID, run.Context["number"])
 	default:
 		return ""
 	}
