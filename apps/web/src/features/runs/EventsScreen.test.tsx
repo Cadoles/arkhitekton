@@ -117,7 +117,7 @@ describe("le fil des faits d'un projet", () => {
 
     render(<EventsScreen />)
 
-    await screen.findByText('Release déclarée')
+    await screen.findByText('Release lancée')
     // Le cas courant : les deux instants coïncident, et le serveur omet le
     // second. Deux dates identiques sur chaque ligne finiraient par n'être plus
     // lues du tout.

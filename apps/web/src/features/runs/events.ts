@@ -56,7 +56,8 @@ export function useProjectEvents() {
  *  disparaître : une table fermée rendrait muets ceux qu'aucun ne nomme. */
 export const EVENT_LABEL: Record<string, string> = {
   'version.created': 'Version déclarée dans le suivi',
-  'release.created': 'Release déclarée',
+  'release.drafted': 'Brouillon de release créé',
+  'release.created': 'Release lancée',
   'release.released': 'Release validée',
 
   /* Les faits retirés par la réduction (doc 15 §15.3). Plus personne ne les émet,
