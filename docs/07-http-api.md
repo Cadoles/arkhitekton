@@ -167,7 +167,8 @@ role, for the reason a reaction's does not: it aims at no release.
 | `GET /admin/audit` | `admin` |
 | `GET /admin/plugins` · `PUT /admin/plugins/{plugin}` | `admin` |
 | `GET /admin/capabilities` · `PUT`/`DELETE /admin/capabilities/{plugin}/{name}/binding` | `admin` |
-| `GET /admin/plugins/installations` · `POST /admin/plugins/installations` (`{"reference": "repository@sha256:…"}`, queues the job, `202`) | `admin` |
+| `GET /admin/plugins/installations` (the installations, and under `plugins` each plugin's source: repository, pinned, latest version found, `update_available`, `major`) · `POST /admin/plugins/installations` (`{"reference": "registry/repository"}`, followed, or with a tag or `@sha256:…`, pinned; queues the job, `202`; `409` when a plugin is installed from that repository, unless `"mode"` is `"install"`, beside it, or `"update"`, in its place) | `admin` |
+| `POST /admin/plugins/{plugin}/update` (installs the newer version found in place of the active one, `202`; `409` when the plugin is pinned or up to date) · `POST /admin/plugins/{plugin}/check` (checks its repository within seconds, `202`) · `PUT /admin/plugins/{plugin}/source` (`{"pinned": true\|false}`) | `admin` |
 | `POST /admin/plugins/installations/{id}/activate` (`409` when the capabilities would not build with it) | `admin` |
 | `POST /admin/plugins/installations/{id}/accept` (accepts an unrecognised source and queues the installation again; `409` unless it is waiting on that decision) | `admin` |
 | `DELETE /admin/plugins/installations/{id}` (the active version uninstalls the plugin) | `admin` |

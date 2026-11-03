@@ -413,8 +413,9 @@ combined work be distributed or served on those terms. See `LICENSE.plugin-excep
 
 ## 6.12 Installed plugins
 
-An administrator installs a plugin **without recompiling**: an OCI artifact pinned by digest,
-signed, pulled and verified by the worker, put in force without a restart. It brings pipelines
+An administrator installs a plugin **without recompiling**: an OCI artifact named by its
+repository, signed, pulled by digest and verified by the worker, put in force without a restart,
+and kept up to date from the Plugins screen. It brings pipelines
 (Tekton definitions, what they publish and need, how their runs are read) and, through a program
 (§6.4), routes, tables, extension hooks, a module and screens.
 
@@ -543,9 +544,13 @@ openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out plugin-key.p
 openssl pkey -in plugin-key.pem -pubout -out trusted-keys.pem
 ```
 
-**Installing.** Administration, Plugins: the reference **by digest**, the one
-`publish-plugin` printed. A tag can be moved after an administrator looked at what it named; a
-digest cannot. The request becomes a `plugin-install` job: the worker pulls the artifact,
+**Installing.** Administration, Plugins: the plugin's **repository**, `registry/repository`.
+The plugin then follows it: its highest stable version is installed, and newer ones are offered
+(below). A tag (`:2.4.0`) or a digest (`@sha256:…`, the one `publish-plugin` printed) **pins** it
+instead. Whatever was named, what is installed is a digest: the worker resolves a repository or a
+tag to one before pulling, since it holds the registries' credentials and the api does not, and
+the tag's version must be the version the manifest carries. The request becomes a
+`plugin-install` job: the worker pulls the artifact,
 checks its signature against `PLUGIN_TRUSTED_KEYS` (§4.14) before fetching the layer, or lets it
 in unsigned if `PLUGIN_ALLOW_UNSIGNED` names it, checks the plugin as above, checks that the
 capabilities still build with it, applies its migrations, stores the layer under
@@ -585,8 +590,25 @@ parameters, volume sizes, a timeout, a ceiling. Never a service account: a pipel
 operator's catalogue file, or its runs are refused with the reason. The catalogue file's
 binding, when it has one, wins and is shown read-only (§5.2).
 
-**Versions.** The first version installed is active. A later one is installed beside it and
-waits to be activated: an update is a decision, not a side effect of pulling. Activation is
+**Updates.** The worker reads the repository of every installed plugin each
+`PLUGIN_UPDATE_INTERVAL` (§4.14), or within seconds when *Vérifier maintenant* asks: its tags,
+the SemVer versions among them, stable only unless the active version is a pre-release, and the
+highest above the active one. Nothing but tags and manifests is fetched. A plugin following its
+repository shows *Mettre à jour* when a newer version is there, with a warning across a major
+version; the update installs it **in place of** the active version, which is removed, the
+plugin's instance and project settings and its bindings kept. A pinned plugin says it is behind
+and offers no update: *Suivre le dépôt* makes it follow again, *Épingler cette version* pins a
+following one. Neither installs anything.
+
+Installing another version of a plugin already installed from the same repository asks how:
+*Mettre à jour l'existant* replaces the active version as an update does, the plugin pinned to the
+version named; *Installer à côté* installs it beside the active one, as below.
+
+**Publishing.** `publish-plugin` refuses a SemVer tag that is not the manifest's version: it is
+the tag a following instance compares.
+
+**Versions.** The first version installed is active. One installed beside it waits to be
+activated: an update is a decision, not a side effect of pulling. Activation is
 refused if the capabilities would not build with it, a binding that names a parameter the new
 version dropped for one. New runs start with the active version; a run is read by the version
 that launched it, while that version is installed. Routes, hooks, the module and the interface

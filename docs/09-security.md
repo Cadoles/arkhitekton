@@ -176,7 +176,8 @@ judge. A plugin's **program** (doc 06 §6.4) runs as the dashboard's user, in it
 **interface** runs in the page, with the user's session. There is no sandbox, and the dashboard
 does not pretend otherwise. What it guarantees:
 
-- **supply chain**: installed by digest only, never by tag; signed in cosign's simple signing
+- **supply chain**: installed by digest only, a repository or a tag being resolved to one by the
+  worker, the tag's version checked against the manifest's; signed in cosign's simple signing
   format by a key the operator mounted (`PLUGIN_TRUSTED_KEYS`), verified before the layer is
   fetched, with no call to sigstore's services; the signed payload must name the digest
   installed. A plugin unsigned or signed by another key installs only if the operator names it

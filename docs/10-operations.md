@@ -151,7 +151,7 @@ spec:
     gitea:
       config: {url: https://forge.example, token: {env: ARK_GITEA_TOKEN}}
     mse:
-      install: {reference: "forge.example/mse-plugin@sha256:…"}
+      install: {reference: forge.example/mse-plugin}
   queueLimits: {mse/integration-tests: 1}
 ---
 apiVersion: arkhitekton.config/v1
@@ -219,6 +219,13 @@ lists the names on its error output.
 complete: an installation is requested, pulled by the worker (`--wait-timeout`, 10 minutes by
 default), then activated. A source the instance does not recognise is accepted only when the file
 sets `acceptSource: true`.
+
+`install.reference` names the plugin's repository, and the plugin follows it: an apply installs its
+highest stable version when the plugin is not installed from there, and otherwise only makes it
+follow, never changing its version; updates are decided on the Plugins screen, and an apply replayed
+must not move a version by itself. A tag or a digest pins the plugin, and another version from the
+same repository is replaced by the one named: the file is the decision. The export writes a
+following plugin as its repository, a pinned one as its digest.
 
 The export writes what was decided, never what was observed (access verdicts, deploy keys, next
 firings), and leaves out a plugin left as the dashboard seeds it. Roles, users, the catalogue's
