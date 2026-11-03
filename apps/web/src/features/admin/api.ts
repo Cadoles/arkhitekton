@@ -95,7 +95,11 @@ export const ROLE_LABEL: Record<Role, string> = {
  *  le serveur écrit — une action inconnue s'affiche telle quelle plutôt que
  *  disparaître. */
 export const ACTION_LABEL: Record<string, string> = {
-  'release.create': 'Création de release',
+  'release.create': 'Création de brouillon de release',
+  'release.launch': 'Lancement de release',
+  'release.draft.update': 'Modification de brouillon',
+  'release.draft.delete': 'Suppression de brouillon',
+  'release.note.detect': 'Détection de la note',
   'release.promote': 'Promotion',
   'release.actions': 'Actions manuelles',
   'job.enqueue': 'Mise en file',

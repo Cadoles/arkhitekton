@@ -29,14 +29,20 @@ const (
 	AuditReleaseRelease = "release.release"
 	// A rebuild re-runs a pipeline on the same git reference: recording it separates "the
 	// image was rebuilt" from "the code changed".
-	AuditReleaseRebuild    = "release.rebuild"
-	AuditReleaseVerify     = "release.verify"
-	AuditReleaseNoteAdd    = "release.note.add"
-	AuditReleaseNoteRemove = "release.note.remove"
-	AuditReleasePromote    = "release.promote"
-	AuditReleaseActions    = "release.actions"
-	AuditJobEnqueue        = "job.enqueue"
-	AuditJobCancel         = "job.cancel"
+	AuditReleaseRebuild = "release.rebuild"
+	// Launching a draft is what sets its build, its tag and its reactions going: a decision of
+	// its own, apart from drafting it.
+	AuditReleaseLaunch      = "release.launch"
+	AuditReleaseDraftUpdate = "release.draft.update"
+	AuditReleaseDraftDelete = "release.draft.delete"
+	AuditReleaseVerify      = "release.verify"
+	AuditReleaseNoteAdd     = "release.note.add"
+	AuditReleaseNoteRemove  = "release.note.remove"
+	AuditReleaseNoteDetect  = "release.note.detect"
+	AuditReleasePromote     = "release.promote"
+	AuditReleaseActions     = "release.actions"
+	AuditJobEnqueue         = "job.enqueue"
+	AuditJobCancel          = "job.cancel"
 	// A queue's ceiling decides what the cluster accepts to run at once. Raising it commits
 	// the machine, lowering it lengthens every verification: both deserve to be attributed.
 	AuditQueueLimit = "queue.limit"
