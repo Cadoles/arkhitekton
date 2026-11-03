@@ -54,7 +54,7 @@ type ReleaseStore interface {
 	VersionName(ctx context.Context, versionID int64) (string, error)
 	ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
 	LinkNoteIssue(ctx context.Context, releaseID int64, reference, source, pullRequest, actor string) error
-	UnlinkNoteIssue(ctx context.Context, releaseID int64, reference string) error
+	UnlinkNoteIssue(ctx context.Context, releaseID int64, reference, actor string) error
 	Directory(ctx context.Context) (map[string]string, error)
 	// The two score reads. Here because the release list shows the same figure as a
 	// release's screen, and two separate computations would eventually diverge.
@@ -1265,6 +1265,12 @@ func (h *ReleasesHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 
 // RemoveNote removes an issue from the note.
 func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
+		return
+	}
+
 	currentID, ok := requestProject(w, r, h.store)
 	if !ok {
 		return
@@ -1285,7 +1291,7 @@ func (h *ReleasesHandler) RemoveNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.UnlinkNoteIssue(r.Context(), record.ID, reference); err != nil {
+	if err := h.store.UnlinkNoteIssue(r.Context(), record.ID, reference, identity.Subject); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot remove", "")
 		return
 	}

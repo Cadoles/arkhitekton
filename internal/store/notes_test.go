@@ -61,7 +61,7 @@ func TestAnIssueIsLinkedToAndRemovedFromANote(t *testing.T) {
 		t.Error("an enhancement is not an anomaly")
 	}
 
-	if err := db.UnlinkNoteIssue(ctx, releaseID, "1234"); err != nil {
+	if err := db.UnlinkNoteIssue(ctx, releaseID, "1234", "vcarroy"); err != nil {
 		t.Fatalf("removal: %v", err)
 	}
 	if remaining, _ := db.ListNoteEntries(ctx, releaseID); len(remaining) != 0 {
@@ -247,5 +247,38 @@ func TestANoteDoesNotFetchAnotherProjectsIssue(t *testing.T) {
 	}
 	if len(candidates) != 1 || candidates["1234"].Subject != "subject" {
 		t.Errorf("candidates: %+v — the pool spills onto the other project", candidates)
+	}
+}
+
+// An issue removed by hand is set aside from the detection, until someone links it again.
+func TestARemovedIssueIsNoLongerACandidate(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID := redmineVersion(t, db, 920, "v3.2.0", "open")
+	releaseID := noteRelease(t, db, versionID, "3.2.0-rc1")
+	issueOf(t, db, 1, 920, "Évolution", "En revue", BucketDoing, 100, false)
+
+	if err := db.LinkNoteIssue(ctx, releaseID, "1", NoteSourceAuto, "#4", "detection"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UnlinkNoteIssue(ctx, releaseID, "1", "vcarroy"); err != nil {
+		t.Fatal(err)
+	}
+	if candidates, _ := db.NoteCandidates(ctx, releaseID, []string{"En revue"}); len(candidates) != 0 {
+		t.Errorf("candidates = %+v: the detection would bring back what was removed", candidates)
+	}
+
+	if err := db.LinkNoteIssue(ctx, releaseID, "1", NoteSourceManual, "", "vcarroy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UnlinkNoteIssue(ctx, releaseID, "1", "vcarroy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.LinkNoteIssue(ctx, releaseID, "1", NoteSourceManual, "", "vcarroy"); err != nil {
+		t.Fatal(err)
+	}
+	if candidates, _ := db.NoteCandidates(ctx, releaseID, []string{"En revue"}); len(candidates) != 1 {
+		t.Errorf("candidates = %+v: linked again by hand, the issue is no longer set aside", candidates)
 	}
 }
