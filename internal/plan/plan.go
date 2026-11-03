@@ -39,7 +39,11 @@ const (
 	GesteAction GesteKind = "action"
 )
 
-// When bounds a step's triggering on the outcome of the previous stage.
+// When bounds a step's triggering on the outcome of the stages before it.
+//
+// A stage counts as failed when one of its steps failed. A stage skipped entirely failed
+// nothing, but it does not hide an earlier failure: tests skipped after a failed build must not
+// let a later `success` step believe everything went well.
 //
 // Three values, not an expression language. The day someone asks for "if the score
 // is above 80", the right answer is a named operator, not an interpreter: a
@@ -48,11 +52,11 @@ const (
 type When string
 
 const (
-	// WhenSuccess leaves only if the previous stage failed nothing. The default: it is
-	// the chaining one writes without thinking.
+	// WhenSuccess leaves only if no earlier stage failed. The default: it is the chaining one
+	// writes without thinking.
 	WhenSuccess When = "success"
-	// WhenFailure leaves only if the previous stage failed. For reacting to a failure
-	// — setting a red status, warning someone.
+	// WhenFailure leaves only if an earlier stage failed. For reacting to a failure: setting a
+	// red status, warning someone.
 	WhenFailure When = "failure"
 	// WhenAlways leaves either way. For concluding: a final status, a clean-up.
 	WhenAlways When = "always"
@@ -399,9 +403,12 @@ func (p Progress) Next() []Step {
 		return nil
 	}
 
-	// The previous stage's outcome decides the conditions. The first stage has none:
-	// by convention, nothing failed before it.
-	previousFailed := stage > 0 && p.stageFailed(stage-1)
+	// The earlier stages' outcomes decide the conditions. The first stage has none: by
+	// convention, nothing failed before it.
+	previousFailed := false
+	for earlier := range stage {
+		previousFailed = previousFailed || p.stageFailed(earlier)
+	}
 
 	var steps []Step
 	for rank, geste := range p.Plan.Stages[stage].Gestes {

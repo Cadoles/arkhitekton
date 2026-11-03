@@ -510,3 +510,29 @@ func TestAZeroWeightValidates(t *testing.T) {
 		t.Errorf("a zero weight was refused: %v", err)
 	}
 }
+
+// A failed build skips the tests, and the skipped stage does not hide that failure: a later
+// `success` step stays put, an `always` step leaves.
+func TestASkippedStageDoesNotHideAnEarlierFailure(t *testing.T) {
+	subject := Plan{Stages: []Stage{
+		{Gestes: []Geste{pipeline("build", "")}},
+		{Gestes: []Geste{pipeline("unit-tests", "")}},
+		{Gestes: []Geste{
+			{Kind: GesteAction, Ref: "publish"},
+			{Kind: GesteAction, Ref: "summary", When: WhenAlways},
+		}},
+	}}
+
+	progress := Start(subject)
+	progress, _ = progress.Mark(progress.Next()[0].Position, Failed)
+	tests := progress.Next()
+	if len(tests) != 1 || tests[0].Run {
+		t.Fatalf("tests after a failed build: %+v", tests)
+	}
+	progress, _ = progress.Mark(tests[0].Position, Skipped)
+
+	last := progress.Next()
+	if len(last) != 2 || last[0].Run || !last[1].Run {
+		t.Errorf("last stage: %+v, expected publish to stay and summary to leave", last)
+	}
+}

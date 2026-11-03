@@ -234,59 +234,69 @@ func (e *Engine) collectArtifacts(
 
 // advance starts what can start, and concludes the run if it has settled. Returns the number
 // of steps started.
+//
+// It goes round until nothing concludes at once. An action, a skipped step or a step that fails
+// to start settles its stage on the spot, and no job will come back later to start the next
+// one: stopping after one pass left such a run waiting for ever.
 func (e *Engine) advance(ctx context.Context, run store.PlanRun) int {
-	progress, err := e.progressOf(ctx, run)
-	if err != nil {
-		e.logger.Error("advancing a run", "run", run.ID, "error", err)
-		return 0
-	}
-
-	// Before starting what follows: announce what has just settled.
-	//
-	// The order counts. A release must move to `verifying` **before** its tests are queued,
-	// otherwise the first test concluded would find a release still building and its transition
-	// would be refused.
-	e.notifyStages(ctx, run, progress)
-
-	// What the stages already concluded produced, added to the context. That is what lets a test
-	// step target the image the build has just published: `{artifacts.portal.image}`.
-	run.Context = e.withArtifacts(ctx, run, progress.Plan)
-
 	started := 0
-	for _, step := range progress.Next() {
-		if !step.Run {
-			// Its condition is not met. Marked `skipped` and not left waiting: a stage one of whose steps
-			// stays waiting never settles, and the run would stop there saying nothing.
-			e.mark(ctx, run.ID, step.Position, plan.Skipped, nil,
-				"condition non remplie")
-			continue
-		}
-
-		job, err := e.runner.Run(ctx, run, step.Geste)
+	opening := run.Context
+	for {
+		progress, err := e.progressOf(ctx, run)
 		if err != nil {
-			e.logger.Error("carrying out a step", "run", run.ID,
-				"step", step.Geste.Ref, "error", err)
-			e.mark(ctx, run.ID, step.Position, plan.Failed, nil, err.Error())
-			continue
+			e.logger.Error("advancing a run", "run", run.ID, "error", err)
+			return started
 		}
 
-		started++
-		if job == nil {
-			// An action is concluded the moment it is done: nothing will arrive later to conclude it.
-			e.mark(ctx, run.ID, step.Position, plan.Succeeded, nil, "")
-			continue
+		// Before starting what follows: announce what has just settled.
+		//
+		// The order counts. A release must move to `verifying` **before** its tests are queued,
+		// otherwise the first test concluded would find a release still building and its
+		// transition would be refused.
+		e.notifyStages(ctx, run, progress)
+
+		// What the stages already concluded produced, added to the context. That is what lets a
+		// test step target the image the build has just published: `{artifacts.portal.image}`.
+		run.Context = opening
+		run.Context = e.withArtifacts(ctx, run, progress.Plan)
+
+		settledAtOnce := false
+		for _, step := range progress.Next() {
+			if !step.Run {
+				// Its condition is not met. Marked `skipped` and not left waiting: a stage one of whose
+				// steps stays waiting never settles, and the run would stop there saying nothing.
+				e.mark(ctx, run.ID, step.Position, plan.Skipped, nil,
+					"condition non remplie")
+				settledAtOnce = true
+				continue
+			}
+
+			job, err := e.runner.Run(ctx, run, step.Geste)
+			if err != nil {
+				e.logger.Error("carrying out a step", "run", run.ID,
+					"step", step.Geste.Ref, "error", err)
+				e.mark(ctx, run.ID, step.Position, plan.Failed, nil, err.Error())
+				settledAtOnce = true
+				continue
+			}
+
+			started++
+			if job == nil {
+				// An action is concluded the moment it is done: nothing will arrive later to conclude it.
+				e.mark(ctx, run.ID, step.Position, plan.Succeeded, nil, "")
+				settledAtOnce = true
+				continue
+			}
+			// A pipeline step stays **in progress**: its job's conclusion is what will settle it.
+			e.mark(ctx, run.ID, step.Position, plan.Running, job, "")
 		}
-		// A pipeline step stays **in progress**: its job's conclusion is what will settle it. Marking
-		// it succeeded here was the stopgap of synchronous execution, and is precisely what this
-		// slice fixes.
-		e.mark(ctx, run.ID, step.Position, plan.Running, job, "")
+
+		if !settledAtOnce {
+			break
+		}
 	}
 
-	// Read again after the writes: `Next` may have settled everything — a stage skipped entirely,
-	// an action that concludes — and the run is then finished.
-	if started == 0 || len(progress.Next()) > 0 {
-		e.concludeIfSettled(ctx, run)
-	}
+	e.concludeIfSettled(ctx, run)
 	return started
 }
 

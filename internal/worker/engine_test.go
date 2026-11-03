@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
@@ -87,5 +88,45 @@ func TestAConcludedStepsResultsBecomeItsArtifacts(t *testing.T) {
 	// The kind comes from the catalogue's `produces`, not from the result's name.
 	if byName["image"].Kind != "image" {
 		t.Errorf("nature = %q", byName["image"].Kind)
+	}
+}
+
+// A stage that settles at once does not stop the run. An action, a skipped step: nothing comes
+// back later to start what follows, so the engine goes on by itself.
+func TestStagesThatSettleAtOnceLeadToTheNext(t *testing.T) {
+	base := newFakePlanStore()
+	var ran []string
+	runner := stepRunnerFunc(func(_ context.Context, _ store.PlanRun, geste plan.Geste) (*int64, error) {
+		ran = append(ran, geste.Ref)
+		if geste.Kind == plan.GesteAction {
+			return nil, nil
+		}
+		id := int64(len(ran))
+		return &id, nil
+	})
+	engine := NewEngine(base, runner, quietLogger())
+
+	subject := plan.Plan{Stages: []plan.Stage{
+		{Gestes: []plan.Geste{{Kind: plan.GesteAction, Ref: "status-pending"}}},
+		{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "build"}}},
+		{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "unit-tests"}}},
+		{Gestes: []plan.Geste{
+			{Kind: plan.GesteAction, Ref: "release"},
+			{Kind: plan.GesteAction, Ref: "summary", When: plan.WhenAlways},
+		}},
+	}}
+	engine.Trigger(context.Background(), store.PlanRun{Trigger: "trial", EventKey: "trial:1", Plan: subject})
+	if strings.Join(ran, ",") != "status-pending,build" {
+		t.Fatalf("ran %v: the build waits behind an action", ran)
+	}
+
+	// The build fails: the tests are skipped, the release stays put, the summary leaves, and the
+	// run concludes, all in the same pass.
+	engine.Advance(context.Background(), 2, plan.Failed)
+	if strings.Join(ran, ",") != "status-pending,build,summary" {
+		t.Errorf("ran %v", ran)
+	}
+	if run, _ := base.PlanRunByID(context.Background(), 1); run.State != store.PlanFailed {
+		t.Errorf("run state %q, expected failed", run.State)
 	}
 }
