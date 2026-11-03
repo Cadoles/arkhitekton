@@ -53,12 +53,17 @@ locally and one mirrored from Redmine differ by these columns alone.
 
 | Table | Key columns |
 |---|---|
-| `releases` | `tag`, `kind`, `state`, `git_ref`, `git_branch`, `git_commit`, `image_version`, `version_id`, `source_release_id`, `notes_md`, `quality_score`, `manual_actions_md`, `released_at` |
+| `releases` | `tag`, `kind`, `state`, `git_ref`, `git_branch`, `git_commit`, `image_version`, `version_id`, `source_release_id`, `notes_md`, `quality_score`, `manual_actions_md`, `launched_by`, `launched_at`, `released_at` |
 | `release_images` | `name`, `repository`, `tag`, `digest`, `size_bytes` |
 | `release_notes` | `source`, `pull_request`, `external_id`, `added_by` |
+| `release_note_dismissals` | `release_id`, `external_id`, `dismissed_by`: the issues removed by hand from a note, which detecting it again leaves out |
 
 `source_release_id` links a final release to the release candidate it was promoted from,
 which is how a final release inherits results it did not produce itself.
+
+A release in `draft` has not been launched: `launched_by` and `launched_at` are empty, and
+`git_commit` is set at launch. Releases created before drafts existed were launched at their
+creation, which is what migration 0071 records.
 
 ## 8.5 Queue and runs
 
