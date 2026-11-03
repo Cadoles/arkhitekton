@@ -128,15 +128,6 @@ func NewAPIRouter(
 	mux.Handle("PUT /projects/{project}/releases/{tag}/actions", Chain(http.HandlerFunc(releases.UpdateActions),
 		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseEdit)))
 
-	// Deliverables are listed and downloaded with read access; producing them is a delivery
-	// gesture, hence `release:export`.
-	mux.Handle("GET /projects/{project}/releases/{tag}/exports", Chain(http.HandlerFunc(releases.Exports),
-		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
-	mux.Handle("GET /projects/{project}/releases/{tag}/exports/{artifact}/download", Chain(http.HandlerFunc(releases.Download),
-		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
-	mux.Handle("POST /projects/{project}/releases/{tag}/exports", Chain(http.HandlerFunc(releases.Export),
-		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseExport)))
-
 	// Test results and the score are readable by all: it is the first thing one looks at
 	// before deciding anything.
 	mux.Handle("GET /projects/{project}/releases/{tag}/tests", Chain(http.HandlerFunc(tests.Tests),

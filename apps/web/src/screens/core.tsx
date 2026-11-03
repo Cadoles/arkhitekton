@@ -22,7 +22,6 @@ import { QueueSettingsScreen } from '../features/queue/QueueSettingsScreen'
 import {
   ArtifactsBlock,
   ExecutionsBlock,
-  ExportsBlock,
   NotesBlock,
   PublishBlock,
   RebuildBlock,
@@ -83,7 +82,6 @@ export function registerCoreComponents(): void {
     'release-tests': TestsBlock,
     'release-artifacts': ArtifactsBlock,
     'release-notes': NotesBlock,
-    'release-exports': ExportsBlock,
     'release-executions': ExecutionsBlock,
     pulls: PullsScreen,
     pull: PullScreen,

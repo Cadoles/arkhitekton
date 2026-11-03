@@ -27,7 +27,6 @@ const (
 	KindPipeline Kind = "pipeline"
 	KindTracker  Kind = "tracker"
 	KindForge    Kind = "forge"
-	KindExporter Kind = "exporter"
 	KindModule   Kind = "module"
 )
 
@@ -98,8 +97,7 @@ type Plugin struct {
 	Events []EventSpec
 	// Actions lists the steps this plugin can carry out.
 	Actions []ActionSpec
-	// Capabilities lists what the dashboard implements on the plugin's behalf: a module, an
-	// exporter.
+	// Capabilities lists what the dashboard implements on the plugin's behalf: a module.
 	Capabilities []Header
 	Pipelines    []Pipeline
 	Tracker      TrackerCapability

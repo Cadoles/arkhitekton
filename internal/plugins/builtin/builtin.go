@@ -7,7 +7,6 @@ package builtin
 import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/core"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/deliverynote"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/gitea"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/k6"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/php"
@@ -19,7 +18,7 @@ import (
 func Plugins() []capability.Plugin {
 	return []capability.Plugin{
 		core.Plugin(), php.Plugin(), k6.Plugin(),
-		redmine.Plugin(), gitea.Plugin(), deliverynote.Plugin(),
+		redmine.Plugin(), gitea.Plugin(),
 	}
 }
 

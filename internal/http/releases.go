@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -38,8 +36,6 @@ type ReleaseStore interface {
 	// RecordEvent records an observed fact. Returns false when it was already known,
 	// which is not an error.
 	RecordEvent(ctx context.Context, fact event.Event) (bool, error)
-	ListArtifacts(ctx context.Context, releaseID int64) ([]store.Artifact, error)
-	GetArtifact(ctx context.Context, id int64) (store.Artifact, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	// GetProject says which images a release builds and which a re-tag propagates. Read
@@ -93,19 +89,9 @@ type ReleasesHandler struct {
 	// dashboard stays usable without it, the screen then shows tags without their
 	// digests and says so.
 	images Images
-	// artifacts serves the content of deliverables. The download goes through the api
-	// rather than a presigned URL: these objects carry the evidence of a delivery, and a
-	// presigned URL is forwardable.
-	artifacts Artifacts
-	// imageName is the promoted repository. One image today; the promotions table
-	// accepts several per release, which avoids a migration the day the application is
-	// split.
-	imageName string
 	// logger serves to say what fails without failing the screen. Nil-safe:
 	// `slog.Default()` by default, so tests need not supply one.
 	logger *slog.Logger
-	// exports says whether a project's deliverables are switched on.
-	exports func(ctx context.Context, projectID int64) bool
 	// trackers serves the links to a note's issues. Nil, or a project with no tracker, and the
 	// links are omitted rather than rendered dead.
 	trackers Trackers
@@ -129,16 +115,6 @@ type ReleasesHandler struct {
 	// name the family of a step that produced nothing. The list's badge and a release's
 	// screen must show the same figure, so they must start from the same catalogue.
 	scoreCatalog catalog.Source
-}
-
-// WithExports wires whether a project's deliverables are switched on. Without it, they are.
-func (h *ReleasesHandler) WithExports(enabled func(ctx context.Context, projectID int64) bool) *ReleasesHandler {
-	h.exports = enabled
-	return h
-}
-
-func (h *ReleasesHandler) exportsEnabled(ctx context.Context, projectID int64) bool {
-	return h.exports == nil || h.exports(ctx, projectID)
 }
 
 // WithTrackers wires the links to the issues, which the project's tracker plugin composes.
@@ -251,24 +227,11 @@ type Tagger interface {
 	CreateTag(ctx context.Context, tag, commit, message string) error
 }
 
-// Artifacts is what the handler needs from the object store.
-type Artifacts interface {
-	Get(ctx context.Context, key string) (io.ReadCloser, error)
-}
-
-// The contract with the scheduler. Repeated here rather than imported from `worker`:
-// the api does not depend on the worker, nor the other way round — the two talk
-// through the database.
-const (
-	exportJobKind = "export"
-	// Written here rather than imported from `worker`: this package does not depend on
-	// the scheduler, and the reverse holds — depending on it would create a cycle with
-	// the worker's tests, which read this package. A consistency test keeps the two
-	// aligned.
-	ReleaseNotesJobKind = "release-notes"
-	exportParamKind     = "export-kind"
-	exportParamFormat   = "export-format"
-)
+// ReleaseNotesJobKind is the contract with the scheduler. Written here rather than imported from
+// `worker`: this package does not depend on the scheduler, and the reverse holds — depending on it
+// would create a cycle with the worker's tests, which read this package. A consistency test keeps
+// the two aligned.
+const ReleaseNotesJobKind = "release-notes"
 
 // WithPlans wires the opening of a release's plan.
 func (h *ReleasesHandler) WithPlans(plans ReleasePlanner) *ReleasesHandler {
@@ -278,14 +241,12 @@ func (h *ReleasesHandler) WithPlans(plans ReleasePlanner) *ReleasesHandler {
 
 func NewReleasesHandler(
 	releases ReleaseStore, pipelines catalog.Source,
-	authorizer *auth.Authorizer, images Images, artifacts Artifacts,
-	imageName, registryProject string,
+	authorizer *auth.Authorizer, images Images, registryProject string,
 ) *ReleasesHandler {
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
-		images: images, artifacts: artifacts, imageName: imageName,
-		registryProject: registryProject,
-		logger:          slog.Default(),
+		images: images, registryProject: registryProject,
+		logger: slog.Default(),
 	}
 }
 
@@ -320,10 +281,6 @@ type releasePayload struct {
 	// for a build failure.
 	ArtifactsNote string          `json:"artifacts_note,omitempty"`
 	ManualAction  *manualActionVw `json:"manual_actions,omitempty"`
-	// ExportsEnabled says whether the project's deliverables are switched on: off, the screen
-	// offers none.
-	ExportsEnabled bool `json:"exports_enabled"`
-
 	// What a screen shows beside the name, without having to unfold the release.
 	//
 	// BuildFailed is about the last build: a release retried after an infrastructure
@@ -568,7 +525,6 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	payload.ExportsEnabled = h.exportsEnabled(r.Context(), currentID)
 	payload.Artifacts = h.releaseArtifacts(r.Context(), item.ID, promotions)
 	if h.images == nil && len(payload.Artifacts) > 0 {
 		payload.ArtifactsNote = "The registry is not configured: the digests cannot be read."
@@ -1561,198 +1517,6 @@ func (h *ReleasesHandler) emit(r *http.Request, fact event.Event) {
 	if !recorded {
 		slog.Default().Debug("fact already known, not re-emitted",
 			"type", fact.Type, "subject", fact.Subject)
-	}
-}
-
-type artifactPayload struct {
-	ID          int64     `json:"id"`
-	Kind        string    `json:"kind"`
-	Format      string    `json:"format"`
-	SizeBytes   int64     `json:"size_bytes"`
-	GeneratedBy string    `json:"generated_by"`
-	GeneratedAt time.Time `json:"generated_at"`
-}
-
-// Exports returns the deliverables already produced for a release.
-func (h *ReleasesHandler) Exports(w http.ResponseWriter, r *http.Request) {
-	currentID, ok := requestProject(w, r, h.store)
-	if !ok {
-		return
-	}
-
-	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
-	if err != nil {
-		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
-		return
-	}
-
-	artifacts, err := h.store.ListArtifacts(r.Context(), item.ID)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the deliverables", "")
-		return
-	}
-
-	payload := make([]artifactPayload, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		payload = append(payload, artifactPayload{
-			ID: artifact.ID, Kind: artifact.Kind, Format: artifact.Format,
-			SizeBytes: artifact.SizeBytes, GeneratedBy: artifact.GeneratedBy,
-			GeneratedAt: artifact.GeneratedAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"artifacts": payload})
-}
-
-type exportRequest struct {
-	Kind   string `json:"kind"`
-	Format string `json:"format"`
-}
-
-// Export queues the generation of a deliverable.
-//
-// Asynchronous although generation is quick: it goes through the queue like everything
-// else, which gives it ordering, a record and visibility. An export then appears in the
-// queue with the other jobs, and its failure reads in the same place as a pipeline's.
-func (h *ReleasesHandler) Export(w http.ResponseWriter, r *http.Request) {
-	identity, ok := IdentityFrom(r.Context())
-	if !ok {
-		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
-		return
-	}
-
-	var request exportRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&request); err != nil && err != io.EOF {
-		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
-		return
-	}
-	if request.Kind == "" {
-		request.Kind = store.ArtifactDeliveryNote
-	}
-	if request.Format == "" {
-		request.Format = "pdf"
-	}
-	if request.Format != "pdf" && request.Format != "json" {
-		writeProblem(w, http.StatusBadRequest, "Unknown format", request.Format)
-		return
-	}
-
-	currentID, ok := requestProject(w, r, h.store)
-	if !ok {
-		return
-	}
-	if !h.exportsEnabled(r.Context(), currentID) {
-		writeProblem(w, http.StatusConflict, "Deliverables switched off",
-			"the plugin producing this project's deliverables is switched off")
-		return
-	}
-
-	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
-	if err != nil {
-		if errors.Is(err, store.ErrReleaseNotFound) {
-			writeProblem(w, http.StatusNotFound, "Release not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
-		return
-	}
-
-	jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
-		Kind: exportJobKind,
-		// `parallel`: an export touches neither the registry nor the cluster, so nothing
-		// justifies serialising it with pipelines.
-		Params: map[string]string{
-			exportParamKind:   request.Kind,
-			exportParamFormat: request.Format,
-		},
-		RequestedBy: identity.Subject,
-		ReleaseID:   &item.ID,
-	})
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot enqueue", "")
-		return
-	}
-
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"job_id": jobID, "kind": request.Kind, "format": request.Format,
-	})
-}
-
-// Download serves a deliverable.
-//
-// The content goes through the api rather than a presigned URL: these objects carry the
-// evidence of a delivery, and a presigned URL is forwardable —
-func (h *ReleasesHandler) Download(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("artifact"), 10, 64)
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Invalid identifier", "")
-		return
-	}
-
-	artifact, err := h.store.GetArtifact(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, store.ErrArtifactNotFound) {
-			writeProblem(w, http.StatusNotFound, "Deliverable not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the deliverable", "")
-		return
-	}
-
-	currentID, ok := requestProject(w, r, h.store)
-	if !ok {
-		return
-	}
-
-	item, err := h.store.GetRelease(r.Context(), currentID, r.PathValue("tag"))
-	if err != nil {
-		writeProblem(w, http.StatusNotFound, "Release not found", "")
-		return
-	}
-	// The deliverable must belong to the release in the path: without that check, a guessed
-	// identifier would give another release's delivery note.
-	if artifact.ReleaseID != item.ID {
-		writeProblem(w, http.StatusNotFound, "Deliverable not found", "")
-		return
-	}
-
-	if h.artifacts == nil {
-		writeProblem(w, http.StatusServiceUnavailable, "Storage unavailable", "")
-		return
-	}
-
-	content, err := h.artifacts.Get(r.Context(), artifact.Object)
-	if err != nil {
-		// The object is referenced but missing: the row outlives a purge of the bucket, and
-		// saying so beats an empty file.
-		writeProblem(w, http.StatusNotFound, "Deliverable content not found", "")
-		return
-	}
-	defer content.Close()
-
-	w.Header().Set("Content-Type", artifactContentType(artifact.Format))
-	w.Header().Set("Content-Disposition",
-		fmt.Sprintf(`attachment; filename="%s-%s.%s"`, artifact.Kind, item.Tag, artifact.Format))
-	// A deliverable is immutable: every generation writes a new row.
-	w.Header().Set("Cache-Control", "private, max-age=300")
-
-	if _, err := io.Copy(w, content); err != nil {
-		// The header has already gone: nothing to announce to the client, only to record.
-		slog.Default().Error("download interrupted", "artefact", artifact.ID, "err", err)
-	}
-}
-
-func artifactContentType(format string) string {
-	switch format {
-	case "pdf":
-		return "application/pdf"
-	case "json":
-		return "application/json"
-	default:
-		return "application/octet-stream"
 	}
 }
 

@@ -130,8 +130,6 @@ export type ProducedArtifact = {
 
 /** Détail d'une release : la liste n'en porte que l'en-tête. */
 export type ReleaseDetail = Release & {
-  /** Faux : le plugin des livrables est éteint pour ce projet, l'écran n'en propose aucun. */
-  exports_enabled?: boolean
   jobs?: ReleaseJob[]
   artifacts?: ProducedArtifact[]
   /** Dit pourquoi les digests manquent. « Pas de digest » et « impossible de le
@@ -180,53 +178,6 @@ export function useSaveManualActions(tag: string) {
       void queryClient.invalidateQueries({ queryKey: ['releases', tag] })
     },
   })
-}
-
-export type Artifact = {
-  id: number
-  kind: string
-  format: string
-  size_bytes: number
-  generated_by: string
-  generated_at: string
-}
-
-export function useExports(tag: string | undefined) {
-  return useQuery({
-    queryKey: ['releases', tag, 'exports'],
-    queryFn: () => request<{ artifacts: Artifact[] }>(projectPath(`/releases/${encodeURIComponent(tag as string)}/exports`)),
-    enabled: Boolean(tag),
-  })
-}
-
-/**
- * Demande de génération d'un livrable.
- *
- * La génération passe par la file comme le reste : elle y gagne
- * l'ordonnancement, la trace et la visibilité. Le livrable n'apparaît donc pas
- * immédiatement — il faut relire la liste, ce que l'invalidation déclenche.
- */
-export function useGenerateExport(tag: string) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (payload: { kind: string; format: string }) =>
-      request<{ job_id: number }>(projectPath(`/releases/${encodeURIComponent(tag)}/exports`), {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['queue'] })
-      void queryClient.invalidateQueries({ queryKey: ['releases', tag, 'exports'] })
-    },
-  })
-}
-
-/** URL de téléchargement. Le contenu transite par l'api, jamais par une URL
- *  pré-signée : ces objets portent la preuve d'une livraison, et une URL
- *  pré-signée est transmissible — elle échapperait au contrôle de rôle. */
-export function downloadURL(tag: string, artifact: number): string {
-  return `/api/v1${projectPath(`/releases/${encodeURIComponent(tag)}/exports/${artifact}/download`)}`
 }
 
 /*

@@ -5,7 +5,7 @@ import { Icon } from './Icon'
  * Section repliable — reprise de la maquette, trait pour trait.
  *
  * L'écran d'une release empile beaucoup de blocs : images, déploiement, tests,
- * bench, sécurité, validation, exécutions, exports. Les laisser tous déployés
+ * bench, sécurité, validation, exécutions. Les laisser tous déployés
  * oblige à parcourir la page entière pour atteindre le dernier, alors qu'on ne
  * vient consulter qu'un ou deux d'entre eux à la fois.
  *

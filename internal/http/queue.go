@@ -141,8 +141,8 @@ type queuePayload struct {
 	// default.
 	DefaultMax int  `json:"default_max_concurrent"`
 	Overridden bool `json:"overridden"`
-	// Known tells a catalogue queue from an observed one: local tasks — the delivery note,
-	// the release note — do not become PipelineRuns and are absent from it, but they do
+	// Known tells a catalogue queue from an observed one: local tasks — the release note,
+	// a plugin installation — do not become PipelineRuns and are absent from it, but they do
 	// occupy a queue.
 	Known   bool         `json:"known"`
 	Running int          `json:"running"`

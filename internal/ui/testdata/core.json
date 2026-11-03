@@ -103,16 +103,6 @@
           "component": "core/release-notes"
         },
         {
-          "id": "core.exports",
-          "component": "core/release-exports",
-          "when": [
-            {
-              "field": "release.exports_enabled",
-              "equals": true
-            }
-          ]
-        },
-        {
           "id": "core.executions",
           "component": "core/release-executions"
         }

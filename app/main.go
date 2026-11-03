@@ -334,7 +334,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	releasesHandler := dashhttp.NewReleasesHandler(
-		db, inForce.Catalogs(), authorizer, images, storage, cfg.Registry.Image, cfg.Registry.Project).
+		db, inForce.Catalogs(), authorizer, images, cfg.Registry.Project).
 		// The same weighting as the test manager: the list's badge and a release's screen display the
 		// same figure.
 		WithScoreCatalog(inForce.Catalogs()).
@@ -344,7 +344,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		WithDeployments(answers.deployments()).
 		WithPromotions(answers.promotions()).
 		WithTrackers(connections).
-		WithExports(deliverablesEnabled(db)).
 		// The release is anchored on a commit and tagged through the project's forge plugin. With
 		// none, the git_ref is kept as typed and the release says so.
 		WithForges(connections).
@@ -432,24 +431,6 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		WithReadiness(installedSchemas(sources, db.Pool(), logger))
 
 	return server.Run(ctx)
-}
-
-// exportRegistry opens the registry for generating deliverables.
-//
-// Nil when it is not configured: a delivery note stays producible without digests, provided
-// it names what it could not check — which the document does. Refusing to produce it would be
-// worse.
-func exportRegistry(cfg config.Config, logger *slog.Logger) worker.Registry {
-	client, err := registry.Open(cfg.Registry)
-	if err != nil {
-		if !errors.Is(err, registry.ErrNotConfigured) {
-			logger.Error("registry access", "error", err)
-		}
-		logger.Warn("registry not configured",
-			"consequence", "the delivery notes will carry no image digest")
-		return nil
-	}
-	return client
 }
 
 // secureCookies allows insecure cookies only over http, that is, in local development.
@@ -673,12 +654,6 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithProjectSettings(answers.projectSettings()).
 				// A plugin switched off by an administrator stops its pipelines.
 				WithPluginGate(pluginGate(db))
-
-			// The deliverables go through the queue like the rest, but are produced here: generating a
-			// delivery note reads the database and writes an object. Making it cross Tekton would cost a
-			// pod and a workspace to produce two pages.
-			scheduler.Handle(worker.NewExporter(db, storage, exportRegistry(cfg, logger), cfg.Registry.Image, logger).
-				WithGate(deliverablesEnabled(db)))
 
 			// Installing a plugin, for the same reason: pulled and verified here, it is put in force at once
 			// rather than at the next reload.

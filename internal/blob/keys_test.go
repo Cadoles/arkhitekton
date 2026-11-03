@@ -26,10 +26,6 @@ func TestKeysFollowDocumentedLayout(t *testing.T) {
 			return k.TaskLog("php-integration-test-run-1", "run-integration-tests", "step-0")
 		}, "logs/php-integration-test-run-1/run-integration-tests/step-0.log"},
 
-		{"release deliverable", func() (string, error) {
-			return k.ReleaseArtifact("1.8.0-rc3", "delivery-note.pdf")
-		}, "artifacts/releases/1.8.0-rc3/delivery-note.pdf"},
-
 		{"run prefix", func() (string, error) {
 			return k.RunPrefix("build-image-run-42")
 		}, "raw/build-image-run-42/"},
@@ -66,7 +62,7 @@ func TestKeysRejectPathTraversal(t *testing.T) {
 	}
 
 	for _, segment := range hostile {
-		if key, err := k.ReleaseArtifact(segment, "note.pdf"); err == nil {
+		if key, err := k.RawArtifact(segment, "junit.xml"); err == nil {
 			t.Errorf("hostile segment %q accepted, key produced: %q", segment, key)
 		}
 		if key, err := k.RawArtifact("run-ok", segment); err == nil {
@@ -82,12 +78,12 @@ func TestValidKeysStayWithinTheirPrefix(t *testing.T) {
 	valid := []string{"1.8.0", "1.8.0-rc3", "run-abc-123", "a_b.c-d", "X"}
 
 	for _, segment := range valid {
-		key, err := k.ReleaseArtifact(segment, "note.pdf")
+		key, err := k.RawArtifact(segment, "junit.xml")
 		if err != nil {
 			t.Errorf("legitimate segment %q refused: %v", segment, err)
 			continue
 		}
-		if !strings.HasPrefix(key, "artifacts/releases/") {
+		if !strings.HasPrefix(key, "raw/") {
 			t.Errorf("key %q left its prefix", key)
 		}
 		if strings.Contains(key, "..") {
@@ -99,7 +95,7 @@ func TestValidKeysStayWithinTheirPrefix(t *testing.T) {
 func TestUnsafeSegmentErrorNamesTheOffendingValue(t *testing.T) {
 	var k Keys
 
-	_, err := k.ReleaseArtifact("../evasion", "note.pdf")
+	_, err := k.RawArtifact("../evasion", "junit.xml")
 	if err == nil {
 		t.Fatal("hostile segment accepted")
 	}

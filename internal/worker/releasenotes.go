@@ -151,7 +151,7 @@ func (b *NoteBuilder) Build(
 // KindReleaseNotes is the kind of job that composes a release note.
 //
 // Absent from the catalogue: this work reads the tracker, the forge and the database, and has
-// no reason to cross Tekton. It goes through the queue anyway — like the exports — for its
+// no reason to cross Tekton. It goes through the queue anyway — like a plugin installation — for its
 // scheduling and its trace: composing queries up to two hundred pull requests, and doing it in
 // the creation request would have left the user waiting in front of a form.
 const KindReleaseNotes = "release-notes"

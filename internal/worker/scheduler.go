@@ -42,10 +42,10 @@ type Queue interface {
 
 // LocalTask runs a job inside the process, without going through Tekton.
 //
-// Not everything the queue carries becomes a PipelineRun. Generating a delivery note reads the
-// database and writes an object: making it cross Tekton would cost a pod and a workspace to
-// produce two pages. Going through the queue anyway gives scheduling, a trace and visibility —
-// an export appears in the queue like the rest, and its failure is read in the same place.
+// Not everything the queue carries becomes a PipelineRun. Composing a release note or installing
+// a plugin reads and writes the database: making it cross Tekton would cost a pod and a workspace.
+// Going through the queue anyway gives scheduling, a trace and visibility — such a job appears in
+// the queue like the rest, and its failure is read in the same place.
 type LocalTask interface {
 	// Kind is the `kind` handled. These kinds are absent from the catalogue, which describes what
 	// becomes a PipelineRun.

@@ -183,13 +183,6 @@ type RegistryConfig struct {
 	Password string
 	// Project is the repository prefix.
 	Project string
-	// Image is the repository that promotion re-tags, configurable because the
-	// application's name is not a constant of the dashboard.
-	//
-	// The second image a release publishes is not here: it is not promoted, it
-	// follows. Its name lives in internal/images, because it must stay the one the
-	// build publishes and the GitOps repository deploys.
-	Image string
 }
 
 // Role says what this process does. One binary, deployed several times with
@@ -325,7 +318,6 @@ func Load(role Role) (Config, error) {
 			Username: os.Getenv("REGISTRY_USERNAME"),
 			Password: os.Getenv("REGISTRY_PASSWORD"),
 			Project:  os.Getenv("REGISTRY_PROJECT"),
-			Image:    os.Getenv("REGISTRY_IMAGE"),
 		},
 		Tracker: TrackerConfig{
 			// The statuses that make an issue eligible for a release note.

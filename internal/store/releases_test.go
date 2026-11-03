@@ -348,3 +348,31 @@ func TestATagAlreadyTakenInTheProjectIsADuplicate(t *testing.T) {
 		t.Errorf("error %v — expected a uniqueness violation", err)
 	}
 }
+
+func TestGetReleaseByIDCarriesTheManualActions(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	releaseID, _ := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID,
+		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
+		GitRef: "abc", ImageVersion: "1.8.0-rc3", CreatedBy: "vcarroy",
+	})
+	if err := db.SetManualActions(ctx, "1.8.0", "- DNS switchover", "vcarroy"); err != nil {
+		t.Fatalf("actions: %v", err)
+	}
+
+	release, err := db.GetReleaseByID(ctx, releaseID)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if release.Tag != "1.8.0" || release.ManualActions != "- DNS switchover" {
+		t.Errorf("release = %+v", release)
+	}
+
+	name, err := db.VersionName(ctx, versionID)
+	if err != nil || name != "1.8.0" {
+		t.Errorf("version = %q, err = %v", name, err)
+	}
+}

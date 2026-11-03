@@ -192,7 +192,7 @@ func TestASettingIsReturnedWithItsDefault(t *testing.T) {
 // queue. Hiding them would make jobs that really are waiting disappear from the screen.
 func TestAQueueOutsideTheCatalogueStaysDisplayed(t *testing.T) {
 	fake := newFakeQueueStore()
-	fake.jobs = []store.Job{{ID: 7, Kind: "delivery-note", State: store.JobQueued, RequestedBy: "121"}}
+	fake.jobs = []store.Job{{ID: 7, Kind: "release-notes", State: store.JobQueued, RequestedBy: "121"}}
 
 	listing := listQueues(t, queueHandler(fake))
 
@@ -200,7 +200,7 @@ func TestAQueueOutsideTheCatalogueStaysDisplayed(t *testing.T) {
 		t.Fatalf("%d queue(s), expected the catalogue's two plus the observed one", len(listing.Queues))
 	}
 	local := listing.Queues[2]
-	if local.Kind != "delivery-note" || local.Known {
+	if local.Kind != "release-notes" || local.Known {
 		t.Errorf("file locale = %+v", local)
 	}
 	if local.Waiting != 1 {

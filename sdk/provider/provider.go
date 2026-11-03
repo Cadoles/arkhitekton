@@ -22,9 +22,6 @@
 // `Deployer` — promote, observe, prove — is not here. It requires answering "what does promoting
 // mean", and that answer is precisely what the analysis showed cannot be settled in the abstract.
 // Writing it now would produce an interface modelled on Flux, which one would believe generic.
-//
-// Nor is `Exporter`: the delivery note is a contractual deliverable whose shape belongs to the
-// project, and it has no outside source to abstract.
 package provider
 
 import (

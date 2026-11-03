@@ -102,7 +102,7 @@ func TestMigrateCreatesKeyConstraints(t *testing.T) {
 	for _, table := range []string{
 		"versions", "issues", "releases", "release_images",
 		"jobs", "runs", "task_runs",
-		"test_results", "test_cases", "artifacts",
+		"test_results", "test_cases",
 		"user_roles", "sessions", "audit_log", "sync_state",
 	} {
 		var exists bool

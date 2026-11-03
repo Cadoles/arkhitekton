@@ -10,7 +10,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/deliverynote"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -85,7 +84,7 @@ func openCipher(cfg config.Config, logger *slog.Logger) (*secrets.Cipher, error)
 // configuredPlugins derives the instance's settings from the configuration.
 //
 // Only the plugins whose configuration says something are set. The others — the attestation,
-// the delivery note — have no setting: their rows are born enabled by `EnsurePlugins`, which
+// the load campaigns — have no setting: their rows are born enabled by `EnsurePlugins`, which
 // preserves exactly the previous behaviour, where they applied without anyone having to ask.
 func configuredPlugins(
 	cfg config.Config, cipher *secrets.Cipher, registry *capabilities.Registry, logger *slog.Logger,
@@ -228,14 +227,5 @@ func pluginGate(db *store.DB) func(ctx context.Context, projectID *int64, plugin
 			return fmt.Errorf("plugin %q is switched off", pluginID)
 		}
 		return nil
-	}
-}
-
-// deliverablesEnabled says whether the delivery-note plugin is switched on for a project. The
-// dashboard renders the deliverable; the plugin is the switch.
-func deliverablesEnabled(db *store.DB) func(ctx context.Context, projectID int64) bool {
-	return func(ctx context.Context, projectID int64) bool {
-		_, err := db.ResolvedPlugin(ctx, projectID, deliverynote.ID)
-		return !errors.Is(err, store.ErrPluginDisabled)
 	}
 }

@@ -556,3 +556,38 @@ func (db *DB) ReleaseBadgesByTag(ctx context.Context, buildKind string) (map[str
 	// deploys, which supplies them to the screen.
 	return badges, nil
 }
+
+// GetReleaseByID returns a release by its identifier.
+func (db *DB) GetReleaseByID(ctx context.Context, id int64) (Release, error) {
+	var release Release
+	err := db.pool.QueryRow(ctx,
+		`select id, version_id, tag, kind, state, coalesce(git_ref, ''), image_version,
+		        source_release_id, created_by, created_at, released_at,
+		        coalesce(manual_actions_md, ''), coalesce(manual_actions_updated_by, ''),
+		        manual_actions_updated_at
+		 from releases where id = $1`, id).
+		Scan(&release.ID, &release.VersionID, &release.Tag, &release.Kind, &release.State,
+			&release.GitRef, &release.ImageVersion, &release.SourceReleaseID,
+			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt,
+			&release.ManualActions, &release.ManualActionsUpdatedBy, &release.ManualActionsUpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return release, ErrReleaseNotFound
+		}
+		return release, fmt.Errorf("reading release %d: %w", id, err)
+	}
+	return release, nil
+}
+
+// VersionName returns the tracker version's name for a release.
+func (db *DB) VersionName(ctx context.Context, versionID int64) (string, error) {
+	var name string
+	err := db.pool.QueryRow(ctx, `select name from versions where id = $1`, versionID).Scan(&name)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrVersionNotFound
+		}
+		return "", fmt.Errorf("name of version %d: %w", versionID, err)
+	}
+	return name, nil
+}

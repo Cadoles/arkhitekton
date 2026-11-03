@@ -32,7 +32,7 @@ func TestTheBuiltInPluginsCoverEveryKind(t *testing.T) {
 		}
 	}
 	for _, kind := range []capability.Kind{
-		capability.KindPipeline, capability.KindTracker, capability.KindForge, capability.KindExporter,
+		capability.KindPipeline, capability.KindTracker, capability.KindForge,
 	} {
 		if !seen[kind] {
 			t.Errorf("no plugin brings kind %q", kind)
@@ -71,20 +71,5 @@ func TestAnActionIsFoundByItsReference(t *testing.T) {
 	}
 	if _, _, found := registry.FindAction("forge.status"); found {
 		t.Error("an unprefixed reference resolved")
-	}
-}
-
-// The delivery note is decided per project: it used to be offered on every release.
-func TestTheDeliveryNoteIsDecidedPerProject(t *testing.T) {
-	registry, err := Registry()
-	if err != nil {
-		t.Fatal(err)
-	}
-	exporter, err := registry.Plugin("bon-de-livraison")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !exporter.PerProject {
-		t.Error("the delivery note must be decided per project")
 	}
 }

@@ -335,7 +335,8 @@ function AddNoteBody({
  * Champ libre et non liste de cases à cocher : les gestes manuels d'une
  * livraison ne se répètent pas assez d'une version à l'autre pour qu'une
  * checklist les couvre, et une checklist incomplète se remplit quand même. Ce
- * texte est repris tel quel dans le bon de livraison.
+ * texte est repris tel quel dans le bon de livraison, quand un plugin du projet
+ * en produit un.
  */
 function ManualActions({ release, canEdit }: { release: ReleaseDetail; canEdit: boolean }) {
   const stored = release.manual_actions?.markdown ?? ''
@@ -389,7 +390,7 @@ function ManualActionsEditor({
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             rows={6}
-            placeholder="Gestes manuels de la livraison, en Markdown. Repris dans le bon de livraison."
+            placeholder="Gestes manuels de la livraison, en Markdown."
             className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900"
           />
 

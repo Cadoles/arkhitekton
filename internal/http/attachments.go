@@ -28,8 +28,7 @@ import (
  *     images other than SVG, videos, text and HTML (under the sandbox above). Everything else,
  *     SVG included, is a download.
  *
- * No presigned URL: like the deliverables, a file is read through the API, under the reader's
- * role.
+ * No presigned URL: a file is read through the API, under the reader's role.
  */
 
 // AttachmentObjects opens a stored file at any offset: a video is sought into.
