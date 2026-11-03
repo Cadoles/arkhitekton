@@ -34,6 +34,8 @@ type ProjectInput struct {
 	RegistrySecret string
 	// VersionScheme names the shape of the project's tags. Empty means `semver`.
 	VersionScheme string
+	// VersionFile names the file a launch commits the tag to. Empty: none.
+	VersionFile string
 	// Stack names the stack whose reference library is installed. Empty: the project brings its
 	// own pipelines.
 	Stack string
@@ -210,5 +212,6 @@ func (input ProjectInput) project() store.Project {
 		ImageRegistry: input.ImageRegistry, RegistrySecret: input.RegistrySecret,
 		VersionScheme: input.VersionScheme, Stack: input.Stack, TrackerProject: input.TrackerProject,
 		MultiStage: input.MultiStage, Targets: targets, ReleaseKinds: input.ReleaseKinds,
+		VersionFile: strings.TrimSpace(input.VersionFile),
 	}
 }

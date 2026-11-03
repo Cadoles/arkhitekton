@@ -628,6 +628,7 @@ func projectInput(project configfile.Project) ProjectInput {
 		ImageRegistry: project.ImageRegistry, RegistrySecret: project.RegistrySecret,
 		VersionScheme: project.VersionScheme, Stack: project.Stack, TrackerProject: project.TrackerProject,
 		MultiStage: project.MultiStage, Targets: targets, ReleaseKinds: project.ReleaseKinds,
+		VersionFile: project.VersionFile,
 	}
 }
 

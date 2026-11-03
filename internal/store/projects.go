@@ -147,6 +147,10 @@ type Project struct {
 	// explicit tag all work. It loses the next-version suggestion and range selection,
 	// and the tool must say so rather than compute something arbitrary.
 	VersionScheme string
+	// VersionFile is the file of the repository that carries the version, `version.txt` for
+	// instance. Set, launching a release commits its tag there on the branch it builds. Empty,
+	// nothing is committed.
+	VersionFile string
 	// ReleaseKinds declares the project's release kinds. Never empty: the migration
 	// gives each project the historical cycle, and an empty cycle would describe a
 	// project that is declared and unusable.
@@ -257,7 +261,7 @@ var ErrProjectExists = errors.New("repository already declared")
 func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, registry_secret, version_scheme, release_kinds,
+		        image_registry, registry_secret, version_scheme, version_file, release_kinds,
 		        stack, multi_stage, tracker_project, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
@@ -283,7 +287,7 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, registry_secret, version_scheme, release_kinds,
+		        image_registry, registry_secret, version_scheme, version_file, release_kinds,
 		        stack, multi_stage, tracker_project, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
@@ -365,7 +369,7 @@ func (db *DB) TrackedProjects(ctx context.Context) ([]TrackedProject, error) {
 func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, registry_secret, version_scheme, release_kinds,
+		        image_registry, registry_secret, version_scheme, version_file, release_kinds,
 		        stack, multi_stage, tracker_project, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
@@ -390,7 +394,7 @@ func scanProject(rows pgx.Rows) (Project, error) {
 	var targets, kinds []byte
 	if err := rows.Scan(&project.ID, &project.Slug, &project.Repository, &project.Label,
 		&project.ForgeURL, &project.Dockerfile, &project.BuildContext,
-		&project.ImageRegistry, &project.RegistrySecret, &project.VersionScheme,
+		&project.ImageRegistry, &project.RegistrySecret, &project.VersionScheme, &project.VersionFile,
 		&kinds, &project.Stack, &project.MultiStage,
 		&project.TrackerProject, &targets,
 		&project.CheckedAt, &project.CheckOK,
@@ -446,15 +450,15 @@ func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error)
 		`insert into projects (slug, repository, label, forge_url, dockerfile,
 		                       build_context, image_registry, registry_secret,
 		                       version_scheme, release_kinds, stack, multi_stage,
-		                       tracker_project, targets, created_by)
+		                       tracker_project, targets, created_by, version_file)
 		 values ($1, $2, $3, $4, $5, $6, $7, $8, coalesce(nullif($9, ''), 'semver'),
-		         $10, $11, $12, $13, $14, $15)
+		         $10, $11, $12, $13, $14, $15, $16)
 		 on conflict (repository) do nothing
 		 returning id`,
 		project.Slug, project.Repository, project.Label, project.ForgeURL, project.Dockerfile,
 		project.BuildContext, project.ImageRegistry, project.RegistrySecret,
 		project.VersionScheme, kinds, project.Stack, project.MultiStage,
-		project.TrackerProject, targets, project.CreatedBy).Scan(&id)
+		project.TrackerProject, targets, project.CreatedBy, project.VersionFile).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// `do nothing` returned nothing: the repository is already declared.
@@ -510,6 +514,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		     targets = $9, slug = $10, tracker_project = $11, registry_secret = $12,
 		     version_scheme = coalesce(nullif($13, ''), 'semver'),
 		     release_kinds = coalesce($14::jsonb, release_kinds), stack = $15,
+		     version_file = $16,
 		     -- The verdict survives only an unchanged repository. The comparison
 		     -- is on the stored value, still readable during the update: a prior
 		     -- read would open a window between the verdict and the write.
@@ -521,7 +526,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		project.ID, project.Repository, project.Label, project.ForgeURL,
 		project.Dockerfile, project.BuildContext, project.ImageRegistry,
 		project.MultiStage, targets, project.Slug, project.TrackerProject,
-		project.RegistrySecret, project.VersionScheme, kinds, project.Stack)
+		project.RegistrySecret, project.VersionScheme, kinds, project.Stack, project.VersionFile)
 	if err != nil {
 		// A repository already declared elsewhere: two entries would describe it, and
 		// nothing would say which prevails. The caller must be able to say so rather than

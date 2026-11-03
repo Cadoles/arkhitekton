@@ -235,6 +235,14 @@ type CommitStatusWriter interface {
 	SetCommitStatus(ctx context.Context, commit, state, context, description, targetURL string) error
 }
 
+// FileWriter commits a file to a branch. Optional, like [CommitStatusWriter]: it is what lets a
+// release write its version into the repository before it is built.
+type FileWriter interface {
+	// CommitFile writes content to path on branch, and returns the commit it made. Content the
+	// branch already carries commits nothing, and returns an empty commit.
+	CommitFile(ctx context.Context, branch, path, content, message string) (string, error)
+}
+
 // Ref is a branch or a tag.
 type Ref struct {
 	Name string

@@ -30,6 +30,7 @@ export const EMPTY: ProjectDraft = {
   registry_secret: '',
   stack: '',
   tracker_project: '',
+  version_file: '',
   multi_stage: false,
   targets: [],
 }
@@ -46,6 +47,7 @@ export function toDraft(project: Project): ProjectDraft {
     registry_secret: project.registry_secret,
     stack: project.stack,
     tracker_project: project.tracker_project,
+    version_file: project.version_file ?? '',
     multi_stage: project.multi_stage,
     targets: project.targets,
   }
@@ -227,6 +229,21 @@ export function ProjectForm({
             <span className="text-xs text-zinc-500">
               Son identifiant dans l'outil de suivi. Vide, ce projet n'a aucun suivi : ses versions
               se déclarent à la main.
+            </span>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-700">Fichier de version</span>
+            <input
+              value={form.version_file}
+              onChange={(event) => set('version_file', event.target.value)}
+              placeholder="aucun"
+              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
+            />
+            <span className="text-xs text-zinc-500">
+              <span className="font-mono">version.txt</span> par exemple. Renseigné, le lancement
+              d&apos;une release y commite son tag sur la branche construite, et la release est
+              construite depuis ce commit.
             </span>
           </label>
 
