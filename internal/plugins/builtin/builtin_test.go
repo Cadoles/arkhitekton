@@ -20,8 +20,9 @@ func TestTheBuiltInPluginsCoverEveryKind(t *testing.T) {
 
 	seen := map[capability.Kind]bool{}
 	for _, plugin := range registry.Plugins() {
-		if len(plugin.Headers()) == 0 {
-			t.Errorf("plugin %q brings no capability", plugin.ID)
+		// A plugin that only acts, a chat's for instance, brings its actions.
+		if len(plugin.Headers()) == 0 && len(plugin.Actions) == 0 {
+			t.Errorf("plugin %q brings no capability and no action", plugin.ID)
 		}
 		for _, header := range plugin.Headers() {
 			seen[header.Kind] = true
