@@ -30,7 +30,8 @@ type Source struct {
 	Tag string
 }
 
-// Pinned says whether the source pins a version rather than following the repository.
+// Pinned says whether the source, as an administrator named it, pins a version rather than following
+// the repository. A resolved source carries a digest: ask before resolving.
 func (s Source) Pinned() bool { return s.Digest != "" || s.Tag != "" }
 
 // Reference is the source pinned by its digest, as it is installed.
@@ -154,4 +155,33 @@ func MajorChange(from, to string) bool {
 		return head
 	}
 	return major(from) != major(to)
+}
+
+// ResolveSource returns the digest a source installs, and the version its tag announces: the
+// highest stable version of a repository, a tag's digest, or the digest a pinned source names.
+func ResolveSource(ctx context.Context, registries Registries, raw string) (Source, string, error) {
+	source, err := ParseSource(raw)
+	if err != nil {
+		return Source{}, "", err
+	}
+	switch {
+	case source.Digest != "":
+		return source, "", nil
+	case source.Tag != "":
+		if source.Digest, err = Resolve(ctx, registries, source.Repository, source.Tag); err != nil {
+			return Source{}, "", err
+		}
+		expected := ""
+		if _, err := (version.SemVer{}).Parse(source.Tag); err == nil {
+			expected = source.Tag
+		}
+		return source, expected, nil
+	default:
+		release, _, err := Latest(ctx, registries, source.Repository, "")
+		if err != nil {
+			return Source{}, "", err
+		}
+		source.Digest = release.Digest
+		return source, release.Version, nil
+	}
 }

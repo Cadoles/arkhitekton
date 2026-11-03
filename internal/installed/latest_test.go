@@ -89,3 +89,24 @@ func TestASourceFollowsOrPins(t *testing.T) {
 		t.Error("major change")
 	}
 }
+
+// A repository installs its highest stable version, a tag its digest, a digest itself.
+func TestASourceResolvesToTheDigestItInstalls(t *testing.T) {
+	host, registries := registryHost(t)
+	repository := host + "/plugins/gotest"
+	publishVersion(t, host, registries, "1.0.0")
+	latest := publishVersion(t, host, registries, "1.1.0")
+
+	source, expected, err := ResolveSource(context.Background(), registries, repository)
+	if err != nil || source.Reference() != latest || expected != "1.1.0" {
+		t.Errorf("repository: %+v %q %v", source, expected, err)
+	}
+	source, expected, err = ResolveSource(context.Background(), registries, repository+":1.0.0")
+	if err != nil || expected != "1.0.0" || source.Reference() == latest {
+		t.Errorf("tag: %+v %q %v", source, expected, err)
+	}
+	source, expected, err = ResolveSource(context.Background(), registries, latest)
+	if err != nil || expected != "" || source.Reference() != latest {
+		t.Errorf("digest: %+v %q %v", source, expected, err)
+	}
+}

@@ -659,7 +659,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// rather than at the next reload.
 			scheduler.Handle(worker.NewPluginInstaller(db, storage, pluginPuller(cfg, db), sources.checkPlugin,
 				func(ctx context.Context) { _ = reloader.Reload(ctx) }, logger).
-				WithMigrations(migratePlugin(cfg.Database, logger)))
+				WithMigrations(migratePlugin(cfg.Database, logger)).
+				WithResolver(pluginResolver(cfg)))
 			// Purging what an uninstalled plugin left, under the lease like its migrations.
 			scheduler.Handle(worker.NewPluginPurger(db, storage, purgePlugin(cfg.Database, logger), logger))
 
@@ -705,6 +706,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				errs <- module.NewSupervisor(db, moduleTick, logger).WithModules(readers.modules).Run(leadingCtx)
 			}()
 			go func() { errs <- purger.Run(leadingCtx) }()
+			// The installed plugins' repositories, read for a newer version. Under the lease: one worker
+			// is enough to ask a registry.
+			go func() {
+				errs <- worker.NewPluginUpdateChecker(db, pluginReleases(cfg), cfg.Plugins.UpdateInterval, logger).Run(leadingCtx)
+			}()
 			// The objects nothing refers to any more: attachments of an earlier reading, layers of a
 			// removed plugin, artifacts of runs a reset database forgot.
 			go func() { errs <- worker.NewObjectPurger(db, storage, logger).Run(leadingCtx) }()

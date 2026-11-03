@@ -59,6 +59,9 @@ type PluginsConfig struct {
 	// install nothing: an unrecognised source is then refused outright, and only the operator's
 	// `AllowUnsigned` and the trusted keys let a plugin in.
 	OfferUnrecognised bool
+	// UpdateInterval is how often the repositories of the installed plugins are checked for a newer
+	// version.
+	UpdateInterval time.Duration
 }
 
 // ProbeConfig bounds how often outside sources are polled.
@@ -349,6 +352,7 @@ func Load(role Role) (Config, error) {
 			// Default true: refusing by default would send a decision that is the administrator's
 			// through a deployment, which is what this exists to avoid.
 			OfferUnrecognised: boolOr("PLUGIN_OFFER_UNRECOGNISED", true),
+			UpdateInterval:    durationOr("PLUGIN_UPDATE_INTERVAL", 6*time.Hour),
 		},
 		Forge: ForgeConfig{
 			URL:        strings.TrimRight(os.Getenv("FORGE_URL"), "/"),

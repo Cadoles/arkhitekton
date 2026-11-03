@@ -350,12 +350,31 @@ func pluginPuller(cfg config.Config, accepted AcceptedSources) func(ctx context.
 			// install from a source the instance cannot vouch for.
 			letIn = append(append([]string{}, letIn...), recorded...)
 		}
-		registries := installed.Registries{PlainHTTP: cfg.Plugins.PlainHTTP}
-		// Optional: with no credentials mounted, registries are reached anonymously.
-		if _, err := os.Stat(cfg.Plugins.RegistryAuth); cfg.Plugins.RegistryAuth != "" && err == nil {
-			registries.DockerConfig = cfg.Plugins.RegistryAuth
-		}
-		return installed.Pull(ctx, registries, trusted, letIn, cfg.Plugins.OfferUnrecognised, reference)
+		return installed.Pull(ctx, pluginRegistries(cfg), trusted, letIn, cfg.Plugins.OfferUnrecognised, reference)
+	}
+}
+
+// pluginRegistries says how the plugins' registries are reached, for pulling and for checking.
+func pluginRegistries(cfg config.Config) installed.Registries {
+	registries := installed.Registries{PlainHTTP: cfg.Plugins.PlainHTTP}
+	// Optional: with no credentials mounted, registries are reached anonymously.
+	if _, err := os.Stat(cfg.Plugins.RegistryAuth); cfg.Plugins.RegistryAuth != "" && err == nil {
+		registries.DockerConfig = cfg.Plugins.RegistryAuth
+	}
+	return registries
+}
+
+// pluginResolver resolves the installations asked for by repository or by tag.
+func pluginResolver(cfg config.Config) func(ctx context.Context, raw string) (installed.Source, string, error) {
+	return func(ctx context.Context, raw string) (installed.Source, string, error) {
+		return installed.ResolveSource(ctx, pluginRegistries(cfg), raw)
+	}
+}
+
+// pluginReleases finds the newer versions the plugins' repositories publish.
+func pluginReleases(cfg config.Config) worker.LatestRelease {
+	return func(ctx context.Context, repository, current string) (installed.Release, bool, error) {
+		return installed.Latest(ctx, pluginRegistries(cfg), repository, current)
 	}
 }
 
