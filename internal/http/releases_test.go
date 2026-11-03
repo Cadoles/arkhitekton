@@ -51,6 +51,8 @@ type fakeReleaseStore struct {
 	// notes and results are a release's note and measures, for the dossier.
 	notes   []store.NoteEntry
 	results []store.TestResult
+	// versionFile is the project's version file. Empty: none.
+	versionFile string
 }
 
 // fixtureProject reproduces what the bootstrap installs: three stages, one of them
@@ -1329,6 +1331,7 @@ func (f *fakeReleaseStore) ProjectBySlug(_ context.Context, slug string) (store.
 	project := fixtureProject()
 	project.Slug = slug
 	project.ReleaseKinds = release.DefaultCycle()
+	project.VersionFile = f.versionFile
 	return project, nil
 }
 
@@ -1480,5 +1483,40 @@ func TestThePlanTargetsTheIdentifierReturnedByTheInsert(t *testing.T) {
 		if strings.HasSuffix(run.EventKey, ":0") {
 			t.Errorf("fact key %q — it carries a null identifier", run.EventKey)
 		}
+	}
+}
+
+// versionForge commits the version file and keeps what it committed.
+type versionForge struct {
+	fakeForge
+	committed []string
+}
+
+func (f *versionForge) CommitFile(_ context.Context, branch, path, content, _ string) (string, error) {
+	f.committed = append(f.committed, branch+":"+path+":"+content)
+	return "f11e5a", nil
+}
+
+// A project that keeps its version in a file has the tag committed there on the branch it builds,
+// and the release is built and tagged from that commit.
+func TestALaunchCommitsTheVersionFile(t *testing.T) {
+	fake := newFakeStore()
+	fake.versionFile = "version.txt"
+	forge := &versionForge{fakeForge: fakeForge{commit: "abc123def456"}}
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
+
+	launched(t, handler, `{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)
+
+	if strings.Join(forge.committed, ",") != "main:version.txt:3.2.0-rc1\n" {
+		t.Errorf("committed %q", forge.committed)
+	}
+	if len(forge.resolved) != 0 {
+		t.Errorf("resolved %v: the commit made is the anchor", forge.resolved)
+	}
+	if len(forge.tags) != 1 || forge.tags[0] != "3.2.0-rc1@f11e5a" {
+		t.Errorf("tags %v", forge.tags)
+	}
+	if got := fake.jobsOfKind("core/build")[0].Params["revision"]; got != "f11e5a" {
+		t.Errorf("revision built %q", got)
 	}
 }

@@ -82,14 +82,16 @@ type Project struct {
 	// Name is the project's slug, from the resource's metadata.
 	Name string `json:"-"`
 
-	Repository     string        `json:"repository"`
-	Label          string        `json:"label,omitempty"`
-	ForgeURL       string        `json:"forgeUrl,omitempty"`
-	Dockerfile     string        `json:"dockerfile,omitempty"`
-	BuildContext   string        `json:"buildContext,omitempty"`
-	ImageRegistry  string        `json:"imageRegistry,omitempty"`
-	RegistrySecret string        `json:"registrySecret,omitempty"`
-	VersionScheme  string        `json:"versionScheme,omitempty"`
+	Repository     string `json:"repository"`
+	Label          string `json:"label,omitempty"`
+	ForgeURL       string `json:"forgeUrl,omitempty"`
+	Dockerfile     string `json:"dockerfile,omitempty"`
+	BuildContext   string `json:"buildContext,omitempty"`
+	ImageRegistry  string `json:"imageRegistry,omitempty"`
+	RegistrySecret string `json:"registrySecret,omitempty"`
+	VersionScheme  string `json:"versionScheme,omitempty"`
+	// VersionFile is committed with the tag on the branch a release builds, when it is launched.
+	VersionFile    string        `json:"versionFile,omitempty"`
 	Stack          string        `json:"stack,omitempty"`
 	TrackerProject string        `json:"trackerProject,omitempty"`
 	MultiStage     bool          `json:"multiStage,omitempty"`

@@ -154,6 +154,8 @@ type projectPayload struct {
 	// the next-version suggestion and range selection, and the screen must say so rather
 	// than compute something arbitrary.
 	VersionScheme string `json:"version_scheme"`
+	// VersionFile is the file a launch commits the tag to, on the branch built. Empty: none.
+	VersionFile string `json:"version_file"`
 	// Stack names the stack whose reference library is installed. Empty: the project brings
 	// its own pipelines, which is perfectly valid — the normative part is the contract, not
 	// the library.
@@ -235,6 +237,7 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		ImageRegistry:  project.ImageRegistry,
 		RegistrySecret: project.RegistrySecret,
 		VersionScheme:  project.VersionScheme,
+		VersionFile:    project.VersionFile,
 		Stack:          project.Stack,
 		TrackerProject: project.TrackerProject,
 		MultiStage:     project.MultiStage, Targets: targets,
@@ -269,6 +272,8 @@ type projectRequest struct {
 	RegistrySecret string `json:"registry_secret"`
 	// VersionScheme names the shape of this project's tags. Empty means `semver`.
 	VersionScheme string `json:"version_scheme"`
+	// VersionFile is the file a launch commits the tag to. Empty: none.
+	VersionFile string `json:"version_file"`
 	// Stack names the stack whose reference library will be installed. Empty: the project
 	// brings its own pipelines.
 	Stack string `json:"stack"`
@@ -310,6 +315,7 @@ func decodeProject(w http.ResponseWriter, r *http.Request) (configure.ProjectInp
 		ImageRegistry: request.ImageRegistry, RegistrySecret: request.RegistrySecret,
 		VersionScheme: request.VersionScheme, Stack: request.Stack, TrackerProject: request.TrackerProject,
 		MultiStage: request.MultiStage, Targets: targets, ReleaseKinds: request.ReleaseKinds,
+		VersionFile: request.VersionFile,
 	}, true
 }
 

@@ -185,7 +185,7 @@ func (e Exporter) project(
 		Name: project.Slug, Repository: project.Repository, Label: project.Label,
 		ForgeURL: project.ForgeURL, Dockerfile: project.Dockerfile, ImageRegistry: project.ImageRegistry,
 		RegistrySecret: project.RegistrySecret, Stack: project.Stack, TrackerProject: project.TrackerProject,
-		MultiStage: project.MultiStage,
+		MultiStage: project.MultiStage, VersionFile: project.VersionFile,
 	}
 	// The defaults are left out: written, they would pin this instance's choice where the file
 	// means "whatever the dashboard does by default".

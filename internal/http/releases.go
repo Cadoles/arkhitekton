@@ -839,9 +839,18 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		// Anchoring on a commit before the launch is recorded, so that what is recorded names
 		// an immutable point. Optional and said so: with no forge configured, the release
 		// still launches, with a caveat.
-		commit, resolveWarnings := h.anchorCommit(r.Context(), project.ID, record.GitRef)
-		record.GitCommit = commit
-		warnings = append(warnings, resolveWarnings...)
+		//
+		// A project that keeps its version in a file has it committed first, and the release is
+		// anchored on that commit: what is built then carries the version it announces.
+		versioned, versionWarnings := h.commitVersion(r.Context(), project, record)
+		warnings = append(warnings, versionWarnings...)
+		if versioned != "" {
+			record.GitCommit = versioned
+		} else {
+			commit, resolveWarnings := h.anchorCommit(r.Context(), project.ID, record.GitRef)
+			record.GitCommit = commit
+			warnings = append(warnings, resolveWarnings...)
+		}
 	} else {
 		to = release.StateReady
 		if record.SourceReleaseID == nil {
@@ -1545,6 +1554,30 @@ func (h *ReleasesHandler) anchorCommit(ctx context.Context, projectID int64, ref
 	commit, err := forge.ResolveCommit(ctx, ref)
 	if err != nil {
 		return "", []string{"reference " + ref + " could not be resolved to a commit: " + err.Error()}
+	}
+	return commit, nil
+}
+
+// commitVersion writes the release's tag to the project's version file, on the branch the release
+// builds, and returns the commit it made. Empty when the project keeps no version file, when the
+// file already carries the tag, or when the commit failed, which is a caveat: the release is then
+// anchored on the branch as it stands.
+func (h *ReleasesHandler) commitVersion(ctx context.Context, project store.Project, record store.Release) (string, []string) {
+	if strings.TrimSpace(project.VersionFile) == "" || h.forges == nil {
+		return "", nil
+	}
+	writer, err := h.forges.TagWriter(ctx, project.ID)
+	if err != nil {
+		return "", []string{project.VersionFile + " not updated: no forge to write to: " + err.Error()}
+	}
+	files, ok := writer.(provider.FileWriter)
+	if !ok {
+		return "", []string{project.VersionFile + " not updated: the project's forge cannot commit a file"}
+	}
+	commit, err := files.CommitFile(ctx, record.GitRef, project.VersionFile, record.Tag+"\n",
+		"chore(release): "+record.Tag)
+	if err != nil {
+		return "", []string{project.VersionFile + " not updated on " + record.GitRef + ": " + err.Error()}
 	}
 	return commit, nil
 }
