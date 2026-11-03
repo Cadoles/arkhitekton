@@ -1052,7 +1052,7 @@ func (f *fakeReleaseStore) LinkNoteIssue(context.Context, int64, string, string,
 	return nil
 }
 
-func (f *fakeReleaseStore) UnlinkNoteIssue(context.Context, int64, string) error {
+func (f *fakeReleaseStore) UnlinkNoteIssue(context.Context, int64, string, string) error {
 	return nil
 }
 

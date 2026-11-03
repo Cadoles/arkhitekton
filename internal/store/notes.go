@@ -44,10 +44,18 @@ const (
 )
 
 // LinkNoteIssue links an issue to a release's note.
+//
+// Linked by hand, an issue removed earlier is no longer set aside from the detection.
 func (db *DB) LinkNoteIssue(
 	ctx context.Context, releaseID int64, reference, source, pullRequest, actor string,
 ) error {
-	tag, err := db.pool.Exec(ctx,
+	transaction, err := db.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("linking issue %s: %w", reference, err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	tag, err := transaction.Exec(ctx,
 		`insert into release_notes (release_id, external_id, source, pull_request, added_by)
 		 values ($1, $2, $3, $4, $5)
 		 on conflict (release_id, external_id) do nothing`,
@@ -58,14 +66,43 @@ func (db *DB) LinkNoteIssue(
 	if tag.RowsAffected() == 0 {
 		return ErrNoteAlreadyLinked
 	}
+	if source == NoteSourceManual {
+		if _, err := transaction.Exec(ctx,
+			`delete from release_note_dismissals where release_id = $1 and external_id = $2`,
+			releaseID, reference); err != nil {
+			return fmt.Errorf("linking issue %s: %w", reference, err)
+		}
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("linking issue %s: %w", reference, err)
+	}
 	return nil
 }
 
 // UnlinkNoteIssue removes an issue from a release's note.
-func (db *DB) UnlinkNoteIssue(ctx context.Context, releaseID int64, reference string) error {
-	if _, err := db.pool.Exec(ctx,
+//
+// The issue is set aside from the detection: detecting again on a draft must not bring back what
+// someone removed.
+func (db *DB) UnlinkNoteIssue(ctx context.Context, releaseID int64, reference, actor string) error {
+	transaction, err := db.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("unlinking issue %s: %w", reference, err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	if _, err := transaction.Exec(ctx,
 		`delete from release_notes where release_id = $1 and external_id = $2`,
 		releaseID, reference); err != nil {
+		return fmt.Errorf("unlinking issue %s: %w", reference, err)
+	}
+	if _, err := transaction.Exec(ctx,
+		`insert into release_note_dismissals (release_id, external_id, dismissed_by)
+		 values ($1, $2, $3)
+		 on conflict (release_id, external_id) do nothing`,
+		releaseID, reference, actor); err != nil {
+		return fmt.Errorf("unlinking issue %s: %w", reference, err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
 		return fmt.Errorf("unlinking issue %s: %w", reference, err)
 	}
 	return nil
@@ -132,7 +169,10 @@ func (db *DB) NoteCandidates(
 		        coalesce(i.status_name, '')
 		   from releases r
 		   join issues i on i.project_id = r.project_id
-		  where r.id = $1 and i.status_name = any($2)`, releaseID, statuses)
+		  where r.id = $1 and i.status_name = any($2)
+		    and not exists (select 1 from release_note_dismissals d
+		                     where d.release_id = r.id and d.external_id = i.external_id)`,
+		releaseID, statuses)
 	if err != nil {
 		return nil, fmt.Errorf("issues in review: %w", err)
 	}

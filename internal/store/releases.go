@@ -33,9 +33,12 @@ type Release struct {
 	GitRef string
 	// GitCommit is the resolution of GitRef at that instant. It is what makes the release
 	// reproducible: a branch moves.
-	GitCommit  string
-	CreatedBy  string
-	CreatedAt  time.Time
+	GitCommit string
+	CreatedBy string
+	CreatedAt time.Time
+	// LaunchedBy and LaunchedAt say who launched the draft, and when. Empty on a draft.
+	LaunchedBy string
+	LaunchedAt *time.Time
 	ReleasedAt *time.Time
 	// ManualActions is the free-text account of the delivery's manual steps, reproduced
 	// as is in the delivery note. The author and the date accompany it because that
@@ -99,13 +102,14 @@ func (db *DB) GetRelease(ctx context.Context, projectID int64, tag string) (Rele
 	err := db.pool.QueryRow(ctx,
 		`select id, project_id, version_id, tag, kind, state, coalesce(git_ref, ''),
 		        coalesce(git_commit, ''), image_version,
-		        source_release_id, created_by, created_at, released_at,
+		        source_release_id, created_by, created_at, coalesce(launched_by, ''), launched_at,
+		        released_at,
 		        coalesce(manual_actions_md, ''), coalesce(manual_actions_updated_by, ''),
 		        manual_actions_updated_at
 		 from releases where project_id = $1 and tag = $2`, projectID, tag).
 		Scan(&release.ID, &release.ProjectID, &release.VersionID, &release.Tag, &release.Kind, &release.State,
 			&release.GitRef, &release.GitCommit, &release.ImageVersion, &release.SourceReleaseID,
-			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt,
+			&release.CreatedBy, &release.CreatedAt, &release.LaunchedBy, &release.LaunchedAt, &release.ReleasedAt,
 			&release.ManualActions, &release.ManualActionsUpdatedBy, &release.ManualActionsUpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -125,7 +129,8 @@ func (db *DB) ListReleases(ctx context.Context, projectID int64, limit int) ([]R
 	rows, err := db.pool.Query(ctx,
 		`select id, project_id, version_id, tag, kind, state, coalesce(git_ref, ''),
 		        coalesce(git_commit, ''), image_version,
-		        source_release_id, created_by, created_at, released_at
+		        source_release_id, created_by, created_at, coalesce(launched_by, ''), launched_at,
+		        released_at
 		 from releases where project_id = $1 order by created_at desc limit $2`,
 		projectID, limit)
 	if err != nil {
@@ -139,7 +144,8 @@ func (db *DB) ListReleases(ctx context.Context, projectID int64, limit int) ([]R
 		if err := rows.Scan(&release.ID, &release.ProjectID, &release.VersionID, &release.Tag, &release.Kind,
 			&release.State, &release.GitRef, &release.GitCommit, &release.ImageVersion,
 			&release.SourceReleaseID,
-			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt); err != nil {
+			&release.CreatedBy, &release.CreatedAt, &release.LaunchedBy, &release.LaunchedAt,
+			&release.ReleasedAt); err != nil {
 			return nil, fmt.Errorf("listing the releases: %w", err)
 		}
 		releases = append(releases, release)
@@ -318,6 +324,56 @@ func (db *DB) MarkReleased(ctx context.Context, id int64, from string) (bool, er
 		return false, fmt.Errorf("approving release %d: %w", id, err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// ErrNotADraft reports a release that is no longer a draft: launched, or deleted, in the meantime.
+var ErrNotADraft = errors.New("store: the release is not a draft")
+
+// LaunchRelease takes a draft out of `draft`, into the state its launch leads to, and records who
+// launched it and the commit it builds.
+//
+// Conditional on the release still being a draft: it is what makes a launch unique, and two
+// simultaneous clicks open one plan, not two.
+func (db *DB) LaunchRelease(ctx context.Context, id int64, to, commit, actor string) error {
+	tag, err := db.pool.Exec(ctx,
+		`update releases set state = $2, git_commit = coalesce(nullif($3, ''), git_commit),
+		        launched_by = $4, launched_at = now(), updated_at = now()
+		 where id = $1 and state = $5`, id, to, commit, actor, string(release.StateDraft))
+	if err != nil {
+		return fmt.Errorf("launching release %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotADraft
+	}
+	return nil
+}
+
+// UpdateDraftRelease changes the git reference a draft will build.
+func (db *DB) UpdateDraftRelease(ctx context.Context, id int64, gitRef string) error {
+	tag, err := db.pool.Exec(ctx,
+		`update releases set git_ref = $2, updated_at = now() where id = $1 and state = $3`,
+		id, gitRef, string(release.StateDraft))
+	if err != nil {
+		return fmt.Errorf("updating draft %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotADraft
+	}
+	return nil
+}
+
+// DeleteDraftRelease deletes a draft, which frees its tag. Nothing was launched from it: its note
+// goes with it, and the job that detected the note keeps its trace without its release.
+func (db *DB) DeleteDraftRelease(ctx context.Context, id int64) error {
+	tag, err := db.pool.Exec(ctx,
+		`delete from releases where id = $1 and state = $2`, id, string(release.StateDraft))
+	if err != nil {
+		return fmt.Errorf("deleting draft %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotADraft
+	}
+	return nil
 }
 
 // JobReleaseContext describes the release a job advances.
@@ -562,13 +618,14 @@ func (db *DB) GetReleaseByID(ctx context.Context, id int64) (Release, error) {
 	var release Release
 	err := db.pool.QueryRow(ctx,
 		`select id, version_id, tag, kind, state, coalesce(git_ref, ''), image_version,
-		        source_release_id, created_by, created_at, released_at,
+		        source_release_id, created_by, created_at, coalesce(launched_by, ''), launched_at,
+		        released_at,
 		        coalesce(manual_actions_md, ''), coalesce(manual_actions_updated_by, ''),
 		        manual_actions_updated_at
 		 from releases where id = $1`, id).
 		Scan(&release.ID, &release.VersionID, &release.Tag, &release.Kind, &release.State,
 			&release.GitRef, &release.ImageVersion, &release.SourceReleaseID,
-			&release.CreatedBy, &release.CreatedAt, &release.ReleasedAt,
+			&release.CreatedBy, &release.CreatedAt, &release.LaunchedBy, &release.LaunchedAt, &release.ReleasedAt,
 			&release.ManualActions, &release.ManualActionsUpdatedBy, &release.ManualActionsUpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

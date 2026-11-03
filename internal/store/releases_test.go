@@ -376,3 +376,70 @@ func TestGetReleaseByIDCarriesTheManualActions(t *testing.T) {
 		t.Errorf("version = %q, err = %v", name, err)
 	}
 }
+
+func draftRelease(t *testing.T, db *DB, tag string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID, VersionID: versionID, Tag: tag, Kind: "pre", State: "draft",
+		GitRef: "main", ImageVersion: tag, CreatedBy: "alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// A draft is launched once: the second launch finds it no longer a draft, and nothing changes.
+func TestADraftIsLaunchedOnce(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	id := draftRelease(t, db, "1.8.0-rc1")
+
+	if err := db.UpdateDraftRelease(ctx, id, "release/1.8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.LaunchRelease(ctx, id, "building", "abc1234", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.LaunchRelease(ctx, id, "ready", "def5678", "carol"); !errors.Is(err, ErrNotADraft) {
+		t.Errorf("second launch: %v", err)
+	}
+	if err := db.UpdateDraftRelease(ctx, id, "main"); !errors.Is(err, ErrNotADraft) {
+		t.Errorf("editing a launched release: %v", err)
+	}
+	if err := db.DeleteDraftRelease(ctx, id); !errors.Is(err, ErrNotADraft) {
+		t.Errorf("deleting a launched release: %v", err)
+	}
+
+	launched, err := db.GetRelease(ctx, testProjectID, "1.8.0-rc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launched.State != "building" || launched.GitRef != "release/1.8" || launched.GitCommit != "abc1234" ||
+		launched.LaunchedBy != "bob" || launched.LaunchedAt == nil || launched.CreatedBy != "alice" {
+		t.Errorf("launched = %+v", launched)
+	}
+}
+
+// Deleting a draft frees its tag.
+func TestDeletingADraftFreesItsTag(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	id := draftRelease(t, db, "1.8.0-rc1")
+	if err := db.LinkNoteIssue(ctx, id, "12", NoteSourceManual, "", "alice"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.DeleteDraftRelease(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetRelease(ctx, testProjectID, "1.8.0-rc1"); !errors.Is(err, ErrReleaseNotFound) {
+		t.Errorf("read after deletion: %v", err)
+	}
+	draftRelease(t, db, "1.8.0-rc1")
+}
