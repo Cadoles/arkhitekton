@@ -71,6 +71,10 @@ export type Release = {
   score?: { value: number; health: Health | 'na'; measured: boolean }
   created_by: string
   created_at: string
+  /** Qui a lancé le brouillon, et quand. Absents tant que la release est un
+   *  brouillon. */
+  launched_by?: string
+  launched_at?: string
   released_at?: string
   promotions?: Promotion[]
 }
@@ -191,12 +195,10 @@ export function useSaveManualActions(tag: string) {
 
 export type CreatedRelease = {
   release: { tag: string; kind: ReleaseKind; state: ReleaseState; image_version: string }
-  /** Réserves émises par le serveur — RC aux tests non verts, re-tag non mis en
-   *  file. La création a réussi malgré elles : les taire ferait croire à un
-   *  succès sans condition. */
+  /** Réserves émises par le serveur : RC aux tests non verts, brouillon sans
+   *  référence Git. La création a réussi malgré elles : les taire ferait croire à
+   *  un succès sans condition. */
   warnings?: string[]
-  /** Une exécution par image promue : le pipeline de re-tag n'en traite qu'une. */
-  retag_job_ids?: number[]
 }
 
 /**
@@ -225,6 +227,87 @@ export function useCreateRelease() {
       // La version gagne une release, et une finale met un re-tag en file.
       void queryClient.invalidateQueries({ queryKey: ['versions'] })
       void queryClient.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
+}
+
+/** Ce que le lancement répond : la release lancée, et ses réserves. */
+export type LaunchedRelease = {
+  release: Release
+  warnings?: string[]
+  build_jobs?: number
+  /** Une exécution par image promue : le pipeline de re-tag n'en traite qu'une. */
+  retag_job_ids?: number[]
+}
+
+/**
+ * Lancement d'un brouillon : ce qui suit une release part maintenant, et
+ * seulement maintenant : la construction depuis la référence résolue à
+ * l'instant, l'étiquette Git, les automatisations du projet.
+ */
+export function useLaunchRelease(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      request<LaunchedRelease>(projectPath(`/releases/${encodeURIComponent(tag)}/launch`), {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases'] })
+      void queryClient.invalidateQueries({ queryKey: ['versions'] })
+      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
+}
+
+/** Change la référence Git qu'un brouillon construira. */
+export function useUpdateDraft(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (gitRef: string) =>
+      request<{ release: Release }>(projectPath(`/releases/${encodeURIComponent(tag)}/draft`), {
+        method: 'PUT',
+        body: JSON.stringify({ git_ref: gitRef }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag] })
+    },
+  })
+}
+
+/** Supprime un brouillon qu'on ne lancera pas : son tag redevient libre. */
+export function useDeleteDraft(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      request<void>(projectPath(`/releases/${encodeURIComponent(tag)}`), { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ['releases', tag] })
+      void queryClient.invalidateQueries({ queryKey: ['releases'] })
+      void queryClient.invalidateQueries({ queryKey: ['versions'] })
+    },
+  })
+}
+
+/**
+ * Relance la détection de la note d'un brouillon. Elle ne fait qu'ajouter : ce
+ * qui est rattaché reste, et ce qu'on a retiré à la main n'y revient pas.
+ */
+export function useDetectNotes(tag: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      request<void>(projectPath(`/releases/${encodeURIComponent(tag)}/notes/detect`), {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      // La release porte le job de détection : la relire fait suivre la note
+      // jusqu'à ce qu'il conclue.
+      void queryClient.invalidateQueries({ queryKey: ['releases', tag] })
     },
   })
 }
@@ -358,7 +441,14 @@ export type NoteEntry = {
   url?: string
 }
 
-export function useNotes(tag: string | undefined) {
+/** Le job qui détecte la note, quand il est en file ou en cours. */
+export function detectingNotes(release: ReleaseDetail): boolean {
+  return (release.jobs ?? []).some(
+    (job) => job.kind === 'release-notes' && (job.state === 'queued' || job.state === 'running'),
+  )
+}
+
+export function useNotes(tag: string | undefined, detecting = false) {
   return useQuery({
     queryKey: ['releases', tag, 'notes'],
     queryFn: () =>
@@ -370,6 +460,8 @@ export function useNotes(tag: string | undefined) {
         projectPath(`/releases/${encodeURIComponent(tag as string)}/notes`),
       ),
     enabled: Boolean(tag),
+    // Relue tant que la détection tourne : ce qu'elle trouve arrive sans recharger.
+    refetchInterval: detecting ? 3000 : false,
   })
 }
 

@@ -1,5 +1,5 @@
 import { useState, type ComponentType } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { TestsPanel } from './TestsPanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
@@ -11,9 +11,12 @@ import { Slot } from '../../components/Screen'
 import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
 import {
+  useDeleteDraft,
+  useLaunchRelease,
   useRebuild,
   useRelease,
   useReleaseRelease,
+  useUpdateDraft,
   type ProducedArtifact,
   type ReleaseDetail,
   type ReleaseJob,
@@ -66,12 +69,15 @@ export function ReleaseHeaderBlock() {
  * de la release et la permission), et une décision qu'il faut déplier n'est
  * pas demandée.
  */
+export const DraftBlock = withRelease(DraftAction)
 export const RebuildBlock = withRelease(RebuildAction)
 export const PublishBlock = withRelease(ReleaseAction)
 
 /** Le score en premier : c'est le bloc qu'on lit d'un coup d'œil, et celui qui
  *  dit s'il faut ouvrir le reste. */
 export const TestsBlock = withRelease(function Tests({ release }) {
+  // Un brouillon n'a rien construit : pas de score, et rien à rejouer.
+  if (release.state === 'draft') return null
   return <TestsPanel tag={release.tag} jobs={release.jobs ?? []} />
 })
 
@@ -160,9 +166,18 @@ function Header({ tag, release }: { tag: string; release?: ReleaseDetail }) {
               <Icon name="clock" className="size-3.5" />
               créée le {formatDateTime(release.created_at)}
             </span>
+            {release.launched_at && (
+              <span className="inline-flex items-center gap-1">
+                <Icon name="arrow-right" className="size-3.5" />
+                lancée le {formatDateTime(release.launched_at)}
+                {release.launched_by && release.launched_by !== release.created_by && (
+                  <span className="font-sans">par {release.launched_by}</span>
+                )}
+              </span>
+            )}
           </div>
 
-          {release.git_ref && !release.git_commit && (
+          {release.git_ref && !release.git_commit && release.state !== 'draft' && (
             // Une release qui ne désigne qu'une branche n'est pas reproductible :
             // la branche bouge, et reconstruire produirait une autre image.
             <p className="flex items-start gap-2 text-sm text-warn-700">
@@ -304,6 +319,140 @@ function Executions({ release }: { release: ReleaseDetail }) {
         </ul>
       )}
     </CollapsibleSection>
+  )
+}
+
+/**
+ * Un brouillon : rien n'est lancé, ni construction, ni étiquette Git, ni
+ * automatisation. On y rattache les tickets de la note, on ajuste la référence,
+ * puis on le lance, ou on le supprime.
+ *
+ * « Lancer » et non « valider » : valider est l'approbation d'une release dont
+ * les tests ont conclu (`release.released`), qui vient bien après.
+ *
+ * Ressaisie du tag au lancement : c'est lui qui pose l'étiquette sur la forge et
+ * met en file la construction ou le re-tag vers le registre (doc 08 §8.5).
+ */
+export function DraftAction({ release }: { release: ReleaseDetail }) {
+  const launch = useLaunchRelease(release.tag)
+  const update = useUpdateDraft(release.tag)
+  const remove = useDeleteDraft(release.tag)
+  const navigate = useNavigate()
+  const [gitRef, setGitRef] = useState(release.git_ref ?? '')
+  const [confirming, setConfirming] = useState<'launch' | 'delete' | null>(null)
+  // Un re-tag reprend l'image de sa source : il ne nomme aucune référence Git.
+  const retag = Boolean(release.source_tag)
+  const edited = gitRef.trim() !== (release.git_ref ?? '')
+  const error = launch.error ?? update.error ?? remove.error
+
+  return (
+    <Card title="Brouillon">
+      <p className="text-sm text-zinc-600">
+        Rien n&apos;est encore lancé : ni construction, ni étiquette Git, ni automatisation. Rattachez
+        les tickets à la note ci-dessous, puis lancez la release.
+      </p>
+
+      {!retag && (
+        <form
+          className="mt-3 flex flex-wrap items-end gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            update.mutate(gitRef.trim())
+          }}
+        >
+          <label className="flex flex-col gap-1 text-sm text-zinc-700">
+            Référence Git à construire
+            <input
+              value={gitRef}
+              onChange={(event) => setGitRef(event.target.value)}
+              placeholder="main"
+              className="w-64 rounded-md border border-zinc-300 px-2 py-1 font-mono text-sm"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={!edited || update.isPending}
+            className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+          >
+            Enregistrer
+          </button>
+        </form>
+      )}
+
+      {error && (
+        <p className="mt-2 flex items-start gap-2 text-sm text-critical-700">
+          <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
+          {(error as Error).message}
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setConfirming('launch')}
+          disabled={launch.isPending || edited || (!retag && !release.git_ref)}
+          title={edited ? 'Enregistrez la référence avant de lancer' : undefined}
+          className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-40"
+        >
+          Lancer la release
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming('delete')}
+          disabled={remove.isPending}
+          className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm font-medium text-critical-700 transition-colors hover:bg-critical-50 disabled:opacity-40"
+        >
+          Supprimer le brouillon
+        </button>
+      </div>
+
+      {confirming === 'launch' && (
+        <ConfirmDialog
+          title={`Lancer la release ${release.tag}`}
+          confirmLabel="Lancer"
+          challenge={release.tag}
+          onConfirm={() => {
+            setConfirming(null)
+            launch.mutate()
+          }}
+          onCancel={() => setConfirming(null)}
+          pending={launch.isPending}
+        >
+          {retag ? (
+            <p>
+              <span className="font-mono">{release.tag}</span> sera re-taguée depuis{' '}
+              <span className="font-mono">{release.source_tag}</span> dans le registre, et les
+              automatisations du projet se déclencheront.
+            </p>
+          ) : (
+            <p>
+              <span className="font-mono">{release.git_ref}</span> sera résolue en commit maintenant,
+              l&apos;étiquette <span className="font-mono">{release.tag}</span> posée sur la forge, la
+              construction mise en file, et les automatisations du projet se déclencheront.
+            </p>
+          )}
+        </ConfirmDialog>
+      )}
+
+      {confirming === 'delete' && (
+        <ConfirmDialog
+          title={`Supprimer le brouillon ${release.tag}`}
+          confirmLabel="Supprimer"
+          onConfirm={() => {
+            setConfirming(null)
+            remove.mutate(undefined, { onSuccess: () => void navigate('/releases') })
+          }}
+          onCancel={() => setConfirming(null)}
+          pending={remove.isPending}
+        >
+          <p>
+            Le brouillon et sa note sont supprimés, et le tag{' '}
+            <span className="font-mono">{release.tag}</span> redevient libre. La suppression est
+            consignée au journal d&apos;audit.
+          </p>
+        </ConfirmDialog>
+      )}
+    </Card>
   )
 }
 

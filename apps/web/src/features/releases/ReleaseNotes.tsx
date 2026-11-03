@@ -6,7 +6,9 @@ import { EmptyState, Skeleton } from '../../components/primitives'
 import { hasAtLeast, useSession } from '../auth/session'
 import { formatDateTime } from '../../lib/format'
 import {
+  detectingNotes,
   useAddNote,
+  useDetectNotes,
   useNotes,
   useRemoveNote,
   useSaveManualActions,
@@ -22,14 +24,16 @@ import {
  * nature de ce qui a été fait qui range la ligne. Une anomalie corrigée reste une
  * correction quel que soit son avancement.
  *
- * Le contenu est proposé à la création de la release — demandes en revue citées
- * par une pull request fusionnée — puis ajusté à la main. La détection ne se
- * rejoue pas : elle écraserait ces ajustements, et une note est un document qu'on
- * relit avant de l'envoyer au client.
+ * Le contenu est proposé à la création du brouillon (les demandes en revue citées
+ * par une pull request fusionnée), puis ajusté à la main. Tant que la release est
+ * un brouillon, la détection se relance : elle ne fait qu'ajouter, et ce qu'on a
+ * retiré à la main n'y revient pas. Une fois lancée, la note ne bouge plus que
+ * par la main : c'est un document qu'on relit avant de l'envoyer au client.
  */
 export function ReleaseNotes({ release }: { release: ReleaseDetail }) {
   const tag = release.tag
-  const { data, isPending } = useNotes(tag)
+  const detecting = detectingNotes(release)
+  const { data, isPending } = useNotes(tag, detecting)
   const session = useSession()
 
   const canEdit = session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
@@ -46,11 +50,14 @@ export function ReleaseNotes({ release }: { release: ReleaseDetail }) {
       count={notes.length}
       action={
         canEdit ? (
-          <AddNote
-            tag={tag}
-            available={data?.available ?? []}
-            error={data?.available_error}
-          />
+          <div className="flex items-center gap-2">
+            {release.state === 'draft' && <DetectNotes tag={tag} detecting={detecting} />}
+            <AddNote
+              tag={tag}
+              available={data?.available ?? []}
+              error={data?.available_error}
+            />
+          </div>
         ) : undefined
       }
     >
@@ -178,6 +185,22 @@ function NoteRow({ entry, tag, canEdit }: { entry: NoteEntry; tag: string; canEd
  * sous les yeux dans Redmine. Le champ subsiste dans la boîte, pour les demandes
  * d'une autre version — un correctif remonté d'une branche de maintenance.
  */
+function DetectNotes({ tag, detecting }: { tag: string; detecting: boolean }) {
+  const detect = useDetectNotes(tag)
+
+  return (
+    <button
+      type="button"
+      onClick={() => detect.mutate()}
+      disabled={detecting || detect.isPending}
+      title={detect.isError ? (detect.error as Error).message : undefined}
+      className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+    >
+      {detecting ? 'Détection en cours…' : 'Relancer la détection'}
+    </button>
+  )
+}
+
 function AddNote({
   tag,
   available,
