@@ -92,11 +92,15 @@ func runConfigApply(
 		fmt.Fprintln(stdout, op.Description)
 	}
 	if len(installs) > 0 {
-		if *dryRun {
+		pending := configure.PendingPlugins(installs)
+		if *dryRun && len(pending) > 0 {
 			fmt.Fprintf(stdout, "%d installation(s), nothing written (dry run): the rest of the configuration "+
-				"is checked once %s installed.\n", len(installs), strings.Join(configure.PendingPlugins(installs), ", "))
+				"is checked once %s installed.\n", len(pending), strings.Join(pending, ", "))
 			return nil
 		}
+	}
+	// Following or pinning a plugin installs nothing: a dry run plans the rest past it.
+	if len(installs) > 0 && !*dryRun {
 		if err := (configure.Applier{}).Execute(ctx, installs); err != nil {
 			return fmt.Errorf("stopped: %w", err)
 		}

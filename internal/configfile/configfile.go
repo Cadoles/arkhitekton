@@ -69,7 +69,8 @@ type InstancePlugin struct {
 
 // Install names the artifact a plugin is installed from.
 type Install struct {
-	// Reference is pinned by digest: `registry/repository@sha256:…`.
+	// Reference is the plugin's repository, `registry/repository`, which the plugin then follows: a
+	// newer version is offered on the Plugins screen. A digest (`@sha256:…`) or a tag pins it.
 	Reference string `json:"reference"`
 	// AcceptSource accepts a source the instance does not recognise, as the screen's button does.
 	// Never implied: an unsigned artifact is installed only when this says so.
@@ -234,8 +235,10 @@ func (s Set) Validate() error {
 func (i Instance) validate() error {
 	var problems []error
 	for id, entry := range i.Plugins {
-		if entry.Install != nil && !strings.Contains(entry.Install.Reference, "@sha256:") {
-			problems = append(problems, fmt.Errorf("instance: spec.plugins.%s.install.reference: pin it by digest (…@sha256:…)", id))
+		// The repository is read when the plugin is installed; here only its shape, `registry/repository`.
+		if entry.Install != nil && !strings.Contains(strings.TrimSpace(entry.Install.Reference), "/") {
+			problems = append(problems, fmt.Errorf(
+				"instance: spec.plugins.%s.install.reference: expected `registry/repository`, with a tag or `@sha256:…` to pin it", id))
 		}
 		problems = append(problems, validateConfig("instance: spec.plugins."+id+".config", entry.Config))
 	}

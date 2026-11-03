@@ -161,9 +161,9 @@ func TestMistakesAreRefusedWithTheirPath(t *testing.T) {
 			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: My_Project}\nspec: {repository: a/b}\n",
 			want: "metadata.name",
 		},
-		"install by tag": {
-			yaml: "apiVersion: arkhitekton.config/v1\nkind: Instance\nspec: {plugins: {mse: {install: {reference: 'r/mse:2.3.1'}}}}\n",
-			want: "digest",
+		"install by a name alone": {
+			yaml: "apiVersion: arkhitekton.config/v1\nkind: Instance\nspec: {plugins: {mse: {install: {reference: 'mse'}}}}\n",
+			want: "registry/repository",
 		},
 	}
 	for name, test := range cases {

@@ -89,7 +89,21 @@ func (f *workerFake) FailPluginInstallation(context.Context, int64, string) erro
 func (f *workerFake) ActivatePluginInstallation(_ context.Context, id int64) error {
 	f.installations[id].Active = true
 	f.actions = append(f.actions, "activate")
+	f.recordSource(f.installations[id])
 	return nil
+}
+
+// recordSource records the active version's source, as completing or activating an installation
+// does.
+func (f *workerFake) recordSource(installation *store.PluginInstallation) {
+	if f.sources == nil {
+		f.sources = map[string]store.PluginSource{}
+	}
+	repository, _, _ := strings.Cut(installation.Reference, "@")
+	f.sources[installation.PluginID] = store.PluginSource{
+		PluginID: installation.PluginID, Repository: repository, Pinned: !installation.Follows,
+		ActiveID: installation.ID, ActiveVersion: "1.0.0",
+	}
 }
 
 func (f *workerFake) AcceptSource(_ context.Context, pluginID, _, _ string) error {
@@ -172,5 +186,79 @@ func TestAFailedInstallationIsRequestedAgain(t *testing.T) {
 	}
 	if got := strings.Join(fake.actions, ","); got != "request,activate" {
 		t.Errorf("actions = %s", got)
+	}
+}
+
+const repository = "registry.example/mse"
+
+func declaringReference(reference string) configfile.Set {
+	return configfile.Set{Instance: &configfile.Instance{Plugins: map[string]configfile.InstancePlugin{
+		"mse": {Install: &configfile.Install{Reference: reference}},
+	}}}
+}
+
+// running is a fake whose plugin is installed and active from the repository.
+func running(follows bool) *workerFake {
+	fake := &workerFake{installations: map[int64]*store.PluginInstallation{
+		2: {ID: 2, PluginID: "mse", Reference: pinned, Digest: pinned[len(repository)+1:], State: store.InstallationInstalled,
+			Active: true, Follows: follows},
+	}, next: 2}
+	fake.recordSource(fake.installations[2])
+	return fake
+}
+
+// A repository alone installs the plugin and makes it follow the repository.
+func TestADeclaredRepositoryInstallsAPluginThatFollowsIt(t *testing.T) {
+	fake := &workerFake{installations: map[int64]*store.PluginInstallation{}, conclude: []string{store.InstallationInstalled}}
+	if err := run(t, fake, declaringReference(repository)); err != nil {
+		t.Fatal(err)
+	}
+	if requested := fake.installations[1]; requested.Reference != repository || !requested.Follows || requested.Digest != "" {
+		t.Errorf("requested = %+v", requested)
+	}
+}
+
+// Declared by repository, a plugin installed from it keeps its version: an apply follows, it does
+// not update.
+func TestADeclaredRepositoryFollowsWithoutUpdating(t *testing.T) {
+	following := running(true)
+	if ops, _ := installer(following).Installs(context.Background(), declaringReference(repository)); len(ops) != 0 {
+		t.Errorf("ops = %v", ops)
+	}
+
+	pinnedPlugin := running(false)
+	if ops, _ := installer(pinnedPlugin).Installs(context.Background(), declaringReference(repository)); len(PendingPlugins(ops)) != 0 {
+		t.Errorf("following installs nothing the rest must wait for: %v", PendingPlugins(ops))
+	}
+	if err := run(t, pinnedPlugin, declaringReference(repository)); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(pinnedPlugin.actions, ","); got != "pin false" {
+		t.Errorf("actions = %s, expected the plugin to follow its repository and nothing installed", got)
+	}
+}
+
+// Another digest of the same repository replaces the active version; the same digest changes
+// nothing.
+func TestADeclaredDigestReplacesAnotherVersion(t *testing.T) {
+	if ops, _ := installer(running(false)).Installs(context.Background(), declaring(false)); len(ops) != 0 {
+		t.Errorf("the declared digest is the active one: %v", ops)
+	}
+
+	fake := running(false)
+	fake.conclude = []string{store.InstallationInstalled}
+	other := repository + "@sha256:" + strings.Repeat("f", 64)
+	ops, err := installer(fake).Installs(context.Background(), declaringReference(other))
+	if err != nil || len(ops) != 1 || !strings.HasPrefix(ops[0].Description, "~ update plugin mse") {
+		t.Fatalf("ops = %v, %v", ops, err)
+	}
+	if pending := PendingPlugins(ops); len(pending) != 1 || pending[0] != "mse" {
+		t.Errorf("pending = %v: the rest waits for the update", pending)
+	}
+	if err := (Applier{}).Execute(context.Background(), ops); err != nil {
+		t.Fatal(err)
+	}
+	if requested := fake.installations[3]; requested.Replaces == nil || *requested.Replaces != 2 || requested.Follows {
+		t.Errorf("requested = %+v", requested)
 	}
 }
