@@ -76,8 +76,8 @@ type ReleaseStore interface {
 // would have it carry the Tekton observer, the scheduler and the probes for one
 // method.
 type ReleasePlanner interface {
-	// OpenReleasePlan composes a release's plan and sets it going. Returns how many
-	// steps actually left.
+	// OpenReleasePlan composes a release's plan and sets it going. Returns how many steps
+	// left, or 1 when the opening is queued for the worker; zero when nothing could leave.
 	OpenReleasePlan(ctx context.Context, project store.Project,
 		record store.Release, revision string) int
 }
@@ -904,7 +904,7 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		if started == 0 {
 			// Nothing left: the release says so by failing, and "Rebuild" relaunches it. Left
 			// `building`, it would wait for a pipeline that never comes.
-			warnings = append(warnings, "the release is launched but no build could be queued")
+			warnings = append(warnings, "the release is launched but its plan could not be opened")
 			if err := h.store.SetReleaseState(r.Context(), record.ID, string(release.StateFailed)); err == nil {
 				record.State = string(release.StateFailed)
 			}
