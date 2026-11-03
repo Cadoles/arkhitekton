@@ -11,6 +11,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/k6"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/php"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/redmine"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/rocketchat"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
@@ -18,7 +19,7 @@ import (
 func Plugins() []capability.Plugin {
 	return []capability.Plugin{
 		core.Plugin(), php.Plugin(), k6.Plugin(),
-		redmine.Plugin(), gitea.Plugin(),
+		redmine.Plugin(), gitea.Plugin(), rocketchat.Plugin(),
 	}
 }
 
