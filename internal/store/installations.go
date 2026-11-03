@@ -25,6 +25,10 @@ const (
 // ErrInstallationNotFound reports a missing installation.
 var ErrInstallationNotFound = errors.New("plugin installation not found")
 
+// ErrNothingToReplace refuses an update whose version to replace is no longer the active one: an
+// administrator activated or removed another meanwhile.
+var ErrNothingToReplace = errors.New("the version to replace is no longer the active one")
+
 // ErrVersionInstalled refuses a second installation of a version already installed.
 var ErrVersionInstalled = errors.New("this version of the plugin is already installed")
 
@@ -51,30 +55,70 @@ type PluginInstallation struct {
 	// MigrationsTable is the version table of the plugin's migrations, empty when it has none or
 	// was installed before it was recorded.
 	MigrationsTable string
+	// Follows says the installation was asked for by repository: the plugin then follows it.
+	Follows bool
+	// ExpectedVersion is the version the resolved tag announced, checked against the manifest.
+	ExpectedVersion string
+	// Replaces is the installation this one replaces once installed: an update.
+	Replaces *int64
 }
 
 const installationColumns = `id, reference, digest, coalesce(plugin_id, ''), coalesce(version, ''),
 	coalesce(signed_by, ''), coalesce(object, ''), state, error, active, requested_by, requested_at,
-	installed_at, removed_at, migrations_table`
+	installed_at, removed_at, migrations_table, follows, expected_version, replaces`
 
 func scanInstallation(row pgx.Row) (PluginInstallation, error) {
 	var installation PluginInstallation
 	err := row.Scan(&installation.ID, &installation.Reference, &installation.Digest, &installation.PluginID,
 		&installation.Version, &installation.SignedBy, &installation.Object, &installation.State,
 		&installation.Error, &installation.Active, &installation.RequestedBy, &installation.RequestedAt,
-		&installation.InstalledAt, &installation.RemovedAt, &installation.MigrationsTable)
+		&installation.InstalledAt, &installation.RemovedAt, &installation.MigrationsTable,
+		&installation.Follows, &installation.ExpectedVersion, &installation.Replaces)
 	return installation, err
 }
 
+// InstallationRequest is a reference to pull, and what its installation is meant to do.
+type InstallationRequest struct {
+	// Reference is `repository@digest`, Digest its digest. A repository alone, or a tag, has no
+	// digest yet: the worker resolves it.
+	Reference, Digest string
+	Actor             string
+	// Follows makes the plugin follow its repository once installed; false pins it.
+	Follows bool
+	// ExpectedVersion is the version the resolved tag announced; empty, none is expected.
+	ExpectedVersion string
+	// Replaces is the installation to replace once this one is installed.
+	Replaces *int64
+}
+
 // RequestPluginInstallation records a reference to pull. The job that pulls it completes the row.
-func (db *DB) RequestPluginInstallation(ctx context.Context, reference, digest, actor string) (int64, error) {
+func (db *DB) RequestPluginInstallation(ctx context.Context, request InstallationRequest) (int64, error) {
 	var id int64
-	err := db.pool.QueryRow(ctx, `insert into plugin_installations (reference, digest, requested_by)
-		values ($1, $2, $3) returning id`, reference, digest, actor).Scan(&id)
+	err := db.pool.QueryRow(ctx, `insert into plugin_installations
+		(reference, digest, requested_by, follows, expected_version, replaces)
+		values ($1, $2, $3, $4, $5, $6) returning id`,
+		request.Reference, request.Digest, request.Actor, request.Follows, request.ExpectedVersion,
+		request.Replaces).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("requesting a plugin installation: %w", err)
 	}
 	return id, nil
+}
+
+// ResolvePluginInstallation records the digest a pending installation's repository or tag named,
+// and the version that tag announced. Only the worker resolves: it holds the registries'
+// credentials.
+func (db *DB) ResolvePluginInstallation(ctx context.Context, id int64, reference, digest, expectedVersion string) error {
+	tag, err := db.pool.Exec(ctx, `update plugin_installations
+		set reference = $2, digest = $3, expected_version = $4
+		where id = $1 and state = 'pending' and digest = ''`, id, reference, digest, expectedVersion)
+	if err != nil {
+		return fmt.Errorf("resolving installation %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("installation %d: not pending, or resolved already", id)
+	}
+	return nil
 }
 
 // PluginInstallation returns one installation.
@@ -130,13 +174,35 @@ type CompletedInstallation struct {
 }
 
 // CompletePluginInstallation records a plugin pulled and verified. The first version of a plugin
-// becomes active; a later one waits for an administrator to activate it, so that an update is a
-// decision and not a side effect of pulling.
+// becomes active. A version asked for as an update replaces the active one it names: it is
+// activated and the other removed, in the same transaction, the plugin's settings and bindings
+// kept. Any other later version waits for an administrator to activate it.
+//
+// The plugin's source is recorded for the version that becomes active: what it follows, or that it
+// is pinned.
 func (db *DB) CompletePluginInstallation(
 	ctx context.Context, id int64, completed CompletedInstallation,
 ) (activated bool, err error) {
 	pluginID, version, signedBy, object := completed.PluginID, completed.Version, completed.SignedBy, completed.Object
 	err = db.changeCapabilitiesWith(ctx, func(transaction pgx.Tx) error {
+		var replaces *int64
+		if err := transaction.QueryRow(ctx, `select replaces from plugin_installations where id = $1`, id).
+			Scan(&replaces); err != nil {
+			return err
+		}
+		if replaces != nil {
+			// Deactivated first: removing a version that is no longer active touches neither the
+			// settings nor the bindings, which an uninstallation would delete.
+			tag, err := transaction.Exec(ctx, `update plugin_installations
+				set active = false, state = 'removed', removed_at = now()
+				where id = $1 and plugin_id = $2 and active and state = 'installed'`, *replaces, pluginID)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() == 0 {
+				return ErrNothingToReplace
+			}
+		}
 		tag, err := transaction.Exec(ctx, `update plugin_installations
 			set plugin_id = $2, version = $3, signed_by = $4, object = $5, state = 'installed', error = '',
 			    installed_at = now(), migrations_table = $6,
@@ -162,7 +228,20 @@ func (db *DB) CompletePluginInstallation(
 			values ($1, $2) on conflict (plugin_id) do nothing`, pluginID, !completed.SwitchedOff); err != nil {
 			return err
 		}
-		return transaction.QueryRow(ctx, `select active from plugin_installations where id = $1`, id).Scan(&activated)
+		if err := transaction.QueryRow(ctx, `select active from plugin_installations where id = $1`, id).Scan(&activated); err != nil {
+			return err
+		}
+		if !activated {
+			return nil
+		}
+		// The version found by the last check is the one now running: nothing is left to offer.
+		_, err = transaction.Exec(ctx, `insert into plugin_sources (plugin_id, repository, pinned)
+			select plugin_id, split_part(reference, '@', 1), not follows from plugin_installations where id = $1
+			on conflict (plugin_id) do update set repository = excluded.repository, pinned = excluded.pinned,
+			    latest_version = case when plugin_sources.latest_version = $2 then '' else plugin_sources.latest_version end,
+			    latest_digest = case when plugin_sources.latest_version = $2 then '' else plugin_sources.latest_digest end`,
+			id, version)
+		return err
 	})
 	return activated, err
 }
@@ -271,7 +350,14 @@ func (db *DB) ActivatePluginInstallation(ctx context.Context, id int64) error {
 			where plugin_id = $1 and active and id <> $2`, pluginID, id); err != nil {
 			return err
 		}
-		_, err = transaction.Exec(ctx, `update plugin_installations set active = true where id = $1`, id)
+		if _, err := transaction.Exec(ctx, `update plugin_installations set active = true where id = $1`, id); err != nil {
+			return err
+		}
+		// The version activated by hand is what the plugin now runs: its repository is the one to
+		// watch, and what it follows or pins stays the administrator's choice.
+		_, err = transaction.Exec(ctx, `insert into plugin_sources (plugin_id, repository)
+			select plugin_id, split_part(reference, '@', 1) from plugin_installations where id = $1
+			on conflict (plugin_id) do update set repository = excluded.repository`, id)
 		return err
 	})
 }
@@ -314,6 +400,7 @@ func (db *DB) RemovePluginInstallation(ctx context.Context, id int64) (uninstall
 			`delete from capability_bindings where split_part(ref, '/', 1) = $1`,
 			`delete from project_plugins where plugin_id = $1`,
 			`delete from plugin_settings where plugin_id = $1`,
+			`delete from plugin_sources where plugin_id = $1`,
 		} {
 			if _, err := transaction.Exec(ctx, statement, pluginID); err != nil {
 				return err

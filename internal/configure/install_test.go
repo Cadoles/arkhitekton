@@ -46,9 +46,12 @@ func (f *workerFake) PluginInstallation(_ context.Context, id int64) (store.Plug
 	return *installation, nil
 }
 
-func (f *workerFake) RequestPluginInstallation(_ context.Context, reference, digest, _ string) (int64, error) {
+func (f *workerFake) RequestPluginInstallation(_ context.Context, request store.InstallationRequest) (int64, error) {
 	f.next++
-	f.installations[f.next] = &store.PluginInstallation{ID: f.next, Reference: reference, Digest: digest, State: store.InstallationPending}
+	f.installations[f.next] = &store.PluginInstallation{
+		ID: f.next, Reference: request.Reference, Digest: request.Digest, State: store.InstallationPending,
+		Follows: request.Follows, ExpectedVersion: request.ExpectedVersion, Replaces: request.Replaces,
+	}
 	f.actions = append(f.actions, "request")
 	return f.next, nil
 }

@@ -44,8 +44,8 @@ func (s *installationStore) PluginLeftoverOf(_ context.Context, pluginID string)
 	return store.PluginLeftover{PluginID: "deploy", Version: "2.0.1", Table: "goose_deploy_db_version"}, nil
 }
 
-func (s *installationStore) RequestPluginInstallation(_ context.Context, reference, digest, _ string) (int64, error) {
-	s.requested = append(s.requested, reference+" "+digest)
+func (s *installationStore) RequestPluginInstallation(_ context.Context, request store.InstallationRequest) (int64, error) {
+	s.requested = append(s.requested, request.Reference+" "+request.Digest)
 	return 3, nil
 }
 
