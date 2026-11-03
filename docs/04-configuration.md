@@ -118,6 +118,10 @@ Read-only. Arkhitekton never pushes an image.
 | `REGISTRY_USERNAME` | — | |
 | `REGISTRY_PASSWORD` | — | |
 | `REGISTRY_PROJECT` | — | Repository prefix, host included (`registry.example.com/team`) |
+| `PIPELINE_INSECURE_REGISTRY` | `false` | `true` when `REGISTRY_PROJECT` is served over plain HTTP, a local registry: the build and re-tag pipelines then push without TLS (`registry.insecure`) |
+
+`PUBLIC_URL` (§4.1) is also read by the worker: it is the base of the links a commit status
+carries back to the dashboard.
 
 ## 4.10 Probes and webhooks
 

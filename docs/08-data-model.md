@@ -29,7 +29,7 @@ from the column lists for brevity when they add nothing.
 | Build | `dockerfile`, `build_context`, `multi_stage`, `targets`, `stack` |
 | Images | `image_registry`, `registry_secret` |
 | Deploy key | `deploy_key_public`, `deploy_key_created_at`, `deploy_key_rotate_requested_at`, `deploy_key_active` |
-| Releases | `version_scheme`, `release_kinds` |
+| Releases | `version_scheme`, `release_kinds`, `version_file` (committed with the tag at launch) |
 | Health | `checked_at`, `check_ok`, `check_note` |
 
 | Table | Purpose |
@@ -104,7 +104,7 @@ tool that failed is recorded as failed, not as zero findings.
 | `plan_runs` | `trigger`, `event_key`, `plan`, `context`, `state` |
 | `plan_steps` | `stage`, `position`, `kind`, `ref`, `state`, `job_id`, `detail` |
 | `plan_artifacts` | What a step produced: `name`, `kind`, `reference` |
-| `pull_requests` | A project's pull requests as last read from its forge: `number`, `title`, `author`, `source_branch`, `target_branch`, `head_sha`, `state` (`open`, `closed`, `merged`), `url`, dates; unique per project and number |
+| `pull_requests` | A project's pull requests as last read from its forge: `number`, `title`, `author`, `source_branch`, `target_branch`, `head_sha`, `state` (`open`, `closed`, `merged`), `url`, `draft`, `body`, dates; unique per project and number |
 
 `events.depth` bounds cascades — a reaction that triggers an event that triggers a
 reaction cannot recurse indefinitely. `dedup_key` makes a probe that sees the same fact
