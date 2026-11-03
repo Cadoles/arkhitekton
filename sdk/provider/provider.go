@@ -277,6 +277,8 @@ type PullRequest struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	ClosedAt  *time.Time
+	// Draft is true while the request is marked as not ready for review.
+	Draft bool
 }
 
 // The states of a pull request.

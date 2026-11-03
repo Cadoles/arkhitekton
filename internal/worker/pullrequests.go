@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
@@ -132,6 +134,7 @@ func recordOf(projectID int64, pull provider.PullRequest) store.PullRequest {
 		ProjectID: projectID, Number: pull.Number, Title: pull.Title, Author: pull.Author,
 		SourceBranch: pull.SourceBranch, TargetBranch: pull.TargetBranch, HeadSHA: pull.HeadSHA,
 		State: pull.State, URL: pull.URL, ClosedAt: pull.ClosedAt, MergedAt: pull.MergedAt,
+		Draft: pull.Draft, Body: pull.Body,
 	}
 	if record.State == "" {
 		record.State = provider.PullOpen
@@ -176,6 +179,9 @@ func (p pullRequestProbe) transitions(project store.Project, previous *store.Pul
 			return []event.Event{fact(event.PullRequestClosed, instant)}
 		}
 		return []event.Event{fact(event.PullRequestReopened, instant)}
+	case current.State == provider.PullOpen && previous.Draft && !current.Draft:
+		// Out of draft: what was held back for it starts now, on the head as it stands.
+		return []event.Event{fact(event.PullRequestReady, current.HeadSHA+"-"+instant)}
 	case current.State == provider.PullOpen && previous.HeadSHA != current.HeadSHA && current.HeadSHA != "":
 		return []event.Event{fact(event.PullRequestSynchronized, current.HeadSHA)}
 	}
@@ -185,13 +191,39 @@ func (p pullRequestProbe) transitions(project store.Project, previous *store.Pul
 // PullRequestPayload is what a request's facts carry. `revision`, `tag` and `registry` are the keys
 // a plan's steps read a release's commit, tag and registry from: a plan opened by such a fact builds
 // and tests the request's head the way a release's plan builds the release.
+//
+// `draft` says whether the request is still a draft, and each `Key: value` line of its body becomes
+// `trailer.<key>`: a reaction matches `draft: "false"`, a step reads `{trailer.mse-kustom}`.
 func PullRequestPayload(pull store.PullRequest, registry string) map[string]string {
-	return map[string]string{
+	payload := map[string]string{
 		"number": strconv.FormatInt(pull.Number, 10), "title": pull.Title, "author": pull.Author,
 		"source_branch": pull.SourceBranch, "target_branch": pull.TargetBranch, "url": pull.URL,
 		contextRevision: pull.HeadSHA, contextTag: pull.Tag(), contextRegistry: registry,
 		ContextPullRequest: strconv.FormatInt(pull.ID, 10),
+		"draft":            strconv.FormatBool(pull.Draft),
 	}
+	for key, value := range Trailers(pull.Body) {
+		payload["trailer."+key] = value
+	}
+	return payload
+}
+
+var trailerLine = regexp.MustCompile(`^\s*([A-Za-z][A-Za-z0-9_-]{0,63})\s*:\s*(\S.{0,255}?)\s*$`)
+
+// Trailers reads the `Key: value` lines of a text, keys lowercased. The first line of a key wins.
+func Trailers(text string) map[string]string {
+	found := map[string]string{}
+	for _, line := range strings.Split(text, "\n") {
+		match := trailerLine.FindStringSubmatch(strings.TrimRight(line, "\r"))
+		if match == nil {
+			continue
+		}
+		key := strings.ToLower(match[1])
+		if _, seen := found[key]; !seen {
+			found[key] = match[2]
+		}
+	}
+	return found
 }
 
 // ContextPullRequest is the key a pull request's facts name their request under.

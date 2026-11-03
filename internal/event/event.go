@@ -76,6 +76,8 @@ const (
 	PullRequestClosed       Type = "pull_request.closed"
 	PullRequestMerged       Type = "pull_request.merged"
 	PullRequestReopened     Type = "pull_request.reopened"
+	// PullRequestReady: an open request is no longer a draft.
+	PullRequestReady Type = "pull_request.ready"
 )
 
 // Event is an observed fact.

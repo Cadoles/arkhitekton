@@ -251,3 +251,35 @@ func TestAnEarlyPassPollsTheProjectAskedFor(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// A draft carries `draft: true`; leaving the draft is a fact of its own. The body's `Key: value`
+// lines become trailers a step reads.
+func TestADraftLeavesItsDraftAsAFact(t *testing.T) {
+	s := newPullScenario(t)
+	s.set(1, provider.PullOpen, "aaaaaaaaaa")
+	s.pass()
+
+	s.set(4, provider.PullOpen, "eeeeeeeeee")
+	s.forge.pulls[len(s.forge.pulls)-1].Draft = true
+	s.forge.pulls[len(s.forge.pulls)-1].Body = "Correctif.\n\nmse-kustom: feature/branche\nRefs: #12"
+	facts := s.pass()
+	if types(facts) != string(event.PullRequestOpened) || facts[0].Payload["draft"] != "true" {
+		t.Fatalf("opened as a draft: %s %v", types(facts), facts)
+	}
+	if facts[0].Payload["trailer.mse-kustom"] != "feature/branche" || facts[0].Payload["trailer.refs"] != "#12" {
+		t.Errorf("trailers %v", facts[0].Payload)
+	}
+
+	s.set(4, provider.PullOpen, "eeeeeeeeee")
+	facts = s.pass()
+	if types(facts) != string(event.PullRequestReady) || facts[0].Payload["draft"] != "false" {
+		t.Errorf("out of draft: %s %v", types(facts), facts)
+	}
+}
+
+func TestTrailersAreTheBodysKeyValueLines(t *testing.T) {
+	got := Trailers("Titre\n\nMSE-Kustom:  release/3.2 \nmse-kustom: autre\nune phrase: avec deux points\n:vide\n")
+	if got["mse-kustom"] != "release/3.2" || len(got) != 1 {
+		t.Errorf("trailers %v", got)
+	}
+}
