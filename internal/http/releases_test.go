@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -53,6 +54,8 @@ type fakeReleaseStore struct {
 	results []store.TestResult
 	// versionFile is the project's version file. Empty: none.
 	versionFile string
+	// attachments are the files kept, by result.
+	attachments map[int64][]store.ResultAttachment
 }
 
 // fixtureProject reproduces what the bootstrap installs: three stages, one of them
@@ -1205,6 +1208,10 @@ func (f *fakeReleaseStore) ListReleaseTestResults(context.Context, int64) ([]sto
 	return f.results, nil
 }
 
+func (f *fakeReleaseStore) ResultAttachments(_ context.Context, resultID int64) ([]store.ResultAttachment, error) {
+	return f.attachments[resultID], nil
+}
+
 func (f *fakeReleaseStore) LatestSecurityAudit(context.Context, int64) (store.SecurityAudit, error) {
 	return store.SecurityAudit{}, store.ErrAuditNotFound
 }
@@ -1518,5 +1525,40 @@ func TestALaunchCommitsTheVersionFile(t *testing.T) {
 	}
 	if got := fake.jobsOfKind("core/build")[0].Params["revision"]; got != "f11e5a" {
 		t.Errorf("revision built %q", got)
+	}
+}
+
+// A release lists the files its binary builds kept, the latest build's of each name, and nothing
+// of its tests.
+func TestAReleaseListsTheBinariesItsBuildKept(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.0.0"] = store.Release{ID: 3, Tag: "1.0.0", Kind: "patch", State: "ready", ImageVersion: "1.0.0"}
+	fake.results = []store.TestResult{
+		{ID: 21, Group: "build"}, {ID: 20, Group: "build"}, {ID: 19, Group: "unit"},
+	}
+	fake.attachments = map[int64][]store.ResultAttachment{
+		21: {{ID: 7, Name: "app_1.0.0_linux_amd64.tar.gz", SizeBytes: 2048}},
+		20: {{ID: 5, Name: "app_1.0.0_linux_amd64.tar.gz"}, {ID: 6, Name: "SHA256SUMS"}},
+		19: {{ID: 4, Name: "screenshot.png"}},
+	}
+	handler := newReleasesHandler(t, fake)
+
+	request := asRole(httptest.NewRequest(http.MethodGet, "/releases/1.0.0", nil), auth.RoleReleaser)
+	request.SetPathValue("tag", "1.0.0")
+	recorder := httptest.NewRecorder()
+	handler.Get(recorder, request)
+
+	var payload struct {
+		Binaries []binaryPayload `json:"binaries"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, binary := range payload.Binaries {
+		got = append(got, fmt.Sprintf("%d:%s", binary.ID, binary.Name))
+	}
+	if strings.Join(got, ",") != "7:app_1.0.0_linux_amd64.tar.gz,6:SHA256SUMS" {
+		t.Errorf("binaries %v", got)
 	}
 }
