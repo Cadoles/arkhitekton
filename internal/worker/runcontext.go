@@ -27,6 +27,8 @@ const (
 	contextPrerelease     = "release.prerelease"
 	contextPullRequestURL = "pull_request.url"
 	contextPlanSummary    = "plan.summary"
+	contextDockerfile     = "project.dockerfile"
+	contextBuildContext   = "project.build_context"
 )
 
 // ContextSource adds to a run's context what the database knows of its subject.
@@ -101,6 +103,14 @@ func NewRunContext(source RunContextStore, publicURL string, issues IssueLinks, 
 // Enrich implements ContextSource.
 func (c *RunContext) Enrich(ctx context.Context, run store.PlanRun) map[string]string {
 	added := map[string]string{}
+	if run.ProjectID != nil {
+		// What a build step names when it builds as the project declares: a configuration then
+		// writes `{project.dockerfile}` once rather than a path per environment.
+		if project, err := c.store.GetProject(ctx, *run.ProjectID); err == nil {
+			added[contextDockerfile] = project.Dockerfile
+			added[contextBuildContext] = project.BuildContext
+		}
+	}
 	if run.PullRequestID != nil {
 		if link := c.links.PullRequest(ctx, run.ProjectID, run.Context["number"]); link != "" {
 			added[contextPullRequestURL] = link

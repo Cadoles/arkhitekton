@@ -39,7 +39,7 @@ func build() capability.Pipeline {
 				"dockerfile": {
 					Source: capability.ParamInput, Label: "Dockerfile",
 					Help: "Chemin du fichier qui construit cette image, depuis la racine du dépôt. " +
-						"Vide : celui du projet.",
+						"Dans un plan, `{project.dockerfile}` pour celui du projet.",
 					Placeholder: "./Dockerfile",
 				},
 				"context": {
