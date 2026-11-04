@@ -61,6 +61,23 @@ var views = map[string]View{
 			return rows
 		},
 	},
+	"gotest.cases": {
+		Name: "gotest.cases", Parser: parse.GoTestJSON,
+		Fields: []string{"package", "name", "duration_ms", "outcome", "output"},
+		Enums:  map[string][]string{"outcome": {"passed", "failed", "skipped"}},
+		rows: func(payload any) []Row {
+			report := payload.(parse.GoTest)
+			rows := make([]Row, 0, len(report.Cases))
+			for _, testCase := range report.Cases {
+				rows = append(rows, Row{
+					"package": testCase.Package, "name": testCase.Name,
+					"duration_ms": strconv.Itoa(testCase.DurationMS),
+					"outcome":     string(testCase.Outcome), "output": testCase.Output,
+				})
+			}
+			return rows
+		},
+	},
 	"mocha.tests": {
 		Name: "mocha.tests", Parser: parse.MochawesomeJSON,
 		Fields: []string{"file", "suite", "title", "name", "duration_ms", "outcome", "retries", "message", "trace"},
@@ -140,6 +157,9 @@ var views = map[string]View{
 var reports = map[parse.ID]report{
 	parse.JUnitXML: {fields: []string{"duration_ms"}, row: func(payload any) Row {
 		return Row{"duration_ms": strconv.FormatInt(payload.(parse.JUnit).DurationMS, 10)}
+	}},
+	parse.GoTestJSON: {fields: []string{"duration_ms"}, row: func(payload any) Row {
+		return Row{"duration_ms": strconv.FormatInt(payload.(parse.GoTest).DurationMS, 10)}
 	}},
 	parse.MochawesomeJSON: {fields: []string{"duration_ms"}, row: func(payload any) Row {
 		return Row{"duration_ms": strconv.FormatInt(payload.(parse.Mochawesome).DurationMS, 10)}

@@ -18,6 +18,7 @@ type Parser func(raw []byte) (any, error)
 var parsers = map[parse.ID]Parser{
 	parse.Raw:             func(raw []byte) (any, error) { return parse.Bytes(raw), nil },
 	parse.JUnitXML:        func(raw []byte) (any, error) { return ParseJUnit(raw) },
+	parse.GoTestJSON:      func(raw []byte) (any, error) { return ParseGoTest(raw) },
 	parse.MochawesomeJSON: func(raw []byte) (any, error) { return ParseMochawesome(raw) },
 	parse.PHPStanJSON:     func(raw []byte) (any, error) { return ParsePHPStan(raw) },
 	parse.CSFixerJSON:     func(raw []byte) (any, error) { return ParseCSFixer(raw) },
