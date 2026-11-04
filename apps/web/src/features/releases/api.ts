@@ -139,7 +139,17 @@ export type ReleaseDetail = Release & {
   /** Dit pourquoi les digests manquent. « Pas de digest » et « impossible de le
    *  lire » n'appellent pas la même réaction. */
   artifacts_note?: string
+  /** Les fichiers que ses constructions de binaires ont gardés, téléchargés par la
+   *  route des pièces jointes. */
+  binaries?: ReleaseBinary[]
   manual_actions?: ManualActions
+}
+
+export type ReleaseBinary = {
+  id: number
+  name: string
+  size_bytes: number
+  media_type?: string
 }
 
 export function useRelease(tag: string | undefined) {

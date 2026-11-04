@@ -63,6 +63,7 @@ type ReleaseStore interface {
 	// The two score reads. Here because the release list shows the same figure as a
 	// release's screen, and two separate computations would eventually diverge.
 	ListReleaseTestResults(ctx context.Context, releaseID int64) ([]store.TestResult, error)
+	ResultAttachments(ctx context.Context, resultID int64) ([]store.ResultAttachment, error)
 	LatestSecurityAudit(ctx context.Context, releaseID int64) (store.SecurityAudit, error)
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
 	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
@@ -285,8 +286,11 @@ type releasePayload struct {
 	// one do not look alike: the first reports an image that does not exist, the second
 	// an unreachable or unconfigured registry. Confusing them would send someone hunting
 	// for a build failure.
-	ArtifactsNote string          `json:"artifacts_note,omitempty"`
-	ManualAction  *manualActionVw `json:"manual_actions,omitempty"`
+	ArtifactsNote string `json:"artifacts_note,omitempty"`
+	// Binaries are the files a pipeline producing binaries kept for the release, downloaded by the
+	// attachments' route.
+	Binaries     []binaryPayload `json:"binaries,omitempty"`
+	ManualAction *manualActionVw `json:"manual_actions,omitempty"`
 	// What a screen shows beside the name, without having to unfold the release.
 	//
 	// BuildFailed is about the last build: a release retried after an infrastructure
@@ -539,6 +543,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	payload.Artifacts = h.releaseArtifacts(r.Context(), item.ID, promotions)
+	payload.Binaries = h.releaseBinaries(r.Context(), item.ID)
 	if h.images == nil && len(payload.Artifacts) > 0 {
 		payload.ArtifactsNote = "The registry is not configured: the digests cannot be read."
 	}

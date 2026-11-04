@@ -15,6 +15,8 @@ const (
 	GroupStatic      Group = "static"
 	GroupSecurity    Group = "security"
 	GroupLoad        Group = "load"
+	// GroupBuild is a build's files, binaries for instance: kept with the release, never scored.
+	GroupBuild Group = "build"
 )
 
 // Report is a set of test results, counted.

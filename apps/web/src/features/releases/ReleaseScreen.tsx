@@ -1,6 +1,7 @@
 import { useState, type ComponentType } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { TestsPanel } from './TestsPanel'
+import { attachmentURL, releaseSubject } from './tests'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { CollapsibleSection } from '../../components/CollapsibleSection'
@@ -8,7 +9,7 @@ import { ReleaseBadges } from './ReleaseBadges'
 import { ReleaseNotes } from './ReleaseNotes'
 import { Card, EmptyState, StatusBadge } from '../../components/primitives'
 import { Slot } from '../../components/Screen'
-import { formatDateTime } from '../../lib/format'
+import { formatBytes, formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
 import {
   useDeleteDraft,
@@ -221,16 +222,17 @@ const KIND_LABEL: Record<string, string> = {
  * réellement rendu — trois constructions, trois lignes, nommées par le geste
  * (doc 15 §15.7). Un projet qui produit un binaire y voit son binaire.
  */
-function Artifacts({ release }: { release: ReleaseDetail }) {
+export function Artifacts({ release }: { release: ReleaseDetail }) {
   const artifacts = release.artifacts ?? []
+  const binaries = release.binaries ?? []
 
   return (
-    <CollapsibleSection title="Artefacts" count={artifacts.length}>
+    <CollapsibleSection title="Artefacts" count={artifacts.length + binaries.length}>
       {release.artifacts_note && (
         <p className="mb-3 text-sm text-zinc-500">{release.artifacts_note}</p>
       )}
 
-      {artifacts.length === 0 ? (
+      {artifacts.length === 0 && binaries.length === 0 ? (
         <EmptyState>
           Aucun artefact relevé. L&apos;automatisation n&apos;a rien produit pour cette
           release, ou ses constructions n&apos;ont pas encore conclu.
@@ -239,6 +241,24 @@ function Artifacts({ release }: { release: ReleaseDetail }) {
         <ul className="flex flex-col gap-2">
           {artifacts.map((artifact, index) => (
             <ArtifactRow key={`${artifact.geste}/${artifact.name}/${index}`} artifact={artifact} />
+          ))}
+          {binaries.map((binary) => (
+            <li
+              key={binary.id}
+              className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <span className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs text-zinc-600">
+                binaire
+              </span>
+              <a
+                href={attachmentURL(releaseSubject(release.tag), binary.id, true)}
+                className="inline-flex items-center gap-1 font-mono text-zinc-900 hover:underline"
+              >
+                <Icon name="download" className="size-3.5" />
+                {binary.name}
+              </a>
+              <span className="text-xs text-zinc-500">{formatBytes(binary.size_bytes)}</span>
+            </li>
           ))}
         </ul>
       )}
