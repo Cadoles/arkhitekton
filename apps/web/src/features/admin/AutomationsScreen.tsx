@@ -908,7 +908,7 @@ function PlanEditor({
             {offerts.length === 0 && (
               <p className="text-xs text-zinc-500">
                 Aucun pipeline du catalogue ne produit ce que ce rôle exige
-                {role ? ` (${role.requires})` : ''}.
+                {role ? ` (${role.requires.join(' ou ')})` : ''}.
               </p>
             )}
           </div>

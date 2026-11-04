@@ -376,10 +376,15 @@ func (s Automations) LiveEventTypes(ctx context.Context, projectID int64) ([]str
 
 // roleProduct says what a step must produce to hold a role. A table and not a switch: it reads at
 // a glance, and the error message uses it to name what it expected.
-var roleProduct = map[plan.Role]catalog.Product{
-	plan.RoleBuild: catalog.ProductImage,
-	plan.RoleTest:  catalog.ProductResults,
+//
+// A build stage takes what builds: images, or binaries.
+var roleProduct = map[plan.Role][]catalog.Product{
+	plan.RoleBuild: {catalog.ProductImage, catalog.ProductBinary},
+	plan.RoleTest:  {catalog.ProductResults},
 }
+
+// RoleProducts says which products a step may declare to hold a role.
+func RoleProducts(role plan.Role) []catalog.Product { return roleProduct[role] }
 
 // checkRoles refuses a stage whose steps do not hold its role.
 //
@@ -420,9 +425,9 @@ func (s Automations) checkRoles(entry plan.Plan) error {
 				// for one mistake.
 				continue
 			}
-			if !pipeline.Yields(expected) {
+			if !slices.ContainsFunc(expected, pipeline.Yields) {
 				problems = append(problems, fmt.Errorf(
-					"stage %d carries the role %q and the pipeline %q does not produce %q "+
+					"stage %d carries the role %q and the pipeline %q produces none of %v "+
 						"(il produit: %s)",
 					index+1, stage.Role, step.Ref, expected, productsOf(pipeline)))
 			}

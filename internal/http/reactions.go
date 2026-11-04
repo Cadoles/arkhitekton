@@ -306,8 +306,8 @@ type roleChoice struct {
 	Role string `json:"role"`
 	// Label is the block's title in the editor.
 	Label string `json:"label"`
-	// Requires is the product a step must declare to enter it.
-	Requires string `json:"requires"`
+	// Requires lists the products a step may declare to enter it: one of them is enough.
+	Requires []string `json:"requires"`
 	// Advances says what concluding this stage does to the release.
 	Advances string `json:"advances"`
 }
@@ -316,15 +316,23 @@ func roleChoices() []roleChoice {
 	return []roleChoice{
 		{
 			Role: string(plan.RoleBuild), Label: "Construction",
-			Requires: string(catalog.ProductImage),
+			Requires: productNames(configure.RoleProducts(plan.RoleBuild)),
 			Advances: "the release moves into verification, or fails",
 		},
 		{
 			Role: string(plan.RoleTest), Label: "Verification",
-			Requires: string(catalog.ProductResults),
+			Requires: productNames(configure.RoleProducts(plan.RoleTest)),
 			Advances: "the release becomes ready, or fails",
 		},
 	}
+}
+
+func productNames(products []catalog.Product) []string {
+	names := make([]string, 0, len(products))
+	for _, product := range products {
+		names = append(names, string(product))
+	}
+	return names
 }
 
 // pipelineFields returns the parameters a declaration may fill.

@@ -630,3 +630,32 @@ pipelines:
 		t.Errorf("the declared label is not returned: %+v", par["image-name"])
 	}
 }
+
+// Binaries arrive as artifacts, like results: a pipeline producing them declares one, and that
+// artifact is read back.
+func TestBinariesArriveAsArtifacts(t *testing.T) {
+	if _, err := parseDeclared([]byte(`
+pipelines:
+  - kind: go/build
+    pipelineRef: go-build
+    label: Binaires
+    produces: [binary]
+    params:
+      binaries-upload-url: { source: input }
+    uploads:
+      binaries: { param: binaries-upload-url, artifact: binaries.tar.gz }
+`)); err != nil {
+		t.Errorf("binaries with their artifact: %v", err)
+	}
+
+	_, err := parseDeclared([]byte(`
+pipelines:
+  - kind: go/build
+    pipelineRef: go-build
+    label: Binaires
+    produces: [binary]
+`))
+	if err == nil || !strings.Contains(err.Error(), "binaries") {
+		t.Errorf("binaries with no artifact: %v", err)
+	}
+}
