@@ -29,6 +29,7 @@ func parsed(t *testing.T, parser parse.ID, name string) any {
 func TestEveryRowCarriesTheAnnouncedFields(t *testing.T) {
 	samples := map[string]any{
 		"junit.cases":      parsed(t, parse.JUnitXML, "junit.xml"),
+		"gotest.cases":     parsed(t, parse.GoTestJSON, "go-test.json"),
 		"mocha.tests":      parsed(t, parse.MochawesomeJSON, "mochawesome.json"),
 		"phpstan.messages": parsed(t, parse.PHPStanJSON, "phpstan.json"),
 		"phpstan.errors":   parse.PHPStan{Errors: []string{"Ignored error pattern was not matched"}},
