@@ -19,7 +19,7 @@ type contextStore struct {
 }
 
 func (s contextStore) GetProject(context.Context, int64) (store.Project, error) {
-	return store.Project{Slug: "mse", VersionScheme: "semver"}, nil
+	return store.Project{Slug: "mse", VersionScheme: "semver", Dockerfile: "./misc/Dockerfile", BuildContext: "."}, nil
 }
 
 func (s contextStore) GetReleaseByID(_ context.Context, id int64) (store.Release, error) {
@@ -58,10 +58,13 @@ func TestARunReadsItsReleasesVariables(t *testing.T) {
 	issues := func(_ context.Context, _ int64, issue string) string {
 		return "https://tracker/issues/" + issue
 	}
-	releaseID := int64(7)
+	releaseID, projectID := int64(7), int64(3)
 	got := NewRunContext(source, "https://dash", issues, quietLogger()).
-		Enrich(context.Background(), store.PlanRun{ReleaseID: &releaseID})
+		Enrich(context.Background(), store.PlanRun{ReleaseID: &releaseID, ProjectID: &projectID})
 
+	if got[contextDockerfile] != "./misc/Dockerfile" || got[contextBuildContext] != "." {
+		t.Errorf("project variables %q %q", got[contextDockerfile], got[contextBuildContext])
+	}
 	if got[contextReleaseURL] != "https://dash/releases/1.0.0-rc1?project=mse" {
 		t.Errorf("url %q", got[contextReleaseURL])
 	}

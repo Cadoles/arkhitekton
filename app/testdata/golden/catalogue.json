@@ -16,7 +16,7 @@
       "dockerfile": {
         "source": "input",
         "label": "Dockerfile",
-        "help": "Chemin du fichier qui construit cette image, depuis la racine du dépôt. Vide : celui du projet.",
+        "help": "Chemin du fichier qui construit cette image, depuis la racine du dépôt. Dans un plan, `{project.dockerfile}` pour celui du projet.",
         "placeholder": "./Dockerfile"
       },
       "image-name": {

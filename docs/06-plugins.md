@@ -396,6 +396,7 @@ unknown. Besides the fact's payload and `{artifacts.<step>.<name>}`, a run reads
 | `release.notes` | the release's issues, one Markdown line each, linked to the tracker |
 | `release.images` | the images its automation published, one Markdown line each |
 | `release.prerelease` | `true` for a pre-release tag |
+| `project.dockerfile`, `project.build_context` | the project's Dockerfile and build context, for a build step that builds as the project declares |
 
 The `release.*` variables need a run bearing on a release: a release's plan, or a reaction to a
 fact whose `release_id` names a release of its project (`mse.release.promoted`, for instance).
