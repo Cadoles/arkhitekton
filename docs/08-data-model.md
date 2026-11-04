@@ -93,6 +93,11 @@ not change again.
 `security_audits.failed_scanners` is why a crashed scanner cannot pass for clean code: a
 tool that failed is recorded as failed, not as zero findings.
 
+A release's binaries are no table of their own: a `binary` pipeline's run is a `test_results`
+row of shape `attachments` in the `fact_group` `build`, and its files are that row's
+`result_attachments`. The release's screen lists them, and neither the tests nor the score read
+that group.
+
 ## 8.7 Events, plans and automation
 
 | Table | Key columns |

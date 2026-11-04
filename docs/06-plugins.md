@@ -70,7 +70,7 @@ interpreter written in Go, a reading declared in YAML (§6.3) or a native plugin
 
 Reading a run starts when it is over. The dashboard fetches the artifacts the capability
 declares, parses each file with a parser of its own (JUnit, mochawesome, PHPStan, PHP-CS-Fixer,
-k6, the security report) or hands over the bytes (`raw`) for a format it does not know, and
+`go test -json`, k6, the security report) or hands over the bytes (`raw`) for a format it does not know, and
 passes the records with the run's state as Tekton reported it: each task's status and reason,
 each step's exit code. The reading returns **facts** in a shape the dashboard defines:
 
@@ -93,16 +93,37 @@ Each stored result names the plugin version that read it, its shape and its grou
 readable when the plugin changes or goes. A replay reads a run again with the same reading, and
 refuses one another version read unless asked.
 
-The built-in plugins are `core` (build, re-tag), `php` (static analysis, unit tests), `security` (the merged security audit), `k6` (load
-campaigns, observed rather than launched), `redmine` (tracker) and `gitea` (forge).
+The built-in plugins are `core` (build, re-tag), `php` (static analysis, unit tests), `go`
+(binaries, unit tests, static analysis, vulnerabilities), `security` (the merged security audit),
+`k6` (load campaigns, observed rather than launched), `redmine` (tracker) and `gitea` (forge).
 A deliverable such as a delivery note belongs to the plugin of the deployment that delivers it:
 the MSE plugin produces the MSE one, from the release's dossier (below).
+
+**The `go` plugin.** Its four pipelines clone the revision, download the modules, then run one
+tool in `golang:1.27` with `GOTOOLCHAIN=auto`, so that the module's `go.mod` picks the toolchain:
+
+| Capability | Group | Runs | Read as |
+|---|---|---|---|
+| `go/build` | `build` (`binary`) | `go build` of `packages` (required) for each of `platforms` (default `linux/amd64,linux/arm64`), `CGO_ENABLED=0`, `ldflags` with `{version}` replaced by the release's | one `<name>_<version>_<os>_<arch>.tar.gz` per binary and platform, plus `SHA256SUMS`, kept with the release |
+| `go/unit-tests` | `unit` | `go test -json` of `packages` (default `./...`) with `flags` | cases, one per test and subtest; a package that does not build is a failed case of its own |
+| `go/static-tests` | `static` | `golangci-lint run`, with the repository's configuration if it has one | cases, one per issue: its file as the suite, its linter as the name |
+| `go/vulncheck` | `security` | `govulncheck -format json` of `packages` | findings: a vulnerable symbol the code calls is high, a vulnerable package it only imports low, a module it only requires informative |
+
+A high finding fails the audit; the others say what to upgrade without holding a release for
+code it does not run. golangci-lint and govulncheck are built with the module's toolchain, at
+versions the plugin pins.
+
+**Private modules.** Before running its tool, each pipeline sets `GOPRIVATE` (the
+`private-modules` parameter, by default the host of the project's forge), trusts the host's SSH
+key and rewrites `https://<host>/` to SSH, with the key of its `source-read` secret. That secret
+must open the modules as well as the repository: bind `source-read` to `pipeline.gitSecret`
+rather than to the project's deploy key, which opens one repository only (§5.4).
 
 ## 6.3 Declared readings
 
 A capability whose runs produce test cases can declare its reading instead of coding it:
 `capability.Pipeline.Reading` carries YAML the dashboard executes, checked when the plugin is
-loaded. `php/static-tests` and `php/unit-tests` are read this way
+loaded. `php/static-tests`, `php/unit-tests`, `go/unit-tests` and `go/static-tests` are read this way
 (`internal/plugins/*/readings/`). A pipeline reads its runs in code or by declaration, never
 both.
 
@@ -139,8 +160,9 @@ started says nothing. A tool may also read its `duration` from the report as a w
 | `phpstan.messages` | `phpstan-json` | `file`, `line`, `identifier`, `message`, `ignorable` |
 | `phpstan.errors` | `phpstan-json` | `message` |
 | `csfixer.fixers` | `cs-fixer-json` | `file`, `fixer` (empty for a file listed with none), `diff` |
+| `gotest.cases` | `go-test-json` | `package`, `name` (empty for a package that failed outside its tests), `duration_ms`, `outcome` (`passed`, `failed`, `skipped`), `output` |
 
-A whole JUnit or mochawesome report offers `duration_ms` to a tool's `duration`.
+A whole JUnit, mochawesome or `go test -json` report offers `duration_ms` to a tool's `duration`.
 
 **Templates** mix text and `{field | filter | ...}` expressions. The filters are closed:
 `firstline`, `trim`, `lower`, `or: <field|'text'>` (the value, or another when it is empty) and

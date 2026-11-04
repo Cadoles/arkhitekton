@@ -43,8 +43,9 @@ plugin.
 
 The order of the entries is the order in which a build chains its verifications.
 
-The built-in plugins bring `core/build`, `core/retag`, `php/static-tests`, `php/unit-tests`
-and `k6/load` (observed, not launched); an installed plugin brings its own. Their Tekton definitions are installed by the dashboard when the capability
+The built-in plugins bring `core/build`, `core/retag`, `php/static-tests`, `php/unit-tests`,
+`go/build`, `go/unit-tests`, `go/static-tests`, `go/vulncheck` and `k6/load` (observed, not
+launched); an installed plugin brings its own. Their Tekton definitions are installed by the dashboard when the capability
 ships them, or provided by the operator otherwise.
 
 A binding naming a plugin that is not installed waits for it, and says so at start-up: the file
@@ -127,7 +128,9 @@ configMaps:
 
 A secret is named directly (`secretName`) or through a config key (`configKey`). A pipeline
 cloning the project's repository binds `project.deployKeySecret`, and a project with no active
-key does not run it; a pipeline cloning another repository binds `pipeline.gitSecret`. Only
+key does not run it; a pipeline cloning another repository binds `pipeline.gitSecret`, and so
+does a Go pipeline whose module requires private modules of the forge: a deploy key opens one
+repository, and `go mod download` fetches several (§6.2). Only
 `cluster-deploy` accepts a service account: it is the one need that is a cluster identity.
 Volumes are per-run claims; the capability gives their default size, the catalogue their storage
 class and, if needed, another size.
@@ -183,13 +186,21 @@ of rank 1. A project absent from this section simply declares no environment.
 A run is read once it is over, every task included, by the **interpreter** of the capability
 that launched it. The dashboard fetches the artifacts the capability declares, parses each file
 with the parser the capability names (JUnit XML, mochawesome JSON, PHPStan or PHP-CS-Fixer JSON,
-a k6 summary, the security report, or `raw` for a format the plugin parses itself), and hands the
+`go test -json`, a k6 summary, the security report, or `raw` for a format the plugin parses
+itself), and hands the
 records to the interpreter together with the run's state as Tekton reported it: each task's
 status and reason, each step's exit code.
 
 The interpreter returns **facts** in a shape the dashboard defines: test cases, findings or
 measures. Each stored result carries the plugin version that read it, so a replay reads it the
 same way, and so it stays readable when the plugin changes or goes.
+
+**What a pipeline leaves behind** is its capability's `produces`: `image` (the build's images,
+whose digests the release records), `results` (reports read into facts), `binary` (files to
+download, kept with the release) or `none`. A `binary` pipeline keeps its files as the
+attachments of a result in the `build` group, never scored nor compared: the release's screen
+lists them under **Artefacts**, each with its size and a download link. A plan's build stage
+accepts an `image` or a `binary` pipeline.
 
 **The run's state tells a crashed tool from a clean one.** Both leave nothing to count. A task
 whose steps terminated ran; if it left no readable report, it did not conclude, and the result
