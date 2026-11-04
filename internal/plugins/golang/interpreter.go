@@ -14,14 +14,43 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
+
+// The pipelines' tasks whose exit code says whether what they left is whole.
+const (
+	buildTask     = "build-binaries"
+	vulncheckTask = "run-govulncheck"
+)
+
+// unfinished is the set of a tool that stopped before its end, killed for memory for instance:
+// what it left is partial, and reading it would pass a crash off as a result.
+func unfinished(run capability.RunState, task string, set facts.Set) (facts.Set, bool) {
+	for _, state := range run.Tasks {
+		if state.Name != task {
+			continue
+		}
+		for _, step := range state.Steps {
+			if step.ExitCode != nil && *step.ExitCode != 0 {
+				set.Status = facts.StatusNA
+				set.Summary, _ = interpret.NotConcluded(run, task)
+				return set, true
+			}
+		}
+	}
+	return set, false
+}
 
 // binaries reads a build's files: the archives and their checksums, kept with the release.
 type binaries struct{}
 
-func (binaries) Interpret(_ context.Context, _ capability.RunState, records []parse.Record) ([]facts.Set, error) {
+func (binaries) Interpret(_ context.Context, run capability.RunState, records []parse.Record) ([]facts.Set, error) {
 	set := facts.Set{Shape: facts.ShapeAttachments, Group: "build", Tool: "go-build", Status: facts.StatusPass}
+	// A failed build offers none of its archives: some platforms may have built, not the release.
+	if failed, stopped := unfinished(run, buildTask, set); stopped {
+		return []facts.Set{failed}, nil
+	}
 	archives := 0
 	for _, record := range records {
 		attached, ok := record.Payload.(parse.Attached)
@@ -83,7 +112,11 @@ type vulnMessage struct {
 // vulnerabilities reads govulncheck's findings into a security audit.
 type vulnerabilities struct{}
 
-func (vulnerabilities) Interpret(_ context.Context, _ capability.RunState, records []parse.Record) ([]facts.Set, error) {
+func (vulnerabilities) Interpret(_ context.Context, run capability.RunState, records []parse.Record) ([]facts.Set, error) {
+	audit := facts.Set{Shape: facts.ShapeFindings, Group: "security", Tool: "govulncheck"}
+	if failed, stopped := unfinished(run, vulncheckTask, audit); stopped {
+		return []facts.Set{failed}, nil
+	}
 	for _, record := range records {
 		raw, ok := record.Payload.(parse.Bytes)
 		if record.Err != nil || !ok {
@@ -93,10 +126,8 @@ func (vulnerabilities) Interpret(_ context.Context, _ capability.RunState, recor
 		if err != nil {
 			return nil, err
 		}
-		set := facts.Set{
-			Shape: facts.ShapeFindings, Group: "security", Tool: "govulncheck",
-			RawObject: record.Object, Findings: findings, Status: facts.StatusPass,
-		}
+		set := audit
+		set.RawObject, set.Findings, set.Status = record.Object, findings, facts.StatusPass
 		called := findings.BySeverity[facts.SeverityHigh]
 		if called > 0 {
 			set.Status = facts.StatusFail

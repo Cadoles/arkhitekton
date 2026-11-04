@@ -126,3 +126,29 @@ func TestGovulncheckPassesWhenNothingIsCalled(t *testing.T) {
 		t.Error("an empty report read as clean")
 	}
 }
+
+// A tool killed on its way leaves a partial report: an audit cut short is no clean audit, and a
+// build that failed on one platform offers none of its archives.
+func TestAToolThatStoppedConcludesNothing(t *testing.T) {
+	killed := func(task string) capability.RunState {
+		code := int32(137)
+		return capability.RunState{Tasks: []capability.TaskState{{
+			Name: task, Status: "failed", Reason: "OOMKilled",
+			Steps: []capability.StepState{{Name: "exec", ExitCode: &code}},
+		}}}
+	}
+
+	sets, err := vulnerabilities{}.Interpret(context.Background(), killed(vulncheckTask),
+		[]parse.Record{{Member: "govulncheck/report.json", Payload: parse.Bytes(vulncheckStream)}})
+	if err != nil || len(sets) != 1 || sets[0].Status != facts.StatusNA || sets[0].Findings != nil ||
+		sets[0].Summary != "the tool did not conclude (code 137): OOMKilled" {
+		t.Errorf("audit %+v, %v", sets, err)
+	}
+
+	sets, err = binaries{}.Interpret(context.Background(), killed(buildTask), []parse.Record{{
+		Member: "binaries/app_1.0.0_linux_amd64.tar.gz", Payload: parse.Attached{Object: "attachments/1/a"},
+	}})
+	if err != nil || len(sets) != 1 || sets[0].Status != facts.StatusNA || len(sets[0].Attachments) != 0 {
+		t.Errorf("build %+v, %v", sets, err)
+	}
+}
