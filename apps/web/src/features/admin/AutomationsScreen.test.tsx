@@ -70,13 +70,13 @@ const catalogue = {
     {
       role: 'build',
       label: 'Construction',
-      requires: 'image',
+      requires: ['image', 'binary'],
       advances: 'la release passe en vérification, ou échoue',
     },
     {
       role: 'test',
       label: 'Vérification',
-      requires: 'results',
+      requires: ['results'],
       advances: 'la release devient prête, ou échoue',
     },
   ],

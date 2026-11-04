@@ -155,6 +155,9 @@ const (
 	// ProductResults: the pipeline publishes reports — families, markers, presigned
 	// artifacts. See docs/05-pipeline-catalogue.md.
 	ProductResults Product = "results"
+	// ProductBinary: the pipeline publishes files to download, binaries for instance, kept with the
+	// release that built them. Like results, they arrive as artifacts.
+	ProductBinary Product = "binary"
 	// ProductNone: the pipeline yields only its verdict. A deployment, a migration,
 	// a clean-up.
 	//
@@ -165,7 +168,7 @@ const (
 )
 
 // products lists the accepted values, to name them in a message.
-var products = []Product{ProductImage, ProductResults, ProductNone}
+var products = []Product{ProductImage, ProductResults, ProductBinary, ProductNone}
 
 // Pipeline describes a runnable pipeline.
 type Pipeline struct {
@@ -659,7 +662,7 @@ func (p Pipeline) validateProducts() []error {
 
 	for _, product := range p.Produces {
 		switch product {
-		case ProductImage, ProductResults, ProductNone:
+		case ProductImage, ProductResults, ProductBinary, ProductNone:
 		default:
 			problems = append(problems, fmt.Errorf(
 				"kind %q: unknown product %q (accepted: %s)",
@@ -688,13 +691,18 @@ func (p Pipeline) validateProducts() []error {
 			"kind %q: announces results without declaring an artifact — its verdict "+
 				"would never reach the dashboard", p.Kind))
 	}
+	if seen[ProductBinary] && len(p.Uploads) == 0 {
+		problems = append(problems, fmt.Errorf(
+			"kind %q: announces binaries without declaring an artifact — they would "+
+				"never reach the dashboard", p.Kind))
+	}
 
 	// The opposite mismatch is refused too: published artifacts that nothing reads
 	// back.
-	if !seen[ProductResults] && len(p.Uploads) > 0 {
+	if !seen[ProductResults] && !seen[ProductBinary] && len(p.Uploads) > 0 {
 		problems = append(problems, fmt.Errorf(
-			"kind %q: declares %d artifact(s) without announcing %q — they would be "+
-				"published and never read", p.Kind, len(p.Uploads), ProductResults))
+			"kind %q: declares %d artifact(s) without announcing %q or %q — they would be "+
+				"published and never read", p.Kind, len(p.Uploads), ProductResults, ProductBinary))
 	}
 
 	return problems

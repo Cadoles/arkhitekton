@@ -22,6 +22,8 @@ func roleCatalogue() *catalog.Catalog {
 			Produces: []catalog.Product{catalog.ProductImage}},
 		{Kind: "unit-tests", PipelineRef: "unit", Verification: true,
 			Produces: []catalog.Product{catalog.ProductResults}},
+		{Kind: "go/build", PipelineRef: "go-build",
+			Produces: []catalog.Product{catalog.ProductBinary}},
 	}}
 }
 
@@ -86,11 +88,12 @@ func TestAStageWithNoRoleCarriesWhatItLikes(t *testing.T) {
 func TestEachRoleAdmitsWhatMatchesIt(t *testing.T) {
 	service := Automations{Catalog: roleCatalogue()}
 
-	for role, ref := range map[plan.Role]string{
-		plan.RoleBuild: "build", plan.RoleTest: "unit-tests",
-	} {
-		if err := service.checkRoles(planWithStage(role, pipelineGeste(ref))); err != nil {
-			t.Errorf("role %q with %q refused: %v", role, ref, err)
+	for _, admitted := range []struct {
+		role plan.Role
+		ref  string
+	}{{plan.RoleBuild, "build"}, {plan.RoleBuild, "go/build"}, {plan.RoleTest, "unit-tests"}} {
+		if err := service.checkRoles(planWithStage(admitted.role, pipelineGeste(admitted.ref))); err != nil {
+			t.Errorf("role %q with %q refused: %v", admitted.role, admitted.ref, err)
 		}
 	}
 }

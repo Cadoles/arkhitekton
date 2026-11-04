@@ -44,8 +44,9 @@ export type Plan = { stages: Stage[]; statuses?: boolean }
 export type RoleChoice = {
   role: string
   label: string
-  /** Le produit qu'un geste doit déclarer pour y entrer — `image`, `results`. */
-  requires: string
+  /** Les produits dont un geste doit déclarer l'un pour y entrer : `image` ou
+   *  `binary`, `results`. */
+  requires: string[]
   /** Ce que la conclusion de cette étape fait à la release. */
   advances: string
 }
@@ -280,7 +281,9 @@ export function gestesPourRole(
   const attendu = catalogue.roles.find((choice) => choice.role === role)
   if (!attendu) return catalogue.gestes
   return catalogue.gestes.filter(
-    (geste) => geste.kind === 'pipeline' && (geste.produces ?? []).includes(attendu.requires),
+    (geste) =>
+      geste.kind === 'pipeline' &&
+      attendu.requires.some((product) => (geste.produces ?? []).includes(product)),
   )
 }
 
