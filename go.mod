@@ -3,7 +3,7 @@ module forge.cadoles.com/vcarroy/arkhitekton
 go 1.26.4
 
 require (
-	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.9.0
+	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.10.0
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/google/go-containerregistry v0.21.3
 	github.com/hashicorp/go-hclog v1.6.3
