@@ -1,0 +1,45 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: govulncheck
+spec:
+  description: >
+    The known vulnerabilities of the module's dependencies, from the Go vulnerability database.
+
+    In JSON, govulncheck exits 0 whatever it finds: the dashboard reads the findings, and tells a
+    vulnerability the code calls from one it only imports. A non-zero code is a failure of the
+    tool.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: version
+      default: v1.9.0
+    - name: packages
+      default: ./...
+    - name: output-dir
+      default: test-results/govulncheck
+
+  steps:
+    - name: exec
+      image: docker.io/library/golang:1.27
+      env:
+        - name: GOTOOLCHAIN
+          value: auto
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        SRC="$(workspaces.source.path)"
+        export HOME="${SRC}/.go/home" GOMODCACHE="${SRC}/.go/mod" GOCACHE="${SRC}/.go/cache"
+        export GOBIN="${SRC}/.go/bin"
+        cd "${SRC}"
+
+        OUT="$(params.output-dir)"
+        mkdir -p "${OUT}"
+
+        # Built with the toolchain the module selects: the tool reads nothing newer than its own Go.
+        GOTOOLCHAIN="$(go env GOVERSION)" go install "golang.org/x/vuln/cmd/govulncheck@$(params.version)"
+        # shellcheck disable=SC2086
+        "${GOBIN}/govulncheck" -format json $(params.packages) > "${OUT}/govulncheck.json"

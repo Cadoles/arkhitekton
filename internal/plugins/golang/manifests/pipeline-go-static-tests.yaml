@@ -1,0 +1,83 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: go-static-tests
+spec:
+  description: >
+    Static analysis of a Go module with golangci-lint, one case per issue.
+
+  params:
+    - name: repo-url
+    - name: revision
+    - name: private-modules
+      default: ""
+    # The presigned PUT URL, supplied by the dashboard. Empty, publication is skipped.
+    - name: results-upload-url
+      default: ""
+
+  workspaces:
+    - name: shared-data
+    - name: git-credentials
+
+  tasks:
+    - name: git-clone
+      displayName: Clone
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+
+    - name: go-modules
+      displayName: Download the modules
+      runAfter: ["git-clone"]
+      taskRef:
+        name: go-modules
+      workspaces:
+        - name: source
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: repo-url
+          value: $(params.repo-url)
+        - name: private-modules
+          value: $(params.private-modules)
+
+    - name: run-golangci-lint
+      displayName: Run golangci-lint
+      runAfter: ["go-modules"]
+      taskRef:
+        name: golangci-lint
+      workspaces:
+        - name: source
+          workspace: shared-data
+
+  finally:
+    # In `finally`: a failing tool exits with an error, and a publication placed after it would not
+    # run. The report would be lost exactly when it is useful.
+    - name: save-results
+      displayName: Publish
+      taskRef:
+        name: publish-artifact
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: path
+          value: test-results
+        - name: mode
+          value: archive
+        - name: upload-url
+          value: $(params.results-upload-url)

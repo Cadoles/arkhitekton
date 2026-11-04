@@ -17,6 +17,8 @@ func TestTheRecordedCasesReadAsExpected(t *testing.T) {
 	readings := map[string]string{
 		"php-static-tests": "../internal/plugins/php/readings/static-tests.yaml",
 		"php-unit-tests":   "../internal/plugins/php/readings/unit-tests.yaml",
+		"go-static-tests":  "../internal/plugins/golang/readings/static-tests.yaml",
+		"go-unit-tests":    "../internal/plugins/golang/readings/unit-tests.yaml",
 	}
 	checked := 0
 	for capability, path := range readings {

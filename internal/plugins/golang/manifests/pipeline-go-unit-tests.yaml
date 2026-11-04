@@ -1,0 +1,92 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: go-unit-tests
+spec:
+  description: >
+    Unit tests of a Go module: `go test -json`, read test by test.
+
+  params:
+    - name: repo-url
+    - name: revision
+    - name: private-modules
+      default: ""
+    - name: packages
+      default: ./...
+    - name: flags
+      default: ""
+    # The presigned PUT URL, supplied by the dashboard. Empty, publication is skipped.
+    - name: results-upload-url
+      default: ""
+
+  workspaces:
+    - name: shared-data
+    - name: git-credentials
+
+  tasks:
+    - name: git-clone
+      displayName: Clone
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+
+    - name: go-modules
+      displayName: Download the modules
+      runAfter: ["git-clone"]
+      taskRef:
+        name: go-modules
+      workspaces:
+        - name: source
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: repo-url
+          value: $(params.repo-url)
+        - name: private-modules
+          value: $(params.private-modules)
+
+    - name: run-go-test
+      displayName: Run go test
+      runAfter: ["go-modules"]
+      taskRef:
+        name: go-test
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: packages
+          value: $(params.packages)
+        - name: flags
+          value: $(params.flags)
+
+  finally:
+    # In `finally`: a failing tool exits with an error, and a publication placed after it would not
+    # run. The report would be lost exactly when it is useful.
+    - name: save-results
+      displayName: Publish
+      taskRef:
+        name: publish-artifact
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: path
+          value: test-results
+        - name: mode
+          value: archive
+        - name: upload-url
+          value: $(params.results-upload-url)

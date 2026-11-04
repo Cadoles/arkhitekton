@@ -1,0 +1,27 @@
+<testsuites>
+  <testsuite name="internal/store/files.go" tests="2" errors="0" failures="2">
+    <testcase name="errcheck" classname="internal/store/files.go:12:17">
+      <failure message="internal/store/files.go:12:17: Error return value of `f.Close` is not checked" type="error"><![CDATA[error: Error return value of `f.Close` is not checked (errcheck)
+Category: errcheck
+File: internal/store/files.go
+Line: 12
+Details: 	defer f.Close()]]></failure>
+    </testcase>
+    <testcase name="ineffassign" classname="internal/store/files.go:30:2">
+      <failure message="internal/store/files.go:30:2: ineffectual assignment to err" type="error"><![CDATA[error: ineffectual assignment to err (ineffassign)
+Category: ineffassign
+File: internal/store/files.go
+Line: 30
+Details: 	err = nil]]></failure>
+    </testcase>
+  </testsuite>
+  <testsuite name="cmd/main.go" tests="1" errors="0" failures="1">
+    <testcase name="unused" classname="cmd/main.go:8:6">
+      <failure message="cmd/main.go:8:6: func `helper` is unused" type="error"><![CDATA[error: func `helper` is unused (unused)
+Category: unused
+File: cmd/main.go
+Line: 8
+Details: func helper() {}]]></failure>
+    </testcase>
+  </testsuite>
+</testsuites>

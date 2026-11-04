@@ -1,0 +1,69 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: go-build-binaries
+spec:
+  description: >
+    Builds the binaries of the main packages named, for each platform, statically.
+
+    One archive per binary and platform, `<name>_<version>_<os>_<arch>.tar.gz`, and their
+    checksums in SHA256SUMS: what the dashboard keeps with the release and offers for download.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: packages
+      description: The main packages, space-separated, `./cmd/app` for instance.
+    - name: platforms
+      default: linux/amd64,linux/arm64
+    - name: version
+      description: The version the binaries carry, the release's tag.
+    - name: ldflags
+      default: ""
+      description: >
+        `-ldflags` for each build; `{version}` is replaced by the version, as in
+        `-X main.version={version}`.
+    - name: output-dir
+      default: build-results/binaries
+
+  steps:
+    - name: exec
+      image: docker.io/library/golang:1.27
+      env:
+        - name: GOTOOLCHAIN
+          value: auto
+        - name: CGO_ENABLED
+          value: "0"
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        SRC="$(workspaces.source.path)"
+        export HOME="${SRC}/.go/home" GOMODCACHE="${SRC}/.go/mod" GOCACHE="${SRC}/.go/cache"
+        cd "${SRC}"
+
+        OUT="$(params.output-dir)"
+        WORK="$(mktemp -d)"
+        mkdir -p "${OUT}"
+        VERSION="$(params.version)"
+        LDFLAGS="$(printf '%s' "$(params.ldflags)" | sed "s/{version}/${VERSION}/g")"
+
+        for platform in $(echo "$(params.platforms)" | tr ',' ' '); do
+          GOOS="${platform%/*}"; GOARCH="${platform#*/}"
+          for package in $(params.packages); do
+            name="$(basename "${package}")"
+            binary="${name}"
+            if [ "${GOOS}" = "windows" ]; then binary="${name}.exe"; fi
+            echo "== ${package} for ${GOOS}/${GOARCH}"
+            mkdir -p "${WORK}/${GOOS}_${GOARCH}"
+            GOOS="${GOOS}" GOARCH="${GOARCH}" go build -trimpath -ldflags "${LDFLAGS}" \
+              -o "${WORK}/${GOOS}_${GOARCH}/${binary}" "${package}"
+            tar -czf "${OUT}/${name}_${VERSION}_${GOOS}_${GOARCH}.tar.gz" \
+              -C "${WORK}/${GOOS}_${GOARCH}" "${binary}"
+          done
+        done
+
+        cd "${OUT}"
+        sha256sum *.tar.gz > SHA256SUMS
+        cat SHA256SUMS

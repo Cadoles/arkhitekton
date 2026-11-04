@@ -184,3 +184,36 @@ func stepNamed(t *testing.T, subject plan.Plan, ref string) plan.Geste {
 	t.Fatalf("no step %q in %+v", ref, subject)
 	return plan.Geste{}
 }
+
+// A stack's tests chain only for a project of that stack, and a project naming none keeps PHP's,
+// which were the only ones before a second stack existed. A kind of no stack chains for all.
+func TestAStacksTestsChainOnlyForItsProjects(t *testing.T) {
+	registry := testCatalogue(t)
+	unit, _ := registry.Find("unit-tests")
+	for _, kind := range []string{"php/unit-tests", "go/unit-tests"} {
+		unit.Kind = kind
+		registry.Pipelines = append(registry.Pipelines, unit)
+	}
+	php, golang := twoImageProject(), twoImageProject()
+	golang.ID, golang.Slug, golang.Stack = 2, "api", "go"
+	db := newCatchUpStore(php, golang)
+	if err := NewAutomationCatchUp(db, registry, quietLogger()).WithStacks("php", "go").
+		Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	for id, expected := range map[int64]map[string]bool{
+		1: {"php/unit-tests": true, "unit-tests": true},
+		2: {"go/unit-tests": true, "unit-tests": true},
+	} {
+		chained := map[string]bool{}
+		for _, geste := range db.written[id].Stages[1].Gestes {
+			chained[geste.Ref] = true
+		}
+		for _, kind := range []string{"php/unit-tests", "go/unit-tests", "unit-tests"} {
+			if chained[kind] != expected[kind] {
+				t.Errorf("project %d chains %s: %v, expected %v", id, kind, chained[kind], expected[kind])
+			}
+		}
+	}
+}

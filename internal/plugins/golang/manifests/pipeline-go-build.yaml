@@ -1,0 +1,98 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: go-build
+spec:
+  description: >
+    The binaries of a Go module's main packages, one archive per platform, kept with the release that built them.
+
+  params:
+    - name: repo-url
+    - name: revision
+    - name: private-modules
+      default: ""
+    - name: packages
+    - name: platforms
+      default: linux/amd64,linux/arm64
+    - name: version
+    - name: ldflags
+      default: ""
+    # The presigned PUT URL, supplied by the dashboard. Empty, publication is skipped.
+    - name: binaries-upload-url
+      default: ""
+
+  workspaces:
+    - name: shared-data
+    - name: git-credentials
+
+  tasks:
+    - name: git-clone
+      displayName: Clone
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:v0.29.0
+        - name: submodules
+          value: "false"
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+
+    - name: go-modules
+      displayName: Download the modules
+      runAfter: ["git-clone"]
+      taskRef:
+        name: go-modules
+      workspaces:
+        - name: source
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+      params:
+        - name: repo-url
+          value: $(params.repo-url)
+        - name: private-modules
+          value: $(params.private-modules)
+
+    - name: build-binaries
+      displayName: Build the binaries
+      runAfter: ["go-modules"]
+      taskRef:
+        name: go-build-binaries
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: packages
+          value: $(params.packages)
+        - name: platforms
+          value: $(params.platforms)
+        - name: version
+          value: $(params.version)
+        - name: ldflags
+          value: $(params.ldflags)
+
+  finally:
+    # In `finally`: a failing tool exits with an error, and a publication placed after it would not
+    # run. The report would be lost exactly when it is useful.
+    - name: save-results
+      displayName: Publish
+      taskRef:
+        name: publish-artifact
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: path
+          value: build-results
+        - name: mode
+          value: archive
+        - name: upload-url
+          value: $(params.binaries-upload-url)

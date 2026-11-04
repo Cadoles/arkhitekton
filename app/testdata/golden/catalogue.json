@@ -239,5 +239,275 @@
       "git-clone",
       "publish-artifact"
     ]
+  },
+  {
+    "kind": "go/build",
+    "pipelineRef": "go-build",
+    "label": "Binaires Go",
+    "produces": [
+      "binary"
+    ],
+    "params": {
+      "ldflags": {
+        "source": "input",
+        "label": "ldflags",
+        "help": "`{version}` y est remplacé par la version de la release.",
+        "placeholder": "-X main.version={version}"
+      },
+      "packages": {
+        "source": "input",
+        "required": true,
+        "label": "Paquets",
+        "help": "Les paquets main à construire, séparés par des espaces.",
+        "placeholder": "./cmd/app"
+      },
+      "platforms": {
+        "source": "input",
+        "label": "Plateformes",
+        "help": "os/arch, séparés par des virgules. Vide : linux/amd64 et linux/arm64.",
+        "placeholder": "linux/amd64,linux/arm64"
+      },
+      "private-modules": {
+        "source": "input",
+        "label": "Modules privés",
+        "help": "Les motifs de GOPRIVATE, séparés par des virgules. Vide : l'hôte de la forge du projet.",
+        "placeholder": "forge.example.fr"
+      },
+      "repo-url": {
+        "source": "config",
+        "key": "project.repoUrl"
+      },
+      "revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      },
+      "version": {
+        "source": "input",
+        "required": true,
+        "suggest": "release-tag"
+      }
+    },
+    "uploads": {
+      "binaries": {
+        "param": "binaries-upload-url",
+        "artifact": "binaries.tar.gz",
+        "group": "build",
+        "format": "archive"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "project.deployKeySecret"
+        }
+      },
+      {
+        "name": "shared-data",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "4Gi"
+        }
+      }
+    ],
+    "Capability": "go/build",
+    "Unavailable": "",
+    "ExternalTasks": [
+      "git-clone",
+      "publish-artifact"
+    ]
+  },
+  {
+    "kind": "go/unit-tests",
+    "pipelineRef": "go-unit-tests",
+    "label": "Tests unitaires Go",
+    "verification": true,
+    "produces": [
+      "results"
+    ],
+    "params": {
+      "flags": {
+        "source": "input",
+        "label": "Options de go test",
+        "placeholder": "-race -count=1"
+      },
+      "packages": {
+        "source": "input",
+        "label": "Paquets",
+        "placeholder": "./..."
+      },
+      "private-modules": {
+        "source": "input",
+        "label": "Modules privés",
+        "help": "Les motifs de GOPRIVATE, séparés par des virgules. Vide : l'hôte de la forge du projet.",
+        "placeholder": "forge.example.fr"
+      },
+      "repo-url": {
+        "source": "config",
+        "key": "project.repoUrl"
+      },
+      "revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      }
+    },
+    "uploads": {
+      "results": {
+        "param": "results-upload-url",
+        "artifact": "unit-tests.tar.gz",
+        "group": "unit",
+        "format": "archive"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "project.deployKeySecret"
+        }
+      },
+      {
+        "name": "shared-data",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "2Gi"
+        }
+      }
+    ],
+    "Capability": "go/unit-tests",
+    "Unavailable": "",
+    "ExternalTasks": [
+      "git-clone",
+      "publish-artifact"
+    ]
+  },
+  {
+    "kind": "go/static-tests",
+    "pipelineRef": "go-static-tests",
+    "label": "Analyse statique Go",
+    "verification": true,
+    "produces": [
+      "results"
+    ],
+    "params": {
+      "private-modules": {
+        "source": "input",
+        "label": "Modules privés",
+        "help": "Les motifs de GOPRIVATE, séparés par des virgules. Vide : l'hôte de la forge du projet.",
+        "placeholder": "forge.example.fr"
+      },
+      "repo-url": {
+        "source": "config",
+        "key": "project.repoUrl"
+      },
+      "revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      }
+    },
+    "uploads": {
+      "results": {
+        "param": "results-upload-url",
+        "artifact": "static-tests.tar.gz",
+        "group": "static",
+        "format": "archive"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "project.deployKeySecret"
+        }
+      },
+      {
+        "name": "shared-data",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "2Gi"
+        }
+      }
+    ],
+    "Capability": "go/static-tests",
+    "Unavailable": "",
+    "ExternalTasks": [
+      "git-clone",
+      "publish-artifact"
+    ]
+  },
+  {
+    "kind": "go/vulncheck",
+    "pipelineRef": "go-vulncheck",
+    "label": "Vulnérabilités Go",
+    "verification": true,
+    "produces": [
+      "results"
+    ],
+    "params": {
+      "packages": {
+        "source": "input",
+        "label": "Paquets",
+        "placeholder": "./..."
+      },
+      "private-modules": {
+        "source": "input",
+        "label": "Modules privés",
+        "help": "Les motifs de GOPRIVATE, séparés par des virgules. Vide : l'hôte de la forge du projet.",
+        "placeholder": "forge.example.fr"
+      },
+      "repo-url": {
+        "source": "config",
+        "key": "project.repoUrl"
+      },
+      "revision": {
+        "source": "input",
+        "required": true,
+        "suggest": "git-ref"
+      }
+    },
+    "uploads": {
+      "results": {
+        "param": "results-upload-url",
+        "artifact": "vulncheck.tar.gz",
+        "group": "security",
+        "format": "archive"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "git-credentials",
+        "secret": {
+          "configKey": "project.deployKeySecret"
+        }
+      },
+      {
+        "name": "shared-data",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "2Gi"
+        }
+      }
+    ],
+    "Capability": "go/vulncheck",
+    "Unavailable": "",
+    "ExternalTasks": [
+      "git-clone",
+      "publish-artifact"
+    ]
   }
 ]

@@ -171,7 +171,7 @@ func (db *DB) ListTestResults(ctx context.Context, scope Scope) ([]TestResult, e
 		        coalesce(t.total, 0), coalesce(t.passed, 0), coalesce(t.failed, 0),
 		        coalesce(t.skipped, 0), coalesce(t.flaky, 0), coalesce(t.duration_ms, 0),
 		        coalesce(t.summary, ''), coalesce(t.raw_object, ''), t.created_at,
-		        coalesce(r.pipelinerun_name, ''), t.attributes
+		        coalesce(r.pipelinerun_name, ''), t.attributes, coalesce(t.capability, '')
 		 from test_results t
 		 left join runs r on r.id = t.run_id
 		 where `+scope.on("t")+` and t.shape <> 'measures'
@@ -188,7 +188,7 @@ func (db *DB) ListTestResults(ctx context.Context, scope Scope) ([]TestResult, e
 			&result.Shape, &result.Producer, &result.Tool, &result.Status, &result.Total,
 			&result.Passed, &result.Failed, &result.Skipped, &result.Flaky, &result.DurationMS,
 			&result.Summary, &result.RawObject, &result.CreatedAt, &result.RunName,
-			&result.Attributes); err != nil {
+			&result.Attributes, &result.Capability); err != nil {
 			return nil, fmt.Errorf("results of %s: %w", scope, err)
 		}
 		results = append(results, result)

@@ -1,0 +1,19 @@
+# `go test -json`, read test by test. A package that failed outside its tests (it does not build,
+# TestMain failed) is a case of its own, named after the package's compilation.
+apiVersion: arkhitekton.reading/v1
+tools:
+  - tool: go-test
+    task: run-go-test
+    group: unit
+    summary: tests
+    duration: "{duration_ms}"
+    cases:
+      - from: gotest.cases
+        suite: "{package}"
+        name: "{name | or: 'compilation du paquet'}"
+        duration: "{duration_ms}"
+        message: "{output | firstline}"
+        trace: "{output | trim}"
+        status:
+          from: outcome
+          map: { passed: passed, failed: failed, skipped: skipped }

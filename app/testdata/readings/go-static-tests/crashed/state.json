@@ -1,0 +1,1 @@
+{"Tasks":[{"Name":"run-golangci-lint","Status":"failed","Reason":"Failed","Steps":[{"Name":"exec","ExitCode":3}]}]}

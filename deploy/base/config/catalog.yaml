@@ -80,3 +80,30 @@ capabilities:
       source-read: { secret: { configKey: project.deployKeySecret } }
     volumes:
       shared-data: { storageClassName: standard }
+
+  # A Go module's pipelines clone it and download its modules with one credential. The project's
+  # deploy key opens its repository only: a module depending on the forge's private modules binds
+  # `source-read` to `pipeline.gitSecret` instead, which must open them too.
+  - ref: go/build
+    needs:
+      source-read: { secret: { configKey: project.deployKeySecret } }
+    volumes:
+      shared-data: { storageClassName: standard }
+
+  - ref: go/unit-tests
+    needs:
+      source-read: { secret: { configKey: project.deployKeySecret } }
+    volumes:
+      shared-data: { storageClassName: standard }
+
+  - ref: go/static-tests
+    needs:
+      source-read: { secret: { configKey: project.deployKeySecret } }
+    volumes:
+      shared-data: { storageClassName: standard }
+
+  - ref: go/vulncheck
+    needs:
+      source-read: { secret: { configKey: project.deployKeySecret } }
+    volumes:
+      shared-data: { storageClassName: standard }
