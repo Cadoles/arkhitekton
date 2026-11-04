@@ -131,7 +131,10 @@ type Product string
 const (
 	ProductImage   Product = "image"
 	ProductResults Product = "results"
-	ProductNone    Product = "none"
+	// ProductBinary: the pipeline publishes files to download, binaries for instance, kept with the
+	// release that built them.
+	ProductBinary Product = "binary"
+	ProductNone   Product = "none"
 )
 
 // PipelineSpec is what the pipeline is, independently of who runs it.
