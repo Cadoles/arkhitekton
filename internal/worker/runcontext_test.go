@@ -133,3 +133,13 @@ func TestAFactsRunBearsOnTheReleaseItNames(t *testing.T) {
 		}
 	}
 }
+
+// A release with no issue has empty notes, not a variable a template leaves literal.
+func TestAReleaseWithNoIssueHasEmptyNotes(t *testing.T) {
+	releaseID := int64(7)
+	got := NewRunContext(contextStore{release: store.Release{ID: 7, ProjectID: 3, Tag: "1.0.0"}}, "", nil, quietLogger()).
+		Enrich(context.Background(), store.PlanRun{ReleaseID: &releaseID})
+	if notes, present := got[contextReleaseNotes]; !present || notes != "" {
+		t.Errorf("notes %q, present %v", notes, present)
+	}
+}

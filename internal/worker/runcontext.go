@@ -234,11 +234,9 @@ func (e *Engine) withVariables(ctx context.Context, run store.PlanRun, progress 
 	}
 	maps.Copy(enriched, stepVariables(progress))
 	if e.contexts != nil {
-		for key, value := range e.contexts.Enrich(ctx, run) {
-			if value != "" {
-				enriched[key] = value
-			}
-		}
+		// Empty values too: a release with no issue has empty notes, which is not a missing variable
+		// a template would leave literal.
+		maps.Copy(enriched, e.contexts.Enrich(ctx, run))
 	}
 	return enriched
 }
