@@ -262,3 +262,22 @@ func TestADeclaredDigestReplacesAnotherVersion(t *testing.T) {
 		t.Errorf("requested = %+v", requested)
 	}
 }
+
+// A plugin moving to another repository whose version is already installed beside the active one:
+// the apply activates that installation rather than asking for it again. Once resolved, it carries
+// `repository@digest`, not the repository the file names.
+func TestARepositoryAlreadyInstalledBesideIsActivated(t *testing.T) {
+	fake := running(false)
+	other := "registry.local/mse"
+	fake.installations[3] = &store.PluginInstallation{
+		ID: 3, PluginID: "mse", Reference: other + "@sha256:" + strings.Repeat("e", 64),
+		Digest: "sha256:" + strings.Repeat("e", 64), State: store.InstallationInstalled, Follows: true,
+	}
+	fake.next = 3
+	if err := run(t, fake, declaringReference(other)); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(fake.actions, ","); got != "activate" {
+		t.Errorf("actions = %s, expected the installation beside to be activated", got)
+	}
+}

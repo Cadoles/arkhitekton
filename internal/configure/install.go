@@ -106,7 +106,7 @@ func (i Installer) Installs(ctx context.Context, desired configfile.Set) ([]Op, 
 		if running {
 			mode, verb = ModeUpdate, "~ update plugin "
 		}
-		latest, resumable := latestOf(installations, reference)
+		latest, resumable := latestOf(installations, wanted)
 		ops = append(ops, Op{
 			Description: verb + id + " from " + reference,
 			run: func(ctx context.Context) error {
@@ -131,12 +131,26 @@ func pinnedAt(installations []store.PluginInstallation, current store.PluginSour
 	return false
 }
 
-func latestOf(installations []store.PluginInstallation, reference string) (store.PluginInstallation, bool) {
+// latestOf returns the last installation a declaration may resume: one of its digest when it pins
+// one, one from its repository otherwise. Once resolved, an installation asked for by repository
+// carries `repository@digest`, and comparing references would ask for it a second time.
+func latestOf(installations []store.PluginInstallation, wanted installed.Source) (store.PluginInstallation, bool) {
 	var matching []store.PluginInstallation
 	for _, installation := range installations {
-		if installation.Reference == reference && installation.State != store.InstallationRemoved {
-			matching = append(matching, installation)
+		if installation.State == store.InstallationRemoved {
+			continue
 		}
+		source, err := installed.ParseSource(installation.Reference)
+		if err != nil || source.Repository != wanted.Repository {
+			continue
+		}
+		if wanted.Digest != "" && source.Digest != wanted.Digest {
+			continue
+		}
+		if wanted.Tag != "" && installation.ExpectedVersion != wanted.Tag && installation.Version != wanted.Tag {
+			continue
+		}
+		matching = append(matching, installation)
 	}
 	if len(matching) == 0 {
 		return store.PluginInstallation{}, false
