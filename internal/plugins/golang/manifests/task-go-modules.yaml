@@ -77,4 +77,6 @@ spec:
         go env -w GOPRIVATE="${PRIVATE}"
 
         cd "${SRC}"
-        go mod download
+        # What the packages and their tests import, not `go mod download`'s whole graph: a
+        # dependency's go.mod may name a revision since deleted, which no build ever needs.
+        go list -deps -test ./... > /dev/null
