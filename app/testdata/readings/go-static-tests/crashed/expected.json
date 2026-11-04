@@ -1,0 +1,16 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "static",
+    "Tool": "golangci-lint",
+    "Status": "na",
+    "Summary": "the tool did not conclude (code 3): Failed",
+    "RawObject": "",
+    "DurationMS": 0,
+    "Cases": null,
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  }
+]

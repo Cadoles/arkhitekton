@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
@@ -61,6 +62,7 @@ const catchUpActor = "system:reprise" // the value is stored, and stays as writt
 type AutomationCatchUp struct {
 	store   AutomationStore
 	catalog *catalog.Catalog
+	stacks  map[string]bool
 	logger  *slog.Logger
 }
 
@@ -72,6 +74,19 @@ func NewAutomationCatchUp(
 	}
 	return &AutomationCatchUp{store: db, catalog: registry, logger: logger}
 }
+
+// WithStacks names the stacks whose kinds a project chains only when it declares that stack.
+func (r *AutomationCatchUp) WithStacks(names ...string) *AutomationCatchUp {
+	r.stacks = map[string]bool{}
+	for _, name := range names {
+		r.stacks[name] = true
+	}
+	return r
+}
+
+// legacyStack is the stack of a project that declares none. Its kinds were the only ones a build
+// chained before a second stack existed, and a catch-up composes what ran before.
+const legacyStack = "php"
 
 // Run catches up the projects with no automation.
 //
@@ -93,7 +108,7 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 
 	caught := 0
 	for _, project := range projects {
-		plan := DefaultAutomation(r.catalog, project, r.enabled(ctx, project.ID))
+		plan := DefaultAutomation(r.catalog, project, r.enabled(ctx, project))
 
 		if err := r.store.SaveReleaseAutomation(ctx, store.ReleaseAutomation{
 			ProjectID: project.ID, Plan: plan,
@@ -115,15 +130,23 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 	return nil
 }
 
-// enabled returns the filter of a project's enabled kinds.
-func (r *AutomationCatchUp) enabled(ctx context.Context, projectID int64) func(string) bool {
+// enabled returns the filter of a project's enabled kinds: those it ticked, less those of a
+// stack it does not declare. A PHP project never ran Go's tests.
+func (r *AutomationCatchUp) enabled(ctx context.Context, project store.Project) func(string) bool {
+	stack := project.Stack
+	if stack == "" {
+		stack = legacyStack
+	}
 	return func(kind string) bool {
-		enabled, err := r.store.PipelineEnabled(ctx, projectID, kind)
+		if prefix, _, found := strings.Cut(kind, "/"); found && r.stacks[prefix] && prefix != stack {
+			return false
+		}
+		enabled, err := r.store.PipelineEnabled(ctx, project.ID, kind)
 		if err != nil {
 			// A failed read must not remove a verification: better to declare it and see it fail than to
 			// lose it silently — a catch-up does not come round again.
 			r.logger.Error("the project's declared kinds",
-				"project", projectID, "kind", kind, "error", err)
+				"project", project.ID, "kind", kind, "error", err)
 			return true
 		}
 		return enabled

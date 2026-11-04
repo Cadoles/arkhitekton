@@ -260,8 +260,14 @@ func familyMeasures(
 	byGroup := map[string]results.Report{}
 	seen := map[string]bool{}
 	seenTool := map[string]bool{}
+	// The pipeline that produced a group's latest report: the one to re-run, whatever else the
+	// catalogue shows under that group.
+	kinds := map[string]string{}
 
 	for _, report := range reports {
+		if kinds[report.Group] == "" {
+			kinds[report.Group] = report.Capability
+		}
 		key := report.Group + "/" + report.Tool
 		if seenTool[key] {
 			continue
@@ -321,7 +327,10 @@ func familyMeasures(
 		// the dashboard does not trigger.
 		measure.Group = signalGroups[measure.Signal]
 		if measure.Signal != results.SignalPerformance {
-			measure.Ref = registry.KindOfGroup(string(measure.Group))
+			measure.Ref = kinds[string(measure.Group)]
+			if measure.Ref == "" {
+				measure.Ref = registry.KindOfGroup(string(measure.Group))
+			}
 		}
 		measure.Shape = defaultShape(measure.Group)
 		measures = append(measures, measure)

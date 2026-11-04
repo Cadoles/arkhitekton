@@ -1,0 +1,1 @@
+[{"tool":"golangci-lint","parser":"junit-xml","file":"junit.xml"}]

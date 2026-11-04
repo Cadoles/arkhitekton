@@ -1,0 +1,65 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "unit",
+    "Tool": "go-test",
+    "Status": "",
+    "Summary": "6 test(s), 3 failed, 1 skipped",
+    "RawObject": "raw/case/go-test.json",
+    "DurationMS": 2,
+    "Cases": [
+      {
+        "Suite": "example.test/sample/broken",
+        "Name": "compilation du paquet",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "# example.test/sample/broken [example.test/sample/broken.test]",
+        "Trace": "# example.test/sample/broken [example.test/sample/broken.test]\nbroken/broken.go:3:28: cannot use \"nope\" (untyped string constant) as int value in return statement"
+      },
+      {
+        "Suite": "example.test/sample/ok",
+        "Name": "TestPasses",
+        "Status": "passed",
+        "DurationMS": 0,
+        "Message": "",
+        "Trace": ""
+      },
+      {
+        "Suite": "example.test/sample/ok",
+        "Name": "TestFails",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "ok_test.go:8: before the failure",
+        "Trace": "ok_test.go:8: before the failure\n    ok_test.go:9: expected 2, got 3"
+      },
+      {
+        "Suite": "example.test/sample/ok",
+        "Name": "TestSkips",
+        "Status": "skipped",
+        "DurationMS": 0,
+        "Message": "ok_test.go:12: not on this platform",
+        "Trace": "ok_test.go:12: not on this platform"
+      },
+      {
+        "Suite": "example.test/sample/ok",
+        "Name": "TestTable/first",
+        "Status": "passed",
+        "DurationMS": 0,
+        "Message": "",
+        "Trace": ""
+      },
+      {
+        "Suite": "example.test/sample/ok",
+        "Name": "TestTable/second_case",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "ok_test.go:16: wrong",
+        "Trace": "ok_test.go:16: wrong"
+      }
+    ],
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  }
+]

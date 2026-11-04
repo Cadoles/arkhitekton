@@ -519,7 +519,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	// Here and not in the `api`, for the same reason as the renormalisation: the api runs with
 	// several replicas, and three concurrent catch-ups would write the same thing three times.
 	// The `api` reads the declaration, it does not compose it.
-	if err := worker.NewAutomationCatchUp(db, pipelines, logger).Run(ctx); err != nil {
+	if err := worker.NewAutomationCatchUp(db, pipelines, logger).
+		WithStacks(referenceLibrary().Stacks()...).Run(ctx); err != nil {
 		return err
 	}
 

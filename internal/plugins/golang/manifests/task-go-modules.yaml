@@ -1,0 +1,80 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: go-modules
+spec:
+  description: >
+    Downloads the module's dependencies, the private ones of the project's forge included.
+
+    The tasks that follow find them in the workspace, with the same HOME, so that only this one
+    needs the credentials: the forge is reached over SSH with the clone's key, rewriting its HTTPS
+    addresses, and GOPRIVATE keeps the forge's modules off the public proxy and checksum database.
+
+  workspaces:
+    - name: source
+    - name: ssh-directory
+      optional: true
+
+  params:
+    - name: repo-url
+      description: The project's clone URL, whose host and port the forge's modules are fetched from.
+    - name: private-modules
+      default: ""
+      description: >
+        GOPRIVATE's patterns, comma-separated. Empty: the host of the project's forge.
+
+  steps:
+    - name: download
+      image: docker.io/library/golang:1.27
+      env:
+        - name: GOTOOLCHAIN
+          value: auto
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        SRC="$(workspaces.source.path)"
+        export HOME="${SRC}/.go/home" GOMODCACHE="${SRC}/.go/mod" GOCACHE="${SRC}/.go/cache"
+        mkdir -p "${HOME}/.ssh"
+        chmod 700 "${HOME}/.ssh"
+
+        # ssh://git@host:2222/owner/repo.git, or git@host:owner/repo.git.
+        URL="$(params.repo-url)"
+        case "${URL}" in
+          ssh://*)
+            AUTHORITY="${URL#ssh://}"; AUTHORITY="${AUTHORITY%%/*}"; AUTHORITY="${AUTHORITY#*@}"
+            HOST="${AUTHORITY%%:*}"; PORT="22"
+            case "${AUTHORITY}" in *:*) PORT="${AUTHORITY##*:}" ;; esac
+            ;;
+          *@*:*)
+            HOST="${URL#*@}"; HOST="${HOST%%:*}"; PORT="22"
+            ;;
+          *)
+            HOST="$(echo "${URL}" | sed -E 's#^[a-z]+://##; s#[/:].*##')"; PORT="22"
+            ;;
+        esac
+
+        if [ "$(workspaces.ssh-directory.bound)" = "true" ]; then
+          for key in id_ed25519 ssh-privatekey; do
+            if [ -f "$(workspaces.ssh-directory.path)/${key}" ]; then
+              cp "$(workspaces.ssh-directory.path)/${key}" "${HOME}/.ssh/id_ed25519"
+              break
+            fi
+          done
+          chmod 600 "${HOME}/.ssh/id_ed25519" 2>/dev/null || true
+          ssh-keyscan -p "${PORT}" "${HOST}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
+        fi
+
+        if [ "${PORT}" = "22" ]; then
+          git config --global url."ssh://git@${HOST}/".insteadOf "https://${HOST}/"
+        else
+          git config --global url."ssh://git@${HOST}:${PORT}/".insteadOf "https://${HOST}/"
+        fi
+
+        PRIVATE="$(params.private-modules)"
+        if [ -z "${PRIVATE}" ]; then PRIVATE="${HOST}"; fi
+        # In HOME's go env file: the tasks that follow read it with the same HOME.
+        go env -w GOPRIVATE="${PRIVATE}"
+
+        cd "${SRC}"
+        go mod download

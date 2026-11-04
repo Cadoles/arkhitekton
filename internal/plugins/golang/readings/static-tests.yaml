@@ -1,0 +1,19 @@
+# golangci-lint's JUnit report: one case per issue, its file as the suite and its linter as the
+# name. Never its line: a line moves at every commit.
+apiVersion: arkhitekton.reading/v1
+tools:
+  - tool: golangci-lint
+    task: run-golangci-lint
+    group: static
+    summary: { violations: "issue(s)" }
+    # A clean analysis ran and found nothing, which is not the same as not running.
+    empty: pass
+    # 0 when nothing is found, 1 when issues are. Any other code is a failure of the tool.
+    exitCodes: { results: [0, 1] }
+    cases:
+      - from: junit.cases
+        suite: "{path}"
+        name: "{name}"
+        status: failed
+        message: "{detail | firstline}"
+        trace: "{trace | trim}"

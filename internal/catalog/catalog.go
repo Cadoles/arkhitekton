@@ -920,18 +920,24 @@ func (p Pipeline) Group() string {
 	return found
 }
 
-// KindOfGroup names the pipeline whose results are shown under a group, the first one declared
-// when several are. Empty when none is, or with no catalogue.
+// KindOfGroup names the pipeline whose results are shown under a group. Empty when none is, when
+// several are, or with no catalogue: a PHP and a Go project both show unit tests, and guessing
+// which would offer to re-run the other's.
 func (c *Catalog) KindOfGroup(group string) string {
 	if c == nil || group == "" {
 		return ""
 	}
+	found := ""
 	for _, pipeline := range c.Pipelines {
-		if pipeline.Group() == group {
-			return pipeline.Kind
+		if pipeline.Group() != group {
+			continue
 		}
+		if found != "" {
+			return ""
+		}
+		found = pipeline.Kind
 	}
-	return ""
+	return found
 }
 
 // VerificationKinds lists what a successful build chains.

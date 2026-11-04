@@ -8,6 +8,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/core"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/gitea"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/golang"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/k6"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/php"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/redmine"
@@ -18,7 +19,7 @@ import (
 // Plugins are the plugins compiled into the binary.
 func Plugins() []capability.Plugin {
 	return []capability.Plugin{
-		core.Plugin(), php.Plugin(), k6.Plugin(),
+		core.Plugin(), php.Plugin(), golang.Plugin(), k6.Plugin(),
 		redmine.Plugin(), gitea.Plugin(), rocketchat.Plugin(),
 	}
 }
@@ -33,5 +34,6 @@ func Registry() (*capabilities.Registry, error) {
 func Stacks() map[string][]capability.Manifest {
 	return map[string][]capability.Manifest{
 		"php": php.Manifests(),
+		"go":  golang.Manifests(),
 	}
 }

@@ -1,0 +1,41 @@
+[
+  {
+    "Shape": "cases",
+    "Group": "static",
+    "Tool": "golangci-lint",
+    "Status": "",
+    "Summary": "3 issue(s) in 2 file(s)",
+    "RawObject": "raw/case/junit.xml",
+    "DurationMS": 0,
+    "Cases": [
+      {
+        "Suite": "internal/store/files.go",
+        "Name": "errcheck",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "internal/store/files.go:12:17: Error return value of `f.Close` is not checked",
+        "Trace": "error: Error return value of `f.Close` is not checked (errcheck)\nCategory: errcheck\nFile: internal/store/files.go\nLine: 12\nDetails: \tdefer f.Close()"
+      },
+      {
+        "Suite": "internal/store/files.go",
+        "Name": "ineffassign",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "internal/store/files.go:30:2: ineffectual assignment to err",
+        "Trace": "error: ineffectual assignment to err (ineffassign)\nCategory: ineffassign\nFile: internal/store/files.go\nLine: 30\nDetails: \terr = nil"
+      },
+      {
+        "Suite": "cmd/main.go",
+        "Name": "unused",
+        "Status": "failed",
+        "DurationMS": 0,
+        "Message": "cmd/main.go:8:6: func `helper` is unused",
+        "Trace": "error: func `helper` is unused (unused)\nCategory: unused\nFile: cmd/main.go\nLine: 8\nDetails: func helper() {}"
+      }
+    ],
+    "Findings": null,
+    "Measures": null,
+    "Attachments": null,
+    "Attributes": null
+  }
+]

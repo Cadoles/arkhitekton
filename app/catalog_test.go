@@ -71,7 +71,7 @@ func TestEachArtifactDeclaresItsParameterAndItsName(t *testing.T) {
 func TestTheShippedCatalogueChainsTheExpectedKinds(t *testing.T) {
 	pipelines := shippedCatalogue(t)
 
-	want := []string{"php/static-tests", "php/unit-tests"}
+	want := []string{"php/static-tests", "php/unit-tests", "go/unit-tests", "go/static-tests", "go/vulncheck"}
 	got := pipelines.VerificationKinds()
 
 	if len(got) != len(want) {
@@ -116,9 +116,11 @@ func TestShippedCatalogParses(t *testing.T) {
 func TestEachSignalReRunsItsPipeline(t *testing.T) {
 	shipped := shippedCatalogue(t)
 	for group, kind := range map[string]string{
-		"unit": "php/unit-tests", "static": "php/static-tests",
-		// The security audit is the MSE plugin's: the core names no pipeline for this group.
-		"security": "",
+		// PHP and Go both show unit and static tests: the group alone does not say which re-runs, the
+		// capability of the report shown does.
+		"unit": "", "static": "",
+		// Only Go's audit is the core's: the MSE plugin brings its own.
+		"security": "go/vulncheck",
 		// No pipeline of the shipped catalogue shows its results there: nothing to re-run.
 		"integration": "", "e2e": "",
 	} {

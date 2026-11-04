@@ -1,0 +1,57 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: go-test
+spec:
+  description: >
+    Runs `go test -json`, whose stream the dashboard reads test by test.
+
+    The JSON is the report and nothing converts it: it already says each test's outcome, duration
+    and output, subtests included, and a package that does not build. A failed test is a result,
+    not an outage: the exit code is propagated after the report is written.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: packages
+      default: ./...
+    - name: flags
+      default: ""
+      description: Extra `go test` flags, `-race -count=1` for instance.
+    - name: output-dir
+      default: test-results/go-test
+
+  results:
+    - name: summary
+      description: The counts, e.g. "120 passed, 2 failed".
+
+  steps:
+    - name: exec
+      image: docker.io/library/golang:1.27
+      env:
+        - name: GOTOOLCHAIN
+          value: auto
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        SRC="$(workspaces.source.path)"
+        export HOME="${SRC}/.go/home" GOMODCACHE="${SRC}/.go/mod" GOCACHE="${SRC}/.go/cache"
+        cd "${SRC}"
+
+        OUT="$(params.output-dir)"
+        mkdir -p "${OUT}"
+
+        set +e
+        # shellcheck disable=SC2086
+        go test -json $(params.flags) $(params.packages) > "${OUT}/go-test.json"
+        RC=$?
+        set -e
+
+        PASSED=$(grep -c '"Action":"pass","Package":"[^"]*","Test"' "${OUT}/go-test.json" || true)
+        FAILED=$(grep -c '"Action":"fail","Package":"[^"]*","Test"' "${OUT}/go-test.json" || true)
+        printf '%s passed, %s failed' "${PASSED}" "${FAILED}" > "$(results.summary.path)"
+        cat "$(results.summary.path)"; echo
+
+        exit ${RC}

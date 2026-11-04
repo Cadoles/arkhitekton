@@ -1,0 +1,60 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: golangci-lint
+spec:
+  description: >
+    Static analysis with golangci-lint, with the repository's configuration when it has one, its
+    default linters otherwise.
+
+    Built with the project's toolchain rather than taken from an image: golangci-lint analyses
+    nothing newer than the Go it was built with, and a project moves to a new Go before an image
+    does. Its JUnit report gives one case per issue.
+
+  workspaces:
+    - name: source
+
+  params:
+    - name: version
+      default: v2.15.0
+    - name: output-dir
+      default: test-results/golangci-lint
+
+  results:
+    - name: summary
+      description: Number of issues, e.g. "12 issues".
+
+  steps:
+    - name: exec
+      image: docker.io/library/golang:1.27
+      env:
+        - name: GOTOOLCHAIN
+          value: auto
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        SRC="$(workspaces.source.path)"
+        export HOME="${SRC}/.go/home" GOMODCACHE="${SRC}/.go/mod" GOCACHE="${SRC}/.go/cache"
+        export GOBIN="${SRC}/.go/bin"
+        cd "${SRC}"
+
+        OUT="$(params.output-dir)"
+        mkdir -p "${OUT}"
+
+        # Built with the toolchain the module selects: the tool reads nothing newer than its own Go.
+        GOTOOLCHAIN="$(go env GOVERSION)" go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(params.version)"
+
+        # 1 says issues were found, a result; any other code is a failure of the tool.
+        set +e
+        "${GOBIN}/golangci-lint" run \
+          --output.junit-xml.path "${OUT}/junit.xml" \
+          --output.text.path stdout \
+          ./...
+        RC=$?
+        set -e
+
+        COUNT=$(grep -c '<testcase' "${OUT}/junit.xml" 2>/dev/null || true)
+        printf '%s issues' "${COUNT:-0}" > "$(results.summary.path)"
+
+        exit ${RC}
