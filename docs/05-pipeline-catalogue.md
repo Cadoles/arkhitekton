@@ -43,7 +43,8 @@ plugin.
 
 The order of the entries is the order in which a build chains its verifications.
 
-The built-in plugins bring `core/build`, `core/retag`, `php/static-tests`, `php/unit-tests`,
+The built-in plugins bring `docker/build`, `docker/retag`, `docker/scan`, `php/static-tests`,
+`php/unit-tests`,
 `go/build`, `go/unit-tests`, `go/static-tests`, `go/vulncheck` and `k6/load` (observed, not
 launched); an installed plugin brings its own. Their Tekton definitions are installed by the dashboard when the capability
 ships them, or provided by the operator otherwise.

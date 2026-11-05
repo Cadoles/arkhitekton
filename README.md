@@ -104,8 +104,8 @@ Two boundaries are carved out of that reciprocity:
   work be distributed or served on those terms.
 - **Pipelines, catalogues and examples.** Pipelines and catalogues are data read by Tekton
   and Arkhitekton, not linked code: writing one creates no derivative work. The shipped
-  examples (`deploy/base/pipelines/`, `deploy/base/config/catalog.yaml`, the example plugins
-  under `rpc/examples/`) are under **Apache 2.0**, so they can be copied and adapted freely.
+  examples (`deploy/base/pipelines/`, `internal/plugins/docker/manifests/`,
+  `deploy/base/config/catalog.yaml`, the example plugins under `rpc/examples/`) are under **Apache 2.0**, so they can be copied and adapted freely.
 
 The reasoning is in [docs/12, Licensing](docs/12-licensing.md).
 
