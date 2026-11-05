@@ -9,6 +9,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
 )
 
 // ID is the plugin's identifier.
@@ -35,11 +36,12 @@ func Plugin() capability.Plugin {
 		Version:    "1.0.0",
 		APIVersion: sdk.APIVersion,
 		Label:      "Docker",
-		Summary:    "Construction et re-tag des images de chaque projet.",
+		Summary:    "Construction, re-tag et scan de vulnérabilités (Trivy) des images de chaque projet.",
 		Mandatory:  true,
 		Pipelines: []capability.Pipeline{
 			build(pick(all, "build-image", "generate-image-tag", "buildx-build-image", "push-image")),
 			retag(pick(all, "retag-image", "tag-image")),
+			scan(pick(all, "docker-scan", "trivy-image")),
 		},
 	}
 }
@@ -133,6 +135,41 @@ func retag(manifests []capability.Manifest) capability.Pipeline {
 			Needs: []capability.Need{
 				{Name: capability.NeedRegistryPush, Reason: "set a tag on a published image"},
 			},
+		},
+	}
+}
+
+// scan is declared in a plan, never chained on its own: it names the image a step built, which a
+// default automation cannot know.
+func scan(manifests []capability.Manifest) capability.Pipeline {
+	return capability.Pipeline{
+		Name:        "scan",
+		Label:       "Scan d'image",
+		Interpreter: scanned{},
+		Spec: capability.PipelineSpec{
+			PipelineRef:   "docker-scan",
+			Group:         "security",
+			Manifests:     manifests,
+			ExternalTasks: []string{"publish-artifact"},
+			Produces:      []capability.Product{capability.ProductResults},
+			Params: map[string]capability.Param{
+				"insecure-registry": {Source: capability.ParamBinding, DefaultKey: "registry.insecure"},
+				"image": {
+					Source: capability.ParamInput, Required: true, Label: "Image",
+					Help: "L'image à scanner, avec son registre et son tag. Dans un plan, " +
+						"`{artifacts.<étape>.image}` pour celle qu'une étape a construite.",
+				},
+			},
+			Workspaces: []capability.Workspace{
+				{Name: "dockerconfig", Need: capability.NeedRegistryPull},
+				{Name: "shared-data", Volume: &capability.Volume{Storage: "1Gi"}},
+			},
+			Needs: []capability.Need{{Name: capability.NeedRegistryPull, Reason: "read the image to scan"}},
+			Artifacts: []capability.Artifact{{
+				Name: "results", Param: "results-upload-url", Object: "scan.tar.gz",
+				Format:  capability.FormatArchive,
+				Members: []capability.Member{{Match: "trivy/*.json", Parser: parse.Raw, Tool: trivyTool}},
+			}},
 		},
 	}
 }

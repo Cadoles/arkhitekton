@@ -69,6 +69,12 @@ capabilities:
     needs:
       registry-push: { secret: { configKey: pipeline.registrySecret } }
 
+  - ref: docker/scan
+    needs:
+      registry-pull: { secret: { configKey: pipeline.registrySecret } }
+    volumes:
+      shared-data: { storageClassName: standard }
+
   - ref: php/static-tests
     needs:
       source-read: { secret: { configKey: project.deployKeySecret } }

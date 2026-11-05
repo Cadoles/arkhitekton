@@ -116,11 +116,10 @@ func TestShippedCatalogParses(t *testing.T) {
 func TestEachSignalReRunsItsPipeline(t *testing.T) {
 	shipped := shippedCatalogue(t)
 	for group, kind := range map[string]string{
-		// PHP and Go both show unit and static tests: the group alone does not say which re-runs, the
-		// capability of the report shown does.
+		// PHP and Go both show unit and static tests, Go and Docker security audits: the group alone
+		// does not say which re-runs, the capability of the report shown does.
 		"unit": "", "static": "",
-		// Only Go's audit is the core's: the MSE plugin brings its own.
-		"security": "go/vulncheck",
+		"security": "",
 		// No pipeline of the shipped catalogue shows its results there: nothing to re-run.
 		"integration": "", "e2e": "",
 	} {
