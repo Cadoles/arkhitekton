@@ -59,6 +59,16 @@ type Values map[string]string
 // leaving a URL empty because the instance provides it must pass, one leaving it
 // empty when nobody provides it must not.
 func Validate(d capability.Plugin, scope Scope, values Values, resolved Values) error {
+	return validate(d, scope, values, resolved, true)
+}
+
+// ValidateOff refuses the settings of a plugin being switched off: what is given must still be what
+// the plugin declares, but a plugin that does not run requires nothing.
+func ValidateOff(d capability.Plugin, scope Scope, values Values) error {
+	return validate(d, scope, values, nil, false)
+}
+
+func validate(d capability.Plugin, scope Scope, values, resolved Values, on bool) error {
 	fields := Fields(d, scope)
 	declared := make(map[string]capability.Field, len(fields))
 	for _, field := range fields {
@@ -85,7 +95,7 @@ func Validate(d capability.Plugin, scope Scope, values Values, resolved Values) 
 	for _, field := range fields {
 		value := strings.TrimSpace(values[field.Name])
 
-		if field.Required {
+		if field.Required && on {
 			effective := value
 			if effective == "" {
 				effective = strings.TrimSpace(resolved[field.Name])

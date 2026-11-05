@@ -193,8 +193,12 @@ func (s Plugins) merge(
 	typed := plugin.Values{}
 	maps.Copy(typed, input.Config)
 
-	if err := plugin.Validate(descriptor, scope, typed, plugin.Values(inherited)); err != nil {
-		return nil, invalid("Invalid settings", err)
+	validated := plugin.ValidateOff(descriptor, scope, typed)
+	if input.Enabled {
+		validated = plugin.Validate(descriptor, scope, typed, plugin.Values(inherited))
+	}
+	if validated != nil {
+		return nil, invalid("Invalid settings", validated)
 	}
 
 	config := map[string]string{}
