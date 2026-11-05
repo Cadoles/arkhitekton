@@ -79,7 +79,7 @@ func emptyInstance(t *testing.T) instance {
 		t.Fatalf("cipher: %v", err)
 	}
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
-		{Kind: "core/build", PipelineRef: "build-image", Produces: []catalog.Product{catalog.ProductImage}},
+		{Kind: "docker/build", PipelineRef: "build-image", Produces: []catalog.Product{catalog.ProductImage}},
 		{Kind: "php/static-tests", PipelineRef: "php-static", Verification: true,
 			Produces: []catalog.Product{catalog.ProductResults}},
 	}}
@@ -167,7 +167,7 @@ func configured(t *testing.T) instance {
 		t.Fatalf("status: %v", err)
 	}
 	if err := s.Automations.SaveReleaseAutomation(ctx, actor, project, plan.Plan{Stages: []plan.Stage{{
-		Role: plan.RoleBuild, Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "core/build"}},
+		Role: plan.RoleBuild, Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "docker/build"}},
 	}}}); err != nil {
 		t.Fatalf("automation: %v", err)
 	}

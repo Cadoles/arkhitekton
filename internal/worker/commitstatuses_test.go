@@ -45,7 +45,7 @@ func statusRun(statuses bool) store.PlanRun {
 func TestAStepIsReportedOnItsCommit(t *testing.T) {
 	writer := &statusWriter{}
 	statuses := NewCommitStatuses(statusForges{writer}, statusProjects{}, "https://dash.example/", quietLogger())
-	build := plan.Geste{Kind: plan.GestePipeline, Ref: "core/build", Label: "portal"}
+	build := plan.Geste{Kind: plan.GestePipeline, Ref: "docker/build", Label: "portal"}
 
 	statuses.StepChanged(context.Background(), statusRun(true), build, plan.Running)
 	statuses.StepChanged(context.Background(), statusRun(true), build, plan.Failed)
@@ -63,7 +63,7 @@ func TestAStepIsReportedOnItsCommit(t *testing.T) {
 func TestAStepIsReportedOnlyWhenThePlanAsks(t *testing.T) {
 	writer := &statusWriter{}
 	statuses := NewCommitStatuses(statusForges{writer}, statusProjects{}, "https://dash.example", quietLogger())
-	build := plan.Geste{Kind: plan.GestePipeline, Ref: "core/build"}
+	build := plan.Geste{Kind: plan.GestePipeline, Ref: "docker/build"}
 
 	statuses.StepChanged(context.Background(), statusRun(false), build, plan.Running)
 	noCommit := statusRun(true)
@@ -86,7 +86,7 @@ func TestTheEngineTellsEachPipelineStep(t *testing.T) {
 	engine := NewEngine(base, runner, quietLogger()).WithSteps(sink)
 
 	engine.Trigger(context.Background(), store.PlanRun{Trigger: "trial", EventKey: "trial:1", Plan: plan.Plan{
-		Stages: []plan.Stage{{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "core/build", Label: "portal"}}}},
+		Stages: []plan.Stage{{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "docker/build", Label: "portal"}}}},
 	}})
 	engine.Advance(context.Background(), 5, plan.Succeeded)
 

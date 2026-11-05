@@ -149,10 +149,10 @@ func ParseBinding(raw []byte) (Binding, error) {
 	return binding, binding.ValidateRecorded()
 }
 
-// The core's own capabilities: the dashboard builds and re-tags, whatever else a deployment runs.
+// The capabilities the dashboard itself names: it builds and re-tags, whatever else a deployment runs.
 const (
-	KindBuild = "core/build"
-	KindRetag = "core/retag"
+	KindBuild = "docker/build"
+	KindRetag = "docker/retag"
 )
 
 // errPluginAbsent says a binding names a plugin that is not installed.

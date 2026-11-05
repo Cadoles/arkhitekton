@@ -53,13 +53,13 @@ func TestAReleasePlanStartingWithAnActionReachesItsBuild(t *testing.T) {
 	var ran []string
 	task, releases := releasePlanTask(plan.Plan{Stages: []plan.Stage{
 		{Gestes: []plan.Geste{{Kind: plan.GesteAction, Ref: "gitea.status"}}},
-		{Role: plan.RoleBuild, Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "core/build", Label: "portal"}}},
+		{Role: plan.RoleBuild, Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "docker/build", Label: "portal"}}},
 	}}, &ran)
 
 	if err := task.Run(context.Background(), planJob()); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(ran, ",") != "gitea.status,core/build" {
+	if strings.Join(ran, ",") != "gitea.status,docker/build" {
 		t.Errorf("ran %v", ran)
 	}
 	if len(releases.moves) != 0 {

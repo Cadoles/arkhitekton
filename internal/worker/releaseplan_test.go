@@ -41,7 +41,7 @@ func testCatalogue(t *testing.T) *catalog.Catalog {
 
 	return &catalog.Catalog{MaxConcurrentRuns: catalog.DefaultMaxConcurrentRuns, Pipelines: []catalog.Pipeline{
 		{
-			Kind: "core/build", PipelineRef: "build-image", Label: "Build",
+			Kind: "docker/build", PipelineRef: "build-image", Label: "Build",
 			Produces: []catalog.Product{catalog.ProductImage},
 			// The kind's real parameters: the plan no longer sets the revision or the tag literally,
 			// it reads what the catalogue declares it wants. A mute test catalogue would make that read

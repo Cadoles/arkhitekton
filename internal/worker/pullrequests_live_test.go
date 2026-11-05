@@ -35,7 +35,7 @@ func TestLiveAPullRequestPlanBuildsItsHead(t *testing.T) {
 	if _, err := db.SaveReaction(ctx, reaction.Reaction{
 		ProjectID: projectID, Name: "Build each push", EventType: string(event.PullRequestSynchronized), Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{Gestes: []plan.Geste{{
-			Kind: plan.GestePipeline, Ref: "core/build",
+			Kind: plan.GestePipeline, Ref: "docker/build",
 			Params: map[string]string{"image-name": "shop", "target": "web"},
 		}}}}},
 	}, "test"); err != nil {
@@ -53,7 +53,7 @@ func TestLiveAPullRequestPlanBuildsItsHead(t *testing.T) {
 		params  map[string]string
 	)
 	if err := db.Pool().QueryRow(ctx,
-		`select pull_request_id, params from jobs where kind = 'core/build'`).Scan(&jobPull, &params); err != nil {
+		`select pull_request_id, params from jobs where kind = 'docker/build'`).Scan(&jobPull, &params); err != nil {
 		t.Fatalf("the build job: %v", err)
 	}
 	if jobPull != pull.ID {

@@ -56,7 +56,7 @@ capabilities:
   # `project.deployKeySecret` is the project's own deploy key, which opens the project's
   # repository and nothing else; `pipeline.gitSecret` is the deployment's, for a repository that
   # is not the project's.
-  - ref: core/build
+  - ref: docker/build
     needs:
       source-read:   { secret: { configKey: project.deployKeySecret } }
       registry-push: { secret: { configKey: pipeline.registrySecret } }
@@ -65,7 +65,7 @@ capabilities:
 
   # A re-tag, and not a "promotion": the pipeline promotes nothing, it sets an extra tag on an
   # image already published. Flux deduces the promotion from it.
-  - ref: core/retag
+  - ref: docker/retag
     needs:
       registry-push: { secret: { configKey: pipeline.registrySecret } }
 

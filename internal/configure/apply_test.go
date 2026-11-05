@@ -228,7 +228,7 @@ func TestOnlyWhatIsWrittenIsChecked(t *testing.T) {
 	i := configured(t)
 	set := read(t, i.export(t))
 	i.catalog = &catalog.Catalog{Pipelines: []catalog.Pipeline{
-		{Kind: "core/build", PipelineRef: "build-image", Produces: []catalog.Product{catalog.ProductImage}},
+		{Kind: "docker/build", PipelineRef: "build-image", Produces: []catalog.Product{catalog.ProductImage}},
 	}}
 
 	if ops, _ := planOps(t, i.applier(nil), set, false); len(ops) != 0 {
