@@ -26,6 +26,20 @@ var tracker = capability.Plugin{
  * Validation, and the two mistakes it catches.
  */
 
+// A plugin being switched off requires nothing: a project without a tracker has no tracker project
+// to name in order to say so. What it is given must still be what the plugin declares.
+func TestAPluginSwitchedOffRequiresNothing(t *testing.T) {
+	if err := ValidateOff(tracker, ScopeProject, Values{}); err != nil {
+		t.Errorf("switching off refused: %v", err)
+	}
+	if err := ValidateOff(tracker, ScopeProject, Values{"url": "not a url"}); err == nil {
+		t.Error("an invalid value passed")
+	}
+	if err := ValidateOff(tracker, ScopeProject, Values{"unknown": "x"}); err == nil {
+		t.Error("an undeclared setting passed")
+	}
+}
+
 // A field the descriptor does not declare is refused, not ignored. An ignored
 // field means a screen saying "saved" over a value nothing reads back, and the typo
 // surfaces weeks later as a synchronisation that never did anything.
