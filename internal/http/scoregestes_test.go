@@ -193,6 +193,32 @@ func TestAStepWithNoResultStaysDisplayedWithItsWeight(t *testing.T) {
 	}
 }
 
+// A step offers its re-run only if the API accepts it: a pipeline that is no verification is
+// scored all the same, with no button that would answer an error.
+func TestOnlyAVerificationOffersItsReRun(t *testing.T) {
+	upload := map[string]catalog.Upload{"results": {Param: "results-upload-url", Artifact: "r.xml", Group: "unit"}}
+	registry := &catalog.Catalog{Pipelines: []catalog.Pipeline{
+		{Kind: "unit-tests", PipelineRef: "unit", Verification: true, Uploads: upload,
+			Produces: []catalog.Product{catalog.ProductResults}},
+		{Kind: "scan", PipelineRef: "scan", Uploads: upload,
+			Produces: []catalog.Product{catalog.ProductResults}},
+	}}
+	source := &scoreDeTest{
+		run: verificationPlan(
+			plan.Geste{Kind: plan.GestePipeline, Ref: "unit-tests"},
+			plan.Geste{Kind: plan.GestePipeline, Ref: "scan"}),
+		steps: map[int64]store.GesteRef{},
+	}
+
+	breakdown, err := computeScore(context.Background(), source, 7, nil, registry)
+	if err != nil || len(breakdown.Signals) != 2 {
+		t.Fatalf("%+v, %v", breakdown, err)
+	}
+	if breakdown.Signals[0].Ref != "unit-tests" || breakdown.Signals[1].Ref != "" {
+		t.Errorf("refs = %q, %q", breakdown.Signals[0].Ref, breakdown.Signals[1].Ref)
+	}
+}
+
 // A zero weight removes the step from the score, and says so.
 func TestAZeroWeightStepDoesNotScore(t *testing.T) {
 	source := &scoreDeTest{
